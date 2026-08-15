@@ -63,8 +63,10 @@ class SegmentationContext:
 
         # Turbulence circular buffer (pre-allocated)
         self.turbulence_buffer = [0.0] * window_size
+        self.validity_buffer = [False] * window_size
         self.buffer_index = 0
         self.buffer_count = 0
+        self.valid_count = 0
 
         self.last_turbulence = 0.0
 
@@ -467,7 +469,22 @@ class SegmentationContext:
         self.last_turbulence = filtered_turbulence
 
         # Store value in circular buffer
+        if not self.validity_buffer[self.buffer_index]:
+            self.valid_count += 1
         self.turbulence_buffer[self.buffer_index] = filtered_turbulence
+        self.validity_buffer[self.buffer_index] = True
+        self.buffer_index += 1
+        if self.buffer_index >= self.window_size:
+            self.buffer_index = 0
+        if self.buffer_count < self.window_size:
+            self.buffer_count += 1
+
+    def add_missing_slot(self):
+        """Advance the temporal ring without inventing a CSI measurement."""
+        if self.validity_buffer[self.buffer_index]:
+            self.valid_count -= 1
+        self.turbulence_buffer[self.buffer_index] = 0.0
+        self.validity_buffer[self.buffer_index] = False
         self.buffer_index += 1
         if self.buffer_index >= self.window_size:
             self.buffer_index = 0
@@ -485,6 +502,9 @@ class SegmentationContext:
         if full:
             self.buffer_index = 0
             self.buffer_count = 0
+            self.valid_count = 0
+            for index in range(self.window_size):
+                self.validity_buffer[index] = False
             self.last_turbulence = 0.0
             self.last_amplitudes = None
 

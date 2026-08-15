@@ -273,3 +273,31 @@ class TestFeatureSemantics:
                 50,
                 feature_names=['l1_delta_lag_ratio'],
             )
+
+
+    def test_missing_slots_are_excluded_from_turbulence_statistics(self):
+        turbulence = [1.0] * 5
+        aggregated = [1.0, 0.0, 3.0, 0.0, 5.0]
+        validity = [True, False, True, False, True]
+        skipped = extract_features_by_name(
+            turbulence,
+            len(turbulence),
+            feature_names=['turb_iqr_over_mean_aggr'],
+            aggregated_turbulence_buffer=aggregated,
+            aggregated_turbulence_validity=validity,
+        )[0]
+        compact = extract_features_by_name(
+            turbulence[:3],
+            3,
+            feature_names=['turb_iqr_over_mean_aggr'],
+            aggregated_turbulence_buffer=[1.0, 3.0, 5.0],
+        )[0]
+        treated_as_samples = extract_features_by_name(
+            turbulence,
+            len(turbulence),
+            feature_names=['turb_iqr_over_mean_aggr'],
+            aggregated_turbulence_buffer=aggregated,
+        )[0]
+
+        assert skipped == pytest.approx(compact)
+        assert treated_as_samples != pytest.approx(skipped)

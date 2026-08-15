@@ -64,9 +64,9 @@ Managed-service MQTT should use TLS and per-device credentials. Local lab MQTT m
 
 ### Home Assistant MQTT Adapter Profile
 
-Native and Micro-ESPectre can publish an additive Home Assistant MQTT Discovery surface without changing the canonical ESPectre topics above. Discovery payloads use the standard `{discovery_prefix}/{component}/{object_id}/config` topic shape and are the only retained messages in this profile. Entity-shaped state topics live under `espectre/v1/devices/{device_id}/ha/...`.
+Native and Micro-ESPectre can publish an additive Home Assistant MQTT Discovery surface without changing the canonical ESPectre topics above. Discovery payloads use the standard `{discovery_prefix}/{component}/{object_id}/config` topic shape. Native also retains its canonical `status` payload so late subscribers receive the current availability; entity-shaped state topics remain non-retained under `espectre/v1/devices/{device_id}/ha/...`.
 
-Both adapters subscribe to `homeassistant/status` and republish discovery when Home Assistant announces `online`; this birth message is a recovery trigger, not the only discovery bootstrap. Native derives availability from the canonical `status` payload and its existing Last Will, while Micro-ESPectre uses a plain `ha/availability` topic. The Native adapter is enabled in the published firmware defaults and can be disabled at build time; Micro-ESPectre keeps the adapter opt-in. See [`README.md`](../src/cpp/frontend/native/README.md) for Native and [`README.md`](../src/python/micro_espectre/README.md) for Micro-ESPectre entity surfaces and configuration options.
+Both adapters subscribe to `homeassistant/status` and republish discovery when Home Assistant announces `online`; this birth message is a recovery trigger, not the only discovery bootstrap. Native derives availability from the retained canonical `status` payload and its retained Last Will, while Micro-ESPectre uses a plain `ha/availability` topic. The Native adapter is enabled in the published firmware defaults and can be disabled at build time; Micro-ESPectre keeps the adapter opt-in. See [`README.md`](../src/cpp/frontend/native/README.md) for Native and [`README.md`](../src/python/micro_espectre/README.md) for Micro-ESPectre entity surfaces and configuration options.
 
 ## Message Families
 
@@ -112,6 +112,8 @@ espectre/v1/devices/{device_id}/status
   "timestamp_ms": 123456
 }
 ```
+
+Native retains the latest status payload. A normal shutdown publishes retained `online: false`; after an unexpected disconnect, the broker publishes the retained Last Will with the same offline state. A later connection replaces it with retained `online: true`, allowing availability consumers that subscribe after discovery to recover the current state.
 
 ### Info
 
@@ -166,7 +168,13 @@ Published by Native only in response to an explicit `stats` command. Other clien
   "traffic_tx_pps": 100,
   "csi_callback_pps": 96,
   "csi_accepted_pps": 90,
+  "csi_admitted_pps": 84,
   "csi_filtered_pps": 6,
+  "csi_missing_slots_pps": 10,
+  "csi_excess_pps": 6,
+  "csi_stale_pps": 0,
+  "csi_out_of_order_pps": 0,
+  "csi_occupancy": 0.84,
   "wifi_channel": 10,
   "wifi_rssi_dbm": -55
 }
@@ -174,7 +182,7 @@ Published by Native only in response to an explicit `stats` command. Other clien
 
 Stats are diagnostic. Product dashboards should prefer telemetry/status/info for normal operation. When available, `free_memory_kb` reports current free heap and `loop_time_ms` reports the measured last loop-body cost in milliseconds, excluding the outer task sleep or idle delay. Motion state, movement score, threshold, detector selection, and turbulence belong to telemetry or live config/info surfaces instead of `stats`.
 
-Native always includes the CSI and Wi-Fi fields in a requested `stats` response. It derives rates from the cumulative counters whenever the existing periodic sensing update runs, caches that completed sample, and does not add a diagnostic timer or publish it periodically. `traffic_tx_pps` is the traffic-generator transmit rate; `csi_callback_pps` is the raw CSI callback rate; `csi_accepted_pps` is the rate accepted by the capture pipeline; and `csi_filtered_pps` is the capture-filter drop rate. Before the first periodic sensing update completes, rate fields are zero.
+Native always includes the CSI and Wi-Fi fields in a requested `stats` response. It derives rates from the cumulative counters whenever the existing periodic sensing update runs, caches that completed sample, and does not add a diagnostic timer or publish it periodically. `traffic_tx_pps` is the traffic-generator transmit rate; `csi_callback_pps` is the raw CSI callback rate; `csi_accepted_pps` is the identity-accepted rate used by adaptive traffic control; `csi_admitted_pps` is the detector input rate after temporal admission; `csi_filtered_pps` is the capture-filter drop rate; the temporal drop fields distinguish missing slots, same-slot excess, stale packets, and out-of-order packets; and `csi_occupancy` is the valid fraction of the active detector window. The extra CSI fields are additive on protocol `1.0`; consumers may ignore unknown keys. The SDK sample uses `csi_occupancy_ratio` for the same occupancy value. Before the first periodic sensing update completes, rate fields are zero.
 
 ESPHome exposes the same cached measurements as diagnostic entities. Their states are published only when the `Refresh Diagnostics` button is pressed. These on-demand diagnostics are independent of the optional runtime debug logs.
 

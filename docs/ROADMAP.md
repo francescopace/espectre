@@ -21,7 +21,7 @@
 
 ### Release Scope
 
-The candidate covers the shared sensing architecture, runtime and protocol contracts, supported firmware frontends, release artifacts, and embeddable SDK surface intended for v3.0.0. New product capabilities move to a later minor release unless they are required to correct a release blocker.
+The candidate covers the shared sensing architecture, runtime and protocol contracts, supported firmware frontends, release artifacts, and embeddable SDK surface intended for v3.0.0. Native BLE and ESPHome must expose the same persisted runtime sensing controls before freeze: CSI traffic ownership (`internal`, `external`, `pacing`, or `disabled`), internal generator type (`ping` or `dns`), motion-hit debounce, detector selection, threshold, and recalibration. Other new product capabilities move to a later minor release unless they are required to correct a release blocker.
 
 Completed implementation, detector experiments, and dated reviews live in [CHANGELOG.md](CHANGELOG.md), [FEATURES.md](FEATURES.md), and [review/](review/).
 
@@ -29,6 +29,8 @@ Completed implementation, detector experiments, and dated reviews live in [CHANG
 
 Before deploy:
 
+- [ ] Close Native BLE and ESPHome runtime sensing-control parity for CSI traffic ownership, internal generator type, motion-hit debounce, detector selection, threshold, and recalibration
+- [ ] Fix `traffic_generator_adaptive: true` so bounded rate tuning optimizes temporally admitted CSI, rejects changes that only increase same-slot excess, keeps the configured detector grid fixed, and demonstrates a hardware improvement over fixed cadence
 - [ ] Review docs/web content, imagery, UX, and UI for release readiness
 - [ ] Capture a current Home Assistant visualization for the project overview and docs
 - [ ] Update devices performance report 
@@ -63,11 +65,11 @@ After deploy:
 **Scope**:
 
 - Expand the original ESP32 corpus across environments, and retrain when the evidence supports it
-- Preserve short-timescale information at high CSI packet rates without using permanent decimation as the product solution
+- Keep the configured detector slot grid as the sensing contract, and preserve the raw high-rate Streamer capture so short-timescale information remains available for research and later products
 - Improve Micro-ESPectre beyond its current approximately 70 packets per second ceiling while preserving detector quality and runtime stability
 - Compare `SIZE` and `PERF` compiler profiles across maintained firmware frontends, and adopt performance-oriented builds only where runtime gains justify binary-size and fit costs
 
-**Exit criteria**: detector-performance and C++/Python parity gates pass on the expanded corpus, the high-rate path meets its quality target without permanent decimation, and every adopted build optimization passes binary-fit and runtime validation on affected frontends.
+**Exit criteria**: detector-performance and C++/Python parity gates pass on the expanded corpus, high-rate capture remains independent of detector admission, and every adopted build optimization passes binary-fit and runtime validation on affected frontends.
 
 ### v3.2.0 - Developer Distribution
 
@@ -186,7 +188,7 @@ This file owns product outcomes, release gates, and sequencing. Mutable details 
 - [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md) and [ARCHITECTURE.md](ARCHITECTURE.md) for stable system contracts
 - [CHANGELOG.md](CHANGELOG.md) for shipped behavior
 
-Last update: **August 7, 2026**
+Last update: **August 15, 2026**
 
 For discussion and proposed changes:
 

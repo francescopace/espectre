@@ -4,6 +4,7 @@ endif()
 
 set(ESPECTRE_CORE_SOURCES
     "${ESPECTRE_CPP_ROOT}/core/base_detector.cpp"
+    "${ESPECTRE_CPP_ROOT}/core/temporal_csi_sampler.cpp"
     "${ESPECTRE_CPP_ROOT}/core/lightweight_detector.cpp"
     "${ESPECTRE_CPP_ROOT}/core/filters.cpp"
     "${ESPECTRE_CPP_ROOT}/core/high_accuracy_detector.cpp"

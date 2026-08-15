@@ -173,6 +173,7 @@ replay::ReplayPacketMetadata metadata_for_data(const csi_test_data::CsiData& dat
       data.stream_seq_num.empty() ? nullptr : data.stream_seq_num.data(),
       data.device_ticks_us.empty() ? nullptr : data.device_ticks_us.data(),
       data.wifi_rx_ts_us.empty() ? nullptr : data.wifi_rx_ts_us.data(),
+      data.csi_target_pps,
   };
 }
 
@@ -205,6 +206,7 @@ csi_test_data::CsiData decimate_capture(const csi_test_data::CsiData& source,
   result.num_subcarriers = source.num_subcarriers;
 
   const int resolved_target_pps = std::min(source_pps, target_pps);
+  result.csi_target_pps = static_cast<uint32_t>(resolved_target_pps);
   const int source_packet_limit = std::min(
       source.num_packets, source_pps * kReplayDurationSeconds);
   const double stride =

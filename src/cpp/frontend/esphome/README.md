@@ -98,7 +98,7 @@ Threshold behavior:
 - `lightweight`: automatic session-adapted startup threshold
 - `high_accuracy` default: `0.5`
 
-Lightweight Detection uses less active detector CPU and working memory, making it suitable when the ESPHome node also runs resource-intensive components. High-Accuracy Detection uses more feature state and inference work but provides higher accuracy and skips Lightweight's quiet startup calibration of up to about 10 seconds. High Accuracy still waits for CSI readiness and its feature window to fill.
+Lightweight Detection uses less active detector CPU and working memory, making it suitable when the ESPHome node also runs resource-intensive components. High-Accuracy Detection uses more feature state and inference work but provides higher accuracy and skips Lightweight's threshold calibration. Lightweight requires about 10 seconds of clean, ready quiet-room coverage after temporal warmup; insufficient occupancy extends that wall-clock duration. High Accuracy still waits for CSI readiness and its feature window to fill.
 
 The YAML value is the initial profile when no persisted selection exists. The Home Assistant `detector_select` changes it live and persists the choice across reboot. `high_accuracy -> lightweight` starts calibration automatically, and the `calibrate_switch` reflects automatic and user-triggered calibration state.
 
@@ -109,8 +109,9 @@ See [`ALGORITHMS.md`](../../../../docs/ALGORITHMS.md) for how the two detectors 
 ```yaml
 espectre:
   detection_algorithm: lightweight
-  traffic_generator_rate: 100
-  traffic_generator_adaptive: true
+  csi_target_pps: 100
+  csi_traffic_mode: internal
+  traffic_generator_adaptive: false
   traffic_generator_mode: ping
   segmentation_window_size_ms: 1000
   motion_on_hits: 4
@@ -132,8 +133,14 @@ espectre:
 | `diagnostics_button` | button | `Refresh Diagnostics` | Publishes the latest cached diagnostic sample on demand |
 | `traffic_rate_sensor` | sensor | `Traffic TX Rate` | Diagnostic traffic rate |
 | `csi_callback_rate_sensor` | sensor | `CSI Callback Rate` | Raw CSI callback rate; diagnostic-only |
-| `csi_accepted_rate_sensor` | sensor | `CSI Accepted Rate` | Detector-input rate; diagnostic-only |
+| `csi_accepted_rate_sensor` | sensor | `CSI Accepted Rate` | Raw identity-accepted capture rate before temporal admission; diagnostic-only |
+| `csi_admitted_rate_sensor` | sensor | `CSI Admitted Rate` | Rate admitted to the detector's temporal grid; diagnostic-only |
 | `csi_filtered_rate_sensor` | sensor | `CSI Filtered Rate` | Capture rejection rate; diagnostic-only |
+| `csi_missing_rate_sensor` | sensor | `CSI Missing Rate` | Missing detector slots per second; diagnostic-only |
+| `csi_excess_rate_sensor` | sensor | `CSI Excess Rate` | Same-slot packets discarded per second; diagnostic-only |
+| `csi_stale_rate_sensor` | sensor | `CSI Stale Rate` | Packets discarded as stale per second; diagnostic-only |
+| `csi_out_of_order_rate_sensor` | sensor | `CSI Out-of-Order Rate` | Duplicate or backward-timestamp packets discarded per second; diagnostic-only |
+| `csi_occupancy_sensor` | sensor | `CSI Occupancy` | Valid-slot occupancy of the active detector window; diagnostic-only |
 | `wifi_channel_sensor` | sensor | `WiFi Channel` | Current associated Wi-Fi channel; diagnostic-only |
 | `wifi_rssi_sensor` | sensor | `WiFi RSSI` | Current associated Wi-Fi RSSI; diagnostic-only |
 
@@ -229,12 +236,13 @@ The ESPHome surface exposes the shared runtime traffic-generation settings. By d
 
 ```yaml
 espectre:
-  traffic_generator_rate: 100
-  traffic_generator_adaptive: true
+  csi_target_pps: 100
+  csi_traffic_mode: internal
+  traffic_generator_adaptive: false
   traffic_generator_mode: ping
 ```
 
-`traffic_generator_rate` is the target rate of valid local CSI callbacks. The adaptive controller is enabled by default and changes the network send pace to hold that target. Set `traffic_generator_adaptive: false` to interpret the configured rate as a fixed DNS or ICMP send rate.
+`csi_target_pps` defines the temporal detector grid and the managed-traffic target. `csi_traffic_mode` independently selects `internal`, `external`, `pacing`, or `disabled`; a rate of zero is invalid. Internal traffic uses a fixed DNS or ICMP send rate by default. Set `traffic_generator_adaptive: true` only when raw accepted CSI is a validated feedback signal for the deployment; unrelated Home Assistant or application traffic can otherwise reduce the managed sensing cadence.
 
 Available modes:
 
@@ -249,7 +257,8 @@ To disable the internal generator and rely on external traffic:
 
 ```yaml
 espectre:
-  traffic_generator_rate: 0
+  csi_target_pps: 100
+  csi_traffic_mode: external
   publish_interval_ms: 1000
   evaluation_interval_ms: 250
 ```
@@ -312,7 +321,7 @@ The ESPHome examples use ESPHome 2026.7's native ESP-IDF backend. The external c
 
 ### Automatic SDK Configuration
 
-The frontend automatically sets the ESP-IDF options required by the runtime, including CSI enablement and timing-related defaults. In most cases you do not need to set these manually.
+The frontend automatically sets the ESP-IDF options required by the runtime, including CSI enablement, disabled Wi-Fi power save, TX AMPDU, the Streamer high-rate Wi-Fi buffer profile, lwIP IRAM optimization, and enlarged TCP/IP and UDP mailboxes. RX AMPDU remains disabled so sensing receives individual CSI frames. The supplied examples do not enable Bluetooth. In most cases you do not need to set these options manually.
 
 For board-specific tweaks, you can still add `sdkconfig_options` in YAML:
 
@@ -379,7 +388,7 @@ wifi:
 Common fixes for low-cost C3 boards:
 
 1. if USB logs are missing, force `UART0` in the logger
-2. if calibration hangs, keep `traffic_generator_rate` at `94` or below
+2. if calibration hangs, keep `csi_target_pps` at `94` or below and inspect temporal occupancy
 3. if flash mode is unreliable, switch from `qio` to `dio`
 
 Logger example:

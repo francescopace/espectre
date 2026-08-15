@@ -95,16 +95,20 @@ from tools.lib.performance_report import (  # noqa: E402
 from detector_interface import MotionState  # noqa: E402
 from config import (  # noqa: E402
     CALIBRATION_DURATION_MS,
+    CSI_TARGET_PPS,
     DEFAULT_SUBCARRIERS,
     EVALUATION_INTERVAL_MS,
     SEGMENTATION_WINDOW_SIZE_MS,
 )
 from csi_features import DEFAULT_FEATURES  # noqa: E402
 from runtime_policy import (  # noqa: E402
-    PacketTimingTracker,
     derive_detector_timing,
     make_evaluation_cadence,
     nominal_packet_interval_us,
+)
+from tools.lib.temporal_replay import (  # noqa: E402
+    TemporalReplayController,
+    apply_temporal_admission,
 )
 # ------------------------------------------------------------------
 # Constants
@@ -395,6 +399,11 @@ def _mark_cell(text, severity, *, markdown=False):
     if markdown:
         return f"**{marked}**"
     return marked
+
+
+def _format_unusable_na_cell(*, markdown=False):
+    """Mark a missing cleanliness score when temporal admission produced no rows."""
+    return _mark_cell("n/a", "warn", markdown=markdown)
 
 
 def _format_percent_ratio_cell(
@@ -747,6 +756,11 @@ def _feature_matrix_packets(packets, *, feature_names=None):
     return (
         np.asarray(rows["X"], dtype=np.float64),
         tuple(rows["feature_names"]),
+        {
+            "slot_index": np.asarray(rows.get("slot_index", ()), dtype=np.int64),
+            "reset_index": np.asarray(rows.get("reset_index", ()), dtype=np.int32),
+            "target_pps": int(rows.get("target_pps", 0)),
+        },
     )
 
 
@@ -766,7 +780,15 @@ def _load_or_compute_validation_feature_matrix(filepath, *, feature_names=None, 
         sample_contract="stream_dense",
         use_cache=use_cache,
     )
-    return np.asarray(rows["X"], dtype=np.float64), tuple(rows["feature_names"])
+    return (
+        np.asarray(rows["X"], dtype=np.float64),
+        tuple(rows["feature_names"]),
+        {
+            "slot_index": np.asarray(rows.get("slot_index", ()), dtype=np.int64),
+            "reset_index": np.asarray(rows.get("reset_index", ()), dtype=np.int32),
+            "target_pps": int(rows.get("target_pps", 0)),
+        },
+    )
 
 
 def _feature_direction_vector(feature_names):
@@ -823,22 +845,79 @@ def _consensus_pair_evidence(idle_matrix, motion_matrix, feature_names):
     return idle_evidence, motion_evidence, centers, scales
 
 
-def _feature_block_medians(feature_matrix, packet_rate_pps):
-    """Return contiguous five-second feature-block medians."""
+def _temporal_block_medians(values, row_timing, block_seconds):
+    """Return physical-time block medians and their reset segments."""
+    samples = np.asarray(values, dtype=np.float64)
+    row_count = samples.shape[0] if samples.ndim else 0
+    if row_count == 0 or not row_timing:
+        return np.asarray([], dtype=np.float64), np.asarray([], dtype=np.int32)
+    slots = np.asarray(row_timing.get("slot_index", ()), dtype=np.int64)
+    resets = np.asarray(row_timing.get("reset_index", ()), dtype=np.int32)
+    target_pps = int(row_timing.get("target_pps", 0))
+    if len(slots) != row_count or len(resets) != row_count or target_pps <= 0:
+        return np.asarray([], dtype=np.float64), np.asarray([], dtype=np.int32)
+
+    block_slots = max(1, int(round(target_pps * float(block_seconds))))
+    medians = []
+    segment_values = []
+    start = 0
+    while start < row_count:
+        reset = int(resets[start])
+        stop = start + 1
+        while stop < row_count and int(resets[stop]) == reset:
+            stop += 1
+        relative_slots = slots[start:stop] - slots[start]
+        complete_blocks = int((relative_slots[-1] + 1) // block_slots)
+        for block in range(complete_blocks):
+            mask = (
+                (relative_slots >= block * block_slots)
+                & (relative_slots < (block + 1) * block_slots)
+            )
+            if np.any(mask):
+                medians.append(np.median(samples[start:stop][mask], axis=0))
+                segment_values.append(reset)
+        start = stop
+
+    if not medians:
+        return (
+            np.asarray([np.median(samples, axis=0)], dtype=np.float64),
+            np.asarray([int(resets[0])], dtype=np.int32),
+        )
+    return np.asarray(medians, dtype=np.float64), np.asarray(segment_values, dtype=np.int32)
+
+
+def _temporal_coverage_seconds(row_timing, row_count):
+    """Return elapsed sampler-grid coverage without compacting missing slots."""
+    if row_count <= 0 or not row_timing:
+        return 0.0
+    slots = np.asarray(row_timing.get("slot_index", ()), dtype=np.int64)
+    resets = np.asarray(row_timing.get("reset_index", ()), dtype=np.int32)
+    target_pps = int(row_timing.get("target_pps", 0))
+    if len(slots) != row_count or len(resets) != row_count or target_pps <= 0:
+        return 0.0
+    elapsed_slots = 0
+    start = 0
+    while start < row_count:
+        reset = int(resets[start])
+        stop = start + 1
+        while stop < row_count and int(resets[stop]) == reset:
+            stop += 1
+        elapsed_slots += int(slots[stop - 1] - slots[start] + 1)
+        start = stop
+    return elapsed_slots / float(target_pps)
+
+
+def _feature_block_medians(feature_matrix, row_timing):
+    """Return contiguous five-second feature medians on the sampler grid."""
     matrix = np.asarray(feature_matrix, dtype=np.float64)
-    if packet_rate_pps is None or matrix.ndim != 2 or matrix.shape[0] == 0:
+    if matrix.ndim != 2:
         return np.asarray([], dtype=np.float64)
-    block_size = max(
-        1,
-        int(round(float(packet_rate_pps) * REFERENCE_BLOCK_SECONDS)),
+    blocks, _segments = _temporal_block_medians(
+        matrix,
+        row_timing,
+        REFERENCE_BLOCK_SECONDS,
     )
-    block_count = matrix.shape[0] // block_size
-    if block_count == 0:
-        return np.median(matrix, axis=0, keepdims=True)
-    return np.asarray([
-        np.median(matrix[index * block_size:(index + 1) * block_size], axis=0)
-        for index in range(block_count)
-    ], dtype=np.float64)
+    return blocks
 
 
 def _sample_reference_blocks(blocks):
@@ -897,7 +976,7 @@ def _build_idle_reference_records(dataset_info, *, chip_filter=None, use_cache=T
             if not filepath.exists():
                 continue
             try:
-                matrix, feature_names = _load_or_compute_validation_feature_matrix(
+                matrix, feature_names, row_timing = _load_or_compute_validation_feature_matrix(
                     filepath,
                     use_cache=use_cache,
                 )
@@ -905,7 +984,7 @@ def _build_idle_reference_records(dataset_info, *, chip_filter=None, use_cache=T
                 continue
             blocks = _feature_block_medians(
                 matrix,
-                _packet_rate_from_entry(entry),
+                row_timing,
             )
             if blocks.size == 0:
                 continue
@@ -975,6 +1054,7 @@ def _reference_idle_stats(
     feature_names,
     reference_records,
     *,
+    row_timing,
     exclude_filename=None,
 ):
     """Compare one idle capture with independent same-chip feature blocks."""
@@ -1006,7 +1086,7 @@ def _reference_idle_stats(
     )
     target_blocks = _feature_block_medians(
         feature_matrix,
-        _packet_rate_from_entry(entry),
+        row_timing,
     )
     target_evidence = _feature_evidence_series(
         target_blocks,
@@ -1049,17 +1129,16 @@ def _reference_idle_stats(
     }
 
 
-def _agnostic_baseline_stats_from_series(evidence_series, packet_rate_pps):
+def _agnostic_baseline_stats_from_series(evidence_series, row_timing):
     """Summarize one dense idle feature-evidence series.
 
     The canonical ``stream_dense`` matrix contributes one ready feature row per
-    packet, not one row per production evaluation tick.  Temporal aggregation
-    must therefore use the capture packet rate directly.  Applying
-    Sampling it at the nominal evaluation packet equivalent here would stretch
-    every block and burst by that factor.
+    admitted slot, not one row per production evaluation tick. Temporal
+    aggregation therefore follows the sampler slot coordinates and preserves
+    missing slots instead of compacting them into the next observation.
     """
     evidence = np.asarray(evidence_series, dtype=np.float64)
-    if packet_rate_pps is None or evidence.size == 0:
+    if evidence.size == 0 or not row_timing:
         return None
     margin_center = float(np.median(evidence))
     margins = evidence - margin_center
@@ -1068,16 +1147,13 @@ def _agnostic_baseline_stats_from_series(evidence_series, packet_rate_pps):
     excursion_bound = margin_median + BASELINE_EXCURSION_MADS * max(margin_mad, 1e-9)
     states = (margins > excursion_bound).astype(np.int8)
 
-    sample_rate_hz = max(float(packet_rate_pps), 1e-6)
-    block_size = max(1, int(round(sample_rate_hz * BASELINE_BLOCK_SECONDS)))
-    full_block_count = len(margins) // block_size
-    if full_block_count:
-        block_margins = np.asarray([
-            np.median(margins[index * block_size:(index + 1) * block_size])
-            for index in range(full_block_count)
-        ], dtype=np.float64)
-    else:
-        block_margins = np.asarray([margin_median], dtype=np.float64)
+    block_margins, block_segments = _temporal_block_medians(
+        margins,
+        row_timing,
+        BASELINE_BLOCK_SECONDS,
+    )
+    if block_margins.size == 0:
+        return None
 
     split = len(margins) // 2
     margin_drift = (
@@ -1089,15 +1165,19 @@ def _agnostic_baseline_stats_from_series(evidence_series, packet_rate_pps):
     block_mad = float(np.median(np.abs(block_margins - block_center)))
     block_excursion_bound = block_center + BASELINE_EXCURSION_MADS * max(block_mad, 1e-9)
     block_states = (block_margins > block_excursion_bound).astype(np.int8)
-    padded = np.concatenate([[0], block_states, [0]])
-    edges = np.diff(padded)
-    burst_starts = np.flatnonzero(edges == 1)
-    burst_lengths = np.flatnonzero(edges == -1) - burst_starts
-    burst_count = int(burst_starts.size)
-    longest_burst_seconds = (
-        float(int(burst_lengths.max())) * BASELINE_BLOCK_SECONDS if burst_count else 0.0
-    )
-    eval_seconds = len(margins) / sample_rate_hz
+    burst_count = 0
+    longest_blocks = 0
+    for segment in np.unique(block_segments):
+        segment_states = block_states[block_segments == segment]
+        padded = np.concatenate([[0], segment_states, [0]])
+        edges = np.diff(padded)
+        burst_starts = np.flatnonzero(edges == 1)
+        burst_lengths = np.flatnonzero(edges == -1) - burst_starts
+        burst_count += int(burst_starts.size)
+        if burst_lengths.size:
+            longest_blocks = max(longest_blocks, int(burst_lengths.max()))
+    longest_burst_seconds = float(longest_blocks) * BASELINE_BLOCK_SECONDS
+    eval_seconds = _temporal_coverage_seconds(row_timing, len(margins))
     bursts_per_minute = (
         burst_count * 60.0 / eval_seconds if eval_seconds > 0.0 else 0.0
     )
@@ -1108,7 +1188,7 @@ def _agnostic_baseline_stats_from_series(evidence_series, packet_rate_pps):
         longest_burst_seconds,
     )
     return {
-        "packet_rate_pps": float(packet_rate_pps),
+        "packet_rate_pps": float(row_timing["target_pps"]),
         "eval_count": int(len(evidence)),
         "motion_count": int(states.sum()),
         "fp_rate": fp_rate,
@@ -1454,28 +1534,42 @@ def _format_excluded_idle_row(row, *, markdown=False, review_profiles=None):
     reference_stats = row.get("reference_cleanliness")
     severity = _reference_cleanliness_severity(reference_stats)
     file_cell = _idle_evidence_file_cell(row, row["label"], markdown=markdown)
-    score_cell = (
-        _format_score_cell(reference_stats["score"], severity, markdown=markdown)
-        if reference_stats
-        else "n/a"
-    )
+    if row.get("unusable"):
+        na_cell = _format_unusable_na_cell(markdown=markdown)
+        reference_cell = na_cell
+        excursion_cell = na_cell
+        burst_cell = na_cell
+        score_cell = na_cell
+    else:
+        reference_cell = _format_reference_basis_cell(reference_stats)
+        excursion_cell = _format_reference_excursion_cell(
+            reference_stats, markdown=markdown
+        )
+        burst_cell = _format_reference_burst_cell(
+            reference_stats, markdown=markdown
+        )
+        score_cell = (
+            _format_score_cell(reference_stats["score"], severity, markdown=markdown)
+            if reference_stats
+            else "n/a"
+        )
     if markdown:
         return (
             f"| {row['chip']} | {row.get('environment', '?')} | {file_cell} | "
             f"{_format_rssi_cell(row.get('rssi_dbm'))} | "
             f"{_format_packet_rate_cell(row.get('packet_rate_pps'))} | "
-            f"{_format_reference_basis_cell(reference_stats)} | "
-            f"{_format_reference_excursion_cell(reference_stats, markdown=True)} | "
-            f"{_format_reference_burst_cell(reference_stats, markdown=True)} | "
+            f"{reference_cell} | "
+            f"{excursion_cell} | "
+            f"{burst_cell} | "
             f"{score_cell} |"
         )
     return (
         f"  | {row['chip']:<4} | {row.get('environment', '?'):<11} | "
         f"{file_cell:<16} | {_format_rssi_cell(row.get('rssi_dbm')):>4} | "
         f"{_format_packet_rate_cell(row.get('packet_rate_pps')):>5} | "
-        f"{_format_reference_basis_cell(reference_stats):>7} | "
-        f"{_format_reference_excursion_cell(reference_stats):>7} | "
-        f"{_format_reference_burst_cell(reference_stats):>8} | "
+        f"{reference_cell:>7} | "
+        f"{excursion_cell:>7} | "
+        f"{burst_cell:>8} | "
         f"{score_cell:>8} |"
     )
 
@@ -1489,7 +1583,10 @@ _EXCLUDED_IDLE_SCORE_TABLE = {
         "the same environment is preferred when enough references exist. "
         "`RefExc` is the share of five-second blocks above the "
         "reference p95, and `RefBurst` is the longest contiguous run above its "
-        "p99. These are contamination signals for review, not automatic labels."
+        "p99. These are contamination signals for review, not automatic labels. "
+        "When fixed temporal admission produces no usable feature rows, "
+        "`Ref`, `RefExc`, `RefBurst`, and `Score` are marked `n/a ⚠️` and the "
+        "row is listed first."
     ),
     "header": "| Chip | Env | File | RSSI | PPS | Ref | RefExc | RefBurst | Score |",
     "separator": "|---|---|---|---:|---:|---:|---:|---:|---:|",
@@ -1498,8 +1595,9 @@ _EXCLUDED_IDLE_SCORE_TABLE = {
     ),
     "console_heading": False,
     "sort_key": lambda item: (
-        item.get("reference_cleanliness") or {"score": float("inf")}
-    )["score"],
+        0 if item.get("unusable") else 1,
+        (item.get("reference_cleanliness") or {"score": float("inf")})["score"],
+    ),
     "format_row": _format_excluded_idle_row,
 }
 
@@ -2745,11 +2843,11 @@ def _evaluate_pair_capture(
             mv_file,
         )
 
-    static_matrix, feature_names = _load_or_compute_validation_feature_matrix(
+    static_matrix, feature_names, static_row_timing = _load_or_compute_validation_feature_matrix(
         bl_file,
         use_cache=use_cache,
     )
-    motion_matrix, motion_feature_names = _load_or_compute_validation_feature_matrix(
+    motion_matrix, motion_feature_names, _motion_row_timing = _load_or_compute_validation_feature_matrix(
         mv_file,
         use_cache=use_cache,
     )
@@ -2782,7 +2880,7 @@ def _evaluate_pair_capture(
     motion_coverage = float((np.asarray(motion_evidence, dtype=np.float64) > idle_p95).mean())
     idle_baseline = _agnostic_baseline_stats_from_series(
         idle_evidence,
-        static_packet_rate_pps,
+        static_row_timing,
     )
     pair_score = agnostic_pair_score(
         motion_coverage,
@@ -2793,6 +2891,7 @@ def _evaluate_pair_capture(
         static_entry,
         feature_names,
         idle_reference_records or [],
+        row_timing=static_row_timing,
         exclude_filename=bl_file.name,
     )
     score = min(
@@ -2910,18 +3009,20 @@ def _collect_excluded_idle_rows(
             if not filepath.exists():
                 continue
             try:
-                matrix, feature_names = _load_or_compute_validation_feature_matrix(
+                matrix, feature_names, row_timing = _load_or_compute_validation_feature_matrix(
                     filepath,
                     use_cache=use_cache,
                 )
                 packets = _load_validation_packet_view(filepath)
             except Exception:
                 continue
-            reference_cleanliness = _reference_idle_stats(
+            unusable = int(np.asarray(matrix).shape[0]) == 0
+            reference_cleanliness = None if unusable else _reference_idle_stats(
                 matrix,
                 entry,
                 feature_names,
                 idle_reference_records or [],
+                row_timing=row_timing,
                 exclude_filename=filepath.name,
             )
             rssi_values = [
@@ -2938,8 +3039,61 @@ def _collect_excluded_idle_rows(
                 "rssi_dbm": float(np.median(rssi_values)) if rssi_values else None,
                 "packet_rate_pps": _packet_rate_from_entry(entry),
                 "reference_cleanliness": reference_cleanliness,
+                "unusable": unusable,
             })
     return rows
+
+
+def _excluded_idle_unusable_results(rows):
+    """Return WARN results for excluded idle captures with no feature rows."""
+    results = []
+    for row in rows:
+        if not row.get("unusable"):
+            continue
+        filename = str(row.get("filename", "?"))
+        results.append(ValidationResult(
+            f"excluded_idle_unusable/{filename}",
+            "WARN",
+            (
+                "Excluded idle capture produces no usable feature rows after "
+                "fixed temporal admission, so cleanliness cannot be scored"
+            ),
+        ))
+    return results
+
+
+def _render_unusable_excluded_idle_section(rows):
+    """Return markdown lines listing excluded idle captures with no feature rows."""
+    unusable = [
+        row for row in rows
+        if row.get("unusable")
+    ]
+    if not unusable:
+        return []
+    lines = ["\n## Unscorable excluded idle\n"]
+    lines.append(
+        "These excluded idle captures produced no usable feature rows after "
+        "fixed temporal admission, so cleanliness cannot be scored. They remain "
+        "in the catalog for provenance and are listed first in Excluded Idle Diagnostics.\n"
+    )
+    for row in sorted(
+        unusable,
+        key=lambda item: (
+            str(item.get("chip", "")),
+            str(item.get("display_date", "")),
+            str(item.get("filename", "")),
+        ),
+    ):
+        filename = str(row.get("filename", "?"))
+        file_cell = _md_file_link(
+            row.get("display_date", filename),
+            str(row.get("label", "empty")),
+            filename,
+        )
+        lines.append(
+            f"- {row.get('chip', '?')} {row.get('environment', '?')} {file_cell}"
+        )
+    return lines
 
 
 def _training_session_group(label, entry):
@@ -2958,23 +3112,22 @@ def _training_session_group(label, entry):
     return f"file:{filename}"
 
 
-def _usable_window_count(entry):
-    """Estimate trainer windows for one file after its independent warm-up."""
+def _usable_window_count(label, entry, *, use_cache=True):
+    """Return admitted feature windows after the production readiness gate."""
     try:
-        packets = int(entry.get('num_packets', 0) or 0)
-    except (TypeError, ValueError):
-        packets = 0
-    packet_rate_pps = _packet_rate_from_entry(entry)
-    if packet_rate_pps is None:
+        filepath = dataset_metadata.resolve_entry_path(label, entry)
+        matrix, _feature_names, _row_timing = (
+            _load_or_compute_validation_feature_matrix(
+                filepath,
+                use_cache=use_cache,
+            )
+        )
+    except (OSError, ValueError, KeyError):
         return 0
-    window_packets = derive_detector_timing(
-        max(1, int(round(1_000_000.0 / packet_rate_pps))),
-        SEGMENTATION_WINDOW_SIZE_MS,
-    )["window_packets"]
-    return max(0, packets - window_packets)
+    return int(matrix.shape[0])
 
 
-def validate_ml_readiness(dataset_info, chip_filter=None):
+def validate_ml_readiness(dataset_info, chip_filter=None, *, use_cache=True):
     """Check if the binary empty/static-presence/motion dataset is ML-ready."""
     results = []
 
@@ -2991,7 +3144,10 @@ def validate_ml_readiness(dataset_info, chip_filter=None):
     }
 
     windows_by_label = {
-        label: sum(_usable_window_count(entry) for entry in entries)
+        label: sum(
+            _usable_window_count(label, entry, use_cache=use_cache)
+            for entry in entries
+        )
         for label, entries in training_files.items()
     }
     missing_timing = sorted(
@@ -3197,6 +3353,7 @@ def _replay_classic_metrics(
     stream_seq_num=None,
     device_ticks_us=None,
     wifi_rx_ts_us=None,
+    target_pps=CSI_TARGET_PPS,
 ):
     """Replay one capture through LightweightDetector at evaluation cadence.
 
@@ -3206,9 +3363,14 @@ def _replay_classic_metrics(
     detector.reset()
     score_series = []
     state_series = []
-    nominal_interval_us = nominal_packet_interval_us(100)
+    target_pps = max(1, int(target_pps))
+    nominal_interval_us = nominal_packet_interval_us(target_pps)
     cadence = make_evaluation_cadence(EVALUATION_INTERVAL_MS)
-    timing_tracker = PacketTimingTracker(nominal_interval_us)
+    temporal = TemporalReplayController(
+        target_pps,
+        SEGMENTATION_WINDOW_SIZE_MS,
+        nominal_interval_us,
+    )
     normalized_rssi = _coerce_rssi_series(rssi_dbm, len(csi_data))
     normalized_seq = None if stream_seq_num is None else np.asarray(stream_seq_num)
     normalized_ticks = None if device_ticks_us is None else np.asarray(device_ticks_us)
@@ -3224,18 +3386,18 @@ def _replay_classic_metrics(
             packet_view["device_ticks_us"] = int(normalized_ticks[index])
         if normalized_wifi is not None and index < len(normalized_wifi):
             packet_view["wifi_rx_ts_us"] = int(normalized_wifi[index])
-        timing = timing_tracker.observe_packet(packet_view)
-        if timing["contaminated"]:
-            detector.reset()
+        admission = temporal.admit(packet_view)
+        if admission is None:
+            continue
+        if admission.reset_required:
             cadence.reset()
-            timing_tracker.reset()
-            timing = timing_tracker.observe_packet(packet_view)
+        apply_temporal_admission(detector, admission)
         detector.process_packet(
             packet,
             DEFAULT_SUBCARRIERS,
             rssi_dbm=packet_view["rssi_dbm"],
         )
-        cadence.note_packet(elapsed_us=timing["coverage_us"])
+        cadence.note_packet(elapsed_us=admission.coverage_us)
         if not cadence.should_evaluate():
             continue
         metrics = detector.update_state()
@@ -3393,6 +3555,7 @@ def _classic_self_baseline_stats(
     replay = _replay_classic_metrics(
         csi_data[calibration_packets:],
         detector,
+        target_pps=max(1, int(round(packet_rate_pps))),
         rssi_dbm=(
             None
             if rssi_dbm is None
@@ -3530,7 +3693,7 @@ def _compute_idle_evidence_for_entry(entry, label, *, use_cache=True):
             return None, None, "insufficient timing metadata"
         feature_names = tuple(VALIDATION_FEATURE_NAMES)
         packets = _load_validation_packet_view(filepath)
-        feature_matrix, feature_names = _load_or_compute_validation_feature_matrix(
+        feature_matrix, feature_names, row_timing = _load_or_compute_validation_feature_matrix(
             filepath,
             feature_names=feature_names,
             use_cache=use_cache,
@@ -3539,7 +3702,7 @@ def _compute_idle_evidence_for_entry(entry, label, *, use_cache=True):
             feature_matrix,
             directions=_feature_direction_vector(feature_names),
         )
-        baseline = _agnostic_baseline_stats_from_series(evidence, packet_rate_pps)
+        baseline = _agnostic_baseline_stats_from_series(evidence, row_timing)
         if baseline is None:
             return None, None, "insufficient data"
         rssi_values = [pkt.get("rssi_dbm") for pkt in packets if pkt.get("rssi_dbm") is not None]
@@ -4029,9 +4192,29 @@ def run_validation(
     # ------------------------------------------------------------------
     # Phase 6: ML readiness
     # ------------------------------------------------------------------
-    ml_results = validate_ml_readiness(dataset_info, chip_filter=chip_filter)
+    ml_results = validate_ml_readiness(
+        dataset_info,
+        chip_filter=chip_filter,
+        use_cache=use_cache,
+    )
     _tag_results(ml_results, 'ml')
     _emit_issues(ml_results, heading="ML readiness")
+
+    excluded_pair_rows = _collect_excluded_pair_rows(
+        dataset_info,
+        chip_filter=chip_filter,
+        idle_reference_records=idle_reference_records,
+        use_cache=use_cache,
+    )
+    excluded_idle_rows = _collect_excluded_idle_rows(
+        dataset_info,
+        chip_filter=chip_filter,
+        idle_reference_records=idle_reference_records,
+        use_cache=use_cache,
+    )
+    excluded_idle_results = _excluded_idle_unusable_results(excluded_idle_rows)
+    _tag_results(excluded_idle_results, 'feature_space')
+    _emit_issues(excluded_idle_results, heading="Excluded idle diagnostics")
 
     # ------------------------------------------------------------------
     # Summary
@@ -4085,12 +4268,6 @@ def run_validation(
             ):
                 print(line)
 
-    excluded_pair_rows = _collect_excluded_pair_rows(
-        dataset_info,
-        chip_filter=chip_filter,
-        idle_reference_records=idle_reference_records,
-        use_cache=use_cache,
-    )
     if excluded_pair_rows:
         print("\nExcluded pair diagnostics (informational only)")
         for line in _render_score_table(
@@ -4100,12 +4277,6 @@ def run_validation(
         ):
             print(line)
 
-    excluded_idle_rows = _collect_excluded_idle_rows(
-        dataset_info,
-        chip_filter=chip_filter,
-        idle_reference_records=idle_reference_records,
-        use_cache=use_cache,
-    )
     if excluded_idle_rows:
         print("\nExcluded idle diagnostics (informational only)")
         for line in _render_score_table(
@@ -4204,6 +4375,8 @@ def _generate_report(
             )
         )
 
+    lines.extend(_render_unusable_excluded_idle_section(excluded_idle_rows))
+
     lines.append("\n## Reading these tables\n")
     lines.append(
         "Every score in these tables comes from the shared scale-invariant "
@@ -4223,7 +4396,8 @@ def _generate_report(
         "- Excluded Idle Diagnostics provide that missing cross-session view "
         "against admitted references from the same chip, link class, and "
         "packet-rate class, preferring the same environment when at least three "
-        "independent captures are available."
+        "independent captures are available. Captures with no usable feature "
+        "rows after temporal admission are listed first with `n/a ⚠️`."
     )
     lines.append(
         "- `Score` is a compact ranking signal only. Admission still turns on "
@@ -4251,6 +4425,9 @@ def _generate_report(
         f"- `RefBurst` (Pair/Excluded Idle, longest contiguous run above the "
         f"external reference p99): ⚠️ `>{REFERENCE_LONGEST_BURST_WARN_SECONDS:.1f}s`, "
         f"❌ `>{REFERENCE_LONGEST_BURST_FAIL_SECONDS:.1f}s`"
+    )
+    lines.append(
+        "- `n/a ⚠️` (Excluded Idle): no usable feature rows after fixed temporal admission"
     )
     lines.append(
         f"- `Exc` (Presence/Empty/Long-recording, past median + "

@@ -12,6 +12,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <algorithm>
 #include "detector_limits.h"
 #include "filters.h"
 #include "utils.h"
@@ -106,7 +107,19 @@ public:
     /**
      * Check if detector is ready (buffer filled)
      */
-    virtual bool is_ready() const { return buffer_count_ >= window_size_; }
+    virtual bool is_ready() const {
+        return buffer_count_ >= window_size_ &&
+               valid_buffer_count_ >= minimum_valid_samples_;
+    }
+
+    /** Advance packet-indexed feature rings for absent temporal slots. */
+    virtual void advance_missing_slots(uint32_t count);
+
+    /** Set the valid-slot occupancy floor used by `is_ready()`. */
+    void set_minimum_valid_samples(uint16_t count) {
+        minimum_valid_samples_ = std::max<uint16_t>(
+            1U, std::min<uint16_t>(count, window_size_));
+    }
     
     /**
      * Get total packets processed
@@ -229,6 +242,7 @@ public:
      * Get number of valid samples in buffer
      */
     uint16_t get_buffer_count() const { return buffer_count_; }
+    uint16_t get_valid_buffer_count() const { return valid_buffer_count_; }
     
     /**
      * Get configured window size
@@ -301,6 +315,8 @@ protected:
     float* ordered_turbulence_;
     uint16_t buffer_index_;
     uint16_t buffer_count_;
+    uint16_t valid_buffer_count_;
+    uint16_t minimum_valid_samples_;
     uint16_t window_size_;
     
     // Motion state. `current_metric_` is what get_motion_metric() reports and

@@ -13,7 +13,7 @@ Terms used throughout this document:
 - **HT20:** the supported 20 MHz 802.11n channel layout.
 - **AGC:** automatic gain control in the radio; ESPectre keeps it active and therefore favors scale-invariant features.
 - **CV:** coefficient of variation, standard deviation divided by the mean.
-- **pps:** accepted CSI packets per second.
+- **pps:** CSI packets per second. Raw accepted pps is capture supply; admitted pps is the detector input after temporal slot admission.
 
 ## Overview
 
@@ -41,7 +41,7 @@ Lightweight and High Accuracy are both production paths because they optimize di
 - **Lightweight Detection minimizes active detector cost.** Its Lightweight implementation uses two scalar feature streams, does not allocate the ML-only L1 and trajectory state, and performs less per-packet work. This leaves more CPU time and working memory for constrained chips or products in which sensing is only one firmware feature. The trade-off is lower accuracy and weaker generalization than High Accuracy on the maintained corpus.
 - **High-Accuracy Detection prioritizes detection quality.** Its ML implementation maintains seven production features and runs a compact neural network, increasing memory and computation while improving accuracy and transfer across recorded environments. Its trained threshold also removes Lightweight's initial quiet-room calibration.
 
-Lightweight calibration can take up to about 10 seconds of clean equivalent CSI coverage. High Accuracy skips that calibration but still waits for CSI readiness and enough samples to fill its feature window. In images that support runtime profile switching, choosing Lightweight reduces active working state and per-packet detector work; it does not necessarily remove ML code or weights from flash.
+Lightweight calibration requires about 10 seconds of clean, ready CSI coverage after temporal warmup. Its wall-clock duration can be longer when slots are missing, and it remains in calibration rather than consuming its budget with an invalid window. High Accuracy skips threshold calibration but still waits for CSI readiness and enough samples to fill its feature window. In images that support runtime profile switching, choosing Lightweight reduces active working state and per-packet detector work; it does not necessarily remove ML code or weights from flash.
 
 ## Processing Pipeline
 
@@ -63,7 +63,7 @@ At boot:
 - `lightweight` performs startup threshold calibration
 - `high_accuracy` starts from its trained default threshold once CSI capture is active and its feature window has filled
 
-With the default `1000 ms` detector window, the `lightweight` startup budget is ten seconds of clean equivalent coverage. At the nominal `100 pps`, that is 1000 packets; at `80 pps`, it is 800. This is a maximum, not a mandatory wait.
+With the default `1000 ms` detector window and `100 pps` target, the `lightweight` startup budget is ten seconds of clean equivalent slot coverage after the detector first becomes ready. Missing slots do not become synthetic packets, same-slot bursts do not advance calibration, and a contaminating window-sized gap restarts it. Ten seconds is the required valid evidence, not a wall-clock timeout.
 
 ## Detector Timing
 
@@ -73,16 +73,18 @@ The deployed detector uses a time-relative evaluation cadence and fixed feature 
 | --- | --- | --- |
 | detector window | `1000 ms` | 100 samples |
 | evaluation interval | `250 ms` | time-based, not packet-count driven |
-| ML L1 profile-displacement lag | 10 packets | `100 ms` |
-| turbulence autocorrelation lag | 1 packet | `10 ms` |
+| CSI temporal target | `100 pps` | one `10 ms` slot |
+| minimum valid occupancy | `80%` | at least 80 valid slots |
+| ML L1 profile-displacement lag | derived from `100 ms` | 10 slots |
+| turbulence autocorrelation lag | derived from `10 ms` | 1 slot |
 
-The runtime resolves the window duration from the measured clean CSI cadence, while v3 keeps the ML L1 lag at 10 packets and Lightweight's `autocorr_lag` at 1. Changing either feature offset requires the owning detector's normal training or refit validation. The supported floor is `80 pps`; below it, detection stays on hold until packet supply recovers. See the [detector-timing ADR](adr/2026-08-10-configure-detector-windows-in-milliseconds.md) for the physical-time window evidence and the fixed-offset decision.
+The runtime derives fixed slots from `csi_target_pps`, not from measured arrival rate. It admits at most one packet per slot, discards same-slot excess, rejects duplicate, stale, and out-of-order timestamps, and clears temporal history after a gap spanning the configured window. Missing slots remain invalid in feature rings: window statistics consume valid samples, while adjacent and lagged features require valid samples at the exact configured slot offsets. Detection becomes ready after a complete temporal window with at least four fifths valid occupancy. See the [fixed temporal-admission ADR](adr/2026-08-15-use-fixed-temporal-csi-admission.md).
 
 Calibration and steady-state detection share one cadence, so the interceptor that consumes packets during calibration evaluates on the same schedule the detection path does.
 
-The `stream_dense` training contract resolves the same temporal window for each source stream, including packet-rate augmentation. Stable rate reduction is distinct from packet and burst loss: the former changes the number of clean samples in one second, while the latter remains contamination. See the Window Size section in [TUNING.md](TUNING.md) for the current measurements.
+The detector instance, its slot capacity, and startup calibration remain stable under ordinary delivery jitter. A target or window configuration change is an explicit lifecycle boundary; measured receive rate is diagnostic only and never reconstructs a detector. Micro-ESPectre, collector sensing, replay, training, Python validation, and C++ integration replay all use their production-language sampler before feature processing. Streamer firmware alone preserves the unfiltered raw timestamped stream, while its collector-derived sensing view applies the same sampler.
 
-Cadence advances on the packet arrival timestamp, never on the loop clock or a packet-count fallback. The loop clock measures how fast packets are processed, which matches arrival on hardware but not on replay, and would let host scheduling reach a detector decision. Wall-clock time is reserved for staleness detection, which arrival time cannot do because a dead stream delivers no timestamps. Live input and supported replay datasets must provide timestamps; a missing or non-advancing timestamp contributes no elapsed coverage.
+Cadence advances on admitted packet timestamps, never on the loop clock or a packet-count fallback. Wall-clock time is used only to reject processing-backlog staleness when it shares the device clock domain. Live input and binding replay datasets must provide trustworthy timestamps and target provenance; missing or non-advancing timestamps contribute no evidence.
 
 The rest of the replay contract mirrors this cadence and reset behavior; see [ML_TRAINING.md](ML_TRAINING.md).
 
@@ -261,7 +263,7 @@ Current threshold:
 motion if probability > 0.5
 ```
 
-Unlike Lightweight Detection, High-Accuracy Detection does not need startup threshold calibration. It can begin detection as soon as CSI is ready and its feature window has filled, rather than spending up to about 10 seconds adapting a threshold to the initial room.
+Unlike Lightweight Detection, High-Accuracy Detection does not need startup threshold calibration. It can begin detection as soon as CSI is ready and its feature window has filled, rather than requiring about 10 seconds of clean, ready quiet-room coverage after temporal warmup.
 
 ### Current Runtime Topology
 

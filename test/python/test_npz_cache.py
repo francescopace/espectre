@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
 import os
+import time
 
 import numpy as np
 import pytest
@@ -18,9 +19,12 @@ def isolated_cache_root(tmp_path, monkeypatch):
     """
     root = tmp_path / "npz_cache_root"
     monkeypatch.setenv(npz_cache.NPZ_CACHE_DIR_ENV, str(root))
+    monkeypatch.setenv(npz_cache.NPZ_CACHE_PROGRESS_ENV, "0")
     npz_cache.clear_runtime_artifacts()
     npz_cache._SOURCE_DIGEST_CACHE.clear()
+    npz_cache.reset_npz_cache_progress()
     yield root
+    npz_cache.reset_npz_cache_progress()
     npz_cache.clear_runtime_artifacts()
     npz_cache._SOURCE_DIGEST_CACHE.clear()
 
@@ -70,6 +74,8 @@ def test_ml_replay_cache_projects_an_indexed_feature_superset(tmp_path):
         packet_index=np.asarray([10, 20], dtype=np.int32),
         evaluation_index=np.asarray([0, 1], dtype=np.int32),
         reset_index=np.asarray([0, 0], dtype=np.int32),
+        slot_index=np.asarray([100, 110], dtype=np.int64),
+        target_pps=100,
         evaluation_due=np.asarray([True, False]),
     )
     subset_parameters = npz_cache.ml_replay_row_parameters(
@@ -95,6 +101,8 @@ def test_ml_replay_cache_projects_an_indexed_feature_superset(tmp_path):
         np.asarray([[3.0, 1.0], [6.0, 4.0]], dtype=np.float32),
     )
     np.testing.assert_array_equal(cached["packet_index"], [10, 20])
+    np.testing.assert_array_equal(cached["slot_index"], [100, 110])
+    assert cached["target_pps"] == 100
 
 
 def test_feature_superset_index_keeps_stream_provenance_isolated(tmp_path):
@@ -887,3 +895,143 @@ def test_classic_dataset_result_reuses_persisted_rows(monkeypatch, tmp_path):
     assert first["cache_hit"] is False
     assert second["cache_hit"] is True
     assert calls == {"load": 3, "build": 1}
+
+
+def test_cache_progress_stays_quiet_when_disabled(tmp_path, capsys):
+    source_path = tmp_path / "quiet.npz"
+    _write_source_npz(source_path, values=[1, 2, 3, 4])
+    npz_cache.save_npz_artifact(
+        source_path,
+        artifact_name="unit_progress",
+        artifact_version=1,
+        payload={"X": np.asarray([[1.0, 2.0]], dtype=np.float32)},
+    )
+    loaded = npz_cache.load_npz_artifact(
+        source_path,
+        artifact_name="unit_progress",
+        artifact_version=1,
+    )
+
+    assert loaded is not None
+    assert "[npz-cache]" not in capsys.readouterr().err
+
+
+def test_cache_progress_reports_miss_write_and_hit(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv(npz_cache.NPZ_CACHE_PROGRESS_ENV, "1")
+    monkeypatch.setenv(npz_cache.NPZ_CACHE_PROGRESS_INTERVAL_ENV, "0.05")
+    npz_cache.reset_npz_cache_progress()
+    source_path = tmp_path / "progress_source.npz"
+    _write_source_npz(source_path, values=[1, 2, 3, 4])
+
+    assert (
+        npz_cache.load_npz_artifact(
+            source_path,
+            artifact_name="unit_progress",
+            artifact_version=1,
+        )
+        is None
+    )
+    npz_cache.save_npz_artifact(
+        source_path,
+        artifact_name="unit_progress",
+        artifact_version=1,
+        payload={"X": np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)},
+    )
+    assert (
+        npz_cache.load_npz_artifact(
+            source_path,
+            artifact_name="unit_progress",
+            artifact_version=1,
+        )
+        is not None
+    )
+    time.sleep(0.08)
+    assert (
+        npz_cache.load_npz_artifact(
+            source_path,
+            artifact_name="unit_progress",
+            artifact_version=1,
+        )
+        is not None
+    )
+
+    err = capsys.readouterr().err
+    assert "miss unit_progress progress_source.npz" in err
+    assert "wrote unit_progress progress_source.npz" in err
+    assert "2 row(s)" in err
+    assert "hit(s)" in err
+
+
+def test_feature_superset_load_reports_cache_progress_hit(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv(npz_cache.NPZ_CACHE_PROGRESS_ENV, "1")
+    monkeypatch.setenv(npz_cache.NPZ_CACHE_PROGRESS_INTERVAL_ENV, "30")
+    npz_cache.reset_npz_cache_progress()
+    source_path = tmp_path / "feature_superset.npz"
+    _write_source_npz(source_path, values=[1, 2, 3, 4])
+    superset_parameters = npz_cache.ml_replay_row_parameters(
+        selected_subcarriers=[1, 2],
+        window_size=100,
+        feature_names=["f0", "f1", "f2"],
+        stream_provenance={
+            "transform": "host_feature_rows_v2",
+            "feature_names": ["f0", "f1", "f2"],
+            "implementation": {"digest": "stable"},
+        },
+    )
+    npz_cache.save_ml_replay_row_artifact(
+        source_path,
+        parameters=superset_parameters,
+        X=np.asarray([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32),
+        feature_names=["f0", "f1", "f2"],
+        packet_index=np.asarray([10, 20], dtype=np.int32),
+        evaluation_index=np.asarray([0, 1], dtype=np.int32),
+        reset_index=np.asarray([0, 0], dtype=np.int32),
+        slot_index=np.asarray([100, 110], dtype=np.int64),
+        target_pps=100,
+        evaluation_due=np.asarray([True, False]),
+    )
+    capsys.readouterr()
+    npz_cache.reset_npz_cache_progress()
+    subset_parameters = npz_cache.ml_replay_row_parameters(
+        selected_subcarriers=[1, 2],
+        window_size=0,
+        feature_names=["f2", "f0"],
+        stream_provenance={
+            "transform": "host_feature_rows_v2",
+            "feature_names": ["f2", "f0"],
+            "implementation": {"digest": "stable"},
+        },
+    )
+
+    cached = npz_cache.load_feature_superset_artifact(
+        source_path,
+        artifact_name="ml_replay_rows",
+        artifact_version=npz_cache.ML_REPLAY_ROW_ARTIFACT_VERSION,
+        parameters=subset_parameters,
+    )
+
+    assert cached is not None
+    err = capsys.readouterr().err
+    assert "hit ml_replay_rows feature_superset.npz" in err
+
+
+def test_artifact_build_lock_emits_progress_heartbeat(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv(npz_cache.NPZ_CACHE_PROGRESS_ENV, "1")
+    monkeypatch.setenv(npz_cache.NPZ_CACHE_PROGRESS_INTERVAL_ENV, "0.05")
+    npz_cache.reset_npz_cache_progress()
+    source_path = tmp_path / "slow_build.npz"
+    _write_source_npz(source_path, values=[1, 2, 3, 4])
+
+    with npz_cache.artifact_build_lock(
+        source_path,
+        artifact_name="unit_progress",
+        artifact_version=1,
+    ):
+        time.sleep(0.18)
+
+    err = capsys.readouterr().err
+    assert "still building unit_progress slow_build.npz" in err

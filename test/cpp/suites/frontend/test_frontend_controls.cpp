@@ -103,13 +103,25 @@ void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {
   esphome::sensor::Sensor traffic_rate;
   esphome::sensor::Sensor callback_rate;
   esphome::sensor::Sensor accepted_rate;
+  esphome::sensor::Sensor admitted_rate;
   esphome::sensor::Sensor filtered_rate;
+  esphome::sensor::Sensor missing_rate;
+  esphome::sensor::Sensor excess_rate;
+  esphome::sensor::Sensor stale_rate;
+  esphome::sensor::Sensor out_of_order_rate;
+  esphome::sensor::Sensor occupancy;
   esphome::sensor::Sensor channel;
   esphome::sensor::Sensor rssi;
   component.set_traffic_rate_sensor(&traffic_rate);
   component.set_csi_callback_rate_sensor(&callback_rate);
   component.set_csi_accepted_rate_sensor(&accepted_rate);
+  component.set_csi_admitted_rate_sensor(&admitted_rate);
   component.set_csi_filtered_rate_sensor(&filtered_rate);
+  component.set_csi_missing_rate_sensor(&missing_rate);
+  component.set_csi_excess_rate_sensor(&excess_rate);
+  component.set_csi_stale_rate_sensor(&stale_rate);
+  component.set_csi_out_of_order_rate_sensor(&out_of_order_rate);
+  component.set_csi_occupancy_sensor(&occupancy);
   component.set_wifi_channel_sensor(&channel);
   component.set_wifi_rssi_sensor(&rssi);
   frontend_runtime_shim::state.diagnostics.wifi_channel = 8U;
@@ -117,7 +129,14 @@ void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {
   frontend_runtime_shim::state.diagnostics.traffic_packets_total = 100U;
   frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 100U;
   frontend_runtime_shim::state.diagnostics.csi_accepted_total = 90U;
+  frontend_runtime_shim::state.diagnostics.csi_admitted_total = 80U;
   frontend_runtime_shim::state.diagnostics.csi_filtered_total = 10U;
+  frontend_runtime_shim::state.diagnostics.csi_missing_slots_total = 20U;
+  frontend_runtime_shim::state.diagnostics.csi_excess_total = 10U;
+  frontend_runtime_shim::state.diagnostics.csi_stale_total = 2U;
+  frontend_runtime_shim::state.diagnostics.csi_out_of_order_total = 1U;
+  frontend_runtime_shim::state.diagnostics.csi_occupancy_slots = 80U;
+  frontend_runtime_shim::state.diagnostics.csi_window_slots = 100U;
   component.setup();
   RuntimeSnapshot snapshot;
   snapshot.ready_to_publish = true;
@@ -131,7 +150,13 @@ void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {
   frontend_runtime_shim::state.diagnostics.traffic_packets_total = 600U;
   frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 580U;
   frontend_runtime_shim::state.diagnostics.csi_accepted_total = 540U;
+  frontend_runtime_shim::state.diagnostics.csi_admitted_total = 480U;
   frontend_runtime_shim::state.diagnostics.csi_filtered_total = 40U;
+  frontend_runtime_shim::state.diagnostics.csi_missing_slots_total = 120U;
+  frontend_runtime_shim::state.diagnostics.csi_excess_total = 60U;
+  frontend_runtime_shim::state.diagnostics.csi_stale_total = 7U;
+  frontend_runtime_shim::state.diagnostics.csi_out_of_order_total = 3U;
+  frontend_runtime_shim::state.diagnostics.csi_occupancy_slots = 85U;
   esphome::advance_mock_millis(5000U);
   component.on_periodic_update(snapshot, 100U);
 
@@ -147,7 +172,13 @@ void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {
   TEST_ASSERT_EQUAL_FLOAT(100.0f, traffic_rate.get_state());
   TEST_ASSERT_EQUAL_FLOAT(96.0f, callback_rate.get_state());
   TEST_ASSERT_EQUAL_FLOAT(90.0f, accepted_rate.get_state());
+  TEST_ASSERT_EQUAL_FLOAT(80.0f, admitted_rate.get_state());
   TEST_ASSERT_EQUAL_FLOAT(6.0f, filtered_rate.get_state());
+  TEST_ASSERT_EQUAL_FLOAT(20.0f, missing_rate.get_state());
+  TEST_ASSERT_EQUAL_FLOAT(10.0f, excess_rate.get_state());
+  TEST_ASSERT_EQUAL_FLOAT(1.0f, stale_rate.get_state());
+  TEST_ASSERT_EQUAL_FLOAT(0.4f, out_of_order_rate.get_state());
+  TEST_ASSERT_EQUAL_FLOAT(85.0f, occupancy.get_state());
   TEST_ASSERT_EQUAL_FLOAT(10.0f, channel.get_state());
   TEST_ASSERT_EQUAL_FLOAT(-55.0f, rssi.get_state());
 }
@@ -160,7 +191,8 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   CalibrateSwitchProbe calibrate_switch;
 
   component.set_segmentation_window_size_ms(1500);
-  component.set_traffic_generator_rate(0);
+  component.set_csi_target_pps(94);
+  component.set_csi_traffic_mode("external");
   component.set_traffic_generator_mode("dns");
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
   component.set_traffic_generator_mode("ping");
@@ -189,7 +221,8 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   TEST_ASSERT_EQUAL_FLOAT(RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT,
                           component.runtime_.config().segmentation_threshold);
   TEST_ASSERT_EQUAL(1500U, component.runtime_.config().segmentation_window_size_ms);
-  TEST_ASSERT_EQUAL(0, component.runtime_.config().traffic_generator_rate);
+  TEST_ASSERT_EQUAL(94, component.runtime_.config().csi_target_pps);
+  TEST_ASSERT_TRUE(component.runtime_.config().csi_traffic_mode == CsiTrafficMode::EXTERNAL);
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
   TEST_ASSERT_EQUAL(2000, component.runtime_.config().publish_interval_ms);

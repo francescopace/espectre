@@ -37,7 +37,6 @@ from tools.lib.performance_report import (
     load_real_data_cached as _load_real_data_cached,
     measure_packet_interval_us,
     replay_idle_stream,
-    timing_cadence_for_window,
 )
 from tools.lib.csi_io import load_npz_packet_view
 from tools.lib.dataset_metadata import (
@@ -67,6 +66,13 @@ from config import (
 from lightweight_detector import LightweightDetector
 from conftest import get_classic_fp_rate_target, get_classic_recall_target, record_performance
 from threshold import StartupThresholdCalibrator, get_detector_auto_factor, get_detector_startup_gate
+from runtime_policy import make_evaluation_cadence, nominal_packet_interval_us
+from temporal_csi_sampler import temporal_window_slots
+from tools.lib.temporal_replay import (
+    apply_temporal_admission,
+    iter_temporal_admissions,
+    target_pps_for_packets,
+)
 
 CLASSIC_PER_RECORDING_FP_GUARD = 15.0
 # The corrected temporal replay no longer normalizes 90-100 pps captures to a
@@ -351,38 +357,49 @@ def run_classic_calibration(static_presence_packets, selected_band, window_size)
         hampel_window=HAMPEL_WINDOW,
         hampel_threshold=HAMPEL_THRESHOLD,
     )
-    nominal_interval_us = measure_packet_interval_us(static_presence_packets)
-    calibration_packets = max(
-        1,
-        int(round(CALIBRATION_DURATION_MS * 1000.0 / nominal_interval_us)),
+    measured_interval_us = measure_packet_interval_us(static_presence_packets)
+    target_pps = target_pps_for_packets(
+        static_presence_packets,
+        measured_interval_us,
+    )
+    nominal_interval_us = nominal_packet_interval_us(target_pps)
+    calibration_packets = temporal_window_slots(
+        target_pps,
+        CALIBRATION_DURATION_MS,
     )
     calibrator = StartupThresholdCalibrator(
         calibration_packets,
         auto_factor=get_detector_auto_factor(detector),
         gate_enabled=get_detector_startup_gate(detector),
     )
-    timing_tracker, cadence = timing_cadence_for_window(
-        window_size,
-        nominal_interval_us,
-    )
-    for pkt in static_presence_packets:
-        timing = timing_tracker.observe_packet(pkt)
-        if timing["contaminated"]:
-            detector.reset()
+    cadence = make_evaluation_cadence()
+    for admission in iter_temporal_admissions(
+        static_presence_packets,
+        target_pps=target_pps,
+        window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
+        fallback_interval_us=measured_interval_us,
+    ):
+        pkt = admission.packet
+        if admission.reset_required:
             cadence.reset()
-            timing_tracker.reset()
-            timing = timing_tracker.observe_packet(pkt)
+            calibrator = StartupThresholdCalibrator(
+                calibration_packets,
+                auto_factor=get_detector_auto_factor(detector),
+                gate_enabled=get_detector_startup_gate(detector),
+            )
+        apply_temporal_admission(detector, admission)
         detector.process_packet(pkt["csi_data"], selected_band)
-        cadence.note_packet(elapsed_us=timing["coverage_us"])
+        cadence.note_packet(elapsed_us=admission.coverage_us)
         if not cadence.should_evaluate():
             continue
         detector.update_state()
-        calibrator.observe_detector(
-            detector,
-            packet_weight=cadence.equivalent_packets_since_evaluation(
-                nominal_interval_us
-            ),
-        )
+        if detector.is_ready():
+            calibrator.observe_detector(
+                detector,
+                packet_weight=cadence.equivalent_packets_since_evaluation(
+                    nominal_interval_us
+                ),
+            )
         cadence.after_evaluation()
         if calibrator.is_complete():
             break

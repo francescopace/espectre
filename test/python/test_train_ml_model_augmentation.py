@@ -72,13 +72,24 @@ def test_cache_provenance_fingerprints_only_stream_implementations():
     assert packet_provenance["transform"] == "training_packet_augmentation_v2"
     assert len(packet_provenance["implementation_sha256"]) == 64
     assert packet_provenance["timing_quality"]["content_sha256"]
-    assert host_provenance["transform"] == "host_feature_rows_v3"
+    assert host_provenance["transform"] == "host_feature_rows_v4"
     feature_identity = host_provenance["feature_identities"][
         "turb_mad_over_mean_aggr"
     ]
     assert feature_identity["provider"] == "aggregated_turbulence_series"
     assert len(feature_identity["formula_sha256"]) == 64
     assert "train_ml_model" not in host_provenance["row_stream"]
+
+
+def test_production_missing_slot_contract_has_distinct_cache_identity():
+    provenance = trainer._host_feature_stream_provenance(
+        ["turb_autocorr", "turb_iqr_over_mean_aggr", "chan_shape_excess_path"],
+    )
+    identities = provenance["feature_identities"]
+
+    assert identities["turb_autocorr"]["provider_version"] == 2
+    assert identities["turb_iqr_over_mean_aggr"]["provider_version"] == 2
+    assert identities["chan_shape_excess_path"]["provider_version"] == 2
 
 
 def test_cache_provenance_memoization_returns_isolated_values():

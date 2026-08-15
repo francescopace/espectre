@@ -1,7 +1,7 @@
 {
   "format_version": "1.2",
   "created_at": "2026-01-10T18:23:57.538444",
-  "updated_at": "2026-08-11T12:50:45.546153",
+  "updated_at": "2026-08-15T23:50:00+02:00",
   "labels": {
     "empty": {
       "description": "Empty room, no human presence"
@@ -23,10 +23,10 @@
         "collected_at": "2026-07-04T11:23:18.928039",
         "duration_ms": 119948,
         "num_packets": 11996,
-        "description": "HT20 empty sample derived from quiet long-run prefix",
+        "description": "HT20 empty sample derived from quiet long-run prefix; excluded because fixed temporal admission produces no usable training rows.",
         "environment": "living_room",
         "device_id": "0x00007c2c6742bbac",
-        "dataset_role": "train",
+        "dataset_role": "exclude",
         "average_packet_rate": 98.795,
         "nominal_packet_rate": 100
       },
@@ -38,10 +38,10 @@
         "collected_at": "2026-07-04T11:23:19.265528",
         "duration_ms": 119945,
         "num_packets": 12105,
-        "description": "HT20 empty sample derived from quiet long-run prefix",
+        "description": "HT20 empty sample derived from quiet long-run prefix; excluded because fixed temporal admission produces no usable training rows.",
         "environment": "bedroom",
         "device_id": "0x0000acebe64ae708",
-        "dataset_role": "train",
+        "dataset_role": "exclude",
         "average_packet_rate": 102.354,
         "nominal_packet_rate": 100
       },
@@ -53,10 +53,10 @@
         "collected_at": "2026-07-04T15:16:20.040140",
         "duration_ms": 119950,
         "num_packets": 11992,
-        "description": "HT20 empty sample derived from quiet long-run prefix",
+        "description": "HT20 empty sample derived from quiet long-run prefix; excluded because fixed temporal admission produces no usable training rows.",
         "environment": "bedroom",
         "device_id": "0x000030eda0e46278",
-        "dataset_role": "train",
+        "dataset_role": "exclude",
         "average_packet_rate": 98.629,
         "nominal_packet_rate": 100
       },
@@ -68,10 +68,10 @@
         "collected_at": "2026-07-04T15:16:20.381438",
         "duration_ms": 599832.0,
         "num_packets": 59862,
-        "description": "HT20 quiet long-run sample",
+        "description": "HT20 quiet long-run excluded because fixed temporal admission produces no usable feature rows.",
         "environment": "hobby_room",
         "device_id": "0x00007c2c6742bbac",
-        "dataset_role": "selection",
+        "dataset_role": "exclude",
         "average_packet_rate": 98.726,
         "nominal_packet_rate": 100,
         "long_recording": true
@@ -84,10 +84,10 @@
         "collected_at": "2026-07-04T16:15:40.829811",
         "duration_ms": 599982.0,
         "num_packets": 59435,
-        "description": "HT20 quiet long-run rebuilt from the original 120 s empty prefix and its contiguous 8-minute tail; reserved for quiet-replay evaluation.",
+        "description": "HT20 quiet long-run excluded because fixed temporal admission produces no usable feature rows.",
         "environment": "hobby_room",
         "device_id": "0x0000acebe64ae708",
-        "dataset_role": "selection",
+        "dataset_role": "exclude",
         "average_packet_rate": 101.215,
         "nominal_packet_rate": 100,
         "long_recording": true
@@ -100,10 +100,10 @@
         "collected_at": "2026-07-04T17:54:48.788208",
         "duration_ms": 119951.773,
         "num_packets": 12005,
-        "description": "HT20 empty sample derived from quiet long-run prefix",
+        "description": "HT20 empty sample derived from quiet long-run prefix; excluded because fixed temporal admission produces no usable training rows.",
         "device_id": "0x000030eda0e46278",
         "environment": "hobby_room",
-        "dataset_role": "train",
+        "dataset_role": "exclude",
         "average_packet_rate": 101.266,
         "nominal_packet_rate": 100
       },
@@ -115,10 +115,10 @@
         "collected_at": "2026-07-04T19:21:16.842036",
         "duration_ms": 599938.0,
         "num_packets": 58431,
-        "description": "HT20 quiet long-run rebuilt from the original 120 s empty prefix and its contiguous 8-minute tail; reserved for quiet-replay evaluation.",
+        "description": "HT20 quiet long-run excluded because fixed temporal admission produces no usable feature rows.",
         "environment": "living_room",
         "device_id": "0x000030eda0e46278",
-        "dataset_role": "selection",
+        "dataset_role": "exclude",
         "average_packet_rate": 97.647,
         "nominal_packet_rate": 100,
         "long_recording": true
@@ -277,7 +277,7 @@
         "description": "HT20 static presence sample; excluded because a sustained motion-like episode contaminates the nominally static label.",
         "environment": "hobby_room",
         "device_id": "0x00007c2c6742bbac",
-        "dataset_role": "train",
+        "dataset_role": "exclude",
         "average_packet_rate": 97.542,
         "nominal_packet_rate": 100,
         "optimal_pair_motion_file": "motion_c6_64sc_dev00007c2c6742bbac_20260704_153624_263200_0001.npz"
@@ -901,7 +901,7 @@
         "description": "HT20 motion sample; excluded with its paired static-presence capture because the static label is motion-contaminated.",
         "environment": "hobby_room",
         "device_id": "0x00007c2c6742bbac",
-        "dataset_role": "train",
+        "dataset_role": "exclude",
         "average_packet_rate": 95.831,
         "nominal_packet_rate": 100,
         "optimal_pair_static_presence_file": "static_presence_c6_64sc_dev00007c2c6742bbac_20260704_153259_586375_0001.npz"

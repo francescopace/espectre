@@ -80,13 +80,14 @@ pip install -r requirements-ml.txt
 
 ### Source Layout
 
-The production firmware code now lives under `src/`:
+The production firmware code lives under `src/`:
 
-- `src/cpp/core/` for reusable detectors and math
+- `src/cpp/core/` for reusable detectors, temporal CSI admission, and math
 - `src/cpp/runtime/` for the shared runtime contract and `src/cpp/runtime/esp_idf/` for the current ESP-IDF-specific orchestration
-- `src/cpp/frontend/esphome/components/espectre/` for the ESPHome adapter/component root
+- `src/cpp/frontend/esphome/`, `native/`, `matter/`, and `streamer/` for the published firmware adapters
+- `src/python/micro_espectre/` for the MicroPython device path
 
-See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the rationale behind the split and the planned evolution toward additional runtimes/frontends.
+See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the layering and dependency direction.
 
 ### Running Tests
 
@@ -100,10 +101,10 @@ ctest --test-dir test/cpp/build --output-on-failure
 ./test/cpp/run_coverage.sh
 
 # Python tests (device runtime, CLI, tools, and validation)
-pytest test/python -v
+.venv/bin/pytest test/python -v
 
 # With coverage (run from repo root)
-pytest test/python -v --cov=src/python/micro_espectre --cov-report=term-missing
+.venv/bin/pytest test/python -v --cov=src/python/micro_espectre --cov-report=term-missing
 
 # Static website preview
 python -m http.server 8080 --directory docs/web
@@ -347,7 +348,7 @@ Good documentation is essential! Here's how you can help:
 ### Before Reporting
 
 1. **Search existing issues** to avoid duplicates
-2. **Check the FAQ** in README.md
+2. **Read [SETUP.md](docs/SETUP.md)** and the relevant frontend README for current operator behavior
 3. **Try the latest version** from `develop` branch
 
 ### Bug Reports

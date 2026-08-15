@@ -36,6 +36,40 @@ def _by_name(results):
     return {result.name: result for result in results}
 
 
+def test_feature_blocks_preserve_missing_sampler_slots() -> None:
+    module = _load_validator_module()
+    slot_index = np.arange(0, 1001, 2, dtype=np.int64)
+    values = np.where(slot_index < 500, 1.0, 3.0).reshape(-1, 1)
+    timing = {
+        "slot_index": slot_index,
+        "reset_index": np.zeros(len(slot_index), dtype=np.int32),
+        "target_pps": 100,
+    }
+
+    blocks = module._feature_block_medians(values, timing)
+
+    np.testing.assert_array_equal(blocks, np.asarray([[1.0], [3.0]]))
+    assert module._temporal_coverage_seconds(timing, len(values)) == pytest.approx(10.01)
+
+
+def test_agnostic_baseline_uses_sampler_grid_for_elapsed_time() -> None:
+    module = _load_validator_module()
+    slot_index = np.arange(0, 1001, 2, dtype=np.int64)
+    evidence = np.linspace(0.0, 1.0, len(slot_index))
+    timing = {
+        "slot_index": slot_index,
+        "reset_index": np.zeros(len(slot_index), dtype=np.int32),
+        "target_pps": 100,
+    }
+
+    baseline = module._agnostic_baseline_stats_from_series(evidence, timing)
+
+    assert baseline is not None
+    assert baseline["packet_rate_pps"] == 100.0
+    assert baseline["eval_seconds"] == pytest.approx(10.01)
+    assert len(baseline["block_margins"]) == 2
+
+
 def test_configure_dataset_paths_updates_shared_roots(tmp_path, monkeypatch) -> None:
     module = _load_validator_module()
     dataset_root = tmp_path / "external_dataset"
@@ -472,3 +506,59 @@ def test_capture_continuity_rejects_large_inter_packet_gap() -> None:
     assert results["inter_packet_gap"].status == "FAIL"
     assert results["inter_packet_gap"].value == 2480.0
     assert "at packet 2->3" in results["inter_packet_gap"].message
+
+
+def test_excluded_idle_unusable_rows_are_marked_and_listed() -> None:
+    module = _load_validator_module()
+    rows = [
+        {
+            "label": "empty",
+            "filename": "empty_c6.npz",
+            "display_date": "2026-07-04 15:16",
+            "chip": "C6",
+            "environment": "hobby_room",
+            "rssi_dbm": -49.0,
+            "packet_rate_pps": 98.7,
+            "reference_cleanliness": {
+                "basis": "chip",
+                "reference_count": 3,
+                "excursion_ratio": 0.0,
+                "longest_burst_seconds": 0.0,
+                "score": 100.0,
+            },
+            "unusable": False,
+        },
+        {
+            "label": "empty",
+            "filename": "empty_c3_zero.npz",
+            "display_date": "2026-07-04 16:15",
+            "chip": "C3",
+            "environment": "hobby_room",
+            "rssi_dbm": -48.0,
+            "packet_rate_pps": 101.2,
+            "reference_cleanliness": None,
+            "unusable": True,
+        },
+    ]
+
+    results = module._excluded_idle_unusable_results(rows)
+    assert len(results) == 1
+    assert results[0].status == "WARN"
+    assert results[0].name == "excluded_idle_unusable/empty_c3_zero.npz"
+
+    rendered = module._format_excluded_idle_row(rows[1], markdown=True)
+    assert rendered.count("**n/a ⚠️**") == 4
+
+    section = "\n".join(module._render_unusable_excluded_idle_section(rows))
+    assert "## Unscorable excluded idle" in section
+    assert "empty_c3_zero.npz" in section
+    assert "empty_c6.npz" not in section
+
+    table = "\n".join(
+        module._render_score_table(
+            rows,
+            module._EXCLUDED_IDLE_SCORE_TABLE,
+            markdown=True,
+        )
+    )
+    assert table.index("2026-07-04 16:15") < table.index("2026-07-04 15:16")

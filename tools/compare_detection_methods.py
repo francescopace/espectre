@@ -42,8 +42,12 @@ from tools.lib.dataset_metadata import (
 from tools.lib.performance_report import (
     get_available_long_test_dataset_specs,
     load_long_test_dataset,
-    note_evaluation_tick,
     timing_cadence_for_window,
+)
+from tools.lib.temporal_replay import (
+    TemporalReplayController,
+    apply_temporal_admission,
+    target_pps_for_packets,
 )
 from tools.lib.ui import show_plot_window
 from config import (
@@ -243,28 +247,30 @@ class LightweightDetectorAdapter:
             hampel_threshold=HAMPEL_THRESHOLD,
         )
         self._track_data = bool(track_data)
-        self._timing_tracker, self._cadence = timing_cadence_for_window(
+        self._interval_us = measure_packet_interval_us(packets)
+        _, self._cadence = timing_cadence_for_window(
             window_size,
-            measure_packet_interval_us(packets),
+            self._interval_us,
+        )
+        self._temporal = TemporalReplayController(
+            target_pps_for_packets(packets, self._interval_us),
+            window_size_ms,
+            self._interval_us,
         )
         self.metric_history = []
         self.state_history = []
 
     def process_packet(self, packet):
-        should_evaluate, contaminated = note_evaluation_tick(
-            self._cadence,
-            packet=packet,
-            timing_tracker=self._timing_tracker,
-        )
-        if contaminated:
-            self._detector.reset()
+        admission = self._temporal.admit(packet)
+        if admission is None:
+            return
+        if admission.reset_required:
             self._cadence.reset()
-            self._timing_tracker.reset()
-            should_evaluate, _ = note_evaluation_tick(
-                self._cadence,
-                packet=packet,
-                timing_tracker=self._timing_tracker,
-            )
+        apply_temporal_admission(self._detector, admission)
+        self._cadence.note_packet(elapsed_us=admission.coverage_us)
+        should_evaluate = self._cadence.should_evaluate()
+        if should_evaluate:
+            self._cadence.after_evaluation()
         csi_data = _packet_csi_data(packet)
         self._detector.process_packet(csi_data, DEFAULT_SUBCARRIERS)
         if not should_evaluate:
@@ -277,7 +283,7 @@ class LightweightDetectorAdapter:
     def reset(self):
         self._detector.reset()
         self._cadence.reset()
-        self._timing_tracker.reset()
+        self._temporal.reset()
         self.metric_history = []
         self.state_history = []
 
@@ -302,28 +308,30 @@ class HighAccuracyDetectorAdapter:
             hampel_threshold=HAMPEL_THRESHOLD,
         )
         self._detector.track_data = track_data
-        self._timing_tracker, self._cadence = timing_cadence_for_window(
+        self._interval_us = measure_packet_interval_us(packets)
+        _, self._cadence = timing_cadence_for_window(
             window_size,
-            measure_packet_interval_us(packets),
+            self._interval_us,
+        )
+        self._temporal = TemporalReplayController(
+            target_pps_for_packets(packets, self._interval_us),
+            window_size_ms,
+            self._interval_us,
         )
         self.probability_history = self._detector.probability_history
         self.state_history = self._detector.state_history
 
     def process_packet(self, packet):
-        should_evaluate, contaminated = note_evaluation_tick(
-            self._cadence,
-            packet=packet,
-            timing_tracker=self._timing_tracker,
-        )
-        if contaminated:
-            self._detector.reset()
+        admission = self._temporal.admit(packet)
+        if admission is None:
+            return
+        if admission.reset_required:
             self._cadence.reset()
-            self._timing_tracker.reset()
-            should_evaluate, _ = note_evaluation_tick(
-                self._cadence,
-                packet=packet,
-                timing_tracker=self._timing_tracker,
-            )
+        apply_temporal_admission(self._detector, admission)
+        self._cadence.note_packet(elapsed_us=admission.coverage_us)
+        should_evaluate = self._cadence.should_evaluate()
+        if should_evaluate:
+            self._cadence.after_evaluation()
         csi_data = _packet_csi_data(packet)
         self._detector.process_packet(csi_data, DEFAULT_SUBCARRIERS)
         if not should_evaluate:
@@ -338,7 +346,7 @@ class HighAccuracyDetectorAdapter:
     def reset(self):
         self._detector.reset()
         self._cadence.reset()
-        self._timing_tracker.reset()
+        self._temporal.reset()
         self.probability_history = self._detector.probability_history
         self.state_history = self._detector.state_history
 

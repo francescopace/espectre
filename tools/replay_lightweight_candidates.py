@@ -67,9 +67,12 @@ from tools.lib.dataset_metadata import (  # noqa: E402
 )
 from tools.lib.performance_report import (  # noqa: E402
     load_or_compute_ml_replay_rows,
-    note_evaluation_tick,
-    timing_cadence_for_window,
 )
+from tools.lib.temporal_replay import (  # noqa: E402
+    iter_temporal_admissions,
+    target_pps_for_packets,
+)
+from runtime_policy import RuntimeMotionPolicy  # noqa: E402
 
 DISCOVERY_ROLES = ("train", "selection")
 HOLDOUT_ROLE = "holdout"
@@ -427,35 +430,44 @@ def extract_window_features(
         window_packets=window_packets,
         packet_interval_us=interval_us,
     )
-    timing_tracker, cadence = timing_cadence_for_window(
-        window_packets,
-        interval_us,
+    target_pps = target_pps_for_packets(packets, interval_us)
+    cadence = RuntimeMotionPolicy(
+        evaluation_interval_ms=train_ml_model.EVALUATION_INTERVAL_MS,
+        segmentation_window_size_ms=train_ml_model.SEGMENTATION_WINDOW_SIZE_MS,
     )
     rows: List[Sequence[float]] = []
     deoverlapped: List[bool] = []
     since_window = 0
-    for packet in packets:
-        should_evaluate, contaminated = note_evaluation_tick(
-            cadence,
-            packet=packet,
-            timing_tracker=timing_tracker,
-        )
-        if contaminated:
+    for admission in iter_temporal_admissions(
+        packets,
+        target_pps=target_pps,
+        window_size_ms=train_ml_model.SEGMENTATION_WINDOW_SIZE_MS,
+        fallback_interval_us=interval_us,
+    ):
+        packet = admission.packet
+        if admission.reset_required:
             extractor = train_ml_model.StreamingFeatureExtractor(
                 feature_names,
                 window_packets=window_packets,
                 packet_interval_us=interval_us,
             )
             cadence.reset()
-            timing_tracker.reset()
-            should_evaluate, _ = note_evaluation_tick(
-                cadence,
-                packet=packet,
-                timing_tracker=timing_tracker,
-            )
             since_window = 0
-        values = extractor.process_packet(packet["csi_data"], packet=packet)
-        since_window += 1
+        elif admission.missing_slots_before:
+            extractor.advance_missing_slots(admission.missing_slots_before)
+        cadence.note_packet(elapsed_us=admission.coverage_us)
+        should_evaluate = cadence.should_evaluate()
+        if should_evaluate:
+            cadence.after_evaluation()
+        values = extractor.process_packet(
+            packet["csi_data"],
+            packet=packet,
+            timestamp_us=admission.timestamp_us,
+        )
+        since_window += max(
+            1,
+            int(round(admission.coverage_us / float(interval_us))),
+        )
         if not should_evaluate or values is None:
             continue
         rows.append(values)

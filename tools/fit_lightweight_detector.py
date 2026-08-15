@@ -51,6 +51,7 @@ setup_paths()
 
 import config  # noqa: E402
 from lightweight_detector import LightweightDetector  # noqa: E402
+from temporal_csi_sampler import minimum_valid_slots, temporal_window_slots  # noqa: E402
 from tools.lib.csi_io import load_npz_as_packets  # noqa: E402
 from tools.lib.dataset_metadata import (  # noqa: E402
     derive_detector_timing,
@@ -60,9 +61,9 @@ from tools.lib.dataset_metadata import (  # noqa: E402
     resolve_entry_path,
 )
 from tools.lib.performance_report import (  # noqa: E402
-    note_evaluation_tick,
-    timing_cadence_for_window,
+    temporal_detector_ticks,
 )
+from tools.lib.temporal_replay import target_pps_for_packets  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PYTHON_SOURCE = REPO_ROOT / "src" / "python" / "micro_espectre" / "lightweight_detector.py"
@@ -130,37 +131,31 @@ def extract_window_features(
     two features mean and fitting them under a different cadence would produce
     coefficients for a feature the runtime never computes.
     """
-    timing = derive_detector_timing(measure_packet_interval_us(packets))
+    interval_us = measure_packet_interval_us(packets)
+    target_pps = target_pps_for_packets(packets, interval_us)
+    timing = derive_detector_timing(max(1, int(round(1_000_000.0 / target_pps))))
+    timing["window_packets"] = temporal_window_slots(
+        target_pps, config.SEGMENTATION_WINDOW_SIZE_MS
+    )
     detector = LightweightDetector(
         window_size=timing["window_packets"],
         autocorr_lag=timing["autocorr_lag"],
     )
-    window = timing["window_packets"]
-    timing_tracker, cadence = timing_cadence_for_window(
-        window,
-        measure_packet_interval_us(packets),
+    detector.set_minimum_valid_samples(
+        minimum_valid_slots(timing["window_packets"])
     )
+    window = timing["window_packets"]
     rows: List[Tuple[float, float]] = []
     deoverlapped: List[bool] = []
     since_window = 0
-    for packet in packets:
-        should_evaluate, contaminated = note_evaluation_tick(
-            cadence,
-            packet=packet,
-            timing_tracker=timing_tracker,
-        )
-        if contaminated:
-            detector.reset()
-            cadence.reset()
-            timing_tracker.reset()
-            should_evaluate, _ = note_evaluation_tick(
-                cadence,
-                packet=packet,
-                timing_tracker=timing_tracker,
-            )
+    for admission, should_evaluate, slots_since_reset in temporal_detector_ticks(
+        detector, packets, interval_us
+    ):
+        packet = admission.packet
+        if admission.reset_required:
             since_window = 0
         detector.process_packet(packet["csi_data"], selected_band)
-        since_window += 1
+        since_window = max(since_window + 1, slots_since_reset)
         if not should_evaluate or not detector.is_ready():
             continue
         metrics = detector.update_state()

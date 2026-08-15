@@ -121,7 +121,9 @@ What is not currently exposed as a Matter configuration surface:
 - an end-user Matter-native workflow for every runtime knob
 - a separate frontend-owned tuning guide beyond the shared [`TUNING.md`](../../../../docs/TUNING.md)
 
-Matter supports both `lightweight` and `high_accuracy` as build-time detection profile choices. Choose Lightweight to leave more detector CPU and working memory for the Matter stack or other product work; choose High Accuracy for higher detection accuracy, stronger generalization, and startup without Lightweight's quiet calibration of up to about 10 seconds. High Accuracy still waits for CSI readiness and feature-window warmup. The published firmware selects Lightweight, while a local build can select High Accuracy through the shared ESP-IDF sensing configuration. Unlike ESPHome and Native, Matter does not expose runtime profile selection or persist an end-user choice.
+Matter supports both `lightweight` and `high_accuracy` as build-time detection profile choices. Choose Lightweight to leave more detector CPU and working memory for the Matter stack or other product work; choose High Accuracy for higher detection accuracy, stronger generalization, and startup without Lightweight threshold calibration. Lightweight requires about 10 seconds of clean, ready quiet-room coverage after temporal warmup; insufficient occupancy extends that wall-clock duration. High Accuracy still waits for CSI readiness and feature-window warmup. The published firmware selects Lightweight, while a local build can select High Accuracy through the shared ESP-IDF sensing configuration. Unlike ESPHome and Native, Matter does not expose runtime profile selection or persist an end-user choice.
+
+The same build-time sensing menu defines positive `CONFIG_ESPECTRE_CSI_TARGET_PPS` and a separate `CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_*` ownership choice. Both Matter detectors use the fixed temporal-admission grid; arrival jitter does not resize them or restart calibration.
 
 In practice, this frontend is best understood as:
 

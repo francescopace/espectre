@@ -59,7 +59,7 @@ bool publish_frontend_mqtt_status(IMqttTransport *transport,
                                   bool online,
                                   uint32_t timestamp_ms) {
   return publish_frontend_mqtt_message(
-      transport, config, "status", espectre_status_payload(config, online, timestamp_ms), false);
+      transport, config, "status", espectre_status_payload(config, online, timestamp_ms), true);
 }
 
 bool publish_frontend_mqtt_command_result(IMqttTransport *transport,

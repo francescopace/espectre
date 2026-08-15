@@ -103,7 +103,7 @@ bool StreamEspIdfRuntime::setup() {
   capture_service_.set_packet_callback(&StreamEspIdfRuntime::capture_packet_callback_, this);
   capture_service_.set_channel_change_callback(&StreamEspIdfRuntime::capture_channel_change_callback_, this);
 
-  csi_traffic_service_.init(to_csi_traffic_config(config_, CsiTrafficMode::PACING));
+  csi_traffic_service_.init(to_csi_traffic_config(config_));
   csi_traffic_service_.set_packet_callback(&StreamEspIdfRuntime::pacing_packet_callback_, this);
   stream_transport_.configure(config_.device_id,
                               config_.collector_port,

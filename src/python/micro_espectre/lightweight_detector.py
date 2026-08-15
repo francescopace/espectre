@@ -82,6 +82,8 @@ class LightweightDetector(IDetector):
         )
         self._packet_subcarrier_values = [0.0] * 64
         self._ordered_turbulence = [0.0] * window_size
+        self._ordered_validity = [False] * window_size
+        self._minimum_valid_samples = window_size
         self._threshold = self._clamp_probability(threshold)
         self._state = MotionState.IDLE
         self._packet_count = 0
@@ -150,28 +152,44 @@ class LightweightDetector(IDetector):
         )
         self._aggregated_context.add_turbulence(aggregated)
 
+    def advance_missing_slots(self, count):
+        """Preserve missing temporal slots in both feature rings."""
+        for _ in range(max(0, int(count))):
+            self._context.add_missing_slot()
+            self._aggregated_context.add_missing_slot()
+
+    def set_minimum_valid_samples(self, count):
+        self._minimum_valid_samples = max(1, min(int(count), self._context.window_size))
+
     def _turb_autocorr(self):
         ctx = self._context
         count = ctx.buffer_count
         values = self._ordered_turbulence
+        validity = self._ordered_validity
         if count < ctx.window_size:
             for i in range(count):
                 values[i] = ctx.turbulence_buffer[i]
+                validity[i] = ctx.validity_buffer[i]
         else:
             start = ctx.buffer_index
             tail = count - start
             for i in range(tail):
                 values[i] = ctx.turbulence_buffer[start + i]
+                validity[i] = ctx.validity_buffer[start + i]
             for i in range(start):
                 values[tail + i] = ctx.turbulence_buffer[i]
-        mean = sum(values[:count]) / count if count else 0.0
+                validity[tail + i] = ctx.validity_buffer[i]
+        valid_values = [values[i] for i in range(count) if validity[i]]
+        valid_count = len(valid_values)
+        mean = sum(valid_values) / valid_count if valid_count else 0.0
         variance = 0.0
-        for i in range(count):
-            diff = values[i] - mean
+        for value in valid_values:
+            diff = value - mean
             variance += diff * diff
-        variance = variance / count if count else 0.0
+        variance = variance / valid_count if valid_count else 0.0
         return calc_autocorrelation(
-            values, count, mean=mean, variance=variance, lag=self._autocorr_lag
+            values, count, mean=mean, variance=variance, lag=self._autocorr_lag,
+            validity=validity,
         )
 
     def _turb_iqr_over_mean_aggr(self):
@@ -184,8 +202,19 @@ class LightweightDetector(IDetector):
             values[i] = ctx.turbulence_buffer[start + i]
         for i in range(start):
             values[tail + i] = ctx.turbulence_buffer[i]
-        mean = sum(values[:count]) / count if count else 0.0
-        ordered = values[:count]
+        validity = self._ordered_validity
+        if count < ctx.window_size:
+            for i in range(count):
+                validity[i] = ctx.validity_buffer[i]
+        else:
+            for i in range(tail):
+                validity[i] = ctx.validity_buffer[start + i]
+            for i in range(start):
+                validity[tail + i] = ctx.validity_buffer[i]
+        ordered = [values[i] for i in range(count) if validity[i]]
+        if not ordered:
+            return 0.0
+        mean = sum(ordered) / len(ordered)
         ordered.sort()
         q25 = self._quantile_sorted(ordered, 0.25)
         q75 = self._quantile_sorted(ordered, 0.75)
@@ -317,8 +346,10 @@ class LightweightDetector(IDetector):
     def is_ready(self):
         return (
             self._context.buffer_count >= self._context.window_size
+            and self._context.valid_count >= self._minimum_valid_samples
             and self._aggregated_context.buffer_count
             >= self._aggregated_context.window_size
+            and self._aggregated_context.valid_count >= self._minimum_valid_samples
         )
 
     def reset(self):

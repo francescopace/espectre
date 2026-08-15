@@ -375,10 +375,14 @@ from config import (
 )
 from detector_interface import MotionState
 from runtime_policy import (
-    PacketTimingTracker,
     RuntimeMotionPolicy,
     derive_detector_timing,
     nominal_packet_interval_us,
+)
+from temporal_csi_sampler import (
+    TemporalCsiSampler,
+    minimum_valid_slots,
+    temporal_window_slots,
 )
 from segmentation import SegmentationContext
 from tools.lib.performance_report import (
@@ -386,8 +390,12 @@ from tools.lib.performance_report import (
     STRESS_TARGET_RECALL,
     build_ml_replay_rows,
     load_or_compute_ml_replay_rows,
-    note_evaluation_tick,
     timing_cadence_for_window,
+)
+from tools.lib.temporal_replay import (
+    iter_temporal_admissions,
+    packet_timestamp_us,
+    target_pps_for_packets,
 )
 from csi_features import (
     AGGREGATED_TURBULENCE_FEATURES,
@@ -402,10 +410,10 @@ from csi_features import (
     extract_features_by_name,
 )
 
-DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE = derive_detector_timing(
-    nominal_packet_interval_us(100),
+DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE = temporal_window_slots(
+    100,
     SEGMENTATION_WINDOW_SIZE_MS,
-)["window_packets"]
+)
 from tools.lib.candidate_features import (
     CANDIDATE_FEATURES,
     assemble_feature_vector,
@@ -1541,7 +1549,7 @@ def _host_feature_base_stream_provenance(feature_names, trajectory_bin_us):
         if identity.get('provider') == 'channel_shape_trajectory':
             identity['trajectory_bin_us'] = int(trajectory_bin_us)
     return {
-        'transform': 'host_feature_rows_v3',
+        'transform': 'host_feature_rows_v4',
         'feature_names': list(feature_names),
         'row_stream': {
             'contract': 'host_feature_row_spine_v1',
@@ -1549,13 +1557,20 @@ def _host_feature_base_stream_provenance(feature_names, trajectory_bin_us):
                 'runtime_policy': npz_cache.source_manifest(
                     python_src_dir() / 'runtime_policy.py'
                 ),
+                'temporal_csi_sampler': npz_cache.source_manifest(
+                    python_src_dir() / 'temporal_csi_sampler.py'
+                ),
                 'config': npz_cache.source_manifest(
                     python_src_dir() / 'config.py'
                 ),
                 'row_builder_sha256': _implementation_source_digest(
                     build_host_feature_rows,
                     timing_cadence_for_window,
-                    note_evaluation_tick,
+                    iter_temporal_admissions,
+                    TemporalCsiSampler.admit,
+                    StreamingFeatureExtractor.process_packet,
+                    StreamingFeatureExtractor.advance_missing_slots,
+                    StreamingFeatureExtractor._ordered_series,
                 ),
             },
         },
@@ -1582,10 +1597,10 @@ def _host_feature_stream_provenance(feature_names, *,
 
 
 PRODUCTION_FEATURE_PROVIDER_VERSIONS = {
-    'turbulence_window': 1,
-    'aggregated_turbulence_window': 1,
+    'turbulence_window': 2,
+    'aggregated_turbulence_window': 2,
     'l1_delta_tracker': 1,
-    'channel_shape_trajectory': 1,
+    'channel_shape_trajectory': 2,
 }
 
 
@@ -5590,9 +5605,6 @@ class StreamingFeatureExtractor:
                 else nominal_packet_interval_us(self.window_packets)
             ),
         )
-        self.packet_timing_tracker = PacketTimingTracker(
-            self.packet_interval_us,
-        )
         self.trajectory_elapsed_us = 0
         self.trajectory_packet_count = 0
         self.context = SegmentationContext(
@@ -5667,6 +5679,13 @@ class StreamingFeatureExtractor:
             ChannelShapeTrajectoryTracker(
                 window_duration_us=SEGMENTATION_WINDOW_SIZE_MS * 1000,
                 bin_us=ACTIVE_TRAJECTORY_BIN_US,
+                track_subband_rank_gap=(
+                    'chan_shape_subband_rank_gap' in self.feature_names
+                ),
+                track_subband_kendall_lag_excess=(
+                    'chan_shape_subband_kendall_lag_excess'
+                    in self.feature_names
+                ),
             )
             if needs_channel_shape_trajectory(self.feature_names) else None
         )
@@ -5675,26 +5694,88 @@ class StreamingFeatureExtractor:
             if needs_amplitude_profiles(self.feature_names) else None
         )
 
-    def _trajectory_timestamp_us(self, packet):
+    @staticmethod
+    def _ordered_series(context):
+        """Return chronological turbulence values and missing-slot validity."""
+        count = context.buffer_count
+        if count < context.window_size:
+            return (
+                list(context.turbulence_buffer[:count]),
+                list(context.validity_buffer[:count]),
+            )
+        index = context.buffer_index
+        return (
+            list(context.turbulence_buffer[index:])
+            + list(context.turbulence_buffer[:index]),
+            list(context.validity_buffer[index:])
+            + list(context.validity_buffer[:index]),
+        )
+
+    def _trajectory_timestamp_us(self, packet, timestamp_us=None):
+        if timestamp_us is not None:
+            return int(timestamp_us)
+        resolved = packet_timestamp_us(
+            packet,
+            fallback_index=self.trajectory_packet_count,
+            fallback_interval_us=self.packet_interval_us,
+        ) if packet is not None else None
+        if resolved is not None:
+            self.trajectory_packet_count += 1
+            return int(resolved)
         if self.trajectory_packet_count == 0:
             self.trajectory_packet_count = 1
-            if packet is not None:
-                self.packet_timing_tracker.observe_packet(packet)
             return 0
-        timing = (
-            self.packet_timing_tracker.observe_packet(packet)
-            if packet is not None else None
-        )
-        delta_us = (
-            timing['delta_us']
-            if timing is not None and timing['source'] != 'missing'
-            else self.packet_interval_us
-        )
-        self.trajectory_elapsed_us += max(0, int(delta_us))
+        self.trajectory_elapsed_us += self.packet_interval_us
         self.trajectory_packet_count += 1
         return self.trajectory_elapsed_us
 
-    def process_packet(self, csi_data, packet=None):
+    def advance_missing_slots(self, count):
+        """Preserve temporal holes in every tracker that owns slot state."""
+        missing = max(0, int(count))
+        for _ in range(missing):
+            self.context.add_missing_slot()
+            if self.aggregated_context is not None:
+                self.aggregated_context.add_missing_slot()
+        if self.l1_tracker is not None:
+            self.l1_tracker.advance_missing_slots(missing)
+        for tracker in (
+            self.coherence_tracker,
+            self.phase_tracker,
+            self.shape_tracker,
+            self.amplitude_profile_tracker,
+        ):
+            advance = getattr(tracker, 'advance_missing_slots', None)
+            if callable(advance):
+                advance(missing)
+
+    def is_ready(self, minimum_valid_samples=None):
+        """Match the production detector readiness contract for host rows."""
+        minimum = (
+            self.window_packets
+            if minimum_valid_samples is None
+            else max(1, min(int(minimum_valid_samples), self.window_packets))
+        )
+        if self.context.buffer_count < self.window_packets:
+            return False
+        if self.context.valid_count < minimum:
+            return False
+        if (
+            self.aggregated_context is not None
+            and (
+                self.aggregated_context.buffer_count < self.window_packets
+                or self.aggregated_context.valid_count < minimum
+            )
+        ):
+            return False
+        if (
+            self.l1_tracker is not None
+            and self.window_packets > L1_DELTA_LAG
+            and self.l1_tracker.count == 0
+        ):
+            return False
+        return True
+
+    def process_packet(self, csi_data, packet=None, timestamp_us=None):
         turbulence, amplitudes = self.context.calculate_spatial_turbulence(
             csi_data,
             DEFAULT_SUBCARRIERS,
@@ -5737,22 +5818,17 @@ class StreamingFeatureExtractor:
         if self.shape_trajectory_tracker is not None:
             self.shape_trajectory_tracker.process_packet(
                 csi_data,
-                self._trajectory_timestamp_us(packet),
+                self._trajectory_timestamp_us(packet, timestamp_us),
             )
         if self.context.buffer_count < self.context.window_size:
             return None
 
-        idx = self.context.buffer_index
-        turb_list = (
-            self.context.turbulence_buffer[idx:]
-            + self.context.turbulence_buffer[:idx]
-        )
+        turb_list, turb_validity = self._ordered_series(self.context)
         aggregated_turb_list = None
+        aggregated_validity = None
         if self.aggregated_context is not None:
-            aggregated_idx = self.aggregated_context.buffer_index
-            aggregated_turb_list = (
-                self.aggregated_context.turbulence_buffer[aggregated_idx:]
-                + self.aggregated_context.turbulence_buffer[:aggregated_idx]
+            aggregated_turb_list, aggregated_validity = self._ordered_series(
+                self.aggregated_context
             )
         l1_count = (
             self.l1_tracker.copy_deltas_into(self.l1_series)
@@ -5775,6 +5851,8 @@ class StreamingFeatureExtractor:
                 )
                 else None
             ),
+            turbulence_validity=turb_validity,
+            aggregated_turbulence_validity=aggregated_validity,
             **_production_tracker_feature_kwargs(
                 self.production_names,
                 self.shape_trajectory_tracker,
@@ -5926,14 +6004,18 @@ def build_host_feature_rows(packets, feature_names, *,
         return _empty_feature_rows(requested_feature_names)
 
     interval_us = measure_packet_interval_us(packets)
-    timing = derive_detector_timing(interval_us, SEGMENTATION_WINDOW_SIZE_MS)
-    window_packets = timing["window_packets"]
-    timing_tracker, cadence = timing_cadence_for_window(window_packets, interval_us)
+    target_pps = target_pps_for_packets(packets, interval_us)
+    window_packets = temporal_window_slots(
+        target_pps,
+        SEGMENTATION_WINDOW_SIZE_MS,
+    )
+    _, cadence = timing_cadence_for_window(window_packets, interval_us)
     extractor = StreamingFeatureExtractor(
         requested_feature_names,
         window_packets,
         packet_interval_us=interval_us,
     )
+    minimum_samples = minimum_valid_slots(window_packets)
     packets_since_reset = 0
     reset_index = 0
     evaluation_index = 0
@@ -5943,30 +6025,40 @@ def build_host_feature_rows(packets, feature_names, *,
     reset_index_values = []
     evaluation_due_values = []
 
-    for packet_index, packet in enumerate(packets):
-        should_evaluate, contaminated = note_evaluation_tick(
-            cadence,
-            packet=packet,
-            timing_tracker=timing_tracker,
-        )
-        if contaminated:
+    for admission in iter_temporal_admissions(
+        packets,
+        target_pps=target_pps,
+        window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
+        fallback_interval_us=interval_us,
+    ):
+        packet_index = admission.packet_index
+        packet = admission.packet
+        if admission.reset_required:
             extractor = StreamingFeatureExtractor(
                 requested_feature_names,
                 window_packets,
                 packet_interval_us=interval_us,
             )
             cadence.reset()
-            timing_tracker.reset()
             reset_index += 1
-            should_evaluate, _ = note_evaluation_tick(
-                cadence,
-                packet=packet,
-                timing_tracker=timing_tracker,
-            )
             packets_since_reset = 0
-        values = extractor.process_packet(packet_csi_data(packet), packet=packet)
-        packets_since_reset += 1
-        if values is None or packets_since_reset < window_packets:
+        elif admission.missing_slots_before:
+            extractor.advance_missing_slots(admission.missing_slots_before)
+        cadence.note_packet(elapsed_us=admission.coverage_us)
+        should_evaluate = cadence.should_evaluate()
+        if should_evaluate:
+            cadence.after_evaluation()
+        values = extractor.process_packet(
+            packet_csi_data(packet),
+            packet=packet,
+            timestamp_us=admission.timestamp_us,
+        )
+        packets_since_reset = admission.slot_index + 1
+        if (
+            values is None
+            or packets_since_reset < window_packets
+            or not extractor.is_ready(minimum_samples)
+        ):
             continue
         dense_row_index = evaluation_index
         evaluation_index += 1

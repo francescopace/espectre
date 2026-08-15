@@ -92,14 +92,12 @@ def _attach_runtime_policy_primitives(module: ModuleType) -> None:
         derive_detector_timing,
         duration_packet_count,
         nominal_packet_interval_us,
-        resolve_detector_timing_update,
     )
 
     module.PacketTimingTracker = PacketTimingTracker
     module.derive_detector_timing = derive_detector_timing
     module.duration_packet_count = duration_packet_count
     module.nominal_packet_interval_us = nominal_packet_interval_us
-    module.resolve_detector_timing_update = resolve_detector_timing_update
 
 
 def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collector_cls=object, config_overrides=None) -> None:
@@ -164,6 +162,19 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
             return []
 
     class FakeLightweightBaseDetector(FakeHighAccuracyDetector):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self._seen_packets = 0
+
+        def process_packet(self, csi_data, subcarriers):
+            self._seen_packets += 1
+
+        def reset(self):
+            self._seen_packets = 0
+
+        def is_ready(self):
+            return self._seen_packets >= 2
+
         def update_state(self):
             return {"moving_variance": 0.0, "threshold": self._threshold, "state": 0}
 
@@ -1149,6 +1160,7 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
         def __init__(self, seq_num: int):
             self.seq_num = seq_num
             self.device_id = 0xABC123
+            self.device_ticks_us = seq_num * 10_000
             self.iq_raw = [seq_num, seq_num + 1, seq_num + 2, seq_num + 3]
             self.source_ip = "192.168.1.29"
             self.channel = 8
@@ -2200,11 +2212,11 @@ def test_collect_live_sets_detector_window_from_pps(monkeypatch, capsys) -> None
     )
 
     capsys.readouterr()
-    assert CapturingLightweightDetector.windows == [80, 80]
+    assert CapturingLightweightDetector.windows == [1, 1]
     assert CapturingRuntimeMotionPolicy.evaluation_intervals == [10, 10]
 
 
-def test_collect_live_adapts_detector_window_to_measured_device_rate(
+def test_collect_live_keeps_detector_window_fixed_at_requested_rate(
     monkeypatch,
     capsys,
 ) -> None:
@@ -2286,8 +2298,7 @@ def test_collect_live_adapts_detector_window_to_measured_device_rate(
     )
 
     capsys.readouterr()
-    assert CapturingLightweightDetector.windows[:2] == [100, 100]
-    assert CapturingLightweightDetector.windows[-2:] == [80, 80]
+    assert CapturingLightweightDetector.windows == [100, 100]
 
 
 def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, capsys) -> None:
@@ -2312,6 +2323,7 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
         def __init__(self, seq_num: int, device_id: int):
             self.seq_num = seq_num
             self.device_id = device_id
+            self.device_ticks_us = seq_num * 10_000
             self.iq_raw = [seq_num, seq_num + 1, seq_num + 2, seq_num + 3]
             self.chip = "c6" if device_id == 0x11 else "s3"
             self.source_ip = "192.168.1.17" if device_id == 0x11 else "192.168.1.24"
@@ -2440,7 +2452,7 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
     fake_threshold = ModuleType("threshold")
 
     fake_config.DEFAULT_SUBCARRIERS = [12, 14]
-    fake_config.SEGMENTATION_WINDOW_SIZE_MS = 20
+    fake_config.SEGMENTATION_WINDOW_SIZE_MS = 1000
     fake_config.CALIBRATION_DURATION_MS = 1000
     fake_config.ENABLE_LOWPASS_FILTER = False
     fake_config.LOWPASS_CUTOFF = 11.0
@@ -2456,6 +2468,7 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
         def __init__(self, seq_num: int, device_id: int):
             self.seq_num = seq_num
             self.device_id = device_id
+            self.device_ticks_us = seq_num * 250_000
             self.iq_raw = [seq_num, seq_num + 1, seq_num + 2, seq_num + 3]
             self.chip = "c6" if device_id == 0x11 else "s3"
             self.source_ip = "192.168.1.17" if device_id == 0x11 else "192.168.1.24"
@@ -2479,8 +2492,10 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
                 FakePacket(2, 0x22),
                 FakePacket(3, 0x11),
                 FakePacket(3, 0x22),
-                FakePacket(4, 0x11),
-                FakePacket(4, 0x22),
+                    FakePacket(4, 0x11),
+                    FakePacket(4, 0x22),
+                    FakePacket(5, 0x11),
+                    FakePacket(5, 0x22),
             ]
             for packet in packets:
                 for callback in self._callbacks:
@@ -2656,7 +2671,7 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
     output = capsys.readouterr().out
     assert "Detector:" in output and "Lightweight Detection" in output
     assert "STATUS: CALIBRATING" in output
-    assert calibration_calls == [7.0, 7.0]
+    assert calibration_calls == [9.0, 9.0]
     assert FakeLightweightDetector.adaptive_thresholds == [8.0, 8.0]
     assert "thr:8.000000 | IDLE | 0 pkt/s | drop 0.0% | bp:--" in output
     assert "STATUS: COLLECTING 2/2" in output
@@ -2667,6 +2682,7 @@ def test_collect_live_runs_parallel_detectors_per_device(monkeypatch, capsys) ->
         def __init__(self, seq_num: int):
             self.seq_num = seq_num
             self.device_id = 0x22
+            self.device_ticks_us = seq_num * 250_000
             self.iq_raw = [seq_num, seq_num + 1, seq_num + 2, seq_num + 3]
             self.chip = "c3"
             self.source_ip = "192.168.1.24"
@@ -2683,7 +2699,7 @@ def test_collect_live_runs_parallel_detectors_per_device(monkeypatch, capsys) ->
             self._callbacks.append(callback)
 
         def run(self, timeout: float = 0, quiet: bool = False):
-            for seq_num in range(1, 5):
+            for seq_num in range(1, 6):
                 for callback in self._callbacks:
                     callback(FakePacket(seq_num))
             raise KeyboardInterrupt
@@ -2705,7 +2721,10 @@ def test_collect_live_runs_parallel_detectors_per_device(monkeypatch, capsys) ->
         monkeypatch,
         FakeReceiver,
         FakePacingSender,
-        config_overrides={"CALIBRATION_DURATION_MS": 500},
+        config_overrides={
+            "CALIBRATION_DURATION_MS": 500,
+            "SEGMENTATION_WINDOW_SIZE_MS": 1000,
+        },
     )
 
     host.collect_csi_data(

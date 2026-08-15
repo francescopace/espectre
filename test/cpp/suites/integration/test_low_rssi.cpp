@@ -37,6 +37,7 @@ espectre::test::replay::ReplayPacketMetadata packet_metadata(
       data.stream_seq_num.empty() ? nullptr : data.stream_seq_num.data(),
       data.device_ticks_us.empty() ? nullptr : data.device_ticks_us.data(),
       data.wifi_rx_ts_us.empty() ? nullptr : data.wifi_rx_ts_us.data(),
+      data.csi_target_pps,
   };
 }
 

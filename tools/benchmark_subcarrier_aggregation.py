@@ -55,6 +55,7 @@ setup_paths()
 import config  # noqa: E402
 from lightweight_detector import LightweightDetector  # noqa: E402
 from high_accuracy_detector import HighAccuracyDetector  # noqa: E402
+from temporal_csi_sampler import minimum_valid_slots, temporal_window_slots  # noqa: E402
 from ml_weights import FEATURE_NAMES  # noqa: E402
 from tools.fit_lightweight_detector import (  # noqa: E402
     balanced_sample_weights,
@@ -71,10 +72,8 @@ from tools.lib.dataset_metadata import (  # noqa: E402
     resolve_entry_path,
 )
 from tools.lib.adjacent_aggregation import aggregated_amplitudes  # noqa: E402
-from tools.lib.performance_report import (  # noqa: E402
-    note_evaluation_tick,
-    timing_cadence_for_window,
-)
+from tools.lib.performance_report import temporal_detector_ticks  # noqa: E402
+from tools.lib.temporal_replay import target_pps_for_packets  # noqa: E402
 
 LIVE_BINS: Tuple[int, ...] = tuple(range(4, 32)) + tuple(range(33, 61))
 DEFAULT_WIDTHS: Tuple[int, ...] = (2, 3, 5)
@@ -366,27 +365,25 @@ def ml_feature_rows(packets: Sequence[Dict[str, Any]], band: Sequence[int]) -> n
     Reads the detector's own extractor rather than reassembling the feature
     vector here, so the trackers, filters, and timing stay production behaviour.
     """
-    timing = derive_detector_timing(measure_packet_interval_us(packets))
+    interval_us = measure_packet_interval_us(packets)
+    target_pps = target_pps_for_packets(packets, interval_us)
+    timing = derive_detector_timing(max(1, int(round(1_000_000.0 / target_pps))))
+    timing["window_packets"] = temporal_window_slots(
+        target_pps, config.SEGMENTATION_WINDOW_SIZE_MS
+    )
     detector = HighAccuracyDetector(
         window_size=timing["window_packets"],
         lag=timing["lag"],
         autocorr_lag=timing["autocorr_lag"],
     )
-    tracker, cadence = timing_cadence_for_window(
-        timing["window_packets"], measure_packet_interval_us(packets)
+    detector.set_minimum_valid_samples(
+        minimum_valid_slots(timing["window_packets"])
     )
     rows = []
-    for packet in packets:
-        should_evaluate, contaminated = note_evaluation_tick(
-            cadence, packet=packet, timing_tracker=tracker
-        )
-        if contaminated:
-            detector.reset()
-            cadence.reset()
-            tracker.reset()
-            should_evaluate, _ = note_evaluation_tick(
-                cadence, packet=packet, timing_tracker=tracker
-            )
+    for admission, should_evaluate, _ in temporal_detector_ticks(
+        detector, packets, interval_us
+    ):
+        packet = admission.packet
         detector.process_packet(packet["csi_data"], band)
         if not should_evaluate or not detector.is_ready():
             continue
@@ -505,29 +502,26 @@ def candidate_rows(packets: Sequence[Dict[str, Any]], band: Sequence[int]) -> np
     The turbulence series and the amplitude profiles come from the unmodified
     production path; only the statistics computed over them are defined here.
     """
-    timing = derive_detector_timing(measure_packet_interval_us(packets))
+    interval_us = measure_packet_interval_us(packets)
+    target_pps = target_pps_for_packets(packets, interval_us)
+    timing = derive_detector_timing(max(1, int(round(1_000_000.0 / target_pps))))
+    timing["window_packets"] = temporal_window_slots(
+        target_pps, config.SEGMENTATION_WINDOW_SIZE_MS
+    )
     window = timing["window_packets"]
     detector = LightweightDetector(
         window_size=window, autocorr_lag=timing["autocorr_lag"]
     )
-    tracker, cadence = timing_cadence_for_window(
-        window, measure_packet_interval_us(packets)
-    )
+    detector.set_minimum_valid_samples(minimum_valid_slots(window))
     context = detector._context
     history: List[List[float]] = []
     rows = []
-    for packet in packets:
-        should_evaluate, contaminated = note_evaluation_tick(
-            cadence, packet=packet, timing_tracker=tracker
-        )
-        if contaminated:
-            detector.reset()
-            cadence.reset()
-            tracker.reset()
+    for admission, should_evaluate, _ in temporal_detector_ticks(
+        detector, packets, interval_us
+    ):
+        packet = admission.packet
+        if admission.reset_required:
             history.clear()
-            should_evaluate, _ = note_evaluation_tick(
-                cadence, packet=packet, timing_tracker=tracker
-            )
         detector.process_packet(packet["csi_data"], band)
         history.append(list(context._amplitude_buffer[: context._amplitude_count]))
         if len(history) > window:

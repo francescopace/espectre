@@ -105,6 +105,7 @@ class LightweightDetector : public BaseDetector {
                       const uint8_t* selected_subcarriers = nullptr,
                       uint8_t num_subcarriers = 0,
                       int8_t rssi_dbm = INT8_MIN) override;
+  void advance_missing_slots(uint32_t count) override;
   void update_state() override;
   void reset() override;
   void clear_buffer() override;
@@ -158,6 +159,7 @@ class LightweightDetector : public BaseDetector {
   std::vector<float> aggregated_turbulence_buffer_;
   uint16_t aggregated_turbulence_index_;
   uint16_t aggregated_turbulence_count_;
+  uint16_t aggregated_valid_count_;
   hampel_filter_state_t aggregated_hampel_state_;
   lowpass_filter_state_t aggregated_lowpass_state_;
 };

@@ -11,6 +11,128 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from detector_interface import MotionState
 import config
 from runtime_policy import PacketTimingTracker, RuntimeMotionPolicy, derive_detector_timing
+from temporal_csi_sampler import (
+    TemporalCsiSampler,
+    minimum_sample_spacing_us,
+    minimum_valid_slots,
+    temporal_window_slots,
+)
+
+
+def test_internal_traffic_defaults_to_fixed_cadence():
+    assert config.TRAFFIC_GENERATOR_ADAPTIVE is False
+
+
+class TestTemporalCsiSampler:
+    def test_derives_window_and_coverage_without_hardcoded_packet_floor(self):
+        assert temporal_window_slots(100, 1000) == 100
+        assert temporal_window_slots(94, 1500) == 141
+        assert minimum_valid_slots(100) == 80
+        assert minimum_valid_slots(141) == 113
+        assert minimum_sample_spacing_us(100) == 8_000
+
+    def test_admits_one_packet_per_slot_and_counts_burst_excess(self):
+        sampler = TemporalCsiSampler(100, 1000)
+
+        assert sampler.admit(1_000_000)
+        for offset_us in (100, 500):
+            assert not sampler.admit(1_000_000 + offset_us)
+        assert sampler.admit(1_009_999)
+        assert not sampler.admit(1_010_000)
+
+        assert sampler.accepted_packets == 2
+        assert sampler.excess_packets == 3
+        assert sampler.current_slot == 1
+
+    def test_centered_slots_tolerate_alternating_scheduler_jitter(self):
+        sampler = TemporalCsiSampler(100, 1000)
+
+        timestamps = [0]
+        for pair in range(1, 51):
+            timestamps.extend((pair * 20_000 - 11_000, pair * 20_000))
+
+        assert all(sampler.admit(timestamp) for timestamp in timestamps)
+        assert sampler.accepted_packets == 101
+        assert sampler.excess_packets == 0
+        assert sampler.missing_slots == 0
+        assert sampler.occupancy_slots == 100
+        assert sampler.is_ready
+
+    def test_preserves_missing_slots_and_uses_temporal_occupancy(self):
+        sampler = TemporalCsiSampler(10, 1000)
+
+        for slot in range(10):
+            if slot in (3, 7):
+                continue
+            assert sampler.admit(100_000 * slot)
+
+        assert sampler.current_slot == 9
+        assert sampler.occupancy_slots == 8
+        assert sampler.missing_slots == 2
+        assert sampler.minimum_valid_slots == 8
+        assert sampler.is_ready
+
+    def test_rejects_duplicate_backward_and_stale_timestamps(self):
+        sampler = TemporalCsiSampler(100, 1000)
+
+        assert sampler.admit(2_000_000)
+        assert not sampler.admit(2_000_000)
+        assert not sampler.admit(1_999_999)
+        assert not sampler.admit(2_010_000, now_us=3_010_000)
+
+        assert sampler.duplicate_packets == 1
+        assert sampler.out_of_order_packets == 1
+        assert sampler.stale_packets == 1
+
+    def test_accepts_uint32_wrap_without_resetting(self):
+        sampler = TemporalCsiSampler(100, 1000)
+
+        assert sampler.admit((1 << 32) - 5_000)
+        assert sampler.admit(5_000)
+
+        assert sampler.current_slot == 1
+        assert sampler.gap_resets == 0
+
+    def test_window_sized_gap_requests_history_reset(self):
+        sampler = TemporalCsiSampler(100, 1000)
+
+        assert sampler.admit(100)
+        assert sampler.admit(1_000_100)
+
+        assert sampler.reset_required
+        assert sampler.current_slot == 0
+        assert sampler.occupancy_slots == 1
+        assert sampler.gap_resets == 1
+
+    def test_matches_the_cpp_cross_runtime_trace(self):
+        sampler = TemporalCsiSampler(20, 500)
+        timestamps = (
+            1_000_000,
+            1_000_100,
+            1_050_000,
+            1_150_000,
+            1_150_000,
+            1_149_999,
+            1_300_000,
+            1_800_000,
+            1_800_100,
+            1_850_000,
+        )
+
+        assert [sampler.admit(value) for value in timestamps] == [
+            True, False, True, True, False, False, True, True, False, True
+        ]
+        assert (
+            sampler.accepted_packets,
+            sampler.excess_packets,
+            sampler.duplicate_packets,
+            sampler.out_of_order_packets,
+            sampler.missing_slots,
+            sampler.gap_resets,
+            sampler.current_slot,
+            sampler.occupancy_slots,
+            sampler.is_ready,
+        ) == (6, 2, 1, 1, 3, 1, 1, 2, False)
 
 
 class TestRuntimeMotionPolicy:
@@ -179,39 +301,6 @@ class TestRuntimeMotionPolicy:
 
     def test_note_arrival_requires_advancing_timestamps(self):
         assert self._count_evaluations(0, 3000) == 0
-
-    def test_detector_rate_support_holds_below_80_pps(self):
-        policy = RuntimeMotionPolicy(evaluation_interval_ms=250)
-        timestamp = 1_000_000
-        for _ in range(20):
-            policy.note_arrival(timestamp)
-            timestamp += 12_501
-
-        assert not policy.detector_rate_supported
-
-        recovered = RuntimeMotionPolicy(evaluation_interval_ms=250)
-        timestamp = 1_000_000
-        for _ in range(20):
-            recovered.note_arrival(timestamp)
-            timestamp += 12_500
-
-        assert recovered.detector_rate_supported
-
-    def test_detector_timing_update_uses_shared_measured_rate_deadband(self):
-        policy = RuntimeMotionPolicy(
-            evaluation_interval_ms=250,
-            segmentation_window_size_ms=1000,
-        )
-        timestamp = 1_000_000
-        for _ in range(32):
-            policy.note_arrival(timestamp)
-            timestamp += 12_500
-
-        update = policy.resolve_detector_timing_update(100)
-
-        assert update["interval_us"] == 12_500
-        assert update["window_packets"] == 80
-        assert policy.resolve_detector_timing_update(82) is None
 
     def test_packet_timing_tracker_does_not_infer_missing_timestamps(self):
         tracker = PacketTimingTracker(10_000)

@@ -1,8 +1,9 @@
 # ADR: configure detector windows in milliseconds
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-08-10
-- Updated: 2026-08-12
+- Updated: 2026-08-15
+- Superseded by: `2026-08-15-use-fixed-temporal-csi-admission.md`
 
 ## Context
 

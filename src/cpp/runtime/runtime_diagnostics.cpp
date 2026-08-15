@@ -55,8 +55,22 @@ RuntimeDiagnosticsSample RuntimeDiagnosticsSampler::sample(const RuntimeDiagnost
       counter_delta(snapshot.csi_callbacks_total, previous_.csi_callbacks_total), elapsed_ms);
   result.csi_accepted_pps = packets_per_second(
       counter_delta(snapshot.csi_accepted_total, previous_.csi_accepted_total), elapsed_ms);
+  result.csi_admitted_pps = packets_per_second(
+      counter_delta(snapshot.csi_admitted_total, previous_.csi_admitted_total), elapsed_ms);
   result.csi_filtered_pps = packets_per_second(
       counter_delta(snapshot.csi_filtered_total, previous_.csi_filtered_total), elapsed_ms);
+  result.csi_missing_slots_pps = packets_per_second(
+      counter_delta(snapshot.csi_missing_slots_total, previous_.csi_missing_slots_total), elapsed_ms);
+  result.csi_excess_pps = packets_per_second(
+      counter_delta(snapshot.csi_excess_total, previous_.csi_excess_total), elapsed_ms);
+  result.csi_stale_pps = packets_per_second(
+      counter_delta(snapshot.csi_stale_total, previous_.csi_stale_total), elapsed_ms);
+  result.csi_out_of_order_pps = packets_per_second(
+      counter_delta(snapshot.csi_out_of_order_total, previous_.csi_out_of_order_total), elapsed_ms);
+  result.csi_occupancy_ratio = snapshot.csi_window_slots > 0U
+      ? static_cast<float>(snapshot.csi_occupancy_slots) /
+            static_cast<float>(snapshot.csi_window_slots)
+      : 0.0f;
   reset(snapshot, now_ms);
   return result;
 }
@@ -86,8 +100,8 @@ void visit_runtime_diagnostics(const RuntimeConfig &config,
     visitor("hampel_threshold", value);
   }
   visitor("traffic_mode", traffic_mode_name(config.traffic_generator_mode));
-  std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.traffic_generator_rate));
-  visitor("traffic_rate", value);
+  std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.csi_target_pps));
+  visitor("csi_target_pps", value);
   visitor("traffic_adaptive", config.traffic_generator_adaptive ? "on" : "off");
   std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.publish_interval_ms));
   visitor("publish_interval_ms", value);

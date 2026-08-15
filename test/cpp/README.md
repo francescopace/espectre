@@ -35,7 +35,7 @@ The normal test runner, direct single-config CMake builds, and the performance-r
 
 The test, coverage, and performance-report launchers use every detected logical CPU by default. Set the standard `CTEST_PARALLEL_LEVEL` environment variable to a positive integer to limit concurrency on constrained hosts.
 
-`test_packet_rate_adaptation` replays 60-second prefixes at 120, 100, and 80 pps, covering the upper, nominal, and lower boundaries of the supported detector cadence without repeating the full high-rate captures.
+`test_packet_rate_adaptation` replays 60-second prefixes at 120, 100, and 80 pps through the fixed temporal-admission grid. Those rates exercise denser capture, the default target, and a lower explicit target; they are not an automatic supported-cadence floor.
 
 ### Source Ownership
 
@@ -43,7 +43,7 @@ Each contract has one primary unit-test owner. Integration and parity suites con
 
 | Production source | Primary test owner | Separate integration or parity gate |
 |---|---|---|
-| `src/cpp/core/utils.*`, feature helpers, and CSI format helpers | `test_utils`, `test_core_helpers` | `test_motion_detection` only for replay metrics |
+| `src/cpp/core/utils.*`, feature helpers, CSI format helpers, and `temporal_csi_sampler.*` | `test_utils`, `test_core_helpers` | `test_motion_detection` only for replay metrics |
 | `src/cpp/core/hampel_filter.*` | `test_hampel_filter` | Detector replay suites run it without duplicating filter expectations |
 | `src/cpp/core/lightweight_detector.*` | `test_lightweight_detector` | `test_motion_detection`, `test_long_recordings`, `test_low_rssi`, and `test_empty_rooms` |
 | `src/cpp/core/high_accuracy_detector.*` and generated weights | `test_high_accuracy_detector` | `test_motion_detection` and `test_long_recordings` |

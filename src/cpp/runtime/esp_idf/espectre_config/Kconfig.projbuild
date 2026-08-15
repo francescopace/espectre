@@ -43,22 +43,46 @@ config ESPECTRE_SEGMENTATION_WINDOW_SIZE_MS
     range 1000 2000
     default 1000
     help
-        Detector window in elapsed time. The runtime resolves this duration to
-        samples from the measured valid CSI cadence.
+        Detector window in elapsed time. The runtime combines this duration
+        with the configured CSI target to build a fixed temporal slot grid.
 
-config ESPECTRE_TRAFFIC_GENERATOR_RATE
-    int "Target valid CSI rate (pps)"
-    range 0 1000
+config ESPECTRE_CSI_TARGET_PPS
+    int "Target CSI sensing cadence (pps)"
+    range 1 500
     default 100
     help
-        Zero disables internal traffic generation and expects external traffic.
+        Defines the detector's temporal sampling grid and the target used by
+        managed traffic. Select the CSI traffic mode separately; zero is not a
+        disable sentinel.
+
+choice ESPECTRE_CSI_TRAFFIC_MODE
+    prompt "CSI traffic ownership"
+    default ESPECTRE_CSI_TRAFFIC_MODE_INTERNAL
+    help
+        Select who supplies CSI-bearing traffic. This is independent of the
+        positive sensing target configured above.
+
+    config ESPECTRE_CSI_TRAFFIC_MODE_INTERNAL
+        bool "Internal generator"
+
+    config ESPECTRE_CSI_TRAFFIC_MODE_EXTERNAL
+        bool "External source"
+
+    config ESPECTRE_CSI_TRAFFIC_MODE_PACING
+        bool "Externally paced source"
+
+    config ESPECTRE_CSI_TRAFFIC_MODE_DISABLED
+        bool "Unmanaged ambient traffic"
+endchoice
 
 config ESPECTRE_TRAFFIC_GENERATOR_ADAPTIVE
     bool "Adapt traffic rate from valid CSI callbacks"
-    default y
+    default n
     help
         Adjust the internal DNS or ping send rate to keep valid local CSI
-        callbacks close to the configured target rate.
+        callbacks close to the configured target rate. Leave disabled for a
+        fixed send cadence; unrelated application traffic also contributes CSI
+        callbacks and can otherwise make the controller reduce managed traffic.
 
 choice ESPECTRE_TRAFFIC_GENERATOR_MODE
     prompt "Traffic generator mode"

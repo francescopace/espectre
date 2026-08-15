@@ -19,6 +19,8 @@ def test_host_candidates_stay_out_of_the_runtime_surface() -> None:
     assert set(CANDIDATE_FEATURES).isdisjoint(ALL_FEATURES)
     for feature_name in (
         "chan_shape_coherent_innovation_contrast",
+        "chan_shape_subband_kendall_lag_excess",
+        "chan_shape_subband_rank_gap",
         "chan_shape_scale_curvature",
         "chan_freq_coh_curve_std",
     ):
@@ -27,6 +29,36 @@ def test_host_candidates_stay_out_of_the_runtime_surface() -> None:
     assert train_ml_model.resolve_cpp_feature_ids(
         ["chan_shape_spread_subband"]
     ) == [48]
+
+
+def test_subband_rank_tracking_is_enabled_only_for_the_candidate() -> None:
+    production = train_ml_model.StreamingFeatureExtractor(
+        ["chan_shape_spread_subband"]
+    )
+    candidate = train_ml_model.StreamingFeatureExtractor(
+        ["chan_shape_subband_rank_gap"]
+    )
+
+    assert not production.shape_trajectory_tracker.track_subband_rank_gap
+    assert candidate.shape_trajectory_tracker.track_subband_rank_gap
+
+
+def test_subband_kendall_tracking_is_enabled_only_for_the_candidate() -> None:
+    production = train_ml_model.StreamingFeatureExtractor(
+        ["chan_shape_spread_subband"]
+    )
+    candidate = train_ml_model.StreamingFeatureExtractor(
+        ["chan_shape_subband_kendall_lag_excess"]
+    )
+
+    assert not (
+        production.shape_trajectory_tracker
+        .track_subband_kendall_lag_excess
+    )
+    assert (
+        candidate.shape_trajectory_tracker
+        .track_subband_kendall_lag_excess
+    )
 
 
 def test_turbulence_candidates_match_their_definitions() -> None:

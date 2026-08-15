@@ -10,8 +10,10 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <new>
 
 #include "csi_format.h"
@@ -31,6 +33,7 @@ namespace espectre {
 struct L1DeltaWindow {
   float* ring{nullptr};
   uint16_t index{0U};
+  uint16_t slots{0U};
   uint16_t count{0U};
   float sum{0.0f};
 
@@ -38,24 +41,27 @@ struct L1DeltaWindow {
     if (capacity == 0U || ring == nullptr) {
       return;
     }
-    if (count >= capacity) {
+    if (slots >= capacity && std::isfinite(ring[index])) {
       sum -= ring[index];
+      --count;
     }
     ring[index] = value;
-    sum += value;
+    if (std::isfinite(value)) {
+      sum += value;
+      ++count;
+    }
     index++;
     if (index >= capacity) {
       index = 0U;
     }
-    if (count < capacity) {
-      count++;
-    }
+    if (slots < capacity) ++slots;
   }
 
   float mean() const { return count > 0U ? sum / static_cast<float>(count) : 0.0f; }
 
   void clear(uint16_t capacity) {
     index = 0U;
+    slots = 0U;
     count = 0U;
     sum = 0.0f;
     if (ring != nullptr && capacity > 0U) {
@@ -169,6 +175,8 @@ class L1DeltaTracker {
     const float *previous = profile_ring_[previous_index];
     const uint8_t previous_len = profile_len_[previous_index];
     uint8_t profile_len = 0U;
+    float lagged_value = std::numeric_limits<float>::quiet_NaN();
+    float adjacent_value = std::numeric_limits<float>::quiet_NaN();
 
     if (amplitudes != nullptr && amplitude_count >= 2U &&
         amplitude_count <= HT20_SELECTED_BAND_SIZE) {
@@ -189,14 +197,12 @@ class L1DeltaTracker {
           }
         }
         if (lagged) {
-          lagged_.push(hampel_filter_turbulence(&hampel_state_,
-                                                lagged_sum / profile_len),
-                       capacity_);
+          lagged_value = hampel_filter_turbulence(
+              &hampel_state_, lagged_sum / profile_len);
         }
         if (adjacent) {
-          adjacent_.push(hampel_filter_turbulence(&hampel_adjacent_,
-                                                  adjacent_sum / profile_len),
-                         capacity_);
+          adjacent_value = hampel_filter_turbulence(
+              &hampel_adjacent_, adjacent_sum / profile_len);
         }
       }
     }
@@ -206,6 +212,19 @@ class L1DeltaTracker {
     profile_index_++;
     if (profile_index_ >= lag_) {
       profile_index_ = 0U;
+    }
+    lagged_.push(lagged_value, capacity_);
+    adjacent_.push(adjacent_value, capacity_);
+  }
+
+  void advance_missing_slots(uint32_t count) {
+    const float missing = std::numeric_limits<float>::quiet_NaN();
+    for (uint32_t slot = 0U; slot < count; ++slot) {
+      profile_len_[profile_index_] = 0U;
+      profile_index_++;
+      if (profile_index_ >= lag_) profile_index_ = 0U;
+      lagged_.push(missing, capacity_);
+      adjacent_.push(missing, capacity_);
     }
   }
 
@@ -232,16 +251,16 @@ class L1DeltaTracker {
     if (out == nullptr || capacity_ == 0U || lagged_.count == 0U) {
       return 0U;
     }
-    // Still filling: the ring has not wrapped, so it is already chronological.
-    if (lagged_.count < capacity_) {
-      std::memcpy(out, lagged_.ring, static_cast<size_t>(lagged_.count) * sizeof(float));
-      return lagged_.count;
+    const uint16_t slots = lagged_.slots;
+    uint16_t source = slots < capacity_ ? 0U : lagged_.index;
+    uint16_t written = 0U;
+    for (uint16_t offset = 0U; offset < slots; ++offset) {
+      const float value = lagged_.ring[source];
+      if (std::isfinite(value)) out[written++] = value;
+      source++;
+      if (source >= capacity_) source = 0U;
     }
-    // Wrapped and full: two contiguous runs, no modulo per element.
-    const uint16_t tail = static_cast<uint16_t>(capacity_ - lagged_.index);
-    std::memcpy(out, lagged_.ring + lagged_.index, static_cast<size_t>(tail) * sizeof(float));
-    std::memcpy(out + tail, lagged_.ring, static_cast<size_t>(lagged_.index) * sizeof(float));
-    return lagged_.count;
+    return written;
   }
 
  private:

@@ -76,7 +76,7 @@ def test_merge_timing_summaries_keeps_the_worst_bucket():
     assert merged["max_gap_ms"] > 150.0
 
 
-def test_build_ml_replay_rows_resets_after_contamination_gap():
+def test_build_ml_replay_rows_preserves_subwindow_missing_slots_without_reset():
     rows = performance_report.build_ml_replay_rows(
         _timed_packets(count=256, gap_index=128, gap_us=400_000, missing_seq_step=40),
         trainer.DEFAULT_SUBCARRIERS,
@@ -86,9 +86,102 @@ def test_build_ml_replay_rows_resets_after_contamination_gap():
 
     assert rows["X"].shape[1] == len(trainer.EXPORTED_FEATURE_NAMES)
     assert len(rows["packet_index"]) == len(rows["evaluation_index"]) == len(rows["reset_index"])
-    assert np.any(rows["reset_index"] > 0)
+    assert np.all(rows["reset_index"] == 0)
     assert rows["evaluation_index"][0] == 0
     assert np.all(np.diff(rows["packet_index"]) > 0)
+
+
+def test_ml_replay_rows_keep_caller_window_rate_on_mismatched_capture():
+    """Paired replay must keep the motion phase on the baseline temporal grid."""
+    packets = _timed_packets(count=256)
+    native = performance_report.build_ml_replay_rows(
+        packets,
+        trainer.DEFAULT_SUBCARRIERS,
+        feature_names=trainer.EXPORTED_FEATURE_NAMES,
+    )
+    forced = performance_report.build_ml_replay_rows(
+        packets,
+        trainer.DEFAULT_SUBCARRIERS,
+        90,
+        trainer.EXPORTED_FEATURE_NAMES,
+    )
+
+    assert native["target_pps"] == 100
+    assert forced["target_pps"] == 90
+
+
+def test_replay_packet_timestamp_prefers_wifi_rx_like_cpp_gate():
+    packet = {"wifi_rx_ts_us": 111, "device_ticks_us": 222}
+
+    assert performance_report._packet_timestamp_us(packet, 3, 10_000) == 111
+    assert performance_report._packet_timestamp_us(
+        {"device_ticks_us": 222}, 3, 10_000
+    ) == 222
+    assert performance_report._packet_timestamp_us({}, 3, 10_000) == 30_000
+
+
+def test_host_candidate_rows_match_runtime_temporal_readiness():
+    packets = _timed_packets(count=220)
+    timestamp_us = 0
+    for index, packet in enumerate(packets):
+        timestamp_us += 20_000 if index and index % 10 == 0 else 10_000
+        packet["device_ticks_us"] = timestamp_us
+        packet["csi_target_pps"] = 100
+
+    runtime_rows = performance_report.build_ml_replay_rows(
+        packets,
+        trainer.DEFAULT_SUBCARRIERS,
+        feature_names=trainer.EXPORTED_FEATURE_NAMES,
+        sample_contract="stream_dense",
+    )
+    host_rows = trainer.build_host_feature_rows(
+        packets,
+        [
+            *trainer.EXPORTED_FEATURE_NAMES[:-1],
+            "chan_shape_subband_kendall_lag_excess",
+        ],
+        sample_contract="stream_dense",
+    )
+
+    assert len(runtime_rows["X"]) > 0
+    np.testing.assert_array_equal(
+        host_rows["packet_index"], runtime_rows["packet_index"]
+    )
+    np.testing.assert_array_equal(
+        host_rows["reset_index"], runtime_rows["reset_index"]
+    )
+    shared = len(trainer.EXPORTED_FEATURE_NAMES) - 1
+    np.testing.assert_allclose(
+        host_rows["X"][:, :shared],
+        runtime_rows["X"][:, :shared],
+        rtol=1e-5,
+        atol=1e-5,
+    )
+
+    sparse_packets = _timed_packets(count=160)
+    timestamp_us = 0
+    for packet in sparse_packets:
+        timestamp_us += 20_000
+        packet["device_ticks_us"] = timestamp_us
+        packet["csi_target_pps"] = 100
+
+    sparse_runtime = performance_report.build_ml_replay_rows(
+        sparse_packets,
+        trainer.DEFAULT_SUBCARRIERS,
+        feature_names=trainer.EXPORTED_FEATURE_NAMES,
+        sample_contract="stream_dense",
+    )
+    sparse_host = trainer.build_host_feature_rows(
+        sparse_packets,
+        [
+            *trainer.EXPORTED_FEATURE_NAMES[:-1],
+            "chan_shape_subband_kendall_lag_excess",
+        ],
+        sample_contract="stream_dense",
+    )
+
+    assert len(sparse_runtime["X"]) == 0
+    assert len(sparse_host["X"]) == 0
 
 
 def test_stream_dense_emits_every_packet_after_warmup_on_clean_stream():

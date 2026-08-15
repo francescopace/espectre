@@ -392,6 +392,11 @@ def _run_live_collect(args) -> None:
             duration_packet_count,
             nominal_packet_interval_us,
         )
+        from temporal_csi_sampler import (
+            TemporalCsiSampler,
+            minimum_valid_slots,
+            temporal_window_slots,
+        )
         from threshold import (
             StartupThresholdCalibrator,
             get_detector_auto_factor,
@@ -422,6 +427,11 @@ def _run_live_collect(args) -> None:
                 derive_detector_timing,
                 duration_packet_count,
                 nominal_packet_interval_us,
+            )
+            from src.temporal_csi_sampler import (
+                TemporalCsiSampler,
+                minimum_valid_slots,
+                temporal_window_slots,
             )
             from src.threshold import (
                 StartupThresholdCalibrator,
@@ -475,14 +485,10 @@ def _run_live_collect(args) -> None:
         1,
         int(getattr(config, "SEGMENTATION_WINDOW_SIZE_MS", 1000)),
     )
-    rate_window_packets = max(1, int(round(initial_pacing_pps)))
-    initial_nominal_interval_us = nominal_packet_interval_us(rate_window_packets)
-    initial_window_packets = int(
-        derive_detector_timing(
-            initial_nominal_interval_us,
-            configured_window_ms,
-        )["window_packets"]
-    )
+    target_pps = max(1, int(round(initial_pacing_pps)))
+    initial_nominal_interval_us = nominal_packet_interval_us(target_pps)
+    initial_window_packets = temporal_window_slots(target_pps, configured_window_ms)
+    initial_minimum_valid_slots = minimum_valid_slots(initial_window_packets)
     effective_evaluation_interval_ms = max(
         1,
         int(getattr(config, "EVALUATION_INTERVAL_MS", 250)),
@@ -495,9 +501,6 @@ def _run_live_collect(args) -> None:
         0.001,
         float(getattr(config, "PUBLISH_INTERVAL_MS", 1000) or 1000) / 1000.0,
     )
-    gap_reset_ratio = float(getattr(config, "STREAM_GAP_RESET_RATIO", 4.0) or 4.0)
-    gap_reset_seq_threshold = int(getattr(config, "STREAM_GAP_RESET_SEQ_THRESHOLD", 3) or 3)
-    gap_reset_min_us = int(getattr(config, "STREAM_GAP_RESET_MIN_US", 250_000) or 250_000)
 
     def get_initial_threshold(kind):
         if kind == "high_accuracy":
@@ -610,12 +613,7 @@ def _run_live_collect(args) -> None:
         )
 
     def build_timing_tracker(nominal_interval_us):
-        return PacketTimingTracker(
-            nominal_interval_us,
-            gap_reset_ratio=gap_reset_ratio,
-            sequence_gap_reset=gap_reset_seq_threshold,
-            gap_reset_min_us=gap_reset_min_us,
-        )
+        return PacketTimingTracker(nominal_interval_us)
 
     def policy_note_packet(policy, elapsed_us):
         try:
@@ -629,11 +627,19 @@ def _run_live_collect(args) -> None:
         except TypeError:
             return bool(policy.should_evaluate(False))
 
-    def detector_process_packet(detector, csi_data, rssi_dbm):
+    def detector_process_packet(detector, csi_data, rssi_dbm, timestamp_us=None):
         try:
-            detector.process_packet(csi_data, subcarriers, rssi_dbm=rssi_dbm)
+            detector.process_packet(
+                csi_data,
+                subcarriers,
+                rssi_dbm=rssi_dbm,
+                timestamp_us=timestamp_us,
+            )
         except TypeError:
-            detector.process_packet(csi_data, subcarriers)
+            try:
+                detector.process_packet(csi_data, subcarriers, rssi_dbm=rssi_dbm)
+            except TypeError:
+                detector.process_packet(csi_data, subcarriers)
 
     def policy_equivalent_packets(policy, fallback_packets, nominal_interval_us):
         getter = getattr(policy, "equivalent_packets_since_evaluation", None)
@@ -676,24 +682,28 @@ def _run_live_collect(args) -> None:
         slot["ready_below_since"] = None
         slot["ready_stable_for"] = 0.0
 
-    def handle_gap_contamination(device_state, pkt):
-        device_state["timing_tracker"].reset()
-        timing = device_state["timing_tracker"].observe_packet(pkt)
-        device_state["last_seq_num"] = getattr(pkt, "seq_num", None)
+    def packet_timestamp_us(pkt):
+        for field in ("wifi_rx_ts_us", "device_ticks_us"):
+            value = getattr(pkt, field, None)
+            if value is not None:
+                return int(value)
+        return None
+
+    def reset_temporal_device(device_state):
         if state["calibration_active"]:
             for slot in device_state["slots"]:
-                if slot.get("calibration_done"):
-                    continue
-                restart_calibration_slot(slot, device_state)
+                if not slot.get("calibration_done"):
+                    restart_calibration_slot(slot, device_state)
         else:
             for slot in device_state["slots"]:
                 reset_runtime_slot(slot)
-        return timing
 
     def build_detector_slot(kind, window_packets, calibration_target_packets):
         needs_calibration = kind in calibrated_kinds
         slot_initial_threshold = get_initial_threshold(kind)
         detector = create_detector(kind, slot_initial_threshold, window_packets)
+        if hasattr(detector, "set_minimum_valid_samples"):
+            detector.set_minimum_valid_samples(initial_minimum_valid_slots)
         start_startup_session(detector)
         runtime_policy = RuntimeMotionPolicy(
             evaluation_interval_ms=effective_evaluation_interval_ms,
@@ -706,6 +716,10 @@ def _run_live_collect(args) -> None:
             else None
         )
         if calibration_detector is not None:
+            if hasattr(calibration_detector, "set_minimum_valid_samples"):
+                calibration_detector.set_minimum_valid_samples(
+                    initial_minimum_valid_slots
+                )
             start_startup_session(calibration_detector)
         return {
             "kind": kind,
@@ -770,6 +784,7 @@ def _run_live_collect(args) -> None:
             "window_packets": initial_window_packets,
             "calibration_target_packets": calibration_target_packets,
             "timing_tracker": build_timing_tracker(initial_nominal_interval_us),
+            "temporal_sampler": TemporalCsiSampler(target_pps, configured_window_ms),
             "slots": [
                 build_detector_slot(
                     kind,
@@ -781,84 +796,6 @@ def _run_live_collect(args) -> None:
         }
         device_state["label"] = format_device_label(device_state)
         return device_state
-
-    def reconfigure_device_window(device_state, interval_us, window_packets):
-        device_state["nominal_interval_us"] = max(1, int(interval_us))
-        device_state["window_packets"] = max(1, int(window_packets))
-        device_state["calibration_target_packets"] = (
-            duration_packet_count(calibration_duration_ms, interval_us)
-        )
-
-        for slot in device_state["slots"]:
-            prior_threshold = float(slot["metric_threshold"])
-            detector = create_detector(
-                slot["kind"],
-                prior_threshold,
-                device_state["window_packets"],
-            )
-            start_startup_session(detector)
-            if (
-                str(slot.get("calibration_threshold_source") or "").startswith("automatic")
-                and hasattr(detector, "set_adaptive_threshold")
-            ):
-                detector.set_adaptive_threshold(prior_threshold)
-            slot["detector"] = detector
-            slot["runtime_policy"] = RuntimeMotionPolicy(
-                evaluation_interval_ms=effective_evaluation_interval_ms,
-                motion_on_hits=config.MOTION_ON_HITS,
-                motion_off_hits=config.MOTION_OFF_HITS,
-            )
-            slot["metric_threshold"] = get_detector_threshold(
-                detector,
-                prior_threshold,
-            )
-            reset_runtime_slot(slot)
-
-            if slot.get("calibration_detector") is None:
-                continue
-            calibration_detector = create_detector(
-                slot["kind"],
-                1.0,
-                device_state["window_packets"],
-            )
-            start_startup_session(calibration_detector)
-            slot["calibration_detector"] = calibration_detector
-            if state["calibration_active"] and not slot["calibration_done"]:
-                slot["calibration_tracker"] = build_calibration_tracker(
-                    calibration_detector,
-                    device_state["calibration_target_packets"],
-                )
-                slot["calibration_policy"] = RuntimeMotionPolicy(
-                    evaluation_interval_ms=effective_evaluation_interval_ms,
-                    motion_on_hits=1,
-                    motion_off_hits=1,
-                )
-                slot["calibration_packets_since_evaluation"] = 0
-                slot["motion_metric"] = 0.0
-                slot["metric_threshold"] = get_detector_threshold(
-                    calibration_detector,
-                    slot["metric_threshold"],
-                )
-                slot["status"] = "WAITING"
-
-    def maybe_adapt_device_window(device_state):
-        timing_tracker = device_state["timing_tracker"]
-        timing_update = timing_tracker.resolve_detector_timing_update(
-            device_state["window_packets"],
-            configured_window_ms,
-        )
-        if timing_update is None:
-            if timing_tracker.rate.ready:
-                device_state["nominal_interval_us"] = int(
-                    timing_tracker.rate.interval_us
-                )
-            return False
-        reconfigure_device_window(
-            device_state,
-            timing_update["interval_us"],
-            timing_update["window_packets"],
-        )
-        return True
 
     def get_device_state(pkt):
         device_id = get_packet_device_id(pkt)
@@ -1041,6 +978,7 @@ def _run_live_collect(args) -> None:
                 calibration_detector,
                 pkt.iq_raw,
                 getattr(pkt, "rssi_dbm", None),
+                packet_timestamp_us(pkt),
             )
             slot["calibration_packets_since_evaluation"] += 1
             if calibration_policy is None:
@@ -1050,14 +988,15 @@ def _run_live_collect(args) -> None:
                 continue
             calibration_metrics = calibration_detector.update_state()
             evaluated_any = True
-            calibration_tracker.observe_detector(
-                calibration_detector,
-                packet_weight=policy_equivalent_packets(
-                    calibration_policy,
-                    slot["calibration_packets_since_evaluation"],
-                    device_state["nominal_interval_us"],
-                ),
-            )
+            if calibration_detector.is_ready():
+                calibration_tracker.observe_detector(
+                    calibration_detector,
+                    packet_weight=policy_equivalent_packets(
+                        calibration_policy,
+                        slot["calibration_packets_since_evaluation"],
+                        device_state["nominal_interval_us"],
+                    ),
+                )
             calibration_policy.after_evaluation()
             slot["calibration_packets_since_evaluation"] = 0
             slot["motion_metric"] = extract_motion_metric(calibration_metrics)
@@ -1303,9 +1242,15 @@ def _run_live_collect(args) -> None:
         device_state = get_device_state(pkt)
         device_state["packet_count"] += 1
         timing = device_state["timing_tracker"].observe_packet(pkt)
-        if timing["contaminated"]:
-            timing = handle_gap_contamination(device_state, pkt)
-        window_changed = maybe_adapt_device_window(device_state)
+        temporal_sampler = device_state["temporal_sampler"]
+        admitted = temporal_sampler.admit(packet_timestamp_us(pkt))
+        if temporal_sampler.reset_required:
+            reset_temporal_device(device_state)
+        admitted_coverage_us = (
+            temporal_sampler.slots_advanced * device_state["nominal_interval_us"]
+            if admitted
+            else 0
+        )
         seq_num = getattr(pkt, "seq_num", None)
         if seq_num is not None:
             device_state["last_seq_num"] = int(seq_num)
@@ -1314,7 +1259,23 @@ def _run_live_collect(args) -> None:
         adaptive_pacing.maybe_adjust(state["devices"], now=now, pacing_sender=pacing_sender)
 
         if state["calibration_active"]:
-            calibration_render_due = process_calibration_packet(device_state, pkt, timing)
+            calibration_render_due = False
+            if admitted:
+                if temporal_sampler.missing_slots_before:
+                    for slot in device_state["slots"]:
+                        calibration_detector = slot.get("calibration_detector")
+                        if (
+                            calibration_detector is not None
+                            and hasattr(calibration_detector, "advance_missing_slots")
+                        ):
+                            calibration_detector.advance_missing_slots(
+                                temporal_sampler.missing_slots_before
+                            )
+                calibration_render_due = process_calibration_packet(
+                    device_state,
+                    pkt,
+                    {**timing, "coverage_us": admitted_coverage_us},
+                )
             calibration_trackers = [
                 slot["calibration_tracker"]
                 for slot in device_state["slots"]
@@ -1322,8 +1283,10 @@ def _run_live_collect(args) -> None:
             ]
             if is_calibration_complete():
                 state["calibration_active"] = False
+                for observed_device in state["devices"].values():
+                    observed_device["temporal_sampler"].clear_history()
                 render_multi_device_summary(now)
-            elif calibration_render_due or window_changed:
+            elif calibration_render_due:
                 render_multi_device_summary(now)
             if not save_enabled and maybe_stop_live_session(now):
                 return
@@ -1335,27 +1298,36 @@ def _run_live_collect(args) -> None:
             should_publish = False
         else:
             should_publish = now - last_publish_at >= publish_interval_seconds
-        should_render_summary = window_changed
-        for slot in device_state["slots"]:
-            detector = slot["detector"]
-            runtime_policy = slot["runtime_policy"]
-            detector_process_packet(
-                detector,
-                pkt.iq_raw,
-                getattr(pkt, "rssi_dbm", None),
-            )
-            policy_note_packet(runtime_policy, timing["coverage_us"])
-            if not policy_should_evaluate(runtime_policy):
-                continue
-            metrics = detector.update_state()
-            slot["motion_metric"] = extract_motion_metric(metrics)
-            slot["metric_threshold"] = metrics["threshold"]
+        should_render_summary = False
+        if admitted:
+            for slot in device_state["slots"]:
+                detector = slot["detector"]
+                runtime_policy = slot["runtime_policy"]
+                if (
+                    temporal_sampler.missing_slots_before
+                    and hasattr(detector, "advance_missing_slots")
+                ):
+                    detector.advance_missing_slots(
+                        temporal_sampler.missing_slots_before
+                    )
+                detector_process_packet(
+                    detector,
+                    pkt.iq_raw,
+                    getattr(pkt, "rssi_dbm", None),
+                    packet_timestamp_us(pkt),
+                )
+                policy_note_packet(runtime_policy, admitted_coverage_us)
+                if not policy_should_evaluate(runtime_policy):
+                    continue
+                metrics = detector.update_state()
+                slot["motion_metric"] = extract_motion_metric(metrics)
+                slot["metric_threshold"] = metrics["threshold"]
 
-            effective_state, _ = runtime_policy.apply_state(metrics["state"])
-            runtime_policy.after_evaluation()
-            slot["effective_state"] = effective_state
-            slot["status"] = get_slot_status(slot)
-            should_render_summary = True
+                effective_state, _ = runtime_policy.apply_state(metrics["state"])
+                runtime_policy.after_evaluation()
+                slot["effective_state"] = effective_state
+                slot["status"] = get_slot_status(slot)
+                should_render_summary = True
 
         update_ready_gate_state(device_state, now)
         if should_publish:
@@ -1414,7 +1386,7 @@ def _run_live_collect(args) -> None:
     )
     print(
         f"  {Fore.CYAN}Window:{Style.RESET_ALL}    {configured_window_ms} ms "
-        f"(~{initial_window_packets} pkts initially, then measured per device)"
+        f"({initial_window_packets} temporal slots at {target_pps:g} pps)"
     )
     print(
         f"  {Fore.CYAN}Evaluation:{Style.RESET_ALL} "

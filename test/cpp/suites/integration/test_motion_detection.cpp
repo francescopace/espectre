@@ -52,6 +52,7 @@ static replay::ReplayPacketMetadata static_presence_metadata() {
         csi_test_data::static_presence_stream_seq_num(),
         csi_test_data::static_presence_device_ticks_us(),
         csi_test_data::static_presence_wifi_rx_ts_us(),
+        csi_test_data::static_presence_csi_target_pps(),
     };
 }
 
@@ -60,6 +61,7 @@ static replay::ReplayPacketMetadata motion_metadata() {
         csi_test_data::motion_stream_seq_num(),
         csi_test_data::motion_device_ticks_us(),
         csi_test_data::motion_wifi_rx_ts_us(),
+        csi_test_data::motion_csi_target_pps(),
     };
 }
 

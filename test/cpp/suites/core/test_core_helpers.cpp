@@ -18,6 +18,7 @@
 #include "csi_features.h"
 #include "ml_feature_trackers.h"
 #include "threshold.h"
+#include "temporal_csi_sampler.h"
 #include "csi_format.h"
 #include "utils.h"
 
@@ -156,6 +157,92 @@ void test_utils_statistical_helpers_cover_edge_cases(void) {
     float mean_values[] = {2.0f, 4.0f, 6.0f, 8.0f};
     TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.4472136f,
                              calculate_turbulence_from_variance(5.0f, mean_values, 4));
+}
+
+void test_temporal_csi_sampler_matches_fixed_slot_contract(void) {
+    TEST_ASSERT_EQUAL(100U, temporal_window_slots(100U, 1000U));
+    TEST_ASSERT_EQUAL(141U, temporal_window_slots(94U, 1500U));
+    TEST_ASSERT_EQUAL(80U, temporal_minimum_valid_slots(100U));
+    TEST_ASSERT_EQUAL(113U, temporal_minimum_valid_slots(141U));
+    TEST_ASSERT_EQUAL(8000U, temporal_minimum_sample_spacing_us(100U));
+
+    TemporalCsiSampler sampler(10U, 1000U);
+    for (uint32_t slot = 0U; slot < 10U; ++slot) {
+        if (slot == 3U || slot == 7U) continue;
+        TEST_ASSERT_TRUE(sampler.admit(slot * 100000U));
+    }
+    TEST_ASSERT_EQUAL(9U, sampler.current_slot());
+    TEST_ASSERT_EQUAL(8U, sampler.occupancy_slots());
+    TEST_ASSERT_EQUAL(2U, sampler.missing_slots());
+    TEST_ASSERT_TRUE(sampler.is_ready());
+}
+
+void test_temporal_csi_sampler_rejects_bursts_bad_order_and_stale_packets(void) {
+    TemporalCsiSampler sampler(100U, 1000U);
+    TEST_ASSERT_TRUE(sampler.admit(1000000U));
+    TEST_ASSERT_FALSE(sampler.admit(1000100U));
+    TEST_ASSERT_FALSE(sampler.admit(1000500U));
+    TEST_ASSERT_TRUE(sampler.admit(1009999U));
+    TEST_ASSERT_FALSE(sampler.admit(1010000U));
+    TEST_ASSERT_EQUAL(3U, sampler.excess_packets());
+
+    TEST_ASSERT_FALSE(sampler.admit(1010000U));
+    TEST_ASSERT_FALSE(sampler.admit(1009999U));
+    TEST_ASSERT_FALSE(sampler.admit(1020000U, true, 2020000U, true));
+    TEST_ASSERT_EQUAL(1U, sampler.duplicate_packets());
+    TEST_ASSERT_EQUAL(1U, sampler.out_of_order_packets());
+    TEST_ASSERT_EQUAL(1U, sampler.stale_packets());
+}
+
+void test_temporal_csi_sampler_tolerates_alternating_scheduler_jitter(void) {
+    TemporalCsiSampler sampler(100U, 1000U);
+    TEST_ASSERT_TRUE(sampler.admit(0U));
+    for (uint32_t pair = 1U; pair <= 50U; ++pair) {
+        TEST_ASSERT_TRUE(sampler.admit(pair * 20000U - 11000U));
+        TEST_ASSERT_TRUE(sampler.admit(pair * 20000U));
+    }
+    TEST_ASSERT_EQUAL(101U, sampler.accepted_packets());
+    TEST_ASSERT_EQUAL(0U, sampler.excess_packets());
+    TEST_ASSERT_EQUAL(0U, sampler.missing_slots());
+    TEST_ASSERT_EQUAL(100U, sampler.occupancy_slots());
+    TEST_ASSERT_TRUE(sampler.is_ready());
+}
+
+void test_temporal_csi_sampler_handles_wrap_and_window_gap(void) {
+    TemporalCsiSampler sampler(100U, 1000U);
+    TEST_ASSERT_TRUE(sampler.admit(UINT32_MAX - 4999U));
+    TEST_ASSERT_TRUE(sampler.admit(5000U));
+    TEST_ASSERT_EQUAL(1U, sampler.current_slot());
+    TEST_ASSERT_EQUAL(0U, sampler.gap_resets());
+
+    TEST_ASSERT_TRUE(sampler.admit(1005000U));
+    TEST_ASSERT_TRUE(sampler.reset_required());
+    TEST_ASSERT_EQUAL(1U, sampler.gap_resets());
+    TEST_ASSERT_EQUAL(0U, sampler.current_slot());
+    TEST_ASSERT_EQUAL(1U, sampler.occupancy_slots());
+}
+
+void test_temporal_csi_sampler_matches_python_cross_runtime_trace(void) {
+    TemporalCsiSampler sampler(20U, 500U);
+    const uint32_t timestamps[] = {
+        1000000U, 1000100U, 1050000U, 1150000U, 1150000U,
+        1149999U, 1300000U, 1800000U, 1800100U, 1850000U,
+    };
+    const bool expected[] = {
+        true, false, true, true, false, false, true, true, false, true,
+    };
+    for (size_t index = 0U; index < sizeof(timestamps) / sizeof(timestamps[0]); ++index) {
+        TEST_ASSERT_EQUAL(expected[index], sampler.admit(timestamps[index]));
+    }
+    TEST_ASSERT_EQUAL(6U, sampler.accepted_packets());
+    TEST_ASSERT_EQUAL(2U, sampler.excess_packets());
+    TEST_ASSERT_EQUAL(1U, sampler.duplicate_packets());
+    TEST_ASSERT_EQUAL(1U, sampler.out_of_order_packets());
+    TEST_ASSERT_EQUAL(3U, sampler.missing_slots());
+    TEST_ASSERT_EQUAL(1U, sampler.gap_resets());
+    TEST_ASSERT_EQUAL(1U, sampler.current_slot());
+    TEST_ASSERT_EQUAL(2U, sampler.occupancy_slots());
+    TEST_ASSERT_FALSE(sampler.is_ready());
 }
 
 void test_utils_spatial_turbulence_handles_invalid_inputs(void) {
@@ -515,6 +602,11 @@ void test_high_accuracy_detector_move_semantics_and_cv_state(void) {
 int process(void) {
     UNITY_BEGIN();
     RUN_TEST(test_utils_statistical_helpers_cover_edge_cases);
+    RUN_TEST(test_temporal_csi_sampler_matches_fixed_slot_contract);
+    RUN_TEST(test_temporal_csi_sampler_rejects_bursts_bad_order_and_stale_packets);
+    RUN_TEST(test_temporal_csi_sampler_tolerates_alternating_scheduler_jitter);
+    RUN_TEST(test_temporal_csi_sampler_handles_wrap_and_window_gap);
+    RUN_TEST(test_temporal_csi_sampler_matches_python_cross_runtime_trace);
     RUN_TEST(test_utils_spatial_turbulence_handles_invalid_inputs);
     RUN_TEST(test_ht20_bin_layout_detection_requires_positive_evidence);
     RUN_TEST(test_ht20_rotation_maps_classic_onto_centered);

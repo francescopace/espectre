@@ -33,10 +33,22 @@ struct RuntimeDiagnosticsSample {
   float traffic_tx_pps{0.0f};
   /** Raw CSI callbacks per second, before any capture-level validation. */
   float csi_callback_pps{0.0f};
-  /** CSI packets per second accepted by the sensing pipeline. This is the rate the detector actually sees. */
+  /** CSI packets per second accepted by capture validation. */
   float csi_accepted_pps{0.0f};
+  /** CSI packets per second admitted to the detector's temporal grid. */
+  float csi_admitted_pps{0.0f};
   /** CSI packets per second rejected by capture-level validation. */
   float csi_filtered_pps{0.0f};
+  /** Missing detector slots per second. */
+  float csi_missing_slots_pps{0.0f};
+  /** Same-slot excess drops per second. */
+  float csi_excess_pps{0.0f};
+  /** Stale temporal drops per second. */
+  float csi_stale_pps{0.0f};
+  /** Out-of-order temporal drops per second. */
+  float csi_out_of_order_pps{0.0f};
+  /** Valid-slot occupancy of the active temporal detector window. */
+  float csi_occupancy_ratio{0.0f};
   /** RSSI of the current association. `INT8_MIN` when unavailable. */
   int8_t wifi_rssi_dbm{INT8_MIN};
   /** Primary channel of the current association. Zero when unavailable. */

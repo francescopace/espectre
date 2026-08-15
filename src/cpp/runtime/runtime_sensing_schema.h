@@ -68,6 +68,12 @@ constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME = "dns";
 constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME = "ping";
 constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_DEFAULT_NAME = "ping";
 
+constexpr const char *const RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME = "internal";
+constexpr const char *const RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME = "external";
+constexpr const char *const RUNTIME_CSI_TRAFFIC_MODE_PACING_NAME = "pacing";
+constexpr const char *const RUNTIME_CSI_TRAFFIC_MODE_DISABLED_NAME = "disabled";
+constexpr const char *const RUNTIME_CSI_TRAFFIC_MODE_DEFAULT_NAME = "internal";
+
 constexpr const char *const RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME = "lightweight";
 constexpr const char *const RUNTIME_DETECTION_ALGORITHM_HIGH_ACCURACY_NAME = "high_accuracy";
 constexpr const char *const RUNTIME_DETECTION_ALGORITHM_DEFAULT_NAME = "lightweight";
@@ -81,13 +87,12 @@ constexpr uint32_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN = 1000U;
 constexpr uint32_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX = 2000U;
 constexpr uint32_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT = 1000U;
 
-constexpr uint32_t RUNTIME_TRAFFIC_GENERATOR_RATE_MIN = 0;
-// Arithmetic-safety bound, not a capability claim: the real ceiling is the
-// hardware, which tops out far below this. Pacing math multiplies the target
-// by small percentages, so the bound only has to keep that in range.
-constexpr uint32_t RUNTIME_TRAFFIC_GENERATOR_RATE_MAX = 100000;
-constexpr uint32_t RUNTIME_TRAFFIC_GENERATOR_RATE_DEFAULT = 100;
-constexpr bool RUNTIME_TRAFFIC_GENERATOR_ADAPTIVE_DEFAULT = true;
+constexpr uint32_t RUNTIME_CSI_TARGET_PPS_MIN = 1U;
+// The maximum public two-second window resolves to the detector's 1000-slot
+// storage ceiling at this rate. Supported hardware normally runs near 100 pps.
+constexpr uint32_t RUNTIME_CSI_TARGET_PPS_MAX = 500U;
+constexpr uint32_t RUNTIME_CSI_TARGET_PPS_DEFAULT = 100U;
+constexpr bool RUNTIME_TRAFFIC_GENERATOR_ADAPTIVE_DEFAULT = false;
 
 constexpr uint32_t RUNTIME_PUBLISH_INTERVAL_MS_MIN = 100;
 constexpr uint32_t RUNTIME_PUBLISH_INTERVAL_MS_MAX = 60000;

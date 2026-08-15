@@ -326,8 +326,8 @@ void test_csi_pipeline_process_packet_valid_data(void) {
     TEST_ASSERT_EQUAL(1, detector.get_total_packets());
 }
 
-void test_csi_pipeline_holds_detector_below_supported_packet_rate(void) {
-    LightweightDetector detector(80, 1.0f);
+void test_csi_pipeline_preserves_sparse_slots_until_occupancy_recovers(void) {
+    LightweightDetector detector(100, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
 
@@ -340,14 +340,16 @@ void test_csi_pipeline_holds_detector_below_supported_packet_rate(void) {
         manager.process_packet(&csi_info);
         timestamp += 20000U;
     }
-    TEST_ASSERT_EQUAL(0U, detector.get_total_packets());
+    TEST_ASSERT_EQUAL(20U, detector.get_total_packets());
+    TEST_ASSERT_FALSE(detector.is_ready());
+    TEST_ASSERT_TRUE(detector.get_buffer_count() > detector.get_total_packets());
 
     for (int i = 0; i < 80; ++i) {
         csi_info.rx_ctrl.timestamp = timestamp;
         manager.process_packet(&csi_info);
         timestamp += 10000U;
     }
-    TEST_ASSERT_TRUE(detector.get_total_packets() > 0U);
+    TEST_ASSERT_TRUE(detector.is_ready());
 }
 
 void test_csi_pipeline_filters_duplicate_and_stale_rx_timestamps(void) {
@@ -369,7 +371,8 @@ void test_csi_pipeline_filters_duplicate_and_stale_rx_timestamps(void) {
     csi_info.rx_ctrl.timestamp = 102U;
     manager.process_packet(&csi_info);
 
-    TEST_ASSERT_EQUAL(3U, detector.get_total_packets());
+    TEST_ASSERT_EQUAL(1U, detector.get_total_packets());
+    TEST_ASSERT_EQUAL(1U, manager.detector_admitted_packets_total());
     TEST_ASSERT_EQUAL(3U, manager.accepted_packets_total());
     TEST_ASSERT_EQUAL(2U, manager.rejected_out_of_order_packets_total());
 }
@@ -389,7 +392,8 @@ void test_csi_pipeline_accepts_rx_timestamp_wrap(void) {
         manager.process_packet(&csi_info);
     }
 
-    TEST_ASSERT_EQUAL(4U, detector.get_total_packets());
+    TEST_ASSERT_EQUAL(1U, detector.get_total_packets());
+    TEST_ASSERT_EQUAL(1U, manager.detector_admitted_packets_total());
     TEST_ASSERT_EQUAL(4U, manager.accepted_packets_total());
     TEST_ASSERT_EQUAL(0U, manager.rejected_out_of_order_packets_total());
 }
@@ -658,10 +662,11 @@ struct InterceptorProbe {
 
 bool interceptor_probe_callback_(void *context, const int8_t *csi_data, size_t csi_len,
                                  int8_t rssi_dbm, bool evaluation_due,
-                                 uint32_t packets_in_window) {
+                                 uint32_t packets_in_window, bool temporal_reset) {
     (void) csi_data;
     (void) csi_len;
     (void) rssi_dbm;
+    (void) temporal_reset;
     auto *probe = static_cast<InterceptorProbe *>(context);
     probe->calls++;
     if (evaluation_due) {
@@ -676,10 +681,8 @@ bool interceptor_probe_callback_(void *context, const int8_t *csi_data, size_t c
 
 }  // namespace
 
-// Startup calibration consumes every packet through the interceptor. The
-// cadence used to be advanced only on the detection path, so the rate estimator
-// was starved for the whole ~1000-packet calibration. On an off-nominal stream
-// the threshold was then fitted at a resolution the detector never ran at.
+// Startup calibration consumes every admitted packet through the interceptor,
+// on the same elapsed-time cadence used by detection.
 void test_csi_pipeline_feeds_cadence_while_interceptor_consumes(void) {
     TransitionDetectorMock detector;
     CsiPipeline manager;
@@ -700,13 +703,16 @@ void test_csi_pipeline_feeds_cadence_while_interceptor_consumes(void) {
         arrival_us += 2000U;
     }
 
-    TEST_ASSERT_EQUAL(500, probe.calls);
+    // Centered slots can include both edge representatives in this half-open
+    // synthetic interval; steady-state occupancy remains capped at 100 slots.
+    TEST_ASSERT_TRUE(probe.calls >= 100 && probe.calls <= 101);
     // One second at the 250 ms contract is four ticks, not the twenty a packet
     // count of 25 would have produced at this rate.
     TEST_ASSERT_TRUE(probe.evaluations_due >= 3 && probe.evaluations_due <= 6);
     // Each closed window carries its own weight, which is what the calibrator
-    // folds in one step.
-    TEST_ASSERT_TRUE(probe.max_packets_in_window >= 100U);
+    // folds in one step. Centered slot boundaries allow one edge sample.
+    TEST_ASSERT_TRUE(probe.max_packets_in_window >= 24U);
+    TEST_ASSERT_TRUE(probe.max_packets_in_window <= 27U);
 }
 
 // The interceptor and the detection path must agree on when a window closes.
@@ -1068,7 +1074,7 @@ int process(void) {
     RUN_TEST(test_csi_pipeline_process_packet_short_data);
     RUN_TEST(test_csi_pipeline_counts_valid_local_packets_for_traffic_feedback);
     RUN_TEST(test_csi_pipeline_process_packet_valid_data);
-    RUN_TEST(test_csi_pipeline_holds_detector_below_supported_packet_rate);
+    RUN_TEST(test_csi_pipeline_preserves_sparse_slots_until_occupancy_recovers);
     RUN_TEST(test_csi_pipeline_filters_duplicate_and_stale_rx_timestamps);
     RUN_TEST(test_csi_pipeline_accepts_rx_timestamp_wrap);
     RUN_TEST(test_csi_pipeline_filters_non_ht20_phy);

@@ -61,6 +61,7 @@ struct CsiData {
     std::vector<uint32_t> stream_seq_num;      // [num_packets]
     std::vector<uint64_t> device_ticks_us;     // [num_packets]
     std::vector<uint32_t> wifi_rx_ts_us;       // [num_packets]
+    uint32_t csi_target_pps{0};                // Dataset temporal-admission provenance
     int num_packets;
     int packet_size;      // bytes per packet (num_subcarriers * 2)
     int num_subcarriers;
@@ -237,6 +238,19 @@ inline CsiData load_npz(const std::string& filepath) {
     load_uint32_series("stream_seq_num", result.stream_seq_num);
     load_uint64_series("device_ticks_us", result.device_ticks_us);
     load_uint32_series("wifi_rx_ts_us", result.wifi_rx_ts_us);
+    auto target_pps_it = npz.find("csi_target_pps");
+    if (target_pps_it != npz.end() && target_pps_it->second.num_vals > 0U) {
+        const cnpy::NpyArray& arr = target_pps_it->second;
+        if (arr.word_size == 1U) {
+            result.csi_target_pps = static_cast<uint32_t>(arr.data<uint8_t>()[0]);
+        } else if (arr.word_size == 2U) {
+            result.csi_target_pps = static_cast<uint32_t>(arr.data<uint16_t>()[0]);
+        } else if (arr.word_size == 4U) {
+            result.csi_target_pps = arr.data<uint32_t>()[0];
+        } else if (arr.word_size == 8U) {
+            result.csi_target_pps = static_cast<uint32_t>(arr.data<uint64_t>()[0]);
+        }
+    }
     
     for (int out_i = 0; out_i < result.num_packets; ++out_i) {
         const int src_i = keep_indices[static_cast<size_t>(out_i)];
@@ -485,6 +499,7 @@ inline CsiData slice_packets(const CsiData& source, int start_idx, int end_idx) 
 
     result.packet_size = source.packet_size;
     result.num_subcarriers = source.num_subcarriers;
+    result.csi_target_pps = source.csi_target_pps;
     result.packets.assign(source.packets.begin() + clamped_start, source.packets.begin() + clamped_end);
     if (!source.rssi_dbm.empty()) {
         result.rssi_dbm.assign(source.rssi_dbm.begin() + clamped_start,
@@ -1569,6 +1584,8 @@ inline const uint32_t* static_presence_wifi_rx_ts_us() {
 inline const uint32_t* motion_wifi_rx_ts_us() {
     return g_motion_data.wifi_rx_ts_us.empty() ? nullptr : g_motion_data.wifi_rx_ts_us.data();
 }
+inline uint32_t static_presence_csi_target_pps() { return g_static_presence_data.csi_target_pps; }
+inline uint32_t motion_csi_target_pps() { return g_motion_data.csi_target_pps; }
 inline int num_static_presence() { return g_static_presence_data.num_packets; }
 inline int num_motion() { return g_motion_data.num_packets; }
 inline int num_subcarriers() { return g_static_presence_data.num_subcarriers; }

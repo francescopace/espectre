@@ -455,6 +455,20 @@ def candidate_values(
                     f"{name} needs the time-binned channel-shape tracker"
                 )
             values[name] = shape_trajectory_tracker.scale_curvature()
+        elif name == 'chan_shape_subband_rank_gap':
+            if shape_trajectory_tracker is None:
+                raise ValueError(
+                    f"{name} needs the time-binned channel-shape tracker"
+                )
+            values[name] = shape_trajectory_tracker.subband_rank_gap()
+        elif name == 'chan_shape_subband_kendall_lag_excess':
+            if shape_trajectory_tracker is None:
+                raise ValueError(
+                    f"{name} needs the time-binned channel-shape tracker"
+                )
+            values[name] = (
+                shape_trajectory_tracker.subband_kendall_lag_excess()
+            )
         elif name == 'chan_shape_coherent_innovation_energy':
             if shape_trajectory_tracker is None:
                 raise ValueError(

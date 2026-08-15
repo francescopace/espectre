@@ -35,6 +35,9 @@ constexpr uint8_t DNS_QUERY[] = {
     0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01,
 };
+// Expedited Forwarding asks Wi-Fi/WMM queues to favor latency over aggregation.
+// Gateways may ignore it, so failure to apply the socket option is non-fatal.
+constexpr int SENSING_IP_TOS = 46 << 2;
 
 struct __attribute__((packed)) IcmpEchoHeader {
   uint8_t type;
@@ -152,6 +155,12 @@ int create_protocol_socket(const TrafficProtocol &protocol) {
 
   if (!bind_socket_to_sta_interface(sock)) {
     ESP_LOGW(TAG, "Continuing without explicit %s socket binding", protocol.name());
+  }
+  const int sensing_tos = SENSING_IP_TOS;
+  if (setsockopt(sock, IPPROTO_IP, IP_TOS, &sensing_tos,
+                 sizeof(sensing_tos)) != 0) {
+    ESP_LOGW(TAG, "Failed to mark %s traffic as low-latency (errno=%d)",
+             protocol.name(), errno);
   }
   const int flags = fcntl(sock, F_GETFL, 0);
   if (flags < 0 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) < 0) {
@@ -315,15 +324,13 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
 
   SendErrorState error_state;
   uint32_t consecutive_errors = 0U;
-  int64_t next_send_us = esp_timer_get_time();
-
   while (manager->running_.load(std::memory_order_relaxed)) {
     if (manager->paused_.load(std::memory_order_relaxed)) {
       vTaskDelay(pdMS_TO_TICKS(50));
-      next_send_us = esp_timer_get_time();
       continue;
     }
 
+    const int64_t send_started_us = esp_timer_get_time();
     drain_socket(manager->sock_);
     const ssize_t sent = protocol->send_packet(manager->sock_, destination);
     if (sent <= 0) {
@@ -344,7 +351,6 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
         close(manager->sock_);
         manager->sock_ = create_protocol_socket(*protocol);
         consecutive_errors = 0U;
-        next_send_us = esp_timer_get_time();
         if (manager->sock_ < 0) {
           vTaskDelay(pdMS_TO_TICKS(100));
         }
@@ -360,7 +366,11 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
 
     const uint32_t rate_pps =
         std::max<uint32_t>(manager->current_rate_pps_.load(std::memory_order_relaxed), 1U);
-    next_send_us += 1000000LL / static_cast<int64_t>(rate_pps);
+    // Schedule from the actual send start. Advancing an old absolute deadline
+    // causes an immediate catch-up send after scheduler or socket delays,
+    // turning a nominally uniform source into a burst.
+    const int64_t next_send_us =
+        send_started_us + 1000000LL / static_cast<int64_t>(rate_pps);
     const int64_t now_us = esp_timer_get_time();
     const int64_t sleep_us = next_send_us - now_us;
     if (sleep_us > 0) {
@@ -368,8 +378,6 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
       if (ticks > 0) {
         vTaskDelay(ticks);
       }
-    } else if (sleep_us < -100000LL) {
-      next_send_us = now_us;
     }
   }
 

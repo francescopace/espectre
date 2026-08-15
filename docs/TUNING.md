@@ -2,7 +2,7 @@
 
 Use this operational guide after a device is installed and producing motion data. It explains what to change, in what order, and what result to expect. Detailed detector formulas and validation evidence remain in [ALGORITHMS.md](ALGORITHMS.md) and the generated [performance report](performance/README.md).
 
-Inline snippets use ESPHome YAML as a concrete example. CSI means channel state information, and `pps` means accepted CSI packets per second.
+Inline snippets use ESPHome YAML as a concrete example. CSI means channel state information. Raw accepted `pps` is the capture supply used by traffic control; admitted `pps` is the detector input after temporal slot admission.
 
 ## Quick Start
 
@@ -17,7 +17,7 @@ Current startup behavior:
 3. if a clean `quiet -> motion -> quiet` pattern appears, startup may finish early
 4. otherwise the detector falls back internally to the quiet-only path
 
-With the default `segmentation_window_size_ms: 1000`, the startup budget is ten seconds of clean CSI coverage. That resolves to about 800 packets at `80 pps` or 1000 packets at `100 pps`; it is a maximum, not a fixed wait.
+With the default `segmentation_window_size_ms: 1000` and `csi_target_pps: 100`, the startup budget is ten seconds of clean, ready slot coverage after temporal warmup. Missing or burst-concentrated slots extend wall-clock calibration instead of counting as evidence; ten seconds is required valid coverage, not a fixed wait.
 
 Practical rule:
 
@@ -72,7 +72,7 @@ espectre:
 
 | Profile | Accuracy and cost | Startup behavior |
 |-----------|-------------------|------------------|
-| **Lightweight Detection** (`lightweight`) | Lower detector CPU and working-memory cost, with lower accuracy and robustness than High Accuracy | Quiet-room threshold calibration, up to about 10 seconds |
+| **Lightweight Detection** (`lightweight`) | Lower detector CPU and working-memory cost, with lower accuracy and robustness than High Accuracy | About 10 seconds of clean, ready quiet-room coverage after temporal warmup; longer in wall time when occupancy is insufficient |
 | **High-Accuracy Detection** (`high_accuracy`) | Higher accuracy and generalization, with additional feature state and neural-inference work | No threshold calibration; waits for CSI readiness and feature-window warmup |
 
 Choose `lightweight` when the device must reserve resources for other firmware features or when its compute and memory budget is tight. Choose `high_accuracy` when detection quality is the priority and the additional runtime cost fits the product budget. On ESPHome and Native you can compare them at runtime; on Matter the choice is made at build time. Current measurements and known limits are documented in [ALGORITHMS.md](ALGORITHMS.md#known-limits) and the [performance report](performance/README.md).
@@ -84,15 +84,15 @@ espectre:
   segmentation_window_size_ms: 1000
 ```
 
-The setting is elapsed time. The runtime converts it to the number of samples available at the measured CSI rate, so the default `1000 ms` window uses about `80` samples at `80 pps` and `100` at `100 pps`. Below `80 pps`, detection pauses because the supported feature contract no longer has enough data. Repair packet supply instead of shortening the window to compensate.
+The setting is elapsed time. Together with `csi_target_pps`, it defines a fixed temporal grid: `window_slots = ceil(csi_target_pps * segmentation_window_size_ms / 1000)`. The runtime admits at most one packet per slot, preserves missing slots, and requires at least 80% valid occupancy before detection is ready. A burst cannot fill the window early, and arrival jitter never reconstructs the detector.
 
-The validation evidence for the `80 pps` floor and time-based replay contract belongs in [ALGORITHMS.md](ALGORITHMS.md#detector-timing) and the [performance report](performance/README.md).
+The temporal-admission contract belongs in [ALGORITHMS.md](ALGORITHMS.md#detector-timing) and its [ADR](adr/2026-08-15-use-fixed-temporal-csi-admission.md). Historical recordings without target provenance, or with sustained occupancy below 80%, cannot claim exact runtime-parity evidence and must be recollected for binding performance validation.
 
 Rules of thumb:
 
 - `1000 ms`: the default and the interval used by runtime, replay, validation, and training
 - larger interval: steadier and slower to react
-- fewer than `80` clean samples per second: repair the CSI supply instead of shortening the window
+- occupancy below 80% of the configured slots: repair traffic pacing or packet supply; if the path cannot sustain the cadence, lower `csi_target_pps` explicitly and rerun performance validation rather than letting runtime jitter change it
 
 Start with `1000 ms` unless you have a measured reason to change it.
 
@@ -102,11 +102,12 @@ For frontends that expose the shared internal traffic generator:
 
 ```yaml
 espectre:
-  traffic_generator_rate: 100
-  traffic_generator_adaptive: true
+  csi_target_pps: 100
+  csi_traffic_mode: internal
+  traffic_generator_adaptive: false
 ```
 
-The rate is a target for valid local CSI callbacks, not a promise that the network sends exactly that many packets. Adaptive mode raises or lowers network pacing to keep accepted CSI near the target while reacting to socket pressure. Set `traffic_generator_adaptive: false` only when an experiment requires a fixed network send rate.
+`csi_target_pps` is both the detector's temporal grid and the managed-traffic target. `csi_traffic_mode` separately chooses who supplies traffic. Internal traffic uses a fixed send cadence by default because raw accepted CSI also includes unrelated application traffic, which is not a reliable replacement for uniformly scheduled sensing traffic. Set `traffic_generator_adaptive: true` only after validating its raw-CSI and socket-pressure feedback in the deployment; it never feeds detector-admitted PPS back into the controller.
 
 Rules of thumb:
 
@@ -132,7 +133,7 @@ espectre:
   motion_off_hits: 3
 ```
 
-The detector still processes every CSI packet into its sliding window, but the published motion state updates only on a coarser cadence:
+The detector processes every admitted CSI packet into its sliding window, but the published motion state updates only on a coarser cadence:
 
 1. every `evaluation_interval_ms` of packet arrival time, the runtime evaluates the detector and gets a raw `IDLE` or `MOTION` reading; there is no packet-count fallback, so live input and supported replay datasets must provide advancing timestamps
 2. that raw reading must repeat for `motion_on_hits` consecutive evaluations before the published state becomes `MOTION`

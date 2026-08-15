@@ -214,7 +214,8 @@ void test_native_frontend_device_config_commands_setup_mqtt_and_publish_info_sta
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
-                                 return publish.topic == "espectre/v1/devices/0x0000111122223333/status";
+                                 return publish.topic == "espectre/v1/devices/0x0000111122223333/status" &&
+                                        publish.payload.find("\"online\":true") != std::string::npos && publish.retain;
                                }));
   drain_pending_sysinfo(frontend);
   TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
@@ -282,6 +283,15 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                             "espectre/v1/devices/0x0000111122223333/ha/motion/state" &&
                                         publish.payload == "ON";
                                }));
+
+  mqtt_transport_mock::state.publishes.clear();
+  frontend.shutdown();
+  TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
+                               mqtt_transport_mock::state.publishes.end(),
+                               [](const mqtt_transport_mock::Publish &publish) {
+                                 return publish.topic == "espectre/v1/devices/0x0000111122223333/status" &&
+                                        publish.payload.find("\"online\":false") != std::string::npos && publish.retain;
+                               }));
 }
 
 void test_native_frontend_ha_birth_message_republishes_discovery_and_state(void) {
@@ -319,7 +329,7 @@ void test_native_frontend_ha_birth_message_republishes_discovery_and_state(void)
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic == "espectre/v1/devices/0x0000111122223333/status" &&
-                                        publish.payload.find("\"online\":true") != std::string::npos;
+                                        publish.payload.find("\"online\":true") != std::string::npos && publish.retain;
                                }));
 }
 

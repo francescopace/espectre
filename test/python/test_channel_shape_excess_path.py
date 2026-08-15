@@ -7,6 +7,9 @@ from tools.lib.host_feature_trackers import (
     CHANNEL_SHAPE_BIN_US,
     HT20_LIVE_BINS,
     ChannelShapeExcessPathTracker,
+    guarded_kendall_distance,
+    guarded_kendall_signature,
+    rank_profile_distance,
 )
 
 
@@ -19,7 +22,10 @@ def payload_from_subband_amplitudes(amplitudes, gain=1):
 
 
 def evaluate_path(amplitude_path, gains=None, duplicate=False):
-    tracker = ChannelShapeExcessPathTracker()
+    tracker = ChannelShapeExcessPathTracker(
+        track_subband_rank_gap=True,
+        track_subband_kendall_lag_excess=True,
+    )
     if gains is None:
         gains = [1] * len(amplitude_path)
     for index, (amplitudes, gain) in enumerate(zip(amplitude_path, gains)):
@@ -63,6 +69,75 @@ def test_independent_packet_gain_cancels() -> None:
         baseline_tracker.coherent_innovation_contrast(),
         abs=1e-12,
     )
+    assert gained_tracker.subband_rank_gap() == pytest.approx(
+        baseline_tracker.subband_rank_gap(),
+        abs=1e-12,
+    )
+    assert gained_tracker.subband_kendall_lag_excess() == pytest.approx(
+        baseline_tracker.subband_kendall_lag_excess(),
+        abs=1e-12,
+    )
+
+
+def test_subband_rank_gap_detects_accumulated_ordinal_turnover() -> None:
+    base = np.arange(10, 90, 10)
+    path = [np.roll(base, step) for step in range(8)]
+    _, tracker = evaluate_path(path)
+
+    assert tracker.subband_rank_gap() > 0.0
+
+
+def test_cached_subband_rank_gap_matches_direct_profile_formula() -> None:
+    base = np.arange(10, 90, 10, dtype=np.float64)
+    path = [np.roll(base, step) for step in range(8)]
+    profiles = [values / np.linalg.norm(values) for values in path]
+    adjacent = [
+        rank_profile_distance(profiles[index], profiles[index - 1])
+        for index in range(1, len(profiles))
+    ]
+    longer = [
+        rank_profile_distance(profiles[index], profiles[index - 3])
+        for index in range(3, len(profiles))
+    ]
+    expected = float(np.median(longer) - np.median(adjacent))
+    _, tracker = evaluate_path(path)
+
+    assert tracker.subband_rank_gap() == pytest.approx(expected, abs=1e-12)
+
+
+def test_subband_kendall_lag_excess_matches_paired_formula() -> None:
+    base = np.arange(10, 90, 10, dtype=np.float64)
+    path = [np.roll(base, step) for step in range(8)]
+    profiles = [values / np.linalg.norm(values) for values in path]
+    signatures = [guarded_kendall_signature(profile) for profile in profiles]
+    samples = []
+    for index in range(3, len(signatures)):
+        longer = guarded_kendall_distance(
+            signatures[index], signatures[index - 3]
+        )
+        local = [
+            guarded_kendall_distance(
+                signatures[local_index], signatures[local_index - 1]
+            )
+            for local_index in range(index - 2, index + 1)
+        ]
+        assert longer is not None
+        assert all(distance is not None for distance in local)
+        samples.append(max(0.0, longer - float(np.mean(local))))
+    _, tracker = evaluate_path(path)
+
+    assert tracker.subband_kendall_lag_excess() == pytest.approx(
+        np.median(samples),
+        abs=1e-12,
+    )
+    assert tracker.subband_kendall_lag_excess() > 0.0
+
+
+def test_guarded_kendall_signature_ignores_near_ties() -> None:
+    profile = np.asarray([1.0, 0.99, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3])
+    _order, valid = guarded_kendall_signature(profile)
+
+    assert valid & 1 == 0
 
 
 def test_coherent_innovation_contrast_uses_high_modes_as_noise_reference() -> None:

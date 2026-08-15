@@ -22,11 +22,6 @@ void PeriodicSensingStatusLogger::log_status(const char *tag,
     return;
   }
 
-  if (snapshot.calibrating) {
-    last_log_time_ms_ = 0;
-    return;
-  }
-
   const float motion_metric = snapshot.movement_metric;
   const float threshold = snapshot.threshold;
   const bool is_motion = (snapshot.motion_state == MotionState::MOTION);
@@ -34,8 +29,22 @@ void PeriodicSensingStatusLogger::log_status(const char *tag,
   const uint32_t now_ms = monotonic_now_ms();
 
   uint32_t rate_pps = 0;
+  uint32_t raw_rate_pps = 0;
+  uint32_t traffic_rate_pps = 0;
+  uint32_t missing_rate_pps = 0;
+  uint32_t excess_rate_pps = 0;
+  uint32_t stale_rate_pps = 0;
+  uint32_t out_of_order_rate_pps = 0;
+  uint32_t occupancy_percent = 0;
   if (diagnostics != nullptr) {
-    rate_pps = static_cast<uint32_t>(diagnostics->csi_accepted_pps);
+    rate_pps = static_cast<uint32_t>(diagnostics->csi_admitted_pps);
+    raw_rate_pps = static_cast<uint32_t>(diagnostics->csi_accepted_pps);
+    traffic_rate_pps = static_cast<uint32_t>(diagnostics->traffic_tx_pps);
+    missing_rate_pps = static_cast<uint32_t>(diagnostics->csi_missing_slots_pps);
+    excess_rate_pps = static_cast<uint32_t>(diagnostics->csi_excess_pps);
+    stale_rate_pps = static_cast<uint32_t>(diagnostics->csi_stale_pps);
+    out_of_order_rate_pps = static_cast<uint32_t>(diagnostics->csi_out_of_order_pps);
+    occupancy_percent = static_cast<uint32_t>(diagnostics->csi_occupancy_ratio * 100.0f + 0.5f);
   } else if (last_log_time_ms_ > 0 && now_ms > last_log_time_ms_) {
     const uint32_t elapsed_ms = now_ms - last_log_time_ms_;
     if (elapsed_ms > 0) {
@@ -49,14 +58,38 @@ void PeriodicSensingStatusLogger::log_status(const char *tag,
   const int8_t rssi = snapshot.link_rssi_dbm;
   const uint8_t channel = snapshot.link_channel;
 
+  if (snapshot.calibrating) {
+    ESP_LOGI(tag,
+             "CALIBRATING | csi:%u/%u tx:%u occ:%u%% miss:%u excess:%u stale:%u ooo:%u | ch:%u rssi:%d",
+             static_cast<unsigned>(rate_pps),
+             static_cast<unsigned>(raw_rate_pps),
+             static_cast<unsigned>(traffic_rate_pps),
+             static_cast<unsigned>(occupancy_percent),
+             static_cast<unsigned>(missing_rate_pps),
+             static_cast<unsigned>(excess_rate_pps),
+             static_cast<unsigned>(stale_rate_pps),
+             static_cast<unsigned>(out_of_order_rate_pps),
+             static_cast<unsigned>(channel),
+             static_cast<int>(rssi));
+    return;
+  }
+
   const float progress = (threshold > 0.0f) ? (motion_metric / threshold) : 0.0f;
   const int percent = static_cast<int>(progress * 100.0f);
 
   log_progress_bar(tag, progress, 20, 15,
-                   "%3d%% | mvmt:%.6f thr:%.6f | %s | %u pkt/s | ch:%u rssi:%d",
+                   "%3d%% | mvmt:%.6f thr:%.6f | %s | csi:%u/%u tx:%u occ:%u%% "
+                   "miss:%u excess:%u stale:%u ooo:%u | ch:%u rssi:%d",
                    percent, motion_metric, threshold,
                    is_motion ? "MOTION" : "IDLE",
                    static_cast<unsigned>(rate_pps),
+                   static_cast<unsigned>(raw_rate_pps),
+                   static_cast<unsigned>(traffic_rate_pps),
+                   static_cast<unsigned>(occupancy_percent),
+                   static_cast<unsigned>(missing_rate_pps),
+                   static_cast<unsigned>(excess_rate_pps),
+                   static_cast<unsigned>(stale_rate_pps),
+                   static_cast<unsigned>(out_of_order_rate_pps),
                    static_cast<unsigned>(channel),
                    static_cast<int>(rssi));
 }

@@ -118,18 +118,22 @@ Boot -> AGC-active startup -> Lightweight threshold bootstrap or High Accuracy s
 
 Micro-ESPectre implements the same two detector families as the C++ platform, `lightweight` and `high_accuracy`, described in [ALGORITHMS.md](../../../docs/ALGORITHMS.md).
 
-Lightweight is the leaner path: its Lightweight implementation uses fewer feature trackers and less per-packet computation, but is less accurate and robust than High Accuracy on the maintained corpus. High Accuracy uses the ML implementation, with more working memory and CPU for its seven features and neural inference, but provides better detection quality and skips Lightweight's quiet startup calibration of up to about 10 seconds. High Accuracy still waits for CSI readiness and its feature window to fill.
+Lightweight is the leaner path: its Lightweight implementation uses fewer feature trackers and less per-packet computation, but is less accurate and robust than High Accuracy on the maintained corpus. High Accuracy uses the ML implementation, with more working memory and CPU for its seven features and neural inference, but provides better detection quality and skips Lightweight's threshold calibration. Lightweight requires about 10 seconds of clean, ready quiet-room coverage after temporal warmup, and insufficient occupancy extends that wall-clock duration. High Accuracy still waits for CSI readiness and its feature window to fill.
 
 Key config values live in `config.py`:
 
 ```python
 DETECTION_ALGORITHM = "lightweight"  # "lightweight" or "high_accuracy"
+CSI_TARGET_PPS = 100
+TRAFFIC_GENERATOR_ENABLED = True  # False expects an external traffic source
 SEGMENTATION_WINDOW_SIZE_MS = 1000
 PUBLISH_INTERVAL_MS = 1000
 EVALUATION_INTERVAL_MS = 250
 MOTION_ON_HITS = 4
 MOTION_OFF_HITS = 3
 ```
+
+`CSI_TARGET_PPS` defines both the temporal detector grid and the internal generator target. `TRAFFIC_GENERATOR_ENABLED` selects traffic ownership independently; the target is always positive. The production `TemporalCsiSampler` admits one packet per slot, preserves missing slots, and is imported unchanged by CPython collection, replay, training, and validation workflows.
 
 Lightweight selects its threshold automatically during startup calibration; keep the room quiet immediately after boot. High Accuracy uses its trained default threshold. Both thresholds remain adjustable at runtime. For the practical startup workflow, see [TUNING.md](../../../docs/TUNING.md). For the calibration formulas and detector theory, see [ALGORITHMS.md](../../../docs/ALGORITHMS.md).
 

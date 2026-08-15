@@ -47,6 +47,7 @@ try:
         derive_detector_timing,
         nominal_packet_interval_us,
     )
+    from temporal_csi_sampler import minimum_valid_slots, temporal_window_slots
     from threshold import (
         StartupThresholdCalibrator,
         get_detector_auto_factor,
@@ -60,11 +61,18 @@ except ImportError:  # pragma: no cover
         derive_detector_timing,
         nominal_packet_interval_us,
     )
+    from src.temporal_csi_sampler import minimum_valid_slots, temporal_window_slots
     from src.threshold import (
         StartupThresholdCalibrator,
         get_detector_auto_factor,
         get_detector_startup_gate,
     )
+
+from .temporal_replay import (
+    apply_temporal_admission,
+    iter_temporal_admissions,
+    target_pps_for_packets,
+)
 
 
 DATASET_FORMAT_VERSION = "1.2"
@@ -335,25 +343,14 @@ def measure_packet_interval_us(
     *,
     samples: int = 4096,
 ) -> int:
-    """Return the effective packet interval of a whole capture, in microseconds.
+    """Return a legacy capture's effective packet interval, in microseconds.
 
-    This is the host-side counterpart of the runtime estimator, and it answers a
-    different question. On device the estimator has to report the cadence right
-    now, so it keeps a short rolling window. Here the whole capture is available
-    and the answer has to describe all of it: a capture that opens with a burst
-    would otherwise be characterised by its first moments and be given a window
-    sized for a rate it never sustains.
-
-    Deltas are collected across the entire stream and averaged, excluding only
-    the ones already judged to be holes. The mean rather than the median is
-    deliberate: sizing a window of N packets is a throughput question, and real
-    captures are bursty rather than evenly paced. One C6 capture delivers a
-    quarter of its packets about 71 us apart with 65-70 ms pauses between the
-    bursts; its median interval claims 215 pps while its actual throughput is
-    the declared 97.9. Excluding contaminated deltas keeps a pathological stall
-    from inflating the answer, which is the robustness the median was there for.
+    New captures record ``csi_target_pps`` and replay on that configured temporal
+    grid. This whole-capture estimate is retained only for legacy provenance and
+    timing diagnostics; it never resizes a live detector. Clean deltas are
+    averaged across the stream so an opening burst does not define the fallback.
     """
-    nominal = nominal_packet_interval_us(100)
+    nominal = nominal_packet_interval_us(config.CSI_TARGET_PPS)
     total = len(packets)
     if total < 2:
         return nominal
@@ -385,12 +382,9 @@ def detector_window_packets(
         if window_size_ms is None
         else int(window_size_ms)
     )
-    return int(
-        derive_detector_timing(
-            measure_packet_interval_us(packets),
-            configured_ms,
-        )["window_packets"]
-    )
+    interval_us = measure_packet_interval_us(packets)
+    target_pps = target_pps_for_packets(packets, interval_us)
+    return temporal_window_slots(target_pps, configured_ms)
 
 
 def build_lightweight_detector(
@@ -406,10 +400,10 @@ def build_lightweight_detector(
         else bool(enable_hampel)
     )
     resolved = timing or derive_detector_timing(
-        nominal_packet_interval_us(100),
+        nominal_packet_interval_us(config.CSI_TARGET_PPS),
         config.SEGMENTATION_WINDOW_SIZE_MS,
     )
-    return LightweightDetector(
+    detector = LightweightDetector(
         window_size=resolved["window_packets"],
         threshold=threshold,
         enable_lowpass=config.ENABLE_LOWPASS_FILTER,
@@ -419,6 +413,10 @@ def build_lightweight_detector(
         hampel_threshold=config.HAMPEL_THRESHOLD,
         autocorr_lag=resolved["autocorr_lag"],
     )
+    detector.set_minimum_valid_samples(
+        minimum_valid_slots(resolved["window_packets"])
+    )
+    return detector
 
 
 def _packet_field(packet: Any, key: str) -> Any:
@@ -428,22 +426,16 @@ def _packet_field(packet: Any, key: str) -> Any:
     return getattr(packet, key, None)
 
 
-def _calibration_runtime(
-    timing: Dict[str, int],
-) -> tuple[PacketTimingTracker, RuntimeMotionPolicy, int]:
+def _calibration_runtime(target_pps: int) -> tuple[RuntimeMotionPolicy, int]:
     """Return the shared timing helpers used by time-aware classic startup."""
-    interval_us = int(timing["interval_us"])
+    interval_us = nominal_packet_interval_us(target_pps)
     cadence = RuntimeMotionPolicy(
         evaluation_interval_ms=config.EVALUATION_INTERVAL_MS,
         motion_on_hits=1,
         motion_off_hits=1,
         segmentation_window_size_ms=config.SEGMENTATION_WINDOW_SIZE_MS,
     )
-    return (
-        PacketTimingTracker(interval_us),
-        cadence,
-        interval_us,
-    )
+    return cadence, interval_us
 
 
 def estimate_runtime_threshold(
@@ -476,26 +468,42 @@ def build_calibrated_lightweight_detector(
     tests can exercise both branches without mutating global configuration.
     """
     packets = list(packets)
+    measured_interval_us = measure_packet_interval_us(packets)
+    target_pps = target_pps_for_packets(packets, measured_interval_us)
     timing = derive_detector_timing(
-        measure_packet_interval_us(packets),
+        nominal_packet_interval_us(target_pps),
+        config.SEGMENTATION_WINDOW_SIZE_MS,
+    )
+    timing["window_packets"] = temporal_window_slots(
+        target_pps,
         config.SEGMENTATION_WINDOW_SIZE_MS,
     )
     detector = build_lightweight_detector(
         threshold=threshold, enable_hampel=enable_hampel, timing=timing
     )
+    if hasattr(detector, "set_minimum_valid_samples"):
+        detector.set_minimum_valid_samples(
+            minimum_valid_slots(timing["window_packets"])
+        )
     band = config.DEFAULT_SUBCARRIERS if selected_subcarriers is None else tuple(selected_subcarriers)
     detector.on_startup_calibration_begin()
-    timing_tracker, cadence, nominal_interval_us = _calibration_runtime(timing)
-    calibration_target_packets = max(
-        1,
-        int(round(config.CALIBRATION_DURATION_MS * 1000.0 / timing["interval_us"])),
+    cadence, nominal_interval_us = _calibration_runtime(target_pps)
+    calibration_target_packets = temporal_window_slots(
+        target_pps,
+        config.CALIBRATION_DURATION_MS,
     )
     calibrator = StartupThresholdCalibrator(
         calibration_target_packets,
         auto_factor=get_detector_auto_factor(detector),
         gate_enabled=get_detector_startup_gate(detector),
     )
-    for pkt in packets:
+    for admission in iter_temporal_admissions(
+        packets,
+        target_pps=target_pps,
+        window_size_ms=config.SEGMENTATION_WINDOW_SIZE_MS,
+        fallback_interval_us=measured_interval_us,
+    ):
+        pkt = admission.packet
         csi_data = pkt["csi_data"] if isinstance(pkt, MappingABC) else pkt
         # The detector indexes this payload element by element dozens of times
         # per packet, and a NumPy element read builds a NumPy scalar. `int8` is
@@ -503,9 +511,8 @@ def build_calibrated_lightweight_detector(
         if hasattr(csi_data, "tolist"):
             csi_data = csi_data.tolist()
         rssi_dbm = _packet_field(pkt, "rssi_dbm")
-        timing = timing_tracker.observe_packet(pkt)
-        if timing["contaminated"]:
-            detector.reset()
+        if admission.reset_required:
+            apply_temporal_admission(detector, admission)
             detector.on_startup_calibration_begin()
             calibrator = StartupThresholdCalibrator(
                 calibration_target_packets,
@@ -513,19 +520,20 @@ def build_calibrated_lightweight_detector(
                 gate_enabled=get_detector_startup_gate(detector),
             )
             cadence.reset()
-            timing_tracker.reset()
-            timing = timing_tracker.observe_packet(pkt)
+        else:
+            apply_temporal_admission(detector, admission)
         detector.process_packet(csi_data, band, rssi_dbm=rssi_dbm)
-        cadence.note_packet(elapsed_us=timing["coverage_us"])
+        cadence.note_packet(elapsed_us=admission.coverage_us)
         if not cadence.should_evaluate():
             continue
         detector.update_state()
-        calibrator.observe_detector(
-            detector,
-            packet_weight=cadence.equivalent_packets_since_evaluation(
-                nominal_interval_us
-            ),
-        )
+        if detector.is_ready():
+            calibrator.observe_detector(
+                detector,
+                packet_weight=cadence.equivalent_packets_since_evaluation(
+                    nominal_interval_us
+                ),
+            )
         cadence.after_evaluation()
         if calibrator.is_complete():
             break

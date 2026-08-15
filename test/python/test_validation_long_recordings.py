@@ -208,3 +208,51 @@ def test_classic_long_recording_cached_rows_match_packet_replay(long_dataset):
         motion_start_packet=motion_start_packet,
     )
     _assert_classic_replays_match(cached_metrics, packet_metrics)
+
+
+def test_classic_row_calibration_skips_not_ready_ticks() -> None:
+    """Not-ready evaluation ticks must not consume the startup packet budget."""
+    import numpy as np
+
+    from tools.lib.performance_report import _calibrate_classic_replay_rows
+
+    timing = {
+        "interval_us": 10000,
+        "window_packets": 100,
+        "lag": 1,
+        "autocorr_lag": 1,
+    }
+    rows = {
+        "X": np.asarray([[0.2, 0.4], [0.2, 0.4]], dtype=np.float64),
+        "ready": np.asarray([False, True], dtype=bool),
+        "packet_weight": np.asarray([10000, 10000], dtype=np.int32),
+        "reset_index": np.asarray([0, 0], dtype=np.int32),
+    }
+
+    threshold = _calibrate_classic_replay_rows(rows, timing)
+
+    assert threshold is not None
+    assert 0.0 < threshold < 1.0
+
+
+def test_classic_row_scoring_skips_not_ready_eligible_ticks() -> None:
+    """Occupancy holes must not become scored idle evaluations."""
+    import numpy as np
+
+    from tools.lib.dataset_metadata import build_lightweight_detector
+    from tools.lib.performance_report import _score_classic_replay_phase_rows
+
+    detector = build_lightweight_detector(
+        threshold=0.01,
+        timing={"window_packets": 100, "interval_us": 10000, "autocorr_lag": 1},
+    )
+    rows = {
+        "X": np.asarray([[0.9, 3.0], [0.9, 3.0], [0.9, 3.0]], dtype=np.float64),
+        "ready": np.asarray([True, False, True], dtype=bool),
+        "eligible": np.asarray([True, True, True], dtype=bool),
+        "reset_index": np.asarray([0, 0, 0], dtype=np.int32),
+    }
+
+    states = _score_classic_replay_phase_rows(rows, detector)
+
+    assert states == [True, True]

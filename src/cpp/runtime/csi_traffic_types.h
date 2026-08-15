@@ -20,10 +20,8 @@ namespace espectre {
  */
 enum class CsiTrafficMode {
   /**
-   * The runtime generates its own traffic at `traffic_generator_rate`.
-   *
-   * Default, and the only self-sufficient mode. A rate of zero degrades it to
-   * `DISABLED`.
+   * The runtime generates its own traffic at `csi_target_pps`.
+   * Default, and the only self-sufficient mode.
    */
   INTERNAL,
   /** Another device supplies the traffic; the runtime only listens. */

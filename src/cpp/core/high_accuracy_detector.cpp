@@ -12,6 +12,7 @@
 #include "threshold.h"
 #include <cmath>
 #include <algorithm>
+#include <limits>
 #include "espectre_log.h"
 
 namespace espectre {
@@ -19,8 +20,6 @@ namespace espectre {
 static const char *TAG = "HighAccuracyDetector";
 static_assert(ML_MODEL_INPUT_SIZE == ML_NUM_FEATURES,
               "Exported model input size must match extracted ML feature count");
-static_assert(DETECTOR_MIN_WINDOW_SIZE >= HT20_NUM_SUBCARRIERS,
-              "ML scratch must hold one packet-wide HT20 feature frame");
 
 // ============================================================================
 // CONSTRUCTOR
@@ -36,7 +35,8 @@ HighAccuracyDetector::HighAccuracyDetector(uint16_t window_size, float threshold
     , feature_scratch_(nullptr)
     , aggregated_turbulence_buffer_(nullptr)
     , aggregated_turbulence_index_(0U)
-    , aggregated_turbulence_count_(0U) {
+    , aggregated_turbulence_count_(0U)
+    , aggregated_valid_count_(0U) {
     threshold_ = clamp_threshold(threshold_, HIGH_ACCURACY_MIN_THRESHOLD, HIGH_ACCURACY_MAX_THRESHOLD);
     // Maintain the L1-delta rings only when the exported model needs them, and
     // reserve the rebuilt series only for the features that read it.
@@ -97,6 +97,7 @@ HighAccuracyDetector::HighAccuracyDetector(HighAccuracyDetector&& other) noexcep
     , aggregated_turbulence_buffer_(other.aggregated_turbulence_buffer_)
     , aggregated_turbulence_index_(other.aggregated_turbulence_index_)
     , aggregated_turbulence_count_(other.aggregated_turbulence_count_)
+    , aggregated_valid_count_(other.aggregated_valid_count_)
     , aggregated_hampel_state_(other.aggregated_hampel_state_)
     , aggregated_lowpass_state_(other.aggregated_lowpass_state_) {
     other.feature_scratch_ = nullptr;
@@ -120,6 +121,7 @@ HighAccuracyDetector& HighAccuracyDetector::operator=(HighAccuracyDetector&& oth
         aggregated_turbulence_buffer_ = other.aggregated_turbulence_buffer_;
         aggregated_turbulence_index_ = other.aggregated_turbulence_index_;
         aggregated_turbulence_count_ = other.aggregated_turbulence_count_;
+        aggregated_valid_count_ = other.aggregated_valid_count_;
         aggregated_hampel_state_ = other.aggregated_hampel_state_;
         aggregated_lowpass_state_ = other.aggregated_lowpass_state_;
         other.aggregated_turbulence_buffer_ = nullptr;
@@ -128,7 +130,7 @@ HighAccuracyDetector& HighAccuracyDetector::operator=(HighAccuracyDetector&& oth
 }
 
 uint16_t HighAccuracyDetector::feature_scratch_size_() const {
-    return window_size_;
+    return std::max<uint16_t>(window_size_, HT20_NUM_SUBCARRIERS);
 }
 
 MLSeriesScratch HighAccuracyDetector::series_scratch_() const {
@@ -241,9 +243,11 @@ bool HighAccuracyDetector::is_ready() const {
     // rings fill on the same packet. An alternate lag can break that, and an
     // ungated ML would infer on a partly filled ring whose lag ratio returns its
     // no-motion sentinel rather than signalling "not ready".
-    return (!uses_l1_tracker_ || l1_tracker_.count() >= l1_delta_capacity_()) &&
+    return (!uses_l1_tracker_ || l1_delta_capacity_() == 0U ||
+            l1_tracker_.count() > 0U) &&
            (!uses_aggregated_turbulence_ ||
-            aggregated_turbulence_count_ >= window_size_);
+            (aggregated_turbulence_count_ >= window_size_ &&
+             aggregated_valid_count_ >= minimum_valid_samples_));
 }
 
 void HighAccuracyDetector::process_packet(const int8_t* csi_data, size_t csi_len,
@@ -318,6 +322,7 @@ void HighAccuracyDetector::clear_buffer() {
     }
     aggregated_turbulence_index_ = 0U;
     aggregated_turbulence_count_ = 0U;
+    aggregated_valid_count_ = 0U;
     hampel_turbulence_init(
         &aggregated_hampel_state_, aggregated_hampel_state_.window_size,
         aggregated_hampel_state_.threshold, aggregated_hampel_state_.enabled);
@@ -330,6 +335,11 @@ void HighAccuracyDetector::add_aggregated_turbulence_(float turbulence) {
         &aggregated_hampel_state_, turbulence);
     const float filtered = lowpass_filter_apply(
         &aggregated_lowpass_state_, hampel_filtered);
+    if (!std::isfinite(aggregated_turbulence_buffer_[aggregated_turbulence_index_])) {
+        ++aggregated_valid_count_;
+    } else if (aggregated_turbulence_count_ < window_size_) {
+        ++aggregated_valid_count_;
+    }
     aggregated_turbulence_buffer_[aggregated_turbulence_index_] = filtered;
     aggregated_turbulence_index_++;
     if (aggregated_turbulence_index_ >= window_size_) {
@@ -337,6 +347,27 @@ void HighAccuracyDetector::add_aggregated_turbulence_(float turbulence) {
     }
     if (aggregated_turbulence_count_ < window_size_) {
         ++aggregated_turbulence_count_;
+    }
+}
+
+void HighAccuracyDetector::advance_missing_slots(uint32_t count) {
+    BaseDetector::advance_missing_slots(count);
+    if (uses_l1_tracker_) l1_tracker_.advance_missing_slots(count);
+    if (aggregated_turbulence_buffer_ == nullptr) return;
+    const float missing = std::numeric_limits<float>::quiet_NaN();
+    for (uint32_t slot = 0U; slot < count; ++slot) {
+        if (aggregated_turbulence_count_ >= window_size_ &&
+            std::isfinite(aggregated_turbulence_buffer_[aggregated_turbulence_index_])) {
+            --aggregated_valid_count_;
+        }
+        aggregated_turbulence_buffer_[aggregated_turbulence_index_] = missing;
+        aggregated_turbulence_index_++;
+        if (aggregated_turbulence_index_ >= window_size_) {
+            aggregated_turbulence_index_ = 0U;
+        }
+        if (aggregated_turbulence_count_ < window_size_) {
+            ++aggregated_turbulence_count_;
+        }
     }
 }
 

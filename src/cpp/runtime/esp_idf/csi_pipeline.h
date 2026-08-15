@@ -25,6 +25,7 @@
 #include "csi_format.h"
 #include "pending_event.h"
 #include "runtime_sensing_schema.h"
+#include "temporal_csi_sampler.h"
 #include "wifi_csi_interface.h"
 
 namespace espectre {
@@ -82,15 +83,13 @@ using live_telemetry_callback_t = std::function<void(float movement, float thres
 // callback is deferred to loop() so runtimes can safely rearm CSI hardware.
 using channel_change_callback_t = std::function<void(uint8_t previous_channel, uint8_t current_channel)>;
 
-// Callback delivered from loop() when the measured cadence resolves the
-// configured time window to a different sample count.
-using detector_window_callback_t = std::function<void(uint16_t window_packets)>;
-
 // Callback type for intercepting normalized CSI packets before detector
 // processing. The interceptor is told whether this packet closes an evaluation
 // window and how many packets that window covers, so it evaluates on the same
-// cadence the detection path does instead of counting packets itself.
-using csi_packet_interceptor_t = bool (*)(void *, const int8_t *, size_t, int8_t, bool, uint32_t);
+// cadence the detection path does instead of counting packets itself. A true
+// temporal_reset marks a contaminating gap that cleared detector history.
+using csi_packet_interceptor_t = bool (*)(void *, const int8_t *, size_t, int8_t,
+                                          bool, uint32_t, bool);
 
 /**
  * CSI Pipeline
@@ -122,6 +121,18 @@ class CsiPipeline {
   void set_evaluation_interval_ms(uint32_t interval_ms) { cadence_.set_interval_ms(interval_ms); }
   void set_segmentation_window_size_ms(uint32_t window_size_ms) {
     cadence_.set_window_size_ms(window_size_ms);
+    sampler_.configure(sampler_.target_pps(), window_size_ms);
+    if (detector_ != nullptr) {
+      detector_->set_minimum_valid_samples(
+          static_cast<uint16_t>(sampler_.minimum_valid_slots()));
+    }
+  }
+  void set_csi_target_pps(uint32_t target_pps) {
+    sampler_.configure(target_pps, sampler_.window_size_ms());
+    if (detector_ != nullptr) {
+      detector_->set_minimum_valid_samples(
+          static_cast<uint16_t>(sampler_.minimum_valid_slots()));
+    }
   }
   void set_motion_on_hits(uint8_t hits) { motion_on_hits_ = hits > 0 ? hits : 1; }
   void set_motion_off_hits(uint8_t hits) { motion_off_hits_ = hits > 0 ? hits : 1; }
@@ -172,11 +183,28 @@ class CsiPipeline {
    * Check if CSI is currently enabled
    */
   bool is_enabled() const { return enabled_; }
-  bool packet_rate_ready() const { return cadence_.rate_ready(); }
-  uint32_t measured_packet_interval_us() const { return cadence_.interval_us(); }
   uint64_t accepted_packets_total() const {
     return accepted_packets_total_.load(std::memory_order_relaxed);
   }
+  uint64_t detector_admitted_packets_total() const {
+    return sampler_.accepted_packets();
+  }
+  uint64_t detector_excess_packets_total() const {
+    return sampler_.excess_packets();
+  }
+  uint64_t detector_missing_slots_total() const {
+    return sampler_.missing_slots();
+  }
+  uint64_t detector_stale_packets_total() const {
+    return sampler_.stale_packets();
+  }
+  uint64_t detector_out_of_order_packets_total() const {
+    return sampler_.out_of_order_packets();
+  }
+  uint32_t detector_window_occupancy_slots() const {
+    return sampler_.occupancy_slots();
+  }
+  uint32_t detector_window_slots() const { return sampler_.window_slots(); }
   uint64_t rejected_out_of_order_packets_total() const {
     return capture_service_.rejected_out_of_order_packets();
   }
@@ -208,10 +236,6 @@ class CsiPipeline {
     channel_change_callback_ = callback;
   }
 
-  void set_detector_window_callback(detector_window_callback_t callback) {
-    detector_window_callback_ = callback;
-  }
-  
   /**
    * Get the detector instance
    */
@@ -245,12 +269,12 @@ class CsiPipeline {
   motion_state_callback_t motion_state_callback_;
   live_telemetry_callback_t live_telemetry_callback_;
   channel_change_callback_t channel_change_callback_;
-  detector_window_callback_t detector_window_callback_;
   uint32_t publish_interval_ms_{RUNTIME_PUBLISH_INTERVAL_MS_DEFAULT};
   uint32_t last_publish_ms_{0U};
   // Evaluation advances on elapsed packet time, not on packet count, so a
   // window keeps its deploy-time meaning when the stream runs off-nominal.
   EvaluationCadence cadence_{};
+  TemporalCsiSampler sampler_{};
   std::atomic<uint32_t> packets_processed_{0U};
   std::atomic<MotionState> heartbeat_motion_state_{MotionState::IDLE};
   std::atomic<uint64_t> accepted_packets_total_{0U};
@@ -261,14 +285,12 @@ class CsiPipeline {
   uint8_t pending_state_hits_{0};
   MotionState effective_motion_state_{MotionState::IDLE};
   MotionState pending_motion_state_{MotionState::IDLE};
-  bool detector_rate_on_hold_{false};
   uint32_t local_ip_addr_{0U};
   std::array<uint8_t, 6> local_mac_addr_{};
 
   // Deferred notifications: posted from the CSI callback, drained by loop().
   PendingEvent<MotionState> motion_state_event_;
   PendingEvent<float, float> live_telemetry_event_;
-  PendingEvent<uint16_t> detector_window_event_;
   PendingDetectionTiming detection_timing_;
   CsiCaptureService capture_service_;
 

@@ -38,6 +38,7 @@ espectre::test::replay::ReplayPacketMetadata empty_metadata() {
   metadata.wifi_rx_ts_us = csi_test_data::g_empty_data.wifi_rx_ts_us.empty()
                                ? nullptr
                                : csi_test_data::g_empty_data.wifi_rx_ts_us.data();
+  metadata.csi_target_pps = csi_test_data::g_empty_data.csi_target_pps;
   return metadata;
 }
 

@@ -122,6 +122,8 @@ L1_SERIES_FEATURES: Tuple[str, ...] = ()
 CHANNEL_SHAPE_TRAJECTORY_FEATURES = (
     'chan_shape_scale_curvature',
     'chan_shape_coherent_innovation_contrast',
+    'chan_shape_subband_kendall_lag_excess',
+    'chan_shape_subband_rank_gap',
     'chan_shape_spread_subband',
     'chan_shape_coherent_innovation_energy',
     'chan_shape_excess_path',
@@ -158,6 +160,8 @@ CANDIDATE_FEATURES: Tuple[str, ...] = (
 
 CHANNEL_SHAPE_SUBBAND_COUNT = 8
 CHANNEL_SHAPE_BIN_US = 80_000
+CHANNEL_SHAPE_KENDALL_RELATIVE_DEADBAND = 0.02
+CHANNEL_SHAPE_KENDALL_MIN_COMPARABLE_PAIRS = 8
 _CHANNEL_SHAPE_SUBBAND_WIDTH = (
     len(HT20_LIVE_BINS) // CHANNEL_SHAPE_SUBBAND_COUNT
 )
@@ -418,9 +422,15 @@ class ChannelShapeTrajectoryTracker:
         self,
         window_duration_us: int = 1_000_000,
         bin_us: int = CHANNEL_SHAPE_BIN_US,
+        track_subband_rank_gap: bool = False,
+        track_subband_kendall_lag_excess: bool = False,
     ):
         self.window_duration_us = max(3, int(window_duration_us))
         self.bin_us = max(1, int(bin_us))
+        self.track_subband_rank_gap = bool(track_subband_rank_gap)
+        self.track_subband_kendall_lag_excess = bool(
+            track_subband_kendall_lag_excess
+        )
         self._window_bins = max(
             3,
             (self.window_duration_us + self.bin_us - 1) // self.bin_us,
@@ -437,17 +447,46 @@ class ChannelShapeTrajectoryTracker:
         if self._current_bin is None or not self._current_profiles:
             return
         profile = self._median_profile(self._current_profiles)
+        modes = profile @ _CHANNEL_SHAPE_DCT
         self._bins.append(
             (
                 self._current_bin,
-                profile @ _CHANNEL_SHAPE_DCT,
+                modes,
             )
         )
+        if self.track_subband_kendall_lag_excess:
+            self._subband_kendall_signatures[self._current_bin] = (
+                guarded_kendall_signature(profile)
+            )
+        if self.track_subband_rank_gap:
+            profiles = {
+                index: stored_modes @ _CHANNEL_SHAPE_DCT.T
+                for index, stored_modes in self._bins
+            }
+            for lag_bins in (1, 3):
+                reference = profiles.get(self._current_bin - lag_bins)
+                if reference is not None:
+                    self._subband_rank_distances[
+                        (self._current_bin, lag_bins)
+                    ] = rank_profile_distance(profile, reference)
 
     def _trim(self, current_bin: int) -> None:
         first_bin = int(current_bin) - self._window_bins + 1
         while self._bins and self._bins[0][0] < first_bin:
             del self._bins[0]
+        if self.track_subband_rank_gap:
+            self._subband_rank_distances = {
+                (index, lag_bins): distance
+                for (index, lag_bins), distance
+                in self._subband_rank_distances.items()
+                if index - lag_bins >= first_bin
+            }
+        if self.track_subband_kendall_lag_excess:
+            self._subband_kendall_signatures = {
+                index: signature
+                for index, signature in self._subband_kendall_signatures.items()
+                if index >= first_bin
+            }
 
     def process_packet(self, csi_data, timestamp_us: int) -> None:
         """Consume one CSI payload at its monotonic physical timestamp."""
@@ -505,6 +544,88 @@ class ChannelShapeTrajectoryTracker:
             - np.log(short + floor)
             - np.log(long + floor)
         )
+
+    def subband_rank_gap(self) -> float:
+        """Ordinal profile turnover at 240 ms minus turnover at 80 ms.
+
+        The eight Hellinger subbands already retained by the trajectory are
+        ranked after removing values below two percent of either profile
+        maximum. Exact physical-bin lags keep the statistic independent of
+        packet cadence, while Spearman distance removes positive gain. Cached
+        finalized-bin distances leave only the changing current bin to compare
+        during extraction.
+        """
+        if not self.track_subband_rank_gap:
+            raise ValueError(
+                "subband rank gap tracking was not enabled at construction"
+            )
+
+        def distances(lag_bins: int) -> List[float]:
+            values = [
+                distance
+                for (index, cached_lag), distance
+                in self._subband_rank_distances.items()
+                if cached_lag == lag_bins
+            ]
+            if self._current_bin is None or not self._current_profiles:
+                return values
+            references = dict(self._bins)
+            reference_modes = references.get(self._current_bin - lag_bins)
+            if reference_modes is None:
+                return values
+            profile = self._median_profile(self._current_profiles)
+            reference = reference_modes @ _CHANNEL_SHAPE_DCT.T
+            values.append(rank_profile_distance(profile, reference))
+            return values
+
+        adjacent = distances(1)
+        longer = distances(3)
+        if not adjacent or not longer:
+            return 0.0
+        return float(np.median(longer) - np.median(adjacent))
+
+    def subband_kendall_lag_excess(self) -> float:
+        """Guarded ordinal turnover beyond three local 80 ms steps.
+
+        Each eight-subband profile becomes two 28-bit pairwise-order masks.
+        Pairs separated by no more than two percent of the profile maximum are
+        treated as ties. For every complete four-bin path, the 240 ms Kendall
+        distance is compared with the mean of its three constituent 80 ms
+        distances. The median positive excess rejects local ordinal jitter and
+        retains only accumulated frequency-selective turnover.
+        """
+        if not self.track_subband_kendall_lag_excess:
+            raise ValueError(
+                "subband Kendall lag-excess tracking was not enabled at "
+                "construction"
+            )
+        signatures = dict(self._subband_kendall_signatures)
+        if self._current_bin is not None and self._current_profiles:
+            profile = self._median_profile(self._current_profiles)
+            signatures[self._current_bin] = guarded_kendall_signature(profile)
+        samples = []
+        for index in sorted(signatures):
+            required = tuple(index - lag for lag in range(4))
+            if not all(required_index in signatures for required_index in required):
+                continue
+            long_distance = guarded_kendall_distance(
+                signatures[index], signatures[index - 3]
+            )
+            local_distances = [
+                guarded_kendall_distance(
+                    signatures[local_index],
+                    signatures[local_index - 1],
+                )
+                for local_index in range(index - 2, index + 1)
+            ]
+            if long_distance is None or any(
+                distance is None for distance in local_distances
+            ):
+                continue
+            samples.append(
+                max(0.0, long_distance - float(np.mean(local_distances)))
+            )
+        return float(np.median(samples)) if samples else 0.0
 
     def trajectory_features_with_spread(
         self,
@@ -644,6 +765,8 @@ class ChannelShapeTrajectoryTracker:
         self._current_bin = None
         self._current_profiles: List[np.ndarray] = []
         self._previous_raw = None
+        self._subband_rank_distances: Dict[Tuple[int, int], float] = {}
+        self._subband_kendall_signatures: Dict[int, Tuple[int, int]] = {}
 
 
 # Compatibility name retained for experiments created before the tracker grew
@@ -750,6 +873,49 @@ def _average_ranks(values: np.ndarray) -> np.ndarray:
         ranks[order[start:end]] = 0.5 * (start + end - 1)
         start = end
     return ranks
+
+
+def guarded_kendall_signature(
+    profile: np.ndarray,
+    relative_deadband: float = CHANNEL_SHAPE_KENDALL_RELATIVE_DEADBAND,
+) -> Tuple[int, int]:
+    """Encode material pairwise subband ordering as two bit masks."""
+    values = np.asarray(profile, dtype=np.float64)
+    if values.shape != (CHANNEL_SHAPE_SUBBAND_COUNT,):
+        return 0, 0
+    maximum = float(np.max(values))
+    if maximum <= 0.0:
+        return 0, 0
+    threshold = max(0.0, float(relative_deadband)) * maximum
+    order_mask = 0
+    valid_mask = 0
+    bit = 0
+    for left in range(CHANNEL_SHAPE_SUBBAND_COUNT - 1):
+        for right in range(left + 1, CHANNEL_SHAPE_SUBBAND_COUNT):
+            difference = float(values[left] - values[right])
+            flag = 1 << bit
+            if abs(difference) > threshold:
+                valid_mask |= flag
+                if difference > 0.0:
+                    order_mask |= flag
+            bit += 1
+    return order_mask, valid_mask
+
+
+def guarded_kendall_distance(
+    current: Tuple[int, int],
+    reference: Tuple[int, int],
+    min_comparable_pairs: int = CHANNEL_SHAPE_KENDALL_MIN_COMPARABLE_PAIRS,
+) -> Optional[float]:
+    """Return normalized discordance over materially ordered common pairs."""
+    current_order, current_valid = current
+    reference_order, reference_valid = reference
+    common = int(current_valid) & int(reference_valid)
+    comparable = common.bit_count()
+    if comparable < max(1, int(min_comparable_pairs)):
+        return None
+    discordant = ((int(current_order) ^ int(reference_order)) & common).bit_count()
+    return float(discordant) / float(comparable)
 
 
 def rank_profile_distance(

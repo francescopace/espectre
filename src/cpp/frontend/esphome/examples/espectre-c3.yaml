@@ -6,7 +6,6 @@
 # - AirM2M Core ESP32-C3 (tested by @WLaoDuo)
 #
 # ESP32-C3 Super Mini Notes:
-# - Set traffic_generator_rate to 94 or less (higher values cause calibration issues)
 # - Boards with USB-UART bridges (CH343, CP2102): uncomment hardware_uart in logger section (tested by @gasment)
 # - Some cheap clones may require DIO flash mode - see flash_mode below
 #
@@ -50,7 +49,8 @@ external_components:
 espectre:
   id: espectre_csi
   detection_algorithm: ${detection_algorithm}
-  traffic_generator_rate: 100 # Note: For Super Mini boards, keep traffic_generator_rate lower (e.g. 94)
+  csi_target_pps: 100
+  csi_traffic_mode: internal
 
 # Dashboard import for easy adoption
 dashboard_import:

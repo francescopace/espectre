@@ -41,6 +41,7 @@ ESPHome / Native / Matter / Streamer frontends
 `core` contains reusable sensing logic and domain primitives:
 
 - `LightweightDetector` and `HighAccuracyDetector`
+- `TemporalCsiSampler`, which admits at most one packet per configured slot
 - feature extraction and detector math
 - filters and helper utilities
 - exported ML artifacts and related constants
@@ -51,7 +52,7 @@ Rule of thumb: code in `core` should stay free of frontend-specific concerns suc
 
 `runtime` owns the execution environment around the shared detectors:
 
-- CSI ingestion and normalization
+- CSI ingestion, normalization, and temporal admission before detector input
 - AGC-active sensing path
 - startup calibration orchestration
 - traffic generation or packet ingress hooks

@@ -27,35 +27,51 @@ L1_DELTA_STARTUP_THRESHOLD_FACTOR = 1.1
 TURB_IQR_AGGREGATION_WIDTH = 5
 
 
-def calc_autocorrelation(turbulence_buffer, buffer_count, mean=None, variance=None, lag=1):
+def calc_autocorrelation(turbulence_buffer, buffer_count, mean=None, variance=None, lag=1,
+                         validity=None):
     """Calculate lag-k autocorrelation coefficient."""
     if buffer_count < lag + 2:
+        return 0.0
+
+    valid_count = buffer_count
+    if validity is not None:
+        valid_count = sum(1 for i in range(buffer_count) if validity[i])
+    if valid_count < lag + 1:
         return 0.0
 
     if mean is None:
         total = 0.0
         for i in range(buffer_count):
-            total += turbulence_buffer[i]
-        mean = total / buffer_count
+            if validity is None or validity[i]:
+                total += turbulence_buffer[i]
+        mean = total / valid_count
 
     if variance is None:
         variance = 0.0
         for i in range(buffer_count):
+            if validity is not None and not validity[i]:
+                continue
             diff = turbulence_buffer[i] - mean
             variance += diff * diff
-        variance /= buffer_count
+        variance /= valid_count
 
     if variance < 1e-10:
         return 0.0
 
     autocovariance = 0.0
+    pair_count = 0
     for i in range(buffer_count - lag):
+        if validity is not None and not (validity[i] and validity[i + lag]):
+            continue
         autocovariance += (turbulence_buffer[i] - mean) * (turbulence_buffer[i + lag] - mean)
-    autocovariance /= (buffer_count - lag)
+        pair_count += 1
+    if pair_count == 0:
+        return 0.0
+    autocovariance /= pair_count
     return autocovariance / variance
 
 
-def calc_zero_crossing_rate(values, count, center):
+def calc_zero_crossing_rate(values, count, center, validity=None):
     """
     Calculate the crossing rate of ``values`` around ``center``.
 
@@ -66,13 +82,16 @@ def calc_zero_crossing_rate(values, count, center):
     if count < 2:
         return 0.0
     crossings = 0
-    prev_above = values[0] >= center
+    pairs = 0
     for i in range(1, count):
+        if validity is not None and not (validity[i - 1] and validity[i]):
+            continue
+        prev_above = values[i - 1] >= center
         curr_above = values[i] >= center
         if curr_above != prev_above:
             crossings += 1
-            prev_above = curr_above
-    return crossings / (count - 1)
+        pairs += 1
+    return crossings / pairs if pairs else 0.0
 
 
 # Production feature set, and the only one. Every member is scale-invariant:
@@ -137,15 +156,19 @@ class L1DeltaTracker:
         )
         self._amplitude_count = 0
         self._delta_ring = [0.0] * self.window_size
+        self._delta_valid = [False] * self.window_size
         self._delta_index = 0
         self._delta_count = 0
+        self._delta_slots = 0
         self._delta_sum = 0.0
         # Lag-1 displacement over the same window. Both references live in the
         # profile ring already, so the pair costs one extra running sum and no
         # extra normalization.
         self._delta1_ring = [0.0] * self.window_size
+        self._delta1_valid = [False] * self.window_size
         self._delta1_index = 0
         self._delta1_count = 0
+        self._delta1_slots = 0
         self._delta1_sum = 0.0
 
         self._packet_count = 0
@@ -165,26 +188,36 @@ class L1DeltaTracker:
         )
 
     def _push_delta(self, delta):
-        if self._delta_count < self.window_size:
-            self._delta_count += 1
-        else:
+        if self._delta_slots >= self.window_size and self._delta_valid[self._delta_index]:
             self._delta_sum -= self._delta_ring[self._delta_index]
-        self._delta_ring[self._delta_index] = delta
-        self._delta_sum += delta
+            self._delta_count -= 1
+        valid = delta is not None
+        self._delta_valid[self._delta_index] = valid
+        self._delta_ring[self._delta_index] = 0.0 if delta is None else delta
+        if valid:
+            self._delta_sum += delta
+            self._delta_count += 1
         self._delta_index += 1
         if self._delta_index >= self.window_size:
             self._delta_index = 0
+        if self._delta_slots < self.window_size:
+            self._delta_slots += 1
 
     def _push_delta1(self, delta):
-        if self._delta1_count < self.window_size:
-            self._delta1_count += 1
-        else:
+        if self._delta1_slots >= self.window_size and self._delta1_valid[self._delta1_index]:
             self._delta1_sum -= self._delta1_ring[self._delta1_index]
-        self._delta1_ring[self._delta1_index] = delta
-        self._delta1_sum += delta
+            self._delta1_count -= 1
+        valid = delta is not None
+        self._delta1_valid[self._delta1_index] = valid
+        self._delta1_ring[self._delta1_index] = 0.0 if delta is None else delta
+        if valid:
+            self._delta1_sum += delta
+            self._delta1_count += 1
         self._delta1_index += 1
         if self._delta1_index >= self.window_size:
             self._delta1_index = 0
+        if self._delta1_slots < self.window_size:
+            self._delta1_slots += 1
 
     def process_packet(self, csi_data, selected_subcarriers=None):
         if self._amplitude_buffer is None:
@@ -197,6 +230,8 @@ class L1DeltaTracker:
     def process_amplitudes(self, amplitudes, amplitude_count, amplitude_mean=None):
         """Update the L1 stream from an already extracted amplitude profile."""
         self._packet_count += 1
+        lagged_delta = None
+        adjacent_delta = None
         profile = self._current_profile
         ring_slot = self._profile_index
         reference = self._profile_ring[ring_slot]
@@ -234,12 +269,12 @@ class L1DeltaTracker:
                         self.last_delta = delta_total / profile_len
                         if self._hampel_filter is not None:
                             self.last_delta = self._hampel_filter.filter(self.last_delta)
-                        self._push_delta(self.last_delta)
+                        lagged_delta = self.last_delta
                     if adjacent:
                         delta1 = delta1_total / profile_len
                         if self._hampel_filter1 is not None:
                             delta1 = self._hampel_filter1.filter(delta1)
-                        self._push_delta1(delta1)
+                        adjacent_delta = delta1
                 else:
                     for i in range(profile_len):
                         profile[i] = amplitudes[i] / mean
@@ -250,6 +285,18 @@ class L1DeltaTracker:
         self._profile_index += 1
         if self._profile_index >= self.lag:
             self._profile_index = 0
+        self._push_delta(lagged_delta)
+        self._push_delta1(adjacent_delta)
+
+    def advance_missing_slots(self, count):
+        """Advance lag rings for absent temporal slots without fabricating data."""
+        for _ in range(max(0, int(count))):
+            self._profile_len[self._profile_index] = 0
+            self._profile_index += 1
+            if self._profile_index >= self.lag:
+                self._profile_index = 0
+            self._push_delta(None)
+            self._push_delta1(None)
 
     def delta_lag_ratio(self):
         """Return mean(lag displacement) / mean(lag-1 displacement).
@@ -325,10 +372,16 @@ class L1DeltaTracker:
             self._profile_len[i] = 0
         self._delta_index = 0
         self._delta_count = 0
+        self._delta_slots = 0
         self._delta_sum = 0.0
+        for i in range(self.window_size):
+            self._delta_valid[i] = False
         self._delta1_index = 0
         self._delta1_count = 0
+        self._delta1_slots = 0
         self._delta1_sum = 0.0
+        for i in range(self.window_size):
+            self._delta1_valid[i] = False
         self._amplitude_count = 0
         self._profile_index = 0
         self._packet_count = 0
@@ -368,6 +421,8 @@ def extract_features_by_name(
     chan_shape_spread_subband=None,
     chan_shape_coherent_innovation_energy=None,
     chan_shape_excess_path=None,
+    turbulence_validity=None,
+    aggregated_turbulence_validity=None,
 ):
     """Extract configured features from explicitly preprocessed streams."""
     if feature_names is None:
@@ -418,19 +473,25 @@ def extract_features_by_name(
         turb_list = list(turbulence_buffer)[:buffer_count]
 
     n = len(turb_list)
-    if n < 2:
+    valid_values = [
+        turb_list[i]
+        for i in range(n)
+        if turbulence_validity is None or turbulence_validity[i]
+    ]
+    valid_n = len(valid_values)
+    if valid_n < 2:
         features = out if out is not None else [0.0] * len(feature_names)
         for i in range(len(feature_names)):
             features[i] = 0.0
         return features
 
-    turb_mean = sum(turb_list) / n
+    turb_mean = sum(valid_values) / valid_n
 
     var_sum = 0.0
-    for i in range(n):
-        diff = turb_list[i] - turb_mean
+    for value in valid_values:
+        diff = value - turb_mean
         var_sum += diff * diff
-    turb_var = var_sum / n
+    turb_var = var_sum / valid_n
     aggregated_iqr_over_mean = None
     if any(name in AGGREGATED_TURBULENCE_FEATURES for name in feature_names):
         aggregated_n = (
@@ -441,38 +502,35 @@ def extract_features_by_name(
                 len(aggregated_turbulence_buffer),
             )
         )
-        if aggregated_n < 2:
+        aggregated_values = [
+            aggregated_turbulence_buffer[i]
+            for i in range(aggregated_n)
+            if (
+                aggregated_turbulence_validity is None
+                or aggregated_turbulence_validity[i]
+            )
+        ]
+        aggregated_valid_n = len(aggregated_values)
+        if aggregated_valid_n < 2:
             aggregated_iqr_over_mean = 0.0
         else:
-            if sort_scratch is not None and len(sort_scratch) == aggregated_n:
-                aggregated_values = sort_scratch
-                for i in range(aggregated_n):
-                    aggregated_values[i] = aggregated_turbulence_buffer[i]
-            elif (
-                isinstance(aggregated_turbulence_buffer, list)
-                and reuse_aggregated_turbulence_buffer
-                and len(aggregated_turbulence_buffer) == aggregated_n
-            ):
-                aggregated_values = aggregated_turbulence_buffer
-            else:
-                aggregated_values = list(aggregated_turbulence_buffer)[:aggregated_n]
-            aggregated_mean = sum(aggregated_values) / aggregated_n
+            aggregated_mean = sum(aggregated_values) / aggregated_valid_n
             aggregated_denom = max(abs(aggregated_mean), 1e-6)
             aggregated_values.sort()
-            q25_position = (aggregated_n - 1) * 0.25
-            q75_position = (aggregated_n - 1) * 0.75
+            q25_position = (aggregated_valid_n - 1) * 0.25
+            q75_position = (aggregated_valid_n - 1) * 0.75
             q25_lower = int(q25_position)
             q75_lower = int(q75_position)
             q25_fraction = q25_position - q25_lower
             q75_fraction = q75_position - q75_lower
             q25 = (
                 aggregated_values[q25_lower] * (1.0 - q25_fraction)
-                + aggregated_values[min(q25_lower + 1, aggregated_n - 1)]
+                + aggregated_values[min(q25_lower + 1, aggregated_valid_n - 1)]
                 * q25_fraction
             )
             q75 = (
                 aggregated_values[q75_lower] * (1.0 - q75_fraction)
-                + aggregated_values[min(q75_lower + 1, aggregated_n - 1)]
+                + aggregated_values[min(q75_lower + 1, aggregated_valid_n - 1)]
                 * q75_fraction
             )
             aggregated_iqr_over_mean = (
@@ -484,20 +542,16 @@ def extract_features_by_name(
     for name in feature_names:
         if name == "turb_autocorr":
             turb_autocorr = calc_autocorrelation(
-                turb_list, n, mean=turb_mean, variance=turb_var
+                turb_list, n, mean=turb_mean, variance=turb_var,
+                validity=turbulence_validity,
             )
         elif name == "turb_zcr":
             # Crossing rate needs the time-ordered series; compute it before
             # any in-place sort of the reused turbulence buffer.
-            if sort_scratch is not None and len(sort_scratch) == n:
-                sorted_copy = sort_scratch
-                for i in range(n):
-                    sorted_copy[i] = turb_list[i]
-                sorted_copy.sort()
-            else:
-                sorted_copy = sorted(turb_list)
+            sorted_copy = sorted(valid_values)
             turb_zcr = calc_zero_crossing_rate(
-                turb_list, n, sorted_copy[n // 2]
+                turb_list, n, sorted_copy[valid_n // 2],
+                validity=turbulence_validity,
             )
     features = out if out is not None else []
     for feature_index, name in enumerate(feature_names):

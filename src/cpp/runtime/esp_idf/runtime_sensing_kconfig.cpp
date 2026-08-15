@@ -34,11 +34,11 @@
 #ifndef CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE_MS
 #define CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE_MS 1000
 #endif
-#ifndef CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE
-#define CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE 100
+#ifndef CONFIG_ESPECTRE_CSI_TARGET_PPS
+#define CONFIG_ESPECTRE_CSI_TARGET_PPS 100
 #endif
 #ifndef CONFIG_ESPECTRE_TRAFFIC_GENERATOR_ADAPTIVE
-#define CONFIG_ESPECTRE_TRAFFIC_GENERATOR_ADAPTIVE 1
+#define CONFIG_ESPECTRE_TRAFFIC_GENERATOR_ADAPTIVE 0
 #endif
 #ifndef CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS
 #define CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS 0
@@ -152,12 +152,21 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
                                RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN,
                                RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX,
                                "CONFIG_ESPECTRE_SEGMENTATION_WINDOW_SIZE_MS");
-  config.traffic_generator_rate =
-      clamp_uint32_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE),
-                               RUNTIME_TRAFFIC_GENERATOR_RATE_DEFAULT,
-                               RUNTIME_TRAFFIC_GENERATOR_RATE_MIN,
-                               RUNTIME_TRAFFIC_GENERATOR_RATE_MAX,
-                               "CONFIG_ESPECTRE_TRAFFIC_GENERATOR_RATE");
+  config.csi_target_pps =
+      clamp_uint32_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_CSI_TARGET_PPS),
+                               RUNTIME_CSI_TARGET_PPS_DEFAULT,
+                               RUNTIME_CSI_TARGET_PPS_MIN,
+                               RUNTIME_CSI_TARGET_PPS_MAX,
+                               "CONFIG_ESPECTRE_CSI_TARGET_PPS");
+#if CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_EXTERNAL
+  config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
+#elif CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_PACING
+  config.csi_traffic_mode = CsiTrafficMode::PACING;
+#elif CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_DISABLED
+  config.csi_traffic_mode = CsiTrafficMode::DISABLED;
+#else
+  config.csi_traffic_mode = CsiTrafficMode::INTERNAL;
+#endif
   config.traffic_generator_adaptive = CONFIG_ESPECTRE_TRAFFIC_GENERATOR_ADAPTIVE;
 #if CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS
   config.traffic_generator_mode = RuntimeTrafficMode::DNS;

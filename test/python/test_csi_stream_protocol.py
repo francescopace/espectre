@@ -371,6 +371,57 @@ def test_udp_pacing_sender_uses_absolute_deadlines(monkeypatch):
     assert waits == pytest.approx([0.07, 0.07, 0.07], abs=1e-6)
 
 
+def test_udp_pacing_sender_does_not_catch_up_after_overrun(monkeypatch):
+    sender = UdpPacingSender(target_host="192.168.1.17", target_port=9999, interval_s=0.1)
+    clock = {"now": 10.0}
+    send_starts = []
+
+    monkeypatch.setattr("tools.lib.csi_io.time.perf_counter", lambda: clock["now"])
+
+    def fake_send_once():
+        send_starts.append(clock["now"])
+        clock["now"] += 0.15
+        if len(send_starts) >= 3:
+            sender._stop_event.set()
+
+    def fake_wait(timeout):
+        clock["now"] += timeout
+        return False
+
+    sender._send_once = fake_send_once
+    sender._stop_event.wait = fake_wait
+    sender._run()
+
+    assert send_starts == pytest.approx([10.0, 10.2, 10.4], abs=1e-6)
+
+
+def test_udp_pacing_sender_preserves_rate_across_wakeup_latency(monkeypatch):
+    sender = UdpPacingSender(target_host="192.168.1.17", target_port=9999, interval_s=0.1)
+    clock = {"now": 10.0}
+    send_starts = []
+
+    monkeypatch.setattr("tools.lib.csi_io.time.perf_counter", lambda: clock["now"])
+
+    def fake_send_once():
+        send_starts.append(clock["now"])
+        if len(send_starts) >= 4:
+            sender._stop_event.set()
+
+    def fake_wait(timeout):
+        clock["now"] += timeout + 0.02
+        return False
+
+    sender._send_once = fake_send_once
+    sender._stop_event.wait = fake_wait
+    sender._run()
+
+    assert send_starts == pytest.approx([10.0, 10.12, 10.22, 10.32], abs=1e-6)
+    assert all(
+        current - previous >= 0.08
+        for previous, current in zip(send_starts, send_starts[1:])
+    )
+
+
 def test_parse_packet_reads_optional_metadata():
     receiver = CSIReceiver(bind_host='127.0.0.1')
     flags = STREAM_FLAG_WIFI_RX_TS_VALID | STREAM_FLAG_WIFI_RX_START_TS_NS_VALID

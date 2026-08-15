@@ -27,8 +27,9 @@ MQTT_HA_DISCOVERY_PREFIX = "homeassistant"
 
 # Traffic Generator Configuration
 # Generates WiFi traffic to ensure continuous CSI data
-TRAFFIC_GENERATOR_RATE = 100  # Target valid CSI rate (packets per second)
-TRAFFIC_GENERATOR_ADAPTIVE = True  # Adjust send pacing from CSI feedback and socket errors
+CSI_TARGET_PPS = 100  # Temporal sensing grid and managed traffic target
+TRAFFIC_GENERATOR_ENABLED = True  # False expects an external CSI traffic source
+TRAFFIC_GENERATOR_ADAPTIVE = False  # Keep the configured send cadence unless explicitly enabled
 TRAFFIC_GENERATOR_MODE = "ping"  # Default mode: "ping" or "dns"
 PUBLISH_INTERVAL_MS = 1000    # Time between periodic MQTT/log updates
 EVALUATION_INTERVAL_MS = 250  # Time between internal detector evaluations
@@ -54,32 +55,22 @@ DETECTION_ALGORITHM = "lightweight"
 # Threshold bootstrap configuration (fixed subcarriers, no disk I/O)
 CALIBRATION_NUM_WINDOWS = 10
 
-# Segmentation parameters. The runtime resolves this duration to a sample count
-# from the measured CSI cadence.
+# Segmentation parameters. The runtime resolves this duration to a fixed slot
+# count from CSI_TARGET_PPS; observed network jitter never resizes the detector.
 SEGMENTATION_WINDOW_SIZE_MS = 1000
 CALIBRATION_DURATION_MS = CALIBRATION_NUM_WINDOWS * SEGMENTATION_WINDOW_SIZE_MS
 
-# Detector timing contract, in microseconds. The packet counts above and in
-# csi_features.py are the values these durations resolve to at the nominal
-# 100 pps; on a stream that runs faster or slower, the counts are re-derived
-# from the measured cadence so a window keeps spanning the same physical time.
-# Feature values depend on the interval they are measured over, not on how many
-# packets happen to land in it, so the durations are the contract.
+# Detector timing contract, in microseconds. Slot-relative feature lags retain
+# these temporal meanings even when individual slots are missing.
 L1_DELTA_LAG_US = 100_000          # Profile-displacement lag
 TURB_AUTOCORR_LAG_US = 10_000      # Turbulence autocorrelation lag (1 packet at 100 pps)
 L1_DELTA_LAG_MAX = 32              # Firmware sizes the profile ring statically
-# Storage bounds for the sample count resolved from the temporal window. The
-# current augmented ML model supports the 80-sample one-second window at the
-# 80 pps operating floor. Below that rate detection stays on hold. The upper
-# bound limits drift away from the feature geometry used during fitting.
-SEG_WINDOW_MIN = 80
+# Storage bounds for the slot count resolved from the temporal window.
+SEG_WINDOW_MIN = 1
 SEG_WINDOW_MAX = 1000
-MIN_DETECTOR_PACKET_RATE_PPS = 80
-# A cadence faster than this is not a CSI stream, it is a batch delivered
-# faster than real time. The packet-rate estimator ignores it when deriving
-# feature geometry; evaluation cadence still follows the packet timestamps.
-# There is no upper bound because a stream slower than one window is already
-# handled as a hole by SEGMENTATION_WINDOW_SIZE_MS.
+# Legacy capture diagnostics ignore intervals faster than this when estimating
+# an effective source rate. Live detector geometry never depends on that
+# estimate; TemporalCsiSampler follows CSI_TARGET_PPS and packet timestamps.
 MIN_PLAUSIBLE_PACKET_INTERVAL_US = 200      # 5000 pps
 
 # Low-pass filter (removes high-frequency noise, reduces false positives)

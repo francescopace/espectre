@@ -15,7 +15,9 @@ import hashlib
 import json
 import os
 import shutil
+import sys
 import threading
+import time
 import uuid
 from collections import OrderedDict
 from contextlib import contextmanager
@@ -28,7 +30,7 @@ from .repo_paths import cpp_core_dir, python_src_dir, repo_root
 
 CACHE_LAYOUT_VERSION = 2
 CLASSIC_REPLAY_ROW_ARTIFACT_VERSION = 2
-ML_REPLAY_ROW_ARTIFACT_VERSION = 3
+ML_REPLAY_ROW_ARTIFACT_VERSION = 5
 ML_TRAINING_AUGMENTATION_ROW_ARTIFACT_VERSION = 1
 ML_TRAINING_SOURCE_METADATA_ARTIFACT_VERSION = 1
 HOST_FEATURE_ROW_SPINE_ARTIFACT_VERSION = 1
@@ -116,6 +118,9 @@ _SOURCE_DIGEST_LOCK = threading.RLock()
 
 
 NPZ_CACHE_DIR_ENV = "ESPECTRE_NPZ_CACHE_DIR"
+NPZ_CACHE_PROGRESS_ENV = "ESPECTRE_NPZ_CACHE_PROGRESS"
+NPZ_CACHE_PROGRESS_INTERVAL_ENV = "ESPECTRE_NPZ_CACHE_PROGRESS_INTERVAL_S"
+_DEFAULT_PROGRESS_INTERVAL_S = 10.0
 
 
 def npz_cache_dir() -> Path:
@@ -129,6 +134,260 @@ def npz_cache_dir() -> Path:
     if override:
         return Path(override).expanduser()
     return repo_root() / ".npz_cache"
+
+
+def npz_cache_progress_enabled() -> bool:
+    """Return whether cache progress should be written to stderr.
+
+    Unset follows stderr's TTY state so pytest stays quiet. ``1`` forces
+    progress on; ``0``, ``false``, ``no``, and ``off`` force it off.
+    """
+    raw = os.environ.get(NPZ_CACHE_PROGRESS_ENV)
+    if raw is not None:
+        return raw.strip().lower() not in {"", "0", "false", "no", "off"}
+    try:
+        return sys.stderr.isatty()
+    except Exception:
+        return False
+
+
+def npz_cache_progress_interval_s() -> float:
+    """Return the heartbeat interval for cache progress, in seconds."""
+    raw = os.environ.get(NPZ_CACHE_PROGRESS_INTERVAL_ENV)
+    if raw is None or not str(raw).strip():
+        return _DEFAULT_PROGRESS_INTERVAL_S
+    try:
+        return max(0.05, float(raw))
+    except ValueError:
+        return _DEFAULT_PROGRESS_INTERVAL_S
+
+
+def _progress_source_label(source_path: str | Path) -> str:
+    """Return a short source identity for cache progress lines."""
+    return Path(source_path).name
+
+
+def _format_progress_elapsed(seconds: float) -> str:
+    """Render a compact elapsed duration for cache progress lines."""
+    total = max(0.0, float(seconds))
+    if total < 60.0:
+        return f"{total:.1f}s"
+    minutes, secs = divmod(total, 60.0)
+    if minutes < 60.0:
+        return f"{int(minutes)}m {secs:04.1f}s"
+    hours, minutes = divmod(int(minutes), 60)
+    return f"{hours}h {minutes:02d}m {secs:04.1f}s"
+
+
+def _payload_row_count(payload: Mapping[str, Any]) -> Optional[int]:
+    """Return a cheap row count from a persisted cache payload, if present."""
+    for key in ("X", "values", "packet_index"):
+        if key not in payload:
+            continue
+        array = np.asarray(payload[key])
+        if array.ndim == 0:
+            continue
+        return int(array.shape[0])
+    return None
+
+
+def _format_byte_size(size_bytes: int) -> str:
+    """Render a compact byte size for cache write progress."""
+    mib = float(size_bytes) / (1024.0 * 1024.0)
+    if mib >= 0.1:
+        return f"{mib:.1f} MiB"
+    kib = float(size_bytes) / 1024.0
+    if kib >= 1.0:
+        return f"{kib:.1f} KiB"
+    return f"{int(size_bytes)} B"
+
+
+class _CacheProgress:
+    """Accumulate cache hits/misses/writes and emit throttled stderr heartbeats."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._hits = 0
+        self._misses = 0
+        self._writes = 0
+        self._session_start: Optional[float] = None
+        self._last_emit: Optional[float] = None
+        self._last_read: Optional[tuple[str, str]] = None
+        self._active_builds: list[dict[str, Any]] = []
+        self._stop_heartbeat = threading.Event()
+        self._heartbeat_thread: Optional[threading.Thread] = None
+
+    def reset(self) -> None:
+        """Stop heartbeats and clear counters. Tests use this between cases."""
+        thread: Optional[threading.Thread] = None
+        with self._lock:
+            self._stop_heartbeat.set()
+            thread = self._heartbeat_thread
+            self._heartbeat_thread = None
+            self._active_builds.clear()
+            self._hits = 0
+            self._misses = 0
+            self._writes = 0
+            self._session_start = None
+            self._last_emit = None
+            self._last_read = None
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=1.0)
+        self._stop_heartbeat = threading.Event()
+
+    def note_load(
+        self,
+        source_path: str | Path,
+        artifact_name: str,
+        *,
+        hit: bool,
+    ) -> None:
+        if not npz_cache_progress_enabled():
+            return
+        label = _progress_source_label(source_path)
+        with self._lock:
+            self._ensure_session_locked()
+            if hit:
+                self._hits += 1
+            else:
+                self._misses += 1
+            self._last_read = (str(artifact_name), label)
+            first_event = self._last_emit is None
+            if not self._should_emit_locked(force=first_event):
+                return
+            if first_event:
+                kind = "hit" if hit else "miss"
+                self._emit_locked(f"{kind} {artifact_name} {label}")
+                return
+            self._emit_summary_locked()
+
+    def note_write(
+        self,
+        source_path: str | Path,
+        artifact_name: str,
+        *,
+        artifact_path: Path,
+        payload: Mapping[str, Any],
+    ) -> None:
+        if not npz_cache_progress_enabled():
+            return
+        label = _progress_source_label(source_path)
+        details: list[str] = []
+        now = time.monotonic()
+        with self._lock:
+            self._ensure_session_locked()
+            self._writes += 1
+            for build in reversed(self._active_builds):
+                if (
+                    build["artifact_name"] == str(artifact_name)
+                    and build["source_label"] == label
+                ):
+                    details.append(
+                        _format_progress_elapsed(now - float(build["started_at"]))
+                    )
+                    break
+            try:
+                details.append(_format_byte_size(artifact_path.stat().st_size))
+            except OSError:
+                pass
+            rows = _payload_row_count(payload)
+            if rows is not None:
+                details.append(f"{rows} row(s)")
+            suffix = f" ({', '.join(details)})" if details else ""
+            self._emit_locked(f"wrote {artifact_name} {label}{suffix}")
+
+    def begin_build(self, source_path: str | Path, artifact_name: str) -> None:
+        if not npz_cache_progress_enabled():
+            return
+        label = _progress_source_label(source_path)
+        with self._lock:
+            self._ensure_session_locked()
+            self._active_builds.append(
+                {
+                    "artifact_name": str(artifact_name),
+                    "source_label": label,
+                    "started_at": time.monotonic(),
+                }
+            )
+            if self._heartbeat_thread is None or not self._heartbeat_thread.is_alive():
+                self._stop_heartbeat.clear()
+                self._heartbeat_thread = threading.Thread(
+                    target=self._run_heartbeat,
+                    name="npz-cache-progress",
+                    daemon=True,
+                )
+                self._heartbeat_thread.start()
+
+    def end_build(self, source_path: str | Path, artifact_name: str) -> None:
+        label = _progress_source_label(source_path)
+        thread: Optional[threading.Thread] = None
+        with self._lock:
+            for index in range(len(self._active_builds) - 1, -1, -1):
+                build = self._active_builds[index]
+                if (
+                    build["artifact_name"] == str(artifact_name)
+                    and build["source_label"] == label
+                ):
+                    self._active_builds.pop(index)
+                    break
+            if not self._active_builds:
+                self._stop_heartbeat.set()
+                thread = self._heartbeat_thread
+                self._heartbeat_thread = None
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=1.0)
+
+    def _ensure_session_locked(self) -> None:
+        if self._session_start is None:
+            self._session_start = time.monotonic()
+
+    def _should_emit_locked(self, *, force: bool) -> bool:
+        if force or self._last_emit is None:
+            return True
+        return (time.monotonic() - self._last_emit) >= npz_cache_progress_interval_s()
+
+    def _emit_summary_locked(self) -> None:
+        parts = [f"{self._hits} hit(s)", f"{self._misses} miss(es)"]
+        if self._writes:
+            parts.append(f"{self._writes} write(s)")
+        if self._last_read is not None:
+            parts.append(f"last {self._last_read[0]} {self._last_read[1]}")
+        self._emit_locked(", ".join(parts))
+
+    def _emit_locked(self, message: str) -> None:
+        started = self._session_start
+        elapsed = 0.0 if started is None else time.monotonic() - started
+        print(
+            f"[npz-cache] {_format_progress_elapsed(elapsed)} {message}",
+            file=sys.stderr,
+            flush=True,
+        )
+        self._last_emit = time.monotonic()
+
+    def _run_heartbeat(self) -> None:
+        interval = npz_cache_progress_interval_s()
+        while not self._stop_heartbeat.wait(interval):
+            self._emit_heartbeat()
+
+    def _emit_heartbeat(self) -> None:
+        with self._lock:
+            if not self._active_builds:
+                return
+            now = time.monotonic()
+            build = self._active_builds[-1]
+            held = _format_progress_elapsed(now - float(build["started_at"]))
+            self._emit_locked(
+                "still building "
+                f"{build['artifact_name']} {build['source_label']} ({held})"
+            )
+
+
+_CACHE_PROGRESS = _CacheProgress()
+
+
+def reset_npz_cache_progress() -> None:
+    """Reset cache progress counters and stop any heartbeat thread."""
+    _CACHE_PROGRESS.reset()
 
 
 def _json_safe(value: Any) -> Any:
@@ -376,7 +635,11 @@ def artifact_build_lock(
             fcntl = None
         if fcntl is not None:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        yield
+        _CACHE_PROGRESS.begin_build(source_path, artifact_name)
+        try:
+            yield
+        finally:
+            _CACHE_PROGRESS.end_build(source_path, artifact_name)
     finally:
         if fcntl is not None:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
@@ -603,15 +866,22 @@ def load_npz_artifact(
         parameters=parameters,
     )
     if not artifact_path.exists():
+        _CACHE_PROGRESS.note_load(source_path, artifact_name, hit=False)
         return None
     try:
         with np.load(artifact_path, allow_pickle=False) as data:
             cached_manifest = json.loads(str(np.asarray(data["manifest_json"]).item()))
             if cached_manifest != manifest:
+                _CACHE_PROGRESS.note_load(source_path, artifact_name, hit=False)
                 return None
-            return {key: np.asarray(data[key]) for key in data.files if key != "manifest_json"}
+            payload = {
+                key: np.asarray(data[key]) for key in data.files if key != "manifest_json"
+            }
     except Exception:
+        _CACHE_PROGRESS.note_load(source_path, artifact_name, hit=False)
         return None
+    _CACHE_PROGRESS.note_load(source_path, artifact_name, hit=True)
+    return payload
 
 
 def _feature_index_parameters(parameters: Mapping[str, Any]) -> dict[str, Any]:
@@ -741,13 +1011,15 @@ def load_feature_superset_artifact(
                 )
                 if stored_manifest != cached_manifest:
                     continue
-                return {
+                payload = {
                     key: np.asarray(data[key])
                     for key in data.files
                     if key != "manifest_json"
                 }
         except Exception:
             continue
+        _CACHE_PROGRESS.note_load(source_path, artifact_name, hit=True)
+        return payload
     return None
 
 
@@ -783,6 +1055,12 @@ def save_npz_artifact(
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise
+    _CACHE_PROGRESS.note_write(
+        source_path,
+        artifact_name,
+        artifact_path=artifact_path,
+        payload=payload,
+    )
     return artifact_path
 
 
@@ -1105,20 +1383,28 @@ def load_ml_replay_row_artifact(
     if payload is None:
         return None
     payload = _project_feature_payload(payload, parameters.get("feature_names", ()))
+    packet_index = np.asarray(
+        payload.get("packet_index", np.empty(0)), dtype=np.int32
+    )
+    slot_index = np.asarray(
+        payload.get("slot_index", np.empty(0)), dtype=np.int64
+    )
+    if len(slot_index) != len(packet_index):
+        slot_index = packet_index.astype(np.int64, copy=True)
     return {
         "X": np.asarray(payload.get("X", np.empty((0, 0))), dtype=np.float32),
         "feature_names": np.asarray(
             payload.get("feature_names", np.empty(0))
         ).astype(str).tolist(),
-        "packet_index": np.asarray(
-            payload.get("packet_index", np.empty(0)), dtype=np.int32
-        ),
+        "packet_index": packet_index,
         "evaluation_index": np.asarray(
             payload.get("evaluation_index", np.empty(0)), dtype=np.int32
         ),
         "reset_index": np.asarray(
             payload.get("reset_index", np.empty(0)), dtype=np.int32
         ),
+        "slot_index": slot_index,
+        "target_pps": int(np.asarray(payload.get("target_pps", 0)).item()),
         "evaluation_due": np.asarray(
             payload.get("evaluation_due", np.empty(0)), dtype=bool
         ),
@@ -1153,6 +1439,8 @@ def save_ml_replay_row_artifact(
     evaluation_index: np.ndarray,
     reset_index: np.ndarray,
     evaluation_due: np.ndarray,
+    slot_index: Any = None,
+    target_pps: Any = 0,
 ) -> Path:
     """Persist one canonical ML replay-row artifact."""
     return save_npz_artifact(
@@ -1166,6 +1454,11 @@ def save_ml_replay_row_artifact(
             "packet_index": np.asarray(packet_index, dtype=np.int32),
             "evaluation_index": np.asarray(evaluation_index, dtype=np.int32),
             "reset_index": np.asarray(reset_index, dtype=np.int32),
+            "slot_index": np.asarray(
+                np.empty(0) if slot_index is None else slot_index,
+                dtype=np.int64,
+            ),
+            "target_pps": np.asarray(int(target_pps)),
             "evaluation_due": np.asarray(evaluation_due, dtype=bool),
         },
     )

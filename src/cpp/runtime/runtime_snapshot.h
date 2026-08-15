@@ -42,10 +42,24 @@ struct RuntimeDiagnosticsSnapshot {
   uint64_t traffic_packets_total{0U};
   /** Raw invocations of the ESP-IDF CSI callback. */
   uint64_t csi_callbacks_total{0U};
-  /** CSI packets accepted by the sensing pipeline. */
+  /** CSI packets accepted by capture validation, before temporal admission. */
   uint64_t csi_accepted_total{0U};
+  /** CSI packets admitted to the detector's temporal grid. */
+  uint64_t csi_admitted_total{0U};
   /** CSI packets rejected by capture-level validation. */
   uint64_t csi_filtered_total{0U};
+  /** Empty temporal detector slots observed before admitted packets. */
+  uint64_t csi_missing_slots_total{0U};
+  /** Valid packets dropped because their temporal slot was already occupied. */
+  uint64_t csi_excess_total{0U};
+  /** Packets rejected because processing began after the active window. */
+  uint64_t csi_stale_total{0U};
+  /** Packets rejected because their timestamp moved backwards. */
+  uint64_t csi_out_of_order_total{0U};
+  /** Valid slots in the current detector window. */
+  uint32_t csi_occupancy_slots{0U};
+  /** Total slots in the configured detector window. */
+  uint32_t csi_window_slots{0U};
 };
 
 /**

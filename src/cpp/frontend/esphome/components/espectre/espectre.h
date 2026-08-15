@@ -62,7 +62,10 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void set_wifi_band_policy(const std::string &policy) {
     this->runtime_.config().wifi_band_policy = parse_wifi_band_policy(policy.c_str());
   }
-  void set_traffic_generator_rate(uint32_t rate) { this->runtime_.config().traffic_generator_rate = rate; }
+  void set_csi_target_pps(uint32_t target_pps) { this->runtime_.config().csi_target_pps = target_pps; }
+  void set_csi_traffic_mode(const std::string &mode) {
+    this->runtime_.config().csi_traffic_mode = parse_csi_traffic_mode(mode.c_str());
+  }
   void set_traffic_generator_adaptive(bool adaptive) {
     this->runtime_.config().traffic_generator_adaptive = adaptive;
   }
@@ -97,7 +100,13 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void set_traffic_rate_sensor(sensor::Sensor *sensor) { this->traffic_rate_sensor_ = sensor; }
   void set_csi_callback_rate_sensor(sensor::Sensor *sensor) { this->csi_callback_rate_sensor_ = sensor; }
   void set_csi_accepted_rate_sensor(sensor::Sensor *sensor) { this->csi_accepted_rate_sensor_ = sensor; }
+  void set_csi_admitted_rate_sensor(sensor::Sensor *sensor) { this->csi_admitted_rate_sensor_ = sensor; }
   void set_csi_filtered_rate_sensor(sensor::Sensor *sensor) { this->csi_filtered_rate_sensor_ = sensor; }
+  void set_csi_missing_rate_sensor(sensor::Sensor *sensor) { this->csi_missing_rate_sensor_ = sensor; }
+  void set_csi_excess_rate_sensor(sensor::Sensor *sensor) { this->csi_excess_rate_sensor_ = sensor; }
+  void set_csi_stale_rate_sensor(sensor::Sensor *sensor) { this->csi_stale_rate_sensor_ = sensor; }
+  void set_csi_out_of_order_rate_sensor(sensor::Sensor *sensor) { this->csi_out_of_order_rate_sensor_ = sensor; }
+  void set_csi_occupancy_sensor(sensor::Sensor *sensor) { this->csi_occupancy_sensor_ = sensor; }
   void set_wifi_channel_sensor(sensor::Sensor *sensor) { this->wifi_channel_sensor_ = sensor; }
   void set_wifi_rssi_sensor(sensor::Sensor *sensor) { this->wifi_rssi_sensor_ = sensor; }
   
@@ -145,7 +154,13 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   sensor::Sensor *traffic_rate_sensor_{nullptr};
   sensor::Sensor *csi_callback_rate_sensor_{nullptr};
   sensor::Sensor *csi_accepted_rate_sensor_{nullptr};
+  sensor::Sensor *csi_admitted_rate_sensor_{nullptr};
   sensor::Sensor *csi_filtered_rate_sensor_{nullptr};
+  sensor::Sensor *csi_missing_rate_sensor_{nullptr};
+  sensor::Sensor *csi_excess_rate_sensor_{nullptr};
+  sensor::Sensor *csi_stale_rate_sensor_{nullptr};
+  sensor::Sensor *csi_out_of_order_rate_sensor_{nullptr};
+  sensor::Sensor *csi_occupancy_sensor_{nullptr};
   sensor::Sensor *wifi_channel_sensor_{nullptr};
   sensor::Sensor *wifi_rssi_sensor_{nullptr};
 

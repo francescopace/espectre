@@ -65,7 +65,7 @@ Current capabilities:
 - provision or clear MQTT configuration over BLE
 - request OTA status, check for updates, and start HTTPS OTA over BLE
 
-Use Lightweight Detection when the Native firmware must preserve more CPU time and working memory for MQTT, BLE, OTA, or product-specific services. Use High-Accuracy Detection when higher detection quality and calibration-free startup justify its additional feature state and inference work. Lightweight may spend up to about 10 seconds calibrating in a quiet room; High Accuracy skips that calibration but still waits for CSI readiness and feature-window warmup. The selected profile persists across reboot.
+Use Lightweight Detection when the Native firmware must preserve more CPU time and working memory for MQTT, BLE, OTA, or product-specific services. Use High-Accuracy Detection when higher detection quality and calibration-free startup justify its additional feature state and inference work. Lightweight requires about 10 seconds of clean, ready quiet-room coverage after temporal warmup, so insufficient occupancy extends its wall-clock calibration; High Accuracy skips threshold calibration but still waits for CSI readiness and feature-window warmup. The selected profile persists across reboot.
 
 Requirements:
 
@@ -100,6 +100,8 @@ The standalone native frontend uses the same shared periodic progress-bar sensin
 Unlike the ESPHome frontend, the standalone native firmware does not rely on YAML or Home Assistant for setup. In the current local-lab profile, Wi-Fi can be provisioned live over BLE and persisted in NVS.
 
 Frontend-owned options in [`Kconfig.projbuild`](espectre/Kconfig.projbuild) remain useful as firmware defaults for reproducible images or first boot. Shared sensing options and their defaults now live in [`SETUP.md`](../../../../docs/SETUP.md), and can be overridden per frontend in [`sdkconfig.defaults`](app/sdkconfig.defaults). Versioned transport defaults in [`sdkconfig.defaults`](app/sdkconfig.defaults) also tune the standalone native firmware with the shared ESP-IDF Wi-Fi transport baseline now used across the standalone frontends: AMPDU enabled, larger Wi-Fi RX/TX buffers, plus lwIP mailbox and IRAM optimizations.
+
+The shared menu keeps cadence and traffic ownership separate: `CONFIG_ESPECTRE_CSI_TARGET_PPS` is always positive, while the `CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_*` choice selects internal, external, paced, or unmanaged traffic. The fixed target and detector-window duration define temporal slots; raw callback-rate jitter never reconstructs the detector.
 
 | Option | Purpose |
 |--------|---------|
@@ -157,7 +159,7 @@ The native frontend publishes a Home Assistant MQTT adapter surface on top of th
 
 - publishes retained MQTT Discovery config for motion, movement score, and the runtime detector select when detector switching is supported
 - publishes plain HA state topics under the same device topic base used by ESPectre MQTT
-- derives HA availability from the canonical ESPectre `status` topic, including its existing Last Will, so graceful and unexpected disconnects are reflected without replacing the ESPectre lifecycle contract
+- derives HA availability from the retained canonical ESPectre `status` topic and retained Last Will, so late subscribers, graceful disconnects, and unexpected disconnects receive the current lifecycle state
 - subscribes to `homeassistant/status` and republishes discovery when Home Assistant announces `online`
 
 This profile is additive. The canonical ESPectre topics under `espectre/v1/devices/{device_id}/...` remain unchanged for standalone clients and tooling.

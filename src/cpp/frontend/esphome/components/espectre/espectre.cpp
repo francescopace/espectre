@@ -74,8 +74,26 @@ void ESpectreComponent::publish_cached_diagnostics_() {
   if (this->csi_accepted_rate_sensor_ != nullptr) {
     this->csi_accepted_rate_sensor_->publish_state(sample.csi_accepted_pps);
   }
+  if (this->csi_admitted_rate_sensor_ != nullptr) {
+    this->csi_admitted_rate_sensor_->publish_state(sample.csi_admitted_pps);
+  }
   if (this->csi_filtered_rate_sensor_ != nullptr) {
     this->csi_filtered_rate_sensor_->publish_state(sample.csi_filtered_pps);
+  }
+  if (this->csi_missing_rate_sensor_ != nullptr) {
+    this->csi_missing_rate_sensor_->publish_state(sample.csi_missing_slots_pps);
+  }
+  if (this->csi_excess_rate_sensor_ != nullptr) {
+    this->csi_excess_rate_sensor_->publish_state(sample.csi_excess_pps);
+  }
+  if (this->csi_stale_rate_sensor_ != nullptr) {
+    this->csi_stale_rate_sensor_->publish_state(sample.csi_stale_pps);
+  }
+  if (this->csi_out_of_order_rate_sensor_ != nullptr) {
+    this->csi_out_of_order_rate_sensor_->publish_state(sample.csi_out_of_order_pps);
+  }
+  if (this->csi_occupancy_sensor_ != nullptr) {
+    this->csi_occupancy_sensor_->publish_state(sample.csi_occupancy_ratio * 100.0f);
   }
   if (this->wifi_channel_sensor_ != nullptr) this->wifi_channel_sensor_->publish_state(sample.wifi_channel);
   if (this->wifi_rssi_sensor_ != nullptr) {
@@ -118,6 +136,7 @@ void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint
   }
   this->runtime_.record_snapshot(snapshot);
   this->sample_diagnostics_();
+  this->sensor_publisher_.log_status(TAG, snapshot, packets_received, &this->latest_diagnostics_);
   if (!snapshot.ready_to_publish) {
     return;
   }
@@ -132,7 +151,6 @@ void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint
     this->detector_republished_ = true;
   }
 
-  this->sensor_publisher_.log_status(TAG, snapshot, packets_received, &this->latest_diagnostics_);
   this->sensor_publisher_.publish_movement_metric(snapshot.movement_metric);
   this->sensor_publisher_.publish_intensity(snapshot.movement_metric, snapshot.threshold);
 }
@@ -187,7 +205,7 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, " ├─ Window ............. %u ms",
                 static_cast<unsigned>(config.segmentation_window_size_ms));
   ESP_LOGCONFIG(TAG, " └─ Startup threshold .. %.6f", snapshot.startup_threshold);
-  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " ");
   ESP_LOGCONFIG(TAG, " SUBCARRIERS [%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d,%02d]",
                 snapshot.fixed_subcarriers[0], snapshot.fixed_subcarriers[1],
                 snapshot.fixed_subcarriers[2], snapshot.fixed_subcarriers[3],
@@ -196,37 +214,39 @@ void ESpectreComponent::dump_config() {
                 snapshot.fixed_subcarriers[8], snapshot.fixed_subcarriers[9],
                 snapshot.fixed_subcarriers[10], snapshot.fixed_subcarriers[11]);
   ESP_LOGCONFIG(TAG, " └─ Source ............. %s", subcarrier_source_name(snapshot.subcarrier_source));
-  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " ");
   ESP_LOGCONFIG(TAG, " TRAFFIC GENERATOR");
-  if (config.traffic_generator_rate > 0) {
-    ESP_LOGCONFIG(TAG, " ├─ Mode ............... %s", traffic_mode_name(config.traffic_generator_mode));
-    ESP_LOGCONFIG(TAG, " ├─ Target ............. %u valid CSI pps", config.traffic_generator_rate);
-    ESP_LOGCONFIG(TAG, " ├─ Adaptive ........... %s", config.traffic_generator_adaptive ? "YES" : "NO");
-    ESP_LOGCONFIG(TAG, " └─ Status ............. %s", snapshot.ready_to_publish ? "[ACTIVE]" : "[IDLE]");
-  } else {
-    ESP_LOGCONFIG(TAG, " └─ Mode ............... External Traffic");
-  }
-  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " ├─ Mode ............... %s", traffic_mode_name(config.traffic_generator_mode));
+  ESP_LOGCONFIG(TAG, " ├─ CSI target ......... %u pps",
+                static_cast<unsigned>(config.csi_target_pps));
+  ESP_LOGCONFIG(TAG, " ├─ CSI traffic ........ %s", csi_traffic_mode_name(config.csi_traffic_mode));
+  ESP_LOGCONFIG(TAG, " ├─ Adaptive ........... %s", config.traffic_generator_adaptive ? "YES" : "NO");
+  ESP_LOGCONFIG(TAG, " └─ Status ............. %s", snapshot.ready_to_publish ? "[ACTIVE]" : "[IDLE]");
+  ESP_LOGCONFIG(TAG, " ");
   ESP_LOGCONFIG(TAG, " PUBLISH INTERVAL");
-  ESP_LOGCONFIG(TAG, " └─ Publish interval ... %u ms", config.publish_interval_ms);
-  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " └─ Publish interval ... %u ms",
+                static_cast<unsigned>(config.publish_interval_ms));
+  ESP_LOGCONFIG(TAG, " ");
   ESP_LOGCONFIG(TAG, " EVALUATION");
-  ESP_LOGCONFIG(TAG, " ├─ Interval ........... %u ms", config.evaluation_interval_ms);
-  ESP_LOGCONFIG(TAG, " └─ Hits on/off ........ %u / %u", config.motion_on_hits, config.motion_off_hits);
-  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " ├─ Interval ........... %u ms",
+                static_cast<unsigned>(config.evaluation_interval_ms));
+  ESP_LOGCONFIG(TAG, " └─ Hits on/off ........ %u / %u",
+                static_cast<unsigned>(config.motion_on_hits),
+                static_cast<unsigned>(config.motion_off_hits));
+  ESP_LOGCONFIG(TAG, " ");
   ESP_LOGCONFIG(TAG, " LOW-PASS FILTER");
   ESP_LOGCONFIG(TAG, " ├─ Status ............. %s", config.lowpass_enabled ? "[ENABLED]" : "[DISABLED]");
   if (config.lowpass_enabled) {
     ESP_LOGCONFIG(TAG, " └─ Cutoff ............. %.1f Hz", config.lowpass_cutoff);
   }
-  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " ");
   ESP_LOGCONFIG(TAG, " HAMPEL FILTER");
   ESP_LOGCONFIG(TAG, " ├─ Status ............. %s", config.hampel_enabled ? "[ENABLED]" : "[DISABLED]");
   if (config.hampel_enabled) {
     ESP_LOGCONFIG(TAG, " ├─ Window ............. %d pkts", config.hampel_window);
     ESP_LOGCONFIG(TAG, " └─ Threshold .......... %.1f MAD", config.hampel_threshold);
   }
-  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " ");
   ESP_LOGCONFIG(TAG, " SENSORS");
   ESP_LOGCONFIG(TAG, " ├─ Movement ........... %s",
                 this->sensor_publisher_.has_movement_sensor() ? "[OK]" : "[--]");
@@ -234,7 +254,7 @@ void ESpectreComponent::dump_config() {
                 this->sensor_publisher_.has_intensity_sensor() ? "[OK]" : "[--]");
   ESP_LOGCONFIG(TAG, " └─ Motion Binary ...... %s",
                 this->sensor_publisher_.has_motion_binary_sensor() ? "[OK]" : "[--]");
-  ESP_LOGCONFIG(TAG, "");
+  ESP_LOGCONFIG(TAG, " ");
 }
 
 }  // namespace espectre_component

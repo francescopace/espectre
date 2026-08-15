@@ -11,6 +11,7 @@
 #pragma once
 
 #include <algorithm>
+#include <climits>
 #include <cstdlib>
 #include <cstdint>
 #include <vector>
@@ -18,6 +19,7 @@
 #include "lightweight_detector.h"
 #include "runtime_sensing_schema.h"
 #include "threshold.h"
+#include "temporal_csi_sampler.h"
 #include "csi_replay_timing.h"
 
 namespace espectre::test::replay {
@@ -26,6 +28,7 @@ struct ReplayPacketMetadata {
   const uint32_t* stream_seq_num{nullptr};
   const uint64_t* device_ticks_us{nullptr};
   const uint32_t* wifi_rx_ts_us{nullptr};
+  uint32_t csi_target_pps{0U};
 };
 
 struct ReplayMetrics {
@@ -43,27 +46,14 @@ struct ReplayMetrics {
   float f1{0.0f};
 };
 
-inline csi_replay_timing::TimingObservation observe_packet(
-    csi_replay_timing::PacketTimingTracker& tracker,
-    const ReplayPacketMetadata& metadata,
-    int packet_index) {
-  return tracker.observe(
-      metadata.stream_seq_num != nullptr ? metadata.stream_seq_num[packet_index] : 0U,
-      metadata.stream_seq_num != nullptr,
-      metadata.device_ticks_us != nullptr ? metadata.device_ticks_us[packet_index] : 0U,
-      metadata.device_ticks_us != nullptr,
-      metadata.wifi_rx_ts_us != nullptr ? metadata.wifi_rx_ts_us[packet_index] : 0U,
-      metadata.wifi_rx_ts_us != nullptr);
-}
-
 inline uint64_t packet_timestamp_us(const ReplayPacketMetadata& metadata,
                                     int packet_index,
                                     uint32_t nominal_interval_us) {
-  if (metadata.device_ticks_us != nullptr) {
-    return metadata.device_ticks_us[packet_index];
-  }
   if (metadata.wifi_rx_ts_us != nullptr) {
     return metadata.wifi_rx_ts_us[packet_index];
+  }
+  if (metadata.device_ticks_us != nullptr) {
+    return metadata.device_ticks_us[packet_index];
   }
   return static_cast<uint64_t>(packet_index) * nominal_interval_us;
 }
@@ -99,42 +89,36 @@ inline uint32_t measure_stream_interval_us(const ReplayPacketMetadata& metadata,
       nominal_interval_us);
 }
 
+inline uint32_t target_pps(const ReplayPacketMetadata& metadata,
+                           int packet_count) {
+  if (metadata.csi_target_pps > 0U) {
+    return metadata.csi_target_pps;
+  }
+  const uint32_t measured_interval_us = measure_stream_interval_us(
+      metadata, packet_count,
+      csi_replay_timing::nominal_packet_interval_us(DETECTOR_DEFAULT_WINDOW_SIZE));
+  return std::max<uint32_t>(
+      1U, static_cast<uint32_t>(std::llround(1000000.0 / measured_interval_us)));
+}
+
 /** Resolve the production time window for one replay stream. */
 inline uint16_t detector_window_packets(const ReplayPacketMetadata& metadata,
                                         int packet_count) {
-  const uint32_t nominal_interval_us =
-      csi_replay_timing::nominal_packet_interval_us(DETECTOR_DEFAULT_WINDOW_SIZE);
-  const uint32_t measured_interval_us = measure_stream_interval_us(
-      metadata, packet_count, nominal_interval_us);
-  return derive_detector_timing(
-             measured_interval_us,
-             RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT)
-      .window_packets;
+  return temporal_window_slots(
+      target_pps(metadata, packet_count),
+      RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT);
 }
 
 /** Resolve the production startup duration for one replay stream. */
 inline uint16_t calibration_packet_count(const ReplayPacketMetadata& metadata,
                                          int packet_count) {
-  const uint32_t nominal_interval_us =
-      csi_replay_timing::nominal_packet_interval_us(DETECTOR_DEFAULT_WINDOW_SIZE);
-  const uint32_t measured_interval_us = measure_stream_interval_us(
-      metadata, packet_count, nominal_interval_us);
   const uint64_t duration_us =
       static_cast<uint64_t>(RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT) *
       1000U * CALIBRATION_NUM_WINDOWS;
   const uint64_t rounded_packets =
-      (duration_us + measured_interval_us / 2U) / measured_interval_us;
+      (duration_us * target_pps(metadata, packet_count) + 500000U) / 1000000U;
   return static_cast<uint16_t>(std::max<uint64_t>(
       1U, std::min<uint64_t>(rounded_packets, UINT16_MAX)));
-}
-
-inline void reset_detector(BaseDetector& detector,
-                           csi_replay_timing::TimeAwareCadence& cadence,
-                           csi_replay_timing::PacketTimingTracker& tracker) {
-  detector.reset();
-  detector.clear_buffer();
-  cadence.reset();
-  tracker.reset();
 }
 
 inline void apply_runtime_policy_metrics(const std::vector<bool>& raw_motion_states,
@@ -208,17 +192,15 @@ inline bool calibrate_lightweight_detector(
     uint8_t selected_band_size,
     float& out_threshold) {
   StartupThresholdCalibrator calibrator;
-  // Startup runs on the resolved timing contract, so the seed is the interval
-  // after the dead band has snapped it, matching _calibration_runtime in
-  // dataset_metadata.py. The replay below seeds from the raw measurement,
-  // matching _timing_cadence_for_window in performance_report.py.
+  const uint32_t replay_target_pps = target_pps(
+      baseline_metadata, num_baseline_packets);
   const uint32_t nominal_interval_us =
-      derive_detector_timing(measure_stream_interval_us(
-                                 baseline_metadata, num_baseline_packets,
-                                 csi_replay_timing::nominal_packet_interval_us(
-                                     detector.get_window_size())))
-          .interval_us;
-  csi_replay_timing::PacketTimingTracker timing_tracker(nominal_interval_us);
+      std::max<uint32_t>(1U, static_cast<uint32_t>(std::llround(
+          1000000.0 / replay_target_pps)));
+  TemporalCsiSampler sampler(
+      replay_target_pps, RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT);
+  detector.set_minimum_valid_samples(
+      static_cast<uint16_t>(sampler.minimum_valid_slots()));
   csi_replay_timing::TimeAwareCadence cadence(
       detector.get_window_size(), RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT,
       nominal_interval_us);
@@ -226,34 +208,45 @@ inline bool calibrate_lightweight_detector(
   calibrator.begin(static_cast<uint16_t>(calibration_packets), detector.startup_gate_enabled());
 
   for (int i = 0; i < num_baseline_packets; i++) {
-    csi_replay_timing::TimingObservation timing =
-        observe_packet(timing_tracker, baseline_metadata, i);
-    if (timing.contaminated) {
+    const uint32_t timestamp_us = static_cast<uint32_t>(packet_timestamp_us(
+        baseline_metadata, i, nominal_interval_us));
+    if (!sampler.admit(timestamp_us)) {
+      continue;
+    }
+    if (sampler.reset_required()) {
       detector.reset();
       detector.clear_buffer();
       detector.on_startup_calibration_begin();
       calibrator.begin(static_cast<uint16_t>(calibration_packets), detector.startup_gate_enabled());
       cadence.reset();
-      timing_tracker.reset();
-      timing = observe_packet(timing_tracker, baseline_metadata, i);
     }
-    detector.set_packet_timestamp_us(packet_timestamp_us(
-        baseline_metadata, i, nominal_interval_us));
+    if (sampler.missing_slots_before() > 0U) {
+      detector.advance_missing_slots(static_cast<uint32_t>(std::min<uint64_t>(
+          sampler.missing_slots_before(), detector.get_window_size())));
+    }
+    detector.set_packet_timestamp_us(timestamp_us);
     detector.process_packet(
         baseline_packets[i],
         static_cast<size_t>(pkt_size),
         selected_band,
         selected_band_size,
         baseline_rssi != nullptr ? baseline_rssi[i] : INT8_MIN);
-    cadence.note_packet(timing.coverage_us);
+    cadence.note_packet(static_cast<uint32_t>(
+        sampler.slots_advanced() * nominal_interval_us));
     if (!cadence.should_evaluate()) {
       continue;
     }
     detector.update_state();
-    calibrator.observe(
-        detector.is_ready(),
-        detector.get_motion_metric(),
-        cadence.packet_weight());
+    // Occupancy holes leave the detector not ready. Firmware and Python
+    // calibration skip those ticks so they do not consume the startup budget.
+    // Observing them here previously completed calibration earlier than the
+    // production path and moved Lightweight report metrics off Python.
+    if (detector.is_ready()) {
+      calibrator.observe(
+          true,
+          detector.get_motion_metric(),
+          cadence.packet_weight());
+    }
     cadence.after_evaluation();
     if (calibrator.is_complete()) {
       break;
@@ -289,10 +282,15 @@ ReplayMetrics evaluate_detector(
     uint8_t selected_band_size) {
   ReplayMetrics metrics{};
   const int warmup = detector.get_window_size();
-  const uint32_t nominal_interval_us = measure_stream_interval_us(
-      baseline_metadata, num_baseline_packets,
-      csi_replay_timing::nominal_packet_interval_us(detector.get_window_size()));
-  csi_replay_timing::PacketTimingTracker timing_tracker(nominal_interval_us);
+  const uint32_t replay_target_pps = target_pps(
+      baseline_metadata, num_baseline_packets);
+  const uint32_t nominal_interval_us =
+      std::max<uint32_t>(1U, static_cast<uint32_t>(std::llround(
+          1000000.0 / replay_target_pps)));
+  TemporalCsiSampler sampler(
+      replay_target_pps, RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT);
+  detector.set_minimum_valid_samples(
+      static_cast<uint16_t>(sampler.minimum_valid_slots()));
   csi_replay_timing::TimeAwareCadence cadence(
       detector.get_window_size(), RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT,
       nominal_interval_us);
@@ -302,30 +300,39 @@ ReplayMetrics evaluate_detector(
   std::vector<bool> baseline_motion_states;
 
   for (int i = 0; i < num_baseline_packets; i++) {
-    csi_replay_timing::TimingObservation timing =
-        observe_packet(timing_tracker, baseline_metadata, i);
-    if (timing.contaminated) {
-      debug_contam_base++;
-      reset_detector(detector, cadence, timing_tracker);
-      packets_since_reset = 0;
-      timing = observe_packet(timing_tracker, baseline_metadata, i);
-    }
-    detector.set_packet_timestamp_us(packet_timestamp_us(
+    const uint32_t timestamp_us = static_cast<uint32_t>(packet_timestamp_us(
         baseline_metadata, i, nominal_interval_us));
+    if (!sampler.admit(timestamp_us)) {
+      continue;
+    }
+    if (sampler.reset_required()) {
+      debug_contam_base++;
+      detector.reset();
+      detector.clear_buffer();
+      cadence.reset();
+      packets_since_reset = 0;
+    }
+    if (sampler.missing_slots_before() > 0U) {
+      detector.advance_missing_slots(static_cast<uint32_t>(std::min<uint64_t>(
+          sampler.missing_slots_before(), detector.get_window_size())));
+    }
+    detector.set_packet_timestamp_us(timestamp_us);
     detector.process_packet(
         baseline_packets[i],
         static_cast<size_t>(pkt_size),
         selected_band,
         selected_band_size,
         baseline_rssi != nullptr ? baseline_rssi[i] : INT8_MIN);
-    packets_since_reset++;
-    cadence.note_packet(timing.coverage_us);
+    packets_since_reset = static_cast<int>(std::min<uint64_t>(
+        sampler.current_slot() + 1U, INT_MAX));
+    cadence.note_packet(static_cast<uint32_t>(
+        sampler.slots_advanced() * nominal_interval_us));
     if (!cadence.should_evaluate()) {
       continue;
     }
     detector.update_state();
     cadence.after_evaluation();
-    if (packets_since_reset < warmup) {
+    if (packets_since_reset < warmup || !detector.is_ready()) {
       continue;
     }
     metrics.static_presence_eval_count++;
@@ -336,40 +343,46 @@ ReplayMetrics evaluate_detector(
     }
   }
 
-  // The motion stream is a separate recording, so it gets a fresh rate
-  // estimator rather than inheriting the baseline's learned cadence.
-  // PacketTimingTracker::reset() deliberately keeps that cadence, which is
-  // right inside one stream and wrong across two; carrying it over made the
-  // first motion packet fall back to a warm median where the Python replay,
-  // which builds new helpers per stream, used the nominal interval.
-  timing_tracker = csi_replay_timing::PacketTimingTracker(nominal_interval_us);
+  // The motion stream is a separate recording, so it gets a fresh temporal
+  // admission grid while retaining the detector state used by paired replay.
+  sampler = TemporalCsiSampler(
+      replay_target_pps, RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT);
   cadence.reset();
   packets_since_reset = 0;
   for (int i = 0; i < num_motion_packets; i++) {
-    csi_replay_timing::TimingObservation timing =
-        observe_packet(timing_tracker, motion_metadata, i);
-    if (timing.contaminated) {
-      debug_contam_motion++;
-      reset_detector(detector, cadence, timing_tracker);
-      packets_since_reset = 0;
-      timing = observe_packet(timing_tracker, motion_metadata, i);
-    }
-    detector.set_packet_timestamp_us(packet_timestamp_us(
+    const uint32_t timestamp_us = static_cast<uint32_t>(packet_timestamp_us(
         motion_metadata, i, nominal_interval_us));
+    if (!sampler.admit(timestamp_us)) {
+      continue;
+    }
+    if (sampler.reset_required()) {
+      debug_contam_motion++;
+      detector.reset();
+      detector.clear_buffer();
+      cadence.reset();
+      packets_since_reset = 0;
+    }
+    if (sampler.missing_slots_before() > 0U) {
+      detector.advance_missing_slots(static_cast<uint32_t>(std::min<uint64_t>(
+          sampler.missing_slots_before(), detector.get_window_size())));
+    }
+    detector.set_packet_timestamp_us(timestamp_us);
     detector.process_packet(
         motion_packets[i],
         static_cast<size_t>(pkt_size),
         selected_band,
         selected_band_size,
         motion_rssi != nullptr ? motion_rssi[i] : INT8_MIN);
-    packets_since_reset++;
-    cadence.note_packet(timing.coverage_us);
+    packets_since_reset = static_cast<int>(std::min<uint64_t>(
+        sampler.current_slot() + 1U, INT_MAX));
+    cadence.note_packet(static_cast<uint32_t>(
+        sampler.slots_advanced() * nominal_interval_us));
     if (!cadence.should_evaluate()) {
       continue;
     }
     detector.update_state();
     cadence.after_evaluation();
-    if (packets_since_reset < warmup) {
+    if (packets_since_reset < warmup || !detector.is_ready()) {
       continue;
     }
     metrics.motion_eval_count++;

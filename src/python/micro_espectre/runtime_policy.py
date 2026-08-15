@@ -19,7 +19,6 @@ except ImportError:
 from config import (
     EVALUATION_INTERVAL_MS,
     L1_DELTA_LAG_MAX,
-    MIN_DETECTOR_PACKET_RATE_PPS,
     SEG_WINDOW_MAX,
     SEG_WINDOW_MIN,
     SEGMENTATION_WINDOW_SIZE_MS,
@@ -43,8 +42,6 @@ DEFAULT_RATE_ESTIMATOR_WARMUP = 16
 NOMINAL_PACKET_RATE_PPS = 100
 PRODUCTION_L1_DELTA_LAG = 10
 PRODUCTION_AUTOCORR_LAG = 1
-DETECTOR_WINDOW_RESIZE_MIN_PACKETS = 4
-DETECTOR_WINDOW_RESIZE_DIVISOR = 20
 
 
 def nominal_packet_interval_us(window_packets):
@@ -185,34 +182,6 @@ def derive_detector_timing(interval_us, window_size_ms=SEGMENTATION_WINDOW_SIZE_
     }
 
 
-def resolve_detector_timing_update(
-    rate_estimator,
-    current_window_packets,
-    window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
-):
-    """Return new measured timing when the detector window must be rebuilt."""
-    if not rate_estimator.ready:
-        return None
-    resolved = derive_detector_timing(rate_estimator.interval_us, window_size_ms)
-    current = max(1, int(current_window_packets))
-    minimum_change = max(
-        DETECTOR_WINDOW_RESIZE_MIN_PACKETS,
-        current // DETECTOR_WINDOW_RESIZE_DIVISOR,
-    )
-    if abs(int(resolved["window_packets"]) - current) < minimum_change:
-        return None
-    return resolved
-
-
-def detector_rate_supported(rate_estimator):
-    """Return whether a measured stream is dense enough for detection."""
-    return (
-        not rate_estimator.ready
-        or rate_estimator.interval_us
-        <= int(round(1_000_000.0 / MIN_DETECTOR_PACKET_RATE_PPS))
-    )
-
-
 def equivalent_packet_weight(elapsed_us, nominal_interval_us, fallback_packets=1):
     """Convert elapsed clean time to one packet-equivalent coverage weight."""
     fallback = max(1, int(fallback_packets))
@@ -311,23 +280,6 @@ class PacketTimingTracker:
         return max(
             self.gap_reset_min_us,
             int(round(self.rate.typical_interval_us * self.gap_reset_ratio)),
-        )
-
-    @property
-    def detector_rate_supported(self):
-        """Whether this measured stream is dense enough for detection."""
-        return detector_rate_supported(self.rate)
-
-    def resolve_detector_timing_update(
-        self,
-        current_window_packets,
-        window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
-    ):
-        """Return measured timing when the current detector must be rebuilt."""
-        return resolve_detector_timing_update(
-            self.rate,
-            current_window_packets,
-            window_size_ms,
         )
 
     def observe_packet(self, packet):
@@ -434,7 +386,6 @@ class RuntimeMotionPolicy:
         self.motion_off_hits = max(1, int(motion_off_hits))
         self.segmentation_window_size_ms = max(1, int(segmentation_window_size_ms))
         self.segmentation_window_us = self.segmentation_window_size_ms * 1000
-        self._rate = PacketRateEstimator(nominal_packet_interval_us(NOMINAL_PACKET_RATE_PPS))
         self._last_arrival_us = None
         self.reset()
 
@@ -464,38 +415,11 @@ class RuntimeMotionPolicy:
                 # very long gap having elapsed.
                 if 0 < delta < (_UINT32_MODULUS // 2):
                     if delta < self.segmentation_window_us:
-                        self._rate.observe_interval(delta)
                         elapsed_us = delta
                     else:
                         self.elapsed_us_since_evaluation = 0
             self._last_arrival_us = int(timestamp_us)
         self.note_packet(elapsed_us=elapsed_us)
-
-    @property
-    def packet_interval_us(self):
-        """Effective packet interval seen so far, for rate-derived sizing."""
-        return self._rate.interval_us
-
-    @property
-    def detector_window_packets(self):
-        """Resolve the configured detector duration at the measured cadence."""
-        return derive_detector_timing(
-            self.packet_interval_us,
-            self.segmentation_window_size_ms,
-        )["window_packets"]
-
-    @property
-    def detector_rate_supported(self):
-        """Whether the measured stream supplies enough samples for detection."""
-        return detector_rate_supported(self._rate)
-
-    def resolve_detector_timing_update(self, current_window_packets):
-        """Return measured timing when the current detector must be rebuilt."""
-        return resolve_detector_timing_update(
-            self._rate,
-            current_window_packets,
-            self.segmentation_window_size_ms,
-        )
 
     def note_packet(self, elapsed_us=None):
         """Record that one new CSI packet has been processed."""

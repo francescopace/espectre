@@ -66,11 +66,13 @@ try:
     )
     from high_accuracy_detector import HIGH_ACCURACY_DEFAULT_THRESHOLD
     from runtime_policy import (
-        PacketTimingTracker,
-        derive_detector_timing,
-        duration_packet_count,
         make_evaluation_cadence,
         nominal_packet_interval_us,
+    )
+    from temporal_csi_sampler import (
+        TemporalCsiSampler,
+        minimum_valid_slots,
+        temporal_window_slots,
     )
     from threshold import (
         StartupThresholdCalibrator,
@@ -85,11 +87,13 @@ except ImportError:
     )
     from src.high_accuracy_detector import HIGH_ACCURACY_DEFAULT_THRESHOLD
     from src.runtime_policy import (
-        PacketTimingTracker,
-        derive_detector_timing,
-        duration_packet_count,
         make_evaluation_cadence,
         nominal_packet_interval_us,
+    )
+    from src.temporal_csi_sampler import (
+        TemporalCsiSampler,
+        minimum_valid_slots,
+        temporal_window_slots,
     )
     from src.threshold import (
         StartupThresholdCalibrator,
@@ -120,6 +124,7 @@ def _valid_noise_floor(value: Optional[int]) -> Optional[int]:
     """Return the noise floor, or None when it carries the invalid sentinel."""
     return None if value is None or int(value) == NOISE_FLOOR_INVALID_DBM else int(value)
 DEFAULT_PACING_PAYLOAD = b"ESPE"
+SENSING_IP_TOS = 46 << 2
 
 CHIP_CODES = {
     0: "unknown",
@@ -454,6 +459,7 @@ class UdpPacingSender:
             return
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_TOS, SENSING_IP_TOS)
         if any(target_ip.is_multicast for target_ip in self.target_ips):
             self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
         if self.source_host:
@@ -494,13 +500,24 @@ class UdpPacingSender:
     def _run(self) -> None:
         next_send_time = time.perf_counter()
         while not self._stop_event.is_set():
-            self._send_once()
-            with self._interval_lock:
-                interval_s = self.interval_s
-            next_send_time += interval_s
             sleep_time = next_send_time - time.perf_counter()
             if sleep_time > 0 and self._stop_event.wait(sleep_time):
                 break
+            if self._stop_event.is_set():
+                break
+
+            send_started = time.perf_counter()
+            self._send_once()
+            with self._interval_lock:
+                interval_s = self.interval_s
+
+            # Stay phase-locked to the target grid so ordinary thread wake-up
+            # latency does not accumulate into a lower send rate. If a grid
+            # instant is already lost, skip it; never compensate with a burst.
+            next_send_time += interval_s
+            send_finished = time.perf_counter()
+            while next_send_time <= send_finished:
+                next_send_time += interval_s
 
 
 class AdaptivePacingController:
@@ -1062,29 +1079,38 @@ class CollectionDetectorGate:
     """Production detector and startup calibration used by timed collection."""
 
     @staticmethod
-    def default_window_size() -> int:
-        return int(
-            derive_detector_timing(
-                nominal_packet_interval_us(100),
-                int(getattr(config, "SEGMENTATION_WINDOW_SIZE_MS", 1000)),
-            )["window_packets"]
+    def default_window_size(target_pps: int = 100) -> int:
+        return temporal_window_slots(
+            target_pps,
+            int(getattr(config, "SEGMENTATION_WINDOW_SIZE_MS", 1000)),
         )
 
     @staticmethod
     def initial_threshold(algorithm: str) -> float:
         return 1.0 if detector_needs_startup_calibration(algorithm) else HIGH_ACCURACY_DEFAULT_THRESHOLD
 
-    def __init__(self, algorithm: str):
+    def __init__(self, algorithm: str, target_pps: int = 100):
         self.algorithm = normalize_detector_algorithm(algorithm)
-        self.window_size = self.default_window_size()
-        self.nominal_interval_us = nominal_packet_interval_us(self.window_size)
-        self.timing_tracker = PacketTimingTracker(self.nominal_interval_us)
+        self.target_pps = max(1, int(target_pps))
+        self.window_size_ms = int(
+            getattr(config, "SEGMENTATION_WINDOW_SIZE_MS", 1000)
+        )
+        self.window_size = self.default_window_size(self.target_pps)
+        self.nominal_interval_us = nominal_packet_interval_us(self.target_pps)
+        self.temporal_sampler = TemporalCsiSampler(
+            self.target_pps,
+            self.window_size_ms,
+        )
         self.cadence = make_evaluation_cadence(
             max(1, int(getattr(config, "EVALUATION_INTERVAL_MS", 250))),
         )
         self.needs_calibration = detector_needs_startup_calibration(self.algorithm)
         initial_threshold = self.initial_threshold(self.algorithm)
         self.detector = self._make_detector(initial_threshold)
+        if hasattr(self.detector, "set_minimum_valid_samples"):
+            self.detector.set_minimum_valid_samples(
+                minimum_valid_slots(self.window_size)
+            )
         self.calibrator = self._make_calibrator()
         self.calibrated = not self.needs_calibration
         self.current_metric = 0.0
@@ -1106,9 +1132,9 @@ class CollectionDetectorGate:
         calibration_duration_ms = int(
             getattr(config, "CALIBRATION_DURATION_MS", 10_000)
         )
-        calibration_packets = duration_packet_count(
+        calibration_packets = temporal_window_slots(
+            self.target_pps,
             calibration_duration_ms,
-            self.nominal_interval_us,
         )
         return (
             StartupThresholdCalibrator(
@@ -1120,41 +1146,39 @@ class CollectionDetectorGate:
             else None
         )
 
-    def _resize_for_measured_cadence(self):
-        timing_update = self.timing_tracker.resolve_detector_timing_update(
-            self.window_size,
-            int(getattr(config, "SEGMENTATION_WINDOW_SIZE_MS", 1000)),
-        )
-        if timing_update is None:
-            return
-        measured_interval_us = timing_update["interval_us"]
-        resolved = timing_update["window_packets"]
-        threshold = self.initial_threshold(self.algorithm)
-        self.window_size = int(resolved)
-        self.nominal_interval_us = int(measured_interval_us)
-        self.detector = self._make_detector(threshold)
-        self.calibrator = self._make_calibrator()
-        self.calibrated = not self.needs_calibration
-        self.current_metric = 0.0
-        self.current_threshold = float(self.detector.get_threshold())
-        self.cadence.reset()
-
     def process_packet(self, packet) -> None:
         csi_data = getattr(packet, "iq_raw", packet)
-        timing_packet = {
-            "seq_num": getattr(packet, "seq_num", None),
-            "device_ticks_us": getattr(packet, "device_ticks_us", None),
-            "wifi_rx_ts_us": getattr(packet, "wifi_rx_ts_us", None),
-        }
-        timing = self.timing_tracker.observe_packet(timing_packet)
-        self._resize_for_measured_cadence()
-        if timing["contaminated"]:
+        timestamp_us = getattr(packet, "wifi_rx_ts_us", None)
+        if timestamp_us is None:
+            timestamp_us = getattr(packet, "device_ticks_us", None)
+        if not self.temporal_sampler.admit(timestamp_us):
+            return
+        if self.temporal_sampler.reset_required:
             self.detector.reset()
             self.cadence.reset()
-            self.timing_tracker.reset()
-            timing = self.timing_tracker.observe_packet(timing_packet)
-        self.detector.process_packet(csi_data, config.DEFAULT_SUBCARRIERS)
-        self.cadence.note_packet(elapsed_us=timing["coverage_us"])
+            self.calibrator = self._make_calibrator()
+            self.calibrated = not self.needs_calibration
+        if (
+            self.temporal_sampler.missing_slots_before
+            and hasattr(self.detector, "advance_missing_slots")
+        ):
+            self.detector.advance_missing_slots(
+                self.temporal_sampler.missing_slots_before
+            )
+        try:
+            self.detector.process_packet(
+                csi_data,
+                config.DEFAULT_SUBCARRIERS,
+                timestamp_us=timestamp_us,
+            )
+        except TypeError:
+            self.detector.process_packet(csi_data, config.DEFAULT_SUBCARRIERS)
+        self.cadence.note_packet(
+            elapsed_us=(
+                self.temporal_sampler.slots_advanced
+                * self.nominal_interval_us
+            )
+        )
         if not self.cadence.should_evaluate():
             return
         packet_weight = self.cadence.equivalent_packets_since_evaluation(
@@ -1168,10 +1192,11 @@ class CollectionDetectorGate:
 
         if self.calibrator is None or self.calibrated:
             return
-        self.calibrator.observe_detector(
-            self.detector,
-            packet_weight=packet_weight,
-        )
+        if self.detector.is_ready():
+            self.calibrator.observe_detector(
+                self.detector,
+                packet_weight=packet_weight,
+            )
         if not self.calibrator.is_complete():
             return
         self.calibrated = self.calibrator.is_successful()
@@ -1328,6 +1353,30 @@ class CSICollector:
             else dataset_metadata.estimate_average_packet_rate(len(packets), duration_ms)
         )
         nominal_packet_rate = self._nominal_packet_rate
+        csi_target_pps = int(
+            nominal_packet_rate
+            if nominal_packet_rate is not None
+            else max(1, round(average_packet_rate or 100.0))
+        )
+        provenance_sampler = TemporalCsiSampler(
+            csi_target_pps,
+            int(getattr(config, "SEGMENTATION_WINDOW_SIZE_MS", 1000)),
+        )
+        for packet in packets:
+            timestamp_us = packet.wifi_rx_ts_us
+            if timestamp_us is None:
+                timestamp_us = packet.device_ticks_us
+            provenance_sampler.admit(timestamp_us)
+        admission_provenance = {
+            "csi_target_pps": csi_target_pps,
+            "detector_admitted_packets": provenance_sampler.accepted_packets,
+            "temporal_missing_slots": provenance_sampler.missing_slots,
+            "temporal_excess_packets": provenance_sampler.excess_packets,
+            "temporal_stale_packets": provenance_sampler.stale_packets,
+            "temporal_out_of_order_packets": provenance_sampler.out_of_order_packets,
+            "temporal_occupancy_slots": provenance_sampler.occupancy_slots,
+            "temporal_window_slots": provenance_sampler.window_slots,
+        }
         sample = {
             "csi_data": csi_data,
             "num_subcarriers": packets[0].num_subcarriers,
@@ -1341,6 +1390,10 @@ class CSICollector:
             "ltf_type": np.array([packet.ltf_type for packet in packets]),
             "channel_width": np.array([packet.channel_width for packet in packets]),
             "device_id": np.uint64(device_id),
+            **{
+                key: np.uint64(value)
+                for key, value in admission_provenance.items()
+            },
         }
 
         device_ticks = [packet.device_ticks_us for packet in packets]
@@ -1382,6 +1435,7 @@ class CSICollector:
             device_id=device_id,
             average_packet_rate=average_packet_rate,
             nominal_packet_rate=nominal_packet_rate,
+            admission_provenance=admission_provenance,
         )
         return filepath
 
@@ -1396,6 +1450,7 @@ class CSICollector:
         device_id: Optional[int] = None,
         average_packet_rate: Optional[float] = None,
         nominal_packet_rate: Optional[int] = None,
+        admission_provenance: Optional[Dict[str, int]] = None,
     ) -> None:
         info = dataset_metadata.load_dataset_info()
         if self.label not in info["labels"]:
@@ -1421,6 +1476,13 @@ class CSICollector:
                     file_info["average_packet_rate"] = round(float(average_packet_rate), 3)
                 if nominal_packet_rate is not None:
                     file_info["nominal_packet_rate"] = int(nominal_packet_rate)
+                if admission_provenance is not None:
+                    file_info.update(
+                        {
+                            key: int(value)
+                            for key, value in admission_provenance.items()
+                        }
+                    )
                 info["files"][self.label].append(file_info)
         dataset_metadata.save_dataset_info(info)
 
@@ -1442,7 +1504,10 @@ class CSICollector:
         return drained
 
     def _build_ready_detector(self) -> CollectionDetectorGate:
-        return CollectionDetectorGate(self.detector_algorithm)
+        return CollectionDetectorGate(
+            self.detector_algorithm,
+            self._nominal_packet_rate or 100,
+        )
 
     def _update_device_detector_state(
         self,
@@ -2406,6 +2471,7 @@ def _packets_from_npz_arrays(
     phy_modes = data["phy_mode"] if "phy_mode" in data else None
     ltf_types = data["ltf_type"] if "ltf_type" in data else None
     channel_widths = data["channel_width"] if "channel_width" in data else None
+    csi_target_pps = int(data["csi_target_pps"]) if "csi_target_pps" in data else None
 
     def optional_scalar(array, index, cast):
         if array is None:
@@ -2465,6 +2531,7 @@ def _packets_from_npz_arrays(
                 "phy_mode": phy_mode,
                 "ltf_type": ltf_type,
                 "channel_width": channel_width,
+                "csi_target_pps": csi_target_pps,
                 "format_id": assessment["format_id"],
                 "layout_id": assessment["layout_id"],
                 "payload_view": assessment["payload_view"],

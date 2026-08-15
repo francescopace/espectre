@@ -42,7 +42,8 @@ AUTO_LOAD = ["sensor", "binary_sensor", "button", "number", "select", "switch"]
 
 # Configuration parameters
 CONF_SEGMENTATION_WINDOW_SIZE_MS = "segmentation_window_size_ms"
-CONF_TRAFFIC_GENERATOR_RATE = "traffic_generator_rate"
+CONF_CSI_TARGET_PPS = "csi_target_pps"
+CONF_CSI_TRAFFIC_MODE = "csi_traffic_mode"
 CONF_TRAFFIC_GENERATOR_ADAPTIVE = "traffic_generator_adaptive"
 CONF_PUBLISH_INTERVAL_MS = "publish_interval_ms"
 CONF_EVALUATION_INTERVAL_MS = "evaluation_interval_ms"
@@ -73,7 +74,13 @@ CONF_MOTION_SENSOR = "motion_sensor"
 CONF_TRAFFIC_RATE_SENSOR = "traffic_rate_sensor"
 CONF_CSI_CALLBACK_RATE_SENSOR = "csi_callback_rate_sensor"
 CONF_CSI_ACCEPTED_RATE_SENSOR = "csi_accepted_rate_sensor"
+CONF_CSI_ADMITTED_RATE_SENSOR = "csi_admitted_rate_sensor"
 CONF_CSI_FILTERED_RATE_SENSOR = "csi_filtered_rate_sensor"
+CONF_CSI_MISSING_RATE_SENSOR = "csi_missing_rate_sensor"
+CONF_CSI_EXCESS_RATE_SENSOR = "csi_excess_rate_sensor"
+CONF_CSI_STALE_RATE_SENSOR = "csi_stale_rate_sensor"
+CONF_CSI_OUT_OF_ORDER_RATE_SENSOR = "csi_out_of_order_rate_sensor"
+CONF_CSI_OCCUPANCY_SENSOR = "csi_occupancy_sensor"
 CONF_WIFI_CHANNEL_SENSOR = "wifi_channel_sensor"
 CONF_WIFI_RSSI_SENSOR = "wifi_rssi_sensor"
 CONF_DIAGNOSTICS_BUTTON = "diagnostics_button"
@@ -137,11 +144,12 @@ THRESHOLD_MAX = _RUNTIME_SCHEMA["RUNTIME_HIGH_ACCURACY_THRESHOLD_MAX"]
 SEGMENTATION_WINDOW_SIZE_MS_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT"]
 SEGMENTATION_WINDOW_SIZE_MS_MIN = _RUNTIME_SCHEMA["RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN"]
 SEGMENTATION_WINDOW_SIZE_MS_MAX = _RUNTIME_SCHEMA["RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX"]
-TRAFFIC_GENERATOR_RATE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_TRAFFIC_GENERATOR_RATE_DEFAULT"]
-TRAFFIC_GENERATOR_RATE_MIN = _RUNTIME_SCHEMA["RUNTIME_TRAFFIC_GENERATOR_RATE_MIN"]
-TRAFFIC_GENERATOR_RATE_MAX = _RUNTIME_SCHEMA["RUNTIME_TRAFFIC_GENERATOR_RATE_MAX"]
+CSI_TARGET_PPS_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_CSI_TARGET_PPS_DEFAULT"]
+CSI_TARGET_PPS_MIN = _RUNTIME_SCHEMA["RUNTIME_CSI_TARGET_PPS_MIN"]
+CSI_TARGET_PPS_MAX = _RUNTIME_SCHEMA["RUNTIME_CSI_TARGET_PPS_MAX"]
 TRAFFIC_GENERATOR_ADAPTIVE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_TRAFFIC_GENERATOR_ADAPTIVE_DEFAULT"]
 TRAFFIC_GENERATOR_MODE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_TRAFFIC_GENERATOR_MODE_DEFAULT_NAME"]
+CSI_TRAFFIC_MODE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_CSI_TRAFFIC_MODE_DEFAULT_NAME"]
 DETECTION_ALGORITHM_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_DETECTION_ALGORITHM_DEFAULT_NAME"]
 PUBLISH_INTERVAL_MS_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_PUBLISH_INTERVAL_MS_DEFAULT"]
 PUBLISH_INTERVAL_MS_MIN = _RUNTIME_SCHEMA["RUNTIME_PUBLISH_INTERVAL_MS_MIN"]
@@ -173,9 +181,12 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_SEGMENTATION_WINDOW_SIZE_MS, default=SEGMENTATION_WINDOW_SIZE_MS_DEFAULT): cv.int_range(
         min=SEGMENTATION_WINDOW_SIZE_MS_MIN, max=SEGMENTATION_WINDOW_SIZE_MS_MAX
     ),
-    # Traffic generator (0 = disabled, use external WiFi traffic)
-    cv.Optional(CONF_TRAFFIC_GENERATOR_RATE, default=TRAFFIC_GENERATOR_RATE_DEFAULT): cv.int_range(
-        min=TRAFFIC_GENERATOR_RATE_MIN, max=TRAFFIC_GENERATOR_RATE_MAX
+    # Positive temporal CSI target; traffic ownership is configured separately.
+    cv.Optional(CONF_CSI_TARGET_PPS, default=CSI_TARGET_PPS_DEFAULT): cv.int_range(
+        min=CSI_TARGET_PPS_MIN, max=CSI_TARGET_PPS_MAX
+    ),
+    cv.Optional(CONF_CSI_TRAFFIC_MODE, default=CSI_TRAFFIC_MODE_DEFAULT): cv.one_of(
+        "internal", "external", "pacing", "disabled", lower=True
     ),
     cv.Optional(CONF_TRAFFIC_GENERATOR_ADAPTIVE, default=TRAFFIC_GENERATOR_ADAPTIVE_DEFAULT): cv.boolean,
     
@@ -261,12 +272,54 @@ CONFIG_SCHEMA = cv.Schema({
         entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
         icon="mdi:check-network",
     ),
+    cv.Optional(CONF_CSI_ADMITTED_RATE_SENSOR, default={"name": "CSI Admitted Rate"}): sensor.sensor_schema(
+        unit_of_measurement="pkt/s",
+        accuracy_decimals=1,
+        state_class=STATE_CLASS_MEASUREMENT,
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        icon="mdi:timeline-check-outline",
+    ),
     cv.Optional(CONF_CSI_FILTERED_RATE_SENSOR, default={"name": "CSI Filtered Rate"}): sensor.sensor_schema(
         unit_of_measurement="pkt/s",
         accuracy_decimals=1,
         state_class=STATE_CLASS_MEASUREMENT,
         entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
         icon="mdi:filter-outline",
+    ),
+    cv.Optional(CONF_CSI_MISSING_RATE_SENSOR, default={"name": "CSI Missing Slot Rate"}): sensor.sensor_schema(
+        unit_of_measurement="slot/s",
+        accuracy_decimals=1,
+        state_class=STATE_CLASS_MEASUREMENT,
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        icon="mdi:timeline-minus-outline",
+    ),
+    cv.Optional(CONF_CSI_EXCESS_RATE_SENSOR, default={"name": "CSI Excess Rate"}): sensor.sensor_schema(
+        unit_of_measurement="pkt/s",
+        accuracy_decimals=1,
+        state_class=STATE_CLASS_MEASUREMENT,
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        icon="mdi:timeline-plus-outline",
+    ),
+    cv.Optional(CONF_CSI_STALE_RATE_SENSOR, default={"name": "CSI Stale Rate"}): sensor.sensor_schema(
+        unit_of_measurement="pkt/s",
+        accuracy_decimals=1,
+        state_class=STATE_CLASS_MEASUREMENT,
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        icon="mdi:timer-sand",
+    ),
+    cv.Optional(CONF_CSI_OUT_OF_ORDER_RATE_SENSOR, default={"name": "CSI Out-of-order Rate"}): sensor.sensor_schema(
+        unit_of_measurement="pkt/s",
+        accuracy_decimals=1,
+        state_class=STATE_CLASS_MEASUREMENT,
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        icon="mdi:swap-vertical",
+    ),
+    cv.Optional(CONF_CSI_OCCUPANCY_SENSOR, default={"name": "CSI Temporal Occupancy"}): sensor.sensor_schema(
+        unit_of_measurement=UNIT_PERCENT,
+        accuracy_decimals=1,
+        state_class=STATE_CLASS_MEASUREMENT,
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        icon="mdi:view-grid-outline",
     ),
     cv.Optional(CONF_WIFI_CHANNEL_SENSOR, default={"name": "WiFi Channel"}): sensor.sensor_schema(
         accuracy_decimals=0,
@@ -333,10 +386,18 @@ async def to_code(config):
     add_idf_sdkconfig_option("CONFIG_PM_ENABLE", False)
     add_idf_sdkconfig_option("CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE", False)
     
-    # CSI optimization options (based on Espressif esp-csi recommendations)
-    add_idf_sdkconfig_option("CONFIG_ESP_WIFI_AMPDU_TX_ENABLED", False)
+    # Use the same high-rate Wi-Fi and lwIP baseline as the Streamer frontend.
+    # RX AMPDU remains disabled because sensing consumes individual CSI frames;
+    # TX aggregation and larger queues prevent the managed traffic source from
+    # becoming the cadence bottleneck.
+    add_idf_sdkconfig_option("CONFIG_ESP_WIFI_AMPDU_TX_ENABLED", True)
     add_idf_sdkconfig_option("CONFIG_ESP_WIFI_AMPDU_RX_ENABLED", False)
+    add_idf_sdkconfig_option("CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM", 16)
+    add_idf_sdkconfig_option("CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM", 128)
     add_idf_sdkconfig_option("CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM", 128)
+    add_idf_sdkconfig_option("CONFIG_LWIP_IRAM_OPTIMIZATION", True)
+    add_idf_sdkconfig_option("CONFIG_LWIP_TCPIP_RECVMBOX_SIZE", 64)
+    add_idf_sdkconfig_option("CONFIG_LWIP_UDP_RECVMBOX_SIZE", 32)
     if config[CONF_DEBUG_TELEMETRY]:
         cg.add_build_flag("-DCONFIG_ESPECTRE_DEBUG_TELEMETRY=1")
     # Note: CONFIG_FREERTOS_HZ=1000 is already set by ESPHome
@@ -348,7 +409,8 @@ async def to_code(config):
     # validated choice into the shared runtime so its HT20 radio setup uses the
     # matching fixed-band or per-band ESP-IDF APIs.
     cg.add(var.set_wifi_band_policy(_runtime_wifi_band_policy()))
-    cg.add(var.set_traffic_generator_rate(config[CONF_TRAFFIC_GENERATOR_RATE]))
+    cg.add(var.set_csi_target_pps(config[CONF_CSI_TARGET_PPS]))
+    cg.add(var.set_csi_traffic_mode(config[CONF_CSI_TRAFFIC_MODE]))
     cg.add(var.set_traffic_generator_adaptive(config[CONF_TRAFFIC_GENERATOR_ADAPTIVE]))
     cg.add(var.set_traffic_generator_mode(config[CONF_TRAFFIC_GENERATOR_MODE]))
     cg.add(var.set_detection_algorithm(config[CONF_DETECTION_ALGORITHM]))
@@ -380,7 +442,13 @@ async def to_code(config):
         (CONF_TRAFFIC_RATE_SENSOR, var.set_traffic_rate_sensor),
         (CONF_CSI_CALLBACK_RATE_SENSOR, var.set_csi_callback_rate_sensor),
         (CONF_CSI_ACCEPTED_RATE_SENSOR, var.set_csi_accepted_rate_sensor),
+        (CONF_CSI_ADMITTED_RATE_SENSOR, var.set_csi_admitted_rate_sensor),
         (CONF_CSI_FILTERED_RATE_SENSOR, var.set_csi_filtered_rate_sensor),
+        (CONF_CSI_MISSING_RATE_SENSOR, var.set_csi_missing_rate_sensor),
+        (CONF_CSI_EXCESS_RATE_SENSOR, var.set_csi_excess_rate_sensor),
+        (CONF_CSI_STALE_RATE_SENSOR, var.set_csi_stale_rate_sensor),
+        (CONF_CSI_OUT_OF_ORDER_RATE_SENSOR, var.set_csi_out_of_order_rate_sensor),
+        (CONF_CSI_OCCUPANCY_SENSOR, var.set_csi_occupancy_sensor),
         (CONF_WIFI_CHANNEL_SENSOR, var.set_wifi_channel_sensor),
         (CONF_WIFI_RSSI_SENSOR, var.set_wifi_rssi_sensor),
     )

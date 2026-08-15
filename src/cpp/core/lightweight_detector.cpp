@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace espectre {
 
@@ -34,7 +35,8 @@ LightweightDetector::LightweightDetector(uint16_t window_size, float threshold,
       settle_block_index_(0U),
       aggregated_turbulence_buffer_(window_size_, 0.0f),
       aggregated_turbulence_index_(0U),
-      aggregated_turbulence_count_(0U) {
+      aggregated_turbulence_count_(0U),
+      aggregated_valid_count_(0U) {
   reset_settled_level_();
   hampel_turbulence_init(&aggregated_hampel_state_,
                          HAMPEL_TURBULENCE_WINDOW_DEFAULT,
@@ -81,8 +83,9 @@ void LightweightDetector::process_packet(const int8_t* csi_data, size_t csi_len,
 }
 
 bool LightweightDetector::is_ready() const {
-  return buffer_count_ >= window_size_ &&
-         aggregated_turbulence_count_ >= window_size_;
+  return BaseDetector::is_ready() &&
+         aggregated_turbulence_count_ >= window_size_ &&
+         aggregated_valid_count_ >= minimum_valid_samples_;
 }
 
 float LightweightDetector::calculate_turb_autocorr_() const {
@@ -92,8 +95,23 @@ float LightweightDetector::calculate_turb_autocorr_() const {
     return 0.0f;
   }
 
-  const MeanVariance stats = calculate_mean_variance_two_pass(ordered, count);
-  return calc_autocorrelation(ordered, count, stats.mean, stats.variance, autocorr_lag_);
+  float sum = 0.0f;
+  uint16_t valid_count = 0U;
+  for (uint16_t i = 0U; i < count; ++i) {
+    if (!std::isfinite(ordered[i])) continue;
+    sum += ordered[i];
+    ++valid_count;
+  }
+  if (valid_count < 2U) return 0.0f;
+  const float mean = sum / valid_count;
+  float variance_sum = 0.0f;
+  for (uint16_t i = 0U; i < count; ++i) {
+    if (!std::isfinite(ordered[i])) continue;
+    const float diff = ordered[i] - mean;
+    variance_sum += diff * diff;
+  }
+  return calc_autocorrelation(
+      ordered, count, mean, variance_sum / valid_count, autocorr_lag_);
 }
 
 float LightweightDetector::calculate_turb_iqr_over_mean_aggr_() const {
@@ -106,13 +124,21 @@ float LightweightDetector::calculate_turb_iqr_over_mean_aggr_() const {
   std::copy(aggregated_turbulence_buffer_.begin(),
             aggregated_turbulence_buffer_.begin() + aggregated_turbulence_index_,
             ordered_turbulence_ + tail);
-  const MeanVariance stats = calculate_mean_variance_two_pass(
-      ordered_turbulence_, window_size_);
-  std::sort(ordered_turbulence_, ordered_turbulence_ + window_size_);
+  uint16_t valid_count = 0U;
+  float sum = 0.0f;
+  for (uint16_t i = 0U; i < window_size_; ++i) {
+    const float value = ordered_turbulence_[i];
+    if (!std::isfinite(value)) continue;
+    ordered_turbulence_[valid_count++] = value;
+    sum += value;
+  }
+  if (valid_count < 2U) return 0.0f;
+  const float mean = sum / valid_count;
+  std::sort(ordered_turbulence_, ordered_turbulence_ + valid_count);
   const float iqr = percentile_from_sorted(
-      ordered_turbulence_, window_size_, 0.75f) - percentile_from_sorted(
-      ordered_turbulence_, window_size_, 0.25f);
-  return iqr / std::max(std::fabs(stats.mean), 1e-6f);
+      ordered_turbulence_, valid_count, 0.75f) - percentile_from_sorted(
+      ordered_turbulence_, valid_count, 0.25f);
+  return iqr / std::max(std::fabs(mean), 1e-6f);
 }
 
 float LightweightDetector::calculate_logit_(float turb_autocorr,
@@ -273,6 +299,7 @@ void LightweightDetector::clear_buffer() {
             aggregated_turbulence_buffer_.end(), 0.0f);
   aggregated_turbulence_index_ = 0U;
   aggregated_turbulence_count_ = 0U;
+  aggregated_valid_count_ = 0U;
   hampel_turbulence_init(&aggregated_hampel_state_,
                          aggregated_hampel_state_.window_size,
                          aggregated_hampel_state_.threshold,
@@ -298,10 +325,34 @@ void LightweightDetector::add_aggregated_turbulence_(float turbulence) {
   const float hampel = hampel_filter_turbulence(
       &aggregated_hampel_state_, turbulence);
   const float filtered = lowpass_filter_apply(&aggregated_lowpass_state_, hampel);
+  if (!std::isfinite(aggregated_turbulence_buffer_[aggregated_turbulence_index_])) {
+    ++aggregated_valid_count_;
+  } else if (aggregated_turbulence_count_ < window_size_) {
+    ++aggregated_valid_count_;
+  }
   aggregated_turbulence_buffer_[aggregated_turbulence_index_] = filtered;
   aggregated_turbulence_index_++;
   if (aggregated_turbulence_index_ >= window_size_) aggregated_turbulence_index_ = 0U;
   if (aggregated_turbulence_count_ < window_size_) aggregated_turbulence_count_++;
+}
+
+void LightweightDetector::advance_missing_slots(uint32_t count) {
+  BaseDetector::advance_missing_slots(count);
+  const float missing = std::numeric_limits<float>::quiet_NaN();
+  for (uint32_t slot = 0U; slot < count; ++slot) {
+    if (aggregated_turbulence_count_ >= window_size_ &&
+        std::isfinite(aggregated_turbulence_buffer_[aggregated_turbulence_index_])) {
+      --aggregated_valid_count_;
+    }
+    aggregated_turbulence_buffer_[aggregated_turbulence_index_] = missing;
+    aggregated_turbulence_index_++;
+    if (aggregated_turbulence_index_ >= window_size_) {
+      aggregated_turbulence_index_ = 0U;
+    }
+    if (aggregated_turbulence_count_ < window_size_) {
+      ++aggregated_turbulence_count_;
+    }
+  }
 }
 
 void LightweightDetector::clear_fusion_inputs_() {

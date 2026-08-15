@@ -31,7 +31,11 @@ void CsiPipeline::init(BaseDetector* detector,
   capture_service_.set_packet_callback(&CsiPipeline::capture_packet_callback_, this);
   capture_service_.set_channel_change_callback(&CsiPipeline::capture_channel_change_callback_, this);
   accepted_packets_total_.store(0U, std::memory_order_relaxed);
-  detector_rate_on_hold_ = false;
+  sampler_.reset();
+  if (detector_ != nullptr) {
+    detector_->set_minimum_valid_samples(
+        static_cast<uint16_t>(sampler_.minimum_valid_slots()));
+  }
   reset_motion_state_filter_();
   
   ESP_LOGD(TAG, "CSI Pipeline initialized with %s detector", 
@@ -60,7 +64,10 @@ void CsiPipeline::set_motion_hit_thresholds(uint8_t motion_on_hits, uint8_t moti
 
 void CsiPipeline::set_detector(BaseDetector *detector) {
   detector_ = detector;
-  detector_window_event_.clear();
+  if (detector_ != nullptr) {
+    detector_->set_minimum_valid_samples(
+        static_cast<uint16_t>(sampler_.minimum_valid_slots()));
+  }
   clear_detector_buffer_deferred_();
   ESP_LOGD(TAG, "Detector updated to %s", detector_ != nullptr ? detector_->get_name() : "NULL");
 }
@@ -77,6 +84,7 @@ void CsiPipeline::clear_detector_buffer_deferred_() {
     // Required after channel switch and post-calibration to avoid stale samples.
     detector_->clear_buffer();
     cadence_.reset_window();
+    sampler_.clear_history();
     reset_motion_state_filter_();
     request_motion_state_callback_(previous_state, effective_motion_state_);
   }
@@ -99,10 +107,6 @@ void CsiPipeline::loop() {
   float threshold = 0.0f;
   if (live_telemetry_event_.take(movement, threshold) && live_telemetry_callback_) {
     live_telemetry_callback_(movement, threshold);
-  }
-  uint16_t window_packets = 0U;
-  if (detector_window_event_.take(window_packets) && detector_window_callback_) {
-    detector_window_callback_(window_packets);
   }
 }
 
@@ -196,51 +200,38 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
   last_channel_ = data->rx_ctrl.channel;
   detector_->set_packet_timestamp_us(data->rx_ctrl.timestamp);
 
-  // The cadence is advanced before the interceptor, not after it. Calibration
-  // consumes the packet here, and feeding the estimator only on the detection
-  // path starved it for the whole ~1000-packet calibration: the two then ran on
-  // different clocks, and the threshold was fitted at a resolution the detector
-  // never used.
-  const bool cadence_due = cadence_.observe(data->rx_ctrl.timestamp);
-  if (!cadence_.detector_rate_supported()) {
-    if (!detector_rate_on_hold_) {
-      const MotionState previous_state = effective_motion_state_;
-      detector_->reset();
-      detector_->clear_buffer();
-      reset_motion_state_filter_();
-      request_motion_state_callback_(previous_state, effective_motion_state_);
-      detector_rate_on_hold_ = true;
-      ESP_LOGW(TAG, "Detector on hold: measured CSI rate is below %u pps",
-               static_cast<unsigned>(DETECTOR_MIN_PACKET_RATE_PPS));
-    }
-    if (cadence_due) {
-      cadence_.after_evaluation();
-    }
+#if ESP_PLATFORM
+  const uint32_t processing_time_us =
+      static_cast<uint32_t>(static_cast<uint64_t>(esp_timer_get_time()));
+  const bool admitted = sampler_.admit(
+      data->rx_ctrl.timestamp, true, processing_time_us, true);
+#else
+  const bool admitted = sampler_.admit(data->rx_ctrl.timestamp);
+#endif
+  if (!admitted) {
     return;
   }
-  if (detector_rate_on_hold_) {
-    detector_->reset();
+  if (sampler_.reset_required()) {
+    const MotionState previous_state = effective_motion_state_;
     detector_->clear_buffer();
+    cadence_.reset_window();
     reset_motion_state_filter_();
-    detector_rate_on_hold_ = false;
-    ESP_LOGI(TAG, "Detector resumed: measured CSI rate recovered");
+    request_motion_state_callback_(previous_state, effective_motion_state_);
   }
-  if (cadence_.rate_ready()) {
-    const uint16_t resolved_window = cadence_.detector_window_packets();
-    const uint16_t current_window = detector_->get_window_size();
-    const uint16_t minimum_change =
-        static_cast<uint16_t>(current_window / 20U > 4U ? current_window / 20U : 4U);
-    const uint16_t difference = current_window > resolved_window
-                                    ? current_window - resolved_window
-                                    : resolved_window - current_window;
-    if (difference >= minimum_change) {
-      detector_window_event_.post(resolved_window);
-    }
+  if (sampler_.missing_slots_before() > 0U) {
+    detector_->advance_missing_slots(
+        static_cast<uint32_t>(std::min<uint64_t>(
+            sampler_.missing_slots_before(), sampler_.window_slots())));
   }
+
+  // Evaluation cadence consumes the same admitted stream as calibration and
+  // feature processing. Elapsed packet time still drives the deadline.
+  const bool cadence_due = cadence_.observe(data->rx_ctrl.timestamp);
 
   if (packet_interceptor_ &&
       packet_interceptor_(packet_interceptor_context_, csi_data, csi_len, rssi_dbm,
-                          cadence_due, cadence_.packets_since_evaluation())) {
+                          cadence_due, cadence_.packets_since_evaluation(),
+                          sampler_.reset_required())) {
     if (cadence_due) {
       cadence_.after_evaluation();
     }
@@ -339,7 +330,7 @@ esp_err_t CsiPipeline::disable() {
   last_rssi_dbm_ = INT8_MIN;
   last_channel_ = 0U;
   cadence_.reset();
-  detector_rate_on_hold_ = false;
+  sampler_.reset();
   reset_motion_state_filter_();
   return ESP_OK;
 }

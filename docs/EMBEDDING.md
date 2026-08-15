@@ -73,7 +73,7 @@ Set `RuntimeConfig::wifi_band_policy` to choose `BAND_2G`, `BAND_5G`, or `AUTO`.
 
 Choose Lightweight Detection when sensing must leave more CPU time and working memory for the rest of the product. It runs fewer feature trackers and less per-packet computation, but gives up accuracy and cross-environment robustness relative to High-Accuracy Detection. Choose High Accuracy when detection quality is the priority and the product can afford its additional feature state and neural inference.
 
-Lightweight adapts its threshold during up to about 10 seconds of quiet startup coverage. High Accuracy uses a trained threshold and skips that calibration, although it still needs CSI readiness and one feature window of warmup. A runtime-switching build may contain both detector implementations and ML weights in flash even while Lightweight is active; budget flash separately from active detector CPU and working memory.
+Lightweight adapts its threshold from about 10 seconds of clean, ready quiet-room coverage after temporal warmup; missing or burst-concentrated slots extend wall-clock calibration instead of counting as evidence. High Accuracy uses a trained threshold and skips that calibration, although it still needs CSI readiness and one feature window of warmup. A runtime-switching build may contain both detector implementations and ML weights in flash even while Lightweight is active; budget flash separately from active detector CPU and working memory.
 
 ## Integration paths
 
@@ -88,7 +88,7 @@ Your firmware owns boot, provisioning, networking policy, OTA, and the product s
 
 ### Core-only
 
-If your firmware already owns Wi-Fi and CSI capture, you can consume the detectors directly: `core` detectors accept normalized CSI payloads and expose motion state, movement metric, and threshold control. Use `runtime/esp_idf/csi_pipeline.cpp` as the reference for normalization, evaluation cadence, and hit filtering before committing to a custom wiring.
+If your firmware already owns Wi-Fi and CSI capture, you can consume the detectors directly: `core` detectors accept normalized CSI payloads and expose motion state, movement metric, and threshold control. Apply the same temporal admission as the shipped pipeline before `process_packet()`: at most one packet per `csi_target_pps` slot, with missing slots left invalid. `core/temporal_csi_sampler.h` is the production sampler; it is internal to the bundle rather than part of the supported `espectre_sdk.h` facade. Use `runtime/esp_idf/csi_pipeline.cpp` as the reference for normalization, temporal admission, evaluation cadence, and hit filtering before committing to a custom wiring.
 
 ## Header map
 
@@ -161,7 +161,7 @@ sampler_.reset(runtime_.diagnostics(), now_ms);
 latest_ = sampler_.sample(runtime_.diagnostics(), now_ms);
 ```
 
-`RuntimeDiagnosticsSample::csi_accepted_pps` is the rate the detector actually sees, which is the number to compare against `RuntimeConfig::traffic_generator_rate` when a deployment underperforms.
+`RuntimeDiagnosticsSample::csi_accepted_pps` is the identity-accepted supply used by adaptive traffic control. `csi_admitted_pps` is the rate the detector actually sees after temporal admission; compare it with `RuntimeConfig::csi_target_pps` together with `csi_occupancy_ratio`, same-slot excess, missing-slot, stale, and out-of-order rates when a deployment underperforms. MQTT `stats` publishes the same occupancy as `csi_occupancy`; the SDK field name remains `csi_occupancy_ratio`.
 
 The shipped ESP-IDF runtime always collects these counters. Native and ESPHome refresh their cache from the same sensing update that feeds the periodic status log, then expose the cache only on an explicit `stats` request or a `Refresh Diagnostics` button press. `CONFIG_ESPECTRE_DEBUG_TELEMETRY` controls additional timing and load logs, not availability of these counters.
 

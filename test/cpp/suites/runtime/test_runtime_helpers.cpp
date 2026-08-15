@@ -332,11 +332,20 @@ void test_runtime_config_utils_validate_and_name_values(void) {
     TEST_ASSERT_FALSE(validate_runtime_threshold(1.1f));
     TEST_ASSERT_EQUAL_STRING("ping", traffic_mode_name(RuntimeTrafficMode::PING));
     TEST_ASSERT_EQUAL_STRING("dns", traffic_mode_name(RuntimeTrafficMode::DNS));
+    TEST_ASSERT_EQUAL_STRING("internal", csi_traffic_mode_name(CsiTrafficMode::INTERNAL));
+    TEST_ASSERT_EQUAL_STRING("external", csi_traffic_mode_name(CsiTrafficMode::EXTERNAL));
+    TEST_ASSERT_EQUAL_STRING("pacing", csi_traffic_mode_name(CsiTrafficMode::PACING));
+    TEST_ASSERT_EQUAL_STRING("disabled", csi_traffic_mode_name(CsiTrafficMode::DISABLED));
     TEST_ASSERT_EQUAL_STRING("high_accuracy", detection_algorithm_name(DetectionAlgorithm::HIGH_ACCURACY));
     TEST_ASSERT_EQUAL_STRING("lightweight", detection_algorithm_name(DetectionAlgorithm::LIGHTWEIGHT));
     TEST_ASSERT_EQUAL_STRING("fixed", subcarrier_source_name(RuntimeSubcarrierSource::FIXED_DEFAULT));
     TEST_ASSERT_TRUE(parse_traffic_mode("ping") == RuntimeTrafficMode::PING);
     TEST_ASSERT_TRUE(parse_traffic_mode("dns") == RuntimeTrafficMode::DNS);
+    TEST_ASSERT_TRUE(parse_csi_traffic_mode("internal") == CsiTrafficMode::INTERNAL);
+    TEST_ASSERT_TRUE(parse_csi_traffic_mode("external") == CsiTrafficMode::EXTERNAL);
+    TEST_ASSERT_TRUE(parse_csi_traffic_mode("pacing") == CsiTrafficMode::PACING);
+    TEST_ASSERT_TRUE(parse_csi_traffic_mode("disabled") == CsiTrafficMode::DISABLED);
+    TEST_ASSERT_TRUE(parse_csi_traffic_mode("unsupported") == CsiTrafficMode::INTERNAL);
     TEST_ASSERT_TRUE(parse_detection_algorithm("high_accuracy") == DetectionAlgorithm::HIGH_ACCURACY);
     TEST_ASSERT_TRUE(parse_detection_algorithm("lightweight") == DetectionAlgorithm::LIGHTWEIGHT);
     TEST_ASSERT_EQUAL_STRING("2g", wifi_band_policy_name(WifiBandPolicy::BAND_2G));
@@ -375,6 +384,7 @@ void test_runtime_diagnostics_sampler_derives_five_second_rates(void) {
     baseline.traffic_packets_total = 100U;
     baseline.csi_callbacks_total = 100U;
     baseline.csi_accepted_total = 90U;
+    baseline.csi_admitted_total = 80U;
     baseline.csi_filtered_total = 10U;
 
     RuntimeDiagnosticsSampler sampler;
@@ -384,7 +394,14 @@ void test_runtime_diagnostics_sampler_derives_five_second_rates(void) {
     current.traffic_packets_total = 600U;
     current.csi_callbacks_total = 580U;
     current.csi_accepted_total = 540U;
+    current.csi_admitted_total = 505U;
     current.csi_filtered_total = 40U;
+    current.csi_missing_slots_total = 25U;
+    current.csi_excess_total = 15U;
+    current.csi_stale_total = 5U;
+    current.csi_out_of_order_total = 10U;
+    current.csi_occupancy_slots = 82U;
+    current.csi_window_slots = 100U;
     current.wifi_channel = 10U;
     current.wifi_rssi_dbm = -55;
 
@@ -392,7 +409,13 @@ void test_runtime_diagnostics_sampler_derives_five_second_rates(void) {
     TEST_ASSERT_EQUAL_FLOAT(100.0f, sample.traffic_tx_pps);
     TEST_ASSERT_EQUAL_FLOAT(96.0f, sample.csi_callback_pps);
     TEST_ASSERT_EQUAL_FLOAT(90.0f, sample.csi_accepted_pps);
+    TEST_ASSERT_EQUAL_FLOAT(85.0f, sample.csi_admitted_pps);
     TEST_ASSERT_EQUAL_FLOAT(6.0f, sample.csi_filtered_pps);
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, sample.csi_missing_slots_pps);
+    TEST_ASSERT_EQUAL_FLOAT(3.0f, sample.csi_excess_pps);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, sample.csi_stale_pps);
+    TEST_ASSERT_EQUAL_FLOAT(2.0f, sample.csi_out_of_order_pps);
+    TEST_ASSERT_EQUAL_FLOAT(0.82f, sample.csi_occupancy_ratio);
     TEST_ASSERT_EQUAL_UINT8(10U, sample.wifi_channel);
     TEST_ASSERT_EQUAL_INT8(-55, sample.wifi_rssi_dbm);
 }

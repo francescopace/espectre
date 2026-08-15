@@ -92,9 +92,28 @@ void test_csi_traffic_service_pacing_mode_filters_payload_and_tracks_sender(void
   service.stop();
 }
 
+void test_csi_traffic_projection_keeps_mode_separate_from_positive_target(void) {
+  RuntimeConfig runtime_config;
+  TEST_ASSERT_FALSE(runtime_config.traffic_generator_adaptive);
+  runtime_config.csi_target_pps = 94U;
+  runtime_config.csi_traffic_mode = CsiTrafficMode::DISABLED;
+
+  CsiTrafficServiceConfig service_config = to_csi_traffic_config(runtime_config);
+  TEST_ASSERT_EQUAL(static_cast<int>(CsiTrafficMode::DISABLED),
+                    static_cast<int>(service_config.mode));
+  TEST_ASSERT_EQUAL(94U, service_config.rate_pps);
+
+  runtime_config.csi_traffic_mode = CsiTrafficMode::INTERNAL;
+  service_config = to_csi_traffic_config(runtime_config);
+  TEST_ASSERT_EQUAL(static_cast<int>(CsiTrafficMode::INTERNAL),
+                    static_cast<int>(service_config.mode));
+  TEST_ASSERT_EQUAL(94U, service_config.rate_pps);
+}
+
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_csi_traffic_service_pacing_mode_filters_payload_and_tracks_sender);
+  RUN_TEST(test_csi_traffic_projection_keeps_mode_separate_from_positive_target);
   return UNITY_END();
 }
 

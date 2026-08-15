@@ -72,7 +72,7 @@ python tools/validate_dataset_quality.py --data-dir data/untracked/example --dia
 
 The validator checks catalog metadata, NPZ integrity, CSI shape, packet timing, stream continuity, explicit pair consistency, quiet recordings, and ML readiness. It refreshes derived pair metadata and normally regenerates `data/auto_generated/DATASET_QUALITY_CHECK.md`. Use `--data-dir` for a standalone ESPectre-format corpus; its report defaults to `<data-dir>/auto_generated/DATASET_QUALITY_CHECK.md`. Add `--preserve-pairs` when the external catalog already contains deliberate reciprocal pairs and its timestamps must not drive automatic re-pairing. `--report-output` overrides the generated report path when needed. `--diagnostic-all-phy` evaluates all explicitly tagged PHY rows while retaining the supported HT20/HT-LTF contract failure in the report; it is for external holdouts and never admits those rows into production training.
 
-`dataset_role` remains a manual curation decision. The validator never promotes a recording to `train`, `selection`, or `holdout`; entries without an explicit role remain excluded. Review scores are diagnostic and do not replace admission gates. The generated report owns the detailed tables and definitions.
+`dataset_role` remains a manual curation decision. The validator never promotes a recording to `train`, `selection`, or `holdout`; entries without an explicit role remain excluded. Review scores are diagnostic and do not replace admission gates. Excluded idle captures that produce no usable feature rows after temporal admission are listed first in the generated report with `n/a ⚠️`. The generated report owns the detailed tables and definitions.
 
 ## ML Training
 
@@ -161,7 +161,7 @@ Plots help diagnose signal structure; they do not establish detector quality by 
 
 ## Cache Maintenance
 
-Training and replay tools share a persistent NPZ cache. Normal runs validate cache provenance automatically. Runtime-supported features use complete replay matrices; host-only experiments use one row-spine artifact plus one column artifact per feature. Adding a variant to an existing provider family leaves sibling columns valid, so later model comparisons compute only columns that are actually missing. Reordering or selecting a subset reads the same columns without rebuilding packet rows. Cold producers serialize on a per-key process lock and recheck the cache after acquiring it.
+Training and replay tools share a persistent NPZ cache. Normal runs validate cache provenance automatically. Runtime-supported features use complete replay matrices; host-only experiments use one row-spine artifact plus one column artifact per feature. Adding a variant to an existing provider family leaves sibling columns valid, so later model comparisons compute only columns that are actually missing. Reordering or selecting a subset reads the same columns without rebuilding packet rows. Cold producers serialize on a per-key process lock and recheck the cache after acquiring it. Long fills emit periodic `[npz-cache]` lines on stderr for hits, misses, in-progress builds, and writes when stderr is a TTY; `ESPECTRE_NPZ_CACHE_PROGRESS=0` disables that output, `=1` forces it, and `ESPECTRE_NPZ_CACHE_PROGRESS_INTERVAL_S` overrides the default `10` second heartbeat.
 
 Pruning removes only artifacts that can no longer be used because their capture, implementation dependencies, layout, or artifact version changed. Historical but still reachable feature columns remain until an explicit age or size policy is requested:
 

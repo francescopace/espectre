@@ -110,7 +110,7 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
   mqtt_config.session.last_will.msg = last_will_payload_.c_str();
   mqtt_config.session.last_will.msg_len = 0;
   mqtt_config.session.last_will.qos = 0;
-  mqtt_config.session.last_will.retain = false;
+  mqtt_config.session.last_will.retain = true;
 
   client_ = esp_mqtt_client_init(&mqtt_config);
   if (client_ == nullptr) {

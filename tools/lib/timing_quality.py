@@ -19,6 +19,7 @@ from .bootstrap import setup_paths
 
 setup_paths()
 
+import config
 from runtime_policy import PacketTimingTracker, nominal_packet_interval_us
 
 
@@ -65,7 +66,7 @@ def summarize_capture_timing(
     """Summarize one capture's timing provenance and replay contamination risk."""
     packet_list = list(packets)
     nominal = (
-        nominal_packet_interval_us(100)
+        nominal_packet_interval_us(config.CSI_TARGET_PPS)
         if nominal_interval_us is None
         else max(1, int(nominal_interval_us))
     )

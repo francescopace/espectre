@@ -19,17 +19,13 @@ constexpr uint32_t DETECTOR_WINDOW_SIZE_MS_MIN = 1000U;
 constexpr uint32_t DETECTOR_WINDOW_SIZE_MS_MAX = 2000U;
 constexpr uint32_t DETECTOR_WINDOW_SIZE_MS_DEFAULT = 1000U;
 constexpr uint16_t DETECTOR_DEFAULT_WINDOW_SIZE = 100;
-// At the supported 80 pps floor, the default one-second window resolves to 80
-// samples. The current augmented ML model scores 98.84% aggregate recall and
-// 0.02% false positives across the normal-link decimation sweep at this size.
-constexpr uint16_t DETECTOR_MIN_WINDOW_SIZE = 80;
+// A target-rate/window pair may resolve to a single slot. Readiness is governed
+// by the derived temporal occupancy floor, never by an absolute packet count.
+constexpr uint16_t DETECTOR_MIN_WINDOW_SIZE = 1;
 // Bounded by measurement, not stack: detector working buffers are allocated
 // to the resolved window, and the ceiling limits drift away from the feature
 // geometry used during fitting.
 constexpr uint16_t DETECTOR_MAX_WINDOW_SIZE = 1000;
-constexpr uint16_t DETECTOR_MIN_PACKET_RATE_PPS = 80U;
-constexpr uint32_t DETECTOR_MAX_SUPPORTED_PACKET_INTERVAL_US =
-    1000000U / DETECTOR_MIN_PACKET_RATE_PPS;
 
 constexpr uint16_t CALIBRATION_NUM_WINDOWS = 10;
 constexpr uint16_t CALIBRATION_DEFAULT_BUFFER_SIZE =

@@ -133,7 +133,7 @@ void test_runtime_channel_change_rearms_csi_and_restarts_calibration(void) {
   runtime.set_listener(&listener);
   TEST_ASSERT_TRUE(runtime.configure_detector_());
   runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval_ms);
-  runtime.csi_traffic_service_.init(to_csi_traffic_config(config, CsiTrafficMode::EXTERNAL));
+  runtime.csi_traffic_service_.init(to_csi_traffic_config(config));
   TEST_ASSERT_EQUAL(ESP_OK, runtime.csi_pipeline_.enable());
 
   runtime.wifi_ready_ = true;
@@ -155,7 +155,7 @@ void test_runtime_channel_change_cold_resets_ml_without_calibration(void) {
   EspIdfRuntime runtime(config);
   TEST_ASSERT_TRUE(runtime.configure_detector_());
   runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval_ms);
-  runtime.csi_traffic_service_.init(to_csi_traffic_config(config, CsiTrafficMode::EXTERNAL));
+  runtime.csi_traffic_service_.init(to_csi_traffic_config(config));
   TEST_ASSERT_EQUAL(ESP_OK, runtime.csi_pipeline_.enable());
 
   int8_t csi_data[HT20_CSI_LEN] = {};

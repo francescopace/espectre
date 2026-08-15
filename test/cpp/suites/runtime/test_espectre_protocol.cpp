@@ -130,7 +130,13 @@ void test_stats_payload_includes_enabled_runtime_diagnostics_sample(void) {
   diagnostics.traffic_tx_pps = 100.0f;
   diagnostics.csi_callback_pps = 96.0f;
   diagnostics.csi_accepted_pps = 90.0f;
+  diagnostics.csi_admitted_pps = 84.0f;
   diagnostics.csi_filtered_pps = 6.0f;
+  diagnostics.csi_missing_slots_pps = 16.0f;
+  diagnostics.csi_excess_pps = 7.0f;
+  diagnostics.csi_stale_pps = 1.0f;
+  diagnostics.csi_out_of_order_pps = 2.0f;
+  diagnostics.csi_occupancy_ratio = 0.84f;
   diagnostics.wifi_channel = 10U;
   diagnostics.wifi_rssi_dbm = -55;
 
@@ -139,7 +145,13 @@ void test_stats_payload_includes_enabled_runtime_diagnostics_sample(void) {
   TEST_ASSERT_TRUE(stats.find("\"traffic_tx_pps\":100") != std::string::npos);
   TEST_ASSERT_TRUE(stats.find("\"csi_callback_pps\":96") != std::string::npos);
   TEST_ASSERT_TRUE(stats.find("\"csi_accepted_pps\":90") != std::string::npos);
+  TEST_ASSERT_TRUE(stats.find("\"csi_admitted_pps\":84") != std::string::npos);
   TEST_ASSERT_TRUE(stats.find("\"csi_filtered_pps\":6") != std::string::npos);
+  TEST_ASSERT_TRUE(stats.find("\"csi_missing_slots_pps\":16") != std::string::npos);
+  TEST_ASSERT_TRUE(stats.find("\"csi_excess_pps\":7") != std::string::npos);
+  TEST_ASSERT_TRUE(stats.find("\"csi_stale_pps\":1") != std::string::npos);
+  TEST_ASSERT_TRUE(stats.find("\"csi_out_of_order_pps\":2") != std::string::npos);
+  TEST_ASSERT_TRUE(stats.find("\"csi_occupancy\":0.84") != std::string::npos);
   TEST_ASSERT_TRUE(stats.find("\"wifi_channel\":10") != std::string::npos);
   TEST_ASSERT_TRUE(stats.find("\"wifi_rssi_dbm\":-55") != std::string::npos);
 }

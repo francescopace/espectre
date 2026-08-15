@@ -56,11 +56,18 @@ from runtime_policy import (
     make_evaluation_cadence as _make_evaluation_cadence,
     nominal_packet_interval_us,
 )
+from temporal_csi_sampler import minimum_valid_slots, temporal_window_slots
 from tools.lib.csi_io import load_npz_arrays, load_npz_packet_view, load_npz_sensing_arrays
+from tools.lib.temporal_replay import (
+    apply_temporal_admission,
+    iter_temporal_admissions,
+    packet_timestamp_us,
+    target_pps_for_packets,
+)
 
 DATA_DIR = data_dir()
 PERFORMANCE_DOC_PATH = repo_root() / "docs" / "performance" / "README.md"
-PERFORMANCE_REPLAY_IMPLEMENTATION_VERSION = 2
+PERFORMANCE_REPLAY_IMPLEMENTATION_VERSION = 5
 REPORT_DATASET_ROLES = frozenset(("selection", "holdout"))
 DIAGNOSTIC_ALL_PHY = False
 
@@ -79,10 +86,10 @@ def timing_cadence_for_window(
     """Return the shared packet-timing helpers used by replay workflows.
 
     ``interval_us`` is the measured cadence when the caller knows it. Without
-    it the nominal interval is assumed, which is only correct at 100 pps.
+    it the configured nominal interval is used as legacy replay fallback.
     """
     nominal_interval_us = (
-        nominal_packet_interval_us(100)
+        nominal_packet_interval_us(config.CSI_TARGET_PPS)
         if interval_us is None
         else max(1, int(interval_us))
     )
@@ -115,6 +122,47 @@ def note_evaluation_tick(
     if should_evaluate:
         cadence.after_evaluation()
     return should_evaluate, bool(timing["contaminated"])
+
+
+def temporal_detector_ticks(
+    detector: Any,
+    packets: Sequence[Any],
+    interval_us: int,
+):
+    """Yield admitted replay packets after applying production slot semantics."""
+    target_pps = target_pps_for_packets(packets, interval_us)
+    _, cadence = timing_cadence_for_window(interval_us=interval_us)
+    slots_since_reset = 0
+    for admission in iter_temporal_admissions(
+        packets,
+        target_pps=target_pps,
+        window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
+        fallback_interval_us=interval_us,
+    ):
+        if admission.reset_required:
+            cadence.reset()
+            slots_since_reset = 0
+        apply_temporal_admission(detector, admission)
+        cadence.note_packet(elapsed_us=admission.coverage_us)
+        should_evaluate = cadence.should_evaluate()
+        if should_evaluate:
+            cadence.after_evaluation()
+        slots_since_reset = admission.slot_index + 1
+        yield admission, should_evaluate, slots_since_reset
+
+
+def _is_scored_replay_evaluation(detector: Any, packets_since_reset: int, warmup: int) -> bool:
+    """Return True when a cadence tick is a scored detector evaluation.
+
+    Occupancy holes leave the detector not ready. Firmware still runs
+    ``update_state()``, which reports IDLE, but C++/Python report metrics skip
+    those ticks so occupancy loss is not counted as a false negative or a
+    true negative.
+    """
+    if int(packets_since_reset) < int(warmup):
+        return False
+    is_ready = getattr(detector, "is_ready", None)
+    return not callable(is_ready) or bool(is_ready())
 
 
 def _evaluate_idle_runtime_policy_evaluations(raw_motion_states: Sequence[bool]) -> Dict[str, int]:
@@ -524,7 +572,9 @@ def _normalize_ml_sample_contract(sample_contract: str = "replay_tick") -> str:
     return contract
 
 
-def _empty_ml_replay_rows(feature_names: Sequence[str]) -> Dict[str, Any]:
+def _empty_ml_replay_rows(
+    feature_names: Sequence[str], target_pps: int = 0
+) -> Dict[str, Any]:
     """Return one empty replay-row payload for the requested feature subset."""
     resolved = [str(name) for name in feature_names]
     return {
@@ -533,6 +583,8 @@ def _empty_ml_replay_rows(feature_names: Sequence[str]) -> Dict[str, Any]:
         "packet_index": np.empty(0, dtype=np.int32),
         "evaluation_index": np.empty(0, dtype=np.int32),
         "reset_index": np.empty(0, dtype=np.int32),
+        "slot_index": np.empty(0, dtype=np.int64),
+        "target_pps": int(target_pps),
         "evaluation_due": np.empty(0, dtype=bool),
     }
 
@@ -573,6 +625,8 @@ def _select_ml_replay_rows(
             rows["evaluation_index"], dtype=np.int32
         )[mask],
         "reset_index": np.asarray(rows["reset_index"], dtype=np.int32)[mask],
+        "slot_index": np.asarray(rows["slot_index"], dtype=np.int64)[mask],
+        "target_pps": int(rows.get("target_pps", 0)),
         "evaluation_due": np.asarray(rows["evaluation_due"], dtype=bool)[mask],
     }
     if "cache_hit" in rows:
@@ -605,6 +659,8 @@ def _project_ml_replay_rows(
         "packet_index": np.asarray(rows["packet_index"], dtype=np.int32)[row_mask],
         "evaluation_index": np.asarray(rows["evaluation_index"], dtype=np.int32)[row_mask],
         "reset_index": np.asarray(rows["reset_index"], dtype=np.int32)[row_mask],
+        "slot_index": np.asarray(rows["slot_index"], dtype=np.int64)[row_mask],
+        "target_pps": int(rows.get("target_pps", 0)),
         "evaluation_due": evaluation_due[row_mask],
     }
     if normalized_contract == "replay_tick":
@@ -625,6 +681,7 @@ def build_ml_replay_rows(
     sample_contract: str = "replay_tick",
     row_stride: Optional[int] = None,
     row_offset: int = 0,
+    target_pps: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Build reset-aware ML rows and project them onto one sampling contract."""
     from high_accuracy_detector import HighAccuracyDetector, FEATURE_NAMES as EXPORTED_FEATURE_NAMES
@@ -647,14 +704,26 @@ def build_ml_replay_rows(
         return _empty_ml_replay_rows(requested_feature_names)
 
     interval_us = measure_packet_interval_us(packets)
-    if window_size is None:
-        window_size = derive_detector_timing(
-            interval_us,
-            SEGMENTATION_WINDOW_SIZE_MS,
-        )["window_packets"]
+    inferred_pps = target_pps_for_packets(packets, interval_us)
+    # Paired C++ replay sizes both phases from the baseline capture. A caller
+    # that already resolved that window must keep this file on the same grid
+    # rather than re-inferring a different rate from its own timestamps.
+    if target_pps is not None:
+        target_pps = max(1, int(target_pps))
+    elif window_size is not None:
+        target_pps = max(
+            1,
+            int(round(int(window_size) * 1000.0 / SEGMENTATION_WINDOW_SIZE_MS)),
+        )
+    else:
+        target_pps = inferred_pps
+    window_size = temporal_window_slots(target_pps, SEGMENTATION_WINDOW_SIZE_MS)
+    nominal_interval_us = max(1, int(round(1_000_000.0 / target_pps)))
     detector = HighAccuracyDetector(window_size=window_size, threshold=0.5)
+    if hasattr(detector, "set_minimum_valid_samples"):
+        detector.set_minimum_valid_samples(minimum_valid_slots(window_size))
     feature_indices = [EXPORTED_FEATURE_NAMES.index(name) for name in requested_feature_names]
-    timing_tracker, cadence = timing_cadence_for_window(window_size, interval_us)
+    _, cadence = timing_cadence_for_window(window_size, nominal_interval_us)
     packets_since_reset = 0
     reset_index = 0
     evaluation_index = 0
@@ -662,31 +731,34 @@ def build_ml_replay_rows(
     packet_index_values: list[int] = []
     evaluation_index_values: list[int] = []
     reset_index_values: list[int] = []
+    slot_index_values: list[int] = []
     evaluation_due_values: list[bool] = []
 
-    for packet_index, packet in enumerate(packets):
-        should_evaluate, contaminated = note_evaluation_tick(
-            cadence,
-            packet=packet,
-            timing_tracker=timing_tracker,
-        )
-        if contaminated:
-            detector.reset()
+    for admission in iter_temporal_admissions(
+        packets,
+        target_pps=target_pps,
+        window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
+        fallback_interval_us=nominal_interval_us,
+    ):
+        packet_index = admission.packet_index
+        packet = admission.packet
+        if admission.reset_required:
             cadence.reset()
-            timing_tracker.reset()
             reset_index += 1
-            should_evaluate, _ = note_evaluation_tick(
-                cadence,
-                packet=packet,
-                timing_tracker=timing_tracker,
-            )
             packets_since_reset = 0
+        apply_temporal_admission(detector, admission)
+        cadence.note_packet(elapsed_us=admission.coverage_us)
+        should_evaluate = cadence.should_evaluate()
+        if should_evaluate:
+            cadence.after_evaluation()
         detector.process_packet(
             _packet_csi_data(packet),
             selected_subcarriers,
-            timestamp_us=_packet_timestamp_us(packet, packet_index, interval_us),
+            timestamp_us=_packet_timestamp_us(
+                packet, packet_index, nominal_interval_us
+            ),
         )
-        packets_since_reset += 1
+        packets_since_reset = admission.slot_index + 1
         if packets_since_reset < window_size or not detector.is_ready():
             continue
         dense_row_index = evaluation_index
@@ -698,16 +770,19 @@ def build_ml_replay_rows(
         packet_index_values.append(int(packet_index))
         evaluation_index_values.append(int(dense_row_index))
         reset_index_values.append(int(reset_index))
+        slot_index_values.append(int(admission.slot_index))
         evaluation_due_values.append(bool(should_evaluate))
 
     if not row_features:
-        return _empty_ml_replay_rows(requested_feature_names)
+        return _empty_ml_replay_rows(requested_feature_names, target_pps)
     dense_rows = {
         "X": np.vstack(row_features).astype(np.float32, copy=False),
         "feature_names": list(requested_feature_names),
         "packet_index": np.asarray(packet_index_values, dtype=np.int32),
         "evaluation_index": np.asarray(evaluation_index_values, dtype=np.int32),
         "reset_index": np.asarray(reset_index_values, dtype=np.int32),
+        "slot_index": np.asarray(slot_index_values, dtype=np.int64),
+        "target_pps": int(target_pps),
         "evaluation_due": np.asarray(evaluation_due_values, dtype=bool),
     }
     return _project_ml_replay_rows(
@@ -754,10 +829,11 @@ def load_or_compute_ml_replay_rows(
             packet_stream = packets_factory()
         else:
             packet_stream = _load_report_packet_view(source_path)
-        resolved_window_size = derive_detector_timing(
-            measure_packet_interval_us(packet_stream),
+        interval_us = measure_packet_interval_us(packet_stream)
+        resolved_window_size = temporal_window_slots(
+            target_pps_for_packets(packet_stream, interval_us),
             SEGMENTATION_WINDOW_SIZE_MS,
-        )["window_packets"]
+        )
     parameters = npz_cache.ml_replay_row_parameters(
         selected_subcarriers=selected_subcarriers,
         window_size=resolved_window_size,
@@ -833,6 +909,8 @@ def load_or_compute_ml_replay_rows(
                 evaluation_index=rows["evaluation_index"],
                 reset_index=rows["reset_index"],
                 evaluation_due=rows["evaluation_due"],
+                slot_index=rows["slot_index"],
+                target_pps=rows["target_pps"],
             )
     rows["cache_hit"] = False
     return _project_ml_replay_rows(
@@ -866,8 +944,9 @@ def _collect_classic_replay_phase_rows(
         return _empty_classic_replay_phase_rows()
 
     interval_us = int(timing["interval_us"])
-    window_packets = int(timing["window_packets"])
-    timing_tracker, cadence = timing_cadence_for_window(window_packets, interval_us)
+    target_pps = target_pps_for_packets(packets, interval_us)
+    window_packets = temporal_window_slots(target_pps, SEGMENTATION_WINDOW_SIZE_MS)
+    _, cadence = timing_cadence_for_window(window_packets, interval_us)
     packets_since_reset = 0
     reset_index = 0
     features: list[tuple[float, float]] = []
@@ -877,23 +956,27 @@ def _collect_classic_replay_phase_rows(
     packet_weights: list[int] = []
     reset_indices: list[int] = []
 
-    for packet_index, packet in enumerate(packets):
-        packet_timing = timing_tracker.observe_packet(packet)
-        if packet_timing["contaminated"]:
-            detector.reset()
+    for admission in iter_temporal_admissions(
+        packets,
+        target_pps=target_pps,
+        window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
+        fallback_interval_us=interval_us,
+    ):
+        packet_index = admission.packet_index
+        packet = admission.packet
+        if admission.reset_required:
             cadence.reset()
-            timing_tracker.reset()
-            packet_timing = timing_tracker.observe_packet(packet)
             packets_since_reset = 0
             reset_index += 1
+        apply_temporal_admission(detector, admission)
         detector.process_packet(
             _packet_csi_data(packet),
             selected_subcarriers,
             rssi_dbm=packet.get("rssi_dbm"),
             timestamp_us=_packet_timestamp_us(packet, packet_index, interval_us),
         )
-        packets_since_reset += 1
-        cadence.note_packet(elapsed_us=packet_timing["coverage_us"])
+        packets_since_reset = admission.slot_index + 1
+        cadence.note_packet(elapsed_us=admission.coverage_us)
         if not cadence.should_evaluate():
             continue
         packet_weight = cadence.equivalent_packets_since_evaluation(interval_us)
@@ -937,8 +1020,17 @@ def build_classic_replay_rows(
         if replay_interval_us is None
         else max(1, int(replay_interval_us))
     )
+    target_pps = target_pps_for_packets(
+        static_presence_packets, measured_interval_us
+    )
     resolved_timing = dict(
-        timing or derive_detector_timing(measured_interval_us)
+        timing
+        or derive_detector_timing(
+            max(1, int(round(1_000_000.0 / target_pps)))
+        )
+    )
+    resolved_timing["window_packets"] = temporal_window_slots(
+        target_pps, SEGMENTATION_WINDOW_SIZE_MS
     )
     resolved_warmup_packets = (
         int(resolved_timing["window_packets"])
@@ -1012,7 +1104,13 @@ def load_or_compute_classic_replay_rows(
         else _load_report_packet_view(static_presence_path)
     )
     replay_interval_us = measure_packet_interval_us(static_packets)
-    timing = derive_detector_timing(replay_interval_us)
+    replay_target_pps = target_pps_for_packets(static_packets, replay_interval_us)
+    timing = derive_detector_timing(
+        max(1, int(round(1_000_000.0 / replay_target_pps)))
+    )
+    timing["window_packets"] = temporal_window_slots(
+        replay_target_pps, SEGMENTATION_WINDOW_SIZE_MS
+    )
     resolved_warmup = (
         int(timing["window_packets"])
         if warmup_packets is None
@@ -1145,7 +1243,8 @@ def _calibrate_classic_replay_rows(
                 startup_logits.append(float(logit))
         else:
             adapter.motion_metric = 0.0
-        calibrator.observe_detector(adapter, packet_weight=int(packet_weight))
+        if adapter.ready:
+            calibrator.observe_detector(adapter, packet_weight=int(packet_weight))
         if calibrator.is_complete():
             break
 
@@ -1188,10 +1287,6 @@ def _score_classic_replay_phase_rows(
         if not row_ready:
             detector._current_probability = 0.0
             detector._state = MotionState.IDLE
-            if row_eligible:
-                if stride is None or eligible_position % stride == offset:
-                    states.append(False)
-                eligible_position += 1
             continue
         detector._current_turb_autocorr = float(values[0])
         detector._current_turb_iqr_over_mean_aggr = float(values[1])
@@ -1292,35 +1387,35 @@ def evaluate_detector_packets(
     detector_window = getattr(detector, "get_window_size", None)
     if callable(detector_window):
         warmup = max(1, int(detector_window()))
-    timing_tracker, cadence = timing_cadence_for_window(warmup, interval_us)
+    target_pps = target_pps_for_packets(static_presence_packets, interval_us)
+    _, cadence = timing_cadence_for_window(warmup, interval_us)
     packets_since_reset = 0
-    for packet_index, pkt in enumerate(static_presence_packets):
-        should_evaluate, contaminated = note_evaluation_tick(
-            cadence,
-            packet=pkt,
-            timing_tracker=timing_tracker,
-        )
-        if contaminated:
-            detector.reset()
+    for admission in iter_temporal_admissions(
+        static_presence_packets,
+        target_pps=target_pps,
+        window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
+        fallback_interval_us=interval_us,
+    ):
+        packet_index, pkt = admission.packet_index, admission.packet
+        if admission.reset_required:
             cadence.reset()
-            timing_tracker.reset()
-            should_evaluate, _ = note_evaluation_tick(
-                cadence,
-                packet=pkt,
-                timing_tracker=timing_tracker,
-            )
             packets_since_reset = 0
+        apply_temporal_admission(detector, admission)
+        cadence.note_packet(elapsed_us=admission.coverage_us)
+        should_evaluate = cadence.should_evaluate()
+        if should_evaluate:
+            cadence.after_evaluation()
         detector.process_packet(
             _packet_csi_data(pkt),
             selected_band,
             rssi_dbm=pkt.get("rssi_dbm"),
             timestamp_us=_packet_timestamp_us(pkt, packet_index, interval_us),
         )
-        packets_since_reset += 1
+        packets_since_reset = admission.slot_index + 1
         if not should_evaluate:
             continue
         detector.update_state()
-        if packets_since_reset < warmup:
+        if not _is_scored_replay_evaluation(detector, packets_since_reset, warmup):
             continue
         baseline_eval_count += 1
         is_motion = detector.get_state() == MotionState.MOTION
@@ -1330,35 +1425,34 @@ def evaluate_detector_packets(
 
     motion_with_motion = 0
     motion_without_motion = 0
-    timing_tracker, cadence = timing_cadence_for_window(warmup, interval_us)
+    _, cadence = timing_cadence_for_window(warmup, interval_us)
     packets_since_reset = 0
-    for packet_index, pkt in enumerate(motion_packets):
-        should_evaluate, contaminated = note_evaluation_tick(
-            cadence,
-            packet=pkt,
-            timing_tracker=timing_tracker,
-        )
-        if contaminated:
-            detector.reset()
+    for admission in iter_temporal_admissions(
+        motion_packets,
+        target_pps=target_pps,
+        window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
+        fallback_interval_us=interval_us,
+    ):
+        packet_index, pkt = admission.packet_index, admission.packet
+        if admission.reset_required:
             cadence.reset()
-            timing_tracker.reset()
-            should_evaluate, _ = note_evaluation_tick(
-                cadence,
-                packet=pkt,
-                timing_tracker=timing_tracker,
-            )
             packets_since_reset = 0
+        apply_temporal_admission(detector, admission)
+        cadence.note_packet(elapsed_us=admission.coverage_us)
+        should_evaluate = cadence.should_evaluate()
+        if should_evaluate:
+            cadence.after_evaluation()
         detector.process_packet(
             _packet_csi_data(pkt),
             selected_band,
             rssi_dbm=pkt.get("rssi_dbm"),
             timestamp_us=_packet_timestamp_us(pkt, packet_index, interval_us),
         )
-        packets_since_reset += 1
+        packets_since_reset = admission.slot_index + 1
         if not should_evaluate:
             continue
         detector.update_state()
-        if packets_since_reset < warmup:
+        if not _is_scored_replay_evaluation(detector, packets_since_reset, warmup):
             continue
         movement_eval_count += 1
         if detector.get_state() == MotionState.MOTION:
@@ -1451,17 +1545,26 @@ def compute_ml_packet_result(
 ) -> tuple[Dict[str, float], Dict[str, Dict[str, tuple[float, ...]]]]:
     """Replay the High-Accuracy detector on explicit packet streams."""
     runtime_feature_names = tuple(RUNTIME_FEATURE_NAMES)
+    interval_us = measure_packet_interval_us(static_presence_packets)
+    replay_target_pps = target_pps_for_packets(static_presence_packets, interval_us)
+    resolved_window_size = (
+        int(window_size)
+        if window_size is not None
+        else temporal_window_slots(replay_target_pps, SEGMENTATION_WINDOW_SIZE_MS)
+    )
     static_rows = build_ml_replay_rows(
         static_presence_packets,
         selected_subcarriers,
-        window_size,
+        resolved_window_size,
         runtime_feature_names,
+        target_pps=replay_target_pps,
     )
     motion_rows = build_ml_replay_rows(
         motion_packets,
         selected_subcarriers,
-        window_size,
+        resolved_window_size,
         runtime_feature_names,
+        target_pps=replay_target_pps,
     )
     return _compute_ml_row_result(
         static_rows,
@@ -1566,10 +1669,11 @@ def compute_ml_dataset_result(
     resolved_window_size = window_size
     if resolved_window_size is None:
         static_packets = _load_report_packet_view(static_presence_path)
-        resolved_window_size = derive_detector_timing(
-            measure_packet_interval_us(static_packets),
+        interval_us = measure_packet_interval_us(static_packets)
+        resolved_window_size = temporal_window_slots(
+            target_pps_for_packets(static_packets, interval_us),
             SEGMENTATION_WINDOW_SIZE_MS,
-        )["window_packets"]
+        )
     static_rows = load_or_compute_ml_replay_rows(
         static_presence_path,
         selected_subcarriers=selected_subcarriers,
@@ -1605,32 +1709,32 @@ def replay_idle_stream(
     on. See the empty-room false-positive ADR.
     """
     interval_us = measure_packet_interval_us(packets)
-    timing_tracker, cadence = timing_cadence_for_window(window_size, interval_us)
+    target_pps = target_pps_for_packets(packets, interval_us)
+    _, cadence = timing_cadence_for_window(window_size, interval_us)
     packets_since_reset = 0
     raw_motion_states: list[bool] = []
-    for packet_index, pkt in enumerate(packets):
-        should_evaluate, contaminated = note_evaluation_tick(
-            cadence,
-            packet=pkt,
-            timing_tracker=timing_tracker,
-        )
-        if contaminated:
-            detector.reset()
+    for admission in iter_temporal_admissions(
+        packets,
+        target_pps=target_pps,
+        window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
+        fallback_interval_us=interval_us,
+    ):
+        packet_index, pkt = admission.packet_index, admission.packet
+        if admission.reset_required:
             cadence.reset()
-            timing_tracker.reset()
-            should_evaluate, _ = note_evaluation_tick(
-                cadence,
-                packet=pkt,
-                timing_tracker=timing_tracker,
-            )
             packets_since_reset = 0
+        apply_temporal_admission(detector, admission)
+        cadence.note_packet(elapsed_us=admission.coverage_us)
+        should_evaluate = cadence.should_evaluate()
+        if should_evaluate:
+            cadence.after_evaluation()
         detector.process_packet(
             _packet_csi_data(pkt),
             selected_subcarriers,
             rssi_dbm=pkt.get("rssi_dbm"),
             timestamp_us=_packet_timestamp_us(pkt, packet_index, interval_us),
         )
-        packets_since_reset += 1
+        packets_since_reset = admission.slot_index + 1
         if not should_evaluate:
             continue
         detector.update_state()
@@ -1883,21 +1987,13 @@ def _packet_timestamp_us(
     nominal_interval_us: int,
 ) -> int:
     """Return the replay timestamp using the same precedence as the C++ gate."""
-    if isinstance(packet, MappingABC):
-        device_ticks_us = packet.get("device_ticks_us")
-        if device_ticks_us is not None:
-            return int(device_ticks_us)
-        wifi_rx_ts_us = packet.get("wifi_rx_ts_us")
-        if wifi_rx_ts_us is not None:
-            return int(wifi_rx_ts_us)
-    else:
-        device_ticks_us = getattr(packet, "device_ticks_us", None)
-        if device_ticks_us is not None:
-            return int(device_ticks_us)
-        wifi_rx_ts_us = getattr(packet, "wifi_rx_ts_us", None)
-        if wifi_rx_ts_us is not None:
-            return int(wifi_rx_ts_us)
-    return int(packet_index) * max(1, int(nominal_interval_us))
+    return int(
+        packet_timestamp_us(
+            packet,
+            fallback_index=packet_index,
+            fallback_interval_us=nominal_interval_us,
+        )
+    )
 
 
 def _packet_rssi_dbm(packet: Any) -> Any:
@@ -2020,11 +2116,11 @@ def evaluate_ml_long_recording(
     from high_accuracy_detector import HighAccuracyDetector
 
     interval_us = measure_packet_interval_us(baseline_packets)
-    warmup = derive_detector_timing(
-        interval_us,
-        SEGMENTATION_WINDOW_SIZE_MS,
-    )["window_packets"]
+    target_pps = target_pps_for_packets(baseline_packets, interval_us)
+    warmup = temporal_window_slots(target_pps, SEGMENTATION_WINDOW_SIZE_MS)
     detector = HighAccuracyDetector(threshold=0.5, window_size=warmup)
+    if hasattr(detector, "set_minimum_valid_samples"):
+        detector.set_minimum_valid_samples(minimum_valid_slots(warmup))
 
     baseline_eval_count = 0
     movement_eval_count = 0
@@ -2033,70 +2129,40 @@ def evaluate_ml_long_recording(
     movement_with_motion = 0
     movement_without_motion = 0
 
-    timing_tracker, cadence = timing_cadence_for_window(warmup, interval_us)
-    packets_since_reset = 0
-    for packet_index, pkt in enumerate(baseline_packets):
-        should_evaluate, contaminated = note_evaluation_tick(
-            cadence,
-            packet=pkt,
-            timing_tracker=timing_tracker,
-        )
-        if contaminated:
-            detector.reset()
-            cadence.reset()
-            timing_tracker.reset()
-            should_evaluate, _ = note_evaluation_tick(
-                cadence,
-                packet=pkt,
-                timing_tracker=timing_tracker,
-            )
-            packets_since_reset = 0
+    for admission, should_evaluate, packets_since_reset in temporal_detector_ticks(
+        detector, baseline_packets, interval_us
+    ):
+        packet_index, pkt = admission.packet_index, admission.packet
         detector.process_packet(
             _packet_csi_data(pkt),
             DEFAULT_SUBCARRIERS,
             rssi_dbm=_packet_rssi_dbm(pkt),
             timestamp_us=_packet_timestamp_us(pkt, packet_index, interval_us),
         )
-        packets_since_reset += 1
         if not should_evaluate:
             continue
         detector.update_state()
-        if packets_since_reset >= warmup:
+        if _is_scored_replay_evaluation(detector, packets_since_reset, warmup):
             baseline_eval_count += 1
-        if packets_since_reset >= warmup and detector.get_state() == MotionState.MOTION:
-            baseline_motion_packets += 1
-        if packets_since_reset >= warmup:
-            baseline_motion_states.append(detector.get_state() == MotionState.MOTION)
+            is_motion = detector.get_state() == MotionState.MOTION
+            baseline_motion_states.append(is_motion)
+            if is_motion:
+                baseline_motion_packets += 1
 
-    timing_tracker, cadence = timing_cadence_for_window(warmup, interval_us)
-    packets_since_reset = 0
-    for packet_index, pkt in enumerate(movement_packets):
-        should_evaluate, contaminated = note_evaluation_tick(
-            cadence,
-            packet=pkt,
-            timing_tracker=timing_tracker,
-        )
-        if contaminated:
-            detector.reset()
-            cadence.reset()
-            timing_tracker.reset()
-            should_evaluate, _ = note_evaluation_tick(
-                cadence,
-                packet=pkt,
-                timing_tracker=timing_tracker,
-            )
-            packets_since_reset = 0
+    for admission, should_evaluate, packets_since_reset in temporal_detector_ticks(
+        detector, movement_packets, interval_us
+    ):
+        packet_index, pkt = admission.packet_index, admission.packet
         detector.process_packet(
             _packet_csi_data(pkt),
             DEFAULT_SUBCARRIERS,
             rssi_dbm=_packet_rssi_dbm(pkt),
             timestamp_us=_packet_timestamp_us(pkt, packet_index, interval_us),
         )
-        packets_since_reset += 1
         if not should_evaluate:
             continue
         detector.update_state()
-        if packets_since_reset >= warmup:
+        if _is_scored_replay_evaluation(detector, packets_since_reset, warmup):
             movement_eval_count += 1
             if detector.get_state() == MotionState.MOTION:
                 movement_with_motion += 1
@@ -2164,70 +2230,40 @@ def evaluate_classic_long_recording(
     baseline_motion_states = []
 
     interval_us = measure_packet_interval_us(baseline_packets)
-    timing_tracker, cadence = timing_cadence_for_window(warmup, interval_us)
-    packets_since_reset = 0
-    for packet_index, pkt in enumerate(baseline_packets):
-        should_evaluate, contaminated = note_evaluation_tick(
-            cadence,
-            packet=pkt,
-            timing_tracker=timing_tracker,
-        )
-        if contaminated:
-            detector.reset()
-            cadence.reset()
-            timing_tracker.reset()
-            should_evaluate, _ = note_evaluation_tick(
-                cadence,
-                packet=pkt,
-                timing_tracker=timing_tracker,
-            )
-            packets_since_reset = 0
+    for admission, should_evaluate, packets_since_reset in temporal_detector_ticks(
+        detector, baseline_packets, interval_us
+    ):
+        packet_index, pkt = admission.packet_index, admission.packet
         detector.process_packet(
             _packet_csi_data(pkt),
             DEFAULT_SUBCARRIERS,
             rssi_dbm=_packet_rssi_dbm(pkt),
             timestamp_us=_packet_timestamp_us(pkt, packet_index, interval_us),
         )
-        packets_since_reset += 1
         if not should_evaluate:
             continue
         detector.update_state()
-        if packets_since_reset >= warmup:
+        if _is_scored_replay_evaluation(detector, packets_since_reset, warmup):
             baseline_eval_count += 1
-        if packets_since_reset >= warmup and detector.get_state() == MotionState.MOTION:
-            baseline_motion_packets += 1
-        if packets_since_reset >= warmup:
-            baseline_motion_states.append(detector.get_state() == MotionState.MOTION)
+            is_motion = detector.get_state() == MotionState.MOTION
+            baseline_motion_states.append(is_motion)
+            if is_motion:
+                baseline_motion_packets += 1
 
-    timing_tracker, cadence = timing_cadence_for_window(warmup, interval_us)
-    packets_since_reset = 0
-    for packet_index, pkt in enumerate(movement_packets):
-        should_evaluate, contaminated = note_evaluation_tick(
-            cadence,
-            packet=pkt,
-            timing_tracker=timing_tracker,
-        )
-        if contaminated:
-            detector.reset()
-            cadence.reset()
-            timing_tracker.reset()
-            should_evaluate, _ = note_evaluation_tick(
-                cadence,
-                packet=pkt,
-                timing_tracker=timing_tracker,
-            )
-            packets_since_reset = 0
+    for admission, should_evaluate, packets_since_reset in temporal_detector_ticks(
+        detector, movement_packets, interval_us
+    ):
+        packet_index, pkt = admission.packet_index, admission.packet
         detector.process_packet(
             _packet_csi_data(pkt),
             DEFAULT_SUBCARRIERS,
             rssi_dbm=_packet_rssi_dbm(pkt),
             timestamp_us=_packet_timestamp_us(pkt, packet_index, interval_us),
         )
-        packets_since_reset += 1
         if not should_evaluate:
             continue
         detector.update_state()
-        if packets_since_reset >= warmup:
+        if _is_scored_replay_evaluation(detector, packets_since_reset, warmup):
             movement_eval_count += 1
             if detector.get_state() == MotionState.MOTION:
                 movement_with_motion += 1

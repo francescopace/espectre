@@ -202,9 +202,10 @@ Support in this phase:
 | `wifi.band_mode` (ESPHome) / `RuntimeConfig::wifi_band_policy` | `2.4GHz`, `5GHz`, or `AUTO` in ESPHome; `BAND_2G`, `BAND_5G`, or `AUTO` in the SDK | ESPHome C5: `AUTO` when omitted; other frontends: `2.4GHz` | `5GHz` and `AUTO` require the dual-band ESP32-C5; Native can persist the policy over BLE and applies a changed policy after restart; ESPHome examples select `2.4GHz`, and the production PHY remains HT20 |
 | `detection_algorithm` | `lightweight` or `high_accuracy` | `lightweight`, including Matter | Lightweight uses less detector CPU and working memory; High Accuracy improves detection quality and skips quiet-room threshold calibration |
 | Runtime threshold | probability | detector-specific | Selected automatically at startup; session-adjustable where the frontend exposes a writable control. Matter currently exposes no writable sensing controls |
-| `segmentation_window_size_ms` | int | `1000` | `1000-2000` milliseconds; resolved to samples from measured CSI cadence |
-| `traffic_generator_rate` | int | `100` | Arithmetic validation range `0-100000`; `0` disables internal traffic generation. Supported ESP32 targets sustain much lower practical CSI rates, normally around the `100` target |
-| `traffic_generator_adaptive` | bool | `true` | Adjusts DNS or ICMP send pacing from CSI feedback and local socket backpressure; floor at `70%` of target, overshoot up to about `125%` |
+| `segmentation_window_size_ms` | int | `1000` | `1000-2000` milliseconds; combined with `csi_target_pps` to define a fixed temporal slot window |
+| `csi_target_pps` | int | `100` | `1-500`; defines detector slot cadence and the managed-traffic target, but never enables or disables traffic |
+| `csi_traffic_mode` | `internal`, `external`, `pacing`, or `disabled` | `internal` | Selects traffic ownership independently from `csi_target_pps`; `disabled` means unmanaged ambient traffic, not disabled sensing |
+| `traffic_generator_adaptive` | bool | `false` | Opt-in adjustment of DNS or ICMP send pacing from raw CSI feedback and local socket backpressure; fixed cadence avoids treating unrelated application traffic as managed sensing supply |
 | `traffic_generator_mode` | `ping` or `dns` | `ping` | Shared internal traffic generator mode |
 | `publish_interval_ms` | int | `1000` | `100-60000` milliseconds between periodic updates |
 | `evaluation_interval_ms` | int | `250` | `10-10000` milliseconds between detector evaluations |
@@ -215,6 +216,8 @@ Support in this phase:
 | `hampel_enabled` | bool | `true` | Enables Hampel outlier filtering |
 | `hampel_window` | int | `7` | `3-11` samples |
 | `hampel_threshold` | float | `5.0` | `1.0-10.0` MAD units |
+
+Migration from earlier v3 snapshots: replace `traffic_generator_rate: N` with `csi_target_pps: N` plus `csi_traffic_mode: internal`. Replace the former zero-rate disable sentinel with a positive target plus `csi_traffic_mode: external` when a UDP source supplies traffic, or `disabled` when ambient traffic is intentionally unmanaged. Device internal pacing now defaults to `traffic_generator_adaptive: false`; keep `true` only as an explicit opt-in. C++ SDK integrations make the same source-level rename from `RuntimeConfig::traffic_generator_rate` to `RuntimeConfig::csi_target_pps`.
 
 See [TUNING.md](TUNING.md) for how evaluation cadence and hit filtering set the expected publish delay (about `1 s` for `IDLE -> MOTION` with the defaults).
 
@@ -228,7 +231,7 @@ Use the frontend README for the exact syntax and local workflow:
 
 ESPectre keeps two production detection profiles because no single choice optimizes both accuracy and resource use. Lightweight runs fewer feature trackers and is the leaner choice when the chip or surrounding firmware needs more CPU time and working memory for other work. High Accuracy uses a larger feature state and neural inference to provide higher accuracy and stronger generalization on the maintained corpus.
 
-At boot, Lightweight adapts its threshold to the room during an initial quiet calibration that can take up to about 10 seconds. High Accuracy uses its trained threshold and skips that calibration; it becomes active after CSI capture is ready and the feature window has filled.
+At boot, Lightweight adapts its threshold to the room from about 10 seconds of clean, ready CSI coverage after temporal warmup. Missing or burst-concentrated slots extend wall-clock calibration instead of counting as evidence. High Accuracy uses its trained threshold and skips threshold calibration; it becomes active after CSI capture is ready and the feature window has filled.
 
 ESPHome, Native, and Matter support both `lightweight` and `high_accuracy`. ESPHome and Native can switch profiles at runtime and persist the selection; the switch resets the threshold to the selected profile's default, and `high_accuracy -> lightweight` starts calibration automatically. Matter selects the profile at build time, exposes no runtime detector control, and uses `lightweight` in published firmware while the frontend remains preview. Streamer has no detector.
 
@@ -242,9 +245,21 @@ See:
 
 Motion detection frontends depend on CSI packets. For the shared detection runtime, traffic is generated internally by default, but the way that traffic is configured or exposed belongs to each frontend surface.
 
-The standalone `streamer` frontend does not use the internal generator; it is collector-paced. See the streamer frontend README for that workflow.
+The fixed temporal admission grid accepts at most one packet per target slot. Same-slot bursts are discarded, missing slots remain missing, and the detector becomes ready only after a complete configured window has at least 80% valid occupancy. Arrival-rate jitter does not resize or reconstruct the detector.
 
-If you are tuning `traffic_generator_rate`, thresholds, or filters, use [TUNING.md](TUNING.md) for the rationale and the frontend README for the configuration syntax.
+Raw rate near `csi_target_pps` does not prove that the target is usable: an AP may deliver those packets in aggregates, producing both same-slot excess and missing slots. If occupancy stays below 80%, fix the traffic source or choose a lower explicit `csi_target_pps` and revalidate detector quality at that cadence. The runtime never lowers the target automatically because doing so would silently change feature timing.
+
+| Path | Target owner | Traffic source | Detector admission | Adaptive-control input |
+|------|--------------|----------------|--------------------|------------------------|
+| Native / Matter | `CONFIG_ESPECTRE_CSI_TARGET_PPS` | `csi_traffic_mode`; internal by default | yes | raw identity-accepted CSI |
+| ESPHome | `csi_target_pps` | `csi_traffic_mode`; internal by default | yes | raw identity-accepted CSI |
+| Micro-ESPectre | `CSI_TARGET_PPS` | internal when `TRAFFIC_GENERATOR_ENABLED`, otherwise external | yes | raw CSI feedback |
+| Streamer firmware | collector `--pps` | collector pacing | no; transports raw timestamped CSI | stream delivery and TX backpressure |
+| Collector detector, replay, training, and validation | recorded `csi_target_pps`, collector `--pps`, or a documented legacy fallback | recorded raw stream | yes, through the production Micro-ESPectre sampler | not applicable |
+
+Streamer remains collector-paced and preserves raw CSI. The collector applies the same production temporal admission only to its live detector and derived sensing view, so pacing credits, raw capture, and backpressure behavior remain independent from detector occupancy.
+
+If you are tuning `csi_target_pps`, thresholds, or filters, use [TUNING.md](TUNING.md) for the rationale and the frontend README for the configuration syntax.
 
 ## Frontend-Specific Workflows
 

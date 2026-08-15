@@ -253,17 +253,17 @@ def run_startup_calibration(wlan, detector, traffic_gen, packet_interval_us=None
         get_detector_auto_factor,
         get_detector_startup_gate,
     )
-    from src.runtime_policy import duration_packet_count
+    from src.temporal_csi_sampler import (
+        TemporalCsiSampler,
+        minimum_valid_slots,
+        temporal_window_slots,
+    )
 
     detector_window_packets = detector.get_window_size()
-    resolved_interval_us = (
-        max(1, int(packet_interval_us))
-        if packet_interval_us is not None
-        else max(1, int(round(1_000_000.0 / detector_window_packets)))
-    )
-    calibration_target_packets = duration_packet_count(
+    target_pps = max(1, int(getattr(config, 'CSI_TARGET_PPS', 100)))
+    calibration_target_packets = temporal_window_slots(
+        target_pps,
         getattr(config, 'CALIBRATION_DURATION_MS', 10_000),
-        resolved_interval_us,
     )
     calibration_tracker = StartupThresholdCalibrator(
         calibration_target_packets,
@@ -275,15 +275,20 @@ def run_startup_calibration(wlan, detector, traffic_gen, packet_interval_us=None
         begin_calibration()
     evaluation_interval_ms = max(1, int(getattr(config, 'EVALUATION_INTERVAL_MS', 250)))
     # Calibration evaluates on the same cadence steady-state detection does.
-    # Counting packets here while the main loop counts elapsed time fitted the
-    # threshold at a feature resolution the detector never ran at, and starved
-    # the rate estimator for the whole calibration. Mirrors the C++
-    # EvaluationCadence shared by CsiPipeline and the calibration interceptor.
+    # Mirrors the C++ EvaluationCadence shared by CsiPipeline and its
+    # calibration interceptor.
     from src.runtime_policy import RuntimeMotionPolicy
     calibration_cadence = RuntimeMotionPolicy(
         evaluation_interval_ms=evaluation_interval_ms,
         segmentation_window_size_ms=getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000),
     )
+    temporal_sampler = TemporalCsiSampler(
+        target_pps,
+        getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000),
+    )
+    set_minimum_valid = getattr(detector, "set_minimum_valid_samples", None)
+    if callable(set_minimum_valid):
+        set_minimum_valid(minimum_valid_slots(temporal_sampler.window_slots))
 
     print('')
     print('-'*60)
@@ -362,6 +367,25 @@ def run_startup_calibration(wlan, detector, traffic_gen, packet_interval_us=None
                 print("[INFO] CSI remap active: 57->64 SC (left_pad=4, right_pad=3)")
                 remap_logged = True
             del frame
+            if not temporal_sampler.admit(frame_result[4]):
+                time.sleep_us(100)
+                continue
+            if temporal_sampler.reset_required:
+                detector.reset()
+                calibration_cadence.reset()
+                calibration_tracker = StartupThresholdCalibrator(
+                    calibration_target_packets,
+                    auto_factor=get_detector_auto_factor(detector),
+                    gate_enabled=get_detector_startup_gate(detector),
+                )
+                begin_calibration = getattr(detector, "on_startup_calibration_begin", None)
+                if callable(begin_calibration):
+                    begin_calibration()
+                packets_since_evaluation = 0
+            if temporal_sampler.missing_slots_before:
+                advance_missing = getattr(detector, "advance_missing_slots", None)
+                if callable(advance_missing):
+                    advance_missing(temporal_sampler.missing_slots_before)
             detector.process_packet(
                 csi_data,
                 config.DEFAULT_SUBCARRIERS,
@@ -379,10 +403,11 @@ def run_startup_calibration(wlan, detector, traffic_gen, packet_interval_us=None
             calibration_cadence.after_evaluation()
 
             detector.update_state()
-            calibration_tracker.observe_detector(
-                detector,
-                packet_weight=packets_since_evaluation,
-            )
+            if detector.is_ready():
+                calibration_tracker.observe_detector(
+                    detector,
+                    packet_weight=packets_since_evaluation,
+                )
             packets_since_evaluation = 0
             calibration_progress = calibration_tracker.packet_count
             if calibration_progress >= next_progress_report:
@@ -469,7 +494,7 @@ def get_chip_type():
 
 def _traffic_adaptive_enabled():
     """Return the configured adaptive-pacing flag."""
-    return bool(getattr(config, "TRAFFIC_GENERATOR_ADAPTIVE", True))
+    return bool(getattr(config, "TRAFFIC_GENERATOR_ADAPTIVE", False))
 
 
 def _maintain_traffic_and_csi_health(
@@ -493,17 +518,18 @@ def _maintain_traffic_and_csi_health(
 
 def restart_traffic_generator(traffic_gen):
     """Restart the traffic generator after calibration-sensitive work completes."""
-    if not traffic_gen or not config.TRAFFIC_GENERATOR_RATE:
+    if not traffic_gen or not getattr(config, 'TRAFFIC_GENERATOR_ENABLED', True):
         return
 
     time.sleep(1)  # Give WiFi/MQTT stack time to settle before reopening raw socket.
     gc.collect()
     adaptive = _traffic_adaptive_enabled()
-    if not traffic_gen.start(config.TRAFFIC_GENERATOR_RATE, adaptive=adaptive):
+    target_pps = max(1, int(getattr(config, 'CSI_TARGET_PPS', 100)))
+    if not traffic_gen.start(target_pps, adaptive=adaptive):
         print("Warning: Failed to restart traffic generator, retrying...")
         time.sleep(2)
         gc.collect()
-        traffic_gen.start(config.TRAFFIC_GENERATOR_RATE, adaptive=adaptive)
+        traffic_gen.start(target_pps, adaptive=adaptive)
 
 
 def main():
@@ -519,18 +545,21 @@ def main():
     wlan = connect_wifi()
     print_heap('after_connect_wifi')
     
-    # Resolve the configured time window from the requested rate first. The
-    # initial CSI flow check below replaces this estimate with measured packet
-    # timing before constructing the detector.
+    # Detector capacity is fixed by the configured temporal grid. Measured
+    # delivery rate is diagnostic only and never reconstructs the detector.
     detection_algorithm = normalize_detector_algorithm(
         getattr(config, 'DETECTION_ALGORITHM', 'lightweight')
     )
-    from src.runtime_policy import derive_detector_timing, nominal_packet_interval_us
-    nominal_rate = max(1, int(getattr(config, 'TRAFFIC_GENERATOR_RATE', 100) or 100))
-    detector_window_packets = derive_detector_timing(
-        nominal_packet_interval_us(nominal_rate),
+    from src.temporal_csi_sampler import (
+        TemporalCsiSampler,
+        minimum_valid_slots,
+        temporal_window_slots,
+    )
+    target_pps = max(1, int(getattr(config, 'CSI_TARGET_PPS', 100)))
+    detector_window_packets = temporal_window_slots(
+        target_pps,
         getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000),
-    )['window_packets']
+    )
     
     # Initialize and start traffic generator (target CSI rate from config.py)
     gc.collect()  # Free memory before creating socket
@@ -540,8 +569,8 @@ def main():
     traffic_gen = TrafficGenerator(mode=traffic_mode, adaptive=traffic_adaptive)
     print_heap('after_traffic_gen_init')
     observed_interval_us = None
-    if config.TRAFFIC_GENERATOR_RATE > 0:
-        if not traffic_gen.start(config.TRAFFIC_GENERATOR_RATE, adaptive=traffic_adaptive):
+    if getattr(config, 'TRAFFIC_GENERATOR_ENABLED', True):
+        if not traffic_gen.start(target_pps, adaptive=traffic_adaptive):
             print("FATAL: Traffic generator failed to start - CSI will not work")
             print("Check WiFi connection and gateway availability")
             import machine
@@ -549,7 +578,7 @@ def main():
             machine.reset()  # Reboot and retry
         
         print(
-            f'Traffic generator started ({traffic_mode}, target={config.TRAFFIC_GENERATOR_RATE} CSI pps, '
+            f'Traffic generator started ({traffic_mode}, target={target_pps} CSI pps, '
             f'adaptive={"on" if traffic_adaptive else "off"})'
         )
         print_heap('after_traffic_gen_start')
@@ -587,7 +616,7 @@ def main():
                 print(f'WARNING: Only {csi_received} CSI packets - restarting TG (attempt {tg_attempt + 2}/{max_tg_retries})')
                 traffic_gen.stop()
                 time.sleep(1)
-                traffic_gen.start(config.TRAFFIC_GENERATOR_RATE, adaptive=traffic_adaptive)
+                traffic_gen.start(target_pps, adaptive=traffic_adaptive)
             else:
                 print(f'FATAL: No CSI packets after {max_tg_retries} attempts - cannot operate without traffic')
                 print('Please check WiFi connection and retry')
@@ -595,11 +624,6 @@ def main():
                 sys.exit(1)
         print_heap('after_csi_flow_check')
 
-        if observed_interval_us is not None:
-            detector_window_packets = derive_detector_timing(
-                observed_interval_us,
-                getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000),
-            )['window_packets']
     else:
         print('Waiting for external CSI packets...')
         csi_timestamps = []
@@ -620,52 +644,11 @@ def main():
         if not deltas:
             raise RuntimeError('External CSI traffic did not provide advancing timestamps')
         observed_interval_us = max(1, sum(deltas) // len(deltas))
-        detector_window_packets = derive_detector_timing(
-            observed_interval_us,
-            getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000),
-        )['window_packets']
-
-    minimum_detector_rate = max(
-        1,
-        int(getattr(config, 'MIN_DETECTOR_PACKET_RATE_PPS', 80)),
-    )
-    maximum_supported_interval_us = int(round(1_000_000.0 / minimum_detector_rate))
-    while (
-        observed_interval_us is not None
-        and observed_interval_us > maximum_supported_interval_us
-    ):
-        measured_rate = 1_000_000.0 / observed_interval_us
-        print(
-            f'[WARN] Detector on hold: measured CSI rate {measured_rate:.1f} pps '
-            f'is below {minimum_detector_rate} pps'
-        )
-        csi_timestamps = []
-        frame_result = None
-        for _ in range(100):
-            frame = csi_read_frame(wlan, frame_result)
-            if frame:
-                frame_result = frame
-                csi_timestamps.append(int(frame[4]))
-                if len(csi_timestamps) >= 17:
-                    break
-            time.sleep(0.05)
-        deltas = []
-        for previous, current in zip(csi_timestamps, csi_timestamps[1:]):
-            delta = (current - previous) % (1 << 32)
-            if 0 < delta < (1 << 31):
-                deltas.append(delta)
-        if deltas:
-            observed_interval_us = max(1, sum(deltas) // len(deltas))
-        else:
-            time.sleep(1)
-
-    if observed_interval_us is not None:
-        detector_window_packets = derive_detector_timing(
-            observed_interval_us,
-            getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000),
-        )['window_packets']
 
     detector = create_detector(detection_algorithm, detector_window_packets)
+    set_minimum_valid = getattr(detector, "set_minimum_valid_samples", None)
+    if callable(set_minimum_valid):
+        set_minimum_valid(minimum_valid_slots(detector_window_packets))
     print(f'Detector window: {detector_window_packets} samples for {getattr(config, "SEGMENTATION_WINDOW_SIZE_MS", 1000)} ms')
     print_heap('after_detector_init')
     
@@ -695,7 +678,7 @@ def main():
     else:
         print('MQTT disabled')
 
-    if config.TRAFFIC_GENERATOR_RATE > 0 and not traffic_gen.is_running():
+    if getattr(config, 'TRAFFIC_GENERATOR_ENABLED', True) and not traffic_gen.is_running():
         restart_traffic_generator(traffic_gen)
     
     print('')
@@ -743,10 +726,13 @@ def main():
         motion_off_hits=getattr(config, 'MOTION_OFF_HITS', 3),
         segmentation_window_size_ms=getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000),
     )
+    temporal_sampler = TemporalCsiSampler(
+        target_pps,
+        getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000),
+    )
     latest_motion_metric = 0.0
     latest_threshold = detector.get_threshold()
     latest_effective_state = runtime_policy.effective_state
-    detector_rate_on_hold = False
        
     try:
         while True:
@@ -898,76 +884,36 @@ def main():
                         mqtt_poll_counter = 0
                 
                 publish_counter += 1
-                # Cadence advances on packet arrival time, so a window keeps its
-                # deploy-time meaning when the link runs off the nominal rate.
-                # frame[4] is the Wi-Fi RX timestamp, the same source the C++
-                # pipeline reads from rx_ctrl.
-                runtime_policy.note_arrival(frame_result[4])
-                if not runtime_policy.detector_rate_supported:
-                    if not detector_rate_on_hold:
-                        detector.reset()
-                        runtime_policy.reset()
-                        latest_motion_metric = 0.0
-                        latest_effective_state = runtime_policy.effective_state
-                        detector_rate_on_hold = True
-                        print(
-                            f'[WARN] Detector on hold: CSI rate below '
-                            f'{getattr(config, "MIN_DETECTOR_PACKET_RATE_PPS", 80)} pps'
-                        )
-                    if runtime_policy.should_evaluate():
-                        runtime_policy.after_evaluation()
-                else:
-                    if detector_rate_on_hold:
-                        detector.reset()
-                        runtime_policy.reset()
-                        detector_rate_on_hold = False
-                        print('[INFO] Detector resumed: CSI rate recovered')
-                    current_window_packets = detector.get_window_size()
-                    timing_update = runtime_policy.resolve_detector_timing_update(
-                        current_window_packets
-                    )
-                    if timing_update is not None:
-                        resolved_window_packets = timing_update['window_packets']
-                        replacement = create_detector(
-                            detection_algorithm,
-                            resolved_window_packets,
-                        )
-                        if detector_uses_startup_calibration(replacement):
-                            if not run_startup_calibration(
-                                wlan,
-                                replacement,
-                                traffic_gen,
-                                packet_interval_us=runtime_policy.packet_interval_us,
-                            ):
-                                raise RuntimeError(
-                                    'Startup calibration failed after CSI rate change'
-                                )
-                        detector = replacement
-                        runtime_policy.reset()
-                        latest_motion_metric = 0.0
-                        latest_threshold = detector.get_threshold()
-                        latest_effective_state = runtime_policy.effective_state
-                        print(
-                            f'[INFO] Detector window updated: '
-                            f'{resolved_window_packets} samples for '
-                            f'{getattr(config, "SEGMENTATION_WINDOW_SIZE_MS", 1000)} ms'
-                        )
-                    detector.process_packet(
-                        csi_data,
-                        config.DEFAULT_SUBCARRIERS,
-                        timestamp_us=frame_result[4],
-                    )
+                if g_state.current_channel != 0 and packet_channel != g_state.current_channel:
+                    print(f"[WARN] WiFi channel changed: {g_state.current_channel} -> {packet_channel}, resetting detection buffer")
+                    detector.reset()
+                    runtime_policy.reset()
+                    temporal_sampler.clear_history()
+                    normalization_state.reset()
+                g_state.current_channel = packet_channel
 
-                if runtime_policy.detector_rate_supported and runtime_policy.should_evaluate():
-                    # Detect WiFi channel changes (AP may switch channels automatically)
-                    # Channel changes cause CSI spikes that trigger false motion detection
-                    if g_state.current_channel != 0 and packet_channel != g_state.current_channel:
-                        print(f"[WARN] WiFi channel changed: {g_state.current_channel} -> {packet_channel}, resetting detection buffer")
-                        detector.reset()
-                        runtime_policy.reset()
-                        normalization_state.reset()
-                    g_state.current_channel = packet_channel
-                    
+                if not temporal_sampler.admit(frame_result[4]):
+                    g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
+                    time.sleep_us(100)
+                    continue
+                if temporal_sampler.reset_required:
+                    detector.reset()
+                    runtime_policy.reset()
+                    latest_motion_metric = 0.0
+                    latest_effective_state = runtime_policy.effective_state
+                if temporal_sampler.missing_slots_before:
+                    advance_missing = getattr(detector, "advance_missing_slots", None)
+                    if callable(advance_missing):
+                        advance_missing(temporal_sampler.missing_slots_before)
+
+                detector.process_packet(
+                    csi_data,
+                    config.DEFAULT_SUBCARRIERS,
+                    timestamp_us=frame_result[4],
+                )
+                runtime_policy.note_arrival(frame_result[4])
+
+                if runtime_policy.should_evaluate():
                     metrics = detector.update_state()
                     effective_state, _ = runtime_policy.apply_state(metrics['state'])
                     runtime_policy.after_evaluation()

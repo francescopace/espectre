@@ -16,6 +16,8 @@ Usage:
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
 import math
+import struct
+import sys
 
 try:
     from src.detector_interface import IDetector, MotionState
@@ -59,6 +61,18 @@ HIGH_ACCURACY_MIN_THRESHOLD = 0.0
 HIGH_ACCURACY_MAX_THRESHOLD = 1.0
 HIGH_ACCURACY_METRIC_SCALE = 1.0
 
+# Firmware inference accumulates IEEE-754 binary32. CPython follows that
+# rounding so report replay can match the host C++ detector. MicroPython keeps
+# native floats; the device path is not the Python/C++ report gate.
+_USE_IEEE_FLOAT32 = sys.implementation.name != "micropython"
+
+
+def _f32(value):
+    """Return ``value`` rounded the way firmware ``float`` arithmetic rounds."""
+    if not _USE_IEEE_FLOAT32:
+        return float(value)
+    return struct.unpack("f", struct.pack("f", float(value)))[0]
+
 # New exports are already [output][input]. Retain a compatibility path for
 # older deployed weight modules so over-the-air module updates remain safe.
 _WEIGHTS_T = getattr(_ml_weights, "WEIGHTS_T", None)
@@ -85,11 +99,12 @@ def relu(x):
 
 def sigmoid(x):
     """Sigmoid activation function with overflow protection."""
-    if x < -20:
+    value = _f32(x)
+    if value < -20:
         return 0.0
-    if x > 20:
+    if value > 20:
         return 1.0
-    return 1.0 / (1.0 + math.exp(-x))
+    return _f32(1.0 / _f32(1.0 + math.exp(-value)))
 
 
 def predict(features):
@@ -119,7 +134,9 @@ def _predict_with_workspace(features, activation_a, activation_b):
     if len(activation_a) < n_feat or len(activation_b) < n_feat:
         raise ValueError("Activation workspace is too small")
     for i in range(n_feat):
-        activation_a[i] = (features[i] - FEATURE_MEAN[i]) / FEATURE_SCALE[i]
+        activation_a[i] = _f32(
+            _f32(features[i] - FEATURE_MEAN[i]) / FEATURE_SCALE[i]
+        )
 
     activations = activation_a
     next_activations = activation_b
@@ -133,15 +150,15 @@ def _predict_with_workspace(features, activation_a, activation_b):
             raise ValueError("Activation workspace is too small")
         is_last = layer_idx == n_layers - 1
         for j in range(n_out):
-            val = biases[j]
+            val = _f32(biases[j])
             w_row = weights_t[j]
             for i in range(n_active):
-                val += activations[i] * w_row[i]
+                val = _f32(val + _f32(_f32(activations[i]) * _f32(w_row[i])))
             next_activations[j] = val if is_last else (val if val > 0 else 0.0)
         activations, next_activations = next_activations, activations
         n_active = n_out
 
-    return sigmoid(activations[0]) * HIGH_ACCURACY_METRIC_SCALE
+    return sigmoid(_f32(activations[0])) * HIGH_ACCURACY_METRIC_SCALE
 
 
 def is_motion(features, threshold=HIGH_ACCURACY_DEFAULT_THRESHOLD):
@@ -248,9 +265,14 @@ class HighAccuracyDetector(IDetector):
             if self._use_shape_trajectory_tracker else None
         )
         self._ordered_turbulence = [0.0] * window_size
+        self._ordered_turbulence_validity = [False] * window_size
         self._ordered_aggregated_turbulence = (
             [0.0] * window_size if self._use_aggregated_turbulence else None
         )
+        self._ordered_aggregated_validity = (
+            [False] * window_size if self._use_aggregated_turbulence else None
+        )
+        self._minimum_valid_samples = window_size
         self._series_sort_scratch = (
             self._ordered_aggregated_turbulence
             if self._ordered_aggregated_turbulence is not None
@@ -332,6 +354,19 @@ class HighAccuracyDetector(IDetector):
                 )
             )
             self._aggregated_context.add_turbulence(aggregated_turbulence)
+
+    def advance_missing_slots(self, count):
+        """Preserve absent slots in every packet-indexed feature stream."""
+        missing = max(0, int(count))
+        for _ in range(missing):
+            self._context.add_missing_slot()
+            if self._aggregated_context is not None:
+                self._aggregated_context.add_missing_slot()
+        if self._l1_tracker is not None:
+            self._l1_tracker.advance_missing_slots(missing)
+
+    def set_minimum_valid_samples(self, count):
+        self._minimum_valid_samples = max(1, min(int(count), self._context.window_size))
     
     def update_state(self):
         """
@@ -392,29 +427,35 @@ class HighAccuracyDetector(IDetector):
         
         # Build chronological list from circular buffer
         turb_list = self._ordered_turbulence
+        turb_validity = self._ordered_turbulence_validity
         count = ctx.buffer_count
         if count < ctx.window_size:
             for i in range(count):
                 turb_list[i] = ctx.turbulence_buffer[i]
+                turb_validity[i] = ctx.validity_buffer[i]
         else:
             idx = ctx.buffer_index
             tail = count - idx
             for i in range(tail):
                 turb_list[i] = ctx.turbulence_buffer[idx + i]
+                turb_validity[i] = ctx.validity_buffer[idx + i]
             for i in range(idx):
                 turb_list[tail + i] = ctx.turbulence_buffer[i]
+                turb_validity[tail + i] = ctx.validity_buffer[i]
 
         aggregated_count = 0
         aggregated_turbulence = None
         if self._aggregated_context is not None:
             aggregated_ctx = self._aggregated_context
             aggregated_turbulence = self._ordered_aggregated_turbulence
+            aggregated_validity = self._ordered_aggregated_validity
             aggregated_count = aggregated_ctx.buffer_count
             if aggregated_count < aggregated_ctx.window_size:
                 for i in range(aggregated_count):
                     aggregated_turbulence[i] = (
                         aggregated_ctx.turbulence_buffer[i]
                     )
+                    aggregated_validity[i] = aggregated_ctx.validity_buffer[i]
             else:
                 aggregated_idx = aggregated_ctx.buffer_index
                 aggregated_tail = aggregated_count - aggregated_idx
@@ -422,9 +463,15 @@ class HighAccuracyDetector(IDetector):
                     aggregated_turbulence[i] = (
                         aggregated_ctx.turbulence_buffer[aggregated_idx + i]
                     )
+                    aggregated_validity[i] = (
+                        aggregated_ctx.validity_buffer[aggregated_idx + i]
+                    )
                 for i in range(aggregated_idx):
                     aggregated_turbulence[aggregated_tail + i] = (
                         aggregated_ctx.turbulence_buffer[i]
+                    )
+                    aggregated_validity[aggregated_tail + i] = (
+                        aggregated_ctx.validity_buffer[i]
                     )
         trajectory_innovation = None
         trajectory_excess = None
@@ -464,6 +511,12 @@ class HighAccuracyDetector(IDetector):
             ),
             out=self._feature_buffer,
             reuse_aggregated_turbulence_buffer=True,
+            turbulence_validity=turb_validity,
+            aggregated_turbulence_validity=(
+                aggregated_validity
+                if self._aggregated_context is not None
+                else None
+            ),
         )
     
     def get_state(self):
@@ -489,12 +542,23 @@ class HighAccuracyDetector(IDetector):
         """Check if buffer is full."""
         if self._context.buffer_count < self._context.window_size:
             return False
-        if self._l1_tracker is not None and self._l1_tracker.count < (self._context.window_size - L1_DELTA_LAG):
+        if self._context.valid_count < self._minimum_valid_samples:
+            return False
+        if (
+            self._l1_tracker is not None
+            and self._context.window_size > L1_DELTA_LAG
+            and self._l1_tracker.count == 0
+        ):
             return False
         if (
             self._aggregated_context is not None
             and self._aggregated_context.buffer_count
             < self._aggregated_context.window_size
+        ):
+            return False
+        if (
+            self._aggregated_context is not None
+            and self._aggregated_context.valid_count < self._minimum_valid_samples
         ):
             return False
         return True

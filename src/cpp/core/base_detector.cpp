@@ -11,6 +11,8 @@
 #include "csi_format.h"
 #include "utils.h"
 #include <cstring>
+#include <cmath>
+#include <limits>
 #include <new>
 #include "espectre_log.h"
 
@@ -38,6 +40,8 @@ BaseDetector::BaseDetector(uint16_t window_size)
     , ordered_turbulence_(nullptr)
     , buffer_index_(0)
     , buffer_count_(0)
+    , valid_buffer_count_(0)
+    , minimum_valid_samples_(window_size)
     , window_size_(window_size)
     , state_(MotionState::IDLE)
     , current_metric_(0.0f)
@@ -52,6 +56,7 @@ BaseDetector::BaseDetector(uint16_t window_size)
     } else if (window_size_ > DETECTOR_MAX_WINDOW_SIZE) {
         window_size_ = DETECTOR_MAX_WINDOW_SIZE;
     }
+    minimum_valid_samples_ = window_size_;
 
     // Allocate turbulence buffer and its chronological reorder scratch
     turbulence_buffer_ = alloc_zeroed_floats(window_size_);
@@ -80,6 +85,8 @@ BaseDetector::BaseDetector(BaseDetector&& other) noexcept
     , ordered_turbulence_(other.ordered_turbulence_)
     , buffer_index_(other.buffer_index_)
     , buffer_count_(other.buffer_count_)
+    , valid_buffer_count_(other.valid_buffer_count_)
+    , minimum_valid_samples_(other.minimum_valid_samples_)
     , window_size_(other.window_size_)
     , state_(other.state_)
     , current_metric_(other.current_metric_)
@@ -105,6 +112,8 @@ BaseDetector& BaseDetector::operator=(BaseDetector&& other) noexcept {
         ordered_turbulence_ = other.ordered_turbulence_;
         buffer_index_ = other.buffer_index_;
         buffer_count_ = other.buffer_count_;
+        valid_buffer_count_ = other.valid_buffer_count_;
+        minimum_valid_samples_ = other.minimum_valid_samples_;
         window_size_ = other.window_size_;
         state_ = other.state_;
         current_metric_ = other.current_metric_;
@@ -210,6 +219,7 @@ void BaseDetector::clear_buffer() {
     }
     buffer_index_ = 0;
     buffer_count_ = 0;
+    valid_buffer_count_ = 0;
     has_packet_timestamp_ = false;
     clear_evaluation_state_();
 
@@ -233,7 +243,8 @@ float BaseDetector::get_last_turbulence() const {
         last_idx = window_size_ - 1;
     }
     
-    return turbulence_buffer_[last_idx];
+    const float value = turbulence_buffer_[last_idx];
+    return std::isfinite(value) ? value : 0.0f;
 }
 
 // ============================================================================
@@ -248,6 +259,11 @@ void BaseDetector::add_turbulence_to_buffer(float turbulence) {
     float filtered_turbulence = lowpass_filter_apply(&lowpass_state_, hampel_filtered);
     
     // Add to circular buffer
+    if (!std::isfinite(turbulence_buffer_[buffer_index_])) {
+        valid_buffer_count_++;
+    } else if (buffer_count_ < window_size_) {
+        valid_buffer_count_++;
+    }
     turbulence_buffer_[buffer_index_] = filtered_turbulence;
     buffer_index_++;
     if (buffer_index_ >= window_size_) {
@@ -259,6 +275,20 @@ void BaseDetector::add_turbulence_to_buffer(float turbulence) {
     
     packet_index_++;
     total_packets_++;
+}
+
+void BaseDetector::advance_missing_slots(uint32_t count) {
+    const float missing = std::numeric_limits<float>::quiet_NaN();
+    for (uint32_t slot = 0U; slot < count; ++slot) {
+        if (buffer_count_ >= window_size_ &&
+            std::isfinite(turbulence_buffer_[buffer_index_])) {
+            --valid_buffer_count_;
+        }
+        turbulence_buffer_[buffer_index_] = missing;
+        buffer_index_++;
+        if (buffer_index_ >= window_size_) buffer_index_ = 0U;
+        if (buffer_count_ < window_size_) ++buffer_count_;
+    }
 }
 
 }  // namespace espectre

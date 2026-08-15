@@ -56,6 +56,20 @@ const char *traffic_mode_name(RuntimeTrafficMode mode) {
                                           : RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME;
 }
 
+const char *csi_traffic_mode_name(CsiTrafficMode mode) {
+  switch (mode) {
+    case CsiTrafficMode::EXTERNAL:
+      return RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME;
+    case CsiTrafficMode::PACING:
+      return RUNTIME_CSI_TRAFFIC_MODE_PACING_NAME;
+    case CsiTrafficMode::DISABLED:
+      return RUNTIME_CSI_TRAFFIC_MODE_DISABLED_NAME;
+    case CsiTrafficMode::INTERNAL:
+    default:
+      return RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME;
+  }
+}
+
 const char *detection_algorithm_name(DetectionAlgorithm algorithm) {
   switch (algorithm) {
     case DetectionAlgorithm::HIGH_ACCURACY:
@@ -78,6 +92,19 @@ RuntimeTrafficMode parse_traffic_mode(const char *mode) {
   return (mode != nullptr && std::strcmp(mode, RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME) == 0)
              ? RuntimeTrafficMode::PING
              : RuntimeTrafficMode::DNS;
+}
+
+CsiTrafficMode parse_csi_traffic_mode(const char *mode) {
+  if (mode != nullptr && std::strcmp(mode, RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME) == 0) {
+    return CsiTrafficMode::EXTERNAL;
+  }
+  if (mode != nullptr && std::strcmp(mode, RUNTIME_CSI_TRAFFIC_MODE_PACING_NAME) == 0) {
+    return CsiTrafficMode::PACING;
+  }
+  if (mode != nullptr && std::strcmp(mode, RUNTIME_CSI_TRAFFIC_MODE_DISABLED_NAME) == 0) {
+    return CsiTrafficMode::DISABLED;
+  }
+  return CsiTrafficMode::INTERNAL;
 }
 
 DetectionAlgorithm parse_detection_algorithm(const char *algorithm) {

@@ -25,10 +25,12 @@ const char *runtime_profile_name(RuntimeProfile profile);
 const char *wifi_band_policy_name(WifiBandPolicy policy);
 
 const char *traffic_mode_name(RuntimeTrafficMode mode);
+const char *csi_traffic_mode_name(CsiTrafficMode mode);
 const char *detection_algorithm_name(DetectionAlgorithm algorithm);
 const char *subcarrier_source_name(RuntimeSubcarrierSource source);
 
 RuntimeTrafficMode parse_traffic_mode(const char *mode);
+CsiTrafficMode parse_csi_traffic_mode(const char *mode);
 DetectionAlgorithm parse_detection_algorithm(const char *algorithm);
 WifiBandPolicy parse_wifi_band_policy(const char *policy);
 

@@ -81,9 +81,8 @@ struct RuntimeConfig {
   /**
    * Detector window duration in milliseconds (1000..2000).
    *
-   * Runtimes resolve the duration to a packet count from the measured CSI
-   * cadence. The default therefore uses 80 samples at 80 pps, 100 at 100 pps,
-   * and 120 at 120 pps while preserving the same one-second observation span.
+   * Runtimes resolve the duration to a fixed temporal grid from
+   * `csi_target_pps`; live arrival jitter never resizes the detector.
    */
   uint32_t segmentation_window_size_ms{RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT};
   /**
@@ -94,14 +93,15 @@ struct RuntimeConfig {
    */
   bool runtime_detector_selection_enabled{false};
   /**
-   * Target rate of valid CSI callbacks, in packets per second.
+   * Target CSI sensing cadence, in packets per second.
    *
-   * Zero disables the internal traffic generator and expects the environment
-   * to supply the traffic. The detector coefficients are fitted at 100 pps;
-   * see `docs/ALGORITHMS.md` before moving far from it.
+   * This value is always positive and defines detector temporal slots as well
+   * as the target for managed traffic. `csi_traffic_mode` alone selects who
+   * supplies traffic. The detector coefficients are fitted at 100 pps; see
+   * `docs/ALGORITHMS.md` before moving far from it.
    */
-  uint32_t traffic_generator_rate{RUNTIME_TRAFFIC_GENERATOR_RATE_DEFAULT};
-  /** Let the runtime retune its send rate to hold `traffic_generator_rate`. */
+  uint32_t csi_target_pps{RUNTIME_CSI_TARGET_PPS_DEFAULT};
+  /** Let the runtime retune its send rate to hold `csi_target_pps`. */
   bool traffic_generator_adaptive{RUNTIME_TRAFFIC_GENERATOR_ADAPTIVE_DEFAULT};
   /** Which packet the internal generator sends to solicit CSI. */
   RuntimeTrafficMode traffic_generator_mode{RuntimeTrafficMode::PING};

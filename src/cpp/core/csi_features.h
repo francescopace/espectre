@@ -135,10 +135,16 @@ inline float calc_autocorrelation(const float* values, uint16_t count, float mea
     if (count < lag + 2 || variance < 1e-10f) return 0.0f;
 
     float autocovariance = 0.0f;
+    uint16_t pairs = 0U;
     for (uint16_t i = 0; i < count - lag; i++) {
+        if (!std::isfinite(values[i]) || !std::isfinite(values[i + lag])) {
+            continue;
+        }
         autocovariance += (values[i] - mean) * (values[i + lag] - mean);
+        ++pairs;
     }
-    autocovariance /= (count - lag);
+    if (pairs == 0U) return 0.0f;
+    autocovariance /= pairs;
 
     return autocovariance / variance;
 }
@@ -149,15 +155,19 @@ inline float calc_zero_crossing_rate(const float* values, uint16_t count, float 
     if (count < 2 || values == nullptr) return 0.0f;
 
     uint16_t crossings = 0;
-    bool prev_above = values[0] >= center;
+    uint16_t pairs = 0U;
     for (uint16_t i = 1; i < count; i++) {
+        if (!std::isfinite(values[i - 1U]) || !std::isfinite(values[i])) {
+            continue;
+        }
+        const bool prev_above = values[i - 1U] >= center;
         bool curr_above = values[i] >= center;
         if (curr_above != prev_above) {
             crossings++;
-            prev_above = curr_above;
         }
+        ++pairs;
     }
-    return static_cast<float>(crossings) / (count - 1);
+    return pairs > 0U ? static_cast<float>(crossings) / pairs : 0.0f;
 }
 
 struct MLSeriesStats {
@@ -236,15 +246,27 @@ inline void compute_ml_series_stats(const float* values, uint16_t count,
     if (values == nullptr || count < 2) {
         return;
     }
-    out->count = count;
+    uint16_t valid_count = 0U;
+    float sum = 0.0f;
+    for (uint16_t i = 0U; i < count; ++i) {
+        if (!std::isfinite(values[i])) continue;
+        sum += values[i];
+        ++valid_count;
+    }
+    if (valid_count < 2U) return;
+    out->count = valid_count;
 
+    if (needs.mean || needs.variance) {
+        out->mean = sum / valid_count;
+    }
     if (needs.variance) {
-        const MeanVariance moments =
-            calculate_mean_variance_two_pass(values, count);
-        out->mean = moments.mean;
-        out->variance = moments.variance;
-    } else if (needs.mean) {
-        out->mean = calculate_mean(values, count);
+        float variance_sum = 0.0f;
+        for (uint16_t i = 0U; i < count; ++i) {
+            if (!std::isfinite(values[i])) continue;
+            const float diff = values[i] - out->mean;
+            variance_sum += diff * diff;
+        }
+        out->variance = variance_sum / valid_count;
     }
     if (needs.mean) {
         out->mean_denom = std::max(std::fabs(out->mean), 1e-6f);
@@ -252,20 +274,23 @@ inline void compute_ml_series_stats(const float* values, uint16_t count,
 
     // Select only the order statistics each feature consumes. A full sort
     // produces the same values but orders the other window elements needlessly.
-    if (needs.sorted && scratch.holds(count)) {
+    if (needs.sorted && scratch.holds(valid_count)) {
+        uint16_t sorted_count = 0U;
         for (uint16_t i = 0; i < count; i++) {
-            scratch.sorted_values[i] = values[i];
+            if (std::isfinite(values[i])) {
+                scratch.sorted_values[sorted_count++] = values[i];
+            }
         }
         if (needs.iqr) {
             out->iqr = percentile_in_place(
-                scratch.sorted_values, count, 0.75f) -
-                percentile_in_place(scratch.sorted_values, count, 0.25f);
+                scratch.sorted_values, valid_count, 0.75f) -
+                percentile_in_place(scratch.sorted_values, valid_count, 0.25f);
         }
         if (needs.zcr) {
             // Python zcr centers on the upper median (sorted[count // 2]).
             const float center = order_statistic_in_place(
-                scratch.sorted_values, count,
-                static_cast<uint16_t>(count / 2U));
+                scratch.sorted_values, valid_count,
+                static_cast<uint16_t>(valid_count / 2U));
             out->zcr = calc_zero_crossing_rate(
                 values, count, center);
         }

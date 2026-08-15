@@ -77,8 +77,8 @@ void test_default_runtime_config_is_a_working_sensing_config(void) {
   TEST_ASSERT_EQUAL_UINT8(RUNTIME_MOTION_OFF_HITS_DEFAULT, config.motion_off_hits);
   TEST_ASSERT_EQUAL(RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT,
                     config.segmentation_window_size_ms);
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(RUNTIME_TRAFFIC_GENERATOR_RATE_DEFAULT),
-                        static_cast<int>(config.traffic_generator_rate));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RUNTIME_CSI_TARGET_PPS_DEFAULT),
+                        static_cast<int>(config.csi_target_pps));
 
   // Zero means "derive from the Wi-Fi MAC", which is what makes the default
   // config usable without the integrator supplying an identity.
@@ -94,9 +94,9 @@ void test_documented_defaults_sit_inside_documented_ranges(void) {
   TEST_ASSERT_TRUE(validate_runtime_uint32(config.segmentation_window_size_ms,
                                            RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN,
                                            RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX));
-  TEST_ASSERT_TRUE(validate_runtime_uint32(config.traffic_generator_rate,
-                                           RUNTIME_TRAFFIC_GENERATOR_RATE_MIN,
-                                           RUNTIME_TRAFFIC_GENERATOR_RATE_MAX));
+  TEST_ASSERT_TRUE(validate_runtime_uint32(config.csi_target_pps,
+                                           RUNTIME_CSI_TARGET_PPS_MIN,
+                                           RUNTIME_CSI_TARGET_PPS_MAX));
   TEST_ASSERT_TRUE(validate_runtime_uint32(config.publish_interval_ms,
                                            RUNTIME_PUBLISH_INTERVAL_MS_MIN,
                                            RUNTIME_PUBLISH_INTERVAL_MS_MAX));
