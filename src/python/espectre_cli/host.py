@@ -375,6 +375,7 @@ def _run_live_collect(args) -> None:
             UdpPacingSender,
             get_default_bind_host,
         )
+        from tools.lib.temporal_replay import TemporalReplayController
         import config
         from console_output import format_calibration_status_line, format_detection_publish_line
         from detector_interface import (
@@ -393,7 +394,6 @@ def _run_live_collect(args) -> None:
             nominal_packet_interval_us,
         )
         from temporal_csi_sampler import (
-            TemporalCsiSampler,
             minimum_valid_slots,
             temporal_window_slots,
         )
@@ -411,6 +411,7 @@ def _run_live_collect(args) -> None:
                 UdpPacingSender,
                 get_default_bind_host,
             )
+            from tools.lib.temporal_replay import TemporalReplayController
             import src.config as config
             from src.console_output import format_calibration_status_line, format_detection_publish_line
             from src.detector_interface import (
@@ -429,7 +430,6 @@ def _run_live_collect(args) -> None:
                 nominal_packet_interval_us,
             )
             from src.temporal_csi_sampler import (
-                TemporalCsiSampler,
                 minimum_valid_slots,
                 temporal_window_slots,
             )
@@ -757,6 +757,10 @@ def _run_live_collect(args) -> None:
             calibration_duration_ms,
             initial_nominal_interval_us
         )
+        temporal_controller = TemporalReplayController(
+            target_pps,
+            configured_window_ms,
+        )
         device_state = {
             "device_id": device_id,
             "source_ip": "?",
@@ -784,7 +788,7 @@ def _run_live_collect(args) -> None:
             "window_packets": initial_window_packets,
             "calibration_target_packets": calibration_target_packets,
             "timing_tracker": build_timing_tracker(initial_nominal_interval_us),
-            "temporal_sampler": TemporalCsiSampler(target_pps, configured_window_ms),
+            "temporal_controller": temporal_controller,
             "slots": [
                 build_detector_slot(
                     kind,
@@ -1007,6 +1011,55 @@ def _run_live_collect(args) -> None:
                 finalize_slot_calibration(slot)
                 finalized_any = True
         return evaluated_any or finalized_any
+
+    def process_temporal_admission(device_state, admission):
+        if admission.reset_required:
+            reset_temporal_device(device_state)
+        if state["calibration_active"]:
+            if admission.missing_slots_before:
+                for slot in device_state["slots"]:
+                    calibration_detector = slot.get("calibration_detector")
+                    if (
+                        calibration_detector is not None
+                        and hasattr(calibration_detector, "advance_missing_slots")
+                    ):
+                        calibration_detector.advance_missing_slots(
+                            admission.missing_slots_before
+                        )
+            return process_calibration_packet(
+                device_state,
+                admission.packet,
+                {**admission.context, "coverage_us": admission.coverage_us},
+            )
+
+        should_render = False
+        for slot in device_state["slots"]:
+            detector = slot["detector"]
+            runtime_policy = slot["runtime_policy"]
+            if (
+                admission.missing_slots_before
+                and hasattr(detector, "advance_missing_slots")
+            ):
+                detector.advance_missing_slots(admission.missing_slots_before)
+            detector_process_packet(
+                detector,
+                admission.packet.iq_raw,
+                getattr(admission.packet, "rssi_dbm", None),
+                admission.timestamp_us,
+            )
+            policy_note_packet(runtime_policy, admission.coverage_us)
+            if not policy_should_evaluate(runtime_policy):
+                continue
+            metrics = detector.update_state()
+            slot["motion_metric"] = extract_motion_metric(metrics)
+            slot["metric_threshold"] = metrics["threshold"]
+
+            effective_state, _ = runtime_policy.apply_state(metrics["state"])
+            runtime_policy.after_evaluation()
+            slot["effective_state"] = effective_state
+            slot["status"] = get_slot_status(slot)
+            should_render = True
+        return should_render
 
     def is_calibration_complete():
         required_count = max(1, len(targets))
@@ -1242,15 +1295,9 @@ def _run_live_collect(args) -> None:
         device_state = get_device_state(pkt)
         device_state["packet_count"] += 1
         timing = device_state["timing_tracker"].observe_packet(pkt)
-        temporal_sampler = device_state["temporal_sampler"]
-        admitted = temporal_sampler.admit(packet_timestamp_us(pkt))
-        if temporal_sampler.reset_required:
-            reset_temporal_device(device_state)
-        admitted_coverage_us = (
-            temporal_sampler.slots_advanced * device_state["nominal_interval_us"]
-            if admitted
-            else 0
-        )
+        temporal_controller = device_state["temporal_controller"]
+        admission = temporal_controller.admit(pkt, context=timing)
+        admitted = admission is not None
         seq_num = getattr(pkt, "seq_num", None)
         if seq_num is not None:
             device_state["last_seq_num"] = int(seq_num)
@@ -1261,21 +1308,12 @@ def _run_live_collect(args) -> None:
         if state["calibration_active"]:
             calibration_render_due = False
             if admitted:
-                if temporal_sampler.missing_slots_before:
-                    for slot in device_state["slots"]:
-                        calibration_detector = slot.get("calibration_detector")
-                        if (
-                            calibration_detector is not None
-                            and hasattr(calibration_detector, "advance_missing_slots")
-                        ):
-                            calibration_detector.advance_missing_slots(
-                                temporal_sampler.missing_slots_before
-                            )
-                calibration_render_due = process_calibration_packet(
-                    device_state,
-                    pkt,
-                    {**timing, "coverage_us": admitted_coverage_us},
+                calibration_render_due = process_temporal_admission(
+                    device_state, admission
                 )
+            if temporal_controller.sampler.gap_reset_required:
+                reset_temporal_device(device_state)
+                calibration_render_due = True
             calibration_trackers = [
                 slot["calibration_tracker"]
                 for slot in device_state["slots"]
@@ -1284,7 +1322,7 @@ def _run_live_collect(args) -> None:
             if is_calibration_complete():
                 state["calibration_active"] = False
                 for observed_device in state["devices"].values():
-                    observed_device["temporal_sampler"].clear_history()
+                    observed_device["temporal_controller"].clear_history()
                 render_multi_device_summary(now)
             elif calibration_render_due:
                 render_multi_device_summary(now)
@@ -1300,34 +1338,12 @@ def _run_live_collect(args) -> None:
             should_publish = now - last_publish_at >= publish_interval_seconds
         should_render_summary = False
         if admitted:
-            for slot in device_state["slots"]:
-                detector = slot["detector"]
-                runtime_policy = slot["runtime_policy"]
-                if (
-                    temporal_sampler.missing_slots_before
-                    and hasattr(detector, "advance_missing_slots")
-                ):
-                    detector.advance_missing_slots(
-                        temporal_sampler.missing_slots_before
-                    )
-                detector_process_packet(
-                    detector,
-                    pkt.iq_raw,
-                    getattr(pkt, "rssi_dbm", None),
-                    packet_timestamp_us(pkt),
-                )
-                policy_note_packet(runtime_policy, admitted_coverage_us)
-                if not policy_should_evaluate(runtime_policy):
-                    continue
-                metrics = detector.update_state()
-                slot["motion_metric"] = extract_motion_metric(metrics)
-                slot["metric_threshold"] = metrics["threshold"]
-
-                effective_state, _ = runtime_policy.apply_state(metrics["state"])
-                runtime_policy.after_evaluation()
-                slot["effective_state"] = effective_state
-                slot["status"] = get_slot_status(slot)
-                should_render_summary = True
+            should_render_summary = process_temporal_admission(
+                device_state, admission
+            )
+        if temporal_controller.sampler.gap_reset_required:
+            reset_temporal_device(device_state)
+            should_render_summary = True
 
         update_ready_gate_state(device_state, now)
         if should_publish:
@@ -1350,6 +1366,28 @@ def _run_live_collect(args) -> None:
         elif not save_enabled and maybe_stop_live_session(now):
             return
 
+        if should_render_summary:
+            render_multi_device_summary(now)
+
+    def flush_temporal_devices(now):
+        should_render_summary = False
+        for device_state in state["devices"].values():
+            admission = device_state["temporal_controller"].finish()
+            if admission is None:
+                continue
+            should_render_summary = (
+                process_temporal_admission(device_state, admission)
+                or should_render_summary
+            )
+
+        if state["calibration_active"] and is_calibration_complete():
+            state["calibration_active"] = False
+            for device_state in state["devices"].values():
+                device_state["temporal_controller"].clear_history()
+            should_render_summary = True
+        if not state["calibration_active"]:
+            for device_state in state["devices"].values():
+                update_ready_gate_state(device_state, now)
         if should_render_summary:
             render_multi_device_summary(now)
 
@@ -1423,9 +1461,12 @@ def _run_live_collect(args) -> None:
             receiver.run(**run_kwargs)
             if announce_socket_rcvbuf and receiver.effective_socket_rcvbuf_bytes is not None:
                 state["socket_rcvbuf_reported"] = True
+        flush_temporal_devices(time.monotonic())
     except KeyboardInterrupt:
         state["interrupted"] = True
-        render_multi_device_summary(time.monotonic())
+        now = time.monotonic()
+        flush_temporal_devices(now)
+        render_multi_device_summary(now)
     except Exception as e:
         print(f"\n{Fore.RED}❌ Error during live collect: {e}{Style.RESET_ALL}")
         raise SystemExit(1)

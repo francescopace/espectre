@@ -30,12 +30,9 @@ uint32_t temporal_minimum_valid_slots(uint32_t window_slots) {
 
 uint32_t temporal_minimum_sample_spacing_us(uint32_t target_pps) {
   if (target_pps == 0U) return 0U;
-  const uint64_t numerator =
-      static_cast<uint64_t>(TEMPORAL_CSI_MICROSECONDS_PER_SECOND) *
-      TEMPORAL_CSI_MINIMUM_COVERAGE_NUMERATOR;
-  const uint64_t denominator =
-      static_cast<uint64_t>(target_pps) *
-      TEMPORAL_CSI_MINIMUM_COVERAGE_DENOMINATOR;
+  const uint64_t numerator = TEMPORAL_CSI_MICROSECONDS_PER_SECOND;
+  const uint64_t denominator = static_cast<uint64_t>(target_pps) *
+                               TEMPORAL_CSI_SLOT_HALF_DENOMINATOR;
   return static_cast<uint32_t>(
       std::max<uint64_t>(1U, (numerator + denominator - 1U) / denominator));
 }
@@ -89,22 +86,74 @@ void TemporalCsiSampler::clear_history() {
   has_last_admitted_slot_ = false;
   last_admitted_slot_ = 0U;
   last_admitted_elapsed_us_ = 0U;
+  has_active_slot_ = false;
+  active_slot_ = 0U;
+  has_pending_candidate_ = false;
+  pending_slot_ = 0U;
+  pending_elapsed_us_ = 0U;
+  pending_center_error_ = 0U;
+  pending_reset_required_ = false;
   accepted_ = false;
+  selected_current_ = false;
   reset_required_ = false;
+  gap_reset_required_ = false;
   slots_advanced_ = 0U;
   missing_slots_before_ = 0U;
 }
 
 bool TemporalCsiSampler::drop_() {
   accepted_ = false;
+  selected_current_ = false;
   reset_required_ = false;
+  gap_reset_required_ = false;
   slots_advanced_ = 0U;
   missing_slots_before_ = 0U;
   return false;
 }
 
-bool TemporalCsiSampler::accept_slot_(uint64_t slot, uint64_t advanced,
-                                      uint64_t missing_before) {
+bool TemporalCsiSampler::select_candidate_(uint64_t slot, uint64_t elapsed_us,
+                                           bool reset_required) {
+  const uint64_t scaled_elapsed = elapsed_us * target_pps_;
+  const uint64_t scaled_center = slot * TEMPORAL_CSI_MICROSECONDS_PER_SECOND;
+  const uint64_t center_error = scaled_elapsed >= scaled_center
+      ? scaled_elapsed - scaled_center
+      : scaled_center - scaled_elapsed;
+
+  if (has_last_admitted_slot_ && slot <= last_admitted_slot_) {
+    ++excess_packets_;
+    return false;
+  }
+  if (has_last_admitted_slot_ &&
+      elapsed_us - last_admitted_elapsed_us_ < minimum_sample_spacing_us_) {
+    ++excess_packets_;
+    return false;
+  }
+  if (has_pending_candidate_ && center_error >= pending_center_error_) {
+    ++excess_packets_;
+    return false;
+  }
+  if (has_pending_candidate_) {
+    ++excess_packets_;
+  }
+  has_pending_candidate_ = true;
+  pending_slot_ = slot;
+  pending_elapsed_us_ = elapsed_us;
+  pending_center_error_ = center_error;
+  pending_reset_required_ = reset_required;
+  selected_current_ = true;
+  return true;
+}
+
+bool TemporalCsiSampler::commit_candidate_() {
+  if (!has_pending_candidate_) return false;
+  const uint64_t slot = pending_slot_;
+  const uint64_t advanced = has_last_admitted_slot_
+      ? slot - last_admitted_slot_
+      : 0U;
+  const uint64_t missing_before = has_last_admitted_slot_ && advanced > 0U
+      ? advanced - 1U
+      : 0U;
+
   if (has_last_admitted_slot_) {
     if (advanced >= window_slots_) {
       clear_window_();
@@ -125,12 +174,15 @@ bool TemporalCsiSampler::accept_slot_(uint64_t slot, uint64_t advanced,
   slot_ids_[index] = slot;
   has_last_admitted_slot_ = true;
   last_admitted_slot_ = slot;
-  last_admitted_elapsed_us_ = elapsed_us_;
+  last_admitted_elapsed_us_ = pending_elapsed_us_;
   accepted_ = true;
+  reset_required_ = pending_reset_required_;
   slots_advanced_ = advanced;
   missing_slots_before_ = missing_before;
   ++accepted_packets_;
   missing_slots_ += missing_before;
+  has_pending_candidate_ = false;
+  pending_reset_required_ = false;
   return true;
 }
 
@@ -154,7 +206,10 @@ bool TemporalCsiSampler::admit(uint32_t timestamp_us, bool has_timestamp,
     has_last_timestamp_ = true;
     last_timestamp_ = timestamp_us;
     elapsed_us_ = 0U;
-    return accept_slot_(0U, 0U, 0U);
+    has_active_slot_ = true;
+    active_slot_ = 0U;
+    select_candidate_(0U, 0U, false);
+    return false;
   }
 
   const uint32_t delta = timestamp_us - last_timestamp_;
@@ -170,12 +225,16 @@ bool TemporalCsiSampler::admit(uint32_t timestamp_us, bool has_timestamp,
   last_timestamp_ = timestamp_us;
   if (delta >= window_size_us_) {
     ++gap_resets_;
-    reset_required_ = true;
+    const bool emitted = commit_candidate_();
     clear_window_();
     elapsed_us_ = 0U;
     has_last_admitted_slot_ = false;
     last_admitted_elapsed_us_ = 0U;
-    return accept_slot_(0U, 0U, 0U);
+    has_active_slot_ = true;
+    active_slot_ = 0U;
+    select_candidate_(0U, 0U, true);
+    gap_reset_required_ = true;
+    return emitted;
   }
 
   elapsed_us_ += delta;
@@ -186,15 +245,23 @@ bool TemporalCsiSampler::admit(uint32_t timestamp_us, bool has_timestamp,
       (elapsed_us_ * target_pps_ +
        TEMPORAL_CSI_MICROSECONDS_PER_SECOND / 2U) /
       TEMPORAL_CSI_MICROSECONDS_PER_SECOND;
-  if (slot <= last_admitted_slot_ ||
-      elapsed_us_ - last_admitted_elapsed_us_ < minimum_sample_spacing_us_) {
+  if (has_active_slot_ && slot < active_slot_) {
     ++excess_packets_;
     return false;
   }
+  bool emitted = false;
+  if (!has_active_slot_ || slot > active_slot_) {
+    emitted = commit_candidate_();
+    has_active_slot_ = true;
+    active_slot_ = slot;
+  }
+  select_candidate_(slot, elapsed_us_, false);
+  return emitted;
+}
 
-  const uint64_t advanced = slot - last_admitted_slot_;
-  const uint64_t missing = advanced > 0U ? advanced - 1U : 0U;
-  return accept_slot_(slot, advanced, missing);
+bool TemporalCsiSampler::flush() {
+  drop_();
+  return commit_candidate_();
 }
 
 float TemporalCsiSampler::occupancy_ratio() const {

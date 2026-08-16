@@ -137,7 +137,7 @@ espectre:
 | `csi_admitted_rate_sensor` | sensor | `CSI Admitted Rate` | Rate admitted to the detector's temporal grid; diagnostic-only |
 | `csi_filtered_rate_sensor` | sensor | `CSI Filtered Rate` | Capture rejection rate; diagnostic-only |
 | `csi_missing_rate_sensor` | sensor | `CSI Missing Rate` | Missing detector slots per second; diagnostic-only |
-| `csi_excess_rate_sensor` | sensor | `CSI Excess Rate` | Same-slot packets discarded per second; diagnostic-only |
+| `csi_excess_rate_sensor` | sensor | `CSI Excess Rate` | Non-selected same-slot candidates per second, including candidates replaced by one nearer the slot center; diagnostic-only |
 | `csi_stale_rate_sensor` | sensor | `CSI Stale Rate` | Packets discarded as stale per second; diagnostic-only |
 | `csi_out_of_order_rate_sensor` | sensor | `CSI Out-of-Order Rate` | Duplicate or backward-timestamp packets discarded per second; diagnostic-only |
 | `csi_occupancy_sensor` | sensor | `CSI Occupancy` | Valid-slot occupancy of the active detector window; diagnostic-only |

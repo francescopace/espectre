@@ -122,6 +122,7 @@ class CsiPipeline {
   void set_segmentation_window_size_ms(uint32_t window_size_ms) {
     cadence_.set_window_size_ms(window_size_ms);
     sampler_.configure(sampler_.target_pps(), window_size_ms);
+    pending_candidate_valid_ = false;
     if (detector_ != nullptr) {
       detector_->set_minimum_valid_samples(
           static_cast<uint16_t>(sampler_.minimum_valid_slots()));
@@ -129,6 +130,7 @@ class CsiPipeline {
   }
   void set_csi_target_pps(uint32_t target_pps) {
     sampler_.configure(target_pps, sampler_.window_size_ms());
+    pending_candidate_valid_ = false;
     if (detector_ != nullptr) {
       detector_->set_minimum_valid_samples(
           static_cast<uint16_t>(sampler_.minimum_valid_slots()));
@@ -167,6 +169,8 @@ class CsiPipeline {
    * @param data CSI packet data
    */
   void process_packet(wifi_csi_info_t* data);
+  /** Emit the final buffered slot when a finite stream has ended. */
+  bool flush_pending_candidate();
   
   /**
    * Set an optional packet interceptor.
@@ -249,7 +253,18 @@ class CsiPipeline {
   bool take_detection_timing(DetectionTimingStats *stats);
   
  private:
+  struct PendingCsiCandidate {
+    std::array<int8_t, HT20_CSI_LEN> csi{};
+    size_t len{0U};
+    uint32_t timestamp_us{0U};
+    int8_t rssi_dbm{INT8_MIN};
+  };
+
   void process_normalized_packet_(const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized);
+  void process_admitted_candidate_();
+  void apply_gap_history_reset_();
+  void store_candidate_(const wifi_csi_info_t *data,
+                        const NormalizedCSIPayload &normalized);
   static void capture_packet_callback_(void *context,
                                        const wifi_csi_info_t *data,
                                        const NormalizedCSIPayload &normalized);
@@ -275,6 +290,8 @@ class CsiPipeline {
   // window keeps its deploy-time meaning when the stream runs off-nominal.
   EvaluationCadence cadence_{};
   TemporalCsiSampler sampler_{};
+  PendingCsiCandidate pending_candidate_{};
+  bool pending_candidate_valid_{false};
   std::atomic<uint32_t> packets_processed_{0U};
   std::atomic<MotionState> heartbeat_motion_state_{MotionState::IDLE};
   std::atomic<uint64_t> accepted_packets_total_{0U};

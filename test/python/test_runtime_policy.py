@@ -24,22 +24,37 @@ def test_internal_traffic_defaults_to_fixed_cadence():
 
 
 class TestTemporalCsiSampler:
+    @staticmethod
+    def replay(sampler, timestamps):
+        pending = None
+        admitted = []
+        for timestamp in timestamps:
+            emitted = sampler.admit(timestamp)
+            if emitted:
+                admitted.append(pending)
+                pending = None
+            if sampler.selected_current:
+                pending = timestamp
+        if sampler.flush():
+            admitted.append(pending)
+        return admitted
+
     def test_derives_window_and_coverage_without_hardcoded_packet_floor(self):
         assert temporal_window_slots(100, 1000) == 100
         assert temporal_window_slots(94, 1500) == 141
         assert minimum_valid_slots(100) == 80
         assert minimum_valid_slots(141) == 113
-        assert minimum_sample_spacing_us(100) == 8_000
+        assert minimum_sample_spacing_us(100) == 5_000
 
     def test_admits_one_packet_per_slot_and_counts_burst_excess(self):
         sampler = TemporalCsiSampler(100, 1000)
 
-        assert sampler.admit(1_000_000)
-        for offset_us in (100, 500):
-            assert not sampler.admit(1_000_000 + offset_us)
-        assert sampler.admit(1_009_999)
-        assert not sampler.admit(1_010_000)
+        admitted = self.replay(
+            sampler,
+            (1_000_000, 1_000_100, 1_000_500, 1_009_999, 1_010_000),
+        )
 
+        assert admitted == [1_000_000, 1_010_000]
         assert sampler.accepted_packets == 2
         assert sampler.excess_packets == 3
         assert sampler.current_slot == 1
@@ -51,7 +66,7 @@ class TestTemporalCsiSampler:
         for pair in range(1, 51):
             timestamps.extend((pair * 20_000 - 11_000, pair * 20_000))
 
-        assert all(sampler.admit(timestamp) for timestamp in timestamps)
+        assert self.replay(sampler, timestamps) == timestamps
         assert sampler.accepted_packets == 101
         assert sampler.excess_packets == 0
         assert sampler.missing_slots == 0
@@ -64,7 +79,8 @@ class TestTemporalCsiSampler:
         for slot in range(10):
             if slot in (3, 7):
                 continue
-            assert sampler.admit(100_000 * slot)
+            sampler.admit(100_000 * slot)
+        sampler.flush()
 
         assert sampler.current_slot == 9
         assert sampler.occupancy_slots == 8
@@ -75,7 +91,7 @@ class TestTemporalCsiSampler:
     def test_rejects_duplicate_backward_and_stale_timestamps(self):
         sampler = TemporalCsiSampler(100, 1000)
 
-        assert sampler.admit(2_000_000)
+        assert not sampler.admit(2_000_000)
         assert not sampler.admit(2_000_000)
         assert not sampler.admit(1_999_999)
         assert not sampler.admit(2_010_000, now_us=3_010_000)
@@ -83,12 +99,14 @@ class TestTemporalCsiSampler:
         assert sampler.duplicate_packets == 1
         assert sampler.out_of_order_packets == 1
         assert sampler.stale_packets == 1
+        assert sampler.flush()
 
     def test_accepts_uint32_wrap_without_resetting(self):
         sampler = TemporalCsiSampler(100, 1000)
 
-        assert sampler.admit((1 << 32) - 5_000)
+        assert not sampler.admit((1 << 32) - 5_000)
         assert sampler.admit(5_000)
+        assert sampler.flush()
 
         assert sampler.current_slot == 1
         assert sampler.gap_resets == 0
@@ -96,10 +114,14 @@ class TestTemporalCsiSampler:
     def test_window_sized_gap_requests_history_reset(self):
         sampler = TemporalCsiSampler(100, 1000)
 
-        assert sampler.admit(100)
+        assert not sampler.admit(100)
         assert sampler.admit(1_000_100)
 
+        assert not sampler.reset_required
+        assert sampler.gap_reset_required
+        assert sampler.flush()
         assert sampler.reset_required
+        assert not sampler.gap_reset_required
         assert sampler.current_slot == 0
         assert sampler.occupancy_slots == 1
         assert sampler.gap_resets == 1
@@ -120,8 +142,9 @@ class TestTemporalCsiSampler:
         )
 
         assert [sampler.admit(value) for value in timestamps] == [
-            True, False, True, True, False, False, True, True, False, True
+            False, False, True, True, False, False, True, True, False, True
         ]
+        assert sampler.flush()
         assert (
             sampler.accepted_packets,
             sampler.excess_packets,

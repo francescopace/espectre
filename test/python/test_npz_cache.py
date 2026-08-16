@@ -840,6 +840,50 @@ def test_classic_replay_row_parameters_change_when_detector_changes(
     assert first != second
 
 
+def test_classic_replay_row_parameters_change_when_temporal_policy_changes(
+    monkeypatch, tmp_path
+):
+    python_dir = tmp_path / "src" / "python" / "micro_espectre"
+    tools_dir = tmp_path / "tools" / "lib"
+    python_dir.mkdir(parents=True)
+    tools_dir.mkdir(parents=True)
+    temporal_sampler = python_dir / "temporal_csi_sampler.py"
+    temporal_sampler.write_text("SLOT_POLICY = 'first'\n")
+    (python_dir / "runtime_policy.py").write_text("CADENCE = 1\n")
+    (tools_dir / "dataset_metadata.py").write_text("# metadata\n")
+    (tools_dir / "performance_report.py").write_text("# replay\n")
+    (tools_dir / "temporal_replay.py").write_text("# temporal adapter\n")
+
+    monkeypatch.setattr(npz_cache, "python_src_dir", lambda: python_dir)
+    monkeypatch.setattr(npz_cache, "repo_root", lambda: tmp_path)
+
+    timing = {
+        "interval_us": 10_000,
+        "window_packets": 4,
+        "lag": 1,
+        "autocorr_lag": 1,
+    }
+    first = npz_cache.classic_replay_row_parameters(
+        replay_kind="classic_dataset",
+        selected_subcarriers=(1, 2, 3),
+        timing=timing,
+        replay_interval_us=10_000,
+        warmup_packets=4,
+    )
+
+    temporal_sampler.write_text("SLOT_POLICY = 'closest_center'\n")
+    second = npz_cache.classic_replay_row_parameters(
+        replay_kind="classic_dataset",
+        selected_subcarriers=(1, 2, 3),
+        timing=timing,
+        replay_interval_us=10_000,
+        warmup_packets=4,
+    )
+
+    assert first["replay_policy_sources"] != second["replay_policy_sources"]
+    assert first != second
+
+
 def test_classic_dataset_result_reuses_persisted_rows(monkeypatch, tmp_path):
     import tools.lib.performance_report as performance_report
 

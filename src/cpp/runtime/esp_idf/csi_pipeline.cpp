@@ -32,6 +32,7 @@ void CsiPipeline::init(BaseDetector* detector,
   capture_service_.set_channel_change_callback(&CsiPipeline::capture_channel_change_callback_, this);
   accepted_packets_total_.store(0U, std::memory_order_relaxed);
   sampler_.reset();
+  pending_candidate_valid_ = false;
   if (detector_ != nullptr) {
     detector_->set_minimum_valid_samples(
         static_cast<uint16_t>(sampler_.minimum_valid_slots()));
@@ -85,6 +86,7 @@ void CsiPipeline::clear_detector_buffer_deferred_() {
     detector_->clear_buffer();
     cadence_.reset_window();
     sampler_.clear_history();
+    pending_candidate_valid_ = false;
     reset_motion_state_filter_();
     request_motion_state_callback_(previous_state, effective_motion_state_);
   }
@@ -175,6 +177,15 @@ void CsiPipeline::process_packet(wifi_csi_info_t* data) {
   loop();
 }
 
+bool CsiPipeline::flush_pending_candidate() {
+  if (!pending_candidate_valid_ || !sampler_.flush()) {
+    return false;
+  }
+  process_admitted_candidate_();
+  loop();
+  return true;
+}
+
 void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized) {
   if (data == nullptr || detector_ == nullptr || !normalized.valid()) {
     return;
@@ -192,25 +203,64 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
 
   accepted_packets_total_.fetch_add(1U, std::memory_order_relaxed);
 
-  const int8_t *csi_data = normalized.data;
-  const size_t csi_len = normalized.len;
-
   const int8_t rssi_dbm = data->rx_ctrl.rssi;
   last_rssi_dbm_ = rssi_dbm;
   last_channel_ = data->rx_ctrl.channel;
-  detector_->set_packet_timestamp_us(data->rx_ctrl.timestamp);
 
 #if ESP_PLATFORM
   const uint32_t processing_time_us =
       static_cast<uint32_t>(static_cast<uint64_t>(esp_timer_get_time()));
-  const bool admitted = sampler_.admit(
+  const bool emitted = sampler_.admit(
       data->rx_ctrl.timestamp, true, processing_time_us, true);
 #else
-  const bool admitted = sampler_.admit(data->rx_ctrl.timestamp);
+  const bool emitted = sampler_.admit(data->rx_ctrl.timestamp);
 #endif
-  if (!admitted) {
+  if (emitted && pending_candidate_valid_) {
+    process_admitted_candidate_();
+  }
+  if (sampler_.gap_reset_required()) {
+    apply_gap_history_reset_();
+  }
+  if (sampler_.selected_current()) {
+    store_candidate_(data, normalized);
+  }
+}
+
+void CsiPipeline::apply_gap_history_reset_() {
+  if (detector_ == nullptr) {
     return;
   }
+  const MotionState previous_state = effective_motion_state_;
+  detector_->clear_buffer();
+  cadence_.reset_window();
+  reset_motion_state_filter_();
+  request_motion_state_callback_(previous_state, effective_motion_state_);
+}
+
+void CsiPipeline::store_candidate_(const wifi_csi_info_t *data,
+                                   const NormalizedCSIPayload &normalized) {
+  if (data == nullptr || normalized.data == nullptr ||
+      normalized.len == 0U || normalized.len > pending_candidate_.csi.size()) {
+    pending_candidate_valid_ = false;
+    return;
+  }
+  std::copy_n(normalized.data, normalized.len, pending_candidate_.csi.begin());
+  pending_candidate_.len = normalized.len;
+  pending_candidate_.timestamp_us = data->rx_ctrl.timestamp;
+  pending_candidate_.rssi_dbm = data->rx_ctrl.rssi;
+  pending_candidate_valid_ = true;
+}
+
+void CsiPipeline::process_admitted_candidate_() {
+  if (!pending_candidate_valid_ || detector_ == nullptr) {
+    return;
+  }
+  pending_candidate_valid_ = false;
+  const int8_t *csi_data = pending_candidate_.csi.data();
+  const size_t csi_len = pending_candidate_.len;
+  const int8_t rssi_dbm = pending_candidate_.rssi_dbm;
+  const uint32_t timestamp_us = pending_candidate_.timestamp_us;
+  detector_->set_packet_timestamp_us(timestamp_us);
   if (sampler_.reset_required()) {
     const MotionState previous_state = effective_motion_state_;
     detector_->clear_buffer();
@@ -226,7 +276,7 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
 
   // Evaluation cadence consumes the same admitted stream as calibration and
   // feature processing. Elapsed packet time still drives the deadline.
-  const bool cadence_due = cadence_.observe(data->rx_ctrl.timestamp);
+  const bool cadence_due = cadence_.observe(timestamp_us);
 
   if (packet_interceptor_ &&
       packet_interceptor_(packet_interceptor_context_, csi_data, csi_len, rssi_dbm,
@@ -331,6 +381,7 @@ esp_err_t CsiPipeline::disable() {
   last_channel_ = 0U;
   cadence_.reset();
   sampler_.reset();
+  pending_candidate_valid_ = false;
   reset_motion_state_filter_();
   return ESP_OK;
 }

@@ -30,6 +30,7 @@ import numpy as np
 from .bootstrap import setup_paths
 from . import dataset_metadata
 from . import npz_cache
+from .temporal_replay import TemporalReplayController
 
 setup_paths()
 
@@ -1097,10 +1098,11 @@ class CollectionDetectorGate:
         )
         self.window_size = self.default_window_size(self.target_pps)
         self.nominal_interval_us = nominal_packet_interval_us(self.target_pps)
-        self.temporal_sampler = TemporalCsiSampler(
+        self.temporal_controller = TemporalReplayController(
             self.target_pps,
             self.window_size_ms,
         )
+        self.temporal_sampler = self.temporal_controller.sampler
         self.cadence = make_evaluation_cadence(
             max(1, int(getattr(config, "EVALUATION_INTERVAL_MS", 250))),
         )
@@ -1147,23 +1149,36 @@ class CollectionDetectorGate:
         )
 
     def process_packet(self, packet) -> None:
-        csi_data = getattr(packet, "iq_raw", packet)
-        timestamp_us = getattr(packet, "wifi_rx_ts_us", None)
-        if timestamp_us is None:
-            timestamp_us = getattr(packet, "device_ticks_us", None)
-        if not self.temporal_sampler.admit(timestamp_us):
-            return
-        if self.temporal_sampler.reset_required:
-            self.detector.reset()
-            self.cadence.reset()
-            self.calibrator = self._make_calibrator()
-            self.calibrated = not self.needs_calibration
+        admission = self.temporal_controller.admit(packet)
+        if admission is not None:
+            self._consume_admission(admission)
+        if self.temporal_sampler.gap_reset_required:
+            self._reset_detector_history()
+
+    def finish(self) -> None:
+        """Emit the final buffered slot at the end of a finite capture."""
+        admission = self.temporal_controller.finish()
+        if admission is not None:
+            self._consume_admission(admission)
+
+    def _reset_detector_history(self) -> None:
+        self.detector.reset()
+        self.cadence.reset()
+        self.calibrator = self._make_calibrator()
+        self.calibrated = not self.needs_calibration
+
+    def _consume_admission(self, admission) -> None:
+        admitted_packet = admission.packet
+        csi_data = getattr(admitted_packet, "iq_raw", admitted_packet)
+        timestamp_us = admission.timestamp_us
+        if admission.reset_required:
+            self._reset_detector_history()
         if (
-            self.temporal_sampler.missing_slots_before
+            admission.missing_slots_before
             and hasattr(self.detector, "advance_missing_slots")
         ):
             self.detector.advance_missing_slots(
-                self.temporal_sampler.missing_slots_before
+                admission.missing_slots_before
             )
         try:
             self.detector.process_packet(
@@ -1174,10 +1189,7 @@ class CollectionDetectorGate:
         except TypeError:
             self.detector.process_packet(csi_data, config.DEFAULT_SUBCARRIERS)
         self.cadence.note_packet(
-            elapsed_us=(
-                self.temporal_sampler.slots_advanced
-                * self.nominal_interval_us
-            )
+            elapsed_us=admission.coverage_us
         )
         if not self.cadence.should_evaluate():
             return
@@ -1367,6 +1379,7 @@ class CSICollector:
             if timestamp_us is None:
                 timestamp_us = packet.device_ticks_us
             provenance_sampler.admit(timestamp_us)
+        provenance_sampler.flush()
         admission_provenance = {
             "csi_target_pps": csi_target_pps,
             "detector_admitted_packets": provenance_sampler.accepted_packets,
@@ -1565,6 +1578,17 @@ class CSICollector:
         else:
             state["stable_since"] = None
         return state
+
+    @staticmethod
+    def _finish_device_detectors(device_states: Dict[int, Dict[str, Any]]) -> None:
+        for state in device_states.values():
+            detector = state.get("detector")
+            finish = getattr(detector, "finish", None)
+            if not callable(finish):
+                continue
+            finish()
+            state["current_metric"] = detector.current_metric
+            state["current_threshold"] = detector.current_threshold
 
     def _reset_live_status_block(self) -> None:
         self._live_status_line_count = 0
@@ -1825,6 +1849,7 @@ class CSICollector:
                 )
                 current_state = summary["status"]
                 if summary["ready"]:
+                    self._finish_device_detectors(device_states)
                     if not quiet:
                         self._render_live_status_block(
                             (
@@ -1981,6 +2006,7 @@ class CSICollector:
                         inline=use_inline_status,
                     )
                     last_render = now
+        self._finish_device_detectors(device_states)
         return packets
 
     def collect_timed(

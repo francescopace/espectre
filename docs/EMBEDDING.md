@@ -88,7 +88,7 @@ Your firmware owns boot, provisioning, networking policy, OTA, and the product s
 
 ### Core-only
 
-If your firmware already owns Wi-Fi and CSI capture, you can consume the detectors directly: `core` detectors accept normalized CSI payloads and expose motion state, movement metric, and threshold control. Apply the same temporal admission as the shipped pipeline before `process_packet()`: at most one packet per `csi_target_pps` slot, with missing slots left invalid. `core/temporal_csi_sampler.h` is the production sampler; it is internal to the bundle rather than part of the supported `espectre_sdk.h` facade. Use `runtime/esp_idf/csi_pipeline.cpp` as the reference for normalization, temporal admission, evaluation cadence, and hit filtering before committing to a custom wiring.
+If your firmware already owns Wi-Fi and CSI capture, you can consume the detectors directly: `core` detectors accept normalized CSI payloads and expose motion state, movement metric, and threshold control. Apply the same temporal admission as the shipped pipeline before `process_packet()`: retain the candidate nearest each `csi_target_pps` slot center, enforce the target-derived half-slot minimum spacing, and leave missing slots invalid. `core/temporal_csi_sampler.h` is the production sampler; it is internal to the bundle rather than part of the supported `espectre_sdk.h` facade. Use `runtime/esp_idf/csi_pipeline.cpp` as the reference for normalization, temporal admission, evaluation cadence, and hit filtering before committing to a custom wiring.
 
 ## Header map
 

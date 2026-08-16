@@ -7,6 +7,7 @@ UINT32_MODULUS = 1 << 32
 UINT32_HALF_RANGE = 1 << 31
 MINIMUM_COVERAGE_NUMERATOR = 4
 MINIMUM_COVERAGE_DENOMINATOR = 5
+SLOT_HALF_DENOMINATOR = 2
 
 
 def temporal_window_slots(target_pps, window_size_ms):
@@ -31,12 +32,12 @@ def minimum_valid_slots(window_slots):
 
 
 def minimum_sample_spacing_us(target_pps):
-    """Return the minimum separation for two independent target-rate samples."""
+    """Return half a target-rate slot, rounded up to whole microseconds."""
     rate = int(target_pps)
     if rate <= 0:
         raise ValueError("target_pps must be positive")
-    numerator = MICROSECONDS_PER_SECOND * MINIMUM_COVERAGE_NUMERATOR
-    denominator = rate * MINIMUM_COVERAGE_DENOMINATOR
+    numerator = MICROSECONDS_PER_SECOND
+    denominator = rate * SLOT_HALF_DENOMINATOR
     return max(1, (numerator + denominator - 1) // denominator)
 
 
@@ -69,8 +70,16 @@ class TemporalCsiSampler:
         self._elapsed_us = 0
         self._last_admitted_slot = None
         self._last_admitted_elapsed_us = None
+        self._reported_slot = None
+        self._active_slot = None
+        self._pending_slot = None
+        self._pending_elapsed_us = None
+        self._pending_center_error = None
+        self._pending_reset_required = False
         self.accepted = False
+        self.selected_current = False
         self.reset_required = False
+        self.gap_reset_required = False
         self.slots_advanced = 0
         self.missing_slots_before = 0
         self.accepted_packets = 0
@@ -89,8 +98,16 @@ class TemporalCsiSampler:
         self._elapsed_us = 0
         self._last_admitted_slot = None
         self._last_admitted_elapsed_us = None
+        self._reported_slot = None
+        self._active_slot = None
+        self._pending_slot = None
+        self._pending_elapsed_us = None
+        self._pending_center_error = None
+        self._pending_reset_required = False
         self.accepted = False
+        self.selected_current = False
         self.reset_required = False
+        self.gap_reset_required = False
         self.slots_advanced = 0
         self.missing_slots_before = 0
 
@@ -105,12 +122,59 @@ class TemporalCsiSampler:
 
     def _drop(self):
         self.accepted = False
+        self.selected_current = False
         self.reset_required = False
+        self.gap_reset_required = False
         self.slots_advanced = 0
         self.missing_slots_before = 0
         return False
 
-    def _accept_slot(self, slot, slots_advanced, missing_before):
+    def _select_candidate(self, slot, elapsed_us, reset_required=False):
+        scaled_elapsed = int(elapsed_us) * self.target_pps
+        scaled_center = int(slot) * MICROSECONDS_PER_SECOND
+        center_error = abs(scaled_elapsed - scaled_center)
+        if (
+            self._last_admitted_slot is not None
+            and slot <= self._last_admitted_slot
+        ):
+            self.excess_packets += 1
+            return False
+        if (
+            self._last_admitted_elapsed_us is not None
+            and elapsed_us - self._last_admitted_elapsed_us
+            < self.minimum_sample_spacing_us
+        ):
+            self.excess_packets += 1
+            return False
+        if (
+            self._pending_slot is not None
+            and center_error >= self._pending_center_error
+        ):
+            self.excess_packets += 1
+            return False
+        if self._pending_slot is not None:
+            self.excess_packets += 1
+        self._pending_slot = int(slot)
+        self._pending_elapsed_us = int(elapsed_us)
+        self._pending_center_error = int(center_error)
+        self._pending_reset_required = bool(reset_required)
+        self.selected_current = True
+        return True
+
+    def _commit_candidate(self):
+        if self._pending_slot is None:
+            return False
+        slot = self._pending_slot
+        slots_advanced = (
+            slot - self._last_admitted_slot
+            if self._last_admitted_slot is not None
+            else 0
+        )
+        missing_before = (
+            max(0, slots_advanced - 1)
+            if self._last_admitted_slot is not None
+            else 0
+        )
         if self._last_admitted_slot is not None:
             if slots_advanced >= self.window_slots:
                 self._clear_window()
@@ -127,16 +191,22 @@ class TemporalCsiSampler:
             self._occupancy += 1
         self._slot_ids[index] = slot
         self._last_admitted_slot = slot
-        self._last_admitted_elapsed_us = self._elapsed_us
+        self._reported_slot = slot
+        self._last_admitted_elapsed_us = self._pending_elapsed_us
         self.accepted = True
+        self.reset_required = self._pending_reset_required
         self.slots_advanced = slots_advanced
         self.missing_slots_before = missing_before
         self.accepted_packets += 1
         self.missing_slots += missing_before
+        self._pending_slot = None
+        self._pending_elapsed_us = None
+        self._pending_center_error = None
+        self._pending_reset_required = False
         return True
 
     def admit(self, timestamp_us, now_us=None):
-        """Return ``True`` when the timestamp owns a new temporal slot.
+        """Observe a timestamp and return ``True`` when a prior slot is emitted.
 
         ``now_us`` is optional and must use the same unsigned 32-bit clock. It
         lets live runtimes reject a packet that sat in a processing backlog for
@@ -157,7 +227,9 @@ class TemporalCsiSampler:
         if self._last_timestamp is None:
             self._last_timestamp = timestamp
             self._elapsed_us = 0
-            return self._accept_slot(0, 0, 0)
+            self._active_slot = 0
+            self._select_candidate(0, 0)
+            return False
 
         delta = self._forward_delta(timestamp, self._last_timestamp)
         if delta == 0:
@@ -170,12 +242,15 @@ class TemporalCsiSampler:
         self._last_timestamp = timestamp
         if delta >= self.window_size_us:
             self.gap_resets += 1
-            self.reset_required = True
+            emitted = self._commit_candidate()
             self._clear_window()
             self._elapsed_us = 0
             self._last_admitted_slot = None
             self._last_admitted_elapsed_us = None
-            return self._accept_slot(0, 0, 0)
+            self._active_slot = 0
+            self._select_candidate(0, 0, reset_required=True)
+            self.gap_reset_required = True
+            return emitted
 
         self._elapsed_us += delta
         # Center bins on their ideal sampling instant. Flooring makes ordinary
@@ -185,23 +260,28 @@ class TemporalCsiSampler:
             self._elapsed_us * self.target_pps
             + MICROSECONDS_PER_SECOND // 2
         ) // MICROSECONDS_PER_SECOND
-        if slot <= self._last_admitted_slot:
+        if self._active_slot is not None and slot < self._active_slot:
             self.excess_packets += 1
             return False
-        if (
-            self._elapsed_us - self._last_admitted_elapsed_us
-            < self.minimum_sample_spacing_us
-        ):
-            self.excess_packets += 1
-            return False
+        emitted = False
+        if self._active_slot is None or slot > self._active_slot:
+            emitted = self._commit_candidate()
+            self._active_slot = slot
+        self._select_candidate(slot, self._elapsed_us)
+        return emitted
 
-        advanced = slot - self._last_admitted_slot
-        missing = max(0, advanced - 1)
-        return self._accept_slot(slot, advanced, missing)
+    def flush(self):
+        """Emit the final buffered slot at the end of a finite replay."""
+        self._drop()
+        return self._commit_candidate()
 
     @property
     def current_slot(self):
-        return self._last_admitted_slot
+        return self._reported_slot
+
+    @property
+    def has_pending_candidate(self):
+        return self._pending_slot is not None
 
     @property
     def occupancy_slots(self):

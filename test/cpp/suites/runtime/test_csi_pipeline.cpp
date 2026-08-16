@@ -10,6 +10,7 @@
 #include "test_harness.h"
 #include <cstdint>
 #include <cstring>
+#include <vector>
 #include "lwip/inet.h"
 #include "lightweight_detector.h"
 #include "csi_pipeline.h"
@@ -100,6 +101,7 @@ static void process_timed_packets_(CsiPipeline& manager, wifi_csi_info_t& csi_in
     manager.process_packet(&csi_info);
     arrival_us += interval_us;
   }
+  manager.flush_pending_candidate();
 }
 
 /**
@@ -290,6 +292,7 @@ void test_csi_pipeline_process_packet_short_data(void) {
     csi_info.len = 5;
     
     manager.process_packet(&csi_info);
+    manager.flush_pending_candidate();
     
     TEST_ASSERT_EQUAL(MotionState::IDLE, detector.get_state());
 }
@@ -322,6 +325,7 @@ void test_csi_pipeline_process_packet_valid_data(void) {
     fill_valid_csi_info_(&csi_info, csi_buf);
     
     manager.process_packet(&csi_info);
+    manager.flush_pending_candidate();
     
     TEST_ASSERT_EQUAL(1, detector.get_total_packets());
 }
@@ -340,6 +344,7 @@ void test_csi_pipeline_preserves_sparse_slots_until_occupancy_recovers(void) {
         manager.process_packet(&csi_info);
         timestamp += 20000U;
     }
+    manager.flush_pending_candidate();
     TEST_ASSERT_EQUAL(20U, detector.get_total_packets());
     TEST_ASSERT_FALSE(detector.is_ready());
     TEST_ASSERT_TRUE(detector.get_buffer_count() > detector.get_total_packets());
@@ -349,6 +354,7 @@ void test_csi_pipeline_preserves_sparse_slots_until_occupancy_recovers(void) {
         manager.process_packet(&csi_info);
         timestamp += 10000U;
     }
+    manager.flush_pending_candidate();
     TEST_ASSERT_TRUE(detector.is_ready());
 }
 
@@ -370,6 +376,7 @@ void test_csi_pipeline_filters_duplicate_and_stale_rx_timestamps(void) {
     manager.process_packet(&csi_info);
     csi_info.rx_ctrl.timestamp = 102U;
     manager.process_packet(&csi_info);
+    manager.flush_pending_candidate();
 
     TEST_ASSERT_EQUAL(1U, detector.get_total_packets());
     TEST_ASSERT_EQUAL(1U, manager.detector_admitted_packets_total());
@@ -391,6 +398,7 @@ void test_csi_pipeline_accepts_rx_timestamp_wrap(void) {
         csi_info.rx_ctrl.timestamp = timestamp;
         manager.process_packet(&csi_info);
     }
+    manager.flush_pending_candidate();
 
     TEST_ASSERT_EQUAL(1U, detector.get_total_packets());
     TEST_ASSERT_EQUAL(1U, manager.detector_admitted_packets_total());
@@ -420,6 +428,7 @@ void test_csi_pipeline_filters_non_ht20_phy(void) {
 
     csi_info.rx_ctrl.cwb = 0;  // HT20
     manager.process_packet(&csi_info);
+    manager.flush_pending_candidate();
     TEST_ASSERT_EQUAL(1, detector.get_total_packets());
     TEST_ASSERT_EQUAL(1U, manager.accepted_packets_total());
 }
@@ -658,17 +667,19 @@ struct InterceptorProbe {
     int evaluations_due{0};
     uint32_t last_packets_in_window{0U};
     uint32_t max_packets_in_window{0U};
+    std::vector<int8_t> selected_values;
 };
 
 bool interceptor_probe_callback_(void *context, const int8_t *csi_data, size_t csi_len,
                                  int8_t rssi_dbm, bool evaluation_due,
                                  uint32_t packets_in_window, bool temporal_reset) {
-    (void) csi_data;
-    (void) csi_len;
     (void) rssi_dbm;
     (void) temporal_reset;
     auto *probe = static_cast<InterceptorProbe *>(context);
     probe->calls++;
+    if (csi_data != nullptr && csi_len > 10U) {
+        probe->selected_values.push_back(csi_data[10]);
+    }
     if (evaluation_due) {
         probe->evaluations_due++;
         probe->last_packets_in_window = packets_in_window;
@@ -680,6 +691,54 @@ bool interceptor_probe_callback_(void *context, const int8_t *csi_data, size_t c
 }
 
 }  // namespace
+
+void test_csi_pipeline_retains_the_closest_payload_for_each_slot(void) {
+    TransitionDetectorMock detector;
+    CsiPipeline manager;
+    manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
+
+    InterceptorProbe probe;
+    manager.set_packet_interceptor(&interceptor_probe_callback_, &probe);
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+
+    const uint32_t timestamps[] = {1000000U, 1009000U, 1010000U, 1020000U};
+    const int8_t values[] = {1, 2, 3, 4};
+    for (size_t index = 0U; index < 4U; ++index) {
+        csi_info.rx_ctrl.timestamp = timestamps[index];
+        csi_buf[10] = values[index];
+        manager.process_packet(&csi_info);
+    }
+    manager.flush_pending_candidate();
+
+    TEST_ASSERT_EQUAL(3U, probe.selected_values.size());
+    TEST_ASSERT_EQUAL(1, probe.selected_values[0]);
+    TEST_ASSERT_EQUAL(3, probe.selected_values[1]);
+    TEST_ASSERT_EQUAL(4, probe.selected_values[2]);
+    TEST_ASSERT_EQUAL(1U, manager.detector_excess_packets_total());
+}
+
+void test_csi_pipeline_window_gap_clears_detector_without_flush(void) {
+    LightweightDetector detector(50, 1.0f);
+    CsiPipeline manager;
+    manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
+
+    int8_t csi_buf[128];
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+
+    uint32_t timestamp = 1000000U;
+    process_timed_packets_(manager, csi_info, timestamp, 8U);
+    TEST_ASSERT_TRUE(detector.get_buffer_count() > 0);
+
+    csi_info.rx_ctrl.timestamp = timestamp + 1000000U;
+    manager.process_packet(&csi_info);
+
+    TEST_ASSERT_EQUAL(0, detector.get_buffer_count());
+    TEST_ASSERT_FALSE(detector.is_ready());
+}
 
 // Startup calibration consumes every admitted packet through the interceptor,
 // on the same elapsed-time cadence used by detection.
@@ -806,6 +865,7 @@ void test_csi_pipeline_process_stbc_256_byte_packet(void) {
     csi_info.rx_ctrl.stbc = 1;
     
     manager.process_packet(&csi_info);
+    manager.flush_pending_candidate();
     
     TEST_ASSERT_EQUAL(1, detector.get_total_packets());
 }
@@ -829,6 +889,7 @@ void test_csi_pipeline_process_short_ht_114_byte_packet(void) {
     csi_info.rx_ctrl.cwb = 0;
 
     manager.process_packet(&csi_info);
+    manager.flush_pending_candidate();
 
     TEST_ASSERT_EQUAL(1, detector.get_total_packets());
 }
@@ -853,6 +914,7 @@ void test_csi_pipeline_process_double_short_ht_228_byte_packet(void) {
     csi_info.rx_ctrl.cwb = 0;
 
     manager.process_packet(&csi_info);
+    manager.flush_pending_candidate();
 
     TEST_ASSERT_EQUAL(1, detector.get_total_packets());
 }
@@ -949,6 +1011,7 @@ void test_csi_pipeline_callback_wrapper_triggered(void) {
     fill_valid_csi_info_(&csi_info, csi_buf);
     
     g_wifi_mock.trigger_callback(&csi_info);
+    manager.flush_pending_candidate();
     
     TEST_ASSERT_TRUE(detector.get_total_packets() > 0);
 }
@@ -1086,6 +1149,8 @@ int process(void) {
     RUN_TEST(test_csi_pipeline_periodic_callback_uses_filtered_motion_state);
     RUN_TEST(test_csi_pipeline_periodic_callback_reports_zero_packets_when_idle);
     RUN_TEST(test_csi_pipeline_evaluates_on_elapsed_packet_time);
+    RUN_TEST(test_csi_pipeline_retains_the_closest_payload_for_each_slot);
+    RUN_TEST(test_csi_pipeline_window_gap_clears_detector_without_flush);
     RUN_TEST(test_csi_pipeline_feeds_cadence_while_interceptor_consumes);
     RUN_TEST(test_csi_pipeline_interceptor_shares_the_detection_cadence);
     RUN_TEST(test_csi_pipeline_live_telemetry_callback_does_not_force_every_packet_evaluation);

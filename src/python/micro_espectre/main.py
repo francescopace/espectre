@@ -310,6 +310,9 @@ def run_startup_calibration(wlan, detector, traffic_gen, packet_interval_us=None
     normalization_state = CsiPayloadNormalizationState()
     frame_timestamp_filter = CsiFrameTimestampFilter()
     frame_result = None
+    pending_csi_data = bytearray(EXPECTED_CSI_LEN)
+    emitted_csi_data = bytearray(EXPECTED_CSI_LEN)
+    pending_timestamp_us = 0
     # Reused per-frame assessment mapping: keeps this loop allocation-free.
     assessment_result = {}
 
@@ -367,10 +370,40 @@ def run_startup_calibration(wlan, detector, traffic_gen, packet_interval_us=None
                 print("[INFO] CSI remap active: 57->64 SC (left_pad=4, right_pad=3)")
                 remap_logged = True
             del frame
-            if not temporal_sampler.admit(frame_result[4]):
-                time.sleep_us(100)
-                continue
-            if temporal_sampler.reset_required:
+            current_timestamp_us = frame_result[4]
+            emitted = temporal_sampler.admit(current_timestamp_us)
+            if emitted:
+                emitted_csi_data[:] = pending_csi_data
+                emitted_timestamp_us = pending_timestamp_us
+            if temporal_sampler.selected_current:
+                pending_csi_data[:] = csi_data
+                pending_timestamp_us = current_timestamp_us
+            if emitted:
+                if temporal_sampler.reset_required:
+                    detector.reset()
+                    calibration_cadence.reset()
+                    calibration_tracker = StartupThresholdCalibrator(
+                        calibration_target_packets,
+                        auto_factor=get_detector_auto_factor(detector),
+                        gate_enabled=get_detector_startup_gate(detector),
+                    )
+                    begin_calibration = getattr(detector, "on_startup_calibration_begin", None)
+                    if callable(begin_calibration):
+                        begin_calibration()
+                    packets_since_evaluation = 0
+                if temporal_sampler.missing_slots_before:
+                    advance_missing = getattr(detector, "advance_missing_slots", None)
+                    if callable(advance_missing):
+                        advance_missing(temporal_sampler.missing_slots_before)
+                detector.process_packet(
+                    emitted_csi_data,
+                    config.DEFAULT_SUBCARRIERS,
+                    timestamp_us=emitted_timestamp_us,
+                )
+                packets_since_evaluation += 1
+                last_packet_time = time.ticks_ms()
+                calibration_cadence.note_arrival(emitted_timestamp_us)
+            if temporal_sampler.gap_reset_required:
                 detector.reset()
                 calibration_cadence.reset()
                 calibration_tracker = StartupThresholdCalibrator(
@@ -382,21 +415,9 @@ def run_startup_calibration(wlan, detector, traffic_gen, packet_interval_us=None
                 if callable(begin_calibration):
                     begin_calibration()
                 packets_since_evaluation = 0
-            if temporal_sampler.missing_slots_before:
-                advance_missing = getattr(detector, "advance_missing_slots", None)
-                if callable(advance_missing):
-                    advance_missing(temporal_sampler.missing_slots_before)
-            detector.process_packet(
-                csi_data,
-                config.DEFAULT_SUBCARRIERS,
-                timestamp_us=frame_result[4],
-            )
-            packets_since_evaluation += 1
-            last_packet_time = time.ticks_ms()
-
-            # frame[4] is the Wi-Fi RX timestamp, the same source the steady
-            # loop and the C++ pipeline read.
-            calibration_cadence.note_arrival(frame_result[4])
+            if not emitted:
+                time.sleep_us(100)
+                continue
 
             if not calibration_cadence.should_evaluate():
                 continue
@@ -730,6 +751,9 @@ def main():
         target_pps,
         getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000),
     )
+    pending_csi_data = bytearray(EXPECTED_CSI_LEN)
+    emitted_csi_data = bytearray(EXPECTED_CSI_LEN)
+    pending_timestamp_us = 0
     latest_motion_metric = 0.0
     latest_threshold = detector.get_threshold()
     latest_effective_state = runtime_policy.effective_state
@@ -892,26 +916,40 @@ def main():
                     normalization_state.reset()
                 g_state.current_channel = packet_channel
 
-                if not temporal_sampler.admit(frame_result[4]):
-                    g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
-                    time.sleep_us(100)
-                    continue
-                if temporal_sampler.reset_required:
+                current_timestamp_us = frame_result[4]
+                emitted = temporal_sampler.admit(current_timestamp_us)
+                if emitted:
+                    emitted_csi_data[:] = pending_csi_data
+                    emitted_timestamp_us = pending_timestamp_us
+                if temporal_sampler.selected_current:
+                    pending_csi_data[:] = csi_data
+                    pending_timestamp_us = current_timestamp_us
+                if emitted:
+                    if temporal_sampler.reset_required:
+                        detector.reset()
+                        runtime_policy.reset()
+                        latest_motion_metric = 0.0
+                        latest_effective_state = runtime_policy.effective_state
+                    if temporal_sampler.missing_slots_before:
+                        advance_missing = getattr(detector, "advance_missing_slots", None)
+                        if callable(advance_missing):
+                            advance_missing(temporal_sampler.missing_slots_before)
+
+                    detector.process_packet(
+                        emitted_csi_data,
+                        config.DEFAULT_SUBCARRIERS,
+                        timestamp_us=emitted_timestamp_us,
+                    )
+                    runtime_policy.note_arrival(emitted_timestamp_us)
+                if temporal_sampler.gap_reset_required:
                     detector.reset()
                     runtime_policy.reset()
                     latest_motion_metric = 0.0
                     latest_effective_state = runtime_policy.effective_state
-                if temporal_sampler.missing_slots_before:
-                    advance_missing = getattr(detector, "advance_missing_slots", None)
-                    if callable(advance_missing):
-                        advance_missing(temporal_sampler.missing_slots_before)
-
-                detector.process_packet(
-                    csi_data,
-                    config.DEFAULT_SUBCARRIERS,
-                    timestamp_us=frame_result[4],
-                )
-                runtime_policy.note_arrival(frame_result[4])
+                if not emitted:
+                    g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
+                    time.sleep_us(100)
+                    continue
 
                 if runtime_policy.should_evaluate():
                     metrics = detector.update_state()

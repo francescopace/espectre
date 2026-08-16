@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 import builtins
 
 import pytest
@@ -2874,3 +2874,40 @@ def test_collect_live_displays_device_drop_rate(monkeypatch, capsys) -> None:
     output = capsys.readouterr().out
     assert "ip=192.168.1.34 chip=S3 ch=08 rssi=-46" in output
     assert "drop 33.3%" in output
+
+
+def _collection_gate_packet(timestamp_us: int) -> SimpleNamespace:
+    return SimpleNamespace(wifi_rx_ts_us=timestamp_us, iq_raw=[1] * 128)
+
+
+def test_collection_detector_gate_finish_commits_last_slot() -> None:
+    from tools.lib.csi_io import CollectionDetectorGate
+
+    gate = CollectionDetectorGate("lightweight", target_pps=100)
+    gate.process_packet(_collection_gate_packet(1_000_000))
+    gate.process_packet(_collection_gate_packet(1_010_000))
+
+    assert gate.temporal_sampler.occupancy_slots == 1
+    assert gate.detector.total_packets == 1
+
+    gate.finish()
+
+    assert gate.temporal_sampler.occupancy_slots == 2
+    assert gate.detector.total_packets == 2
+
+
+def test_collection_detector_gate_window_gap_resets_history_without_finish() -> None:
+    from tools.lib.csi_io import CollectionDetectorGate
+
+    gate = CollectionDetectorGate("lightweight", target_pps=100)
+    gate.process_packet(_collection_gate_packet(1_000_000))
+    gate.process_packet(_collection_gate_packet(1_010_000))
+    gate.process_packet(_collection_gate_packet(1_020_000))
+
+    assert gate.detector.total_packets == 2
+
+    gate.process_packet(_collection_gate_packet(2_020_000))
+
+    assert gate.temporal_sampler.gap_reset_required
+    assert gate.detector.total_packets == 0
+    assert not gate.detector.is_ready()

@@ -17,6 +17,10 @@ grouped, de-overlapped out-of-fold fit balanced by class, chip, and session.
   no packets and the fit is not fed a smoothed random walk
 - balanced: sample weights equalize class, chip, and session mass, so the long
   recordings and the better represented chips do not dominate
+- fp-weight: optional idle-class multiplier after balancing, analogous to High
+  Accuracy's `fp_weight`. `--fp-target` remains a real false-positive ceiling
+  on the operating-point sweep and is not this multiplier. Sequential empty-room
+  replay, not this weight, remains the export gate.
 
 Only `train` datasets are fitted. `holdout` stays sealed, `selection` is left for
 operating-point work, and `exclude` is dropped.
@@ -72,6 +76,7 @@ CPP_SOURCE = REPO_ROOT / "src" / "cpp" / "core" / "lightweight_detector.h"
 FITTED_ROLES = ("train",)
 IDLE_LABEL = 0
 MOTION_LABEL = 1
+DEFAULT_FP_WEIGHT = 1.0
 
 
 class FitError(RuntimeError):
@@ -225,6 +230,26 @@ def balanced_sample_weights(
         lookup = {value: count for value, count in zip(values, counts)}
         weights *= np.asarray([1.0 / lookup[value] for value in key], dtype=np.float64)
     return weights * (len(y) / weights.sum())
+
+
+def apply_idle_fp_weight(
+    weights: np.ndarray,
+    y: np.ndarray,
+    fp_weight: float,
+) -> np.ndarray:
+    """Scale idle mass after balancing so false positives cost more in the fit.
+
+    This is the Lightweight counterpart of High Accuracy's class-0 `fp_weight`.
+    The operating-point sweep does not use it: `--fp-target` is a real
+    false-positive ceiling, not a loss multiplier.
+    """
+    if fp_weight == 1.0:
+        return weights
+    if fp_weight <= 0.0:
+        raise FitError(f"fp_weight must be positive, got {fp_weight}")
+    adjusted = np.array(weights, dtype=np.float64, copy=True)
+    adjusted[y == IDLE_LABEL] *= float(fp_weight)
+    return adjusted
 
 
 def fit_coefficients(
@@ -512,6 +537,15 @@ def main() -> int:
     parser.add_argument("--splits", type=int, default=5, help="grouped OOF folds (default: 5)")
     parser.add_argument("--fp-target", type=float, default=3.0,
                         help="false-positive ceiling for the operating point (default: 3.0)")
+    parser.add_argument(
+        "--fp-weight",
+        type=float,
+        default=DEFAULT_FP_WEIGHT,
+        help=(
+            "idle-class multiplier for the coefficient fit after balancing "
+            f"(default: {DEFAULT_FP_WEIGHT}; High Accuracy uses 1.75)"
+        ),
+    )
     parser.add_argument("--min-session-recall", type=float, default=0.0,
                         help="reject operating points whose worst single session falls below "
                              "this recall (default: 0.0, report only)")
@@ -531,7 +565,8 @@ def main() -> int:
     pairs = iter_training_pairs()
     print(
         f"Fitting Lightweight on {len(pairs)} train pairs "
-        f"(band={selected_band}, window={config.SEGMENTATION_WINDOW_SIZE_MS} ms)"
+        f"(band={selected_band}, window={config.SEGMENTATION_WINDOW_SIZE_MS} ms, "
+        f"fp_weight={args.fp_weight})"
     )
     corpus = build_corpus(pairs, selected_band, progress=not args.quiet)
 
@@ -548,8 +583,12 @@ def main() -> int:
     # share no packets; the operating point is swept over every evaluation
     # below, because that is the cadence the runtime thresholds at.
     fit_x, fit_y = x[deoverlapped], y[deoverlapped]
-    fit_weights = balanced_sample_weights(
-        fit_y, corpus["chip"][deoverlapped], corpus["session"][deoverlapped]
+    fit_weights = apply_idle_fp_weight(
+        balanced_sample_weights(
+            fit_y, corpus["chip"][deoverlapped], corpus["session"][deoverlapped]
+        ),
+        fit_y,
+        args.fp_weight,
     )
     coefficients = fit_coefficients(fit_x, fit_y, fit_weights)
 

@@ -18,8 +18,9 @@ Use a fixed temporal slot grid before feature processing:
 - `csi_traffic_mode` alone selects internal, external, paced, or disabled traffic ownership;
 - `window_slots = ceil(csi_target_pps * segmentation_window_size_ms / 1000)`;
 - the minimum valid occupancy is four fifths of `window_slots`, rounded up, with the ratio defined once in each production language;
-- at most one packet is admitted per slot, and excess packets in the same slot are discarded before feature processing;
-- duplicate, backward, and stale packets are rejected, timestamp wrap is handled explicitly, and a gap spanning a detector window invalidates temporal history;
+- at most one packet is admitted per slot; the sampler retains the candidate nearest the slot center until a packet reaches a later slot, and counts every other same-slot candidate as excess;
+- the minimum distance between consecutive admitted candidates is half a target slot, derived from `csi_target_pps`, so candidates on opposite sides of a boundary cannot create an arbitrarily short detector interval;
+- duplicate, backward, and stale packets are rejected, timestamp wrap is handled explicitly, and a gap spanning a detector window invalidates temporal history immediately, even while the first post-gap candidate remains pending until a later slot or an explicit flush;
 - missing slots remain missing: statistics use valid samples, while lagged and adjacent features use only pairs at their exact slot offsets;
 - evaluation and startup calibration consume the same admitted stream;
 - detector instances and slot capacity remain fixed until an explicit configuration or detector-profile change; measured receive rate never reconstructs a detector;
@@ -28,6 +29,8 @@ Use a fixed temporal slot grid before feature processing:
 - adaptive traffic control is opt-in and observes pre-admission capture supply, never the sampler output.
 
 Python has one MicroPython-compatible production implementation in `src/python/micro_espectre/temporal_csi_sampler.py`. Micro-ESPectre, collector, replay, training, validation, and integration tests import it directly. C++ has one frontend-agnostic production implementation in `src/cpp/core/temporal_csi_sampler.h` and `.cpp`; runtime, replay support, benchmarks, utilities, and integration tests reuse it directly. Detector-only unit tests may supply already-admitted samples, but runtime-equivalence and performance gates must use timestamped production admission. Identical timestamp sequences must produce identical Python and C++ decisions and counters.
+
+Closing a slot is driven by the next packet timestamp, not by the processing-loop wall clock. The live runtime therefore keeps one fixed payload buffer for the current candidate; when a later-slot packet arrives, the previous payload is consumed before the current packet can replace the buffer. MicroPython uses two preallocated payload arrays for the same transition. Finite replay and controlled shutdown may explicitly flush the last buffered candidate.
 
 Streamer firmware continues to transport raw timestamped CSI under collector-owned pacing. The collector's `--pps` value supplies the target for its live detector and derived sensing view without changing raw capture or pacing-credit semantics.
 
@@ -64,6 +67,7 @@ Trade-offs:
 - detectors must track missing-slot validity in addition to feature values;
 - datasets without trustworthy timestamps cannot claim exact runtime parity;
 - target-rate changes require an explicit sampler and detector reset; and
+- detection receives the selected payload with a delay of at most one active slot, while one fixed CSI payload remains buffered;
 - the C++ and MicroPython implementations require a deterministic parity gate.
 
 ## Related

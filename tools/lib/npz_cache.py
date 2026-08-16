@@ -505,8 +505,10 @@ def _replay_policy_source_manifests() -> dict[str, Any]:
     manifests: dict[str, Any] = {}
     sources = {
         "python_runtime_policy": python_src_dir() / "runtime_policy.py",
+        "python_temporal_csi_sampler": python_src_dir() / "temporal_csi_sampler.py",
         "host_dataset_metadata": repo_root() / "tools" / "lib" / "dataset_metadata.py",
         "host_classic_replay": repo_root() / "tools" / "lib" / "performance_report.py",
+        "host_temporal_replay": repo_root() / "tools" / "lib" / "temporal_replay.py",
     }
     for name, path in sources.items():
         if path.exists():

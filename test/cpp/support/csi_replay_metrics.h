@@ -46,6 +46,33 @@ struct ReplayMetrics {
   float f1{0.0f};
 };
 
+struct SelectedReplayPacket {
+  int index{-1};
+  uint32_t timestamp_us{0U};
+};
+
+inline bool select_replay_packet(TemporalCsiSampler& sampler,
+                                 int packet_index,
+                                 uint32_t timestamp_us,
+                                 SelectedReplayPacket& pending,
+                                 SelectedReplayPacket& selected) {
+  const bool emitted = sampler.admit(timestamp_us);
+  if (emitted) selected = pending;
+  if (sampler.selected_current()) {
+    pending = {packet_index, timestamp_us};
+  }
+  return emitted;
+}
+
+inline bool flush_replay_packet(TemporalCsiSampler& sampler,
+                                SelectedReplayPacket& pending,
+                                SelectedReplayPacket& selected) {
+  if (!sampler.flush()) return false;
+  selected = pending;
+  pending = {};
+  return true;
+}
+
 inline uint64_t packet_timestamp_us(const ReplayPacketMetadata& metadata,
                                     int packet_index,
                                     uint32_t nominal_interval_us) {
@@ -207,12 +234,21 @@ inline bool calibrate_lightweight_detector(
   detector.on_startup_calibration_begin();
   calibrator.begin(static_cast<uint16_t>(calibration_packets), detector.startup_gate_enabled());
 
-  for (int i = 0; i < num_baseline_packets; i++) {
-    const uint32_t timestamp_us = static_cast<uint32_t>(packet_timestamp_us(
-        baseline_metadata, i, nominal_interval_us));
-    if (!sampler.admit(timestamp_us)) {
+  SelectedReplayPacket pending;
+  SelectedReplayPacket selected;
+  for (int i = 0; i <= num_baseline_packets; i++) {
+    const bool emitted = i < num_baseline_packets
+        ? select_replay_packet(
+              sampler, i,
+              static_cast<uint32_t>(packet_timestamp_us(
+                  baseline_metadata, i, nominal_interval_us)),
+              pending, selected)
+        : flush_replay_packet(sampler, pending, selected);
+    if (!emitted) {
       continue;
     }
+    const int selected_index = selected.index;
+    const uint32_t timestamp_us = selected.timestamp_us;
     if (sampler.reset_required()) {
       detector.reset();
       detector.clear_buffer();
@@ -226,11 +262,11 @@ inline bool calibrate_lightweight_detector(
     }
     detector.set_packet_timestamp_us(timestamp_us);
     detector.process_packet(
-        baseline_packets[i],
+        baseline_packets[selected_index],
         static_cast<size_t>(pkt_size),
         selected_band,
         selected_band_size,
-        baseline_rssi != nullptr ? baseline_rssi[i] : INT8_MIN);
+        baseline_rssi != nullptr ? baseline_rssi[selected_index] : INT8_MIN);
     cadence.note_packet(static_cast<uint32_t>(
         sampler.slots_advanced() * nominal_interval_us));
     if (!cadence.should_evaluate()) {
@@ -299,12 +335,21 @@ ReplayMetrics evaluate_detector(
   int debug_contam_motion = 0;
   std::vector<bool> baseline_motion_states;
 
-  for (int i = 0; i < num_baseline_packets; i++) {
-    const uint32_t timestamp_us = static_cast<uint32_t>(packet_timestamp_us(
-        baseline_metadata, i, nominal_interval_us));
-    if (!sampler.admit(timestamp_us)) {
+  SelectedReplayPacket pending;
+  SelectedReplayPacket selected;
+  for (int i = 0; i <= num_baseline_packets; i++) {
+    const bool emitted = i < num_baseline_packets
+        ? select_replay_packet(
+              sampler, i,
+              static_cast<uint32_t>(packet_timestamp_us(
+                  baseline_metadata, i, nominal_interval_us)),
+              pending, selected)
+        : flush_replay_packet(sampler, pending, selected);
+    if (!emitted) {
       continue;
     }
+    const int selected_index = selected.index;
+    const uint32_t timestamp_us = selected.timestamp_us;
     if (sampler.reset_required()) {
       debug_contam_base++;
       detector.reset();
@@ -318,11 +363,11 @@ ReplayMetrics evaluate_detector(
     }
     detector.set_packet_timestamp_us(timestamp_us);
     detector.process_packet(
-        baseline_packets[i],
+        baseline_packets[selected_index],
         static_cast<size_t>(pkt_size),
         selected_band,
         selected_band_size,
-        baseline_rssi != nullptr ? baseline_rssi[i] : INT8_MIN);
+        baseline_rssi != nullptr ? baseline_rssi[selected_index] : INT8_MIN);
     packets_since_reset = static_cast<int>(std::min<uint64_t>(
         sampler.current_slot() + 1U, INT_MAX));
     cadence.note_packet(static_cast<uint32_t>(
@@ -347,14 +392,23 @@ ReplayMetrics evaluate_detector(
   // admission grid while retaining the detector state used by paired replay.
   sampler = TemporalCsiSampler(
       replay_target_pps, RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_DEFAULT);
+  pending = {};
+  selected = {};
   cadence.reset();
   packets_since_reset = 0;
-  for (int i = 0; i < num_motion_packets; i++) {
-    const uint32_t timestamp_us = static_cast<uint32_t>(packet_timestamp_us(
-        motion_metadata, i, nominal_interval_us));
-    if (!sampler.admit(timestamp_us)) {
+  for (int i = 0; i <= num_motion_packets; i++) {
+    const bool emitted = i < num_motion_packets
+        ? select_replay_packet(
+              sampler, i,
+              static_cast<uint32_t>(packet_timestamp_us(
+                  motion_metadata, i, nominal_interval_us)),
+              pending, selected)
+        : flush_replay_packet(sampler, pending, selected);
+    if (!emitted) {
       continue;
     }
+    const int selected_index = selected.index;
+    const uint32_t timestamp_us = selected.timestamp_us;
     if (sampler.reset_required()) {
       debug_contam_motion++;
       detector.reset();
@@ -368,11 +422,11 @@ ReplayMetrics evaluate_detector(
     }
     detector.set_packet_timestamp_us(timestamp_us);
     detector.process_packet(
-        motion_packets[i],
+        motion_packets[selected_index],
         static_cast<size_t>(pkt_size),
         selected_band,
         selected_band_size,
-        motion_rssi != nullptr ? motion_rssi[i] : INT8_MIN);
+        motion_rssi != nullptr ? motion_rssi[selected_index] : INT8_MIN);
     packets_since_reset = static_cast<int>(std::min<uint64_t>(
         sampler.current_slot() + 1U, INT_MAX));
     cadence.note_packet(static_cast<uint32_t>(

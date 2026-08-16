@@ -1738,7 +1738,9 @@ def replay_idle_stream(
         if not should_evaluate:
             continue
         detector.update_state()
-        if packets_since_reset < window_size:
+        if not _is_scored_replay_evaluation(
+            detector, packets_since_reset, window_size
+        ):
             continue
         raw_motion_states.append(detector.get_state() == MotionState.MOTION)
     return raw_motion_states

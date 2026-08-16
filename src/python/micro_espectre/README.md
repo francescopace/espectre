@@ -133,7 +133,7 @@ MOTION_ON_HITS = 4
 MOTION_OFF_HITS = 3
 ```
 
-`CSI_TARGET_PPS` defines both the temporal detector grid and the internal generator target. `TRAFFIC_GENERATOR_ENABLED` selects traffic ownership independently; the target is always positive. The production `TemporalCsiSampler` admits one packet per slot, preserves missing slots, and is imported unchanged by CPython collection, replay, training, and validation workflows.
+`CSI_TARGET_PPS` defines both the temporal detector grid and the internal generator target. `TRAFFIC_GENERATOR_ENABLED` selects traffic ownership independently; the target is always positive. The production `TemporalCsiSampler` retains the packet nearest each slot center, enforces a half-slot minimum spacing derived from the target, preserves missing slots, and is imported unchanged by CPython collection, replay, training, and validation workflows. The live loop uses two fixed CSI payload buffers so the previous slot can be emitted while the current candidate is retained without hot-path allocation.
 
 Lightweight selects its threshold automatically during startup calibration; keep the room quiet immediately after boot. High Accuracy uses its trained default threshold. Both thresholds remain adjustable at runtime. For the practical startup workflow, see [TUNING.md](../../../docs/TUNING.md). For the calibration formulas and detector theory, see [ALGORITHMS.md](../../../docs/ALGORITHMS.md).
 

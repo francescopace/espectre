@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-13
-- Updated: 2026-08-13
+- Updated: 2026-08-16
 
 ## Context
 
@@ -46,6 +46,7 @@ Detailed feature evidence belongs in [`FEATURES.md`](../FEATURES.md). The cumula
 | 2026-07-30 | Fuse turbulence autocorrelation with offset-2/12 frequency coherence | Established the complex coherence family |
 | 2026-08-12 | Use offset-4/12 frequency coherence | Reduced pair work and improved its quiet tail |
 | 2026-08-13 | Replace complex coherence with aggregated turbulence IQR | Current production definition |
+| 2026-08-16 | Refit coefficients on temporal-admission windows, including High Accuracy's idle `fp_weight=1.75` | Rejected; both refits raised one sequential S3 empty-room alarm that the exported coefficients still clear |
 
 ## Validation
 

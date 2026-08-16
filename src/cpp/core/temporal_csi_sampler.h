@@ -17,6 +17,7 @@ namespace espectre {
 constexpr uint32_t TEMPORAL_CSI_MICROSECONDS_PER_SECOND = 1000000U;
 constexpr uint8_t TEMPORAL_CSI_MINIMUM_COVERAGE_NUMERATOR = 4U;
 constexpr uint8_t TEMPORAL_CSI_MINIMUM_COVERAGE_DENOMINATOR = 5U;
+constexpr uint8_t TEMPORAL_CSI_SLOT_HALF_DENOMINATOR = 2U;
 
 uint32_t temporal_window_slots(uint32_t target_pps, uint32_t window_size_ms);
 uint32_t temporal_minimum_valid_slots(uint32_t window_slots);
@@ -33,6 +34,7 @@ class TemporalCsiSampler {
 
   bool admit(uint32_t timestamp_us, bool has_timestamp = true,
              uint32_t now_us = 0U, bool has_now = false);
+  bool flush();
 
   uint32_t target_pps() const { return target_pps_; }
   uint32_t window_size_ms() const { return window_size_ms_; }
@@ -46,7 +48,10 @@ class TemporalCsiSampler {
   bool is_ready() const;
 
   bool accepted() const { return accepted_; }
+  bool selected_current() const { return selected_current_; }
+  bool has_pending_candidate() const { return has_pending_candidate_; }
   bool reset_required() const { return reset_required_; }
+  bool gap_reset_required() const { return gap_reset_required_; }
   uint64_t current_slot() const { return last_admitted_slot_; }
   uint64_t slots_advanced() const { return slots_advanced_; }
   uint64_t missing_slots_before() const { return missing_slots_before_; }
@@ -66,15 +71,16 @@ class TemporalCsiSampler {
 
   void clear_window_();
   bool drop_();
-  bool accept_slot_(uint64_t slot, uint64_t advanced,
-                    uint64_t missing_before);
+  bool select_candidate_(uint64_t slot, uint64_t elapsed_us,
+                         bool reset_required);
+  bool commit_candidate_();
 
   uint32_t target_pps_{100U};
   uint32_t window_size_ms_{1000U};
   uint32_t window_size_us_{1000000U};
   uint32_t window_slots_{100U};
   uint32_t minimum_valid_slots_{80U};
-  uint32_t minimum_sample_spacing_us_{8000U};
+  uint32_t minimum_sample_spacing_us_{5000U};
   std::vector<uint64_t> slot_ids_;
   uint32_t occupancy_slots_{0U};
 
@@ -85,8 +91,18 @@ class TemporalCsiSampler {
   uint64_t last_admitted_slot_{0U};
   uint64_t last_admitted_elapsed_us_{0U};
 
+  bool has_active_slot_{false};
+  uint64_t active_slot_{0U};
+  bool has_pending_candidate_{false};
+  uint64_t pending_slot_{0U};
+  uint64_t pending_elapsed_us_{0U};
+  uint64_t pending_center_error_{0U};
+  bool pending_reset_required_{false};
+
   bool accepted_{false};
+  bool selected_current_{false};
   bool reset_required_{false};
+  bool gap_reset_required_{false};
   uint64_t slots_advanced_{0U};
   uint64_t missing_slots_before_{0U};
 
