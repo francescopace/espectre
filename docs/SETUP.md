@@ -205,9 +205,8 @@ Support in this phase:
 | `segmentation_window_size_ms` | int | `1000` | `1000-2000` milliseconds; combined with `csi_target_pps` to define a fixed temporal slot window |
 | `csi_target_pps` | int | `100` | `1-500`; defines detector slot cadence and the managed-traffic target, but never enables or disables traffic |
 | `csi_traffic_mode` | `internal`, `external`, `pacing`, or `disabled` | `internal` | Selects traffic ownership independently from `csi_target_pps`; `disabled` means unmanaged ambient traffic, not disabled sensing |
-| `traffic_generator_adaptive` | bool | `false` | Opt-in adjustment of DNS or ICMP send pacing from raw CSI feedback and local socket backpressure; fixed cadence avoids treating unrelated application traffic as managed sensing supply |
 | `traffic_generator_mode` | `ping` or `dns` | `ping` | Shared internal traffic generator mode |
-| `publish_interval_ms` | int | `1000` | `100-60000` milliseconds between periodic updates |
+| `publish_interval_ms` | int | `1000` | `100-60000` milliseconds between periodic updates. On Home Assistant surfaces this is the Movement Score heartbeat; Intensity follows `evaluation_interval_ms` |
 | `evaluation_interval_ms` | int | `250` | `10-10000` milliseconds between detector evaluations |
 | `motion_on_hits` | int | `4` | `1-20` consecutive evaluation hits for `IDLE -> MOTION` (about `1.0 s` at the default `250 ms` interval) |
 | `motion_off_hits` | int | `3` | `1-20` consecutive evaluation hits for `MOTION -> IDLE` (about `0.75 s` at the same defaults) |
@@ -217,7 +216,7 @@ Support in this phase:
 | `hampel_window` | int | `7` | `3-11` samples |
 | `hampel_threshold` | float | `5.0` | `1.0-10.0` MAD units |
 
-Migration from earlier v3 snapshots: replace `traffic_generator_rate: N` with `csi_target_pps: N` plus `csi_traffic_mode: internal`. Replace the former zero-rate disable sentinel with a positive target plus `csi_traffic_mode: external` when a UDP source supplies traffic, or `disabled` when ambient traffic is intentionally unmanaged. Device internal pacing now defaults to `traffic_generator_adaptive: false`; keep `true` only as an explicit opt-in. C++ SDK integrations make the same source-level rename from `RuntimeConfig::traffic_generator_rate` to `RuntimeConfig::csi_target_pps`.
+Migration from earlier v3 snapshots: replace `traffic_generator_rate: N` with `csi_target_pps: N` plus `csi_traffic_mode: internal`. Replace the former zero-rate disable sentinel with a positive target plus `csi_traffic_mode: external` when a UDP source supplies traffic, or `disabled` when ambient traffic is intentionally unmanaged. Remove `traffic_generator_adaptive`; device internal pacing always uses the configured cadence. C++ SDK integrations make the same source-level rename from `RuntimeConfig::traffic_generator_rate` to `RuntimeConfig::csi_target_pps` and drop `RuntimeConfig::traffic_generator_adaptive`.
 
 See [TUNING.md](TUNING.md) for how evaluation cadence and hit filtering set the expected publish delay (about `1 s` for `IDLE -> MOTION` with the defaults).
 
@@ -249,15 +248,15 @@ The fixed temporal admission grid accepts at most one packet per target slot. Sa
 
 Raw rate near `csi_target_pps` does not prove that the target is usable: an AP may deliver those packets in aggregates, producing both same-slot excess and missing slots. If occupancy stays below 70%, fix the traffic source or choose a lower explicit `csi_target_pps` and revalidate detector quality at that cadence. The runtime never lowers the target automatically because doing so would silently change feature timing.
 
-| Path | Target owner | Traffic source | Detector admission | Adaptive-control input |
-|------|--------------|----------------|--------------------|------------------------|
-| Native / Matter | `CONFIG_ESPECTRE_CSI_TARGET_PPS` | `csi_traffic_mode`; internal by default | yes | raw identity-accepted CSI |
-| ESPHome | `csi_target_pps` | `csi_traffic_mode`; internal by default | yes | raw identity-accepted CSI |
-| Micro-ESPectre | `CSI_TARGET_PPS` | internal when `TRAFFIC_GENERATOR_ENABLED`, otherwise external | yes | raw CSI feedback |
-| Streamer firmware | collector `--pps` | collector pacing | no; transports raw timestamped CSI | stream delivery and TX backpressure |
-| Collector detector, replay, training, and validation | recorded `csi_target_pps`, collector `--pps`, or a documented legacy fallback | recorded raw stream | yes, through the production Micro-ESPectre sampler | not applicable |
+| Path | Target owner | Traffic source | Detector admission | Pacing notes |
+|------|--------------|----------------|--------------------|--------------|
+| Native / Matter | `CONFIG_ESPECTRE_CSI_TARGET_PPS` | `csi_traffic_mode`; internal by default | yes | fixed send cadence; local socket backoff only |
+| ESPHome | `csi_target_pps` | `csi_traffic_mode`; internal by default | yes | fixed send cadence; local socket backoff only |
+| Micro-ESPectre | `CSI_TARGET_PPS` | internal when `TRAFFIC_GENERATOR_ENABLED`, otherwise external | yes | fixed send cadence; local socket backoff only |
+| Streamer firmware | collector `--pps` | collector pacing | no; transports raw timestamped CSI | none on device; host collect owns pacing |
+| Collector detector, replay, training, and validation | recorded `csi_target_pps`, collector `--pps`, or a documented legacy fallback | recorded raw stream | yes, through the production Micro-ESPectre sampler | collect slows only on TX backpressure; occupancy is telemetry |
 
-Streamer remains collector-paced and preserves raw CSI. The collector applies the same production temporal admission only to its live detector and derived sensing view, so pacing credits, raw capture, and backpressure behavior remain independent from detector occupancy.
+Streamer remains collector-paced and preserves raw CSI. The collector applies the same production temporal admission to its live detector and derived sensing view. Host collect slows only on sustained firmware TX backpressure and recovers toward `--pps`; `--fixed` keeps a constant send rate. Occupancy remains telemetry. Firmware pacing credits and raw capture stay independent from the detector grid.
 
 If you are tuning `csi_target_pps`, thresholds, or filters, use [TUNING.md](TUNING.md) for the rationale and the frontend README for the configuration syntax.
 

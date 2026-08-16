@@ -2062,7 +2062,7 @@ def test_collect_live_keeps_fixed_pacing_with_fixed_flag(monkeypatch, capsys) ->
     output = capsys.readouterr().out
     assert FakePacingSender.last_instance is not None
     assert FakePacingSender.last_instance.rate_updates == []
-    assert "bp:active(+4)" in output
+    assert "bp:active(+9)" in output
     assert "Pps:" in output and "(fixed)" in output
 
 
@@ -2135,9 +2135,9 @@ def test_collect_live_adapts_pacing_from_backpressure_feedback(monkeypatch, caps
 
     output = capsys.readouterr().out
     assert FakePacingSender.last_instance is not None
-    assert FakePacingSender.last_instance.rate_updates == pytest.approx([85.0, 87.0, 89.0])
-    assert "bp:active(+6)" in output
-    assert "Pps:" in output and "(adaptive)" in output
+    assert FakePacingSender.last_instance.rate_updates == pytest.approx([85.0])
+    assert "bp:active(+12)" in output
+    assert "Pps:" in output and "(backpressure)" in output
 
 
 def test_collect_live_sets_detector_window_from_pps(monkeypatch, capsys) -> None:

@@ -522,27 +522,20 @@ class UdpPacingSender:
 
 
 class AdaptivePacingController:
-    """Track firmware stream telemetry and optionally adjust pacing.
+    """Slow collector UDP pacing only on sustained firmware TX backpressure.
 
-    Two chip-independent control behaviors on top of the requested target:
-
-    - backpressure: significant device TX backpressure lowers pacing in spaced
-      multiplicative steps with a floor at 70% of the target, then recovers.
-    - delivery targeting: when records delivered to the collector fall short of
-      the target while the device converts received pacing into fresh CSI
-      cleanly (path loss, e.g. broadcast pacing without retries), pacing rises
-      above the target up to ``max_boost_ratio`` to compensate, trims back
-      once delivery overshoots, and is revoked outright when the fresh ratio
-      degrades while above target. A low fresh ratio means the deficit is on
-      the device/AP side (aggregation, rate downshift), where extra pacing
-      would not help, so the controller holds instead. Callers enable this
-      behavior only for group-addressed pacing via ``boost_allowed``.
+    The configured ``--pps`` value stays the detector slot grid and the send
+    target. Occupancy and same-slot excess remain telemetry. When enabled,
+    significant device TX backpressure lowers pacing in spaced multiplicative
+    steps with a floor at 70% of the target, then recovers toward ``--pps``.
+    ``enabled=False`` (``--fixed``) keeps a constant send rate.
     """
 
-    # Single-window delivery ratios carry the binomial noise of a lossy,
-    # unacknowledged path; delivery targeting acts on an EMA of the ratio so
-    # the pacing rate settles instead of chasing per-window RF variance.
     DEFAULT_RECEIVE_RATIO_EMA_ALPHA = 0.5
+    PACING_FLOOR_RATIO = 0.70
+    REDUCTION_RATIO = 0.85
+    BACKPRESSURE_RATIO = 0.05
+    MIN_BACKPRESSURE_EVENTS = 3
 
     def __init__(
         self,
@@ -552,8 +545,6 @@ class AdaptivePacingController:
         min_pps: Optional[float] = None,
         additive_step_pps: Optional[float] = None,
         control_window_s: float = 1.0,
-        max_boost_ratio: float = 1.5,
-        boost_allowed: bool = True,
         receive_ratio_ema_alpha: float = DEFAULT_RECEIVE_RATIO_EMA_ALPHA,
     ):
         initial_pps = float(initial_pps)
@@ -565,14 +556,9 @@ class AdaptivePacingController:
         if not 0.0 < receive_ratio_ema_alpha <= 1.0:
             raise ValueError(f"receive_ratio_ema_alpha must be in the (0, 1] range, got {receive_ratio_ema_alpha}")
         self.enabled = bool(enabled)
-        # Unicast pacing is MAC-retransmitted, so a delivery deficit there is
-        # almost always device-side (aggregation, rate downshift), where extra
-        # pacing does not help; callers enable boosting only for group-addressed
-        # (broadcast/multicast) pacing, whose loss is retry-less by design.
-        self.boost_allowed = bool(boost_allowed)
         self.current_pps = initial_pps
         self.target_pps = initial_pps
-        self.max_pps = initial_pps * max(1.0, float(max_boost_ratio))
+        self.max_pps = initial_pps
         self.min_pps = min_pps
         self.additive_step_pps = additive_step_pps
         self.control_window_s = max(0.1, float(control_window_s))
@@ -584,6 +570,9 @@ class AdaptivePacingController:
         self.last_window_receive_ratio: Optional[float] = None
         self.smoothed_receive_ratio: Optional[float] = None
         self.last_window_fresh_ratio: Optional[float] = None
+        self.last_window_receive_pps: Optional[float] = None
+        self.last_window_admitted_pps: Optional[float] = None
+        self.last_window_excess_pps: Optional[float] = None
         self.last_action = "hold"
 
     def observe_device(
@@ -620,6 +609,45 @@ class AdaptivePacingController:
                 )
             device_state["pacing_rx_total"] = rx_total
 
+    @staticmethod
+    def _occupancy_totals(device_state: Dict[str, Any]) -> Optional[Tuple[int, int]]:
+        sampler = None
+        temporal_controller = device_state.get("temporal_controller")
+        if temporal_controller is not None:
+            sampler = getattr(temporal_controller, "sampler", None)
+        if sampler is None:
+            detector = device_state.get("detector")
+            if detector is not None:
+                sampler = getattr(detector, "temporal_sampler", None)
+        if sampler is not None:
+            return (
+                int(getattr(sampler, "accepted_packets", 0) or 0),
+                int(getattr(sampler, "excess_packets", 0) or 0),
+            )
+        if "admitted_packets" not in device_state and "excess_packets" not in device_state:
+            return None
+        return (
+            int(device_state.get("admitted_packets", 0) or 0),
+            int(device_state.get("excess_packets", 0) or 0),
+        )
+
+    @staticmethod
+    def _baseline_occupancy(device_state: Dict[str, Any]) -> None:
+        occupancy_totals = AdaptivePacingController._occupancy_totals(device_state)
+        if occupancy_totals is None:
+            device_state.pop("adaptive_prev_admitted_total", None)
+            device_state.pop("adaptive_prev_excess_total", None)
+            return
+        device_state["adaptive_prev_admitted_total"] = occupancy_totals[0]
+        device_state["adaptive_prev_excess_total"] = occupancy_totals[1]
+
+    def _pacing_floor_pps(self) -> float:
+        return max(self.min_pps, self.target_pps * self.PACING_FLOOR_RATIO)
+
+    def _settling(self, now: float) -> bool:
+        settle_time_s = self.control_window_s * 3.0
+        return self.backpressure_adjust_at is not None and now - self.backpressure_adjust_at < settle_time_s
+
     def _apply_pacing_rate(self, new_pps: float, *, action: str, pacing_sender: Any) -> None:
         clamped_pps = max(self.min_pps, min(self.max_pps, float(new_pps)))
         if abs(clamped_pps - self.current_pps) < 1e-9:
@@ -637,6 +665,7 @@ class AdaptivePacingController:
             self.last_control_at = now
             for device_state in device_states.values():
                 device_state["adaptive_prev_packet_total"] = int(device_state.get("packet_count", 0) or 0)
+                self._baseline_occupancy(device_state)
             return
         elapsed_window_s = now - self.last_control_at
         if elapsed_window_s < self.control_window_s:
@@ -644,10 +673,14 @@ class AdaptivePacingController:
 
         worst_delta = 0
         tracked_devices = 0
+        occupancy_seen = False
         worst_sources: List[str] = []
         target_packets = max(self.target_pps * elapsed_window_s, 1.0)
         lowest_receive_ratio: Optional[float] = None
         lowest_fresh_ratio: Optional[float] = None
+        lowest_receive_pps: Optional[float] = None
+        lowest_admitted_pps: Optional[float] = None
+        highest_excess_pps = 0.0
         for device_state in device_states.values():
             window_delta = int(device_state.get("tx_backpressure_window_delta", 0) or 0)
             device_state["tx_backpressure_last_delta"] = window_delta
@@ -660,6 +693,33 @@ class AdaptivePacingController:
                 receive_delta = packet_total - int(previous_packet_total)
             device_state["adaptive_prev_packet_total"] = packet_total
             device_state["receive_window_last_delta"] = receive_delta
+            receive_pps = receive_delta / elapsed_window_s
+            if lowest_receive_pps is None or receive_pps < lowest_receive_pps:
+                lowest_receive_pps = receive_pps
+
+            occupancy_totals = self._occupancy_totals(device_state)
+            if occupancy_totals is None:
+                device_state.pop("adaptive_prev_admitted_total", None)
+                device_state.pop("adaptive_prev_excess_total", None)
+            else:
+                admitted_total, excess_total = occupancy_totals
+                previous_admitted_total = device_state.get("adaptive_prev_admitted_total")
+                previous_excess_total = device_state.get("adaptive_prev_excess_total")
+                admitted_delta = 0
+                excess_delta = 0
+                if previous_admitted_total is not None and admitted_total >= int(previous_admitted_total):
+                    admitted_delta = admitted_total - int(previous_admitted_total)
+                if previous_excess_total is not None and excess_total >= int(previous_excess_total):
+                    excess_delta = excess_total - int(previous_excess_total)
+                device_state["adaptive_prev_admitted_total"] = admitted_total
+                device_state["adaptive_prev_excess_total"] = excess_total
+                occupancy_seen = True
+                admitted_pps = admitted_delta / elapsed_window_s
+                excess_pps = excess_delta / elapsed_window_s
+                if lowest_admitted_pps is None or admitted_pps < lowest_admitted_pps:
+                    lowest_admitted_pps = admitted_pps
+                if excess_pps > highest_excess_pps:
+                    highest_excess_pps = excess_pps
 
             fresh_delta = int(device_state.get("stream_fresh_window_delta", 0) or 0)
             pacing_delta = int(device_state.get("pacing_rx_window_delta", 0) or 0)
@@ -681,6 +741,9 @@ class AdaptivePacingController:
         self.last_control_at = now
         self.last_window_backpressure_delta = worst_delta
         self.last_window_backpressure_source = worst_sources[0] if worst_sources else None
+        self.last_window_receive_pps = lowest_receive_pps
+        self.last_window_admitted_pps = lowest_admitted_pps if occupancy_seen else None
+        self.last_window_excess_pps = highest_excess_pps if occupancy_seen else None
         if tracked_devices > 0:
             for device_state in device_states.values():
                 receive_delta = int(device_state.get("receive_window_last_delta", 0) or 0)
@@ -702,20 +765,22 @@ class AdaptivePacingController:
             self.last_action = "hold"
             return
 
-        backpressure_threshold = max(3, math.ceil(target_packets * 0.05))
+        backpressure_threshold = max(
+            self.MIN_BACKPRESSURE_EVENTS,
+            math.ceil(target_packets * self.BACKPRESSURE_RATIO),
+        )
         significant_backpressure = worst_delta >= backpressure_threshold
         if significant_backpressure:
-            settle_time_s = self.control_window_s * 3.0
-            if self.backpressure_adjust_at is not None and now - self.backpressure_adjust_at < settle_time_s:
+            if self._settling(now):
                 self.last_action = "backpressure_hold"
                 return
-            pacing_floor_pps = max(self.min_pps, self.target_pps * 0.70)
+            pacing_floor_pps = self._pacing_floor_pps()
             if self.current_pps <= pacing_floor_pps:
                 self.last_action = "backpressure_floor"
                 self.backpressure_adjust_at = now
                 return
             self._apply_pacing_rate(
-                max(pacing_floor_pps, self.current_pps * 0.85),
+                max(pacing_floor_pps, self.current_pps * self.REDUCTION_RATIO),
                 action="slowdown",
                 pacing_sender=pacing_sender,
             )
@@ -723,8 +788,7 @@ class AdaptivePacingController:
             return
 
         if self.current_pps < self.target_pps:
-            settle_time_s = self.control_window_s * 3.0
-            if self.backpressure_adjust_at is not None and now - self.backpressure_adjust_at < settle_time_s:
+            if self._settling(now):
                 self.last_action = "recovery_hold"
                 return
             self._apply_pacing_rate(
@@ -733,48 +797,6 @@ class AdaptivePacingController:
                 pacing_sender=pacing_sender,
             )
             return
-
-        # Delivery targeting: only with a fully healthy device (zero
-        # backpressure this window, fresh ratio near 1) and outside the
-        # post-backpressure settle window, so it can never fight the
-        # protective slowdown or chase device-side CSI deficits.
-        if self.boost_allowed and worst_delta == 0 and self.smoothed_receive_ratio is not None:
-            settle_time_s = self.control_window_s * 3.0
-            settled = self.backpressure_adjust_at is None or now - self.backpressure_adjust_at >= settle_time_s
-            fresh_healthy = lowest_fresh_ratio is not None and lowest_fresh_ratio >= 0.90
-            fresh_degraded = lowest_fresh_ratio is not None and lowest_fresh_ratio < 0.85
-            if settled and fresh_degraded and self.current_pps > self.target_pps:
-                # The boost premise no longer holds: above-target pacing can
-                # itself starve CSI conversion (for example HT frame
-                # aggregation), so fall straight back to the requested target
-                # instead of holding the harmful rate. The 0.85/0.90 gap keeps
-                # boost and revoke from flapping on one noisy window.
-                self._apply_pacing_rate(
-                    self.target_pps,
-                    action="boost_revoke",
-                    pacing_sender=pacing_sender,
-                )
-                return
-            if settled and fresh_healthy:
-                receive_ratio = self.smoothed_receive_ratio
-                if receive_ratio < 0.95 and self.current_pps < self.max_pps:
-                    deficit_pps = (1.0 - receive_ratio) * self.target_pps
-                    step_pps = min(max(self.additive_step_pps, deficit_pps * 0.5), self.target_pps * 0.10)
-                    self._apply_pacing_rate(
-                        self.current_pps + step_pps,
-                        action="boost",
-                        pacing_sender=pacing_sender,
-                    )
-                    return
-                if receive_ratio > 1.05 and self.current_pps > self.target_pps:
-                    surplus_pps = (receive_ratio - 1.0) * self.target_pps
-                    step_pps = min(max(self.additive_step_pps, surplus_pps * 0.5), self.target_pps * 0.10)
-                    self._apply_pacing_rate(
-                        max(self.current_pps - step_pps, self.target_pps),
-                        action="trim",
-                        pacing_sender=pacing_sender,
-                    )
-                    return
         self.last_action = "hold"
 
 
@@ -2046,7 +2068,7 @@ class CSICollector:
                 print("  Ready gate:          disabled")
             else:
                 print(f"  Ready gate:          implicit ({ready_stable_seconds:.1f}s stable)")
-            print(f"  Pacing mode:         {'adaptive' if adaptive else 'fixed'}")
+            print(f"  Pacing mode:         {'backpressure' if adaptive else 'fixed'}")
             print(f'{"=" * 60}\n')
         self.receiver.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.receiver.sock.bind((self.receiver.bind_host, self.port))

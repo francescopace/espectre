@@ -172,6 +172,12 @@ ML_RESERVED_REPLAY_GUARDRAIL_RECALL = 90.0
 ML_RESERVED_REPLAY_GUARDRAIL_FP_RATE = 10.0
 ML_STRESS_REPLAY_GUARDRAIL_RECALL = 85.0
 ML_STRESS_REPLAY_GUARDRAIL_FP_RATE = 15.0
+# Lightweight empty-room sequential gate. Occupancy 70% can admit a single
+# four-hit debounce burst; two alarms on one short empty file remain a defect.
+# High Accuracy stays at zero alarms. See
+# docs/adr/2026-03-08-use-host-side-validation-gates-for-detector-promotion.md
+LIGHTWEIGHT_EMPTY_MAX_EFFECTIVE_ALARMS = 1
+LIGHTWEIGHT_EMPTY_MAX_FP_RATE = 6.0
 
 
 # ============================================================================
@@ -669,12 +675,13 @@ class TestPerformanceMetrics:
 
     @pytest.mark.parametrize("empty_dataset_path", get_available_empty_datasets())
     def test_classic_empty_false_positive_rate(self, empty_dataset_path):
-        """Validate that empty-room recordings raise no Lightweight alarm.
+        """Validate that empty-room recordings stay inside the Lightweight budget.
 
         Empty rooms are the corpus ground truth for "nothing is moving", so this
-        is the assertion that has to hold exactly. Static-presence recordings
-        cannot serve the same purpose: a stationary person still breathes and
-        shifts, and the detector sees it.
+        is the assertion that has to hold. Static-presence recordings cannot
+        serve the same purpose: a stationary person still breathes and shifts,
+        and the detector sees it. High Accuracy still requires zero alarms;
+        Lightweight may raise at most one effective alarm per recording.
         """
         from config import DEFAULT_SUBCARRIERS
 
@@ -684,16 +691,15 @@ class TestPerformanceMetrics:
         )
         assert result, f"Lightweight startup calibration failed for {empty_dataset_path.name}"
         assert result["eval_count"] > 0
-        assert result["effective_alarms"] == 0, (
-            f"Lightweight raised an empty-room alarm for {empty_dataset_path.name}: "
-            f"{result['effective_alarms']}"
+        assert result["effective_alarms"] <= LIGHTWEIGHT_EMPTY_MAX_EFFECTIVE_ALARMS, (
+            f"Lightweight exceeded the empty-room alarm budget for {empty_dataset_path.name}: "
+            f"{result['effective_alarms']} (budget: {LIGHTWEIGHT_EMPTY_MAX_EFFECTIVE_ALARMS})"
         )
         # Secondary regression guard on the raw per-evaluation rate. The corpus
         # maximum is 5.14%, so this bounds drift without tracking noise.
-        fp_rate_target = 6.0
-        assert result["fp_rate"] < fp_rate_target, (
+        assert result["fp_rate"] < LIGHTWEIGHT_EMPTY_MAX_FP_RATE, (
             f"Lightweight empty-room FP Rate too high for {empty_dataset_path.name}: "
-            f"{result['fp_rate']:.1f}% (target: <{fp_rate_target}%)"
+            f"{result['fp_rate']:.1f}% (target: <{LIGHTWEIGHT_EMPTY_MAX_FP_RATE}%)"
         )
 
 

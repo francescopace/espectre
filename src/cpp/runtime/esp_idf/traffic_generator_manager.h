@@ -1,9 +1,9 @@
 /*
  * ESPectre - Traffic Generator Manager
  *
- * Generates paced Wi-Fi traffic to the gateway and adapts the send rate from
- * valid local CSI feedback. Scheduling and recovery are shared by the DNS and
- * ICMP protocol backends.
+ * Generates paced Wi-Fi traffic to the gateway at the configured CSI target.
+ * Scheduling, local send backoff, and stall logging are shared by the DNS and
+ * ICMP protocol backends. Occupancy never changes the send rate.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -17,7 +17,6 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "traffic_rate_controller.h"
 
 namespace espectre {
 
@@ -44,9 +43,7 @@ enum class TrafficGeneratorMode {
 
 class TrafficGeneratorManager {
  public:
-  void init(uint32_t target_pps,
-            TrafficGeneratorMode mode = TrafficGeneratorMode::PING,
-            bool adaptive_enabled = true);
+  void init(uint32_t target_pps, TrafficGeneratorMode mode = TrafficGeneratorMode::PING);
 
   bool start(uint32_t gateway_addr);
   void loop();
@@ -57,14 +54,8 @@ class TrafficGeneratorManager {
   void resume();
   bool is_paused() const { return paused_.load(std::memory_order_relaxed); }
 
-  void observe_accepted_csi(uint64_t accepted_csi_total) {
-    accepted_csi_total_.store(accepted_csi_total, std::memory_order_relaxed);
-  }
-
-  uint32_t target_rate_pps() const { return rate_controller_.target_pps(); }
+  uint32_t target_rate_pps() const { return target_pps_; }
   uint32_t current_rate_pps() const { return current_rate_pps_.load(std::memory_order_relaxed); }
-  uint32_t observed_csi_pps() const { return rate_controller_.observed_pps(); }
-  bool adaptive_enabled() const { return rate_controller_.adaptive_enabled(); }
   uint32_t send_success_count() const { return send_success_count_.load(std::memory_order_relaxed); }
   uint32_t send_error_count() const { return send_error_count_.load(std::memory_order_relaxed); }
 
@@ -75,10 +66,9 @@ class TrafficGeneratorManager {
   TaskHandle_t task_handle_{nullptr};
   int sock_{-1};
   uint32_t gateway_addr_{0U};
+  uint32_t target_pps_{0U};
   TrafficGeneratorMode mode_{TrafficGeneratorMode::PING};
-  TrafficRateController rate_controller_;
   std::atomic<uint32_t> current_rate_pps_{0U};
-  std::atomic<uint64_t> accepted_csi_total_{0U};
   std::atomic<bool> running_{false};
   std::atomic<bool> paused_{false};
   std::atomic<bool> task_exited_{true};

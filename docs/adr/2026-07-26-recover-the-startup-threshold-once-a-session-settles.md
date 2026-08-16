@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-26
+- Updated: 2026-08-16
 
 ## Context
 
@@ -21,9 +22,9 @@ Everything that acted inside the prefix failed. Raising the startup shift streng
 
 Let the runtime lower the threshold once a session has demonstrated, over a long stretch, that it runs quieter than its opening.
 
-Every `CLASSIC_SETTLE_BLOCK_EVALUATIONS` evaluations the detector records the maximum metric logit in that block and keeps the last `CLASSIC_SETTLE_BLOCKS` of them. Once the ring is full it takes the median of those maxima as the level the session has settled at. If that level plus `CLASSIC_SETTLE_MARGIN_LOGITS` converts to a probability below the live threshold, the threshold drops to it.
+Every `LIGHTWEIGHT_SETTLE_BLOCK_EVALUATIONS` evaluations the detector records the maximum metric logit in that block and keeps the last `LIGHTWEIGHT_SETTLE_BLOCKS` of them. Once the ring is full it takes the median of those maxima as the level the session has settled at. If that level plus `LIGHTWEIGHT_SETTLE_MARGIN_LOGITS` converts to a probability below the live threshold, the threshold drops to it.
 
-`12` blocks of `20` evaluations is a `60 s` dwell at the nominal cadence, and the margin is `3.0` logits.
+`12` blocks of `20` evaluations is a `60 s` dwell at the nominal cadence, and the margin is `2.7` logits.
 
 Three properties carry the safety, and none of them is a tuning choice:
 
@@ -32,6 +33,15 @@ Three properties carry the safety, and none of them is a tuning choice:
 3. **Median of block maxima.** A single spike cannot pull the level down, and a single quiet block cannot either.
 
 The evidence is dropped on every restart: `reset()`, `clear_buffer()`, `on_startup_calibration_begin()`, and `set_adaptive_threshold()` all clear it, so a contaminated stream or a fresh calibration has to earn the lowering again.
+
+## Decision History
+
+| Date | Direction | Resolution |
+| --- | --- | --- |
+| 2026-07-26 | Recover the startup threshold from a median of block maxima, with a `3.0`-logit margin | Accepted as the safety rule |
+| 2026-08-10 | Revalidate the margin against millisecond-window native-cadence replay | Reduced `LIGHTWEIGHT_SETTLE_MARGIN_LOGITS` from `2.8` to `2.7` to restore the weak-link S3 floor from `83.62%` to `85.06%` recall. Normal-link mean recall moved from `98.365%` to `98.391%`; normal-link mean false positives remained `1.836%`, the weak-link maximum remained `8.857%`, and the long-quiet maximum and alarm count remained `10.794%` and `45`. A lower global startup strength was rejected because it increased quiet false positives and alarms, and a fresh coefficient fit was rejected because its deployment replay reached `24.28%` false positives and 84 alarms on the worst quiet C6 recording |
+
+The validation tables below record the original `3.0`-logit campaign. The current operating point is `2.7`.
 
 ## Validation
 
@@ -111,6 +121,11 @@ The last pair missing the recall target now clears it, and the worst per-chip re
 
 A room that becomes genuinely noisier after the threshold has come down cannot push it back up. This is the exact mirror of the property that makes the rule safe, and recovery needs a recalibration.
 
-The firmware pays `CLASSIC_SETTLE_BLOCKS` floats and four counters per Classic detector, `62` bytes, with no allocation and no work outside the evaluation that already runs.
+The firmware pays `LIGHTWEIGHT_SETTLE_BLOCKS` floats and four counters per Lightweight detector, `62` bytes, with no allocation and no work outside the evaluation that already runs.
 
-Both runtimes carry the same rule and the report parity gate covers it: the Classic side of `tools/generate_performance_report.py` shows no drift.
+Both runtimes carry the same rule and the report parity gate covers it: the Lightweight side of `tools/generate_performance_report.py` shows no drift.
+
+## Related
+
+- [`../ALGORITHMS.md`](../ALGORITHMS.md)
+- [`2026-08-15-use-fixed-temporal-csi-admission.md`](2026-08-15-use-fixed-temporal-csi-admission.md)

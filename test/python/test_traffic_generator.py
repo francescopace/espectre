@@ -35,7 +35,7 @@ if not hasattr(time, 'sleep_us'):
     time.sleep_us = lambda us: time.sleep(us / 1000000)
 
 from traffic_generator import TrafficGenerator, TRAFFIC_RATE_MIN, TRAFFIC_RATE_MAX
-from traffic_rate_controller import CsiPacingHealthMonitor, TrafficRateController
+from traffic_rate_controller import CsiPacingHealthMonitor
 
 
 @pytest.fixture
@@ -283,88 +283,6 @@ class TestTrafficGeneratorConstants:
     def test_rate_max(self):
         """Test maximum rate constant"""
         assert TRAFFIC_RATE_MAX == 1000
-
-
-class TestTrafficRateControllerParity:
-    """Mirror the C++ TrafficRateController scenarios."""
-
-    def test_trims_excess_csi_rate_gradually(self):
-        controller = TrafficRateController()
-        controller.init(100, True)
-
-        assert controller.observe(0, 0, 0, 1) is False
-        assert controller.observe(400, 200, 0, 2000001) is False
-        assert controller.observed_pps == 200
-        assert controller.current_pps == 100
-        assert controller.observe(800, 400, 0, 4000001) is True
-        assert controller.observed_pps == 200
-        assert controller.current_pps == 85
-
-    def test_holds_inside_tolerance(self):
-        controller = TrafficRateController()
-        controller.init(100, True)
-
-        controller.observe(0, 0, 0, 1)
-        assert controller.observe(202, 200, 0, 2000001) is False
-        assert controller.observed_pps == 101
-        assert controller.current_pps == 100
-
-    def test_recovers_additively(self):
-        controller = TrafficRateController()
-        controller.init(100, True)
-
-        controller.observe(0, 0, 0, 1)
-        assert controller.observe(100, 200, 0, 2000001) is True
-        assert controller.observed_pps == 50
-        assert controller.current_pps == 102
-
-    def test_holds_on_severe_deficit(self):
-        controller = TrafficRateController()
-        controller.init(100, True)
-
-        controller.observe(0, 0, 0, 1)
-        assert controller.observe(80, 200, 0, 2000001) is False
-        assert controller.observed_pps == 40
-        assert controller.current_pps == 100
-
-    def test_reduces_on_socket_backpressure(self):
-        controller = TrafficRateController()
-        controller.init(100, True)
-
-        controller.observe(0, 0, 0, 1)
-        assert controller.observe(200, 190, 10, 2000001) is True
-        assert controller.observed_pps == 100
-        assert controller.current_pps == 85
-
-    def test_respects_pacing_floor_and_settle_windows(self):
-        controller = TrafficRateController()
-        controller.init(100, True)
-
-        controller.observe(0, 0, 0, 1)
-        assert controller.observe(200, 190, 10, 2000001) is True
-        assert controller.current_pps == 85
-        assert controller.observe(400, 380, 20, 4000001) is False
-        assert controller.observe(600, 570, 30, 6000001) is False
-        assert controller.observe(800, 760, 40, 8000001) is True
-        assert controller.current_pps == 72
-        assert controller.observe(1000, 950, 50, 10000001) is False
-        assert controller.observe(1200, 1140, 60, 12000001) is False
-        assert controller.observe(1400, 1330, 70, 14000001) is True
-        assert controller.current_pps == 70
-        assert controller.observe(1600, 1520, 80, 16000001) is False
-        assert controller.observe(1800, 1710, 90, 18000001) is False
-        assert controller.observe(2000, 1900, 100, 20000001) is False
-        assert controller.observe(2200, 2090, 110, 22000001) is False
-        assert controller.current_pps == 70
-
-    def test_fixed_rate_observes_without_adjusting(self):
-        controller = TrafficRateController()
-        controller.init(100, False)
-
-        controller.observe(0, 0, 0, 1)
-        assert controller.observe(400, 200, 10, 2000001) is False
-        assert controller.observed_pps == 200
-        assert controller.current_pps == 100
 
 
 class TestCsiPacingHealthMonitor:

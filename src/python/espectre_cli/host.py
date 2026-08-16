@@ -571,9 +571,17 @@ def _run_live_collect(args) -> None:
         return f"ip={source_ip} chip={chip_label} ch={channel_text} rssi={rssi_text}"
 
     def format_pacing_text():
-        if not adaptive_enabled or abs(adaptive_pacing.current_pps - adaptive_pacing.target_pps) < 0.5:
+        parts = []
+        admitted = adaptive_pacing.last_window_admitted_pps
+        if admitted is not None and adaptive_pacing.target_pps > 0:
+            occupancy_pct = 100.0 * admitted / adaptive_pacing.target_pps
+            excess = adaptive_pacing.last_window_excess_pps or 0.0
+            parts.append(f"occ:{occupancy_pct:.0f}% adm:{admitted:.0f} xs:{excess:.0f}")
+        if adaptive_enabled:
+            parts.append(f"pace:{adaptive_pacing.current_pps:.0f}pps({adaptive_pacing.last_action})")
+        if not parts:
             return ""
-        return f" | pace:{adaptive_pacing.current_pps:.0f}pps({adaptive_pacing.last_action})"
+        return " | " + " | ".join(parts)
 
     def format_backpressure_text(device_state):
         total = device_state.get("tx_backpressure_total")
@@ -1219,7 +1227,7 @@ def _run_live_collect(args) -> None:
     adaptive_pacing = AdaptivePacingController(
         initial_pps=pacing_pps,
         enabled=adaptive_enabled,
-        boost_allowed=target_mode in ("broadcast", "multicast"),
+        control_window_s=2.0,
     )
     capture_writer = None
     if save_enabled:
@@ -1420,7 +1428,7 @@ def _run_live_collect(args) -> None:
         print(f"  {Fore.CYAN}Threshold:{Style.RESET_ALL} automatic (after startup calibration)")
     print(
         f"  {Fore.CYAN}Pps:{Style.RESET_ALL}       {pacing_pps:g}pps "
-        f"({'adaptive' if adaptive_enabled else 'fixed'})"
+        f"({'backpressure' if adaptive_enabled else 'fixed'})"
     )
     print(
         f"  {Fore.CYAN}Window:{Style.RESET_ALL}    {configured_window_ms} ms "

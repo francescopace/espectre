@@ -48,6 +48,8 @@ Detailed feature evidence belongs in [`FEATURES.md`](../FEATURES.md). The cumula
 | 2026-08-13 | Replace complex coherence with aggregated turbulence IQR | Current production definition |
 | 2026-08-16 | Refit coefficients on temporal-admission windows, including High Accuracy's idle `fp_weight=1.75` | Rejected; both refits raised one sequential S3 empty-room alarm that the exported coefficients still clear |
 | 2026-08-16 | Refit coefficients after the occupancy floor moved to seven tenths | Rejected; occupancy 70% opened one sequential S3 empty alarm on the exported coefficients, and both occupancy-70% refits leave that alarm through sequential logits `3.0` and `4.0` |
+| 2026-08-16 | Occupancy-70% cheap-pair rescreen against Subband-8 SHAP | Retained `turb_autocorr + turb_iqr_over_mean_aggr`; ZCR and lag-ratio swaps failed sequential recall or imported L1 state |
+| 2026-08-16 | Lightweight sequential empty-room zero-alarm gate | Replaced with a one-alarm per-recording budget; occupancy 70% admits a four-eval debounce burst that coefficient refits and cheap pair swaps do not remove |
 
 ## Validation
 

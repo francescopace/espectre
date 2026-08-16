@@ -208,7 +208,7 @@ probability = 1 / (1 + exp(-logit))
 motion = probability > threshold
 ```
 
-The coefficients come from grouped, de-overlapped out-of-fold training balanced by class, chip, and session. The global operating point is then selected on sequential production replay, because a dense-window OOF false-positive rate does not encode the empty-room zero-alarm contract. The runtime contains no majority vote or recovery branch in the score itself; all runtime adaptation happens at the threshold.
+The coefficients come from grouped, de-overlapped out-of-fold training balanced by class, chip, and session. The global operating point is then selected on sequential production replay, because a dense-window OOF false-positive rate does not encode the empty-room alarm budget. Lightweight may raise at most one effective alarm per short empty-room recording; High Accuracy remains zero-alarm. The runtime contains no majority vote or recovery branch in the score itself; all runtime adaptation happens at the threshold.
 
 Startup adaptation thresholds this fitted two-feature logit directly. The older low-RSSI L1 blend path is retired; it is not part of the current detector surface.
 
@@ -228,7 +228,7 @@ The settled-level rule cannot create a high threshold. It only ever lowers one a
 
 ### Known Limits
 
-Lightweight clears the aggregate normal-link recall target on every chip, but C5 and C6 retain the largest false-positive tails, including on long quiet recordings. Weak-link captures remain report-only stress diagnostics. See the generated [performance report](performance/README.md) for current metrics.
+Lightweight clears the aggregate normal-link recall target on every chip, but C5 and C6 retain the largest false-positive tails, including on long quiet recordings. After the occupancy floor moved to seven tenths, one short S3 empty-room recording can complete a single four-hit debounce burst; the Lightweight sequential gate therefore allows at most one effective alarm per empty file. Weak-link captures remain report-only stress diagnostics. See the generated [performance report](performance/README.md) for current metrics.
 
 Use High-Accuracy Detection where accuracy, quiet-room robustness, or held-out generalization matters more than the additional runtime cost. Use Lightweight Detection when CPU and working-memory headroom are the stronger product constraint. The active Lightweight feature-selection record lives in `FEATURES.md`; no additional pair or triplet is approved for export on the current corpus.
 
@@ -242,7 +242,7 @@ Three properties make this safe rather than a drift toward the noise floor:
 - **Motion holds it up.** A stretch of real activity puts the block maxima high, the candidate lands above the current threshold, and nothing happens. The rule moves only after a long quiet stretch, which is exactly the evidence that the threshold is too high.
 - **A median of block maxima, not a mean or a global maximum.** One spike cannot pull the level down, and one quiet block cannot either.
 
-The current `20`-evaluation blocks, `12`-block ring, and `2.7`-logit margin produce a `60 s` dwell at the nominal cadence. The recovery design originates in the [settled-level recovery ADR](adr/2026-07-26-recover-the-startup-threshold-once-a-session-settles.md), while the temporal-window revalidation and current operating point live in the [millisecond-window ADR](adr/2026-08-10-configure-detector-windows-in-milliseconds.md).
+The current `20`-evaluation blocks, `12`-block ring, and `2.7`-logit margin produce a `60 s` dwell at the nominal cadence. The recovery design and current operating point live in the [settled-level recovery ADR](adr/2026-07-26-recover-the-startup-threshold-once-a-session-settles.md). The temporal-admission contract that prompted the `2.7` revalidation is recorded in the [fixed temporal-admission ADR](adr/2026-08-15-use-fixed-temporal-csi-admission.md).
 
 Its limit is the mirror of its safety. A room that grows genuinely noisier after the threshold has come down cannot push it back up; only a recalibration does that.
 

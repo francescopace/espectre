@@ -19,10 +19,6 @@ from temporal_csi_sampler import (
 )
 
 
-def test_internal_traffic_defaults_to_fixed_cadence():
-    assert config.TRAFFIC_GENERATOR_ADAPTIVE is False
-
-
 class TestTemporalCsiSampler:
     @staticmethod
     def replay(sampler, timestamps):

@@ -20,7 +20,9 @@ grouped, de-overlapped out-of-fold fit balanced by class, chip, and session.
 - fp-weight: optional idle-class multiplier after balancing, analogous to High
   Accuracy's `fp_weight`. `--fp-target` remains a real false-positive ceiling
   on the operating-point sweep and is not this multiplier. Sequential empty-room
-  replay, not this weight, remains the export gate.
+  replay, not this weight, remains the export gate. Lightweight may raise at
+  most one effective alarm per short empty recording; two alarms on one file
+  still block export.
 
 Only `train` datasets are fitted. `holdout` stays sealed, `selection` is left for
 operating-point work, and `exclude` is dropped.
@@ -32,7 +34,8 @@ Usage:
 
 The optional centered-logit override makes a sequential-replay operating point
 reproducible. The OOF sweep still reports its diagnostic point, but dense-window
-FP does not encode the production empty-room zero-alarm contract.
+FP does not encode the production empty-room alarm budget of at most one
+effective alarm per short empty recording.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 """

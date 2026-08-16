@@ -75,15 +75,6 @@ choice ESPECTRE_CSI_TRAFFIC_MODE
         bool "Unmanaged ambient traffic"
 endchoice
 
-config ESPECTRE_TRAFFIC_GENERATOR_ADAPTIVE
-    bool "Adapt traffic rate from valid CSI callbacks"
-    default n
-    help
-        Adjust the internal DNS or ping send rate to keep valid local CSI
-        callbacks close to the configured target rate. Leave disabled for a
-        fixed send cadence; unrelated application traffic also contributes CSI
-        callbacks and can otherwise make the controller reduce managed traffic.
-
 choice ESPECTRE_TRAFFIC_GENERATOR_MODE
     prompt "Traffic generator mode"
     default ESPECTRE_TRAFFIC_GENERATOR_MODE_PING

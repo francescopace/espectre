@@ -144,7 +144,6 @@ void EspIdfRuntime::loop() {
   }
   csi_pipeline_.loop();
   csi_pipeline_.publish_if_due(monotonic_now_ms());
-  csi_traffic_service_.observe_accepted_csi(csi_pipeline_.accepted_packets_total());
   DetectionTimingStats detection_timing;
   if (csi_pipeline_.take_detection_timing(&detection_timing)) {
     debug_telemetry_.record_detection_timing(detection_timing.duration_sum_us,

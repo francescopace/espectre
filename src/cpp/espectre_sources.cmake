@@ -18,7 +18,6 @@ set(ESPECTRE_RUNTIME_COMMON_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_config_utils.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_diagnostics.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_time.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/traffic_rate_controller.cpp"
 )
 
 set(ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES

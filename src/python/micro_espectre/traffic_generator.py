@@ -13,11 +13,6 @@ import time
 import _thread
 import network
 
-try:
-    from traffic_rate_controller import TrafficRateController
-except ImportError:
-    from src.traffic_rate_controller import TrafficRateController
-
 # Note: No thread lock needed for simple integer operations on MicroPython/ESP32
 # Integer reads/writes are atomic on 32-bit systems
 
@@ -51,7 +46,7 @@ DNS_QUERY = bytes([
 class TrafficGenerator:
     """WiFi traffic generator using DNS queries or ICMP ping."""
     
-    def __init__(self, mode=MODE_PING, adaptive=True):
+    def __init__(self, mode=MODE_PING):
         """Initialize traffic generator."""
         self.running = False
         self.rate_pps = 0
@@ -61,8 +56,6 @@ class TrafficGenerator:
         self.gateway_ip = None
         self.sock = None
         self.mode = self._normalize_mode(mode)
-        self.adaptive_enabled = bool(adaptive)
-        self.rate_controller = TrafficRateController()
         self.start_time = 0  # Time when generator started (ticks_ms)
         self.avg_loop_time_ms = 0  # Average loop time for diagnostics
         self.actual_pps = 0  # Actual packets per second (moving window)
@@ -302,7 +295,7 @@ class TrafficGenerator:
         """Background task that sends ICMP echo requests."""
         self._run_sender_task(MODE_PING)
     
-    def start(self, rate_pps, max_retries=3, retry_delay=2, mode=None, adaptive=None):
+    def start(self, rate_pps, max_retries=3, retry_delay=2, mode=None):
         """
         Start traffic generator
         
@@ -311,7 +304,6 @@ class TrafficGenerator:
             max_retries: Number of retries to get gateway IP (default: 3)
             retry_delay: Seconds between retries (default: 2)
             mode: Optional traffic mode override ('dns' or 'ping')
-            adaptive: Optional adaptive-pacing override (default: constructor value)
             
         Returns:
             bool: True if started successfully
@@ -327,8 +319,6 @@ class TrafficGenerator:
 
         if mode is not None:
             self.mode = self._normalize_mode(mode)
-        if adaptive is not None:
-            self.adaptive_enabled = bool(adaptive)
         
         if rate_pps < TRAFFIC_RATE_MIN or rate_pps > TRAFFIC_RATE_MAX:
             print(f"Invalid rate: {rate_pps} (must be {TRAFFIC_RATE_MIN}-{TRAFFIC_RATE_MAX} packets/sec)")
@@ -354,7 +344,6 @@ class TrafficGenerator:
         self.avg_loop_time_ms = 0
         self.target_pps = rate_pps
         self.rate_pps = rate_pps
-        self.rate_controller.init(rate_pps, self.adaptive_enabled)
         self.start_time = time.ticks_ms()
         self.running = True
         self.ping_sequence = 0
@@ -383,30 +372,6 @@ class TrafficGenerator:
         self.rate_pps = 0
         self.target_pps = 0
 
-    def observe_accepted_csi(self, accepted_csi_total, now_us=None):
-        """Adapt send pacing from accepted CSI totals and local send errors."""
-        if not self.running or self.target_pps <= 0:
-            return False
-        if now_us is None:
-            now_us = time.ticks_us()
-        if not self.rate_controller.observe(
-            accepted_csi_total,
-            self.packet_count,
-            self.error_count,
-            now_us,
-        ):
-            return False
-        self.rate_pps = self.rate_controller.current_pps
-        print(
-            "Adaptive traffic: observed=%d CSI pps, target=%d, send=%d pps"
-            % (
-                self.rate_controller.observed_pps,
-                self.rate_controller.target_pps,
-                self.rate_controller.current_pps,
-            )
-        )
-        return True
-    
     def is_running(self):
         """Check if traffic generator is running"""
         return self.running
@@ -427,10 +392,6 @@ class TrafficGenerator:
         """Get current traffic generation mode."""
         return self.mode
 
-    def is_adaptive(self):
-        """Return whether adaptive pacing is enabled."""
-        return self.adaptive_enabled
-    
     def get_actual_pps(self):
         """Get actual packets per second (moving window)"""
         return round(self.actual_pps, 1)

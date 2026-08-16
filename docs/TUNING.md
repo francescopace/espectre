@@ -104,10 +104,11 @@ For frontends that expose the shared internal traffic generator:
 espectre:
   csi_target_pps: 100
   csi_traffic_mode: internal
-  traffic_generator_adaptive: false
 ```
 
-`csi_target_pps` is both the detector's temporal grid and the managed-traffic target. `csi_traffic_mode` separately chooses who supplies traffic. Internal traffic uses a fixed send cadence by default because raw accepted CSI also includes unrelated application traffic, which is not a reliable replacement for uniformly scheduled sensing traffic. Set `traffic_generator_adaptive: true` only after validating its raw-CSI and socket-pressure feedback in the deployment; it never feeds detector-admitted PPS back into the controller.
+`csi_target_pps` is both the detector's temporal grid and the managed-traffic target. `csi_traffic_mode` separately chooses who supplies traffic. Internal traffic always uses a fixed send cadence at that target. Local socket send backoff still applies on `ENOMEM`; occupancy does not change the send rate. If occupancy stays below 70%, repair the traffic path or lower `csi_target_pps` explicitly and revalidate.
+
+Host `espectre collect` slows only on sustained firmware TX backpressure, then recovers toward `--pps`. Occupancy remains telemetry. `--pps` stays the detector grid; `--fixed` holds a constant send rate for A/B experiments, especially on Streamer where pacing is host-owned and does not require a firmware reflash.
 
 Rules of thumb:
 
@@ -122,7 +123,7 @@ espectre:
   publish_interval_ms: 1000
 ```
 
-This controls periodic movement-score reporting from the runtime's monotonic clock. Motion state edges are handled separately, and neither heartbeat deadlines nor state-edge publication force detector evaluation.
+This controls periodic movement-score reporting from the runtime's monotonic clock. Motion state edges are handled separately, and neither heartbeat deadlines nor state-edge publication force detector evaluation. On Home Assistant surfaces (ESPHome, Native MQTT Discovery, and Micro-ESPectre MQTT), Intensity follows `evaluation_interval_ms` instead of this heartbeat, so lowering `publish_interval_ms` does not make the gauge more responsive.
 
 ### Evaluation Interval And Hit Filtering
 

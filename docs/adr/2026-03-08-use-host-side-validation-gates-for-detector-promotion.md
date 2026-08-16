@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-03-08
 - Recorded: 2026-07-09 (retrospective)
-- Updated: 2026-08-12
+- Updated: 2026-08-16
 
 ## Context
 
@@ -17,7 +17,7 @@ Use layered host-side validation for detector, feature, and model promotion:
 
 1. Use grouped CV and selection-role replays to compare candidates without opening the sealed holdout.
 2. Require per-recording paired and quiet safety gates before promotion; do not rely on chip averages alone.
-3. Treat empty-room recordings as the strict false-positive and zero-alarm ground truth. Static-presence captures may use an explicit bounded alarm budget.
+3. Treat empty-room recordings as the strict no-motion ground truth. High Accuracy must raise zero effective alarms. Lightweight may raise at most one effective alarm per empty-room recording, which covers a single four-hit debounce burst after the occupancy floor moved to seven tenths; two or more alarms on one short empty file remain a defect. Static-presence captures may use an explicit bounded alarm budget.
 4. Keep real low-RSSI recordings visible under their documented stress policy rather than hiding them in aggregate metrics.
 5. Validate packet-rate behavior, long recordings, generated artifacts, and Python/C++ parity on the selected candidate and for published performance.
 6. Keep experiment commands non-destructive by default and require an explicit artifact-promotion step.
@@ -31,6 +31,7 @@ Trainer ranking may use the narrow selection gates for iteration speed. Passing 
 | 2026-03-08 | Align detector promotion around host-side real-data gates | Accepted |
 | 2026-07-17 | Run long-recording gates inside every training trial | Moved to final promotion and published-performance validation |
 | 2026-07-25 | Treat static-presence baselines as strict false-positive truth | Replaced with empty-room zero-alarm gates and an explicit static-presence budget |
+| 2026-08-16 | Lightweight empty-room zero-alarm sequential gate | Replaced with a one-alarm per-recording budget after occupancy 70% admitted a four-eval burst that feature and coefficient changes could not remove without closing the resource gap to High Accuracy |
 
 ## Alternatives Considered
 

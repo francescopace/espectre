@@ -44,7 +44,6 @@ AUTO_LOAD = ["sensor", "binary_sensor", "button", "number", "select", "switch"]
 CONF_SEGMENTATION_WINDOW_SIZE_MS = "segmentation_window_size_ms"
 CONF_CSI_TARGET_PPS = "csi_target_pps"
 CONF_CSI_TRAFFIC_MODE = "csi_traffic_mode"
-CONF_TRAFFIC_GENERATOR_ADAPTIVE = "traffic_generator_adaptive"
 CONF_PUBLISH_INTERVAL_MS = "publish_interval_ms"
 CONF_EVALUATION_INTERVAL_MS = "evaluation_interval_ms"
 CONF_MOTION_ON_HITS = "motion_on_hits"
@@ -147,7 +146,6 @@ SEGMENTATION_WINDOW_SIZE_MS_MAX = _RUNTIME_SCHEMA["RUNTIME_SEGMENTATION_WINDOW_S
 CSI_TARGET_PPS_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_CSI_TARGET_PPS_DEFAULT"]
 CSI_TARGET_PPS_MIN = _RUNTIME_SCHEMA["RUNTIME_CSI_TARGET_PPS_MIN"]
 CSI_TARGET_PPS_MAX = _RUNTIME_SCHEMA["RUNTIME_CSI_TARGET_PPS_MAX"]
-TRAFFIC_GENERATOR_ADAPTIVE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_TRAFFIC_GENERATOR_ADAPTIVE_DEFAULT"]
 TRAFFIC_GENERATOR_MODE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_TRAFFIC_GENERATOR_MODE_DEFAULT_NAME"]
 CSI_TRAFFIC_MODE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_CSI_TRAFFIC_MODE_DEFAULT_NAME"]
 DETECTION_ALGORITHM_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_DETECTION_ALGORITHM_DEFAULT_NAME"]
@@ -188,7 +186,6 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_CSI_TRAFFIC_MODE, default=CSI_TRAFFIC_MODE_DEFAULT): cv.one_of(
         "internal", "external", "pacing", "disabled", lower=True
     ),
-    cv.Optional(CONF_TRAFFIC_GENERATOR_ADAPTIVE, default=TRAFFIC_GENERATOR_ADAPTIVE_DEFAULT): cv.boolean,
     
     # Traffic generator mode: ping (default) or dns
     cv.Optional(CONF_TRAFFIC_GENERATOR_MODE, default=TRAFFIC_GENERATOR_MODE_DEFAULT): cv.one_of(
@@ -411,7 +408,6 @@ async def to_code(config):
     cg.add(var.set_wifi_band_policy(_runtime_wifi_band_policy()))
     cg.add(var.set_csi_target_pps(config[CONF_CSI_TARGET_PPS]))
     cg.add(var.set_csi_traffic_mode(config[CONF_CSI_TRAFFIC_MODE]))
-    cg.add(var.set_traffic_generator_adaptive(config[CONF_TRAFFIC_GENERATOR_ADAPTIVE]))
     cg.add(var.set_traffic_generator_mode(config[CONF_TRAFFIC_GENERATOR_MODE]))
     cg.add(var.set_detection_algorithm(config[CONF_DETECTION_ALGORITHM]))
     cg.add(var.set_publish_interval_ms(config[CONF_PUBLISH_INTERVAL_MS]))

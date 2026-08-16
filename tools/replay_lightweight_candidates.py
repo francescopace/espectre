@@ -1068,7 +1068,13 @@ def replay_one_stream(
     references: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     if rows.size == 0:
-        return {"eval_count": 0, "positive_count": 0, "positive_rate": 0.0}
+        return {
+            "eval_count": 0,
+            "positive_count": 0,
+            "positive_rate": 0.0,
+            "threshold": 0.0,
+            "initial_threshold": 0.0,
+        }
     series_logits = logits(rows, coefficients)
     policy = (
         dict(calibration)

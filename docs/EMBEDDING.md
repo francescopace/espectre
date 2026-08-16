@@ -48,7 +48,7 @@ Three rules cover most integration mistakes:
 |-------|----------|--------------|
 | `src/cpp/espectre_sdk.h` | The SDK facade: the supported surface in one include | Header only |
 | `src/cpp/core/` | Lightweight and High-Accuracy detectors, feature extraction, filters, CSI format | C++17 standard library only |
-| `src/cpp/runtime/` | Runtime contracts, snapshots, events, ESPectre Protocol model, adaptive traffic pacing | Portable, host-testable |
+| `src/cpp/runtime/` | Runtime contracts, snapshots, events, ESPectre Protocol model, traffic generation | Portable, host-testable |
 | `src/cpp/runtime/esp_idf/` | CSI capture, Wi-Fi lifecycle, sensing pipeline, traffic generation, NVS persistence | ESP-IDF `>= 5.1` |
 | `src/cpp/frontend/` | ESPHome, native BLE/MQTT, Matter, and streamer reference integrations | Frontend-specific stacks |
 
@@ -161,7 +161,7 @@ sampler_.reset(runtime_.diagnostics(), now_ms);
 latest_ = sampler_.sample(runtime_.diagnostics(), now_ms);
 ```
 
-`RuntimeDiagnosticsSample::csi_accepted_pps` is the identity-accepted supply used by adaptive traffic control. `csi_admitted_pps` is the rate the detector actually sees after temporal admission; compare it with `RuntimeConfig::csi_target_pps` together with `csi_occupancy_ratio`, same-slot excess, missing-slot, stale, and out-of-order rates when a deployment underperforms. MQTT `stats` publishes the same occupancy as `csi_occupancy`; the SDK field name remains `csi_occupancy_ratio`.
+`RuntimeDiagnosticsSample::csi_admitted_pps` is the detector input rate after temporal admission. `csi_accepted_pps` is the identity-accepted supply. Compare admitted PPS with `RuntimeConfig::csi_target_pps` together with `csi_occupancy_ratio`, same-slot excess, missing-slot, stale, and out-of-order rates when a deployment underperforms. Occupancy is diagnostic telemetry and does not change the device send rate. MQTT `stats` publishes the same occupancy as `csi_occupancy`; the SDK field name remains `csi_occupancy_ratio`.
 
 The shipped ESP-IDF runtime always collects these counters. Native and ESPHome refresh their cache from the same sensing update that feeds the periodic status log, then expose the cache only on an explicit `stats` request or a `Refresh Diagnostics` button press. `CONFIG_ESPECTRE_DEBUG_TELEMETRY` controls additional timing and load logs, not availability of these counters.
 

@@ -94,7 +94,6 @@ void test_csi_traffic_service_pacing_mode_filters_payload_and_tracks_sender(void
 
 void test_csi_traffic_projection_keeps_mode_separate_from_positive_target(void) {
   RuntimeConfig runtime_config;
-  TEST_ASSERT_FALSE(runtime_config.traffic_generator_adaptive);
   runtime_config.csi_target_pps = 94U;
   runtime_config.csi_traffic_mode = CsiTrafficMode::DISABLED;
 

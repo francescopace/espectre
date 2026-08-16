@@ -92,7 +92,6 @@ constexpr uint32_t RUNTIME_CSI_TARGET_PPS_MIN = 1U;
 // storage ceiling at this rate. Supported hardware normally runs near 100 pps.
 constexpr uint32_t RUNTIME_CSI_TARGET_PPS_MAX = 500U;
 constexpr uint32_t RUNTIME_CSI_TARGET_PPS_DEFAULT = 100U;
-constexpr bool RUNTIME_TRAFFIC_GENERATOR_ADAPTIVE_DEFAULT = false;
 
 constexpr uint32_t RUNTIME_PUBLISH_INTERVAL_MS_MIN = 100;
 constexpr uint32_t RUNTIME_PUBLISH_INTERVAL_MS_MAX = 60000;

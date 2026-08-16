@@ -37,9 +37,6 @@
 #ifndef CONFIG_ESPECTRE_CSI_TARGET_PPS
 #define CONFIG_ESPECTRE_CSI_TARGET_PPS 100
 #endif
-#ifndef CONFIG_ESPECTRE_TRAFFIC_GENERATOR_ADAPTIVE
-#define CONFIG_ESPECTRE_TRAFFIC_GENERATOR_ADAPTIVE 0
-#endif
 #ifndef CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS
 #define CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS 0
 #endif
@@ -167,7 +164,6 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
 #else
   config.csi_traffic_mode = CsiTrafficMode::INTERNAL;
 #endif
-  config.traffic_generator_adaptive = CONFIG_ESPECTRE_TRAFFIC_GENERATOR_ADAPTIVE;
 #if CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS
   config.traffic_generator_mode = RuntimeTrafficMode::DNS;
 #else

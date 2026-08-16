@@ -98,13 +98,13 @@ def _add_collect_parser(
         "--pps",
         type=int,
         default=100,
-        help="Target delivered records per second; adaptive pacing may send up to 1.5x to compensate path loss (default: 100)",
+        help="Collector temporal target and detector slot cadence (default: 100)",
     )
     collect_parser.add_argument(
         "--fixed",
         dest="adaptive",
         action="store_false",
-        help="Use a fixed UDP pacing rate instead of the default adaptive pacing (slows on TX backpressure, boosts above target on path loss)",
+        help="Keep a constant UDP pacing rate and ignore TX backpressure slowdowns (still reports occupancy)",
     )
     collect_parser.add_argument(
         "--detector",

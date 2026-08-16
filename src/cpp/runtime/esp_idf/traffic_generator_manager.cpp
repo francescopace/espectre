@@ -1,8 +1,8 @@
 /*
  * ESPectre - Traffic Generator Manager Implementation
  *
- * One task owns pacing, socket draining, error recovery, and adaptive rate
- * changes. Protocol backends only describe the socket and encode one packet.
+ * One task owns pacing, socket draining, and local send-error recovery.
+ * Protocol backends only describe the socket and encode one packet.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -177,14 +177,12 @@ void drain_socket(int sock) {
 
 }  // namespace
 
-void TrafficGeneratorManager::init(uint32_t target_pps,
-                                   TrafficGeneratorMode mode,
-                                   bool adaptive_enabled) {
+void TrafficGeneratorManager::init(uint32_t target_pps, TrafficGeneratorMode mode) {
   task_handle_ = nullptr;
   sock_ = -1;
   gateway_addr_ = 0U;
   mode_ = mode;
-  rate_controller_.init(target_pps, adaptive_enabled);
+  target_pps_ = target_pps;
   current_rate_pps_.store(target_pps, std::memory_order_relaxed);
   running_.store(false, std::memory_order_relaxed);
   paused_.store(false, std::memory_order_relaxed);
@@ -192,17 +190,16 @@ void TrafficGeneratorManager::init(uint32_t target_pps,
   reset_runtime_state_();
 
   ESP_LOGD(TAG,
-           "Traffic generator initialized (target=%" PRIu32 " CSI pps, mode=%s, adaptive=%s)",
+           "Traffic generator initialized (target=%" PRIu32 " CSI pps, mode=%s)",
            target_pps,
-           traffic_mode_name(mode),
-           adaptive_enabled ? "on" : "off");
+           traffic_mode_name(mode));
 }
 
 bool TrafficGeneratorManager::start(uint32_t gateway_addr) {
   if (running_.load(std::memory_order_relaxed)) {
     return true;
   }
-  if (rate_controller_.target_pps() == 0U || gateway_addr == 0U) {
+  if (target_pps_ == 0U || gateway_addr == 0U) {
     ESP_LOGE(TAG, "Gateway IP is unavailable in the connection event");
     return false;
   }
@@ -218,10 +215,7 @@ bool TrafficGeneratorManager::start(uint32_t gateway_addr) {
     return false;
   }
 
-  const uint32_t target_pps = rate_controller_.target_pps();
-  const bool adaptive = rate_controller_.adaptive_enabled();
-  rate_controller_.init(target_pps, adaptive);
-  current_rate_pps_.store(target_pps, std::memory_order_relaxed);
+  current_rate_pps_.store(target_pps_, std::memory_order_relaxed);
   reset_runtime_state_();
   running_.store(true, std::memory_order_relaxed);
   task_exited_.store(false, std::memory_order_relaxed);
@@ -240,12 +234,11 @@ bool TrafficGeneratorManager::start(uint32_t gateway_addr) {
   snprintf(gateway, sizeof(gateway), IPSTR, IP2STR(&gateway_ip));
   ESP_LOGI(TAG,
            "Traffic generator started (mode=%s, target=%" PRIu32 " CSI pps, send=%" PRIu32
-           " pps, gateway=%s, adaptive=%s)",
+           " pps, gateway=%s)",
            traffic_mode_name(mode_),
-           rate_controller_.target_pps(),
+           target_pps_,
            current_rate_pps(),
-           gateway,
-           adaptive_enabled() ? "on" : "off");
+           gateway);
   return true;
 }
 
@@ -255,19 +248,6 @@ void TrafficGeneratorManager::loop() {
   }
 
   const int64_t now = esp_timer_get_time();
-  if (rate_controller_.observe(accepted_csi_total_.load(std::memory_order_relaxed),
-                               send_success_count(),
-                               send_error_count(),
-                               now)) {
-    current_rate_pps_.store(rate_controller_.current_pps(), std::memory_order_relaxed);
-    ESP_LOGI(TAG,
-             "Adaptive traffic: observed=%" PRIu32 " CSI pps, target=%" PRIu32
-             ", send=%" PRIu32 " pps",
-             rate_controller_.observed_pps(),
-             rate_controller_.target_pps(),
-             rate_controller_.current_pps());
-  }
-
   if (last_health_check_us_ != 0 && now - last_health_check_us_ < HEALTH_CHECK_INTERVAL_US) {
     return;
   }
@@ -391,7 +371,6 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
 }
 
 void TrafficGeneratorManager::reset_runtime_state_() {
-  accepted_csi_total_.store(0U, std::memory_order_relaxed);
   send_success_count_.store(0U, std::memory_order_relaxed);
   send_error_count_.store(0U, std::memory_order_relaxed);
   previous_send_success_count_ = 0U;

@@ -102,7 +102,6 @@ void visit_runtime_diagnostics(const RuntimeConfig &config,
   visitor("traffic_mode", traffic_mode_name(config.traffic_generator_mode));
   std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.csi_target_pps));
   visitor("csi_target_pps", value);
-  visitor("traffic_adaptive", config.traffic_generator_adaptive ? "on" : "off");
   std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.publish_interval_ms));
   visitor("publish_interval_ms", value);
   std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.evaluation_interval_ms));

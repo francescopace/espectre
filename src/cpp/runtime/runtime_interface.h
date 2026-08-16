@@ -101,8 +101,6 @@ struct RuntimeConfig {
    * `docs/ALGORITHMS.md` before moving far from it.
    */
   uint32_t csi_target_pps{RUNTIME_CSI_TARGET_PPS_DEFAULT};
-  /** Let the runtime retune its send rate to hold `csi_target_pps`. */
-  bool traffic_generator_adaptive{RUNTIME_TRAFFIC_GENERATOR_ADAPTIVE_DEFAULT};
   /** Which packet the internal generator sends to solicit CSI. */
   RuntimeTrafficMode traffic_generator_mode{RuntimeTrafficMode::PING};
   /** Where the CSI-bearing traffic comes from. See `csi_traffic_types.h`. */

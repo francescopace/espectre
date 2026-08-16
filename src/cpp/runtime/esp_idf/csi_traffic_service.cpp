@@ -27,7 +27,6 @@ CsiTrafficServiceConfig to_csi_traffic_config(const RuntimeConfig &config) {
   CsiTrafficServiceConfig csi_traffic_config;
   csi_traffic_config.mode = config.csi_traffic_mode;
   csi_traffic_config.rate_pps = config.csi_target_pps;
-  csi_traffic_config.adaptive = config.traffic_generator_adaptive;
   csi_traffic_config.traffic_mode = to_traffic_generator_mode(config.traffic_generator_mode);
   csi_traffic_config.udp_port = config.csi_traffic_udp_port;
   csi_traffic_config.multicast_group = config.csi_traffic_multicast_group;
@@ -37,7 +36,7 @@ CsiTrafficServiceConfig to_csi_traffic_config(const RuntimeConfig &config) {
 
 void CsiTrafficService::init(const CsiTrafficServiceConfig &config) {
   mode_ = config.mode;
-  traffic_generator_.init(config.rate_pps, config.traffic_mode, config.adaptive);
+  traffic_generator_.init(config.rate_pps, config.traffic_mode);
   udp_listener_.init(config.udp_port);
   if (!config.multicast_group.empty()) {
     udp_listener_.set_multicast_group(config.multicast_group.c_str());
@@ -109,12 +108,6 @@ uint64_t CsiTrafficService::get_pacing_total() const {
   return mode_ == CsiTrafficMode::INTERNAL
              ? static_cast<uint64_t>(traffic_generator_.send_success_count())
              : udp_listener_.get_packets_received();
-}
-
-void CsiTrafficService::observe_accepted_csi(uint64_t accepted_csi_total) {
-  if (mode_ == CsiTrafficMode::INTERNAL) {
-    traffic_generator_.observe_accepted_csi(accepted_csi_total);
-  }
 }
 
 }  // namespace espectre

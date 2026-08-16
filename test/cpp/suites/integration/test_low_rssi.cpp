@@ -89,8 +89,8 @@ void test_classic_handles_loaded_low_rssi_pair(void) {
   // Sanity bound, not a false-positive gate. These baselines hold a stationary
   // person, whose breathing and small shifts are real channel motion, so a
   // share of these evaluations is the detector working rather than failing.
-  // Zero alarms is asserted in test_empty_rooms, on the only recordings in the
-  // corpus with nobody in the room. Corpus maximum is 10.6%.
+  // Empty-room alarm budget is asserted in test_empty_rooms, on the only
+  // recordings in the corpus with nobody in the room. Corpus maximum is 10.6%.
   TEST_ASSERT_TRUE(metrics.fp_rate <= 12.0f);
 }
 

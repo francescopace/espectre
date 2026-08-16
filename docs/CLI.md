@@ -169,8 +169,8 @@ Common flags:
 | `--duration` | Stop after N seconds |
 | `--label` | Dataset label for saved collections; omit for live inspection without saving |
 | `--start-delay` | Wait N seconds before starting collection; requires `--duration` |
-| `--pps` | Target delivered record rate and collector detector slot cadence; adaptive pacing may send above it to compensate path loss |
-| `--fixed` | Keep `--pps` as a constant send rate instead of the default adaptive pacing |
+| `--pps` | Collector temporal target and detector slot cadence |
+| `--fixed` | Keep `--pps` as a constant send rate and ignore TX backpressure slowdowns |
 | `--detector` | Detector used by the ready gate: `lightweight` or `high_accuracy`; a comma-separated list is available only for live comparison |
 | `--ready-stable-seconds` | Seconds below threshold before saved collection starts; set `0` to disable the ready gate |
 
@@ -191,10 +191,12 @@ In live streamer mode, `collect` sends UDP pacing traffic to the device. The dev
 Pacing terms:
 
 - **Delivered rate:** CSI records received by the collector, measured in packets per second (`pps`).
+- **Admitted rate:** records that occupy a detector slot after temporal admission.
+- **Excess:** extra same-slot records that do not improve occupancy.
 - **Backpressure:** firmware reports that it cannot transmit records as quickly as they are produced.
 - **Freshness:** the share of pacing packets that produce new CSI rather than stale or missing records.
 
-The default adaptive policy backs off on sustained backpressure and can compensate broadcast or multicast path loss by sending above the requested delivered rate. Unicast never boosts above `--pps` because Wi-Fi already retries unicast delivery. Use `--fixed` when an experiment requires a constant send rate. Transport thresholds and control-loop behavior are implementation details owned by the Streamer [README.md](../src/cpp/frontend/streamer/README.md).
+The default collect policy backs off on sustained TX backpressure, spaces reductions across three control windows, does not fall below 70% of the requested target, and recovers toward `--pps` when backpressure clears. Occupancy remains telemetry and never changes the send rate. `--pps` stays the detector grid. Use `--fixed` when an experiment requires a constant send rate. Transport thresholds and control-loop behavior are implementation details owned by the Streamer [README.md](../src/cpp/frontend/streamer/README.md).
 
 `--detector` always selects the production detector used for collection readiness. `--pps` is the collector's temporal target: the live detector and derived sensing view admit at most one packet per slot through the production Micro-ESPectre sampler, while Streamer firmware still transports the raw timestamped stream. `lightweight` performs its normal startup calibration before it can become ready. `high_accuracy` does not use startup calibration, but still needs its feature window to fill. Live inspection can compare `lightweight,high_accuracy` in parallel.
 

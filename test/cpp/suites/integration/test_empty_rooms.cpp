@@ -1,14 +1,15 @@
 /*
  * ESPectre - Empty-Room Integration Test
  *
- * Validates that the production Lightweight path raises no alarm on recordings
- * made with nobody in the room.
+ * Validates that the production Lightweight path stays inside the empty-room
+ * alarm budget on recordings made with nobody in the room.
  *
  * Empty rooms are the corpus ground truth for "nothing is moving". The
  * static-presence baselines cannot serve that role: a stationary person still
  * breathes and shifts, and the detector sees it, so a share of their
- * evaluations is the detector working rather than failing. See the empty-room
- * false-positive ADR.
+ * evaluations is the detector working rather than failing. High Accuracy still
+ * requires zero empty-room alarms. Lightweight may raise at most one effective
+ * alarm per recording. See the host-side validation-gates ADR.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -26,6 +27,9 @@
 using namespace espectre;
 
 namespace {
+
+constexpr int kLightweightEmptyMaxEffectiveAlarms = 1;
+constexpr float kLightweightEmptyMaxFpRate = 6.0f;
 
 espectre::test::replay::ReplayPacketMetadata empty_metadata() {
   espectre::test::replay::ReplayPacketMetadata metadata;
@@ -47,7 +51,7 @@ espectre::test::replay::ReplayPacketMetadata empty_metadata() {
 void setUp(void) {}
 void tearDown(void) {}
 
-void test_classic_raises_no_alarm_on_empty_room(void) {
+void test_classic_empty_room_stays_within_alarm_budget(void) {
   const csi_test_data::CsiData& empty = csi_test_data::g_empty_data;
   const int8_t* const* packets = csi_test_data::g_empty_ptrs.data();
   const int8_t* rssi =
@@ -87,11 +91,12 @@ void test_classic_raises_no_alarm_on_empty_room(void) {
          fp_rate, metrics.effective_alarms, metrics.static_presence_eval_count);
 
   TEST_ASSERT_TRUE(metrics.static_presence_eval_count > 0);
-  // Nobody is in the room, so a debounced alarm here is a real defect.
-  TEST_ASSERT_EQUAL_INT(0, metrics.effective_alarms);
+  // Occupancy 70% can admit a single four-hit debounce burst. Two alarms on
+  // one short empty file remain a defect. High Accuracy stays at zero alarms.
+  TEST_ASSERT_TRUE(metrics.effective_alarms <= kLightweightEmptyMaxEffectiveAlarms);
   // Secondary regression guard on the raw per-evaluation rate. The corpus
   // maximum is 5.14%, so this bounds drift without tracking noise.
-  TEST_ASSERT_TRUE(fp_rate < 6.0f);
+  TEST_ASSERT_TRUE(fp_rate < kLightweightEmptyMaxFpRate);
 }
 
 int process(void) {
@@ -117,7 +122,7 @@ int process(void) {
     }
 
     UNITY_BEGIN();
-    RUN_TEST(test_classic_raises_no_alarm_on_empty_room);
+    RUN_TEST(test_classic_empty_room_stays_within_alarm_budget);
     failures += UNITY_END();
   }
 

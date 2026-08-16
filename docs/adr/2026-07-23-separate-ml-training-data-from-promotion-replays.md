@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-23
-- Updated: 2026-08-12
+- Updated: 2026-08-16
 
 ## Context
 
@@ -36,7 +36,7 @@ Adopt the following ML training and promotion protocol:
 ## Validation Policy
 
 - Selection and holdout results must retain per-recording provenance.
-- Quiet `empty` replays keep the zero-alarm requirement.
+- Quiet `empty` replays keep the zero-alarm requirement for High Accuracy. Lightweight sequential empty-room tests use the one-alarm per-recording budget in the host-side validation ADR.
 - Static-presence replays may use the explicit alarm budget because real micro-motion can occur.
 - Weak-link replay changes remain subject to absolute stress targets and the current alarm ratchet.
 - Generated artifacts and Python/C++ parity are validated under the shared host-side promotion ADR.
