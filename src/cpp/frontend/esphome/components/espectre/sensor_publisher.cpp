@@ -30,8 +30,8 @@ void SensorPublisher::publish_intensity(float movement_metric, float threshold) 
   if (!intensity_sensor_ || threshold <= 0.0f) {
     return;
   }
-  const float intensity = (movement_metric / threshold) * 100.0f;
-  intensity_sensor_->publish_state(intensity > 200.0f ? 200.0f : intensity);
+  const float intensity = ha_intensity_percent(movement_metric, threshold);
+  intensity_sensor_->publish_state(intensity);
 }
 
 void SensorPublisher::log_status(const char *tag,

@@ -130,6 +130,42 @@ class MockGlobalState:
         self.chip_type = 'c6'
 
 
+class MockRuntimePolicy:
+    """Mock runtime motion policy for session-only MQTT updates."""
+
+    def __init__(self, motion_on_hits=3, motion_off_hits=3):
+        self.motion_on_hits = motion_on_hits
+        self.motion_off_hits = motion_off_hits
+
+
+class MockTrafficGenerator:
+    """Mock Micro traffic generator for session-only traffic-control updates."""
+
+    def __init__(self, mode="ping", running=False):
+        self.mode = mode
+        self.running = running
+        self.set_mode_calls = []
+        self.start_calls = []
+        self.stop_calls = 0
+
+    def is_running(self):
+        return self.running
+
+    def set_mode(self, mode):
+        self.set_mode_calls.append(mode)
+        self.mode = mode
+        return True
+
+    def start(self, rate_pps):
+        self.start_calls.append(rate_pps)
+        self.running = True
+        return True
+
+    def stop(self):
+        self.stop_calls += 1
+        self.running = False
+
+
 @pytest.fixture
 def mock_mqtt_client_instance():
     """Create a mock MQTT client instance"""
@@ -168,6 +204,18 @@ def mock_segmentation():
 def mock_global_state():
     """Create mock global state"""
     return MockGlobalState()
+
+
+@pytest.fixture
+def mock_runtime_policy():
+    """Create a mock motion-hit runtime policy."""
+    return MockRuntimePolicy()
+
+
+@pytest.fixture
+def mock_traffic_generator():
+    """Create a mock traffic generator."""
+    return MockTrafficGenerator()
 
 
 class TestMQTTHandler:
@@ -370,6 +418,8 @@ class TestMQTTHandler:
         mock_segmentation,
         mock_wlan,
         mock_global_state,
+        mock_runtime_policy,
+        mock_traffic_generator,
     ):
         """HA-enabled sessions should publish discovery and republish on HA birth."""
         from mqtt.handler import MQTTHandler
@@ -383,7 +433,14 @@ class TestMQTTHandler:
         client.set_last_will = MagicMock()
         mock_client_class.return_value = client
 
-        handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan, mock_global_state)
+        handler = MQTTHandler(
+            mock_config,
+            mock_segmentation,
+            mock_wlan,
+            mock_global_state,
+            runtime_policy=mock_runtime_policy,
+            traffic_generator=mock_traffic_generator,
+        )
         handler.connect()
 
         client.set_last_will.assert_called_once_with(
@@ -395,14 +452,44 @@ class TestMQTTHandler:
         discovery_calls = [
             call for call in client.publish.call_args_list if call.args[0].startswith("homeassistant/")
         ]
-        assert len(discovery_calls) == 2
+        assert len(discovery_calls) == 9
         assert all(call.kwargs.get("retain") is True for call in discovery_calls)
+        discovery_topics = [call.args[0] for call in discovery_calls]
+        assert "homeassistant/binary_sensor/micro_test_device_motion/config" in discovery_topics
+        assert "homeassistant/sensor/micro_test_device_movement/config" in discovery_topics
+        assert "homeassistant/sensor/micro_test_device_intensity/config" in discovery_topics
+        assert "homeassistant/number/micro_test_device_threshold/config" in discovery_topics
+        assert "homeassistant/number/micro_test_device_motion_on_hits/config" in discovery_topics
+        assert "homeassistant/number/micro_test_device_motion_off_hits/config" in discovery_topics
+        assert "homeassistant/switch/micro_test_device_calibrate/config" in discovery_topics
+        assert "homeassistant/select/micro_test_device_csi_traffic_mode/config" in discovery_topics
+        assert "homeassistant/select/micro_test_device_traffic_generator_mode/config" in discovery_topics
+        assert "test/espectre/devices/test-device/ha/threshold/set" in subscribed_topics
+        assert "test/espectre/devices/test-device/ha/motion_on_hits/set" in subscribed_topics
+        assert "test/espectre/devices/test-device/ha/motion_off_hits/set" in subscribed_topics
+        assert "test/espectre/devices/test-device/ha/calibrate/set" in subscribed_topics
+        assert "test/espectre/devices/test-device/ha/csi_traffic_mode/set" in subscribed_topics
+        assert "test/espectre/devices/test-device/ha/traffic_generator_mode/set" in subscribed_topics
 
         client.publish.reset_mock()
         handler._on_message(b"homeassistant/status", b"online")
         republished = [call.args[0] for call in client.publish.call_args_list]
         assert "homeassistant/binary_sensor/micro_test_device_motion/config" in republished
+        assert "homeassistant/sensor/micro_test_device_intensity/config" in republished
+        assert "homeassistant/number/micro_test_device_threshold/config" in republished
+        assert "homeassistant/number/micro_test_device_motion_on_hits/config" in republished
+        assert "homeassistant/number/micro_test_device_motion_off_hits/config" in republished
+        assert "homeassistant/switch/micro_test_device_calibrate/config" in republished
+        assert "homeassistant/select/micro_test_device_csi_traffic_mode/config" in republished
+        assert "homeassistant/select/micro_test_device_traffic_generator_mode/config" in republished
         assert "test/espectre/devices/test-device/ha/availability" in republished
+        assert "test/espectre/devices/test-device/ha/intensity/state" in republished
+        assert "test/espectre/devices/test-device/ha/threshold/state" in republished
+        assert "test/espectre/devices/test-device/ha/motion_on_hits/state" in republished
+        assert "test/espectre/devices/test-device/ha/motion_off_hits/state" in republished
+        assert "test/espectre/devices/test-device/ha/calibrate/state" in republished
+        assert "test/espectre/devices/test-device/ha/csi_traffic_mode/state" in republished
+        assert "test/espectre/devices/test-device/ha/traffic_generator_mode/state" in republished
 
     def test_publish_state_mirrors_ha_topics_when_enabled(
         self,
@@ -412,7 +499,7 @@ class TestMQTTHandler:
         mock_mqtt_client_instance,
         mock_global_state,
     ):
-        """HA-enabled state publishes should mirror simple HA topics."""
+        """HA-enabled heartbeats should mirror movement, not live intensity or motion edges."""
         from mqtt.handler import MQTTHandler
 
         mock_config.MQTT_HA_DISCOVERY_ENABLED = True
@@ -428,8 +515,447 @@ class TestMQTTHandler:
 
         published_topics = [call.args[0] for call in mock_mqtt_client_instance.publish.call_args_list]
         assert handler.telemetry_topic in published_topics
-        assert "test/espectre/devices/test-device/ha/motion/state" in published_topics
         assert "test/espectre/devices/test-device/ha/movement/state" in published_topics
+        assert "test/espectre/devices/test-device/ha/motion/state" not in published_topics
+        assert "test/espectre/devices/test-device/ha/intensity/state" not in published_topics
+        assert "test/espectre/devices/test-device/ha/threshold/state" not in published_topics
+        assert "test/espectre/devices/test-device/ha/calibrate/state" not in published_topics
+
+    def test_publish_live_ha_mirrors_intensity_and_motion_edges(
+        self,
+        mock_config,
+        mock_segmentation,
+        mock_wlan,
+        mock_mqtt_client_instance,
+        mock_global_state,
+    ):
+        """Live HA publishes should update intensity every evaluation and motion only on edges."""
+        from mqtt.handler import MQTTHandler
+
+        mock_config.MQTT_HA_DISCOVERY_ENABLED = True
+        handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan, mock_global_state)
+        handler.client = mock_mqtt_client_instance
+        handler.connected = True
+
+        handler.publish_live_ha(0.75, 1, 1.0)
+        first_topics = [call.args[0] for call in mock_mqtt_client_instance.publish.call_args_list]
+        first_payloads = {
+            call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
+        }
+        assert "test/espectre/devices/test-device/ha/intensity/state" in first_topics
+        assert first_payloads["test/espectre/devices/test-device/ha/intensity/state"] == "37.5"
+        assert "test/espectre/devices/test-device/ha/threshold/state" in first_topics
+        assert first_payloads["test/espectre/devices/test-device/ha/threshold/state"] == "1.0000"
+        assert "test/espectre/devices/test-device/ha/motion/state" in first_topics
+        assert first_payloads["test/espectre/devices/test-device/ha/motion/state"] == "ON"
+        assert "test/espectre/devices/test-device/ha/movement/state" not in first_topics
+        assert "test/espectre/devices/test-device/ha/calibrate/state" not in first_topics
+        assert handler.telemetry_topic not in first_topics
+
+        mock_mqtt_client_instance.publish.reset_mock()
+        handler.publish_live_ha(1.0, 1, 1.0)
+        second_payloads = {
+            call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
+        }
+        second_topics = [call.args[0] for call in mock_mqtt_client_instance.publish.call_args_list]
+        assert second_payloads["test/espectre/devices/test-device/ha/intensity/state"] == "50.0"
+        assert "test/espectre/devices/test-device/ha/motion/state" not in second_topics
+        assert "test/espectre/devices/test-device/ha/threshold/state" not in second_topics
+
+        mock_mqtt_client_instance.publish.reset_mock()
+        handler.publish_live_ha(0.1, 0, 1.0)
+        third_payloads = {
+            call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
+        }
+        assert third_payloads["test/espectre/devices/test-device/ha/intensity/state"] == "5.0"
+        assert third_payloads["test/espectre/devices/test-device/ha/motion/state"] == "OFF"
+
+        mock_mqtt_client_instance.publish.reset_mock()
+        handler.publish_live_ha(0.1, 0, 0.4)
+        fourth_payloads = {
+            call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
+        }
+        assert fourth_payloads["test/espectre/devices/test-device/ha/threshold/state"] == "0.4000"
+
+    def test_ha_threshold_command_updates_detector(
+        self,
+        mock_config,
+        mock_segmentation,
+        mock_wlan,
+        mock_mqtt_client_instance,
+        mock_global_state,
+    ):
+        """HA number commands should write the live detector threshold."""
+        from mqtt.handler import MQTTHandler
+
+        mock_config.MQTT_HA_DISCOVERY_ENABLED = True
+        handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan, mock_global_state)
+        handler.client = mock_mqtt_client_instance
+        handler.connected = True
+
+        handler._on_message(
+            b"test/espectre/devices/test-device/ha/threshold/set",
+            b"0.45",
+        )
+
+        assert mock_segmentation.get_threshold() == 0.45
+        published = {
+            call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
+        }
+        assert published["test/espectre/devices/test-device/ha/threshold/state"] == "0.4500"
+
+    def test_ha_motion_hits_commands_update_runtime_policy(
+        self,
+        mock_config,
+        mock_segmentation,
+        mock_wlan,
+        mock_mqtt_client_instance,
+        mock_global_state,
+        mock_runtime_policy,
+    ):
+        """HA number commands should update the session-only motion-hit policy."""
+        from mqtt.handler import MQTTHandler
+
+        mock_config.MQTT_HA_DISCOVERY_ENABLED = True
+        handler = MQTTHandler(
+            mock_config,
+            mock_segmentation,
+            mock_wlan,
+            mock_global_state,
+            runtime_policy=mock_runtime_policy,
+        )
+        handler.client = mock_mqtt_client_instance
+        handler.connected = True
+
+        handler._on_message(
+            b"test/espectre/devices/test-device/ha/motion_on_hits/set",
+            b"6",
+        )
+        handler._on_message(
+            b"test/espectre/devices/test-device/ha/motion_off_hits/set",
+            b"4",
+        )
+
+        assert mock_runtime_policy.motion_on_hits == 6
+        assert mock_runtime_policy.motion_off_hits == 4
+        published = {
+            call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
+        }
+        assert published["test/espectre/devices/test-device/ha/motion_on_hits/state"] == "6"
+        assert published["test/espectre/devices/test-device/ha/motion_off_hits/state"] == "4"
+        motion_on_publishes = [
+            call for call in mock_mqtt_client_instance.publish.call_args_list
+            if call.args[0] == "test/espectre/devices/test-device/ha/motion_on_hits/state"
+        ]
+        motion_off_publishes = [
+            call for call in mock_mqtt_client_instance.publish.call_args_list
+            if call.args[0] == "test/espectre/devices/test-device/ha/motion_off_hits/state"
+        ]
+        assert len(motion_on_publishes) == 2
+        assert len(motion_off_publishes) == 2
+
+    def test_mqtt_set_motion_hits_command_updates_runtime_policy(
+        self,
+        mock_config,
+        mock_segmentation,
+        mock_wlan,
+        mock_mqtt_client_instance,
+        mock_global_state,
+        mock_runtime_policy,
+        mock_traffic_generator,
+    ):
+        """Canonical MQTT set_motion_hits should update the session-only policy."""
+        from mqtt.commands import MQTTCommands
+        from mqtt.handler import MQTTHandler
+
+        mock_config.MQTT_HA_DISCOVERY_ENABLED = True
+        handler = MQTTHandler(
+            mock_config,
+            mock_segmentation,
+            mock_wlan,
+            mock_global_state,
+            runtime_policy=mock_runtime_policy,
+            traffic_generator=mock_traffic_generator,
+        )
+        handler.client = mock_mqtt_client_instance
+        handler.connected = True
+        handler.cmd_handler = MQTTCommands(
+            mock_mqtt_client_instance,
+            mock_config,
+            mock_segmentation,
+            handler.accepted_topic,
+            handler.rejected_topic,
+            handler.info_topic,
+            handler.stats_topic,
+            mock_wlan,
+            mock_global_state,
+            runtime_policy=mock_runtime_policy,
+            ha_adapter=handler.ha_adapter,
+            recalibrate_callback=handler.request_recalibration,
+            traffic_control_callback=handler.set_traffic_control,
+            traffic_control_supported=True,
+        )
+
+        handler._on_message(
+            b"test/espectre/devices/test-device/commands/request",
+            b'{"command_id":"motion-1","command":"set_motion_hits","motion_on_hits":5,"motion_off_hits":4}',
+        )
+
+        assert mock_runtime_policy.motion_on_hits == 5
+        assert mock_runtime_policy.motion_off_hits == 4
+        published = {
+            call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
+        }
+        assert published["test/espectre/devices/test-device/commands/accepted"]
+        info_payload = json.loads(published["test/espectre/devices/test-device/info"])
+        assert info_payload["supports_runtime_motion_hits"] is True
+        assert info_payload["supports_traffic_control"] is True
+        assert published["test/espectre/devices/test-device/ha/motion_on_hits/state"] == "5"
+        assert published["test/espectre/devices/test-device/ha/motion_off_hits/state"] == "4"
+
+    def test_ha_traffic_control_commands_update_runtime_generator(
+        self,
+        mock_config,
+        mock_segmentation,
+        mock_wlan,
+        mock_mqtt_client_instance,
+        mock_global_state,
+        mock_traffic_generator,
+    ):
+        """HA select commands should update Micro traffic ownership and generator mode."""
+        from mqtt.handler import MQTTHandler
+
+        mock_config.MQTT_HA_DISCOVERY_ENABLED = True
+        handler = MQTTHandler(
+            mock_config,
+            mock_segmentation,
+            mock_wlan,
+            mock_global_state,
+            traffic_generator=mock_traffic_generator,
+        )
+        handler.client = mock_mqtt_client_instance
+        handler.connected = True
+
+        handler._on_message(
+            b"test/espectre/devices/test-device/ha/traffic_generator_mode/set",
+            b"dns",
+        )
+        handler._on_message(
+            b"test/espectre/devices/test-device/ha/csi_traffic_mode/set",
+            b"external",
+        )
+
+        assert mock_traffic_generator.set_mode_calls[0] == "dns"
+        assert mock_traffic_generator.stop_calls >= 1
+        assert handler.csi_traffic_mode == "external"
+        assert handler.traffic_generator_mode == "dns"
+        published = {
+            call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
+        }
+        assert published["test/espectre/devices/test-device/ha/csi_traffic_mode/state"] == "external"
+        assert published["test/espectre/devices/test-device/ha/traffic_generator_mode/state"] == "dns"
+        csi_mode_publishes = [
+            call for call in mock_mqtt_client_instance.publish.call_args_list
+            if call.args[0] == "test/espectre/devices/test-device/ha/csi_traffic_mode/state"
+        ]
+        generator_mode_publishes = [
+            call for call in mock_mqtt_client_instance.publish.call_args_list
+            if call.args[0] == "test/espectre/devices/test-device/ha/traffic_generator_mode/state"
+        ]
+        assert len(csi_mode_publishes) == 2
+        assert len(generator_mode_publishes) == 2
+
+        mock_mqtt_client_instance.publish.reset_mock()
+        handler._on_message(
+            b"test/espectre/devices/test-device/ha/csi_traffic_mode/set",
+            b"pacing",
+        )
+        published = [call.args[0] for call in mock_mqtt_client_instance.publish.call_args_list]
+        assert "test/espectre/devices/test-device/ha/csi_traffic_mode/state" not in published
+        assert handler.csi_traffic_mode == "external"
+
+    def test_mqtt_traffic_control_commands_update_runtime_generator(
+        self,
+        mock_config,
+        mock_segmentation,
+        mock_wlan,
+        mock_mqtt_client_instance,
+        mock_global_state,
+        mock_traffic_generator,
+    ):
+        """Canonical MQTT traffic commands should reconfigure Micro session traffic."""
+        from mqtt.commands import MQTTCommands
+        from mqtt.handler import MQTTHandler
+
+        mock_config.MQTT_HA_DISCOVERY_ENABLED = True
+        handler = MQTTHandler(
+            mock_config,
+            mock_segmentation,
+            mock_wlan,
+            mock_global_state,
+            traffic_generator=mock_traffic_generator,
+        )
+        handler.client = mock_mqtt_client_instance
+        handler.connected = True
+        handler.cmd_handler = MQTTCommands(
+            mock_mqtt_client_instance,
+            mock_config,
+            mock_segmentation,
+            handler.accepted_topic,
+            handler.rejected_topic,
+            handler.info_topic,
+            handler.stats_topic,
+            mock_wlan,
+            mock_global_state,
+            ha_adapter=handler.ha_adapter,
+            recalibrate_callback=handler.request_recalibration,
+            traffic_control_callback=handler.set_traffic_control,
+            traffic_control_supported=True,
+        )
+
+        handler._on_message(
+            b"test/espectre/devices/test-device/commands/request",
+            b'{"command_id":"traffic-1","command":"set_csi_traffic_mode","csi_traffic_mode":"disabled"}',
+        )
+        handler._on_message(
+            b"test/espectre/devices/test-device/commands/request",
+            b'{"command_id":"traffic-2","command":"set_traffic_generator_mode","traffic_generator_mode":"dns"}',
+        )
+
+        published = {
+            call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
+        }
+        assert published["test/espectre/devices/test-device/commands/accepted"]
+        info_payload = json.loads(published["test/espectre/devices/test-device/info"])
+        assert info_payload["supports_traffic_control"] is True
+        assert info_payload["csi_traffic_mode"] == "disabled"
+        assert info_payload["traffic_mode"] == "dns"
+        assert published["test/espectre/devices/test-device/ha/csi_traffic_mode/state"] == "disabled"
+        assert published["test/espectre/devices/test-device/ha/traffic_generator_mode/state"] == "dns"
+
+        mock_mqtt_client_instance.publish.reset_mock()
+        handler._on_message(
+            b"test/espectre/devices/test-device/commands/request",
+            b'{"command_id":"traffic-3","command":"set_csi_traffic_mode","csi_traffic_mode":"pacing"}',
+        )
+        published_topics = [call.args[0] for call in mock_mqtt_client_instance.publish.call_args_list]
+        assert handler.rejected_topic in published_topics
+
+    def test_ha_calibrate_command_requests_recalibration(
+        self,
+        mock_config,
+        mock_segmentation,
+        mock_wlan,
+        mock_mqtt_client_instance,
+        mock_global_state,
+    ):
+        """HA Calibrate ON should queue a main-loop recalibration request."""
+        from mqtt.handler import MQTTHandler
+
+        mock_config.MQTT_HA_DISCOVERY_ENABLED = True
+        handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan, mock_global_state)
+        handler.client = mock_mqtt_client_instance
+        handler.connected = True
+
+        handler._on_message(
+            b"test/espectre/devices/test-device/ha/calibrate/set",
+            b"ON",
+        )
+
+        published = {
+            call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
+        }
+        assert published["test/espectre/devices/test-device/ha/calibrate/state"] == "ON"
+        assert handler.take_recalibrate_request() is True
+        assert handler.take_recalibrate_request() is False
+
+        mock_mqtt_client_instance.publish.reset_mock()
+        handler._on_message(
+            b"test/espectre/devices/test-device/ha/calibrate/set",
+            b"OFF",
+        )
+        published = {
+            call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
+        }
+        assert published["test/espectre/devices/test-device/ha/calibrate/state"] == "ON"
+        assert handler.take_recalibrate_request() is False
+
+        mock_mqtt_client_instance.publish.reset_mock()
+        handler.finish_recalibration(0.1, 0.42)
+        published = {
+            call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
+        }
+        assert published["test/espectre/devices/test-device/ha/calibrate/state"] == "OFF"
+
+    def test_mqtt_recalibrate_command_rejects_when_request_is_pending(
+        self,
+        mock_config,
+        mock_segmentation,
+        mock_wlan,
+        mock_mqtt_client_instance,
+        mock_global_state,
+    ):
+        """Canonical MQTT recalibrate should reject when one request is already pending."""
+        from mqtt.commands import MQTTCommands
+        from mqtt.handler import MQTTHandler
+
+        mock_config.MQTT_HA_DISCOVERY_ENABLED = True
+        handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan, mock_global_state)
+        handler.client = mock_mqtt_client_instance
+        handler.connected = True
+        handler.cmd_handler = MQTTCommands(
+            mock_mqtt_client_instance,
+            mock_config,
+            mock_segmentation,
+            handler.accepted_topic,
+            handler.rejected_topic,
+            handler.info_topic,
+            handler.stats_topic,
+            mock_wlan,
+            mock_global_state,
+            ha_adapter=handler.ha_adapter,
+            recalibrate_callback=handler.request_recalibration,
+        )
+
+        handler._on_message(
+            b"test/espectre/devices/test-device/commands/request",
+            b'{"command_id":"recal-1","command":"recalibrate"}',
+        )
+        handler._on_message(
+            b"test/espectre/devices/test-device/commands/request",
+            b'{"command_id":"recal-2","command":"recalibrate"}',
+        )
+
+        accepted_payloads = [
+            json.loads(call.args[1])
+            for call in mock_mqtt_client_instance.publish.call_args_list
+            if call.args[0] == handler.accepted_topic
+        ]
+        rejected_payloads = [
+            json.loads(call.args[1])
+            for call in mock_mqtt_client_instance.publish.call_args_list
+            if call.args[0] == handler.rejected_topic
+        ]
+        calibrate_publishes = [
+            call for call in mock_mqtt_client_instance.publish.call_args_list
+            if call.args[0] == "test/espectre/devices/test-device/ha/calibrate/state"
+        ]
+
+        assert accepted_payloads[-1]["command_id"] == "recal-1"
+        assert rejected_payloads[-1]["command_id"] == "recal-2"
+        assert rejected_payloads[-1]["accepted"] is False
+        assert handler.take_recalibrate_request() is True
+        assert handler.take_recalibrate_request() is False
+        assert len(calibrate_publishes) == 2
+
+    def test_ha_intensity_percent_matches_shared_scale(self):
+        """The MicroPython helper must match the shared 0-100 HA intensity mapping."""
+        from config import ha_intensity_percent
+
+        assert ha_intensity_percent(0.5, 0.5) == 50.0
+        assert ha_intensity_percent(1.0, 0.5) == 100.0
+        assert ha_intensity_percent(0.75, 0.5) == 75.0
+        assert ha_intensity_percent(0.0, 0.0) == 0.0
     
     def test_publish_info(self, mock_config, mock_segmentation, mock_wlan, mock_mqtt_client_instance):
         """Test publish_info delegates to cmd_handler"""

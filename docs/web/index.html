@@ -626,7 +626,12 @@
             <div class="field"><label for="cfg-motion-on">Motion on hits</label><input type="number" id="cfg-motion-on" min="1" max="20" placeholder="4"></div>
             <div class="field"><label for="cfg-motion-off">Motion off hits</label><input type="number" id="cfg-motion-off" min="1" max="20" placeholder="3"></div>
           </div>
+          <div class="field" data-capability="supports_traffic_control"><label for="cfg-csi-traffic-mode">CSI traffic ownership</label><select id="cfg-csi-traffic-mode"><option value="internal">Internal</option><option value="external">External</option><option value="pacing">Pacing</option><option value="disabled">Disabled</option></select></div>
+          <div class="field" data-capability="supports_traffic_control"><label for="cfg-traffic-generator-mode">Traffic generator</label><select id="cfg-traffic-generator-mode"><option value="ping">Ping</option><option value="dns">DNS</option></select></div>
           <p class="tool-note runtime-hits-caption" data-capability="supports_runtime_motion_hits">Consecutive evaluations above or below the threshold required to enter or leave the motion state.</p>
+        </div>
+        <div class="panel-actions">
+          <button class="btn-secondary btn-sm js-runtime-recalibrate" data-capability="supports_manual_recalibration">Recalibrate</button>
         </div>
         <p class="tool-note js-runtime-unavailable" hidden>This firmware does not expose runtime controls over Bluetooth.</p>
       </section>
@@ -643,6 +648,7 @@
           <div class="stat"><div class="stat-label">Low-pass</div><div class="stat-value" id="diag-lowpass">—</div></div>
           <div class="stat"><div class="stat-label">Hampel</div><div class="stat-value" id="diag-hampel">—</div></div>
           <div class="stat"><div class="stat-label">Traffic mode</div><div class="stat-value" id="diag-traffic-mode">—</div></div>
+          <div class="stat"><div class="stat-label">Generator mode</div><div class="stat-value" id="diag-generator-mode">—</div></div>
           <div class="stat"><div class="stat-label">Traffic rate</div><div class="stat-value" id="diag-traffic-rate">—</div></div>
           <div class="stat"><div class="stat-label">Publish</div><div class="stat-value" id="diag-publish">—</div></div>
           <div class="stat"><div class="stat-label">Evaluation</div><div class="stat-value" id="diag-evaluation">—</div></div>

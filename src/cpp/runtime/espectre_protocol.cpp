@@ -256,6 +256,10 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
   out += info.supports_runtime_motion_hits ? "true" : "false";
   out += ",\"supports_runtime_detector\":";
   out += info.supports_runtime_detector ? "true" : "false";
+  out += ",\"supports_manual_recalibration\":";
+  out += info.supports_manual_recalibration ? "true" : "false";
+  out += ",\"supports_traffic_control\":";
+  out += info.supports_traffic_control ? "true" : "false";
   out += ",\"supports_ota\":";
   out += info.supports_ota ? "true" : "false";
 
@@ -453,6 +457,28 @@ bool parse_espectre_command(const std::string &payload, EspectreCommand *command
       return false;
     }
     parsed.has_motion_hits = true;
+  } else if (parsed.command == "set_csi_traffic_mode") {
+    parsed.csi_traffic_mode = extract_json_string(payload, "csi_traffic_mode");
+    if (parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME &&
+        parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME &&
+        parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_PACING_NAME &&
+        parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_DISABLED_NAME) {
+      if (error != nullptr) {
+        *error = "invalid csi traffic mode";
+      }
+      return false;
+    }
+    parsed.has_csi_traffic_mode = true;
+  } else if (parsed.command == "set_traffic_generator_mode") {
+    parsed.traffic_generator_mode = extract_json_string(payload, "traffic_generator_mode");
+    if (parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME &&
+        parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME) {
+      if (error != nullptr) {
+        *error = "invalid traffic generator mode";
+      }
+      return false;
+    }
+    parsed.has_traffic_generator_mode = true;
   } else if (parsed.command == "set_detector") {
     parsed.detector = extract_json_string(payload, "detector");
     if (parsed.detector != RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME &&
@@ -463,6 +489,8 @@ bool parse_espectre_command(const std::string &payload, EspectreCommand *command
       return false;
     }
     parsed.has_detector = true;
+  } else if (parsed.command == "recalibrate") {
+    // No additional payload required.
   } else if (parsed.command == "ota_check" || parsed.command == "ota_start") {
     if (has_json_key(payload, "manifest_url") || has_json_key(payload, "image_url") ||
         has_json_key(payload, "version")) {

@@ -10,8 +10,10 @@
  */
 #include "espectre.h"
 #include "threshold_number.h"
+#include "motion_hits_number.h"
 #include "calibrate_switch.h"
 #include "detector_select.h"
+#include "traffic_mode_select.h"
 
 #include "esphome/core/log.h"
 #include "esphome/core/application.h"
@@ -21,6 +23,8 @@
 #include "debug_telemetry_log_helpers.h"
 #include "espectre_banner.h"
 #include "runtime_listener_utils.h"
+#include "runtime_motion_hits_store.h"
+#include "runtime_traffic_mode_store.h"
 #include "sdkconfig.h"
 
 #include <cmath>
@@ -32,6 +36,36 @@ void ESpectreComponent::setup() {
   ESP_LOGI(TAG, "Initializing ESPectre component...");
   espectre::configure_debug_telemetry_log_levels();
 
+  this->runtime_.set_live_telemetry_enabled(this->sensor_publisher_.has_intensity_sensor());
+  uint8_t saved_motion_on_hits = 0U;
+  uint8_t saved_motion_off_hits = 0U;
+  bool has_saved_motion_hits = false;
+  const esp_err_t motion_hits_err =
+      espectre::load_runtime_motion_hits(&saved_motion_on_hits, &saved_motion_off_hits, &has_saved_motion_hits);
+  if (motion_hits_err != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to load persisted motion hits: %s", esp_err_to_name(motion_hits_err));
+  } else if (has_saved_motion_hits) {
+    this->runtime_.config().motion_on_hits = saved_motion_on_hits;
+    this->runtime_.config().motion_off_hits = saved_motion_off_hits;
+  }
+  bool has_saved_csi_traffic_mode = false;
+  CsiTrafficMode saved_csi_traffic_mode = this->runtime_.config().csi_traffic_mode;
+  const esp_err_t csi_traffic_err =
+      espectre::load_runtime_csi_traffic_mode(&saved_csi_traffic_mode, &has_saved_csi_traffic_mode);
+  if (csi_traffic_err != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to load persisted CSI traffic mode: %s", esp_err_to_name(csi_traffic_err));
+  } else if (has_saved_csi_traffic_mode) {
+    this->runtime_.config().csi_traffic_mode = saved_csi_traffic_mode;
+  }
+  bool has_saved_generator_mode = false;
+  RuntimeTrafficMode saved_generator_mode = this->runtime_.config().traffic_generator_mode;
+  const esp_err_t generator_err =
+      espectre::load_runtime_traffic_generator_mode(&saved_generator_mode, &has_saved_generator_mode);
+  if (generator_err != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to load persisted traffic generator mode: %s", esp_err_to_name(generator_err));
+  } else if (has_saved_generator_mode) {
+    this->runtime_.config().traffic_generator_mode = saved_generator_mode;
+  }
   if (!this->runtime_.setup(this)) {
     ESP_LOGE(TAG, "ESPectre runtime setup failed");
     this->mark_failed();
@@ -111,8 +145,39 @@ void ESpectreComponent::set_threshold_runtime(float threshold) {
   this->runtime_.set_threshold_runtime(threshold);
 }
 
+void ESpectreComponent::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits) {
+  if (!this->runtime_.set_motion_hits_runtime(motion_on_hits, motion_off_hits)) {
+    return;
+  }
+  if (this->motion_on_hits_number_ != nullptr) {
+    this->motion_on_hits_number_->publish_state(this->runtime_.config().motion_on_hits);
+  }
+  if (this->motion_off_hits_number_ != nullptr) {
+    this->motion_off_hits_number_->publish_state(this->runtime_.config().motion_off_hits);
+  }
+}
+
 void ESpectreComponent::set_detection_algorithm_runtime(const std::string &algorithm) {
   this->runtime_.set_detection_algorithm_runtime(parse_detection_algorithm(algorithm.c_str()));
+}
+
+void ESpectreComponent::set_csi_traffic_mode_runtime(const std::string &mode) {
+  if (!this->runtime_.set_csi_traffic_mode_runtime(parse_csi_traffic_mode(mode.c_str()))) {
+    return;
+  }
+  if (this->csi_traffic_mode_select_ != nullptr) {
+    this->csi_traffic_mode_select_->publish_state(csi_traffic_mode_name(this->runtime_.config().csi_traffic_mode));
+  }
+}
+
+void ESpectreComponent::set_traffic_generator_mode_runtime(const std::string &mode) {
+  if (!this->runtime_.set_traffic_generator_mode_runtime(parse_traffic_mode(mode.c_str()))) {
+    return;
+  }
+  if (this->traffic_generator_mode_select_ != nullptr) {
+    this->traffic_generator_mode_select_->publish_state(
+        traffic_mode_name(this->runtime_.config().traffic_generator_mode));
+  }
 }
 
 void ESpectreComponent::trigger_recalibration() {
@@ -123,6 +188,8 @@ void ESpectreComponent::on_motion_state_changed(const RuntimeSnapshot &snapshot)
   if (!snapshot.ready_to_publish) {
     this->threshold_republished_ = false;
     this->detector_republished_ = false;
+    this->motion_hits_republished_ = false;
+    this->traffic_mode_republished_ = false;
   }
   this->runtime_.record_snapshot(snapshot);
   if (snapshot.ready_to_publish) {
@@ -133,6 +200,8 @@ void ESpectreComponent::on_motion_state_changed(const RuntimeSnapshot &snapshot)
 void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
   if (!this->runtime_.snapshot().ready_to_publish && snapshot.ready_to_publish) {
     this->threshold_republished_ = false;
+    this->motion_hits_republished_ = false;
+    this->traffic_mode_republished_ = false;
   }
   this->runtime_.record_snapshot(snapshot);
   this->sample_diagnostics_();
@@ -150,9 +219,34 @@ void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint
     static_cast<ESpectreDetectorSelect *>(this->detector_select_)->republish_state();
     this->detector_republished_ = true;
   }
+  if (!this->motion_hits_republished_ && (this->motion_on_hits_number_ != nullptr || this->motion_off_hits_number_ != nullptr)) {
+    if (this->motion_on_hits_number_ != nullptr) {
+      static_cast<ESpectreMotionHitsNumber *>(this->motion_on_hits_number_)->republish_state();
+    }
+    if (this->motion_off_hits_number_ != nullptr) {
+      static_cast<ESpectreMotionHitsNumber *>(this->motion_off_hits_number_)->republish_state();
+    }
+    this->motion_hits_republished_ = true;
+  }
+  if (!this->traffic_mode_republished_ &&
+      (this->csi_traffic_mode_select_ != nullptr || this->traffic_generator_mode_select_ != nullptr)) {
+    if (this->csi_traffic_mode_select_ != nullptr) {
+      static_cast<ESpectreTrafficModeSelect *>(this->csi_traffic_mode_select_)->republish_state();
+    }
+    if (this->traffic_generator_mode_select_ != nullptr) {
+      static_cast<ESpectreTrafficModeSelect *>(this->traffic_generator_mode_select_)->republish_state();
+    }
+    this->traffic_mode_republished_ = true;
+  }
 
   this->sensor_publisher_.publish_movement_metric(snapshot.movement_metric);
-  this->sensor_publisher_.publish_intensity(snapshot.movement_metric, snapshot.threshold);
+}
+
+void ESpectreComponent::on_live_telemetry(float movement, float threshold) {
+  if (!this->runtime_.snapshot().ready_to_publish) {
+    return;
+  }
+  this->sensor_publisher_.publish_intensity(movement, threshold);
 }
 
 void ESpectreComponent::on_threshold_changed(const RuntimeSnapshot &snapshot) {
@@ -220,12 +314,12 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, " ├─ CSI target ......... %u pps",
                 static_cast<unsigned>(config.csi_target_pps));
   ESP_LOGCONFIG(TAG, " ├─ CSI traffic ........ %s", csi_traffic_mode_name(config.csi_traffic_mode));
-  ESP_LOGCONFIG(TAG, " ├─ Adaptive ........... %s", config.traffic_generator_adaptive ? "YES" : "NO");
   ESP_LOGCONFIG(TAG, " └─ Status ............. %s", snapshot.ready_to_publish ? "[ACTIVE]" : "[IDLE]");
   ESP_LOGCONFIG(TAG, " ");
   ESP_LOGCONFIG(TAG, " PUBLISH INTERVAL");
-  ESP_LOGCONFIG(TAG, " └─ Publish interval ... %u ms",
+  ESP_LOGCONFIG(TAG, " ├─ Movement score ..... %u ms",
                 static_cast<unsigned>(config.publish_interval_ms));
+  ESP_LOGCONFIG(TAG, " └─ Intensity .......... evaluation interval");
   ESP_LOGCONFIG(TAG, " ");
   ESP_LOGCONFIG(TAG, " EVALUATION");
   ESP_LOGCONFIG(TAG, " ├─ Interval ........... %u ms",

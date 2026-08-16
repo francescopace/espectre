@@ -9,13 +9,22 @@
 #
 # Note: If you changed the device name from "espectre", replace all
 # entity prefixes to match Home Assistant entity IDs. Depending on the
-# ESPHome device name, IDs may look like:
-#   sensor.espectre_intensity
-#   sensor.bedroom_espectre_intensity
+# frontend, IDs may look like:
+#   sensor.espectre_intensity                 (ESPHome)
+#   number.espectre_threshold                 (ESPHome)
+#   switch.espectre_calibrate                 (ESPHome)
+#   sensor.native_0x0000111122223333_intensity (Native MQTT Discovery)
+#   number.native_0x0000111122223333_threshold (Native MQTT Discovery)
+#   switch.native_0x0000111122223333_calibrate (Native MQTT Discovery)
+#   sensor.micro_micro_espectre_intensity     (Micro-ESPectre MQTT Discovery)
+#   number.micro_micro_espectre_threshold     (Micro-ESPectre MQTT Discovery)
+#   switch.micro_micro_espectre_calibrate     (Micro-ESPectre MQTT Discovery)
 # Check Settings → Devices & services → Entities for the exact IDs.
 #
-# Intensity is published by the ESPHome firmware as intensity_sensor
-# (movement / threshold × 100, clamped to 200). No HA template sensor is needed.
+# Intensity is the shared Home Assistant gauge on ESPHome, Native MQTT, and
+# Micro-ESPectre MQTT (movement / threshold × 50, clamped to 100) on the
+# detector evaluation cadence (default 250 ms). 50% is at threshold; 100% is
+# twice the threshold. No HA template sensor is needed.
 #
 # ⚠️ Multiple devices? If you uncommented "name_add_mac_suffix: true" in your
 # device YAML, entity names will include the MAC suffix (e.g., "espectre_a1b2c3").
@@ -30,14 +39,14 @@ views:
           - type: gauge
             name: Intensity
             min: 0
-            max: 200
+            max: 100
             needle: true
             segments:
               - from: 0
                 color: green
-              - from: 70
+              - from: 35
                 color: yellow
-              - from: 100
+              - from: 50
                 color: red
             entity: >-
               sensor.espectre_intensity

@@ -16,7 +16,9 @@
 #include "detector_select.h"
 #include "diagnostics_button.h"
 #include "espectre.h"
+#include "motion_hits_number.h"
 #include "threshold_number.h"
+#include "traffic_mode_select.h"
 #undef protected
 #undef private
 
@@ -31,6 +33,7 @@ class ESpectreComponentProbe : public ESpectreComponent {
  public:
   using ESpectreComponent::on_calibration_finished;
   using ESpectreComponent::on_calibration_started;
+  using ESpectreComponent::on_live_telemetry;
   using ESpectreComponent::on_motion_state_changed;
   using ESpectreComponent::on_periodic_update;
   using ESpectreComponent::on_runtime_fault;
@@ -43,6 +46,11 @@ class ThresholdNumberProbe : public ESpectreThresholdNumber {
   using ESpectreThresholdNumber::control;
 };
 
+class MotionHitsNumberProbe : public ESpectreMotionHitsNumber {
+ public:
+  using ESpectreMotionHitsNumber::control;
+};
+
 class CalibrateSwitchProbe : public ESpectreCalibrateSwitch {
  public:
   using ESpectreCalibrateSwitch::write_state;
@@ -51,6 +59,11 @@ class CalibrateSwitchProbe : public ESpectreCalibrateSwitch {
 class DetectorSelectProbe : public ESpectreDetectorSelect {
  public:
   using ESpectreDetectorSelect::control;
+};
+
+class TrafficModeSelectProbe : public ESpectreTrafficModeSelect {
+ public:
+  using ESpectreTrafficModeSelect::control;
 };
 
 class DiagnosticsButtonProbe : public ESpectreDiagnosticsButton {
@@ -75,6 +88,7 @@ void test_espectre_component_setup_uses_mock_runtime_snapshot(void) {
 
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_listener == &component);
   TEST_ASSERT_NOT_NULL(frontend_runtime_shim::state.last_instance);
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
   TEST_ASSERT_EQUAL_FLOAT(4.5f, component.get_threshold());
 }
 
@@ -188,6 +202,8 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   esphome::sensor::Sensor movement_sensor;
   esphome::binary_sensor::BinarySensor binary_sensor;
   ThresholdNumberProbe threshold_number;
+  MotionHitsNumberProbe motion_on_hits_number;
+  MotionHitsNumberProbe motion_off_hits_number;
   CalibrateSwitchProbe calibrate_switch;
 
   component.set_segmentation_window_size_ms(1500);
@@ -213,6 +229,8 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   component.set_movement_sensor(&movement_sensor);
   component.set_motion_binary_sensor(&binary_sensor);
   component.set_threshold_number(&threshold_number);
+  component.set_motion_on_hits_number(&motion_on_hits_number);
+  component.set_motion_off_hits_number(&motion_off_hits_number);
   component.set_calibrate_switch(&calibrate_switch);
 
   component.set_traffic_generator_mode("dns");
@@ -258,6 +276,40 @@ void test_threshold_number_behaviors_cover_parent_and_no_parent_paths(void) {
   TEST_ASSERT_EQUAL_FLOAT(0.375f, component.get_threshold());
   TEST_ASSERT_TRUE(number.has_state());
   TEST_ASSERT_EQUAL_FLOAT(0.375f, number.get_state());
+}
+
+void test_motion_hits_number_behaviors_cover_parent_and_no_parent_paths(void) {
+  ESpectreComponentProbe component;
+  MotionHitsNumberProbe motion_on_number;
+  MotionHitsNumberProbe motion_off_number;
+
+  motion_on_number.set_motion_on(true);
+  motion_off_number.set_motion_on(false);
+  motion_on_number.control(6.0f);
+  motion_off_number.republish_state();
+  TEST_ASSERT_FALSE(motion_on_number.has_state());
+  TEST_ASSERT_FALSE(motion_off_number.has_state());
+
+  component.setup();
+  motion_on_number.set_parent(&component);
+  motion_off_number.set_parent(&component);
+  component.set_motion_on_hits_number(&motion_on_number);
+  component.set_motion_off_hits_number(&motion_off_number);
+
+  motion_on_number.control(6.0f);
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_motion_hits_calls);
+  TEST_ASSERT_EQUAL_UINT8(6U, frontend_runtime_shim::state.last_motion_on_hits);
+
+  motion_off_number.control(4.0f);
+  TEST_ASSERT_EQUAL(2, frontend_runtime_shim::state.set_motion_hits_calls);
+  TEST_ASSERT_EQUAL_UINT8(4U, frontend_runtime_shim::state.last_motion_off_hits);
+
+  motion_on_number.republish_state();
+  motion_off_number.republish_state();
+  TEST_ASSERT_TRUE(motion_on_number.has_state());
+  TEST_ASSERT_TRUE(motion_off_number.has_state());
+  TEST_ASSERT_EQUAL_FLOAT(component.get_motion_on_hits(), motion_on_number.get_state());
+  TEST_ASSERT_EQUAL_FLOAT(component.get_motion_off_hits(), motion_off_number.get_state());
 }
 
 void test_calibrate_switch_behaviors_cover_all_user_paths(void) {
@@ -312,9 +364,38 @@ void test_detector_select_switches_and_republishes_runtime_state(void) {
   TEST_ASSERT_EQUAL_FLOAT(LIGHTWEIGHT_MAX_THRESHOLD, threshold_number.traits.get_max_value());
 }
 
+void test_traffic_mode_selects_switch_and_republish_runtime_state(void) {
+  ESpectreComponentProbe component;
+  component.setup();
+
+  TrafficModeSelectProbe csi_mode_select;
+  csi_mode_select.set_parent(&component);
+  csi_mode_select.set_csi_traffic_mode(true);
+  component.set_csi_traffic_mode_select(&csi_mode_select);
+
+  TrafficModeSelectProbe generator_mode_select;
+  generator_mode_select.set_parent(&component);
+  generator_mode_select.set_csi_traffic_mode(false);
+  component.set_traffic_generator_mode_select(&generator_mode_select);
+
+  csi_mode_select.control("external");
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficMode::EXTERNAL);
+
+  generator_mode_select.control("dns");
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == RuntimeTrafficMode::DNS);
+
+  csi_mode_select.republish_state();
+  generator_mode_select.republish_state();
+  TEST_ASSERT_EQUAL_STRING("external", csi_mode_select.get_state().c_str());
+  TEST_ASSERT_EQUAL_STRING("dns", generator_mode_select.get_state().c_str());
+}
+
 void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void) {
   ESpectreComponentProbe component;
   esphome::sensor::Sensor movement_sensor;
+  esphome::sensor::Sensor intensity_sensor;
   esphome::binary_sensor::BinarySensor binary_sensor;
   ThresholdNumberProbe threshold_number;
   CalibrateSwitchProbe calibrate_switch;
@@ -324,7 +405,10 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   component.set_threshold_number(&threshold_number);
   component.set_calibrate_switch(&calibrate_switch);
   component.set_movement_sensor(&movement_sensor);
+  component.set_intensity_sensor(&intensity_sensor);
   component.set_motion_binary_sensor(&binary_sensor);
+  component.setup();
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.live_telemetry_enabled);
   component.set_threshold_runtime(5.5f);
 
   component.threshold_republished_ = true;
@@ -335,6 +419,8 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   component.on_motion_state_changed(idle_snapshot);
   TEST_ASSERT_FALSE(component.threshold_republished_);
   TEST_ASSERT_FALSE(binary_sensor.has_state());
+  component.on_live_telemetry(7.25f, 5.5f);
+  TEST_ASSERT_EQUAL(0, intensity_sensor.get_publish_count());
 
   RuntimeSnapshot motion_snapshot{};
   motion_snapshot.ready_to_publish = true;
@@ -343,9 +429,11 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   motion_snapshot.movement_metric = 7.25f;
   component.on_motion_state_changed(motion_snapshot);
   TEST_ASSERT_TRUE(binary_sensor.get_state());
+  TEST_ASSERT_EQUAL(0, intensity_sensor.get_publish_count());
 
   component.on_periodic_update(idle_snapshot, 42);
   TEST_ASSERT_EQUAL(0, movement_sensor.get_publish_count());
+  TEST_ASSERT_EQUAL(0, intensity_sensor.get_publish_count());
 
   component.on_periodic_update(motion_snapshot, 42);
   component.on_periodic_update(motion_snapshot, 42);
@@ -353,18 +441,27 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   TEST_ASSERT_EQUAL_FLOAT(5.5f, threshold_number.get_state());
   TEST_ASSERT_EQUAL(1, threshold_number.get_publish_count());
   TEST_ASSERT_EQUAL(2, movement_sensor.get_publish_count());
+  TEST_ASSERT_EQUAL(0, intensity_sensor.get_publish_count());
+
+  component.on_live_telemetry(7.25f, 5.5f);
+  TEST_ASSERT_EQUAL(1, intensity_sensor.get_publish_count());
+  TEST_ASSERT_EQUAL_FLOAT((7.25f / 5.5f) * 50.0f, intensity_sensor.get_state());
+  TEST_ASSERT_EQUAL(2, movement_sensor.get_publish_count());
+  TEST_ASSERT_EQUAL(1, binary_sensor.get_publish_count());
 
   RuntimeSnapshot threshold_snapshot = motion_snapshot;
   threshold_snapshot.threshold = 6.75f;
   component.on_threshold_changed(threshold_snapshot);
   TEST_ASSERT_EQUAL_FLOAT(6.75f, component.runtime_.config().segmentation_threshold);
   TEST_ASSERT_EQUAL_FLOAT(6.75f, threshold_number.get_state());
+  TEST_ASSERT_EQUAL(2, intensity_sensor.get_publish_count());
 
   component.on_calibration_started(motion_snapshot);
   TEST_ASSERT_TRUE(calibrate_switch.state);
   component.sensor_publisher_.log_status("frontend", motion_snapshot, 25);
   TEST_ASSERT_TRUE(component.sensor_publisher_.has_motion_binary_sensor());
   TEST_ASSERT_TRUE(component.sensor_publisher_.has_movement_sensor());
+  TEST_ASSERT_TRUE(component.sensor_publisher_.has_intensity_sensor());
   component.on_calibration_finished(motion_snapshot, false);
   TEST_ASSERT_FALSE(calibrate_switch.state);
 }
@@ -377,8 +474,10 @@ int process(void) {
   RUN_TEST(test_espectre_component_publishes_cached_csi_diagnostics_on_demand);
   RUN_TEST(test_espectre_component_configuration_setters_update_runtime_config);
   RUN_TEST(test_threshold_number_behaviors_cover_parent_and_no_parent_paths);
+  RUN_TEST(test_motion_hits_number_behaviors_cover_parent_and_no_parent_paths);
   RUN_TEST(test_calibrate_switch_behaviors_cover_all_user_paths);
   RUN_TEST(test_detector_select_switches_and_republishes_runtime_state);
+  RUN_TEST(test_traffic_mode_selects_switch_and_republish_runtime_state);
   RUN_TEST(test_motion_threshold_and_calibration_callbacks_publish_expected_state);
   return UNITY_END();
 }

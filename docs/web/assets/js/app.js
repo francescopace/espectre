@@ -130,7 +130,9 @@
         const runtimeCapabilities = [
             'supports_runtime_threshold',
             'supports_runtime_motion_hits',
-            'supports_runtime_detector'
+            'supports_runtime_detector',
+            'supports_manual_recalibration',
+            'supports_traffic_control'
         ];
         const hasRuntimeControl = runtimeCapabilities.some((key) => sysinfoBoolean(snapshot[key]));
         const unavailable = $('.js-runtime-unavailable');
@@ -344,6 +346,8 @@
         set('cfg-bssid', snapshot.wifi_bssid);
         set('cfg-channel', snapshot.wifi_channel);
         set('cfg-detector', snapshot.detector);
+        set('cfg-csi-traffic-mode', snapshot.csi_traffic_mode);
+        set('cfg-traffic-generator-mode', snapshot.traffic_mode);
         set('cfg-mqtt-host', snapshot.mqtt_host);
         set('cfg-mqtt-port', snapshot.mqtt_port);
         set('cfg-mqtt-user', snapshot.mqtt_username);
@@ -376,11 +380,9 @@
             ? snapshot.hampel + (snapshot.hampel_window ? ' · window ' + snapshot.hampel_window : '')
                 + (snapshot.hampel_threshold ? ' · ' + snapshot.hampel_threshold + ' MAD' : '')
             : undefined);
-        set('diag-traffic-mode', snapshot.traffic_mode);
-        set('diag-traffic-rate', [
-            snapshot.traffic_rate && snapshot.traffic_rate + ' pkt/s',
-            snapshot.traffic_adaptive === 'on' ? 'adaptive' : snapshot.traffic_adaptive === 'off' ? 'fixed' : ''
-        ].filter(Boolean).join(' · '));
+        set('diag-traffic-mode', snapshot.csi_traffic_mode || snapshot.traffic_mode);
+        set('diag-generator-mode', snapshot.traffic_mode);
+        set('diag-traffic-rate', snapshot.csi_target_pps && snapshot.csi_target_pps + ' pkt/s');
         set('diag-publish', snapshot.publish_interval_ms && 'every ' + snapshot.publish_interval_ms + ' ms');
         set('diag-evaluation', snapshot.evaluation_interval_ms && 'every ' + snapshot.evaluation_interval_ms + ' ms');
         setConnectionDiagnostic('diag-wifi', '.js-wifi-status-dot', snapshot.wifi_connected);
@@ -433,6 +435,7 @@
                 supports_runtime_threshold: 'true',
                 supports_runtime_motion_hits: 'true',
                 supports_runtime_detector: 'true',
+                supports_traffic_control: 'true',
                 supports_live_telemetry: 'true',
                 supports_extended_diagnostics: 'true',
                 supports_ota: 'true',
@@ -444,9 +447,9 @@
                 hampel: 'on',
                 hampel_window: '5',
                 hampel_threshold: '3.0',
+                csi_traffic_mode: 'internal',
                 traffic_mode: 'ping',
-                traffic_rate: '98',
-                traffic_adaptive: 'on',
+                csi_target_pps: '98',
                 publish_interval_ms: '1000',
                 evaluation_interval_ms: '250',
                 wifi_connected: 'true',
@@ -1876,6 +1879,33 @@
             (snapshot) => snapshot.detector === detector);
     }
 
+    async function cfgRecalibrate() {
+        const ok = await cfgApply(
+            'recalibrate',
+            'Recalibration started.',
+            () => window.ESPectreBleClient.buildRecalibrateCommand()
+        );
+        if (ok) {
+            setTimeout(() => {
+                cfgRefreshSysinfo().catch(() => {});
+            }, 250);
+        }
+    }
+
+    async function cfgSaveCsiTrafficMode() {
+        const mode = cfgValue('cfg-csi-traffic-mode');
+        await cfgApply('set_csi_traffic_mode', 'CSI traffic mode updated.',
+            () => window.ESPectreBleClient.buildCsiTrafficModeCommand(mode),
+            (snapshot) => snapshot.csi_traffic_mode === mode);
+    }
+
+    async function cfgSaveTrafficGeneratorMode() {
+        const mode = cfgValue('cfg-traffic-generator-mode');
+        await cfgApply('set_traffic_generator_mode', 'Traffic generator mode updated.',
+            () => window.ESPectreBleClient.buildTrafficGeneratorModeCommand(mode),
+            (snapshot) => snapshot.traffic_mode === mode);
+    }
+
     function finishOtaTracking(result, errorType, state) {
         if (!otaTracking) return;
         clearTimeout(otaPollTimer);
@@ -2001,6 +2031,9 @@
         ['cfg-motion-on', 'cfg-motion-off'].forEach((id) => {
             document.getElementById(id).addEventListener('change', cfgSaveMotionHits);
         });
+        document.getElementById('cfg-csi-traffic-mode').addEventListener('change', cfgSaveCsiTrafficMode);
+        document.getElementById('cfg-traffic-generator-mode').addEventListener('change', cfgSaveTrafficGeneratorMode);
+        $('.js-runtime-recalibrate').addEventListener('click', cfgRecalibrate);
         $('.js-wifi-save').addEventListener('click', cfgSaveWifi);
         $('.js-wifi-clear').addEventListener('click', cfgClearWifi);
         $('.js-mqtt-save').addEventListener('click', cfgSaveMqtt);

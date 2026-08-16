@@ -49,7 +49,7 @@ class TemporalCsiSampler:
     MicroPython CSI loop and in CPython replay or training code.
     """
 
-    def __init__(self, target_pps, window_size_ms):
+    def __init__(self, target_pps, window_size_ms, phase_offset_us=0):
         self.target_pps = int(target_pps)
         self.window_size_ms = int(window_size_ms)
         self.window_size_us = self.window_size_ms * 1000
@@ -59,6 +59,9 @@ class TemporalCsiSampler:
         self.minimum_valid_slots = minimum_valid_slots(self.window_slots)
         self.minimum_sample_spacing_us = minimum_sample_spacing_us(
             self.target_pps
+        )
+        self.phase_offset_us = int(phase_offset_us) % max(
+            1, int(round(MICROSECONDS_PER_SECOND / self.target_pps))
         )
         self._slot_ids = [-1] * self.window_slots
         self.reset()
@@ -129,8 +132,15 @@ class TemporalCsiSampler:
         self.missing_slots_before = 0
         return False
 
+    def _slot_for_elapsed(self, elapsed_us):
+        phased_elapsed = int(elapsed_us) + self.phase_offset_us
+        return (
+            phased_elapsed * self.target_pps
+            + MICROSECONDS_PER_SECOND // 2
+        ) // MICROSECONDS_PER_SECOND
+
     def _select_candidate(self, slot, elapsed_us, reset_required=False):
-        scaled_elapsed = int(elapsed_us) * self.target_pps
+        scaled_elapsed = (int(elapsed_us) + self.phase_offset_us) * self.target_pps
         scaled_center = int(slot) * MICROSECONDS_PER_SECOND
         center_error = abs(scaled_elapsed - scaled_center)
         if (
@@ -227,8 +237,9 @@ class TemporalCsiSampler:
         if self._last_timestamp is None:
             self._last_timestamp = timestamp
             self._elapsed_us = 0
-            self._active_slot = 0
-            self._select_candidate(0, 0)
+            slot = self._slot_for_elapsed(0)
+            self._active_slot = slot
+            self._select_candidate(slot, 0)
             return False
 
         delta = self._forward_delta(timestamp, self._last_timestamp)
@@ -247,8 +258,9 @@ class TemporalCsiSampler:
             self._elapsed_us = 0
             self._last_admitted_slot = None
             self._last_admitted_elapsed_us = None
-            self._active_slot = 0
-            self._select_candidate(0, 0, reset_required=True)
+            slot = self._slot_for_elapsed(0)
+            self._active_slot = slot
+            self._select_candidate(slot, 0, reset_required=True)
             self.gap_reset_required = True
             return emitted
 
@@ -256,10 +268,7 @@ class TemporalCsiSampler:
         # Center bins on their ideal sampling instant. Flooring makes ordinary
         # +/- scheduling jitter pathological: 0, 9, 20, 29 ms at 100 pps maps
         # to 0, 0, 2, 2 instead of four independent samples.
-        slot = (
-            self._elapsed_us * self.target_pps
-            + MICROSECONDS_PER_SECOND // 2
-        ) // MICROSECONDS_PER_SECOND
+        slot = self._slot_for_elapsed(self._elapsed_us)
         if self._active_slot is not None and slot < self._active_slot:
             self.excess_packets += 1
             return False

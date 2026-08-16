@@ -86,7 +86,11 @@ CONF_DIAGNOSTICS_BUTTON = "diagnostics_button"
 
 # Number controls
 CONF_THRESHOLD_NUMBER = "threshold_number"
+CONF_MOTION_ON_HITS_NUMBER = "motion_on_hits_number"
+CONF_MOTION_OFF_HITS_NUMBER = "motion_off_hits_number"
 CONF_DETECTOR_SELECT = "detector_select"
+CONF_CSI_TRAFFIC_MODE_SELECT = "csi_traffic_mode_select"
+CONF_TRAFFIC_GENERATOR_MODE_SELECT = "traffic_generator_mode_select"
 
 # Switch controls
 CONF_CALIBRATE_SWITCH = "calibrate_switch"
@@ -94,7 +98,9 @@ CONF_CALIBRATE_SWITCH = "calibrate_switch"
 espectre_ns = cg.esphome_ns.namespace("espectre_component")
 ESpectreComponent = espectre_ns.class_("ESpectreComponent", cg.Component)
 ESpectreThresholdNumber = espectre_ns.class_("ESpectreThresholdNumber", number.Number, cg.Component)
+ESpectreMotionHitsNumber = espectre_ns.class_("ESpectreMotionHitsNumber", number.Number, cg.Component)
 ESpectreDetectorSelect = espectre_ns.class_("ESpectreDetectorSelect", select.Select, cg.Component)
+ESpectreTrafficModeSelect = espectre_ns.class_("ESpectreTrafficModeSelect", select.Select, cg.Component)
 ESpectreCalibrateSwitch = espectre_ns.class_("ESpectreCalibrateSwitch", switch.Switch, cg.Component)
 ESpectreDiagnosticsButton = espectre_ns.class_("ESpectreDiagnosticsButton", button.Button, cg.Component)
 
@@ -342,9 +348,27 @@ CONFIG_SCHEMA = cv.Schema({
         entity_category=ENTITY_CATEGORY_CONFIG,
         icon=ICON_PULSE,
     ),
+    cv.Optional(CONF_MOTION_ON_HITS_NUMBER, default={"name": "Motion On Hits"}): number.number_schema(
+        ESpectreMotionHitsNumber,
+        entity_category=ENTITY_CATEGORY_CONFIG,
+        icon="mdi:motion-play-outline",
+    ),
+    cv.Optional(CONF_MOTION_OFF_HITS_NUMBER, default={"name": "Motion Off Hits"}): number.number_schema(
+        ESpectreMotionHitsNumber,
+        entity_category=ENTITY_CATEGORY_CONFIG,
+        icon="mdi:motion-pause-outline",
+    ),
 
     cv.Optional(CONF_DETECTOR_SELECT, default={"name": "Detection Profile"}): select.select_schema(
         ESpectreDetectorSelect,
+        entity_category=ENTITY_CATEGORY_CONFIG,
+    ),
+    cv.Optional(CONF_CSI_TRAFFIC_MODE_SELECT, default={"name": "CSI Traffic Ownership"}): select.select_schema(
+        ESpectreTrafficModeSelect,
+        entity_category=ENTITY_CATEGORY_CONFIG,
+    ),
+    cv.Optional(CONF_TRAFFIC_GENERATOR_MODE_SELECT, default={"name": "Traffic Generator"}): select.select_schema(
+        ESpectreTrafficModeSelect,
         entity_category=ENTITY_CATEGORY_CONFIG,
     ),
     
@@ -469,12 +493,48 @@ async def to_code(config):
     cg.add(num.set_parent(var))
     cg.add(var.set_threshold_number(num))
 
+    motion_on_hits = await number.new_number(
+        config[CONF_MOTION_ON_HITS_NUMBER],
+        min_value=MOTION_HITS_MIN,
+        max_value=MOTION_HITS_MAX,
+        step=1,
+    )
+    cg.add(motion_on_hits.set_parent(var))
+    cg.add(motion_on_hits.set_motion_on(True))
+    cg.add(var.set_motion_on_hits_number(motion_on_hits))
+
+    motion_off_hits = await number.new_number(
+        config[CONF_MOTION_OFF_HITS_NUMBER],
+        min_value=MOTION_HITS_MIN,
+        max_value=MOTION_HITS_MAX,
+        step=1,
+    )
+    cg.add(motion_off_hits.set_parent(var))
+    cg.add(motion_off_hits.set_motion_on(False))
+    cg.add(var.set_motion_off_hits_number(motion_off_hits))
+
     detector = await select.new_select(
         config[CONF_DETECTOR_SELECT],
         options=["lightweight", "high_accuracy"],
     )
     cg.add(detector.set_parent(var))
     cg.add(var.set_detector_select(detector))
+
+    csi_traffic_mode = await select.new_select(
+        config[CONF_CSI_TRAFFIC_MODE_SELECT],
+        options=["internal", "external", "pacing", "disabled"],
+    )
+    cg.add(csi_traffic_mode.set_parent(var))
+    cg.add(csi_traffic_mode.set_csi_traffic_mode(True))
+    cg.add(var.set_csi_traffic_mode_select(csi_traffic_mode))
+
+    traffic_generator_mode = await select.new_select(
+        config[CONF_TRAFFIC_GENERATOR_MODE_SELECT],
+        options=["ping", "dns"],
+    )
+    cg.add(traffic_generator_mode.set_parent(var))
+    cg.add(traffic_generator_mode.set_csi_traffic_mode(False))
+    cg.add(var.set_traffic_generator_mode_select(traffic_generator_mode))
     
     # Register calibrate switch control
     # Note: switch.new_switch() handles component registration internally

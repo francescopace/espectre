@@ -55,6 +55,8 @@
 
     const BSSID_PATTERN = /^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$/;
     const DETECTORS = Object.freeze(['lightweight', 'high_accuracy']);
+    const CSI_TRAFFIC_MODES = Object.freeze(['internal', 'external', 'pacing', 'disabled']);
+    const TRAFFIC_GENERATOR_MODES = Object.freeze(['ping', 'dns']);
     const WIFI_BAND_POLICIES = Object.freeze(['2g', '5g', 'auto']);
     const DEFAULT_TOPIC_PREFIX = 'espectre/v1/devices';
 
@@ -203,6 +205,35 @@
             requireIntegerInRange(motionOnHits, 1, 20, 'motionOnHits');
             requireIntegerInRange(motionOffHits, 1, 20, 'motionOffHits');
             return `SET_MOTION_HITS:on=${motionOnHits}&off=${motionOffHits}`;
+        }
+
+        /** @returns {string} */
+        static buildRecalibrateCommand() {
+            return 'RECALIBRATE';
+        }
+
+        /**
+         * @param {string} mode - `internal`, `external`, `pacing`, or `disabled`.
+         * @returns {string}
+         */
+        static buildCsiTrafficModeCommand(mode) {
+            if (!CSI_TRAFFIC_MODES.includes(mode)) {
+                throw new ESPectreValidationError(
+                    `csiTrafficMode must be one of: ${CSI_TRAFFIC_MODES.join(', ')}`);
+            }
+            return `SET_CSI_TRAFFIC_MODE:${mode}`;
+        }
+
+        /**
+         * @param {string} mode - `ping` or `dns`.
+         * @returns {string}
+         */
+        static buildTrafficGeneratorModeCommand(mode) {
+            if (!TRAFFIC_GENERATOR_MODES.includes(mode)) {
+                throw new ESPectreValidationError(
+                    `trafficGeneratorMode must be one of: ${TRAFFIC_GENERATOR_MODES.join(', ')}`);
+            }
+            return `SET_TRAFFIC_GENERATOR_MODE:${mode}`;
         }
 
         /** @returns {string} */
@@ -511,6 +542,21 @@
         /** @see ESPectreBleClient.buildMotionHitsCommand */
         setMotionHits(options) {
             return this.writeControl(ESPectreBleClient.buildMotionHitsCommand(options));
+        }
+
+        /** @see ESPectreBleClient.buildRecalibrateCommand */
+        recalibrate() {
+            return this.writeControl(ESPectreBleClient.buildRecalibrateCommand());
+        }
+
+        /** @see ESPectreBleClient.buildCsiTrafficModeCommand */
+        setCsiTrafficMode(mode) {
+            return this.writeControl(ESPectreBleClient.buildCsiTrafficModeCommand(mode));
+        }
+
+        /** @see ESPectreBleClient.buildTrafficGeneratorModeCommand */
+        setTrafficGeneratorMode(mode) {
+            return this.writeControl(ESPectreBleClient.buildTrafficGeneratorModeCommand(mode));
         }
 
         /** @see ESPectreBleClient.buildWifiConfigCommand */

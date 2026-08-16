@@ -40,6 +40,7 @@ static const char *const TAG = "espectre";
 
 class ESpectreComponent : public Component, public IRuntimeListener {
   friend class ESpectreDetectorSelect;
+  friend class ESpectreTrafficModeSelect;
  public:
   ESpectreComponent() {
     // ESPHome always generates the detector select entity, so this frontend
@@ -65,9 +66,6 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void set_csi_target_pps(uint32_t target_pps) { this->runtime_.config().csi_target_pps = target_pps; }
   void set_csi_traffic_mode(const std::string &mode) {
     this->runtime_.config().csi_traffic_mode = parse_csi_traffic_mode(mode.c_str());
-  }
-  void set_traffic_generator_adaptive(bool adaptive) {
-    this->runtime_.config().traffic_generator_adaptive = adaptive;
   }
   void set_traffic_generator_mode(const std::string &mode) { 
     this->runtime_.config().traffic_generator_mode = parse_traffic_mode(mode.c_str());
@@ -112,11 +110,16 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   
   // Setter for threshold number control
   void set_threshold_number(number::Number *num) { this->threshold_number_ = num; }
+  void set_motion_on_hits_number(number::Number *num) { this->motion_on_hits_number_ = num; }
+  void set_motion_off_hits_number(number::Number *num) { this->motion_off_hits_number_ = num; }
   
   // Runtime threshold adjustment (called from HA via number component)
   void set_threshold_runtime(float threshold);
+  void set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits);
   void set_detection_algorithm_runtime(const std::string &algorithm);
   float get_threshold() const { return this->runtime_.snapshot().threshold; }
+  uint8_t get_motion_on_hits() const { return this->runtime_.config().motion_on_hits; }
+  uint8_t get_motion_off_hits() const { return this->runtime_.config().motion_off_hits; }
   
   // Runtime calibration trigger (called from HA via switch component)
   void trigger_recalibration();
@@ -128,10 +131,15 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   // Setter for calibrate switch control
   void set_calibrate_switch(switch_::Switch *sw) { this->calibrate_switch_ = sw; }
   void set_detector_select(select::Select *value) { this->detector_select_ = value; }
+  void set_csi_traffic_mode_select(select::Select *value) { this->csi_traffic_mode_select_ = value; }
+  void set_traffic_generator_mode_select(select::Select *value) { this->traffic_generator_mode_select_ = value; }
+  void set_csi_traffic_mode_runtime(const std::string &mode);
+  void set_traffic_generator_mode_runtime(const std::string &mode);
   
  protected:
   void on_motion_state_changed(const RuntimeSnapshot &snapshot) override;
   void on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) override;
+  void on_live_telemetry(float movement, float threshold) override;
   void on_threshold_changed(const RuntimeSnapshot &snapshot) override;
   void on_detector_changed(const RuntimeSnapshot &snapshot) override;
   void on_calibration_started(const RuntimeSnapshot &snapshot) override;
@@ -146,10 +154,14 @@ class ESpectreComponent : public Component, public IRuntimeListener {
 
   // Number controls
   number::Number *threshold_number_{nullptr};
+  number::Number *motion_on_hits_number_{nullptr};
+  number::Number *motion_off_hits_number_{nullptr};
   
   // Switch controls
   switch_::Switch *calibrate_switch_{nullptr};
   select::Select *detector_select_{nullptr};
+  select::Select *csi_traffic_mode_select_{nullptr};
+  select::Select *traffic_generator_mode_select_{nullptr};
 
   sensor::Sensor *traffic_rate_sensor_{nullptr};
   sensor::Sensor *csi_callback_rate_sensor_{nullptr};
@@ -169,6 +181,8 @@ class ESpectreComponent : public Component, public IRuntimeListener {
 
   bool threshold_republished_{false};
   bool detector_republished_{false};
+  bool motion_hits_republished_{false};
+  bool traffic_mode_republished_{false};
 };
 
 }  // namespace espectre_component

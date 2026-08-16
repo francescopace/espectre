@@ -46,6 +46,7 @@ set(ESPECTRE_RUNTIME_ESP_IDF_PLATFORM_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_frontend_controller.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_detector_store.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_motion_hits_store.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_traffic_mode_store.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_debug_telemetry.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_sensing_kconfig.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stream_runtime_factory.cpp"
@@ -89,8 +90,10 @@ set(ESPECTRE_FRONTEND_ESPHOME_SOURCES
     "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/detector_select.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/diagnostics_button.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/espectre.cpp"
+    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/motion_hits_number.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/sensor_publisher.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/threshold_number.cpp"
+    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/traffic_mode_select.cpp"
 )
 
 set(ESPECTRE_FRONTEND_MATTER_SOURCES

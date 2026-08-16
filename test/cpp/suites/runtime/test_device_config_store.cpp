@@ -16,6 +16,7 @@
 #include "device_config_store.h"
 #include "runtime_detector_store.h"
 #include "runtime_motion_hits_store.h"
+#include "runtime_traffic_mode_store.h"
 #include "nvs.h"
 #include "csi_format.h"
 
@@ -65,6 +66,38 @@ void test_runtime_motion_hits_store_round_trips_and_validates_values(void) {
 
   nvs_mock_put_u8("motion_on", 6U);
   TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, load_runtime_motion_hits(&motion_on_hits, &motion_off_hits, &has_saved_value));
+}
+
+void test_runtime_traffic_mode_store_round_trips_and_validates_values(void) {
+  CsiTrafficMode csi_mode = CsiTrafficMode::INTERNAL;
+  RuntimeTrafficMode generator_mode = RuntimeTrafficMode::PING;
+  bool has_saved_value = true;
+
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_csi_traffic_mode(&csi_mode, &has_saved_value));
+  TEST_ASSERT_FALSE(has_saved_value);
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, load_runtime_csi_traffic_mode(nullptr, &has_saved_value));
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, save_runtime_csi_traffic_mode(static_cast<CsiTrafficMode>(99)));
+
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_csi_traffic_mode(CsiTrafficMode::PACING));
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_csi_traffic_mode(&csi_mode, &has_saved_value));
+  TEST_ASSERT_TRUE(has_saved_value);
+  TEST_ASSERT_TRUE(csi_mode == CsiTrafficMode::PACING);
+
+  has_saved_value = true;
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_mode(&generator_mode, &has_saved_value));
+  TEST_ASSERT_FALSE(has_saved_value);
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, load_runtime_traffic_generator_mode(nullptr, &has_saved_value));
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, save_runtime_traffic_generator_mode(static_cast<RuntimeTrafficMode>(99)));
+
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(RuntimeTrafficMode::DNS));
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_mode(&generator_mode, &has_saved_value));
+  TEST_ASSERT_TRUE(has_saved_value);
+  TEST_ASSERT_TRUE(generator_mode == RuntimeTrafficMode::DNS);
+
+  nvs_mock_put_str("csi_traffic", "bogus");
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, load_runtime_csi_traffic_mode(&csi_mode, &has_saved_value));
+  nvs_mock_put_str("traffic_gen", "bogus");
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, load_runtime_traffic_generator_mode(&generator_mode, &has_saved_value));
 }
 
 void test_wifi_config_store_handles_missing_namespace_and_invalid_args(void) {
@@ -287,6 +320,7 @@ int process(void) {
   RUN_TEST(test_device_config_store_clear_removes_all_current_keys);
   RUN_TEST(test_runtime_detector_store_round_trips_and_validates_values);
   RUN_TEST(test_runtime_motion_hits_store_round_trips_and_validates_values);
+  RUN_TEST(test_runtime_traffic_mode_store_round_trips_and_validates_values);
   RUN_TEST(test_normalize_ht20_csi_payload_handles_supported_lengths);
   RUN_TEST(test_normalize_ht20_csi_payload_rejects_invalid_inputs_and_renders_tags);
   return UNITY_END();

@@ -26,6 +26,7 @@
 #include "runtime_config_utils.h"
 #include "runtime_detector_store.h"
 #include "runtime_motion_hits_store.h"
+#include "runtime_traffic_mode_store.h"
 #include "runtime_time.h"
 
 namespace espectre {
@@ -81,6 +82,26 @@ bool EspIdfRuntime::setup() {
       config_.segmentation_threshold = runtime_default_threshold(saved_algorithm);
       snapshot_.threshold = config_.segmentation_threshold;
     }
+  }
+
+  bool has_saved_csi_traffic_mode = false;
+  CsiTrafficMode saved_csi_traffic_mode = config_.csi_traffic_mode;
+  const esp_err_t csi_traffic_err =
+      load_runtime_csi_traffic_mode(&saved_csi_traffic_mode, &has_saved_csi_traffic_mode);
+  if (csi_traffic_err != ESP_OK) {
+    ESP_LOGW(RUNTIME_TAG, "Failed to load persisted CSI traffic mode: %s", esp_err_to_name(csi_traffic_err));
+  } else if (has_saved_csi_traffic_mode) {
+    config_.csi_traffic_mode = saved_csi_traffic_mode;
+  }
+
+  bool has_saved_generator_mode = false;
+  RuntimeTrafficMode saved_generator_mode = config_.traffic_generator_mode;
+  const esp_err_t generator_err =
+      load_runtime_traffic_generator_mode(&saved_generator_mode, &has_saved_generator_mode);
+  if (generator_err != ESP_OK) {
+    ESP_LOGW(RUNTIME_TAG, "Failed to load persisted traffic generator mode: %s", esp_err_to_name(generator_err));
+  } else if (has_saved_generator_mode) {
+    config_.traffic_generator_mode = saved_generator_mode;
   }
 
   if (!configure_detector_()) {
@@ -265,6 +286,41 @@ bool EspIdfRuntime::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t moti
   return true;
 }
 
+bool EspIdfRuntime::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
+  if (mode == config_.csi_traffic_mode) {
+    return true;
+  }
+  const esp_err_t persist_err = save_runtime_csi_traffic_mode(mode);
+  if (persist_err != ESP_OK) {
+    ESP_LOGW(RUNTIME_TAG, "Failed to persist CSI traffic mode: %s", esp_err_to_name(persist_err));
+    return false;
+  }
+  config_.csi_traffic_mode = mode;
+  if (!apply_traffic_runtime_config_(true, mode != CsiTrafficMode::DISABLED)) {
+    return false;
+  }
+  ESP_LOGI(RUNTIME_TAG, "CSI traffic mode updated to %s", csi_traffic_mode_name(mode));
+  return true;
+}
+
+bool EspIdfRuntime::set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) {
+  if (mode == config_.traffic_generator_mode) {
+    return true;
+  }
+  const esp_err_t persist_err = save_runtime_traffic_generator_mode(mode);
+  if (persist_err != ESP_OK) {
+    ESP_LOGW(RUNTIME_TAG, "Failed to persist traffic generator mode: %s", esp_err_to_name(persist_err));
+    return false;
+  }
+  config_.traffic_generator_mode = mode;
+  const bool generator_active = config_.csi_traffic_mode == CsiTrafficMode::INTERNAL;
+  if (generator_active && !apply_traffic_runtime_config_(true, true)) {
+    return false;
+  }
+  ESP_LOGI(RUNTIME_TAG, "Traffic generator mode updated to %s", traffic_mode_name(mode));
+  return true;
+}
+
 bool EspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm) {
   if (!capabilities_.supports_runtime_detector_selection ||
       !runtime_detection_algorithm_valid(algorithm)) {
@@ -322,6 +378,25 @@ bool EspIdfRuntime::trigger_recalibration() {
 }
 
 bool EspIdfRuntime::is_calibrating() const { return snapshot_.calibrating; }
+
+bool EspIdfRuntime::apply_traffic_runtime_config_(bool restart_service, bool recalibrate_if_active) {
+  if (restart_service) {
+    csi_traffic_service_.stop();
+  }
+  csi_traffic_service_.init(to_csi_traffic_config(config_));
+  if (!setup_complete_ || !wifi_ready_ || !services_armed_ || wifi_ip_info_.ip.addr == 0U || !csi_pipeline_.is_enabled()) {
+    return true;
+  }
+  refresh_csi_local_identity_(wifi_ip_info_.ip.addr);
+  if (!csi_traffic_service_.start(wifi_ip_info_.gw.addr)) {
+    notify_fault_("Failed to start CSI traffic service");
+    return false;
+  }
+  if (recalibrate_if_active) {
+    (void) trigger_recalibration();
+  }
+  return true;
+}
 
 bool EspIdfRuntime::configure_detector_() {
   if (!validate_runtime_uint32(config_.csi_target_pps,

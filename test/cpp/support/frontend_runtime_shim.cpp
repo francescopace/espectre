@@ -73,6 +73,18 @@ bool EspIdfRuntime::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t moti
   return true;
 }
 
+bool EspIdfRuntime::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
+  frontend_runtime_shim::state.set_csi_traffic_mode_calls++;
+  frontend_runtime_shim::state.last_csi_traffic_mode = mode;
+  return true;
+}
+
+bool EspIdfRuntime::set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) {
+  frontend_runtime_shim::state.set_traffic_generator_mode_calls++;
+  frontend_runtime_shim::state.last_traffic_generator_mode = mode;
+  return true;
+}
+
 bool EspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm) {
   frontend_runtime_shim::state.set_detector_calls++;
   frontend_runtime_shim::state.last_detector = algorithm;

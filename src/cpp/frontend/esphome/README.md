@@ -32,15 +32,18 @@ Release and snapshot channels publish one full-flash image per supported chip, w
 
 The frontend maps runtime state into ESPHome and Home Assistant entities.
 
-| Runtime state/event | ESPHome surface |
-|---------------------|-----------------|
-| movement metric | `movement_sensor` |
-| movement vs threshold | `intensity_sensor` |
-| motion state | `motion_sensor` |
-| runtime threshold write | `threshold_number` |
-| runtime detector selection | `detector_select` |
-| runtime recalibration trigger | `calibrate_switch` |
-| on-demand CSI diagnostics | diagnostic sensors and `diagnostics_button` |
+| Runtime state/event | ESPHome surface | Cadence |
+|---------------------|-----------------|---------|
+| movement metric | `movement_sensor` | Heartbeat (`publish_interval_ms`, default 1000 ms) |
+| movement vs threshold | `intensity_sensor` | Detector evaluation (`evaluation_interval_ms`, default 250 ms) |
+| motion state | `motion_sensor` | Filtered state edges |
+| runtime threshold write | `threshold_number` | On change |
+| runtime motion-hit debounce write | `motion_on_hits_number`, `motion_off_hits_number` | On change |
+| runtime detector selection | `detector_select` | On change |
+| runtime recalibration trigger | `calibrate_switch` | On change |
+| CSI traffic ownership | `csi_traffic_mode_select` | On change |
+| internal traffic generator type | `traffic_generator_mode_select` | On change |
+| on-demand CSI diagnostics | diagnostic sensors and `diagnostics_button` | On request |
 
 The default entities are created automatically when the `espectre:` component is declared.
 
@@ -56,12 +59,16 @@ These options are applied from YAML during firmware configuration. Runtime contr
 
 | Runtime surface | Config key | Runtime behavior |
 |-----------------|------------|------------------|
-| Movement score | `movement_sensor` | Read-only Home Assistant sensor |
-| Intensity | `intensity_sensor` | Read-only movement-vs-threshold percent (0–200) |
-| Motion state | `motion_sensor` | Read-only Home Assistant binary sensor |
+| Movement score | `movement_sensor` | Read-only Home Assistant sensor; heartbeat cadence |
+| Intensity | `intensity_sensor` | Read-only movement-vs-threshold percent (0–100, 50% at threshold); evaluation cadence |
+| Motion state | `motion_sensor` | Read-only Home Assistant binary sensor; edge-published |
 | Threshold | `threshold_number` | Writable runtime threshold control |
+| Motion On Hits | `motion_on_hits_number` | Writable runtime motion-on debounce control |
+| Motion Off Hits | `motion_off_hits_number` | Writable runtime motion-off debounce control |
 | Detection profile | `detector_select` | Writable, persisted `lightweight` / `high_accuracy` selection |
 | Recalibration | `calibrate_switch` | Writable runtime recalibration trigger |
+| CSI traffic ownership | `csi_traffic_mode_select` | Writable, persisted `internal` / `external` / `pacing` / `disabled` selection |
+| Traffic generator | `traffic_generator_mode_select` | Writable, persisted `ping` / `dns` selection |
 
 ### Diagnostic Telemetry
 
@@ -111,7 +118,6 @@ espectre:
   detection_algorithm: lightweight
   csi_target_pps: 100
   csi_traffic_mode: internal
-  traffic_generator_adaptive: false
   traffic_generator_mode: ping
   segmentation_window_size_ms: 1000
   motion_on_hits: 4
@@ -124,12 +130,16 @@ espectre:
 
 | Sensor config | Type | Default name | Description |
 |---------------|------|--------------|-------------|
-| `movement_sensor` | sensor | `Movement Score` | Current movement score (0.0–1.0) |
-| `intensity_sensor` | sensor | `Intensity` | Movement relative to threshold (`min(200, movement / threshold × 100)`); 100% is at threshold |
+| `movement_sensor` | sensor | `Movement Score` | Current movement score (0.0–1.0), published every `publish_interval_ms` |
+| `intensity_sensor` | sensor | `Intensity` | Movement relative to threshold (`min(100, movement / threshold × 50)`); 50% is at threshold, 100% is twice the threshold. Published every `evaluation_interval_ms` |
 | `motion_sensor` | binary_sensor | `Motion Detected` | Edge-driven motion state |
 | `threshold_number` | number | `Threshold` | Runtime probability threshold (0.0–1.0) |
+| `motion_on_hits_number` | number | `Motion On Hits` | Runtime motion-on debounce count (1–20) |
+| `motion_off_hits_number` | number | `Motion Off Hits` | Runtime motion-off debounce count (1–20) |
 | `detector_select` | select | `Detection Profile` | Runtime `lightweight` / `high_accuracy` selection |
 | `calibrate_switch` | switch | `Calibrate` | Startup recalibration trigger |
+| `csi_traffic_mode_select` | select | `CSI Traffic Ownership` | Runtime `internal` / `external` / `pacing` / `disabled` selection |
+| `traffic_generator_mode_select` | select | `Traffic Generator` | Runtime `ping` / `dns` selection |
 | `diagnostics_button` | button | `Refresh Diagnostics` | Publishes the latest cached diagnostic sample on demand |
 | `traffic_rate_sensor` | sensor | `Traffic TX Rate` | Diagnostic traffic rate |
 | `csi_callback_rate_sensor` | sensor | `CSI Callback Rate` | Raw CSI callback rate; diagnostic-only |
@@ -195,7 +205,7 @@ Once the device is flashed and connected to Wi-Fi:
 3. Configure the discovered device
 4. The default entities are added automatically
 
-The ESPHome frontend exposes movement, intensity, motion, threshold control, and recalibration as Home Assistant entities.
+The ESPHome frontend exposes movement, intensity, motion, threshold control, motion-hit debounce control, recalibration, CSI traffic ownership, and traffic generator selection as Home Assistant entities. Native MQTT Discovery publishes the same full sensing-control family, while Micro-ESPectre MQTT matches it except that CSI traffic ownership rejects `pacing`. Intensity updates on the detector evaluation cadence (default 250 ms). Movement Score remains on the heartbeat (default 1000 ms), Motion Detected publishes only on filtered state edges, Threshold and motion-hit controls publish on change, Calibrate reports ON while a recalibration session is running, and the traffic selects mirror runtime state on connect, Home Assistant birth, and each accepted change. If the Home Assistant recorder is a concern, exclude `sensor.*_intensity` rather than lowering `evaluation_interval_ms`.
 
 To manage configuration and OTA updates, install ESPHome Device Builder and adopt the discovered device. The adopted configuration compiles the component from the `git_ref` substitution, which defaults to `main` and therefore tracks the latest release, so the device follows each new release without manual edits.
 
@@ -238,11 +248,10 @@ The ESPHome surface exposes the shared runtime traffic-generation settings. By d
 espectre:
   csi_target_pps: 100
   csi_traffic_mode: internal
-  traffic_generator_adaptive: false
   traffic_generator_mode: ping
 ```
 
-`csi_target_pps` defines the temporal detector grid and the managed-traffic target. `csi_traffic_mode` independently selects `internal`, `external`, `pacing`, or `disabled`; a rate of zero is invalid. Internal traffic uses a fixed DNS or ICMP send rate by default. Set `traffic_generator_adaptive: true` only when raw accepted CSI is a validated feedback signal for the deployment; unrelated Home Assistant or application traffic can otherwise reduce the managed sensing cadence.
+`csi_target_pps` defines the temporal detector grid and the managed-traffic target. `csi_traffic_mode` independently selects `internal`, `external`, `pacing`, or `disabled`; a rate of zero is invalid. Internal traffic uses a fixed DNS or ICMP send rate at that target. Occupancy does not change the send rate; if occupancy stays below 70%, repair the traffic path or lower `csi_target_pps` explicitly.
 
 Available modes:
 
@@ -429,8 +438,10 @@ This map is for component maintainers; it is not required for normal installatio
 - [`espectre.cpp`](components/espectre/espectre.cpp), [`espectre.h`](components/espectre/espectre.h): ESPHome adapter over the shared runtime frontend controller
 - [`sensor_publisher.cpp`](components/espectre/sensor_publisher.cpp): movement and motion publishing
 - [`threshold_number.cpp`](components/espectre/threshold_number.cpp): runtime threshold control
+- [`motion_hits_number.cpp`](components/espectre/motion_hits_number.cpp): runtime motion-hit debounce control
 - [`detector_select.cpp`](components/espectre/detector_select.cpp): persisted runtime detector selection
 - [`calibrate_switch.cpp`](components/espectre/calibrate_switch.cpp): runtime recalibration trigger
+- [`traffic_mode_select.cpp`](components/espectre/traffic_mode_select.cpp): runtime CSI traffic ownership and generator control
 - [`examples/`](examples/): production, local-development, S3 variant, and Home Assistant dashboard examples
 
 ## Packaging Notes

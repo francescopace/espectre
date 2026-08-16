@@ -23,6 +23,7 @@
 #include "frontend_control_helpers.h"
 #include "frontend_mqtt_helpers.h"
 #include "frontend_sysinfo_helpers.h"
+#include "ha_intensity.h"
 #include "protocol_json.h"
 #include "runtime_time.h"
 #include "runtime_config_utils.h"
@@ -52,6 +53,13 @@ const char *motion_state_payload(MotionState state) {
 std::string float_payload(float value) {
   char buffer[24];
   std::snprintf(buffer, sizeof(buffer), "%.4f", static_cast<double>(value));
+  return buffer;
+}
+
+std::string intensity_payload(float movement, float threshold) {
+  char buffer[24];
+  std::snprintf(buffer, sizeof(buffer), "%.1f",
+                static_cast<double>(ha_intensity_percent(movement, threshold)));
   return buffer;
 }
 
@@ -156,7 +164,7 @@ bool NativeFrontend::setup() {
                                                        device_info_.chip.empty() ? nullptr
                                                                                  : device_info_.chip.c_str());
   bindings_->set_device_name(device_name.c_str());
-  runtime_.set_live_telemetry_enabled(false);
+  update_live_telemetry_enabled_();
   if (!bindings_->setup()) {
     ESP_LOGE(TAG, "BLE bindings setup failed");
     return false;
@@ -203,6 +211,8 @@ void NativeFrontend::loop() {
 }
 
 void NativeFrontend::shutdown() {
+  mqtt_ha_online_ = false;
+  update_live_telemetry_enabled_();
   publish_mqtt_status_(false);
   runtime_.shutdown();
   if (mqtt_transport_ != nullptr) {
@@ -228,7 +238,7 @@ void NativeFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
     return;
   }
   publish_mqtt_telemetry_(snapshot, now_ms_());
-  publish_ha_state_(snapshot);
+  publish_ha_motion_(snapshot.motion_state);
 }
 
 void NativeFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
@@ -242,7 +252,10 @@ void NativeFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_
   }
   const uint32_t now = now_ms_();
   publish_mqtt_telemetry_(snapshot, now);
-  publish_ha_state_(snapshot);
+  publish_ha_movement_(snapshot.movement_metric);
+  if (runtime_.capabilities().supports_runtime_detector_selection && snapshot.detector_name != nullptr) {
+    publish_ha_detector_(snapshot.detector_name);
+  }
   status_logger_.log_status(TAG, snapshot, packets_received, &latest_diagnostics_);
 }
 
@@ -250,6 +263,10 @@ void NativeFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
   apply_threshold_snapshot(runtime_, snapshot);
   system_info_refresh_.request();
   publish_mqtt_telemetry_(snapshot, now_ms_());
+  if (snapshot.ready_to_publish) {
+    publish_ha_threshold_(snapshot.threshold);
+    publish_ha_intensity_(snapshot.movement_metric, snapshot.threshold);
+  }
 }
 
 void NativeFrontend::on_detector_changed(const RuntimeSnapshot &snapshot) {
@@ -257,20 +274,35 @@ void NativeFrontend::on_detector_changed(const RuntimeSnapshot &snapshot) {
   system_info_refresh_.request();
   publish_mqtt_info_();
   publish_mqtt_telemetry_(snapshot, now_ms_());
-  publish_ha_state_(snapshot);
+  if (snapshot.ready_to_publish) {
+    if (snapshot.detector_name != nullptr) {
+      publish_ha_detector_(snapshot.detector_name);
+    }
+    publish_ha_threshold_(snapshot.threshold);
+    publish_ha_intensity_(snapshot.movement_metric, snapshot.threshold);
+  }
 }
 
 void NativeFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) {
   runtime_.record_snapshot(snapshot);
   system_info_refresh_.request();
+  publish_ha_calibrate_(true);
 }
 
 void NativeFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
   finalize_frontend_calibration(runtime_, snapshot, [this]() { status_logger_.reset(); }, success, TAG);
   system_info_refresh_.request();
+  publish_ha_calibrate_(false);
+  if (snapshot.ready_to_publish) {
+    publish_ha_threshold_(snapshot.threshold);
+    publish_ha_intensity_(snapshot.movement_metric, snapshot.threshold);
+  }
 }
 
 void NativeFrontend::on_live_telemetry(float movement, float threshold) {
+  if (runtime_.snapshot().ready_to_publish) {
+    publish_ha_intensity_(movement, threshold);
+  }
   if (!client_connected_ || bindings_ == nullptr) {
     return;
   }
@@ -409,6 +441,29 @@ bool NativeFrontend::handle_control_command_(const std::string &command) {
     }
     return handle_detector_write_(parse_detection_algorithm(detector.c_str()));
   }
+  if (command.rfind("SET_CSI_TRAFFIC_MODE:", 0) == 0) {
+    const std::string mode = command.substr(21U);
+    if (mode != RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME &&
+        mode != RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME &&
+        mode != RUNTIME_CSI_TRAFFIC_MODE_PACING_NAME &&
+        mode != RUNTIME_CSI_TRAFFIC_MODE_DISABLED_NAME) {
+      ESP_LOGW(TAG, "Invalid BLE CSI traffic mode command: %s", command.c_str());
+      return false;
+    }
+    return handle_csi_traffic_mode_write_(parse_csi_traffic_mode(mode.c_str()));
+  }
+  if (command.rfind("SET_TRAFFIC_GENERATOR_MODE:", 0) == 0) {
+    const std::string mode = command.substr(27U);
+    if (mode != RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME &&
+        mode != RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME) {
+      ESP_LOGW(TAG, "Invalid BLE traffic generator mode command: %s", command.c_str());
+      return false;
+    }
+    return handle_traffic_generator_mode_write_(parse_traffic_mode(mode.c_str()));
+  }
+  if (command == "RECALIBRATE") {
+    return handle_recalibration_write_();
+  }
   if (command == "OTA_STATUS" || command == "OTA_CHECK" || command == "OTA_START") {
     return handle_ble_ota_command_(command.c_str() + 4);
   }
@@ -427,7 +482,9 @@ void NativeFrontend::handle_mqtt_command_(const std::string &payload) {
           true,
           runtime_.capabilities().supports_runtime_threshold_updates,
           runtime_.capabilities().supports_runtime_motion_hits_updates,
+          runtime_.capabilities().supports_traffic_control,
           runtime_.capabilities().supports_runtime_detector_selection,
+          runtime_.capabilities().supports_manual_recalibration,
           ota_service_ != nullptr,
       },
       [this]() { this->publish_mqtt_info_(); },
@@ -446,10 +503,31 @@ void NativeFrontend::handle_mqtt_command_(const std::string &payload) {
         }
         return accepted;
       },
+      [this](CsiTrafficMode mode, std::string *message) {
+        const bool accepted = this->handle_csi_traffic_mode_write_(mode);
+        if (message != nullptr && message->empty()) {
+          *message = accepted ? "csi traffic mode updated" : "csi traffic mode rejected";
+        }
+        return accepted;
+      },
+      [this](RuntimeTrafficMode mode, std::string *message) {
+        const bool accepted = this->handle_traffic_generator_mode_write_(mode);
+        if (message != nullptr && message->empty()) {
+          *message = accepted ? "traffic generator mode updated" : "traffic generator mode rejected";
+        }
+        return accepted;
+      },
       [this](DetectionAlgorithm algorithm, std::string *message) {
         const bool accepted = this->handle_detector_write_(algorithm);
         if (message != nullptr) {
           *message = accepted ? "detector updated" : "detector rejected";
+        }
+        return accepted;
+      },
+      [this](std::string *message) {
+        const bool accepted = this->handle_recalibration_write_();
+        if (message != nullptr && message->empty()) {
+          *message = accepted ? "recalibration started" : "recalibration rejected";
         }
         return accepted;
       },
@@ -469,6 +547,10 @@ bool NativeFrontend::handle_threshold_write_(float threshold) {
     return false;
   }
   system_info_refresh_.request();
+  if (runtime_.snapshot().ready_to_publish) {
+    publish_ha_threshold_(threshold);
+    publish_ha_intensity_(runtime_.snapshot().movement_metric, threshold);
+  }
   return true;
 }
 
@@ -481,6 +563,35 @@ bool NativeFrontend::handle_motion_hits_write_(uint8_t motion_on_hits, uint8_t m
     return false;
   }
   system_info_refresh_.request();
+  publish_ha_motion_hits_(motion_on_hits, motion_off_hits);
+  publish_mqtt_info_();
+  return true;
+}
+
+bool NativeFrontend::handle_csi_traffic_mode_write_(CsiTrafficMode mode) {
+  if (!runtime_.capabilities().supports_traffic_control) {
+    ESP_LOGW(TAG, "Runtime traffic control is not supported");
+    return false;
+  }
+  if (!runtime_.set_csi_traffic_mode_runtime(mode)) {
+    return false;
+  }
+  system_info_refresh_.request();
+  publish_ha_traffic_control_(runtime_.config().csi_traffic_mode, runtime_.config().traffic_generator_mode);
+  publish_mqtt_info_();
+  return true;
+}
+
+bool NativeFrontend::handle_traffic_generator_mode_write_(RuntimeTrafficMode mode) {
+  if (!runtime_.capabilities().supports_traffic_control) {
+    ESP_LOGW(TAG, "Runtime traffic control is not supported");
+    return false;
+  }
+  if (!runtime_.set_traffic_generator_mode_runtime(mode)) {
+    return false;
+  }
+  system_info_refresh_.request();
+  publish_ha_traffic_control_(runtime_.config().csi_traffic_mode, runtime_.config().traffic_generator_mode);
   publish_mqtt_info_();
   return true;
 }
@@ -516,8 +627,13 @@ bool NativeFrontend::handle_ble_ota_command_(const char *command_name) {
           false,
           false,
           false,
+          false,
+          false,
           ota_service_ != nullptr,
       },
+      {},
+      {},
+      {},
       {},
       {},
       {},
@@ -535,6 +651,90 @@ bool NativeFrontend::handle_ble_ota_command_(const char *command_name) {
   return true;
 }
 
+bool NativeFrontend::handle_recalibration_write_() {
+  if (!runtime_.capabilities().supports_manual_recalibration) {
+    ESP_LOGW(TAG, "Manual recalibration is not supported");
+    return false;
+  }
+  const bool accepted = runtime_.trigger_recalibration();
+  if (!accepted) {
+    return false;
+  }
+  publish_ha_calibrate_(runtime_.is_calibrating());
+  system_info_refresh_.request();
+  return true;
+}
+
+void NativeFrontend::handle_ha_threshold_command_(const std::string &payload) {
+  const std::string token = normalize_text_token(payload);
+  char *end_ptr = nullptr;
+  errno = 0;
+  const float threshold = strtof(token.c_str(), &end_ptr);
+  const bool parse_ok = (end_ptr != token.c_str()) && (end_ptr != nullptr) && (*end_ptr == '\0') &&
+                        (errno != ERANGE) && std::isfinite(threshold);
+  if (!parse_ok) {
+    ESP_LOGW(TAG, "Invalid HA threshold command: %s", payload.c_str());
+    return;
+  }
+  (void) handle_threshold_write_(threshold);
+}
+
+void NativeFrontend::handle_ha_motion_hits_command_(bool motion_on, const std::string &payload) {
+  const std::string token = normalize_text_token(payload);
+  char *end_ptr = nullptr;
+  errno = 0;
+  const unsigned long parsed = std::strtoul(token.c_str(), &end_ptr, 10);
+  if (end_ptr == token.c_str() || end_ptr == nullptr || *end_ptr != '\0' || errno == ERANGE || parsed > UINT8_MAX) {
+    ESP_LOGW(TAG, "Invalid HA motion hits command: %s", payload.c_str());
+    return;
+  }
+  const uint8_t value = static_cast<uint8_t>(parsed);
+  const uint8_t motion_on_hits = motion_on ? value : runtime_.config().motion_on_hits;
+  const uint8_t motion_off_hits = motion_on ? runtime_.config().motion_off_hits : value;
+  (void) handle_motion_hits_write_(motion_on_hits, motion_off_hits);
+}
+
+void NativeFrontend::handle_ha_calibrate_command_(const std::string &payload) {
+  const std::string token = normalize_text_token(payload);
+  if (token == "off") {
+    publish_ha_calibrate_(runtime_.is_calibrating());
+    return;
+  }
+  if (token != "on") {
+    ESP_LOGW(TAG, "Invalid HA calibrate command: %s", payload.c_str());
+    return;
+  }
+  if (runtime_.is_calibrating()) {
+    publish_ha_calibrate_(true);
+    return;
+  }
+  if (!handle_recalibration_write_()) {
+    publish_ha_calibrate_(runtime_.is_calibrating());
+  }
+}
+
+void NativeFrontend::handle_ha_csi_traffic_mode_command_(const std::string &payload) {
+  const std::string mode = normalize_text_token(payload);
+  if (mode != RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME &&
+      mode != RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME &&
+      mode != RUNTIME_CSI_TRAFFIC_MODE_PACING_NAME &&
+      mode != RUNTIME_CSI_TRAFFIC_MODE_DISABLED_NAME) {
+    ESP_LOGW(TAG, "Invalid HA CSI traffic mode command: %s", payload.c_str());
+    return;
+  }
+  (void) handle_csi_traffic_mode_write_(parse_csi_traffic_mode(mode.c_str()));
+}
+
+void NativeFrontend::handle_ha_traffic_generator_mode_command_(const std::string &payload) {
+  const std::string mode = normalize_text_token(payload);
+  if (mode != RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME &&
+      mode != RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME) {
+    ESP_LOGW(TAG, "Invalid HA traffic generator mode command: %s", payload.c_str());
+    return;
+  }
+  (void) handle_traffic_generator_mode_write_(parse_traffic_mode(mode.c_str()));
+}
+
 void NativeFrontend::handle_ha_birth_message_(const std::string &topic, const std::string &payload) {
   if (topic != ha_settings_.birth_topic || !frontend_ha_mqtt_enabled()) {
     return;
@@ -550,17 +750,21 @@ void NativeFrontend::handle_connection_state_(bool connected) {
   client_connected_ = connected;
   if (connected) {
     telemetry_subscribed_ = false;
-    runtime_.set_live_telemetry_enabled(false);
     system_info_refresh_.request();
   } else {
     telemetry_subscribed_ = false;
-    runtime_.set_live_telemetry_enabled(false);
   }
+  update_live_telemetry_enabled_();
 }
 
 void NativeFrontend::handle_live_telemetry_subscription_(bool subscribed) {
   telemetry_subscribed_ = subscribed;
-  runtime_.set_live_telemetry_enabled(client_connected_ && telemetry_subscribed_);
+  update_live_telemetry_enabled_();
+}
+
+void NativeFrontend::update_live_telemetry_enabled_() {
+  const bool ble_live = client_connected_ && telemetry_subscribed_;
+  runtime_.set_live_telemetry_enabled(ble_live || mqtt_ha_online_);
 }
 
 void NativeFrontend::setup_mqtt_() {
@@ -568,6 +772,8 @@ void NativeFrontend::setup_mqtt_() {
                                        device_config_,
                                        [this](const std::string &payload) { this->handle_mqtt_command_(payload); },
                                        [this](bool connected) {
+                                         this->mqtt_ha_online_ = connected && frontend_ha_mqtt_enabled();
+                                         this->update_live_telemetry_enabled_();
                                          this->system_info_refresh_.request();
                                          if (connected) {
                                            this->publish_mqtt_info_();
@@ -588,6 +794,24 @@ void NativeFrontend::setup_ha_mqtt_() {
   (void) mqtt_transport_->subscribe(
       ha_settings_.birth_topic,
       [this](const std::string &topic, const std::string &payload) { this->handle_ha_birth_message_(topic, payload); });
+  (void) mqtt_transport_->subscribe(ha_settings_.threshold_command_topic,
+                                    [this](const std::string &, const std::string &payload) {
+                                      this->handle_ha_threshold_command_(payload);
+                                    });
+  if (runtime_.capabilities().supports_runtime_motion_hits_updates) {
+    (void) mqtt_transport_->subscribe(ha_settings_.motion_on_hits_command_topic,
+                                      [this](const std::string &, const std::string &payload) {
+                                        this->handle_ha_motion_hits_command_(true, payload);
+                                      });
+    (void) mqtt_transport_->subscribe(ha_settings_.motion_off_hits_command_topic,
+                                      [this](const std::string &, const std::string &payload) {
+                                        this->handle_ha_motion_hits_command_(false, payload);
+                                      });
+  }
+  (void) mqtt_transport_->subscribe(ha_settings_.calibrate_command_topic,
+                                    [this](const std::string &, const std::string &payload) {
+                                      this->handle_ha_calibrate_command_(payload);
+                                    });
   if (runtime_.capabilities().supports_runtime_detector_selection) {
     (void) mqtt_transport_->subscribe(ha_settings_.detector_command_topic,
                                       [this](const std::string &, const std::string &payload) {
@@ -598,6 +822,16 @@ void NativeFrontend::setup_ha_mqtt_() {
                                         }
                                       });
   }
+  if (runtime_.capabilities().supports_traffic_control) {
+    (void) mqtt_transport_->subscribe(ha_settings_.csi_traffic_mode_command_topic,
+                                      [this](const std::string &, const std::string &payload) {
+                                        this->handle_ha_csi_traffic_mode_command_(payload);
+                                      });
+    (void) mqtt_transport_->subscribe(ha_settings_.traffic_generator_mode_command_topic,
+                                      [this](const std::string &, const std::string &payload) {
+                                        this->handle_ha_traffic_generator_mode_command_(payload);
+                                      });
+  }
 }
 
 void NativeFrontend::publish_ha_discovery_() {
@@ -605,25 +839,108 @@ void NativeFrontend::publish_ha_discovery_() {
     return;
   }
   ha_settings_ = build_frontend_ha_mqtt_settings(device_config_, device_info_, "native");
-  const auto messages =
-      build_frontend_ha_discovery_messages(ha_settings_, device_info_, runtime_.capabilities().supports_runtime_detector_selection);
+  const auto messages = build_frontend_ha_discovery_messages(ha_settings_,
+                                                             device_info_,
+                                                             runtime_.capabilities().supports_runtime_detector_selection,
+                                                             runtime_.capabilities().supports_runtime_motion_hits_updates,
+                                                             runtime_.capabilities().supports_traffic_control);
   for (const auto &message : messages) {
     (void) mqtt_transport_->publish(message.topic, message.payload, true);
   }
 }
 
-void NativeFrontend::publish_ha_state_(const RuntimeSnapshot &snapshot) {
-  if (!frontend_ha_mqtt_enabled() || mqtt_transport_ == nullptr || !mqtt_transport_->connected() || !snapshot.ready_to_publish) {
+void NativeFrontend::publish_ha_motion_(MotionState state) {
+  if (!ha_mqtt_ready_()) {
     return;
   }
-  if (ha_settings_.movement_state_topic.empty()) {
+  (void) mqtt_transport_->publish(ha_settings_.motion_state_topic, motion_state_payload(state), false);
+}
+
+void NativeFrontend::publish_ha_movement_(float movement) {
+  if (!ha_mqtt_ready_()) {
+    return;
+  }
+  (void) mqtt_transport_->publish(ha_settings_.movement_state_topic, float_payload(movement), false);
+}
+
+void NativeFrontend::publish_ha_intensity_(float movement, float threshold) {
+  if (!ha_mqtt_ready_()) {
+    return;
+  }
+  (void) mqtt_transport_->publish(ha_settings_.intensity_state_topic, intensity_payload(movement, threshold), false);
+}
+
+void NativeFrontend::publish_ha_threshold_(float threshold) {
+  if (!ha_mqtt_ready_()) {
+    return;
+  }
+  (void) mqtt_transport_->publish(ha_settings_.threshold_state_topic, float_payload(threshold), false);
+}
+
+void NativeFrontend::publish_ha_motion_hits_(uint8_t motion_on_hits, uint8_t motion_off_hits) {
+  if (!ha_mqtt_ready_()) {
+    return;
+  }
+  if (!runtime_.capabilities().supports_runtime_motion_hits_updates) {
+    return;
+  }
+  char buffer[8];
+  std::snprintf(buffer, sizeof(buffer), "%u", static_cast<unsigned>(motion_on_hits));
+  (void) mqtt_transport_->publish(ha_settings_.motion_on_hits_state_topic, buffer, false);
+  std::snprintf(buffer, sizeof(buffer), "%u", static_cast<unsigned>(motion_off_hits));
+  (void) mqtt_transport_->publish(ha_settings_.motion_off_hits_state_topic, buffer, false);
+}
+
+void NativeFrontend::publish_ha_calibrate_(bool calibrating) {
+  if (!ha_mqtt_ready_()) {
+    return;
+  }
+  (void) mqtt_transport_->publish(ha_settings_.calibrate_state_topic, calibrating ? "ON" : "OFF", false);
+}
+
+void NativeFrontend::publish_ha_detector_(const char *detector_name) {
+  if (!ha_mqtt_ready_() || detector_name == nullptr) {
+    return;
+  }
+  if (!runtime_.capabilities().supports_runtime_detector_selection) {
+    return;
+  }
+  (void) mqtt_transport_->publish(ha_settings_.detector_state_topic, detector_name, false);
+}
+
+void NativeFrontend::publish_ha_traffic_control_(CsiTrafficMode csi_traffic_mode,
+                                                 RuntimeTrafficMode traffic_generator_mode) {
+  if (!ha_mqtt_ready_() || !runtime_.capabilities().supports_traffic_control) {
+    return;
+  }
+  (void) mqtt_transport_->publish(ha_settings_.csi_traffic_mode_state_topic, csi_traffic_mode_name(csi_traffic_mode),
+                                  false);
+  (void) mqtt_transport_->publish(ha_settings_.traffic_generator_mode_state_topic,
+                                  traffic_mode_name(traffic_generator_mode), false);
+}
+
+bool NativeFrontend::ha_mqtt_ready_() {
+  if (!mqtt_ha_online_ || mqtt_transport_ == nullptr) {
+    return false;
+  }
+  if (ha_settings_.intensity_state_topic.empty()) {
     ha_settings_ = build_frontend_ha_mqtt_settings(device_config_, device_info_, "native");
   }
-  (void) mqtt_transport_->publish(ha_settings_.motion_state_topic, motion_state_payload(snapshot.motion_state), false);
-  (void) mqtt_transport_->publish(ha_settings_.movement_state_topic, float_payload(snapshot.movement_metric), false);
-  if (runtime_.capabilities().supports_runtime_detector_selection && snapshot.detector_name != nullptr) {
-    (void) mqtt_transport_->publish(ha_settings_.detector_state_topic, snapshot.detector_name, false);
+  return !ha_settings_.intensity_state_topic.empty();
+}
+
+void NativeFrontend::publish_ha_state_(const RuntimeSnapshot &snapshot) {
+  if (!snapshot.ready_to_publish) {
+    return;
   }
+  publish_ha_motion_(snapshot.motion_state);
+  publish_ha_movement_(snapshot.movement_metric);
+  publish_ha_intensity_(snapshot.movement_metric, snapshot.threshold);
+  publish_ha_threshold_(snapshot.threshold);
+  publish_ha_motion_hits_(runtime_.config().motion_on_hits, runtime_.config().motion_off_hits);
+  publish_ha_calibrate_(runtime_.is_calibrating() || snapshot.calibrating);
+  publish_ha_detector_(snapshot.detector_name);
+  publish_ha_traffic_control_(runtime_.config().csi_traffic_mode, runtime_.config().traffic_generator_mode);
 }
 
 void NativeFrontend::publish_current_ha_state_() { publish_ha_state_(runtime_.snapshot()); }
@@ -636,6 +953,8 @@ void NativeFrontend::publish_mqtt_info_() {
   info.supports_runtime_threshold = runtime_.capabilities().supports_runtime_threshold_updates;
   info.supports_runtime_motion_hits = runtime_.capabilities().supports_runtime_motion_hits_updates;
   info.supports_runtime_detector = runtime_.capabilities().supports_runtime_detector_selection;
+  info.supports_manual_recalibration = runtime_.capabilities().supports_manual_recalibration;
+  info.supports_traffic_control = runtime_.capabilities().supports_traffic_control;
   (void) publish_frontend_mqtt_message(
       mqtt_transport_, device_config_, "info", espectre_info_payload(device_config_, info), false);
 }
@@ -713,6 +1032,8 @@ void NativeFrontend::send_system_info_() {
                           runtime_.capabilities().supports_runtime_threshold_updates,
                           runtime_.capabilities().supports_runtime_motion_hits_updates,
                           runtime_.capabilities().supports_runtime_detector_selection,
+                          runtime_.capabilities().supports_manual_recalibration,
+                          runtime_.capabilities().supports_traffic_control,
                           runtime_.capabilities().supports_ble_telemetry,
                           runtime_.capabilities().supports_extended_diagnostics,
                           ota_service_ != nullptr,

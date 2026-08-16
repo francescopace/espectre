@@ -15,8 +15,10 @@ import sys
 
 try:
     from src.detector_interface import get_detector_algorithm
+    from src.config import MOTION_HITS_MAX, MOTION_HITS_MIN
 except ImportError:
     from detector_interface import get_detector_algorithm
+    from config import MOTION_HITS_MAX, MOTION_HITS_MIN
 
 # Threshold limits shared by the runtime detectors
 THRESHOLD_MIN = 0.0
@@ -77,7 +79,12 @@ class MQTTCommands:
                  info_topic,
                  stats_topic,
                  wlan,
-                 global_state=None):
+                 global_state=None,
+                 runtime_policy=None,
+                 ha_adapter=None,
+                 recalibrate_callback=None,
+                 traffic_control_callback=None,
+                 traffic_control_supported=False):
         """
         Initialize MQTT commands
         
@@ -102,6 +109,11 @@ class MQTTCommands:
         self.info_topic = info_topic
         self.stats_topic = stats_topic
         self.start_time = time.time()
+        self.runtime_policy = runtime_policy
+        self.ha_adapter = ha_adapter
+        self.recalibrate_callback = recalibrate_callback
+        self.traffic_control_callback = traffic_control_callback
+        self.traffic_control_supported = bool(traffic_control_supported)
         
     def _get_detection_info(self):
         """Build detection info dict based on detector type."""
@@ -180,8 +192,14 @@ class MQTTCommands:
             "supports_info": True,
             "supports_stats": True,
             "supports_runtime_threshold": True,
+            "supports_runtime_motion_hits": self.runtime_policy is not None,
             "supports_runtime_detector": False,
+            "supports_manual_recalibration": callable(self.recalibrate_callback),
+            "supports_traffic_control": self.traffic_control_supported,
             "supports_ota": False,
+            "csi_traffic_mode": getattr(self.ha_adapter, "_last_csi_traffic_mode", "internal"),
+            "traffic_mode": getattr(self.ha_adapter, "_last_traffic_generator_mode", "ping"),
+            "csi_target_pps": max(1, int(getattr(self.config, "CSI_TARGET_PPS", 100))),
             "network": {
                 "ip_address": ip_address,
                 "mac_address": mac_address,
@@ -272,6 +290,109 @@ class MQTTCommands:
             
         # Send info response with updated configuration
         self.cmd_info()
+
+    def cmd_set_motion_hits(self, cmd_obj):
+        """Set runtime motion-hit debounce counts (session-only)."""
+        command_id = cmd_obj.get('command_id', '')
+        command = cmd_obj.get('command', 'set_motion_hits')
+        if self.runtime_policy is None:
+            self.send_response("ERROR: Motion hit updates are unsupported", accepted=False, command_id=command_id, command=command)
+            return
+        if 'motion_on_hits' not in cmd_obj or 'motion_off_hits' not in cmd_obj:
+            self.send_response("ERROR: Missing motion hit fields", accepted=False, command_id=command_id, command=command)
+            return
+        try:
+            motion_on_hits = int(cmd_obj['motion_on_hits'])
+            motion_off_hits = int(cmd_obj['motion_off_hits'])
+        except (TypeError, ValueError):
+            self.send_response("ERROR: Invalid motion hit value", accepted=False, command_id=command_id, command=command)
+            return
+        if not (MOTION_HITS_MIN <= motion_on_hits <= MOTION_HITS_MAX) or not (MOTION_HITS_MIN <= motion_off_hits <= MOTION_HITS_MAX):
+            self.send_response(
+                "ERROR: Motion hits must be between {} and {}".format(MOTION_HITS_MIN, MOTION_HITS_MAX),
+                accepted=False,
+                command_id=command_id,
+                command=command,
+            )
+            return
+        self.runtime_policy.motion_on_hits = motion_on_hits
+        self.runtime_policy.motion_off_hits = motion_off_hits
+        if self.ha_adapter is not None:
+            self.ha_adapter.set_motion_hits(motion_on_hits, motion_off_hits)
+            self.ha_adapter.publish_motion_hits(self.mqtt, motion_on_hits, motion_off_hits, force=True)
+        self.send_response(
+            "Motion hits updated: on={} off={} (session-only)".format(motion_on_hits, motion_off_hits),
+            accepted=True,
+            command_id=command_id,
+            command=command,
+        )
+        self.cmd_info()
+
+    def cmd_recalibrate(self, cmd_obj):
+        """Queue a recalibration request for the main loop."""
+        command_id = cmd_obj.get('command_id', '')
+        command = cmd_obj.get('command', 'recalibrate')
+        if not callable(self.recalibrate_callback):
+            self.send_response("ERROR: Recalibration is unsupported", accepted=False, command_id=command_id, command=command)
+            return
+        if not self.recalibrate_callback():
+            self.send_response(
+                "ERROR: Recalibration already pending or active",
+                accepted=False,
+                command_id=command_id,
+                command=command,
+            )
+            return
+        self.send_response("recalibration started", accepted=True, command_id=command_id, command=command)
+
+    def cmd_set_csi_traffic_mode(self, cmd_obj):
+        """Set the live CSI traffic ownership mode (session-only)."""
+        command_id = cmd_obj.get('command_id', '')
+        command = cmd_obj.get('command', 'set_csi_traffic_mode')
+        mode = str(cmd_obj.get('csi_traffic_mode', '')).strip().lower()
+        if mode not in ("internal", "external", "pacing", "disabled"):
+            self.send_response("ERROR: Invalid CSI traffic mode", accepted=False, command_id=command_id, command=command)
+            return
+        callback = self.traffic_control_callback
+        if not self.traffic_control_supported or not callable(callback):
+            self.send_response("ERROR: Traffic control is unsupported", accepted=False, command_id=command_id, command=command)
+            return
+        generator_mode = getattr(self.ha_adapter, "_last_traffic_generator_mode", "ping")
+        if not callback(mode, generator_mode):
+            message = "ERROR: CSI traffic mode unsupported" if mode == "pacing" else "ERROR: CSI traffic mode rejected"
+            self.send_response(message, accepted=False, command_id=command_id, command=command)
+            return
+        self.send_response(
+            "CSI traffic mode updated: {} (session-only)".format(mode),
+            accepted=True,
+            command_id=command_id,
+            command=command,
+        )
+        self.cmd_info()
+
+    def cmd_set_traffic_generator_mode(self, cmd_obj):
+        """Set the live internal traffic generator packet type (session-only)."""
+        command_id = cmd_obj.get('command_id', '')
+        command = cmd_obj.get('command', 'set_traffic_generator_mode')
+        mode = str(cmd_obj.get('traffic_generator_mode', '')).strip().lower()
+        if mode not in ("ping", "dns"):
+            self.send_response("ERROR: Invalid traffic generator mode", accepted=False, command_id=command_id, command=command)
+            return
+        callback = self.traffic_control_callback
+        if not self.traffic_control_supported or not callable(callback):
+            self.send_response("ERROR: Traffic control is unsupported", accepted=False, command_id=command_id, command=command)
+            return
+        csi_mode = getattr(self.ha_adapter, "_last_csi_traffic_mode", "internal")
+        if not callback(csi_mode, mode):
+            self.send_response("ERROR: Traffic generator mode rejected", accepted=False, command_id=command_id, command=command)
+            return
+        self.send_response(
+            "Traffic generator mode updated: {} (session-only)".format(mode),
+            accepted=True,
+            command_id=command_id,
+            command=command,
+        )
+        self.cmd_info()
     
     def process_command(self, data):
         """
@@ -304,6 +425,14 @@ class MQTTCommands:
                 self.send_response("stats published", accepted=True, command_id=command_id, command=command)
             elif command == 'set_threshold':
                 self.cmd_set_threshold(cmd_obj)
+            elif command == 'set_motion_hits':
+                self.cmd_set_motion_hits(cmd_obj)
+            elif command == 'set_csi_traffic_mode':
+                self.cmd_set_csi_traffic_mode(cmd_obj)
+            elif command == 'set_traffic_generator_mode':
+                self.cmd_set_traffic_generator_mode(cmd_obj)
+            elif command == 'recalibrate':
+                self.cmd_recalibrate(cmd_obj)
             else:
                 self.send_response(f"ERROR: Unknown command '{command}'", accepted=False, command_id=command_id, command=command)
                 

@@ -24,11 +24,31 @@ struct FrontendHaMqttSettings {
   std::string availability_template;
   std::string motion_state_topic;
   std::string movement_state_topic;
+  std::string intensity_state_topic;
+  std::string threshold_state_topic;
+  std::string threshold_command_topic;
+  std::string motion_on_hits_state_topic;
+  std::string motion_on_hits_command_topic;
+  std::string motion_off_hits_state_topic;
+  std::string motion_off_hits_command_topic;
+  std::string calibrate_state_topic;
+  std::string calibrate_command_topic;
   std::string detector_state_topic;
   std::string detector_command_topic;
+  std::string csi_traffic_mode_state_topic;
+  std::string csi_traffic_mode_command_topic;
+  std::string traffic_generator_mode_state_topic;
+  std::string traffic_generator_mode_command_topic;
   std::string motion_object_id;
   std::string movement_object_id;
+  std::string intensity_object_id;
+  std::string threshold_object_id;
+  std::string motion_on_hits_object_id;
+  std::string motion_off_hits_object_id;
+  std::string calibrate_object_id;
   std::string detector_object_id;
+  std::string csi_traffic_mode_object_id;
+  std::string traffic_generator_mode_object_id;
   std::string device_id;
   std::string device_name;
   std::string model;
@@ -44,6 +64,10 @@ FrontendHaMqttSettings build_frontend_ha_mqtt_settings(const EspectreDeviceConfi
                                                        const EspectreDeviceInfo &info,
                                                        const char *frontend_name);
 std::vector<FrontendHaDiscoveryMessage> build_frontend_ha_discovery_messages(
-    const FrontendHaMqttSettings &settings, const EspectreDeviceInfo &info, bool supports_detector);
+    const FrontendHaMqttSettings &settings,
+    const EspectreDeviceInfo &info,
+    bool supports_detector,
+    bool supports_motion_hits,
+    bool supports_traffic_control);
 
 }  // namespace espectre

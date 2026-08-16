@@ -500,6 +500,21 @@ def run_startup_calibration(wlan, detector, traffic_gen, packet_interval_us=None
     g_state.calibration_mode = False
     return success
 
+
+def maybe_run_ha_recalibration(mqtt_handler, wlan, detector, traffic_gen, runtime_policy, temporal_sampler):
+    """Run one HA-requested recalibration from the main loop, never from MQTT."""
+    if mqtt_handler is None or not mqtt_handler.take_recalibrate_request():
+        return False
+    success = run_startup_calibration(wlan, detector, traffic_gen)
+    if not success:
+        print('[WARN] Recalibration failed; keeping current threshold')
+    runtime_policy.reset()
+    temporal_sampler.reset()
+    motion_metric = detector.get_motion_metric() if detector.is_ready() else 0.0
+    mqtt_handler.finish_recalibration(motion_metric, detector.get_threshold())
+    return True
+
+
 def get_chip_type():
     """Extract short chip type from os.uname().machine."""
     machine = os.uname().machine.upper()
@@ -513,23 +528,15 @@ def get_chip_type():
     return machine
 
 
-def _traffic_adaptive_enabled():
-    """Return the configured adaptive-pacing flag."""
-    return bool(getattr(config, "TRAFFIC_GENERATOR_ADAPTIVE", False))
-
-
 def _maintain_traffic_and_csi_health(
     traffic_gen,
     csi_health,
     *,
-    accepted_csi_total,
     callback_total,
-    now_us,
 ):
-    """Adapt send pacing and report sustained original ESP32 CSI stalls."""
+    """Report sustained original ESP32 CSI stalls under pacing."""
     if traffic_gen is None or not traffic_gen.is_running():
         return
-    traffic_gen.observe_accepted_csi(accepted_csi_total, now_us=now_us)
     csi_health.maintain(
         traffic_gen.get_packet_count(),
         callback_total,
@@ -544,13 +551,12 @@ def restart_traffic_generator(traffic_gen):
 
     time.sleep(1)  # Give WiFi/MQTT stack time to settle before reopening raw socket.
     gc.collect()
-    adaptive = _traffic_adaptive_enabled()
     target_pps = max(1, int(getattr(config, 'CSI_TARGET_PPS', 100)))
-    if not traffic_gen.start(target_pps, adaptive=adaptive):
+    if not traffic_gen.start(target_pps):
         print("Warning: Failed to restart traffic generator, retrying...")
         time.sleep(2)
         gc.collect()
-        traffic_gen.start(target_pps, adaptive=adaptive)
+        traffic_gen.start(target_pps)
 
 
 def main():
@@ -585,23 +591,19 @@ def main():
     # Initialize and start traffic generator (target CSI rate from config.py)
     gc.collect()  # Free memory before creating socket
     traffic_mode = getattr(config, 'TRAFFIC_GENERATOR_MODE', 'ping')
-    traffic_adaptive = _traffic_adaptive_enabled()
     from src.traffic_generator import TrafficGenerator
-    traffic_gen = TrafficGenerator(mode=traffic_mode, adaptive=traffic_adaptive)
+    traffic_gen = TrafficGenerator(mode=traffic_mode)
     print_heap('after_traffic_gen_init')
     observed_interval_us = None
     if getattr(config, 'TRAFFIC_GENERATOR_ENABLED', True):
-        if not traffic_gen.start(target_pps, adaptive=traffic_adaptive):
+        if not traffic_gen.start(target_pps):
             print("FATAL: Traffic generator failed to start - CSI will not work")
             print("Check WiFi connection and gateway availability")
             import machine
             time.sleep(5)
             machine.reset()  # Reboot and retry
         
-        print(
-            f'Traffic generator started ({traffic_mode}, target={target_pps} CSI pps, '
-            f'adaptive={"on" if traffic_adaptive else "off"})'
-        )
+        print(f'Traffic generator started ({traffic_mode}, target={target_pps} CSI pps)')
         print_heap('after_traffic_gen_start')
         
         # Verify CSI packets are flowing with retry logic
@@ -637,7 +639,7 @@ def main():
                 print(f'WARNING: Only {csi_received} CSI packets - restarting TG (attempt {tg_attempt + 2}/{max_tg_retries})')
                 traffic_gen.stop()
                 time.sleep(1)
-                traffic_gen.start(target_pps, adaptive=traffic_adaptive)
+                traffic_gen.start(target_pps)
             else:
                 print(f'FATAL: No CSI packets after {max_tg_retries} attempts - cannot operate without traffic')
                 print('Please check WiFi connection and retry')
@@ -686,12 +688,26 @@ def main():
         raise RuntimeError("Startup calibration failed")
     print_heap('after_calibration')
     
+    from src.runtime_policy import RuntimeMotionPolicy
+    runtime_policy = RuntimeMotionPolicy(
+        evaluation_interval_ms=getattr(config, 'EVALUATION_INTERVAL_MS', 250),
+        motion_on_hits=getattr(config, 'MOTION_ON_HITS', 4),
+        motion_off_hits=getattr(config, 'MOTION_OFF_HITS', 3),
+        segmentation_window_size_ms=getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000),
+    )
     mqtt_enabled = getattr(config, 'MQTT_ENABLED', True)
     mqtt_handler = None
     if mqtt_enabled:
         # Initialize MQTT ESPectre Protocol and runtime metrics.
         from src.mqtt.handler import MQTTHandler
-        mqtt_handler = MQTTHandler(config, detector, wlan, g_state)
+        mqtt_handler = MQTTHandler(
+            config,
+            detector,
+            wlan,
+            g_state,
+            runtime_policy=runtime_policy,
+            traffic_generator=traffic_gen,
+        )
         print_heap('after_mqtt_handler_init')
         mqtt_handler.connect()
         print_heap('after_mqtt_connect')
@@ -740,13 +756,6 @@ def main():
     csi_health = CsiPacingHealthMonitor(enabled=(g_state.chip_type == 'ESP32'))
     
     publish_interval_ms = max(1, int(getattr(config, 'PUBLISH_INTERVAL_MS', 1000)))
-    from src.runtime_policy import RuntimeMotionPolicy
-    runtime_policy = RuntimeMotionPolicy(
-        evaluation_interval_ms=getattr(config, 'EVALUATION_INTERVAL_MS', 250),
-        motion_on_hits=getattr(config, 'MOTION_ON_HITS', 4),
-        motion_off_hits=getattr(config, 'MOTION_OFF_HITS', 3),
-        segmentation_window_size_ms=getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000),
-    )
     temporal_sampler = TemporalCsiSampler(
         target_pps,
         getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000),
@@ -765,6 +774,14 @@ def main():
             # Suspend main loop during calibration
             if g_state.calibration_mode:
                 time.sleep_ms(1000) # Sleep for 1 second to yield CPU
+                continue
+
+            if maybe_run_ha_recalibration(
+                mqtt_handler, wlan, detector, traffic_gen, runtime_policy, temporal_sampler
+            ):
+                latest_motion_metric = mqtt_handler.last_variance
+                latest_threshold = mqtt_handler.last_threshold
+                latest_effective_state = runtime_policy.effective_state
                 continue
 
             current_time = time.ticks_ms()
@@ -796,6 +813,16 @@ def main():
                         latest_effective_state,
                         latest_threshold,
                     )
+                    mqtt_handler.check_messages()
+                    if maybe_run_ha_recalibration(
+                        mqtt_handler, wlan, detector, traffic_gen, runtime_policy, temporal_sampler
+                    ):
+                        latest_motion_metric = mqtt_handler.last_variance
+                        latest_threshold = mqtt_handler.last_threshold
+                        latest_effective_state = runtime_policy.effective_state
+                        publish_counter = 0
+                        last_publish_time = current_time
+                        continue
                 publish_counter = 0
                 last_publish_time = current_time
             
@@ -819,9 +846,7 @@ def main():
                     _maintain_traffic_and_csi_health(
                         traffic_gen,
                         csi_health,
-                        accepted_csi_total=processed_packet_count,
                         callback_total=callback_packet_count,
-                        now_us=loop_start,
                     )
                     g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
                     time.sleep_us(100)
@@ -840,9 +865,7 @@ def main():
                     _maintain_traffic_and_csi_health(
                         traffic_gen,
                         csi_health,
-                        accepted_csi_total=processed_packet_count,
                         callback_total=callback_packet_count,
-                        now_us=loop_start,
                     )
                     g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
                     time.sleep_us(100)
@@ -856,9 +879,7 @@ def main():
                     _maintain_traffic_and_csi_health(
                         traffic_gen,
                         csi_health,
-                        accepted_csi_total=processed_packet_count,
                         callback_total=callback_packet_count,
-                        now_us=loop_start,
                     )
                     g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
                     time.sleep_us(100)
@@ -893,9 +914,7 @@ def main():
                 _maintain_traffic_and_csi_health(
                     traffic_gen,
                     csi_health,
-                    accepted_csi_total=processed_packet_count,
                     callback_total=callback_packet_count,
-                    now_us=loop_start,
                 )
 
                 # Poll MQTT on the same cadence as detector evaluation. This keeps
@@ -906,6 +925,13 @@ def main():
                     if mqtt_poll_counter >= mqtt_poll_interval:
                         mqtt_handler.check_messages()
                         mqtt_poll_counter = 0
+                        if maybe_run_ha_recalibration(
+                            mqtt_handler, wlan, detector, traffic_gen, runtime_policy, temporal_sampler
+                        ):
+                            latest_motion_metric = mqtt_handler.last_variance
+                            latest_threshold = mqtt_handler.last_threshold
+                            latest_effective_state = runtime_policy.effective_state
+                            continue
                 
                 publish_counter += 1
                 if g_state.current_channel != 0 and packet_channel != g_state.current_channel:
@@ -958,6 +984,12 @@ def main():
                     latest_motion_metric = metrics.get('motion_metric', 0.0)
                     latest_threshold = metrics['threshold']
                     latest_effective_state = effective_state
+                    if mqtt_handler is not None:
+                        mqtt_handler.publish_live_ha(
+                            latest_motion_metric,
+                            latest_effective_state,
+                            latest_threshold,
+                        )
 
                 # Update loop time metric
                 g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
@@ -967,9 +999,7 @@ def main():
                 _maintain_traffic_and_csi_health(
                     traffic_gen,
                     csi_health,
-                    accepted_csi_total=processed_packet_count,
                     callback_total=callback_packet_count,
-                    now_us=loop_start,
                 )
                 # Update loop time metric (idle iteration)
                 g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)

@@ -99,6 +99,8 @@ struct EspectreDeviceInfo {
   bool supports_runtime_threshold{false};
   bool supports_runtime_motion_hits{false};
   bool supports_runtime_detector{false};
+  bool supports_manual_recalibration{false};
+  bool supports_traffic_control{false};
   bool supports_ota{false};
   EspectreNetworkInfo network{};
 };
@@ -120,6 +122,10 @@ struct EspectreCommand {
   uint8_t motion_on_hits{0U};
   uint8_t motion_off_hits{0U};
   bool has_motion_hits{false};
+  std::string csi_traffic_mode;
+  bool has_csi_traffic_mode{false};
+  std::string traffic_generator_mode;
+  bool has_traffic_generator_mode{false};
   std::string detector;
   bool has_detector{false};
 };

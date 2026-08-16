@@ -100,6 +100,7 @@ void visit_runtime_diagnostics(const RuntimeConfig &config,
     visitor("hampel_threshold", value);
   }
   visitor("traffic_mode", traffic_mode_name(config.traffic_generator_mode));
+  visitor("csi_traffic_mode", csi_traffic_mode_name(config.csi_traffic_mode));
   std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.csi_target_pps));
   visitor("csi_target_pps", value);
   std::snprintf(value, sizeof(value), "%u", static_cast<unsigned>(config.publish_interval_ms));

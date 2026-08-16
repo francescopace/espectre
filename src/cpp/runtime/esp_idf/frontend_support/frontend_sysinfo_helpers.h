@@ -25,6 +25,8 @@ struct SysinfoCapabilities {
   bool supports_runtime_threshold{false};
   bool supports_runtime_motion_hits{false};
   bool supports_runtime_detector{false};
+  bool supports_manual_recalibration{false};
+  bool supports_traffic_control{false};
   bool supports_live_telemetry{false};
   bool supports_extended_diagnostics{false};
   bool supports_ota{false};

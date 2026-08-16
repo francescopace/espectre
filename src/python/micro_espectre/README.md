@@ -174,7 +174,7 @@ Use:
 ./espectre mqtt
 ```
 
-for interactive MQTT inspection and runtime commands. For repository CLI behavior, including MQTT shell discovery and selection flow, use [CLI.md](../../../docs/CLI.md). Runtime changes made over MQTT are session-only unless the device code explicitly persists them. Micro-ESPectre advertises `supports_ota: false`; the shared shell may display OTA commands, but this frontend rejects them because MicroPython deployment uses its own upload flow.
+for interactive MQTT inspection and runtime commands. Micro-ESPectre accepts session-only `set_threshold`, `set_motion_hits`, `recalibrate`, `set_csi_traffic_mode`, and `set_traffic_generator_mode` commands over canonical MQTT. It advertises `supports_runtime_detector: false`, so detector switching remains out of scope on this frontend. Traffic ownership accepts `internal`, `external`, and `disabled`; `pacing` is rejected because Micro-ESPectre does not expose the UDP pacing listener used by the ESP-IDF runtime. For repository CLI behavior, including MQTT shell discovery and selection flow, use [CLI.md](../../../docs/CLI.md). Runtime changes made over MQTT are session-only unless the device code explicitly persists them. Micro-ESPectre advertises `supports_ota: false`; the shared shell may display OTA commands, but this frontend rejects them because MicroPython deployment uses its own upload flow.
 
 ### Home Assistant MQTT Discovery
 
@@ -187,9 +187,25 @@ MQTT_HA_DISCOVERY_PREFIX = "homeassistant"
 
 When enabled, the runtime:
 
-- publishes retained discovery payloads for motion and movement score
-- publishes plain HA availability, motion, and movement state topics under the existing device topic base
+- publishes retained discovery payloads for Motion Detected, Movement Score, Intensity, Threshold, Motion On Hits, Motion Off Hits, Calibrate, CSI Traffic Ownership, and Traffic Generator
+- publishes plain HA availability, motion, movement, intensity, threshold, motion-hit, calibrate, and traffic-control state topics under the existing device topic base
 - subscribes to `homeassistant/status` and republishes discovery when Home Assistant announces `online`
+
+HA sensing cadences match ESPHome and Native MQTT so the same Home Assistant dashboard can be reused after replacing entity ID prefixes:
+
+| Entity | Topic suffix | Cadence |
+|--------|--------------|---------|
+| Motion Detected | `ha/motion/state` | Filtered state edges |
+| Movement Score | `ha/movement/state` | Heartbeat (`PUBLISH_INTERVAL_MS`, default 1000 ms) |
+| Intensity | `ha/intensity/state` | Detector evaluation (`EVALUATION_INTERVAL_MS`, default 250 ms); 0–100 percent, 50% at threshold |
+| Threshold | `ha/threshold/state` and `ha/threshold/set` | On change, plus connect/birth snapshot; writable 0.0–1.0 number |
+| Motion On Hits | `ha/motion_on_hits/state` and `ha/motion_on_hits/set` | On change, plus connect/birth snapshot; writable 1–20 number |
+| Motion Off Hits | `ha/motion_off_hits/state` and `ha/motion_off_hits/set` | On change, plus connect/birth snapshot; writable 1–20 number |
+| Calibrate | `ha/calibrate/state` and `ha/calibrate/set` | ON while recalibrating; ON starts startup recalibration, OFF is ignored while a session is running |
+| CSI Traffic Ownership | `ha/csi_traffic_mode/state` and `ha/csi_traffic_mode/set` | On change, plus connect/birth snapshot; writable `internal`, `external`, or `disabled` select; `pacing` is rejected |
+| Traffic Generator | `ha/traffic_generator_mode/state` and `ha/traffic_generator_mode/set` | On change, plus connect/birth snapshot; writable `ping` / `dns` select |
+
+Entity IDs look like `sensor.micro_micro_espectre_intensity`. Copy the ESPHome dashboard from [`home-assistant-dashboard.yaml`](../../cpp/frontend/esphome/examples/home-assistant-dashboard.yaml) and replace the `espectre_` prefix. Intensity is not part of canonical `telemetry` JSON.
 
 The canonical ESPectre protocol topics remain unchanged.
 

@@ -203,6 +203,20 @@ class IEspectreRuntime {
    */
   virtual bool set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits) = 0;
   /**
+   * Switch who owns the CSI-bearing traffic while running.
+   *
+   * Defaulted rather than pure so existing out-of-tree backends keep
+   * compiling. A backend that does not implement live traffic retuning should
+   * return false and let the frontend reject the command.
+   */
+  virtual bool set_csi_traffic_mode_runtime(CsiTrafficMode mode) { return false; }
+  /**
+   * Change the internal traffic generator packet type while running.
+   *
+   * Backends that do not own traffic retuning keep the default false.
+   */
+  virtual bool set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) { return false; }
+  /**
    * Switch detector while running, rebuilding detector state.
    *
    * @return false when the algorithm is unknown or the switch fails.

@@ -52,7 +52,7 @@ Start with threshold. If needed, then adjust window size or filters.
 
 ### Threshold
 
-The threshold is selected automatically at startup. Lightweight adapts it from the observed quiet room, while High Accuracy uses the value validated with the exported model. Where a frontend exposes writable threshold control, both remain adjustable for the current session. Recalibration recomputes the quiet-room threshold for Lightweight; for High Accuracy, it immediately restores the trained default without collecting a quiet-room window. Matter currently exposes no writable sensing controls.
+The threshold is selected automatically at startup. Lightweight adapts it from the observed quiet room, while High Accuracy uses the value validated with the exported model. Where a frontend exposes writable threshold control, both remain adjustable for the current session. Recalibration recomputes the quiet-room threshold for Lightweight; for High Accuracy, it immediately restores the trained default without collecting a quiet-room window. Matter currently exposes no writable sensing controls. Native BLE, Native MQTT, Micro MQTT, and ESPHome now expose the same threshold, motion-hit debounce, and recalibration control family; Micro keeps every runtime write session-only.
 
 Both detectors expose a `0.0-1.0` probability threshold.
 
@@ -108,6 +108,13 @@ espectre:
 
 `csi_target_pps` is both the detector's temporal grid and the managed-traffic target. `csi_traffic_mode` separately chooses who supplies traffic. Internal traffic always uses a fixed send cadence at that target. Local socket send backoff still applies on `ENOMEM`; occupancy does not change the send rate. If occupancy stays below 70%, repair the traffic path or lower `csi_target_pps` explicitly and revalidate.
 
+Runtime traffic controls follow one family across ESPHome, Native BLE, Native MQTT, and Micro MQTT:
+
+- `csi_traffic_mode`: `internal`, `external`, `pacing`, or `disabled`
+- `traffic_generator_mode`: `ping` or `dns`
+
+Micro-ESPectre is the only exception: it rejects `pacing`, because it does not expose the UDP pacing listener used by the ESP-IDF runtime. Native and ESPHome persist accepted traffic-control changes; Micro keeps them session-only.
+
 Host `espectre collect` slows only on sustained firmware TX backpressure, then recovers toward `--pps`. Occupancy remains telemetry. `--pps` stays the detector grid; `--fixed` holds a constant send rate for A/B experiments, especially on Streamer where pacing is host-owned and does not require a firmware reflash.
 
 Rules of thumb:
@@ -141,6 +148,8 @@ The detector processes every admitted CSI packet into its sliding window, but th
 3. leaving motion requires `motion_off_hits` consecutive `IDLE` evaluations
 
 These hits are consecutive evaluation ticks, not detector windows (`segmentation_window_size_ms`). One opposing reading resets the pending count.
+
+ESPHome, Native BLE, Native MQTT, and Micro MQTT all expose these runtime motion-hit settings. Native and ESPHome persist accepted updates; Micro applies them only for the current session.
 
 With the default `evaluation_interval_ms = 250`:
 
@@ -283,7 +292,7 @@ If your AP changes channel often:
 
 `lightweight` can recompute its threshold without changing firmware. For `high_accuracy`, the same control restores the trained default immediately and does not start a quiet-room calibration window.
 
-Use the recalibration control when your frontend exposes one. ESPHome provides a calibration entity, and Native exposes the shared control through its command surfaces. Matter currently exposes no writable sensing controls.
+Use the recalibration control when your frontend exposes one. ESPHome provides a calibration entity, Native exposes the shared control through BLE and MQTT, and Micro MQTT exposes the same `recalibrate` action plus the Home Assistant switch. Matter currently exposes no writable sensing controls.
 
 When recalibrating:
 

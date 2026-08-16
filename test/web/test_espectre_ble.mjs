@@ -100,6 +100,15 @@ describe('command builders: wire format', () => {
         assert.equal(Client.buildDetectorCommand('lightweight'), 'SET_DETECTOR:lightweight');
         assert.equal(Client.buildDetectorCommand('high_accuracy'), 'SET_DETECTOR:high_accuracy');
     });
+
+    it('builds the recalibrate command', () => {
+        assert.equal(Client.buildRecalibrateCommand(), 'RECALIBRATE');
+    });
+
+    it('builds traffic-control commands', () => {
+        assert.equal(Client.buildCsiTrafficModeCommand('external'), 'SET_CSI_TRAFFIC_MODE:external');
+        assert.equal(Client.buildTrafficGeneratorModeCommand('dns'), 'SET_TRAFFIC_GENERATOR_MODE:dns');
+    });
 });
 
 describe('command builders: validation', () => {
@@ -171,6 +180,11 @@ describe('command builders: validation', () => {
 
     it('rejects unknown detectors', () => {
         assertValidationError(() => Client.buildDetectorCommand('quantum'), /detector/);
+    });
+
+    it('rejects unknown traffic-control modes', () => {
+        assertValidationError(() => Client.buildCsiTrafficModeCommand('ethernet'), /csiTrafficMode/);
+        assertValidationError(() => Client.buildTrafficGeneratorModeCommand('udp'), /trafficGeneratorMode/);
     });
 
     it('rejects multi-line device labels', () => {

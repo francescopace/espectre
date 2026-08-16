@@ -90,7 +90,10 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
                                                        FrontendMqttStatsCallback stats_callback,
                                                        FrontendMqttThresholdCallback threshold_callback,
                                                        FrontendMqttMotionHitsCallback motion_hits_callback,
+                                                       FrontendMqttCsiTrafficModeCallback csi_traffic_mode_callback,
+                                                       FrontendMqttTrafficGeneratorModeCallback traffic_generator_mode_callback,
                                                        FrontendMqttDetectorCallback detector_callback,
+                                                       FrontendMqttRecalibrateCallback recalibrate_callback,
                                                        FrontendMqttOtaStatusCallback ota_status_callback) {
   FrontendMqttCommandResult result;
   result.handled = true;
@@ -165,6 +168,44 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
     return result;
   }
 
+  if (result.command.command == "set_csi_traffic_mode") {
+    if (!capabilities.supports_traffic_control || !csi_traffic_mode_callback) {
+      result.accepted = false;
+      result.message = "unsupported command";
+      return result;
+    }
+    if (!result.command.has_csi_traffic_mode) {
+      result.accepted = false;
+      result.message = "invalid csi traffic mode";
+      return result;
+    }
+    result.accepted =
+        csi_traffic_mode_callback(parse_csi_traffic_mode(result.command.csi_traffic_mode.c_str()), &result.message);
+    if (result.message.empty()) {
+      result.message = result.accepted ? "csi traffic mode updated" : "csi traffic mode rejected";
+    }
+    return result;
+  }
+
+  if (result.command.command == "set_traffic_generator_mode") {
+    if (!capabilities.supports_traffic_control || !traffic_generator_mode_callback) {
+      result.accepted = false;
+      result.message = "unsupported command";
+      return result;
+    }
+    if (!result.command.has_traffic_generator_mode) {
+      result.accepted = false;
+      result.message = "invalid traffic generator mode";
+      return result;
+    }
+    result.accepted = traffic_generator_mode_callback(parse_traffic_mode(result.command.traffic_generator_mode.c_str()),
+                                                      &result.message);
+    if (result.message.empty()) {
+      result.message = result.accepted ? "traffic generator mode updated" : "traffic generator mode rejected";
+    }
+    return result;
+  }
+
   if (result.command.command == "set_detector") {
     if (!capabilities.supports_detector || !detector_callback) {
       result.accepted = false;
@@ -179,6 +220,19 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
     result.accepted = detector_callback(parse_detection_algorithm(result.command.detector.c_str()), &result.message);
     if (result.message.empty()) {
       result.message = result.accepted ? "detector updated" : "detector rejected";
+    }
+    return result;
+  }
+
+  if (result.command.command == "recalibrate") {
+    if (!capabilities.supports_recalibrate || !recalibrate_callback) {
+      result.accepted = false;
+      result.message = "unsupported command";
+      return result;
+    }
+    result.accepted = recalibrate_callback(&result.message);
+    if (result.message.empty()) {
+      result.message = result.accepted ? "recalibration started" : "recalibration rejected";
     }
     return result;
   }

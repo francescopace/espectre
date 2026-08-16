@@ -26,7 +26,10 @@ using FrontendMqttInfoCallback = std::function<void()>;
 using FrontendMqttStatsCallback = std::function<void()>;
 using FrontendMqttThresholdCallback = std::function<bool(float threshold, std::string *message)>;
 using FrontendMqttMotionHitsCallback = std::function<bool(uint8_t motion_on_hits, uint8_t motion_off_hits, std::string *message)>;
+using FrontendMqttCsiTrafficModeCallback = std::function<bool(CsiTrafficMode mode, std::string *message)>;
+using FrontendMqttTrafficGeneratorModeCallback = std::function<bool(RuntimeTrafficMode mode, std::string *message)>;
 using FrontendMqttDetectorCallback = std::function<bool(DetectionAlgorithm algorithm, std::string *message)>;
+using FrontendMqttRecalibrateCallback = std::function<bool(std::string *message)>;
 using FrontendMqttOtaStatusCallback = std::function<void(const EspectreOtaStatus &status)>;
 
 struct FrontendMqttCommandCapabilities {
@@ -34,7 +37,9 @@ struct FrontendMqttCommandCapabilities {
   bool supports_stats{false};
   bool supports_threshold{false};
   bool supports_motion_hits{false};
+  bool supports_traffic_control{false};
   bool supports_detector{false};
+  bool supports_recalibrate{false};
   bool supports_ota{false};
 };
 
@@ -81,7 +86,10 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
                                                        FrontendMqttStatsCallback stats_callback,
                                                        FrontendMqttThresholdCallback threshold_callback,
                                                        FrontendMqttMotionHitsCallback motion_hits_callback,
+                                                       FrontendMqttCsiTrafficModeCallback csi_traffic_mode_callback,
+                                                       FrontendMqttTrafficGeneratorModeCallback traffic_generator_mode_callback,
                                                        FrontendMqttDetectorCallback detector_callback,
+                                                       FrontendMqttRecalibrateCallback recalibrate_callback,
                                                        FrontendMqttOtaStatusCallback ota_status_callback);
 
 }  // namespace espectre

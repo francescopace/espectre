@@ -174,6 +174,20 @@ class RuntimeFrontendController {
    */
   bool set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits);
   /**
+   * Change the live CSI traffic ownership mode.
+   *
+   * @return false when the mode is invalid, or when the runtime is up and does
+   *         not advertise `RuntimeCapabilities::supports_traffic_control`.
+   */
+  bool set_csi_traffic_mode_runtime(CsiTrafficMode mode);
+  /**
+   * Change the live internal traffic generator packet type.
+   *
+   * @return false when the mode is invalid, or when the runtime is up and does
+   *         not advertise `RuntimeCapabilities::supports_traffic_control`.
+   */
+  bool set_traffic_generator_mode_runtime(RuntimeTrafficMode mode);
+  /**
    * Switch detector while running.
    *
    * The threshold follows the detector: the controller adopts the new

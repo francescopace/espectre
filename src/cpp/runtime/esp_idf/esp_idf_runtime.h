@@ -40,6 +40,8 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
 
   bool set_threshold_runtime(float threshold) override;
   bool set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits) override;
+  bool set_csi_traffic_mode_runtime(CsiTrafficMode mode) override;
+  bool set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) override;
   bool set_detection_algorithm_runtime(DetectionAlgorithm algorithm) override;
   bool trigger_recalibration() override;
   bool is_calibrating() const override;
@@ -54,6 +56,7 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   void on_wifi_connected_(const esp_netif_ip_info_t &ip_info);
   void on_wifi_disconnected_();
   void on_csi_channel_changed_(uint8_t previous_channel, uint8_t current_channel);
+  bool apply_traffic_runtime_config_(bool restart_service, bool recalibrate_if_active);
   bool start_calibration_();
   bool handle_threshold_calibration_packet_(const int8_t *csi_data, size_t csi_len,
                                             int8_t rssi_dbm, bool evaluation_due,

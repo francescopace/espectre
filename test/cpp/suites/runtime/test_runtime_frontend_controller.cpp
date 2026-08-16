@@ -137,6 +137,25 @@ void test_runtime_frontend_controller_motion_hits_runtime_updates_config(void) {
   TEST_ASSERT_EQUAL_UINT8(2U, frontend_runtime_shim::state.last_motion_off_hits);
 }
 
+void test_runtime_frontend_controller_traffic_runtime_updates_config(void) {
+  RuntimeFrontendController controller;
+  DummyRuntimeListener listener;
+
+  TEST_ASSERT_TRUE(controller.set_csi_traffic_mode_runtime(CsiTrafficMode::EXTERNAL));
+  TEST_ASSERT_TRUE(controller.config().csi_traffic_mode == CsiTrafficMode::EXTERNAL);
+  TEST_ASSERT_TRUE(controller.set_traffic_generator_mode_runtime(RuntimeTrafficMode::DNS));
+  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
+
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+  TEST_ASSERT_TRUE(controller.set_csi_traffic_mode_runtime(CsiTrafficMode::PACING));
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficMode::PACING);
+
+  TEST_ASSERT_TRUE(controller.set_traffic_generator_mode_runtime(RuntimeTrafficMode::PING));
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == RuntimeTrafficMode::PING);
+}
+
 void test_runtime_frontend_controller_recalibration_requires_capability_and_runtime(void) {
   RuntimeFrontendController controller;
   RuntimeSnapshot snapshot;
@@ -207,6 +226,7 @@ int process(void) {
   RUN_TEST(test_runtime_frontend_controller_reads_diagnostics_from_backend);
   RUN_TEST(test_runtime_frontend_controller_threshold_runtime_updates_config_and_snapshot);
   RUN_TEST(test_runtime_frontend_controller_motion_hits_runtime_updates_config);
+  RUN_TEST(test_runtime_frontend_controller_traffic_runtime_updates_config);
   RUN_TEST(test_runtime_frontend_controller_recalibration_requires_capability_and_runtime);
   RUN_TEST(test_runtime_frontend_controller_switches_detector_and_resets_threshold);
   RUN_TEST(test_runtime_frontend_controller_can_select_stream_runtime_profile);

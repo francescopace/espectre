@@ -131,6 +131,26 @@ bool RuntimeFrontendController::set_motion_hits_runtime(uint8_t motion_on_hits, 
   return true;
 }
 
+bool RuntimeFrontendController::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
+  if (runtime_) {
+    if (!capabilities_.supports_traffic_control || !runtime_->set_csi_traffic_mode_runtime(mode)) {
+      return false;
+    }
+  }
+  config_.csi_traffic_mode = mode;
+  return true;
+}
+
+bool RuntimeFrontendController::set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) {
+  if (runtime_) {
+    if (!capabilities_.supports_traffic_control || !runtime_->set_traffic_generator_mode_runtime(mode)) {
+      return false;
+    }
+  }
+  config_.traffic_generator_mode = mode;
+  return true;
+}
+
 bool RuntimeFrontendController::set_detection_algorithm_runtime(DetectionAlgorithm algorithm) {
   if (!runtime_detection_algorithm_valid(algorithm)) {
     return false;

@@ -66,7 +66,7 @@ Managed-service MQTT should use TLS and per-device credentials. Local lab MQTT m
 
 Native and Micro-ESPectre can publish an additive Home Assistant MQTT Discovery surface without changing the canonical ESPectre topics above. Discovery payloads use the standard `{discovery_prefix}/{component}/{object_id}/config` topic shape. Native also retains its canonical `status` payload so late subscribers receive the current availability; entity-shaped state topics remain non-retained under `espectre/v1/devices/{device_id}/ha/...`.
 
-The HA adapter publishes sensing entities that match the ESPHome Home Assistant surface so one dashboard can be reused: Motion Detected on filtered state edges, Movement Score on the `publish_interval_ms` heartbeat, Intensity as a 0–100 percent gauge (`min(100, movement / threshold × 50)`, 50% at threshold) on the detector evaluation cadence, a writable Threshold number (0.0–1.0) published on change, and a Calibrate switch that starts startup recalibration. Canonical `telemetry` JSON keeps `movement_score` and `threshold` and does not carry the intensity percent.
+The HA adapter publishes sensing entities that match the ESPHome Home Assistant surface so one dashboard can be reused: Motion Detected on filtered state edges, Movement Score on the `publish_interval_ms` heartbeat, Intensity as a 0–100 percent gauge (`min(100, movement / threshold × 50)`, 50% at threshold) on the detector evaluation cadence, writable Threshold, Motion On Hits, and Motion Off Hits numbers, a Calibrate switch that starts startup recalibration, and CSI Traffic Ownership plus Traffic Generator selects where the frontend supports traffic control. Canonical `telemetry` JSON keeps `movement_score` and `threshold` and does not carry the intensity percent.
 
 Both adapters subscribe to `homeassistant/status` and republish discovery when Home Assistant announces `online`; this birth message is a recovery trigger, not the only discovery bootstrap. Native derives availability from the retained canonical `status` payload and its retained Last Will, while Micro-ESPectre uses a plain `ha/availability` topic. The Native adapter is enabled in the published firmware defaults and can be disabled at build time; Micro-ESPectre keeps the adapter opt-in. See [`README.md`](../src/cpp/frontend/native/README.md) for Native and [`README.md`](../src/python/micro_espectre/README.md) for Micro-ESPectre entity surfaces and configuration options.
 
@@ -139,6 +139,8 @@ espectre/v1/devices/{device_id}/info
   "supports_runtime_threshold": true,
   "supports_runtime_motion_hits": true,
   "supports_runtime_detector": true,
+  "supports_manual_recalibration": true,
+  "supports_traffic_control": true,
   "supports_ota": true,
   "network": {
     "ip_address": "192.168.1.28",
@@ -149,7 +151,10 @@ espectre/v1/devices/{device_id}/info
   },
   "detection": {
     "algorithm": "lightweight"
-  }
+  },
+  "csi_traffic_mode": "internal",
+  "traffic_mode": "ping",
+  "csi_target_pps": 100
 }
 ```
 
@@ -234,6 +239,44 @@ Update the motion debounce thresholds on frontends that advertise runtime motion
 
 Both values must stay inside the shared `1-20` range. Native persists accepted values across reboot.
 
+Request a runtime recalibration on frontends that advertise manual recalibration:
+
+```json
+{
+  "protocol_version": "1.0",
+  "command_id": "cmd-004",
+  "command": "recalibrate"
+}
+```
+
+Native and ESPHome run the shared runtime recalibration immediately. Micro-ESPectre queues the same recalibration work onto its main loop and keeps it session-only.
+
+Update CSI traffic ownership on frontends that advertise traffic control:
+
+```json
+{
+  "protocol_version": "1.0",
+  "command_id": "cmd-005",
+  "command": "set_csi_traffic_mode",
+  "csi_traffic_mode": "external"
+}
+```
+
+Accepted values are `internal`, `external`, `pacing`, and `disabled`. Native persists the accepted value across reboot. Micro-ESPectre accepts `internal`, `external`, and `disabled`, rejects `pacing`, and keeps the selection session-only.
+
+Update the internal traffic generator type on frontends that advertise traffic control:
+
+```json
+{
+  "protocol_version": "1.0",
+  "command_id": "cmd-006",
+  "command": "set_traffic_generator_mode",
+  "traffic_generator_mode": "dns"
+}
+```
+
+Accepted values are `ping` and `dns`. Native persists the accepted value across reboot. The selection is always stored, but only takes effect while `csi_traffic_mode` is `internal`.
+
 Request an OTA manifest check using the firmware's built-in release URL:
 
 ```json
@@ -300,6 +343,9 @@ REQ_SYSINFO
 SET_THRESHOLD:0.35
 SET_MOTION_HITS:on=4&off=3
 SET_DETECTOR:high_accuracy
+RECALIBRATE
+SET_CSI_TRAFFIC_MODE:external
+SET_TRAFFIC_GENERATOR_MODE:dns
 OTA_STATUS
 OTA_CHECK
 OTA_START
@@ -398,6 +444,8 @@ Capability-oriented `sysinfo` keys may include:
 | `supports_runtime_threshold` | Whether BLE clients can change the live motion threshold |
 | `supports_runtime_motion_hits` | Whether BLE clients can change the persisted motion-on/off hit thresholds |
 | `supports_runtime_detector` | Whether BLE clients can select and persist `lightweight` or `high_accuracy` |
+| `supports_manual_recalibration` | Whether BLE clients can request a runtime recalibration action |
+| `supports_traffic_control` | Whether BLE clients can change CSI traffic ownership and generator type |
 | `supports_live_telemetry` | Whether BLE telemetry notifications are exposed |
 | `supports_extended_diagnostics` | Whether implementation-specific runtime diagnostics are exposed |
 | `supports_ota` | Whether BLE clients can expose OTA-related controls |
@@ -416,8 +464,9 @@ Current BLE `sysinfo` diagnostic keys may include:
 | `hampel` | Whether the Hampel filter is enabled |
 | `hampel_window` | Hampel window size |
 | `hampel_threshold` | Hampel threshold in MAD units |
+| `csi_traffic_mode` | CSI traffic ownership mode: `internal`, `external`, `pacing`, or `disabled` |
 | `traffic_mode` | Internal traffic generator mode such as `ping` or `dns` |
-| `traffic_rate` | Internal traffic generator target rate in packets per second |
+| `csi_target_pps` | Internal traffic generator target rate in packets per second |
 | `publish_interval_ms` | Periodic publish cadence in milliseconds |
 | `evaluation_interval_ms` | Detector evaluation cadence in milliseconds |
 | `motion_hits` | Motion-on/off consecutive hit thresholds |

@@ -13,6 +13,7 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "base_detector.h"
+#include "ha_intensity.h"
 #include "periodic_sensing_status_logger.h"
 #include "runtime_snapshot.h"
 
@@ -51,8 +52,8 @@ class SensorPublisher {
   /**
    * Publish movement relative to the current threshold as intensity percent.
    *
-   * Intensity is min(200, movement / threshold * 100). Values at or above 100
-   * mean the movement metric has reached or exceeded the decision threshold.
+   * Intensity is min(100, movement / threshold * 50). 50% is at the decision
+   * threshold; 100% is twice the threshold. See `ha_intensity_percent()`.
    *
    * @param movement_metric Movement metric value
    * @param threshold Current probability threshold

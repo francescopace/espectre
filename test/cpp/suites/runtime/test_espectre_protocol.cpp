@@ -170,6 +170,8 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   info.supports_runtime_threshold = true;
   info.supports_runtime_motion_hits = true;
   info.supports_runtime_detector = true;
+  info.supports_manual_recalibration = true;
+  info.supports_traffic_control = true;
   info.supports_ota = true;
   info.network.ip_address = "192.168.1.10";
   info.network.mac_address = "AA:BB:CC:DD:EE:FF";
@@ -188,6 +190,8 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(payload.find("\"supports_runtime_threshold\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"supports_runtime_motion_hits\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"supports_runtime_detector\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"supports_manual_recalibration\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"supports_traffic_control\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"supports_ota\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"network\":{") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"ip_address\":\"192.168.1.10\"") != std::string::npos);
@@ -272,6 +276,23 @@ void test_parse_espectre_command_parses_info_and_threshold_commands(void) {
 
   TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x4\",\"command\":\"ota_start\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("ota_start", command.command.c_str());
+
+  TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x5\",\"command\":\"recalibrate\"}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("recalibrate", command.command.c_str());
+
+  TEST_ASSERT_TRUE(parse_espectre_command(
+      "{\"command_id\":\"x6\",\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"external\"}",
+      &command,
+      &error));
+  TEST_ASSERT_TRUE(command.has_csi_traffic_mode);
+  TEST_ASSERT_EQUAL_STRING("external", command.csi_traffic_mode.c_str());
+
+  TEST_ASSERT_TRUE(parse_espectre_command(
+      "{\"command_id\":\"x7\",\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"dns\"}",
+      &command,
+      &error));
+  TEST_ASSERT_TRUE(command.has_traffic_generator_mode);
+  TEST_ASSERT_EQUAL_STRING("dns", command.traffic_generator_mode.c_str());
 }
 
 void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(void) {
@@ -295,6 +316,14 @@ void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(v
   TEST_ASSERT_FALSE(parse_espectre_command(
       "{\"command\":\"set_detector\",\"detector\":\"pca\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("invalid detector", error.c_str());
+
+  TEST_ASSERT_FALSE(parse_espectre_command(
+      "{\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"bogus\"}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("invalid csi traffic mode", error.c_str());
+
+  TEST_ASSERT_FALSE(parse_espectre_command(
+      "{\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"udp\"}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("invalid traffic generator mode", error.c_str());
 
   TEST_ASSERT_TRUE(parse_espectre_command("{\"command\":\"ota_check\"}", &command, &error));
 
