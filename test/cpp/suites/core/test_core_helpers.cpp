@@ -86,11 +86,15 @@ void test_channel_shape_trajectory_is_gain_and_stutter_invariant(void) {
     }
     TEST_ASSERT_TRUE(baseline.coherent_innovation_energy() > 0.0f);
     TEST_ASSERT_TRUE(baseline.excess_path() > 0.0f);
+    TEST_ASSERT_TRUE(baseline.subband_kendall_lag_excess() > 0.0f);
     TEST_ASSERT_FLOAT_WITHIN(
         1e-6f, baseline.coherent_innovation_energy(),
         gained.coherent_innovation_energy());
     TEST_ASSERT_FLOAT_WITHIN(
         1e-6f, baseline.excess_path(), gained.excess_path());
+    TEST_ASSERT_FLOAT_WITHIN(
+        1e-6f, baseline.subband_kendall_lag_excess(),
+        gained.subband_kendall_lag_excess());
 }
 
 void test_shared_packet_frame_matches_direct_trajectory_tracker(void) {
@@ -138,6 +142,9 @@ void test_shared_packet_frame_matches_direct_trajectory_tracker(void) {
         1e-6f, shared_excess, shared_trajectory.excess_path());
     TEST_ASSERT_FLOAT_WITHIN(
         1e-6f, shared_spread, shared_trajectory.shape_spread_subband());
+    TEST_ASSERT_FLOAT_WITHIN(
+        1e-6f, shared_trajectory.subband_kendall_lag_excess(),
+        direct_trajectory.subband_kendall_lag_excess());
 }
 
 void test_utils_statistical_helpers_cover_edge_cases(void) {
@@ -162,19 +169,20 @@ void test_utils_statistical_helpers_cover_edge_cases(void) {
 void test_temporal_csi_sampler_matches_fixed_slot_contract(void) {
     TEST_ASSERT_EQUAL(100U, temporal_window_slots(100U, 1000U));
     TEST_ASSERT_EQUAL(141U, temporal_window_slots(94U, 1500U));
-    TEST_ASSERT_EQUAL(80U, temporal_minimum_valid_slots(100U));
-    TEST_ASSERT_EQUAL(113U, temporal_minimum_valid_slots(141U));
+    TEST_ASSERT_EQUAL(70U, temporal_minimum_valid_slots(100U));
+    TEST_ASSERT_EQUAL(99U, temporal_minimum_valid_slots(141U));
     TEST_ASSERT_EQUAL(5000U, temporal_minimum_sample_spacing_us(100U));
 
     TemporalCsiSampler sampler(10U, 1000U);
     for (uint32_t slot = 0U; slot < 10U; ++slot) {
-        if (slot == 3U || slot == 7U) continue;
+        if (slot == 3U || slot == 7U || slot == 8U) continue;
         sampler.admit(slot * 100000U);
     }
     TEST_ASSERT_TRUE(sampler.flush());
     TEST_ASSERT_EQUAL(9U, sampler.current_slot());
-    TEST_ASSERT_EQUAL(8U, sampler.occupancy_slots());
-    TEST_ASSERT_EQUAL(2U, sampler.missing_slots());
+    TEST_ASSERT_EQUAL(7U, sampler.occupancy_slots());
+    TEST_ASSERT_EQUAL(3U, sampler.missing_slots());
+    TEST_ASSERT_EQUAL(7U, sampler.minimum_valid_slots());
     TEST_ASSERT_TRUE(sampler.is_ready());
 }
 

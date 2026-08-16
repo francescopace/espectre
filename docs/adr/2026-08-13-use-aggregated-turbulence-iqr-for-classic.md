@@ -47,6 +47,7 @@ Detailed feature evidence belongs in [`FEATURES.md`](../FEATURES.md). The cumula
 | 2026-08-12 | Use offset-4/12 frequency coherence | Reduced pair work and improved its quiet tail |
 | 2026-08-13 | Replace complex coherence with aggregated turbulence IQR | Current production definition |
 | 2026-08-16 | Refit coefficients on temporal-admission windows, including High Accuracy's idle `fp_weight=1.75` | Rejected; both refits raised one sequential S3 empty-room alarm that the exported coefficients still clear |
+| 2026-08-16 | Refit coefficients after the occupancy floor moved to seven tenths | Rejected; occupancy 70% opened one sequential S3 empty alarm on the exported coefficients, and both occupancy-70% refits leave that alarm through sequential logits `3.0` and `4.0` |
 
 ## Validation
 

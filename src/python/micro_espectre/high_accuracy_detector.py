@@ -476,9 +476,13 @@ class HighAccuracyDetector(IDetector):
         trajectory_innovation = None
         trajectory_excess = None
         trajectory_spread = None
+        trajectory_kendall = None
         if self._shape_trajectory_tracker is not None:
             trajectory_innovation, trajectory_excess, trajectory_spread = (
                 self._shape_trajectory_tracker.trajectory_features_with_spread()
+            )
+            trajectory_kendall = (
+                self._shape_trajectory_tracker.subband_kendall_lag_excess()
             )
         return extract_features_by_name(
             turb_list, count,
@@ -507,6 +511,11 @@ class HighAccuracyDetector(IDetector):
             chan_shape_excess_path=(
                 trajectory_excess
                 if "chan_shape_excess_path" in FEATURE_NAMES
+                else None
+            ),
+            chan_shape_subband_kendall_lag_excess=(
+                trajectory_kendall
+                if "chan_shape_subband_kendall_lag_excess" in FEATURE_NAMES
                 else None
             ),
             out=self._feature_buffer,

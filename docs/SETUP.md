@@ -245,9 +245,9 @@ See:
 
 Motion detection frontends depend on CSI packets. For the shared detection runtime, traffic is generated internally by default, but the way that traffic is configured or exposed belongs to each frontend surface.
 
-The fixed temporal admission grid accepts at most one packet per target slot. Same-slot bursts are discarded, missing slots remain missing, and the detector becomes ready only after a complete configured window has at least 80% valid occupancy. Arrival-rate jitter does not resize or reconstruct the detector.
+The fixed temporal admission grid accepts at most one packet per target slot. Same-slot bursts are discarded, missing slots remain missing, and the detector becomes ready only after a complete configured window has at least 70% valid occupancy. Arrival-rate jitter does not resize or reconstruct the detector.
 
-Raw rate near `csi_target_pps` does not prove that the target is usable: an AP may deliver those packets in aggregates, producing both same-slot excess and missing slots. If occupancy stays below 80%, fix the traffic source or choose a lower explicit `csi_target_pps` and revalidate detector quality at that cadence. The runtime never lowers the target automatically because doing so would silently change feature timing.
+Raw rate near `csi_target_pps` does not prove that the target is usable: an AP may deliver those packets in aggregates, producing both same-slot excess and missing slots. If occupancy stays below 70%, fix the traffic source or choose a lower explicit `csi_target_pps` and revalidate detector quality at that cadence. The runtime never lowers the target automatically because doing so would silently change feature timing.
 
 | Path | Target owner | Traffic source | Detector admission | Adaptive-control input |
 |------|--------------|----------------|--------------------|------------------------|

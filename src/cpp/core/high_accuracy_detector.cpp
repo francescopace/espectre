@@ -208,9 +208,11 @@ void HighAccuracyDetector::extract_features(float* features_out) {
     float trajectory_innovation = 0.0f;
     float trajectory_excess = 0.0f;
     float trajectory_spread = 0.0f;
+    float trajectory_kendall = 0.0f;
     if (uses_shape_trajectory_tracker_) {
         shape_trajectory_tracker_.trajectory_features(
-            trajectory_innovation, trajectory_excess, trajectory_spread);
+            trajectory_innovation, trajectory_excess, trajectory_spread,
+            trajectory_kendall);
     }
 
     extract_ml_features_by_id(turb_series, turb_count,
@@ -220,7 +222,8 @@ void HighAccuracyDetector::extract_features(float* features_out) {
                               l1_tracker_.delta_lag_ratio(),
                               trajectory_spread,
                               trajectory_innovation,
-                              trajectory_excess);
+                              trajectory_excess,
+                              trajectory_kendall);
 }
 
 // ============================================================================

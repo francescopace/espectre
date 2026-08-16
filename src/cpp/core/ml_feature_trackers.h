@@ -36,6 +36,8 @@ constexpr uint8_t CHANNEL_SHAPE_WINDOW_BINS =
     static_cast<uint8_t>((CHANNEL_SHAPE_WINDOW_US + CHANNEL_SHAPE_BIN_US - 1U) /
                          CHANNEL_SHAPE_BIN_US);
 constexpr uint8_t CHANNEL_SHAPE_MAX_PROFILES_PER_BIN = L1_DELTA_LAG_MAX;
+constexpr float CHANNEL_SHAPE_KENDALL_RELATIVE_DEADBAND = 0.02f;
+constexpr uint8_t CHANNEL_SHAPE_KENDALL_MIN_COMPARABLE_PAIRS = 8U;
 constexpr std::array<std::array<float, CHANNEL_SHAPE_SUBBAND_COUNT>,
                      CHANNEL_SHAPE_SUBBAND_COUNT>
     CHANNEL_SHAPE_DCT = {{
@@ -82,6 +84,8 @@ class ChannelShapeTrajectoryTracker {
     for (auto& bin : bins_) {
       bin.index = 0U;
       bin.modes.fill(0.0f);
+      bin.kendall_order = 0U;
+      bin.kendall_valid = 0U;
     }
     for (auto& profile : current_profiles_) {
       profile.fill(0.0f);
@@ -122,10 +126,12 @@ class ChannelShapeTrajectoryTracker {
 
   void trajectory_features(float& coherent_innovation_energy,
                            float& excess_path,
-                           float& shape_spread_subband) const {
+                           float& shape_spread_subband,
+                           float& kendall_lag_excess) const {
     coherent_innovation_energy = 0.0f;
     excess_path = 0.0f;
     shape_spread_subband = 0.0f;
+    kendall_lag_excess = 0.0f;
     std::array<PathPoint, CHANNEL_SHAPE_WINDOW_BINS + 1U> path{};
     const uint8_t count = build_path_(path);
     if (count < 2U) {
@@ -212,12 +218,45 @@ class ChannelShapeTrajectoryTracker {
     coherent_innovation_energy =
         median_(innovation_samples.data(), innovation_count);
     excess_path = median_(excess_samples.data(), excess_count);
+
+    std::array<float, CHANNEL_SHAPE_WINDOW_BINS - 2U> kendall_samples{};
+    uint8_t kendall_count = 0U;
+    for (uint8_t i = 3U; i < count; i++) {
+      if (path[i].index - path[i - 3U].index != 3U) continue;
+      float long_distance = 0.0f;
+      if (!kendall_distance_(path[i], path[i - 3U], long_distance)) continue;
+      float local_sum = 0.0f;
+      bool local_ok = true;
+      for (uint8_t lag = 0U; lag < 3U; lag++) {
+        float local_distance = 0.0f;
+        if (!kendall_distance_(
+                path[i - lag], path[i - lag - 1U], local_distance)) {
+          local_ok = false;
+          break;
+        }
+        local_sum += local_distance;
+      }
+      if (!local_ok) continue;
+      kendall_samples[kendall_count++] =
+          std::max(0.0f, long_distance - local_sum / 3.0f);
+    }
+    kendall_lag_excess = median_(kendall_samples.data(), kendall_count);
+  }
+
+  void trajectory_features(float& coherent_innovation_energy,
+                           float& excess_path,
+                           float& shape_spread_subband) const {
+    float kendall = 0.0f;
+    trajectory_features(coherent_innovation_energy, excess_path,
+                        shape_spread_subband, kendall);
   }
 
   void trajectory_features(float& coherent_innovation_energy,
                            float& excess_path) const {
     float spread = 0.0f;
-    trajectory_features(coherent_innovation_energy, excess_path, spread);
+    float kendall = 0.0f;
+    trajectory_features(coherent_innovation_energy, excess_path, spread,
+                        kendall);
   }
 
   float coherent_innovation_energy() const {
@@ -242,12 +281,72 @@ class ChannelShapeTrajectoryTracker {
     return spread;
   }
 
+  float subband_kendall_lag_excess() const {
+    float innovation = 0.0f;
+    float excess = 0.0f;
+    float spread = 0.0f;
+    float kendall = 0.0f;
+    trajectory_features(innovation, excess, spread, kendall);
+    return kendall;
+  }
+
  private:
   using Profile = std::array<float, CHANNEL_SHAPE_SUBBAND_COUNT>;
   struct PathPoint {
     uint64_t index{0U};
     Profile modes{};
+    uint32_t kendall_order{0U};
+    uint32_t kendall_valid{0U};
   };
+
+  static uint8_t popcount32_(uint32_t value) {
+    uint8_t count = 0U;
+    while (value != 0U) {
+      count = static_cast<uint8_t>(count + (value & 1U));
+      value >>= 1U;
+    }
+    return count;
+  }
+
+  static void kendall_signature_(const Profile& profile, uint32_t& order,
+                                 uint32_t& valid) {
+    order = 0U;
+    valid = 0U;
+    float maximum = 0.0f;
+    for (float value : profile) {
+      if (value > maximum) maximum = value;
+    }
+    if (maximum <= 0.0f) return;
+    const float threshold =
+        CHANNEL_SHAPE_KENDALL_RELATIVE_DEADBAND * maximum;
+    uint8_t bit = 0U;
+    for (uint8_t left = 0U; left + 1U < CHANNEL_SHAPE_SUBBAND_COUNT; left++) {
+      for (uint8_t right = left + 1U; right < CHANNEL_SHAPE_SUBBAND_COUNT;
+           right++) {
+        const float difference = profile[left] - profile[right];
+        const uint32_t flag = 1U << bit;
+        if (std::fabs(difference) > threshold) {
+          valid |= flag;
+          if (difference > 0.0f) order |= flag;
+        }
+        bit++;
+      }
+    }
+  }
+
+  static bool kendall_distance_(const PathPoint& current,
+                                const PathPoint& reference, float& distance) {
+    const uint32_t common = current.kendall_valid & reference.kendall_valid;
+    const uint8_t comparable = popcount32_(common);
+    if (comparable < CHANNEL_SHAPE_KENDALL_MIN_COMPARABLE_PAIRS) {
+      distance = 0.0f;
+      return false;
+    }
+    const uint8_t discordant = popcount32_(
+        (current.kendall_order ^ reference.kendall_order) & common);
+    distance = static_cast<float>(discordant) / static_cast<float>(comparable);
+    return true;
+  }
 
   static float median_(float* values, uint8_t count) {
     if (count == 0U) return 0.0f;
@@ -323,7 +422,10 @@ class ChannelShapeTrajectoryTracker {
       bin_count_--;
     }
     bins_[bin_count_].index = current_bin_;
-    bins_[bin_count_].modes = dct_modes_(median_current_profile_());
+    const Profile profile = median_current_profile_();
+    kendall_signature_(profile, bins_[bin_count_].kendall_order,
+                       bins_[bin_count_].kendall_valid);
+    bins_[bin_count_].modes = dct_modes_(profile);
     bin_count_++;
   }
 
@@ -343,8 +445,11 @@ class ChannelShapeTrajectoryTracker {
     for (uint8_t i = 0U; i < bin_count_; i++) path[i] = bins_[i];
     uint8_t count = bin_count_;
     if (current_profile_count_ > 0U && count < path.size()) {
+      const Profile profile = median_current_profile_();
       path[count].index = current_bin_;
-      path[count].modes = dct_modes_(median_current_profile_());
+      kendall_signature_(profile, path[count].kendall_order,
+                         path[count].kendall_valid);
+      path[count].modes = dct_modes_(profile);
       count++;
     }
     return count;

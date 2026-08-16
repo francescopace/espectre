@@ -118,7 +118,7 @@ Boot -> AGC-active startup -> Lightweight threshold bootstrap or High Accuracy s
 
 Micro-ESPectre implements the same two detector families as the C++ platform, `lightweight` and `high_accuracy`, described in [ALGORITHMS.md](../../../docs/ALGORITHMS.md).
 
-Lightweight is the leaner path: its Lightweight implementation uses fewer feature trackers and less per-packet computation, but is less accurate and robust than High Accuracy on the maintained corpus. High Accuracy uses the ML implementation, with more working memory and CPU for its seven features and neural inference, but provides better detection quality and skips Lightweight's threshold calibration. Lightweight requires about 10 seconds of clean, ready quiet-room coverage after temporal warmup, and insufficient occupancy extends that wall-clock duration. High Accuracy still waits for CSI readiness and its feature window to fill.
+Lightweight is the leaner path: its Lightweight implementation uses fewer feature trackers and less per-packet computation, but is less accurate and robust than High Accuracy on the maintained corpus. High Accuracy uses the ML implementation, with more working memory and CPU for its eight features and neural inference, but provides better detection quality and skips Lightweight's threshold calibration. Lightweight requires about 10 seconds of clean, ready quiet-room coverage after temporal warmup, and insufficient occupancy extends that wall-clock duration. High Accuracy still waits for CSI readiness and its feature window to fill.
 
 Key config values live in `config.py`:
 

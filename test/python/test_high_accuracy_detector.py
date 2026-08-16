@@ -82,6 +82,10 @@ def test_shared_packet_frame_matches_direct_trajectory_tracker():
     assert shared_innovation == pytest.approx(direct_innovation, abs=1e-12)
     assert shared_excess == pytest.approx(direct_excess, abs=1e-12)
     assert shared_spread == pytest.approx(direct_spread, abs=1e-12)
+    assert shared_trajectory.subband_kendall_lag_excess() == pytest.approx(
+        direct_trajectory.subband_kendall_lag_excess(),
+        abs=1e-12,
+    )
     assert shared_trajectory.coherent_innovation_energy() == pytest.approx(
         shared_innovation,
         abs=1e-12,
@@ -98,7 +102,9 @@ def test_shared_packet_frame_matches_direct_trajectory_tracker():
 
 def test_cached_dct_trajectory_matches_host_dct_reference():
     runtime = ChannelShapeTrajectoryTracker()
-    reference = HostChannelShapeTrajectoryTracker()
+    reference = HostChannelShapeTrajectoryTracker(
+        track_subband_kendall_lag_excess=True,
+    )
     for step in range(12):
         payload = _make_trajectory_payload(step)
         timestamp_us = step * CHANNEL_SHAPE_BIN_US
@@ -120,6 +126,10 @@ def test_cached_dct_trajectory_matches_host_dct_reference():
         abs=1e-10,
     )
     assert runtime_spread == pytest.approx(reference_spread, abs=1e-10)
+    assert runtime.subband_kendall_lag_excess() == pytest.approx(
+        reference.subband_kendall_lag_excess(),
+        abs=1e-10,
+    )
 
 
 def test_trajectory_duplicate_detection_accepts_signed_payloads():

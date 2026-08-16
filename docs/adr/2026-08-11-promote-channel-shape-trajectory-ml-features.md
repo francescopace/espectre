@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-11
-- Updated: 2026-08-12
+- Updated: 2026-08-16
 
 ## Context
 
@@ -26,7 +26,7 @@ Promote this ordered seven-input ML schema:
 6. `chan_shape_coherent_innovation_energy`; and
 7. `chan_shape_excess_path`.
 
-The committed production artifact uses topology `7 -> 24 -> 12 -> 1`, seed `1584727888`, standard scaling, false-positive weight `1.75`, and the `base,drift,burst-loss` augmentation recipe. This schema is the default when `tools/train_ml_model.py` runs without `--features`.
+The committed production artifact at the time of this decision used topology `7 -> 24 -> 12 -> 1`, seed `1584727888`, standard scaling, false-positive weight `1.75`, and the `base,drift,burst-loss` augmentation recipe. The eighth Kendall input is recorded in [`2026-08-16-promote-subband-kendall-lag-excess.md`](2026-08-16-promote-subband-kendall-lag-excess.md); that 8-feature schema is the current default when `tools/train_ml_model.py` runs without `--features`.
 
 The trajectory tracker uses a gain-normalized eight-subband energy profile, `80 ms` physical-time median bins, a one-second window, exact duplicate suppression, and missing-bin skipping. Coherent innovation measures positive low-order DCT energy left after a constant-velocity prediction and high-order noise subtraction. Excess path measures positive two-step path length beyond its chord after subtracting high-order DCT path excess. Subband spread measures the participation of adjacent trajectory-profile differences.
 
@@ -45,7 +45,8 @@ Detailed measurements for every baseline and individual feature remain in [`FEAT
 | 2026-07-28 | Invariant-5 | Retained the gain-invariance direction but expanded the physical feature surface |
 | 2026-08-07 | Aggregated-IQR-7 | Replaced after trajectory features improved environment transfer |
 | 2026-08-11 | Trajectory-7 | Promoted the physical-time trajectory, then replaced its standalone full-band spread history |
-| 2026-08-12 | Subband-7 | Current production feature schema |
+| 2026-08-12 | Subband-7 | Promoted DCT-backed subband spread in place of the full-band history |
+| 2026-08-16 | Subband-8 | Added guarded Kendall lag-excess as an eighth input; see `2026-08-16-promote-subband-kendall-lag-excess.md` |
 
 ## Validation
 

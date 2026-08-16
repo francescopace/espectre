@@ -239,7 +239,7 @@ packets = load_npz_as_packets(Path("data/static_presence/sample.npz"))
 
 - AGC stays active during collection
 - the fixed production sensing contract is HT20 + HT-LTF + 64 subcarriers; unsupported PHY/layout combinations are excluded from the sensing view
-- the current ML runtime and training flow use the seven scale-invariant production features defined in [FEATURES.md](FEATURES.md)
+- the current ML runtime and training flow use the eight scale-invariant production features defined in [FEATURES.md](FEATURES.md)
 
 ## Dataset Inspection
 

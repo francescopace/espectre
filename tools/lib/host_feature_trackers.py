@@ -132,6 +132,7 @@ PROMOTED_CHANNEL_SHAPE_TRAJECTORY_FEATURES = (
     'chan_shape_spread_subband',
     'chan_shape_coherent_innovation_energy',
     'chan_shape_excess_path',
+    'chan_shape_subband_kendall_lag_excess',
 )
 PROMOTED_CHANNEL_SHAPE_FEATURES = (
     'chan_freq_coh_curve_std',

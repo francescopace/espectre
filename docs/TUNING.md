@@ -84,15 +84,15 @@ espectre:
   segmentation_window_size_ms: 1000
 ```
 
-The setting is elapsed time. Together with `csi_target_pps`, it defines a fixed temporal grid: `window_slots = ceil(csi_target_pps * segmentation_window_size_ms / 1000)`. The runtime admits at most one packet per slot, preserves missing slots, and requires at least 80% valid occupancy before detection is ready. A burst cannot fill the window early, and arrival jitter never reconstructs the detector.
+The setting is elapsed time. Together with `csi_target_pps`, it defines a fixed temporal grid: `window_slots = ceil(csi_target_pps * segmentation_window_size_ms / 1000)`. The runtime admits at most one packet per slot, preserves missing slots, and requires at least 70% valid occupancy before detection is ready. A burst cannot fill the window early, and arrival jitter never reconstructs the detector.
 
-The temporal-admission contract belongs in [ALGORITHMS.md](ALGORITHMS.md#detector-timing) and its [ADR](adr/2026-08-15-use-fixed-temporal-csi-admission.md). Historical recordings without target provenance, or with sustained occupancy below 80%, cannot claim exact runtime-parity evidence and must be recollected for binding performance validation.
+The temporal-admission contract belongs in [ALGORITHMS.md](ALGORITHMS.md#detector-timing) and its [ADR](adr/2026-08-15-use-fixed-temporal-csi-admission.md). Historical recordings without target provenance, or with sustained occupancy below 70%, cannot claim exact runtime-parity evidence and must be recollected for binding performance validation.
 
 Rules of thumb:
 
 - `1000 ms`: the default and the interval used by runtime, replay, validation, and training
 - larger interval: steadier and slower to react
-- occupancy below 80% of the configured slots: repair traffic pacing or packet supply; if the path cannot sustain the cadence, lower `csi_target_pps` explicitly and rerun performance validation rather than letting runtime jitter change it
+- occupancy below 70% of the configured slots: repair traffic pacing or packet supply; if the path cannot sustain the cadence, lower `csi_target_pps` explicitly and rerun performance validation rather than letting runtime jitter change it
 
 Start with `1000 ms` unless you have a measured reason to change it.
 

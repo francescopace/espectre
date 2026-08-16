@@ -15,8 +15,8 @@
 namespace espectre {
 
 constexpr uint32_t TEMPORAL_CSI_MICROSECONDS_PER_SECOND = 1000000U;
-constexpr uint8_t TEMPORAL_CSI_MINIMUM_COVERAGE_NUMERATOR = 4U;
-constexpr uint8_t TEMPORAL_CSI_MINIMUM_COVERAGE_DENOMINATOR = 5U;
+constexpr uint8_t TEMPORAL_CSI_MINIMUM_COVERAGE_NUMERATOR = 7U;
+constexpr uint8_t TEMPORAL_CSI_MINIMUM_COVERAGE_DENOMINATOR = 10U;
 constexpr uint8_t TEMPORAL_CSI_SLOT_HALF_DENOMINATOR = 2U;
 
 uint32_t temporal_window_slots(uint32_t target_pps, uint32_t window_size_ms);
@@ -79,7 +79,7 @@ class TemporalCsiSampler {
   uint32_t window_size_ms_{1000U};
   uint32_t window_size_us_{1000000U};
   uint32_t window_slots_{100U};
-  uint32_t minimum_valid_slots_{80U};
+  uint32_t minimum_valid_slots_{70U};
   uint32_t minimum_sample_spacing_us_{5000U};
   std::vector<uint64_t> slot_ids_;
   uint32_t occupancy_slots_{0U};

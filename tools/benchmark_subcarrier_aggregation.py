@@ -20,7 +20,7 @@ Modes:
                 signal-to-noise gain, using no detection metric
     classic     Lightweight per-pair separability across group widths, with the
                 fusion coefficients refit per configuration
-    features    per-feature effect across the production seven-feature set
+    features    per-feature effect across the production eight-feature set
     candidates  dispersion and order statistics of the turbulence series,
                 including candidates retired before this evidence existed
 

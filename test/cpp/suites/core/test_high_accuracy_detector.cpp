@@ -128,6 +128,7 @@ void test_ml_production_feature_schema(void) {
         ML_FEAT_CHAN_SHAPE_SPREAD_SUBBAND,
         ML_FEAT_CHAN_SHAPE_COHERENT_INNOVATION_ENERGY,
         ML_FEAT_CHAN_SHAPE_EXCESS_PATH,
+        ML_FEAT_CHAN_SHAPE_SUBBAND_KENDALL_LAG_EXCESS,
     };
     TEST_ASSERT_EQUAL_UINT8(sizeof(expected), ML_MODEL_INPUT_SIZE);
     TEST_ASSERT_EQUAL_UINT8_ARRAY(
@@ -259,7 +260,7 @@ void test_feature_extraction_basic(void) {
     // Extract exactly the exported feature set (turbulence and/or L1-delta).
     extract_ml_features_by_id(turb_buffer, 50, turb_buffer, 50,
                               ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features,
-                              scratch, 1.75f, 0.0f, 0.0f, 0.0f);
+                              scratch, 1.75f, 0.0f, 0.0f, 0.0f, 0.0f);
 
     // Every exported feature must be a finite number.
     for (int i = 0; i < ML_NUM_FEATURES; i++) {
@@ -279,7 +280,7 @@ void test_feature_extraction_empty_buffer(void) {
     // whose empty-buffer value is not zero.
     extract_ml_features_by_id(turb_buffer, 0, nullptr, 0,
                               ML_FEATURE_IDS, ML_MODEL_INPUT_SIZE, features,
-                              scratch, 1.0f, 0.0f, 0.0f, 0.0f);
+                              scratch, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 
     // Every series-derived feature should be 0 for an empty buffer.
     for (int i = 0; i < ML_NUM_FEATURES; i++) {
@@ -308,7 +309,7 @@ void test_candidate_feature_python_parity(void) {
     const MLSeriesScratch scratch{sorted_scratch, 50U};
     extract_ml_features_by_id(turb_buffer, 50, nullptr, 0,
                               selected_ids, 2, features, scratch, 1.75f,
-                              0.0f, 0.0f, 0.0f);
+                              0.0f, 0.0f, 0.0f, 0.0f);
 
     // Expected values computed by src/python/micro_espectre/csi_features.py.
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.3877551f, features[0]);
@@ -382,7 +383,7 @@ void test_aggregated_iqr_feature_matches_python_percentiles(void) {
     const MLSeriesScratch scratch{sorted_scratch, 4U};
     extract_ml_features_by_id(
         turb, 4, aggregated, 4, ids, 1, features,
-        scratch, 1.0f, 0.0f, 0.0f, 0.0f);
+        scratch, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.8666667f, features[0]);
 }
 

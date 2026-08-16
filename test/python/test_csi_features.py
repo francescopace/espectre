@@ -38,6 +38,7 @@ def _promoted_tracker_kwargs():
         "chan_shape_spread_subband": 0.4,
         "chan_shape_coherent_innovation_energy": 0.03,
         "chan_shape_excess_path": 0.02,
+        "chan_shape_subband_kendall_lag_excess": 0.05,
     }
 
 
@@ -129,6 +130,7 @@ class TestExtractAllFeatures:
             'chan_shape_spread_subband',
             'chan_shape_coherent_innovation_energy',
             'chan_shape_excess_path',
+            'chan_shape_subband_kendall_lag_excess',
         ]
 
     def test_unknown_feature_raises(self):

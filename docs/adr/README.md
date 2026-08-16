@@ -44,6 +44,7 @@ Use `FEATURES.md` for detector-feature evidence and baseline lineage, `LITERATUR
 - [`2026-07-26-recover-the-startup-threshold-once-a-session-settles.md`](2026-07-26-recover-the-startup-threshold-once-a-session-settles.md)
 - [`2026-08-10-configure-detector-windows-in-milliseconds.md`](2026-08-10-configure-detector-windows-in-milliseconds.md)
 - [`2026-08-13-use-aggregated-turbulence-iqr-for-classic.md`](2026-08-13-use-aggregated-turbulence-iqr-for-classic.md)
+- [`2026-08-15-use-fixed-temporal-csi-admission.md`](2026-08-15-use-fixed-temporal-csi-admission.md)
 
 ### ML And Validation
 
@@ -54,6 +55,7 @@ Use `FEATURES.md` for detector-feature evidence and baseline lineage, `LITERATUR
 - [`2026-07-02-use-pytorch-as-the-host-training-stack.md`](2026-07-02-use-pytorch-as-the-host-training-stack.md)
 - [`2026-07-23-separate-ml-training-data-from-promotion-replays.md`](2026-07-23-separate-ml-training-data-from-promotion-replays.md)
 - [`2026-08-11-promote-channel-shape-trajectory-ml-features.md`](2026-08-11-promote-channel-shape-trajectory-ml-features.md)
+- [`2026-08-16-promote-subband-kendall-lag-excess.md`](2026-08-16-promote-subband-kendall-lag-excess.md)
 
 ### Data And Delivery
 

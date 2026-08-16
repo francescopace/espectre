@@ -19,7 +19,6 @@ def test_host_candidates_stay_out_of_the_runtime_surface() -> None:
     assert set(CANDIDATE_FEATURES).isdisjoint(ALL_FEATURES)
     for feature_name in (
         "chan_shape_coherent_innovation_contrast",
-        "chan_shape_subband_kendall_lag_excess",
         "chan_shape_subband_rank_gap",
         "chan_shape_scale_curvature",
         "chan_freq_coh_curve_std",
@@ -29,6 +28,9 @@ def test_host_candidates_stay_out_of_the_runtime_surface() -> None:
     assert train_ml_model.resolve_cpp_feature_ids(
         ["chan_shape_spread_subband"]
     ) == [48]
+    assert train_ml_model.resolve_cpp_feature_ids(
+        ["chan_shape_subband_kendall_lag_excess"]
+    ) == [49]
 
 
 def test_subband_rank_tracking_is_enabled_only_for_the_candidate() -> None:

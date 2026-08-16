@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-15
+- Updated: 2026-08-16
 - Supersedes: `2026-08-10-configure-detector-windows-in-milliseconds.md`
 
 ## Context
@@ -17,7 +18,7 @@ Use a fixed temporal slot grid before feature processing:
 - `csi_target_pps` is a positive sensing target and defines slot width; it does not enable or disable traffic;
 - `csi_traffic_mode` alone selects internal, external, paced, or disabled traffic ownership;
 - `window_slots = ceil(csi_target_pps * segmentation_window_size_ms / 1000)`;
-- the minimum valid occupancy is four fifths of `window_slots`, rounded up, with the ratio defined once in each production language;
+- the minimum valid occupancy is seven tenths of `window_slots`, rounded up, with the ratio defined once in each production language;
 - at most one packet is admitted per slot; the sampler retains the candidate nearest the slot center until a packet reaches a later slot, and counts every other same-slot candidate as excess;
 - the minimum distance between consecutive admitted candidates is half a target slot, derived from `csi_target_pps`, so candidates on opposite sides of a boundary cannot create an arbitrarily short detector interval;
 - duplicate, backward, and stale packets are rejected, timestamp wrap is handled explicitly, and a gap spanning a detector window invalidates temporal history immediately, even while the first post-gap candidate remains pending until a later slot or an explicit flush;
@@ -69,6 +70,10 @@ Trade-offs:
 - target-rate changes require an explicit sampler and detector reset; and
 - detection receives the selected payload with a delay of at most one active slot, while one fixed CSI payload remains buffered;
 - the C++ and MicroPython implementations require a deterministic parity gate.
+
+## Amendment (2026-08-16)
+
+The occupancy floor moved from four fifths to seven tenths after a reserved idle-versus-motion AUC sweep showed that the production features remain close to full occupancy at 70% and collapse only around 50%, where consecutive-pair statistics such as `turb_zcr` and `turb_autocorr` lose adjacent samples. The admission grid, slot selection, gap reset, and missing-slot contract are unchanged.
 
 ## Related
 

@@ -5,8 +5,8 @@
 MICROSECONDS_PER_SECOND = 1_000_000
 UINT32_MODULUS = 1 << 32
 UINT32_HALF_RANGE = 1 << 31
-MINIMUM_COVERAGE_NUMERATOR = 4
-MINIMUM_COVERAGE_DENOMINATOR = 5
+MINIMUM_COVERAGE_NUMERATOR = 7
+MINIMUM_COVERAGE_DENOMINATOR = 10
 SLOT_HALF_DENOMINATOR = 2
 
 
@@ -22,7 +22,7 @@ def temporal_window_slots(target_pps, window_size_ms):
 
 
 def minimum_valid_slots(window_slots):
-    """Return the shared four-fifths occupancy floor, rounded up."""
+    """Return the shared seven-tenths occupancy floor, rounded up."""
     slots = max(1, int(window_slots))
     return (
         slots * MINIMUM_COVERAGE_NUMERATOR

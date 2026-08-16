@@ -32,14 +32,14 @@ The current production detector definition is:
 - the shared fixed 12-subcarrier set feeds turbulence and L1 displacement, adjacent live bins feed aggregated turbulence, and channel-shape features read the full 56-bin live band
 - the Lightweight path uses weighted `turb_autocorr + turb_iqr_over_mean_aggr` fusion
 - the Lightweight runtime has no voting branch or legacy low-RSSI blend term
-- the High-Accuracy path uses the compact seven-feature scale-invariant production set
+- the High-Accuracy path uses the compact eight-feature scale-invariant production set
 
 ## Why Two Detection Profiles
 
 Lightweight and High Accuracy are both production paths because they optimize different constraints.
 
 - **Lightweight Detection minimizes active detector cost.** Its Lightweight implementation uses two scalar feature streams, does not allocate the ML-only L1 and trajectory state, and performs less per-packet work. This leaves more CPU time and working memory for constrained chips or products in which sensing is only one firmware feature. The trade-off is lower accuracy and weaker generalization than High Accuracy on the maintained corpus.
-- **High-Accuracy Detection prioritizes detection quality.** Its ML implementation maintains seven production features and runs a compact neural network, increasing memory and computation while improving accuracy and transfer across recorded environments. Its trained threshold also removes Lightweight's initial quiet-room calibration.
+- **High-Accuracy Detection prioritizes detection quality.** Its ML implementation maintains eight production features and runs a compact neural network, increasing memory and computation while improving accuracy and transfer across recorded environments. Its trained threshold also removes Lightweight's initial quiet-room calibration.
 
 Lightweight calibration requires about 10 seconds of clean, ready CSI coverage after temporal warmup. Its wall-clock duration can be longer when slots are missing, and it remains in calibration rather than consuming its budget with an invalid window. High Accuracy skips threshold calibration but still waits for CSI readiness and enough samples to fill its feature window. In images that support runtime profile switching, choosing Lightweight reduces active working state and per-packet detector work; it does not necessarily remove ML code or weights from flash.
 
@@ -74,11 +74,11 @@ The deployed detector uses a time-relative evaluation cadence and fixed feature 
 | detector window | `1000 ms` | 100 samples |
 | evaluation interval | `250 ms` | time-based, not packet-count driven |
 | CSI temporal target | `100 pps` | one `10 ms` slot |
-| minimum valid occupancy | `80%` | at least 80 valid slots |
+| minimum valid occupancy | `70%` | at least 70 valid slots |
 | ML L1 profile-displacement lag | derived from `100 ms` | 10 slots |
 | turbulence autocorrelation lag | derived from `10 ms` | 1 slot |
 
-The runtime derives fixed slots from `csi_target_pps`, not from measured arrival rate. It admits at most one packet per slot, retaining the candidate nearest the ideal slot center until a later slot is observed. The minimum distance between consecutive selected candidates is half a target slot and is derived from `csi_target_pps`; other same-slot candidates count as excess. Duplicate, stale, and out-of-order timestamps are rejected, and a gap spanning the configured window clears detector history immediately even while the first post-gap candidate stays pending. Missing slots remain invalid in feature rings: window statistics consume valid samples, while adjacent and lagged features require valid samples at the exact configured slot offsets. Detection becomes ready after a complete temporal window with at least four fifths valid occupancy. See the [fixed temporal-admission ADR](adr/2026-08-15-use-fixed-temporal-csi-admission.md).
+The runtime derives fixed slots from `csi_target_pps`, not from measured arrival rate. It admits at most one packet per slot, retaining the candidate nearest the ideal slot center until a later slot is observed. The minimum distance between consecutive selected candidates is half a target slot and is derived from `csi_target_pps`; other same-slot candidates count as excess. Duplicate, stale, and out-of-order timestamps are rejected, and a gap spanning the configured window clears detector history immediately even while the first post-gap candidate stays pending. Missing slots remain invalid in feature rings: window statistics consume valid samples, while adjacent and lagged features require valid samples at the exact configured slot offsets. Detection becomes ready after a complete temporal window with at least seven tenths valid occupancy. See the [fixed temporal-admission ADR](adr/2026-08-15-use-fixed-temporal-csi-admission.md).
 
 Calibration and steady-state detection share one cadence, so the interceptor that consumes packets during calibration evaluates on the same schedule the detection path does.
 
@@ -270,19 +270,19 @@ Unlike Lightweight Detection, High-Accuracy Detection does not need startup thre
 The production export is a compact MLP:
 
 ```text
-Input (7 features)
+Input (8 features)
   -> Dense(24, ReLU)
   -> Dense(12, ReLU)
   -> Dense(1, Sigmoid)
 ```
 
-Total parameter count: 505
+Total parameter count: 529
 
 The runtime accepts exported hidden-layer layouts generated by the training script, but the committed production artifact currently uses the topology above.
 
 ### Production Feature Set
 
-The production model consumes these seven scale-invariant inputs, in export order:
+The production model consumes these eight scale-invariant inputs, in export order:
 
 1. `turb_iqr_over_mean_aggr`
 2. `turb_autocorr`
@@ -291,10 +291,11 @@ The production model consumes these seven scale-invariant inputs, in export orde
 5. `chan_shape_spread_subband`
 6. `chan_shape_coherent_innovation_energy`
 7. `chan_shape_excess_path`
+8. `chan_shape_subband_kendall_lag_excess`
 
 Every member is a gain-invariant ratio, correlation, crossing rate, or normalized channel-shape geometry. The exact definitions, physical interpretations, implementation locations, retained metrics, and candidate-admission rules live in [FEATURES.md](FEATURES.md).
 
-The first input uses a dedicated turbulence series computed after averaging adjacent live-bin magnitudes with `W=5`; its statistic is `(Q75 - Q25) / abs(mean)`. This extra buffer exists when the exported ML feature ids request it, and Lightweight independently uses the same compact primitive for its promoted second input. `turb_autocorr` and `turb_zcr` continue to read the normal twelve-subcarrier turbulence series. `l1_delta_lag_ratio` comes directly from the L1 tracker rather than from a rebuilt series. The final three inputs share one physical-time trajectory tracker: it reduces the live band to eight gain-normalized Hellinger subbands, takes component-wise medians in `80 ms` bins over a one-second path, discards exact consecutive CSI duplicates, and leaves missing bins absent. Subband spread is the participation ratio of motion energy accumulated from adjacent profile differences; coherent innovation measures positive low-order DCT energy after a constant-velocity prediction and high-order noise subtraction; and excess path measures positive two-step path length beyond its chord after the analogous high-order subtraction. Finalized bins retain their orthonormal DCT coefficients instead of their profiles, while the changing current bin is transformed once per extraction. Innovation and excess path remain in mode space because DCT linearity and Parseval's identity preserve their geometry. Subband spread reconstructs only each adjacent eight-component profile difference through the inverse DCT because its per-subband participation ratio is basis-dependent. The runtime feeds the shared tracker the packet arrival timestamp, so packet-rate changes and loss do not redefine the temporal scale. The exported ML model no longer requests the full-band shape-spread tracker, L1-delta autocorrelation, or frequency-coherence curve standard deviation.
+The first input uses a dedicated turbulence series computed after averaging adjacent live-bin magnitudes with `W=5`; its statistic is `(Q75 - Q25) / abs(mean)`. This extra buffer exists when the exported ML feature ids request it, and Lightweight independently uses the same compact primitive for its promoted second input. `turb_autocorr` and `turb_zcr` continue to read the normal twelve-subcarrier turbulence series. `l1_delta_lag_ratio` comes directly from the L1 tracker rather than from a rebuilt series. The final four inputs share one physical-time trajectory tracker: it reduces the live band to eight gain-normalized Hellinger subbands, takes component-wise medians in `80 ms` bins over a one-second path, discards exact consecutive CSI duplicates, and leaves missing bins absent. Subband spread is the participation ratio of motion energy accumulated from adjacent profile differences; coherent innovation measures positive low-order DCT energy after a constant-velocity prediction and high-order noise subtraction; excess path measures positive two-step path length beyond its chord after the analogous high-order subtraction; and guarded Kendall lag-excess is the median positive excess of the `240 ms` pairwise-order distance over the mean of its three constituent `80 ms` distances. Finalized bins retain their orthonormal DCT coefficients instead of their profiles, while the changing current bin is transformed once per extraction. Innovation and excess path remain in mode space because DCT linearity and Parseval's identity preserve their geometry. Subband spread reconstructs only each adjacent eight-component profile difference through the inverse DCT because its per-subband participation ratio is basis-dependent. Kendall lag-excess stores two 28-bit pairwise-order masks per bin rather than reconstructing profiles. The runtime feeds the shared tracker the packet arrival timestamp, so packet-rate changes and loss do not redefine the temporal scale. The exported ML model no longer requests the full-band shape-spread tracker, L1-delta autocorrelation, or frequency-coherence curve standard deviation.
 
 ### Inference Flow
 

@@ -107,9 +107,9 @@ def calc_zero_crossing_rate(values, count, center, validity=None):
 # strong-link capture to training took a weak-link pair from 0% to 100% false
 # positives, because its idle displacement (0.2653) sat above its own motion
 # (0.1830) and above the added capture's motion (0.0587). The promoted compact
-# model keeps only scale-invariant members and the three physical-time
-# channel-shape dynamics retained by the 2026-08-12 production decision.
-PHASELESS7_FEATURES = [
+# model keeps only scale-invariant members and the four physical-time
+# channel-shape dynamics retained by the 2026-08-16 production decision.
+PHASELESS8_FEATURES = [
     'turb_iqr_over_mean_aggr',
     'turb_autocorr',
     'turb_zcr',
@@ -117,9 +117,10 @@ PHASELESS7_FEATURES = [
     'chan_shape_spread_subband',
     'chan_shape_coherent_innovation_energy',
     'chan_shape_excess_path',
+    'chan_shape_subband_kendall_lag_excess',
 ]
 
-DEFAULT_FEATURES = PHASELESS7_FEATURES
+DEFAULT_FEATURES = PHASELESS8_FEATURES
 ALL_FEATURES = tuple(DEFAULT_FEATURES)
 
 AGGREGATED_TURBULENCE_FEATURES = frozenset({
@@ -130,6 +131,7 @@ CHANNEL_SHAPE_TRAJECTORY_FEATURES = frozenset({
     'chan_shape_spread_subband',
     'chan_shape_coherent_innovation_energy',
     'chan_shape_excess_path',
+    'chan_shape_subband_kendall_lag_excess',
 })
 # Features that need the L1 profile rings. Retired L1-series statistics live in
 # the host-only candidate registry and never allocate a series in production.
@@ -421,6 +423,7 @@ def extract_features_by_name(
     chan_shape_spread_subband=None,
     chan_shape_coherent_innovation_energy=None,
     chan_shape_excess_path=None,
+    chan_shape_subband_kendall_lag_excess=None,
     turbulence_validity=None,
     aggregated_turbulence_validity=None,
 ):
@@ -450,6 +453,9 @@ def extract_features_by_name(
             chan_shape_coherent_innovation_energy
         ),
         'chan_shape_excess_path': chan_shape_excess_path,
+        'chan_shape_subband_kendall_lag_excess': (
+            chan_shape_subband_kendall_lag_excess
+        ),
     }
     for name in feature_names:
         if name in required_scalars and required_scalars[name] is None:
@@ -569,6 +575,8 @@ def extract_features_by_name(
             value = chan_shape_coherent_innovation_energy
         elif name == 'chan_shape_excess_path':
             value = chan_shape_excess_path
+        elif name == 'chan_shape_subband_kendall_lag_excess':
+            value = chan_shape_subband_kendall_lag_excess
         else:
             raise ValueError(f"Unknown feature: {name}")
         if out is None:

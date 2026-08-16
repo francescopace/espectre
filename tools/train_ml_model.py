@@ -473,13 +473,17 @@ def _production_tracker_feature_kwargs(
             kwargs['chan_shape_coherent_innovation_energy'] = innovation
         if 'chan_shape_excess_path' in feature_names:
             kwargs['chan_shape_excess_path'] = excess
+        if 'chan_shape_subband_kendall_lag_excess' in feature_names:
+            kwargs['chan_shape_subband_kendall_lag_excess'] = (
+                shape_trajectory_tracker.subband_kendall_lag_excess()
+            )
     return kwargs
 
 # ============================================================================
 # Feature Selection
 # ============================================================================
 #
-# Production MLP uses the promoted Subband 7F feature set in
+# Production MLP uses the promoted Subband 8F feature set in
 # src/python/micro_espectre/csi_features.py DEFAULT_FEATURES.
 # See ALGORITHMS.md "Feature Importance" for SHAP/correlation rankings.
 # ============================================================================
@@ -1616,6 +1620,7 @@ def _production_feature_provider(feature_name):
         'chan_shape_spread_subband',
         'chan_shape_coherent_innovation_energy',
         'chan_shape_excess_path',
+        'chan_shape_subband_kendall_lag_excess',
     }:
         return 'channel_shape_trajectory'
     raise ValueError(f'Unknown production feature: {feature_name}')
@@ -1679,6 +1684,7 @@ def _production_provider_digest(provider):
             ChannelShapeTrajectoryTracker.process_packet,
             ChannelShapeTrajectoryTracker._binned_path,
             ChannelShapeTrajectoryTracker.trajectory_features_with_spread,
+            ChannelShapeTrajectoryTracker.subband_kendall_lag_excess,
         )
     raise ValueError(f'Unknown production provider: {provider}')
 
@@ -4267,6 +4273,7 @@ CPP_FEATURE_IDS = {
     'chan_shape_coherent_innovation_energy': 46,
     'chan_shape_excess_path': 47,
     'chan_shape_spread_subband': 48,
+    'chan_shape_subband_kendall_lag_excess': 49,
 }
 def resolve_cpp_feature_ids(feature_names):
     """Map feature names to their published C++ extractor ids."""
@@ -8721,7 +8728,7 @@ def main():
                             f'(default: {",".join(map(str, DEFAULT_HIDDEN_LAYERS))})')
     parser.add_argument('--features', type=str, default=None, metavar='NAME1,NAME2,...',
                        help='Comma-separated feature set for training/evaluation '
-                            'experiments (default: promoted Subband 7F production set). Host-side '
+                            'experiments (default: promoted Subband 8F production set). Host-side '
                             'candidates from tools/lib/candidate_features.py are '
                             'selectable too; they have no C++ extractor id, so they '
                             'require --no-export or an evaluation-only flow until '

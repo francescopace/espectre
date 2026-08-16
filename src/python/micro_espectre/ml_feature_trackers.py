@@ -26,6 +26,8 @@ CHANNEL_SHAPE_SUBBAND_WIDTH = HT20_LIVE_WIDTH // CHANNEL_SHAPE_SUBBAND_COUNT
 CHANNEL_SHAPE_BIN_US = 80_000
 CHANNEL_SHAPE_WINDOW_US = 1_000_000
 CHANNEL_SHAPE_MAX_PROFILES_PER_BIN = 32
+CHANNEL_SHAPE_KENDALL_RELATIVE_DEADBAND = 0.02
+CHANNEL_SHAPE_KENDALL_MIN_COMPARABLE_PAIRS = 8
 _CHANNEL_SHAPE_DCT = (
     (0.3535533906, 0.4903926402, 0.4619397663, 0.4157348062, 0.3535533906, 0.2777851165, 0.1913417162, 0.0975451610),
     (0.3535533906, 0.4157348062, 0.1913417162, -0.0975451610, -0.3535533906, -0.4903926402, -0.4619397663, -0.2777851165),
@@ -36,6 +38,53 @@ _CHANNEL_SHAPE_DCT = (
     (0.3535533906, -0.4157348062, 0.1913417162, 0.0975451610, -0.3535533906, 0.4903926402, -0.4619397663, 0.2777851165),
     (0.3535533906, -0.4903926402, 0.4619397663, -0.4157348062, 0.3535533906, -0.2777851165, 0.1913417162, -0.0975451610),
 )
+def _popcount(value):
+    count = 0
+    remaining = int(value)
+    while remaining:
+        count += remaining & 1
+        remaining >>= 1
+    return count
+
+
+def guarded_kendall_signature(profile):
+    """Encode material pairwise subband ordering as two bit masks."""
+    maximum = 0.0
+    for value in profile:
+        if value > maximum:
+            maximum = value
+    if maximum <= 0.0:
+        return 0, 0
+    threshold = CHANNEL_SHAPE_KENDALL_RELATIVE_DEADBAND * maximum
+    order_mask = 0
+    valid_mask = 0
+    bit = 0
+    for left in range(CHANNEL_SHAPE_SUBBAND_COUNT - 1):
+        for right in range(left + 1, CHANNEL_SHAPE_SUBBAND_COUNT):
+            difference = profile[left] - profile[right]
+            flag = 1 << bit
+            if difference > threshold or difference < -threshold:
+                valid_mask |= flag
+                if difference > 0.0:
+                    order_mask |= flag
+            bit += 1
+    return order_mask, valid_mask
+
+
+def guarded_kendall_distance(current, reference):
+    """Return normalized discordance, or None when too few pairs remain."""
+    current_order, current_valid = current
+    reference_order, reference_valid = reference
+    common = int(current_valid) & int(reference_valid)
+    comparable = _popcount(common)
+    if comparable < CHANNEL_SHAPE_KENDALL_MIN_COMPARABLE_PAIRS:
+        return None
+    discordant = _popcount(
+        (int(current_order) ^ int(reference_order)) & common
+    )
+    return discordant / comparable
+
+
 def motion_participation(energy):
     """Normalized participation ratio of motion energy across subcarriers."""
     total = 0.0
@@ -85,6 +134,7 @@ class ChannelShapeTrajectoryTracker:
         self._spread_energy = [0.0] * CHANNEL_SHAPE_SUBBAND_COUNT
         self._innovation_samples = [0.0] * self._window_bins
         self._excess_samples = [0.0] * self._window_bins
+        self._kendall_samples = [0.0] * self._window_bins
         self._current_profiles = [
             [0.0] * CHANNEL_SHAPE_SUBBAND_COUNT
             for _ in range(CHANNEL_SHAPE_MAX_PROFILES_PER_BIN)
@@ -94,6 +144,8 @@ class ChannelShapeTrajectoryTracker:
             [0.0] * CHANNEL_SHAPE_SUBBAND_COUNT
             for _ in range(self._window_bins)
         ]
+        self._bin_kendall_order = [0] * self._window_bins
+        self._bin_kendall_valid = [0] * self._window_bins
         self._previous_raw = bytearray(HT20_CSI_LEN)
         self.reset()
 
@@ -166,6 +218,9 @@ class ChannelShapeTrajectoryTracker:
                 self._bin_start = 0
         self._bin_indices[slot] = self._current_bin
         self._modes(profile, self._bin_modes[slot])
+        order_mask, valid_mask = guarded_kendall_signature(profile)
+        self._bin_kendall_order[slot] = order_mask
+        self._bin_kendall_valid[slot] = valid_mask
 
     def _trim(self, current_bin):
         first_bin = int(current_bin) - self._window_bins + 1
@@ -183,6 +238,16 @@ class ChannelShapeTrajectoryTracker:
         if slot >= self._window_bins:
             slot -= self._window_bins
         return self._bin_indices[slot], self._bin_modes[slot]
+
+    def _kendall_at(self, index):
+        slot = self._bin_start + index
+        if slot >= self._window_bins:
+            slot -= self._window_bins
+        return (
+            self._bin_indices[slot],
+            self._bin_kendall_order[slot],
+            self._bin_kendall_valid[slot],
+        )
 
     def process_packet(self, csi_data, timestamp_us=None,
                        subcarrier_energies=None, subcarrier_count=0):
@@ -349,6 +414,63 @@ class ChannelShapeTrajectoryTracker:
 
     def shape_spread_subband(self):
         return self.trajectory_features_with_spread()[2]
+
+    def _path_kendall(self, index):
+        if index < self._bin_count:
+            return self._kendall_at(index)
+        profile = self._median_profile(
+            self._current_profiles,
+            self._current_profile_count,
+            self._median_profile_buffer,
+        )
+        order_mask, valid_mask = guarded_kendall_signature(profile)
+        return self._current_bin, order_mask, valid_mask
+
+    def subband_kendall_lag_excess(self):
+        """Median positive 240 ms Kendall excess over three local 80 ms steps."""
+        bin_count = self._bin_count
+        has_current = self._current_profile_count > 0
+        count = bin_count + (1 if has_current else 0)
+        if count < 4:
+            return 0.0
+        samples = self._kendall_samples
+        sample_count = 0
+        for index in range(3, count):
+            last_bin, last_order, last_valid = self._path_kendall(index)
+            first_bin, first_order, first_valid = self._path_kendall(index - 3)
+            if last_bin - first_bin != 3:
+                continue
+            long_distance = guarded_kendall_distance(
+                (last_order, last_valid),
+                (first_order, first_valid),
+            )
+            if long_distance is None:
+                continue
+            local_sum = 0.0
+            local_ok = True
+            for lag in range(3):
+                current_bin, current_order, current_valid = self._path_kendall(
+                    index - lag
+                )
+                previous_bin, previous_order, previous_valid = (
+                    self._path_kendall(index - lag - 1)
+                )
+                if current_bin - previous_bin != 1:
+                    local_ok = False
+                    break
+                local_distance = guarded_kendall_distance(
+                    (current_order, current_valid),
+                    (previous_order, previous_valid),
+                )
+                if local_distance is None:
+                    local_ok = False
+                    break
+                local_sum += local_distance
+            if not local_ok:
+                continue
+            samples[sample_count] = max(0.0, long_distance - local_sum / 3.0)
+            sample_count += 1
+        return _median_prefix_in_place(samples, sample_count)
 
     def reset(self):
         self._bin_start = 0

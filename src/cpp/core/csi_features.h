@@ -42,6 +42,7 @@ enum MLFeatureId : uint8_t {
     ML_FEAT_CHAN_SHAPE_COHERENT_INNOVATION_ENERGY = 46,
     ML_FEAT_CHAN_SHAPE_EXCESS_PATH = 47,
     ML_FEAT_CHAN_SHAPE_SPREAD_SUBBAND = 48,
+    ML_FEAT_CHAN_SHAPE_SUBBAND_KENDALL_LAG_EXCESS = 49,
 };
 
 // Where a feature's value comes from. Ids carry no ordering: a new turbulence
@@ -66,6 +67,7 @@ inline MLFeatureSource ml_feature_source(MLFeatureId id) {
         case ML_FEAT_CHAN_SHAPE_COHERENT_INNOVATION_ENERGY:
         case ML_FEAT_CHAN_SHAPE_EXCESS_PATH:
         case ML_FEAT_CHAN_SHAPE_SPREAD_SUBBAND:
+        case ML_FEAT_CHAN_SHAPE_SUBBAND_KENDALL_LAG_EXCESS:
             return MLFeatureSource::CHANNEL_SHAPE_TRAJECTORY_TRACKER;
     }
     // No default label above, so -Wswitch reports a new enumerator here
@@ -315,6 +317,8 @@ inline void compute_ml_series_stats(const float* values, uint16_t count,
  * @param chan_shape_coherent_innovation_energy Current coherent innovation
  *        energy from the channel-shape trajectory tracker.
  * @param chan_shape_excess_path Current channel-shape excess-path metric.
+ * @param chan_shape_subband_kendall_lag_excess Current guarded Kendall
+ *        lag-excess of the same eight-subband trajectory.
  * @return The requested feature value, or `0.0f` for an unknown identifier.
  */
 inline float ml_feature_value_from_stats(uint8_t id, const MLSeriesStats& turb,
@@ -322,7 +326,8 @@ inline float ml_feature_value_from_stats(uint8_t id, const MLSeriesStats& turb,
                                          float l1_delta_lag_ratio,
                                          float chan_shape_spread_subband,
                                          float chan_shape_coherent_innovation_energy,
-                                         float chan_shape_excess_path) {
+                                         float chan_shape_excess_path,
+                                         float chan_shape_subband_kendall_lag_excess) {
     switch (id) {
         case ML_FEAT_TURB_AUTOCORR: return turb.autocorr;
         case ML_FEAT_TURB_IQR_OVER_MEAN_AGGR:
@@ -334,6 +339,8 @@ inline float ml_feature_value_from_stats(uint8_t id, const MLSeriesStats& turb,
         case ML_FEAT_CHAN_SHAPE_COHERENT_INNOVATION_ENERGY:
             return chan_shape_coherent_innovation_energy;
         case ML_FEAT_CHAN_SHAPE_EXCESS_PATH: return chan_shape_excess_path;
+        case ML_FEAT_CHAN_SHAPE_SUBBAND_KENDALL_LAG_EXCESS:
+            return chan_shape_subband_kendall_lag_excess;
         default: return 0.0f;
     }
 }
@@ -347,7 +354,8 @@ inline void extract_ml_features_by_id(const float* turb_buffer, uint16_t turb_co
                                       float l1_delta_lag_ratio,
                                       float chan_shape_spread_subband,
                                       float chan_shape_coherent_innovation_energy,
-                                      float chan_shape_excess_path) {
+                                      float chan_shape_excess_path,
+                                      float chan_shape_subband_kendall_lag_excess) {
     // The aggregated chronological view may alias `series_scratch`; consume it
     // first so the normal turbulence sort can reuse the same block afterwards.
     MLSeriesStats aggregated_turb;
@@ -369,7 +377,8 @@ inline void extract_ml_features_by_id(const float* turb_buffer, uint16_t turb_co
         features_out[i] = ml_feature_value_from_stats(
             feature_ids[i], turb, aggregated_turb,
             l1_delta_lag_ratio, chan_shape_spread_subband,
-            chan_shape_coherent_innovation_energy, chan_shape_excess_path);
+            chan_shape_coherent_innovation_energy, chan_shape_excess_path,
+            chan_shape_subband_kendall_lag_excess);
     }
 }
 

@@ -413,6 +413,9 @@ def test_aggregated_dispersion_candidates_match_their_definitions():
 def test_cpp_feature_ids_accept_promoted_iqr_and_reject_host_only_candidates():
     assert trainer.resolve_cpp_feature_ids(["turb_iqr_over_mean_aggr"]) == [45]
     assert trainer.resolve_cpp_feature_ids(["chan_shape_spread_subband"]) == [48]
+    assert trainer.resolve_cpp_feature_ids(
+        ["chan_shape_subband_kendall_lag_excess"]
+    ) == [49]
     with pytest.raises(ValueError, match="no C\\+\\+ extractor id"):
         trainer.resolve_cpp_feature_ids(["turb_mad_over_mean_aggr"])
     with pytest.raises(ValueError, match="no C\\+\\+ extractor id"):

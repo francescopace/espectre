@@ -42,8 +42,8 @@ class TestTemporalCsiSampler:
     def test_derives_window_and_coverage_without_hardcoded_packet_floor(self):
         assert temporal_window_slots(100, 1000) == 100
         assert temporal_window_slots(94, 1500) == 141
-        assert minimum_valid_slots(100) == 80
-        assert minimum_valid_slots(141) == 113
+        assert minimum_valid_slots(100) == 70
+        assert minimum_valid_slots(141) == 99
         assert minimum_sample_spacing_us(100) == 5_000
 
     def test_admits_one_packet_per_slot_and_counts_burst_excess(self):
@@ -77,15 +77,15 @@ class TestTemporalCsiSampler:
         sampler = TemporalCsiSampler(10, 1000)
 
         for slot in range(10):
-            if slot in (3, 7):
+            if slot in (3, 7, 8):
                 continue
             sampler.admit(100_000 * slot)
         sampler.flush()
 
         assert sampler.current_slot == 9
-        assert sampler.occupancy_slots == 8
-        assert sampler.missing_slots == 2
-        assert sampler.minimum_valid_slots == 8
+        assert sampler.occupancy_slots == 7
+        assert sampler.missing_slots == 3
+        assert sampler.minimum_valid_slots == 7
         assert sampler.is_ready
 
     def test_rejects_duplicate_backward_and_stale_timestamps(self):

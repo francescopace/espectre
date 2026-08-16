@@ -138,7 +138,7 @@ def test_host_candidate_rows_match_runtime_temporal_readiness():
         packets,
         [
             *trainer.EXPORTED_FEATURE_NAMES[:-1],
-            "chan_shape_subband_kendall_lag_excess",
+            "chan_shape_subband_rank_gap",
         ],
         sample_contract="stream_dense",
     )
@@ -175,7 +175,7 @@ def test_host_candidate_rows_match_runtime_temporal_readiness():
         sparse_packets,
         [
             *trainer.EXPORTED_FEATURE_NAMES[:-1],
-            "chan_shape_subband_kendall_lag_excess",
+            "chan_shape_subband_rank_gap",
         ],
         sample_contract="stream_dense",
     )
