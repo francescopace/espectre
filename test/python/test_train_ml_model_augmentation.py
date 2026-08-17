@@ -55,7 +55,8 @@ def test_resolve_training_augmentation_merges_selected_components():
     assert packet_augmentation["noise_sigma"] == pytest.approx(0.01)
     assert packet_augmentation["packet_loss"] == pytest.approx(0.05)
     assert packet_augmentation["stutter_probability"] == pytest.approx(0.08)
-    assert packet_augmentation["packet_rate_scale"] == pytest.approx((0.8, 1.0))
+    assert packet_augmentation["packet_rate_scale"] == pytest.approx((0.7, 1.0))
+    assert packet_augmentation["min_target_rate_pps"] == pytest.approx(70.0)
     assert packet_augmentation["drift_sigma"] > 0.0
     assert packet_augmentation["burst_loss_starts_per_minute"] > 0.0
 
@@ -431,13 +432,63 @@ def test_training_default_is_the_promoted_subband_production_set():
 def test_in_memory_gate_result_uses_training_metrics():
     paired = {"by_chip": {"C3": {}}, "pass_count": 1}
     quiet = {"passed": True}
+    occupancy_paired = {"by_chip": {"C3": {}}, "pass_count": 1}
+    occupancy_quiet = {"passed": True}
 
-    result = trainer.in_memory_gate_result({"paired": paired, "quiet": quiet})
+    result = trainer.in_memory_gate_result(
+        {
+            "paired": paired,
+            "quiet": quiet,
+            "occupancy_paired": occupancy_paired,
+            "occupancy_quiet": occupancy_quiet,
+        }
+    )
 
     assert result.paired_returncode == 0
     assert result.paired_metrics is paired
     assert result.quiet_metrics is quiet
+    assert result.occupancy_paired_metrics is occupancy_paired
+    assert result.occupancy_quiet_metrics is occupancy_quiet
+    assert result.occupancy_passed
     assert result.passed
+
+
+def test_occupancy_thinning_reduces_admitted_count_deterministically():
+    import tools.lib.occupancy_thinning as occupancy_thinning
+
+    packets = _synthetic_packets(count=400)
+    first, keep_ratio, seed = occupancy_thinning.thin_to_occupancy(
+        packets,
+        occupancy_percent=70,
+        dataset_id="sample.npz",
+    )
+    second, second_ratio, second_seed = occupancy_thinning.thin_to_occupancy(
+        packets,
+        occupancy_percent=70,
+        dataset_id="sample.npz",
+    )
+
+    assert 0.0 < keep_ratio <= 1.0
+    assert keep_ratio == pytest.approx(second_ratio)
+    assert seed == second_seed
+    assert 0 < len(first) < len(packets)
+    assert len(first) == len(second)
+    assert [packet["device_ticks_us"] for packet in first] == [
+        packet["device_ticks_us"] for packet in second
+    ]
+
+
+def test_in_memory_gate_result_requires_occupancy_pass():
+    result = trainer.in_memory_gate_result(
+        {
+            "paired": {"by_chip": {"C3": {}}, "pass_count": 1},
+            "quiet": {"passed": True},
+        }
+    )
+
+    assert result.paired_returncode == 0
+    assert not result.occupancy_passed
+    assert not result.passed
 
 
 def test_candidate_gain_stress_respects_deployment_roles(monkeypatch):
@@ -707,6 +758,8 @@ def test_host_only_seed_search_keeps_candidates_in_memory(monkeypatch):
         paired_output="",
         paired_metrics={"by_chip": {"C3": {}}, "pass_count": 1},
         quiet_metrics={"passed": True},
+        occupancy_paired_metrics={"by_chip": {"C3": {}}, "pass_count": 1},
+        occupancy_quiet_metrics={"passed": True},
     )
     unavailable_holdout = trainer.ExportedMLGateResult(1, "")
     gate_results = iter((passing_baseline, unavailable_holdout))
@@ -809,6 +862,24 @@ def test_stable_rate_augmentation_reduces_the_temporal_window_sample_count():
     )
     assert interval_us == 12_500
     assert timing["window_packets"] == 80
+
+
+def test_stable_rate_augmentation_reaches_the_seventy_pps_floor():
+    packets = _synthetic_packets(count=400)
+
+    augmented = trainer.augment_csi_packets(
+        packets,
+        {"packet_rate_scale": (0.7, 0.7)},
+        seed=17,
+    )
+
+    interval_us = trainer.measure_packet_interval_us(augmented)
+    timing = trainer.derive_detector_timing(
+        interval_us,
+        trainer.SEGMENTATION_WINDOW_SIZE_MS,
+    )
+    assert interval_us == 14_286
+    assert timing["window_packets"] == 70
 
 
 def test_drift_augmentation_is_deterministic_and_count_preserving():

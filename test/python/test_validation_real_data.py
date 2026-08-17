@@ -67,7 +67,7 @@ from lightweight_detector import LightweightDetector
 from conftest import get_classic_fp_rate_target, get_classic_recall_target, record_performance
 from threshold import StartupThresholdCalibrator, get_detector_auto_factor, get_detector_startup_gate
 from runtime_policy import make_evaluation_cadence, nominal_packet_interval_us
-from temporal_csi_sampler import temporal_window_slots
+from temporal_csi_sampler import minimum_valid_slots, temporal_window_slots
 from tools.lib.temporal_replay import (
     apply_temporal_admission,
     iter_temporal_admissions,
@@ -363,6 +363,7 @@ def run_classic_calibration(static_presence_packets, selected_band, window_size)
         hampel_window=HAMPEL_WINDOW,
         hampel_threshold=HAMPEL_THRESHOLD,
     )
+    detector.set_minimum_valid_samples(minimum_valid_slots(window_size))
     measured_interval_us = measure_packet_interval_us(static_presence_packets)
     target_pps = target_pps_for_packets(
         static_presence_packets,

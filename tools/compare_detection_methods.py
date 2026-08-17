@@ -49,6 +49,7 @@ from tools.lib.temporal_replay import (
     apply_temporal_admission,
     target_pps_for_packets,
 )
+from temporal_csi_sampler import minimum_valid_slots
 from tools.lib.ui import show_plot_window
 from config import (
     SEGMENTATION_WINDOW_SIZE_MS,
@@ -246,6 +247,7 @@ class LightweightDetectorAdapter:
             hampel_window=HAMPEL_WINDOW,
             hampel_threshold=HAMPEL_THRESHOLD,
         )
+        self._detector.set_minimum_valid_samples(minimum_valid_slots(window_size))
         self._track_data = bool(track_data)
         self._interval_us = measure_packet_interval_us(packets)
         _, self._cadence = timing_cadence_for_window(
@@ -307,6 +309,7 @@ class HighAccuracyDetectorAdapter:
             hampel_window=HAMPEL_WINDOW,
             hampel_threshold=HAMPEL_THRESHOLD,
         )
+        self._detector.set_minimum_valid_samples(minimum_valid_slots(window_size))
         self._detector.track_data = track_data
         self._interval_us = measure_packet_interval_us(packets)
         _, self._cadence = timing_cadence_for_window(

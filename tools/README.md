@@ -41,7 +41,7 @@ The tools support the original ESP32, ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3
 | `analyze_seed_dispersion.py` | measure replay-metric variation across training seeds |
 | `compare_reserved_selection.py` | compare one candidate on reserved selection roles with an explicit seed |
 | `benchmark_subcarrier_aggregation.py` | evaluate adjacent-subcarrier aggregation as a host-side experiment |
-| `sweep_occupancy_floor.py` | replay reserved pairs while thinning admitted CSI and relaxing the readiness occupancy floor |
+| `sweep_occupancy_floor.py` | replay reserved pairs while thinning admitted CSI; `--always-evaluate` keeps occupancy holes scored |
 | `benchmark_lightweight_candidate_pairs.py` | screen Lightweight features and combinations without threshold coupling |
 | `test/cpp/support/benchmark_lightweight_iqr_resources.cpp` | compare host C++ RAM and hot-path cost for the normal- and aggregated-IQR Lightweight finalists |
 | `test/cpp/support/benchmark_detector_resources.cpp` | measure current production Lightweight and High Accuracy host memory, packet cost, inference latency, and nominal CPU load |

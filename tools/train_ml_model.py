@@ -397,6 +397,14 @@ from tools.lib.temporal_replay import (
     packet_timestamp_us,
     target_pps_for_packets,
 )
+from tools.lib.occupancy_thinning import (
+    OCCUPANCY_GATE_PERCENT,
+    OCCUPANCY_GATE_TRANSFORM,
+    TARGET_PPS as OCCUPANCY_GATE_TARGET_PPS,
+    admit_packets,
+    thin_packets,
+    thin_to_occupancy,
+)
 from csi_features import (
     AGGREGATED_TURBULENCE_FEATURES,
     ALL_FEATURES,
@@ -843,7 +851,11 @@ TRAINING_AUGMENT_COMPONENT_ORDER = (
     "drift",
     "burst-loss",
 )
-DEFAULT_TRAINING_AUGMENT_COMPONENTS = TRAINING_AUGMENT_COMPONENT_ORDER
+DEFAULT_TRAINING_AUGMENT_COMPONENTS = (
+    "base",
+    "drift",
+    "burst-loss",
+)
 
 
 def parse_augmentation_components(value):
@@ -1972,14 +1984,18 @@ def _estimate_packet_rate_pps(packets):
     return max(1e-9, float(summary["packet_rate_pps"]))
 
 
-def _resample_stable_packet_rate(packets, rate_scale):
+DEFAULT_MIN_TARGET_RATE_PPS = 70.0
+
+
+def _resample_stable_packet_rate(packets, rate_scale, min_target_rate_pps=DEFAULT_MIN_TARGET_RATE_PPS):
     """Return a lower-rate stable stream without modelling the drop as loss."""
     scale = float(rate_scale)
+    min_target_rate_pps = float(min_target_rate_pps)
     if scale >= 1.0 or len(packets) < 2:
         return [dict(packet) for packet in packets]
 
     source_rate_pps = _estimate_packet_rate_pps(packets)
-    target_rate_pps = max(80.0, source_rate_pps * scale)
+    target_rate_pps = max(min_target_rate_pps, source_rate_pps * scale)
     if target_rate_pps >= source_rate_pps:
         return [dict(packet) for packet in packets]
 
@@ -2122,6 +2138,7 @@ def augment_csi_packets(packets, config, seed):
         name='packet_rate_scale',
         minimum=0.0,
     )
+    min_target_rate_pps = float(config.get('min_target_rate_pps', DEFAULT_MIN_TARGET_RATE_PPS))
     if (
         min(
             noise_sigma,
@@ -2129,12 +2146,14 @@ def augment_csi_packets(packets, config, seed):
             stutter_probability,
             drift_sigma,
             burst_loss_starts_per_minute,
+            min_target_rate_pps,
         ) < 0.0
         or packet_loss >= 1.0
         or stutter_probability > 1.0
         or drift_episode_count < 0
         or packet_rate_scale[0] <= 0.0
         or packet_rate_scale[1] > 1.0
+        or min_target_rate_pps <= 0.0
     ):
         raise ValueError("invalid packet augmentation parameters")
 
@@ -2146,7 +2165,11 @@ def augment_csi_packets(packets, config, seed):
         rng = np.random.default_rng(derive_seed(seed, _stable_text_seed(source)))
         source_packets = grouped[source]
         rate_scale = float(rng.uniform(*packet_rate_scale))
-        source_packets = _resample_stable_packet_rate(source_packets, rate_scale)
+        source_packets = _resample_stable_packet_rate(
+            source_packets,
+            rate_scale,
+            min_target_rate_pps=min_target_rate_pps,
+        )
         packet_rate_pps = _estimate_packet_rate_pps(source_packets)
         burst_start_probability = min(
             1.0,
@@ -4048,7 +4071,8 @@ ROBUSTNESS_WINNER_PACKET_AUGMENTATION = {
     'noise_sigma': 0.01,
     'packet_loss': 0.05,
     'stutter_probability': 0.08,
-    'packet_rate_scale': (0.8, 1.0),
+    'packet_rate_scale': (0.7, 1.0),
+    'min_target_rate_pps': 70.0,
 }
 CORRELATED_DRIFT_PACKET_AUGMENTATION = {
     'drift_sigma': 0.035,
@@ -5352,6 +5376,21 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
             roles=deployment_roles,
             progress=gate_progress,
         )
+        occupancy_paired_gate = evaluate_occupancy_paired_gate(
+            model,
+            scaler,
+            actual_feature_names,
+            roles=deployment_roles,
+            allow_legacy_fallback=allow_legacy_gate_fallback,
+            progress=gate_progress,
+        )
+        occupancy_quiet_gate = evaluate_occupancy_quiet_gate(
+            model,
+            scaler,
+            actual_feature_names,
+            roles=deployment_roles,
+            progress=gate_progress,
+        )
         gain_stress = evaluate_candidate_gain_stress(
             model,
             scaler,
@@ -5362,6 +5401,8 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
         )
         cv_results['paired'] = paired_gate
         cv_results['quiet'] = quiet_gate
+        cv_results['occupancy_paired'] = occupancy_paired_gate
+        cv_results['occupancy_quiet'] = occupancy_quiet_gate
         cv_results['gain_stress'] = gain_stress
         print(
             f"  Paired: pass={paired_gate['pass_count']} "
@@ -5377,12 +5418,39 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
                 f"maxFP={quiet_gate['max_fp_rate']:.2f}% "
                 f"alarms={quiet_gate['total_effective_alarms']}"
             )
+        occupancy_paired_total = len((occupancy_paired_gate or {}).get('by_chip', {}))
+        if occupancy_paired_gate is None:
+            print("  Occupancy 70% paired: not configured")
+        else:
+            print(
+                f"  Occupancy 70% paired: pass={occupancy_paired_gate['pass_count']} "
+                f"maxFP={occupancy_paired_gate['max_fp_rate']:.2f}% "
+                f"worstRecall={occupancy_paired_gate['worst_chip_recall']:.2f}% "
+                f"alarms={occupancy_paired_gate.get('total_effective_alarms', 0)}"
+            )
+        if occupancy_quiet_gate is None:
+            print("  Occupancy 70% quiet: not configured")
+        else:
+            print(
+                f"  Occupancy 70% quiet: "
+                f"{'pass' if occupancy_quiet_gate['passed'] else 'fail'} "
+                f"maxFP={occupancy_quiet_gate['max_fp_rate']:.2f}% "
+                f"alarms={occupancy_quiet_gate['total_effective_alarms']}"
+            )
         print_gain_stress_summary(gain_stress, title="IN-MEMORY ML GAIN-STRESS GATE")
         paired_total = len(paired_gate.get('by_chip', {}))
+        occupancy_failed = (
+            occupancy_paired_gate is None
+            or occupancy_paired_total == 0
+            or occupancy_paired_gate['pass_count'] < occupancy_paired_total
+            or occupancy_quiet_gate is None
+            or not occupancy_quiet_gate['passed']
+        )
         if export_artifacts and (
             paired_total == 0
             or paired_gate['pass_count'] < paired_total
             or (quiet_gate is not None and not quiet_gate['passed'])
+            or occupancy_failed
         ):
             if force_export:
                 print(
@@ -5428,6 +5496,49 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
                     print(
                         "Error: candidate regresses the paired deployment gate; "
                         "runtime artifacts were not exported"
+                    )
+                    return 1, seed, cv_results
+
+        try:
+            baseline_occupancy_paired = evaluate_exported_occupancy_paired_gate(
+                roles=deployment_roles,
+                allow_legacy_fallback=allow_legacy_gate_fallback,
+            )
+        except (FileNotFoundError, ImportError, AttributeError) as exc:
+            baseline_occupancy_paired = None
+            print(
+                f"  Exported occupancy baseline unavailable ({exc}); "
+                "using absolute occupancy gate"
+            )
+        if baseline_occupancy_paired is not None and occupancy_paired_gate is not None:
+            cv_results['baseline_occupancy_paired'] = baseline_occupancy_paired
+            print(
+                f"  Baseline occupancy 70% paired: "
+                f"pass={baseline_occupancy_paired['pass_count']} "
+                f"maxFP={baseline_occupancy_paired['max_fp_rate']:.2f}% "
+                f"worstRecall={baseline_occupancy_paired['worst_chip_recall']:.2f}%"
+            )
+            occupancy_failures = paired_non_regression_failures(
+                occupancy_paired_gate, baseline_occupancy_paired)
+            cv_results['occupancy_non_regression_failures'] = occupancy_failures
+            if occupancy_failures:
+                label = (
+                    "Blocked by occupancy-70% per-recording non-regression on:"
+                    if export_artifacts
+                    else "Occupancy-70% per-recording non-regression failures:"
+                )
+                print(f"  {label}")
+                print(format_non_regression_failures(occupancy_failures, indent='    '))
+                if export_artifacts and force_export:
+                    print(
+                        "WARNING: candidate regresses the occupancy-70% "
+                        "deployment gate; exporting anyway because "
+                        "--force-promote bypasses the promotion rules"
+                    )
+                elif export_artifacts:
+                    print(
+                        "Error: candidate regresses the occupancy-70% "
+                        "deployment gate; runtime artifacts were not exported"
                     )
                     return 1, seed, cv_results
 
@@ -6962,6 +7073,279 @@ def evaluate_exported_quiet_gate(threshold=0.5, roles=('selection', 'holdout'),
         )
 
 
+def _occupancy_gate_stream_provenance(dataset_id, *, keep_ratio, seed, phase):
+    """Cache identity for one occupancy-thinned reserved replay."""
+    return {
+        'transform': OCCUPANCY_GATE_TRANSFORM,
+        'occupancy_percent': OCCUPANCY_GATE_PERCENT,
+        'target_pps': OCCUPANCY_GATE_TARGET_PPS,
+        'keep_ratio': float(keep_ratio),
+        'seed': int(seed),
+        'dataset_id': str(dataset_id),
+        'phase': str(phase),
+        'implementation_sha256': _implementation_source_digest(
+            thin_to_occupancy,
+            admit_packets,
+            thin_packets,
+        ),
+    }
+
+
+def _load_occupancy_gate_feature_rows(
+    path,
+    feature_names,
+    *,
+    dataset_id,
+    phase,
+    offset=0,
+    use_cache=True,
+):
+    """Load one reserved replay after deterministic 70% occupancy thinning."""
+    path = Path(path)
+    thinned, keep_ratio, seed = thin_to_occupancy(
+        _load_npz_packets_cached(path),
+        occupancy_percent=OCCUPANCY_GATE_PERCENT,
+        dataset_id=str(dataset_id),
+        offset=int(offset),
+        target_pps=OCCUPANCY_GATE_TARGET_PPS,
+    )
+    provenance = _occupancy_gate_stream_provenance(
+        dataset_id,
+        keep_ratio=keep_ratio,
+        seed=seed,
+        phase=phase,
+    )
+    if _feature_rows_use_runtime_cache(feature_names):
+        return load_or_compute_ml_replay_rows(
+            path,
+            packets=thinned,
+            selected_subcarriers=DEFAULT_SUBCARRIERS,
+            window_size=None,
+            feature_names=feature_names,
+            use_cache=use_cache,
+            sample_contract="replay_tick",
+            stream_provenance=provenance,
+        )
+    host_provenance = _host_feature_stream_provenance(feature_names)
+    host_provenance['occupancy_gate'] = provenance
+    return load_or_compute_host_feature_rows(
+        path,
+        packets=list(thinned),
+        feature_names=feature_names,
+        sample_contract="replay_tick",
+        use_cache=use_cache,
+        stream_provenance=host_provenance,
+    )
+
+
+def evaluate_occupancy_paired_gate(
+    model,
+    scaler,
+    feature_names,
+    threshold=0.5,
+    chips=None,
+    roles=('selection',),
+    allow_legacy_fallback=True,
+    progress=None,
+    use_cache=True,
+):
+    """Evaluate a candidate on reserved pairs thinned to the 70% occupancy envelope."""
+    pairs = list(_iter_paired_chip_replays(
+        chips,
+        roles=roles,
+        allow_legacy_fallback=allow_legacy_fallback,
+    ))
+    center, scale = get_preprocessor_arrays(scaler)
+    layers = _layer_arrays_from_model(model)
+    if progress is not None:
+        progress(
+            f"Occupancy {OCCUPANCY_GATE_PERCENT}% paired gate: "
+            f"evaluating {len(pairs)} chip replay(s)"
+        )
+    by_chip = {}
+    gate_start = perf_counter()
+    for index, (chip, static_path, motion_path, low_rssi) in enumerate(
+        pairs,
+        start=1,
+    ):
+        step_start = perf_counter()
+        dataset_id = Path(static_path).name
+        static_rows = _load_occupancy_gate_feature_rows(
+            static_path,
+            feature_names,
+            dataset_id=dataset_id,
+            phase="static_presence",
+            offset=0,
+            use_cache=use_cache,
+        )
+        motion_rows = _load_occupancy_gate_feature_rows(
+            motion_path,
+            feature_names,
+            dataset_id=dataset_id,
+            phase="motion",
+            offset=1,
+            use_cache=use_cache,
+        )
+        row = evaluate_cached_feature_split(
+            center,
+            scale,
+            layers,
+            static_rows,
+            motion_rows,
+            threshold=threshold,
+        )
+        row['low_rssi'] = low_rssi
+        by_chip[chip] = row
+        if progress is not None:
+            progress(
+                f"Occupancy paired gate {index}/{len(pairs)} {chip}: "
+                f"R={row['recall']:.2f}% FP={row['fp_rate']:.2f}% "
+                f"alarms={row.get('effective_alarms', 0)} "
+                f"in {format_duration(perf_counter() - step_start)}"
+            )
+    summary = summarize_gate(by_chip)
+    if progress is not None and summary is not None:
+        progress(
+            f"Occupancy paired gate complete in "
+            f"{format_duration(perf_counter() - gate_start)}: "
+            f"pass={summary['pass_count']} maxFP={summary['max_fp_rate']:.2f}% "
+            f"worstRecall={summary['worst_chip_recall']:.2f}% "
+            f"alarms={summary.get('total_effective_alarms', 0)}"
+        )
+    return summary
+
+
+def evaluate_occupancy_quiet_gate(
+    model,
+    scaler,
+    feature_names,
+    threshold=0.5,
+    roles=('selection', 'holdout'),
+    progress=None,
+    use_cache=True,
+):
+    """Evaluate reserved empty replays thinned to the 70% occupancy envelope."""
+    datasets = list(_iter_quiet_gate_replays(roles=roles))
+    center, scale = get_preprocessor_arrays(scaler)
+    layers = _layer_arrays_from_model(model)
+    if progress is not None:
+        progress(
+            f"Occupancy {OCCUPANCY_GATE_PERCENT}% quiet gate: "
+            f"evaluating {len(datasets)} reserved empty replay(s)"
+        )
+    by_dataset = {}
+    gate_start = perf_counter()
+    for index, (key, path) in enumerate(datasets, start=1):
+        step_start = perf_counter()
+        rows = _load_occupancy_gate_feature_rows(
+            path,
+            feature_names,
+            dataset_id=Path(path).name,
+            phase="empty",
+            offset=0,
+            use_cache=use_cache,
+        )
+        by_dataset[key] = evaluate_cached_idle_stream(
+            center,
+            scale,
+            layers,
+            rows,
+            threshold=threshold,
+        )
+        if progress is not None:
+            row = by_dataset[key]
+            progress(
+                f"Occupancy quiet gate {index}/{len(datasets)} {key}: "
+                f"FP={row['fp_rate']:.2f}% alarms={row['effective_alarms']} "
+                f"in {format_duration(perf_counter() - step_start)}"
+            )
+    summary = summarize_quiet_gate(by_dataset)
+    if progress is not None and summary is not None:
+        progress(
+            f"Occupancy quiet gate complete in "
+            f"{format_duration(perf_counter() - gate_start)}: "
+            f"{'pass' if summary['passed'] else 'fail'} "
+            f"maxFP={summary['max_fp_rate']:.2f}% "
+            f"alarms={summary['total_effective_alarms']}"
+        )
+    return summary
+
+
+def evaluate_exported_occupancy_paired_gate(
+    threshold=0.5,
+    chips=None,
+    roles=('selection', 'holdout'),
+    allow_legacy_fallback=True,
+    use_cache=True,
+):
+    """Evaluate exported arrays on occupancy-thinned reserved pairs."""
+    with canonical_trajectory_bin():
+        feature_names, center, scale, layers = _load_exported_model_arrays()
+        pairs = list(_iter_paired_chip_replays(
+            chips,
+            roles=roles,
+            allow_legacy_fallback=allow_legacy_fallback,
+        ))
+        by_chip = {}
+        for chip, static_path, motion_path, low_rssi in pairs:
+            dataset_id = Path(static_path).name
+            static_rows = _load_occupancy_gate_feature_rows(
+                static_path,
+                feature_names,
+                dataset_id=dataset_id,
+                phase="static_presence",
+                offset=0,
+                use_cache=use_cache,
+            )
+            motion_rows = _load_occupancy_gate_feature_rows(
+                motion_path,
+                feature_names,
+                dataset_id=dataset_id,
+                phase="motion",
+                offset=1,
+                use_cache=use_cache,
+            )
+            row = evaluate_cached_feature_split(
+                center,
+                scale,
+                layers,
+                static_rows,
+                motion_rows,
+                threshold=threshold,
+            )
+            row['low_rssi'] = low_rssi
+            by_chip[chip] = row
+        return summarize_gate(by_chip)
+
+
+def evaluate_exported_occupancy_quiet_gate(
+    threshold=0.5,
+    roles=('selection', 'holdout'),
+    use_cache=True,
+):
+    """Evaluate exported arrays on occupancy-thinned reserved empty replays."""
+    with canonical_trajectory_bin():
+        feature_names, center, scale, layers = _load_exported_model_arrays()
+        by_dataset = {}
+        for key, path in _iter_quiet_gate_replays(roles=roles):
+            rows = _load_occupancy_gate_feature_rows(
+                path,
+                feature_names,
+                dataset_id=Path(path).name,
+                phase="empty",
+                offset=0,
+                use_cache=use_cache,
+            )
+            by_dataset[key] = evaluate_cached_idle_stream(
+                center,
+                scale,
+                layers,
+                rows,
+                threshold=threshold,
+            )
+        return summarize_quiet_gate(by_dataset)
+
+
 @dataclass
 class ExportedMLGateResult:
     """Verification result for exported ML artifacts (paired gate)."""
@@ -6970,10 +7354,24 @@ class ExportedMLGateResult:
     paired_output: str
     paired_metrics: dict | None = None
     quiet_metrics: dict | None = None
+    occupancy_paired_metrics: dict | None = None
+    occupancy_quiet_metrics: dict | None = None
 
     @property
     def available(self):
         return self.paired_metrics is not None or self.quiet_metrics is not None
+
+    @property
+    def occupancy_passed(self):
+        occupancy_paired = self.occupancy_paired_metrics
+        occupancy_quiet = self.occupancy_quiet_metrics
+        occupancy_total = len(occupancy_paired.get('by_chip', {})) if occupancy_paired else 0
+        return bool(
+            occupancy_total
+            and occupancy_paired.get('pass_count', 0) == occupancy_total
+            and occupancy_quiet is not None
+            and occupancy_quiet.get('passed', False)
+        )
 
     @property
     def passed(self):
@@ -6981,17 +7379,23 @@ class ExportedMLGateResult:
             self.available
             and (self.paired_metrics is None or self.paired_returncode == 0)
             and (self.quiet_metrics is None or self.quiet_metrics.get('passed', False))
+            and self.occupancy_passed
         )
 
 
 def run_exported_ml_gates(roles=('selection', 'holdout'),
                           allow_legacy_fallback=True):
-    """Run paired and explicitly reserved quiet gates for exported artifacts."""
+    """Run paired, quiet, and occupancy-70% gates for exported artifacts."""
     paired_metrics = evaluate_exported_paired_gate(
         roles=roles,
         allow_legacy_fallback=allow_legacy_fallback,
     )
     quiet_metrics = evaluate_exported_quiet_gate(roles=roles)
+    occupancy_paired = evaluate_exported_occupancy_paired_gate(
+        roles=roles,
+        allow_legacy_fallback=allow_legacy_fallback,
+    )
+    occupancy_quiet = evaluate_exported_occupancy_quiet_gate(roles=roles)
     paired_total = len(paired_metrics.get('by_chip', {})) if paired_metrics else 0
     paired_rc = 0 if paired_total and paired_metrics['pass_count'] == paired_total else 1
     return ExportedMLGateResult(
@@ -6999,6 +7403,8 @@ def run_exported_ml_gates(roles=('selection', 'holdout'),
         paired_output="",
         paired_metrics=paired_metrics,
         quiet_metrics=quiet_metrics,
+        occupancy_paired_metrics=occupancy_paired,
+        occupancy_quiet_metrics=occupancy_quiet,
     )
 
 
@@ -7006,6 +7412,12 @@ def in_memory_gate_result(training_metrics):
     """Adapt one in-memory training result to the shared gate summary type."""
     paired_metrics = training_metrics.get('paired') if training_metrics else None
     quiet_metrics = training_metrics.get('quiet') if training_metrics else None
+    occupancy_paired = (
+        training_metrics.get('occupancy_paired') if training_metrics else None
+    )
+    occupancy_quiet = (
+        training_metrics.get('occupancy_quiet') if training_metrics else None
+    )
     paired_total = len(paired_metrics.get('by_chip', {})) if paired_metrics else 0
     paired_rc = (
         0
@@ -7017,6 +7429,8 @@ def in_memory_gate_result(training_metrics):
         paired_output="",
         paired_metrics=paired_metrics,
         quiet_metrics=quiet_metrics,
+        occupancy_paired_metrics=occupancy_paired,
+        occupancy_quiet_metrics=occupancy_quiet,
     )
 
 
@@ -7069,11 +7483,34 @@ def _format_exported_gate_summary(gate):
             f"alarms={metrics.get('total_effective_alarms', 0)}"
         )
     if gate.quiet_metrics is None:
-        return summary + " quiet=not_configured"
+        summary += " quiet=not_configured"
+    else:
+        summary += (
+            f" quietMaxFP={gate.quiet_metrics.get('max_fp_rate', 0.0):.2f}%"
+            f" quietAlarms={gate.quiet_metrics.get('total_effective_alarms', 0)}"
+        )
+    occupancy_paired = gate.occupancy_paired_metrics
+    occupancy_quiet = gate.occupancy_quiet_metrics
+    if occupancy_paired is None:
+        return summary + " occupancy70=not_configured"
+    occupancy_total = len(occupancy_paired.get('by_chip', {}))
+    occupancy_pass = (
+        "occupancy70=pass"
+        if gate.occupancy_passed
+        else "occupancy70=fail"
+    )
+    quiet_fp = (
+        occupancy_quiet.get('max_fp_rate', 0.0) if occupancy_quiet else 0.0
+    )
+    quiet_alarms = (
+        occupancy_quiet.get('total_effective_alarms', 0) if occupancy_quiet else 0
+    )
     return (
         summary
-        + f" quietMaxFP={gate.quiet_metrics.get('max_fp_rate', 0.0):.2f}%"
-        + f" quietAlarms={gate.quiet_metrics.get('total_effective_alarms', 0)}"
+        + f" {occupancy_pass}({occupancy_paired.get('pass_count', 0)}/{occupancy_total})"
+        + f" occMaxFP={occupancy_paired.get('max_fp_rate', 0.0):.2f}%"
+        + f" occWorstRecall={occupancy_paired.get('worst_chip_recall', 0.0):.2f}%"
+        + f" occQuietMaxFP={quiet_fp:.2f}% occQuietAlarms={quiet_alarms}"
     )
 
 
@@ -7089,6 +7526,15 @@ def _candidate_beats_baseline(candidate_cv, candidate_gate, static_presence_cv, 
         and not paired_result_non_regression(
             candidate_gate.paired_metrics,
             static_presence_gate.paired_metrics,
+        )
+    ):
+        return False
+    if (
+        candidate_gate.occupancy_paired_metrics is not None
+        and static_presence_gate.occupancy_paired_metrics is not None
+        and not paired_result_non_regression(
+            candidate_gate.occupancy_paired_metrics,
+            static_presence_gate.occupancy_paired_metrics,
         )
     ):
         return False
@@ -7323,7 +7769,16 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             'session_min_recall': static_presence_session.get('recall'),
             'selection_paired_metrics': static_presence_gate.paired_metrics,
             'selection_quiet_metrics': static_presence_gate.quiet_metrics,
+            'selection_occupancy_paired_metrics': (
+                static_presence_gate.occupancy_paired_metrics
+            ),
+            'selection_occupancy_quiet_metrics': (
+                static_presence_gate.occupancy_quiet_metrics
+            ),
             'holdout_paired_metrics': baseline_holdout_gate.paired_metrics,
+            'holdout_occupancy_paired_metrics': (
+                baseline_holdout_gate.occupancy_paired_metrics
+            ),
         },
         'trials': [],
         'final_holdout': None,
@@ -7357,6 +7812,12 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
             'paired_passed': bool(gate.passed) if gate else None,
             'paired_metrics': gate.paired_metrics if gate else None,
             'quiet_metrics': gate.quiet_metrics if gate else None,
+            'occupancy_paired_metrics': (
+                gate.occupancy_paired_metrics if gate else None
+            ),
+            'occupancy_quiet_metrics': (
+                gate.occupancy_quiet_metrics if gate else None
+            ),
             'non_regression_failures': (
                 paired_non_regression_failures(
                     gate.paired_metrics,
@@ -7364,6 +7825,15 @@ def train_until_improvement(max_trials, fp_weight=DEFAULT_FP_WEIGHT, feature_nam
                 if gate is not None
                 and gate.paired_metrics is not None
                 and static_presence_gate.paired_metrics is not None
+                else []
+            ),
+            'occupancy_non_regression_failures': (
+                paired_non_regression_failures(
+                    gate.occupancy_paired_metrics,
+                    static_presence_gate.occupancy_paired_metrics)
+                if gate is not None
+                and gate.occupancy_paired_metrics is not None
+                and static_presence_gate.occupancy_paired_metrics is not None
                 else []
             ),
         })
@@ -8687,7 +9157,8 @@ def main():
                             '--augment with no value enables base, drift, and '
                             'burst-loss. '
                             'Supported comma-separated components: '
-                            'base, drift, burst-loss. Inference stays unaugmented')
+                            'base, drift, burst-loss. '
+                            'Inference stays unaugmented')
     parser.add_argument('--seed-search-until-improvement', type=int, default=0, metavar='MAX_TRIALS',
                        help='Evaluate MAX_TRIALS auto-generated seeds, require '
                             'deployment safety and per-recording non-regression, '
@@ -8742,8 +9213,9 @@ def main():
     parser.add_argument('--evaluate-gates', action='store_true',
                        help='Run the deployment replay gates and report them without '
                             'exporting runtime artifacts. This is how a host-side '
-                            'candidate feature is measured against the paired and '
-                            'quiet gates, since a candidate cannot be exported')
+                            'candidate is measured against the clean paired and quiet '
+                            'gates plus the occupancy-70%% thinned reserved replays, '
+                            'since a candidate cannot be exported')
     parser.add_argument('--no-export', action='store_true',
                        help='Leave runtime artifacts unchanged (CV-only for normal training; '
                             'also use with --shap / --ablation-feature diagnostics)')

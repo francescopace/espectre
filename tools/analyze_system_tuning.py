@@ -33,6 +33,7 @@ from tools.lib.dataset_metadata import (
     select_dataset_interactively,
 )
 from lightweight_detector import LightweightDetector
+from temporal_csi_sampler import minimum_valid_slots
 from config import (
     DEFAULT_SUBCARRIERS,
     ENABLE_HAMPEL_FILTER,
@@ -121,6 +122,7 @@ def _evaluate_classic_configuration(
         hampel_window=HAMPEL_WINDOW,
         hampel_threshold=HAMPEL_THRESHOLD,
     )
+    detector.set_minimum_valid_samples(minimum_valid_slots(window_size))
 
     metrics = evaluate_detector_packets(
         detector,

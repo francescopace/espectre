@@ -73,7 +73,7 @@ python tools/train_ml_model.py --augment --evaluate-gates
 python tools/train_ml_model.py --augment --seed SEED --evaluate-gates
 ```
 
-`--no-export` runs the training and grouped-CV path without replacing artifacts. `--evaluate-gates` also evaluates the in-memory candidate on deployment replays without exporting it. Pass an explicit seed when a controlled comparison must be reproducible; when omitted, the trainer reuses the seed embedded in the exported model when available.
+`--no-export` runs the training and grouped-CV path without replacing artifacts. `--evaluate-gates` also evaluates the in-memory candidate on clean reserved replays and occupancy-70% thinned reserved replays without exporting it. Pass an explicit seed when a controlled comparison must be reproducible; when omitted, the trainer reuses the seed embedded in the exported model when available.
 
 For seed search:
 
@@ -117,11 +117,17 @@ Use `--timing-warn-weight` only with a policy that downweights degraded recordin
 
 ## Training Augmentation
 
-Bare `--augment` enables the promoted `base,drift,burst-loss` recipe:
+Bare `--augment` enables the `base,drift,burst-loss` recipe:
 
-- `base` applies moderate feature jitter, packet-domain noise, loss, and stutter, and a stable packet-rate scale from `0.8` to `1.0`;
+- `base` applies moderate feature jitter, packet-domain noise, loss, and stutter, and a stable packet-rate scale from `0.7` to `1.0` with a 70 pps floor that matches the temporal-admission occupancy envelope;
 - `drift` injects a slow correlated packet-domain drift episode; and
 - `burst-loss` injects short packet-drop bursts.
+
+The exported High Accuracy artifact uses the occupancy-70% `base` scale `0.7-1.0` with a 70 pps floor.
+
+```bash
+python tools/train_ml_model.py --augment --seed 656446646 --no-export --evaluate-gates
+```
 
 Production training builds two deterministic packet views with seeds `20260807` and `20260808`, then keeps alternating row positions from the two views within each source recording. This produces approximately one augmented row set rather than doubling the synthetic sample count, while exposing the model to the complementary false-positive and weak-recall stress tails of both seeds. The seed order and per-file modulo assignment are fixed; model seeds do not alter packet augmentation.
 
@@ -148,6 +154,10 @@ Promotion is safety-first. The current stable gate policy is:
 | Normal-link paired replay | `>95%` | `<5%` | At most one per static-presence replay |
 | Low-RSSI paired stress replay | `>90%` | `<10%` | Must not regress against the exported baseline |
 | Quiet `empty` replay | N/A | `<5%` | Zero |
+| Occupancy-70% paired replay | same absolute cuts | same absolute cuts | same alarm rules, after deterministic thinning of reserved pairs to the production occupancy envelope |
+| Occupancy-70% quiet replay | N/A | `<5%` | Zero, on the same thinned empty reserved set |
+
+The occupancy-70% gate keeps the production readiness floor. It thins admitted CSI on the fixed `100 pps` grid until mean occupancy is about `70%`, then scores the candidate. Clean reserved replays remain mandatory. Uniform thinning is a conservative proxy for the live envelope; it is not a BLE-coexist test.
 
 Passing the absolute targets is necessary but not sufficient. A candidate must also avoid material per-recording regressions against the exported model. Among safe candidates, the trainer compares paired replay quality, worst-session and worst-chip behavior, worst-five tails, and blocked out-of-fold metrics. Synthetic sessions may protect against regressions but cannot justify promotion over real-data evidence.
 

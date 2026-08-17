@@ -23,7 +23,9 @@ from .repo_paths import repo_root
 ProgressCallback = Callable[[str], None]
 ReportData = dict[str, dict[str, dict[str, dict[str, float | int]]]]
 
-CPP_PERCENT_TOLERANCE = 0.05
+# Chip-mean percent metrics. One float32 versus float64 window on a short
+# reserved pair can move a four-pair chip mean by about 0.07pp.
+CPP_PERCENT_TOLERANCE = 0.10
 CPP_TEST_BUILD_TYPE = "RelWithDebInfo"
 CPP_PARITY_FILES = {
     "test_motion_detection": "test_motion_detection.json",

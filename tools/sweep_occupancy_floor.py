@@ -4,20 +4,21 @@
 """
 ESPectre - Occupancy-floor sweep
 
-Host-only experiment: keep the production 100 pps slot grid and ask whether the
-seven-tenths readiness floor can be relaxed. Each point thins admitted packets to
-the requested occupancy, then scores Lightweight and High Accuracy with a
-matching valid-slot floor.
+Host-only experiment: keep the production 100 pps slot grid and ask how detector
+quality changes when admitted CSI is thinned. Each point thins admitted packets
+to the requested occupancy. By default the readiness floor matches that
+occupancy. Pass ``--always-evaluate`` to pin the floor at one valid slot so
+occupancy holes stay scored instead of dropping not-ready ticks.
 
 Usage:
     .venv/bin/python tools/sweep_occupancy_floor.py
     .venv/bin/python tools/sweep_occupancy_floor.py --floors 70,65,60,55,50
+    .venv/bin/python tools/sweep_occupancy_floor.py --floors 70,60,50,40,30 --always-evaluate
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -31,12 +32,11 @@ from tools.lib.bootstrap import setup_paths  # noqa: E402
 
 setup_paths()
 
-import config  # noqa: E402
 import tools.lib.dataset_metadata as dataset_metadata  # noqa: E402
 import tools.lib.performance_report as performance_report  # noqa: E402
 import temporal_csi_sampler as temporal_csi_sampler  # noqa: E402
 from config import DEFAULT_SUBCARRIERS, SEGMENTATION_WINDOW_SIZE_MS  # noqa: E402
-from temporal_csi_sampler import TemporalCsiSampler, temporal_window_slots  # noqa: E402
+from temporal_csi_sampler import temporal_window_slots  # noqa: E402
 from tools.lib.performance_report import (  # noqa: E402
     REPORT_DATASET_ROLES,
     _compute_ml_row_result,
@@ -47,15 +47,18 @@ from tools.lib.performance_report import (  # noqa: E402
     load_or_compute_ml_replay_rows,
     load_real_data_cached,
 )
-from tools.lib.temporal_replay import (  # noqa: E402
-    iter_temporal_admissions,
-    packet_timestamp_us,
+from tools.lib.occupancy_thinning import (  # noqa: E402
+    OCCUPANCY_THIN_SEED,
+    TARGET_PPS,
+    admit_packets,
+    capture_seed,
+    mean_window_occupancy,
+    thin_packets,
 )
 
 DEFAULT_FLOORS = (70, 65, 60, 55, 50)
-SWEEP_SEED = 20260807
+SWEEP_SEED = OCCUPANCY_THIN_SEED
 SWEEP_VERSION = 1
-TARGET_PPS = int(getattr(config, "CSI_TARGET_PPS", 100))
 
 
 def _parse_floors(value: str) -> tuple[int, ...]:
@@ -97,78 +100,8 @@ def occupancy_floor_slots(slots: int) -> Iterator[None]:
             setattr(module, "minimum_valid_slots", original)
 
 
-def _copy_packet(packet: Any, *, target_pps: int) -> dict[str, Any]:
-    copied = dict(packet)
-    copied["csi_target_pps"] = int(target_pps)
-    return copied
-
-
-def admit_packets(
-    packets: Sequence[dict[str, Any]],
-    *,
-    target_pps: int,
-) -> tuple[dict[str, Any], ...]:
-    admitted: list[dict[str, Any]] = []
-    for admission in iter_temporal_admissions(
-        packets,
-        target_pps=target_pps,
-        window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
-    ):
-        admitted.append(_copy_packet(admission.packet, target_pps=target_pps))
-    return tuple(admitted)
-
-
-def thin_packets(
-    packets: Sequence[dict[str, Any]],
-    *,
-    keep_ratio: float,
-    seed: int,
-) -> tuple[dict[str, Any], ...]:
-    del seed
-    if keep_ratio >= 1.0 or len(packets) <= 1:
-        return tuple(packets)
-    stride = 1.0 / float(keep_ratio)
-    kept: list[dict[str, Any]] = []
-    cursor = 0.0
-    while True:
-        index = int(round(cursor))
-        if index >= len(packets):
-            break
-        kept.append(packets[index])
-        cursor += stride
-    return tuple(kept)
-
-
 def pair_seed(dataset_id: str, occupancy_percent: int) -> int:
-    payload = f"{SWEEP_SEED}:{occupancy_percent}:{dataset_id}".encode("utf-8")
-    digest = hashlib.sha256(payload).digest()
-    return int.from_bytes(digest[:8], "little")
-
-
-def mean_window_occupancy(packets: Sequence[dict[str, Any]], *, target_pps: int) -> float:
-    if not packets:
-        return 0.0
-    sampler = TemporalCsiSampler(target_pps, SEGMENTATION_WINDOW_SIZE_MS)
-    ratios: list[float] = []
-    for index, packet in enumerate(packets):
-        timestamp = packet_timestamp_us(
-            packet,
-            fallback_index=index,
-            fallback_interval_us=max(1, int(round(1_000_000.0 / target_pps))),
-        )
-        if timestamp is None:
-            continue
-        if sampler.admit(int(timestamp)):
-            slot = sampler.current_slot
-            if slot is not None and slot + 1 >= sampler.window_slots:
-                ratios.append(float(sampler.occupancy_ratio))
-    if sampler.flush():
-        slot = sampler.current_slot
-        if slot is not None and slot + 1 >= sampler.window_slots:
-            ratios.append(float(sampler.occupancy_ratio))
-    if not ratios:
-        return 0.0
-    return sum(ratios) / len(ratios)
+    return capture_seed(dataset_id, occupancy_percent)
 
 
 def empty_metrics() -> dict[str, float]:
@@ -246,6 +179,7 @@ def evaluate_pair(
     occupancy_percent: int,
     target_pps: int,
     include_full: bool,
+    readiness_slots: int | None,
 ) -> dict[str, Any]:
     static_source, motion_source = load_real_data_cached(static_path, motion_path)
     static_admitted = admit_packets(static_source, target_pps=target_pps)
@@ -258,14 +192,14 @@ def evaluate_pair(
         else min(1.0, target_occupancy / admitted_occupancy)
     )
     seed = pair_seed(dataset_id, occupancy_percent)
-    static_packets = thin_packets(
-        static_admitted, keep_ratio=keep_ratio, seed=seed
-    )
-    motion_packets = thin_packets(
-        motion_admitted, keep_ratio=keep_ratio, seed=seed + 1
-    )
-    floor_slots = occupancy_percent
+    static_packets = thin_packets(static_admitted, keep_ratio=keep_ratio)
+    motion_packets = thin_packets(motion_admitted, keep_ratio=keep_ratio)
     window_slots = temporal_window_slots(target_pps, SEGMENTATION_WINDOW_SIZE_MS)
+    floor_slots = (
+        occupancy_percent
+        if readiness_slots is None
+        else max(1, min(int(readiness_slots), int(window_slots)))
+    )
     provenance = {
         "transform": "occupancy_floor_sweep",
         "transform_version": SWEEP_VERSION,
@@ -349,6 +283,7 @@ def run_sweep(
     *,
     include_full: bool,
     roles: Iterable[str],
+    readiness_slots: int | None,
 ) -> list[dict[str, Any]]:
     pairs = get_available_paired_datasets(synthetic=False, roles=roles)
     if not pairs:
@@ -365,9 +300,12 @@ def run_sweep(
         ml_rows: list[dict[str, float]] = []
         classic_fail = 0
         occupancies: list[float] = []
+        floor_label = (
+            occupancy_percent if readiness_slots is None else readiness_slots
+        )
         print(
             f"Occupancy {label} on {len(pairs)} reserved pairs "
-            f"(target {TARGET_PPS} pps, floor {occupancy_percent} slots)"
+            f"(target {TARGET_PPS} pps, readiness {floor_label} slots)"
         )
         for index, (static_path, motion_path, _num_sc, chip, dataset_id) in enumerate(
             pairs, start=1
@@ -383,6 +321,7 @@ def run_sweep(
                 occupancy_percent=occupancy_percent,
                 target_pps=TARGET_PPS,
                 include_full=full_supply,
+                readiness_slots=readiness_slots,
             )
             occupancies.append(float(result["occupancy"]))
             if result["classic"] is None:
@@ -408,8 +347,8 @@ def run_sweep(
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Sweep the detector occupancy floor from the production 70% gate "
-            "down to 50% on reserved selection and holdout pairs."
+            "Thin reserved selection and holdout pairs to target occupancy "
+            "and score Lightweight and High Accuracy on the fixed 100 pps grid."
         )
     )
     parser.add_argument(
@@ -423,15 +362,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         action="store_true",
         help="Skip the unthinned production-floor control",
     )
+    parser.add_argument(
+        "--always-evaluate",
+        action="store_true",
+        help=(
+            "Pin the readiness floor to one valid slot so occupancy holes "
+            "stay scored instead of dropping not-ready ticks"
+        ),
+    )
     args = parser.parse_args(argv)
+    readiness_slots = 1 if args.always_evaluate else None
     points = run_sweep(
         args.floors,
         include_full=not args.no_full,
         roles=REPORT_DATASET_ROLES,
+        readiness_slots=readiness_slots,
+    )
+    floor_note = (
+        "readiness floor 1 slot, occupancy holes stay scored"
+        if args.always_evaluate
+        else "matching readiness floor"
     )
     print_table(
         "Reserved selection+holdout occupancy-floor sweep "
-        f"(fixed {TARGET_PPS} pps grid, matching readiness floor)",
+        f"(fixed {TARGET_PPS} pps grid, {floor_note})",
         points,
     )
     print()
@@ -439,7 +393,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "R/minR is pooled recall / worst-pair recall. "
         "FP/maxFP is pooled false-positive rate / worst-pair FP. "
         "eval is scored idle/motion ticks. "
-        "full is unthinned admitted packets with the production 70-slot floor."
+        "full is unthinned admitted packets. "
+        + (
+            "Not-ready ticks are scored because the readiness floor is 1 slot."
+            if args.always_evaluate
+            else "full uses the production 70-slot floor; other rows match the occupancy percent."
+        )
     )
     return 0
 

@@ -1387,6 +1387,8 @@ def evaluate_detector_packets(
     detector_window = getattr(detector, "get_window_size", None)
     if callable(detector_window):
         warmup = max(1, int(detector_window()))
+    if warmup and hasattr(detector, "set_minimum_valid_samples"):
+        detector.set_minimum_valid_samples(minimum_valid_slots(warmup))
     target_pps = target_pps_for_packets(static_presence_packets, interval_us)
     _, cadence = timing_cadence_for_window(warmup, interval_us)
     packets_since_reset = 0
