@@ -14,6 +14,7 @@ import argparse
 import json
 import os
 import shlex
+import sys
 import threading
 import time
 import uuid
@@ -43,6 +44,91 @@ from .common import (
 )
 from .host import open_web_ui
 from micro_espectre.branding import ASCII_BANNER
+
+_SHELL_ALIASES = {
+    "i": "info",
+    "s": "stats",
+    "st": "set_threshold",
+    "os": "ota_status",
+    "oc": "ota_check",
+    "ou": "ota_start",
+    "ble": "set_ble",
+}
+
+_LOCAL_UTILITIES = {
+    "help": None,
+    "h": None,
+    "about": None,
+    "a": None,
+    "webui": None,
+    "web": None,
+    "clear": None,
+    "cls": None,
+    "exit": None,
+    "quit": None,
+    "q": None,
+}
+
+
+def _mqtt_commands_from_catalog(payload: Dict[str, Any]) -> list[str]:
+    """Return command names from a `commands/catalog` payload."""
+    raw = payload.get("commands")
+    if isinstance(raw, list):
+        return [str(name) for name in raw if isinstance(name, str) and name]
+    if isinstance(raw, dict):
+        return [str(name) for name in raw if name]
+    return []
+
+
+def _mqtt_completer_dict(commands: list[str]) -> Dict[str, Any]:
+    """Build tab-completion entries from device commands plus local utilities."""
+    completer: Dict[str, Any] = {name: None for name in commands}
+    for alias, target in _SHELL_ALIASES.items():
+        if target in completer:
+            completer[alias] = None
+    completer.update(_LOCAL_UTILITIES)
+    return completer
+
+
+def _coerce_command_token(token: str) -> Any:
+    """Coerce a shell token into a JSON-friendly command field."""
+    lowered = token.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    body = token[1:] if token.startswith("-") else token
+    if body.isdigit():
+        return int(token)
+    try:
+        return float(token)
+    except ValueError:
+        return token
+
+
+def _mqtt_command_payload(command: str, args: list[str]) -> tuple[Dict[str, Any] | None, str | None]:
+    """Build a protocol command payload from shell tokens.
+
+    Named ``field=value`` tokens after the command are copied through. A single
+    positional after a ``set_*`` command is stored under the suffix
+    (``set_ble on`` -> ``ble=on``). The command name itself is never a
+    ``key=value`` token.
+    """
+    fields: Dict[str, Any] = {"command": command}
+    positionals: list[str] = []
+    for arg in args:
+        key, sep, value = arg.partition("=")
+        if sep and key.isidentifier():
+            fields[key] = _coerce_command_token(value)
+        else:
+            positionals.append(arg)
+    if len(positionals) == 1 and command.startswith("set_"):
+        fields[command[4:]] = _coerce_command_token(positionals[0])
+        positionals = []
+    if positionals:
+        joined = " ".join(positionals)
+        return None, f"unexpected argument: {joined}"
+    return fields, None
 
 
 def _make_mqtt_client(username: str | None, password: str | None) -> mqtt.Client:
@@ -296,6 +382,14 @@ class EspectreMQTTShell:
     """Interactive MQTT CLI for runtime commands."""
 
     DISCOVERY_TIMEOUT_S = 2.0
+    COMMAND_ACK_TIMEOUT_S = 10.0
+    PROMPT_DISPLAY = "espectre> "
+    _PAYLOAD_LABELS = {
+        "info": "info",
+        "stats": "stats",
+        "ota_status": "ota/state",
+        "commands": "commands/catalog",
+    }
 
     def __init__(self, args):
         self.broker = args.broker
@@ -312,29 +406,30 @@ class EspectreMQTTShell:
         self.discovery_status_topic = f"{self.topic_prefix}/+/status"
         self.discovered_devices: dict[str, dict[str, Any]] = {}
         self.discovery_active = self.device_id is None
+        self._device_commands: list[str] = []
+        self._quiet_command_ids: set[str] = set()
+        self._suppress_catalog_payload = False
         self._set_active_device(self.device_id)
         self.client = _make_mqtt_client(self.username, self.password)
 
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
         self.running = True
+        self._typed_line: str | None = None
+        self._pending_lock = threading.Lock()
+        self._pending_command_id = ""
+        self._pending_command = ""
+        self._pending_payload_label = ""
+        self._pending_result: dict[str, Any] | None = None
+        self._pending_payload: tuple[str, Dict[str, Any]] | None = None
+        self._pending_result_event = threading.Event()
+        self._pending_payload_event = threading.Event()
 
         hist_file = os.path.join(os.path.expanduser("~"), ".espectre_cli_history")
-        completer_dict = {
-            "set_threshold": None,
-            "info": None,
-            "stats": None,
-            "ota_status": None,
-            "ota_check": None,
-            "ota_start": None,
-            "clear": None,
-            "help": None,
-            "exit": None,
-        }
         prompt_style = PromptStyle.from_dict({"prompt": "#00aa00 bold"})
         self.session = PromptSession(
             history=FileHistory(hist_file),
-            completer=NestedCompleter.from_nested_dict(completer_dict),
+            completer=NestedCompleter.from_nested_dict(_mqtt_completer_dict([])),
             style=prompt_style,
             complete_while_typing=True,
             enable_history_search=True,
@@ -353,14 +448,141 @@ class EspectreMQTTShell:
         self.topic_responses = [
             f"{self.base_topic}/commands/accepted",
             f"{self.base_topic}/commands/rejected",
+            f"{self.base_topic}/commands/catalog",
+            f"{self.base_topic}/info",
+            f"{self.base_topic}/stats",
+            f"{self.base_topic}/ota/state",
         ]
 
     def _subscribe_selected_device(self, client) -> None:
-        """Subscribe to command responses for the selected device."""
+        """Subscribe to command responses and payload topics for the selected device."""
         print(f"{Fore.BLUE}Command topic: {self.topic_cmd}{Style.RESET_ALL}")
         print(f"{Fore.BLUE}Listening on: {', '.join(self.topic_responses)}{Style.RESET_ALL}")
         for topic in self.topic_responses:
             client.subscribe(topic)
+
+    def _update_completer(self) -> None:
+        """Refresh tab completion from the current device command catalog."""
+        completer = NestedCompleter.from_nested_dict(_mqtt_completer_dict(self._device_commands))
+        if getattr(self, "session", None) is not None:
+            self.session.completer = completer
+
+    def _apply_device_commands(self, commands: list[str]) -> None:
+        """Replace the local command catalog used for help and completion."""
+        self._device_commands = list(commands)
+        self._update_completer()
+
+    def _apply_catalog_payload(self, payload: Dict[str, Any]) -> None:
+        """Adopt command names from a `commands/catalog` payload."""
+        commands = _mqtt_commands_from_catalog(payload)
+        if commands:
+            self._apply_device_commands(commands)
+
+    def _request_command_catalog(self) -> None:
+        """Ask the selected device for its MQTT command catalog without dumping it."""
+        if not self.topic_cmd:
+            return
+        command_id = f"cmd-{uuid.uuid4().hex[:12]}"
+        self._quiet_command_ids.add(command_id)
+        self._suppress_catalog_payload = True
+        try:
+            self.client.publish(
+                self.topic_cmd,
+                json.dumps(
+                    {
+                        "protocol_version": "1.0",
+                        "command_id": command_id,
+                        "command": "commands",
+                    }
+                ),
+            )
+        except Exception:
+            self._quiet_command_ids.discard(command_id)
+            self._suppress_catalog_payload = False
+
+    def _topic_label(self, topic: str) -> str:
+        """Return the selected-device topic suffix used in received-message output."""
+        prefix = f"{self.base_topic}/" if self.base_topic else ""
+        if prefix and topic.startswith(prefix):
+            return topic[len(prefix) :]
+        return topic
+
+    def _print_command_result(self, accepted: bool, data: Dict[str, Any]) -> None:
+        """Render a compact command ACK on the line after the prompt."""
+        command = str(data.get("command") or "command")
+        print()
+        if accepted:
+            print(f"{Fore.GREEN}✓ {command}{Style.RESET_ALL}")
+            return
+        reason = str(data.get("message") or "").strip()
+        suffix = f": {reason}" if reason else ""
+        print(f"{Fore.RED}✗ {command}{suffix}{Style.RESET_ALL}")
+
+    def _can_annotate_typed_command(self, typed: str | None) -> bool:
+        """Return True when the ACK mark can be appended to the submitted prompt line."""
+        if not typed or not sys.stdout.isatty():
+            return False
+        try:
+            width = os.get_terminal_size().columns
+        except OSError:
+            return False
+        return len(self.PROMPT_DISPLAY) + len(typed) + 2 < width
+
+    def _annotate_typed_command(self, typed: str, accepted: bool, reason: str = "") -> None:
+        """Append the ACK mark to the just-submitted prompt line."""
+        mark = f"{Fore.GREEN}✓{Style.RESET_ALL}" if accepted else f"{Fore.RED}✗{Style.RESET_ALL}"
+        extra = f" {Fore.RED}{reason}{Style.RESET_ALL}" if reason and not accepted else ""
+        column = len(self.PROMPT_DISPLAY) + len(typed) + 1
+        sys.stdout.write(f"\033[A\033[{column}G {mark}{extra}\n")
+        sys.stdout.flush()
+
+    def _show_command_ack(self, accepted: bool, data: Dict[str, Any]) -> None:
+        """Place the ACK on the typed command line when possible, otherwise on the next line."""
+        typed = self._typed_line
+        reason = str(data.get("message") or "").strip()
+        if self._can_annotate_typed_command(typed) and typed is not None:
+            self._annotate_typed_command(typed, accepted, reason)
+            return
+        self._print_command_result(accepted, data)
+
+    def _print_payload(self, data: Dict[str, Any], label: str) -> None:
+        """Dump a JSON payload topic as compact YAML."""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        print()
+        formatted_yaml = yaml.dump(data, Dumper=CompactDumper, sort_keys=False, default_flow_style=False, width=1000)
+        received = f"Received on {label}:" if label else "Received:"
+        print(f"{Fore.GREEN}[{timestamp}]{Style.RESET_ALL} {received}")
+        print_formatted_text(
+            FormattedText([("class:pygments", formatted_yaml)]),
+            style=PromptStyle.from_dict({"pygments": "#ansiwhite"}),
+        )
+        print()
+
+    def _clear_pending_command(self) -> None:
+        """Drop in-flight command wait state."""
+        with self._pending_lock:
+            self._pending_command_id = ""
+            self._pending_command = ""
+            self._pending_payload_label = ""
+            self._pending_result = None
+            self._pending_payload = None
+        self._pending_result_event.clear()
+        self._pending_payload_event.clear()
+
+    def _matches_pending_result(self, data: Dict[str, Any]) -> bool:
+        """Return True when an ACK belongs to the in-flight shell command."""
+        if not self._pending_command_id:
+            return False
+        incoming_id = str(data.get("command_id") or "")
+        if incoming_id == self._pending_command_id:
+            return True
+        if incoming_id:
+            return False
+        incoming_command = str(data.get("command") or "")
+        if incoming_command == self._pending_command:
+            return True
+        # Current firmware may drop command_id on parse failure and echo command=unknown.
+        return incoming_command in {"", "unknown"}
 
     def _extract_device_id_from_topic(self, topic: str) -> str | None:
         """Extract the ESPectre device id from a topic under the configured prefix."""
@@ -501,24 +723,88 @@ class EspectreMQTTShell:
         try:
             payload = msg.payload.decode()
             data = json.loads(payload)
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            print()
-            formatted_yaml = yaml.dump(data, Dumper=CompactDumper, sort_keys=False, default_flow_style=False, width=1000)
-            print(f"{Fore.GREEN}[{timestamp}]{Style.RESET_ALL} Received:")
-            print_formatted_text(
-                FormattedText([("class:pygments", formatted_yaml)]),
-                style=PromptStyle.from_dict({"pygments": "#ansiwhite"}),
-            )
-            print()
+            label = self._topic_label(topic)
+            if label in {"commands/accepted", "commands/rejected"}:
+                accepted = label == "commands/accepted"
+                command_id = str(data.get("command_id") or "")
+                if command_id in self._quiet_command_ids:
+                    self._quiet_command_ids.discard(command_id)
+                    if not accepted:
+                        self._suppress_catalog_payload = False
+                    return
+                with self._pending_lock:
+                    if self._matches_pending_result(data):
+                        self._pending_result = {"accepted": accepted, "data": data}
+                        self._pending_result_event.set()
+                        return
+                self._print_command_result(accepted, data)
+                return
+            if label == "commands/catalog":
+                self._apply_catalog_payload(data)
+                if self._suppress_catalog_payload:
+                    self._suppress_catalog_payload = False
+                    with self._pending_lock:
+                        if self._pending_payload_label == label:
+                            self._pending_payload = (label, data)
+                            self._pending_payload_event.set()
+                            return
+                    return
+            with self._pending_lock:
+                if self._pending_payload_label and label == self._pending_payload_label:
+                    self._pending_payload = (label, data)
+                    self._pending_payload_event.set()
+                    return
+            self._print_payload(data, label)
         except Exception as e:
             print(f"\nError parsing message: {e}")
 
-    def send_command(self, cmd_data: Dict[str, Any]):
+    def send_command(self, cmd_data: Dict[str, Any], *, timeout_s: float | None = None):
+        command = dict(cmd_data)
+        command.setdefault("protocol_version", "1.0")
+        command_id = str(command.get("command_id") or f"cmd-{uuid.uuid4().hex[:12]}")
+        command["command_id"] = command_id
+        payload_label = self._PAYLOAD_LABELS.get(str(command.get("command") or ""))
+        wait_s = self.COMMAND_ACK_TIMEOUT_S if timeout_s is None else timeout_s
+
+        self._pending_result_event.clear()
+        self._pending_payload_event.clear()
+        with self._pending_lock:
+            self._pending_command_id = command_id
+            self._pending_command = str(command.get("command") or "")
+            self._pending_payload_label = payload_label or ""
+            self._pending_result = None
+            self._pending_payload = None
+
         try:
-            payload = json.dumps(cmd_data)
-            self.client.publish(self.topic_cmd, payload)
-        except Exception as e:
-            print(f"{Fore.RED}Error sending command: {e}{Style.RESET_ALL}")
+            try:
+                self.client.publish(self.topic_cmd, json.dumps(command))
+            except Exception as e:
+                print(f"{Fore.RED}Error sending command: {e}{Style.RESET_ALL}")
+                return
+            if not self._pending_result_event.wait(timeout=wait_s):
+                self._show_command_ack(
+                    False,
+                    {"command": command.get("command"), "message": "timed out waiting for device"},
+                )
+                return
+            with self._pending_lock:
+                result = self._pending_result or {}
+            accepted = bool(result.get("accepted"))
+            data = result.get("data") or {"command": command.get("command")}
+            self._show_command_ack(accepted, data)
+            if not accepted or not payload_label:
+                return
+            if not self._pending_payload_event.wait(timeout=wait_s):
+                print(f"{Fore.RED}timed out waiting for {payload_label}{Style.RESET_ALL}")
+                return
+            with self._pending_lock:
+                payload = self._pending_payload
+            if payload is not None:
+                if payload[0] == "commands/catalog":
+                    self._apply_catalog_payload(payload[1])
+                self._print_payload(payload[1], payload[0])
+        finally:
+            self._clear_pending_command()
 
     def start(self):
         print(f"{Fore.MAGENTA}{ASCII_BANNER}")
@@ -530,6 +816,7 @@ class EspectreMQTTShell:
             time.sleep(0.5)
             if self.discovery_active and not self.select_device():
                 return
+            self._request_command_catalog()
             print(f"\n{Fore.YELLOW}Type 'help' for commands, 'exit' to quit{Style.RESET_ALL}\n")
             print(f"{Fore.YELLOW}Tip: Use TAB for autocompletion, Ctrl+R to search history{Style.RESET_ALL}\n")
             while self.running:
@@ -554,84 +841,68 @@ class EspectreMQTTShell:
         parts = shlex.split(user_input)
         cmd = parts[0].lower()
         args = parts[1:]
-
-        if cmd in ["exit", "quit", "q"]:
-            self.running = False
-            return
-        if cmd in ["help", "h"]:
-            self.show_help()
-            return
-        if cmd in ["about", "a"]:
-            self.show_about()
-            return
-        if cmd in ["webui", "web"]:
-            open_web_ui()
-            return
-        if cmd in ["clear", "cls"]:
-            os.system("cls" if os.name == "nt" else "clear")
-            return
+        self._typed_line = user_input
 
         try:
-            if cmd in ["set_threshold", "st"]:
-                self.cmd_set_threshold(args)
-            elif cmd in ["info", "i"]:
-                self.send_command({"command": "info"})
-            elif cmd in ["stats", "s"]:
-                self.send_command({"command": "stats"})
-            elif cmd in ["ota_status", "os"]:
-                self.send_command({"command": "ota_status"})
-            elif cmd in ["ota_check", "oc"]:
-                self.cmd_ota_check(args)
-            elif cmd in ["ota_start", "ou"]:
-                self.cmd_ota_start(args)
-            else:
-                print(f"{Fore.RED}Unknown command: {cmd}{Style.RESET_ALL}")
+            if cmd in ["exit", "quit", "q"]:
+                self.running = False
+                return
+            if cmd in ["help", "h"]:
+                self.show_help()
+                return
+            if cmd in ["about", "a"]:
+                self.show_about()
+                return
+            if cmd in ["webui", "web"]:
+                open_web_ui()
+                return
+            if cmd in ["clear", "cls"]:
+                os.system("cls" if os.name == "nt" else "clear")
+                return
+
+            command_name = _SHELL_ALIASES.get(cmd, cmd)
+            payload, error = _mqtt_command_payload(command_name, args)
+            if payload is None:
+                print(f"{Fore.RED}{error}{Style.RESET_ALL}")
+                return
+            self.send_command(payload)
         except Exception as e:
             print(f"{Fore.RED}Error executing command: {e}{Style.RESET_ALL}")
-
-    def cmd_set_threshold(self, args):
-        if not args:
-            print(f"{Fore.RED}Usage: set_threshold <threshold>{Style.RESET_ALL}")
-            return
-        self.send_command({"command": "set_threshold", "threshold": float(args[0])})
-
-    def cmd_ota_check(self, args):
-        if args:
-            print(f"{Fore.RED}Usage: ota_check{Style.RESET_ALL}")
-            return
-        self.send_command({"command": "ota_check"})
-
-    def cmd_ota_start(self, args):
-        if args:
-            print(f"{Fore.RED}Usage: ota_start{Style.RESET_ALL}")
-            return
-        self.send_command({"command": "ota_start"})
+        finally:
+            self._typed_line = None
 
     def show_help(self):
-        help_text = HTML(
-            """
-<ansibrightcyan><b>ESPectre MQTT Shell Commands</b></ansibrightcyan>
-
-<ansiyellow><b>Configuration Commands:</b></ansiyellow>
-  <ansigreen>set_threshold|st</ansigreen> &lt;val&gt;               Set session threshold (0.0-1.0)
-
-<ansiyellow><b>System Commands:</b></ansiyellow>
-  <ansigreen>info|i</ansigreen>                              Show current configuration
-  <ansigreen>stats|s</ansigreen>                             Show runtime statistics (memory, loop time)
-  <ansigreen>ota_status|os</ansigreen>                       Show OTA state
-  <ansigreen>ota_check|oc</ansigreen>                        Check GitHub Releases for an update
-  <ansigreen>ota_start|ou</ansigreen>                        Install the update from GitHub Releases
-
-<ansiyellow><b>Utility Commands:</b></ansiyellow>
-  <ansigreen>webui|web</ansigreen>                           Open the MQTT web UI
-  <ansigreen>about|a</ansigreen>                             Show shell information
-  <ansigreen>clear|cls</ansigreen>                           Clear screen
-  <ansigreen>help|h</ansigreen>                              Show this help message
-  <ansigreen>exit|quit|q</ansigreen>                         Exit interactive mode
-"""
+        lines = [
+            "",
+            "<ansibrightcyan><b>ESPectre MQTT Shell</b></ansibrightcyan>",
+            "",
+            "MQTT commands are forwarded to the selected device. Unknown or unsupported commands are rejected by the device.",
+        ]
+        if self._device_commands:
+            lines.append("")
+            lines.append("<ansiyellow><b>Device commands</b></ansiyellow> (from MQTT <ansigreen>commands</ansigreen>):")
+            for name in self._device_commands:
+                aliases = [alias for alias, target in _SHELL_ALIASES.items() if target == name]
+                label = "|".join([name, *aliases])
+                lines.append(f"  <ansigreen>{label}</ansigreen>")
+            lines.append("")
+            lines.append("Write values after the command name: <ansigreen>ble on</ansigreen>, <ansigreen>st 0.35</ansigreen>, <ansigreen>set_motion_hits motion_on_hits=4 motion_off_hits=3</ansigreen>.")
+        else:
+            lines.append("")
+            lines.append("Device command names appear after the device answers MQTT <ansigreen>commands</ansigreen>.")
+        lines.extend(
+            [
+                "",
+                "<ansiyellow><b>Utility commands:</b></ansiyellow>",
+                "  <ansigreen>webui|web</ansigreen>                           Open the MQTT web UI",
+                "  <ansigreen>about|a</ansigreen>                             Show shell information",
+                "  <ansigreen>clear|cls</ansigreen>                           Clear screen",
+                "  <ansigreen>help|h</ansigreen>                              Show this help message",
+                "  <ansigreen>exit|quit|q</ansigreen>                         Exit interactive mode",
+            ]
         )
         print()
-        print_formatted_text(help_text)
+        print_formatted_text(HTML("\n".join(lines)))
         print()
 
     def show_about(self):

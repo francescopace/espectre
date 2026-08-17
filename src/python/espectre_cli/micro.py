@@ -49,6 +49,7 @@ MICRO_DEVICE_RELATIVE_FILES = [
     "segmentation.py",
     "detector_interface.py",
     "runtime_policy.py",
+    "runtime_diagnostics.py",
     "lightweight_detector.py",
     "high_accuracy_detector.py",
     "ml_weights.py",

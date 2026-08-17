@@ -14,7 +14,6 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <vector>
 
 #include "ble_protocol.h"
@@ -42,8 +41,6 @@ namespace espectre {
 namespace {
 
 static const char *const TAG = "espectre.native";
-constexpr uint8_t kTelemetryMotionStateIdle = 0;
-constexpr uint8_t kTelemetryMotionStateMotion = 1;
 constexpr const char *kHaOnlinePayload = "online";
 
 const char *motion_state_payload(MotionState state) {
@@ -126,6 +123,7 @@ void NativeFrontend::set_device_config(const EspectreDeviceConfig &config) {
                                                                                    : device_info_.chip.c_str());
     bindings_->set_device_name(device_name.c_str());
   }
+  refresh_ble_policy_();
 }
 
 void NativeFrontend::set_device_info(const EspectreDeviceInfo &info) {
@@ -140,6 +138,7 @@ void NativeFrontend::set_wifi_provisioning_info(const WifiProvisioningInfo &info
   if (client_connected_) {
     system_info_refresh_.request();
   }
+  refresh_ble_policy_();
 }
 
 void NativeFrontend::set_provisioning_command_callback(ProvisioningCommandCallback callback) {
@@ -165,14 +164,18 @@ bool NativeFrontend::setup() {
                                                                                  : device_info_.chip.c_str());
   bindings_->set_device_name(device_name.c_str());
   update_live_telemetry_enabled_();
-  if (!bindings_->setup()) {
-    ESP_LOGE(TAG, "BLE bindings setup failed");
-    return false;
+  if (ble_should_run_()) {
+    if (!start_ble_()) {
+      ESP_LOGE(TAG, "BLE bindings setup failed");
+      return false;
+    }
+  } else {
+    ESP_LOGI(TAG, "BLE idle: Wi-Fi and MQTT are configured; MQTT set_ble on to enter setup");
   }
 
   if (!runtime_.setup(this)) {
     ESP_LOGE(TAG, "ESPectre runtime setup failed");
-    bindings_->shutdown();
+    stop_ble_();
     return false;
   }
   const uint32_t diagnostics_now_ms = now_ms_();
@@ -195,8 +198,9 @@ bool NativeFrontend::setup() {
 
 void NativeFrontend::loop() {
   const int64_t loop_started_us = esp_timer_get_time();
+  apply_pending_ble_intent_();
   runtime_.loop();
-  if (bindings_ != nullptr) {
+  if (ble_active_ && bindings_ != nullptr) {
     bindings_->loop();
   }
   system_info_refresh_.flush_if([this]() { return this->client_connected_ && this->bindings_ != nullptr; },
@@ -221,9 +225,9 @@ void NativeFrontend::shutdown() {
   if (ota_service_ != nullptr) {
     ota_service_->shutdown();
   }
-  if (bindings_ != nullptr) {
-    bindings_->shutdown();
-  }
+  pending_ble_intent_ = BleIntent::Unchanged;
+  ble_forced_ = false;
+  stop_ble_();
   client_connected_ = false;
 }
 
@@ -303,16 +307,6 @@ void NativeFrontend::on_live_telemetry(float movement, float threshold) {
   if (runtime_.snapshot().ready_to_publish) {
     publish_ha_intensity_(movement, threshold);
   }
-  if (!client_connected_ || bindings_ == nullptr) {
-    return;
-  }
-
-  uint8_t payload[sizeof(float) * 2 + 1] = {0};
-  std::memcpy(payload, &movement, sizeof(float));
-  std::memcpy(payload + sizeof(float), &threshold, sizeof(float));
-  payload[sizeof(float) * 2] =
-      runtime_.snapshot().motion_state == MotionState::MOTION ? kTelemetryMotionStateMotion : kTelemetryMotionStateIdle;
-  bindings_->publish_telemetry(payload, sizeof(payload));
 }
 
 void NativeFrontend::on_runtime_fault(const char *message) {
@@ -379,90 +373,8 @@ bool NativeFrontend::handle_control_command_(const std::string &command) {
     }
     return accepted;
   }
-  if (command.rfind("SET_THRESHOLD:", 0) == 0) {
-    const char *value_str = command.c_str() + 14;
-    char *end_ptr = nullptr;
-    errno = 0;
-    const float threshold = strtof(value_str, &end_ptr);
-    const bool parse_ok = (end_ptr != value_str) && (end_ptr != nullptr) && (*end_ptr == '\0') &&
-                          (errno != ERANGE) && std::isfinite(threshold);
-    if (!parse_ok || !validate_runtime_threshold(threshold)) {
-      ESP_LOGW(TAG, "Invalid BLE threshold command: %s", command.c_str());
-      return false;
-    }
-    return handle_threshold_write_(threshold);
-  }
-  if (command.rfind("SET_MOTION_HITS:", 0) == 0) {
-    std::vector<std::pair<std::string, std::string>> pairs;
-    std::string error;
-    if (!parse_urlencoded_key_value_pairs(command.substr(16U), &pairs, &error)) {
-      ESP_LOGW(TAG, "Invalid BLE motion hits command: %s", command.c_str());
-      return false;
-    }
-    uint8_t motion_on_hits = 0U;
-    uint8_t motion_off_hits = 0U;
-    bool has_motion_on_hits = false;
-    bool has_motion_off_hits = false;
-    for (const auto &pair : pairs) {
-      if (pair.first == "on") {
-        char *end_ptr = nullptr;
-        errno = 0;
-        const unsigned long parsed = std::strtoul(pair.second.c_str(), &end_ptr, 10);
-        if (end_ptr == pair.second.c_str() || end_ptr == nullptr || *end_ptr != '\0' || errno == ERANGE ||
-            parsed > UINT8_MAX) {
-          return false;
-        }
-        motion_on_hits = static_cast<uint8_t>(parsed);
-        has_motion_on_hits = true;
-      } else if (pair.first == "off") {
-        char *end_ptr = nullptr;
-        errno = 0;
-        const unsigned long parsed = std::strtoul(pair.second.c_str(), &end_ptr, 10);
-        if (end_ptr == pair.second.c_str() || end_ptr == nullptr || *end_ptr != '\0' || errno == ERANGE ||
-            parsed > UINT8_MAX) {
-          return false;
-        }
-        motion_off_hits = static_cast<uint8_t>(parsed);
-        has_motion_off_hits = true;
-      }
-    }
-    if (!has_motion_on_hits || !has_motion_off_hits) {
-      ESP_LOGW(TAG, "Incomplete BLE motion hits command: %s", command.c_str());
-      return false;
-    }
-    return handle_motion_hits_write_(motion_on_hits, motion_off_hits);
-  }
-  if (command.rfind("SET_DETECTOR:", 0) == 0) {
-    const std::string detector = command.substr(13U);
-    if (detector != RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME &&
-        detector != RUNTIME_DETECTION_ALGORITHM_HIGH_ACCURACY_NAME) {
-      ESP_LOGW(TAG, "Invalid BLE detector command: %s", command.c_str());
-      return false;
-    }
-    return handle_detector_write_(parse_detection_algorithm(detector.c_str()));
-  }
-  if (command.rfind("SET_CSI_TRAFFIC_MODE:", 0) == 0) {
-    const std::string mode = command.substr(21U);
-    if (mode != RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME &&
-        mode != RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME &&
-        mode != RUNTIME_CSI_TRAFFIC_MODE_PACING_NAME &&
-        mode != RUNTIME_CSI_TRAFFIC_MODE_DISABLED_NAME) {
-      ESP_LOGW(TAG, "Invalid BLE CSI traffic mode command: %s", command.c_str());
-      return false;
-    }
-    return handle_csi_traffic_mode_write_(parse_csi_traffic_mode(mode.c_str()));
-  }
-  if (command.rfind("SET_TRAFFIC_GENERATOR_MODE:", 0) == 0) {
-    const std::string mode = command.substr(27U);
-    if (mode != RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME &&
-        mode != RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME) {
-      ESP_LOGW(TAG, "Invalid BLE traffic generator mode command: %s", command.c_str());
-      return false;
-    }
-    return handle_traffic_generator_mode_write_(parse_traffic_mode(mode.c_str()));
-  }
-  if (command == "RECALIBRATE") {
-    return handle_recalibration_write_();
+  if (command == "STOP_BLE") {
+    return handle_ble_mode_write_(false, nullptr);
   }
   if (command == "OTA_STATUS" || command == "OTA_CHECK" || command == "OTA_START") {
     return handle_ble_ota_command_(command.c_str() + 4);
@@ -473,6 +385,15 @@ bool NativeFrontend::handle_control_command_(const std::string &command) {
 }
 
 void NativeFrontend::handle_mqtt_command_(const std::string &payload) {
+  EspectreCommand ble_command;
+  std::string ble_parse_error;
+  if (parse_espectre_command(payload, &ble_command, &ble_parse_error) && ble_command.command == "set_ble") {
+    std::string message;
+    const bool accepted = handle_ble_mode_write_(ble_command.ble == "on", &message);
+    publish_mqtt_command_result_(ble_command, accepted, message.c_str());
+    return;
+  }
+
   const FrontendMqttCommandResult result = handle_frontend_mqtt_command(
       payload,
       ota_service_,
@@ -531,7 +452,8 @@ void NativeFrontend::handle_mqtt_command_(const std::string &payload) {
         }
         return accepted;
       },
-      [this](const EspectreOtaStatus &status) { this->publish_mqtt_ota_status_(status); });
+      [this](const EspectreOtaStatus &status) { this->publish_mqtt_ota_status_(status); },
+      [this]() { this->publish_mqtt_commands_(); });
   if (result.handled) {
     publish_mqtt_command_result_(result.command, result.accepted, result.message.c_str());
   }
@@ -749,22 +671,112 @@ void NativeFrontend::handle_ha_birth_message_(const std::string &topic, const st
 void NativeFrontend::handle_connection_state_(bool connected) {
   client_connected_ = connected;
   if (connected) {
-    telemetry_subscribed_ = false;
     system_info_refresh_.request();
   } else {
-    telemetry_subscribed_ = false;
+    if (provisioning_complete_()) {
+      ble_forced_ = false;
+      pending_ble_intent_ = BleIntent::Stop;
+    }
   }
+}
+
+bool NativeFrontend::provisioning_complete_() const {
+  return wifi_info_.has_saved_config && !device_config_.mqtt_host.empty();
+}
+
+bool NativeFrontend::ble_should_run_() const { return ble_forced_ || !provisioning_complete_(); }
+
+bool NativeFrontend::start_ble_() {
+  if (ble_active_) {
+    return true;
+  }
+  if (bindings_ == nullptr || !bindings_->setup()) {
+    return false;
+  }
+  ble_active_ = true;
+  runtime_.set_services_armed(false);
+  ESP_LOGI(TAG, "BLE setup mode; CSI paused");
+  return true;
+}
+
+void NativeFrontend::stop_ble_() {
+  if (!ble_active_) {
+    return;
+  }
+  if (bindings_ != nullptr) {
+    bindings_->shutdown();
+  }
+  ble_active_ = false;
+  client_connected_ = false;
   update_live_telemetry_enabled_();
+  if (wifi_info_.has_saved_config) {
+    runtime_.set_services_armed(true);
+  }
+  ESP_LOGI(TAG, "BLE stopped");
+}
+
+void NativeFrontend::refresh_ble_policy_() {
+  if (!runtime_.is_setup_complete()) {
+    return;
+  }
+  if (ble_should_run_()) {
+    pending_ble_intent_ = BleIntent::Start;
+    return;
+  }
+  if (ble_active_ && !client_connected_) {
+    pending_ble_intent_ = BleIntent::Stop;
+  }
+}
+
+void NativeFrontend::apply_pending_ble_intent_() {
+  const BleIntent intent = pending_ble_intent_;
+  pending_ble_intent_ = BleIntent::Unchanged;
+  if (intent == BleIntent::Start) {
+    if (!start_ble_()) {
+      ESP_LOGE(TAG, "BLE start failed");
+    }
+  } else if (intent == BleIntent::Stop) {
+    stop_ble_();
+  }
+}
+
+bool NativeFrontend::handle_ble_mode_write_(bool enable, std::string *message) {
+  if (enable) {
+    ble_forced_ = true;
+    pending_ble_intent_ = BleIntent::Start;
+    if (message != nullptr) {
+      *message = ble_active_ ? "ble already active" : "ble start requested";
+    }
+    return true;
+  }
+  if (!wifi_info_.has_saved_config) {
+    ESP_LOGW(TAG, "Refusing to stop BLE while Wi-Fi is unconfigured");
+    if (message != nullptr) {
+      *message = "cannot stop BLE while Wi-Fi is unconfigured";
+    }
+    return false;
+  }
+  if (device_config_.mqtt_host.empty()) {
+    ESP_LOGW(TAG, "Refusing to stop BLE while MQTT is unconfigured");
+    if (message != nullptr) {
+      *message = "cannot stop BLE while MQTT is unconfigured";
+    }
+    return false;
+  }
+  ble_forced_ = false;
+  pending_ble_intent_ = BleIntent::Stop;
+  if (message != nullptr) {
+    *message = "ble stop requested";
+  }
+  return true;
 }
 
 void NativeFrontend::handle_live_telemetry_subscription_(bool subscribed) {
-  telemetry_subscribed_ = subscribed;
-  update_live_telemetry_enabled_();
+  (void) subscribed;
 }
 
 void NativeFrontend::update_live_telemetry_enabled_() {
-  const bool ble_live = client_connected_ && telemetry_subscribed_;
-  runtime_.set_live_telemetry_enabled(ble_live || mqtt_ha_online_);
+  runtime_.set_live_telemetry_enabled(mqtt_ha_online_);
 }
 
 void NativeFrontend::setup_mqtt_() {
@@ -946,6 +958,18 @@ void NativeFrontend::publish_ha_state_(const RuntimeSnapshot &snapshot) {
 void NativeFrontend::publish_current_ha_state_() { publish_ha_state_(runtime_.snapshot()); }
 
 void NativeFrontend::publish_mqtt_info_() {
+  const EspectreDeviceInfo info = mqtt_protocol_device_info_();
+  (void) publish_frontend_mqtt_message(
+      mqtt_transport_, device_config_, "info", espectre_info_payload(device_config_, info), false);
+}
+
+void NativeFrontend::publish_mqtt_commands_() {
+  const EspectreDeviceInfo info = mqtt_protocol_device_info_();
+  (void) publish_frontend_mqtt_message(
+      mqtt_transport_, device_config_, "commands/catalog", espectre_commands_payload(device_config_, info), false);
+}
+
+EspectreDeviceInfo NativeFrontend::mqtt_protocol_device_info_() const {
   EspectreDeviceInfo info =
       normalize_protocol_device_info(device_info_, &runtime_.snapshot(), ota_service_ != nullptr, "native", CONFIG_IDF_TARGET);
   info.supports_info = true;
@@ -955,8 +979,11 @@ void NativeFrontend::publish_mqtt_info_() {
   info.supports_runtime_detector = runtime_.capabilities().supports_runtime_detector_selection;
   info.supports_manual_recalibration = runtime_.capabilities().supports_manual_recalibration;
   info.supports_traffic_control = runtime_.capabilities().supports_traffic_control;
-  (void) publish_frontend_mqtt_message(
-      mqtt_transport_, device_config_, "info", espectre_info_payload(device_config_, info), false);
+  info.supports_ble = true;
+  info.csi_traffic_mode = csi_traffic_mode_name(runtime_.config().csi_traffic_mode);
+  info.traffic_mode = traffic_mode_name(runtime_.config().traffic_generator_mode);
+  info.csi_target_pps = runtime_.config().csi_target_pps;
+  return info;
 }
 
 void NativeFrontend::publish_mqtt_status_(bool online) {
@@ -1029,12 +1056,12 @@ void NativeFrontend::send_system_info_() {
       SysinfoCapabilities{true,
                           true,
                           true,
-                          runtime_.capabilities().supports_runtime_threshold_updates,
-                          runtime_.capabilities().supports_runtime_motion_hits_updates,
-                          runtime_.capabilities().supports_runtime_detector_selection,
-                          runtime_.capabilities().supports_manual_recalibration,
-                          runtime_.capabilities().supports_traffic_control,
-                          runtime_.capabilities().supports_ble_telemetry,
+                          false,
+                          false,
+                          false,
+                          false,
+                          false,
+                          false,
                           runtime_.capabilities().supports_extended_diagnostics,
                           ota_service_ != nullptr,
                           ESPECTRE_WIFI_DUAL_BAND != 0},
@@ -1051,6 +1078,7 @@ void NativeFrontend::send_system_info_() {
           wifi_info_.band_policy,
       },
   });
+  lines.emplace_back(std::string("ble_active=") + (ble_active_ ? "true" : "false"));
   char line[96];
   visit_runtime_diagnostics(runtime_.config(), runtime_.snapshot(), [&line, &lines](const char *key, const char *value) {
     std::snprintf(line, sizeof(line), "%s=%s", key, value);

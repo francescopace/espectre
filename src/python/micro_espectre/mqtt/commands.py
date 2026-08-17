@@ -16,13 +16,50 @@ import sys
 try:
     from src.detector_interface import get_detector_algorithm
     from src.config import MOTION_HITS_MAX, MOTION_HITS_MIN
+    from src.runtime_diagnostics import apply_diagnostics_sample, wifi_rssi_dbm
 except ImportError:
     from detector_interface import get_detector_algorithm
     from config import MOTION_HITS_MAX, MOTION_HITS_MIN
+    from runtime_diagnostics import apply_diagnostics_sample, wifi_rssi_dbm
 
 # Threshold limits shared by the runtime detectors
 THRESHOLD_MIN = 0.0
 THRESHOLD_MAX = 1.0
+
+
+def _protocol_mqtt_commands(
+    supports_info=True,
+    supports_stats=False,
+    supports_runtime_threshold=False,
+    supports_runtime_motion_hits=False,
+    supports_runtime_detector=False,
+    supports_manual_recalibration=False,
+    supports_traffic_control=False,
+    supports_ble=False,
+    supports_ota=False,
+):
+    """Return the MQTT command names advertised by this frontend."""
+    commands = ["commands"]
+    if supports_info:
+        commands.append("info")
+    if supports_stats:
+        commands.append("stats")
+    if supports_runtime_threshold:
+        commands.append("set_threshold")
+    if supports_runtime_motion_hits:
+        commands.append("set_motion_hits")
+    if supports_runtime_detector:
+        commands.append("set_detector")
+    if supports_manual_recalibration:
+        commands.append("recalibrate")
+    if supports_traffic_control:
+        commands.append("set_csi_traffic_mode")
+        commands.append("set_traffic_generator_mode")
+    if supports_ble:
+        commands.append("set_ble")
+    if supports_ota:
+        commands.extend(["ota_status", "ota_check", "ota_start"])
+    return commands
 
 
 def _is_ascii_alnum(char):
@@ -84,7 +121,8 @@ class MQTTCommands:
                  ha_adapter=None,
                  recalibrate_callback=None,
                  traffic_control_callback=None,
-                 traffic_control_supported=False):
+                 traffic_control_supported=False,
+                 catalog_topic=None):
         """
         Initialize MQTT commands
         
@@ -108,6 +146,12 @@ class MQTTCommands:
         self.rejected_topic = rejected_topic
         self.info_topic = info_topic
         self.stats_topic = stats_topic
+        if catalog_topic:
+            self.catalog_topic = catalog_topic
+        elif info_topic.endswith("/info"):
+            self.catalog_topic = info_topic[: -len("/info")] + "/commands/catalog"
+        else:
+            self.catalog_topic = ""
         self.start_time = time.time()
         self.runtime_policy = runtime_policy
         self.ha_adapter = ha_adapter
@@ -197,9 +241,7 @@ class MQTTCommands:
             "supports_manual_recalibration": callable(self.recalibrate_callback),
             "supports_traffic_control": self.traffic_control_supported,
             "supports_ota": False,
-            "csi_traffic_mode": getattr(self.ha_adapter, "_last_csi_traffic_mode", "internal"),
-            "traffic_mode": getattr(self.ha_adapter, "_last_traffic_generator_mode", "ping"),
-            "csi_target_pps": max(1, int(getattr(self.config, "CSI_TARGET_PPS", 100))),
+            "supports_ble": False,
             "network": {
                 "ip_address": ip_address,
                 "mac_address": mac_address,
@@ -207,10 +249,33 @@ class MQTTCommands:
                     "primary": channel_primary
                 }
             },
-            "detection": self._get_detection_info()
+            "detection": self._get_detection_info(),
+            "csi_traffic_mode": getattr(self.ha_adapter, "_last_csi_traffic_mode", "internal"),
+            "traffic_mode": getattr(self.ha_adapter, "_last_traffic_generator_mode", "ping"),
+            "csi_target_pps": max(1, int(getattr(self.config, "CSI_TARGET_PPS", 100))),
         }
         
         self.publish_info_payload(response)
+
+    def cmd_commands(self):
+        """Publish the MQTT command catalog for this frontend."""
+        payload = {
+            "protocol_version": "1.0",
+            "device_id": self.config.MQTT_CLIENT_ID,
+            "commands": _protocol_mqtt_commands(
+                supports_info=True,
+                supports_stats=True,
+                supports_runtime_threshold=True,
+                supports_runtime_motion_hits=self.runtime_policy is not None,
+                supports_runtime_detector=False,
+                supports_manual_recalibration=callable(self.recalibrate_callback),
+                supports_traffic_control=self.traffic_control_supported,
+                supports_ble=False,
+                supports_ota=False,
+            ),
+        }
+        if self.catalog_topic:
+            self.mqtt.publish(self.catalog_topic, json.dumps(payload))
     
     def cmd_stats(self):
         """Get runtime statistics"""
@@ -233,7 +298,18 @@ class MQTTCommands:
             "free_memory_kb": free_mem_kb,
             "loop_time_ms": loop_time_ms,
         }
-        
+        wifi_channel = 0
+        cached = None
+        if self.global_state is not None:
+            wifi_channel = int(getattr(self.global_state, "current_channel", 0) or 0)
+            cached = getattr(self.global_state, "latest_diagnostics", None)
+        apply_diagnostics_sample(
+            response,
+            cached,
+            wifi_channel=wifi_channel,
+            rssi_dbm=wifi_rssi_dbm(self.wlan),
+        )
+
         self.publish_stats_payload(response)
     
     def cmd_set_threshold(self, cmd_obj):
@@ -299,7 +375,15 @@ class MQTTCommands:
             self.send_response("ERROR: Motion hit updates are unsupported", accepted=False, command_id=command_id, command=command)
             return
         if 'motion_on_hits' not in cmd_obj or 'motion_off_hits' not in cmd_obj:
-            self.send_response("ERROR: Missing motion hit fields", accepted=False, command_id=command_id, command=command)
+            self.send_response(
+                "ERROR: Missing motion hit fields (accepted: motion_on_hits and motion_off_hits in {}-{})".format(
+                    MOTION_HITS_MIN,
+                    MOTION_HITS_MAX,
+                ),
+                accepted=False,
+                command_id=command_id,
+                command=command,
+            )
             return
         try:
             motion_on_hits = int(cmd_obj['motion_on_hits'])
@@ -351,7 +435,12 @@ class MQTTCommands:
         command = cmd_obj.get('command', 'set_csi_traffic_mode')
         mode = str(cmd_obj.get('csi_traffic_mode', '')).strip().lower()
         if mode not in ("internal", "external", "pacing", "disabled"):
-            self.send_response("ERROR: Invalid CSI traffic mode", accepted=False, command_id=command_id, command=command)
+            self.send_response(
+                "ERROR: Invalid CSI traffic mode (accepted: internal, external, pacing, and disabled)",
+                accepted=False,
+                command_id=command_id,
+                command=command,
+            )
             return
         callback = self.traffic_control_callback
         if not self.traffic_control_supported or not callable(callback):
@@ -376,7 +465,12 @@ class MQTTCommands:
         command = cmd_obj.get('command', 'set_traffic_generator_mode')
         mode = str(cmd_obj.get('traffic_generator_mode', '')).strip().lower()
         if mode not in ("ping", "dns"):
-            self.send_response("ERROR: Invalid traffic generator mode", accepted=False, command_id=command_id, command=command)
+            self.send_response(
+                "ERROR: Invalid traffic generator mode (accepted: ping and dns)",
+                accepted=False,
+                command_id=command_id,
+                command=command,
+            )
             return
         callback = self.traffic_control_callback
         if not self.traffic_control_supported or not callable(callback):
@@ -420,6 +514,9 @@ class MQTTCommands:
             if command == 'info':
                 self.cmd_info()
                 self.send_response("info published", accepted=True, command_id=command_id, command=command)
+            elif command == 'commands':
+                self.cmd_commands()
+                self.send_response("commands published", accepted=True, command_id=command_id, command=command)
             elif command == 'stats':
                 self.cmd_stats()
                 self.send_response("stats published", accepted=True, command_id=command_id, command=command)

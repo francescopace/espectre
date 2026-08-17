@@ -1340,6 +1340,7 @@ class _FakeMQTTClient:
         self.raise_connect: Exception | None = None
         self.on_connect = None
         self.on_message = None
+        self.auto_ack = True
 
     def username_pw_set(self, username: str, password: str) -> None:
         self.username = username
@@ -1355,6 +1356,36 @@ class _FakeMQTTClient:
         if self.raise_publish:
             raise RuntimeError("publish failed")
         self.published.append((topic, payload))
+        if not self.auto_ack or self.on_message is None or not topic.endswith("/commands/request"):
+            return
+        data = json.loads(payload)
+        command = str(data.get("command") or "")
+        base = topic[: -len("/commands/request")]
+        self.on_message(
+            self,
+            None,
+            SimpleNamespace(
+                topic=f"{base}/commands/accepted",
+                payload=json.dumps(
+                    {
+                        "command_id": data.get("command_id", ""),
+                        "command": command,
+                        "accepted": True,
+                        "message": f"{command} published" if command else "ok",
+                    }
+                ).encode(),
+            ),
+        )
+        payload_suffix = {"info": "info", "stats": "stats", "ota_status": "ota/state", "commands": "commands/catalog"}.get(command)
+        if payload_suffix:
+            self.on_message(
+                self,
+                None,
+                SimpleNamespace(
+                    topic=f"{base}/{payload_suffix}",
+                    payload=b'{"device_id":"0x0000000000000001"}',
+                ),
+            )
 
     def connect(self, host: str, port: int, keepalive: int) -> None:
         if self.raise_connect is not None:
@@ -1420,6 +1451,10 @@ def test_mqtt_shell_initialization_and_connect_callbacks(monkeypatch, capsys) ->
     assert shell.topic_responses == [
         "espectre/v1/devices/0x0000000000000001/commands/accepted",
         "espectre/v1/devices/0x0000000000000001/commands/rejected",
+        "espectre/v1/devices/0x0000000000000001/commands/catalog",
+        "espectre/v1/devices/0x0000000000000001/info",
+        "espectre/v1/devices/0x0000000000000001/stats",
+        "espectre/v1/devices/0x0000000000000001/ota/state",
     ]
     assert client.username == "user"
     assert client.password == "pass"
@@ -1431,6 +1466,10 @@ def test_mqtt_shell_initialization_and_connect_callbacks(monkeypatch, capsys) ->
     assert client.subscriptions == [
         "espectre/v1/devices/0x0000000000000001/commands/accepted",
         "espectre/v1/devices/0x0000000000000001/commands/rejected",
+        "espectre/v1/devices/0x0000000000000001/commands/catalog",
+        "espectre/v1/devices/0x0000000000000001/info",
+        "espectre/v1/devices/0x0000000000000001/stats",
+        "espectre/v1/devices/0x0000000000000001/ota/state",
     ]
     assert "Connected to: broker.local:1883" in captured
     assert "Failed to connect, return code 5" in captured
@@ -1471,6 +1510,10 @@ def test_mqtt_shell_discovers_and_selects_device(monkeypatch, capsys) -> None:
         "espectre/v1/devices/+/status",
         "espectre/v1/devices/0x00000000000000aa/commands/accepted",
         "espectre/v1/devices/0x00000000000000aa/commands/rejected",
+        "espectre/v1/devices/0x00000000000000aa/commands/catalog",
+        "espectre/v1/devices/0x00000000000000aa/info",
+        "espectre/v1/devices/0x00000000000000aa/stats",
+        "espectre/v1/devices/0x00000000000000aa/ota/state",
     ]
     assert client.unsubscriptions == [
         "espectre/v1/devices/+/info",
@@ -1489,6 +1532,30 @@ def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> Non
     monkeypatch.setattr(mqtt_shell.os, "system", lambda cmd: cleared.append(cmd))
 
     shell.on_message(None, None, SimpleNamespace(payload=b'{"ok": true}'))
+    shell.on_message(
+        None,
+        None,
+        SimpleNamespace(
+            topic="espectre/v1/devices/0x0000000000000001/info",
+            payload=b'{"device_id":"0x0000000000000001","frontend":"native"}',
+        ),
+    )
+    shell.on_message(
+        None,
+        None,
+        SimpleNamespace(
+            topic="espectre/v1/devices/0x0000000000000001/commands/accepted",
+            payload=b'{"command":"info","accepted":true,"message":"info published"}',
+        ),
+    )
+    shell.on_message(
+        None,
+        None,
+        SimpleNamespace(
+            topic="espectre/v1/devices/0x0000000000000001/commands/rejected",
+            payload=b'{"command":"set_threshold","accepted":false,"message":"invalid threshold"}',
+        ),
+    )
     shell.on_message(None, None, SimpleNamespace(payload=b"not-json"))
     shell.send_command({"command": "info"})
     client.raise_publish = True
@@ -1502,6 +1569,10 @@ def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> Non
     shell.process_input("ota_status")
     shell.process_input("ota_check")
     shell.process_input("ota_start")
+    shell.process_input("ble on")
+    shell.process_input("ble off")
+    shell.process_input("ble")
+    shell.process_input("ble maybe")
     shell.process_input("ota_check unexpected")
     shell.process_input("ota_start unexpected")
     shell.process_input("webui")
@@ -1512,23 +1583,128 @@ def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> Non
     shell.process_input("exit")
 
     captured = capsys.readouterr().out
-    assert client.published[0] == (shell.topic_cmd, '{"command": "info"}')
-    assert client.published[1] == (shell.topic_cmd, '{"command": "info"}')
-    assert client.published[2] == (shell.topic_cmd, '{"command": "stats"}')
-    assert client.published[3] == (shell.topic_cmd, '{"command": "set_threshold", "threshold": 0.35}')
-    assert client.published[4] == (shell.topic_cmd, '{"command": "ota_status"}')
-    assert client.published[5] == (shell.topic_cmd, '{"command": "ota_check"}')
-    assert client.published[6] == (shell.topic_cmd, '{"command": "ota_start"}')
+    published = [json.loads(payload) for _, payload in client.published]
+    assert client.published[0][0] == shell.topic_cmd
+    assert [item["command"] for item in published] == [
+        "info",
+        "info",
+        "stats",
+        "set_threshold",
+        "ota_status",
+        "ota_check",
+        "ota_start",
+        "set_ble",
+        "set_ble",
+        "set_ble",
+        "set_ble",
+        "unknown",
+    ]
+    assert published[3]["threshold"] == 0.35
+    assert published[7]["ble"] == "on"
+    assert published[8]["ble"] == "off"
+    assert "ble" not in published[9]
+    assert published[10]["ble"] == "maybe"
     assert opened == ["web"]
     assert cleared == ["clear"]
     assert rendered
     assert "Received:" in captured
+    assert "Received on info:" in captured
+    assert "✓ info" in captured
+    assert "✗ set_threshold: invalid threshold" in captured
+    assert "Received on commands/accepted:" not in captured
+    assert "info published" not in captured
     assert "Error parsing message" in captured
     assert "Error sending command" in captured
-    assert "Unknown command: unknown" in captured
-    assert "Usage: ota_check" in captured
-    assert "Usage: ota_start" in captured
+    assert "Unknown command: unknown" not in captured
+    assert "unexpected argument: unexpected" in captured
     assert shell.running is False
+
+
+def test_mqtt_command_payload_parses_set_and_key_value_tokens() -> None:
+    payload, error = mqtt_shell._mqtt_command_payload("set_threshold", ["0.35"])
+    assert error is None
+    assert payload == {"command": "set_threshold", "threshold": 0.35}
+
+    payload, error = mqtt_shell._mqtt_command_payload("set_ble", ["on"])
+    assert error is None
+    assert payload == {"command": "set_ble", "ble": "on"}
+
+    payload, error = mqtt_shell._mqtt_command_payload(
+        "set_motion_hits",
+        ["motion_on_hits=4", "motion_off_hits=3"],
+    )
+    assert error is None
+    assert payload == {"command": "set_motion_hits", "motion_on_hits": 4, "motion_off_hits": 3}
+
+    payload, error = mqtt_shell._mqtt_command_payload("f", [])
+    assert error is None
+    assert payload == {"command": "f"}
+
+    payload, error = mqtt_shell._mqtt_command_payload("ota_check", ["unexpected"])
+    assert payload is None
+    assert error == "unexpected argument: unexpected"
+
+
+def test_mqtt_shell_builds_command_catalog_from_device_payloads(monkeypatch) -> None:
+    assert mqtt_shell._mqtt_commands_from_catalog({"commands": ["info", "set_ble"]}) == ["info", "set_ble"]
+
+    shell, _client, rendered = _build_shell(monkeypatch)
+    catalogs: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        mqtt_shell.NestedCompleter,
+        "from_nested_dict",
+        lambda data: catalogs.append(dict(data)) or object(),
+    )
+    shell._apply_catalog_payload({"commands": ["info", "set_ble", "commands"]})
+    assert shell._device_commands == ["info", "set_ble", "commands"]
+    assert catalogs[-1]["info"] is None
+    assert catalogs[-1]["ble"] is None
+    assert catalogs[-1]["help"] is None
+    assert "set_threshold" not in catalogs[-1]
+
+    shell.show_help()
+    help_arg = rendered[-1][0][0]
+    help_html = getattr(help_arg, "value", str(help_arg))
+    assert "set_ble" in help_html
+    assert "Device commands" in help_html
+    assert "ble on" in help_html
+    assert "key=value" not in help_html
+
+
+def test_mqtt_shell_annotates_typed_command_on_tty(monkeypatch) -> None:
+    shell, _client, _rendered = _build_shell(monkeypatch)
+    writes: list[str] = []
+    monkeypatch.setattr(shell, "_can_annotate_typed_command", lambda _typed: True)
+    monkeypatch.setattr(mqtt_shell.sys.stdout, "write", lambda text: writes.append(text) or len(text))
+    monkeypatch.setattr(mqtt_shell.sys.stdout, "flush", lambda: None)
+
+    shell.process_input("ble on")
+    output = "".join(writes)
+    assert "\033[A" in output or "\x1b[A" in output
+    assert "✓" in output
+    assert "✗" not in output
+
+
+def test_mqtt_shell_completes_when_reject_omits_command_id(monkeypatch, capsys) -> None:
+    shell, client, _rendered = _build_shell(monkeypatch)
+    client.auto_ack = False
+
+    def publish(topic: str, payload: str) -> None:
+        client.published.append((topic, payload))
+        client.on_message(
+            client,
+            None,
+            SimpleNamespace(
+                topic=topic.replace("/commands/request", "/commands/rejected"),
+                payload=b'{"command":"unknown","accepted":false,"message":"invalid ble mode"}',
+            ),
+        )
+
+    client.publish = publish
+    shell.process_input("ble")
+    captured = capsys.readouterr().out
+    assert "invalid ble mode" in captured
+    assert "timed out waiting for device" not in captured
 
 
 def test_mqtt_shell_start_handles_prompt_loop_and_shutdown(monkeypatch, capsys) -> None:
@@ -1543,7 +1719,8 @@ def test_mqtt_shell_start_handles_prompt_loop_and_shutdown(monkeypatch, capsys) 
     assert client.disconnected == 1
     assert "Type 'help' for commands" in captured
     assert "Exiting..." in captured
-    assert client.published == [(shell.topic_cmd, '{"command": "info"}')]
+    assert len(client.published) == 2
+    assert [json.loads(payload)["command"] for _, payload in client.published] == ["commands", "info"]
 
 
 def test_send_mqtt_command_and_wait_waits_for_suback(monkeypatch) -> None:

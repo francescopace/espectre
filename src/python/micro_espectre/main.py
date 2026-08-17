@@ -34,6 +34,11 @@ from src.detector_interface import (
     load_detector_class,
     normalize_detector_algorithm,
 )
+from src.runtime_diagnostics import (
+    RuntimeDiagnosticsSampler,
+    collect_runtime_diagnostics_snapshot,
+    wifi_rssi_dbm,
+)
 from src.traffic_rate_controller import CsiPacingHealthMonitor
 
 HIGH_ACCURACY_DEFAULT_THRESHOLD = 0.5
@@ -45,6 +50,7 @@ class GlobalState:
         self.loop_time_us = 0  # Last loop iteration time in microseconds
         self.chip_type = None  # Detected chip type (S3, C6, etc.)
         self.current_channel = 0  # Track WiFi channel for change detection
+        self.latest_diagnostics = None  # Cached MQTT stats CSI/Wi-Fi sample
 
 
 g_state = GlobalState()
@@ -760,6 +766,7 @@ def main():
         target_pps,
         getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000),
     )
+    diagnostics_sampler = RuntimeDiagnosticsSampler()
     pending_csi_data = bytearray(EXPECTED_CSI_LEN)
     emitted_csi_data = bytearray(EXPECTED_CSI_LEN)
     pending_timestamp_us = 0
@@ -806,6 +813,24 @@ def main():
                         effective_state=latest_effective_state,
                         progress=progress,
                     )
+                )
+                g_state.latest_diagnostics = diagnostics_sampler.sample(
+                    collect_runtime_diagnostics_snapshot(
+                        traffic_generator=traffic_gen,
+                        callback_total=callback_packet_count,
+                        accepted_total=processed_packet_count,
+                        admitted_total=temporal_sampler.accepted_packets,
+                        filtered_total=filtered_count + out_of_order_count,
+                        missing_slots_total=temporal_sampler.missing_slots,
+                        excess_total=temporal_sampler.excess_packets,
+                        stale_total=temporal_sampler.stale_packets,
+                        out_of_order_total=temporal_sampler.out_of_order_packets,
+                        occupancy_slots=temporal_sampler.occupancy_slots,
+                        window_slots=temporal_sampler.window_slots,
+                        wifi_channel=g_state.current_channel,
+                        rssi_dbm=wifi_rssi_dbm(wlan),
+                    ),
+                    current_time,
                 )
                 if mqtt_handler is not None:
                     mqtt_handler.publish_state(

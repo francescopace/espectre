@@ -10,12 +10,12 @@
 #include "test_harness.h"
 
 #include <algorithm>
-#include <cstring>
 #include <vector>
 
 #define private public
 #define protected public
 #include "native_frontend.h"
+#include "ble_recovery_button_service.h"
 #undef protected
 #undef private
 
@@ -42,12 +42,6 @@ RuntimeSnapshot make_ready_snapshot() {
   return snapshot;
 }
 
-float read_float_at(const std::vector<uint8_t> &payload, size_t offset) {
-  float value = 0.0f;
-  std::memcpy(&value, payload.data() + offset, sizeof(float));
-  return value;
-}
-
 bool has_mqtt_publish(const std::string &topic, const char *payload = nullptr) {
   return std::any_of(mqtt_transport_mock::state.publishes.begin(),
                      mqtt_transport_mock::state.publishes.end(),
@@ -57,6 +51,16 @@ bool has_mqtt_publish(const std::string &topic, const char *payload = nullptr) {
                        }
                        return payload == nullptr || publish.payload == payload;
                      });
+}
+
+int mqtt_publish_index(const std::string &topic) {
+  const auto &publishes = mqtt_transport_mock::state.publishes;
+  for (size_t i = 0; i < publishes.size(); ++i) {
+    if (publishes[i].topic == topic) {
+      return static_cast<int>(i);
+    }
+  }
+  return -1;
 }
 
 void drain_pending_sysinfo(NativeFrontend &frontend) {
@@ -87,6 +91,9 @@ void test_native_frontend_setup_registers_runtime_listener_and_bindings_callback
   TEST_ASSERT_TRUE(static_cast<bool>(ble_bindings_mock::state.connection_callback));
   TEST_ASSERT_TRUE(static_cast<bool>(ble_bindings_mock::state.control_callback));
   TEST_ASSERT_TRUE(static_cast<bool>(ble_bindings_mock::state.telemetry_subscription_callback));
+  TEST_ASSERT_EQUAL(1, ble_bindings_mock::state.setup_calls);
+  TEST_ASSERT_TRUE(frontend.ble_active());
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_live_telemetry_enabled_calls);
   TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
   TEST_ASSERT_EQUAL_FLOAT(3.25f, frontend.snapshot().threshold);
@@ -142,13 +149,22 @@ void test_native_frontend_connection_and_sysinfo_paths(void) {
                              "espectre_protocol_version=1.0") != ble_bindings_mock::state.sysinfo_lines.end());
   TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
                              ble_bindings_mock::state.sysinfo_lines.end(),
-                             "supports_runtime_motion_hits=true") != ble_bindings_mock::state.sysinfo_lines.end());
+                             "supports_runtime_threshold=false") != ble_bindings_mock::state.sysinfo_lines.end());
   TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
                              ble_bindings_mock::state.sysinfo_lines.end(),
-                             "supports_manual_recalibration=true") != ble_bindings_mock::state.sysinfo_lines.end());
+                             "supports_runtime_motion_hits=false") != ble_bindings_mock::state.sysinfo_lines.end());
   TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
                              ble_bindings_mock::state.sysinfo_lines.end(),
-                             "supports_traffic_control=true") != ble_bindings_mock::state.sysinfo_lines.end());
+                             "supports_runtime_detector=false") != ble_bindings_mock::state.sysinfo_lines.end());
+  TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
+                             ble_bindings_mock::state.sysinfo_lines.end(),
+                             "supports_manual_recalibration=false") != ble_bindings_mock::state.sysinfo_lines.end());
+  TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
+                             ble_bindings_mock::state.sysinfo_lines.end(),
+                             "supports_traffic_control=false") != ble_bindings_mock::state.sysinfo_lines.end());
+  TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
+                             ble_bindings_mock::state.sysinfo_lines.end(),
+                             "supports_live_telemetry=false") != ble_bindings_mock::state.sysinfo_lines.end());
   TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
                              ble_bindings_mock::state.sysinfo_lines.end(),
                              "supports_wifi_5ghz=false") != ble_bindings_mock::state.sysinfo_lines.end());
@@ -359,8 +375,19 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                  return publish.topic ==
                                             "homeassistant/switch/native_0x0000111122223333_calibrate/config" &&
                                         publish.retain &&
-                                        publish.payload.find("\"name\":\"Calibrate\"") != std::string::npos &&
+                                        publish.payload.find("\"name\":\"Trigger Calibration\"") != std::string::npos &&
                                         publish.payload.find("\"command_topic\"") != std::string::npos;
+                               }));
+  TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
+                               mqtt_transport_mock::state.publishes.end(),
+                               [](const mqtt_transport_mock::Publish &publish) {
+                                 return publish.topic ==
+                                            "homeassistant/select/native_0x0000111122223333_detector/config" &&
+                                        publish.retain &&
+                                        publish.payload.find("\"name\":\"Detection Profile\"") !=
+                                            std::string::npos &&
+                                        publish.payload.find("\"entity_category\":\"config\"") !=
+                                            std::string::npos;
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
@@ -377,9 +404,18 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                  return publish.topic ==
                                             "homeassistant/select/native_0x0000111122223333_traffic_generator_mode/config" &&
                                         publish.retain &&
-                                        publish.payload.find("\"name\":\"Traffic Generator\"") !=
+                                        publish.payload.find("\"name\":\"CSI Traffic Source\"") !=
                                             std::string::npos;
                                }));
+  const int csi_traffic_discovery = mqtt_publish_index(
+      "homeassistant/select/native_0x0000111122223333_csi_traffic_mode/config");
+  const int traffic_generator_discovery = mqtt_publish_index(
+      "homeassistant/select/native_0x0000111122223333_traffic_generator_mode/config");
+  const int calibrate_discovery =
+      mqtt_publish_index("homeassistant/switch/native_0x0000111122223333_calibrate/config");
+  TEST_ASSERT_TRUE(csi_traffic_discovery >= 0);
+  TEST_ASSERT_TRUE(csi_traffic_discovery < traffic_generator_discovery);
+  TEST_ASSERT_TRUE(traffic_generator_discovery < calibrate_discovery);
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
@@ -552,9 +588,6 @@ void test_native_frontend_mqtt_connect_enables_live_telemetry_without_ble(void) 
   TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
 
   mqtt.emit_connection(true);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.live_telemetry_enabled);
-
-  bindings.emit_connection(true);
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.live_telemetry_enabled);
 
   mqtt.emit_connection(false);
@@ -881,7 +914,7 @@ void test_native_frontend_mqtt_recalibrate_command_publishes_result(void) {
   TEST_ASSERT_TRUE(publish.payload.find("\"accepted\":true") != std::string::npos);
 }
 
-void test_native_frontend_ble_and_mqtt_detector_commands_update_runtime(void) {
+void test_native_frontend_mqtt_detector_command_updates_runtime(void) {
   MockBleBindings bindings;
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
@@ -894,22 +927,20 @@ void test_native_frontend_ble_and_mqtt_detector_commands_update_runtime(void) {
   frontend.set_runtime_config(runtime_config);
   TEST_ASSERT_TRUE(frontend.setup());
 
-  TEST_ASSERT_TRUE(frontend.handle_control_command_("SET_DETECTOR:high_accuracy"));
-  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_detector_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_detector == DetectionAlgorithm::HIGH_ACCURACY);
-  TEST_ASSERT_FALSE(frontend.handle_control_command_("SET_DETECTOR:pca"));
+  TEST_ASSERT_FALSE(frontend.handle_control_command_("SET_DETECTOR:high_accuracy"));
+  TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_detector_calls);
 
   mqtt_transport_mock::state.publishes.clear();
   mqtt.emit_command(
       "{\"command_id\":\"det-1\",\"command\":\"set_detector\",\"detector\":\"lightweight\"}");
-  TEST_ASSERT_EQUAL(2, frontend_runtime_shim::state.set_detector_calls);
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_detector_calls);
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_detector == DetectionAlgorithm::LIGHTWEIGHT);
   TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.back().payload.find("\"accepted\":true") !=
                    std::string::npos);
 }
 
-void test_native_frontend_ble_and_mqtt_motion_hits_commands_update_runtime(void) {
+void test_native_frontend_mqtt_motion_hits_command_updates_runtime(void) {
   MockBleBindings bindings;
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
@@ -922,16 +953,13 @@ void test_native_frontend_ble_and_mqtt_motion_hits_commands_update_runtime(void)
   frontend.set_runtime_config(runtime_config);
   TEST_ASSERT_TRUE(frontend.setup());
 
-  TEST_ASSERT_TRUE(frontend.handle_control_command_("SET_MOTION_HITS:on=6&off=4"));
-  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_motion_hits_calls);
-  TEST_ASSERT_EQUAL_UINT8(6U, frontend_runtime_shim::state.last_motion_on_hits);
-  TEST_ASSERT_EQUAL_UINT8(4U, frontend_runtime_shim::state.last_motion_off_hits);
-  TEST_ASSERT_FALSE(frontend.handle_control_command_("SET_MOTION_HITS:on=0&off=4"));
+  TEST_ASSERT_FALSE(frontend.handle_control_command_("SET_MOTION_HITS:on=6&off=4"));
+  TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_motion_hits_calls);
 
   mqtt_transport_mock::state.publishes.clear();
   mqtt.emit_command(
       "{\"command_id\":\"motion-1\",\"command\":\"set_motion_hits\",\"motion_on_hits\":5,\"motion_off_hits\":3}");
-  TEST_ASSERT_EQUAL(2, frontend_runtime_shim::state.set_motion_hits_calls);
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_motion_hits_calls);
   TEST_ASSERT_EQUAL_UINT8(5U, frontend_runtime_shim::state.last_motion_on_hits);
   TEST_ASSERT_EQUAL_UINT8(3U, frontend_runtime_shim::state.last_motion_off_hits);
   TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
@@ -939,16 +967,7 @@ void test_native_frontend_ble_and_mqtt_motion_hits_commands_update_runtime(void)
                    std::string::npos);
 }
 
-void test_native_frontend_ble_recalibrate_command_updates_runtime(void) {
-  MockBleBindings bindings;
-  NativeFrontend frontend(&bindings);
-  TEST_ASSERT_TRUE(frontend.setup());
-
-  TEST_ASSERT_TRUE(frontend.handle_control_command_("RECALIBRATE"));
-  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.trigger_recalibration_calls);
-}
-
-void test_native_frontend_ble_and_mqtt_traffic_commands_update_runtime(void) {
+void test_native_frontend_mqtt_traffic_commands_update_runtime(void) {
   MockBleBindings bindings;
   MockMqttTransport mqtt;
   EspectreDeviceConfig config;
@@ -961,25 +980,18 @@ void test_native_frontend_ble_and_mqtt_traffic_commands_update_runtime(void) {
   frontend.set_runtime_config(runtime_config);
   TEST_ASSERT_TRUE(frontend.setup());
 
-  TEST_ASSERT_TRUE(frontend.handle_control_command_("SET_CSI_TRAFFIC_MODE:external"));
-  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficMode::EXTERNAL);
-  TEST_ASSERT_FALSE(frontend.handle_control_command_("SET_CSI_TRAFFIC_MODE:bogus"));
-
-  TEST_ASSERT_TRUE(frontend.handle_control_command_("SET_TRAFFIC_GENERATOR_MODE:dns"));
-  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == RuntimeTrafficMode::DNS);
-  TEST_ASSERT_FALSE(frontend.handle_control_command_("SET_TRAFFIC_GENERATOR_MODE:udp"));
+  TEST_ASSERT_FALSE(frontend.handle_control_command_("SET_CSI_TRAFFIC_MODE:external"));
+  TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
 
   mqtt_transport_mock::state.publishes.clear();
   mqtt.emit_command(
       "{\"command_id\":\"traffic-1\",\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"pacing\"}");
-  TEST_ASSERT_EQUAL(2, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficMode::PACING);
 
   mqtt.emit_command(
       "{\"command_id\":\"traffic-2\",\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"ping\"}");
-  TEST_ASSERT_EQUAL(2, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == RuntimeTrafficMode::PING);
   TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.back().payload.find("\"accepted\":true") !=
@@ -1028,6 +1040,14 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
                    std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"supports_traffic_control\":true") !=
                    std::string::npos);
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"supports_ble\":true") !=
+                   std::string::npos);
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"csi_traffic_mode\":\"internal\"") !=
+                   std::string::npos);
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"traffic_mode\":\"ping\"") !=
+                   std::string::npos);
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"csi_target_pps\":100") !=
+                   std::string::npos);
   TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/commands/accepted",
                            mqtt_transport_mock::state.publishes[1].topic.c_str());
   TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/stats",
@@ -1050,6 +1070,13 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"movement\":") == std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"threshold\":") == std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"state\":") == std::string::npos);
+
+  mqtt.emit_command("{\"command_id\":\"cmd-commands\",\"command\":\"commands\"}");
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.size() >= 6);
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/commands/catalog",
+                           mqtt_transport_mock::state.publishes[4].topic.c_str());
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[4].payload.find("\"commands\":[") != std::string::npos);
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[4].payload.find("\"set_ble\"") != std::string::npos);
 }
 
 void test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state(void) {
@@ -1156,7 +1183,7 @@ void test_espectre_protocol_parses_config_and_rejects_bad_commands(void) {
   TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"set_threshold\",\"threshold\":\"bad\"}", &command, &error));
 }
 
-void test_native_frontend_control_commands_validate_and_update_runtime(void) {
+void test_native_frontend_ble_sensing_commands_are_rejected(void) {
   MockBleBindings bindings;
   NativeFrontend frontend(&bindings);
   TEST_ASSERT_TRUE(frontend.setup());
@@ -1164,44 +1191,24 @@ void test_native_frontend_control_commands_validate_and_update_runtime(void) {
   ble_bindings_mock::state.sysinfo_lines.clear();
 
   bindings.emit_control("REQ_SYSINFO");
-  TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_threshold_calls);
   drain_pending_sysinfo(frontend);
   TEST_ASSERT_TRUE(!ble_bindings_mock::state.sysinfo_lines.empty());
 
   ble_bindings_mock::state.sysinfo_lines.clear();
-  bindings.emit_control("SET_THRESHOLD:invalid");
-  bindings.emit_control("SET_THRESHOLD:42");
-  bindings.emit_control("SET_MOTION_HITS:on=6");
-  bindings.emit_control("SET_MOTION_HITS:on=0&off=4");
+  bindings.emit_control("SET_THRESHOLD:0.425");
+  bindings.emit_control("SET_MOTION_HITS:on=7&off=5");
+  bindings.emit_control("SET_DETECTOR:high_accuracy");
+  bindings.emit_control("SET_CSI_TRAFFIC_MODE:external");
+  bindings.emit_control("SET_TRAFFIC_GENERATOR_MODE:dns");
+  bindings.emit_control("RECALIBRATE");
   bindings.emit_control("UNKNOWN");
   TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_threshold_calls);
   TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_motion_hits_calls);
+  TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_detector_calls);
+  TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
+  TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
+  TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.trigger_recalibration_calls);
   TEST_ASSERT_EQUAL(0, static_cast<int>(ble_bindings_mock::state.sysinfo_lines.size()));
-
-  bindings.emit_control("SET_THRESHOLD:0.425");
-  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_threshold_calls);
-  TEST_ASSERT_EQUAL_FLOAT(0.425f, frontend_runtime_shim::state.last_threshold);
-  TEST_ASSERT_EQUAL_FLOAT(0.425f, frontend.runtime_.config().segmentation_threshold);
-
-  bindings.emit_control("SET_MOTION_HITS:on=7&off=5");
-  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_motion_hits_calls);
-  TEST_ASSERT_EQUAL_UINT8(7U, frontend_runtime_shim::state.last_motion_on_hits);
-  TEST_ASSERT_EQUAL_UINT8(5U, frontend_runtime_shim::state.last_motion_off_hits);
-  TEST_ASSERT_EQUAL_UINT8(7U, frontend.runtime_.config().motion_on_hits);
-  TEST_ASSERT_EQUAL_UINT8(5U, frontend.runtime_.config().motion_off_hits);
-
-  bindings.emit_control("SET_CSI_TRAFFIC_MODE:external");
-  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficMode::EXTERNAL);
-  TEST_ASSERT_TRUE(frontend.runtime_.config().csi_traffic_mode == CsiTrafficMode::EXTERNAL);
-
-  bindings.emit_control("SET_TRAFFIC_GENERATOR_MODE:dns");
-  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == RuntimeTrafficMode::DNS);
-  TEST_ASSERT_TRUE(frontend.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
-
-  bindings.emit_control("RECALIBRATE");
-  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.trigger_recalibration_calls);
 }
 
 void test_native_frontend_wifi_provisioning_commands_forward_to_callback(void) {
@@ -1235,7 +1242,7 @@ void test_native_frontend_wifi_provisioning_rejects_without_callback(void) {
   TEST_ASSERT_FALSE(frontend.handle_control_command_("SET_WIFI_CONFIG:ssid=Lab&password=secret&channel=6"));
 }
 
-void test_native_frontend_live_telemetry_is_encoded_with_optional_motion_state(void) {
+void test_native_frontend_does_not_publish_ble_live_telemetry(void) {
   MockBleBindings bindings;
   NativeFrontend frontend(&bindings);
   TEST_ASSERT_TRUE(frontend.setup());
@@ -1244,63 +1251,9 @@ void test_native_frontend_live_telemetry_is_encoded_with_optional_motion_state(v
   TEST_ASSERT_EQUAL(0, static_cast<int>(ble_bindings_mock::state.telemetry_events.size()));
 
   bindings.emit_connection(true);
-  frontend.on_live_telemetry(2.5f, 1.5f);
-  TEST_ASSERT_EQUAL(1, static_cast<int>(ble_bindings_mock::state.telemetry_events.size()));
-  const auto &initial_payload = ble_bindings_mock::state.telemetry_events[0].payload;
-  TEST_ASSERT_EQUAL(sizeof(float) * 2 + 1, static_cast<int>(initial_payload.size()));
-  TEST_ASSERT_EQUAL_FLOAT(2.5f, read_float_at(initial_payload, 0));
-  TEST_ASSERT_EQUAL_FLOAT(1.5f, read_float_at(initial_payload, sizeof(float)));
-  TEST_ASSERT_EQUAL_UINT8(0, initial_payload[sizeof(float) * 2]);
-
   bindings.emit_telemetry_subscription(true);
   frontend.on_live_telemetry(2.5f, 1.5f);
-  TEST_ASSERT_EQUAL(2, static_cast<int>(ble_bindings_mock::state.telemetry_events.size()));
-
-  RuntimeSnapshot motion_snapshot = make_ready_snapshot();
-  motion_snapshot.motion_state = MotionState::MOTION;
-  frontend.on_motion_state_changed(motion_snapshot);
-  frontend.on_live_telemetry(2.5f, 1.5f);
-  TEST_ASSERT_EQUAL(3, static_cast<int>(ble_bindings_mock::state.telemetry_events.size()));
-  const auto &first_payload = ble_bindings_mock::state.telemetry_events[2].payload;
-  TEST_ASSERT_EQUAL(sizeof(float) * 2 + 1, static_cast<int>(first_payload.size()));
-  TEST_ASSERT_EQUAL_FLOAT(2.5f, read_float_at(first_payload, 0));
-  TEST_ASSERT_EQUAL_FLOAT(1.5f, read_float_at(first_payload, sizeof(float)));
-  TEST_ASSERT_EQUAL_UINT8(1, first_payload[sizeof(float) * 2]);
-
-  bindings.emit_telemetry_subscription(false);
-  frontend.on_live_telemetry(3.0f, 2.0f);
-  TEST_ASSERT_EQUAL(4, static_cast<int>(ble_bindings_mock::state.telemetry_events.size()));
-
-  bindings.emit_telemetry_subscription(true);
-  frontend.on_live_telemetry(3.0f, 2.0f);
-  TEST_ASSERT_EQUAL(5, static_cast<int>(ble_bindings_mock::state.telemetry_events.size()));
-
-  RuntimeSnapshot idle_snapshot = make_ready_snapshot();
-  idle_snapshot.motion_state = MotionState::IDLE;
-  frontend.on_motion_state_changed(idle_snapshot);
-  frontend.on_live_telemetry(4.0f, 2.5f);
-  TEST_ASSERT_EQUAL(6, static_cast<int>(ble_bindings_mock::state.telemetry_events.size()));
-  const auto &second_payload = ble_bindings_mock::state.telemetry_events[5].payload;
-  TEST_ASSERT_EQUAL_UINT8(0, second_payload[sizeof(float) * 2]);
-}
-
-void test_native_frontend_live_telemetry_subscription_toggles_runtime_callback(void) {
-  MockBleBindings bindings;
-  NativeFrontend frontend(&bindings);
-  TEST_ASSERT_TRUE(frontend.setup());
-
-  TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
-
-  bindings.emit_connection(true);
-  TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
-
-  bindings.emit_telemetry_subscription(true);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.live_telemetry_enabled);
-
-  bindings.emit_telemetry_subscription(false);
-  TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
-
-  bindings.emit_connection(false);
+  TEST_ASSERT_EQUAL(0, static_cast<int>(ble_bindings_mock::state.telemetry_events.size()));
   TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
 }
 
@@ -1355,6 +1308,214 @@ void test_native_frontend_runtime_fault_is_reported_to_bindings(void) {
   TEST_ASSERT_EQUAL_STRING("wifi disconnected", ble_bindings_mock::state.faults[0].c_str());
 }
 
+void test_native_frontend_skips_ble_when_wifi_and_mqtt_are_configured(void) {
+  MockBleBindings bindings;
+  NativeFrontend frontend(&bindings);
+  EspectreDeviceConfig config;
+  config.mqtt_host = "broker.local";
+  frontend.set_device_config(config);
+  NativeFrontend::WifiProvisioningInfo wifi;
+  wifi.ssid = "Lab";
+  wifi.has_saved_config = true;
+  frontend.set_wifi_provisioning_info(wifi);
+
+  TEST_ASSERT_TRUE(frontend.setup());
+  TEST_ASSERT_EQUAL(0, ble_bindings_mock::state.setup_calls);
+  TEST_ASSERT_FALSE(frontend.ble_active());
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.services_armed);
+}
+
+void test_native_frontend_keeps_ble_when_wifi_is_saved_but_mqtt_is_missing(void) {
+  MockBleBindings bindings;
+  NativeFrontend frontend(&bindings);
+  NativeFrontend::WifiProvisioningInfo wifi;
+  wifi.ssid = "Lab";
+  wifi.has_saved_config = true;
+  frontend.set_wifi_provisioning_info(wifi);
+
+  TEST_ASSERT_TRUE(frontend.setup());
+  TEST_ASSERT_TRUE(frontend.ble_active());
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
+  TEST_ASSERT_FALSE(frontend.handle_control_command_("STOP_BLE"));
+  frontend.loop();
+  TEST_ASSERT_TRUE(frontend.ble_active());
+}
+
+void test_native_frontend_keeps_ble_when_mqtt_is_saved_but_wifi_is_missing(void) {
+  MockBleBindings bindings;
+  NativeFrontend frontend(&bindings);
+  EspectreDeviceConfig config;
+  config.mqtt_host = "broker.local";
+  frontend.set_device_config(config);
+
+  TEST_ASSERT_TRUE(frontend.setup());
+  TEST_ASSERT_TRUE(frontend.ble_active());
+  TEST_ASSERT_FALSE(frontend.handle_control_command_("STOP_BLE"));
+  frontend.loop();
+  TEST_ASSERT_TRUE(frontend.ble_active());
+}
+
+void test_native_frontend_stop_ble_is_rejected_until_wifi_is_configured(void) {
+  MockBleBindings bindings;
+  NativeFrontend frontend(&bindings);
+  TEST_ASSERT_TRUE(frontend.setup());
+  TEST_ASSERT_TRUE(frontend.ble_active());
+  TEST_ASSERT_FALSE(frontend.handle_control_command_("STOP_BLE"));
+  frontend.loop();
+  TEST_ASSERT_TRUE(frontend.ble_active());
+  TEST_ASSERT_EQUAL(0, ble_bindings_mock::state.shutdown_calls);
+}
+
+void test_native_frontend_keeps_ble_until_disconnect_after_provisioning(void) {
+  MockBleBindings bindings;
+  NativeFrontend frontend(&bindings);
+  EspectreDeviceConfig config;
+  config.mqtt_host = "broker.local";
+  frontend.set_device_config(config);
+  TEST_ASSERT_TRUE(frontend.setup());
+  bindings.emit_connection(true);
+
+  NativeFrontend::WifiProvisioningInfo wifi;
+  wifi.ssid = "Lab";
+  wifi.has_saved_config = true;
+  frontend.set_wifi_provisioning_info(wifi);
+  frontend.loop();
+  TEST_ASSERT_TRUE(frontend.ble_active());
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
+  TEST_ASSERT_EQUAL(0, ble_bindings_mock::state.shutdown_calls);
+
+  bindings.emit_connection(false);
+  frontend.loop();
+  TEST_ASSERT_FALSE(frontend.ble_active());
+  TEST_ASSERT_FALSE(frontend.client_connected());
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.services_armed);
+  TEST_ASSERT_EQUAL(1, ble_bindings_mock::state.shutdown_calls);
+}
+
+void test_native_frontend_mqtt_set_ble_starts_and_stop_ble_stops(void) {
+  MockBleBindings bindings;
+  MockMqttTransport mqtt;
+  EspectreDeviceConfig config;
+  config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_host = "localhost";
+  NativeFrontend frontend(&bindings, &mqtt);
+  frontend.set_device_config(config);
+  NativeFrontend::WifiProvisioningInfo wifi;
+  wifi.ssid = "Lab";
+  wifi.has_saved_config = true;
+  frontend.set_wifi_provisioning_info(wifi);
+  TEST_ASSERT_TRUE(frontend.setup());
+  TEST_ASSERT_FALSE(frontend.ble_active());
+
+  mqtt.emit_command("{\"command_id\":\"ble-1\",\"command\":\"set_ble\",\"ble\":\"on\"}");
+  frontend.loop();
+  TEST_ASSERT_TRUE(frontend.ble_active());
+  TEST_ASSERT_EQUAL(1, ble_bindings_mock::state.setup_calls);
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
+  TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.back().payload.find("\"accepted\":true") != std::string::npos);
+
+  TEST_ASSERT_TRUE(frontend.handle_control_command_("STOP_BLE"));
+  frontend.loop();
+  TEST_ASSERT_FALSE(frontend.ble_active());
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.services_armed);
+  TEST_ASSERT_EQUAL(1, ble_bindings_mock::state.shutdown_calls);
+
+  mqtt.emit_command("{\"command_id\":\"ble-2\",\"command\":\"set_ble\",\"ble\":\"off\"}");
+  frontend.loop();
+  TEST_ASSERT_FALSE(frontend.ble_active());
+
+  mqtt_transport_mock::state.publishes.clear();
+  mqtt.emit_command("{\"command_id\":\"ble-3\",\"command\":\"set_ble\"}");
+  TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
+  const std::string &reject = mqtt_transport_mock::state.publishes.back().payload;
+  TEST_ASSERT_TRUE(reject.find("\"accepted\":false") != std::string::npos);
+  TEST_ASSERT_TRUE(reject.find("\"command_id\":\"ble-3\"") != std::string::npos);
+  TEST_ASSERT_TRUE(reject.find("\"command\":\"set_ble\"") != std::string::npos);
+  TEST_ASSERT_TRUE(reject.find("invalid ble mode") != std::string::npos);
+}
+
+void test_native_frontend_clearing_wifi_starts_ble(void) {
+  MockBleBindings bindings;
+  NativeFrontend frontend(&bindings);
+  EspectreDeviceConfig config;
+  config.mqtt_host = "broker.local";
+  frontend.set_device_config(config);
+  NativeFrontend::WifiProvisioningInfo wifi;
+  wifi.ssid = "Lab";
+  wifi.has_saved_config = true;
+  frontend.set_wifi_provisioning_info(wifi);
+  TEST_ASSERT_TRUE(frontend.setup());
+  TEST_ASSERT_FALSE(frontend.ble_active());
+
+  wifi.ssid.clear();
+  wifi.has_saved_config = false;
+  frontend.set_wifi_provisioning_info(wifi);
+  frontend.loop();
+  TEST_ASSERT_TRUE(frontend.ble_active());
+  TEST_ASSERT_EQUAL(1, ble_bindings_mock::state.setup_calls);
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
+}
+
+void test_native_frontend_clearing_mqtt_starts_ble(void) {
+  MockBleBindings bindings;
+  NativeFrontend frontend(&bindings);
+  EspectreDeviceConfig config;
+  config.mqtt_host = "broker.local";
+  frontend.set_device_config(config);
+  NativeFrontend::WifiProvisioningInfo wifi;
+  wifi.ssid = "Lab";
+  wifi.has_saved_config = true;
+  frontend.set_wifi_provisioning_info(wifi);
+  TEST_ASSERT_TRUE(frontend.setup());
+  TEST_ASSERT_FALSE(frontend.ble_active());
+
+  config.mqtt_host.clear();
+  frontend.set_device_config(config);
+  frontend.loop();
+  TEST_ASSERT_TRUE(frontend.ble_active());
+  TEST_ASSERT_EQUAL(1, ble_bindings_mock::state.setup_calls);
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
+}
+
+void test_native_ble_recovery_button_requires_one_complete_long_press(void) {
+  unsigned callbacks = 0U;
+  BleRecoveryButtonService button(3000U, [&callbacks]() { ++callbacks; });
+
+  button.update(true, 100U);
+  button.update(true, 3099U);
+  TEST_ASSERT_EQUAL(0U, callbacks);
+  button.update(true, 3100U);
+  button.update(true, 8000U);
+  TEST_ASSERT_EQUAL(1U, callbacks);
+
+  button.update(false, 8001U);
+  button.update(true, UINT32_MAX - 1000U);
+  button.update(true, 1999U);
+  TEST_ASSERT_EQUAL(2U, callbacks);
+}
+
+void test_native_frontend_physical_recovery_starts_ble_and_pauses_sensing(void) {
+  MockBleBindings bindings;
+  NativeFrontend frontend(&bindings);
+  EspectreDeviceConfig config;
+  config.mqtt_host = "broker.local";
+  frontend.set_device_config(config);
+  NativeFrontend::WifiProvisioningInfo wifi;
+  wifi.ssid = "Lab";
+  wifi.has_saved_config = true;
+  frontend.set_wifi_provisioning_info(wifi);
+  TEST_ASSERT_TRUE(frontend.setup());
+  TEST_ASSERT_FALSE(frontend.ble_active());
+
+  frontend.request_ble_recovery();
+  frontend.loop();
+
+  TEST_ASSERT_TRUE(frontend.ble_active());
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
+  TEST_ASSERT_EQUAL(1, ble_bindings_mock::state.setup_calls);
+}
+
 int main(int argc, char **argv) {
   (void) argc;
   (void) argv;
@@ -1380,21 +1541,29 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_motion_edge_publishes_ready_mqtt_telemetry);
   RUN_TEST(test_native_frontend_mqtt_set_threshold_command_publishes_result);
   RUN_TEST(test_native_frontend_mqtt_recalibrate_command_publishes_result);
-  RUN_TEST(test_native_frontend_ble_and_mqtt_detector_commands_update_runtime);
-  RUN_TEST(test_native_frontend_ble_and_mqtt_motion_hits_commands_update_runtime);
-  RUN_TEST(test_native_frontend_ble_recalibrate_command_updates_runtime);
-  RUN_TEST(test_native_frontend_ble_and_mqtt_traffic_commands_update_runtime);
+  RUN_TEST(test_native_frontend_mqtt_detector_command_updates_runtime);
+  RUN_TEST(test_native_frontend_mqtt_motion_hits_command_updates_runtime);
+  RUN_TEST(test_native_frontend_mqtt_traffic_commands_update_runtime);
   RUN_TEST(test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads);
   RUN_TEST(test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state);
   RUN_TEST(test_native_frontend_ble_ota_commands_use_ota_service_and_refresh_sysinfo);
   RUN_TEST(test_espectre_protocol_parses_config_and_rejects_bad_commands);
-  RUN_TEST(test_native_frontend_control_commands_validate_and_update_runtime);
+  RUN_TEST(test_native_frontend_ble_sensing_commands_are_rejected);
   RUN_TEST(test_native_frontend_wifi_provisioning_commands_forward_to_callback);
   RUN_TEST(test_native_frontend_wifi_provisioning_rejects_without_callback);
-  RUN_TEST(test_native_frontend_live_telemetry_is_encoded_with_optional_motion_state);
-  RUN_TEST(test_native_frontend_live_telemetry_subscription_toggles_runtime_callback);
+  RUN_TEST(test_native_frontend_does_not_publish_ble_live_telemetry);
   RUN_TEST(test_native_frontend_threshold_and_calibration_callbacks_publish_sysinfo);
   RUN_TEST(test_native_frontend_motion_state_changes_do_not_publish_sysinfo);
   RUN_TEST(test_native_frontend_runtime_fault_is_reported_to_bindings);
+  RUN_TEST(test_native_frontend_skips_ble_when_wifi_and_mqtt_are_configured);
+  RUN_TEST(test_native_frontend_keeps_ble_when_wifi_is_saved_but_mqtt_is_missing);
+  RUN_TEST(test_native_frontend_keeps_ble_when_mqtt_is_saved_but_wifi_is_missing);
+  RUN_TEST(test_native_frontend_stop_ble_is_rejected_until_wifi_is_configured);
+  RUN_TEST(test_native_frontend_keeps_ble_until_disconnect_after_provisioning);
+  RUN_TEST(test_native_frontend_mqtt_set_ble_starts_and_stop_ble_stops);
+  RUN_TEST(test_native_frontend_clearing_wifi_starts_ble);
+  RUN_TEST(test_native_frontend_clearing_mqtt_starts_ble);
+  RUN_TEST(test_native_ble_recovery_button_requires_one_complete_long_press);
+  RUN_TEST(test_native_frontend_physical_recovery_starts_ble_and_pauses_sensing);
   return UNITY_END();
 }

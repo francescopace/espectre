@@ -367,14 +367,14 @@ CONFIG_SCHEMA = cv.Schema({
         ESpectreTrafficModeSelect,
         entity_category=ENTITY_CATEGORY_CONFIG,
     ),
-    cv.Optional(CONF_TRAFFIC_GENERATOR_MODE_SELECT, default={"name": "Traffic Generator"}): select.select_schema(
+    cv.Optional(CONF_TRAFFIC_GENERATOR_MODE_SELECT, default={"name": "CSI Traffic Source"}): select.select_schema(
         ESpectreTrafficModeSelect,
         entity_category=ENTITY_CATEGORY_CONFIG,
     ),
     
     # Switch control for manual recalibration from HA
     # ON = calibrating, OFF = idle. Switch auto-turns off when calibration completes.
-    cv.Optional(CONF_CALIBRATE_SWITCH, default={"name": "Calibrate"}): switch.switch_schema(
+    cv.Optional(CONF_CALIBRATE_SWITCH, default={"name": "Trigger Calibration"}): switch.switch_schema(
         ESpectreCalibrateSwitch,
         entity_category=ENTITY_CATEGORY_CONFIG,
     ),

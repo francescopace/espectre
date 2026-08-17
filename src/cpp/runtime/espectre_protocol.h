@@ -84,6 +84,8 @@ struct EspectreNetworkInfo {
  * The `supports_*` flags are how a client learns which controls to offer.
  * Derive them from `RuntimeCapabilities` rather than hardcoding, and let
  * `normalize_protocol_device_info()` fill the gaps from a snapshot.
+ * MQTT clients that need command names should request `commands` rather than
+ * reconstructing the list from these flags.
  */
 struct EspectreDeviceInfo {
   /** Frontend name, for example `"native"`, `"matter"`, or your own. */
@@ -102,6 +104,26 @@ struct EspectreDeviceInfo {
   bool supports_manual_recalibration{false};
   bool supports_traffic_control{false};
   bool supports_ota{false};
+  /** MQTT `set_ble` is honored. Native setup/recovery uses this; other frontends leave it false. */
+  bool supports_ble{false};
+  /**
+   * CSI traffic ownership mode: `"internal"`, `"external"`, `"pacing"`, or `"disabled"`.
+   *
+   * Omitted from `info` when empty. Sensing MQTT frontends that own traffic control fill it.
+   */
+  std::string csi_traffic_mode;
+  /**
+   * Internal traffic generator mode, such as `"ping"` or `"dns"`.
+   *
+   * Omitted from `info` when empty.
+   */
+  std::string traffic_mode;
+  /**
+   * Internal traffic generator and temporal-grid target rate, in packets per second.
+   *
+   * Omitted from `info` when zero.
+   */
+  uint32_t csi_target_pps{0U};
   EspectreNetworkInfo network{};
 };
 
@@ -128,6 +150,9 @@ struct EspectreCommand {
   bool has_traffic_generator_mode{false};
   std::string detector;
   bool has_detector{false};
+  /** BLE radio request for Native `set_ble`: `"on"` or `"off"`. */
+  std::string ble;
+  bool has_ble{false};
 };
 
 /**
@@ -223,8 +248,15 @@ void clear_espectre_mqtt_config(EspectreDeviceConfig *config);
 std::string espectre_topic(const EspectreDeviceConfig &config, const char *suffix);
 /** Availability payload. Publish it retained so late subscribers see it. */
 std::string espectre_status_payload(const EspectreDeviceConfig &config, bool online, uint32_t timestamp_ms);
-/** Device description and supported controls. Publish retained on connect. */
+/** Device description, supported controls, and optional CSI traffic settings. Publish retained on connect. */
 std::string espectre_info_payload(const EspectreDeviceConfig &config, const EspectreDeviceInfo &info);
+/**
+ * MQTT command catalog for the current frontend.
+ *
+ * Published on `commands/catalog` in response to `commands`. The list is
+ * derived from the same `supports_*` flags carried by `info`.
+ */
+std::string espectre_commands_payload(const EspectreDeviceConfig &config, const EspectreDeviceInfo &info);
 /** Motion state, metric, and threshold. The payload behind every motion update. */
 std::string espectre_telemetry_payload(const EspectreDeviceConfig &config,
                                     const RuntimeSnapshot &snapshot,

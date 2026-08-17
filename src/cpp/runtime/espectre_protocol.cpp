@@ -31,6 +31,38 @@ const char *motion_state_name(MotionState state) {
   return state == MotionState::MOTION ? "motion" : "idle";
 }
 
+void append_supported_command_names(std::string *out, const EspectreDeviceInfo &info) {
+  if (out == nullptr) {
+    return;
+  }
+  bool first = true;
+  const auto add = [&](bool enabled, const char *name) {
+    if (!enabled || name == nullptr) {
+      return;
+    }
+    if (!first) {
+      out->append(",");
+    }
+    first = false;
+    out->append("\"");
+    out->append(name);
+    out->append("\"");
+  };
+  add(true, "commands");
+  add(info.supports_info, "info");
+  add(info.supports_stats, "stats");
+  add(info.supports_runtime_threshold, "set_threshold");
+  add(info.supports_runtime_motion_hits, "set_motion_hits");
+  add(info.supports_runtime_detector, "set_detector");
+  add(info.supports_manual_recalibration, "recalibrate");
+  add(info.supports_traffic_control, "set_csi_traffic_mode");
+  add(info.supports_traffic_control, "set_traffic_generator_mode");
+  add(info.supports_ble, "set_ble");
+  add(info.supports_ota, "ota_status");
+  add(info.supports_ota, "ota_check");
+  add(info.supports_ota, "ota_start");
+}
+
 bool parse_float_value(const std::string &value, float *out) {
   if (out == nullptr || value.empty()) {
     return false;
@@ -235,9 +267,10 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
                                                        info.chip.empty() ? nullptr : info.chip.c_str());
   const std::string device_label = espectre_effective_device_label(config);
   std::string out;
-  out.reserve(192U + device_id.size() + device_name.size() + device_label.size() +
+  out.reserve(256U + device_id.size() + device_name.size() + device_label.size() +
               info.frontend.size() + info.firmware_version.size() + info.chip.size() +
-              info.network.ip_address.size() + info.network.mac_address.size() + info.detector.size());
+              info.network.ip_address.size() + info.network.mac_address.size() + info.detector.size() +
+              info.csi_traffic_mode.size() + info.traffic_mode.size());
   out = "{";
   append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
   append_json_pair(&out, "device_id", device_id.c_str());
@@ -262,6 +295,8 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
   out += info.supports_traffic_control ? "true" : "false";
   out += ",\"supports_ota\":";
   out += info.supports_ota ? "true" : "false";
+  out += ",\"supports_ble\":";
+  out += info.supports_ble ? "true" : "false";
 
   if (!info.network.ip_address.empty() || !info.network.mac_address.empty() || info.network.channel > 0U) {
     out += ",\"network\":{";
@@ -290,7 +325,30 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
     append_json_pair(&out, "algorithm", info.detector.c_str(), true);
     out += "}";
   }
+  if (!info.csi_traffic_mode.empty()) {
+    append_json_pair(&out, "csi_traffic_mode", info.csi_traffic_mode.c_str());
+  }
+  if (!info.traffic_mode.empty()) {
+    append_json_pair(&out, "traffic_mode", info.traffic_mode.c_str());
+  }
+  if (info.csi_target_pps > 0U) {
+    out += ",\"csi_target_pps\":";
+    out += std::to_string(static_cast<unsigned>(info.csi_target_pps));
+  }
   out += "}";
+  return out;
+}
+
+std::string espectre_commands_payload(const EspectreDeviceConfig &config, const EspectreDeviceInfo &info) {
+  const std::string device_id = espectre_effective_device_id(config);
+  std::string out;
+  out.reserve(160U + device_id.size());
+  out = "{";
+  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
+  append_json_pair(&out, "device_id", device_id.c_str());
+  out += ",\"commands\":[";
+  append_supported_command_names(&out, info);
+  out += "]}";
   return out;
 }
 
@@ -431,19 +489,20 @@ bool parse_espectre_command(const std::string &payload, EspectreCommand *command
   EspectreCommand parsed;
   parsed.command_id = extract_json_string(payload, "command_id");
   parsed.command = extract_json_string(payload, "command");
-  if (parsed.command.empty()) {
+  const auto reject = [&](const char *message) {
     if (error != nullptr) {
-      *error = "missing command";
+      *error = message;
     }
+    *command = parsed;
     return false;
+  };
+  if (parsed.command.empty()) {
+    return reject("missing command");
   }
   if (parsed.command == "set_threshold") {
     const std::string threshold_token = extract_json_number_token(payload, "threshold");
     if (!parse_float_value(threshold_token, &parsed.threshold)) {
-      if (error != nullptr) {
-        *error = "invalid threshold";
-      }
-      return false;
+      return reject("invalid threshold (accepted: 0.0-1.0)");
     }
     parsed.has_threshold = true;
   } else if (parsed.command == "set_motion_hits") {
@@ -451,10 +510,7 @@ bool parse_espectre_command(const std::string &payload, EspectreCommand *command
     const std::string motion_off_hits_token = extract_json_number_token(payload, "motion_off_hits");
     if (!parse_uint8_value(motion_on_hits_token, &parsed.motion_on_hits) ||
         !parse_uint8_value(motion_off_hits_token, &parsed.motion_off_hits)) {
-      if (error != nullptr) {
-        *error = "invalid motion hits";
-      }
-      return false;
+      return reject("invalid motion hits (accepted: motion_on_hits and motion_off_hits in 1-20)");
     }
     parsed.has_motion_hits = true;
   } else if (parsed.command == "set_csi_traffic_mode") {
@@ -463,43 +519,39 @@ bool parse_espectre_command(const std::string &payload, EspectreCommand *command
         parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME &&
         parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_PACING_NAME &&
         parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_DISABLED_NAME) {
-      if (error != nullptr) {
-        *error = "invalid csi traffic mode";
-      }
-      return false;
+      return reject("invalid csi traffic mode (accepted: internal, external, pacing, and disabled)");
     }
     parsed.has_csi_traffic_mode = true;
   } else if (parsed.command == "set_traffic_generator_mode") {
     parsed.traffic_generator_mode = extract_json_string(payload, "traffic_generator_mode");
     if (parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME &&
         parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME) {
-      if (error != nullptr) {
-        *error = "invalid traffic generator mode";
-      }
-      return false;
+      return reject("invalid traffic generator mode (accepted: ping and dns)");
     }
     parsed.has_traffic_generator_mode = true;
   } else if (parsed.command == "set_detector") {
     parsed.detector = extract_json_string(payload, "detector");
     if (parsed.detector != RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME &&
         parsed.detector != RUNTIME_DETECTION_ALGORITHM_HIGH_ACCURACY_NAME) {
-      if (error != nullptr) {
-        *error = "invalid detector";
-      }
-      return false;
+      return reject("invalid detector (accepted: lightweight and high_accuracy)");
     }
     parsed.has_detector = true;
   } else if (parsed.command == "recalibrate") {
     // No additional payload required.
+  } else if (parsed.command == "set_ble") {
+    parsed.ble = extract_json_string(payload, "ble");
+    if (parsed.ble != "on" && parsed.ble != "off") {
+      return reject("invalid ble mode (accepted: on and off)");
+    }
+    parsed.has_ble = true;
   } else if (parsed.command == "ota_check" || parsed.command == "ota_start") {
     if (has_json_key(payload, "manifest_url") || has_json_key(payload, "image_url") ||
         has_json_key(payload, "version")) {
-      if (error != nullptr) {
-        *error = "ota overrides are not supported";
-      }
-      return false;
+      return reject("ota overrides are not supported (manifest_url, image_url, and version are not accepted)");
     }
   } else if (parsed.command == "ota_status") {
+    // No additional payload required.
+  } else if (parsed.command == "info" || parsed.command == "stats" || parsed.command == "commands") {
     // No additional payload required.
   }
   *command = parsed;

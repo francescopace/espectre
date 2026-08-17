@@ -72,6 +72,7 @@ def _create_micro_src_tree(base_dir: Path) -> None:
         "segmentation.py",
         "detector_interface.py",
         "runtime_policy.py",
+        "runtime_diagnostics.py",
         "lightweight_detector.py",
         "high_accuracy_detector.py",
         "ml_weights.py",
@@ -325,12 +326,13 @@ def test_deploy_code_uploads_files_to_device(monkeypatch, tmp_path: Path) -> Non
     mkdir_calls = [cmd for cmd in calls if "mkdir" in cmd]
     cp_calls = [cmd for cmd in calls if "cp" in cmd]
     assert len(mkdir_calls) == 2
-    assert len(cp_calls) == 22
+    assert len(cp_calls) == len(micro.MICRO_DEVICE_RELATIVE_FILES)
     assert any(cmd[-1] == ":src/" for cmd in cp_calls)
     assert any(cmd[-1] == ":src/mqtt/" for cmd in cp_calls)
     assert any(cmd[-2].endswith("console_output.py") for cmd in cp_calls)
     assert any(cmd[-2].endswith("branding.py") for cmd in cp_calls)
     assert any(cmd[-2].endswith("lightweight_detector.py") for cmd in cp_calls)
+    assert any(cmd[-2].endswith("runtime_diagnostics.py") for cmd in cp_calls)
 
 
 def test_deploy_code_rejects_invalid_healthcheck(monkeypatch, tmp_path: Path) -> None:
@@ -454,7 +456,7 @@ def test_verify_installation_passes_when_all_checks_succeed(monkeypatch) -> None
         SimpleNamespace(stdout="(1, 24, 0)\n", stderr=""),
         SimpleNamespace(
                 stdout="['__init__.py', 'branding.py', 'config.py', 'config_local.py', 'device_utils.py', 'utils.py', 'threshold.py', 'filters.py', "
-            "'csi_features.py', 'segmentation.py', 'detector_interface.py', 'runtime_policy.py', 'lightweight_detector.py', "
+            "'csi_features.py', 'segmentation.py', 'detector_interface.py', 'runtime_policy.py', 'runtime_diagnostics.py', 'lightweight_detector.py', "
             "'high_accuracy_detector.py', 'ml_weights.py', 'traffic_generator.py', 'console_output.py', 'main.py', 'mqtt']\n",
             stderr="",
         ),

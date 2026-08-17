@@ -31,6 +31,7 @@ using FrontendMqttTrafficGeneratorModeCallback = std::function<bool(RuntimeTraff
 using FrontendMqttDetectorCallback = std::function<bool(DetectionAlgorithm algorithm, std::string *message)>;
 using FrontendMqttRecalibrateCallback = std::function<bool(std::string *message)>;
 using FrontendMqttOtaStatusCallback = std::function<void(const EspectreOtaStatus &status)>;
+using FrontendMqttCommandsCallback = std::function<void()>;
 
 struct FrontendMqttCommandCapabilities {
   bool supports_info{true};
@@ -90,6 +91,7 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
                                                        FrontendMqttTrafficGeneratorModeCallback traffic_generator_mode_callback,
                                                        FrontendMqttDetectorCallback detector_callback,
                                                        FrontendMqttRecalibrateCallback recalibrate_callback,
-                                                       FrontendMqttOtaStatusCallback ota_status_callback);
+                                                       FrontendMqttOtaStatusCallback ota_status_callback,
+                                                       FrontendMqttCommandsCallback commands_callback = {});
 
 }  // namespace espectre

@@ -175,7 +175,7 @@ std::string build_motion_hits_discovery_payload(const FrontendHaMqttSettings &se
 
 std::string build_calibrate_discovery_payload(const FrontendHaMqttSettings &settings, const EspectreDeviceInfo &info) {
   std::string out = "{";
-  append_json_pair(&out, "name", "Calibrate", true);
+  append_json_pair(&out, "name", "Trigger Calibration", true);
   append_json_pair(&out, "unique_id", settings.calibrate_object_id.c_str());
   append_json_pair(&out, "object_id", settings.calibrate_object_id.c_str());
   append_json_pair(&out, "state_topic", settings.calibrate_state_topic.c_str());
@@ -203,6 +203,7 @@ std::string build_detector_discovery_payload(const FrontendHaMqttSettings &setti
   out.push_back(',');
   append_json_string(&out, "high_accuracy");
   out.push_back(']');
+  append_json_pair(&out, "entity_category", "config");
   append_discovery_device(&out, settings, info);
   out.push_back('}');
   return out;
@@ -236,7 +237,7 @@ std::string build_csi_traffic_mode_discovery_payload(const FrontendHaMqttSetting
 std::string build_traffic_generator_mode_discovery_payload(const FrontendHaMqttSettings &settings,
                                                            const EspectreDeviceInfo &info) {
   std::string out = "{";
-  append_json_pair(&out, "name", "Traffic Generator", true);
+  append_json_pair(&out, "name", "CSI Traffic Source", true);
   append_json_pair(&out, "unique_id", settings.traffic_generator_mode_object_id.c_str());
   append_json_pair(&out, "object_id", settings.traffic_generator_mode_object_id.c_str());
   append_json_pair(&out, "state_topic", settings.traffic_generator_mode_state_topic.c_str());
@@ -345,10 +346,6 @@ std::vector<FrontendHaDiscoveryMessage> build_frontend_ha_discovery_messages(
         build_motion_hits_discovery_payload(settings, info, false),
     });
   }
-  messages.push_back(FrontendHaDiscoveryMessage{
-      build_discovery_topic("switch", settings.discovery_prefix, settings.calibrate_object_id),
-      build_calibrate_discovery_payload(settings, info),
-  });
   if (supports_detector) {
     messages.push_back(FrontendHaDiscoveryMessage{
         build_discovery_topic("select", settings.discovery_prefix, settings.detector_object_id),
@@ -365,6 +362,10 @@ std::vector<FrontendHaDiscoveryMessage> build_frontend_ha_discovery_messages(
         build_traffic_generator_mode_discovery_payload(settings, info),
     });
   }
+  messages.push_back(FrontendHaDiscoveryMessage{
+      build_discovery_topic("switch", settings.discovery_prefix, settings.calibrate_object_id),
+      build_calibrate_discovery_payload(settings, info),
+  });
   return messages;
 }
 

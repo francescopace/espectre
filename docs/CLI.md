@@ -236,12 +236,19 @@ It then:
 2. shows an interactive selection list
 3. falls back to manual device-id entry if nothing is discovered
 
-After selection, the shell binds to the chosen device command topics:
+After selection, the shell publishes commands to `commands/request` and subscribes to the matching response and payload topics:
 
 ```text
 espectre/v1/devices/{device_id}/commands/request
-espectre/v1/devices/{device_id}/commands/+
+espectre/v1/devices/{device_id}/commands/accepted
+espectre/v1/devices/{device_id}/commands/rejected
+espectre/v1/devices/{device_id}/commands/catalog
+espectre/v1/devices/{device_id}/info
+espectre/v1/devices/{device_id}/stats
+espectre/v1/devices/{device_id}/ota/state
 ```
+
+After selection the shell requests MQTT `commands` to populate help and tab completion from `commands/catalog`. `info`, `stats`, `ota_status`, and `commands` publish their payloads on those dedicated topics. Command ACKs annotate the typed prompt line with `✓` or `✗ reason` when the terminal allows it. Otherwise they appear on the next line. Payload topics are still dumped as YAML.
 
 This behavior is transport-level and is not specific to the MicroPython frontend; it also applies to other ESPectre devices that expose the same MQTT topic surface.
 
@@ -264,15 +271,9 @@ Examples:
 ./espectre mqtt --broker 192.168.1.20 --device-id native-lab
 ```
 
-The interactive shell also exposes the Native OTA commands:
+MQTT commands are forwarded to the selected device. The shell keeps only local utilities (`help`, `about`, `webui`, `clear`, and `exit`) plus a few aliases (`i`, `st`, `ble`, …). Help and tab completion use the device `commands` catalog when the device publishes one. Unknown or unsupported commands are rejected by the device with `✗ command: reason`. Write values after the command name (`ble on`, `set_threshold 0.35`). Multi-field writes use named tokens after the command (`set_motion_hits motion_on_hits=4 motion_off_hits=3`).
 
-```text
-ota_status
-ota_check
-ota_start
-```
-
-Stable Native firmware always uses its built-in latest-release GitHub manifest, while snapshot firmware always uses the rolling snapshot manifest. The command surface does not accept server, manifest, image, or version overrides. Frontends that report `supports_ota: false`, including Micro-ESPectre, reject these commands.
+`ble on` publishes MQTT `set_ble` with `ble=on` so a provisioned Native device advertises again. `ble off` stops BLE only when both Wi-Fi and MQTT are already stored. Stable Native firmware always uses its built-in latest-release GitHub manifest, while snapshot firmware always uses the rolling snapshot manifest. OTA payloads containing server, manifest, image, or version overrides are rejected by the device. Frontends that report `supports_ota: false`, including Micro-ESPectre, reject the OTA commands. Frontends without Native BLE lifecycle control reject `set_ble`.
 
 ### `ui`
 

@@ -285,26 +285,6 @@ class HomeAssistantMqttAdapter:
             motion_off_hits_payload,
             retain=True,
         )
-        calibrate_payload = dict(base)
-        calibrate_payload.update(
-            {
-                "name": "Calibrate",
-                "unique_id": self.calibrate_object_id,
-                "object_id": self.calibrate_object_id,
-                "state_topic": self.calibrate_state_topic,
-                "command_topic": self.calibrate_command_topic,
-                "payload_on": "ON",
-                "payload_off": "OFF",
-                "entity_category": "config",
-                "icon": "mdi:refresh",
-            }
-        )
-        self._publish_json(
-            client,
-            "{}/switch/{}/config".format(self.discovery_prefix, self.calibrate_object_id),
-            calibrate_payload,
-            retain=True,
-        )
         csi_traffic_mode_payload = dict(base)
         csi_traffic_mode_payload.update(
             {
@@ -327,7 +307,7 @@ class HomeAssistantMqttAdapter:
         traffic_generator_mode_payload = dict(base)
         traffic_generator_mode_payload.update(
             {
-                "name": "Traffic Generator",
+                "name": "CSI Traffic Source",
                 "unique_id": self.traffic_generator_mode_object_id,
                 "object_id": self.traffic_generator_mode_object_id,
                 "state_topic": self.traffic_generator_mode_state_topic,
@@ -341,6 +321,26 @@ class HomeAssistantMqttAdapter:
             client,
             "{}/select/{}/config".format(self.discovery_prefix, self.traffic_generator_mode_object_id),
             traffic_generator_mode_payload,
+            retain=True,
+        )
+        calibrate_payload = dict(base)
+        calibrate_payload.update(
+            {
+                "name": "Trigger Calibration",
+                "unique_id": self.calibrate_object_id,
+                "object_id": self.calibrate_object_id,
+                "state_topic": self.calibrate_state_topic,
+                "command_topic": self.calibrate_command_topic,
+                "payload_on": "ON",
+                "payload_off": "OFF",
+                "entity_category": "config",
+                "icon": "mdi:refresh",
+            }
+        )
+        self._publish_json(
+            client,
+            "{}/switch/{}/config".format(self.discovery_prefix, self.calibrate_object_id),
+            calibrate_payload,
             retain=True,
         )
 

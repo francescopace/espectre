@@ -137,9 +137,9 @@ espectre:
 | `motion_on_hits_number` | number | `Motion On Hits` | Runtime motion-on debounce count (1–20) |
 | `motion_off_hits_number` | number | `Motion Off Hits` | Runtime motion-off debounce count (1–20) |
 | `detector_select` | select | `Detection Profile` | Runtime `lightweight` / `high_accuracy` selection |
-| `calibrate_switch` | switch | `Calibrate` | Startup recalibration trigger |
 | `csi_traffic_mode_select` | select | `CSI Traffic Ownership` | Runtime `internal` / `external` / `pacing` / `disabled` selection |
-| `traffic_generator_mode_select` | select | `Traffic Generator` | Runtime `ping` / `dns` selection |
+| `traffic_generator_mode_select` | select | `CSI Traffic Source` | Runtime `ping` / `dns` selection |
+| `calibrate_switch` | switch | `Trigger Calibration` | Startup recalibration trigger |
 | `diagnostics_button` | button | `Refresh Diagnostics` | Publishes the latest cached diagnostic sample on demand |
 | `traffic_rate_sensor` | sensor | `Traffic TX Rate` | Diagnostic traffic rate |
 | `csi_callback_rate_sensor` | sensor | `CSI Callback Rate` | Raw CSI callback rate; diagnostic-only |
@@ -205,7 +205,7 @@ Once the device is flashed and connected to Wi-Fi:
 3. Configure the discovered device
 4. The default entities are added automatically
 
-The ESPHome frontend exposes movement, intensity, motion, threshold control, motion-hit debounce control, recalibration, CSI traffic ownership, and traffic generator selection as Home Assistant entities. Native MQTT Discovery publishes the same full sensing-control family, while Micro-ESPectre MQTT matches it except that CSI traffic ownership rejects `pacing`. Intensity updates on the detector evaluation cadence (default 250 ms). Movement Score remains on the heartbeat (default 1000 ms), Motion Detected publishes only on filtered state edges, Threshold and motion-hit controls publish on change, Calibrate reports ON while a recalibration session is running, and the traffic selects mirror runtime state on connect, Home Assistant birth, and each accepted change. If the Home Assistant recorder is a concern, exclude `sensor.*_intensity` rather than lowering `evaluation_interval_ms`.
+The ESPHome frontend exposes movement, intensity, motion, threshold control, motion-hit debounce control, recalibration, CSI traffic ownership, and traffic generator selection as Home Assistant entities. Native MQTT Discovery publishes the same full sensing-control family, while Micro-ESPectre MQTT matches it except that CSI traffic ownership rejects `pacing`. Intensity updates on the detector evaluation cadence (default 250 ms). Movement Score remains on the heartbeat (default 1000 ms), Motion Detected publishes only on filtered state edges, Threshold and motion-hit controls publish on change, Trigger Calibration reports ON while a recalibration session is running, and the traffic selects mirror runtime state on connect, Home Assistant birth, and each accepted change. If the Home Assistant recorder is a concern, exclude `sensor.*_intensity` rather than lowering `evaluation_interval_ms`.
 
 To manage configuration and OTA updates, install ESPHome Device Builder and adopt the discovered device. The adopted configuration compiles the component from the `git_ref` substitution, which defaults to `main` and therefore tracks the latest release, so the device follows each new release without manual edits.
 

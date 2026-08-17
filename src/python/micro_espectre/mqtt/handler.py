@@ -88,6 +88,7 @@ class MQTTHandler:
         self.status_topic = f"{self.base_topic}/status"
         self.info_topic = f"{self.base_topic}/info"
         self.stats_topic = f"{self.base_topic}/stats"
+        self.catalog_topic = f"{self.base_topic}/commands/catalog"
         self.cmd_topic = f"{self.base_topic}/commands/request"
         self.accepted_topic = f"{self.base_topic}/commands/accepted"
         self.rejected_topic = f"{self.base_topic}/commands/rejected"
@@ -201,6 +202,7 @@ class MQTTHandler:
             recalibrate_callback=self.request_recalibration,
             traffic_control_callback=self.set_traffic_control,
             traffic_control_supported=self.traffic_generator is not None,
+            catalog_topic=self.catalog_topic,
         )
         
         # Set callback for incoming messages

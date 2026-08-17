@@ -60,6 +60,7 @@ class NativeFrontend : public IRuntimeListener {
   const RuntimeCapabilities &capabilities() const { return runtime_.capabilities(); }
   bool is_setup_complete() const { return runtime_.is_setup_complete(); }
   bool client_connected() const { return client_connected_; }
+  bool ble_active() const { return ble_active_; }
 
  protected:
   void on_motion_state_changed(const RuntimeSnapshot &snapshot) override;
@@ -81,6 +82,13 @@ class NativeFrontend : public IRuntimeListener {
   bool handle_detector_write_(DetectionAlgorithm algorithm);
   bool handle_recalibration_write_();
   bool handle_ble_ota_command_(const char *command_name);
+  bool handle_ble_mode_write_(bool enable, std::string *message);
+  bool ble_should_run_() const;
+  bool provisioning_complete_() const;
+  bool start_ble_();
+  void stop_ble_();
+  void refresh_ble_policy_();
+  void apply_pending_ble_intent_();
   void handle_ha_birth_message_(const std::string &topic, const std::string &payload);
   void handle_ha_threshold_command_(const std::string &payload);
   void handle_ha_motion_hits_command_(bool motion_on, const std::string &payload);
@@ -105,6 +113,8 @@ class NativeFrontend : public IRuntimeListener {
   void publish_ha_state_(const RuntimeSnapshot &snapshot);
   void publish_current_ha_state_();
   void publish_mqtt_info_();
+  void publish_mqtt_commands_();
+  EspectreDeviceInfo mqtt_protocol_device_info_() const;
   void publish_mqtt_status_(bool online);
   void publish_mqtt_telemetry_(const RuntimeSnapshot &snapshot, uint32_t now_ms);
   void publish_mqtt_stats_();
@@ -130,8 +140,11 @@ class NativeFrontend : public IRuntimeListener {
   RuntimeDiagnosticsSampler diagnostics_sampler_;
   RuntimeDiagnosticsSample latest_diagnostics_{};
   bool client_connected_{false};
-  bool telemetry_subscribed_{false};
   bool mqtt_ha_online_{false};
+  bool ble_active_{false};
+  bool ble_forced_{false};
+  enum class BleIntent : uint8_t { Unchanged = 0, Start, Stop };
+  BleIntent pending_ble_intent_{BleIntent::Unchanged};
   float last_loop_time_ms_{0.0f};
 };
 

@@ -94,11 +94,14 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
                                                        FrontendMqttTrafficGeneratorModeCallback traffic_generator_mode_callback,
                                                        FrontendMqttDetectorCallback detector_callback,
                                                        FrontendMqttRecalibrateCallback recalibrate_callback,
-                                                       FrontendMqttOtaStatusCallback ota_status_callback) {
+                                                       FrontendMqttOtaStatusCallback ota_status_callback,
+                                                       FrontendMqttCommandsCallback commands_callback) {
   FrontendMqttCommandResult result;
   result.handled = true;
   if (!parse_espectre_command(payload, &result.command, &result.message)) {
-    result.command.command = "unknown";
+    if (result.command.command.empty()) {
+      result.command.command = "unknown";
+    }
     result.accepted = false;
     return result;
   }
@@ -112,6 +115,18 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
     info_callback();
     result.accepted = true;
     result.message = "info published";
+    return result;
+  }
+
+  if (result.command.command == "commands") {
+    if (!commands_callback) {
+      result.accepted = false;
+      result.message = "unsupported command";
+      return result;
+    }
+    commands_callback();
+    result.accepted = true;
+    result.message = "commands published";
     return result;
   }
 
@@ -135,7 +150,7 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
     }
     if (!result.command.has_threshold || !validate_runtime_threshold(result.command.threshold)) {
       result.accepted = false;
-      result.message = "invalid threshold";
+      result.message = "invalid threshold (accepted: 0.0-1.0)";
       return result;
     }
     result.accepted = threshold_callback(result.command.threshold, &result.message);
@@ -157,7 +172,7 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
         result.command.motion_off_hits < RUNTIME_MOTION_HITS_MIN ||
         result.command.motion_off_hits > RUNTIME_MOTION_HITS_MAX) {
       result.accepted = false;
-      result.message = "invalid motion hits";
+      result.message = "invalid motion hits (accepted: motion_on_hits and motion_off_hits in 1-20)";
       return result;
     }
     result.accepted =
@@ -176,7 +191,7 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
     }
     if (!result.command.has_csi_traffic_mode) {
       result.accepted = false;
-      result.message = "invalid csi traffic mode";
+      result.message = "invalid csi traffic mode (accepted: internal, external, pacing, and disabled)";
       return result;
     }
     result.accepted =
@@ -195,7 +210,7 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
     }
     if (!result.command.has_traffic_generator_mode) {
       result.accepted = false;
-      result.message = "invalid traffic generator mode";
+      result.message = "invalid traffic generator mode (accepted: ping and dns)";
       return result;
     }
     result.accepted = traffic_generator_mode_callback(parse_traffic_mode(result.command.traffic_generator_mode.c_str()),
@@ -214,7 +229,7 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
     }
     if (!result.command.has_detector) {
       result.accepted = false;
-      result.message = "invalid detector";
+      result.message = "invalid detector (accepted: lightweight and high_accuracy)";
       return result;
     }
     result.accepted = detector_callback(parse_detection_algorithm(result.command.detector.c_str()), &result.message);

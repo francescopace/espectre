@@ -173,6 +173,10 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   info.supports_manual_recalibration = true;
   info.supports_traffic_control = true;
   info.supports_ota = true;
+  info.supports_ble = true;
+  info.csi_traffic_mode = "internal";
+  info.traffic_mode = "ping";
+  info.csi_target_pps = 100U;
   info.network.ip_address = "192.168.1.10";
   info.network.mac_address = "AA:BB:CC:DD:EE:FF";
   info.network.channel = 6;
@@ -193,11 +197,22 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(payload.find("\"supports_manual_recalibration\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"supports_traffic_control\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"supports_ota\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"supports_ble\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"network\":{") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"ip_address\":\"192.168.1.10\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"channel\":{\"primary\":6}") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"detection\":{\"algorithm\":\"lightweight\"}") !=
                    std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"csi_traffic_mode\":\"internal\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"traffic_mode\":\"ping\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"csi_target_pps\":100") != std::string::npos);
+
+  const std::string catalog = espectre_commands_payload(config, info);
+  TEST_ASSERT_TRUE(catalog.find("\"device_id\":\"0x0000000000000001\"") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"commands\":[\"commands\",\"info\",\"stats\",\"set_threshold\","
+                                "\"set_motion_hits\",\"set_detector\",\"recalibrate\",\"set_csi_traffic_mode\","
+                                "\"set_traffic_generator_mode\",\"set_ble\",\"ota_status\",\"ota_check\","
+                                "\"ota_start\"]") != std::string::npos);
 }
 
 void test_info_payload_omits_optional_sections_when_empty(void) {
@@ -221,6 +236,13 @@ void test_info_payload_omits_optional_sections_when_empty(void) {
   TEST_ASSERT_TRUE(payload.find("\"chip\":\"unknown\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"network\":{") == std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"detection\":{") == std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"csi_traffic_mode\"") == std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"traffic_mode\"") == std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"csi_target_pps\"") == std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"supports_ble\":false") != std::string::npos);
+
+  const std::string catalog = espectre_commands_payload(config, info);
+  TEST_ASSERT_TRUE(catalog.find("\"commands\":[\"commands\",\"info\"]") != std::string::npos);
 }
 
 void test_command_result_payload_includes_acceptance_and_message(void) {
@@ -249,6 +271,9 @@ void test_parse_espectre_command_parses_info_and_threshold_commands(void) {
   TEST_ASSERT_EQUAL_STRING("x1", command.command_id.c_str());
   TEST_ASSERT_EQUAL_STRING("info", command.command.c_str());
   TEST_ASSERT_FALSE(command.has_threshold);
+
+  TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x-commands\",\"command\":\"commands\"}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("commands", command.command.c_str());
 
   TEST_ASSERT_TRUE(
       parse_espectre_command("{\"command_id\":\"x2\",\"command\":\"set_threshold\",\"threshold\":2.5}", &command, &error));
@@ -293,6 +318,12 @@ void test_parse_espectre_command_parses_info_and_threshold_commands(void) {
       &error));
   TEST_ASSERT_TRUE(command.has_traffic_generator_mode);
   TEST_ASSERT_EQUAL_STRING("dns", command.traffic_generator_mode.c_str());
+
+  TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x8\",\"command\":\"set_ble\",\"ble\":\"on\"}",
+                                          &command,
+                                          &error));
+  TEST_ASSERT_TRUE(command.has_ble);
+  TEST_ASSERT_EQUAL_STRING("on", command.ble.c_str());
 }
 
 void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(void) {
@@ -304,26 +335,34 @@ void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(v
 
   TEST_ASSERT_FALSE(
       parse_espectre_command("{\"command\":\"set_threshold\",\"threshold\":\"abc\"}", &command, &error));
-  TEST_ASSERT_EQUAL_STRING("invalid threshold", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("invalid threshold (accepted: 0.0-1.0)", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"set_threshold\",\"threshold\":1e999}", &command, &error));
-  TEST_ASSERT_EQUAL_STRING("invalid threshold", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("invalid threshold (accepted: 0.0-1.0)", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_command(
       "{\"command\":\"set_motion_hits\",\"motion_on_hits\":\"abc\",\"motion_off_hits\":2}", &command, &error));
-  TEST_ASSERT_EQUAL_STRING("invalid motion hits", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("invalid motion hits (accepted: motion_on_hits and motion_off_hits in 1-20)", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_command(
       "{\"command\":\"set_detector\",\"detector\":\"pca\"}", &command, &error));
-  TEST_ASSERT_EQUAL_STRING("invalid detector", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("invalid detector (accepted: lightweight and high_accuracy)", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_command(
       "{\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"bogus\"}", &command, &error));
-  TEST_ASSERT_EQUAL_STRING("invalid csi traffic mode", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("invalid csi traffic mode (accepted: internal, external, pacing, and disabled)", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_command(
       "{\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"udp\"}", &command, &error));
-  TEST_ASSERT_EQUAL_STRING("invalid traffic generator mode", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("invalid traffic generator mode (accepted: ping and dns)", error.c_str());
+
+  TEST_ASSERT_FALSE(parse_espectre_command("{\"command_id\":\"ble-1\",\"command\":\"set_ble\"}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("invalid ble mode (accepted: on and off)", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("ble-1", command.command_id.c_str());
+  TEST_ASSERT_EQUAL_STRING("set_ble", command.command.c_str());
+
+  TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"set_ble\",\"ble\":\"maybe\"}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("invalid ble mode (accepted: on and off)", error.c_str());
 
   TEST_ASSERT_TRUE(parse_espectre_command("{\"command\":\"ota_check\"}", &command, &error));
 
@@ -331,11 +370,13 @@ void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(v
 
   TEST_ASSERT_FALSE(parse_espectre_command(
       "{\"command\":\"ota_start\",\"image_url\":\"https://fw.example/native.bin\"}", &command, &error));
-  TEST_ASSERT_EQUAL_STRING("ota overrides are not supported", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("ota overrides are not supported (manifest_url, image_url, and version are not accepted)",
+                           error.c_str());
 
   TEST_ASSERT_FALSE(
       parse_espectre_command("{\"command\":\"ota_check\",\"manifest_url\":\"\"}", &command, &error));
-  TEST_ASSERT_EQUAL_STRING("ota overrides are not supported", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("ota overrides are not supported (manifest_url, image_url, and version are not accepted)",
+                           error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"info\"}", nullptr, &error));
 }

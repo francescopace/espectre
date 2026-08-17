@@ -10,7 +10,7 @@ This is an implementation reference for firmware, client, and integration develo
 
 - Derived telemetry only; raw CSI is not part of the normal protocol surface.
 - One message model, multiple transports.
-- BLE is for proximity, setup, recovery, and nearby diagnostics.
+- BLE is for proximity, setup, recovery, and nearby identity or status.
 - MQTT is the operational plane for telemetry, status, commands, dashboards, history, and alerts.
 - Web orchestration profiles add identity, credentials, tenancy, retention, and fleet management; they do not redefine device telemetry.
 - `device_id` is a logical protocol identifier. Current firmware derives it from the station MAC, so it must be treated as a persistent hardware identifier rather than anonymous data.
@@ -22,18 +22,19 @@ This is an implementation reference for firmware, client, and integration develo
 
 BLE is the proximity transport. It is used when a user is near a device or when network connectivity is not available.
 
+Native firmware treats BLE as a setup and recovery radio. It advertises automatically when Wi-Fi or MQTT is unconfigured, pauses CSI while BLE is up, and stops BLE after both are saved once the client disconnects or `STOP_BLE` is written. MQTT `set_ble` starts BLE again when the device is already on the network.
+
 Current BLE responsibilities:
 
 - advertise device availability
 - expose protocol and sysinfo notifications
-- publish live movement, threshold, and motion-state telemetry to subscribed nearby clients
 - expose the firmware-generated, read-only `device_id` and provision the mutable `device_label`
 - provision Wi-Fi credentials
 - provision MQTT endpoint settings
-- allow local threshold updates
-- allow local motion-hit debounce updates
 - trigger OTA status, checks, and updates through the shared HTTPS OTA service
 - recover from broken Wi-Fi or MQTT configuration
+
+Native does not expose live sensing, threshold or detector writes, CSI traffic control, or recalibration over BLE. Those commands stay on MQTT and Home Assistant Discovery. Sensing pauses while BLE is up. The product decision is recorded in [`2026-08-17-keep-native-ble-as-setup-recovery.md`](adr/2026-08-17-keep-native-ble-as-setup-recovery.md).
 
 Future BLE responsibilities:
 
@@ -41,7 +42,7 @@ Future BLE responsibilities:
 - Wi-Fi credential validation
 - web-service claim bootstrap
 - reboot or reconnect commands
-- structured command/result framing equivalent to MQTT commands
+- structured command/result framing for the setup commands above
 
 ### MQTT
 
@@ -54,6 +55,7 @@ espectre/v1/devices/{device_id}/telemetry
 espectre/v1/devices/{device_id}/status
 espectre/v1/devices/{device_id}/info
 espectre/v1/devices/{device_id}/stats
+espectre/v1/devices/{device_id}/commands/catalog
 espectre/v1/devices/{device_id}/ota/state
 espectre/v1/devices/{device_id}/commands/request
 espectre/v1/devices/{device_id}/commands/accepted
@@ -66,7 +68,7 @@ Managed-service MQTT should use TLS and per-device credentials. Local lab MQTT m
 
 Native and Micro-ESPectre can publish an additive Home Assistant MQTT Discovery surface without changing the canonical ESPectre topics above. Discovery payloads use the standard `{discovery_prefix}/{component}/{object_id}/config` topic shape. Native also retains its canonical `status` payload so late subscribers receive the current availability; entity-shaped state topics remain non-retained under `espectre/v1/devices/{device_id}/ha/...`.
 
-The HA adapter publishes sensing entities that match the ESPHome Home Assistant surface so one dashboard can be reused: Motion Detected on filtered state edges, Movement Score on the `publish_interval_ms` heartbeat, Intensity as a 0–100 percent gauge (`min(100, movement / threshold × 50)`, 50% at threshold) on the detector evaluation cadence, writable Threshold, Motion On Hits, and Motion Off Hits numbers, a Calibrate switch that starts startup recalibration, and CSI Traffic Ownership plus Traffic Generator selects where the frontend supports traffic control. Canonical `telemetry` JSON keeps `movement_score` and `threshold` and does not carry the intensity percent.
+The HA adapter publishes sensing entities that match the ESPHome Home Assistant surface so one dashboard can be reused: Motion Detected on filtered state edges, Movement Score on the `publish_interval_ms` heartbeat, Intensity as a 0–100 percent gauge (`min(100, movement / threshold × 50)`, 50% at threshold) on the detector evaluation cadence, writable Threshold, Motion On Hits, and Motion Off Hits numbers, a Detection Profile select where the frontend supports runtime detector switching, CSI Traffic Ownership plus CSI Traffic Source selects where the frontend supports traffic control, and a Trigger Calibration switch that starts startup recalibration. Canonical `telemetry` JSON keeps `movement_score` and `threshold` and does not carry the intensity percent.
 
 Both adapters subscribe to `homeassistant/status` and republish discovery when Home Assistant announces `online`; this birth message is a recovery trigger, not the only discovery bootstrap. Native derives availability from the retained canonical `status` payload and its retained Last Will, while Micro-ESPectre uses a plain `ha/availability` topic. The Native adapter is enabled in the published firmware defaults and can be disabled at build time; Micro-ESPectre keeps the adapter opt-in. See [`README.md`](../src/cpp/frontend/native/README.md) for Native and [`README.md`](../src/python/micro_espectre/README.md) for Micro-ESPectre entity surfaces and configuration options.
 
@@ -96,7 +98,7 @@ espectre/v1/devices/{device_id}/telemetry
 }
 ```
 
-Native MQTT telemetry uses a hybrid cadence. Filtered motion-state transitions are published immediately once `ready_to_publish` is true, while updates at the configured `publish_interval_ms` remain as a monotonic-clock heartbeat and current-metrics snapshot. Edge publishes occur only on state transitions, not on every detector evaluation, and heartbeat deadlines never force detector evaluation. Native BLE live telemetry remains opt-in and low-latency for nearby interactive clients.
+Native MQTT telemetry uses a hybrid cadence. Filtered motion-state transitions are published immediately once `ready_to_publish` is true, while updates at the configured `publish_interval_ms` remain as a monotonic-clock heartbeat and current-metrics snapshot. Edge publishes occur only on state transitions, not on every detector evaluation, and heartbeat deadlines never force detector evaluation. Native BLE does not carry live sensing telemetry.
 
 ### Status
 
@@ -142,6 +144,7 @@ espectre/v1/devices/{device_id}/info
   "supports_manual_recalibration": true,
   "supports_traffic_control": true,
   "supports_ota": true,
+  "supports_ble": true,
   "network": {
     "ip_address": "192.168.1.28",
     "mac_address": "7C:2C:67:42:BB:AC",
@@ -158,11 +161,17 @@ espectre/v1/devices/{device_id}/info
 }
 ```
 
-The `supports_*` fields are authoritative capability declarations for clients. Clients should not infer command support from `frontend`, telemetry fields, or other payload content. `network` and `detection` are optional. Local tools may display local IP and MAC values. Managed services should not collect local IP addresses, SSIDs, BSSIDs, access point MACs, or router identifiers by default.
+The `supports_*` fields are authoritative capability declarations for clients. Clients should not infer command support from `frontend`, telemetry fields, or other payload content. MQTT clients that need command names should send `commands` and read `commands/catalog` instead of reconstructing the list from these flags. `network` and `detection` are optional. `csi_traffic_mode`, `traffic_mode`, and `csi_target_pps` are included when the frontend owns CSI traffic configuration; omit them when those values are unset. Local tools may display local IP and MAC values. Managed services should not collect local IP addresses, SSIDs, BSSIDs, access point MACs, or router identifiers by default.
 
 ### Stats
 
-Published by Native only in response to an explicit `stats` command. Other clients may expose the same schema on request or at a low rate:
+Published on:
+
+```text
+espectre/v1/devices/{device_id}/stats
+```
+
+in response to an explicit `stats` command. Native and Micro include the CSI and Wi-Fi diagnostic fields below. A frontend that does not sample those counters omits the extra keys and keeps the shared core (`uptime`, `free_memory_kb`, `loop_time_ms`):
 
 ```json
 {
@@ -189,9 +198,51 @@ Published by Native only in response to an explicit `stats` command. Other clien
 
 Stats are diagnostic. Product dashboards should prefer telemetry/status/info for normal operation. When available, `free_memory_kb` reports current free heap and `loop_time_ms` reports the measured last loop-body cost in milliseconds, excluding the outer task sleep or idle delay. Motion state, movement score, threshold, detector selection, and turbulence belong to telemetry or live config/info surfaces instead of `stats`.
 
-Native always includes the CSI and Wi-Fi fields in a requested `stats` response. It derives rates from the cumulative counters whenever the existing periodic sensing update runs, caches that completed sample, and does not add a diagnostic timer or publish it periodically. `traffic_tx_pps` is the traffic-generator transmit rate; `csi_callback_pps` is the raw CSI callback rate; `csi_accepted_pps` is the identity-accepted rate; `csi_admitted_pps` is the detector input rate after temporal admission; `csi_filtered_pps` is the capture-filter drop rate; the temporal drop fields distinguish missing slots, same-slot excess, stale packets, and out-of-order packets; and `csi_occupancy` is the valid fraction of the active detector window. Occupancy is diagnostic telemetry and does not change the device send rate. The extra CSI fields are additive on protocol `1.0`; consumers may ignore unknown keys. The SDK sample uses `csi_occupancy_ratio` for the same occupancy value. Before the first periodic sensing update completes, rate fields are zero.
+Native and Micro always include the CSI and Wi-Fi fields in a requested `stats` response. Both derive rates from the cumulative counters whenever the existing periodic sensing update runs, cache that completed sample, and do not add a diagnostic timer or publish it periodically. `traffic_tx_pps` is the traffic-generator transmit rate; `csi_callback_pps` is the raw CSI callback rate; `csi_accepted_pps` is the identity-accepted rate; `csi_admitted_pps` is the detector input rate after temporal admission; `csi_filtered_pps` is the capture-filter drop rate; the temporal drop fields distinguish missing slots, same-slot excess, stale packets, and out-of-order packets; and `csi_occupancy` is the valid fraction of the active detector window. Occupancy is diagnostic telemetry and does not change the device send rate. The extra CSI fields are additive on protocol `1.0`; consumers may ignore unknown keys. The SDK sample uses `csi_occupancy_ratio` for the same occupancy value. Before the first periodic sensing update completes, rate fields are zero.
 
 ESPHome exposes the same cached measurements as diagnostic entities. Their states are published only when the `Refresh Diagnostics` button is pressed. These on-demand diagnostics are independent of the optional runtime debug logs.
+
+### Command catalog
+
+Published on:
+
+```text
+espectre/v1/devices/{device_id}/commands/catalog
+```
+
+in response to:
+
+```json
+{
+  "protocol_version": "1.0",
+  "command_id": "cmd-catalog",
+  "command": "commands"
+}
+```
+
+```json
+{
+  "protocol_version": "1.0",
+  "device_id": "0x00007c2c6742bbac",
+  "commands": [
+    "commands",
+    "info",
+    "stats",
+    "set_threshold",
+    "set_motion_hits",
+    "set_detector",
+    "recalibrate",
+    "set_csi_traffic_mode",
+    "set_traffic_generator_mode",
+    "set_ble",
+    "ota_status",
+    "ota_check",
+    "ota_start"
+  ]
+}
+```
+
+The list is derived from the same `supports_*` flags carried by `info`, plus `commands` itself. It is not retained. Clients should use it for help and completion instead of a local command allowlist. Firmware that does not implement `commands` rejects it, and clients should not reconstruct the list from `info`.
 
 ### Commands
 
@@ -299,6 +350,19 @@ Start OTA using the built-in manifest:
 
 Native firmware embeds a per-chip GitHub Releases manifest URL. OTA commands do not accept server, manifest, image, or version parameters; payloads containing those overrides are rejected. Stable firmware is pinned to the latest release channel, and snapshot firmware is pinned to the rolling snapshot release. Frontends advertise support through `supports_ota`; Micro-ESPectre does not implement OTA commands.
 
+Start or stop Native BLE setup mode. Sensing pauses while BLE is up. `off` is rejected until Wi-Fi is configured, so an unprovisioned device cannot drop its only setup radio:
+
+```json
+{
+  "protocol_version": "1.0",
+  "command_id": "cmd-ble-1",
+  "command": "set_ble",
+  "ble": "on"
+}
+```
+
+Accepted `ble` values are `on` and `off`. Micro-ESPectre rejects the command. After BLE starts, use Configure as usual; disconnecting or writing `STOP_BLE` stops the radio again when Wi-Fi and MQTT are already stored.
+
 Publish OTA state on:
 
 ```text
@@ -340,21 +404,16 @@ The current BLE firmware still carries setup commands as ASCII control writes:
 
 ```text
 REQ_SYSINFO
-SET_THRESHOLD:0.35
-SET_MOTION_HITS:on=4&off=3
-SET_DETECTOR:high_accuracy
-RECALIBRATE
-SET_CSI_TRAFFIC_MODE:external
-SET_TRAFFIC_GENERATOR_MODE:dns
-OTA_STATUS
-OTA_CHECK
-OTA_START
 SET_DEVICE_CONFIG:device_label=Living Room
 SET_MQTT_CONFIG:host=192.168.1.20&port=1883&username=mqtt&password=secret-password&topic_prefix=espectre%2Fv1%2Fdevices
 CLEAR_MQTT_CONFIG
 CLEAR_DEVICE_CONFIG
 SET_WIFI_CONFIG:ssid=Lab%20Network&password=secret-password&channel=6&bssid=aa%3Abb%3Acc%3Add%3Aee%3Aff&band_policy=2g
 CLEAR_WIFI
+OTA_STATUS
+OTA_CHECK
+OTA_START
+STOP_BLE
 ```
 
 This is the current BLE framing, not a separate protocol. A future BLE framing can become more structured while preserving the same ESPectre Protocol command families and semantics.
@@ -370,40 +429,16 @@ Identity/config semantics for the current BLE control surface:
 - `SET_WIFI_CONFIG:...` replaces the full persisted Wi-Fi station block in one write; credentials, BSSID, and channel changes apply immediately, while a changed `band_policy` applies after restart so the Wi-Fi and CSI runtimes restart together
 - `band_policy` accepts `2g`, `5g`, or `auto`; firmware rejects `5g` and `auto` unless the target reports `supports_wifi_5ghz=true`
 - `CLEAR_WIFI` clears only persisted Wi-Fi station settings
+- `STOP_BLE` stops BLE after Wi-Fi and MQTT are configured so CSI sensing can use the radio alone; it is rejected while either is unconfigured
 
-## Current BLE Telemetry Surface
+## Current BLE Status Surface
 
-The standalone native frontend currently exposes two data paths:
+The standalone native frontend exposes two GATT paths for setup:
 
-- a binary low-latency telemetry characteristic for interactive clients
-- a line-based `sysinfo` characteristic for configuration and diagnostics
+- a line-based `sysinfo` characteristic for identity, configuration, and read-only diagnostics
+- a control characteristic for Wi-Fi, MQTT, identity, OTA, and `STOP_BLE` writes
 
-Telemetry delivery is subscription-driven:
-
-- clients opt in by enabling notifications on the telemetry characteristic
-- clients may stop notifications when only provisioning or diagnostics are needed
-- when no client is subscribed, the standalone native frontend disables its live telemetry callback instead of continuing to generate BLE-only live telemetry
-- `sysinfo` and BLE control writes remain available even when live telemetry is not subscribed
-
-Current telemetry payload:
-
-```text
-[float32 movement][float32 threshold][uint8 motion_state?]
-```
-
-Field semantics:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `movement` | `float32` | Current movement metric |
-| `threshold` | `float32` | Current runtime threshold |
-| `motion_state` | `uint8` | Optional trailing state byte: `0 = idle`, `1 = motion` |
-
-Receiver notes:
-
-- the first 8 bytes carry the fixed header fields required by the current protocol
-- receivers may ignore trailing bytes they do not understand
-- clients that want live movement updates must explicitly subscribe to the telemetry characteristic
+The telemetry characteristic UUID remains in the GATT table so older discovery still succeeds. Native does not notify on it, and `supports_live_telemetry` is `false`. Clients should not subscribe for live movement.
 
 Sysinfo framing remains:
 
@@ -413,7 +448,7 @@ key=value
 END
 ```
 
-`sysinfo` is intended for readable configuration and diagnostics, not for the highest-rate live state transport. Runtime `motion_state` is therefore carried in telemetry, not as a `sysinfo` key.
+`sysinfo` is a readable setup and status snapshot, not a live sensing transport. Runtime `motion_state` belongs on MQTT telemetry.
 
 Current BLE `sysinfo` identity/config keys include:
 
@@ -441,15 +476,16 @@ Capability-oriented `sysinfo` keys may include:
 | `supports_wifi_provisioning` | Whether BLE clients can edit and apply Wi-Fi settings |
 | `supports_mqtt_config` | Whether BLE clients can edit MQTT broker settings |
 | `supports_device_config` | Whether BLE clients can edit device identity settings |
-| `supports_runtime_threshold` | Whether BLE clients can change the live motion threshold |
-| `supports_runtime_motion_hits` | Whether BLE clients can change the persisted motion-on/off hit thresholds |
-| `supports_runtime_detector` | Whether BLE clients can select and persist `lightweight` or `high_accuracy` |
-| `supports_manual_recalibration` | Whether BLE clients can request a runtime recalibration action |
-| `supports_traffic_control` | Whether BLE clients can change CSI traffic ownership and generator type |
-| `supports_live_telemetry` | Whether BLE telemetry notifications are exposed |
+| `supports_runtime_threshold` | Native reports `false`; threshold writes belong to MQTT |
+| `supports_runtime_motion_hits` | Native reports `false`; motion-hit writes belong to MQTT |
+| `supports_runtime_detector` | Native reports `false`; detector selection belongs to MQTT |
+| `supports_manual_recalibration` | Native reports `false`; recalibration belongs to MQTT |
+| `supports_traffic_control` | Native reports `false`; CSI traffic writes belong to MQTT |
+| `supports_live_telemetry` | Native reports `false`; BLE does not notify live sensing |
 | `supports_extended_diagnostics` | Whether implementation-specific runtime diagnostics are exposed |
 | `supports_ota` | Whether BLE clients can expose OTA-related controls |
 | `supports_wifi_5ghz` | Whether the target radio can accept the `5g` and `auto` Wi-Fi band policies |
+| `ble_active` | Whether Native currently has the BLE stack up |
 
 Current BLE `sysinfo` diagnostic keys may include:
 
@@ -477,15 +513,15 @@ Current BLE `sysinfo` diagnostic keys may include:
 | `ota_target_version` | Version reported by the pending OTA target, when known |
 | `ota_message` | OTA progress or error message |
 
-These diagnostic keys are intentionally more implementation-oriented than the identity/config keys above. Nearby tools may display them, but clients should not treat the full diagnostic set or its formatting as a stable contract.
+These diagnostic keys are intentionally more implementation-oriented than the identity/config keys above. Nearby tools may display them, but clients should not treat the full diagnostic set or its formatting as a stable contract. BLE sysinfo reports the current detector settings as status; changing them requires MQTT.
 
-Wi-Fi provisioning values are persisted in NVS by ESP-IDF firmware targets that use the shared provisioning service. `SET_WIFI_CONFIG:...` saves the full Wi-Fi block. Credential, BSSID, and channel changes update the station configuration and reconnect Wi-Fi without restarting the BLE transport. A changed `band_policy` is saved but takes effect after restart, because Wi-Fi association and the CSI runtime must start with the same policy. `CLEAR_WIFI` erases provisioned values and disconnects the station without rebooting unless it also restores a different build-default band policy, which likewise takes effect after restart. The standalone BLE firmware uses this surface for its full runtime frontend.
+Wi-Fi provisioning values are persisted in NVS by ESP-IDF firmware targets that use the shared provisioning service. `SET_WIFI_CONFIG:...` saves the full Wi-Fi block. Credential, BSSID, and channel changes update the station configuration and reconnect Wi-Fi without restarting the BLE transport. A changed `band_policy` is saved but takes effect after restart, because Wi-Fi association and the CSI runtime must start with the same policy. `CLEAR_WIFI` erases provisioned values and disconnects the station without rebooting unless it also restores a different build-default band policy, which likewise takes effect after restart.
 
 MQTT settings are also persisted in NVS as one block. `SET_MQTT_CONFIG:...` replaces the saved MQTT broker settings and reinitializes the active MQTT transport. `CLEAR_MQTT_CONFIG` erases only the saved MQTT broker settings, stops any active MQTT client, and preserves the current device identity. `CLEAR_DEVICE_CONFIG` resets the persisted `device_label` to its build default, clears MQTT settings, stops the active MQTT client, and keeps the firmware-generated `device_id`; a later `SET_DEVICE_CONFIG` command can change only the label.
 
 ## Deployment Profiles
 
-ESPectre Protocol can be carried by multiple deployment profiles. The currently implemented profile is the local lab path: BLE provisioning and diagnostics via [Configure](https://espectre.dev/configure/), plus telemetry inspection through the [MQTT Monitor](https://espectre.dev/monitor/). The same pages are served from localhost by `./espectre ui` when an insecure local `ws://` listener cannot be reached reliably from the public HTTPS site.
+ESPectre Protocol can be carried by multiple deployment profiles. The currently implemented profile is the local lab path: BLE provisioning via [Configure](https://espectre.dev/configure/), plus telemetry inspection through the [MQTT Monitor](https://espectre.dev/monitor/). The same pages are served from localhost by `./espectre ui` when an insecure local `ws://` listener cannot be reached reliably from the public HTTPS site.
 
 Web orchestration profiles add identity, tenancy, device claim, state mirrors, history, alerts, and OTA around the same protocol. Those system-level concerns belong to [ARCHITECTURE.md](ARCHITECTURE.md), not to this message schema.
 
@@ -519,4 +555,4 @@ Movement history can reveal occupancy habits, sleep patterns, and absences from 
 
 ## Protocol Improvements
 
-- Evaluate structured BLE command formats such as JSON, TLV, CBOR, or compact binary framing instead of ad hoc ASCII strings
+- Evaluate structured BLE command formats such as JSON, TLV, CBOR, or compact binary framing instead of ad hoc ASCII strings, without adding sensing commands to BLE

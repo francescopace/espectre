@@ -464,6 +464,14 @@ class TestMQTTHandler:
         assert "homeassistant/switch/micro_test_device_calibrate/config" in discovery_topics
         assert "homeassistant/select/micro_test_device_csi_traffic_mode/config" in discovery_topics
         assert "homeassistant/select/micro_test_device_traffic_generator_mode/config" in discovery_topics
+        assert discovery_topics.index(
+            "homeassistant/select/micro_test_device_csi_traffic_mode/config"
+        ) < discovery_topics.index(
+            "homeassistant/select/micro_test_device_traffic_generator_mode/config"
+        )
+        assert discovery_topics.index(
+            "homeassistant/select/micro_test_device_traffic_generator_mode/config"
+        ) < discovery_topics.index("homeassistant/switch/micro_test_device_calibrate/config")
         assert "test/espectre/devices/test-device/ha/threshold/set" in subscribed_topics
         assert "test/espectre/devices/test-device/ha/motion_on_hits/set" in subscribed_topics
         assert "test/espectre/devices/test-device/ha/motion_off_hits/set" in subscribed_topics
@@ -1099,12 +1107,106 @@ class TestMQTTCommands:
         assert 'uptime' in payload
         assert 'free_memory_kb' in payload
         assert 'loop_time_ms' in payload
+        assert payload['traffic_tx_pps'] == 0.0
+        assert payload['csi_callback_pps'] == 0.0
+        assert payload['csi_accepted_pps'] == 0.0
+        assert payload['csi_admitted_pps'] == 0.0
+        assert payload['csi_filtered_pps'] == 0.0
+        assert payload['csi_missing_slots_pps'] == 0.0
+        assert payload['csi_excess_pps'] == 0.0
+        assert payload['csi_stale_pps'] == 0.0
+        assert payload['csi_out_of_order_pps'] == 0.0
+        assert payload['csi_occupancy'] == 0.0
+        assert payload['wifi_channel'] == 0
+        assert payload['wifi_rssi_dbm'] is None
         assert isinstance(payload['uptime'], int)
         assert 'timestamp' not in payload
         assert 'state' not in payload
         assert 'movement' not in payload
         assert 'threshold' not in payload
         assert 'traffic_generator' not in payload
+
+    def test_cmd_stats_uses_cached_diagnostics(self, commands_instance, mock_mqtt_client_instance, mock_global_state):
+        """Test stats command publishes the cached CSI/Wi-Fi sample."""
+        mock_global_state.current_channel = 10
+        mock_global_state.latest_diagnostics = {
+            "traffic_tx_pps": 100.0,
+            "csi_callback_pps": 96.0,
+            "csi_accepted_pps": 90.0,
+            "csi_admitted_pps": 84.0,
+            "csi_filtered_pps": 6.0,
+            "csi_missing_slots_pps": 10.0,
+            "csi_excess_pps": 6.0,
+            "csi_stale_pps": 0.0,
+            "csi_out_of_order_pps": 0.0,
+            "csi_occupancy": 0.84,
+            "wifi_channel": 10,
+            "wifi_rssi_dbm": -55,
+        }
+        with patch('mqtt.commands.gc') as mock_gc:
+            mock_gc.mem_free.return_value = 100000
+            commands_instance.cmd_stats()
+
+        payload = json.loads(mock_mqtt_client_instance.publish.call_args[0][1])
+        assert payload['traffic_tx_pps'] == 100.0
+        assert payload['csi_callback_pps'] == 96.0
+        assert payload['csi_admitted_pps'] == 84.0
+        assert payload['csi_occupancy'] == 0.84
+        assert payload['wifi_channel'] == 10
+        assert payload['wifi_rssi_dbm'] == -55
+
+    def test_runtime_diagnostics_sampler_derives_five_second_rates(self):
+        """Test Micro rate sampling matches the C++ five-second diagnostics contract."""
+        from runtime_diagnostics import RuntimeDiagnosticsSampler, collect_runtime_diagnostics_snapshot
+
+        class _Traffic:
+            def __init__(self, count):
+                self.count = count
+
+            def get_packet_count(self):
+                return self.count
+
+        sampler = RuntimeDiagnosticsSampler()
+        sampler.reset(
+            collect_runtime_diagnostics_snapshot(
+                traffic_generator=_Traffic(100),
+                callback_total=100,
+                accepted_total=90,
+                admitted_total=80,
+                filtered_total=10,
+            ),
+            1000,
+        )
+        sample = sampler.sample(
+            collect_runtime_diagnostics_snapshot(
+                traffic_generator=_Traffic(600),
+                callback_total=580,
+                accepted_total=540,
+                admitted_total=505,
+                filtered_total=40,
+                missing_slots_total=25,
+                excess_total=15,
+                stale_total=5,
+                out_of_order_total=10,
+                occupancy_slots=82,
+                window_slots=100,
+                wifi_channel=10,
+                rssi_dbm=-55,
+            ),
+            6000,
+        )
+        assert sample["traffic_tx_pps"] == 100.0
+        assert sample["csi_callback_pps"] == 96.0
+        assert sample["csi_accepted_pps"] == 90.0
+        assert sample["csi_admitted_pps"] == 85.0
+        assert sample["csi_filtered_pps"] == 6.0
+        assert sample["csi_missing_slots_pps"] == 5.0
+        assert sample["csi_excess_pps"] == 3.0
+        assert sample["csi_stale_pps"] == 1.0
+        assert sample["csi_out_of_order_pps"] == 2.0
+        assert sample["csi_occupancy"] == 0.82
+        assert sample["wifi_channel"] == 10
+        assert sample["wifi_rssi_dbm"] == -55
     
     def test_cmd_set_threshold_success(self, commands_instance, mock_mqtt_client_instance, mock_segmentation):
         """Test setting detection threshold (session-only, not persisted)"""
@@ -1205,10 +1307,24 @@ class TestMQTTCommands:
         assert payload['supports_runtime_threshold'] is True
         assert payload['supports_runtime_detector'] is False
         assert payload['supports_ota'] is False
+        assert payload['supports_ble'] is False
+        assert payload['csi_traffic_mode'] == 'internal'
+        assert payload['traffic_mode'] == 'ping'
+        assert payload['csi_target_pps'] == 100
         assert 'device' not in payload
         assert 'mqtt' not in payload
         assert 'subcarriers' not in payload
         assert payload['detection']['algorithm'] == 'lightweight'
+
+    def test_cmd_commands_publishes_catalog(self, commands_instance, mock_mqtt_client_instance):
+        """Test commands catalog lists the MQTT verbs this frontend accepts."""
+        commands_instance.cmd_commands()
+
+        mock_mqtt_client_instance.publish.assert_called_once()
+        call_args = mock_mqtt_client_instance.publish.call_args
+        assert call_args[0][0].endswith("/commands/catalog")
+        payload = json.loads(call_args[0][1])
+        assert payload["commands"] == ["commands", "info", "stats", "set_threshold"]
     
     def test_cmd_info_with_connected_wlan(self, mock_mqtt_client_instance, mock_config, mock_segmentation, mock_global_state):
         """Test info command with connected WLAN"""
