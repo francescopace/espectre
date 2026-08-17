@@ -21,8 +21,8 @@ namespace espectre {
  * happened to default to.
  *
  * `supports_ble_telemetry` describes the runtime side of the surface: whether
- * it drives the live-telemetry callback at all. Whether that reaches a BLE
- * characteristic is the frontend's own business, and only Native forwards it.
+ * it drives the live-telemetry callback at all. Native uses that callback for
+ * Home Assistant intensity, not for BLE notify.
  */
 struct RuntimeCapabilities {
   /** `set_threshold_runtime()` is honored. */
@@ -41,8 +41,8 @@ struct RuntimeCapabilities {
   /**
    * The runtime drives `IRuntimeListener::on_live_telemetry()` at all.
    *
-   * Whether that reaches a BLE characteristic is the frontend's business; only
-   * Native forwards it today.
+   * Native uses that callback for Home Assistant intensity. It does not
+   * forward live sensing onto BLE.
    */
   bool supports_ble_telemetry{false};
   /** The runtime reports the extended diagnostics block used by stats payloads. */

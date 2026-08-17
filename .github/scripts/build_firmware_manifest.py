@@ -213,7 +213,7 @@ def build_manifest(args: argparse.Namespace) -> dict:
             },
             "native": {
                 "label": "Native",
-                "post_flash": "Provision Wi-Fi and MQTT over BLE, then connect through the native BLE or MQTT control surface.",
+                "post_flash": "Provision Wi-Fi and MQTT over BLE, then start live sensing over MQTT.",
                 "notes": [
                     "The native frontend preserves the current custom GATT protocol, but it is not limited to any single client implementation."
                 ],

@@ -672,11 +672,6 @@ void NativeFrontend::handle_connection_state_(bool connected) {
   client_connected_ = connected;
   if (connected) {
     system_info_refresh_.request();
-  } else {
-    if (provisioning_complete_()) {
-      ble_forced_ = false;
-      pending_ble_intent_ = BleIntent::Stop;
-    }
   }
 }
 
@@ -686,15 +681,27 @@ bool NativeFrontend::provisioning_complete_() const {
 
 bool NativeFrontend::ble_should_run_() const { return ble_forced_ || !provisioning_complete_(); }
 
+void NativeFrontend::request_ble_recovery() {
+  ble_forced_ = true;
+  pending_ble_intent_ = BleIntent::Start;
+  ESP_LOGI(TAG, "BLE recovery requested");
+}
+
 bool NativeFrontend::start_ble_() {
   if (ble_active_) {
     return true;
   }
+  runtime_.set_services_armed(false);
   if (bindings_ == nullptr || !bindings_->setup()) {
+    if (wifi_info_.has_saved_config) {
+      runtime_.set_services_armed(true);
+    }
     return false;
   }
+  // Once setup opens, keep it available across GATT and Wi-Fi reconnects.
+  // Only an explicit BLE-off command may hand the radio back to sensing.
+  ble_forced_ = true;
   ble_active_ = true;
-  runtime_.set_services_armed(false);
   ESP_LOGI(TAG, "BLE setup mode; CSI paused");
   return true;
 }
@@ -742,8 +749,7 @@ void NativeFrontend::apply_pending_ble_intent_() {
 
 bool NativeFrontend::handle_ble_mode_write_(bool enable, std::string *message) {
   if (enable) {
-    ble_forced_ = true;
-    pending_ble_intent_ = BleIntent::Start;
+    request_ble_recovery();
     if (message != nullptr) {
       *message = ble_active_ ? "ble already active" : "ble start requested";
     }

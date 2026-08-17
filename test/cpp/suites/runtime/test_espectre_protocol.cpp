@@ -13,6 +13,7 @@
 #include "espectre_protocol.h"
 #include "runtime_diagnostics.h"
 
+#include <cmath>
 #include <string>
 
 using namespace espectre;
@@ -117,6 +118,11 @@ void test_status_telemetry_and_stats_payloads_include_expected_fields(void) {
   TEST_ASSERT_TRUE(telemetry.find("\"motion_state\":\"motion\"") != std::string::npos);
   TEST_ASSERT_TRUE(telemetry.find("\"threshold\":1.5") != std::string::npos);
   TEST_ASSERT_TRUE(telemetry.find("\"detector\":\"high_accuracy\"") != std::string::npos);
+  snapshot.movement_metric = NAN;
+  snapshot.threshold = NAN;
+  const std::string telemetry_nan = espectre_telemetry_payload(config, snapshot, 222, 33, "native");
+  TEST_ASSERT_TRUE(telemetry_nan.find("nan") == std::string::npos);
+  TEST_ASSERT_TRUE(telemetry_nan.find("\"movement_score\":0") != std::string::npos);
   TEST_ASSERT_TRUE(stats.find("\"uptime\":44") != std::string::npos);
   TEST_ASSERT_TRUE(stats.find("\"free_memory_kb\":128.5") != std::string::npos);
   TEST_ASSERT_TRUE(stats.find("\"loop_time_ms\":6.25") != std::string::npos);

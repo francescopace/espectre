@@ -8,7 +8,7 @@ Static single-page app published at `espectre.dev` through GitHub Pages.
 python -m http.server 8090 --directory docs/web
 ```
 
-Then open `http://localhost:8090`. The Flash tool and the Matter QR reader need a Chromium-based browser; the BLE connection additionally needs `localhost` or HTTPS.
+Then open `http://localhost:8090`. The Flash tool and the Matter QR reader need a Chromium-based browser. The Device console’s nearby setup additionally needs `localhost` or HTTPS. Its live sensing views, Game, and Theremin use MQTT over WebSockets and do not need Bluetooth.
 
 ## Static content pages
 
@@ -25,7 +25,7 @@ Edit shared fragments under `content/`, including `content/guides.html`, `conten
 Security-sensitive browser tools use pinned, same-origin copies under the generated `vendor/` directory in production:
 
 - ESP Web Tools 10.4.0 for serial firmware installation;
-- MQTT.js 5.3.0 for the MQTT-over-WebSocket monitor; and
+- MQTT.js 5.3.0 for the Device console’s live MQTT-over-WebSocket session; and
 - QRCode.js 1.0.0 for Matter pairing codes.
 
 Install and stage the pinned packages locally with:
@@ -68,19 +68,18 @@ The committed `.github/scripts/sitemap.template.xml` is the canonical URL invent
 
 ## BLE client API
 
-`assets/js/espectre-ble.js` is a dependency-free client for the ESPectre BLE surface defined in `docs/ESPECTRE_PROTOCOL.md`. It exposes two globals: `ESPectreBleClient` and `ESPectreValidationError`. Web Bluetooth needs a Chromium-based browser and a secure context (HTTPS or `localhost`); check `ESPectreBleClient.supported` before connecting.
+`assets/js/espectre-ble.js` is a dependency-free client for the ESPectre BLE setup surface defined in `docs/ESPECTRE_PROTOCOL.md`. It exposes two globals: `ESPectreBleClient` and `ESPectreValidationError`. Web Bluetooth needs a Chromium-based browser and a secure context (HTTPS or `localhost`); check `ESPectreBleClient.supported` before connecting. Native uses this surface for Wi-Fi, MQTT, identity, and OTA. Live sensing stays on MQTT.
 
 Unlike the rest of the site, the client is **Apache-2.0** licensed (see [Apache-2.0.txt](assets/js/LICENSES/Apache-2.0.txt)), so any web application, including proprietary ones, can embed it.
 
 ```js
 const client = new ESPectreBleClient();
-client.on('telemetry', ({ movement, threshold, motionState }) => { /* ... */ });
-client.on('sysinfo', (values) => console.log(values.chip, values.detector));
+client.on('sysinfo', (values) => console.log(values.chip, values.device_id));
 client.on('disconnect', () => console.log('device dropped'));
 
 await client.connect();          // opens the browser device chooser
 await client.requestSysinfo();   // resolves into a `sysinfo` event
-await client.setThreshold(0.35);
+await client.setWifiConfig({ ssid: 'Lab Network', password: 'secret' });
 await client.disconnect();
 ```
 
@@ -90,8 +89,6 @@ Subscribe with `on(event, handler)`, which returns an unsubscribe function; `off
 
 | Event | Payload | When |
 |---|---|---|
-| `telemetry` | `{ movement, threshold, motionState }` | Every valid notification; `motionState` is `null` on firmware that omits it |
-| `invalid-telemetry` | `byteLength` | A notification failed to parse |
 | `sysinfo` | `(values, entries)` — object plus ordered pairs | A snapshot completed (`END` received) |
 | `sysinfo-line` | raw line | Every sysinfo line, including `END` |
 | `disconnect` | — | Unexpected GATT drop; never fired by `disconnect()` |
@@ -100,9 +97,9 @@ Subscribe with `on(event, handler)`, which returns an unsubscribe function; `off
 
 | Member | Notes |
 |---|---|
-| `connect({ telemetry, sysinfo })` | Both flags default to `true`; reentrant (returns the in-flight promise or the connected device) |
+| `connect({ sysinfo })` | `sysinfo` defaults to `true`; reentrant (returns the in-flight promise or the connected device) |
 | `disconnect()` | Idempotent; stops notifications and closes GATT |
-| `setTelemetryNotifications(bool)` / `setSysinfoNotifications(bool)` | Toggle streams without disconnecting |
+| `setSysinfoNotifications(bool)` | Toggle sysinfo without disconnecting |
 | `connected`, `name`, `device` | Read-only state |
 
 ### Commands
@@ -111,18 +108,16 @@ Every `set*` method validates locally, throws `ESPectreValidationError` on a bad
 
 | Method | Command | Validation |
 |---|---|---|
-| `setThreshold(value)` | `SET_THRESHOLD` | number in `0.0-1.0` |
-| `setMotionHits(onHits, offHits)` | `SET_MOTION_HITS` | integers in `1-20` |
-| `setDetector(name)` | `SET_DETECTOR` | `lightweight` or `high_accuracy` |
-| `recalibrate()` | `RECALIBRATE` | — |
-| `setCsiTrafficMode(mode)` | `SET_CSI_TRAFFIC_MODE` | `internal`, `external`, `pacing`, or `disabled` |
-| `setTrafficGeneratorMode(mode)` | `SET_TRAFFIC_GENERATOR_MODE` | `ping` or `dns` |
 | `setWifiConfig({ ssid, password, bssid, channel, bandPolicy })` | `SET_WIFI_CONFIG` | `ssid` required; credentials optional; `bandPolicy` is optional `2g`, `5g`, or `auto`; `channel` is 0 (auto) or a matching 20 MHz center; `bssid` is empty or a MAC |
 | `clearWifiConfig()` | `CLEAR_WIFI` | — |
 | `setMqttConfig({ host, port, username, password, topicPrefix })` | `SET_MQTT_CONFIG` | `host` required; `port` 1-65535; credentials optional |
 | `clearMqttConfig()` | `CLEAR_MQTT_CONFIG` | — |
 | `setDeviceLabel(label)` | `SET_DEVICE_CONFIG` | single-line string, may be empty |
 | `clearDeviceConfig()` | `CLEAR_DEVICE_CONFIG` | — |
+| `otaStatus()` | `OTA_STATUS` | — |
+| `otaCheck()` | `OTA_CHECK` | — |
+| `otaStart()` | `OTA_START` | — |
+| `stopBle()` | `STOP_BLE` | — |
 | `requestSysinfo()` | `REQ_SYSINFO` | — |
 | `writeControl(command)` | any | Escape hatch for commands the library does not model |
 

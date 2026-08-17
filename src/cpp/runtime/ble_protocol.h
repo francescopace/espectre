@@ -1,7 +1,11 @@
 /*
  * ESPectre - BLE Protocol Constants
  *
- * UUIDs and device-name constants for the ESPectre BLE control surface.
+ * UUIDs and device-name constants for the ESPectre BLE setup surface.
+ *
+ * Native uses sysinfo and control for provisioning, identity, and OTA.
+ * `ESPECTRE_BLE_TELEMETRY_UUID` remains in the GATT table for discovery
+ * compatibility; Native does not notify on it.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only

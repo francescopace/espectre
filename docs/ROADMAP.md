@@ -29,7 +29,9 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 Before deploy:
 
-- [ ] Fix low occupancy when BLE is active on Native
+- [ ] Test flashing firmware onto a device
+- [ ] Test an OTA update (the `stable` versus `snapshot` channel is currently hardcoded; pass it with the OTA request)
+- [ ] Test recalibration
 - [ ] Review docs/web content, imagery, UX, and UI for release readiness
 - [ ] Capture a current Home Assistant visualization for the project overview and docs
 - [ ] Update devices performance report 
@@ -186,7 +188,7 @@ This file owns product outcomes, release gates, and sequencing. Mutable details 
 - [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md) and [ARCHITECTURE.md](ARCHITECTURE.md) for stable system contracts
 - [CHANGELOG.md](CHANGELOG.md) for shipped behavior
 
-Last update: **August 16, 2026**
+Last update: **August 17, 2026**
 
 For discussion and proposed changes:
 

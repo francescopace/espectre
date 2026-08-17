@@ -24,7 +24,9 @@ struct TelemetryPublish {
 
 struct State {
   bool setup_result{true};
+  int setup_calls{0};
   bool shutdown_called{false};
+  int shutdown_calls{0};
   std::vector<bool> connection_events;
   std::vector<std::string> control_commands;
   std::vector<TelemetryPublish> telemetry_events;

@@ -31,6 +31,10 @@ const char *motion_state_name(MotionState state) {
   return state == MotionState::MOTION ? "motion" : "idle";
 }
 
+double json_finite(float value) {
+  return std::isfinite(value) ? static_cast<double>(value) : 0.0;
+}
+
 void append_supported_command_names(std::string *out, const EspectreDeviceInfo &info) {
   if (out == nullptr) {
     return;
@@ -369,8 +373,8 @@ std::string espectre_telemetry_payload(const EspectreDeviceConfig &config,
                 frontend != nullptr && frontend[0] != '\0' ? frontend : "unknown",
                 static_cast<unsigned>(timestamp_ms),
                 motion_state_name(snapshot.motion_state),
-                static_cast<double>(snapshot.movement_metric),
-                static_cast<double>(snapshot.threshold),
+                json_finite(snapshot.movement_metric),
+                json_finite(snapshot.threshold),
                 snapshot.detector_name != nullptr ? snapshot.detector_name : "unknown",
                 static_cast<unsigned>(uptime_s));
   return line;

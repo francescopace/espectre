@@ -219,16 +219,16 @@ void EspIdfRuntime::set_services_armed(bool armed) {
   }
 
   if (!services_armed_) {
-    ESP_LOGI(RUNTIME_TAG, "CSI services disarmed until Matter commissioning is complete");
-    on_wifi_disconnected_();
+    ESP_LOGI(RUNTIME_TAG, "CSI services disarmed");
+    stop_sensing_services_();
     return;
   }
 
   if (wifi_ready_ && wifi_ip_info_.ip.addr != 0U) {
-    ESP_LOGI(RUNTIME_TAG, "Matter commissioning complete, starting CSI services");
-    on_wifi_connected_(wifi_ip_info_);
+    ESP_LOGI(RUNTIME_TAG, "CSI services armed, starting capture");
+    start_sensing_services_(wifi_ip_info_);
   } else {
-    ESP_LOGI(RUNTIME_TAG, "Matter commissioning complete, waiting for Wi-Fi IP");
+    ESP_LOGI(RUNTIME_TAG, "CSI services armed, waiting for Wi-Fi IP");
   }
 }
 
@@ -465,10 +465,20 @@ void EspIdfRuntime::on_wifi_connected_(const esp_netif_ip_info_t &ip_info) {
   wifi_ready_ = true;
   wifi_ip_info_ = ip_info;
   if (!services_armed_) {
-    ESP_LOGI(RUNTIME_TAG, "Wi-Fi connected, waiting for Matter commissioning before starting CSI services");
+    ESP_LOGI(RUNTIME_TAG, "Wi-Fi connected, CSI services not armed");
     return;
   }
 
+  start_sensing_services_(ip_info);
+}
+
+void EspIdfRuntime::on_wifi_disconnected_() {
+  wifi_ready_ = false;
+  wifi_ip_info_ = {};
+  stop_sensing_services_();
+}
+
+void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) {
   snapshot_.motion_state = MotionState::IDLE;
   snapshot_.ready_to_publish = false;
 
@@ -509,9 +519,7 @@ void EspIdfRuntime::on_wifi_connected_(const esp_netif_ip_info_t &ip_info) {
   snapshot_.ready_to_publish = true;
 }
 
-void EspIdfRuntime::on_wifi_disconnected_() {
-  wifi_ready_ = false;
-  wifi_ip_info_ = {};
+void EspIdfRuntime::stop_sensing_services_() {
   cancel_calibration_(false);
   csi_pipeline_.set_local_identity(0U, nullptr);
   csi_pipeline_.disable();

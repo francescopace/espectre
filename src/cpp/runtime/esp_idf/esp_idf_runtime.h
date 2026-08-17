@@ -55,6 +55,8 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   void log_calibration_progress_(uint8_t percent, uint32_t packets, uint16_t target_packets);
   void on_wifi_connected_(const esp_netif_ip_info_t &ip_info);
   void on_wifi_disconnected_();
+  void start_sensing_services_(const esp_netif_ip_info_t &ip_info);
+  void stop_sensing_services_();
   void on_csi_channel_changed_(uint8_t previous_channel, uint8_t current_channel);
   bool apply_traffic_runtime_config_(bool restart_service, bool recalibrate_if_active);
   bool start_calibration_();

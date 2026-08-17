@@ -182,7 +182,10 @@ class IEspectreRuntime {
    * Gate the runtime-owned services without tearing the runtime down.
    *
    * Disarmed, the runtime stays configured but starts no CSI capture or
-   * traffic. Matter uses it to stay quiet until commissioning completes.
+   * traffic. The current Wi-Fi association is preserved so arming again can
+   * restart capture without waiting for another IP event. Matter uses this to
+   * stay quiet until commissioning completes; Native uses it to pause sensing
+   * while BLE setup owns the radio.
    */
   virtual void set_services_armed(bool armed) = 0;
   /** Enable or suppress the high-rate `on_live_telemetry()` stream. */

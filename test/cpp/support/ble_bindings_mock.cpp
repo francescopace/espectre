@@ -18,11 +18,17 @@ State state{};
 
 void reset() { state = State{}; }
 
-bool MockBleBindings::setup() { return state.setup_result; }
+bool MockBleBindings::setup() {
+  state.setup_calls += 1;
+  return state.setup_result;
+}
 
 void MockBleBindings::loop() {}
 
-void MockBleBindings::shutdown() { state.shutdown_called = true; }
+void MockBleBindings::shutdown() {
+  state.shutdown_called = true;
+  state.shutdown_calls += 1;
+}
 
 void MockBleBindings::set_connection_state_callback(ConnectionStateCallback callback) {
   state.connection_callback = std::move(callback);

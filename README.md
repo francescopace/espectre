@@ -7,7 +7,7 @@
 
 **ESPectre** is an open-source Wi-Fi sensing platform for ESP32 devices.
 
-It detects motion from ordinary Wi-Fi signals, without cameras, microphones, wearables, or radar hardware. It integrates directly with Home Assistant through ESPHome or Native MQTT Discovery and offers a standards-based Matter occupancy-sensor path. It can also connect over BLE or custom integrations.
+It detects motion from ordinary Wi-Fi signals, without cameras, microphones, wearables, or radar hardware. It integrates with Home Assistant through ESPHome or MQTT Discovery, and it exposes a standard Matter occupancy sensor for Google Home, Apple Home, and other Matter-compatible controllers.
 
 ## How It Works
 
@@ -22,14 +22,13 @@ With ESPectre, ordinary Wi-Fi smart devices can double as ambient sensing nodes.
 If you want the fastest path, use the browser flasher:
 
 1. Open [espectre.dev/flash](https://espectre.dev/flash/) with a Chromium-based browser
-2. Pick the ESPHome, Native, or Matter base firmware and ESP32 target
+2. Pick the Native, ESPHome, or Matter firmware and ESP32 target
 3. Flash the board
-4. Configure Wi-Fi and the remaining parameters by following the on-screen instructions
+4. Open the Device console to provision connectivity, then continue into live sensing
 
 The browser tools share one site:
 
-- [Configure](https://espectre.dev/configure/) provisions and tunes Native over BLE
-- [MQTT Monitor](https://espectre.dev/monitor/) displays telemetry and device controls
+- [Device console](https://espectre.dev/#device) provisions Native nearby, then continues seamlessly over MQTT for live sensing, tuning, and diagnostics
 - [The Game](https://espectre.dev/game/) and [Theremin](https://espectre.dev/theremin/) provide interactive sensing demos
 
 GitHub Releases also provide Native OTA payloads; ESPHome updates are compiled and installed through ESPHome Device Builder after the device is adopted.

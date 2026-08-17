@@ -61,6 +61,7 @@ class NativeFrontend : public IRuntimeListener {
   bool is_setup_complete() const { return runtime_.is_setup_complete(); }
   bool client_connected() const { return client_connected_; }
   bool ble_active() const { return ble_active_; }
+  void request_ble_recovery();
 
  protected:
   void on_motion_state_changed(const RuntimeSnapshot &snapshot) override;

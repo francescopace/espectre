@@ -12,6 +12,8 @@
 
 #include <esp_err.h>
 #include <esp_log.h>
+#include <esp_timer.h>
+#include <driver/gpio.h>
 
 #if CONFIG_BT_ENABLED
 #include "ble_bindings_nimble.h"
@@ -19,6 +21,7 @@
 #include "ble_bindings_noop.h"
 #endif
 #include "native_frontend.h"
+#include "ble_recovery_button_service.h"
 #include "device_config_store.h"
 #include "nvs_helpers.h"
 #include "device_identity.h"
@@ -46,6 +49,7 @@ constexpr espectre::OtaReleaseChannel kOtaReleaseChannel = espectre::OtaReleaseC
 constexpr int kWifiConnectMaxRetry = 8;
 
 espectre::NativeFrontend *g_frontend = nullptr;
+espectre::BleRecoveryButtonService *g_ble_recovery_button = nullptr;
 espectre::StandaloneWifiService g_wifi_manager;
 espectre::WifiProvisioningService g_wifi_provisioning(&g_wifi_manager);
 
@@ -114,6 +118,12 @@ void espectre_loop_task(void *arg) {
     if (g_frontend != nullptr) {
       g_frontend->loop();
     }
+#if CONFIG_ESPECTRE_BLE_RECOVERY_BUTTON_ENABLED
+    if (g_ble_recovery_button != nullptr) {
+      const bool pressed = gpio_get_level(static_cast<gpio_num_t>(CONFIG_ESPECTRE_BLE_RECOVERY_BUTTON_GPIO)) == 0;
+      g_ble_recovery_button->update(pressed, static_cast<uint32_t>(esp_timer_get_time() / 1000));
+    }
+#endif
     vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
@@ -163,6 +173,12 @@ bool handle_device_config_change(const espectre::EspectreDeviceConfig &config, b
   return err == ESP_OK;
 }
 
+void request_ble_recovery() {
+  if (g_frontend != nullptr) {
+    g_frontend->request_ble_recovery();
+  }
+}
+
 }  // namespace
 
 extern "C" void app_main() {
@@ -193,6 +209,23 @@ extern "C" void app_main() {
     ESP_LOGE(TAG, "Failed to initialize ESPectre native frontend");
     return;
   }
+
+#if CONFIG_ESPECTRE_BLE_RECOVERY_BUTTON_ENABLED
+  gpio_config_t recovery_button_config{};
+  recovery_button_config.pin_bit_mask = 1ULL << CONFIG_ESPECTRE_BLE_RECOVERY_BUTTON_GPIO;
+  recovery_button_config.mode = GPIO_MODE_INPUT;
+  recovery_button_config.pull_up_en = GPIO_PULLUP_ENABLE;
+  recovery_button_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+  recovery_button_config.intr_type = GPIO_INTR_DISABLE;
+  ESP_ERROR_CHECK(gpio_config(&recovery_button_config));
+  static espectre::BleRecoveryButtonService recovery_button(
+      CONFIG_ESPECTRE_BLE_RECOVERY_BUTTON_HOLD_MS, request_ble_recovery);
+  g_ble_recovery_button = &recovery_button;
+  ESP_LOGI(TAG,
+           "Hold BOOT on GPIO%d for %d ms to start BLE recovery",
+           CONFIG_ESPECTRE_BLE_RECOVERY_BUTTON_GPIO,
+           CONFIG_ESPECTRE_BLE_RECOVERY_BUTTON_HOLD_MS);
+#endif
 
   ESP_ERROR_CHECK(g_wifi_manager.start());
   xTaskCreate(espectre_loop_task, "espectre_native_loop", 8192, nullptr, 5, nullptr);

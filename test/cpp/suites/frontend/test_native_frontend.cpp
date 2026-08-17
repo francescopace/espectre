@@ -1366,7 +1366,7 @@ void test_native_frontend_stop_ble_is_rejected_until_wifi_is_configured(void) {
   TEST_ASSERT_EQUAL(0, ble_bindings_mock::state.shutdown_calls);
 }
 
-void test_native_frontend_keeps_ble_until_disconnect_after_provisioning(void) {
+void test_native_frontend_keeps_ble_advertising_after_disconnect(void) {
   MockBleBindings bindings;
   NativeFrontend frontend(&bindings);
   EspectreDeviceConfig config;
@@ -1386,8 +1386,21 @@ void test_native_frontend_keeps_ble_until_disconnect_after_provisioning(void) {
 
   bindings.emit_connection(false);
   frontend.loop();
-  TEST_ASSERT_FALSE(frontend.ble_active());
+  TEST_ASSERT_TRUE(frontend.ble_active());
   TEST_ASSERT_FALSE(frontend.client_connected());
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
+  TEST_ASSERT_EQUAL(0, ble_bindings_mock::state.shutdown_calls);
+
+  frontend.set_wifi_provisioning_info(wifi);
+  frontend.set_device_config(config);
+  frontend.loop();
+  TEST_ASSERT_TRUE(frontend.ble_active());
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
+  TEST_ASSERT_EQUAL(0, ble_bindings_mock::state.shutdown_calls);
+
+  TEST_ASSERT_TRUE(frontend.handle_control_command_("STOP_BLE"));
+  frontend.loop();
+  TEST_ASSERT_FALSE(frontend.ble_active());
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.services_armed);
   TEST_ASSERT_EQUAL(1, ble_bindings_mock::state.shutdown_calls);
 }
@@ -1559,7 +1572,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_keeps_ble_when_wifi_is_saved_but_mqtt_is_missing);
   RUN_TEST(test_native_frontend_keeps_ble_when_mqtt_is_saved_but_wifi_is_missing);
   RUN_TEST(test_native_frontend_stop_ble_is_rejected_until_wifi_is_configured);
-  RUN_TEST(test_native_frontend_keeps_ble_until_disconnect_after_provisioning);
+  RUN_TEST(test_native_frontend_keeps_ble_advertising_after_disconnect);
   RUN_TEST(test_native_frontend_mqtt_set_ble_starts_and_stop_ble_stops);
   RUN_TEST(test_native_frontend_clearing_wifi_starts_ble);
   RUN_TEST(test_native_frontend_clearing_mqtt_starts_ble);

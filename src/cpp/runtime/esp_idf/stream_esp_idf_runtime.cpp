@@ -145,7 +145,7 @@ void StreamEspIdfRuntime::loop() {
   capture_service_.loop();
   csi_traffic_service_.loop();
 
-  if (!wifi_connected_.load(std::memory_order_relaxed)) {
+  if (!wifi_connected_.load(std::memory_order_relaxed) || !services_armed_) {
     stream_transport_.log_runtime_telemetry(capture_service_, csi_traffic_service_, false,
                                             workflow_state_name_(state_.load(std::memory_order_relaxed)));
     return;
@@ -182,11 +182,14 @@ void StreamEspIdfRuntime::set_services_armed(bool armed) {
     return;
   }
   if (!services_armed_) {
-    on_wifi_disconnected_();
+    stop_capture_();
+    csi_traffic_service_.stop();
+    stream_transport_.reset_session();
+    snapshot_.ready_to_publish = false;
     return;
   }
   if (wifi_connected_.load(std::memory_order_relaxed)) {
-    on_wifi_connected_();
+    transition_to_(WorkflowState::WAIT_WIFI, "services armed");
   }
 }
 

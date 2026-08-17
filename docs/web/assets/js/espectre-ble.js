@@ -1,9 +1,9 @@
 /*
  * ESPectre - Web Bluetooth client
  *
- * Standalone client for the ESPectre BLE surface documented in
- * docs/ESPECTRE_PROTOCOL.md: binary telemetry notifications, the streamed
- * sysinfo snapshot, and the text control commands.
+ * Standalone client for the ESPectre BLE setup surface documented in
+ * docs/ESPECTRE_PROTOCOL.md: the streamed sysinfo snapshot and the text
+ * control commands for Wi-Fi, MQTT, identity, and OTA.
  *
  * No dependencies. Web Bluetooth requires a Chromium-based browser and a
  * secure context (HTTPS or localhost); check `ESPectreBleClient.supported`
@@ -43,20 +43,15 @@
     /**
      * Events emitted by the client. Subscribe with `on(event, handler)`.
      *
-     * - `telemetry`         ({ movement, threshold, motionState }) per notification
-     * - `invalid-telemetry` (byteLength) when a notification fails to parse
      * - `sysinfo-line`      (line) for every raw sysinfo line, including `END`
      * - `sysinfo`           (values, entries) when a snapshot completes
      * - `disconnect`        () on an unexpected GATT drop, never on `disconnect()`
      */
     const EVENTS = Object.freeze([
-        'telemetry', 'invalid-telemetry', 'sysinfo', 'sysinfo-line', 'disconnect'
+        'sysinfo', 'sysinfo-line', 'disconnect'
     ]);
 
     const BSSID_PATTERN = /^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$/;
-    const DETECTORS = Object.freeze(['lightweight', 'high_accuracy']);
-    const CSI_TRAFFIC_MODES = Object.freeze(['internal', 'external', 'pacing', 'disabled']);
-    const TRAFFIC_GENERATOR_MODES = Object.freeze(['ping', 'dns']);
     const WIFI_BAND_POLICIES = Object.freeze(['2g', '5g', 'auto']);
     const DEFAULT_TOPIC_PREFIX = 'espectre/v1/devices';
 
@@ -131,7 +126,7 @@
 
     class ESPectreBleClient {
         /** Library version; independent from the device protocol version. */
-        static get VERSION() { return '1.0.0'; }
+        static get VERSION() { return '1.1.0'; }
 
         /** GATT service and characteristic UUIDs of the ESPectre BLE surface. */
         static get UUIDS() { return UUIDS; }
@@ -142,28 +137,6 @@
         /** Whether this browser exposes Web Bluetooth. */
         static get supported() { return 'bluetooth' in navigator; }
 
-        /**
-         * Parses a telemetry notification payload.
-         *
-         * Layout (little-endian): float32 movement, float32 threshold, and an
-         * optional trailing uint8 motion state on firmware that publishes it.
-         *
-         * @param {DataView} view - Characteristic value.
-         * @returns {?{movement: number, threshold: number, motionState: ?number}}
-         *   Parsed telemetry, or null when the payload is malformed.
-         */
-        static parseTelemetry(view) {
-            if (!view || view.byteLength < 8) return null;
-            const movement = view.getFloat32(0, true);
-            const threshold = view.getFloat32(4, true);
-            if (!Number.isFinite(movement) || !Number.isFinite(threshold)) return null;
-            return {
-                movement,
-                threshold,
-                motionState: view.byteLength >= 9 ? view.getUint8(8) : null
-            };
-        }
-
         /* ---------------------------------------------- command builders */
         /*
          * Builders are pure and validate locally, so callers can check
@@ -171,70 +144,6 @@
          * exactly one place. Each instance `set*` method writes the built
          * command over the control characteristic.
          */
-
-        /**
-         * @param {number} value - Motion threshold on the 0.0-1.0 probability
-         *   scale shared by both detectors.
-         * @returns {string}
-         */
-        static buildThresholdCommand(value) {
-            if (!Number.isFinite(value) || value < 0 || value > 1) {
-                throw new ESPectreValidationError('threshold must be a number between 0 and 1');
-            }
-            return `SET_THRESHOLD:${value.toFixed(6)}`;
-        }
-
-        /**
-         * @param {string} detector - `lightweight` or `high_accuracy`.
-         * @returns {string}
-         */
-        static buildDetectorCommand(detector) {
-            if (!DETECTORS.includes(detector)) {
-                throw new ESPectreValidationError(`detector must be one of: ${DETECTORS.join(', ')}`);
-            }
-            return `SET_DETECTOR:${detector}`;
-        }
-
-        /**
-         * @param {object} options
-         * @param {number} options.motionOnHits
-         * @param {number} options.motionOffHits
-         * @returns {string}
-         */
-        static buildMotionHitsCommand({ motionOnHits, motionOffHits } = {}) {
-            requireIntegerInRange(motionOnHits, 1, 20, 'motionOnHits');
-            requireIntegerInRange(motionOffHits, 1, 20, 'motionOffHits');
-            return `SET_MOTION_HITS:on=${motionOnHits}&off=${motionOffHits}`;
-        }
-
-        /** @returns {string} */
-        static buildRecalibrateCommand() {
-            return 'RECALIBRATE';
-        }
-
-        /**
-         * @param {string} mode - `internal`, `external`, `pacing`, or `disabled`.
-         * @returns {string}
-         */
-        static buildCsiTrafficModeCommand(mode) {
-            if (!CSI_TRAFFIC_MODES.includes(mode)) {
-                throw new ESPectreValidationError(
-                    `csiTrafficMode must be one of: ${CSI_TRAFFIC_MODES.join(', ')}`);
-            }
-            return `SET_CSI_TRAFFIC_MODE:${mode}`;
-        }
-
-        /**
-         * @param {string} mode - `ping` or `dns`.
-         * @returns {string}
-         */
-        static buildTrafficGeneratorModeCommand(mode) {
-            if (!TRAFFIC_GENERATOR_MODES.includes(mode)) {
-                throw new ESPectreValidationError(
-                    `trafficGeneratorMode must be one of: ${TRAFFIC_GENERATOR_MODES.join(', ')}`);
-            }
-            return `SET_TRAFFIC_GENERATOR_MODE:${mode}`;
-        }
 
         /** @returns {string} */
         static buildOtaStatusCommand() {
@@ -249,6 +158,11 @@
         /** @returns {string} */
         static buildOtaStartCommand() {
             return 'OTA_START';
+        }
+
+        /** Stops BLE after Wi-Fi is configured so sensing can resume. */
+        static buildStopBleCommand() {
+            return 'STOP_BLE';
         }
 
         /**
@@ -323,8 +237,8 @@
 
         #device = null;
         #server = null;
-        #characteristics = { telemetry: null, sysinfo: null, control: null };
-        #notificationsActive = { telemetry: false, sysinfo: false };
+        #characteristics = { sysinfo: null, control: null };
+        #notificationsActive = { sysinfo: false };
         #listeners = new Map();
         #sysinfoEntries = [];
         #connectPromise = null;
@@ -332,7 +246,6 @@
 
         // Bound once so add/removeEventListener see the same references.
         #onGattDisconnected = () => this.#handleGattDisconnected();
-        #onTelemetryNotification = (event) => this.#handleTelemetryNotification(event);
         #onSysinfoNotification = (event) => this.#handleSysinfoNotification(event);
 
         /** Whether a GATT connection is currently established. */
@@ -403,23 +316,22 @@
          * is in flight (returns the pending promise).
          *
          * @param {object} [options]
-         * @param {boolean} [options.telemetry=true] - Start telemetry notifications.
          * @param {boolean} [options.sysinfo=true] - Start sysinfo notifications.
          * @returns {Promise<BluetoothDevice>}
          */
-        async connect({ telemetry = true, sysinfo = true } = {}) {
+        async connect({ sysinfo = true } = {}) {
             if (!ESPectreBleClient.supported) {
                 throw new Error('Web Bluetooth is not available in this browser.');
             }
             if (this.connected) return this.#device;
             if (this.#connectPromise) return this.#connectPromise;
 
-            this.#connectPromise = this.#establish(telemetry, sysinfo)
+            this.#connectPromise = this.#establish(sysinfo)
                 .finally(() => { this.#connectPromise = null; });
             return this.#connectPromise;
         }
 
-        async #establish(telemetry, sysinfo) {
+        async #establish(sysinfo) {
             try {
                 this.#device = await navigator.bluetooth.requestDevice({
                     filters: [{ services: [UUIDS.service] }]
@@ -428,16 +340,12 @@
 
                 this.#server = await this.#device.gatt.connect();
                 const service = await this.#server.getPrimaryService(UUIDS.service);
-                this.#characteristics.telemetry = await service.getCharacteristic(UUIDS.telemetry);
                 this.#characteristics.sysinfo = await service.getCharacteristic(UUIDS.sysinfo);
                 this.#characteristics.control = await service.getCharacteristic(UUIDS.control);
 
-                this.#characteristics.telemetry.addEventListener(
-                    'characteristicvaluechanged', this.#onTelemetryNotification);
                 this.#characteristics.sysinfo.addEventListener(
                     'characteristicvaluechanged', this.#onSysinfoNotification);
 
-                await this.setTelemetryNotifications(telemetry);
                 await this.setSysinfoNotifications(sysinfo);
                 return this.#device;
             } catch (error) {
@@ -454,7 +362,7 @@
             if (this.#disconnecting) return;
             this.#disconnecting = true;
             try {
-                for (const kind of ['telemetry', 'sysinfo']) {
+                for (const kind of ['sysinfo']) {
                     try {
                         await this.#setNotifications(kind, false);
                     } catch (error) {
@@ -466,16 +374,6 @@
                 this.#clearConnectionState();
                 this.#disconnecting = false;
             }
-        }
-
-        /**
-         * Enables or disables telemetry notifications without disconnecting,
-         * for callers that only need telemetry while their view is visible.
-         *
-         * @param {boolean} enabled
-         */
-        setTelemetryNotifications(enabled) {
-            return this.#setNotifications('telemetry', enabled);
         }
 
         /**
@@ -529,36 +427,6 @@
             return this.writeControl('REQ_SYSINFO');
         }
 
-        /** @see ESPectreBleClient.buildThresholdCommand */
-        setThreshold(value) {
-            return this.writeControl(ESPectreBleClient.buildThresholdCommand(value));
-        }
-
-        /** @see ESPectreBleClient.buildDetectorCommand */
-        setDetector(detector) {
-            return this.writeControl(ESPectreBleClient.buildDetectorCommand(detector));
-        }
-
-        /** @see ESPectreBleClient.buildMotionHitsCommand */
-        setMotionHits(options) {
-            return this.writeControl(ESPectreBleClient.buildMotionHitsCommand(options));
-        }
-
-        /** @see ESPectreBleClient.buildRecalibrateCommand */
-        recalibrate() {
-            return this.writeControl(ESPectreBleClient.buildRecalibrateCommand());
-        }
-
-        /** @see ESPectreBleClient.buildCsiTrafficModeCommand */
-        setCsiTrafficMode(mode) {
-            return this.writeControl(ESPectreBleClient.buildCsiTrafficModeCommand(mode));
-        }
-
-        /** @see ESPectreBleClient.buildTrafficGeneratorModeCommand */
-        setTrafficGeneratorMode(mode) {
-            return this.writeControl(ESPectreBleClient.buildTrafficGeneratorModeCommand(mode));
-        }
-
         /** @see ESPectreBleClient.buildWifiConfigCommand */
         setWifiConfig(options) {
             return this.writeControl(ESPectreBleClient.buildWifiConfigCommand(options));
@@ -604,17 +472,12 @@
             return this.writeControl(ESPectreBleClient.buildOtaStartCommand());
         }
 
-        /* ------------------------------------------------ notifications */
-
-        #handleTelemetryNotification(event) {
-            const telemetry = ESPectreBleClient.parseTelemetry(event.target.value);
-            if (telemetry) {
-                this.#emit('telemetry', telemetry);
-            } else {
-                const value = event.target.value;
-                this.#emit('invalid-telemetry', value ? value.byteLength : 0);
-            }
+        /** Stops BLE after Wi-Fi is configured so sensing can resume. */
+        stopBle() {
+            return this.writeControl(ESPectreBleClient.buildStopBleCommand());
         }
+
+        /* ------------------------------------------------ notifications */
 
         /*
          * Sysinfo arrives as text lines. A snapshot starts at
@@ -655,18 +518,14 @@
             if (this.#device) {
                 this.#device.removeEventListener('gattserverdisconnected', this.#onGattDisconnected);
             }
-            if (this.#characteristics.telemetry) {
-                this.#characteristics.telemetry.removeEventListener(
-                    'characteristicvaluechanged', this.#onTelemetryNotification);
-            }
             if (this.#characteristics.sysinfo) {
                 this.#characteristics.sysinfo.removeEventListener(
                     'characteristicvaluechanged', this.#onSysinfoNotification);
             }
             this.#device = null;
             this.#server = null;
-            this.#characteristics = { telemetry: null, sysinfo: null, control: null };
-            this.#notificationsActive = { telemetry: false, sysinfo: false };
+            this.#characteristics = { sysinfo: null, control: null };
+            this.#notificationsActive = { sysinfo: false };
             this.#sysinfoEntries = [];
         }
     }

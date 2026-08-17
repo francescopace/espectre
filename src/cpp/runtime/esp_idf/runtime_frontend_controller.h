@@ -138,6 +138,7 @@ class RuntimeFrontendController {
    *
    * Sticky: the value is remembered and reapplied to the backend created by a
    * later `setup()`. Matter uses it to stay silent until commissioning.
+   * Native uses it to pause CSI during BLE setup without dropping Wi-Fi.
    */
   void set_services_armed(bool armed);
   /** Enable or suppress `IRuntimeListener::on_live_telemetry()`. Also sticky. */

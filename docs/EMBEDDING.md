@@ -128,7 +128,7 @@ The runtime carries no internal locking.
 - Run `setup()`, `loop()`, and `shutdown()` on one task.
 - Every `IRuntimeListener` callback is delivered on the caller's task: from `loop()` for sensing events, or inline on the task that invoked a control method. Work raised in the Wi-Fi CSI callback is deferred through an internal mailbox first, so no listener callback runs in interrupt or Wi-Fi driver context.
 - Because callbacks run on your own task, blocking in them is allowed. Publishing over MQTT or writing NVS from a callback costs loop latency, not CSI frames.
-- The `set_*_runtime()` controls are the one surface reached from elsewhere in practice: the Native frontend applies BLE and MQTT commands straight from their stack callbacks. Prefer queueing such a request and applying it from your loop task.
+- The `set_*_runtime()` controls are the one surface reached from elsewhere in practice: the Native frontend applies MQTT sensing commands and BLE setup commands straight from their stack callbacks. Prefer queueing such a request and applying it from your loop task.
 - The transport seams follow their own stack instead: `IOtaService` callbacks arrive on the OTA worker task, and `IBleBindings` callbacks on the BLE host task.
 
 ### Lifecycle

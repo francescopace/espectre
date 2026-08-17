@@ -12,7 +12,7 @@ The native frontend is intentionally separate from the ESPHome frontend:
 
 The native frontend now also supports HTTPS OTA triggered from its MQTT command plane.
 
-The current native frontend preserves the protocol used by the Configure client in `docs/web/index.html`, but it is not tied to that specific client.
+The current native frontend preserves the protocol used by the Device console in `docs/web/index.html`, but it is not tied to that specific client.
 
 ## Getting Started
 
@@ -22,7 +22,7 @@ If you arrived here from [`SETUP.md`](../../../../docs/SETUP.md), this README is
 
 The web flasher can install published `Native` images for supported chips. After flashing, use a BLE client that understands this protocol, such as:
 
-- [Configure](https://espectre.dev/configure/): Web Bluetooth provisioning and protocol test client
+- [Device console](https://espectre.dev/#device): nearby provisioning followed by live MQTT sensing, tuning, and diagnostics in one session
 - [The Game](https://espectre.dev/game/): example interactive client over MQTT after BLE setup
 
 Each release and snapshot publishes one full-flash native image and one application-only OTA payload per supported chip. Both contain the same application features; the smaller `-ota.bin` file omits the bootloader, partition table, and other full-flash regions required only for USB recovery. GitHub Pages stages only the full-flash image for the browser flasher.
@@ -41,9 +41,9 @@ Repository CLI:
 
 The CLI is a thin wrapper over the ESP-IDF app in this directory. On Windows, use `.\espectre.cmd native ...` and `.\espectre.cmd monitor --port COM5`. Docker can replace local ESP-IDF for `build`; `flash` and `doctor` continue to use the local environment.
 
-### Web Bluetooth Configuration Client
+### Web Device Console
 
-[Configure](https://espectre.dev/configure/) is the reference browser client for BLE provisioning, identity, and OTA. Run `./espectre ui ble` to serve the same application from localhost.
+[Device console](https://espectre.dev/#device) is the reference browser client. It uses Web Bluetooth only for nearby Wi-Fi, MQTT, and device-label setup, then hands the same visible session to MQTT over WebSockets for live sensing, runtime controls, diagnostics, and recovery. Run `./espectre ui ble` to serve the same application from localhost.
 
 Current capabilities:
 
@@ -58,8 +58,9 @@ Current capabilities:
 - select `2g`, `5g`, or `auto` over BLE when sysinfo reports `supports_wifi_5ghz=true`
 - provision or clear MQTT configuration over BLE
 - request OTA status, check for updates, and start HTTPS OTA over BLE
-- stop BLE after Wi-Fi and MQTT are saved with `STOP_BLE`, or by disconnecting the Configure client
+- stop BLE after Wi-Fi and MQTT are saved with `STOP_BLE`; disconnecting the nearby setup client leaves BLE advertising so setup can be reopened without another recovery action
 - restart BLE later with MQTT `set_ble` (`ble on` in `./espectre mqtt`)
+- restart BLE without MQTT by holding the board BOOT button for the configured recovery interval, 3 seconds by default
 - use sensing controls over canonical MQTT with `commands`, `set_threshold`, `set_motion_hits`, `set_detector`, `recalibrate`, `set_csi_traffic_mode`, `set_traffic_generator_mode`, and `set_ble`
 
 BLE does not carry live sensing, threshold or detector writes, CSI traffic control, or recalibration. Sensing pauses while BLE is up.
@@ -80,13 +81,13 @@ Recommended local workflow from the repository root:
 
 Usage notes:
 
-1. click `Connect` and select the ESPectre device
+1. open the Device console, click `Connect nearby device`, and select the ESPectre device
 2. wait for the initial `REQ_SYSINFO` refresh after notifications start
 3. use `Save Wi-Fi` to send one atomic `SET_WIFI_CONFIG` update
 4. use `Save MQTT` to send one atomic `SET_MQTT_CONFIG` update and enable MQTT transport
 5. use `Save Device` to persist the human-facing `device_label`
-6. use the OTA controls to request status, check the built-in release manifest, or start the update
-7. press `Stop BLE and start detection` to open the MQTT Monitor with the saved broker settings, connect over MQTT, and stop Bluetooth so sensing can start
+6. select `Start sensing`; the console connects to the broker, waits for MQTT `set_ble off` to be accepted, then opens Live and reports sensing as active after the first valid device telemetry
+7. adjust MQTT-owned runtime settings directly in Live; changes apply when their fields change, while OTA status and on-demand diagnostics remain in the collapsed Diagnostics section below
 
 The shared protocol semantics remain documented in [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md).
 
@@ -114,11 +115,14 @@ Runtime provisioning behavior:
 
 - BLE starts automatically when Wi-Fi or MQTT is unconfigured, and Native pauses CSI while BLE is up
 - `SET_WIFI_CONFIG` persists the full Wi-Fi block in NVS; credential, BSSID, and channel changes reconnect immediately without restarting BLE, while a changed `band_policy` applies after restart so Wi-Fi and CSI use the same policy
-- after Wi-Fi and MQTT are saved, BLE stays up for the current Configure session and then stops when the client disconnects or when `STOP_BLE` is written, so sensing can use the radio alone
+- after Wi-Fi and MQTT are saved, BLE stays up across nearby client disconnects and resumes advertising; only `STOP_BLE` or MQTT `set_ble` with `ble=off` closes setup so sensing can use the radio alone
 - MQTT `set_ble` with `ble=on` starts BLE again for recovery or reconfiguration; `ble=off` or `STOP_BLE` stops it only when Wi-Fi and MQTT are already configured
+- holding BOOT for `ESPECTRE_BLE_RECOVERY_BUTTON_HOLD_MS` starts the same BLE recovery path and pauses sensing even when MQTT is unavailable; the default is 3000 ms
 - `CLEAR_WIFI` erases stored Wi-Fi values, disconnects the station, and brings BLE back for provisioning
 - `CLEAR_MQTT` or an empty MQTT host brings BLE back until a broker is saved again
 - `SET_MQTT_CONFIG` persists the full MQTT broker block in NVS and reinitializes the MQTT transport
+
+Physical BLE recovery is enabled by default when Bluetooth is built. `ESPECTRE_BLE_RECOVERY_BUTTON_GPIO` follows the BOOT strap used by the target family: GPIO0 on ESP32 and ESP32-S3, GPIO9 on ESP32-C3 and ESP32-C6, and GPIO28 on ESP32-C5. The input is active-low, is polled without blocking the runtime loop, and fires once per completed hold. Override the GPIO or disable `ESPECTRE_BLE_RECOVERY_BUTTON_ENABLED` when a custom board routes BOOT differently or owns that pin for another purpose.
 
 This means the current standalone native firmware is best suited for:
 
@@ -221,16 +225,16 @@ Check these first:
 
 ### CSI occupancy drops while BLE is on
 
-On ESP32-C3, the Bluetooth controller and Wi-Fi coexistence starve CSI admission even at default NimBLE advertising intervals. Native therefore runs BLE only for setup and recovery: it starts automatically when Wi-Fi or MQTT is unconfigured, pauses sensing while BLE is up, and stops BLE after both are saved once the Configure client disconnects or `STOP_BLE` is written. Use MQTT `set_ble` with `ble=on`, or `ble on` in `./espectre mqtt`, to advertise again. If MQTT is also unreachable, reflash or provision Wi-Fi from a USB session. The product decision is recorded in [`2026-08-17-keep-native-ble-as-setup-recovery.md`](../../../../docs/adr/2026-08-17-keep-native-ble-as-setup-recovery.md).
+On ESP32-C3, the Bluetooth controller and Wi-Fi coexistence starve CSI admission even at default NimBLE advertising intervals. Native therefore runs BLE only for setup and recovery: it starts automatically when Wi-Fi or MQTT is unconfigured, pauses sensing while BLE is up, keeps advertising across nearby client disconnects, and stops only when `STOP_BLE` or MQTT `set_ble` with `ble=off` explicitly closes setup. Use MQTT `set_ble` with `ble=on`, `ble on` in `./espectre mqtt`, or hold BOOT for 3 seconds to advertise again. The product decision is recorded in [`2026-08-17-keep-native-ble-as-setup-recovery.md`](../../../../docs/adr/2026-08-17-keep-native-ble-as-setup-recovery.md).
 
-While BLE is up, Native uses the NimBLE default advertising and connection timings so Configure discovery stays fast. It does not publish live sensing over BLE.
+While BLE is up, Native uses the NimBLE default advertising and connection timings so nearby discovery stays fast. It does not publish live sensing over BLE.
 
 ### The firmware starts but never joins Wi-Fi
 
 Check the active Wi-Fi values first:
 
 1. request fresh sysinfo and inspect `wifi_ssid`, `wifi_bssid`, `wifi_channel`, `wifi_band_policy`, and `wifi_connected`
-2. in the Configure page, press `Save Wi-Fi` and wait for the station reconnect after the atomic `SET_WIFI_CONFIG` update
+2. in the Device console’s Connectivity view, press `Save Wi-Fi` and wait for the station reconnect after the atomic `SET_WIFI_CONFIG` update
 3. if no provisioning has been stored yet, verify the Kconfig defaults used at build time:
    - `ESPECTRE_WIFI_SSID`
    - `ESPECTRE_WIFI_PASSWORD`
@@ -260,5 +264,5 @@ The firmware app uses the shared standalone Wi-Fi manager for station setup, BSS
 - `../../runtime/esp_idf/frontend_support/wifi_provisioning_service.cpp`: shared ESP-IDF Wi-Fi provisioning command handling
 - `espectre/native_frontend.cpp`: command parsing and sysinfo emission
 - `../../runtime/esp_idf/frontend_support/ble_bindings_nimble.cpp`: NimBLE transport implementation
-- `../../../../docs/web/configure/index.html`: unified Web Bluetooth provisioning and protocol test client
+- `../../../../docs/web/index.html`: unified nearby setup and MQTT Device console
 - [The Game](https://espectre.dev/game/): published example client over MQTT after BLE setup

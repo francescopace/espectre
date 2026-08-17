@@ -143,13 +143,13 @@ describe('analytics privacy boundary', () => {
 
 describe('analytics route metadata', () => {
     it('uses stable route titles and content groups', () => {
-        const { api, window } = analyticsContext({ hash: '#monitor' });
-        assert.equal(api.getRouteTitle('monitor'), 'MQTT monitor | ESPectre');
+        const { api, window } = analyticsContext({ hash: '#device' });
+        assert.equal(api.getRouteTitle('device'), 'Device console | ESPectre');
         assert.equal(api.getRouteTitle('guide-detectors'), 'Detection profiles | ESPectre');
         assert.equal(api.getRouteTitle('guide-new-topic'), 'New topic | ESPectre');
         assert.equal(api.getRouteTitle('docs-new-reference'), 'New reference | ESPectre');
         assert.equal(api.getRouteTitle('privacy'), 'Website privacy and analytics | ESPectre');
-        assert.equal(api.getSiteSection('monitor'), 'monitor');
+        assert.equal(api.getSiteSection('device'), 'device');
         assert.equal(api.getSiteSection('guide-setup'), 'documentation');
         assert.equal(api.getSiteSection('docs-api'), 'documentation');
         assert.equal(window.ESPectreRoutes.guideNameForPath('/guides/detectors/'), 'detectors');
@@ -177,16 +177,16 @@ describe('analytics route metadata', () => {
     });
 
     it('updates the Google tag configuration before a virtual page view', () => {
-        const { api, window } = analyticsContext({ hash: '#monitor' });
+        const { api, window } = analyticsContext({ hash: '#device' });
         api.enableAnalytics({ sendPageView: false });
-        api.sendRoutePageView('monitor');
+        api.sendRoutePageView('device');
         const update = window.dataLayer.at(-2);
         const pageView = window.dataLayer.at(-1);
         assert.equal(update[0], 'config');
         assert.equal(update[2].update, true);
-        assert.equal(update[2].page_location, 'https://espectre.dev/#monitor');
-        assert.equal(update[2].page_title, 'MQTT monitor | ESPectre');
-        assert.equal(update[2].content_group, 'monitor');
+        assert.equal(update[2].page_location, 'https://espectre.dev/#device');
+        assert.equal(update[2].page_title, 'Device console | ESPectre');
+        assert.equal(update[2].content_group, 'device');
         assert.equal(pageView[1], 'page_view');
     });
 

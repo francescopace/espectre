@@ -22,7 +22,7 @@ This is an implementation reference for firmware, client, and integration develo
 
 BLE is the proximity transport. It is used when a user is near a device or when network connectivity is not available.
 
-Native firmware treats BLE as a setup and recovery radio. It advertises automatically when Wi-Fi or MQTT is unconfigured, pauses CSI while BLE is up, and stops BLE after both are saved once the client disconnects or `STOP_BLE` is written. MQTT `set_ble` starts BLE again when the device is already on the network.
+Native firmware treats BLE as a setup and recovery radio. It advertises automatically when Wi-Fi or MQTT is unconfigured, pauses CSI while BLE is up, and continues advertising after a nearby client disconnects. After Wi-Fi and MQTT are saved, only `STOP_BLE` or MQTT `set_ble` with `ble=off` closes setup so sensing can resume. MQTT `set_ble` starts BLE again when the device is already on the network. Native’s physical recovery input provides the same `ble=on` transition without a network: holding the board BOOT button for the configured recovery interval starts BLE and pauses sensing.
 
 Current BLE responsibilities:
 
@@ -361,7 +361,7 @@ Start or stop Native BLE setup mode. Sensing pauses while BLE is up. `off` is re
 }
 ```
 
-Accepted `ble` values are `on` and `off`. Micro-ESPectre rejects the command. After BLE starts, use Configure as usual; disconnecting or writing `STOP_BLE` stops the radio again when Wi-Fi and MQTT are already stored.
+Accepted `ble` values are `on` and `off`. Micro-ESPectre rejects the command. After BLE starts, use the Device console’s Connectivity view. Disconnecting the nearby client keeps BLE advertising; writing `STOP_BLE` or sending `set_ble` with `ble=off` stops the radio when Wi-Fi and MQTT are already stored.
 
 Publish OTA state on:
 
@@ -521,7 +521,7 @@ MQTT settings are also persisted in NVS as one block. `SET_MQTT_CONFIG:...` repl
 
 ## Deployment Profiles
 
-ESPectre Protocol can be carried by multiple deployment profiles. The currently implemented profile is the local lab path: BLE provisioning via [Configure](https://espectre.dev/configure/), plus telemetry inspection through the [MQTT Monitor](https://espectre.dev/monitor/). The same pages are served from localhost by `./espectre ui` when an insecure local `ws://` listener cannot be reached reliably from the public HTTPS site.
+ESPectre Protocol can be carried by multiple deployment profiles. The currently implemented profile is the local lab path: one [Device console](https://espectre.dev/#device) uses BLE for nearby connectivity setup and MQTT over WebSockets for live sensing, runtime controls, diagnostics, and BLE recovery. The same application is served from localhost by `./espectre ui` when an insecure local `ws://` listener cannot be reached reliably from the public HTTPS site.
 
 Web orchestration profiles add identity, tenancy, device claim, state mirrors, history, alerts, and OTA around the same protocol. Those system-level concerns belong to [ARCHITECTURE.md](ARCHITECTURE.md), not to this message schema.
 

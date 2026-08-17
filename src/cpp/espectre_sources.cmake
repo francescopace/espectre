@@ -102,6 +102,7 @@ set(ESPECTRE_FRONTEND_MATTER_SOURCES
 )
 
 set(ESPECTRE_FRONTEND_NATIVE_SOURCES
+    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/ble_recovery_button_service.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_frontend.cpp"
 )
 

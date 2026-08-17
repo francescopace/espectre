@@ -2,9 +2,9 @@
  * ESPectre - Web Bluetooth client unit tests
  *
  * Covers the hardware-independent surface of docs/web/assets/js/espectre-ble.js: the
- * pure command builders and their validation, the telemetry parser, and the
- * event API. The GATT paths need a physical device and are exercised through
- * the website's Configure tool instead.
+ * pure command builders and their validation, and the event API. The GATT paths
+ * need a physical device and are exercised through the website's Configure tool
+ * instead.
  *
  * Run with: node --test 'test/web/*.mjs'
  *
@@ -90,24 +90,8 @@ describe('command builders: wire format', () => {
         );
     });
 
-    it('formats the threshold with six decimals', () => {
-        assert.equal(Client.buildThresholdCommand(0.35), 'SET_THRESHOLD:0.350000');
-        assert.equal(Client.buildThresholdCommand(0), 'SET_THRESHOLD:0.000000');
-        assert.equal(Client.buildThresholdCommand(1), 'SET_THRESHOLD:1.000000');
-    });
-
-    it('builds detector commands', () => {
-        assert.equal(Client.buildDetectorCommand('lightweight'), 'SET_DETECTOR:lightweight');
-        assert.equal(Client.buildDetectorCommand('high_accuracy'), 'SET_DETECTOR:high_accuracy');
-    });
-
-    it('builds the recalibrate command', () => {
-        assert.equal(Client.buildRecalibrateCommand(), 'RECALIBRATE');
-    });
-
-    it('builds traffic-control commands', () => {
-        assert.equal(Client.buildCsiTrafficModeCommand('external'), 'SET_CSI_TRAFFIC_MODE:external');
-        assert.equal(Client.buildTrafficGeneratorModeCommand('dns'), 'SET_TRAFFIC_GENERATOR_MODE:dns');
+    it('builds the stop-BLE command', () => {
+        assert.equal(Client.buildStopBleCommand(), 'STOP_BLE');
     });
 });
 
@@ -172,53 +156,8 @@ describe('command builders: validation', () => {
         );
     });
 
-    it('rejects thresholds outside 0..1', () => {
-        assertValidationError(() => Client.buildThresholdCommand(1.2), /threshold/);
-        assertValidationError(() => Client.buildThresholdCommand(-0.1), /threshold/);
-        assertValidationError(() => Client.buildThresholdCommand(NaN), /threshold/);
-    });
-
-    it('rejects unknown detectors', () => {
-        assertValidationError(() => Client.buildDetectorCommand('quantum'), /detector/);
-    });
-
-    it('rejects unknown traffic-control modes', () => {
-        assertValidationError(() => Client.buildCsiTrafficModeCommand('ethernet'), /csiTrafficMode/);
-        assertValidationError(() => Client.buildTrafficGeneratorModeCommand('udp'), /trafficGeneratorMode/);
-    });
-
     it('rejects multi-line device labels', () => {
         assertValidationError(() => Client.buildDeviceLabelCommand('a\nb'), /label/);
-    });
-});
-
-describe('parseTelemetry', () => {
-    const view = (bytes) => new DataView(new Uint8Array(bytes).buffer);
-    const f32 = (value) => {
-        const buffer = new ArrayBuffer(4);
-        new DataView(buffer).setFloat32(0, value, true);
-        return [...new Uint8Array(buffer)];
-    };
-
-    it('parses movement, threshold, and motion state', () => {
-        const telemetry = Client.parseTelemetry(view([...f32(0.25), ...f32(0.5), 1]));
-        assert.deepEqual(telemetry, { movement: 0.25, threshold: 0.5, motionState: 1 });
-    });
-
-    it('reports a null motion state on 8-byte payloads', () => {
-        const telemetry = Client.parseTelemetry(view([...f32(0.1), ...f32(0.2)]));
-        assert.equal(telemetry.motionState, null);
-    });
-
-    it('returns null for short payloads', () => {
-        assert.equal(Client.parseTelemetry(view([1, 2, 3])), null);
-        assert.equal(Client.parseTelemetry(null), null);
-    });
-
-    it('returns null for non-finite values', () => {
-        const nan = [0, 0, 192, 127]; // little-endian float32 NaN
-        assert.equal(Client.parseTelemetry(view([...nan, ...f32(0.5)])), null);
-        assert.equal(Client.parseTelemetry(view([...f32(0.5), ...nan])), null);
     });
 });
 
@@ -236,7 +175,7 @@ describe('event API', () => {
     it('rejects unknown events and non-function handlers', () => {
         const client = new Client();
         assertValidationError(() => client.on('nope', () => {}), /unknown event/);
-        assertValidationError(() => client.on('telemetry', 42), /handler/);
+        assertValidationError(() => client.on('sysinfo', 42), /handler/);
     });
 
     it('exposes frozen constants and a version', () => {
@@ -244,6 +183,10 @@ describe('event API', () => {
         assert.ok(Object.isFrozen(Client.UUIDS));
         assert.match(Client.VERSION, /^\d+\.\d+\.\d+$/);
         assert.equal(Client.UUIDS.service, 'd33ff46b-2203-4775-bc6f-b3a2c36af8f0');
+        assert.ok(Client.EVENTS.includes('sysinfo'));
+        assert.ok(!Client.EVENTS.includes('telemetry'));
+        assert.equal(typeof Client.buildThresholdCommand, 'undefined');
+        assert.equal(typeof Client.parseTelemetry, 'undefined');
     });
 
     it('starts disconnected with empty read-only state', () => {
