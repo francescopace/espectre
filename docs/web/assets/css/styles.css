@@ -2464,11 +2464,12 @@ esp-web-install-button { display: inline-block; }
   font-size: 13.5px;
   font-weight: 500;
   box-shadow: var(--shadow);
-  z-index: 500;
+  /* Above .modal-backdrop (700); below .skip-link (1000). */
+  z-index: 800;
   max-width: min(90vw, 480px);
   text-align: center;
 }
-.toast-sticky { z-index: 490; }
+.toast-sticky { z-index: 790; }
 .toast.js-toast:not([hidden]) ~ .toast-sticky:not([hidden]) { bottom: 84px; }
 
 /* Consent */

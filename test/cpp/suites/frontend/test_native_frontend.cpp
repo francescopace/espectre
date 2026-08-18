@@ -1176,6 +1176,34 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[4].payload.find("\"set_ble\"") != std::string::npos);
 }
 
+void test_native_frontend_mqtt_connect_publishes_current_ota_state(void) {
+  MockBleBindings bindings;
+  MockMqttTransport mqtt;
+  MockOtaService ota;
+  EspectreDeviceConfig config;
+  config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_host = "localhost";
+
+  NativeFrontend frontend(&bindings, &mqtt, &ota);
+  EspectreDeviceInfo info;
+  info.frontend = "native";
+  info.firmware_version = "1.2.3";
+  frontend.set_device_config(config);
+  frontend.set_device_info(info);
+  TEST_ASSERT_TRUE(frontend.setup());
+
+  mqtt_transport_mock::state.publishes.clear();
+  mqtt.emit_connection(true);
+  TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
+                               mqtt_transport_mock::state.publishes.end(),
+                               [](const mqtt_transport_mock::Publish &publish) {
+                                 return publish.topic == "espectre/v1/devices/0x0000abcdeffedcba/ota/state" &&
+                                        publish.payload.find("\"state\":\"idle\"") != std::string::npos &&
+                                        publish.payload.find("\"current_version\":\"1.2.3\"") != std::string::npos &&
+                                        !publish.retain;
+                               }));
+}
+
 void test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state(void) {
   MockBleBindings bindings;
   MockMqttTransport mqtt;
@@ -1695,6 +1723,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_mqtt_motion_hits_command_updates_runtime);
   RUN_TEST(test_native_frontend_mqtt_traffic_commands_update_runtime);
   RUN_TEST(test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads);
+  RUN_TEST(test_native_frontend_mqtt_connect_publishes_current_ota_state);
   RUN_TEST(test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state);
   RUN_TEST(test_native_frontend_ble_ota_commands_use_ota_service_and_refresh_sysinfo);
   RUN_TEST(test_espectre_protocol_parses_config_and_rejects_bad_commands);

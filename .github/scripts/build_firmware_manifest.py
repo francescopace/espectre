@@ -181,15 +181,15 @@ def build_manifest(args: argparse.Namespace) -> dict:
     output_path = Path(args.output)
 
     if args.channel == "release":
-        esphome_prefix = f"espectre-{args.version}-"
+        esphome_prefix = f"espectre-esphome-{args.version}-"
         native_prefix = f"espectre-native-{args.version}-"
         matter_prefix = f"espectre-matter-{args.version}-"
     elif args.channel == "preview":
-        esphome_prefix = "espectre-preview-"
+        esphome_prefix = "espectre-esphome-preview-"
         native_prefix = "espectre-native-preview-"
         matter_prefix = "espectre-matter-preview-"
     else:
-        esphome_prefix = "espectre-develop-"
+        esphome_prefix = "espectre-esphome-develop-"
         native_prefix = "espectre-native-develop-"
         matter_prefix = "espectre-matter-develop-"
 

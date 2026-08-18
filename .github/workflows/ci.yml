@@ -266,9 +266,9 @@ jobs:
           mkdir -p output
           CHIP=$(echo "${{ matrix.chip }}" | tr '[:upper:]' '[:lower:]' | tr -d '-')
           if [ "${{ github.ref }}" = "refs/heads/develop" ]; then
-            PREFIX="espectre-develop"
+            PREFIX="espectre-esphome-develop"
           else
-            PREFIX="espectre-preview"
+            PREFIX="espectre-esphome-preview"
           fi
           cp "${{ steps.esphome-artifacts.outputs.factory_bin }}" "output/${PREFIX}-${CHIP}.bin"
 
@@ -276,7 +276,7 @@ jobs:
         if: github.event_name == 'push'
         run: |
           PROJECT_DESCRIPTION="$(find src/cpp/frontend/esphome/examples/.esphome/build -path '*/build/project_description.json' -print -quit)"
-          FIRMWARE="$(find output -maxdepth 1 -type f \( -name 'espectre-preview-*.bin' -o -name 'espectre-develop-*.bin' \) -print -quit)"
+          FIRMWARE="$(find output -maxdepth 1 -type f \( -name 'espectre-esphome-preview-*.bin' -o -name 'espectre-esphome-develop-*.bin' \) -print -quit)"
           test -n "${PROJECT_DESCRIPTION}"
           test -n "${FIRMWARE}"
           python .github/scripts/build_firmware_compliance.py \
@@ -291,8 +291,8 @@ jobs:
         with:
           name: firmware-esphome-${{ matrix.chip }}
           path: |
-            output/espectre-preview-*
-            output/espectre-develop-*
+            output/espectre-esphome-preview-*
+            output/espectre-esphome-develop-*
           retention-days: 7
 
   build-matter:

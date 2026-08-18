@@ -198,6 +198,8 @@ Operational model:
 - `preview` fetches the rolling `snapshot` tag from `main`, and `develop` fetches `snapshot-dev` from `develop`
 - MQTT and BLE clients cannot override the server, manifest, image, or target version
 - successful OTA schedules an immediate reboot into the new slot
+- MQTT connect republishes `info`, retained `status` with `online: true`, and the current `ota/state`, so clients can close an in-flight update UI when the device returns
+- check, download, and failure progress is logged under `espectre.ota`
 
 The default channel follows the image that was flashed: release firmware uses the latest GitHub release, preview builds use the rolling `snapshot` tag, and develop builds use the rolling `snapshot-dev` tag. OTA compares `git describe` identities: the device firmware version and the manifest `version` must match for "already up to date". The manifest filename is `espectre-native-ota-<chip>.json`, and its `image_url` points to the matching versioned `-ota.bin` release asset.
 

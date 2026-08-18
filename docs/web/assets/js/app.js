@@ -133,6 +133,7 @@
     let otaModalReturnFocus = null;
     let otaPollTimer = null;
     let otaTracking = null;
+    let otaAwaitingReconnect = false;
     let pendingConfigVerification = null;
     let activeDeviceView = 'live';
     let latestDeviceInfo = null;
@@ -875,6 +876,7 @@
         otaMessage = '';
         otaSupported = null;
         otaCheckTransport = '';
+        otaAwaitingReconnect = false;
         syncFirmwareUpdateNotice();
         gameReset();
         thereminStop();
@@ -1804,7 +1806,9 @@
             }
             if (suffix === 'status') {
                 const data = JSON.parse(text);
-                if (data.online === false) {
+                const online = data.online === true;
+                handleOtaDeviceAvailability(online);
+                if (!online && !otaAwaitingReconnect && otaState !== 'reboot_scheduled') {
                     toast('The broker is connected, but the device is offline.');
                     monitorStatus('Device offline. Waiting for it to reconnect…');
                 }
@@ -2787,6 +2791,70 @@
         }
     }
 
+    function otaModalDescriptionElement() {
+        const modal = $('.js-ota-modal');
+        return modal ? modal.querySelector('.modal-description') : null;
+    }
+
+    function setOtaModalDescription(text) {
+        const description = otaModalDescriptionElement();
+        if (description && text) description.textContent = text;
+    }
+
+    function syncOtaModalDescription() {
+        const modal = $('.js-ota-modal');
+        if (!modal || modal.hidden) return;
+        const state = String(otaState || '').toLowerCase();
+        if (state === 'downloading') {
+            setOtaModalDescription('Downloading firmware…');
+        } else if (state === 'applying') {
+            setOtaModalDescription('Applying firmware…');
+        } else if (state === 'reboot_scheduled') {
+            setOtaModalDescription('Update applied. Waiting for the device to come back online…');
+        } else if (state === 'error') {
+            setOtaModalDescription(otaMessage && otaMessage !== '—' ? otaMessage : 'Update failed.');
+        }
+    }
+
+    function completeOtaReconnect() {
+        if (!otaAwaitingReconnect) return;
+        otaAwaitingReconnect = false;
+        otaBusy = false;
+        const version = conn.firmwareVersion || (latestDeviceInfo && latestDeviceInfo.firmware_version) || '';
+        applyOtaStatus({
+            state: 'idle',
+            busy: false,
+            current_version: version || undefined,
+            target_version: '',
+            update_available: false,
+            message: version ? ('Back online · firmware ' + version) : 'Back online after update'
+        });
+        setOtaModalDescription(version
+            ? 'Update applied. Device is back online on ' + version + '.'
+            : 'Update applied. Device is back online.');
+        otaClose();
+        toast(version
+            ? 'Device is back online on ' + version + '.'
+            : 'Device is back online after the update.');
+        otaCheckTransport = '';
+        startSilentOtaCheck();
+    }
+
+    function handleOtaDeviceAvailability(online) {
+        if (!online) {
+            if (otaState === 'reboot_scheduled') {
+                otaAwaitingReconnect = true;
+                setOtaModalDescription('Update applied. Waiting for the device to come back online…');
+                monitorStatus('Device rebooting after the update…');
+            }
+            return;
+        }
+        if (otaAwaitingReconnect || otaState === 'reboot_scheduled') {
+            otaAwaitingReconnect = true;
+            completeOtaReconnect();
+        }
+    }
+
     function selectedOtaChannel() {
         const el = document.getElementById('ota-channel');
         const value = (el && el.value ? String(el.value) : '').trim();
@@ -2870,9 +2938,18 @@
             write('cfg-ota-available', 'no');
         }
         if (status.busy !== undefined) otaBusy = sysinfoBoolean(status.busy);
+        if (normalizedState === 'reboot_scheduled') {
+            otaAwaitingReconnect = true;
+        } else if (otaAwaitingReconnect &&
+                (normalizedState === 'idle' || normalizedState === 'up_to_date' ||
+                    normalizedState === 'update_available' || normalizedState === 'checking')) {
+            completeOtaReconnect();
+            return;
+        }
         evaluateOtaTracking({ ota_state: state });
         syncOtaUpdateButton();
         syncFirmwareUpdateNotice();
+        syncOtaModalDescription();
     }
 
     function reportOtaCheckFailure() {

@@ -117,7 +117,7 @@ espectre/v1/devices/{device_id}/status
 }
 ```
 
-Native retains the latest status payload. A normal shutdown publishes retained `online: false`; after an unexpected disconnect, the broker publishes the retained Last Will with the same offline state. A later connection replaces it with retained `online: true`, allowing availability consumers that subscribe after discovery to recover the current state.
+Native retains the latest status payload. A normal shutdown publishes retained `online: false`; after an unexpected disconnect, the broker publishes the retained Last Will with the same offline state. A later connection replaces it with retained `online: true`, allowing availability consumers that subscribe after discovery to recover the current state. MQTT connect also publishes `info` and, when OTA is present, the current `ota/state`, so a client that watched `reboot_scheduled` can treat the next `online: true` as the device having returned from the OTA reboot.
 
 ### Info
 
@@ -387,6 +387,8 @@ espectre/v1/devices/{device_id}/ota/state
   "message": "update available"
 }
 ```
+
+`ota/state` is not retained. Native publishes the current snapshot when MQTT connects, when an OTA command changes state, and when the HTTPS OTA worker reports progress. After a successful update the device reboots, so the next connect snapshot is `idle` with `current_version` set to the firmware now running.
 
 Command result:
 

@@ -31,6 +31,19 @@ constexpr uint32_t kHttpTimeoutMs = 30000U;
 constexpr uint32_t kPostSuccessDelayMs = 500U;
 constexpr uint32_t kWorkerStackSize = 8192U;
 constexpr UBaseType_t kWorkerPriority = 5U;
+// GitHub Releases 302 responses include a multi-kilobyte Content-Security-Policy
+// header and a JWT Location URL. The ESP-IDF default 512-byte HTTP buffer fails
+// with "Out of buffer" / ESP_FAIL before the body is read.
+constexpr int kHttpRxBufferBytes = 8192;
+constexpr int kHttpTxBufferBytes = 1024;
+
+void fill_https_client_config(esp_http_client_config_t *config, const char *url) {
+  config->url = url;
+  config->timeout_ms = static_cast<int>(kHttpTimeoutMs);
+  config->crt_bundle_attach = esp_crt_bundle_attach;
+  config->buffer_size = kHttpRxBufferBytes;
+  config->buffer_size_tx = kHttpTxBufferBytes;
+}
 
 struct ManifestFetchContext {
   std::string *body{nullptr};
@@ -143,6 +156,8 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
   checking.channel = channel;
   checking.manifest_url = manifest_url;
   update_status_(checking);
+  ESP_LOGI(TAG, "%s channel=%s url=%s", request.action == WorkerAction::CHECK ? "checking" : "updating",
+           channel.c_str(), manifest_url.c_str());
 
   if (manifest_url.empty()) {
     set_error_status_("invalid ota channel", current_version, "", "", "", channel);
@@ -170,6 +185,8 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
     result.busy = false;
     result.state = result.update_available ? EspectreOtaState::UPDATE_AVAILABLE : EspectreOtaState::UP_TO_DATE;
     result.message = result.update_available ? "update available" : "already up to date";
+    ESP_LOGI(TAG, "%s current=%s target=%s", result.message.c_str(), current_version.c_str(),
+             manifest.version.c_str());
     update_status_(result);
     worker_task_ = nullptr;
     return;
@@ -198,11 +215,10 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
   downloading.update_available = !target_version.empty() && target_version != current_version;
   downloading.message = "starting https ota";
   update_status_(downloading);
+  ESP_LOGI(TAG, "downloading %s", image_url.c_str());
 
   esp_http_client_config_t http_config{};
-  http_config.url = image_url.c_str();
-  http_config.timeout_ms = static_cast<int>(kHttpTimeoutMs);
-  http_config.crt_bundle_attach = esp_crt_bundle_attach;
+  fill_https_client_config(&http_config, image_url.c_str());
 
   esp_https_ota_config_t ota_config{};
   ota_config.http_config = &http_config;
@@ -224,6 +240,7 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
   ready.image_url = image_url;
   ready.update_available = false;
   ready.message = "ota applied, rebooting";
+  ESP_LOGI(TAG, "ota applied, rebooting to %s", target_version.c_str());
   update_status_(ready);
 
   vTaskDelay(pdMS_TO_TICKS(kPostSuccessDelayMs));
@@ -300,6 +317,8 @@ void HttpsOtaService::set_error_status_(const std::string &message,
   status.channel = channel;
   status.message = message;
   status.update_available = false;
+  ESP_LOGE(TAG, "failed: %s channel=%s url=%s", message.c_str(), channel.c_str(),
+           image_url.empty() ? manifest_url.c_str() : image_url.c_str());
   update_status_(status);
 }
 
@@ -317,9 +336,7 @@ bool HttpsOtaService::fetch_https_text_(const std::string &url, std::string *bod
 
   ManifestFetchContext context{body, error};
   esp_http_client_config_t config{};
-  config.url = url.c_str();
-  config.timeout_ms = static_cast<int>(kHttpTimeoutMs);
-  config.crt_bundle_attach = esp_crt_bundle_attach;
+  fill_https_client_config(&config, url.c_str());
   config.event_handler = manifest_http_event;
   config.user_data = &context;
 

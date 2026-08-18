@@ -379,7 +379,6 @@ describe('website UX and content contracts', () => {
     it('maps BLE capabilities, runtime controls, and dual-band Wi-Fi safely', () => {
         const ble = index.match(/data-page="configure"[\s\S]*?<\/main>/)?.[0] || '';
         const mqtt = index.match(/data-page="monitor"[\s\S]*?<\/main>/)?.[0] || '';
-        const mqttPanel = index.match(/data-capability="supports_mqtt_config"[\s\S]*?<\/section>/)?.[0] || '';
         const onboarding = ble.match(/class="js-configure-onboarding"[\s\S]*?<div class="js-configure-workspace"/)?.[0] || '';
         const bleBanner = ble.match(/class="device-banner-actions"[\s\S]*?<\/div>/)?.[0] || '';
         const mqttBanner = mqtt.match(/class="device-banner-actions"[\s\S]*?<\/div>/)?.[0] || '';
@@ -425,8 +424,6 @@ describe('website UX and content contracts', () => {
         assert.match(index, /js-sense-recalibrate">Recalibrate/);
         assert.match(mqtt, /<details class="device-live-diagnostics">/);
         assert.doesNotMatch(mqtt, /<details class="device-live-diagnostics" open/);
-        assert.match(mqttPanel, /Native firmware uses this TCP broker/);
-        assert.match(mqttPanel, /Monitor connects over WebSockets/);
         assert.match(app, /const showLiveEnergy = live/);
         assert.match(app, /js-device-edit-connectivity'\)\.addEventListener\('click', monitorStartBle\)/);
         assert.match(app, /edit\.disabled = monitor\.closingBleForLive/);

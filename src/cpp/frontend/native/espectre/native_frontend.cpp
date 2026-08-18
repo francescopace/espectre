@@ -834,6 +834,7 @@ void NativeFrontend::setup_mqtt_() {
                                          if (connected) {
                                            this->publish_mqtt_info_();
                                            this->publish_mqtt_status_(true);
+                                           this->publish_current_mqtt_ota_status_();
                                            this->setup_ha_mqtt_();
                                            this->publish_ha_discovery_();
                                            this->publish_current_ha_state_();
@@ -1075,6 +1076,18 @@ void NativeFrontend::sample_diagnostics_(uint32_t now_ms) {
 
 void NativeFrontend::publish_mqtt_ota_status_(const EspectreOtaStatus &status) {
   (void) publish_frontend_mqtt_ota_status(mqtt_transport_, device_config_, status, now_ms_());
+}
+
+void NativeFrontend::publish_current_mqtt_ota_status_() {
+  if (ota_service_ == nullptr) {
+    return;
+  }
+  EspectreOtaStatus status = ota_service_->status();
+  if ((status.current_version.empty() || status.current_version == "unknown") &&
+      !device_info_.firmware_version.empty()) {
+    status.current_version = device_info_.firmware_version;
+  }
+  publish_mqtt_ota_status_(status);
 }
 
 void NativeFrontend::publish_mqtt_command_result_(const EspectreCommand &command, bool accepted, const char *message) {

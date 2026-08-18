@@ -121,7 +121,7 @@ The benchmark requires local ESPHome and Native Wi-Fi credentials plus MQTT for 
 python tools/benchmark_firmware.py --chip c3
 ```
 
-The command writes a partial report when a case fails and returns success only when every selected case passes. Native, ESPHome, and Streamer collect cases pass when mean CSI occupancy stays at or above the 70% admitted-slot floor. ESPHome monitoring waits up to an extra minute for Wi-Fi association. Matter smoke still checks boot and commissioning only. Each report is a snapshot of the Git revision, hardware, environment, and run time recorded in its header; it does not certify later source revisions. Do not edit or reformat generated chip reports separately from a hardware benchmark run.
+The command writes a partial report when a case fails and returns success only when every selected case passes. Native, ESPHome, and Streamer collect cases pass when mean CSI occupancy stays at or above the 70% admitted-slot floor. Native and ESPHome runtime monitoring wait for the first `IDLE`/`MOTION` heartbeat, then measure 60 seconds; Native High Accuracy starts that window after the MQTT detector switch. Heap-decline scoring begins 10 seconds after that first heartbeat. Matter smoke still checks boot and commissioning only. Each report is a snapshot of the Git revision, hardware, environment, and run time recorded in its header; it does not certify later source revisions. Do not edit or reformat generated chip reports separately from a hardware benchmark run.
 
 ## Research-Only Detector Experiments
 

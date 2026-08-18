@@ -109,12 +109,12 @@ jobs:
           VERSION="${GITHUB_REF_NAME}"
           CHIP=$(echo "${{ matrix.chip }}" | tr '[:upper:]' '[:lower:]' | tr -d '-')
           find src/cpp/frontend/esphome/examples/.esphome/build -name "firmware.factory.bin" -exec cp {} output/ \;
-          mv "output/firmware.factory.bin" "output/espectre-${VERSION}-${CHIP}.bin"
+          mv "output/firmware.factory.bin" "output/espectre-esphome-${VERSION}-${CHIP}.bin"
 
       - name: Build ESPHome compliance artifacts
         run: |
           PROJECT_DESCRIPTION="$(find src/cpp/frontend/esphome/examples/.esphome/build -path '*/build/project_description.json' -print -quit)"
-          FIRMWARE="$(find output -maxdepth 1 -type f -name 'espectre-*.bin' -print -quit)"
+          FIRMWARE="$(find output -maxdepth 1 -type f -name 'espectre-esphome-*.bin' -print -quit)"
           test -n "${PROJECT_DESCRIPTION}"
           test -n "${FIRMWARE}"
           python .github/scripts/build_firmware_compliance.py \
@@ -127,7 +127,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: firmware-${{ matrix.chip }}
-          path: output/espectre-${{ github.ref_name }}-*
+          path: output/espectre-esphome-${{ github.ref_name }}-*
           retention-days: 7
 
   build-matter:

@@ -121,6 +121,7 @@ class NativeFrontend : public IRuntimeListener {
   void publish_mqtt_telemetry_(const RuntimeSnapshot &snapshot, uint32_t now_ms);
   void publish_mqtt_stats_();
   void publish_mqtt_ota_status_(const EspectreOtaStatus &status);
+  void publish_current_mqtt_ota_status_();
   void publish_mqtt_command_result_(const EspectreCommand &command, bool accepted, const char *message);
   void sample_diagnostics_(uint32_t now_ms);
   void send_system_info_();

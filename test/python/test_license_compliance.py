@@ -149,7 +149,7 @@ def test_firmware_manifest_links_available_compliance_artifacts(tmp_path):
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
-    firmware = tmp_path / "espectre-preview-esp32c6.bin"
+    firmware = tmp_path / "espectre-esphome-preview-esp32c6.bin"
     firmware.write_bytes(b"firmware")
     for suffix in ("-sbom.spdx.json", "-THIRD_PARTY_NOTICES.txt", "-third-party-licenses.zip"):
         firmware.with_name(f"{firmware.stem}{suffix}").write_bytes(b"compliance")
@@ -187,7 +187,7 @@ def test_complete_firmware_matrix_requires_every_compliance_companion(tmp_path):
     for chip in module.CHIP_METADATA:
         firmware_names.extend(
             (
-                f"espectre-preview-{chip}.bin",
+                f"espectre-esphome-preview-{chip}.bin",
                 f"espectre-matter-preview-{chip}.bin",
                 f"espectre-native-preview-{chip}.bin",
                 f"espectre-native-preview-{chip}-ota.bin",
@@ -204,7 +204,7 @@ def test_complete_firmware_matrix_requires_every_compliance_companion(tmp_path):
         for suffix in companion_suffixes:
             firmware.with_name(f"{firmware.stem}{suffix}").write_bytes(b"compliance")
 
-    missing_notice = tmp_path / "espectre-preview-esp32-THIRD_PARTY_NOTICES.txt"
+    missing_notice = tmp_path / "espectre-esphome-preview-esp32-THIRD_PARTY_NOTICES.txt"
     missing_notice.unlink()
     args = argparse.Namespace(
         firmware_dir=str(tmp_path),
