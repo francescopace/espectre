@@ -1090,11 +1090,6 @@ def _run_live_collect(args) -> None:
                             + format_backpressure_text(device_state)
                         )
                 else:
-                    progress_score = (
-                        slot["motion_metric"] / slot["metric_threshold"]
-                        if slot["metric_threshold"] > 0
-                        else 0.0
-                    )
                     detail_line = (
                         "    "
                         + format_detection_publish_line(
@@ -1104,7 +1099,6 @@ def _run_live_collect(args) -> None:
                             motion_metric=slot["motion_metric"],
                             threshold=slot["metric_threshold"],
                             effective_state=slot["effective_state"],
-                            progress=progress_score,
                             device_label=slot_label,
                         )
                     )

@@ -36,6 +36,8 @@
 
 namespace espectre {
 
+// progress fills the bar on a 0-1 scale of width. threshold_pos overlays a
+// marker at that character index; pass -1 to hide it.
 inline void log_progress_bar(const char *tag, float progress, int width = 20, int threshold_pos = -1,
                              const char *format = nullptr, ...) {
   if (width < 1) {
@@ -47,7 +49,7 @@ inline void log_progress_bar(const char *tag, float progress, int width = 20, in
     threshold_pos = width - 1;
   }
 
-  int filled = static_cast<int>(progress * (threshold_pos > 0 ? threshold_pos : width));
+  int filled = static_cast<int>(progress * static_cast<float>(width));
   filled = (filled < 0) ? 0 : (filled > width ? width : filled);
 
   char bar[24];

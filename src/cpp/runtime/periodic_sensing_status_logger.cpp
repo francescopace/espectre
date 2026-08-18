@@ -74,13 +74,28 @@ void PeriodicSensingStatusLogger::log_status(const char *tag,
     return;
   }
 
-  const float progress = (threshold > 0.0f) ? (motion_metric / threshold) : 0.0f;
-  const int percent = static_cast<int>(progress * 100.0f);
+  constexpr int kBarWidth = 20;
+  float bar_progress = motion_metric;
+  if (bar_progress < 0.0f) {
+    bar_progress = 0.0f;
+  } else if (bar_progress > 1.0f) {
+    bar_progress = 1.0f;
+  }
 
-  log_progress_bar(tag, progress, 20, 15,
-                   "%3d%% | mvmt:%.6f thr:%.6f | %s | csi:%u/%u tx:%u occ:%u%% "
+  int threshold_pos = -1;
+  if (threshold > 0.0f) {
+    threshold_pos = static_cast<int>(threshold * static_cast<float>(kBarWidth) + 0.5f);
+    if (threshold_pos >= kBarWidth) {
+      threshold_pos = kBarWidth - 1;
+    } else if (threshold_pos < 0) {
+      threshold_pos = 0;
+    }
+  }
+
+  log_progress_bar(tag, bar_progress, kBarWidth, threshold_pos,
+                   "| mvmt:%.6f thr:%.6f | %s | csi:%u/%u tx:%u occ:%u%% "
                    "miss:%u excess:%u stale:%u ooo:%u | ch:%u rssi:%d",
-                   percent, motion_metric, threshold,
+                   motion_metric, threshold,
                    is_motion ? "MOTION" : "IDLE",
                    static_cast<unsigned>(rate_pps),
                    static_cast<unsigned>(raw_rate_pps),

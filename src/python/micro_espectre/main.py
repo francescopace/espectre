@@ -795,11 +795,6 @@ def main():
             time_delta = time.ticks_diff(current_time, last_publish_time)
             if time_delta >= publish_interval_ms:
                 pps = int((publish_counter * 1000) / time_delta) if time_delta > 0 else 0
-                progress = (
-                    latest_motion_metric / latest_threshold
-                    if latest_threshold > 0
-                    else 0
-                )
                 print(
                     format_detection_publish_line(
                         packet_count=processed_packet_count,
@@ -811,7 +806,6 @@ def main():
                         motion_metric=latest_motion_metric,
                         threshold=latest_threshold,
                         effective_state=latest_effective_state,
-                        progress=progress,
                     )
                 )
                 g_state.latest_diagnostics = diagnostics_sampler.sample(

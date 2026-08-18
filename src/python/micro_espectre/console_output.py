@@ -8,27 +8,51 @@ Shared console formatting helpers for live motion detection output.
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
+def _clamp_unit_interval(value):
+    """Clamp a metric onto the shared 0-1 display scale."""
+    numeric = float(value)
+    if numeric < 0.0:
+        return 0.0
+    if numeric > 1.0:
+        return 1.0
+    return numeric
+
+
+def _threshold_marker_index(threshold, width):
+    """Map a 0-1 threshold onto a bar index, or -1 when no marker should be shown."""
+    if threshold <= 0.0 or width < 1:
+        return -1
+    pos = int(threshold * width + 0.5)
+    if pos >= width:
+        return width - 1
+    if pos < 0:
+        return 0
+    return pos
+
+
 def format_progress_bar(
     progress,
     width=20,
-    threshold_pos=15,
+    threshold_pos=-1,
     *,
     filled_char="█",
     empty_char="░",
     threshold_char="|",
+    include_percent=False,
 ):
-    """Format the runtime-style progress bar for console output."""
+    """Format the runtime-style progress bar for console output.
+
+    ``progress`` fills the bar on a 0-1 scale of ``width``. ``threshold_pos`` overlays a marker at that character index; pass a negative value to hide it.
+    """
     if width < 1:
         width = 1
     elif width > 20:
         width = 20
-    show_threshold = threshold_pos > 0
+    show_threshold = threshold_pos >= 0
     if show_threshold and threshold_pos >= width:
         threshold_pos = width - 1
-    elif not show_threshold:
-        threshold_pos = -1
 
-    filled = int(progress * (threshold_pos if show_threshold else width))
+    filled = int(progress * width)
     filled = max(0, min(filled, width))
 
     bar = "["
@@ -41,8 +65,10 @@ def format_progress_bar(
             bar += empty_char
     bar += "]"
 
-    percent = int(progress * 100)
-    return f"{bar} {percent:>3d}%"
+    if include_percent:
+        percent = int(progress * 100)
+        return f"{bar} {percent:>3d}%"
+    return bar
 
 
 def _format_drop_text(*, packet_count=None, dropped_count=None):
@@ -62,22 +88,17 @@ def format_detection_publish_line(
     motion_metric,
     threshold,
     effective_state,
-    progress=None,
     device_label=None,
     width=20,
-    threshold_pos=15,
     filled_char="█",
     empty_char="░",
     threshold_char="|",
 ):
     """Build the shared runtime-style live publish log line."""
-    if progress is None:
-        progress = motion_metric / threshold if threshold > 0 else 0.0
-
     progress_bar = format_progress_bar(
-        progress,
+        _clamp_unit_interval(motion_metric),
         width=width,
-        threshold_pos=threshold_pos,
+        threshold_pos=_threshold_marker_index(threshold, width),
         filled_char=filled_char,
         empty_char=empty_char,
         threshold_char=threshold_char,
@@ -118,6 +139,7 @@ def format_calibration_status_line(
         filled_char=filled_char,
         empty_char=empty_char,
         threshold_char=threshold_char,
+        include_percent=True,
     )
     packets_text = ""
     if calibration_packets is not None and calibration_target_packets is not None:
@@ -138,7 +160,7 @@ def format_waiting_status_line(
     threshold_placeholder="--",
     state_label="WAITING",
     width=20,
-    threshold_pos=15,
+    threshold_pos=-1,
     filled_char="█",
     empty_char="░",
     threshold_char="|",

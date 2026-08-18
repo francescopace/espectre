@@ -2321,8 +2321,8 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
     assert "collecting until Ctrl+C" in output
     assert "ip=192.168.1.17 chip=C6 ch=08 rssi=-47" in output
     assert "ip=192.168.1.24 chip=S3 ch=11 rssi=-51" in output
-    assert " 80% | mvmt:0.400000 thr:0.500000 | IDLE | 0 pkt/s | drop 33.3%" in output
-    assert "120% | mvmt:0.600000 thr:0.500000 | MOTION | 0 pkt/s | drop 33.3%" in output
+    assert "[████████░░|░░░░░░░░░] | mvmt:0.400000 thr:0.500000 | IDLE | 0 pkt/s | drop 33.3%" in output
+    assert "[██████████|█░░░░░░░░] | mvmt:0.600000 thr:0.500000 | MOTION | 0 pkt/s | drop 33.3%" in output
     assert "mvmt:1.000000" not in output
 
 
