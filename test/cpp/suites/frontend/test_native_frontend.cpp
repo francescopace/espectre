@@ -242,7 +242,8 @@ void test_native_frontend_device_config_commands_setup_mqtt_and_publish_info_sta
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
-                                 return publish.topic == "espectre/v1/devices/0x0000111122223333/info";
+                                 return publish.topic == "espectre/v1/devices/0x0000111122223333/info" &&
+                                        publish.retain;
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
@@ -1131,6 +1132,7 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.size() >= 4);
   TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/info",
                            mqtt_transport_mock::state.publishes[0].topic.c_str());
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].retain);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"supports_runtime_motion_hits\":true") !=
                    std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"supports_manual_recalibration\":true") !=

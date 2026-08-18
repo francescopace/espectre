@@ -26,7 +26,7 @@ Each release and snapshot publishes one full-flash Matter image per supported ch
 After flashing a Matter image:
 
 1. power-cycle if needed and wait for the device to boot
-2. use **Read Matter QR** on the web flasher, or run `./espectre matter qr --port <port>`, to retrieve the device-specific code
+2. use **Read the onboarding QR over USB** on the web flasher, or run `./espectre matter qr --port <port>`, to retrieve the device-specific code
 3. use a Matter controller that supports BLE commissioning
 4. commission the device into your target fabric
 5. use the standard Matter occupancy surface exposed by the firmware

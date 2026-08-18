@@ -571,17 +571,21 @@
             return;
         }
         const host = document.getElementById('mon-host').value.trim();
-        if (!host || !monitorBaseTopic()) {
-            toast('Save MQTT settings and the device ID before starting sensing.');
-            setDeviceView('connectivity');
+        if (!host) {
+            toast('Save MQTT settings before starting sensing.');
+            location.hash = '#monitor';
             return;
         }
-        if (conn.status === 'disconnected') {
-            rememberConnectionOrigin();
-            setStatus('connecting');
+        if (nextDevice) {
+            if (conn.status === 'disconnected') {
+                rememberConnectionOrigin();
+                setStatus('connecting');
+            }
+            monitor.closingBleForLive = true;
+            setDeviceView('live');
+        } else if (route !== 'monitor') {
+            location.hash = '#monitor';
         }
-        monitor.closingBleForLive = true;
-        setDeviceView('live');
         await monitorConnect();
     }
 
@@ -807,6 +811,16 @@
         monitor.bleRequested = false;
         monitor.handoffReady = false;
         monitor.boundDeviceId = '';
+        if (monitor.discoveryTimer) {
+            clearTimeout(monitor.discoveryTimer);
+            monitor.discoveryTimer = 0;
+        }
+        monitor.discoveryActive = false;
+        monitor.discoveredDevices = {};
+        monitor.discoveryPrefix = '';
+        monitor.discoveryTopics = [];
+        monitor.brokerUrl = '';
+        resetMonitorDevicePicker();
         setCalibrationBusy(false);
         stopDiagnosticsPolling();
         resetMonitorLiveView();
@@ -897,9 +911,9 @@
 
     function flashUnsupportedMessage() {
         if (browserSupport.mobile) {
-            return 'USB flashing is not supported on mobile. Use desktop Chrome or Edge; binary downloads remain available here.';
+            return 'USB flashing is not available on mobile. Use desktop Chrome or Edge.';
         }
-        return 'USB flashing requires a desktop browser with Web Serial, such as Chrome or Edge. Binary downloads remain available.';
+        return 'USB flashing is not available in this browser. Use desktop Chrome or Edge.';
     }
 
     function renderBrowserSupport() {
@@ -936,20 +950,23 @@
                 ? 'WEB SERIAL'
                 : browserSupport.mobile ? 'DESKTOP ONLY' : 'UNAVAILABLE';
         });
-        $$('.js-flash-support').forEach((notice) => {
-            notice.hidden = browserSupport.flash;
-            notice.textContent = browserSupport.flash ? '' : flashUnsupportedMessage();
-        });
+        const flashRequirement = $('.js-flash-requirement');
+        if (flashRequirement) {
+            flashRequirement.classList.toggle('is-error', !browserSupport.flash);
+            flashRequirement.textContent = browserSupport.flash
+                ? 'USB flashing requires desktop Chrome or Edge.'
+                : flashUnsupportedMessage();
+        }
         const installTrigger = $('.js-flash-install [slot="activate"]');
+        const installButton = $('.js-flash-install');
         if (installTrigger) {
             installTrigger.disabled = !browserSupport.flash;
             installTrigger.setAttribute('aria-disabled', String(!browserSupport.flash));
             installTrigger.title = browserSupport.flash ? '' : flashUnsupportedMessage();
         }
-        const matterButton = $('.js-matter-read');
-        if (matterButton) {
-            matterButton.disabled = !browserSupport.flash;
-            matterButton.title = browserSupport.flash ? '' : flashUnsupportedMessage();
+        if (installButton) {
+            installButton.classList.toggle('is-disabled', !browserSupport.flash);
+            installButton.toggleAttribute('inert', !browserSupport.flash);
         }
     }
 
@@ -1269,16 +1286,18 @@
     const flash = {
         manifests: {}, installUrl: null, badgeChecked: false,
         installerObserver: null, watchedDialogs: new WeakSet(), catalogReports: new Set(),
-        downloadReady: false
+        downloadReady: false, detectedChip: '', supportedChipLabels: []
     };
 
     /*
-     * Presentation order for the Flash selectors. Anything not listed keeps
-     * its manifest order and lands after the listed entries, so a new
-     * frontend or chip still shows up without touching this code.
+     * Presentation order for the Flash selectors and published-chip list.
+     * Anything not listed keeps its manifest order and lands after the listed
+     * entries, so a new frontend or chip still shows up without touching this code.
      */
     const FRONTEND_ORDER = ['native', 'esphome', 'matter'];
-    const CHIP_ORDER = ['esp32', 'esp32s3'];
+    const CHIP_ORDER = ['esp32', 'esp32s3', 'esp32c3', 'esp32c5', 'esp32c6'];
+    const FLASH_CHIP_FOUND_RE = /Initialized\. Found ([A-Z0-9-]+)/i;
+    const FLASH_CHIP_UNSUPPORTED_RE = /Your ([A-Z0-9-]+) board is not supported/i;
 
     function flashManifestFrontends(manifest) {
         const frontends = manifest && manifest.frontends;
@@ -1327,12 +1346,131 @@
         el.className = 'flash-status js-flash-status' + (kind ? ' ' + kind : '');
     }
 
+    function formatEnglishList(items) {
+        if (items.length === 0) return '';
+        if (items.length === 1) return items[0];
+        if (items.length === 2) return items[0] + ' and ' + items[1];
+        return items.slice(0, -1).join(', ') + ', and ' + items[items.length - 1];
+    }
+
+    function flashUnsupportedBoardMessage(chipFamily) {
+        const detected = chipFamily
+            ? ('This ' + chipFamily + ' board is not supported.')
+            : 'This board is not supported.';
+        const list = formatEnglishList(flash.supportedChipLabels);
+        if (!list) return detected;
+        return detected + ' Published firmware is available for ' + list + '.';
+    }
+
+    function flashCreateDownloadLink(label, href, chip) {
+        const link = document.createElement('a');
+        link.className = 'btn-ghost btn-sm';
+        link.href = href;
+        link.textContent = label;
+        if (chip) {
+            link.dataset.chip = chip;
+            return link;
+        }
+        link.target = '_blank';
+        link.rel = 'noopener';
+        return link;
+    }
+
+    function flashRenderDownloads(artifacts) {
+        const container = $('.js-flash-chip-downloads');
+        container.replaceChildren();
+        if (!artifacts.length) {
+            container.append(flashCreateDownloadLink(
+                'Browse GitHub releases',
+                'https://github.com/francescopace/espectre/releases'
+            ));
+            flash.downloadReady = false;
+            return;
+        }
+        for (const artifact of artifacts) {
+            const link = flashCreateDownloadLink(
+                artifact.chip_label,
+                flashResolveUrl(artifact.url),
+                artifact.chip
+            );
+            if (artifact.filename) link.setAttribute('download', artifact.filename);
+            container.append(link);
+        }
+        flash.downloadReady = true;
+    }
+
+    function flashNextLink(href, label) {
+        const link = document.createElement('a');
+        link.href = href;
+        link.textContent = label;
+        return link;
+    }
+
+    function flashNextAction(label, className) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'link-btn ' + className;
+        button.textContent = label;
+        return button;
+    }
+
+    function flashHideMatterQr() {
+        const status = $('.js-matter-status');
+        const result = $('.js-matter-result');
+        if (status) {
+            status.hidden = true;
+            status.textContent = '';
+        }
+        if (result) result.hidden = true;
+    }
+
+    function flashSetNextStep(frontendKey) {
+        const note = $('.js-flash-next');
+        if (frontendKey !== 'matter') flashHideMatterQr();
+        if (frontendKey === 'native') {
+            note.replaceChildren(
+                'After flashing Native, open ',
+                flashNextLink('#configure', 'Configure'),
+                ' to provision connectivity, then ',
+                flashNextLink('#monitor', 'Monitor'),
+                '.'
+            );
+            note.hidden = false;
+            return;
+        }
+        if (frontendKey === 'esphome') {
+            note.replaceChildren(
+                'After flashing ESPHome, there are several ways to configure Wi-Fi. See the ',
+                flashNextLink('/guides/setup/', 'setup guide'),
+                '.'
+            );
+            note.hidden = false;
+            return;
+        }
+        if (frontendKey === 'matter') {
+            const readQr = flashNextAction('Read the onboarding QR over USB', 'js-matter-read');
+            if (!browserSupport.flash) {
+                readQr.disabled = true;
+                readQr.title = flashUnsupportedMessage();
+            }
+            note.replaceChildren(
+                'After flashing Matter, commission the device with a Matter controller. ',
+                readQr,
+                ' or see the ',
+                flashNextLink('/guides/setup/', 'setup guide'),
+                '.'
+            );
+            note.hidden = false;
+            return;
+        }
+        note.replaceChildren();
+        note.hidden = true;
+    }
+
     async function flashRefresh() {
         const frontendSel = document.getElementById('flash-frontend');
         const channelSel = document.getElementById('flash-channel');
-        const chipSel = document.getElementById('flash-chip');
         const summary = $('.js-flash-summary');
-        const download = $('.js-flash-download');
         const installButton = $('.js-flash-install');
         flash.downloadReady = false;
 
@@ -1364,41 +1502,32 @@
             }
             if (frontends.some(([key]) => key === previousFrontend)) frontendSel.value = previousFrontend;
 
-            $('.js-matter-panel').hidden = frontendSel.value !== 'matter';
-
             const selectedFrontend = frontendsMap[frontendSel.value];
             const artifacts = ((selectedFrontend || {}).artifacts || [])
-                .filter((a) => a.build_type === 'factory')
+                .filter((a) => a.build_type === 'factory' && a.chip_family && a.url)
                 .sort((a, b) => byPreferredOrder(CHIP_ORDER, a.chip, b.chip));
-            const previousChip = chipSel.value;
-            chipSel.innerHTML = '';
-            for (const artifact of artifacts) {
-                const option = document.createElement('option');
-                option.value = artifact.chip;
-                option.textContent = artifact.chip_label;
-                chipSel.appendChild(option);
-            }
-            if (artifacts.some((a) => a.chip === previousChip)) chipSel.value = previousChip;
-
-            const artifact = artifacts.find((a) => a.chip === chipSel.value);
+            flash.supportedChipLabels = artifacts.map((artifact) => artifact.chip_label);
             if (flash.installUrl) {
                 URL.revokeObjectURL(flash.installUrl);
                 flash.installUrl = null;
             }
-            if (!artifact) {
+            installButton.removeAttribute('manifest');
+            if (!artifacts.length) {
+                flashRenderDownloads([]);
+                flashSetNextStep(frontendSel.value);
                 summary.textContent = 'No matching firmware was found for the selected combination.';
                 flashStatus('Change the selection or use the manual download.', 'is-error');
-                download.href = 'https://github.com/francescopace/espectre/releases';
                 return;
             }
 
+            const frontendLabel = (selectedFrontend || {}).label || frontendSel.value;
             const installManifest = {
-                name: 'ESPectre ' + ((selectedFrontend || {}).label || frontendSel.value) + ' ' + artifact.chip_label,
+                name: 'ESPectre ' + frontendLabel,
                 version: manifest.version,
-                builds: [{
+                builds: artifacts.map((artifact) => ({
                     chipFamily: artifact.chip_family,
                     parts: [{ path: flashResolveUrl(artifact.url), offset: 0 }]
-                }]
+                }))
             };
             flash.installUrl = URL.createObjectURL(
                 new Blob([JSON.stringify(installManifest)], { type: 'application/json' })
@@ -1406,18 +1535,15 @@
             installButton.setAttribute('manifest', flash.installUrl);
 
             summary.replaceChildren();
-            const model = document.createElement('strong');
-            model.textContent = artifact.chip_label;
-            const detail = document.createTextNode(
-                ((selectedFrontend || {}).label || frontendSel.value) + ' · ' + manifest.release_tag + ' '
-            );
+            const title = document.createElement('strong');
+            title.textContent = frontendLabel;
+            const detail = document.createTextNode(manifest.release_tag + ' ');
             const channel = document.createElement('span');
             channel.className = 'mono-sub';
             channel.textContent = '(' + manifest.channel + ')';
-            summary.append(model, document.createElement('br'), detail, channel);
-            download.href = flashResolveUrl(artifact.url);
-            download.textContent = 'Download binary';
-            flash.downloadReady = true;
+            summary.append(title, document.createElement('br'), detail, channel);
+            flashRenderDownloads(artifacts);
+            flashSetNextStep(frontendSel.value);
 
             if (!browserSupport.flash) {
                 flashStatus(flashUnsupportedMessage(), 'is-error');
@@ -1425,6 +1551,14 @@
                 flashStatus('Ready. Connect the board over USB, then install.', 'is-ready');
             }
         } catch (error) {
+            flash.supportedChipLabels = [];
+            if (flash.installUrl) {
+                URL.revokeObjectURL(flash.installUrl);
+                flash.installUrl = null;
+            }
+            installButton.removeAttribute('manifest');
+            flashRenderDownloads([]);
+            flashSetNextStep('');
             summary.textContent = 'Firmware metadata is currently unavailable.';
             flashStatus(error.message, 'is-error');
             const failureKey = channelSel.value + ':failure';
@@ -1438,8 +1572,6 @@
             }
         }
     }
-
-    /* ------------------------------------------------ Matter QR over USB */
 
     function matterDelay(ms) {
         return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1478,9 +1610,10 @@
 
     async function matterReadQr() {
         const status = $('.js-matter-status');
-        const button = $('.js-matter-read');
         const result = $('.js-matter-result');
+        const trigger = $('.js-matter-read');
         if (!browserSupport.flash) {
+            status.hidden = false;
             status.textContent = flashUnsupportedMessage();
             track('matter_qr_read', { result: 'unsupported' });
             return;
@@ -1491,13 +1624,15 @@
                 'https://unpkg.com/qrcodejs@1.0.0/qrcode.min.js'
             );
         } catch (error) {
+            status.hidden = false;
             status.textContent = 'The QR renderer could not be loaded.';
             track('matter_qr_read', { result: 'failure', error_type: 'QrRendererMissing' });
             return;
         }
         let port;
-        button.disabled = true;
+        if (trigger) trigger.disabled = true;
         result.hidden = true;
+        status.hidden = false;
         status.textContent = 'Choose the ESPectre serial port, then wait for the device to restart.';
         try {
             port = await navigator.serial.requestPort();
@@ -1526,7 +1661,7 @@
             if (port && (port.readable || port.writable)) {
                 await port.close().catch(() => {});
             }
-            button.disabled = false;
+            if (trigger) trigger.disabled = false;
         }
     }
 
@@ -1556,7 +1691,7 @@
         return {
             frontend: document.getElementById('flash-frontend').value,
             channel: document.getElementById('flash-channel').value,
-            chip: document.getElementById('flash-chip').value
+            chip: flash.detectedChip
         };
     }
 
@@ -1576,6 +1711,15 @@
         const inspect = () => {
             const text = dialog.shadowRoot ? dialog.shadowRoot.textContent : '';
             if (/Installing|Preparing installation/i.test(text)) started = true;
+            const found = text.match(FLASH_CHIP_FOUND_RE);
+            if (found) flash.detectedChip = found[1];
+            const unsupported = text.match(FLASH_CHIP_UNSUPPORTED_RE);
+            if (unsupported) {
+                flash.detectedChip = unsupported[1];
+                flashStatus(flashUnsupportedBoardMessage(unsupported[1]), 'is-error');
+                report('unsupported');
+                return;
+            }
             if (/Installation complete!/i.test(text)) report('success');
             else if (/Installation failed/i.test(text)) report('failure');
         };
@@ -1611,15 +1755,14 @@
 
     function flashInit() {
         const selectionType = {
-            'flash-frontend': 'frontend', 'flash-channel': 'channel', 'flash-chip': 'chip'
+            'flash-frontend': 'frontend', 'flash-channel': 'channel'
         };
         Object.keys(selectionType).forEach((id) => {
             document.getElementById(id).addEventListener('change', () => {
                 track('firmware_selection', {
                     selection_type: selectionType[id],
                     frontend: document.getElementById('flash-frontend').value,
-                    channel: document.getElementById('flash-channel').value,
-                    chip: document.getElementById('flash-chip').value
+                    channel: document.getElementById('flash-channel').value
                 });
                 flashRefresh();
             });
@@ -1630,14 +1773,24 @@
                 flashStatus(flashUnsupportedMessage(), 'is-error');
                 return;
             }
+            flash.detectedChip = '';
+            flashStatus('Select the serial port. The installer detects the chip and chooses the matching firmware.');
             track('firmware_install_start', flashParams());
         });
-        $('.js-flash-download').addEventListener('click', () => {
-            if (flash.downloadReady) {
-                track('firmware_download', { ...flashParams(), result: 'started' });
-            }
+        $('.js-flash-chip-downloads').addEventListener('click', (event) => {
+            const link = event.target.closest('a[data-chip]');
+            if (!link || !flash.downloadReady) return;
+            track('firmware_download', {
+                ...flashParams(),
+                chip: link.dataset.chip,
+                result: 'started'
+            });
         });
-        $('.js-matter-read').addEventListener('click', matterReadQr);
+        $('.js-flash-next').addEventListener('click', (event) => {
+            if (!event.target.closest('.js-matter-read')) return;
+            event.preventDefault();
+            matterReadQr();
+        });
         if (browserSupport.flash) observeFirmwareInstaller();
     }
 
@@ -1650,6 +1803,7 @@
     const MONITOR_CALIBRATION_FALLBACK_MS = 45 * 1000;
     const MONITOR_CALIBRATION_SAFETY_MS = 90 * 1000;
     const MONITOR_DEMO_CALIBRATION_MS = 2500;
+    const MONITOR_DISCOVERY_TIMEOUT_MS = 2000;
 
     const monitor = {
         client: null,
@@ -1677,7 +1831,13 @@
         diagTimer: null,
         calibrating: false,
         calibrationTimer: null,
-        boundDeviceId: ''
+        boundDeviceId: '',
+        discoveryActive: false,
+        discoveredDevices: {},
+        discoveryPrefix: '',
+        discoveryTopics: [],
+        discoveryTimer: 0,
+        brokerUrl: ''
     };
 
     function monitorStatus(message) {
@@ -1728,12 +1888,13 @@
         const device = deviceInput.value.trim().replace(/^\/+|\/+$/g, '');
         const path = pathInput.value.trim();
         const portNumber = Number(port);
+        const deviceValid = !device || (!device.includes('/') && !/[+#]/.test(device));
         const fields = [
             [hostInput, !!host && !/\s|:\/\/|\//.test(host), 'Enter a valid broker host.'],
             [portInput, !!port && Number.isInteger(portNumber)
                 && portNumber >= 1 && portNumber <= 65535, 'Enter a port from 1 to 65535.'],
             [prefixInput, !!prefix, 'Enter a topic prefix.'],
-            [deviceInput, !!device, 'Enter a device ID.'],
+            [deviceInput, deviceValid, 'Enter a device ID without / or wildcards.'],
             [pathInput, path.startsWith('/') && !/\s/.test(path), 'Enter a path starting with /.']
         ];
         const invalidFields = fields.filter(([, valid]) => !valid);
@@ -1751,8 +1912,9 @@
             port,
             path,
             tls: document.getElementById('mon-tls').checked,
+            prefix,
             device,
-            base: prefix + '/' + device
+            base: device ? prefix + '/' + device : ''
         };
     }
 
@@ -1903,8 +2065,10 @@
         if (demo) demo.hidden = mqttLive;
         if (ble) ble.hidden = !mqttLive;
         if (connect) {
-            connect.disabled = mqttLive;
-            connect.textContent = mqttLive ? 'Connected' : 'Connect broker';
+            connect.disabled = mqttLive || monitor.discoveryActive;
+            connect.textContent = mqttLive ? 'Connected'
+                : monitor.discoveryActive ? 'Scanning…'
+                : 'Connect broker';
         }
     }
 
@@ -2107,6 +2271,242 @@
         stopMqttTransport();
     }
 
+    function resetMonitorDevicePicker() {
+        const picker = $('.js-mon-device-picker');
+        const choice = document.getElementById('mon-device-choice');
+        if (picker) picker.hidden = true;
+        if (!choice) return;
+        clearMonitorFieldError(choice);
+        choice.replaceChildren();
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = 'Select a device';
+        choice.appendChild(placeholder);
+        choice.value = '';
+    }
+
+    function monitorExtractDeviceIdFromTopic(topic, prefix) {
+        const root = prefix + '/';
+        if (!topic.startsWith(root)) return '';
+        const parts = topic.slice(root.length).split('/');
+        if (parts.length < 2 || !parts[0]) return '';
+        if (parts[1] !== 'info' && parts[1] !== 'status') return '';
+        return parts[0];
+    }
+
+    function recordDiscoveredMqttDevice(topic, payload) {
+        const prefix = monitor.discoveryPrefix;
+        if (!prefix) return;
+        const topicName = mqttUtf8(topic);
+        const topicId = monitorExtractDeviceIdFromTopic(topicName, prefix);
+        if (!topicId) return;
+        let data;
+        try {
+            data = JSON.parse(mqttUtf8(payload).trim());
+        } catch (error) {
+            return;
+        }
+        if (!data || typeof data !== 'object') return;
+        const device = monitor.discoveredDevices[topicId] || {
+            topic_id: topicId,
+            device_id: topicId
+        };
+        if (data.device_id) device.device_id = String(data.device_id);
+        if (topicName.endsWith('/info')) {
+            ['device_name', 'device_label', 'frontend', 'chip'].forEach((key) => {
+                if (data[key]) device[key] = data[key];
+            });
+        } else if (topicName.endsWith('/status') && 'online' in data) {
+            device.online = data.online === true;
+        }
+        monitor.discoveredDevices[topicId] = device;
+    }
+
+    function monitorDeviceChoiceLabel(device) {
+        const label = device.device_label || device.device_name || 'unnamed';
+        const frontend = device.frontend || 'unknown';
+        const online = device.online ? 'online' : 'offline/unknown';
+        return device.device_id + ' · ' + label + ' · ' + frontend + ' · ' + online;
+    }
+
+    function populateMonitorDevicePicker(devices) {
+        const picker = $('.js-mon-device-picker');
+        const choice = document.getElementById('mon-device-choice');
+        if (!choice) return;
+        choice.replaceChildren();
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = 'Select a device';
+        choice.appendChild(placeholder);
+        devices.forEach((device) => {
+            const option = document.createElement('option');
+            option.value = device.topic_id || device.device_id;
+            option.textContent = monitorDeviceChoiceLabel(device);
+            choice.appendChild(option);
+        });
+        if (picker) picker.hidden = false;
+        choice.focus({ preventScroll: true });
+    }
+
+    function monitorUnsubscribeDiscovery(client) {
+        if (!client || typeof client.unsubscribe !== 'function' || !monitor.discoveryTopics.length) {
+            monitor.discoveryTopics = [];
+            return;
+        }
+        client.unsubscribe(monitor.discoveryTopics);
+        monitor.discoveryTopics = [];
+    }
+
+    function monitorSelectDevice(deviceId) {
+        const client = monitor.client;
+        const prefix = document.getElementById('mon-topic-prefix').value.trim().replace(/\/+$/, '');
+        const device = String(deviceId || '').trim().replace(/^\/+|\/+$/g, '');
+        const deviceInput = document.getElementById('mon-device');
+        if (!client || !prefix || !device) return;
+        if (device.includes('/') || /[+#]/.test(device)) {
+            if (deviceInput) markMonitorFieldError(deviceInput, 'Enter a device ID without / or wildcards.');
+            return;
+        }
+        if (deviceInput) {
+            deviceInput.value = device;
+            clearMonitorFieldError(deviceInput);
+        }
+        resetMonitorDevicePicker();
+        monitor.discoveryActive = false;
+        if (monitor.discoveryTimer) {
+            clearTimeout(monitor.discoveryTimer);
+            monitor.discoveryTimer = 0;
+        }
+        monitorUnsubscribeDiscovery(client);
+        syncMonitorDemoButton();
+        if (conn.status === 'disconnected') {
+            rememberConnectionOrigin();
+            setStatus('connecting');
+        }
+        if (bleClient) monitor.closingBleForLive = true;
+        monitorBindSelectedDevice(client, prefix, device);
+    }
+
+    function monitorFinishDiscovery(client) {
+        monitor.discoveryActive = false;
+        syncMonitorDemoButton();
+        const devices = Object.values(monitor.discoveredDevices)
+            .sort((a, b) => a.device_id.localeCompare(b.device_id));
+        if (devices.length === 1) {
+            monitorStatus('Selected device: ' + devices[0].device_id);
+            monitorSelectDevice(devices[0].topic_id || devices[0].device_id);
+            return;
+        }
+        if (devices.length > 1) {
+            populateMonitorDevicePicker(devices);
+            monitorStatus('Select a device, or enter a device ID.');
+            return;
+        }
+        const deviceInput = document.getElementById('mon-device');
+        monitorStatus('No devices discovered. Enter a device ID.');
+        if (deviceInput) {
+            markMonitorFieldError(deviceInput, 'Enter a device ID.');
+            deviceInput.focus({ preventScroll: true });
+        }
+    }
+
+    function monitorStartDiscovery(client, prefix) {
+        resetMonitorDevicePicker();
+        monitor.discoveryActive = true;
+        monitor.discoveredDevices = {};
+        monitor.discoveryPrefix = prefix;
+        const infoTopic = prefix + '/+/info';
+        const statusTopic = prefix + '/+/status';
+        monitor.discoveryTopics = [infoTopic, statusTopic];
+        monitorStatus('Scanning MQTT for devices…');
+        toast('Scanning MQTT for devices…');
+        syncMonitorDemoButton();
+        client.subscribe([infoTopic, statusTopic], (error) => {
+            if (monitor.client !== client) return;
+            if (error) {
+                monitor.discoveryActive = false;
+                monitor.discoveryTopics = [];
+                monitorStatus('Subscribe failed: ' + error.message);
+                syncMonitorDemoButton();
+                track('tool_connection', {
+                    tool_name: 'monitor',
+                    entry_point: monitor.entryPoint,
+                    transport: 'mqtt_websocket',
+                    result: 'subscription_failure',
+                    error_type: errorType(error)
+                });
+                return;
+            }
+            if (monitor.discoveryTimer) clearTimeout(monitor.discoveryTimer);
+            monitor.discoveryTimer = setTimeout(() => {
+                monitor.discoveryTimer = 0;
+                if (monitor.client !== client || !monitor.discoveryActive) return;
+                monitorFinishDiscovery(client);
+            }, MONITOR_DISCOVERY_TIMEOUT_MS);
+        });
+    }
+
+    function monitorBindSelectedDevice(client, prefix, device) {
+        const base = prefix + '/' + device;
+        monitor.baseTopic = base;
+        monitor.boundDeviceId = device;
+        monitor.inputMode = 'mqtt';
+        client.subscribe(base + '/#', async (error) => {
+            if (monitor.client !== client) return;
+            monitorStatus(error
+                ? 'Subscribe failed: ' + error.message
+                : 'Broker connected. Waiting for device telemetry…');
+            track('tool_connection', {
+                tool_name: 'monitor',
+                entry_point: monitor.entryPoint,
+                transport: 'mqtt_websocket',
+                result: error ? 'subscription_failure' : 'success',
+                ...(error ? { error_type: errorType(error) } : {})
+            });
+            if (error) {
+                monitor.closingBleForLive = false;
+                monitorStopAll('subscription_failure');
+                if (conn.status === 'connecting' && conn.mode !== 'ble') setStatus('disconnected');
+                return;
+            }
+            syncMonitorDemoButton();
+            monitorResizeChart();
+            const stopped = await stopBleForDetection();
+            if (!stopped || monitor.client !== client) {
+                monitor.closingBleForLive = false;
+                if (conn.mode === 'ble') setDeviceView('connectivity');
+                return;
+            }
+            await ensureBleOffForLive({
+                statusFn: (message) => {
+                    if (message) monitorStatus(message);
+                }
+            });
+            if (monitor.client !== client) {
+                monitor.closingBleForLive = false;
+                return;
+            }
+            monitor.handoffReady = true;
+            conn.mode = 'mqtt';
+            monitor.closingBleForLive = false;
+            setDeviceView('live');
+            setStatus('connecting');
+            monitorPublishCommand({ command: 'commands' }, {
+                pendingMessage: 'Reading device capabilities…',
+                statusFn: monitorStatus
+            }).catch(() => {});
+            monitorPublishCommand({ command: 'info' }, {
+                pendingMessage: 'Reading device information…',
+                statusFn: monitorStatus
+            }).catch(() => {});
+            monitorPublishCommand({ command: 'ota_status' }, {
+                pendingMessage: 'Reading firmware status…',
+                statusFn: () => {}
+            }).catch(() => {});
+            startSilentOtaCheck();
+        });
+    }
+
     async function monitorConnect() {
         const connection = validateMonitorConnection();
         if (!connection) {
@@ -2134,23 +2534,32 @@
             if (conn.status === 'connecting' && !bleClient) setStatus('disconnected');
             return;
         }
-        const { host, port, path, tls, base, device } = connection;
-        if (conn.status === 'disconnected') {
+        const { host, port, path, tls, prefix, device } = connection;
+        const url = (tls ? 'wss://' : 'ws://') + host + ':' + port + path;
+        if (monitor.client && monitor.brokerUrl === url && !monitorIsMqttLive()) {
+            if (device) {
+                monitorSelectDevice(device);
+                return;
+            }
+            if (!monitor.discoveryActive) monitorStartDiscovery(monitor.client, prefix);
+            return;
+        }
+        if (device && conn.status === 'disconnected') {
             rememberConnectionOrigin();
             setStatus('connecting');
         }
         monitorStopAll('replaced');
         monitor.closing = false;
         resetMonitorLiveView();
-        monitor.baseTopic = base;
-        monitor.boundDeviceId = device;
+        monitor.baseTopic = device ? connection.base : null;
+        monitor.boundDeviceId = device || '';
         monitor.handoffReady = false;
         monitor.startedAt = Date.now();
         monitor.entryPoint = route;
         monitor.readyState = '';
         monitor.readyAt = 0;
         monitor.readyTracked = false;
-        const url = (tls ? 'wss://' : 'ws://') + host + ':' + port + path;
+        monitor.brokerUrl = url;
         monitorStatus('Connecting to ' + url + ' …');
         toast('Connecting to the broker…');
         // The URL is not tracked: it would carry the user's broker address.
@@ -2170,65 +2579,20 @@
         client.on('connect', () => {
             if (monitor.client !== client) return;
             monitor.connectedAt = Date.now();
-            monitor.inputMode = 'mqtt';
-            client.subscribe(base + '/#', async (error) => {
-                if (monitor.client !== client) return;
-                monitorStatus(error
-                    ? 'Subscribe failed: ' + error.message
-                    : 'Broker connected. Waiting for device telemetry…');
-                track('tool_connection', {
-                    tool_name: 'monitor',
-                    entry_point: monitor.entryPoint,
-                    transport: 'mqtt_websocket',
-                    result: error ? 'subscription_failure' : 'success',
-                    ...(error ? { error_type: errorType(error) } : {})
-                });
-                if (error) {
-                    monitor.closingBleForLive = false;
-                    monitorStopAll('subscription_failure');
-                    if (conn.status === 'connecting' && conn.mode !== 'ble') setStatus('disconnected');
-                    return;
-                }
-                syncMonitorDemoButton();
-                monitorResizeChart();
-                const stopped = await stopBleForDetection();
-                if (!stopped || monitor.client !== client) {
-                    monitor.closingBleForLive = false;
-                    if (conn.mode === 'ble') setDeviceView('connectivity');
-                    return;
-                }
-                await ensureBleOffForLive({
-                    statusFn: (message) => {
-                        if (message) monitorStatus(message);
-                    }
-                });
-                if (monitor.client !== client) {
-                    monitor.closingBleForLive = false;
-                    return;
-                }
-                monitor.handoffReady = true;
-                conn.mode = 'mqtt';
-                monitor.closingBleForLive = false;
-                setDeviceView('live');
-                setStatus('connecting');
-                monitorPublishCommand({ command: 'commands' }, {
-                    pendingMessage: 'Reading device capabilities…',
-                    statusFn: monitorStatus
-                }).catch(() => {});
-                monitorPublishCommand({ command: 'info' }, {
-                    pendingMessage: 'Reading device information…',
-                    statusFn: monitorStatus
-                }).catch(() => {});
-                monitorPublishCommand({ command: 'ota_status' }, {
-                    pendingMessage: 'Reading firmware status…',
-                    statusFn: () => {}
-                }).catch(() => {});
-                startSilentOtaCheck();
-            });
+            if (device) {
+                monitorBindSelectedDevice(client, prefix, device);
+                return;
+            }
+            monitorStartDiscovery(client, prefix);
         });
         client.on('message', (topic, payload) => {
             if (monitor.client !== client) return;
-            ingestMqttPayload(base, topic, payload);
+            if (monitor.discoveryActive) {
+                recordDiscoveredMqttDevice(topic, payload);
+                return;
+            }
+            if (!monitor.baseTopic) return;
+            ingestMqttPayload(monitor.baseTopic, topic, payload);
         });
         client.on('error', (error) => {
             if (monitor.client !== client) return;
@@ -2250,8 +2614,12 @@
         });
         client.on('close', () => {
             if (monitor.client !== client || monitor.closing) return;
-            // Ignore handshake closes while BLE setup still owns the session.
-            if (conn.mode !== 'mqtt') return;
+            if (conn.mode === 'ble') return;
+            if (conn.mode !== 'mqtt') {
+                monitorStatus('Disconnected from broker.');
+                monitorStopAll('unexpected');
+                return;
+            }
             monitorStatus('Disconnected from broker.');
             teardownConnection('unexpected');
         });
@@ -2419,6 +2787,15 @@
             const input = document.getElementById(id);
             input.addEventListener('input', () => clearMonitorFieldError(input));
         });
+        const deviceChoice = document.getElementById('mon-device-choice');
+        if (deviceChoice) {
+            deviceChoice.addEventListener('change', () => {
+                const selected = deviceChoice.value.trim();
+                if (!selected) return;
+                clearMonitorFieldError(deviceChoice);
+                monitorSelectDevice(selected);
+            });
+        }
         const diagnostics = $('.device-live-diagnostics');
         if (diagnostics) {
             diagnostics.addEventListener('toggle', syncDiagnosticsPolling);

@@ -32,8 +32,8 @@ Before deploy:
 - [ ] Update devices performance report 
   - [x] C3
   - [x] C5
+  - [x] S3
   - [ ] C6
-  - [ ] s3
   - [ ] esp32
 - [ ] Review docs/web content, imagery, UX, and UI for release readiness
 

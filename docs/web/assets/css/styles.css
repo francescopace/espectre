@@ -1035,6 +1035,15 @@ a.hero-badge:hover {
 }
 .page-title { font-size: 40px; letter-spacing: -.02em; margin: 0 0 8px; }
 .page-sub { margin: 0 0 40px; color: var(--dim); font-size: 18px; line-height: 1.55; text-wrap: pretty; }
+.page-sub-callout {
+  margin: -28px 0 32px;
+  font-size: 17px;
+  line-height: 1.45;
+  font-weight: 650;
+  color: var(--text);
+  text-wrap: pretty;
+}
+.page-sub-callout.is-error { color: var(--danger); }
 
 /* Tools */
 
@@ -1265,7 +1274,8 @@ a.hero-badge:hover {
   font-size: 13.5px;
 }
 .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-.field input.is-invalid {
+.field input.is-invalid,
+.field select.is-invalid {
   border-color: var(--danger);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 16%, transparent);
   animation: espFieldErrorBlink .22s ease-in-out 4 alternate;
@@ -1628,6 +1638,7 @@ body.modal-open { overflow: hidden; }
   font-size: 13.5px;
 }
 .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.field select.mono-input { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; }
 .field-check .check {
   display: flex;
   align-items: center;
@@ -1707,7 +1718,15 @@ body.modal-open { overflow: hidden; }
 .flash-status { margin-top: 10px; font-size: 12.5px; color: var(--dim); min-height: 18px; }
 .flash-status.is-ready { color: var(--ok); }
 .flash-status.is-error { color: var(--danger); }
+.flash-chip-downloads { display: flex; flex-wrap: wrap; gap: 6px; }
+.tool-note .link-btn { font-size: inherit; padding: 0; }
+.link-btn:disabled { opacity: .45; cursor: not-allowed; text-decoration: none; }
 esp-web-install-button { display: inline-block; }
+esp-web-install-button.is-disabled,
+esp-web-install-button[inert] {
+  pointer-events: none;
+  opacity: .45;
+}
 .support-notice {
   margin: -20px 0 28px;
   padding: 12px 14px;
@@ -1718,7 +1737,6 @@ esp-web-install-button { display: inline-block; }
   font-size: 13px;
 }
 
-.matter-intro { margin: 0 0 4px; font-size: 13.5px; color: var(--dim); }
 .matter-result {
   margin-top: 16px;
   display: flex;
@@ -2507,6 +2525,7 @@ esp-web-install-button { display: inline-block; }
 @media (max-width: 720px) {
   .page-title { font-size: 36px; }
   .page-sub { font-size: 17px; }
+  .page-sub-callout { font-size: 16px; }
   .tools-grid, .config-grid { grid-template-columns: minmax(0, 1fr); }
   .tool-card, .panel { min-width: 0; }
   .site-header-inner { gap: 8px; padding: 0 14px; }

@@ -195,8 +195,8 @@ class MQTTCommands:
             print(f"Error sending MQTT response: {e}")
 
     def publish_info_payload(self, payload):
-        """Publish live info payload."""
-        self.mqtt.publish(self.info_topic, json.dumps(payload))
+        """Publish retained info so MQTT discovery sees the current frontend."""
+        self.mqtt.publish(self.info_topic, json.dumps(payload), retain=True)
 
     def publish_stats_payload(self, payload):
         """Publish stats payload."""

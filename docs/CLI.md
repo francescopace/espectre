@@ -231,7 +231,7 @@ espectre/v1/devices/+/status
 
 It then:
 
-1. collects device identities seen at runtime
+1. collects device identities from retained `info` and `status` plus any live publishes during the scan
 2. shows an interactive selection list
 3. falls back to manual device-id entry if nothing is discovered
 

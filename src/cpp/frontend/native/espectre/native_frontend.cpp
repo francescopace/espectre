@@ -1014,7 +1014,7 @@ void NativeFrontend::publish_current_ha_state_() { publish_ha_state_(runtime_.sn
 void NativeFrontend::publish_mqtt_info_() {
   const EspectreDeviceInfo info = mqtt_protocol_device_info_();
   (void) publish_frontend_mqtt_message(
-      mqtt_transport_, device_config_, "info", espectre_info_payload(device_config_, info), false);
+      mqtt_transport_, device_config_, "info", espectre_info_payload(device_config_, info), true);
 }
 
 void NativeFrontend::publish_mqtt_commands_() {

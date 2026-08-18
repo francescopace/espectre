@@ -1351,6 +1351,8 @@ class TestMQTTCommands:
         mock_mqtt_client_instance.publish.assert_called_once()
         call_args = mock_mqtt_client_instance.publish.call_args
         payload = json.loads(call_args[0][1])
+        assert call_args.kwargs.get("retain") is True
+        assert payload["frontend"] == "micro"
         
         assert 'network' in payload
         assert 'detection' in payload

@@ -296,6 +296,14 @@ def test_indexnow_retries_transient_failures_and_sends_the_sitemap(tmp_path: Pat
     assert payload["urlList"] == urls
 
 
+def test_sitemap_lastmod_dates_use_utc() -> None:
+    sitemap_builder = load_script("build_sitemap")
+    assert sitemap_builder.normalized_date("2026-08-19T00:41:27+02:00") == "2026-08-18"
+    assert sitemap_builder.normalized_date("2026-08-18T23:30:00Z") == "2026-08-18"
+    assert sitemap_builder.normalized_date("2026-08-19T00:00:00+00:00") == "2026-08-19"
+    assert sitemap_builder.normalized_date("2026-08-19") == "2026-08-19"
+
+
 def test_sitemap_builder_uses_git_and_sdk_manifest_dates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -501,6 +509,19 @@ def test_sitemap_verifier_requires_accurate_dates(
         encoding="utf-8",
     )
     verifier.verify_sitemap(require_preview=False, require_release=False, require_develop=False)
+
+    future = sitemap.read_text(encoding="utf-8").replace(
+        "<lastmod>2026-08-12</lastmod>",
+        "<lastmod>2099-01-01</lastmod>",
+        1,
+    )
+    sitemap.write_text(future, encoding="utf-8")
+    with pytest.raises(ValueError, match="lastmod is in the future"):
+        verifier.verify_sitemap(require_preview=False, require_release=False, require_develop=False)
+    sitemap.write_text(
+        future.replace("<lastmod>2099-01-01</lastmod>", "<lastmod>2026-08-12</lastmod>", 1),
+        encoding="utf-8",
+    )
 
     source = sitemap.read_text(encoding="utf-8").replace(
         "<lastmod>2026-08-12</lastmod>",

@@ -117,7 +117,7 @@ espectre/v1/devices/{device_id}/status
 }
 ```
 
-Native retains the latest status payload. A normal shutdown publishes retained `online: false`; after an unexpected disconnect, the broker publishes the retained Last Will with the same offline state. A later connection replaces it with retained `online: true`, allowing availability consumers that subscribe after discovery to recover the current state. MQTT connect also publishes `info` and, when OTA is present, the current `ota/state`, so a client that watched `reboot_scheduled` can treat the next `online: true` as the device having returned from the OTA reboot.
+Native retains the latest status payload. A normal shutdown publishes retained `online: false`; after an unexpected disconnect, the broker publishes the retained Last Will with the same offline state. A later connection replaces it with retained `online: true`, allowing availability consumers that subscribe after discovery to recover the current state. MQTT connect also publishes retained `info` and, when OTA is present, the current `ota/state`, so a client that watched `reboot_scheduled` can treat the next `online: true` as the device having returned from the OTA reboot. Micro-ESPectre retains `info` the same way; its canonical `status` remains non-retained because HA availability uses the separate `ha/availability` topic.
 
 ### Info
 
@@ -161,7 +161,7 @@ espectre/v1/devices/{device_id}/info
 }
 ```
 
-The `supports_*` fields are authoritative capability declarations for clients. Clients should not infer command support from `frontend`, telemetry fields, or other payload content. MQTT clients that need command names should send `commands` and read `commands/catalog` instead of reconstructing the list from these flags. `network` and `detection` are optional. `csi_traffic_mode`, `traffic_mode`, and `csi_target_pps` are included when the frontend owns CSI traffic configuration; omit them when those values are unset. Local tools may display local IP and MAC values. Managed services should not collect local IP addresses, SSIDs, BSSIDs, access point MACs, or router identifiers by default.
+The `supports_*` fields are authoritative capability declarations for clients. Clients should not infer command support from `frontend`, telemetry fields, or other payload content. Native and Micro publish `info` retained on connect and after an `info` command so late subscribers, including `./espectre mqtt` discovery, see the current frontend identity instead of a previous retained payload for the same `device_id`. MQTT clients that need command names should send `commands` and read `commands/catalog` instead of reconstructing the list from these flags. `network` and `detection` are optional. `csi_traffic_mode`, `traffic_mode`, and `csi_target_pps` are included when the frontend owns CSI traffic configuration; omit them when those values are unset. Local tools may display local IP and MAC values. Managed services should not collect local IP addresses, SSIDs, BSSIDs, access point MACs, or router identifiers by default.
 
 ### Stats
 

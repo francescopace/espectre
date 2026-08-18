@@ -10,7 +10,7 @@ import json
 import re
 import subprocess
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -62,7 +62,9 @@ def parse_args() -> argparse.Namespace:
 
 def normalized_date(value: str) -> str:
     parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
-    return parsed.date().isoformat()
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).date().isoformat()
 
 
 def latest_git_date(paths: tuple[Path, ...]) -> str:
