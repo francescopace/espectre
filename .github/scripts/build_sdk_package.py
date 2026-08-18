@@ -85,14 +85,14 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build ESPectre SDK bundles and manifests.")
     parser.add_argument(
         "--channel",
-        choices=("stable", "main", "develop"),
+        choices=("release", "preview", "develop"),
         required=True,
         help="Release channel for this SDK bundle.",
     )
     parser.add_argument("--version", required=True, help="Human-readable SDK version label.")
     parser.add_argument("--release-tag", required=True, help="GitHub release tag for the published assets.")
     parser.add_argument("--output-dir", required=True, help="Directory where bundle assets are written.")
-    parser.add_argument("--commit", help="Optional source commit SHA for snapshot builds.")
+    parser.add_argument("--commit", help="Optional source commit SHA for preview and develop builds.")
     parser.add_argument(
         "--source-date-epoch",
         type=int,
@@ -150,11 +150,11 @@ def idf_component_manifest_version() -> str:
 
 
 def release_asset_stem(channel: str, version: str) -> str:
-    if channel == "stable":
+    if channel == "release":
         return f"espectre-sdk-{version}"
-    if channel == "main":
-        return "espectre-sdk-snapshot"
-    return "espectre-sdk-snapshot-dev"
+    if channel == "preview":
+        return "espectre-sdk-preview"
+    return "espectre-sdk-develop"
 
 
 def snapshot_package_version(base_version: str, suffix: str, commit: str | None) -> str:
@@ -167,11 +167,11 @@ def snapshot_package_version(base_version: str, suffix: str, commit: str | None)
 
 
 def package_version(channel: str, version: str, commit: str | None, base_version: str) -> str:
-    if channel == "stable":
+    if channel == "release":
         return version
-    if channel == "main":
-        return snapshot_package_version(base_version, "snapshot", commit)
-    return snapshot_package_version(base_version, "snapshot-dev", commit)
+    if channel == "preview":
+        return snapshot_package_version(base_version, "preview", commit)
+    return snapshot_package_version(base_version, "develop", commit)
 
 
 def collect_bundle_files() -> list[Path]:

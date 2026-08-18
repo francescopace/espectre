@@ -124,9 +124,9 @@ If you want to embed the sensing layers into your own firmware instead of flashi
 
 | Channel | Surface | Best for |
 |---------|---------|----------|
-| `stable` | `https://espectre.dev/artifacts/sdk/stable/` and semver GitHub Releases | production integrations and reproducible builds |
-| `snapshot` | `https://espectre.dev/artifacts/sdk/main/` and the rolling `snapshot` prerelease | validating the latest `main` changes before release |
-| `snapshot-dev` | `snapshot-dev` GitHub prerelease only | pre-main validation from `develop` |
+| `release` | `https://espectre.dev/artifacts/sdk/release/` and semver GitHub Releases | production integrations and reproducible builds |
+| `preview` | `https://espectre.dev/artifacts/sdk/preview/` and the rolling `preview` prerelease | validating the latest `main` changes before release |
+| `develop` | `https://espectre.dev/artifacts/sdk/develop/` and the rolling `develop` prerelease | pre-main validation from `develop` |
 
 The bundle is source-first. It includes:
 
@@ -144,7 +144,7 @@ Go to [espectre.dev/flash](https://espectre.dev/flash/) and select:
 - the firmware channel
 - your target chip
 
-Use `Latest Release` for official firmware or `Release Preview` for the latest build from `main`. Published ESPHome firmware starts with Lightweight Detection and supports persisted runtime switching to High Accuracy. Published Matter firmware starts with Lightweight; High Accuracy is available in local Matter builds and is selected at build time. Streamer is source-built because it needs build-time Wi-Fi configuration.
+Use `Latest Release` for official firmware, `Release Preview` for the latest build from `main`, or `Development` for the latest build from `develop`. Published ESPHome firmware starts with Lightweight Detection and supports persisted runtime switching to High Accuracy. Published Matter firmware starts with Lightweight; High Accuracy is available in local Matter builds and is selected at build time. Streamer is source-built because it needs build-time Wi-Fi configuration.
 
 To flash:
 

@@ -117,10 +117,12 @@ def lastmod_for_url(url: str) -> str | None:
         return latest_git_date(ROUTE_SOURCES[parsed.path])
     if parsed.path == "/artifacts/sdk/api/":
         return latest_git_date(doxygen_sources())
-    if parsed.path == "/artifacts/sdk/stable/":
-        return sdk_channel_date("stable")
-    if parsed.path == "/artifacts/sdk/main/":
-        return sdk_channel_date("main")
+    if parsed.path == "/artifacts/sdk/release/":
+        return sdk_channel_date("release")
+    if parsed.path == "/artifacts/sdk/preview/":
+        return sdk_channel_date("preview")
+    if parsed.path == "/artifacts/sdk/develop/":
+        return sdk_channel_date("develop")
     raise ValueError(f"Sitemap URL has no lastmod ownership mapping: {url}")
 
 

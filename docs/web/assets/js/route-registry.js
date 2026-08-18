@@ -37,8 +37,9 @@
     ].map((definition) => Object.freeze({ ...definition }));
 
     const documentPathNames = new Map([
-        ['/artifacts/sdk/stable/', 'sdk_stable'],
-        ['/artifacts/sdk/main/', 'sdk_main'],
+        ['/artifacts/sdk/release/', 'sdk_release'],
+        ['/artifacts/sdk/preview/', 'sdk_preview'],
+        ['/artifacts/sdk/develop/', 'sdk_develop'],
         ['/artifacts/sdk/api/', 'api_reference']
     ]);
 

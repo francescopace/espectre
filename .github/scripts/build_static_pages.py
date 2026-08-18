@@ -15,19 +15,21 @@ match the fragments. To preview the static pages locally, run:
 
     python3 .github/scripts/build_static_pages.py
 
-The pages reuse the site assets (version read from index.html so cache busting
-stays in lockstep) with a lightweight static header, and default to the light
-theme like the app. Runtime JavaScript is limited to responsive navigation and
-consent-gated analytics.
+The pages reuse the site assets with per-file content-hash cache busting.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
+
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from web_asset_versions import asset_version
 
 WEB_ROOT = Path(__file__).resolve().parents[2] / "docs" / "web"
 SITE_ORIGIN = "https://espectre.dev"
@@ -227,9 +229,9 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Instrument+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/css/styles.css?v={styles_version}">
-<script src="/assets/js/route-registry.js?v={styles_version}"></script>
-<script src="/assets/js/navigation.js?v={styles_version}" defer></script>
-<script src="/assets/js/analytics.js?v={styles_version}" defer></script>
+<script src="/assets/js/route-registry.js?v={route_registry_version}" defer></script>
+<script src="/assets/js/navigation.js?v={navigation_version}" defer></script>
+<script src="/assets/js/analytics.js?v={analytics_version}" defer></script>
 </head>
 <body>
 
@@ -291,15 +293,6 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 </html>
 """
 
-def styles_version() -> str:
-    """Reads the cache-busting version index.html uses for styles.css."""
-    index = (WEB_ROOT / "index.html").read_text()
-    match = re.search(r'href="/assets/css/styles\.css\?v=([0-9.]+)"', index)
-    if not match:
-        sys.exit("error: styles.css version not found in index.html")
-    return match.group(1)
-
-
 def crumb_from_title(title: str) -> str:
     return title.split(" | ")[0]
 
@@ -316,7 +309,10 @@ def breadcrumb(spec: dict[str, str]) -> str:
 
 
 def build() -> None:
-    version = styles_version()
+    styles_version = asset_version("assets/css/styles.css")
+    route_registry_version = asset_version("assets/js/route-registry.js")
+    navigation_version = asset_version("assets/js/navigation.js")
+    analytics_version = asset_version("assets/js/analytics.js")
 
     for spec in PAGES:
         fragment_path = WEB_ROOT / spec["source"]
@@ -328,7 +324,10 @@ def build() -> None:
             description=spec["description"],
             canonical=canonical,
             origin=SITE_ORIGIN,
-            styles_version=version,
+            styles_version=styles_version,
+            route_registry_version=route_registry_version,
+            navigation_version=navigation_version,
+            analytics_version=analytics_version,
             og_type=spec.get("og_type", "article"),
             breadcrumb=breadcrumb(spec),
             guides_active=" active" if spec["active_nav"] == "guides" else "",

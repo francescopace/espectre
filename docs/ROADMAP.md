@@ -29,7 +29,7 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 Before deploy:
 
-- [ ] Test an OTA update (the `stable` versus `snapshot` channel is currently hardcoded; pass it with the OTA request)
+- [ ] Test an OTA update across the `release`, `preview`, and `develop` request channels
 - [ ] Review docs/web content, imagery, UX, and UI for release readiness
 - [ ] Update devices performance report 
 
@@ -75,7 +75,7 @@ After deploy:
 **Scope**:
 
 - Define the supported distribution surface for ESP-IDF component consumers, including registry publication where it fits the project trust model
-- Keep `stable`, `snapshot`, and `snapshot-dev` channels aligned across bundle manifests, website links, and release automation
+- Keep `release`, `preview`, and `develop` channels aligned across bundle manifests, website links, and release automation
 - Package the web BLE client with ESM, IIFE, npm, and TypeScript surfaces, or retain it in-tree with a documented rationale if a reusable package does not meet the support bar
 
 **Exit criteria**: every supported installation path works from a clean consumer project, every release channel resolves to its intended artifacts, and the web BLE client has a validated public package or a documented decision to keep it internal.

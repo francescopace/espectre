@@ -27,56 +27,83 @@ jobs:
         with:
           fetch-depth: 0
       
-      - name: Download stable release assets
+      - name: Download release assets
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: |
-          mkdir -p stable-firmware
-          mkdir -p stable-sdk
+          mkdir -p release-firmware
+          mkdir -p release-sdk
           if gh release view >/dev/null 2>&1; then
-            STABLE_TAG="$(gh release view --json tagName --jq '.tagName')"
-            gh release download "$STABLE_TAG" --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir stable-firmware --clobber
-            gh release download "$STABLE_TAG" --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir stable-sdk --clobber
+            RELEASE_TAG="$(gh release view --json tagName --jq '.tagName')"
+            gh release download "$RELEASE_TAG" --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir release-firmware --clobber
+            gh release download "$RELEASE_TAG" --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir release-sdk --clobber
             python .github/scripts/stage_web_firmware.py \
-              --firmware-dir stable-firmware \
-              --output-dir docs/web/artifacts/firmware/stable \
-              --channel stable \
-              --version "$STABLE_TAG" \
-              --release-tag "$STABLE_TAG" \
-              --url-prefix /artifacts/firmware/stable
+              --firmware-dir release-firmware \
+              --output-dir docs/web/artifacts/firmware/release \
+              --channel release \
+              --version "$RELEASE_TAG" \
+              --release-tag "$RELEASE_TAG" \
+              --url-prefix /artifacts/firmware/release
             python .github/scripts/stage_web_sdk.py \
-              --sdk-dir stable-sdk \
-              --output-dir docs/web/artifacts/sdk/stable \
-              --channel stable
+              --sdk-dir release-sdk \
+              --output-dir docs/web/artifacts/sdk/release \
+              --channel release
           else
-            echo "No stable release found; skipping stable channel staging."
+            echo "No release found; skipping release channel staging."
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
 
-      - name: Download snapshot release assets
+      - name: Download preview release assets
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: |
-          mkdir -p snapshot-firmware
-          mkdir -p snapshot-sdk
-          if gh release view snapshot >/dev/null 2>&1; then
-            gh release download snapshot --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir snapshot-firmware --clobber
-            gh release download snapshot --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir snapshot-sdk --clobber
-            SNAPSHOT_COMMIT="$(gh release view snapshot --json targetCommitish --jq '.targetCommitish // ""')"
+          mkdir -p preview-firmware
+          mkdir -p preview-sdk
+          if gh release view preview >/dev/null 2>&1; then
+            gh release download preview --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir preview-firmware --clobber
+            gh release download preview --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir preview-sdk --clobber
+            PREVIEW_COMMIT="$(gh release view preview --json targetCommitish --jq '.targetCommitish // ""')"
             python .github/scripts/stage_web_firmware.py \
-              --firmware-dir snapshot-firmware \
-              --output-dir docs/web/artifacts/firmware/main \
-              --channel main \
-              --version main \
-              --release-tag snapshot \
-              --url-prefix /artifacts/firmware/main \
-              --commit "$SNAPSHOT_COMMIT"
+              --firmware-dir preview-firmware \
+              --output-dir docs/web/artifacts/firmware/preview \
+              --channel preview \
+              --version preview \
+              --release-tag preview \
+              --url-prefix /artifacts/firmware/preview \
+              --commit "$PREVIEW_COMMIT"
             python .github/scripts/stage_web_sdk.py \
-              --sdk-dir snapshot-sdk \
-              --output-dir docs/web/artifacts/sdk/main \
-              --channel main
+              --sdk-dir preview-sdk \
+              --output-dir docs/web/artifacts/sdk/preview \
+              --channel preview
           else
-            echo "No snapshot release found; skipping main channel staging."
+            echo "No preview release found; skipping preview channel staging."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+
+      - name: Download develop release assets
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: |
+          mkdir -p develop-firmware
+          mkdir -p develop-sdk
+          if gh release view develop >/dev/null 2>&1; then
+            gh release download develop --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir develop-firmware --clobber
+            gh release download develop --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir develop-sdk --clobber
+            python .github/scripts/stage_web_firmware.py \
+              --firmware-dir develop-firmware \
+              --output-dir docs/web/artifacts/firmware/develop \
+              --channel develop \
+              --version develop \
+              --release-tag develop \
+              --url-prefix /artifacts/firmware/develop \
+              --commit "$(gh release view develop --json targetCommitish --jq '.targetCommitish // ""')"
+            python .github/scripts/stage_web_sdk.py \
+              --sdk-dir develop-sdk \
+              --output-dir docs/web/artifacts/sdk/develop \
+              --channel develop
+          else
+            echo "No develop release found; skipping develop channel staging."
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -84,9 +111,6 @@ jobs:
       
       - name: Build and verify Pages tree
         uses: ./.github/actions/build-pages
-        with:
-          require-main: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
-          require-stable: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
 
   test-cpp:
     name: C++ Unit Tests
@@ -231,9 +255,9 @@ jobs:
           mkdir -p output
           CHIP=$(echo "${{ matrix.chip }}" | tr '[:upper:]' '[:lower:]' | tr -d '-')
           if [ "${{ github.ref }}" = "refs/heads/develop" ]; then
-            PREFIX="espectre-snapshot-dev"
+            PREFIX="espectre-develop"
           else
-            PREFIX="espectre-snapshot"
+            PREFIX="espectre-preview"
           fi
           cp "${{ steps.esphome-artifacts.outputs.factory_bin }}" "output/${PREFIX}-${CHIP}.bin"
 
@@ -241,7 +265,7 @@ jobs:
         if: github.event_name == 'push'
         run: |
           PROJECT_DESCRIPTION="$(find src/cpp/frontend/esphome/examples/.esphome/build -path '*/build/project_description.json' -print -quit)"
-          FIRMWARE="$(find output -maxdepth 1 -type f -name 'espectre-snapshot*.bin' -print -quit)"
+          FIRMWARE="$(find output -maxdepth 1 -type f \( -name 'espectre-preview-*.bin' -o -name 'espectre-develop-*.bin' \) -print -quit)"
           test -n "${PROJECT_DESCRIPTION}"
           test -n "${FIRMWARE}"
           python .github/scripts/build_firmware_compliance.py \
@@ -255,7 +279,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: firmware-esphome-${{ matrix.chip }}
-          path: output/espectre-snapshot*
+          path: |
+            output/espectre-preview-*
+            output/espectre-develop-*
           retention-days: 7
 
   build-matter:
@@ -287,9 +313,9 @@ jobs:
           if [ "${{ github.event_name }}" != "push" ]; then
             echo "prefix=ci" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.ref }}" = "refs/heads/develop" ]; then
-            echo "prefix=snapshot-dev" >> "$GITHUB_OUTPUT"
+            echo "prefix=develop" >> "$GITHUB_OUTPUT"
           else
-            echo "prefix=snapshot" >> "$GITHUB_OUTPUT"
+            echo "prefix=preview" >> "$GITHUB_OUTPUT"
           fi
 
       # Keep dependencies and compiled objects per target. The target suffix
@@ -319,7 +345,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: firmware-matter-${{ matrix.chip }}
-          path: output/espectre-matter-snapshot*
+          path: |
+            output/espectre-matter-preview*
+            output/espectre-matter-develop*
           retention-days: 7
 
   build-native:
@@ -350,13 +378,13 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" != "push" ]; then
             echo "prefix=ci" >> "$GITHUB_OUTPUT"
-            echo "ota_snapshot=0" >> "$GITHUB_OUTPUT"
+            echo "ota_channel=release" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.ref }}" = "refs/heads/develop" ]; then
-            echo "prefix=snapshot-dev" >> "$GITHUB_OUTPUT"
-            echo "ota_snapshot=1" >> "$GITHUB_OUTPUT"
+            echo "prefix=develop" >> "$GITHUB_OUTPUT"
+            echo "ota_channel=develop" >> "$GITHUB_OUTPUT"
           else
-            echo "prefix=snapshot" >> "$GITHUB_OUTPUT"
-            echo "ota_snapshot=1" >> "$GITHUB_OUTPUT"
+            echo "prefix=preview" >> "$GITHUB_OUTPUT"
+            echo "ota_channel=preview" >> "$GITHUB_OUTPUT"
           fi
 
       # The cached home contains target-independent Python and component dependencies.
@@ -376,7 +404,7 @@ jobs:
           NATIVE_TARGET: ${{ matrix.target }}
           NATIVE_OUTPUT: ${{ github.workspace }}/output/espectre-native-${{ steps.native-names.outputs.prefix }}-${{ matrix.target }}.bin
           NATIVE_OTA_OUTPUT: ${{ github.workspace }}/output/espectre-native-${{ steps.native-names.outputs.prefix }}-${{ matrix.target }}-ota.bin
-          NATIVE_OTA_SNAPSHOT: ${{ steps.native-names.outputs.ota_snapshot }}
+          NATIVE_OTA_CHANNEL: ${{ steps.native-names.outputs.ota_channel }}
           NATIVE_SDKCONFIG_DEFAULTS: ${{ matrix.sdkconfig_defaults || '' }}
 
       - name: Upload native firmware artifact
@@ -384,7 +412,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: firmware-native-${{ matrix.chip }}
-          path: output/espectre-native-snapshot*
+          path: |
+            output/espectre-native-preview*
+            output/espectre-native-develop*
           retention-days: 7
 
   build-streamer:
@@ -444,7 +474,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" != "push" ]; then
             {
-              echo "channel=main"
+              echo "channel=preview"
               echo "version=pr-preview"
               echo "release_tag=pr-preview"
             } >> "$GITHUB_OUTPUT"
@@ -452,13 +482,13 @@ jobs:
             {
               echo "channel=develop"
               echo "version=develop"
-              echo "release_tag=snapshot-dev"
+              echo "release_tag=develop"
             } >> "$GITHUB_OUTPUT"
           else
             {
-              echo "channel=main"
-              echo "version=main"
-              echo "release_tag=snapshot"
+              echo "channel=preview"
+              echo "version=preview"
+              echo "release_tag=preview"
             } >> "$GITHUB_OUTPUT"
           fi
 

@@ -7,8 +7,9 @@
   <url><loc>https://espectre.dev/docs/examples/</loc></url>
   <url><loc>https://espectre.dev/docs/architecture/</loc></url>
   <url><loc>https://espectre.dev/artifacts/sdk/api/</loc></url>
-  <url><loc>https://espectre.dev/artifacts/sdk/stable/</loc></url>
-  <url><loc>https://espectre.dev/artifacts/sdk/main/</loc></url>
+  <url><loc>https://espectre.dev/artifacts/sdk/release/</loc></url>
+  <url><loc>https://espectre.dev/artifacts/sdk/preview/</loc></url>
+  <url><loc>https://espectre.dev/artifacts/sdk/develop/</loc></url>
   <url><loc>https://espectre.dev/media/</loc></url>
   <url><loc>https://espectre.dev/roadmap/</loc></url>
   <url><loc>https://espectre.dev/privacy/</loc></url>

@@ -2,12 +2,16 @@ name: Build and verify Pages tree
 description: Build the generated website, SDK API reference, and channel artifacts consistently.
 
 inputs:
-  require-main:
-    description: Require the rolling main firmware and SDK channels.
+  require-preview:
+    description: Require the rolling preview firmware and SDK channels.
     required: false
     default: "false"
-  require-stable:
-    description: Require the stable firmware and SDK channels.
+  require-release:
+    description: Require the release firmware and SDK channels.
+    required: false
+    default: "false"
+  require-develop:
+    description: Require the rolling develop firmware channel.
     required: false
     default: "false"
 
@@ -47,14 +51,18 @@ runs:
     - name: Verify website
       shell: bash
       env:
-        REQUIRE_MAIN: ${{ inputs.require-main }}
-        REQUIRE_STABLE: ${{ inputs.require-stable }}
+        REQUIRE_PREVIEW: ${{ inputs.require-preview }}
+        REQUIRE_RELEASE: ${{ inputs.require-release }}
+        REQUIRE_DEVELOP: ${{ inputs.require-develop }}
       run: |
         args=()
-        if [[ "${REQUIRE_MAIN}" == "true" ]]; then
-          args+=(--require-main)
+        if [[ "${REQUIRE_PREVIEW}" == "true" ]]; then
+          args+=(--require-preview)
         fi
-        if [[ "${REQUIRE_STABLE}" == "true" ]]; then
-          args+=(--require-stable)
+        if [[ "${REQUIRE_RELEASE}" == "true" ]]; then
+          args+=(--require-release)
+        fi
+        if [[ "${REQUIRE_DEVELOP}" == "true" ]]; then
+          args+=(--require-develop)
         fi
         python3 .github/scripts/verify_web_build.py "${args[@]}"

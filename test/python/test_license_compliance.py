@@ -149,7 +149,7 @@ def test_firmware_manifest_links_available_compliance_artifacts(tmp_path):
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
-    firmware = tmp_path / "espectre-snapshot-esp32c6.bin"
+    firmware = tmp_path / "espectre-preview-esp32c6.bin"
     firmware.write_bytes(b"firmware")
     for suffix in ("-sbom.spdx.json", "-THIRD_PARTY_NOTICES.txt", "-third-party-licenses.zip"):
         firmware.with_name(f"{firmware.stem}{suffix}").write_bytes(b"compliance")
@@ -158,11 +158,11 @@ def test_firmware_manifest_links_available_compliance_artifacts(tmp_path):
         argparse.Namespace(
             firmware_dir=str(tmp_path),
             output=str(output),
-            channel="main",
-            version="main",
-            release_tag="snapshot",
+            channel="preview",
+            version="preview",
+            release_tag="preview",
             commit="abcdef",
-            url_prefix="/artifacts/firmware/main",
+            url_prefix="/artifacts/firmware/preview",
         )
     )
 
@@ -172,7 +172,7 @@ def test_firmware_manifest_links_available_compliance_artifacts(tmp_path):
         "notices",
         "license-archive",
     ]
-    assert artifact["compliance"][0]["url"].startswith("/artifacts/firmware/main/")
+    assert artifact["compliance"][0]["url"].startswith("/artifacts/firmware/preview/")
 
 
 def test_complete_firmware_matrix_requires_every_compliance_companion(tmp_path):
@@ -187,10 +187,10 @@ def test_complete_firmware_matrix_requires_every_compliance_companion(tmp_path):
     for chip in module.CHIP_METADATA:
         firmware_names.extend(
             (
-                f"espectre-snapshot-{chip}.bin",
-                f"espectre-matter-snapshot-{chip}.bin",
-                f"espectre-native-snapshot-{chip}.bin",
-                f"espectre-native-snapshot-{chip}-ota.bin",
+                f"espectre-preview-{chip}.bin",
+                f"espectre-matter-preview-{chip}.bin",
+                f"espectre-native-preview-{chip}.bin",
+                f"espectre-native-preview-{chip}-ota.bin",
             )
         )
     companion_suffixes = (
@@ -204,14 +204,14 @@ def test_complete_firmware_matrix_requires_every_compliance_companion(tmp_path):
         for suffix in companion_suffixes:
             firmware.with_name(f"{firmware.stem}{suffix}").write_bytes(b"compliance")
 
-    missing_notice = tmp_path / "espectre-snapshot-esp32-THIRD_PARTY_NOTICES.txt"
+    missing_notice = tmp_path / "espectre-preview-esp32-THIRD_PARTY_NOTICES.txt"
     missing_notice.unlink()
     args = argparse.Namespace(
         firmware_dir=str(tmp_path),
         output=str(tmp_path / "manifest.json"),
-        channel="main",
-        version="main",
-        release_tag="snapshot",
+        channel="preview",
+        version="preview",
+        release_tag="preview",
         commit="abcdef",
         url_prefix=None,
         require_complete_matrix=True,

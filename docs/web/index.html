@@ -26,12 +26,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Instrument+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/styles.css?v=3.19.38">
-<script src="/assets/js/espectre-ble.js?v=3.19.38"></script>
-<script src="/assets/js/browser-support.js?v=3.19.38"></script>
-<script src="/assets/js/route-registry.js?v=3.19.38"></script>
-<script src="/assets/js/navigation.js?v=3.19.38" defer></script>
-<script src="/assets/js/analytics.js?v=3.19.38" defer></script>
+<link rel="stylesheet" href="/assets/css/styles.css?v=6b02e8b9b424">
+<script src="/assets/js/espectre-ble.js?v=e39ec77d24f8" defer></script>
+<script src="/assets/js/browser-support.js?v=33452b392605" defer></script>
+<script src="/assets/js/route-registry.js?v=0f4d529ed592" defer></script>
+<script src="/assets/js/navigation.js?v=39ff8fdd70f7" defer></script>
+<script src="/assets/js/analytics.js?v=341a8f98f507" defer></script>
+<script src="/assets/js/app.js?v=8f2868066c13" defer></script>
 </head>
 <body>
 
@@ -90,21 +91,15 @@
           </div>
           <div>
             <dt>Firmware</dt>
-            <dd class="js-menu-firmware">—</dd>
+            <dd class="conn-firmware-row">
+              <span class="js-menu-firmware">—</span>
+              <button type="button" class="device-firmware-update js-firmware-update-notice"
+                data-ota-status="idle" aria-label="Open firmware update">
+                <span class="js-firmware-update-copy">Checking for updates…</span>
+              </button>
+            </dd>
           </div>
         </dl>
-        <div class="conn-firmware-update">
-          <div class="device-firmware-update js-firmware-update-notice" data-ota-status="idle">
-            <span class="device-firmware-update-icon" aria-hidden="true"></span>
-            <span class="js-firmware-update-copy js-firmware-recheck" role="button" tabindex="-1"
-              title="Recheck for firmware update" aria-label="Recheck for firmware update" aria-disabled="true">
-              Checking for updates…
-            </span>
-            <div class="device-firmware-update-actions">
-              <button type="button" class="btn-primary btn-sm js-firmware-update" hidden>Update</button>
-            </div>
-          </div>
-        </div>
         <div class="energy-block js-live-energy" hidden>
           <div class="energy-head"><span class="energy-title">CURRENT STATE</span><span class="mono js-motion-label">IDLE</span></div>
           <div class="meter"><span class="js-energy-fill"></span></div>
@@ -485,8 +480,9 @@
         <div class="field"><label for="flash-frontend">Frontend</label><select id="flash-frontend"></select></div>
         <div class="field"><label for="flash-channel">Channel</label>
           <select id="flash-channel">
-            <option value="stable">Latest Release</option>
-            <option value="main">Release Preview</option>
+            <option value="release">Latest Release</option>
+            <option value="preview">Release Preview</option>
+            <option value="develop">Development</option>
           </select>
         </div>
         <div class="field"><label for="flash-chip">Chip</label><select id="flash-chip"></select></div>
@@ -561,7 +557,13 @@
       <div class="device-banner-id">
         <div>
           <h2 class="js-device-name">ESPectre</h2>
-          <div class="mono-sub js-device-banner-sub">—</div>
+          <div class="mono-sub device-banner-identity">
+            <span class="js-device-banner-sub">—</span>
+            <button type="button" class="device-firmware-update js-firmware-update-notice"
+              data-ota-status="idle" aria-label="Open firmware update">
+              <span class="js-firmware-update-copy">Checking for updates…</span>
+            </button>
+          </div>
         </div>
       </div>
       <div class="device-banner-actions">
@@ -673,7 +675,13 @@
       <div class="device-banner-id">
         <div>
           <h2 class="js-device-name">ESPectre</h2>
-          <div class="mono-sub js-device-banner-sub">—</div>
+          <div class="mono-sub device-banner-identity">
+            <span class="js-device-banner-sub">—</span>
+            <button type="button" class="device-firmware-update js-firmware-update-notice"
+              data-ota-status="idle" aria-label="Open firmware update">
+              <span class="js-firmware-update-copy">Checking for updates…</span>
+            </button>
+          </div>
         </div>
       </div>
       <div class="device-banner-actions">
@@ -819,35 +827,35 @@
 
 <!-- ============================== Guides ============================== -->
 <main class="js-page page-narrow" data-page="guides" hidden>
-  <div class="js-static-content" data-content-url="content/guides.html?v=3.19.38" data-static-url="/guides/">
+  <div class="js-static-content" data-content-url="content/guides.html?v=6b9d74d92e5d" data-static-url="/guides/">
     <p class="guide-loading">Loading guides…</p>
   </div>
 </main>
 
 <!-- ============================== Docs ============================== -->
 <main class="js-page page-narrow" data-page="docs" hidden>
-  <div class="js-static-content" data-content-url="content/docs.html?v=3.19.38" data-static-url="/docs/">
+  <div class="js-static-content" data-content-url="content/docs.html?v=a9a81f3c6aac" data-static-url="/docs/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
 
 <!-- ============================== Media ============================== -->
 <main class="js-page page-narrow" data-page="media" hidden>
-  <div class="js-static-content" data-content-url="content/media.html?v=3.19.38" data-static-url="/media/">
+  <div class="js-static-content" data-content-url="content/media.html?v=bf7ba39229ed" data-static-url="/media/">
     <p class="guide-loading">Loading media…</p>
   </div>
 </main>
 
 <!-- ============================== Roadmap ============================== -->
 <main class="js-page page-narrow" data-page="roadmap" hidden>
-  <div class="js-static-content" data-content-url="content/roadmap.html?v=3.19.38" data-static-url="/roadmap/">
+  <div class="js-static-content" data-content-url="content/roadmap.html?v=d96a75f2494f" data-static-url="/roadmap/">
     <p class="guide-loading">Loading roadmap…</p>
   </div>
 </main>
 
 <!-- ============================== Privacy ============================== -->
 <main class="js-page page-narrow" data-page="privacy" hidden>
-  <div class="js-static-content" data-content-url="content/privacy.html?v=3.19.38" data-static-url="/privacy/">
+  <div class="js-static-content" data-content-url="content/privacy.html?v=9ca87c29a0f4" data-static-url="/privacy/">
     <p class="guide-loading">Loading privacy notice…</p>
   </div>
 </main>
@@ -855,7 +863,7 @@
 <!-- ============================== Guide: Hardware ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-hardware" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Hardware</span></div>
-  <div class="js-static-content" data-content-url="content/guides/hardware.html?v=3.19.38" data-static-url="/guides/hardware/">
+  <div class="js-static-content" data-content-url="content/guides/hardware.html?v=e68e0d3ebbb3" data-static-url="/guides/hardware/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -863,7 +871,7 @@
 <!-- ============================== Guide: Setup ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-setup" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Flash &amp; Wi-Fi setup</span></div>
-  <div class="js-static-content" data-content-url="content/guides/setup.html?v=3.19.38" data-static-url="/guides/setup/">
+  <div class="js-static-content" data-content-url="content/guides/setup.html?v=12d61ab89743" data-static-url="/guides/setup/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -871,7 +879,7 @@
 <!-- ============================== Guide: Placement ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-placement" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Place your sensor</span></div>
-  <div class="js-static-content" data-content-url="content/guides/placement.html?v=3.19.38" data-static-url="/guides/placement/">
+  <div class="js-static-content" data-content-url="content/guides/placement.html?v=cd11cc4ee213" data-static-url="/guides/placement/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -879,7 +887,7 @@
 <!-- ============================== Guide: Detection ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-detection" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">How detection works</span></div>
-  <div class="js-static-content" data-content-url="content/guides/detection.html?v=3.19.38" data-static-url="/guides/detection/">
+  <div class="js-static-content" data-content-url="content/guides/detection.html?v=51fe8d27406e" data-static-url="/guides/detection/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -887,7 +895,7 @@
 <!-- ============================== Guide: Detection profiles ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-detectors" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Choose a detection profile</span></div>
-  <div class="js-static-content" data-content-url="content/guides/detectors.html?v=3.19.38" data-static-url="/guides/detectors/">
+  <div class="js-static-content" data-content-url="content/guides/detectors.html?v=11d1b5135a53" data-static-url="/guides/detectors/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -895,7 +903,7 @@
 <!-- ============================== Guide: Custom firmware ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-firmware" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Build custom firmware</span></div>
-  <div class="js-static-content" data-content-url="content/guides/firmware.html?v=3.19.38" data-static-url="/guides/custom-firmware/">
+  <div class="js-static-content" data-content-url="content/guides/firmware.html?v=c1e97d354110" data-static-url="/guides/custom-firmware/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -903,7 +911,7 @@
 <!-- ============================== Docs: API ============================== -->
 <main class="js-page page-narrow page-article" data-page="docs-api" hidden>
   <div class="breadcrumb"><a href="/docs/">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">API orientation</span></div>
-  <div class="js-static-content" data-content-url="content/docs/api.html?v=3.19.38" data-static-url="/docs/api/">
+  <div class="js-static-content" data-content-url="content/docs/api.html?v=c0f16884d529" data-static-url="/docs/api/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -911,7 +919,7 @@
 <!-- ============================== Docs: Examples ============================== -->
 <main class="js-page page-narrow page-article" data-page="docs-examples" hidden>
   <div class="breadcrumb"><a href="/docs/">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">Examples</span></div>
-  <div class="js-static-content" data-content-url="content/docs/examples.html?v=3.19.38" data-static-url="/docs/examples/">
+  <div class="js-static-content" data-content-url="content/docs/examples.html?v=c230510c6be4" data-static-url="/docs/examples/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -919,7 +927,7 @@
 <!-- ============================== Docs: Architecture ============================== -->
 <main class="js-page page-narrow page-article" data-page="docs-architecture" hidden>
   <div class="breadcrumb"><a href="/docs/">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">Architecture</span></div>
-  <div class="js-static-content" data-content-url="content/docs/architecture.html?v=3.19.38" data-static-url="/docs/architecture/">
+  <div class="js-static-content" data-content-url="content/docs/architecture.html?v=14bdca03b8b3" data-static-url="/docs/architecture/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -948,6 +956,14 @@
       <button type="button" class="modal-close js-ota-close" aria-label="Close update dialog">×</button>
     </div>
     <p class="modal-description" id="ota-modal-description">Update information reported by the connected device.</p>
+    <div class="field ota-channel-field">
+      <label for="ota-channel">Channel</label>
+      <select id="ota-channel">
+        <option value="release" selected>Latest Release</option>
+        <option value="preview">Release Preview</option>
+        <option value="develop">Development</option>
+      </select>
+    </div>
     <div class="ota-details-grid">
       <div class="stat"><div class="stat-label">State</div><div class="stat-value" id="cfg-ota-state">—</div></div>
       <div class="stat"><div class="stat-label">Current version</div><div class="stat-value" id="cfg-ota-current">—</div></div>
@@ -979,7 +995,5 @@
 
 <div class="toast js-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
 <div class="toast toast-sticky js-demo-toast" role="status" aria-live="polite" hidden>Demo mode - Motion is simulated by moving the mouse.</div>
-
-<script src="/assets/js/app.js?v=3.19.38"></script>
 </body>
 </html>

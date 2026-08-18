@@ -53,6 +53,7 @@
 
     const BSSID_PATTERN = /^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$/;
     const WIFI_BAND_POLICIES = Object.freeze(['2g', '5g', 'auto']);
+    const OTA_CHANNELS = Object.freeze(['release', 'preview', 'develop']);
     const DEFAULT_TOPIC_PREFIX = 'espectre/v1/devices';
 
     /**
@@ -114,6 +115,20 @@
         return value;
     }
 
+    function requireOtaChannel(value) {
+        if (!OTA_CHANNELS.includes(value)) {
+            throw new ESPectreValidationError(
+                `channel must be one of: ${OTA_CHANNELS.join(', ')}`);
+        }
+        return value;
+    }
+
+    function buildOtaActionCommand(verb, { channel } = {}) {
+        if (channel === undefined || channel === '') return verb;
+        requireOtaChannel(channel);
+        return `${verb}:channel=${encodeURIComponent(channel)}`;
+    }
+
     function requireChannelMatchesBandPolicy(channel, bandPolicy) {
         if (channel === 0 || bandPolicy === 'auto') return;
         const channelIs2g = channel <= 14;
@@ -126,7 +141,7 @@
 
     class ESPectreBleClient {
         /** Library version; independent from the device protocol version. */
-        static get VERSION() { return '1.1.0'; }
+        static get VERSION() { return '1.2.0'; }
 
         /** GATT service and characteristic UUIDs of the ESPectre BLE surface. */
         static get UUIDS() { return UUIDS; }
@@ -150,14 +165,22 @@
             return 'OTA_STATUS';
         }
 
-        /** @returns {string} */
-        static buildOtaCheckCommand() {
-            return 'OTA_CHECK';
+        /**
+         * @param {object} [options]
+         * @param {string} [options.channel] - Optional `release`, `preview`, or `develop`.
+         * @returns {string}
+         */
+        static buildOtaCheckCommand({ channel } = {}) {
+            return buildOtaActionCommand('OTA_CHECK', { channel });
         }
 
-        /** @returns {string} */
-        static buildOtaStartCommand() {
-            return 'OTA_START';
+        /**
+         * @param {object} [options]
+         * @param {string} [options.channel] - Optional `release`, `preview`, or `develop`.
+         * @returns {string}
+         */
+        static buildOtaStartCommand({ channel } = {}) {
+            return buildOtaActionCommand('OTA_START', { channel });
         }
 
         /** Stops BLE after Wi-Fi is configured so sensing can resume. */
@@ -462,14 +485,14 @@
             return this.writeControl(ESPectreBleClient.buildOtaStatusCommand());
         }
 
-        /** Starts an OTA manifest check using the firmware-embedded release URL. */
-        otaCheck() {
-            return this.writeControl(ESPectreBleClient.buildOtaCheckCommand());
+        /** Starts an OTA manifest check. Omit `channel` to use the firmware default. */
+        otaCheck({ channel } = {}) {
+            return this.writeControl(ESPectreBleClient.buildOtaCheckCommand({ channel }));
         }
 
-        /** Starts OTA using the firmware-embedded manifest and release image. */
-        otaStart() {
-            return this.writeControl(ESPectreBleClient.buildOtaStartCommand());
+        /** Starts OTA using the selected or firmware-default channel. */
+        otaStart({ channel } = {}) {
+            return this.writeControl(ESPectreBleClient.buildOtaStartCommand({ channel }));
         }
 
         /** Stops BLE after Wi-Fi is configured so sensing can resume. */

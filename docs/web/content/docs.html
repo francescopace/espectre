@@ -17,9 +17,10 @@
       <p>ESPectre owns CSI capture, calibration, detection, and events. Your firmware keeps control of boot, connectivity, updates, and product behavior.</p>
     </div>
     <div class="docs-start-actions">
-      <a href="/artifacts/sdk/stable/" class="btn-primary">Download stable SDK</a>
+      <a href="/artifacts/sdk/release/" class="btn-primary">Download SDK</a>
       <a href="/artifacts/sdk/api/" class="btn-secondary">Open API reference</a>
     </div>
+    <p>Rolling bundles: <a href="/artifacts/sdk/preview/">preview</a> from <code>main</code> and <a href="/artifacts/sdk/develop/">develop</a> from <code>develop</code>.</p>
   </section>
 
   <section class="docs-section" aria-labelledby="docs-paths-title">
@@ -79,7 +80,7 @@
         <span class="docs-step-number">01</span>
         <div class="docs-step-body">
           <h3>Add the SDK</h3>
-          <p>Unpack the stable source bundle as <code>components/espectre/</code>, then declare the component from your application:</p>
+          <p>Unpack the release source bundle as <code>components/espectre/</code>, then declare the component from your application:</p>
           <div class="code-block"><pre><span class="c"># main/CMakeLists.txt</span>
 idf_component_register(
   SRCS <span class="s">"main.cpp"</span>

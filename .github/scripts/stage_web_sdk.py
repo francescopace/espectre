@@ -13,8 +13,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
+import sys
 from pathlib import Path
+
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from web_asset_versions import asset_version
 
 WEB_ROOT = Path(__file__).resolve().parents[2] / "docs" / "web"
 
@@ -23,16 +29,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Stage web SDK metadata pages.")
     parser.add_argument("--sdk-dir", required=True, help="Directory containing SDK release assets and manifest.")
     parser.add_argument("--output-dir", required=True, help="Directory where staged web SDK files should be written.")
-    parser.add_argument("--channel", choices=("stable", "main"), required=True, help="Website SDK channel.")
+    parser.add_argument("--channel", choices=("release", "preview", "develop"), required=True, help="Website SDK channel.")
     return parser.parse_args()
-
-
-def styles_version() -> str:
-    index = (WEB_ROOT / "index.html").read_text(encoding="utf-8")
-    match = re.search(r'href="/assets/css/styles\.css\?v=([0-9.]+)"', index)
-    if not match:
-        raise ValueError("styles.css version not found in docs/web/index.html")
-    return match.group(1)
 
 
 def clean_output_dir(output_dir: Path) -> None:
@@ -50,18 +48,43 @@ def load_sdk_manifest(sdk_dir: Path) -> dict:
 
 
 def channel_copy(manifest: dict, channel: str) -> tuple[str, str]:
-    if channel == "stable":
+    if channel == "release":
         return (
             "Latest SDK Release",
             "Official SDK bundle for open-source and commercial embedding workflows.",
         )
+    if channel == "preview":
+        return (
+            "SDK Release Preview",
+            "Rolling SDK preview built from main. Use it to validate upcoming source changes before the next release.",
+        )
     return (
-        "SDK Release Preview",
-        "Rolling SDK preview built from main. Use it to validate upcoming source changes before the next stable release.",
+        "SDK Development",
+        "Rolling SDK bundle built from develop. Use it to validate in-progress source changes before they reach main.",
     )
 
 
-def render_page(manifest: dict, channel: str, styles_css_version: str) -> str:
+def channel_note(channel: str) -> str:
+    if channel == "develop":
+        return (
+            '<div class="note">This is a rolling development bundle from <code>develop</code>, not a production SDK. '
+            'Use <a href="/artifacts/sdk/release/">release</a> for production integrations, or '
+            '<a href="/artifacts/sdk/preview/">preview</a> to validate <code>main</code>.</div>'
+        )
+    if channel == "preview":
+        return (
+            '<div class="note">Rolling preview from <code>main</code>. '
+            'Use <a href="/artifacts/sdk/release/">release</a> for production, or '
+            '<a href="/artifacts/sdk/develop/">develop</a> for pre-main validation.</div>'
+        )
+    return (
+        '<div class="note">Looking for a rolling bundle? See '
+        '<a href="/artifacts/sdk/preview/">preview</a> from <code>main</code>, or '
+        '<a href="/artifacts/sdk/develop/">develop</a> from <code>develop</code>.</div>'
+    )
+
+
+def render_page(manifest: dict, channel: str) -> str:
     title, description = channel_copy(manifest, channel)
     commit = manifest.get("commit") or "n/a"
     artifact_links = "\n".join(
@@ -71,6 +94,10 @@ def render_page(manifest: dict, channel: str, styles_css_version: str) -> str:
         for artifact in manifest["artifacts"]
     )
     optional_groups = ", ".join(manifest["install_surfaces"]["cmake"]["optional_source_groups"])
+    styles_version = asset_version("assets/css/styles.css")
+    route_registry_version = asset_version("assets/js/route-registry.js")
+    navigation_version = asset_version("assets/js/navigation.js")
+    analytics_version = asset_version("assets/js/analytics.js")
     return f"""<!DOCTYPE html>
 <html lang="en" data-theme="light" data-static-page data-site-section="documentation">
 <head>
@@ -83,10 +110,10 @@ def render_page(manifest: dict, channel: str, styles_css_version: str) -> str:
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Instrument+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/styles.css?v={styles_css_version}">
-<script src="/assets/js/route-registry.js?v={styles_css_version}"></script>
-<script src="/assets/js/navigation.js?v={styles_css_version}" defer></script>
-<script src="/assets/js/analytics.js?v={styles_css_version}" defer></script>
+<link rel="stylesheet" href="/assets/css/styles.css?v={styles_version}">
+<script src="/assets/js/route-registry.js?v={route_registry_version}" defer></script>
+<script src="/assets/js/navigation.js?v={navigation_version}" defer></script>
+<script src="/assets/js/analytics.js?v={analytics_version}" defer></script>
 </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to content</a>
@@ -144,7 +171,7 @@ def render_page(manifest: dict, channel: str, styles_css_version: str) -> str:
       </tbody>
     </table></div>
 
-    <div class="note">Developer preview SDK bundles from <code>develop</code> are intentionally GitHub-only and do not get a public website page.</div>
+    {channel_note(channel)}
   </article>
 </main>
 <footer class="site-footer">
@@ -190,7 +217,7 @@ def stage_web_sdk(args: argparse.Namespace) -> Path:
 
     manifest_path = output_dir / f"sdk-manifest-{args.channel}.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    page = render_page(manifest, args.channel, styles_version())
+    page = render_page(manifest, args.channel)
     (output_dir / "index.html").write_text(page, encoding="utf-8")
     return manifest_path
 

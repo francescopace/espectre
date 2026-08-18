@@ -3,15 +3,17 @@
   SPDX-License-Identifier: GPL-3.0-only
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="light" data-static-page data-site-section="other">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Page not found | ESPectre</title>
 <meta name="robots" content="noindex">
 <link rel="icon" type="image/png" href="/assets/images/brand/favicon.png">
-<link rel="stylesheet" href="/assets/css/styles.css?v=3.19.38">
-<script src="/assets/js/navigation.js?v=3.19.38" defer></script>
+<link rel="stylesheet" href="/assets/css/styles.css?v=6b02e8b9b424">
+<script src="/assets/js/route-registry.js?v=0f4d529ed592" defer></script>
+<script src="/assets/js/navigation.js?v=39ff8fdd70f7" defer></script>
+<script src="/assets/js/analytics.js?v=341a8f98f507" defer></script>
 </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to content</a>
@@ -52,9 +54,21 @@
     <div class="footer-brand">ESPectre © 2026 · Open source Wi-Fi sensing platform · GPLv3 + commercial licensing</div>
     <div class="footer-links">
       <a href="/privacy/">Privacy</a>
+      <button class="footer-link-button js-cookie-settings" type="button">Cookie settings</button>
       <a href="mailto:contact@espectre.dev">Contact/Commercial Licensing</a>
     </div>
   </div>
 </footer>
+<aside class="consent-banner js-consent-banner" role="dialog" aria-labelledby="consent-title" hidden>
+  <div>
+    <strong id="consent-title">Optional analytics</strong>
+    <p>Help improve ESPectre with privacy-conscious usage analytics. Browser-tool credentials and device identifiers are never included.</p>
+    <a href="/privacy/">Read the privacy notice</a>
+  </div>
+  <div class="consent-actions">
+    <button class="btn-ghost js-consent-reject" type="button">Reject</button>
+    <button class="btn-primary btn-sm js-consent-accept" type="button">Accept analytics</button>
+  </div>
+</aside>
 </body>
 </html>

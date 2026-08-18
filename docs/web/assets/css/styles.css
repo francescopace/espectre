@@ -392,6 +392,13 @@ button.conn-pill:hover { border-color: var(--accent-line); }
   font-size: 12px;
   overflow-wrap: anywhere;
 }
+.conn-firmware-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.conn-firmware-row .js-menu-firmware { min-width: 0; }
 .energy-block { margin-bottom: 14px; }
 .energy-block .mono { font-size: 11px; }
 .btn-disconnect {
@@ -1171,87 +1178,45 @@ a.hero-badge:hover {
 }
 .device-banner-id { display: flex; align-items: center; gap: 12px; min-width: 200px; }
 .device-banner-id h2 { font-size: 17px; margin: 0; }
-.device-banner-id .mono-sub { margin-top: 4px; }
-.conn-firmware-update { margin-bottom: 12px; }
+.device-banner-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
 .device-firmware-update {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  max-width: min(100%, 360px);
-  padding: 4px 10px;
+  max-width: 100%;
+  margin: 0;
+  padding: 3px 8px;
+  border: 0;
   border-radius: 999px;
   background: var(--surface2);
   color: var(--dim);
-  font-size: 12px;
+  font: inherit;
+  font-size: 11px;
   font-weight: 650;
   line-height: 1.4;
-}
-.device-firmware-update .js-firmware-recheck {
-  cursor: default;
-  transition: opacity 0.15s ease, text-decoration-color 0.15s ease;
-}
-.device-firmware-update .js-firmware-recheck.is-recheck-ready {
   cursor: pointer;
 }
-.device-firmware-update .js-firmware-recheck.is-recheck-ready:hover {
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-}
-.device-firmware-update .js-firmware-recheck[aria-disabled='true'] {
-  opacity: 0.72;
-}
-.device-firmware-update-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-}
-.device-firmware-update-icon {
-  width: 12px;
-  height: 12px;
-  flex: none;
-  border-radius: 99px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-}
-.device-firmware-update-icon::before {
-  content: '⚠';
-  font-size: 11px;
-}
-.device-firmware-update[data-ota-status="idle"] .device-firmware-update-icon,
-.device-firmware-update[data-ota-status="busy"] .device-firmware-update-icon {
-  border: 2px solid color-mix(in srgb, var(--accent-line) 85%, transparent);
-  border-top-color: var(--accent);
-  animation: espSpin .7s linear infinite;
-}
-.device-firmware-update[data-ota-status="idle"] .device-firmware-update-icon::before,
-.device-firmware-update[data-ota-status="busy"] .device-firmware-update-icon::before {
-  content: '';
-}
-.device-firmware-update[data-ota-status="update"] .device-firmware-update-icon::before {
-  content: '⬇';
-}
-.device-firmware-update[data-ota-status="latest"] .device-firmware-update-icon::before {
-  content: '✓';
+.device-firmware-update:hover {
+  filter: brightness(0.97);
 }
 .device-firmware-update[data-ota-status="latest"] {
   background: var(--ok-soft);
   color: var(--ok);
 }
 .device-firmware-update[data-ota-status="update"] {
-  padding: 4px 6px 4px 10px;
   background: color-mix(in srgb, var(--accent) 12%, var(--surface));
   color: var(--accent);
 }
 .device-firmware-update[data-ota-status="error"] {
-  border-radius: 12px;
   background: color-mix(in srgb, var(--danger) 12%, var(--surface));
   color: var(--danger);
 }
 .device-firmware-update[hidden] { display: none; }
-.device-firmware-update .js-firmware-update[hidden] { display: none; }
 .device-banner-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-left: auto; }
 .device-banner-meta {
   display: grid;
@@ -1377,6 +1342,7 @@ body.modal-open { overflow: hidden; }
 .modal-close:hover { color: var(--text); }
 .modal-description { margin: 10px 0 18px; color: var(--dim); font-size: 13px; }
 .ota-details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ota-channel-field { margin: 0 0 16px; }
 .ota-message {
   min-height: 42px;
   margin-top: 10px;

@@ -23,7 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Stage same-origin firmware assets for the web flasher.")
     parser.add_argument("--firmware-dir", required=True, help="Directory containing built firmware assets")
     parser.add_argument("--output-dir", required=True, help="Directory where staged firmware assets should be written")
-    parser.add_argument("--channel", choices=("stable", "main"), required=True, help="Release channel exposed to the web UI")
+    parser.add_argument("--channel", choices=("release", "preview", "develop"), required=True, help="Release channel exposed to the web UI")
     parser.add_argument("--version", required=True, help="Human-readable version label")
     parser.add_argument("--release-tag", required=True, help="Release tag used for metadata")
     parser.add_argument("--url-prefix", required=True, help="Same-origin URL prefix used by the staged manifest")

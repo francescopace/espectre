@@ -8,6 +8,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
@@ -33,23 +34,57 @@ describe('website security and asset policy', () => {
         assert.match(index, /\/assets\/js\/app\.js/);
         assert.match(index, /\/assets\/js\/browser-support\.js/);
         assert.match(index, /\/assets\/js\/route-registry\.js/);
-        assert.ok(index.indexOf('/assets/js/route-registry.js') < index.indexOf('/assets/js/analytics.js'));
-        assert.ok(index.indexOf('/assets/js/route-registry.js') < index.indexOf('/assets/js/app.js'));
-        assert.ok(index.indexOf('/assets/js/browser-support.js') < index.indexOf('/assets/js/app.js'));
+        const firstPartyScripts = [...index.matchAll(/<script\b([^>]*)>/g)]
+            .map((match) => match[1])
+            .filter((attrs) => /src="\/assets\/js\//.test(attrs));
+        assert.deepEqual(
+            firstPartyScripts.map((attrs) => attrs.match(/src="(\/assets\/js\/[^"?]+)/)[1]),
+            [
+                '/assets/js/espectre-ble.js',
+                '/assets/js/browser-support.js',
+                '/assets/js/route-registry.js',
+                '/assets/js/navigation.js',
+                '/assets/js/analytics.js',
+                '/assets/js/app.js'
+            ]
+        );
+        for (const attrs of firstPartyScripts) {
+            assert.match(attrs, /\bdefer\b/, `expected defer on ${attrs.trim()}`);
+        }
+        assert.ok(index.indexOf('/assets/js/app.js') < index.indexOf('</head>'));
         assert.match(app, /\/vendor\/esp-web-tools-10\.4\.0\/install-button\.js/);
         assert.match(app, /\/vendor\/mqtt-5\.3\.0\/mqtt\.min\.js/);
         assert.match(app, /\/vendor\/qrcodejs-1\.0\.0\/qrcode\.min\.js/);
         assert.match(app, /LOCAL_DEVELOPMENT_HOSTS = new Set\(\['localhost', '127\.0\.0\.1', '\[::1\]'\]\)/);
     });
 
-    it('keeps cache-busting versions in lockstep', () => {
-        const versions = new Set([...index.matchAll(/[?&]v=([0-9.]+)/g)].map((match) => match[1]));
-        assert.equal(versions.size, 1);
-        const notFoundVersions = new Set(
-            [...read('docs/web/404.html').matchAll(/[?&]v=([0-9.]+)/g)]
-                .map((match) => match[1])
-        );
-        assert.deepEqual([...notFoundVersions], [...versions]);
+    it('keeps first-party cache-busting hashes in lockstep with file contents', () => {
+        const stamper = read('.github/scripts/web_asset_versions.py');
+        assert.match(stamper, /HASH_LENGTH = 12/);
+        const hashLength = 12;
+        const assetVersion = (relativePath) => createHash('sha256')
+            .update(readFileSync(new URL(`../../docs/web/${relativePath}`, import.meta.url)))
+            .digest('hex')
+            .slice(0, hashLength);
+        const assertStamped = (html, label) => {
+            const refs = [...html.matchAll(
+                /(?:href|src|data-content-url)="((?:\/assets\/(?:css|js)\/|content\/)[^"]+)"/g
+            )];
+            assert.ok(refs.length > 0, `${label} references first-party assets`);
+            for (const [, url] of refs) {
+                const [assetPath, query = ''] = url.split('?');
+                const version = new URLSearchParams(query).get('v');
+                const relativePath = assetPath.replace(/^\//, '');
+                assert.equal(
+                    version,
+                    assetVersion(relativePath),
+                    `${label} ${assetPath}`
+                );
+            }
+        };
+        assertStamped(index, 'index.html');
+        assertStamped(read('docs/web/404.html'), '404.html');
+        assert.match(stamper, /--check-current/);
     });
 });
 
@@ -109,8 +144,8 @@ describe('website accessibility and navigation', () => {
         assert.deepEqual(registeredStaticPaths, pageStaticPaths);
         assert.doesNotMatch(app, /const (?:NAV_GROUPS|ROUTES|STATIC_PAGE_ROUTES)\b/);
         assert.doesNotMatch(read('docs/web/assets/js/analytics.js'), /_OVERRIDES|_BY_PATH/);
-        assert.match(read('.github/scripts/build_static_pages.py'), /route-registry\.js/);
-        assert.match(read('.github/scripts/stage_web_sdk.py'), /route-registry\.js/);
+        assert.match(read('.github/scripts/build_static_pages.py'), /route-registry\.js\?v=\{route_registry_version\}" defer>/);
+        assert.match(read('.github/scripts/stage_web_sdk.py'), /route-registry\.js\?v=\{route_registry_version\}" defer>/);
     });
 
     it('has a responsive navigation control and a live status region', () => {
@@ -203,7 +238,7 @@ describe('website UX and content contracts', () => {
 
     it('keeps privacy discoverable and serves a real 404 page', () => {
         assert.match(index, /data-page="privacy"/);
-        assert.match(index, /data-content-url="content\/privacy\.html(?:\?v=[0-9.]+)?"/);
+        assert.match(index, /data-content-url="content\/privacy\.html\?v=[0-9a-f]{12}"/);
         assert.match(index, /<div class="footer-links">\s*<a href="#privacy">Privacy<\/a>/);
         assert.match(routeRegistry, /name: 'privacy'.*staticPath: '\/privacy\/'/);
         assert.match(read('.github/scripts/build_static_pages.py'), /<a href="\/privacy\/">Privacy<\/a>/);
@@ -216,6 +251,22 @@ describe('website UX and content contracts', () => {
         assert.doesNotMatch(notFound, /http-equiv="refresh"|location\.replace/);
         assert.match(notFound, /404 · PAGE NOT FOUND/);
         assert.match(notFound, /<footer class="site-footer">/);
+        assert.match(notFound, /data-static-page data-site-section="other"/);
+        assert.match(notFound, /class="footer-link-button js-cookie-settings"/);
+        assert.match(notFound, /class="consent-banner js-consent-banner"/);
+        const notFoundScripts = [...notFound.matchAll(/<script\b([^>]*)>/g)]
+            .map((match) => match[1]);
+        assert.deepEqual(
+            notFoundScripts.map((attrs) => attrs.match(/src="(\/assets\/js\/[^"?]+)/)[1]),
+            [
+                '/assets/js/route-registry.js',
+                '/assets/js/navigation.js',
+                '/assets/js/analytics.js'
+            ]
+        );
+        for (const attrs of notFoundScripts) {
+            assert.match(attrs, /\bdefer\b/, `expected defer on ${attrs.trim()}`);
+        }
     });
 
     it('treats top-level docs, roadmap, and privacy as pages, not articles', () => {
@@ -306,8 +357,12 @@ describe('website UX and content contracts', () => {
     it('loads generated firmware and SDK output from the shared artifacts tree', () => {
         assert.match(app, /\/artifacts\/firmware\//);
         assert.doesNotMatch(app, /\/flash\/firmware\//);
+        assert.match(index, /id="flash-channel"/);
+        assert.match(index, /<option value="release">Latest Release<\/option>/);
+        assert.match(index, /<option value="preview">Release Preview<\/option>/);
+        assert.match(index, /<option value="develop">Development<\/option>/);
         const docsContent = read('docs/web/content/docs.html');
-        assert.match(docsContent, /href="\/artifacts\/sdk\/stable\/"/);
+        assert.match(docsContent, /href="\/artifacts\/sdk\/release\/"/);
         assert.match(docsContent, /href="\/artifacts\/sdk\/api\/"/);
         assert.doesNotMatch(docsContent, /href="\/sdk\//);
         assert.match(read('docs/web/.gitignore'), /^\/artifacts\/$/m);
@@ -337,7 +392,9 @@ describe('website UX and content contracts', () => {
         assert.match(app, /wifiBandPolicyAvailable \? \{ bandPolicy \}/);
         assert.match(index, /class="conn-dropdown-meta"/);
         assert.match(index, /js-menu-chip[\s\S]*js-menu-device-id[\s\S]*js-menu-firmware/);
-        assert.match(index, /class="mono-sub js-device-banner-sub"/);
+        assert.match(index, /class="mono-sub device-banner-identity"/);
+        assert.match(index, /js-device-banner-sub[\s\S]*js-firmware-update-notice/);
+        assert.equal([...index.matchAll(/class="device-firmware-update js-firmware-update-notice"/g)].length, 3);
         assert.match(index, /class="conn-dropdown-name js-device-name"/);
         assert.match(app, /function formatDeviceIdentityLine/);
         assert.match(app, /parts\.push\('Chip ' \+ chip\)/);
@@ -424,13 +481,31 @@ describe('website UX and content contracts', () => {
         assert.match(index, /id="cfg-ota-message"/);
         assert.match(app, /function applyOtaStatus/);
         assert.match(app, /function startSilentOtaCheck/);
-        assert.match(index, /class="conn-firmware-update"[\s\S]*js-firmware-update-notice[\s\S]*js-disconnect/);
+        assert.match(app, /function currentOtaCheckTransport/);
+        assert.match(app, /if \(conn\.mode === 'demo'\) return;/);
+        assert.match(app, /if \(!manual && transport && otaCheckTransport === transport\) return;/);
+        assert.match(app, /if \(conn\.mode === 'ble'\) startSilentOtaCheck\(\)/);
+        assert.match(app, /transport === 'ble' && bleClient && typeof bleClient\.otaCheck === 'function'/);
+        assert.match(app, /transport !== 'mqtt' \|\| !monitorIsMqttLive\(\)/);
+        assert.match(index, /js-menu-firmware[\s\S]*js-firmware-update-notice[\s\S]*js-disconnect/);
+        assert.match(index, /class="conn-firmware-row"/);
+        assert.doesNotMatch(index, /device-firmware-update-icon/);
+        assert.doesNotMatch(styles, /device-firmware-update-icon/);
+        assert.match(app, /\$\$\('\.js-firmware-update-notice'\)\.forEach\(\(button\) => \{/);
+        assert.match(app, /button\.addEventListener\('click', \(event\) => otaOpen\(event\.currentTarget\)\)/);
         assert.match(app, /copy = 'Checking for updates…'/);
         assert.match(app, /copy = 'Latest'/);
         assert.match(app, /status = 'error'/);
         assert.match(app, /message: 'Unable to check for updates'/);
         assert.match(app, /function otaOpen\(returnFocus\)/);
-        assert.match(app, /button\.disabled = otaActionPending \|\| otaBusy \|\| !otaUpdateAvailable/);
+        assert.match(index, /id="ota-channel"/);
+        assert.match(index, /id="ota-channel"[\s\S]*?<option value="release" selected>Latest Release<\/option>/);
+        assert.doesNotMatch(index, /Firmware default/);
+        assert.match(app, /function selectedOtaChannel/);
+        assert.match(app, /return value \|\| 'release'/);
+        assert.match(app, /return \{ command, channel: selectedOtaChannel\(\) \}/);
+        assert.match(app, /return \{ channel: selectedOtaChannel\(\) \}/);
+        assert.match(app, /if \(conn\.mode === 'demo'\) return;/);
         assert.match(index, /<h2 class="panel-title-status">Wi-Fi <span class="dot dot-idle js-wifi-status-dot"/);
         assert.match(index, /<h2 class="panel-title-status">MQTT <span class="dot dot-idle js-mqtt-status-dot"/);
         assert.match(app, /setConnectionDot\('\.js-wifi-status-dot', snapshot\.wifi_connected\)/);
@@ -464,6 +539,11 @@ describe('website UX and content contracts', () => {
         assert.match(app, /MONITOR_CHART_WINDOW_MS = 5 \* 60 \* 1000/);
         assert.match(app, /function monitorHasFreshTelemetry/);
         assert.match(app, /function monitorResetChart/);
+        assert.match(app, /function resetMonitorLiveView/);
+        assert.match(app, /function adoptDeviceId/);
+        assert.match(app, /monitorStopAll\('device_changed'\)/);
+        assert.match(app, /if \(ctx\) ctx\.clearRect\(0, 0, canvas\.width, canvas\.height\)/);
+        assert.match(app, /if \(monitor\.boundDeviceId && conn\.deviceId && monitor\.boundDeviceId !== conn\.deviceId\) return;/);
         assert.match(app, /if \(suffix === 'ha\/movement\/state'\) \{[\s\S]*?if \(monitorHasFreshTelemetry\(\)\) return;/);
         assert.match(app, /if \(suffix === 'ha\/motion\/state'\) \{[\s\S]*?if \(monitorHasFreshTelemetry\(\)\) return;/);
         assert.match(mqttPage, /last 5 minutes/);

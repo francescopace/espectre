@@ -32,13 +32,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", required=True, help="Output manifest path")
     parser.add_argument(
         "--channel",
-        choices=("stable", "main", "develop"),
+        choices=("release", "preview", "develop"),
         required=True,
-        help="Release channel exposed to the web UI or snapshot release metadata",
+        help="Release channel exposed to the web UI or rolling release metadata",
     )
     parser.add_argument("--version", required=True, help="Human-readable version label")
     parser.add_argument("--release-tag", required=True, help="GitHub release tag used to download the assets")
-    parser.add_argument("--commit", help="Optional source commit SHA for snapshot builds")
+    parser.add_argument("--commit", help="Optional source commit SHA for preview and develop builds")
     parser.add_argument("--url-prefix", help="Optional URL prefix used instead of GitHub Releases for web firmware assets")
     parser.add_argument(
         "--native-ota-manifest-dir",
@@ -180,18 +180,18 @@ def build_manifest(args: argparse.Namespace) -> dict:
     firmware_dir = Path(args.firmware_dir)
     output_path = Path(args.output)
 
-    if args.channel == "stable":
+    if args.channel == "release":
         esphome_prefix = f"espectre-{args.version}-"
         native_prefix = f"espectre-native-{args.version}-"
         matter_prefix = f"espectre-matter-{args.version}-"
-    elif args.channel == "main":
-        esphome_prefix = "espectre-snapshot-"
-        native_prefix = "espectre-native-snapshot-"
-        matter_prefix = "espectre-matter-snapshot-"
+    elif args.channel == "preview":
+        esphome_prefix = "espectre-preview-"
+        native_prefix = "espectre-native-preview-"
+        matter_prefix = "espectre-matter-preview-"
     else:
-        esphome_prefix = "espectre-snapshot-dev-"
-        native_prefix = "espectre-native-snapshot-dev-"
-        matter_prefix = "espectre-matter-snapshot-dev-"
+        esphome_prefix = "espectre-develop-"
+        native_prefix = "espectre-native-develop-"
+        matter_prefix = "espectre-matter-develop-"
 
     manifest = {
         "schema_version": 1,

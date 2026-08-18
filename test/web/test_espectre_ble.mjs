@@ -93,6 +93,14 @@ describe('command builders: wire format', () => {
     it('builds the stop-BLE command', () => {
         assert.equal(Client.buildStopBleCommand(), 'STOP_BLE');
     });
+
+    it('builds OTA commands with an optional channel', () => {
+        assert.equal(Client.buildOtaStatusCommand(), 'OTA_STATUS');
+        assert.equal(Client.buildOtaCheckCommand(), 'OTA_CHECK');
+        assert.equal(Client.buildOtaStartCommand(), 'OTA_START');
+        assert.equal(Client.buildOtaCheckCommand({ channel: 'preview' }), 'OTA_CHECK:channel=preview');
+        assert.equal(Client.buildOtaStartCommand({ channel: 'develop' }), 'OTA_START:channel=develop');
+    });
 });
 
 describe('command builders: validation', () => {
@@ -140,6 +148,11 @@ describe('command builders: validation', () => {
 
     it('rejects a malformed BSSID', () => {
         assertValidationError(() => Client.buildWifiConfigCommand({ ssid: 'a', bssid: 'nope' }), /bssid/);
+    });
+
+    it('rejects an unknown OTA channel', () => {
+        assertValidationError(() => Client.buildOtaCheckCommand({ channel: 'latest' }), /channel must be one of/);
+        assertValidationError(() => Client.buildOtaStartCommand({ channel: 'stable' }), /channel must be one of/);
     });
 
     it('rejects a missing host and invalid ports', () => {

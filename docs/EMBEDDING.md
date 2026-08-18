@@ -198,9 +198,9 @@ ESPectre publishes source-first SDK bundles alongside the firmware release chann
 
 | Channel | Source | Intended use |
 |---------|--------|--------------|
-| `stable` | semver GitHub Release and `https://espectre.dev/artifacts/sdk/stable/` | Production integrations and reproducible open-source or commercial builds |
-| `snapshot` | rolling `snapshot` GitHub prerelease and `https://espectre.dev/artifacts/sdk/main/` | Validate `main` before the next stable release |
-| `snapshot-dev` | rolling `snapshot-dev` GitHub prerelease only | Pre-main validation from `develop` |
+| `release` | semver GitHub Release and `https://espectre.dev/artifacts/sdk/release/` | Production integrations and reproducible open-source or commercial builds |
+| `preview` | rolling `preview` GitHub prerelease and `https://espectre.dev/artifacts/sdk/preview/` | Validate `main` before the next release |
+| `develop` | rolling `develop` GitHub prerelease and `https://espectre.dev/artifacts/sdk/develop/` | Pre-main validation from `develop` |
 
 Each SDK bundle includes:
 

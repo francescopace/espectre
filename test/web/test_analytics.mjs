@@ -159,7 +159,9 @@ describe('analytics route metadata', () => {
         assert.equal(window.ESPectreRoutes.guideNameForPath('/docs/api/'), '');
         assert.equal(window.ESPectreRoutes.documentNameForPath('/docs/api/'), 'api');
         assert.equal(window.ESPectreRoutes.documentNameForPath('/docs/'), 'overview');
-        assert.equal(window.ESPectreRoutes.documentNameForPath('/artifacts/sdk/stable/'), 'sdk_stable');
+        assert.equal(window.ESPectreRoutes.documentNameForPath('/artifacts/sdk/release/'), 'sdk_release');
+        assert.equal(window.ESPectreRoutes.documentNameForPath('/artifacts/sdk/preview/'), 'sdk_preview');
+        assert.equal(window.ESPectreRoutes.documentNameForPath('/artifacts/sdk/develop/'), 'sdk_develop');
         assert.equal(window.ESPectreRoutes.documentNameForPath('/guides/detection/'), '');
         assert.equal(api.getSiteSection('privacy'), 'privacy');
         assert.equal(api.routePath('home'), '/');

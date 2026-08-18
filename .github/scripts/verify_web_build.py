@@ -36,8 +36,9 @@ EXPECTED_SITEMAP_PATHS = {
     "/docs/examples/",
     "/docs/architecture/",
     "/artifacts/sdk/api/",
-    "/artifacts/sdk/stable/",
-    "/artifacts/sdk/main/",
+    "/artifacts/sdk/release/",
+    "/artifacts/sdk/preview/",
+    "/artifacts/sdk/develop/",
     "/media/",
     "/roadmap/",
     "/privacy/",
@@ -46,8 +47,9 @@ EXPECTED_SITEMAP_PATHS = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Verify the generated ESPectre Pages tree.")
-    parser.add_argument("--require-main", action="store_true")
-    parser.add_argument("--require-stable", action="store_true")
+    parser.add_argument("--require-preview", action="store_true")
+    parser.add_argument("--require-release", action="store_true")
+    parser.add_argument("--require-develop", action="store_true")
     return parser.parse_args()
 
 
@@ -108,7 +110,7 @@ def verify_generated_pages() -> None:
         )
 
 
-def verify_sitemap(*, require_main: bool, require_stable: bool) -> None:
+def verify_sitemap(*, require_preview: bool, require_release: bool, require_develop: bool) -> None:
     sitemap_path = require_file("sitemap.xml")
     root = ET.parse(sitemap_path).getroot()
     expected_root = f"{{{SITEMAP_NAMESPACE}}}urlset"
@@ -151,10 +153,12 @@ def verify_sitemap(*, require_main: bool, require_stable: bool) -> None:
             f"unexpected={sorted(paths - EXPECTED_SITEMAP_PATHS)}"
         )
     allowed_missing = set()
-    if not require_main:
-        allowed_missing.add("/artifacts/sdk/main/")
-    if not require_stable:
-        allowed_missing.add("/artifacts/sdk/stable/")
+    if not require_preview:
+        allowed_missing.add("/artifacts/sdk/preview/")
+    if not require_release:
+        allowed_missing.add("/artifacts/sdk/release/")
+    if not require_develop:
+        allowed_missing.add("/artifacts/sdk/develop/")
     unexpected_missing = sorted(set(missing_lastmod) - allowed_missing)
     if unexpected_missing:
         raise ValueError(f"Sitemap entries are missing lastmod: {unexpected_missing}")
@@ -241,13 +245,20 @@ def verify(args: argparse.Namespace) -> None:
         require_file(path)
     verify_spa_routes()
     verify_generated_pages()
-    verify_sitemap(require_main=args.require_main, require_stable=args.require_stable)
-    if args.require_main:
-        verify_firmware_channel("main")
-        verify_sdk_channel("main")
-    if args.require_stable:
-        verify_firmware_channel("stable")
-        verify_sdk_channel("stable")
+    verify_sitemap(
+        require_preview=args.require_preview,
+        require_release=args.require_release,
+        require_develop=args.require_develop,
+    )
+    if args.require_preview:
+        verify_firmware_channel("preview")
+        verify_sdk_channel("preview")
+    if args.require_release:
+        verify_firmware_channel("release")
+        verify_sdk_channel("release")
+    if args.require_develop:
+        verify_firmware_channel("develop")
+        verify_sdk_channel("develop")
 
 
 def main() -> int:

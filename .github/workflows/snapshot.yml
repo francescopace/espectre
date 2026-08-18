@@ -5,12 +5,19 @@ on:
     workflows: ["CI"]
     types: [completed]
     branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      ci_run_id:
+        description: Successful CI push run ID whose firmware and SDK artifacts should be published
+        required: true
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: snapshot-${{ github.event.workflow_run.head_branch }}
+  group: snapshot-${{ github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -19,31 +26,94 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     if: >
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
-      (github.event.workflow_run.head_branch == 'main' ||
-       github.event.workflow_run.head_branch == 'develop')
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       (github.event.workflow_run.head_branch == 'main' ||
+        github.event.workflow_run.head_branch == 'develop'))
     outputs:
       current: ${{ steps.current.outputs.current }}
-    
+      run_id: ${{ steps.current.outputs.run_id }}
+      head_sha: ${{ steps.current.outputs.head_sha }}
+      head_branch: ${{ steps.current.outputs.head_branch }}
+      created_at: ${{ steps.current.outputs.created_at }}
+    permissions:
+      contents: read
+      actions: read
+
     steps:
-      - name: Verify source commit is still the branch head
+      - name: Resolve and verify the source CI run
         id: current
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
-            const branch = context.payload.workflow_run.head_branch;
-            const expected = context.payload.workflow_run.head_sha;
+            let runId;
+            let branch;
+            let sha;
+            let createdAt;
+            let eventName;
+            let conclusion;
+            let workflowName;
+
+            if (context.eventName === 'workflow_dispatch') {
+              runId = Number(context.payload.inputs.ci_run_id);
+              if (!Number.isInteger(runId) || runId <= 0) {
+                core.setFailed(`Invalid ci_run_id: ${context.payload.inputs.ci_run_id}`);
+                return;
+              }
+              const run = await github.rest.actions.getWorkflowRun({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: runId,
+              });
+              branch = run.data.head_branch;
+              sha = run.data.head_sha;
+              createdAt = run.data.created_at;
+              eventName = run.data.event;
+              conclusion = run.data.conclusion;
+              workflowName = run.data.name;
+            } else {
+              const source = context.payload.workflow_run;
+              runId = source.id;
+              branch = source.head_branch;
+              sha = source.head_sha;
+              createdAt = source.created_at;
+              eventName = source.event;
+              conclusion = source.conclusion;
+              workflowName = source.name;
+            }
+
+            if (workflowName !== 'CI') {
+              core.setFailed(`Source run ${runId} is ${workflowName}, expected CI`);
+              return;
+            }
+            if (conclusion !== 'success') {
+              core.setFailed(`Source run ${runId} conclusion is ${conclusion}`);
+              return;
+            }
+            if (eventName !== 'push') {
+              core.setFailed(`Source run ${runId} event is ${eventName}, expected push`);
+              return;
+            }
+            if (branch !== 'main' && branch !== 'develop') {
+              core.setFailed(`Source run ${runId} branch is ${branch}, expected main or develop`);
+              return;
+            }
+
             const response = await github.rest.repos.getBranch({
               owner: context.repo.owner,
               repo: context.repo.repo,
               branch
             });
-            const current = response.data.commit.sha === expected;
-            core.setOutput("current", current ? "true" : "false");
+            const current = response.data.commit.sha === sha;
+            core.setOutput('current', current ? 'true' : 'false');
+            core.setOutput('run_id', String(runId));
+            core.setOutput('head_sha', sha);
+            core.setOutput('head_branch', branch);
+            core.setOutput('created_at', createdAt);
             core.info(current
-              ? `Source commit ${expected} is current on ${branch}.`
-              : `Skipping stale source commit ${expected}; ${branch} is now ${response.data.commit.sha}.`);
+              ? `Source commit ${sha} is current on ${branch}.`
+              : `Skipping stale source commit ${sha}; ${branch} is now ${response.data.commit.sha}.`);
 
   release:
     name: Create Snapshot Release
@@ -53,11 +123,12 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: write
-    
+      actions: read
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ needs.validate-run.outputs.head_sha }}
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
@@ -68,7 +139,7 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ needs.validate-run.outputs.run_id }}
           pattern: firmware-*
           path: firmware
           merge-multiple: true
@@ -77,37 +148,37 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ needs.validate-run.outputs.run_id }}
           pattern: sdk-*
           path: sdk
           merge-multiple: true
-      
+
       - name: List firmware files
         run: ls -la firmware/
 
       - name: List SDK files
         run: ls -la sdk/
 
-      - name: Select snapshot channel
+      - name: Select rolling channel
         id: snapshot
         run: |
-          if [ "${{ github.event.workflow_run.head_branch }}" = "develop" ]; then
+          if [ "${{ needs.validate-run.outputs.head_branch }}" = "develop" ]; then
             {
               echo "channel=develop"
               echo "version=develop"
-              echo "tag=snapshot-dev"
-              echo "title=Snapshot Dev Build"
+              echo "tag=develop"
+              echo "title=Development Build"
             } >> "$GITHUB_OUTPUT"
           else
             {
-              echo "channel=main"
-              echo "version=main"
-              echo "tag=snapshot"
-              echo "title=Snapshot Build"
+              echo "channel=preview"
+              echo "version=preview"
+              echo "tag=preview"
+              echo "title=Preview Build"
             } >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Verify firmware matrix and build snapshot manifests
+      - name: Verify firmware matrix and build rolling manifests
         run: |
           python .github/scripts/build_firmware_manifest.py \
             --firmware-dir firmware \
@@ -115,16 +186,19 @@ jobs:
             --channel "${{ steps.snapshot.outputs.channel }}" \
             --version "${{ steps.snapshot.outputs.version }}" \
             --release-tag "${{ steps.snapshot.outputs.tag }}" \
-            --commit "${{ github.event.workflow_run.head_sha }}" \
+            --commit "${{ needs.validate-run.outputs.head_sha }}" \
             --native-ota-manifest-dir firmware \
             --require-complete-matrix
 
       - name: Recheck source commit before publishing
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          SNAPSHOT_BRANCH: ${{ needs.validate-run.outputs.head_branch }}
+          SNAPSHOT_SHA: ${{ needs.validate-run.outputs.head_sha }}
         with:
           script: |
-            const branch = context.payload.workflow_run.head_branch;
-            const expected = context.payload.workflow_run.head_sha;
+            const branch = process.env.SNAPSHOT_BRANCH;
+            const expected = process.env.SNAPSHOT_SHA;
             const response = await github.rest.repos.getBranch({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -134,14 +208,15 @@ jobs:
               core.setFailed(`Refusing to publish stale commit ${expected}; ${branch} is now ${response.data.commit.sha}.`);
             }
 
-      - name: Move snapshot tag atomically
+      - name: Move rolling tag atomically
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
           SNAPSHOT_TAG: ${{ steps.snapshot.outputs.tag }}
+          SNAPSHOT_SHA: ${{ needs.validate-run.outputs.head_sha }}
         with:
           script: |
             const tag = process.env.SNAPSHOT_TAG;
-            const sha = context.payload.workflow_run.head_sha;
+            const sha = process.env.SNAPSHOT_SHA;
             try {
               await github.rest.git.updateRef({
                 owner: context.repo.owner,
@@ -159,20 +234,20 @@ jobs:
                 sha
               });
             }
-      
-      - name: Create snapshot release
+
+      - name: Create rolling release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
         with:
           tag_name: ${{ steps.snapshot.outputs.tag }}
-          target_commitish: ${{ github.event.workflow_run.head_sha }}
+          target_commitish: ${{ needs.validate-run.outputs.head_sha }}
           name: ${{ steps.snapshot.outputs.title }}
           body: |
-            ⚠️ **This is an automated snapshot build from the `${{ github.event.workflow_run.head_branch }}` branch.**
-            
-            Not recommended for production use. For stable releases, use the [latest official release](https://github.com/francescopace/espectre/releases/latest).
-            
-            **Commit:** ${{ github.event.workflow_run.head_sha }}
-            **Date:** ${{ github.event.workflow_run.created_at }}
+            ⚠️ **This is an automated rolling build from the `${{ needs.validate-run.outputs.head_branch }}` branch.**
+
+            Not recommended for production use. For official releases, use the [latest release](https://github.com/francescopace/espectre/releases/latest).
+
+            **Commit:** ${{ needs.validate-run.outputs.head_sha }}
+            **Date:** ${{ needs.validate-run.outputs.created_at }}
           files: |
             firmware/*
             sdk/*.tar.gz
@@ -190,101 +265,132 @@ jobs:
 
   publish-pages:
     name: Publish Website
-    needs: release
-    if: github.event.workflow_run.head_branch == 'main'
+    needs: [validate-run, release]
+    if: needs.validate-run.outputs.head_branch == 'main' && needs.release.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
       contents: read
+      actions: read
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ needs.validate-run.outputs.head_sha }}
           fetch-depth: 0
 
-      - name: Download main firmware artifacts
+      - name: Download preview firmware artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ needs.validate-run.outputs.run_id }}
           pattern: firmware-*
-          path: main-firmware
+          path: preview-firmware
           merge-multiple: true
 
-      - name: Download main SDK artifacts
+      - name: Download preview SDK artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ needs.validate-run.outputs.run_id }}
           pattern: sdk-*
-          path: main-sdk
+          path: preview-sdk
           merge-multiple: true
 
-      - name: Stage main web firmware
+      - name: Stage preview web firmware
         run: |
           python .github/scripts/stage_web_firmware.py \
-            --firmware-dir main-firmware \
-            --output-dir docs/web/artifacts/firmware/main \
-            --channel main \
-            --version main \
-            --release-tag snapshot \
-            --url-prefix /artifacts/firmware/main \
-            --commit "${{ github.event.workflow_run.head_sha }}"
+            --firmware-dir preview-firmware \
+            --output-dir docs/web/artifacts/firmware/preview \
+            --channel preview \
+            --version preview \
+            --release-tag preview \
+            --url-prefix /artifacts/firmware/preview \
+            --commit "${{ needs.validate-run.outputs.head_sha }}"
 
-      - name: Stage main web SDK
+      - name: Stage preview web SDK
         run: |
           python .github/scripts/stage_web_sdk.py \
-            --sdk-dir main-sdk \
-            --output-dir docs/web/artifacts/sdk/main \
-            --channel main
+            --sdk-dir preview-sdk \
+            --output-dir docs/web/artifacts/sdk/preview \
+            --channel preview
 
-      - name: Download stable release assets
+      - name: Download release assets
         run: |
-          mkdir -p stable-firmware
-          mkdir -p stable-sdk
+          mkdir -p release-firmware
+          mkdir -p release-sdk
           if gh release view >/dev/null 2>&1; then
-            STABLE_TAG="$(gh release view --json tagName --jq '.tagName')"
-            gh release download "$STABLE_TAG" --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir stable-firmware --clobber
-            gh release download "$STABLE_TAG" --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir stable-sdk --clobber
-            echo "stable_tag=$STABLE_TAG" >> "$GITHUB_ENV"
+            RELEASE_TAG="$(gh release view --json tagName --jq '.tagName')"
+            gh release download "$RELEASE_TAG" --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir release-firmware --clobber
+            gh release download "$RELEASE_TAG" --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir release-sdk --clobber
+            echo "release_tag=$RELEASE_TAG" >> "$GITHUB_ENV"
           else
-            echo "No stable release found; skipping stable channel staging."
+            echo "No release found; skipping release channel staging."
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
 
-      - name: Stage stable web firmware
+      - name: Stage release web firmware
         run: |
-          if ls stable-firmware/*.bin >/dev/null 2>&1; then
+          if ls release-firmware/*.bin >/dev/null 2>&1; then
             python .github/scripts/stage_web_firmware.py \
-              --firmware-dir stable-firmware \
-              --output-dir docs/web/artifacts/firmware/stable \
-              --channel stable \
-              --version "${stable_tag}" \
-              --release-tag "${stable_tag}" \
-              --url-prefix /artifacts/firmware/stable
+              --firmware-dir release-firmware \
+              --output-dir docs/web/artifacts/firmware/release \
+              --channel release \
+              --version "${release_tag}" \
+              --release-tag "${release_tag}" \
+              --url-prefix /artifacts/firmware/release
           else
-            echo "No stable firmware downloaded; leaving stable channel empty."
+            echo "No release firmware downloaded; leaving release channel empty."
           fi
 
-      - name: Stage stable web SDK
+      - name: Stage release web SDK
         run: |
-          if ls stable-sdk/sdk-manifest-*.json >/dev/null 2>&1; then
+          if ls release-sdk/sdk-manifest-*.json >/dev/null 2>&1; then
             python .github/scripts/stage_web_sdk.py \
-              --sdk-dir stable-sdk \
-              --output-dir docs/web/artifacts/sdk/stable \
-              --channel stable
+              --sdk-dir release-sdk \
+              --output-dir docs/web/artifacts/sdk/release \
+              --channel release
           else
-            echo "No stable SDK downloaded; leaving stable SDK channel empty."
+            echo "No release SDK downloaded; leaving release SDK channel empty."
           fi
+
+      - name: Download develop release assets
+        id: develop-assets
+        run: |
+          mkdir -p develop-firmware
+          mkdir -p develop-sdk
+          if gh release view develop >/dev/null 2>&1; then
+            gh release download develop --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir develop-firmware --clobber
+            gh release download develop --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir develop-sdk --clobber
+            python .github/scripts/stage_web_firmware.py \
+              --firmware-dir develop-firmware \
+              --output-dir docs/web/artifacts/firmware/develop \
+              --channel develop \
+              --version develop \
+              --release-tag develop \
+              --url-prefix /artifacts/firmware/develop \
+              --commit "$(gh release view develop --json targetCommitish --jq '.targetCommitish // ""')"
+            python .github/scripts/stage_web_sdk.py \
+              --sdk-dir develop-sdk \
+              --output-dir docs/web/artifacts/sdk/develop \
+              --channel develop
+            echo "staged=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No develop release found; skipping develop channel staging."
+            echo "staged=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
 
       - name: Build and verify Pages tree
         uses: ./.github/actions/build-pages
         with:
-          require-main: "true"
-          require-stable: "true"
+          require-preview: "true"
+          require-release: "true"
+          require-develop: ${{ steps.develop-assets.outputs.staged }}
 
       - name: Setup Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
@@ -296,8 +402,8 @@ jobs:
 
   deploy-pages:
     name: Deploy Website
-    needs: publish-pages
-    if: github.event.workflow_run.head_branch == 'main'
+    needs: [validate-run, publish-pages]
+    if: needs.validate-run.outputs.head_branch == 'main' && needs.publish-pages.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -318,7 +424,7 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ needs.validate-run.outputs.head_sha }}
 
       - name: Notify IndexNow
         run: python3 .github/scripts/notify_indexnow.py

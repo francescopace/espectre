@@ -10,6 +10,14 @@ python -m http.server 8090 --directory docs/web
 
 Then open `http://localhost:8090`. The Flash tool and the Matter QR reader need a Chromium-based browser. Configure additionally needs `localhost` or HTTPS. Monitor, Game, and Theremin use MQTT over WebSockets and do not need Bluetooth.
 
+First-party CSS, JS, and SPA content fragments use a 12-character SHA-256 prefix as `?v=`. After editing those files, restamp `index.html` and `404.html`:
+
+```bash
+python3 .github/scripts/web_asset_versions.py
+```
+
+The website tests fail if a committed hash does not match the file contents. Generated static and SDK pages compute the same hashes at build time, so only the changed file is cache-busted.
+
 ## Static content pages
 
 Guides, docs, media, the roadmap, and the privacy notice use shared HTML fragments for both SPA hash routes and canonical, indexable paths. Generate the standalone pages before previewing their direct URLs:
@@ -39,7 +47,7 @@ npm --prefix docs/web run stage:vendor
 
 ## Analytics and consent
 
-`assets/js/analytics.js` enables GA4 on `espectre.dev` and on loopback hosts only after explicit consent. Local previews always set GA4 `debug_mode`, so their events remain identifiable as developer traffic and available in DebugView. The site stores the choice under `espectre.analytics.consent.v1`, disables advertising storage and Google Signals, and exposes Cookie settings in every generated footer. The public policy is owned by `content/privacy.html`.
+`assets/js/analytics.js` enables GA4 on `espectre.dev` and on loopback hosts only after explicit consent. Local previews always set GA4 `debug_mode`, so their events remain identifiable as developer traffic and available in DebugView. The site stores the choice under `espectre.analytics.consent.v1`, disables advertising storage and Google Signals, and exposes Cookie settings in the SPA, generated static, SDK, and 404 footers. The public policy is owned by `content/privacy.html`.
 
 Guide and documentation analytics are convention-based: same-origin `/guides/<slug>/` and `/docs/<slug>/` links report their registered route name as `guide_name` and `document_name`, while otherwise unmapped `guide-<slug>` and `docs-<slug>` SPA routes receive human-readable page titles automatically. Route-registry metadata preserves established titles, historical parameter values, the documentation root, and SDK artifact names; `analytics.js` contains no path maps. Tool analytics remain explicit because each tool owns distinct capabilities, events, and funnels.
 
@@ -60,11 +68,11 @@ Outcome events use `result` values such as `accepted`, `success`, `failure`, `un
 
 ## Generated artifacts
 
-The website stages all downloadable output under the generated `artifacts/` tree. SDK downloads live under `artifacts/sdk/stable/` and `artifacts/sdk/main/`, the Doxygen reference lives under `artifacts/sdk/api/` (also the default `src/cpp/Doxyfile` output in this repository), and firmware lives under `artifacts/firmware/<channel>/`. CI recreates the entire tree before deployment; none of its contents are tracked.
+The website stages all downloadable output under the generated `artifacts/` tree. SDK downloads live under `artifacts/sdk/release/`, `artifacts/sdk/preview/`, and `artifacts/sdk/develop/`, the Doxygen reference lives under `artifacts/sdk/api/` (also the default `src/cpp/Doxyfile` output in this repository), and firmware lives under `artifacts/firmware/<channel>/`. CI recreates the entire tree before deployment; none of its contents are tracked.
 
-CI, stable releases, and snapshots use the same local `build-pages` action. It stages pinned browser dependencies, runs the web tests, generates static routes and the Doxygen reference, and verifies the complete tree before it can be uploaded to Pages. Channel-aware verification also rejects incomplete firmware matrices, mismatched SDK manifests, missing artifacts, and obsolete `/sdk/api/` links.
+CI, official releases, and rolling preview builds use the same local `build-pages` action. It stages pinned browser dependencies, runs the web tests, generates static routes and the Doxygen reference, and verifies the complete tree before it can be uploaded to Pages. Channel-aware verification also rejects incomplete firmware matrices, mismatched SDK manifests, missing artifacts, and obsolete `/sdk/api/` links.
 
-The committed `.github/scripts/sitemap.template.xml` is the canonical URL inventory and intentionally contains neither `changefreq` nor generated dates. During the Pages build, `build_sitemap.py` writes the ignored deployment artifact `sitemap.xml` with date-only `lastmod` values from the latest owning Git commit for editorial routes and the API reference, and from the staged SDK manifests for `stable` and `main`. Unknown dates are omitted rather than replaced with the deployment time. Pages-producing checkouts must retain full Git history so these dates remain source-accurate.
+The committed `.github/scripts/sitemap.template.xml` is the canonical URL inventory and intentionally contains neither `changefreq` nor generated dates. During the Pages build, `build_sitemap.py` writes the ignored deployment artifact `sitemap.xml` with date-only `lastmod` values from the latest owning Git commit for editorial routes and the API reference, and from the staged SDK manifests for `release`, `preview`, and `develop`. Unknown dates are omitted rather than replaced with the deployment time. Pages-producing checkouts must retain full Git history so these dates remain source-accurate.
 
 ## BLE client API
 
@@ -115,8 +123,8 @@ Every `set*` method validates locally, throws `ESPectreValidationError` on a bad
 | `setDeviceLabel(label)` | `SET_DEVICE_CONFIG` | single-line string, may be empty |
 | `clearDeviceConfig()` | `CLEAR_DEVICE_CONFIG` | — |
 | `otaStatus()` | `OTA_STATUS` | — |
-| `otaCheck()` | `OTA_CHECK` | — |
-| `otaStart()` | `OTA_START` | — |
+| `otaCheck({ channel })` | `OTA_CHECK` | optional `channel` is `release`, `preview`, or `develop` |
+| `otaStart({ channel })` | `OTA_START` | optional `channel` is `release`, `preview`, or `develop` |
 | `stopBle()` | `STOP_BLE` | — |
 | `requestSysinfo()` | `REQ_SYSINFO` | — |
 | `writeControl(command)` | any | Escape hatch for commands the library does not model |

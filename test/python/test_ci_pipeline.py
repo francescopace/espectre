@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
-"""Regression tests for release, snapshot, and GitHub Pages automation."""
+"""Regression tests for release, rolling, and GitHub Pages automation."""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     outputs = [tmp_path / "first", tmp_path / "second"]
     for output in outputs:
         args = argparse.Namespace(
-            channel="stable",
+            channel="release",
             version=builder.detect_sdk_version(),
             release_tag=builder.detect_sdk_version(),
             output_dir=str(output),
@@ -84,8 +84,8 @@ def test_web_sdk_rejects_a_channel_mismatch_before_cleaning(tmp_path: Path) -> N
     output_dir = tmp_path / "output"
     sdk_dir.mkdir()
     output_dir.mkdir()
-    (sdk_dir / "sdk-manifest-stable.json").write_text(
-        json.dumps({"channel": "stable"}), encoding="utf-8"
+    (sdk_dir / "sdk-manifest-release.json").write_text(
+        json.dumps({"channel": "release"}), encoding="utf-8"
     )
     sentinel = output_dir / "index.html"
     sentinel.write_text("keep", encoding="utf-8")
@@ -95,7 +95,7 @@ def test_web_sdk_rejects_a_channel_mismatch_before_cleaning(tmp_path: Path) -> N
             argparse.Namespace(
                 sdk_dir=str(sdk_dir),
                 output_dir=str(output_dir),
-                channel="main",
+                channel="preview",
             )
         )
     assert sentinel.read_text(encoding="utf-8") == "keep"
@@ -171,16 +171,22 @@ def test_sitemap_builder_uses_git_and_sdk_manifest_dates(
 ) -> None:
     sitemap_builder = load_script("build_sitemap")
     web_root = tmp_path / "web"
-    stable_dir = web_root / "artifacts" / "sdk" / "stable"
-    main_dir = web_root / "artifacts" / "sdk" / "main"
-    stable_dir.mkdir(parents=True)
-    main_dir.mkdir(parents=True)
-    (stable_dir / "sdk-manifest-stable.json").write_text(
-        json.dumps({"channel": "stable", "generated_at": "2026-08-01T09:30:00Z"}),
+    release_dir = web_root / "artifacts" / "sdk" / "release"
+    preview_dir = web_root / "artifacts" / "sdk" / "preview"
+    develop_dir = web_root / "artifacts" / "sdk" / "develop"
+    release_dir.mkdir(parents=True)
+    preview_dir.mkdir(parents=True)
+    develop_dir.mkdir(parents=True)
+    (release_dir / "sdk-manifest-release.json").write_text(
+        json.dumps({"channel": "release", "generated_at": "2026-08-01T09:30:00Z"}),
         encoding="utf-8",
     )
-    (main_dir / "sdk-manifest-main.json").write_text(
-        json.dumps({"channel": "main", "generated_at": "2026-08-12T10:45:00+00:00"}),
+    (preview_dir / "sdk-manifest-preview.json").write_text(
+        json.dumps({"channel": "preview", "generated_at": "2026-08-12T10:45:00+00:00"}),
+        encoding="utf-8",
+    )
+    (develop_dir / "sdk-manifest-develop.json").write_text(
+        json.dumps({"channel": "develop", "generated_at": "2026-08-14T11:15:00+00:00"}),
         encoding="utf-8",
     )
     monkeypatch.setattr(sitemap_builder, "WEB_ROOT", web_root)
@@ -198,8 +204,9 @@ def test_sitemap_builder_uses_git_and_sdk_manifest_dates(
         '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
         "<url><loc>https://espectre.dev/</loc><changefreq>daily</changefreq></url>"
         "<url><loc>https://espectre.dev/artifacts/sdk/api/</loc></url>"
-        "<url><loc>https://espectre.dev/artifacts/sdk/stable/</loc></url>"
-        "<url><loc>https://espectre.dev/artifacts/sdk/main/</loc></url>"
+        "<url><loc>https://espectre.dev/artifacts/sdk/release/</loc></url>"
+        "<url><loc>https://espectre.dev/artifacts/sdk/preview/</loc></url>"
+        "<url><loc>https://espectre.dev/artifacts/sdk/develop/</loc></url>"
         "</urlset>",
         encoding="utf-8",
     )
@@ -215,8 +222,9 @@ def test_sitemap_builder_uses_git_and_sdk_manifest_dates(
     assert entries == {
         "https://espectre.dev/": "2026-08-09",
         "https://espectre.dev/artifacts/sdk/api/": "2026-08-08",
-        "https://espectre.dev/artifacts/sdk/stable/": "2026-08-10",
-        "https://espectre.dev/artifacts/sdk/main/": "2026-08-12",
+        "https://espectre.dev/artifacts/sdk/release/": "2026-08-10",
+        "https://espectre.dev/artifacts/sdk/preview/": "2026-08-12",
+        "https://espectre.dev/artifacts/sdk/develop/": "2026-08-14",
     }
     assert root.findall("s:url/s:changefreq", namespace) == []
 
@@ -285,6 +293,12 @@ def test_pages_verifier_spa_routes_match_the_route_registry() -> None:
     verifier.verify_spa_routes()
 
 
+def test_website_asset_hashes_match_file_contents() -> None:
+    stamper = load_script("web_asset_versions")
+    assert stamper.HASH_LENGTH == 12
+    assert stamper.check_current() == []
+
+
 def test_pages_verifier_rejects_missing_spa_routes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -347,7 +361,7 @@ def test_sitemap_verifier_requires_accurate_dates(
     namespace = verifier.SITEMAP_NAMESPACE
     entries = "".join(
         f"<url><loc>https://espectre.dev{path}</loc>"
-        + ("" if path in {"/artifacts/sdk/main/", "/artifacts/sdk/stable/"} else "<lastmod>2026-08-12</lastmod>")
+        + ("" if path in {"/artifacts/sdk/preview/", "/artifacts/sdk/release/", "/artifacts/sdk/develop/"} else "<lastmod>2026-08-12</lastmod>")
         + "</url>"
         for path in sorted(verifier.EXPECTED_SITEMAP_PATHS)
     )
@@ -356,7 +370,7 @@ def test_sitemap_verifier_requires_accurate_dates(
         f'<?xml version="1.0"?><urlset xmlns="{namespace}">{entries}</urlset>',
         encoding="utf-8",
     )
-    verifier.verify_sitemap(require_main=False, require_stable=False)
+    verifier.verify_sitemap(require_preview=False, require_release=False, require_develop=False)
 
     source = sitemap.read_text(encoding="utf-8").replace(
         "<lastmod>2026-08-12</lastmod>",
@@ -365,7 +379,7 @@ def test_sitemap_verifier_requires_accurate_dates(
     )
     sitemap.write_text(source, encoding="utf-8")
     with pytest.raises(ValueError, match="must not contain changefreq"):
-        verifier.verify_sitemap(require_main=False, require_stable=False)
+        verifier.verify_sitemap(require_preview=False, require_release=False, require_develop=False)
 
 
 def test_pages_verifier_enforces_exact_artifact_contracts(
@@ -373,8 +387,8 @@ def test_pages_verifier_enforces_exact_artifact_contracts(
 ) -> None:
     verifier = load_script("verify_web_build")
     monkeypatch.setattr(verifier, "WEB_ROOT", tmp_path)
-    firmware_dir = tmp_path / "artifacts" / "firmware" / "main"
-    sdk_dir = tmp_path / "artifacts" / "sdk" / "main"
+    firmware_dir = tmp_path / "artifacts" / "firmware" / "preview"
+    sdk_dir = tmp_path / "artifacts" / "sdk" / "preview"
     firmware_dir.mkdir(parents=True)
     sdk_dir.mkdir(parents=True)
 
@@ -386,31 +400,31 @@ def test_pages_verifier_enforces_exact_artifact_contracts(
             (firmware_dir / filename).write_bytes(b"firmware")
             artifacts.append({"build_type": "factory", "chip": chip, "filename": filename})
         frontends[frontend] = {"artifacts": artifacts}
-    firmware_manifest = {"channel": "main", "frontends": frontends}
-    firmware_manifest_path = firmware_dir / "firmware-manifest-main.json"
+    firmware_manifest = {"channel": "preview", "frontends": frontends}
+    firmware_manifest_path = firmware_dir / "firmware-manifest-preview.json"
     firmware_manifest_path.write_text(json.dumps(firmware_manifest), encoding="utf-8")
-    verifier.verify_firmware_channel("main")
+    verifier.verify_firmware_channel("preview")
 
     frontends["native"]["artifacts"].append(frontends["native"]["artifacts"][0])
     firmware_manifest_path.write_text(json.dumps(firmware_manifest), encoding="utf-8")
     with pytest.raises(ValueError, match="duplicate firmware"):
-        verifier.verify_firmware_channel("main")
+        verifier.verify_firmware_channel("preview")
 
     (sdk_dir / "index.html").write_text("SDK", encoding="utf-8")
-    sdk_manifest_path = sdk_dir / "sdk-manifest-main.json"
+    sdk_manifest_path = sdk_dir / "sdk-manifest-preview.json"
     sdk_manifest = {
-        "channel": "main",
+        "channel": "preview",
         "artifacts": [
             {"format": "tar.gz", "sha256": "a" * 64},
             {"format": "zip", "sha256": "b" * 64},
         ],
     }
     sdk_manifest_path.write_text(json.dumps(sdk_manifest), encoding="utf-8")
-    verifier.verify_sdk_channel("main")
+    verifier.verify_sdk_channel("preview")
     sdk_manifest["artifacts"][0]["sha256"] = "invalid"
     sdk_manifest_path.write_text(json.dumps(sdk_manifest), encoding="utf-8")
     with pytest.raises(ValueError, match="SHA-256"):
-        verifier.verify_sdk_channel("main")
+        verifier.verify_sdk_channel("preview")
 
     with pytest.raises(ValueError, match="escapes"):
         verifier.require_file("../outside")
@@ -436,7 +450,10 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     assert "HEAD~1" not in snapshot
     assert "gh release delete" not in snapshot
     assert "git.updateRef" in snapshot and "git.createRef" in snapshot
-    assert "github.event.workflow_run.id" in snapshot
+    assert "workflow_dispatch:" in snapshot
+    assert "ci_run_id:" in snapshot
+    assert "needs.validate-run.outputs.run_id" in snapshot
+    assert "github.event.workflow_run.id" not in snapshot
     assert "validate-release:" in release
     assert "No successful main CI push run" in release
     assert "git merge-base --is-ancestor" in release
