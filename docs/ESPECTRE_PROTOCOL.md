@@ -22,7 +22,7 @@ This is an implementation reference for firmware, client, and integration develo
 
 BLE is the proximity transport. It is used when a user is near a device or when network connectivity is not available.
 
-Native firmware treats BLE as a setup and recovery radio. It advertises automatically when Wi-Fi or MQTT is unconfigured, pauses CSI while BLE is up, and continues advertising after a nearby client disconnects. After Wi-Fi and MQTT are saved, only `STOP_BLE` or MQTT `set_ble` with `ble=off` closes setup so sensing can resume. MQTT `set_ble` starts BLE again when the device is already on the network. Native’s physical recovery input provides the same `ble=on` transition without a network: holding the board BOOT button for the configured recovery interval starts BLE and pauses sensing.
+Native firmware treats BLE as a setup and recovery radio. It advertises automatically when Wi-Fi SSID or MQTT host is missing, pauses CSI while BLE is up, and continues advertising after a nearby client disconnects. Compile-time Kconfig defaults count as configured, so images that already bake in Wi-Fi and MQTT skip BLE at boot. After nearby setup saves Wi-Fi and MQTT, only `STOP_BLE` or MQTT `set_ble` with `ble=off` closes setup so sensing can resume. MQTT `set_ble` starts BLE again when the device is already on the network. Native’s physical recovery input provides the same `ble=on` transition without a network: holding the board BOOT button for the configured recovery interval starts BLE and pauses sensing.
 
 Current BLE responsibilities:
 
@@ -328,27 +328,29 @@ Update the internal traffic generator type on frontends that advertise traffic c
 
 Accepted values are `ping` and `dns`. Native persists the accepted value across reboot. The selection is always stored, but only takes effect while `csi_traffic_mode` is `internal`.
 
-Request an OTA manifest check using the firmware's built-in release URL:
+Request an OTA manifest check. Omit `channel` to use the firmware's build-time default, or pass `release`, `preview`, or `develop`:
 
 ```json
 {
   "protocol_version": "1.0",
   "command_id": "cmd-ota-check",
-  "command": "ota_check"
+  "command": "ota_check",
+  "channel": "preview"
 }
 ```
 
-Start OTA using the built-in manifest:
+Start OTA from the selected or firmware-default channel:
 
 ```json
 {
   "protocol_version": "1.0",
   "command_id": "cmd-ota-start",
-  "command": "ota_start"
+  "command": "ota_start",
+  "channel": "release"
 }
 ```
 
-Native firmware embeds a per-chip GitHub Releases manifest URL. OTA commands do not accept server, manifest, image, or version parameters; payloads containing those overrides are rejected. Stable firmware is pinned to the latest release channel, and snapshot firmware is pinned to the rolling snapshot release. Frontends advertise support through `supports_ota`; Micro-ESPectre does not implement OTA commands.
+Native firmware resolves a per-chip GitHub Releases manifest URL from the channel. OTA commands do not accept server, manifest, image, or version parameters; payloads containing those overrides are rejected. When `channel` is omitted, release firmware uses the latest release, preview firmware uses the rolling `preview` release, and develop firmware uses the rolling `develop` release. Frontends advertise support through `supports_ota`; Micro-ESPectre does not implement OTA commands.
 
 Start or stop Native BLE setup mode. Sensing pauses while BLE is up. `off` is rejected until Wi-Fi is configured, so an unprovisioned device cannot drop its only setup radio:
 
@@ -361,7 +363,7 @@ Start or stop Native BLE setup mode. Sensing pauses while BLE is up. `off` is re
 }
 ```
 
-Accepted `ble` values are `on` and `off`. Micro-ESPectre rejects the command. After BLE starts, use nearby BLE setup. Disconnecting the nearby client keeps BLE advertising; writing `STOP_BLE` or sending `set_ble` with `ble=off` stops the radio when Wi-Fi and MQTT are already stored.
+Accepted `ble` values are `on` and `off`. Micro-ESPectre rejects the command. After BLE starts, use nearby BLE setup. Disconnecting the nearby client keeps BLE advertising; writing `STOP_BLE` or sending `set_ble` with `ble=off` stops the radio when Wi-Fi SSID and MQTT host are already present from Kconfig defaults or NVS.
 
 Publish OTA state on:
 
@@ -381,6 +383,7 @@ espectre/v1/devices/{device_id}/ota/state
   "target_version": "1.2.3",
   "manifest_url": "https://github.com/francescopace/espectre/releases/latest/download/espectre-native-ota-esp32c6.json",
   "image_url": "https://github.com/francescopace/espectre/releases/download/1.2.3/espectre-native-1.2.3-esp32c6-ota.bin",
+  "channel": "release",
   "message": "update available"
 }
 ```
@@ -412,7 +415,9 @@ SET_WIFI_CONFIG:ssid=Lab%20Network&password=secret-password&channel=6&bssid=aa%3
 CLEAR_WIFI
 OTA_STATUS
 OTA_CHECK
+OTA_CHECK:channel=preview
 OTA_START
+OTA_START:channel=develop
 STOP_BLE
 ```
 

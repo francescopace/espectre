@@ -129,6 +129,8 @@ void test_default_snapshot_is_not_publishable(void) {
 
   TEST_ASSERT_FALSE(snapshot.ready_to_publish);
   TEST_ASSERT_FALSE(snapshot.calibrating);
+  TEST_ASSERT_EQUAL(0U, snapshot.calibration_packets);
+  TEST_ASSERT_EQUAL(0U, snapshot.calibration_target_packets);
   TEST_ASSERT_EQUAL(static_cast<int>(MotionState::IDLE), static_cast<int>(snapshot.motion_state));
   TEST_ASSERT_NOT_NULL(snapshot.detector_name);
 }

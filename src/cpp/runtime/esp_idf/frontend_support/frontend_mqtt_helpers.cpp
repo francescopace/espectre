@@ -272,12 +272,12 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
     }
 
     if (result.command.command == "ota_check") {
-      result.accepted = ota_service->start_check(normalized_current_version);
+      result.accepted = ota_service->start_check(normalized_current_version, result.command.ota_channel);
       result.message = result.accepted ? "ota check started" : "ota check rejected";
       return result;
     }
 
-    result.accepted = ota_service->start_update(normalized_current_version);
+    result.accepted = ota_service->start_update(normalized_current_version, result.command.ota_channel);
     result.message = result.accepted ? "ota update started" : "ota update rejected";
     return result;
   }

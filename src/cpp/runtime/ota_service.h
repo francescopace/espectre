@@ -68,6 +68,20 @@ class IOtaService {
    */
   virtual bool start_check(const std::string &current_version) = 0;
   /**
+   * Same as `start_check(current_version)`, with an optional release channel.
+   *
+   * @param current_version Version to compare against, normally
+   *        `espectre_firmware_version()`. Empty is reported as `"unknown"`.
+   * @param channel `release`, `preview`, or `develop`. Empty keeps the
+   *        implementation default.
+   * @return false when an operation is already in flight, the channel is
+   *         invalid, or the worker cannot start.
+   */
+  virtual bool start_check(const std::string &current_version, const std::string &channel) {
+    (void)channel;
+    return start_check(current_version);
+  }
+  /**
    * Download and apply an update, then schedule the reboot.
    *
    * Performs its own check first, so calling `start_check()` beforehand is
@@ -79,6 +93,20 @@ class IOtaService {
    *         start. A successful update ends in `REBOOT_SCHEDULED`.
    */
   virtual bool start_update(const std::string &current_version) = 0;
+  /**
+   * Same as `start_update(current_version)`, with an optional release channel.
+   *
+   * @param current_version Version to compare against, normally
+   *        `espectre_firmware_version()`. Empty is reported as `"unknown"`.
+   * @param channel `release`, `preview`, or `develop`. Empty keeps the
+   *        implementation default.
+   * @return false when an operation is already in flight, the channel is
+   *         invalid, or the worker cannot start.
+   */
+  virtual bool start_update(const std::string &current_version, const std::string &channel) {
+    (void)channel;
+    return start_update(current_version);
+  }
   /** Current status. Safe to call from any task, including while an update runs. */
   virtual EspectreOtaStatus status() const = 0;
   /** Install the progress handler. Set it before starting an operation. */

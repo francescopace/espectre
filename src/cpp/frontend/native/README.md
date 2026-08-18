@@ -26,7 +26,7 @@ The web flasher can install published `Native` images for supported chips. After
 - [Monitor](https://espectre.dev/#monitor): MQTT telemetry, tuning, and diagnostics
 - [The Game](https://espectre.dev/game/): example interactive client over MQTT after BLE setup
 
-Each release and snapshot publishes one full-flash native image and one application-only OTA payload per supported chip. Both contain the same application features; the smaller `-ota.bin` file omits the bootloader, partition table, and other full-flash regions required only for USB recovery. GitHub Pages stages only the full-flash image for the browser flasher.
+Each `release`, `preview`, and `develop` channel publishes one full-flash native image and one application-only OTA payload per supported chip. Both contain the same application features; the smaller `-ota.bin` file omits the bootloader, partition table, and other full-flash regions required only for USB recovery. GitHub Pages stages only the full-flash image for the browser flasher.
 
 ### Local ESP-IDF Workflow
 
@@ -92,7 +92,7 @@ The standalone native frontend uses the same shared periodic progress-bar sensin
 
 Unlike the ESPHome frontend, the standalone native firmware does not rely on YAML or Home Assistant for setup. In the current local-lab profile, Wi-Fi can be provisioned live over BLE and persisted in NVS.
 
-Frontend-owned options in [`Kconfig.projbuild`](espectre/Kconfig.projbuild) remain useful as firmware defaults for reproducible images or first boot. Shared sensing options and their defaults now live in [`SETUP.md`](../../../../docs/SETUP.md), and can be overridden per frontend in [`sdkconfig.defaults`](app/sdkconfig.defaults). Versioned transport defaults in [`sdkconfig.defaults`](app/sdkconfig.defaults) also tune the standalone native firmware with the shared ESP-IDF Wi-Fi transport baseline now used across the standalone frontends: AMPDU enabled, larger Wi-Fi RX/TX buffers, plus lwIP mailbox and IRAM optimizations.
+Frontend-owned options in [`Kconfig.projbuild`](espectre/Kconfig.projbuild) remain useful as firmware defaults for reproducible images or first boot. When those defaults include both a Wi-Fi SSID and an MQTT host, BLE stays idle at boot and CSI can arm as soon as the station joins. Shared sensing options and their defaults now live in [`SETUP.md`](../../../../docs/SETUP.md), and can be overridden per frontend in [`sdkconfig.defaults`](app/sdkconfig.defaults). Versioned transport defaults in [`sdkconfig.defaults`](app/sdkconfig.defaults) also tune the standalone native firmware with the shared ESP-IDF Wi-Fi transport baseline now used across the standalone frontends: AMPDU enabled, larger Wi-Fi RX/TX buffers, plus lwIP mailbox and IRAM optimizations.
 
 The shared menu keeps cadence and traffic ownership separate: `CONFIG_ESPECTRE_CSI_TARGET_PPS` is always positive, while the `CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_*` choice selects internal, external, paced, or unmanaged traffic. The fixed target and detector-window duration define temporal slots; raw callback-rate jitter never reconstructs the detector.
 
@@ -108,7 +108,7 @@ The shared menu keeps cadence and traffic ownership separate: `CONFIG_ESPECTRE_C
 
 Runtime provisioning behavior:
 
-- BLE starts automatically when Wi-Fi or MQTT is unconfigured, and Native pauses CSI while BLE is up
+- BLE starts automatically when Wi-Fi SSID or MQTT host is missing, including when compile-time Kconfig defaults are empty, and Native pauses CSI while BLE is up
 - `SET_WIFI_CONFIG` persists the full Wi-Fi block in NVS; credential, BSSID, and channel changes reconnect immediately without restarting BLE, while a changed `band_policy` applies after restart so Wi-Fi and CSI use the same policy
 - after Wi-Fi and MQTT are saved, BLE stays up across nearby client disconnects and resumes advertising; only `STOP_BLE` or MQTT `set_ble` with `ble=off` closes setup so sensing can use the radio alone
 - MQTT `set_ble` with `ble=on` starts BLE again for recovery or reconfiguration; `ble=off` or `STOP_BLE` stops it only when Wi-Fi and MQTT are already configured
@@ -193,12 +193,12 @@ The native frontend uses the shared ESPectre MQTT command surface plus a shared 
 Operational model:
 
 - MQTT and BLE both call the same built-in OTA service
-- `ota_check` checks the per-chip manifest embedded as a GitHub Releases URL
-- `ota_start` resolves that manifest and downloads the application image into the inactive OTA slot
-- MQTT clients cannot override the server, manifest, image, or target version
+- `ota_check` and `ota_start` resolve a per-chip GitHub Releases manifest URL
+- an optional `channel` of `release`, `preview`, or `develop` selects the rolling tag; omitting it keeps the firmware's build-time default
+- MQTT and BLE clients cannot override the server, manifest, image, or target version
 - successful OTA schedules an immediate reboot into the new slot
 
-Stable builds use the latest GitHub release manifest by default. Snapshot builds use the rolling `snapshot` release. The manifest filename is `espectre-native-ota-<chip>.json`, and its `image_url` points to the matching versioned `-ota.bin` release asset.
+The default channel follows the image that was flashed: release firmware uses the latest GitHub release, preview builds use the rolling `preview` release, and develop builds use the rolling `develop` release. The manifest filename is `espectre-native-ota-<chip>.json`, and its `image_url` points to the matching versioned `-ota.bin` release asset.
 
 ## Firmware Limits and Expectations
 
@@ -226,7 +226,7 @@ Check these first:
 
 ### CSI occupancy drops while BLE is on
 
-On ESP32-C3, the Bluetooth controller and Wi-Fi coexistence starve CSI admission even at default NimBLE advertising intervals. Native therefore runs BLE only for setup and recovery: it starts automatically when Wi-Fi or MQTT is unconfigured, pauses sensing while BLE is up, keeps advertising across nearby client disconnects, and stops only when `STOP_BLE` or MQTT `set_ble` with `ble=off` explicitly closes setup. Use MQTT `set_ble` with `ble=on`, `ble on` in `./espectre mqtt`, or hold BOOT for 3 seconds to advertise again. The product decision is recorded in [`2026-08-17-keep-native-ble-as-setup-recovery.md`](../../../../docs/adr/2026-08-17-keep-native-ble-as-setup-recovery.md).
+On ESP32-C3, the Bluetooth controller and Wi-Fi coexistence starve CSI admission even at default NimBLE advertising intervals. Native therefore runs BLE only for setup and recovery: it starts automatically when Wi-Fi SSID or MQTT host is missing, pauses sensing while BLE is up, keeps advertising across nearby client disconnects, and stops only when `STOP_BLE` or MQTT `set_ble` with `ble=off` explicitly closes setup. Compile-time Kconfig Wi-Fi and MQTT defaults count as configured, so lab images skip BLE at boot and leave CSI armed. Use MQTT `set_ble` with `ble=on`, `ble on` in `./espectre mqtt`, or hold BOOT for 3 seconds to advertise again. The product decision is recorded in [`2026-08-17-keep-native-ble-as-setup-recovery.md`](../../../../docs/adr/2026-08-17-keep-native-ble-as-setup-recovery.md).
 
 While BLE is up, Native uses the NimBLE default advertising and connection timings so nearby discovery stays fast. It does not publish live sensing over BLE.
 

@@ -304,9 +304,21 @@ void test_parse_espectre_command_parses_info_and_threshold_commands(void) {
 
   TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x3\",\"command\":\"ota_check\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("ota_check", command.command.c_str());
+  TEST_ASSERT_FALSE(command.has_ota_channel);
+
+  TEST_ASSERT_TRUE(parse_espectre_command(
+      "{\"command_id\":\"x3b\",\"command\":\"ota_check\",\"channel\":\"preview\"}", &command, &error));
+  TEST_ASSERT_TRUE(command.has_ota_channel);
+  TEST_ASSERT_EQUAL_STRING("preview", command.ota_channel.c_str());
 
   TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x4\",\"command\":\"ota_start\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("ota_start", command.command.c_str());
+  TEST_ASSERT_FALSE(command.has_ota_channel);
+
+  TEST_ASSERT_TRUE(parse_espectre_command(
+      "{\"command_id\":\"x4b\",\"command\":\"ota_start\",\"channel\":\"develop\"}", &command, &error));
+  TEST_ASSERT_TRUE(command.has_ota_channel);
+  TEST_ASSERT_EQUAL_STRING("develop", command.ota_channel.c_str());
 
   TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x5\",\"command\":\"recalibrate\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("recalibrate", command.command.c_str());
@@ -384,6 +396,10 @@ void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(v
   TEST_ASSERT_EQUAL_STRING("ota overrides are not supported (manifest_url, image_url, and version are not accepted)",
                            error.c_str());
 
+  TEST_ASSERT_FALSE(
+      parse_espectre_command("{\"command\":\"ota_check\",\"channel\":\"latest\"}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("invalid ota channel (accepted: release, preview, and develop)", error.c_str());
+
   TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"info\"}", nullptr, &error));
 }
 
@@ -397,6 +413,7 @@ void test_ota_status_payload_includes_expected_fields(void) {
   status.target_version = "1.1.0";
   status.manifest_url = "https://fw.example/manifest.json";
   status.image_url = "https://fw.example/native.bin";
+  status.channel = "preview";
   status.message = "update available";
   status.busy = false;
   status.update_available = true;
@@ -409,6 +426,41 @@ void test_ota_status_payload_includes_expected_fields(void) {
   TEST_ASSERT_TRUE(payload.find("\"target_version\":\"1.1.0\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"update_available\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"manifest_url\":\"https://fw.example/manifest.json\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"channel\":\"preview\"") != std::string::npos);
+}
+
+void test_ota_channel_helpers_and_ble_commands(void) {
+  TEST_ASSERT_TRUE(espectre_ota_channel_accepted("release"));
+  TEST_ASSERT_TRUE(espectre_ota_channel_accepted("preview"));
+  TEST_ASSERT_TRUE(espectre_ota_channel_accepted("develop"));
+  TEST_ASSERT_FALSE(espectre_ota_channel_accepted(""));
+  TEST_ASSERT_FALSE(espectre_ota_channel_accepted("latest"));
+  TEST_ASSERT_EQUAL_STRING(
+      "https://github.com/francescopace/espectre/releases/latest/download/espectre-native-ota-esp32c3.json",
+      espectre_ota_manifest_url("native", "esp32c3", "release").c_str());
+  TEST_ASSERT_EQUAL_STRING(
+      "https://github.com/francescopace/espectre/releases/download/preview/espectre-native-ota-esp32c6.json",
+      espectre_ota_manifest_url("native", "esp32c6", "preview").c_str());
+  TEST_ASSERT_EQUAL_STRING(
+      "https://github.com/francescopace/espectre/releases/download/develop/espectre-native-ota-esp32s3.json",
+      espectre_ota_manifest_url("native", "esp32s3", "develop").c_str());
+  TEST_ASSERT_TRUE(espectre_ota_manifest_url("native", "esp32c3", "latest").empty());
+
+  EspectreCommand command;
+  std::string error;
+  TEST_ASSERT_TRUE(parse_espectre_ble_ota_command("OTA_CHECK", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("ota_check", command.command.c_str());
+  TEST_ASSERT_FALSE(command.has_ota_channel);
+
+  TEST_ASSERT_TRUE(parse_espectre_ble_ota_command("OTA_START:channel=preview", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("ota_start", command.command.c_str());
+  TEST_ASSERT_TRUE(command.has_ota_channel);
+  TEST_ASSERT_EQUAL_STRING("preview", command.ota_channel.c_str());
+
+  TEST_ASSERT_FALSE(parse_espectre_ble_ota_command("OTA_CHECK:channel=latest", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("invalid ota channel (accepted: release, preview, and develop)", error.c_str());
+  TEST_ASSERT_FALSE(parse_espectre_ble_ota_command("OTA_STATUS:channel=release", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("ota status does not accept channel", error.c_str());
 }
 
 void test_parse_espectre_config_command_updates_supported_fields(void) {
@@ -453,6 +505,7 @@ int process(void) {
   RUN_TEST(test_parse_espectre_command_parses_info_and_threshold_commands);
   RUN_TEST(test_parse_espectre_command_rejects_missing_command_and_invalid_threshold);
   RUN_TEST(test_ota_status_payload_includes_expected_fields);
+  RUN_TEST(test_ota_channel_helpers_and_ble_commands);
   RUN_TEST(test_parse_espectre_config_command_updates_supported_fields);
   RUN_TEST(test_parse_espectre_config_command_rejects_invalid_inputs);
   return UNITY_END();

@@ -1612,7 +1612,7 @@ def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> Non
     assert "Error parsing message" in captured
     assert "Error sending command" in captured
     assert "Unknown command: unknown" not in captured
-    assert "unexpected argument: unexpected" in captured
+    assert "invalid ota channel (accepted: release, preview, and develop)" in captured
     assert shell.running is False
 
 
@@ -1638,7 +1638,19 @@ def test_mqtt_command_payload_parses_set_and_key_value_tokens() -> None:
 
     payload, error = mqtt_shell._mqtt_command_payload("ota_check", ["unexpected"])
     assert payload is None
-    assert error == "unexpected argument: unexpected"
+    assert error == "invalid ota channel (accepted: release, preview, and develop)"
+
+    payload, error = mqtt_shell._mqtt_command_payload("ota_check", ["preview"])
+    assert error is None
+    assert payload == {"command": "ota_check", "channel": "preview"}
+
+    payload, error = mqtt_shell._mqtt_command_payload("ota_start", ["channel=develop"])
+    assert error is None
+    assert payload == {"command": "ota_start", "channel": "develop"}
+
+    payload, error = mqtt_shell._mqtt_command_payload("ota_start", ["channel=latest"])
+    assert payload is None
+    assert error == "invalid ota channel (accepted: release, preview, and develop)"
 
 
 def test_mqtt_shell_builds_command_catalog_from_device_payloads(monkeypatch) -> None:

@@ -24,9 +24,14 @@ idf_component_register(
         nvs_flash
 )
 
-if("$ENV{NATIVE_OTA_SNAPSHOT}" STREQUAL "1")
+if("$ENV{NATIVE_OTA_CHANNEL}" STREQUAL "preview")
     target_compile_definitions(
         ${COMPONENT_LIB}
-        PRIVATE ESPECTRE_OTA_SNAPSHOT_BUILD=1
+        PRIVATE ESPECTRE_OTA_PREVIEW_BUILD=1
+    )
+elseif("$ENV{NATIVE_OTA_CHANNEL}" STREQUAL "develop")
+    target_compile_definitions(
+        ${COMPONENT_LIB}
+        PRIVATE ESPECTRE_OTA_DEVELOP_BUILD=1
     )
 endif()

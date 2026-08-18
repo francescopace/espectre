@@ -77,12 +77,18 @@ def _mqtt_commands_from_catalog(payload: Dict[str, Any]) -> list[str]:
     return []
 
 
+_OTA_CHANNELS = {"release": None, "preview": None, "develop": None}
+_OTA_CHANNEL_NAMES = tuple(_OTA_CHANNELS)
+
+
 def _mqtt_completer_dict(commands: list[str]) -> Dict[str, Any]:
     """Build tab-completion entries from device commands plus local utilities."""
-    completer: Dict[str, Any] = {name: None for name in commands}
+    completer: Dict[str, Any] = {}
+    for name in commands:
+        completer[name] = dict(_OTA_CHANNELS) if name in {"ota_check", "ota_start"} else None
     for alias, target in _SHELL_ALIASES.items():
         if target in completer:
-            completer[alias] = None
+            completer[alias] = completer[target]
     completer.update(_LOCAL_UTILITIES)
     return completer
 
@@ -108,7 +114,8 @@ def _mqtt_command_payload(command: str, args: list[str]) -> tuple[Dict[str, Any]
 
     Named ``field=value`` tokens after the command are copied through. A single
     positional after a ``set_*`` command is stored under the suffix
-    (``set_ble on`` -> ``ble=on``). The command name itself is never a
+    (``set_ble on`` -> ``ble=on``). A single positional after ``ota_check`` or
+    ``ota_start`` is stored as ``channel``. The command name itself is never a
     ``key=value`` token.
     """
     fields: Dict[str, Any] = {"command": command}
@@ -122,9 +129,17 @@ def _mqtt_command_payload(command: str, args: list[str]) -> tuple[Dict[str, Any]
     if len(positionals) == 1 and command.startswith("set_"):
         fields[command[4:]] = _coerce_command_token(positionals[0])
         positionals = []
+    if len(positionals) == 1 and command in {"ota_check", "ota_start"}:
+        fields["channel"] = str(positionals[0])
+        positionals = []
     if positionals:
         joined = " ".join(positionals)
         return None, f"unexpected argument: {joined}"
+    if command in {"ota_check", "ota_start"} and "channel" in fields:
+        channel = str(fields["channel"])
+        if channel not in _OTA_CHANNEL_NAMES:
+            return None, "invalid ota channel (accepted: release, preview, and develop)"
+        fields["channel"] = channel
     return fields, None
 
 
@@ -880,7 +895,7 @@ class EspectreMQTTShell:
                 label = "|".join([name, *aliases])
                 lines.append(f"  <ansigreen>{label}</ansigreen>")
             lines.append("")
-            lines.append("Write values after the command name: <ansigreen>ble on</ansigreen>, <ansigreen>st 0.35</ansigreen>, <ansigreen>set_motion_hits motion_on_hits=4 motion_off_hits=3</ansigreen>.")
+            lines.append("Write values after the command name: <ansigreen>ble on</ansigreen>, <ansigreen>st 0.35</ansigreen>, <ansigreen>ota_check preview</ansigreen>, <ansigreen>set_motion_hits motion_on_hits=4 motion_off_hits=3</ansigreen>.")
         else:
             lines.append("")
             lines.append("Device command names appear after the device answers MQTT <ansigreen>commands</ansigreen>.")

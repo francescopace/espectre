@@ -400,8 +400,14 @@ bool NativeFrontend::handle_control_command_(const std::string &command) {
   if (command == "STOP_BLE") {
     return handle_ble_mode_write_(false, nullptr);
   }
-  if (command == "OTA_STATUS" || command == "OTA_CHECK" || command == "OTA_START") {
-    return handle_ble_ota_command_(command.c_str() + 4);
+  if (command.rfind("OTA_", 0) == 0) {
+    EspectreCommand ota_command;
+    std::string ota_error;
+    if (!parse_espectre_ble_ota_command(command, &ota_command, &ota_error)) {
+      ESP_LOGW(TAG, "BLE OTA command rejected: %s", ota_error.c_str());
+      return false;
+    }
+    return handle_ble_ota_command_(ota_command);
   }
 
   ESP_LOGW(TAG, "Unknown BLE control command: %s", command.c_str());
@@ -553,15 +559,16 @@ bool NativeFrontend::handle_detector_write_(DetectionAlgorithm algorithm) {
   return true;
 }
 
-bool NativeFrontend::handle_ble_ota_command_(const char *command_name) {
-  if (command_name == nullptr || command_name[0] == '\0') {
-    return false;
+bool NativeFrontend::handle_ble_ota_command_(const EspectreCommand &command) {
+  std::string payload = "{\"command\":\"";
+  payload += command.command;
+  payload += "\"";
+  if (command.has_ota_channel) {
+    payload += ",\"channel\":\"";
+    payload += command.ota_channel;
+    payload += "\"";
   }
-  std::string normalized_command = command_name;
-  for (char &ch : normalized_command) {
-    ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-  }
-  std::string payload = std::string("{\"command\":\"ota_") + normalized_command + "\"}";
+  payload += "}";
   const FrontendMqttCommandResult result = handle_frontend_mqtt_command(
       payload,
       ota_service_,
@@ -703,8 +710,10 @@ void NativeFrontend::handle_connection_state_(bool connected) {
   }
 }
 
+bool NativeFrontend::wifi_configured_() const { return !wifi_info_.ssid.empty(); }
+
 bool NativeFrontend::provisioning_complete_() const {
-  return wifi_info_.has_saved_config && !device_config_.mqtt_host.empty();
+  return wifi_configured_() && !device_config_.mqtt_host.empty();
 }
 
 bool NativeFrontend::ble_should_run_() const { return ble_forced_ || !provisioning_complete_(); }
@@ -721,7 +730,7 @@ bool NativeFrontend::start_ble_() {
   }
   runtime_.set_services_armed(false);
   if (bindings_ == nullptr || !bindings_->setup()) {
-    if (wifi_info_.has_saved_config) {
+    if (wifi_configured_()) {
       runtime_.set_services_armed(true);
     }
     return false;
@@ -744,7 +753,7 @@ void NativeFrontend::stop_ble_() {
   ble_active_ = false;
   client_connected_ = false;
   update_live_telemetry_enabled_();
-  if (wifi_info_.has_saved_config) {
+  if (wifi_configured_()) {
     runtime_.set_services_armed(true);
   }
   ESP_LOGI(TAG, "BLE stopped");
@@ -783,7 +792,7 @@ bool NativeFrontend::handle_ble_mode_write_(bool enable, std::string *message) {
     }
     return true;
   }
-  if (!wifi_info_.has_saved_config) {
+  if (!wifi_configured_()) {
     ESP_LOGW(TAG, "Refusing to stop BLE while Wi-Fi is unconfigured");
     if (message != nullptr) {
       *message = "cannot stop BLE while Wi-Fi is unconfigured";
@@ -1082,6 +1091,7 @@ void NativeFrontend::append_ota_sysinfo_lines_(std::vector<std::string> *lines) 
   lines->emplace_back(std::string("ota_update_available=") + (status.update_available ? "true" : "false"));
   lines->emplace_back(std::string("ota_current_version=") + status.current_version);
   lines->emplace_back(std::string("ota_target_version=") + status.target_version);
+  lines->emplace_back(std::string("ota_channel=") + status.channel);
   lines->emplace_back(std::string("ota_message=") + status.message);
 }
 

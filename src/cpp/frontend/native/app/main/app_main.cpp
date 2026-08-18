@@ -40,10 +40,12 @@ static const char *TAG = "espectre.native.app";
 
 namespace {
 
-#ifdef ESPECTRE_OTA_SNAPSHOT_BUILD
-constexpr espectre::OtaReleaseChannel kOtaReleaseChannel = espectre::OtaReleaseChannel::SNAPSHOT;
+#ifdef ESPECTRE_OTA_DEVELOP_BUILD
+constexpr espectre::OtaReleaseChannel kOtaReleaseChannel = espectre::OtaReleaseChannel::DEVELOP;
+#elif defined(ESPECTRE_OTA_PREVIEW_BUILD)
+constexpr espectre::OtaReleaseChannel kOtaReleaseChannel = espectre::OtaReleaseChannel::PREVIEW;
 #else
-constexpr espectre::OtaReleaseChannel kOtaReleaseChannel = espectre::OtaReleaseChannel::STABLE;
+constexpr espectre::OtaReleaseChannel kOtaReleaseChannel = espectre::OtaReleaseChannel::RELEASE;
 #endif
 
 constexpr int kWifiConnectMaxRetry = 8;

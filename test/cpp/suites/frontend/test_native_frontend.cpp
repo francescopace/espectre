@@ -1196,8 +1196,14 @@ void test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state(vo
   mqtt.emit_command("{\"command_id\":\"cmd-ota-check\",\"command\":\"ota_check\"}");
   TEST_ASSERT_EQUAL(1, ota_service_mock::state.start_check_calls);
   TEST_ASSERT_EQUAL_STRING("1.0.0", ota_service_mock::state.last_current_version.c_str());
+  TEST_ASSERT_TRUE(ota_service_mock::state.last_channel.empty());
   TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/commands/accepted",
                            mqtt_transport_mock::state.publishes.back().topic.c_str());
+
+  mqtt_transport_mock::state.publishes.clear();
+  mqtt.emit_command("{\"command_id\":\"cmd-ota-check-preview\",\"command\":\"ota_check\",\"channel\":\"preview\"}");
+  TEST_ASSERT_EQUAL(2, ota_service_mock::state.start_check_calls);
+  TEST_ASSERT_EQUAL_STRING("preview", ota_service_mock::state.last_channel.c_str());
 
   mqtt_transport_mock::state.publishes.clear();
   mqtt.emit_command("{\"command_id\":\"cmd-ota-start\",\"command\":\"ota_start\"}");
@@ -1233,9 +1239,13 @@ void test_native_frontend_ble_ota_commands_use_ota_service_and_refresh_sysinfo(v
   TEST_ASSERT_TRUE(frontend.handle_control_command_("OTA_CHECK"));
   TEST_ASSERT_EQUAL(1, ota_service_mock::state.start_check_calls);
   TEST_ASSERT_EQUAL_STRING("1.0.0", ota_service_mock::state.last_current_version.c_str());
+  TEST_ASSERT_TRUE(ota_service_mock::state.last_channel.empty());
 
-  TEST_ASSERT_TRUE(frontend.handle_control_command_("OTA_START"));
+  TEST_ASSERT_TRUE(frontend.handle_control_command_("OTA_START:channel=develop"));
   TEST_ASSERT_EQUAL(1, ota_service_mock::state.start_update_calls);
+  TEST_ASSERT_EQUAL_STRING("develop", ota_service_mock::state.last_channel.c_str());
+
+  TEST_ASSERT_FALSE(frontend.handle_control_command_("OTA_CHECK:channel=latest"));
 
   ble_bindings_mock::state.sysinfo_lines.clear();
   EspectreOtaStatus ota_status;
@@ -1418,6 +1428,35 @@ void test_native_frontend_skips_ble_when_wifi_and_mqtt_are_configured(void) {
 
   TEST_ASSERT_TRUE(frontend.setup());
   TEST_ASSERT_EQUAL(0, ble_bindings_mock::state.setup_calls);
+  TEST_ASSERT_FALSE(frontend.ble_active());
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.services_armed);
+}
+
+void test_native_frontend_skips_ble_when_kconfig_wifi_and_mqtt_are_present(void) {
+  MockBleBindings bindings;
+  MockMqttTransport mqtt;
+  NativeFrontend frontend(&bindings, &mqtt);
+  EspectreDeviceConfig config;
+  config.mqtt_host = "broker.local";
+  frontend.set_device_config(config);
+  NativeFrontend::WifiProvisioningInfo wifi;
+  wifi.ssid = "Lab";
+  wifi.has_saved_config = false;
+  frontend.set_wifi_provisioning_info(wifi);
+
+  TEST_ASSERT_TRUE(frontend.setup());
+  TEST_ASSERT_EQUAL(0, ble_bindings_mock::state.setup_calls);
+  TEST_ASSERT_FALSE(frontend.ble_active());
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.services_armed);
+
+  mqtt.emit_command("{\"command_id\":\"ble-kconfig-1\",\"command\":\"set_ble\",\"ble\":\"on\"}");
+  frontend.loop();
+  TEST_ASSERT_TRUE(frontend.ble_active());
+  TEST_ASSERT_EQUAL(1, ble_bindings_mock::state.setup_calls);
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
+
+  mqtt.emit_command("{\"command_id\":\"ble-kconfig-2\",\"command\":\"set_ble\",\"ble\":\"off\"}");
+  frontend.loop();
   TEST_ASSERT_FALSE(frontend.ble_active());
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.services_armed);
 }
@@ -1667,6 +1706,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_motion_state_changes_do_not_publish_sysinfo);
   RUN_TEST(test_native_frontend_runtime_fault_is_reported_to_bindings);
   RUN_TEST(test_native_frontend_skips_ble_when_wifi_and_mqtt_are_configured);
+  RUN_TEST(test_native_frontend_skips_ble_when_kconfig_wifi_and_mqtt_are_present);
   RUN_TEST(test_native_frontend_keeps_ble_when_wifi_is_saved_but_mqtt_is_missing);
   RUN_TEST(test_native_frontend_keeps_ble_when_mqtt_is_saved_but_wifi_is_missing);
   RUN_TEST(test_native_frontend_stop_ble_is_rejected_until_wifi_is_configured);

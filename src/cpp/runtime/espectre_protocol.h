@@ -44,6 +44,12 @@ struct RuntimeDiagnosticsSample;
 inline constexpr const char *ESPECTRE_PROTOCOL_VERSION = "1.0";
 /** Default MQTT topic root. Override per device with `EspectreDeviceConfig::topic_prefix`. */
 inline constexpr const char *ESPECTRE_TOPIC_PREFIX = "espectre/v1/devices";
+/** Official tagged GitHub Release OTA channel. */
+inline constexpr const char *ESPECTRE_OTA_CHANNEL_RELEASE = "release";
+/** Rolling `main` OTA channel. */
+inline constexpr const char *ESPECTRE_OTA_CHANNEL_PREVIEW = "preview";
+/** Rolling `develop` OTA channel. */
+inline constexpr const char *ESPECTRE_OTA_CHANNEL_DEVELOP = "develop";
 /** Sentinel meaning "derive the device id from the Wi-Fi MAC". */
 inline constexpr uint64_t ESPECTRE_DEFAULT_DEVICE_ID = 0U;
 /** Empty label, meaning the device id is used as the display name. */
@@ -153,6 +159,12 @@ struct EspectreCommand {
   /** BLE radio request for Native `set_ble`: `"on"` or `"off"`. */
   std::string ble;
   bool has_ble{false};
+  /**
+   * OTA release channel for `ota_check` and `ota_start`: `"release"`, `"preview"`,
+   * or `"develop"`. Empty with `has_ota_channel` false means the firmware default.
+   */
+  std::string ota_channel;
+  bool has_ota_channel{false};
 };
 
 /**
@@ -182,6 +194,8 @@ struct EspectreOtaStatus {
   std::string manifest_url;
   std::string image_url;
   std::string message;
+  /** Resolved OTA channel for the current attempt. Empty when unused. */
+  std::string channel;
   bool busy{false};
   bool update_available{false};
 };
@@ -309,6 +323,31 @@ std::string espectre_ota_status_payload(const EspectreDeviceConfig &config,
  * @return false on malformed input or an unknown command.
  */
 bool parse_espectre_command(const std::string &payload, EspectreCommand *command, std::string *error);
+/**
+ * Parse a BLE ASCII OTA control command.
+ *
+ * Accepts `OTA_STATUS`, `OTA_CHECK`, `OTA_START`, and the optional
+ * `OTA_CHECK:channel=preview` / `OTA_START:channel=develop` forms. Other
+ * suffixes and unknown channels are rejected.
+ *
+ * @param command Full BLE control string.
+ * @param parsed Populated only on success.
+ * @param error Receives a human-readable reason on failure. May be `nullptr`.
+ */
+bool parse_espectre_ble_ota_command(const std::string &command, EspectreCommand *parsed, std::string *error);
+/**
+ * Whether `channel` is a published OTA channel name.
+ *
+ * Accepted values are `release`, `preview`, and `develop`. Empty is not
+ * accepted here; omit the field to keep the firmware default.
+ */
+bool espectre_ota_channel_accepted(const std::string &channel);
+/**
+ * Built-in GitHub Releases manifest URL for a frontend, chip, and channel.
+ *
+ * @return Empty when `frontend`, `chip`, or `channel` is not a published value.
+ */
+std::string espectre_ota_manifest_url(const char *frontend, const char *chip, const std::string &channel);
 /**
  * Parse a `SET_DEVICE_CONFIG:` command from the BLE control characteristic.
  *

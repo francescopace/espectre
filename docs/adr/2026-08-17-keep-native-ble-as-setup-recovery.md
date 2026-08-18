@@ -31,7 +31,7 @@ Remove from BLE:
 - `SET_THRESHOLD`, `SET_MOTION_HITS`, `SET_DETECTOR`, `SET_CSI_TRAFFIC_MODE`, `SET_TRAFFIC_GENERATOR_MODE`
 - `RECALIBRATE`
 
-MQTT, Home Assistant Discovery, and ESPHome remain the sensing-control family. Native starts BLE automatically when Wi-Fi or MQTT is unconfigured, pauses CSI while BLE is up, keeps advertising across nearby client disconnects, stops BLE only when `STOP_BLE` or MQTT `set_ble` with `ble=off` explicitly closes setup, and does not lower the production occupancy floor to make BLE coexistence look ready.
+MQTT, Home Assistant Discovery, and ESPHome remain the sensing-control family. Native starts BLE automatically when Wi-Fi SSID or MQTT host is missing, pauses CSI while BLE is up, keeps advertising across nearby client disconnects, stops BLE only when `STOP_BLE` or MQTT `set_ble` with `ble=off` explicitly closes setup, and does not lower the production occupancy floor to make BLE coexistence look ready. Compile-time Kconfig Wi-Fi and MQTT defaults count as configured, so lab images skip BLE at boot.
 
 The web product presents Configure and Monitor as separate tools. Configure owns only Wi-Fi, MQTT, and the mutable device label. Start sensing opens Monitor, which connects and subscribes through the configured broker and reports sensing as active only after valid device telemetry arrives. Edit connectivity returns to Configure. Runtime sensing configuration and diagnostics remain on Monitor. If MQTT cannot reopen BLE, holding BOOT for 3 seconds invokes the same BLE-start intent and pauses sensing without erasing configuration.
 
@@ -44,6 +44,7 @@ The BLE telemetry characteristic UUID may remain in the GATT table so existing d
 | 2026-03-17 | BLE runtime control as a first-class standalone live surface | Replaced. Live notify and sensing writes assumed CSI and BLE could share the radio |
 | 2026-08-16 | Setup-only BLE with CSI paused, while keeping sensing writes and optional live notify | Incomplete. The remaining live and sensing-control surface still invited BLE-during-detection |
 | 2026-08-17 | Restrict BLE to Wi-Fi, MQTT, OTA, and identity/status | Accepted |
+| 2026-08-18 | Treat Kconfig Wi-Fi and MQTT defaults as configured so lab images skip BLE at boot | Clarified |
 
 ## Alternatives Considered
 

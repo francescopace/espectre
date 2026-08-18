@@ -21,14 +21,24 @@ void MockOtaService::loop() { state.loop_calls += 1; }
 void MockOtaService::shutdown() { state.shutdown_called = true; }
 
 bool MockOtaService::start_check(const std::string &current_version) {
+  return start_check(current_version, std::string{});
+}
+
+bool MockOtaService::start_check(const std::string &current_version, const std::string &channel) {
   state.start_check_calls += 1;
   state.last_current_version = current_version;
+  state.last_channel = channel;
   return state.start_check_result;
 }
 
 bool MockOtaService::start_update(const std::string &current_version) {
+  return start_update(current_version, std::string{});
+}
+
+bool MockOtaService::start_update(const std::string &current_version, const std::string &channel) {
   state.start_update_calls += 1;
   state.last_current_version = current_version;
+  state.last_channel = channel;
   return state.start_update_result;
 }
 

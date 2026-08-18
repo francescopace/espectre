@@ -82,9 +82,10 @@ class NativeFrontend : public IRuntimeListener {
   bool handle_traffic_generator_mode_write_(RuntimeTrafficMode mode);
   bool handle_detector_write_(DetectionAlgorithm algorithm);
   bool handle_recalibration_write_();
-  bool handle_ble_ota_command_(const char *command_name);
+  bool handle_ble_ota_command_(const EspectreCommand &command);
   bool handle_ble_mode_write_(bool enable, std::string *message);
   bool ble_should_run_() const;
+  bool wifi_configured_() const;
   bool provisioning_complete_() const;
   bool start_ble_();
   void stop_ble_();

@@ -31,8 +31,6 @@ constexpr uint32_t kHttpTimeoutMs = 30000U;
 constexpr uint32_t kPostSuccessDelayMs = 500U;
 constexpr uint32_t kWorkerStackSize = 8192U;
 constexpr UBaseType_t kWorkerPriority = 5U;
-constexpr const char *kGithubReleaseDownloadBase =
-    "https://github.com/francescopace/espectre/releases";
 
 struct ManifestFetchContext {
   std::string *body{nullptr};
@@ -58,10 +56,17 @@ esp_err_t manifest_http_event(esp_http_client_event_t *event) {
 }  // namespace
 
 HttpsOtaService::HttpsOtaService(const char *frontend, const char *chip, OtaReleaseChannel channel) {
-  const char *release_path = channel == OtaReleaseChannel::SNAPSHOT ? "download/snapshot" : "latest/download";
-  manifest_url_ = std::string(kGithubReleaseDownloadBase) + "/" + release_path + "/espectre-" + frontend +
-                  "-ota-" + chip + ".json";
-  status_.manifest_url = manifest_url_;
+  frontend_ = frontend != nullptr ? frontend : "";
+  chip_ = chip != nullptr ? chip : "";
+  if (channel == OtaReleaseChannel::PREVIEW) {
+    default_channel_ = ESPECTRE_OTA_CHANNEL_PREVIEW;
+  } else if (channel == OtaReleaseChannel::DEVELOP) {
+    default_channel_ = ESPECTRE_OTA_CHANNEL_DEVELOP;
+  } else {
+    default_channel_ = ESPECTRE_OTA_CHANNEL_RELEASE;
+  }
+  status_.channel = default_channel_;
+  status_.manifest_url = espectre_ota_manifest_url(frontend_.c_str(), chip_.c_str(), default_channel_);
 }
 
 HttpsOtaService::~HttpsOtaService() { shutdown(); }
@@ -78,16 +83,26 @@ void HttpsOtaService::shutdown() {
 }
 
 bool HttpsOtaService::start_check(const std::string &current_version) {
+  return start_check(current_version, std::string{});
+}
+
+bool HttpsOtaService::start_check(const std::string &current_version, const std::string &channel) {
   WorkerRequest request;
   request.action = WorkerAction::CHECK;
   request.current_version = current_version;
+  request.channel = channel;
   return begin_request_(request);
 }
 
 bool HttpsOtaService::start_update(const std::string &current_version) {
+  return start_update(current_version, std::string{});
+}
+
+bool HttpsOtaService::start_update(const std::string &current_version, const std::string &channel) {
   WorkerRequest request;
   request.action = WorkerAction::START_UPDATE;
   request.current_version = current_version;
+  request.channel = channel;
   return begin_request_(request);
 }
 
@@ -117,19 +132,29 @@ void HttpsOtaService::worker_entry_(void *ctx) {
 
 void HttpsOtaService::run_worker_(const WorkerRequest &request) {
   const std::string current_version = request.current_version.empty() ? "unknown" : request.current_version;
+  const std::string channel = request.channel.empty() ? default_channel_ : request.channel;
+  const std::string manifest_url = espectre_ota_manifest_url(frontend_.c_str(), chip_.c_str(), channel);
   ManifestInfo manifest;
 
   EspectreOtaStatus checking;
   checking.state = EspectreOtaState::CHECKING;
   checking.busy = true;
   checking.current_version = current_version;
-  checking.manifest_url = manifest_url_;
+  checking.channel = channel;
+  checking.manifest_url = manifest_url;
   update_status_(checking);
+
+  if (manifest_url.empty()) {
+    set_error_status_("invalid ota channel", current_version, "", "", "", channel);
+    worker_task_ = nullptr;
+    return;
+  }
 
   std::string body;
   std::string error;
-  if (!fetch_https_text_(manifest_url_, &body, &error) || !parse_manifest_(body, &manifest, &error)) {
-    set_error_status_(error.empty() ? "manifest fetch failed" : error, current_version, "", manifest_url_, "");
+  if (!fetch_https_text_(manifest_url, &body, &error) || !parse_manifest_(body, &manifest, &error)) {
+    set_error_status_(error.empty() ? "manifest fetch failed" : error, current_version, "", manifest_url, "",
+                      channel);
     worker_task_ = nullptr;
     return;
   }
@@ -138,7 +163,8 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
     EspectreOtaStatus result;
     result.current_version = current_version;
     result.target_version = manifest.version;
-    result.manifest_url = manifest_url_;
+    result.channel = channel;
+    result.manifest_url = manifest_url;
     result.image_url = manifest.image_url;
     result.update_available = manifest.version != current_version && !manifest.version.empty();
     result.busy = false;
@@ -152,7 +178,7 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
   const std::string &image_url = manifest.image_url;
   const std::string &target_version = manifest.version;
   if (image_url.empty()) {
-    set_error_status_("missing image_url", current_version, target_version, manifest_url_, image_url);
+    set_error_status_("missing image_url", current_version, target_version, manifest_url, image_url, channel);
     worker_task_ = nullptr;
     return;
   }
@@ -166,7 +192,8 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
   downloading.busy = true;
   downloading.current_version = current_version;
   downloading.target_version = target_version;
-  downloading.manifest_url = manifest_url_;
+  downloading.channel = channel;
+  downloading.manifest_url = manifest_url;
   downloading.image_url = image_url;
   downloading.update_available = !target_version.empty() && target_version != current_version;
   downloading.message = "starting https ota";
@@ -182,7 +209,7 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
 
   const esp_err_t err = esp_https_ota(&ota_config);
   if (err != ESP_OK) {
-    set_error_status_(esp_err_to_name(err), current_version, target_version, manifest_url_, image_url);
+    set_error_status_(esp_err_to_name(err), current_version, target_version, manifest_url, image_url, channel);
     worker_task_ = nullptr;
     return;
   }
@@ -192,7 +219,8 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
   ready.busy = false;
   ready.current_version = current_version;
   ready.target_version = target_version;
-  ready.manifest_url = manifest_url_;
+  ready.channel = channel;
+  ready.manifest_url = manifest_url;
   ready.image_url = image_url;
   ready.update_available = false;
   ready.message = "ota applied, rebooting";
@@ -203,6 +231,11 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
 }
 
 bool HttpsOtaService::begin_request_(const WorkerRequest &request) {
+  if (!request.channel.empty() && !espectre_ota_channel_accepted(request.channel)) {
+    ESP_LOGW(TAG, "invalid ota channel: %s", request.channel.c_str());
+    return false;
+  }
+
   if (!ensure_lock_()) {
     return false;
   }
@@ -255,7 +288,8 @@ void HttpsOtaService::set_error_status_(const std::string &message,
                                         const std::string &current_version,
                                         const std::string &target_version,
                                         const std::string &manifest_url,
-                                        const std::string &image_url) {
+                                        const std::string &image_url,
+                                        const std::string &channel) {
   EspectreOtaStatus status;
   status.state = EspectreOtaState::ERROR;
   status.busy = false;
@@ -263,6 +297,7 @@ void HttpsOtaService::set_error_status_(const std::string &message,
   status.target_version = target_version;
   status.manifest_url = manifest_url;
   status.image_url = image_url;
+  status.channel = channel;
   status.message = message;
   status.update_available = false;
   update_status_(status);

@@ -24,6 +24,7 @@ struct State {
   int start_check_calls{0};
   int start_update_calls{0};
   std::string last_current_version;
+  std::string last_channel;
   EspectreOtaStatus status{};
   IOtaService::StatusCallback status_callback;
   IOtaService::PrepareForUpdateCallback prepare_callback;
@@ -38,7 +39,9 @@ class MockOtaService : public IOtaService {
   void loop() override;
   void shutdown() override;
   bool start_check(const std::string &current_version) override;
+  bool start_check(const std::string &current_version, const std::string &channel) override;
   bool start_update(const std::string &current_version) override;
+  bool start_update(const std::string &current_version, const std::string &channel) override;
   EspectreOtaStatus status() const override;
   void set_status_callback(StatusCallback callback) override;
   void set_prepare_for_update_callback(PrepareForUpdateCallback callback) override;
