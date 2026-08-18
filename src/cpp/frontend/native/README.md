@@ -12,7 +12,7 @@ The native frontend is intentionally separate from the ESPHome frontend:
 
 The native frontend now also supports HTTPS OTA triggered from its MQTT command plane.
 
-The current native frontend preserves the protocol used by the Device console in `docs/web/index.html`, but it is not tied to that specific client.
+The current native frontend preserves the protocol used by the browser BLE and MQTT tools in `docs/web/index.html`, but it is not tied to that specific client.
 
 ## Getting Started
 
@@ -22,7 +22,8 @@ If you arrived here from [`SETUP.md`](../../../../docs/SETUP.md), this README is
 
 The web flasher can install published `Native` images for supported chips. After flashing, use a BLE client that understands this protocol, such as:
 
-- [Device console](https://espectre.dev/#device): nearby provisioning followed by live MQTT sensing, tuning, and diagnostics in one session
+- [Configure](https://espectre.dev/#configure): Bluetooth provisioning for Wi-Fi, MQTT, and the device name
+- [Monitor](https://espectre.dev/#monitor): MQTT telemetry, tuning, and diagnostics
 - [The Game](https://espectre.dev/game/): example interactive client over MQTT after BLE setup
 
 Each release and snapshot publishes one full-flash native image and one application-only OTA payload per supported chip. Both contain the same application features; the smaller `-ota.bin` file omits the bootloader, partition table, and other full-flash regions required only for USB recovery. GitHub Pages stages only the full-flash image for the browser flasher.
@@ -41,9 +42,9 @@ Repository CLI:
 
 The CLI is a thin wrapper over the ESP-IDF app in this directory. On Windows, use `.\espectre.cmd native ...` and `.\espectre.cmd monitor --port COM5`. Docker can replace local ESP-IDF for `build`; `flash` and `doctor` continue to use the local environment.
 
-### Web Device Console
+### Browser Configure and Monitor tools
 
-[Device console](https://espectre.dev/#device) is the reference browser client. It uses Web Bluetooth only for nearby Wi-Fi, MQTT, and device-label setup, then hands the same visible session to MQTT over WebSockets for live sensing, runtime controls, diagnostics, and recovery. Run `./espectre ui ble` to serve the same application from localhost.
+[Configure](https://espectre.dev/#configure) is the reference browser BLE client. It uses Web Bluetooth only for nearby Wi-Fi, MQTT, and device-label setup. [Monitor](https://espectre.dev/#monitor) then uses MQTT over WebSockets for runtime controls, diagnostics, and recovery. Run `./espectre ui configure` or `./espectre ui monitor` to serve the same application from localhost.
 
 Current capabilities:
 
@@ -58,7 +59,7 @@ Current capabilities:
 - select `2g`, `5g`, or `auto` over BLE when sysinfo reports `supports_wifi_5ghz=true`
 - provision or clear MQTT configuration over BLE
 - request OTA status, check for updates, and start HTTPS OTA over BLE
-- stop BLE after Wi-Fi and MQTT are saved with `STOP_BLE`; disconnecting the nearby setup client leaves BLE advertising so setup can be reopened without another recovery action
+- stop BLE after Wi-Fi and MQTT are saved with `STOP_BLE`; disconnecting the Configure client leaves BLE advertising so setup can be reopened without another recovery action
 - restart BLE later with MQTT `set_ble` (`ble on` in `./espectre mqtt`)
 - restart BLE without MQTT by holding the board BOOT button for the configured recovery interval, 3 seconds by default
 - use sensing controls over canonical MQTT with `commands`, `set_threshold`, `set_motion_hits`, `set_detector`, `recalibrate`, `set_csi_traffic_mode`, `set_traffic_generator_mode`, and `set_ble`
@@ -76,18 +77,18 @@ Requirements:
 Recommended local workflow from the repository root:
 
 ```bash
-./espectre ui ble
+./espectre ui configure
 ```
 
 Usage notes:
 
-1. open the Device console, click `Connect nearby device`, and select the ESPectre device
+1. open Configure, click `Connect nearby device`, and select the ESPectre device
 2. wait for the initial `REQ_SYSINFO` refresh after notifications start
 3. use `Save Wi-Fi` to send one atomic `SET_WIFI_CONFIG` update
 4. use `Save MQTT` to send one atomic `SET_MQTT_CONFIG` update and enable MQTT transport
 5. use `Save Device` to persist the human-facing `device_label`
-6. select `Start sensing`; the console connects to the broker, waits for MQTT `set_ble off` to be accepted, then opens Live and reports sensing as active after the first valid device telemetry
-7. adjust MQTT-owned runtime settings directly in Live; changes apply when their fields change, while OTA status and on-demand diagnostics remain in the collapsed Diagnostics section below
+6. select `Start sensing`; Monitor connects to the broker, waits for MQTT `set_ble off` to be accepted, then opens live sensing and reports sensing as active after the first valid device telemetry
+7. adjust MQTT-owned runtime settings directly in Monitor; changes apply when their fields change, while OTA status and on-demand diagnostics remain in the collapsed Diagnostics section below
 
 The shared protocol semantics remain documented in [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md).
 
@@ -240,7 +241,7 @@ While BLE is up, Native uses the NimBLE default advertising and connection timin
 Check the active Wi-Fi values first:
 
 1. request fresh sysinfo and inspect `wifi_ssid`, `wifi_bssid`, `wifi_channel`, `wifi_band_policy`, and `wifi_connected`
-2. in the Device console’s Connectivity view, press `Save Wi-Fi` and wait for the station reconnect after the atomic `SET_WIFI_CONFIG` update
+2. in nearby BLE setup, press `Save Wi-Fi` and wait for the station reconnect after the atomic `SET_WIFI_CONFIG` update
 3. if no provisioning has been stored yet, verify the Kconfig defaults used at build time:
    - `ESPECTRE_WIFI_SSID`
    - `ESPECTRE_WIFI_PASSWORD`
@@ -270,5 +271,5 @@ The firmware app uses the shared standalone Wi-Fi manager for station setup, BSS
 - `../../runtime/esp_idf/frontend_support/wifi_provisioning_service.cpp`: shared ESP-IDF Wi-Fi provisioning command handling
 - `espectre/native_frontend.cpp`: command parsing and sysinfo emission
 - `../../runtime/esp_idf/frontend_support/ble_bindings_nimble.cpp`: NimBLE transport implementation
-- `../../../../docs/web/index.html`: unified nearby setup and MQTT Device console
+- `../../../../docs/web/index.html`: browser Configure and Monitor tools
 - [The Game](https://espectre.dev/game/): published example client over MQTT after BLE setup

@@ -36,9 +36,9 @@ def _add_ui_parser(subparsers, *, name: str = "ui", help_text: str | None = "Ope
     ui_parser.add_argument(
         "interface",
         nargs="?",
-        choices=["mqtt", "ble", "theremin"],
-        default="mqtt",
-        help="Web UI to open (default: mqtt)",
+        choices=["flash", "ble", "mqtt", "configure", "monitor", "theremin"],
+        default="monitor",
+        help="Web UI to open (default: monitor)",
     )
     ui_parser.set_defaults(handler=lambda args: open_web_ui(args.interface))
     return ui_parser

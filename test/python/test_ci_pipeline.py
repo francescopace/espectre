@@ -280,6 +280,27 @@ def test_pages_build_outputs_do_not_overlap_committed_sources() -> None:
         ), f"Pages build output overlaps committed source: {generated_path}"
 
 
+def test_pages_verifier_spa_routes_match_the_route_registry() -> None:
+    verifier = load_script("verify_web_build")
+    verifier.verify_spa_routes()
+
+
+def test_pages_verifier_rejects_missing_spa_routes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    verifier = load_script("verify_web_build")
+    monkeypatch.setattr(verifier, "WEB_ROOT", tmp_path)
+    (tmp_path / "index.html").write_text('<main data-page="home"></main>', encoding="utf-8")
+    registry_dir = tmp_path / "assets" / "js"
+    registry_dir.mkdir(parents=True)
+    (registry_dir / "route-registry.js").write_text(
+        "{ name: 'home' }\n{ name: 'device' }\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match=r"missing=\['device'\]"):
+        verifier.verify_spa_routes()
+
+
 def test_generated_pages_have_sitemap_lastmod_ownership() -> None:
     static_pages = load_script("build_static_pages")
     sitemap_builder = load_script("build_sitemap")

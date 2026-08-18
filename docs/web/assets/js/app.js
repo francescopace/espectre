@@ -1,9 +1,9 @@
 /*
  * ESPectre - Website app shell
  *
- * Hash routing and a persistent session shared by every page. The Device
- * console uses Web Bluetooth for nearby setup and MQTT over WebSockets for
- * live sensing, runtime controls, diagnostics, and recovery orchestration.
+ * Hash routing and a persistent session shared by every page. Configure
+ * uses Web Bluetooth; Monitor uses MQTT over WebSockets for live sensing,
+ * runtime controls, diagnostics, and recovery.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -32,7 +32,12 @@
     // analytics.js is optional: the app must work with it blocked or absent.
     const track = (name, params) => window.trackEvent ? window.trackEvent(name, params) : false;
     const errorType = (error) => (error && error.name) || 'Error';
-    const activeToolName = () => routeRegistry.groupOf(route) === 'tools' ? route : 'device';
+    const activeToolName = () => routeRegistry.groupOf(route) === 'tools' ? route : 'monitor';
+    const LEGACY_TOOL_ROUTES = Object.freeze({
+        ble: 'configure',
+        mqtt: 'monitor',
+        device: 'configure'
+    });
     const LOCAL_DEVELOPMENT_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
     const MQTT_FORM_DEFAULTS = {
         host: 'homeassistant.local',
@@ -210,42 +215,24 @@
     }
 
     function setDeviceView(view, { focus = false } = {}) {
-        const target = ['live', 'connectivity'].includes(view)
-            ? view : 'live';
-        activeDeviceView = target;
-        let targetPanel = null;
-        $$('.js-device-view').forEach((panel) => {
-            panel.hidden = panel.dataset.deviceView !== target;
-            if (!panel.hidden) targetPanel = panel;
-        });
+        const targetRoute = view === 'connectivity' ? 'configure' : 'monitor';
+        activeDeviceView = targetRoute === 'configure' ? 'connectivity' : 'live';
+        if (route !== targetRoute) {
+            location.hash = '#' + targetRoute;
+            return;
+        }
+        const targetPanel = document.querySelector(
+            `[data-page="${targetRoute}"] .device-view[data-device-view="${activeDeviceView}"]`
+        );
         if (focus && targetPanel) {
             if (!targetPanel.hasAttribute('tabindex')) targetPanel.setAttribute('tabindex', '-1');
             targetPanel.focus({ preventScroll: true });
         }
-        if (target === 'live') {
+        if (targetRoute === 'monitor') {
             monitorResizeChart();
             if (monitor.bleRequested) ensureBleOffForLive();
         }
         syncDiagnosticsPolling();
-    }
-
-    function setDeviceSessionState(kind, message) {
-        const summary = $('.device-state-summary');
-        const pill = $('.js-device-state-pill');
-        const copy = $('.js-device-state-copy');
-        if (!pill || !copy) return;
-        const labels = {
-            error: 'Needs attention',
-            demo: 'Demo'
-        };
-        const hideStatus = kind === 'live' || kind === 'paused' || kind === 'connecting';
-        const label = hideStatus ? '' : (labels[kind] || '');
-        const statusCopy = hideStatus ? '' : (message || '');
-        pill.textContent = label;
-        pill.hidden = !label;
-        pill.classList.toggle('is-error', kind === 'error');
-        copy.textContent = statusCopy;
-        if (summary) summary.hidden = !label && !statusCopy;
     }
 
     function applySensingSnapshot(snapshot) {
@@ -280,15 +267,38 @@
     }
 
     function syncSensingControls() {
+        const detector = document.getElementById('sense-detector')?.value;
         $$('[data-mqtt-command]').forEach((panel) => {
             const supported = conn.mode === 'demo'
                 || !monitor.commandCatalogReady
                 || monitor.commands.has(panel.dataset.mqttCommand);
-            panel.hidden = !supported;
+            const lightweightOnly = panel.dataset.mqttCommand === 'recalibrate' && detector !== 'lightweight';
+            panel.hidden = !supported || lightweightOnly;
             panel.querySelectorAll('button, input, select').forEach((control) => {
-                control.disabled = !supported || (conn.mode !== 'demo' && !hasLiveDetection());
+                const calibrating = panel.dataset.mqttCommand === 'recalibrate' && monitor.calibrating;
+                control.disabled = !supported || lightweightOnly || calibrating
+                    || (conn.mode !== 'demo' && !hasLiveDetection());
             });
         });
+    }
+
+    function setCalibrationBusy(busy) {
+        monitor.calibrating = !!busy;
+        if (!monitor.calibrating && monitor.calibrationTimer) {
+            clearTimeout(monitor.calibrationTimer);
+            monitor.calibrationTimer = null;
+        }
+        const button = $('.js-sense-recalibrate');
+        if (button) {
+            button.textContent = monitor.calibrating ? 'Calibrating…' : 'Recalibrate';
+            button.setAttribute('aria-busy', monitor.calibrating ? 'true' : 'false');
+        }
+        syncSensingControls();
+    }
+
+    function scheduleCalibrationIdle(delayMs) {
+        clearTimeout(monitor.calibrationTimer);
+        monitor.calibrationTimer = setTimeout(() => setCalibrationBusy(false), delayMs);
     }
 
     function applyDeviceIdentity(data) {
@@ -483,7 +493,6 @@
         } catch (error) {
             suppressBleDisconnectTeardown = false;
             console.warn('STOP_BLE failed:', error);
-            setDeviceSessionState('paused', 'Setup is still open. Sensing remains paused.');
             toast('Setup could not close. Sensing remains paused.');
             return false;
         }
@@ -528,7 +537,6 @@
         conn.mode = 'mqtt';
         monitor.closingBleForLive = false;
         setStatus('connected');
-        setDeviceSessionState('live', 'Sensing is active.');
         setDeviceView('live', { focus: true });
         toast('Sensing is live.');
     }
@@ -536,11 +544,9 @@
     async function startDetection() {
         if (conn.mode === 'demo') {
             setDeviceView('live');
-            if (route !== 'device') location.hash = '#device';
             return;
         }
         if (conn.mode === 'mqtt' && monitorIsMqttLive()) {
-            if (route !== 'device') location.hash = '#device';
             setDeviceView('live');
             return;
         }
@@ -548,7 +554,6 @@
         const host = document.getElementById('mon-host').value.trim();
         if (!host || !monitorBaseTopic()) {
             toast('Save MQTT settings and the device ID before starting sensing.');
-            if (route !== 'device') location.hash = '#device';
             setDeviceView('connectivity');
             return;
         }
@@ -557,12 +562,12 @@
             setStatus('connecting');
         }
         monitor.closingBleForLive = true;
-        setDeviceSessionState('connecting', 'Starting sensing…');
+        setDeviceView('live');
         await monitorConnect();
     }
 
     function applySysinfo(snapshot) {
-        if (conn.mode === 'ble' && conn.toolName === 'device'
+        if (conn.mode === 'ble' && conn.toolName === 'configure'
                 && (snapshot.frontend || snapshot.chip || snapshot.proto_version)) {
             markToolReady('sysinfo');
         }
@@ -655,8 +660,8 @@
         setStatus('connecting');
         setTimeout(() => {
             conn.mode = 'demo';
-            conn.deviceName = 'ESPectre-DEMO';
-            conn.deviceBannerSub = 'simulated telemetry';
+            conn.deviceName = 'Demo Device';
+            conn.deviceBannerSub = '—';
             conn.threshold = 0.5;
             conn.movement = 0.04;
             conn.connectedAt = Date.now();
@@ -700,8 +705,8 @@
                 mqtt_username: 'mqtt',
                 topic_prefix: 'espectre/v1/devices',
                 device_id: '0x00007c2c6742bbac',
-                device_name: 'ESPectre-DEMO',
-                device_label: 'Living Room',
+                device_name: 'Demo Device',
+                device_label: 'Demo Device',
                 motion_hits: '4/3',
                 ota_state: 'up_to_date',
                 ota_busy: 'false',
@@ -710,9 +715,8 @@
                 ota_target_version: '',
                 ota_message: ''
             });
-            setDeviceSessionState('demo', 'Simulated sensing data. No device is connected.');
-            setDeviceView('live');
-            if (route !== 'device') location.hash = '#device';
+            if (route !== 'game' && route !== 'theremin') setDeviceView('live');
+            monitorResetChart();
             let t = 0;
             demoTimer = setInterval(() => {
                 t += 0.16;
@@ -787,7 +791,9 @@
         monitor.commandCatalogReady = false;
         monitor.bleRequested = false;
         monitor.handoffReady = false;
+        setCalibrationBusy(false);
         stopDiagnosticsPolling();
+        monitorResetChart();
         clearInterval(monitor.demoTimer);
         monitor.demoTimer = null;
         monitor.startedAt = 0;
@@ -895,16 +901,6 @@
                     : bleConnecting ? 'Connecting…' : label.dataset.supportedLabel;
             }
         });
-        const headerConnect = $('.js-header-connect');
-        if (headerConnect) {
-            const label = headerConnect.querySelector('.js-connect-label');
-            if (label) {
-                label.textContent = route === 'device' ? 'Connect device' : 'Start detection';
-            }
-            headerConnect.disabled = false;
-            headerConnect.setAttribute('aria-disabled', 'false');
-            headerConnect.title = '';
-        }
         $$('.js-ble-chip').forEach((chip) => {
             chip.classList.toggle('unavailable', !browserSupport.bluetooth);
             if (!browserSupport.bluetooth) {
@@ -946,10 +942,9 @@
         const bleConnecting = conn.status === 'connecting'
             && !!bleClient
             && !bleClient.connected;
-        const sessionExists = connected
-            || conn.mode === 'demo'
-            || (conn.status === 'connecting' && !bleConnecting);
+        const mqttConnecting = conn.status === 'connecting' && !bleConnecting;
         const bleSetup = connected && conn.mode === 'ble';
+        const mqttSession = live || mqttConnecting || monitor.closingBleForLive;
 
         $('.js-conn-disconnected').hidden = conn.status !== 'disconnected';
         $('.js-conn-connecting').hidden = conn.status !== 'connecting';
@@ -970,37 +965,24 @@
         $$('.js-live-energy').forEach((el) => { el.hidden = !showLiveEnergy; });
         const paused = $('.js-sensing-paused');
         if (paused) paused.hidden = conn.mode !== 'ble';
-        const onboarding = $('.js-device-onboarding');
-        const workspace = $('.js-device-workspace');
+        const configureOnboarding = $('.js-configure-onboarding');
+        const configureWorkspace = $('.js-configure-workspace');
+        const monitorOnboarding = $('.js-monitor-onboarding');
+        const monitorWorkspace = $('.js-monitor-workspace');
         const connectivitySetup = $('.js-connectivity-setup');
         const setupNote = $('.js-setup-mode-note');
-        const recovery = $('.connectivity-recovery');
         const edit = $('.js-device-edit-connectivity');
-        const recoveryButton = $('.js-cfg-start-ble');
-        if (onboarding) onboarding.hidden = sessionExists;
-        if (workspace) workspace.hidden = !sessionExists;
-        if (connectivitySetup) connectivitySetup.hidden = !bleSetup;
+        const startSensing = document.querySelector('[data-page="configure"] .js-start-detection');
+        if (configureOnboarding) configureOnboarding.hidden = bleSetup || conn.mode === 'demo';
+        if (configureWorkspace) configureWorkspace.hidden = !(bleSetup || conn.mode === 'demo');
+        if (monitorOnboarding) monitorOnboarding.hidden = mqttSession;
+        if (monitorWorkspace) monitorWorkspace.hidden = !mqttSession;
+        if (connectivitySetup) connectivitySetup.hidden = !(bleSetup || conn.mode === 'demo');
         if (setupNote) setupNote.hidden = !bleSetup;
-        if (recovery) recovery.hidden = !monitorIsMqttLive() || bleSetup;
-        if (recoveryButton) {
-            recoveryButton.textContent = monitor.bleRequested ? 'Connect nearby device' : 'Edit connectivity';
-        }
-        if (bleSetup && activeDeviceView !== 'connectivity' && !monitor.closingBleForLive) {
-            setDeviceView('connectivity');
-        }
+        if (startSensing) startSensing.disabled = monitor.closingBleForLive;
         if (edit) {
             edit.hidden = false;
             edit.disabled = monitor.closingBleForLive;
-            edit.textContent = bleSetup ? 'Start sensing' : 'Edit connectivity';
-        }
-        if (conn.mode === 'ble') {
-            setDeviceSessionState('paused', 'Detection is paused while connectivity settings are open.');
-        } else if (conn.status === 'connecting') {
-            setDeviceSessionState('connecting', 'Connecting through the broker and waiting for the device…');
-        } else if (conn.mode === 'demo') {
-            setDeviceSessionState('demo', 'Simulated sensing data. No device is connected.');
-        } else if (live) {
-            setDeviceSessionState('live', 'Sensing is active.');
         }
 
         $$('.js-device-name').forEach((el) => { el.textContent = conn.deviceName || 'ESPectre'; });
@@ -1018,6 +1000,7 @@
         syncDiagnosticsPolling();
         renderBrowserSupport();
         renderTelemetry();
+        syncDemoToast();
     }
 
     function renderTelemetry() {
@@ -1059,7 +1042,7 @@
             : 'ESPectre — Wi-Fi motion sensing';
         window.scrollTo(0, 0);
         if (route !== 'theremin') thereminStop();
-        if (route === 'device') monitorResizeChart();
+        if (route === 'monitor') monitorResizeChart();
         const contentPromise = $(`[data-page="${route}"] .js-static-content`)
             ? loadStaticContent(route)
             : Promise.resolve();
@@ -1085,8 +1068,8 @@
      * reports two page views.
      */
     function setRoute(next, { force = false, focus = true } = {}) {
-        const legacyTarget = next === 'configure' || next === 'monitor' ? 'device' : next;
-        const target = routeRegistry.has(legacyTarget) ? legacyTarget : 'home';
+        const remapped = LEGACY_TOOL_ROUTES[next] || next;
+        const target = routeRegistry.has(remapped) ? remapped : 'home';
         if (!force && target === route) return;
         const previousRoute = route;
         if (previousRoute === 'game' && target !== 'game') reportGameAbandon('route_change');
@@ -1178,6 +1161,12 @@
         el.hidden = false;
         clearTimeout(toastTimer);
         toastTimer = setTimeout(() => { el.hidden = true; }, 3200);
+    }
+
+    function syncDemoToast() {
+        const el = $('.js-demo-toast');
+        if (!el) return;
+        el.hidden = !(conn.mode === 'demo' && conn.status === 'connected');
     }
 
     /* ====================================================== scroll narrative */
@@ -1274,6 +1263,18 @@
     const FRONTEND_ORDER = ['native', 'esphome', 'matter'];
     const CHIP_ORDER = ['esp32', 'esp32s3'];
 
+    function flashManifestFrontends(manifest) {
+        const frontends = manifest && manifest.frontends;
+        if (!frontends || typeof frontends !== 'object' || Array.isArray(frontends)) {
+            const error = new Error(
+                'Firmware catalog format is invalid for browser flashing.'
+            );
+            error.name = 'FirmwareCatalogFormatError';
+            throw error;
+        }
+        return frontends;
+    }
+
     function byPreferredOrder(order, a, b) {
         const ia = order.indexOf(a);
         const ib = order.indexOf(b);
@@ -1320,8 +1321,9 @@
 
         try {
             const manifest = await flashLoadManifest(channelSel.value);
+            const frontendsMap = flashManifestFrontends(manifest);
 
-            const frontends = Object.entries(manifest.frontends || {})
+            const frontends = Object.entries(frontendsMap)
                 .sort(([a], [b]) => byPreferredOrder(FRONTEND_ORDER, a, b));
             const successKey = channelSel.value + ':success';
             if (!flash.catalogReports.has(successKey)) {
@@ -1347,7 +1349,8 @@
 
             $('.js-matter-panel').hidden = frontendSel.value !== 'matter';
 
-            const artifacts = ((manifest.frontends[frontendSel.value] || {}).artifacts || [])
+            const selectedFrontend = frontendsMap[frontendSel.value];
+            const artifacts = ((selectedFrontend || {}).artifacts || [])
                 .filter((a) => a.build_type === 'factory')
                 .sort((a, b) => byPreferredOrder(CHIP_ORDER, a.chip, b.chip));
             const previousChip = chipSel.value;
@@ -1373,7 +1376,7 @@
             }
 
             const installManifest = {
-                name: 'ESPectre ' + (manifest.frontends[frontendSel.value].label || frontendSel.value) + ' ' + artifact.chip_label,
+                name: 'ESPectre ' + ((selectedFrontend || {}).label || frontendSel.value) + ' ' + artifact.chip_label,
                 version: manifest.version,
                 builds: [{
                     chipFamily: artifact.chip_family,
@@ -1389,7 +1392,7 @@
             const model = document.createElement('strong');
             model.textContent = artifact.chip_label;
             const detail = document.createTextNode(
-                manifest.frontends[frontendSel.value].label + ' · ' + manifest.release_tag + ' '
+                ((selectedFrontend || {}).label || frontendSel.value) + ' · ' + manifest.release_tag + ' '
             );
             const channel = document.createElement('span');
             channel.className = 'mono-sub';
@@ -1623,6 +1626,14 @@
 
     /* ============================================================= monitor */
 
+    const MONITOR_CHART_WINDOW_MS = 5 * 60 * 1000;
+    const MONITOR_CHART_MAX_POINTS = 5 * 60 * 10;
+    const MONITOR_CHART_COALESCE_MS = 100;
+    const MONITOR_TELEMETRY_STALE_MS = 1500;
+    const MONITOR_CALIBRATION_FALLBACK_MS = 45 * 1000;
+    const MONITOR_CALIBRATION_SAFETY_MS = 90 * 1000;
+    const MONITOR_DEMO_CALIBRATION_MS = 2500;
+
     const monitor = {
         client: null,
         baseTopic: null,
@@ -1630,7 +1641,8 @@
         demoT: 0,
         demoMove: 0.05,
         points: [],
-        maxPoints: 120,
+        chartFrame: 0,
+        lastTelemetryAt: 0,
         startedAt: 0,
         connectedAt: 0,
         entryPoint: '',
@@ -1645,7 +1657,9 @@
         bleRequested: false,
         handoffReady: false,
         closingBleForLive: false,
-        diagTimer: null
+        diagTimer: null,
+        calibrating: false,
+        calibrationTimer: null
     };
 
     function monitorStatus(message) {
@@ -1773,7 +1787,7 @@
             if (suffix === 'status') {
                 const data = JSON.parse(text);
                 if (data.online === false) {
-                    setDeviceSessionState('error', 'The broker is connected, but the device is offline.');
+                    toast('The broker is connected, but the device is offline.');
                     monitorStatus('Device offline. Waiting for it to reconnect…');
                 }
                 return;
@@ -1800,6 +1814,7 @@
                 const movement = Number(data.movement_score ?? data.movement);
                 const threshold = Number(data.threshold);
                 if (!Number.isFinite(movement) || !Number.isFinite(threshold)) return;
+                monitor.lastTelemetryAt = Date.now();
                 applyMqttLiveTelemetry(
                     movement,
                     threshold,
@@ -1808,6 +1823,7 @@
                 return;
             }
             if (suffix === 'ha/movement/state') {
+                if (monitorHasFreshTelemetry()) return;
                 const movement = Number(text);
                 if (!Number.isFinite(movement)) return;
                 applyMqttLiveTelemetry(movement, conn.threshold, conn.motion ? 'motion' : 'idle');
@@ -1822,12 +1838,21 @@
                 return;
             }
             if (suffix === 'ha/motion/state') {
+                if (monitorHasFreshTelemetry()) return;
                 const motion = text === 'ON' || text === '1' || text === 'motion';
                 applyMqttLiveTelemetry(conn.movement, conn.threshold, motion ? 'motion' : 'idle');
                 return;
             }
             if (suffix === 'ha/detector/state') {
                 document.getElementById('sense-detector').value = text;
+                if (text !== 'lightweight') setCalibrationBusy(false);
+                else syncSensingControls();
+                return;
+            }
+            if (suffix === 'ha/calibrate/state') {
+                const calibrating = text === 'ON' || text === '1';
+                setCalibrationBusy(calibrating);
+                if (calibrating) scheduleCalibrationIdle(MONITOR_CALIBRATION_SAFETY_MS);
                 return;
             }
             if (suffix === 'ha/motion_on_hits/state') {
@@ -1861,15 +1886,52 @@
         }
     }
 
+    function monitorHasFreshTelemetry() {
+        return monitor.lastTelemetryAt > 0
+            && (Date.now() - monitor.lastTelemetryAt) < MONITOR_TELEMETRY_STALE_MS;
+    }
+
+    function monitorResetChart() {
+        monitor.points = [];
+        monitor.lastTelemetryAt = 0;
+        if (monitor.chartFrame) {
+            cancelAnimationFrame(monitor.chartFrame);
+            monitor.chartFrame = 0;
+        }
+    }
+
+    function monitorQueueChart() {
+        if (monitor.chartFrame) return;
+        monitor.chartFrame = requestAnimationFrame(() => {
+            monitor.chartFrame = 0;
+            monitorDrawChart();
+        });
+    }
+
     function monitorFeed(movement, threshold, state) {
-        monitor.points.push({ m: movement, t: threshold });
-        if (monitor.points.length > monitor.maxPoints) monitor.points.shift();
-        const motion = state === 'motion';
+        const now = Date.now();
+        const motion = state !== null && state !== undefined
+            ? state === 1 || state === 'motion'
+            : movement >= threshold;
+        const last = monitor.points[monitor.points.length - 1];
+        if (last && now - last.at < MONITOR_CHART_COALESCE_MS) {
+            last.m = movement;
+            last.t = threshold;
+            last.at = now;
+            last.on = motion;
+        } else {
+            monitor.points.push({ m: movement, t: threshold, at: now, on: motion });
+        }
+        const oldest = now - MONITOR_CHART_WINDOW_MS;
+        while (monitor.points.length
+                && (monitor.points[0].at < oldest || monitor.points.length > MONITOR_CHART_MAX_POINTS)) {
+            monitor.points.shift();
+        }
         const stateEl = $('.js-mon-state');
         stateEl.textContent = motion ? 'MOTION' : 'IDLE';
         stateEl.classList.toggle('motion', motion);
         $('.js-mon-move').textContent = movement.toFixed(3);
-        monitorDrawChart();
+        monitorQueueChart();
     }
 
     function monitorStat(value, digits, suffix) {
@@ -1890,29 +1952,66 @@
 
     function monitorDrawChart() {
         const canvas = $('.js-mon-chart');
+        if (!canvas) return;
         const ctx = canvas.getContext('2d');
         const width = canvas.width;
         const height = canvas.height;
         ctx.clearRect(0, 0, width, height);
-        if (monitor.points.length < 2) return;
+        if (width < 2 || height < 2 || monitor.points.length < 2) return;
 
         const styles = getComputedStyle(document.documentElement);
         const accent = styles.getPropertyValue('--accent').trim() || '#4f6bff';
+        const accentSoft = styles.getPropertyValue('--accent-soft').trim() || 'rgba(79, 107, 255, 0.09)';
         const dim = styles.getPropertyValue('--dim').trim() || '#888';
-        const maxValue = Math.max(
-            0.1,
-            ...monitor.points.map((p) => Math.max(p.m, p.t))
-        ) * 1.15;
-        const stepX = width / (monitor.maxPoints - 1);
-        const y = (v) => height - (v / maxValue) * (height - 8) - 4;
-        const x0 = width - (monitor.points.length - 1) * stepX;
+        const border = styles.getPropertyValue('--border').trim() || '#e6e9ee';
+        const labelH = 16;
+        const plotH = Math.max(8, height - labelH);
+        const now = monitor.points[monitor.points.length - 1].at;
+        const t0 = now - MONITOR_CHART_WINDOW_MS;
+        const x = (at) => ((at - t0) / MONITOR_CHART_WINDOW_MS) * width;
+        const y = (v) => plotH - Math.min(1, Math.max(0, v)) * (plotH - 8) - 4;
 
         ctx.lineWidth = 1;
+        ctx.strokeStyle = border;
+        ctx.fillStyle = dim;
+        ctx.font = '10px "JetBrains Mono", ui-monospace, monospace';
+        ctx.textBaseline = 'top';
+        const minuteMs = 60 * 1000;
+        const labelEvery = width >= 420 ? 1 : 2;
+        for (let age = MONITOR_CHART_WINDOW_MS; age >= 0; age -= minuteMs) {
+            const px = Math.max(0.5, Math.min(width - 0.5, x(now - age)));
+            ctx.beginPath();
+            ctx.moveTo(px, 0);
+            ctx.lineTo(px, plotH);
+            ctx.stroke();
+            const minutes = age / minuteMs;
+            if (minutes % labelEvery !== 0 && minutes !== 0) continue;
+            const label = minutes === 0 ? 'now' : `−${minutes}m`;
+            ctx.textAlign = minutes === 0 ? 'right' : (age === MONITOR_CHART_WINDOW_MS ? 'left' : 'center');
+            ctx.fillText(label, px, plotH + 2);
+        }
+
+        ctx.fillStyle = accentSoft;
+        let bandStart = null;
+        monitor.points.forEach((p) => {
+            if (p.on) {
+                if (bandStart === null) bandStart = p.at;
+                return;
+            }
+            if (bandStart !== null) {
+                ctx.fillRect(x(bandStart), 0, Math.max(1, x(p.at) - x(bandStart)), plotH);
+                bandStart = null;
+            }
+        });
+        if (bandStart !== null) {
+            ctx.fillRect(x(bandStart), 0, Math.max(1, x(now) - x(bandStart)), plotH);
+        }
+
         ctx.strokeStyle = dim;
         ctx.setLineDash([4, 4]);
         ctx.beginPath();
         monitor.points.forEach((p, i) => {
-            const px = x0 + i * stepX;
+            const px = x(p.at);
             i === 0 ? ctx.moveTo(px, y(p.t)) : ctx.lineTo(px, y(p.t));
         });
         ctx.stroke();
@@ -1922,7 +2021,7 @@
         ctx.strokeStyle = accent;
         ctx.beginPath();
         monitor.points.forEach((p, i) => {
-            const px = x0 + i * stepX;
+            const px = x(p.at);
             i === 0 ? ctx.moveTo(px, y(p.m)) : ctx.lineTo(px, y(p.m));
         });
         ctx.stroke();
@@ -1943,8 +2042,8 @@
         monitor.readyState = readiness;
         if (monitor.readyTracked) return;
         monitor.readyTracked = track('tool_ready', {
-            tool_name: 'device',
-            entry_point: monitor.entryPoint || 'device',
+            tool_name: 'monitor',
+            entry_point: monitor.entryPoint || 'monitor',
             transport: monitor.inputMode === 'mqtt' ? 'mqtt_websocket' : 'simulation',
             input_mode: monitor.inputMode,
             readiness,
@@ -1955,8 +2054,8 @@
     function monitorStopAll(reason = 'replaced') {
         if (monitor.inputMode && monitor.connectedAt) {
             track('tool_disconnect', {
-                tool_name: 'device',
-                entry_point: monitor.entryPoint || 'device',
+                tool_name: 'monitor',
+                entry_point: monitor.entryPoint || 'monitor',
                 transport: monitor.inputMode === 'mqtt' ? 'mqtt_websocket' : 'simulation',
                 input_mode: monitor.inputMode,
                 reason,
@@ -1971,7 +2070,7 @@
         if (!connection) {
             monitor.closingBleForLive = false;
             track('tool_connection', {
-                tool_name: 'device', entry_point: route,
+                tool_name: 'monitor', entry_point: route,
                 transport: 'mqtt_websocket', result: 'validation_failure'
             });
             if (conn.status === 'connecting' && !bleClient) setStatus('disconnected');
@@ -1986,7 +2085,7 @@
             monitorStatus('The local MQTT client could not be loaded.');
             monitor.closingBleForLive = false;
             track('tool_connection', {
-                tool_name: 'device', entry_point: route,
+                tool_name: 'monitor', entry_point: route,
                 transport: 'mqtt_websocket', result: 'dependency_failure',
                 error_type: errorType(error)
             });
@@ -2000,7 +2099,7 @@
         }
         monitorStopAll('replaced');
         monitor.closing = false;
-        monitor.points = [];
+        monitorResetChart();
         monitor.baseTopic = base;
         monitor.handoffReady = false;
         monitor.startedAt = Date.now();
@@ -2013,7 +2112,7 @@
         toast('Connecting to the broker…');
         // The URL is not tracked: it would carry the user's broker address.
         track('tool_connection', {
-            tool_name: 'device', entry_point: route,
+            tool_name: 'monitor', entry_point: route,
             transport: 'mqtt_websocket', result: 'attempt'
         });
         const client = window.mqtt.connect(url, {
@@ -2035,7 +2134,7 @@
                     ? 'Subscribe failed: ' + error.message
                     : 'Broker connected. Waiting for device telemetry…');
                 track('tool_connection', {
-                    tool_name: 'device',
+                    tool_name: 'monitor',
                     entry_point: monitor.entryPoint,
                     transport: 'mqtt_websocket',
                     result: error ? 'subscription_failure' : 'success',
@@ -2069,7 +2168,6 @@
                 monitor.closingBleForLive = false;
                 setDeviceView('live');
                 setStatus('connecting');
-                setDeviceSessionState('connecting', 'Starting sensing…');
                 monitorPublishCommand({ command: 'commands' }, {
                     pendingMessage: 'Reading device capabilities…',
                     statusFn: monitorStatus
@@ -2095,7 +2193,7 @@
             monitorStatus('Connection failed: ' + error.message);
             monitor.closingBleForLive = false;
             track('tool_connection', {
-                tool_name: 'device',
+                tool_name: 'monitor',
                 entry_point: monitor.entryPoint,
                 transport: 'mqtt_websocket',
                 result: 'failure',
@@ -2163,8 +2261,8 @@
 
     function diagnosticsPanelOpen() {
         const panel = $('.device-live-diagnostics');
-        const liveView = document.querySelector('.js-device-view[data-device-view="live"]');
-        return !!(panel && panel.open && liveView && !liveView.hidden);
+        const workspace = $('.js-monitor-workspace');
+        return !!(panel && panel.open && route === 'monitor' && workspace && !workspace.hidden);
     }
 
     function stopDiagnosticsPolling() {
@@ -2227,10 +2325,9 @@
         }
         try {
             await monitorPublishCommand({ command: 'set_ble', ble: 'on' }, {
-                pendingMessage: 'Opening nearby setup. Sensing will pause…'
+                pendingMessage: 'Opening Configure. Sensing will pause…'
             });
             monitor.bleRequested = true;
-            setDeviceSessionState('paused', 'Nearby setup is ready. Choose the device to edit connectivity.');
             renderConnection();
             await connectBle();
         } catch (error) {
@@ -2239,29 +2336,38 @@
         }
     }
 
-    function deviceBannerAction() {
-        if (conn.mode === 'ble') {
-            startDetection();
+    async function beginCalibration() {
+        if (monitor.calibrating) return;
+        setCalibrationBusy(true);
+        if (conn.mode === 'demo') {
+            toast('Calibration started. (demo)');
+            scheduleCalibrationIdle(MONITOR_DEMO_CALIBRATION_MS);
             return;
         }
-        monitorStartBle();
-    }
-
-    function sensingStatus(message) {
-        $('.js-sensing-command-status').textContent = message;
+        try {
+            const result = await monitorPublishCommand({ command: 'recalibrate' }, {
+                pendingMessage: 'Starting calibration…',
+                statusFn: toast
+            });
+            toast(result.message || 'Calibration started.');
+            scheduleCalibrationIdle(MONITOR_CALIBRATION_FALLBACK_MS);
+        } catch (error) {
+            toast(error.message);
+            setCalibrationBusy(false);
+        }
     }
 
     async function runSensingCommand(fields, pendingMessage, successMessage, demoUpdate) {
         if (conn.mode === 'demo') {
             if (demoUpdate) demoUpdate();
-            sensingStatus(successMessage + ' (demo)');
+            toast(successMessage + ' (demo)');
             return;
         }
         try {
-            const result = await monitorPublishCommand(fields, { pendingMessage, statusFn: sensingStatus });
-            sensingStatus(result.message || successMessage);
+            const result = await monitorPublishCommand(fields, { pendingMessage, statusFn: toast });
+            toast(result.message || successMessage);
         } catch (error) {
-            sensingStatus(error.message);
+            toast(error.message);
         }
     }
 
@@ -2275,7 +2381,7 @@
         if (diagnostics) {
             diagnostics.addEventListener('toggle', syncDiagnosticsPolling);
         }
-        $('.js-device-edit-connectivity').addEventListener('click', deviceBannerAction);
+        $('.js-device-edit-connectivity').addEventListener('click', monitorStartBle);
         $$('.js-firmware-update').forEach((button) => {
             button.addEventListener('click', (event) => otaOpen(event.currentTarget));
         });
@@ -2299,7 +2405,7 @@
         document.getElementById('sense-threshold').addEventListener('change', () => {
             const threshold = Number(document.getElementById('sense-threshold').value);
             if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
-                sensingStatus('Threshold must be between 0 and 1.');
+                toast('Threshold must be between 0 and 1.');
                 return;
             }
             runSensingCommand(
@@ -2311,6 +2417,7 @@
         });
         document.getElementById('sense-detector').addEventListener('change', () => {
             const detector = document.getElementById('sense-detector').value;
+            syncSensingControls();
             runSensingCommand(
                 { command: 'set_detector', detector },
                 'Applying detection profile…',
@@ -2321,7 +2428,7 @@
             const motionOnHits = Number(document.getElementById('sense-motion-on').value);
             const motionOffHits = Number(document.getElementById('sense-motion-off').value);
             if (![motionOnHits, motionOffHits].every((value) => Number.isInteger(value) && value >= 1 && value <= 20)) {
-                sensingStatus('Motion stability values must be whole numbers from 1 to 20.');
+                toast('Motion stability values must be whole numbers from 1 to 20.');
                 return;
             }
             runSensingCommand(
@@ -2332,11 +2439,7 @@
         };
         document.getElementById('sense-motion-on').addEventListener('change', applyMotionHits);
         document.getElementById('sense-motion-off').addEventListener('change', applyMotionHits);
-        $('.js-sense-recalibrate').addEventListener('click', () => runSensingCommand(
-            { command: 'recalibrate' },
-            'Starting calibration…',
-            'Calibration started.'
-        ));
+        $('.js-sense-recalibrate').addEventListener('click', beginCalibration);
         document.getElementById('sense-csi-mode').addEventListener('change', () => {
             const csiTrafficMode = document.getElementById('sense-csi-mode').value;
             runSensingCommand(
@@ -3025,13 +3128,11 @@
         $$('.js-connect-ble').forEach((btn) => btn.addEventListener('click', connectBle));
         $$('.js-start-detection').forEach((btn) => btn.addEventListener('click', () => startDetection()));
         $('.js-header-connect').addEventListener('click', () => {
-            if (route !== 'device') {
-                location.hash = '#device';
+            if (route === 'configure') {
+                connectBle();
                 return;
             }
-            if (conn.status === 'disconnected') connectBle();
-            else if (conn.mode === 'ble') startDetection();
-            else setDeviceView('live');
+            location.hash = '#configure';
         });
         $$('.js-demo').forEach((btn) => btn.addEventListener('click', connectDemo));
         $('.js-disconnect').addEventListener('click', disconnect);

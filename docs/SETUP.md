@@ -104,8 +104,8 @@ Normal flashes preserve the QR. Erasing the complete flash generates a new ident
 The same browser applications published on `espectre.dev` can be served from localhost when a local MQTT broker exposes an insecure `ws://` listener:
 
 ```bash
-./espectre ui mqtt
-./espectre ui ble
+./espectre ui monitor
+./espectre ui configure
 ./espectre ui theremin
 ```
 

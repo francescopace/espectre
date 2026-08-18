@@ -33,7 +33,7 @@ Remove from BLE:
 
 MQTT, Home Assistant Discovery, and ESPHome remain the sensing-control family. Native starts BLE automatically when Wi-Fi or MQTT is unconfigured, pauses CSI while BLE is up, keeps advertising across nearby client disconnects, stops BLE only when `STOP_BLE` or MQTT `set_ble` with `ble=off` explicitly closes setup, and does not lower the production occupancy floor to make BLE coexistence look ready.
 
-The web product presents one Device console rather than separate Configure and Monitor tools. Nearby setup owns only Wi-Fi, MQTT, and the mutable device label. Before closing BLE, the console connects and subscribes through the configured broker; it reports sensing as active only after valid device telemetry arrives. Runtime sensing configuration and diagnostics remain on MQTT. If MQTT cannot reopen BLE, holding BOOT for 3 seconds invokes the same BLE-start intent and pauses sensing without erasing configuration.
+The web product presents Configure and Monitor as separate tools. Configure owns only Wi-Fi, MQTT, and the mutable device label. Start sensing opens Monitor, which connects and subscribes through the configured broker and reports sensing as active only after valid device telemetry arrives. Edit connectivity returns to Configure. Runtime sensing configuration and diagnostics remain on Monitor. If MQTT cannot reopen BLE, holding BOOT for 3 seconds invokes the same BLE-start intent and pauses sensing without erasing configuration.
 
 The BLE telemetry characteristic UUID may remain in the GATT table so existing discovery still succeeds. Native does not notify on it, and `supports_live_telemetry` is false. BLE sysinfo capability flags for runtime sensing writes are false even when MQTT `info` still advertises those commands.
 
@@ -64,7 +64,7 @@ Rejected. HTTP would avoid the BLE/Wi-Fi radio conflict, but Native already has 
 Benefits:
 
 - CSI occupancy on the supported Native path is no longer competing with BLE
-- the Device console, Game, and Theremin have one live story: provision nearby, detect and operate over MQTT
+- nearby BLE setup, MQTT live sensing, Game, and Theremin have one live story: provision nearby, detect and operate over MQTT
 - the occupancy floor stays a sensing contract, not a BLE workaround
 
 Trade-offs:

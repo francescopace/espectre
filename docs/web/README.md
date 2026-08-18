@@ -8,7 +8,7 @@ Static single-page app published at `espectre.dev` through GitHub Pages.
 python -m http.server 8090 --directory docs/web
 ```
 
-Then open `http://localhost:8090`. The Flash tool and the Matter QR reader need a Chromium-based browser. The Device console’s nearby setup additionally needs `localhost` or HTTPS. Its live sensing views, Game, and Theremin use MQTT over WebSockets and do not need Bluetooth.
+Then open `http://localhost:8090`. The Flash tool and the Matter QR reader need a Chromium-based browser. Configure additionally needs `localhost` or HTTPS. Monitor, Game, and Theremin use MQTT over WebSockets and do not need Bluetooth.
 
 ## Static content pages
 
@@ -25,7 +25,7 @@ Edit shared fragments under `content/`, including `content/guides.html`, `conten
 Security-sensitive browser tools use pinned, same-origin copies under the generated `vendor/` directory in production:
 
 - ESP Web Tools 10.4.0 for serial firmware installation;
-- MQTT.js 5.3.0 for the Device console’s live MQTT-over-WebSocket session; and
+- MQTT.js 5.3.0 for Monitor’s live MQTT-over-WebSocket session; and
 - QRCode.js 1.0.0 for Matter pairing codes.
 
 Install and stage the pinned packages locally with:
@@ -68,7 +68,7 @@ The committed `.github/scripts/sitemap.template.xml` is the canonical URL invent
 
 ## BLE client API
 
-`assets/js/espectre-ble.js` is a dependency-free client for the ESPectre BLE setup surface defined in `docs/ESPECTRE_PROTOCOL.md`. It exposes two globals: `ESPectreBleClient` and `ESPectreValidationError`. Web Bluetooth needs a Chromium-based browser and a secure context (HTTPS or `localhost`); check `ESPectreBleClient.supported` before connecting. Native uses this surface for Wi-Fi, MQTT, identity, and OTA. Live sensing stays on MQTT.
+`assets/js/espectre-ble.js` is a dependency-free client for the ESPectre BLE setup surface defined in `docs/ESPECTRE_PROTOCOL.md`. It exposes two globals: `ESPectreBleClient` and `ESPectreValidationError`. Web Bluetooth needs a Chromium-based browser and a secure context (HTTPS or `localhost`); check `ESPectreBleClient.supported` before connecting. Native uses this surface for Wi-Fi, MQTT, identity, and OTA. Monitor stays on MQTT.
 
 Unlike the rest of the site, the client is **Apache-2.0** licensed (see [Apache-2.0.txt](assets/js/LICENSES/Apache-2.0.txt)), so any web application, including proprietary ones, can embed it.
 

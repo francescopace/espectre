@@ -24,11 +24,12 @@ If you want the fastest path, use the browser flasher:
 1. Open [espectre.dev/flash](https://espectre.dev/flash/) with a Chromium-based browser
 2. Pick the Native, ESPHome, or Matter firmware and ESP32 target
 3. Flash the board
-4. Open the Device console to provision connectivity, then continue into live sensing
+4. Open Configure to provision connectivity over Bluetooth, then continue into Monitor
 
 The browser tools share one site:
 
-- [Device console](https://espectre.dev/#device) provisions Native nearby, then continues seamlessly over MQTT for live sensing, tuning, and diagnostics
+- [Configure](https://espectre.dev/#configure) provisions Native over Bluetooth
+- [Monitor](https://espectre.dev/#monitor) watches motion, tunes detection, and inspects diagnostics over MQTT
 - [The Game](https://espectre.dev/game/) and [Theremin](https://espectre.dev/theremin/) provide interactive sensing demos
 
 GitHub Releases also provide Native OTA payloads; ESPHome updates are compiled and installed through ESPHome Device Builder after the device is adopted.
@@ -55,6 +56,10 @@ ESPectre includes two on-device detection profiles because deployments have diff
 | **Streamer** | CSI data capture, dataset collection, live experiments, and ML workflows | [Streamer frontend](src/cpp/frontend/streamer/README.md) |
 | **Micro-ESPectre** | MicroPython prototyping and optional Home Assistant MQTT Discovery | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
 | **SDK** | Custom firmware, smart-device makers, and OEM exploration | [EMBEDDING.md](docs/EMBEDDING.md) |
+
+![ESPectre Monitor](docs/web/assets/images/guides/mqtt-dashboard.png)
+
+*Monitor on espectre.dev: live movement score, threshold, detection profile, and diagnostics over MQTT.*
 
 ## Responsible Use
 

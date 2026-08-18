@@ -20,6 +20,8 @@ EXPECTED_CHIPS = {"esp32", "esp32c3", "esp32c5", "esp32c6", "esp32s3"}
 EXPECTED_FRONTENDS = {"esphome", "matter", "native"}
 SITEMAP_NAMESPACE = "http://www.sitemaps.org/schemas/sitemap/0.9"
 SITE_HOST = "espectre.dev"
+SPA_ROUTE_NAME_RE = re.compile(r"\{\s*name:\s*'([^']+)'")
+SPA_PAGE_ROUTE_RE = re.compile(r'<main\b[^>]*\bdata-page="([^"]+)"')
 EXPECTED_SITEMAP_PATHS = {
     "/",
     "/guides/",
@@ -60,30 +62,25 @@ def require_file(relative_path: str) -> Path:
     return path
 
 
+def registered_spa_routes() -> list[str]:
+    registry = require_file("assets/js/route-registry.js").read_text(encoding="utf-8")
+    routes = SPA_ROUTE_NAME_RE.findall(registry)
+    if not routes:
+        raise ValueError("Route registry contains no SPA routes")
+    return routes
+
+
 def verify_spa_routes() -> None:
     index = require_file("index.html").read_text(encoding="utf-8")
-    routes = (
-        "flash",
-        "configure",
-        "monitor",
-        "theremin",
-        "game",
-        "guides",
-        "guide-hardware",
-        "guide-setup",
-        "guide-placement",
-        "guide-detection",
-        "guide-firmware",
-        "docs",
-        "docs-api",
-        "docs-examples",
-        "docs-architecture",
-        "media",
-        "roadmap",
-    )
-    missing = [route for route in routes if f'data-page="{route}"' not in index]
-    if missing:
-        raise ValueError(f"Missing SPA routes: {missing}")
+    expected = registered_spa_routes()
+    found = SPA_PAGE_ROUTE_RE.findall(index)
+    missing = sorted(set(expected) - set(found))
+    unexpected = sorted(set(found) - set(expected))
+    if missing or unexpected or sorted(expected) != sorted(found):
+        raise ValueError(
+            "Invalid SPA route inventory: "
+            f"missing={missing}, unexpected={unexpected}"
+        )
 
 
 def verify_generated_pages() -> None:

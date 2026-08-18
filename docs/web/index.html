@@ -26,12 +26,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Instrument+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/styles.css?v=3.19.29">
-<script src="/assets/js/espectre-ble.js?v=3.19.29"></script>
-<script src="/assets/js/browser-support.js?v=3.19.29"></script>
-<script src="/assets/js/route-registry.js?v=3.19.29"></script>
-<script src="/assets/js/navigation.js?v=3.19.29" defer></script>
-<script src="/assets/js/analytics.js?v=3.19.29" defer></script>
+<link rel="stylesheet" href="/assets/css/styles.css?v=3.19.38">
+<script src="/assets/js/espectre-ble.js?v=3.19.38"></script>
+<script src="/assets/js/browser-support.js?v=3.19.38"></script>
+<script src="/assets/js/route-registry.js?v=3.19.38"></script>
+<script src="/assets/js/navigation.js?v=3.19.38" defer></script>
+<script src="/assets/js/analytics.js?v=3.19.38" defer></script>
 </head>
 <body>
 
@@ -392,7 +392,7 @@
         <article class="home-path home-path-primary">
           <div class="home-path-top"><span>01</span><span class="home-state">No code</span></div>
           <h3>Turn an ESP32 into a sensor.</h3>
-          <p>Install ESPHome, Native, or Matter firmware from the browser, connect it to Wi-Fi, and start publishing motion.</p>
+          <p>Install ESPectre firmware from the browser, connect it to Wi-Fi, and start publishing motion.</p>
           <ul>
             <li>One supported ESP32 board</li>
             <li>Your existing Wi-Fi network</li>
@@ -404,7 +404,7 @@
         <article class="home-path home-path-live">
           <div class="home-path-top"><span>02</span><span class="home-state">Native + MQTT</span></div>
           <h3>Try your sensor live.</h3>
-          <p>After the Device console has saved Wi-Fi and MQTT, start detection in the same workspace. Sensing runs over MQTT so Bluetooth can stay off the radio.</p>
+          <p>After nearby Bluetooth setup has saved Wi-Fi and MQTT, start detection over the broker. Sensing runs over MQTT so Bluetooth can stay off the radio.</p>
           <div class="demo-live">
             <div class="js-demo-connected" hidden>
               <div class="demo-meter-head"><span class="mono js-device-name">ESPectre</span><span class="mono js-motion-label">IDLE</span></div>
@@ -441,12 +441,17 @@
   <div class="tools-grid">
     <a href="#flash" class="tool-card tool-card-link">
       <div class="tool-head"><h2>Flash</h2><span class="chip js-flash-chip">WEB SERIAL</span></div>
-      <p>Install ESPHome, Native, or Matter firmware over USB from a supported desktop browser.</p>
+      <p>Install ESPectre firmware over USB from a supported desktop browser.</p>
       <span class="tool-open">Open →</span>
     </a>
-    <a href="#device" class="tool-card tool-card-link">
-      <div class="tool-head"><h2>Device</h2><span class="chip">BLE + MQTT</span></div>
-      <p>Set up connectivity, watch live sensing, tune detection, and run diagnostics in one place.</p>
+    <a href="#configure" class="tool-card tool-card-link">
+      <div class="tool-head"><h2>Configure</h2><span class="chip js-ble-chip">BLE</span></div>
+      <p>Set Wi-Fi, MQTT, and the device name over Bluetooth.</p>
+      <span class="tool-open">Open →</span>
+    </a>
+    <a href="#monitor" class="tool-card tool-card-link">
+      <div class="tool-head"><h2>Monitor</h2><span class="chip">MQTT</span></div>
+      <p>Watch live sensing, tune detection, and inspect diagnostics over the broker.</p>
       <span class="tool-open">Open →</span>
     </a>
     <a href="#game" class="tool-card tool-card-link">
@@ -498,7 +503,7 @@
         <a class="btn-ghost btn-sm js-flash-download" href="https://github.com/francescopace/espectre/releases" target="_blank" rel="noopener">Download binary</a>
       </div>
       <p class="tool-note">USB flashing is supported on desktop Chrome and Edge. <br>
-        After flashing Native, open the <a href="#device">Device console</a> to provision connectivity and start sensing.</p>
+        After flashing Native, open <a href="#configure">Configure</a> to provision connectivity, then <a href="#monitor">Monitor</a>.</p>
     </section>
     <section class="panel js-matter-panel" hidden>
       <h2>Matter commissioning</h2>
@@ -518,151 +523,53 @@
   </div>
 </main>
 
-<!-- ============================== Device ============================== -->
-<main class="js-page page-narrow page-tool" data-page="device" hidden>
-  <div class="breadcrumb"><a href="#tools">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Device</span></div>
-  <h1 class="page-title">Device console</h1>
-  <p class="page-sub">Set up connectivity, watch live sensing, tune detection, and inspect diagnostics without changing tools.</p>
+<!-- ============================== Configure ============================== -->
+<main class="js-page page-narrow page-tool" data-page="configure" hidden>
+  <div class="breadcrumb"><a href="#tools">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Configure</span></div>
+  <h1 class="page-title">Configure</h1>
+  <p class="page-sub">Set Wi-Fi, MQTT, and the device name over Bluetooth, then start sensing in Monitor.</p>
   <p class="support-notice js-ble-support" role="status" hidden></p>
 
-  <div class="js-device-onboarding">
-    <div class="device-connect-options">
-      <section class="device-connect-card" data-transport="ble">
-        <span class="device-connect-kicker">First setup or recovery</span>
-        <h3>Connect with Bluetooth</h3>
-        <p>Use a nearby connection to set Wi-Fi, MQTT, and the device name.</p>
-        <aside class="device-recovery-hint">
-          <strong>Device not appearing nearby?</strong>
-          <p>Hold the <strong>BOOT</strong> button for 3 seconds to activate BLE.</p>
-          <details>
-            <summary>Which of the two buttons is BOOT?</summary>
-            <div class="boot-button-guide">
-              <div class="boot-button-pair" aria-hidden="true">
-                <div><span class="boot-key">EN / RST</span><small>not this one</small></div>
-                <div><span class="boot-key boot-key-primary">BOOT / FLASH</span><small>hold this one</small></div>
-              </div>
-              <p>Choose the button labelled <strong>BOOT</strong> or <strong>FLASH</strong>.</p>
+  <div class="js-configure-onboarding">
+    <section class="device-connect-card empty-state" data-transport="ble">
+      <span class="device-connect-kicker">First setup or recovery</span>
+      <h3>Connect with Bluetooth</h3>
+      <p>Use a nearby connection to set Wi-Fi, MQTT, and the device name.</p>
+      <aside class="device-recovery-hint">
+        <strong>Device not appearing nearby?</strong>
+        <p>Hold the <strong>BOOT</strong> button for 3 seconds to activate BLE.</p>
+        <details>
+          <summary>Which of the two buttons is BOOT?</summary>
+          <div class="boot-button-guide">
+            <div class="boot-button-pair" aria-hidden="true">
+              <div><span class="boot-key">EN / RST</span><small>not this one</small></div>
+              <div><span class="boot-key boot-key-primary">BOOT / FLASH</span><small>hold this one</small></div>
             </div>
-          </details>
-        </aside>
-        <div class="device-connect-card-actions">
-          <button class="btn-primary js-connect-ble"><span class="js-connect-label">Connect nearby device</span></button>
-        </div>
-      </section>
-
-      <section class="device-connect-card" data-transport="mqtt">
-        <span class="device-connect-kicker">Already configured</span>
-        <h3>Connect with MQTT</h3>
-        <p>Use the broker to open live sensing, controls, and diagnostics.</p>
-        <div class="fields js-browser-broker-fields">
-          <div class="field"><label for="mon-host">Host</label><input type="text" id="mon-host" class="mono-input" value="homeassistant.local" placeholder="homeassistant.local" autocomplete="off" spellcheck="false"></div>
-          <div class="field-row">
-            <div class="field"><label for="mon-user">Username</label><input type="text" id="mon-user" value="mqtt" placeholder="mqtt" autocomplete="off"></div>
-            <div class="field"><label for="mon-pass">Password</label><input type="password" id="mon-pass" value="mqtt" placeholder="mqtt" autocomplete="off" spellcheck="false"></div>
+            <p>Choose the button labelled <strong>BOOT</strong> or <strong>FLASH</strong>.</p>
           </div>
-          <div class="field-row">
-            <div class="field">
-              <label for="mon-port">WebSocket port</label>
-              <div class="field-port-tls">
-                <input type="number" id="mon-port" value="9001" placeholder="9001">
-                <label class="check" for="mon-tls"><input type="checkbox" id="mon-tls"> TLS</label>
-              </div>
-            </div>
-            <div class="field"><label for="mon-path">WebSocket path</label><input type="text" id="mon-path" class="mono-input" value="/mqtt" autocomplete="off" spellcheck="false"></div>
-          </div>
-          <div class="field-row">
-            <div class="field"><label for="mon-topic-prefix">Topic prefix</label><input type="text" id="mon-topic-prefix" class="mono-input" value="espectre/v1/devices" placeholder="espectre/v1/devices" autocomplete="off" spellcheck="false"></div>
-            <div class="field"><label for="mon-device">Device ID</label><input type="text" id="mon-device" class="mono-input" placeholder="0x0000acebe64ae708" autocomplete="off" spellcheck="false"></div>
-          </div>
-        </div>
-        <div class="panel-actions">
-          <button class="btn-primary btn-sm js-mon-connect">Connect broker</button>
-        </div>
-        <div class="tool-note js-mon-status" role="status" hidden></div>
-      </section>
-    </div>
-    <div class="empty-alt"><button class="link-btn js-demo">or try the demo</button></div>
+        </details>
+      </aside>
+      <div class="device-connect-card-actions">
+        <button class="btn-primary js-connect-ble"><span class="js-connect-label">Connect nearby device</span></button>
+      </div>
+      <div class="empty-alt"><a href="#monitor" class="link-btn">or connect over MQTT if already configured</a></div>
+    </section>
   </div>
 
-  <div class="js-device-workspace" hidden>
+  <div class="js-configure-workspace" hidden>
     <div class="device-banner device-console-banner">
       <div class="device-banner-id">
         <div>
-          <h2 class="js-device-name">ESPectre</h2> 
+          <h2 class="js-device-name">ESPectre</h2>
           <div class="mono-sub js-device-banner-sub">—</div>
         </div>
       </div>
-      <div class="device-state-summary" hidden>
-        <span class="device-state-pill js-device-state-pill">Connecting</span>
-        <span class="js-device-state-copy">Preparing the device session…</span>
-      </div>
       <div class="device-banner-actions">
-        <button class="btn-ghost btn-sm js-device-edit-connectivity">Edit connectivity</button>
+        <button class="btn-primary btn-sm js-start-detection">Start sensing</button>
       </div>
     </div>
 
-    <section class="device-view js-device-view" data-device-view="live">
-      <div class="config-grid device-live-grid">
-        <section class="panel device-motion-panel">
-          <div class="device-motion-head">
-            <div><span class="stat-label">Current state</span><div class="device-motion-state js-mon-state">—</div></div>
-            <div class="device-motion-score"><span class="stat-label">Movement score</span><strong class="js-mon-move">—</strong></div>
-          </div>
-          <canvas class="mon-chart js-mon-chart" height="210"></canvas>
-          <p class="tool-note">Movement score versus threshold, last 60 seconds.</p>
-        </section>
-        <section class="panel">
-          <div class="live-sensing-controls">
-            <h2>Sensing controls</h2>
-            <p>Changes are sent to the device immediately.</p>
-            <div class="live-controls-grid">
-              <div class="field" data-mqtt-command="set_threshold">
-                <label for="sense-threshold">Detection threshold</label>
-                <input type="number" id="sense-threshold" min="0" max="1" step="0.01" value="0.5">
-              </div>
-              <div class="field" data-mqtt-command="set_detector">
-                <label for="sense-detector">Detection profile</label>
-                <select id="sense-detector"><option value="lightweight">Lightweight</option><option value="high_accuracy">High Accuracy</option></select>
-              </div>
-              <div class="field-row live-control-wide" data-mqtt-command="set_motion_hits">
-                <div class="field"><label for="sense-motion-on">Motion on hits</label><input type="number" id="sense-motion-on" min="1" max="20" value="3"></div>
-                <div class="field"><label for="sense-motion-off">Motion off hits</label><input type="number" id="sense-motion-off" min="1" max="20" value="3"></div>
-              </div>
-              <div class="field" data-mqtt-command="set_csi_traffic_mode">
-                <label for="sense-csi-mode">CSI traffic ownership</label>
-                <select id="sense-csi-mode"><option value="internal">Internal</option><option value="external">External</option><option value="pacing">Pacing</option><option value="disabled">Disabled</option></select>
-              </div>
-              <div class="field" data-mqtt-command="set_traffic_generator_mode">
-                <label for="sense-generator-mode">Internal generator</label>
-                <select id="sense-generator-mode"><option value="ping">Ping</option><option value="dns">DNS</option></select>
-              </div>
-              <div class="live-control-wide live-calibration" data-mqtt-command="recalibrate">
-                <div><strong>Calibration</strong><p>Keep the room quiet while Lightweight establishes a new baseline.</p></div>
-                <button class="btn-ghost btn-sm js-sense-recalibrate">Start calibration</button>
-              </div>
-            </div>
-            <p class="tool-note js-sensing-command-status" role="status"></p>
-          </div>
-        </section>
-      </div>
-
-      <details class="device-live-diagnostics">
-        <summary><span>Diagnostics</span><small>CSI pipeline, Wi-Fi, and runtime health</small></summary>
-        <div class="diag-grid mon-stats-tiles">
-          <div class="stat"><div class="stat-label">Traffic TX</div><div class="stat-value js-mon-traffic">—</div></div>
-          <div class="stat"><div class="stat-label">CSI callbacks</div><div class="stat-value js-mon-callbacks">—</div></div>
-          <div class="stat"><div class="stat-label">CSI filtered</div><div class="stat-value js-mon-filtered">—</div></div>
-          <div class="stat"><div class="stat-label">CSI admitted</div><div class="stat-value js-mon-admitted">—</div></div>
-          <div class="stat"><div class="stat-label">Wi-Fi channel</div><div class="stat-value js-mon-channel">—</div></div>
-          <div class="stat"><div class="stat-label">Wi-Fi RSSI</div><div class="stat-value js-mon-rssi">—</div></div>
-          <div class="stat"><div class="stat-label">Free heap</div><div class="stat-value js-mon-heap">—</div></div>
-          <div class="stat"><div class="stat-label">Loop time</div><div class="stat-value js-mon-loop">—</div></div>
-        </div>
-        <p class="tool-note js-mon-diag-status" role="status" hidden></p>
-      </details>
-    </section>
-
-    <section class="device-view js-device-view" data-device-view="connectivity" hidden>
+    <section class="device-view" data-device-view="connectivity">
       <div class="config-grid js-connectivity-setup" hidden>
       <section class="panel" data-capability="supports_wifi_provisioning">
         <h2 class="panel-title-status">Wi-Fi <span class="dot dot-idle js-wifi-status-dot" aria-hidden="true"></span></h2>
@@ -701,7 +608,7 @@
           <button class="btn-primary btn-sm js-mqtt-save">Save MQTT</button>
           <button class="btn-ghost btn-sm js-mqtt-clear">Clear MQTT</button>
         </div>
-        <p class="tool-note">Native firmware uses this TCP broker. The Device console connects over WebSockets from Connect with MQTT.</p>
+        <p class="tool-note">Native firmware uses this TCP broker. Monitor connects over WebSockets.</p>
       </section>
 
       <section class="panel" data-capability="supports_device_config">
@@ -716,25 +623,123 @@
         </div>
       </section>
       </div>
-      <div class="config-grid connectivity-recovery">
-      <section class="panel">
-        <h2>Nearby setup</h2>
-        <p class="panel-copy">Sensing is currently closed while BLE is active.</p>
-        <aside class="device-recovery-hint">
-          <strong>Device not appearing nearby?</strong>
-          <p>Hold the <strong>BOOT</strong> button for 3 seconds to activate BLE.</p>
-          <div class="boot-button-guide">
-            <p class="boot-button-heading">Which of the two buttons is BOOT?</p>
-            <div class="boot-button-pair" aria-hidden="true">
-              <div><span class="boot-key">EN / RST</span><small>not this one</small></div>
-              <div><span class="boot-key boot-key-primary">BOOT / FLASH</span><small>hold this one</small></div>
+    </section>
+  </div>
+</main>
+
+<!-- ============================== Monitor ============================== -->
+<main class="js-page page-narrow page-tool" data-page="monitor" hidden>
+  <div class="breadcrumb"><a href="#tools">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Monitor</span></div>
+  <h1 class="page-title">Monitor</h1>
+  <p class="page-sub">Watch live motion, tune detection, and inspect diagnostics over MQTT.</p>
+  <p class="support-notice js-mqtt-support" role="status" hidden></p>
+
+  <div class="js-monitor-onboarding">
+    <section class="device-connect-card empty-state" data-transport="mqtt">
+      <span class="device-connect-kicker">Already configured</span>
+      <h3>Connect with MQTT</h3>
+      <p>Use the broker to open live sensing, controls, and diagnostics.</p>
+      <div class="fields js-browser-broker-fields">
+        <div class="field"><label for="mon-host">Host</label><input type="text" id="mon-host" class="mono-input" value="homeassistant.local" placeholder="homeassistant.local" autocomplete="off" spellcheck="false"></div>
+        <div class="field-row">
+          <div class="field"><label for="mon-user">Username</label><input type="text" id="mon-user" value="mqtt" placeholder="mqtt" autocomplete="off"></div>
+          <div class="field"><label for="mon-pass">Password</label><input type="password" id="mon-pass" value="mqtt" placeholder="mqtt" autocomplete="off" spellcheck="false"></div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="mon-port">WebSocket port</label>
+            <div class="field-port-tls">
+              <input type="number" id="mon-port" value="9001" placeholder="9001">
+              <label class="check" for="mon-tls"><input type="checkbox" id="mon-tls"> TLS</label>
             </div>
-            <p>Choose the button labelled <strong>BOOT</strong> or <strong>FLASH</strong>.</p>
           </div>
-        </aside>
-      </section>
+          <div class="field"><label for="mon-path">WebSocket path</label><input type="text" id="mon-path" class="mono-input" value="/mqtt" autocomplete="off" spellcheck="false"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label for="mon-topic-prefix">Topic prefix</label><input type="text" id="mon-topic-prefix" class="mono-input" value="espectre/v1/devices" placeholder="espectre/v1/devices" autocomplete="off" spellcheck="false"></div>
+          <div class="field"><label for="mon-device">Device ID</label><input type="text" id="mon-device" class="mono-input" placeholder="0x0000acebe64ae708" autocomplete="off" spellcheck="false"></div>
+        </div>
+      </div>
+      <div class="panel-actions">
+        <button class="btn-primary btn-sm js-mon-connect">Connect broker</button>
+      </div>
+      <div class="tool-note js-mon-status" role="status" hidden></div>
+      <div class="empty-alt"><button class="link-btn js-demo">or try the demo</button></div>
+    </section>
+  </div>
+
+  <div class="js-monitor-workspace" hidden>
+    <div class="device-banner device-console-banner">
+      <div class="device-banner-id">
+        <div>
+          <h2 class="js-device-name">ESPectre</h2>
+          <div class="mono-sub js-device-banner-sub">—</div>
+        </div>
+      </div>
+      <div class="device-banner-actions">
+        <button class="btn-ghost btn-sm js-device-edit-connectivity">Edit connectivity</button>
       </div>
     </div>
+
+    <section class="device-view" data-device-view="live">
+      <div class="config-grid device-live-grid">
+        <section class="panel device-motion-panel">
+          <div class="device-motion-head">
+            <div><span class="stat-label">Current state</span><div class="device-motion-state js-mon-state">—</div></div>
+            <div class="device-motion-score"><span class="stat-label">Movement score</span><strong class="js-mon-move">—</strong></div>
+          </div>
+          <canvas class="mon-chart js-mon-chart" height="210"></canvas>
+          <p class="tool-note">Movement score versus threshold, last 5 minutes.</p>
+        </section>
+        <section class="panel">
+          <div class="live-sensing-controls">
+            <h2>Sensing controls</h2>
+            <p>Changes are sent to the device immediately.</p>
+            <div class="live-controls-grid">
+              <div class="field" data-mqtt-command="set_threshold">
+                <label for="sense-threshold">Detection threshold</label>
+                <input type="number" id="sense-threshold" min="0" max="1" step="0.01" value="0.5">
+              </div>
+              <div class="field" data-mqtt-command="set_detector">
+                <label for="sense-detector">Detection profile</label>
+                <select id="sense-detector"><option value="lightweight">Lightweight</option><option value="high_accuracy">High Accuracy</option></select>
+              </div>
+              <div class="live-control-wide live-calibration" data-mqtt-command="recalibrate">
+                <div><strong>Lightweight Calibration</strong><p>Keep the room quiet while detector establishes a new baseline.</p></div>
+                <button class="btn-ghost btn-sm js-sense-recalibrate">Recalibrate</button>
+              </div>
+              <div class="field-row live-control-wide" data-mqtt-command="set_motion_hits">
+                <div class="field"><label for="sense-motion-on">Motion on hits</label><input type="number" id="sense-motion-on" min="1" max="20" value="3"></div>
+                <div class="field"><label for="sense-motion-off">Motion off hits</label><input type="number" id="sense-motion-off" min="1" max="20" value="3"></div>
+              </div>
+              <div class="field" data-mqtt-command="set_csi_traffic_mode">
+                <label for="sense-csi-mode">CSI traffic ownership</label>
+                <select id="sense-csi-mode"><option value="internal">Internal</option><option value="external">External</option><option value="pacing">Pacing</option><option value="disabled">Disabled</option></select>
+              </div>
+              <div class="field" data-mqtt-command="set_traffic_generator_mode">
+                <label for="sense-generator-mode">Internal generator</label>
+                <select id="sense-generator-mode"><option value="ping">Ping</option><option value="dns">DNS</option></select>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <details class="device-live-diagnostics">
+        <summary><span>Diagnostics</span><small>CSI pipeline, Wi-Fi, and runtime health</small></summary>
+        <div class="diag-grid mon-stats-tiles">
+          <div class="stat"><div class="stat-label">Traffic TX</div><div class="stat-value js-mon-traffic">—</div></div>
+          <div class="stat"><div class="stat-label">CSI callbacks</div><div class="stat-value js-mon-callbacks">—</div></div>
+          <div class="stat"><div class="stat-label">CSI filtered</div><div class="stat-value js-mon-filtered">—</div></div>
+          <div class="stat"><div class="stat-label">CSI admitted</div><div class="stat-value js-mon-admitted">—</div></div>
+          <div class="stat"><div class="stat-label">Wi-Fi channel</div><div class="stat-value js-mon-channel">—</div></div>
+          <div class="stat"><div class="stat-label">Wi-Fi RSSI</div><div class="stat-value js-mon-rssi">—</div></div>
+          <div class="stat"><div class="stat-label">Free heap</div><div class="stat-value js-mon-heap">—</div></div>
+          <div class="stat"><div class="stat-label">Loop time</div><div class="stat-value js-mon-loop">—</div></div>
+        </div>
+        <p class="tool-note js-mon-diag-status" role="status" hidden></p>
+      </details>
+    </section>
   </div>
 </main>
 
@@ -748,7 +753,7 @@
   <div class="empty-state js-needs-live">
     <svg width="44" height="44" viewBox="0 0 32 32" aria-hidden="true" class="empty-ghost"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="none" stroke="var(--dim)" stroke-width="1.6"/><circle cx="12.2" cy="13.5" r="1.7" fill="var(--dim)"/><circle cx="19.8" cy="13.5" r="1.7" fill="var(--dim)"/></svg>
     <h2>No live detection</h2>
-    <p>The theremin turns live motion energy into sound. Start sensing from the Device console — or run the demo.</p>
+    <p>The theremin turns live motion energy into sound. Start sensing from Monitor — or run the demo.</p>
     <button class="btn-primary js-start-detection"><span class="js-connect-label">Start detection</span></button>
     <div class="empty-alt"><button class="link-btn js-demo">or try the demo</button></div>
   </div>
@@ -771,7 +776,7 @@
           </select>
         </div>
       </div>
-      <p class="tool-note">Audio starts only after you press play — browsers require a gesture to unlock sound.</p>
+      <p class="tool-note">Audio starts only after you press play.</p>
     </div>
   </div>
 </main>
@@ -786,7 +791,7 @@
   <div class="empty-state js-needs-live">
     <svg width="44" height="44" viewBox="0 0 32 32" aria-hidden="true" class="empty-ghost"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="none" stroke="var(--dim)" stroke-width="1.6"/><circle cx="12.2" cy="13.5" r="1.7" fill="var(--dim)"/><circle cx="19.8" cy="13.5" r="1.7" fill="var(--dim)"/></svg>
     <h2>No live detection</h2>
-    <p>Your body is the controller: stand still, then move fast when the Spectre strikes. Start sensing from the Device console — or run the demo.</p>
+    <p>Your body is the controller: stand still, then move fast when the Spectre strikes. Start sensing from Monitor — or run the demo.</p>
     <button class="btn-primary js-start-detection"><span class="js-connect-label">Start detection</span></button>
     <div class="empty-alt"><button class="link-btn js-demo">or try the demo</button></div>
   </div>
@@ -814,35 +819,35 @@
 
 <!-- ============================== Guides ============================== -->
 <main class="js-page page-narrow" data-page="guides" hidden>
-  <div class="js-static-content" data-content-url="content/guides.html?v=3.19.29" data-static-url="/guides/">
+  <div class="js-static-content" data-content-url="content/guides.html?v=3.19.38" data-static-url="/guides/">
     <p class="guide-loading">Loading guides…</p>
   </div>
 </main>
 
 <!-- ============================== Docs ============================== -->
 <main class="js-page page-narrow" data-page="docs" hidden>
-  <div class="js-static-content" data-content-url="content/docs.html?v=3.19.29" data-static-url="/docs/">
+  <div class="js-static-content" data-content-url="content/docs.html?v=3.19.38" data-static-url="/docs/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
 
 <!-- ============================== Media ============================== -->
 <main class="js-page page-narrow" data-page="media" hidden>
-  <div class="js-static-content" data-content-url="content/media.html?v=3.19.29" data-static-url="/media/">
+  <div class="js-static-content" data-content-url="content/media.html?v=3.19.38" data-static-url="/media/">
     <p class="guide-loading">Loading media…</p>
   </div>
 </main>
 
 <!-- ============================== Roadmap ============================== -->
 <main class="js-page page-narrow" data-page="roadmap" hidden>
-  <div class="js-static-content" data-content-url="content/roadmap.html?v=3.19.29" data-static-url="/roadmap/">
+  <div class="js-static-content" data-content-url="content/roadmap.html?v=3.19.38" data-static-url="/roadmap/">
     <p class="guide-loading">Loading roadmap…</p>
   </div>
 </main>
 
 <!-- ============================== Privacy ============================== -->
 <main class="js-page page-narrow" data-page="privacy" hidden>
-  <div class="js-static-content" data-content-url="content/privacy.html?v=3.19.29" data-static-url="/privacy/">
+  <div class="js-static-content" data-content-url="content/privacy.html?v=3.19.38" data-static-url="/privacy/">
     <p class="guide-loading">Loading privacy notice…</p>
   </div>
 </main>
@@ -850,7 +855,7 @@
 <!-- ============================== Guide: Hardware ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-hardware" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Hardware</span></div>
-  <div class="js-static-content" data-content-url="content/guides/hardware.html?v=3.19.29" data-static-url="/guides/hardware/">
+  <div class="js-static-content" data-content-url="content/guides/hardware.html?v=3.19.38" data-static-url="/guides/hardware/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -858,7 +863,7 @@
 <!-- ============================== Guide: Setup ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-setup" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Flash &amp; Wi-Fi setup</span></div>
-  <div class="js-static-content" data-content-url="content/guides/setup.html?v=3.19.29" data-static-url="/guides/setup/">
+  <div class="js-static-content" data-content-url="content/guides/setup.html?v=3.19.38" data-static-url="/guides/setup/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -866,7 +871,7 @@
 <!-- ============================== Guide: Placement ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-placement" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Place your sensor</span></div>
-  <div class="js-static-content" data-content-url="content/guides/placement.html?v=3.19.29" data-static-url="/guides/placement/">
+  <div class="js-static-content" data-content-url="content/guides/placement.html?v=3.19.38" data-static-url="/guides/placement/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -874,7 +879,7 @@
 <!-- ============================== Guide: Detection ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-detection" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">How detection works</span></div>
-  <div class="js-static-content" data-content-url="content/guides/detection.html?v=3.19.29" data-static-url="/guides/detection/">
+  <div class="js-static-content" data-content-url="content/guides/detection.html?v=3.19.38" data-static-url="/guides/detection/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -882,7 +887,7 @@
 <!-- ============================== Guide: Detection profiles ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-detectors" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Choose a detection profile</span></div>
-  <div class="js-static-content" data-content-url="content/guides/detectors.html?v=3.19.29" data-static-url="/guides/detectors/">
+  <div class="js-static-content" data-content-url="content/guides/detectors.html?v=3.19.38" data-static-url="/guides/detectors/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -890,7 +895,7 @@
 <!-- ============================== Guide: Custom firmware ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-firmware" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Build custom firmware</span></div>
-  <div class="js-static-content" data-content-url="content/guides/firmware.html?v=3.19.29" data-static-url="/guides/custom-firmware/">
+  <div class="js-static-content" data-content-url="content/guides/firmware.html?v=3.19.38" data-static-url="/guides/custom-firmware/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -898,7 +903,7 @@
 <!-- ============================== Docs: API ============================== -->
 <main class="js-page page-narrow page-article" data-page="docs-api" hidden>
   <div class="breadcrumb"><a href="/docs/">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">API orientation</span></div>
-  <div class="js-static-content" data-content-url="content/docs/api.html?v=3.19.29" data-static-url="/docs/api/">
+  <div class="js-static-content" data-content-url="content/docs/api.html?v=3.19.38" data-static-url="/docs/api/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -906,7 +911,7 @@
 <!-- ============================== Docs: Examples ============================== -->
 <main class="js-page page-narrow page-article" data-page="docs-examples" hidden>
   <div class="breadcrumb"><a href="/docs/">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">Examples</span></div>
-  <div class="js-static-content" data-content-url="content/docs/examples.html?v=3.19.29" data-static-url="/docs/examples/">
+  <div class="js-static-content" data-content-url="content/docs/examples.html?v=3.19.38" data-static-url="/docs/examples/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -914,7 +919,7 @@
 <!-- ============================== Docs: Architecture ============================== -->
 <main class="js-page page-narrow page-article" data-page="docs-architecture" hidden>
   <div class="breadcrumb"><a href="/docs/">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">Architecture</span></div>
-  <div class="js-static-content" data-content-url="content/docs/architecture.html?v=3.19.29" data-static-url="/docs/architecture/">
+  <div class="js-static-content" data-content-url="content/docs/architecture.html?v=3.19.38" data-static-url="/docs/architecture/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -973,7 +978,8 @@
 </div>
 
 <div class="toast js-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+<div class="toast toast-sticky js-demo-toast" role="status" aria-live="polite" hidden>Demo mode - Motion is simulated by moving the mouse.</div>
 
-<script src="/assets/js/app.js?v=3.19.29"></script>
+<script src="/assets/js/app.js?v=3.19.38"></script>
 </body>
 </html>

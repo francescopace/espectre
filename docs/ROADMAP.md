@@ -31,9 +31,7 @@ Before deploy:
 
 - [ ] Test flashing firmware onto a device
 - [ ] Test an OTA update (the `stable` versus `snapshot` channel is currently hardcoded; pass it with the OTA request)
-- [ ] Test recalibration
 - [ ] Review docs/web content, imagery, UX, and UI for release readiness
-- [ ] Capture a current Home Assistant visualization for the project overview and docs
 - [ ] Update devices performance report 
 
 After deploy:

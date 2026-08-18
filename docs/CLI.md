@@ -281,15 +281,22 @@ MQTT commands are forwarded to the selected device. The shell keeps only local u
 
 Supported interfaces:
 
-- `mqtt`
-- `ble`
-- `theremin`
+- `flash` opens the Flash console
+- `configure` or `ble` opens Configure (Bluetooth nearby setup)
+- `monitor` or `mqtt` opens Monitor (live MQTT sensing)
+- `theremin` opens the motion theremin
+
+`./espectre ui monitor` is the browser Monitor tool. Serial logs remain `./espectre monitor`.
 
 Examples:
 
 ```bash
 ./espectre ui
+./espectre ui flash
+./espectre ui configure
+./espectre ui monitor
 ./espectre ui ble
+./espectre ui mqtt
 ./espectre ui theremin
 ```
 

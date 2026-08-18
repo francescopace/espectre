@@ -275,7 +275,6 @@ button:disabled { cursor: not-allowed; }
   display: block;
   flex: none;
 }
-.site-header .brand img { filter: brightness(0) invert(1); }
 .brand:hover { text-decoration: none; }
 .main-nav { display: flex; gap: 4px; flex: 1; }
 .nav-toggle {
@@ -1083,7 +1082,7 @@ a.hero-badge:hover {
   border: none;
   box-shadow: none;
 }
-.device-connect-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; text-align: left; }
+.device-connect-options { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; max-width: 720px; text-align: left; }
 .device-connect-card {
   display: flex;
   flex-direction: column;
@@ -1791,7 +1790,7 @@ esp-web-install-button { display: inline-block; }
 
 .mon-chart {
   width: 100%;
-  height: 180px;
+  height: 196px;
   display: block;
   background: var(--surface2);
   border-radius: 10px;
@@ -1801,30 +1800,6 @@ esp-web-install-button { display: inline-block; }
 /* Device console */
 
 .device-console-banner { align-items: center; }
-.device-state-summary {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--dim);
-  font-size: 13px;
-}
-.device-state-summary[hidden] { display: none; }
-.device-state-pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 25px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: var(--surface2);
-  color: var(--dim);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-}
-.device-state-pill[hidden] { display: none; }
-.device-state-pill.is-error { background: color-mix(in srgb, var(--danger) 9%, var(--surface)); color: var(--danger); }
 .device-view[hidden] { display: none; }
 .device-live-grid { grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); }
 .device-motion-panel { min-height: 390px; }
@@ -2527,6 +2502,8 @@ esp-web-install-button { display: inline-block; }
   max-width: min(90vw, 480px);
   text-align: center;
 }
+.toast-sticky { z-index: 490; }
+.toast.js-toast:not([hidden]) ~ .toast-sticky:not([hidden]) { bottom: 84px; }
 
 /* Consent */
 
@@ -2677,7 +2654,6 @@ esp-web-install-button { display: inline-block; }
   .consent-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .consent-actions button { width: 100%; }
   .device-live-grid { grid-template-columns: minmax(0, 1fr); }
-  .device-state-summary { order: 3; width: 100%; }
   .device-connect-options { grid-template-columns: minmax(0, 1fr); }
   .empty-state .device-connect-card > p { min-height: 0; }
 }

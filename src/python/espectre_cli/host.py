@@ -29,16 +29,14 @@ from .streamer_discovery import (
 )
 
 
-_WEB_UI_FILES = {
-    "mqtt": REPO_ROOT / "docs" / "web" / "monitor" / "index.html",
-    "ble": REPO_ROOT / "docs" / "web" / "configure" / "index.html",
-    "theremin": REPO_ROOT / "docs" / "web" / "theremin" / "index.html",
-}
-
+_WEB_UI_INDEX = REPO_ROOT / "docs" / "web" / "index.html"
 _WEB_UI_ROUTES = {
-    "mqtt": "monitor/",
-    "ble": "configure/",
-    "theremin": "theremin/",
+    "flash": "#flash",
+    "ble": "#configure",
+    "configure": "#configure",
+    "mqtt": "#monitor",
+    "monitor": "#monitor",
+    "theremin": "#theremin",
 }
 
 
@@ -157,20 +155,20 @@ def _parse_targets(targets: str) -> tuple[list[str], str]:
     return unique_targets, mode
 
 
-def open_web_ui(interface: str = "mqtt") -> None:
+def open_web_ui(interface: str = "monitor") -> None:
     """Open the selected web interface in the default browser."""
-    html_file = _WEB_UI_FILES.get(interface.lower())
-    if html_file is None:
+    route = _WEB_UI_ROUTES.get(interface.lower())
+    if route is None:
         print(f"{Fore.RED}❌ Error: unknown web UI '{interface}'{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}Available interfaces: {', '.join(sorted(_WEB_UI_FILES))}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}Available interfaces: {', '.join(sorted(_WEB_UI_ROUTES))}{Style.RESET_ALL}")
         return
-    if not html_file.exists():
-        print(f"{Fore.RED}❌ Error: {html_file.name} not found{Style.RESET_ALL}")
+    if not _WEB_UI_INDEX.is_file():
+        print(f"{Fore.RED}❌ Error: {_WEB_UI_INDEX.name} not found{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}Make sure you're running the command from the repo root{Style.RESET_ALL}")
         return
 
     try:
-        _serve_web_ui(_WEB_UI_ROUTES[interface.lower()])
+        _serve_web_ui(route)
     except Exception as e:
         print(f"{Fore.RED}❌ Error opening browser: {e}{Style.RESET_ALL}")
 

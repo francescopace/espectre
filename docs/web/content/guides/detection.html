@@ -36,7 +36,7 @@
     <h2 id="detection-numbers">What the numbers mean</h2>
     <ul class="checklist">
       <li><strong>Movement score (0.0–1.0)</strong>: how strongly the channel is changing right now. It is a room-specific signal, not a physical unit: 0.3 in your living room and 0.3 in your office are not the same thing.</li>
-      <li><strong>Threshold</strong>: the score level that counts as motion. Lightweight adapts it during calibration; you can adjust it at runtime from Home Assistant, the Device console’s Live controls, or MQTT.</li>
+      <li><strong>Threshold</strong>: the score level that counts as motion. Lightweight adapts it during calibration; you can adjust it at runtime from Home Assistant, Monitor’s live controls, or MQTT.</li>
       <li><strong>Motion state</strong>: turns on after the score stays above the threshold for a few consecutive evaluations (about one second at default settings) and off after it stays below (slightly faster). This hit filter is why a single spike does not trigger a false alarm.</li>
       <li><strong>Calibration</strong>: Lightweight learns a quiet threshold at startup, taking up to about ten seconds at the default packet rate. High Accuracy uses its trained threshold and does not run this calibration, although its feature window still needs to fill.</li>
     </ul>

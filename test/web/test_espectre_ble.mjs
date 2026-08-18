@@ -183,10 +183,7 @@ describe('event API', () => {
         assert.ok(Object.isFrozen(Client.UUIDS));
         assert.match(Client.VERSION, /^\d+\.\d+\.\d+$/);
         assert.equal(Client.UUIDS.service, 'd33ff46b-2203-4775-bc6f-b3a2c36af8f0');
-        assert.ok(Client.EVENTS.includes('sysinfo'));
-        assert.ok(!Client.EVENTS.includes('telemetry'));
-        assert.equal(typeof Client.buildThresholdCommand, 'undefined');
-        assert.equal(typeof Client.parseTelemetry, 'undefined');
+        assert.deepEqual([...Client.EVENTS], ['sysinfo', 'sysinfo-line', 'disconnect']);
     });
 
     it('starts disconnected with empty read-only state', () => {
