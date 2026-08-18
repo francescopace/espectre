@@ -12,6 +12,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 import argparse
+import asyncio
 import csv
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -53,6 +54,12 @@ WIFI_CONNECT_WAIT_SECONDS = 60
 STREAMER_COLLECT_DURATION_SECONDS = 60
 STREAMER_IP_WAIT_SECONDS = 45
 NATIVE_MQTT_READY_TIMEOUT_SECONDS = 45
+ESPHOME_API_READY_TIMEOUT_SECONDS = 45
+ESPHOME_API_PORT = 6053
+ESPHOME_MDNS_HOST = "espectre.local"
+ESPHOME_DETECTOR_SELECT_OBJECT_ID = "detection_profile"
+ESPHOME_DETECTOR_SELECT_NAME = "Detection Profile"
+ESPHOME_AP_FALLBACK_IPS = frozenset({"192.168.4.1"})
 MINIMUM_OCCUPANCY_PERCENT = 100.0 * MINIMUM_COVERAGE_NUMERATOR / MINIMUM_COVERAGE_DENOMINATOR
 STARTUP_GRACE_SECONDS = 10
 STATUS_SAMPLE_INTERVAL_SECONDS = 1
@@ -66,6 +73,8 @@ IDF_APP_BIN_NAMES = {
 IDF_IGNORED_BIN_NAMES = {"bootloader.bin", "partition-table.bin", "ota_data_initial.bin"}
 MIN_STREAMER_COLLECT_SAMPLES = 60
 MOTION_WARMUP_SAMPLES = 3
+STABLE_STATUS_WARMUP_SAMPLES = 5
+STATUS_STABLE_WAIT_SECONDS = 30
 DEFAULT_MQTT_COMMAND_TIMEOUT_SECONDS = 8.0
 RUNTIME_STATUS_GAP_TOLERANCE_MS = 500
 
@@ -136,6 +145,8 @@ MATTER_BOOT_MARKER = "ESPectre Matter firmware started on endpoint"
 MATTER_STARTUP_STATE_RE = re.compile(r"ESPectre Matter CSI services:\s*(?P<state>[^\r\n]+)")
 MATTER_VALID_STARTUP_STATES = {"armed", "waiting for commissioning"}
 STREAMER_IP_RE = re.compile(r"Wi-Fi connected: ip=(?P<ip>\d+\.\d+\.\d+\.\d+)")
+ESPHOME_IP_RE = re.compile(r"\bIP Address:\s*(?P<ip>\d+\.\d+\.\d+\.\d+)\b")
+IPV4_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
 STREAMER_STATE_RE = re.compile(r"\[STATE\]\s+\S+\s+->\s+(?P<state>\S+)\s+\(")
 FLASH_MAC_ADDRESS_RE = re.compile(r"\bMAC:\s*(?P<mac>(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2})\b")
 WIFI_STA_MAC_RE = re.compile(r"\bwifi:mode\s*:\s*sta\s*\((?P<mac>(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2})\)")
@@ -270,6 +281,7 @@ CASES = tuple(
         BenchmarkCase("native", "lightweight"),
         BenchmarkCase("native", "high_accuracy"),
         BenchmarkCase("esphome", "lightweight"),
+        BenchmarkCase("esphome", "high_accuracy"),
         BenchmarkCase("matter", "default", benchmark_mode="smoke"),
         BenchmarkCase("streamer", "collect", benchmark_mode="stream"),
     ]
@@ -363,6 +375,50 @@ def detect_benchmark_mqtt_device_id_from_text(text: str) -> str | None:
     return format_benchmark_device_id_from_mac(match.group("mac"))
 
 
+def detect_esphome_api_host_from_text(text: str) -> str | None:
+    """Return the last STA IPv4 logged by ESPHome, skipping the fallback AP address."""
+    for match in reversed(list(ESPHOME_IP_RE.finditer(text))):
+        ip = match.group("ip")
+        if ip not in ESPHOME_AP_FALLBACK_IPS:
+            return ip
+    return None
+
+
+def esphome_api_hosts(source_text: str | None) -> list[str]:
+    hosts: list[str] = []
+    ip = detect_esphome_api_host_from_text(source_text or "")
+    if ip is not None:
+        hosts.append(ip)
+    if ESPHOME_MDNS_HOST not in hosts:
+        hosts.append(ESPHOME_MDNS_HOST)
+    return hosts
+
+
+def find_esphome_detector_select(entities: Sequence[object]) -> object | None:
+    from aioesphomeapi.model import SelectInfo
+
+    for entity in entities:
+        if not isinstance(entity, SelectInfo):
+            continue
+        if entity.object_id == ESPHOME_DETECTOR_SELECT_OBJECT_ID or entity.name == ESPHOME_DETECTOR_SELECT_NAME:
+            return entity
+    return None
+
+
+def english_join(items: Sequence[str]) -> str:
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return f"{items[0]} and {items[1]}"
+    return f"{', '.join(items[:-1])}, and {items[-1]}"
+
+
+def runtime_case_labels() -> tuple[str, ...]:
+    return tuple(case.label for case in CASES if case.benchmark_mode == "runtime")
+
+
 def benchmark_mqtt_namespace(device_id_source_text: str | None) -> argparse.Namespace | None:
     broker = benchmark_setting("ESPECTRE_BENCHMARK_MQTT_HOST")
     device_id = detect_benchmark_mqtt_device_id_from_text(device_id_source_text or "")
@@ -450,6 +506,62 @@ def set_native_detector_via_mqtt(detector: str, device_id_source_text: str | Non
             last_error = exc
             time.sleep(2.0)
     raise RuntimeError(f"failed to switch native detector to {detector} over MQTT: {last_error}")
+
+
+async def _set_esphome_detector_via_api(host: str, detector: str, timeout_seconds: float) -> None:
+    from aioesphomeapi import APIClient
+    from aioesphomeapi.model import SelectState
+
+    client = APIClient(
+        host,
+        ESPHOME_API_PORT,
+        password=None,
+        client_info="espectre-benchmark",
+        addresses=[host] if IPV4_RE.fullmatch(host) else None,
+    )
+    await client.connect(login=True)
+    try:
+        _info, entities, _services = await client.device_info_and_list_entities()
+        select = find_esphome_detector_select(entities)
+        if select is None:
+            raise RuntimeError(f"ESPHome Detection Profile select was not found on {host}")
+        options = getattr(select, "options", [])
+        if detector not in options:
+            raise RuntimeError(f"ESPHome Detection Profile does not offer {detector}: {options}")
+        done = asyncio.Event()
+
+        def on_state(state: object) -> None:
+            if isinstance(state, SelectState) and state.key == select.key and state.state == detector:
+                done.set()
+
+        client.subscribe_states(on_state)
+        client.select_command(select.key, detector)
+        await asyncio.wait_for(done.wait(), timeout=timeout_seconds)
+        await asyncio.sleep(1.0)
+    finally:
+        await client.disconnect()
+
+
+def set_esphome_detector_via_api(detector: str, source_text: str | None) -> None:
+    from aioesphomeapi.core import APIConnectionError
+
+    hosts = esphome_api_hosts(source_text)
+    deadline = time.monotonic() + ESPHOME_API_READY_TIMEOUT_SECONDS
+    timeout_seconds = benchmark_setting_float(
+        "ESPECTRE_BENCHMARK_ESPHOME_API_TIMEOUT_SECONDS",
+        DEFAULT_MQTT_COMMAND_TIMEOUT_SECONDS,
+    )
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        attempt_timeout = min(timeout_seconds, max(1.0, deadline - time.monotonic()))
+        for host in hosts:
+            try:
+                asyncio.run(_set_esphome_detector_via_api(host, detector, attempt_timeout))
+                return
+            except (OSError, RuntimeError, ValueError, TimeoutError, APIConnectionError) as exc:
+                last_error = exc
+        time.sleep(2.0)
+    raise RuntimeError(f"failed to switch ESPHome detector to {detector} over the native API: {last_error}")
 
 
 def clone_prebuilt_result(case: BenchmarkCase, source: BenchmarkResult) -> BenchmarkResult:
@@ -705,23 +817,55 @@ def _output_has_sensing_status(output_lines: Sequence[str]) -> bool:
     return STATUS_RE.search("".join(output_lines)) is not None
 
 
+def max_runtime_status_gap_ms() -> int:
+    return STATUS_SAMPLE_INTERVAL_SECONDS * 1000 + RUNTIME_STATUS_GAP_TOLERANCE_MS
+
+
+def status_stream_is_stable(
+    text: str,
+    *,
+    min_samples: int = STABLE_STATUS_WARMUP_SAMPLES,
+) -> bool:
+    timestamps = [
+        sample.timestamp_ms
+        for sample in _parse_runtime_status_samples(text)
+        if sample.timestamp_ms is not None
+    ]
+    if len(timestamps) < min_samples:
+        return False
+    recent = timestamps[-min_samples:]
+    max_gap_ms = max_runtime_status_gap_ms()
+    return all(current - previous <= max_gap_ms for previous, current in zip(recent, recent[1:]))
+
+
 def _wait_for_runtime_sensing_window(
     process: subprocess.Popen[str],
     output_lines: list[str],
     *,
     start_index: int = 0,
-) -> None:
+) -> int:
     connect_deadline = time.monotonic() + WIFI_CONNECT_WAIT_SECONDS
     while time.monotonic() < connect_deadline and process.poll() is None:
         if _output_has_sensing_status(output_lines[start_index:]):
             break
         time.sleep(0.25)
+
+    analysis_start = start_index
+    if process.poll() is None and _output_has_sensing_status(output_lines[start_index:]):
+        stable_deadline = time.monotonic() + STATUS_STABLE_WAIT_SECONDS
+        while time.monotonic() < stable_deadline and process.poll() is None:
+            if status_stream_is_stable("".join(output_lines[start_index:])):
+                analysis_start = len(output_lines)
+                break
+            time.sleep(0.25)
+
     if process.poll() is not None:
-        return
+        return analysis_start
     try:
         process.wait(timeout=MONITOR_DURATION_SECONDS)
     except subprocess.TimeoutExpired:
         pass
+    return analysis_start
 
 
 def _capture_runtime_monitor(
@@ -738,7 +882,11 @@ def _capture_runtime_monitor(
             before_window()
             if analysis_start_after_before_window:
                 analysis_start = len(output_lines)
-        _wait_for_runtime_sensing_window(process, output_lines, start_index=analysis_start)
+        analysis_start = _wait_for_runtime_sensing_window(
+            process,
+            output_lines,
+            start_index=analysis_start,
+        )
     finally:
         if process.poll() is None:
             _terminate_process(process)
@@ -755,7 +903,7 @@ def _capture_runtime_monitor(
 
 def monitor_timeout_seconds(case: BenchmarkCase) -> int:
     if case.benchmark_mode == "runtime" and case.frontend in {"esphome", "native"}:
-        return MONITOR_DURATION_SECONDS + WIFI_CONNECT_WAIT_SECONDS
+        return MONITOR_DURATION_SECONDS + WIFI_CONNECT_WAIT_SECONDS + STATUS_STABLE_WAIT_SECONDS
     return MONITOR_DURATION_SECONDS
 
 
@@ -992,7 +1140,7 @@ def analyze_monitor_output(
                     f"only {metrics.status_samples} of {metrics.status_expected_samples} expected detector "
                     "status logs were captured"
                 )
-            max_expected_gap_ms = STATUS_SAMPLE_INTERVAL_SECONDS * 1000 + RUNTIME_STATUS_GAP_TOLERANCE_MS
+            max_expected_gap_ms = max_runtime_status_gap_ms()
             if metrics.status_interval_max_ms is not None and metrics.status_interval_max_ms > max_expected_gap_ms:
                 reasons.append(
                     f"detector status logging gap reached {metrics.status_interval_max_ms / 1000.0:.2f}s"
@@ -1154,7 +1302,7 @@ def apply_esphome_benchmark_wifi(content: str) -> str:
     return "\n".join(updated_lines) + ("\n" if content.endswith("\n") else "")
 
 
-def apply_esphome_benchmark_logger(content: str, chip: str) -> str:
+def apply_esphome_benchmark_logger(content: str) -> str:
     lines = content.splitlines()
     logger_index = next((index for index, line in enumerate(lines) if re.match(r"^\s*logger:\s*$", line)), None)
     if logger_index is None:
@@ -1168,7 +1316,6 @@ def apply_esphome_benchmark_logger(content: str, chip: str) -> str:
             *lines[:insert_at],
             "logger:",
             "  level: DEBUG",
-            *(['  hardware_uart: UART0'] if chip == "c5" else []),
             *lines[insert_at:],
         ]
         return "\n".join(inserted_lines) + ("\n" if content.endswith("\n") else "")
@@ -1187,17 +1334,13 @@ def apply_esphome_benchmark_logger(content: str, chip: str) -> str:
     for line in lines[logger_index + 1 : logger_end]:
         if re.match(rf"^{re.escape(field_indent)}level:\s*", line):
             continue
-        if chip == "c5" and re.match(rf"^{re.escape(field_indent)}hardware_uart:\s*", line):
-            continue
         preserved_lines.append(line)
 
     replacement_lines = [
         lines[logger_index],
         f"{field_indent}level: DEBUG",
+        *preserved_lines,
     ]
-    if chip == "c5":
-        replacement_lines.append(f"{field_indent}hardware_uart: UART0")
-    replacement_lines.extend(preserved_lines)
 
     return "\n".join([*lines[:logger_index], *replacement_lines, *lines[logger_end:]]) + (
         "\n" if content.endswith("\n") else ""
@@ -1235,7 +1378,7 @@ def esphome_case_config(chip: str, detector: str) -> Iterator[Path]:
         if telemetry_insertions != 1:
             raise RuntimeError(f"could not enable debug telemetry in {source_path}")
     updated = apply_esphome_benchmark_wifi(updated)
-    updated = apply_esphome_benchmark_logger(updated, chip)
+    updated = apply_esphome_benchmark_logger(updated)
 
     temporary_path = source_path.parent / f".espectre-benchmark-{chip}-{detector}.yaml"
     if temporary_path.exists():
@@ -1712,7 +1855,7 @@ def run_case(
     return result, overlapped_result
 
 
-def run_native_monitor_only_case(
+def run_monitor_only_case(
     case: BenchmarkCase,
     port: str,
     *,
@@ -1753,6 +1896,32 @@ def run_native_monitor_only_case(
         result.status = "FAIL"
         result.reasons.append(str(exc))
     return result
+
+
+def run_switched_high_accuracy_case(
+    case: BenchmarkCase,
+    port: str,
+    *,
+    lightweight_result: BenchmarkResult,
+    before_monitor: Callable[[], None],
+) -> BenchmarkResult:
+    lightweight_firmware_ready = (
+        lightweight_result.build is not None
+        and lightweight_result.build.returncode == 0
+        and lightweight_result.flash is not None
+        and lightweight_result.flash.returncode == 0
+    )
+    if not lightweight_firmware_ready:
+        raise RuntimeError(
+            f"{case.label} benchmark requires a successful {FRONTEND_LABELS[case.frontend]} "
+            "Lightweight build and flash before runtime detector switching"
+        )
+    return run_monitor_only_case(
+        case,
+        port,
+        prebuilt=clone_prebuilt_result(case, lightweight_result),
+        before_monitor=before_monitor,
+    )
 
 
 def _git_revision() -> str:
@@ -1970,17 +2139,17 @@ def render_report(
             "## Pass Criteria",
             "",
             "- all builds and flashes complete successfully",
-            "- Native Lightweight, Native High Accuracy, and ESPHome Lightweight runtime benchmarks log shared debug telemetry "
+            f"- {english_join(runtime_case_labels())} runtime benchmarks log shared debug telemetry "
             "throughout the runtime window",
             f"- non-runtime benchmarks log at least {MIN_TELEMETRY_SAMPLES} shared debug telemetry samples",
             "- free heap does not decline by more than 5% after startup has settled",
-            "- Native Lightweight, Native High Accuracy, and ESPHome Lightweight runtime benchmarks log detector status "
+            f"- {english_join(runtime_case_labels())} runtime benchmarks log detector status "
             "once per second after the first detector status line",
-            "- Native Lightweight, Native High Accuracy, and ESPHome Lightweight runtime benchmarks log CSI occupancy "
+            f"- {english_join(runtime_case_labels())} runtime benchmarks log CSI occupancy "
             "on detector status lines",
-            f"- Native Lightweight, Native High Accuracy, and ESPHome Lightweight mean CSI occupancy stays at or above "
+            f"- {english_join(runtime_case_labels())} mean CSI occupancy stays at or above "
             f"the {MINIMUM_OCCUPANCY_PERCENT:.0f}% admitted-slot detector-ready floor",
-            "- Native Lightweight, Native High Accuracy, and ESPHome Lightweight detector timing is present",
+            f"- {english_join(runtime_case_labels())} detector timing is present",
             "- Matter smoke benchmarks log a boot marker and the commissioning startup state",
             "- Streamer benchmarks log the device IP and reach STREAMING",
             f"- Streamer host collect logs at least {MIN_STREAMER_COLLECT_SAMPLES} Lightweight and High Accuracy samples",
@@ -2240,7 +2409,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Build, flash, and benchmark Native Lightweight/High Accuracy, ESPHome "
-            "Lightweight, Matter smoke, and Streamer host collect for one chip."
+            "Lightweight/High Accuracy, Matter smoke, and Streamer host collect for one chip."
         ),
     )
     parser.add_argument("--chip", required=True, choices=SUPPORTED_CHIPS, help="Connected ESP32 target")
@@ -2305,26 +2474,15 @@ def main() -> int:
             write_current_report()
 
             if native_high_accuracy_case in selected_cases:
-                lightweight_firmware_ready = (
-                    lightweight_result.build is not None
-                    and lightweight_result.build.returncode == 0
-                    and lightweight_result.flash is not None
-                    and lightweight_result.flash.returncode == 0
+                high_accuracy_result = run_switched_high_accuracy_case(
+                    native_high_accuracy_case,
+                    port,
+                    lightweight_result=lightweight_result,
+                    before_monitor=lambda: set_native_detector_via_mqtt(
+                        "high_accuracy",
+                        lightweight_result.monitor.output if lightweight_result.monitor is not None else "",
+                    ),
                 )
-                if lightweight_firmware_ready:
-                    high_accuracy_result = run_native_monitor_only_case(
-                        native_high_accuracy_case,
-                        port,
-                        prebuilt=clone_prebuilt_result(native_high_accuracy_case, lightweight_result),
-                        before_monitor=lambda: set_native_detector_via_mqtt(
-                            "high_accuracy",
-                            lightweight_result.monitor.output if lightweight_result.monitor is not None else "",
-                        ),
-                    )
-                else:
-                    raise RuntimeError(
-                        "Native High Accuracy benchmark requires a successful Native Lightweight build and flash before runtime detector switching"
-                    )
                 results.append(high_accuracy_result)
                 write_current_report()
         elif native_high_accuracy_case in selected_cases:
@@ -2338,22 +2496,20 @@ def main() -> int:
             )
             if bootstrap_result.build is None or bootstrap_result.build.returncode != 0:
                 results.append(BenchmarkResult(case=native_high_accuracy_case, status="FAIL", reasons=["Native Lightweight bootstrap build failed"]))
-                write_current_report()
                 destination = write_current_report()
                 print(f"\nWrote {destination}")
                 print("Overall result: FAIL")
                 return 1
             if bootstrap_result.flash is None or bootstrap_result.flash.returncode != 0:
                 results.append(BenchmarkResult(case=native_high_accuracy_case, status="FAIL", reasons=["Native Lightweight bootstrap flash failed"]))
-                write_current_report()
                 destination = write_current_report()
                 print(f"\nWrote {destination}")
                 print("Overall result: FAIL")
                 return 1
-            high_accuracy_result = run_native_monitor_only_case(
+            high_accuracy_result = run_switched_high_accuracy_case(
                 native_high_accuracy_case,
                 port,
-                prebuilt=clone_prebuilt_result(native_high_accuracy_case, bootstrap_result),
+                lightweight_result=bootstrap_result,
                 before_monitor=lambda: set_native_detector_via_mqtt(
                     "high_accuracy",
                     bootstrap_result.monitor.output if bootstrap_result.monitor is not None else "",
@@ -2363,6 +2519,7 @@ def main() -> int:
             write_current_report()
 
         esphome_lightweight_case = BenchmarkCase("esphome", "lightweight")
+        esphome_high_accuracy_case = BenchmarkCase("esphome", "high_accuracy")
         if esphome_lightweight_case in selected_cases:
             esphome_result, _unused = run_case(
                 esphome_lightweight_case,
@@ -2371,6 +2528,50 @@ def main() -> int:
                 clean=True,
             )
             results.append(esphome_result)
+            write_current_report()
+
+            if esphome_high_accuracy_case in selected_cases:
+                high_accuracy_result = run_switched_high_accuracy_case(
+                    esphome_high_accuracy_case,
+                    port,
+                    lightweight_result=esphome_result,
+                    before_monitor=lambda: set_esphome_detector_via_api(
+                        "high_accuracy",
+                        esphome_result.monitor.output if esphome_result.monitor is not None else "",
+                    ),
+                )
+                results.append(high_accuracy_result)
+                write_current_report()
+        elif esphome_high_accuracy_case in selected_cases:
+            bootstrap_case = BenchmarkCase("esphome", "lightweight")
+            bootstrap_result, _unused = run_case(
+                bootstrap_case,
+                args.chip,
+                port,
+                clean=True,
+            )
+            if bootstrap_result.build is None or bootstrap_result.build.returncode != 0:
+                results.append(BenchmarkResult(case=esphome_high_accuracy_case, status="FAIL", reasons=["ESPHome Lightweight bootstrap build failed"]))
+                destination = write_current_report()
+                print(f"\nWrote {destination}")
+                print("Overall result: FAIL")
+                return 1
+            if bootstrap_result.flash is None or bootstrap_result.flash.returncode != 0:
+                results.append(BenchmarkResult(case=esphome_high_accuracy_case, status="FAIL", reasons=["ESPHome Lightweight bootstrap flash failed"]))
+                destination = write_current_report()
+                print(f"\nWrote {destination}")
+                print("Overall result: FAIL")
+                return 1
+            high_accuracy_result = run_switched_high_accuracy_case(
+                esphome_high_accuracy_case,
+                port,
+                lightweight_result=bootstrap_result,
+                before_monitor=lambda: set_esphome_detector_via_api(
+                    "high_accuracy",
+                    bootstrap_result.monitor.output if bootstrap_result.monitor is not None else "",
+                ),
+            )
+            results.append(high_accuracy_result)
             write_current_report()
 
         matter_case = BenchmarkCase("matter", "default", benchmark_mode="smoke")

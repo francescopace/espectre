@@ -102,3 +102,94 @@ def test_runtime_expected_counts_use_status_span_not_boot_time():
     assert "free heap declined by more than 5% after startup settled" not in reasons
     assert not any("expected detector status" in reason for reason in reasons)
     assert not any("expected shared debug telemetry" in reason for reason in reasons)
+
+
+def test_cases_include_esphome_high_accuracy_after_lightweight():
+    labels = [case.label for case in bench.CASES]
+
+    assert labels.index("ESPHome Lightweight") < labels.index("ESPHome High Accuracy")
+
+
+def test_detect_esphome_api_host_prefers_sta_over_ap():
+    text = (
+        "[C][wifi:984]: Setting up AP:\n"
+        "  IP Address: 192.168.4.1\n"
+        "[C][wifi:1259]:   IP Address: 192.168.1.50\n"
+    )
+
+    assert bench.detect_esphome_api_host_from_text(text) == "192.168.1.50"
+
+
+def test_detect_esphome_api_host_uses_last_sta_address():
+    text = "IP Address: 192.168.1.10\nIP Address: 192.168.1.20\n"
+
+    assert bench.detect_esphome_api_host_from_text(text) == "192.168.1.20"
+
+
+def test_esphome_api_hosts_fall_back_to_mdns():
+    assert bench.esphome_api_hosts("") == [bench.ESPHOME_MDNS_HOST]
+    assert bench.esphome_api_hosts("IP Address: 192.168.1.50\n") == [
+        "192.168.1.50",
+        bench.ESPHOME_MDNS_HOST,
+    ]
+
+
+def test_find_esphome_detector_select_matches_object_id():
+    from aioesphomeapi.model import SelectInfo
+
+    entities = [
+        SelectInfo(object_id="csi_traffic_ownership", key=2, name="CSI Traffic Ownership", options=["internal"]),
+        SelectInfo(
+            object_id="detection_profile",
+            key=7,
+            name="Detection Profile",
+            options=["lightweight", "high_accuracy"],
+        ),
+    ]
+
+    select = bench.find_esphome_detector_select(entities)
+
+    assert select is not None
+    assert select.key == 7
+    assert select.object_id == "detection_profile"
+
+
+def test_esphome_benchmark_logger_keeps_default_uart():
+    source = (
+        "logger:\n"
+        "  level: INFO\n"
+        "  logs:\n"
+        "    sensor: INFO\n"
+        "api:\n"
+    )
+
+    updated = bench.apply_esphome_benchmark_logger(source)
+
+    assert "level: DEBUG" in updated
+    assert "hardware_uart:" not in updated
+    assert "logs:\n    sensor: INFO" in updated
+
+
+def test_esphome_benchmark_logger_does_not_override_explicit_uart0():
+    source = (
+        "logger:\n"
+        "  level: INFO\n"
+        "  hardware_uart: UART0\n"
+        "api:\n"
+    )
+
+    updated = bench.apply_esphome_benchmark_logger(source)
+
+    assert "level: DEBUG" in updated
+    assert "hardware_uart: UART0" in updated
+
+
+def test_status_stream_is_stable_requires_consecutive_one_hertz_samples():
+    too_few = "".join(_status_line(20_000 + offset) for offset in range(0, 4_000, 1_000))
+    gapped = "".join(_status_line(10_000 + offset) for offset in range(0, 5_000, 1_000))
+    gapped += _status_line(28_570)
+    stable = "".join(_status_line(20_000 + offset) for offset in range(0, 5_000, 1_000))
+
+    assert not bench.status_stream_is_stable(too_few)
+    assert not bench.status_stream_is_stable(gapped)
+    assert bench.status_stream_is_stable(stable)

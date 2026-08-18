@@ -29,9 +29,13 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 Before deploy:
 
-- [ ] Test an OTA update across the `release`, `preview`, and `develop` request channels
-- [ ] Review docs/web content, imagery, UX, and UI for release readiness
 - [ ] Update devices performance report 
+  - [x] C3
+  - [x] C5
+  - [ ] C6
+  - [ ] s3
+  - [ ] esp32
+- [ ] Review docs/web content, imagery, UX, and UI for release readiness
 
 After deploy:
 
