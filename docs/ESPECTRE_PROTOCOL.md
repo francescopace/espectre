@@ -521,7 +521,7 @@ MQTT settings are also persisted in NVS as one block. `SET_MQTT_CONFIG:...` repl
 
 ## Deployment Profiles
 
-ESPectre Protocol can be carried by multiple deployment profiles. The currently implemented profile is the local lab path: [Configure](https://espectre.dev/#configure) uses BLE for connectivity setup, and [Monitor](https://espectre.dev/#monitor) uses MQTT over WebSockets for live sensing, runtime controls, diagnostics, and BLE recovery. The same application is served from localhost by `./espectre ui` when an insecure local `ws://` listener cannot be reached reliably from the public HTTPS site.
+ESPectre Protocol can be carried by multiple deployment profiles. The currently implemented profile is the local lab path: [Configure](https://espectre.dev/#configure) uses BLE for connectivity setup, and [Monitor](https://espectre.dev/#monitor) uses MQTT over WebSockets for live sensing, runtime controls, diagnostics, and BLE recovery. Hosted HTTPS pages should use `wss://`; a local static preview of the website can still use an insecure `ws://` listener.
 
 Web orchestration profiles add identity, tenancy, device claim, state mirrors, history, alerts, and OTA around the same protocol. Those system-level concerns belong to [ARCHITECTURE.md](ARCHITECTURE.md), not to this message schema.
 

@@ -1525,10 +1525,8 @@ def test_mqtt_shell_discovers_and_selects_device(monkeypatch, capsys) -> None:
 
 def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> None:
     shell, client, rendered = _build_shell(monkeypatch)
-    opened: list[str] = []
     cleared: list[str] = []
 
-    monkeypatch.setattr(mqtt_shell, "open_web_ui", lambda: opened.append("web"))
     monkeypatch.setattr(mqtt_shell.os, "system", lambda cmd: cleared.append(cmd))
 
     shell.on_message(None, None, SimpleNamespace(payload=b'{"ok": true}'))
@@ -1575,7 +1573,6 @@ def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> Non
     shell.process_input("ble maybe")
     shell.process_input("ota_check unexpected")
     shell.process_input("ota_start unexpected")
-    shell.process_input("webui")
     shell.process_input("clear")
     shell.process_input("help")
     shell.process_input("about")
@@ -1604,7 +1601,6 @@ def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> Non
     assert published[8]["ble"] == "off"
     assert "ble" not in published[9]
     assert published[10]["ble"] == "maybe"
-    assert opened == ["web"]
     assert cleared == ["clear"]
     assert rendered
     assert "Received:" in captured

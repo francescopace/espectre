@@ -44,7 +44,7 @@ The CLI is a thin wrapper over the ESP-IDF app in this directory. On Windows, us
 
 ### Browser Configure and Monitor tools
 
-[Configure](https://espectre.dev/#configure) is the reference browser BLE client. It uses Web Bluetooth only for nearby Wi-Fi, MQTT, and device-label setup. [Monitor](https://espectre.dev/#monitor) then uses MQTT over WebSockets for runtime controls, diagnostics, and recovery. Run `./espectre ui configure` or `./espectre ui monitor` to serve the same application from localhost.
+[Configure](https://espectre.dev/#configure) is the reference browser BLE client. It uses Web Bluetooth only for nearby Wi-Fi, MQTT, and device-label setup. [Monitor](https://espectre.dev/#monitor) then uses MQTT over WebSockets for runtime controls, diagnostics, and recovery. To preview the same pages from this repository, serve `docs/web` locally as described in [docs/web/README.md](../../../../docs/web/README.md).
 
 Current capabilities:
 
@@ -74,15 +74,9 @@ Requirements:
 - a secure context such as `http://localhost` or `https://`
 - a BLE-capable ESP32 target supported by this frontend
 
-Recommended local workflow from the repository root:
-
-```bash
-./espectre ui configure
-```
-
 Usage notes:
 
-1. open Configure, click `Connect nearby device`, and select the ESPectre device
+1. open [Configure](https://espectre.dev/#configure), click `Connect nearby device`, and select the ESPectre device
 2. wait for the initial `REQ_SYSINFO` refresh after notifications start
 3. use `Save Wi-Fi` to send one atomic `SET_WIFI_CONFIG` update
 4. use `Save MQTT` to send one atomic `SET_MQTT_CONFIG` update and enable MQTT transport

@@ -101,15 +101,7 @@ Matter generates a unique onboarding identity on first boot and stores it in a d
 
 Normal flashes preserve the QR. Erasing the complete flash generates a new identity on the next boot.
 
-The same browser applications published on `espectre.dev` can be served from localhost when a local MQTT broker exposes an insecure `ws://` listener:
-
-```bash
-./espectre ui monitor
-./espectre ui configure
-./espectre ui theremin
-```
-
-The local server preserves the unified site while allowing a browser to connect to endpoints such as `ws://homeassistant.local:9001/mqtt`. The public HTTPS pages also allow selecting `ws://` for compatibility testing, but browsers may block that connection as mixed content. Use `wss://` for a supported hosted deployment.
+Browser tools such as Flash, Configure, Monitor, and Theremin live on [espectre.dev](https://espectre.dev). Hosted HTTPS pages should use `wss://` for MQTT over WebSockets. To preview the same site from this repository, including a local `ws://` broker that browsers would block as mixed content from HTTPS, serve `docs/web` as described in [docs/web/README.md](web/README.md).
 
 See the repository [CLI.md](CLI.md) for:
 

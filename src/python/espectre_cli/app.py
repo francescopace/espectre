@@ -15,7 +15,7 @@ import argparse
 from .about import print_about, print_version
 from .common import MICRO_CHIP_CHOICES, add_mqtt_connection_args, build_mqtt_namespace, cli_command, serial_port_example
 from .esphome import run_esphome_command
-from .host import collect_csi_data, open_web_ui
+from .host import collect_csi_data
 from .idf import run_idf_command, run_idf_doctor
 from .idf_container import DOCKER_PULL_POLICIES
 from .micro import deploy_code, flash_firmware, run_application, verify_installation
@@ -28,20 +28,6 @@ def run_mqtt_shell(args) -> int:
     shell = EspectreMQTTShell(build_mqtt_namespace(args))
     shell.start()
     return 0
-
-
-def _add_ui_parser(subparsers, *, name: str = "ui", help_text: str | None = "Open a web UI in the browser"):
-    parser_kwargs = {"help": help_text} if help_text is not None else {}
-    ui_parser = subparsers.add_parser(name, **parser_kwargs)
-    ui_parser.add_argument(
-        "interface",
-        nargs="?",
-        choices=["flash", "ble", "mqtt", "configure", "monitor", "theremin"],
-        default="monitor",
-        help="Web UI to open (default: monitor)",
-    )
-    ui_parser.set_defaults(handler=lambda args: open_web_ui(args.interface))
-    return ui_parser
 
 
 def _add_collect_parser(
@@ -261,7 +247,6 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {cli_command('micro', 'flash', '--erase')}",
             f"  {cli_command('micro', 'deploy')}",
             f"  {cli_command('mqtt')}",
-            f"  {cli_command('ui', 'theremin')}",
             f"  {cli_command('collect', '--list-devices')}",
             f"  {cli_command('collect', '--target', '192.168.1.50')}",
             f"  {cli_command('collect', '--label', 'wave', '--duration', '45', '--target', '192.168.1.50')}",
@@ -288,7 +273,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="namespace", help="Available namespaces")
     _add_micro_namespace(subparsers)
-    _add_ui_parser(subparsers)
     _add_collect_parser(subparsers)
     _add_mqtt_parser(subparsers)
     _add_monitor_parser(subparsers)

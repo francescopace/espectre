@@ -42,7 +42,6 @@ from .common import (
     Fore,
     Style,
 )
-from .host import open_web_ui
 from micro_espectre.branding import ASCII_BANNER
 
 _SHELL_ALIASES = {
@@ -60,8 +59,6 @@ _LOCAL_UTILITIES = {
     "h": None,
     "about": None,
     "a": None,
-    "webui": None,
-    "web": None,
     "clear": None,
     "cls": None,
     "exit": None,
@@ -853,9 +850,6 @@ class EspectreMQTTShell:
             if cmd in ["about", "a"]:
                 self.show_about()
                 return
-            if cmd in ["webui", "web"]:
-                open_web_ui()
-                return
             if cmd in ["clear", "cls"]:
                 os.system("cls" if os.name == "nt" else "clear")
                 return
@@ -894,7 +888,6 @@ class EspectreMQTTShell:
             [
                 "",
                 "<ansiyellow><b>Utility commands:</b></ansiyellow>",
-                "  <ansigreen>webui|web</ansigreen>                           Open the MQTT web UI",
                 "  <ansigreen>about|a</ansigreen>                             Show shell information",
                 "  <ansigreen>clear|cls</ansigreen>                           Clear screen",
                 "  <ansigreen>help|h</ansigreen>                              Show this help message",

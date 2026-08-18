@@ -10,16 +10,13 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 
 from __future__ import annotations
 
-from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import ipaddress
 import inspect
 import signal
 import sys
 import time
-import webbrowser
 
-from .common import REPO_ROOT, Fore, Style, cli_command, print_box_banner
+from .common import Fore, Style, cli_command, print_box_banner
 from .streamer_discovery import (
     StreamerDiscoveryError,
     StreamerDiscoveryRecord,
@@ -27,17 +24,6 @@ from .streamer_discovery import (
     discover_streamer_devices,
     print_streamer_device_list,
 )
-
-
-_WEB_UI_INDEX = REPO_ROOT / "docs" / "web" / "index.html"
-_WEB_UI_ROUTES = {
-    "flash": "#flash",
-    "ble": "#configure",
-    "configure": "#configure",
-    "mqtt": "#monitor",
-    "monitor": "#monitor",
-    "theremin": "#theremin",
-}
 
 
 def _format_expected_device_id(device_id: int | None) -> str:
@@ -99,24 +85,6 @@ def _resolve_collect_target_via_discovery(args) -> None:
     args.expected_discovery_device_id_text = selected.device_id_text
 
 
-def _serve_web_ui(route: str) -> None:
-    """Serve the unified website locally so ws:// LAN endpoints remain usable."""
-    web_root = REPO_ROOT / "docs" / "web"
-    handler = partial(SimpleHTTPRequestHandler, directory=str(web_root))
-    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
-    host, port = server.server_address
-    url = f"http://{host}:{port}/{route}"
-    print(f"{Fore.BLUE}🌐 Opening web UI: {url}{Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}Press Ctrl+C to stop the local web server.{Style.RESET_ALL}")
-    try:
-        webbrowser.open(url)
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print(f"\n{Fore.GREEN}✅ Local web server stopped{Style.RESET_ALL}")
-    finally:
-        server.server_close()
-
-
 def _parse_targets(targets: str) -> tuple[list[str], str]:
     """Validate one or more comma-separated IPv4 destinations."""
     parsed_targets: list[str] = []
@@ -153,24 +121,6 @@ def _parse_targets(targets: str) -> tuple[list[str], str]:
     else:
         mode = "unicast"
     return unique_targets, mode
-
-
-def open_web_ui(interface: str = "monitor") -> None:
-    """Open the selected web interface in the default browser."""
-    route = _WEB_UI_ROUTES.get(interface.lower())
-    if route is None:
-        print(f"{Fore.RED}❌ Error: unknown web UI '{interface}'{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}Available interfaces: {', '.join(sorted(_WEB_UI_ROUTES))}{Style.RESET_ALL}")
-        return
-    if not _WEB_UI_INDEX.is_file():
-        print(f"{Fore.RED}❌ Error: {_WEB_UI_INDEX.name} not found{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}Make sure you're running the command from the repo root{Style.RESET_ALL}")
-        return
-
-    try:
-        _serve_web_ui(route)
-    except Exception as e:
-        print(f"{Fore.RED}❌ Error opening browser: {e}{Style.RESET_ALL}")
 
 
 def _wait_before_collection(delay_seconds: float) -> None:

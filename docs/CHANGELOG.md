@@ -14,7 +14,7 @@ This is the first release candidate for the v3 platform. It brings the productio
 - **Native and Matter join the published firmware surface**: release and snapshot artifacts now cover ESPHome, Native, and Matter across ESP32, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6. Streamer remains source-built because its Wi-Fi credentials are supplied at build time.
 - **A supported embeddable SDK is available**: `espectre_sdk.h` exposes the documented public C++ surface, with version macros, optional ESP-IDF component capabilities, Doxygen reference generation, and an embedding guide.
 - **The production detection profiles share one runtime contract**: Lightweight uses vote-free weighted fusion of turbulence autocorrelation and aggregated turbulence IQR, while High Accuracy uses the promoted eight-feature `8 -> 24 -> 12 -> 1` phaseless ML model. Both publish movement on a `0.0–1.0` probability scale.
-- **Setup and operation are available from one toolset**: `./espectre` now covers firmware workflows, collection, monitoring, and local browser tools, while `espectre.dev` provides flashing, BLE configuration, MQTT live detection, the motion game, and the Wi-Fi Theremin.
+- **Setup and operation are available from one toolset**: `./espectre` now covers firmware workflows, collection, and monitoring, while `espectre.dev` provides flashing, BLE configuration, MQTT live detection, the motion game, and the Wi-Fi Theremin.
 - **ESPectre is dual-licensed** under GPLv3 or a separate commercial license for proprietary integrations. Contributions remain subject to the CLA and DCO checks.
 
 ### Added
@@ -69,6 +69,10 @@ This is the first release candidate for the v3 platform. It brings the productio
 - **The website now provides separate Configure and Monitor tools**. Configure provisions Wi-Fi, MQTT, and the device label over Bluetooth. Start sensing opens Monitor, connects over WebSockets, waits for MQTT `set_ble off` to be accepted (and sends `STOP_BLE` when a nearby session is still open), then shows live sensing after valid device telemetry arrives. Edit connectivity on Monitor publishes MQTT `set_ble on` and opens Configure plus the browser Bluetooth picker as soon as the device accepts. Live sensing and runtime inputs share one status surface, changes apply directly on field change, and diagnostics remain collapsed below live sensing and refresh once per second while that section is open, with command-catalog capability gating and accepted/rejected command acknowledgements. The device banner subtitle labels chip, device ID, and firmware version. A silent update check reports Latest when the image is current, an Update action when a newer image is available, and the device or retrieval error when the OTA check fails. Connect with MQTT carries the browser WebSocket port, path, and TLS next to broker identity; Monitor copies host, credentials, topic prefix, and device ID from the device MQTT settings.
 - **Monitor's movement chart now shows a five-minute time window** instead of a 120-sample buffer sized for 1 Hz publishes. The X axis is elapsed time on a fixed 0–1 score scale, so the default `250 ms` evaluation cadence no longer races the trace off-screen; Home Assistant movement and motion mirrors do not add extra samples while canonical telemetry is live.
 - **Configure no longer shows a diagnostics or sensing-control surface**. The device banner and header dropdown label chip, device ID, and firmware version instead of the Native frontend name. Runtime sensing controls and diagnostics are available on Monitor only after MQTT is live.
+
+### Removed
+
+- **The repository CLI no longer serves the website.** Browser tools live on [espectre.dev](https://espectre.dev); local previews use the website tree under `docs/web`. The MQTT shell `webui` and `web` utilities are removed with the same change.
 
 ### Fixed
 

@@ -29,7 +29,6 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 Before deploy:
 
-- [ ] Test flashing firmware onto a device
 - [ ] Test an OTA update (the `stable` versus `snapshot` channel is currently hardcoded; pass it with the OTA request)
 - [ ] Review docs/web content, imagery, UX, and UI for release readiness
 - [ ] Update devices performance report 

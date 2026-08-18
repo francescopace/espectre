@@ -3,7 +3,7 @@
 """
 ESPectre - CLI Collect Tests
 
-Tests for ESPectre host-side collect and UI CLI options.
+Tests for ESPectre host-side collect CLI options.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
@@ -592,111 +592,6 @@ def test_collect_live_rejects_discovery_device_id_mismatch(monkeypatch, capsys) 
     output = capsys.readouterr().out
     assert "expected 0x0000000000abc123" in output
     assert "received 0x0000000000abc124" in output
-
-
-def test_ui_parser_accepts_ble_interface() -> None:
-    parser = build_parser()
-
-    args = parser.parse_args(["ui", "ble"])
-
-    assert args.namespace == "ui"
-    assert args.interface == "ble"
-
-
-def test_ui_parser_accepts_flash_interface() -> None:
-    parser = build_parser()
-
-    args = parser.parse_args(["ui", "flash"])
-
-    assert args.namespace == "ui"
-    assert args.interface == "flash"
-
-
-def test_ui_parser_accepts_theremin_interface() -> None:
-    parser = build_parser()
-
-    args = parser.parse_args(["ui", "theremin"])
-
-    assert args.namespace == "ui"
-    assert args.interface == "theremin"
-
-
-def test_open_web_ui_opens_device_console_for_ble_and_mqtt(monkeypatch, tmp_path) -> None:
-    index = tmp_path / "index.html"
-    index.write_text("<html></html>", encoding="utf-8")
-    served_routes: list[str] = []
-
-    monkeypatch.setattr(host, "_WEB_UI_INDEX", index)
-    monkeypatch.setattr(host, "_serve_web_ui", lambda route: served_routes.append(route))
-
-    host.open_web_ui("flash")
-    host.open_web_ui("ble")
-    host.open_web_ui("mqtt")
-    host.open_web_ui("configure")
-    host.open_web_ui("monitor")
-
-    assert served_routes == ["#flash", "#configure", "#monitor", "#configure", "#monitor"]
-
-
-def test_open_web_ui_opens_theremin(monkeypatch, tmp_path) -> None:
-    index = tmp_path / "index.html"
-    index.write_text("<html></html>", encoding="utf-8")
-    served_routes: list[str] = []
-
-    monkeypatch.setattr(host, "_WEB_UI_INDEX", index)
-    monkeypatch.setattr(host, "_serve_web_ui", lambda route: served_routes.append(route))
-
-    host.open_web_ui("theremin")
-
-    assert served_routes == ["#theremin"]
-
-
-def test_open_web_ui_reports_unknown_missing_and_browser_error(monkeypatch, tmp_path, capsys) -> None:
-    index = tmp_path / "index.html"
-    index.write_text("<html></html>", encoding="utf-8")
-
-    monkeypatch.setattr(host, "_WEB_UI_INDEX", tmp_path / "missing.html")
-    host.open_web_ui("unknown")
-    host.open_web_ui("ble")
-
-    def raise_browser(_route: str) -> None:
-        raise RuntimeError("browser blocked")
-
-    monkeypatch.setattr(host, "_WEB_UI_INDEX", index)
-    monkeypatch.setattr(host, "_serve_web_ui", raise_browser)
-    host.open_web_ui("mqtt")
-
-    output = capsys.readouterr().out
-    assert "unknown web UI" in output
-    assert "not found" in output
-    assert "Error opening browser" in output
-
-
-def test_serve_web_ui_opens_local_route_and_closes_server(monkeypatch) -> None:
-    opened_urls: list[str] = []
-
-    class FakeServer:
-        server_address = ("127.0.0.1", 43210)
-
-        def __init__(self) -> None:
-            self.served = False
-            self.closed = False
-
-        def serve_forever(self) -> None:
-            self.served = True
-
-        def server_close(self) -> None:
-            self.closed = True
-
-    fake_server = FakeServer()
-    monkeypatch.setattr(host, "ThreadingHTTPServer", lambda address, handler: fake_server)
-    monkeypatch.setattr(host.webbrowser, "open", lambda url: opened_urls.append(url))
-
-    host._serve_web_ui("#flash")
-
-    assert opened_urls == ["http://127.0.0.1:43210/#flash"]
-    assert fake_server.served is True
-    assert fake_server.closed is True
 
 
 def test_wait_before_collection_counts_down(monkeypatch, capsys) -> None:

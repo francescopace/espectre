@@ -26,7 +26,6 @@ Run the CLI from the repository root.
 | `collect` | Run live CSI inspection and dataset collection flows |
 | `doctor` | Validate the local ESP-IDF environment used by the wrapper |
 | `mqtt` | Open the interactive MQTT shell |
-| `ui` | Open local browser tools |
 | `version` | Show the CLI version label |
 | `about` | Show project and CLI information |
 
@@ -271,34 +270,11 @@ Examples:
 ./espectre mqtt --broker 192.168.1.20 --device-id native-lab
 ```
 
-MQTT commands are forwarded to the selected device. The shell keeps only local utilities (`help`, `about`, `webui`, `clear`, and `exit`) plus a few aliases (`i`, `st`, `ble`, …). Help and tab completion use the device `commands` catalog when the device publishes one. Unknown or unsupported commands are rejected by the device with `✗ command: reason`. Write values after the command name (`ble on`, `set_threshold 0.35`). Multi-field writes use named tokens after the command (`set_motion_hits motion_on_hits=4 motion_off_hits=3`).
+MQTT commands are forwarded to the selected device. The shell keeps only local utilities (`help`, `about`, `clear`, and `exit`) plus a few aliases (`i`, `st`, `ble`, …). Help and tab completion use the device `commands` catalog when the device publishes one. Unknown or unsupported commands are rejected by the device with `✗ command: reason`. Write values after the command name (`ble on`, `set_threshold 0.35`). Multi-field writes use named tokens after the command (`set_motion_hits motion_on_hits=4 motion_off_hits=3`).
 
 `ble on` publishes MQTT `set_ble` with `ble=on` so a provisioned Native device advertises again. `ble off` stops BLE only when both Wi-Fi and MQTT are already stored. Stable Native firmware always uses its built-in latest-release GitHub manifest, while snapshot firmware always uses the rolling snapshot manifest. OTA payloads containing server, manifest, image, or version overrides are rejected by the device. Frontends that report `supports_ota: false`, including Micro-ESPectre, reject the OTA commands. Frontends without Native BLE lifecycle control reject `set_ble`.
 
-### `ui`
-
-`ui` serves the unified website from an ephemeral localhost port and opens the selected browser application. Keep the command running while using the page, and press `Ctrl+C` to stop the local server. This mode supports local MQTT WebSocket endpoints that use `ws://`; hosted HTTPS pages should normally use `wss://`.
-
-Supported interfaces:
-
-- `flash` opens the Flash console
-- `configure` or `ble` opens Configure (Bluetooth nearby setup)
-- `monitor` or `mqtt` opens Monitor (live MQTT sensing)
-- `theremin` opens the motion theremin
-
-`./espectre ui monitor` is the browser Monitor tool. Serial logs remain `./espectre monitor`.
-
-Examples:
-
-```bash
-./espectre ui
-./espectre ui flash
-./espectre ui configure
-./espectre ui monitor
-./espectre ui ble
-./espectre ui mqtt
-./espectre ui theremin
-```
+Browser tools such as Flash, Configure, Monitor, and Theremin live on [espectre.dev](https://espectre.dev). Serial logs remain `./espectre monitor`.
 
 ## Utility Commands
 
