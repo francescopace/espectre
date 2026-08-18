@@ -273,6 +273,7 @@ void NativeFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
 }
 
 void NativeFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
+  (void) packets_received;
   runtime_.record_snapshot(snapshot);
   sample_diagnostics_(now_ms_());
   if (!snapshot.ready_to_publish) {
@@ -281,7 +282,6 @@ void NativeFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_
   if (runtime_.capabilities().supports_runtime_detector_selection && snapshot.detector_name != nullptr) {
     publish_ha_detector_(snapshot.detector_name);
   }
-  status_logger_.log_status(TAG, snapshot, packets_received, &latest_diagnostics_);
 }
 
 void NativeFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
@@ -313,7 +313,7 @@ void NativeFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) {
 }
 
 void NativeFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
-  finalize_frontend_calibration(runtime_, snapshot, [this]() { status_logger_.reset(); }, success, TAG);
+  finalize_frontend_calibration(runtime_, snapshot, success, TAG);
   system_info_refresh_.request();
   publish_ha_calibrate_(false);
   if (snapshot.ready_to_publish) {

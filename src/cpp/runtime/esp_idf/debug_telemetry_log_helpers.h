@@ -3,7 +3,7 @@
 /*
  * ESPectre - Debug Telemetry Log Helpers
  *
- * Applies runtime log filtering for debug telemetry.
+ * Applies runtime log filtering for shared status and debug telemetry.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only

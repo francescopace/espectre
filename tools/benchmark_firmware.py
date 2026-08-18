@@ -39,16 +39,20 @@ if str(REPO_ROOT) not in sys.path:
 from src.python.espectre_cli.common import detect_chip_type, get_serial_port
 from src.python.espectre_cli.mqtt_shell import send_mqtt_command_and_wait
 from src.python.espectre_cli.targets import ESPHOME_CONFIGS, ESPHOME_EXAMPLES_DIR, IDF_FRONTENDS
+from src.python.micro_espectre.temporal_csi_sampler import (
+    MINIMUM_COVERAGE_DENOMINATOR,
+    MINIMUM_COVERAGE_NUMERATOR,
+)
 
 
 BENCHMARK_LOCAL_ENV_PATH = SCRIPT_DIR / "benchmark_firmware.local.env"
 BENCHMARK_LOCAL_ENV = dotenv_values(BENCHMARK_LOCAL_ENV_PATH) if BENCHMARK_LOCAL_ENV_PATH.is_file() else {}
 MONITOR_DURATION_SECONDS = 60
+WIFI_CONNECT_WAIT_SECONDS = 60
 STREAMER_COLLECT_DURATION_SECONDS = 60
 STREAMER_IP_WAIT_SECONDS = 45
 NATIVE_MQTT_READY_TIMEOUT_SECONDS = 45
-EXPECTED_PPS_MIN = 90
-EXPECTED_PPS_MAX = 110
+MINIMUM_OCCUPANCY_PERCENT = 100.0 * MINIMUM_COVERAGE_NUMERATOR / MINIMUM_COVERAGE_DENOMINATOR
 STARTUP_GRACE_SECONDS = 10
 STATUS_SAMPLE_INTERVAL_SECONDS = 1
 TELEMETRY_SAMPLE_INTERVAL_SECONDS = 10
@@ -91,7 +95,10 @@ REPORT_DETECTOR_SCOPE = (
 )
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
-STATUS_RE = re.compile(r"\b(?P<state>MOTION|IDLE)\s*\|\s*(?P<pps>\d+)\s+pkt/s\b")
+STATUS_RE = re.compile(
+    r"\b(?P<state>MOTION|IDLE)\s*\|\s*(?:csi:(?P<csi_pps>\d+)/\d+|(?P<legacy_pps>\d+)\s+pkt/s)\b"
+)
+OCCUPANCY_RE = re.compile(r"\bocc:(?P<occupancy>\d+)%")
 LOG_TIMESTAMP_RE = re.compile(r"\((?P<timestamp_ms>\d+)\)")
 TELEMETRY_RE = re.compile(r"\[telemetry\]\s+(?P<fields>[^\r\n]+)")
 KEY_VALUE_RE = re.compile(r"(?P<key>[a-z_]+)=(?P<value>-?[0-9]+(?:\.[0-9]+)?)(?:%|\b)")
@@ -105,6 +112,11 @@ REPORT_PACKET_RATE_RE = re.compile(
     r"(?P<min>-?\d+)\s+min,\s+"
     r"(?P<max>-?\d+)\s+max,\s+"
     r"(?P<stddev>-?\d+(?:\.\d+)?)\s+standard deviation$"
+)
+REPORT_OCCUPANCY_RE = re.compile(
+    r"(?P<mean>-?\d+(?:\.\d+)?)%\s+mean,\s+"
+    r"(?P<min>-?\d+)%\s+min,\s+"
+    r"(?P<max>-?\d+)%\s+max$"
 )
 REPORT_TRAILING_MEAN_RE = re.compile(r"(?P<value>-?\d+(?:\.\d+)?)(?P<suffix>%| us)? mean$")
 REPORT_PLAIN_NUMBER_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
@@ -188,6 +200,10 @@ class RuntimeMetrics:
     pps_min: int | None = None
     pps_max: int | None = None
     pps_stddev: float | None = None
+    occupancy_samples: int = 0
+    occupancy_mean: float | None = None
+    occupancy_min: int | None = None
+    occupancy_max: int | None = None
     dominant_motion_state: str | None = None
     motion_transitions: int = 0
     dominant_state_share_percent: float | None = None
@@ -231,6 +247,7 @@ class BenchmarkResult:
 class RuntimeStatusSample:
     state: str
     pps: int
+    occupancy_percent: int | None = None
     timestamp_ms: int | None = None
 
 
@@ -584,6 +601,22 @@ def _parse_telemetry_samples(text: str) -> list[RuntimeTelemetrySample]:
     return samples
 
 
+def _append_occupancy_reasons(
+    metrics: RuntimeMetrics,
+    reasons: list[str],
+    *,
+    missing_reason: str = "CSI occupancy was not logged",
+    low_reason_prefix: str = "mean CSI occupancy",
+) -> None:
+    if metrics.occupancy_samples == 0:
+        reasons.append(missing_reason)
+    elif metrics.occupancy_mean is not None and metrics.occupancy_mean < MINIMUM_OCCUPANCY_PERCENT:
+        reasons.append(
+            f"{low_reason_prefix} {metrics.occupancy_mean:.1f}% is below the "
+            f"{MINIMUM_OCCUPANCY_PERCENT:.0f}% detector-ready floor"
+        )
+
+
 def _append_common_monitor_reasons(
     metrics: RuntimeMetrics,
     telemetry: Sequence[dict[str, float]],
@@ -639,25 +672,57 @@ def _parse_runtime_status_samples(text: str) -> list[RuntimeStatusSample]:
         if match is None:
             continue
         timestamp_match = LOG_TIMESTAMP_RE.search(line[: match.start()])
+        occupancy_match = OCCUPANCY_RE.search(line)
         samples.append(
             RuntimeStatusSample(
                 state=match.group("state"),
-                pps=int(match.group("pps")),
+                pps=int(match.group("csi_pps") or match.group("legacy_pps")),
+                occupancy_percent=int(occupancy_match.group("occupancy")) if occupancy_match else None,
                 timestamp_ms=int(timestamp_match.group("timestamp_ms")) if timestamp_match else None,
             )
         )
     return samples
 
 
-def _expected_runtime_status_samples(first_timestamp_ms: int) -> int:
-    remaining_ms = MONITOR_DURATION_SECONDS * 1000 - first_timestamp_ms
+def _output_has_sensing_status(output_lines: Sequence[str]) -> bool:
+    return STATUS_RE.search("".join(output_lines)) is not None
+
+
+def _wait_for_esphome_sensing_window(process: subprocess.Popen[str], output_lines: list[str]) -> None:
+    connect_deadline = time.monotonic() + WIFI_CONNECT_WAIT_SECONDS
+    while time.monotonic() < connect_deadline and process.poll() is None:
+        if _output_has_sensing_status(output_lines):
+            break
+        time.sleep(0.25)
+    if process.poll() is not None:
+        return
+    try:
+        process.wait(timeout=MONITOR_DURATION_SECONDS)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def monitor_timeout_seconds(case: BenchmarkCase) -> int:
+    if case.benchmark_mode == "runtime" and case.frontend == "esphome":
+        return MONITOR_DURATION_SECONDS + WIFI_CONNECT_WAIT_SECONDS
+    return MONITOR_DURATION_SECONDS
+
+
+def _expected_runtime_status_samples(
+    first_timestamp_ms: int,
+    monitor_duration_seconds: int = MONITOR_DURATION_SECONDS,
+) -> int:
+    remaining_ms = monitor_duration_seconds * 1000 - first_timestamp_ms
     if remaining_ms < 0:
         return 0
     return 1 + (remaining_ms // (STATUS_SAMPLE_INTERVAL_SECONDS * 1000))
 
 
-def _expected_runtime_telemetry_samples(first_timestamp_ms: int) -> int:
-    remaining_ms = MONITOR_DURATION_SECONDS * 1000 - first_timestamp_ms
+def _expected_runtime_telemetry_samples(
+    first_timestamp_ms: int,
+    monitor_duration_seconds: int = MONITOR_DURATION_SECONDS,
+) -> int:
+    remaining_ms = monitor_duration_seconds * 1000 - first_timestamp_ms
     if remaining_ms < 0:
         return 0
     return 1 + (remaining_ms // (TELEMETRY_SAMPLE_INTERVAL_SECONDS * 1000))
@@ -680,6 +745,7 @@ def _parse_collect_output(text: str) -> RuntimeMetrics:
     metrics = RuntimeMetrics()
     detector_states: dict[str, list[str]] = {}
     pps_values: list[int] = []
+    occupancy_values: list[int] = []
     observed_ips: set[str] = set()
     packet_counts: list[int] = []
     for line in strip_ansi(text).splitlines():
@@ -706,6 +772,9 @@ def _parse_collect_output(text: str) -> RuntimeMetrics:
         pps = int(match.group("pps"))
         detector_states.setdefault(detector, []).append(state)
         pps_values.append(pps)
+        occupancy_match = OCCUPANCY_RE.search(line)
+        if occupancy_match is not None:
+            occupancy_values.append(int(occupancy_match.group("occupancy")))
         observed_ips.add(match.group("ip"))
 
     metrics.collect_devices_observed = max(metrics.collect_devices_observed, len(observed_ips))
@@ -715,6 +784,11 @@ def _parse_collect_output(text: str) -> RuntimeMetrics:
         metrics.pps_min = min(pps_values)
         metrics.pps_max = max(pps_values)
         metrics.pps_stddev = statistics.pstdev(pps_values)
+    metrics.occupancy_samples = len(occupancy_values)
+    if occupancy_values:
+        metrics.occupancy_mean = statistics.fmean(occupancy_values)
+        metrics.occupancy_min = min(occupancy_values)
+        metrics.occupancy_max = max(occupancy_values)
     primary_states = detector_states.get("lightweight") or detector_states.get("high_accuracy") or []
     secondary_states = detector_states.get("high_accuracy") if primary_states is detector_states.get("lightweight") else []
     _apply_state_series(metrics, primary_states)
@@ -722,10 +796,17 @@ def _parse_collect_output(text: str) -> RuntimeMetrics:
     return metrics
 
 
-def analyze_monitor_output(output: str, benchmark_mode: str = "runtime") -> tuple[RuntimeMetrics, list[str]]:
+def analyze_monitor_output(
+    output: str,
+    benchmark_mode: str = "runtime",
+    monitor_duration_seconds: int = MONITOR_DURATION_SECONDS,
+) -> tuple[RuntimeMetrics, list[str]]:
     text = strip_ansi(output)
     status_samples = _parse_runtime_status_samples(text)
     pps_values = [sample.pps for sample in status_samples if sample.pps > 0]
+    occupancy_values = [
+        sample.occupancy_percent for sample in status_samples if sample.occupancy_percent is not None
+    ]
     states = [sample.state for sample in status_samples]
     observed_states = states[MOTION_WARMUP_SAMPLES:]
     parsed_telemetry = _parse_telemetry_samples(text)
@@ -733,6 +814,7 @@ def analyze_monitor_output(output: str, benchmark_mode: str = "runtime") -> tupl
     metrics = RuntimeMetrics(
         status_samples=len(status_samples),
         packet_rate_samples=len(pps_values),
+        occupancy_samples=len(occupancy_values),
         telemetry_samples=len(parsed_telemetry),
     )
     reasons: list[str] = []
@@ -742,7 +824,10 @@ def analyze_monitor_output(output: str, benchmark_mode: str = "runtime") -> tupl
         timestamps = [sample.timestamp_ms for sample in status_samples if sample.timestamp_ms is not None]
         metrics.status_first_timestamp_ms = timestamps[0]
         metrics.status_last_timestamp_ms = timestamps[-1]
-        metrics.status_expected_samples = _expected_runtime_status_samples(timestamps[0])
+        metrics.status_expected_samples = _expected_runtime_status_samples(
+            timestamps[0],
+            monitor_duration_seconds,
+        )
         if len(timestamps) > 1:
             intervals = [current - previous for previous, current in zip(timestamps, timestamps[1:])]
             metrics.status_interval_mean_ms = statistics.fmean(intervals)
@@ -763,10 +848,14 @@ def analyze_monitor_output(output: str, benchmark_mode: str = "runtime") -> tupl
             telemetry = [sample.fields for sample in parsed_telemetry]
             metrics.telemetry_samples = len(telemetry)
             metrics.telemetry_expected_samples = _expected_runtime_telemetry_samples(
-                runtime_telemetry[0].timestamp_ms or 0
+                runtime_telemetry[0].timestamp_ms or 0,
+                monitor_duration_seconds,
             )
             telemetry_expected_samples = metrics.telemetry_expected_samples
-        elif MONITOR_DURATION_SECONDS * 1000 - metrics.status_first_timestamp_ms >= TELEMETRY_SAMPLE_INTERVAL_SECONDS * 1000:
+        elif (
+            monitor_duration_seconds * 1000 - metrics.status_first_timestamp_ms
+            >= TELEMETRY_SAMPLE_INTERVAL_SECONDS * 1000
+        ):
             metrics.telemetry_expected_samples = 1
             telemetry_expected_samples = 1
 
@@ -775,6 +864,10 @@ def analyze_monitor_output(output: str, benchmark_mode: str = "runtime") -> tupl
         metrics.pps_min = min(pps_values)
         metrics.pps_max = max(pps_values)
         metrics.pps_stddev = statistics.pstdev(pps_values)
+    if occupancy_values:
+        metrics.occupancy_mean = statistics.fmean(occupancy_values)
+        metrics.occupancy_min = min(occupancy_values)
+        metrics.occupancy_max = max(occupancy_values)
     if observed_states:
         metrics.motion_transitions = sum(
             current != previous for previous, current in zip(observed_states, observed_states[1:])
@@ -827,18 +920,7 @@ def analyze_monitor_output(output: str, benchmark_mode: str = "runtime") -> tupl
                     f"detector status logging gap reached {metrics.status_interval_max_ms / 1000.0:.2f}s"
                 )
 
-        if metrics.packet_rate_samples == 0:
-            reasons.append("detector packet rate was not logged")
-        elif metrics.status_samples > 0 and metrics.packet_rate_samples < max(0, metrics.status_samples - 1):
-            reasons.append(
-                f"only {metrics.packet_rate_samples} of {metrics.status_samples} detector status logs "
-                "had non-zero packet rates"
-            )
-        elif not EXPECTED_PPS_MIN <= metrics.pps_mean <= EXPECTED_PPS_MAX:
-            reasons.append(
-                f"mean packet rate {metrics.pps_mean:.2f} pps is outside "
-                f"{EXPECTED_PPS_MIN}-{EXPECTED_PPS_MAX} pps"
-            )
+        _append_occupancy_reasons(metrics, reasons)
         _append_common_monitor_reasons(
             metrics,
             telemetry,
@@ -966,7 +1048,17 @@ def apply_esphome_benchmark_wifi(content: str) -> str:
         replacement_lines.append(f"{field_indent}channel: {channel}")
     replacement_lines.extend(preserved_lines)
 
-    return "\n".join([*lines[:entry_start], *replacement_lines, *lines[entry_end:]]) + ("\n" if content.endswith("\n") else "")
+    updated_lines = [*lines[:entry_start], *replacement_lines, *lines[entry_end:]]
+    wifi_index = next((index for index, line in enumerate(updated_lines) if re.match(r"^\s*wifi:\s*$", line)))
+    wifi_indent = re.match(r"^(\s*)wifi:\s*$", updated_lines[wifi_index]).group(1)
+    wifi_field_indent = f"{wifi_indent}  "
+    has_fast_connect = any(
+        re.match(rf"^{re.escape(wifi_field_indent)}fast_connect:\s*", line)
+        for line in updated_lines[wifi_index + 1 : wifi_index + 16]
+    )
+    if not has_fast_connect:
+        updated_lines.insert(wifi_index + 1, f"{wifi_field_indent}fast_connect: true")
+    return "\n".join(updated_lines) + ("\n" if content.endswith("\n") else "")
 
 
 def apply_esphome_benchmark_logger(content: str, chip: str) -> str:
@@ -1395,6 +1487,10 @@ def run_streamer_case(
             result.runtime_metrics.pps_min = collect_metrics.pps_min
             result.runtime_metrics.pps_max = collect_metrics.pps_max
             result.runtime_metrics.pps_stddev = collect_metrics.pps_stddev
+            result.runtime_metrics.occupancy_samples = collect_metrics.occupancy_samples
+            result.runtime_metrics.occupancy_mean = collect_metrics.occupancy_mean
+            result.runtime_metrics.occupancy_min = collect_metrics.occupancy_min
+            result.runtime_metrics.occupancy_max = collect_metrics.occupancy_max
             result.runtime_metrics.status_samples = collect_metrics.status_samples
             result.runtime_metrics.dominant_motion_state = collect_metrics.dominant_motion_state
             result.runtime_metrics.dominant_state_share_percent = collect_metrics.dominant_state_share_percent
@@ -1414,13 +1510,12 @@ def run_streamer_case(
                 result.reasons.append(
                     f"only {result.runtime_metrics.secondary_status_samples} High Accuracy host collect samples were logged"
                 )
-            if result.runtime_metrics.pps_mean is None or not EXPECTED_PPS_MIN <= result.runtime_metrics.pps_mean <= EXPECTED_PPS_MAX:
-                result.reasons.append(
-                    f"host collect mean packet rate {result.runtime_metrics.pps_mean:.2f} pps is outside "
-                    f"{EXPECTED_PPS_MIN}-{EXPECTED_PPS_MAX} pps"
-                    if result.runtime_metrics.pps_mean is not None
-                    else "host collect packet rate was not logged"
-                )
+            _append_occupancy_reasons(
+                result.runtime_metrics,
+                result.reasons,
+                missing_reason="host collect CSI occupancy was not logged",
+                low_reason_prefix="host collect mean CSI occupancy",
+            )
             result.status = "PASS" if not result.reasons else "FAIL"
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
         result.status = "FAIL"
@@ -1483,12 +1578,36 @@ def run_case(
             try:
                 if before_monitor is not None:
                     before_monitor()
-                result.monitor = run_command(
-                    monitor_command,
-                    env=env,
-                    timeout=MONITOR_DURATION_SECONDS,
-                    timeout_is_success=True,
-                )
+                monitor_seconds = monitor_timeout_seconds(case)
+                if case.frontend == "esphome" and case.benchmark_mode == "runtime":
+                    process, output_lines, relay_thread, started = _run_background_command(
+                        monitor_command,
+                        env=env,
+                    )
+                    try:
+                        _wait_for_esphome_sensing_window(process, output_lines)
+                    finally:
+                        if process.poll() is None:
+                            _terminate_process(process)
+                            process.wait(timeout=5)
+                    result.monitor = _finalize_background_command(
+                        process,
+                        output_lines,
+                        relay_thread,
+                        started,
+                        monitor_command,
+                    )
+                    monitor_seconds = max(
+                        MONITOR_DURATION_SECONDS,
+                        int(result.monitor.duration_seconds),
+                    )
+                else:
+                    result.monitor = run_command(
+                        monitor_command,
+                        env=env,
+                        timeout=monitor_seconds,
+                        timeout_is_success=True,
+                    )
                 if build_future is not None:
                     overlapped_result = build_future.result()
             finally:
@@ -1502,6 +1621,7 @@ def run_case(
             result.runtime_metrics, analysis_reasons = analyze_monitor_output(
                 result.monitor.output,
                 benchmark_mode=case.benchmark_mode,
+                monitor_duration_seconds=monitor_seconds,
             )
             result.reasons.extend(analysis_reasons)
             result.status = "PASS" if not result.reasons else "FAIL"
@@ -1619,8 +1739,8 @@ def render_report(
         "",
         "## Summary",
         "",
-        "| Frontend | Detection profile | Result | Binary size | Partition free | CPU load | Min free heap |",
-        "|---|---|---:|---:|---:|---:|---:|",
+        "| Frontend | Detection profile | Result | Occupancy | Binary size | Partition free | CPU load | Min free heap |",
+        "|---|---|---:|---:|---:|---:|---:|---:|",
     ]
     for result in results:
         build = result.build_metrics
@@ -1632,6 +1752,7 @@ def render_report(
                     FRONTEND_LABELS[result.case.frontend],
                     DETECTOR_LABELS[result.case.detector],
                     f"**{result.status}**",
+                    format_number(runtime.occupancy_mean, "%"),
                     format_summary_bytes(build.firmware_size_bytes),
                     format_summary_partition_free(build.partition_free_bytes, build.partition_free_percent),
                     format_number(runtime.runtime_load_mean, "%"),
@@ -1688,6 +1809,12 @@ def render_report(
                 f"{format_number(runtime.pps_min)} min, {format_number(runtime.pps_max)} max, "
                 f"{format_number(runtime.pps_stddev)} standard deviation |"
             )
+            if runtime.occupancy_samples > 0:
+                detail_rows.append(
+                    f"| CSI occupancy | {format_number(runtime.occupancy_mean, '%')} mean, "
+                    f"{format_number(runtime.occupancy_min, '%')} min, "
+                    f"{format_number(runtime.occupancy_max, '%')} max |"
+                )
         elif result.case.benchmark_mode == "stream" and runtime.status_samples > 0:
             detail_rows.append(f"| Packet-rate samples | {runtime.status_samples} |")
             detail_rows.append(
@@ -1695,6 +1822,12 @@ def render_report(
                 f"{format_number(runtime.pps_min)} min, {format_number(runtime.pps_max)} max, "
                 f"{format_number(runtime.pps_stddev)} standard deviation |"
             )
+            if runtime.occupancy_samples > 0:
+                detail_rows.append(
+                    f"| CSI occupancy | {format_number(runtime.occupancy_mean, '%')} mean, "
+                    f"{format_number(runtime.occupancy_min, '%')} min, "
+                    f"{format_number(runtime.occupancy_max, '%')} max |"
+                )
 
         if runtime.telemetry_samples > 0 or (
             result.case.benchmark_mode == "runtime" and runtime.telemetry_expected_samples > 0
@@ -1768,13 +1901,16 @@ def render_report(
             "- free heap does not decline by more than 5% during monitoring",
             "- Native Lightweight, Native High Accuracy, and ESPHome Lightweight runtime benchmarks log detector status "
             "once per second after the first detector status line",
-            "- Native Lightweight, Native High Accuracy, and ESPHome Lightweight runtime benchmarks report non-zero "
-            "packet rates on all but the first detector status line",
-            f"- Native Lightweight, Native High Accuracy, and ESPHome Lightweight mean packet rate remains between {EXPECTED_PPS_MIN} and {EXPECTED_PPS_MAX} pps",
+            "- Native Lightweight, Native High Accuracy, and ESPHome Lightweight runtime benchmarks log CSI occupancy "
+            "on detector status lines",
+            f"- Native Lightweight, Native High Accuracy, and ESPHome Lightweight mean CSI occupancy stays at or above "
+            f"the {MINIMUM_OCCUPANCY_PERCENT:.0f}% admitted-slot detector-ready floor",
             "- Native Lightweight, Native High Accuracy, and ESPHome Lightweight detector timing is present",
             "- Matter smoke benchmarks log a boot marker and the commissioning startup state",
-            "- Streamer benchmarks log the device IP, reach STREAMING, and sustain host collect around the target packet rate",
+            "- Streamer benchmarks log the device IP and reach STREAMING",
             f"- Streamer host collect logs at least {MIN_STREAMER_COLLECT_SAMPLES} Lightweight and High Accuracy samples",
+            f"- Streamer host collect mean CSI occupancy stays at or above the {MINIMUM_OCCUPANCY_PERCENT:.0f}% "
+            "admitted-slot detector-ready floor",
             "- no fatal firmware log is observed",
             "",
         ]
@@ -1914,6 +2050,14 @@ def parse_report_results(text: str) -> list[BenchmarkResult]:
             runtime.pps_min = int(match.group("min"))
             runtime.pps_max = int(match.group("max"))
             runtime.pps_stddev = float(match.group("stddev"))
+        if "CSI occupancy" in metric_rows:
+            match = REPORT_OCCUPANCY_RE.fullmatch(metric("CSI occupancy"))
+            if match is None:
+                raise ValueError(f"invalid CSI occupancy field: {metric('CSI occupancy')!r}")
+            runtime.occupancy_mean = float(match.group("mean"))
+            runtime.occupancy_min = int(match.group("min"))
+            runtime.occupancy_max = int(match.group("max"))
+            runtime.occupancy_samples = runtime.status_samples
         if "Telemetry samples" in metric_rows:
             runtime.telemetry_samples, runtime.telemetry_expected_samples = parse_report_count(
                 metric("Telemetry samples")

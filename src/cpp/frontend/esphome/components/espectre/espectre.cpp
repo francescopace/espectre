@@ -198,6 +198,7 @@ void ESpectreComponent::on_motion_state_changed(const RuntimeSnapshot &snapshot)
 }
 
 void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
+  (void) packets_received;
   if (!this->runtime_.snapshot().ready_to_publish && snapshot.ready_to_publish) {
     this->threshold_republished_ = false;
     this->motion_hits_republished_ = false;
@@ -205,7 +206,6 @@ void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint
   }
   this->runtime_.record_snapshot(snapshot);
   this->sample_diagnostics_();
-  this->sensor_publisher_.log_status(TAG, snapshot, packets_received, &this->latest_diagnostics_);
   if (!snapshot.ready_to_publish) {
     return;
   }
@@ -278,9 +278,7 @@ void ESpectreComponent::on_calibration_finished(const RuntimeSnapshot &snapshot,
   if (this->calibrate_switch_ != nullptr) {
     static_cast<ESpectreCalibrateSwitch *>(this->calibrate_switch_)->set_calibrating(false);
   }
-  finalize_frontend_calibration(this->runtime_, snapshot,
-                                [this]() { this->sensor_publisher_.reset_rate_counter(); },
-                                success, TAG);
+  finalize_frontend_calibration(this->runtime_, snapshot, success, TAG);
 }
 
 void ESpectreComponent::on_runtime_fault(const char *message) {

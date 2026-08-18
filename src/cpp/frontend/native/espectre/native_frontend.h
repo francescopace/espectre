@@ -19,7 +19,6 @@
 #include "frontend_ha_mqtt_helpers.h"
 #include "mqtt_transport.h"
 #include "ota_service.h"
-#include "periodic_sensing_status_logger.h"
 #include "runtime_diagnostics.h"
 #include "runtime_events.h"
 #include "runtime_frontend_controller.h"
@@ -134,7 +133,6 @@ class NativeFrontend : public IRuntimeListener {
   ProvisioningCommandCallback provisioning_command_callback_{};
   DeviceConfigChangeCallback device_config_change_callback_{};
   RuntimeFrontendController runtime_;
-  PeriodicSensingStatusLogger status_logger_{};
   EspectreDeviceConfig device_config_{};
   EspectreDeviceInfo device_info_{};
   FrontendHaMqttSettings ha_settings_{};

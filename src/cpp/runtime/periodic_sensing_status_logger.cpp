@@ -60,7 +60,9 @@ void PeriodicSensingStatusLogger::log_status(const char *tag,
 
   if (snapshot.calibrating) {
     ESP_LOGI(tag,
-             "CALIBRATING | csi:%u/%u tx:%u occ:%u%% miss:%u excess:%u stale:%u ooo:%u | ch:%u rssi:%d",
+             "CALIBRATING | %u/%u pkt | csi:%u/%u tx:%u occ:%u%% miss:%u excess:%u stale:%u ooo:%u | ch:%u rssi:%d",
+             static_cast<unsigned>(snapshot.calibration_packets),
+             static_cast<unsigned>(snapshot.calibration_target_packets),
              static_cast<unsigned>(rate_pps),
              static_cast<unsigned>(raw_rate_pps),
              static_cast<unsigned>(traffic_rate_pps),

@@ -26,7 +26,7 @@ After flashing, configure Wi-Fi with one of these provisioning paths:
 
 Once Wi-Fi is configured, the device is discovered automatically by Home Assistant through ESPHome.
 
-Release and snapshot channels publish one full-flash image per supported chip, with `lightweight` as the initial detector. Both `lightweight` and `high_accuracy` are available in the image and can be selected through the persisted runtime detector entity. After adoption, ESPHome Device Builder compiles and installs updates wirelessly from the device YAML; `detection_algorithm` sets the initial detector for a fresh configuration rather than limiting which detector the firmware supports.
+The `release`, `preview`, and `develop` channels publish one full-flash image per supported chip, with `lightweight` as the initial detector. Both `lightweight` and `high_accuracy` are available in the image and can be selected through the persisted runtime detector entity. After adoption, ESPHome Device Builder compiles and installs updates wirelessly from the device YAML; `detection_algorithm` sets the initial detector for a fresh configuration rather than limiting which detector the firmware supports.
 
 ## Integration Surface
 
@@ -215,7 +215,7 @@ substitutions:
 
 The same value also drives the import URL the device republishes after the next build, so this one declaration is enough.
 
-The `@` suffix of the adopted `packages` URL is a separate ref, and it selects which revision of the example YAML is downloaded. Change it to `@${git_ref}` to keep both on the same revision. This matters for snapshot builds, whose URL carries their source commit while the component still follows `main`.
+The `@` suffix of the adopted `packages` URL is a separate ref, and it selects which revision of the example YAML is downloaded. Change it to `@${git_ref}` to keep both on the same revision. This matters for preview and develop builds, whose URL carries their source commit while the component still follows `main`.
 
 ### Dashboard Examples
 
@@ -331,7 +331,7 @@ The ESPHome examples use ESPHome 2026.7's native ESP-IDF backend. The external c
 
 ### Automatic SDK Configuration
 
-The frontend automatically sets the ESP-IDF options required by the runtime, including CSI enablement, disabled Wi-Fi power save, TX AMPDU, the Streamer high-rate Wi-Fi buffer profile, lwIP IRAM optimization, and enlarged TCP/IP and UDP mailboxes. RX AMPDU remains disabled so sensing receives individual CSI frames. The supplied examples do not enable Bluetooth. In most cases you do not need to set these options manually.
+The frontend automatically sets the ESP-IDF options required by the runtime, including CSI enablement, disabled Wi-Fi power save, TX AMPDU, the Streamer high-rate Wi-Fi buffer profile, lwIP IRAM optimization, and enlarged TCP/IP and UDP mailboxes. RX AMPDU remains disabled so sensing receives individual CSI frames. ESPHome keeps the ESP-IDF default log level at ERROR so Wi-Fi and lwIP stay quiet; the shared SDK compiles INFO/DEBUG only in its own sources and restores the `espectre` and `espectre.runtime` tags at runtime so the periodic `IDLE | csi:` status lines reach USB serial. The supplied examples do not enable Bluetooth. In most cases you do not need to set these options manually.
 
 For board-specific tweaks, you can still add `sdkconfig_options` in YAML:
 
@@ -425,9 +425,12 @@ esp32:
 
 ### View logs
 
+Home Assistant entity updates do not replace the serial status log. Movement and motion can be live in Home Assistant while `espectre monitor` stays quiet if the shared runtime `ESP_LOGI` lines are compiled out. After a current ESPHome build, the 1 Hz `IDLE | csi:` / `MOTION | csi:` heartbeats should appear on USB serial as well as in `esphome logs`.
+
 ```bash
 esphome logs <your-config>.yaml
 esphome logs <your-config>.yaml --device espectre.local
+./espectre monitor --port /dev/cu.usbmodem*
 ```
 
 ## Implementation Map

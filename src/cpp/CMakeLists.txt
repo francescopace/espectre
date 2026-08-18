@@ -71,6 +71,11 @@ idf_component_register(
         ${espectre_sdk_requires}
 )
 
+# ESPHome keeps CONFIG_LOG_DEFAULT_LEVEL at ERROR so Wi-Fi and lwIP debug stay
+# compiled out. Compile INFO/DEBUG only in this component (4 == ESP_LOG_DEBUG)
+# so detection status and telemetry can be enabled per-tag at runtime.
+target_compile_definitions(${COMPONENT_LIB} PRIVATE LOG_LOCAL_LEVEL=4)
+
 if(CONFIG_ESPECTRE_SDK_ENABLE_STREAM_RUNTIME)
     # make_stream_runtime() returns nullptr unless the profile is compiled in,
     # so the option has to reach the sources as well as the source list.

@@ -412,6 +412,9 @@ async def to_code(config):
     add_idf_sdkconfig_option("CONFIG_LWIP_IRAM_OPTIMIZATION", True)
     add_idf_sdkconfig_option("CONFIG_LWIP_TCPIP_RECVMBOX_SIZE", 64)
     add_idf_sdkconfig_option("CONFIG_LWIP_UDP_RECVMBOX_SIZE", 32)
+    # Undo the previous global DEBUG maximum so Wi-Fi/lwIP debug stays
+    # compiled out. Detection status uses LOG_LOCAL_LEVEL in the SDK component.
+    add_idf_sdkconfig_option("CONFIG_LOG_MAXIMUM_EQUALS_DEFAULT", True)
     if config[CONF_DEBUG_TELEMETRY]:
         cg.add_build_flag("-DCONFIG_ESPECTRE_DEBUG_TELEMETRY=1")
     # Note: CONFIG_FREERTOS_HZ=1000 is already set by ESPHome

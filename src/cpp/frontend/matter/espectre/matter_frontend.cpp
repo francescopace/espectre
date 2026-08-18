@@ -65,12 +65,8 @@ void MatterFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
 }
 
 void MatterFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
+  (void) packets_received;
   runtime_.record_snapshot(snapshot);
-  if (!snapshot.ready_to_publish) {
-    return;
-  }
-
-  status_logger_.log_status(TAG, snapshot, packets_received);
 }
 
 void MatterFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
@@ -80,7 +76,7 @@ void MatterFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
 void MatterFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) { runtime_.record_snapshot(snapshot); }
 
 void MatterFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
-  finalize_frontend_calibration(runtime_, snapshot, [this]() { status_logger_.reset(); }, success, TAG);
+  finalize_frontend_calibration(runtime_, snapshot, success, TAG);
 }
 
 void MatterFrontend::on_live_telemetry(float movement, float threshold) {

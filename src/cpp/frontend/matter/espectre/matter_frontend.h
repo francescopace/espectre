@@ -12,7 +12,6 @@
 #include <memory>
 
 #include "matter_bindings.h"
-#include "periodic_sensing_status_logger.h"
 #include "runtime_events.h"
 #include "runtime_frontend_controller.h"
 
@@ -49,7 +48,6 @@ class MatterFrontend : public IRuntimeListener {
   IMatterBindings *bindings_;
   uint16_t endpoint_id_;
   RuntimeFrontendController runtime_;
-  PeriodicSensingStatusLogger status_logger_{};
 };
 
 }  // namespace espectre

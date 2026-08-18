@@ -19,6 +19,8 @@
 #include "csi_pipeline.h"
 #include "esp_idf_runtime_base.h"
 #include "pending_event.h"
+#include "periodic_sensing_status_logger.h"
+#include "runtime_diagnostics.h"
 #include "runtime_interface.h"
 #include "runtime_debug_telemetry.h"
 #include "csi_traffic_service.h"
@@ -52,7 +54,6 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   std::unique_ptr<BaseDetector> make_detector_(DetectionAlgorithm algorithm, float threshold,
                                                uint16_t window_packets);
   void cancel_calibration_(bool notify_listener);
-  void log_calibration_progress_(uint8_t percent, uint32_t packets, uint16_t target_packets);
   void on_wifi_connected_(const esp_netif_ip_info_t &ip_info);
   void on_wifi_disconnected_();
   void start_sensing_services_(const esp_netif_ip_info_t &ip_info);
@@ -73,6 +74,8 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
                                                      bool temporal_reset);
   void finish_threshold_calibration_(bool success);
   void refresh_csi_local_identity_(uint32_t local_ip_addr);
+  void log_periodic_status_(uint32_t packets_received);
+  void reset_periodic_status_logger_();
 
   std::unique_ptr<BaseDetector> detector_;
   uint16_t resolved_window_packets_{DETECTOR_DEFAULT_WINDOW_SIZE};
@@ -81,10 +84,10 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   WiFiLifecycleManager wifi_lifecycle_;
   CsiTrafficService csi_traffic_service_;
 
+  PeriodicSensingStatusLogger status_logger_{};
+  RuntimeDiagnosticsSampler status_diagnostics_sampler_{};
   std::unique_ptr<StartupThresholdCalibrator> threshold_calibrator_;
   std::atomic<bool> threshold_calibration_active_{false};
-  std::atomic<uint8_t> next_calibration_progress_percent_{25U};
-  PendingEvent<uint8_t, uint32_t, uint16_t> calibration_progress_event_;
   // Posted from the CSI callback with the outcome, completed from the loop.
   PendingEvent<bool> calibration_finished_event_;
   bool wifi_ready_{false};

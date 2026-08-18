@@ -453,7 +453,6 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
 
   component.on_calibration_started(motion_snapshot);
   TEST_ASSERT_TRUE(calibrate_switch.state);
-  component.sensor_publisher_.log_status("frontend", motion_snapshot, 25);
   TEST_ASSERT_TRUE(component.sensor_publisher_.has_motion_binary_sensor());
   TEST_ASSERT_TRUE(component.sensor_publisher_.has_movement_sensor());
   component.on_calibration_finished(motion_snapshot, false);

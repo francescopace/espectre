@@ -95,6 +95,20 @@ struct RuntimeSnapshot {
   /** Startup calibration is running; detection results are not valid yet. */
   bool calibrating{false};
   /**
+   * Packets observed by the current Lightweight startup calibrator.
+   *
+   * Zero when calibration is not running. Lightweight can finish early once
+   * motion evidence is accepted, so this may stay below `calibration_target_packets`.
+   */
+  uint32_t calibration_packets{0};
+  /**
+   * Packet budget for the current Lightweight startup calibrator.
+   *
+   * Zero when calibration is not running. `csi:`/`miss:` on the status heartbeat
+   * are last-second pipeline rates, not remaining calibration work.
+   */
+  uint16_t calibration_target_packets{0};
+  /**
    * The runtime is calibrated, linked, and its output is safe to act on.
    *
    * Gate every user-visible publication on this. It goes false again when the

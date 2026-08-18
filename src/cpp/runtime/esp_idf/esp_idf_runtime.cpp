@@ -11,7 +11,6 @@
 #include "esp_idf_runtime.h"
 
 #include <algorithm>
-#include <cinttypes>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -153,12 +152,6 @@ void EspIdfRuntime::loop() {
   if (wifi_lifecycle_.process_pending_events() != ESP_OK) {
     notify_fault_("Wi-Fi lifecycle init failed");
   }
-  uint8_t calibration_percent = 0U;
-  uint32_t calibration_packets = 0U;
-  uint16_t calibration_target_packets = 0U;
-  if (calibration_progress_event_.take(calibration_percent, calibration_packets, calibration_target_packets)) {
-    log_calibration_progress_(calibration_percent, calibration_packets, calibration_target_packets);
-  }
   bool calibration_success = false;
   if (calibration_finished_event_.take(calibration_success)) {
     finish_threshold_calibration_(calibration_success);
@@ -194,18 +187,6 @@ RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {
   diagnostics.csi_occupancy_slots = csi_pipeline_.detector_window_occupancy_slots();
   diagnostics.csi_window_slots = csi_pipeline_.detector_window_slots();
   return diagnostics;
-}
-
-void EspIdfRuntime::log_calibration_progress_(uint8_t percent, uint32_t packets, uint16_t target_packets) {
-  if (target_packets == 0U) {
-    return;
-  }
-  const float progress = static_cast<float>(packets) / static_cast<float>(target_packets);
-  log_progress_bar(RUNTIME_TAG, progress, 20, -1,
-                   "calibration %3u%% | %" PRIu32 "/%u packets",
-                   static_cast<unsigned>(percent),
-                   static_cast<uint32_t>(packets),
-                   static_cast<unsigned>(target_packets));
 }
 
 void EspIdfRuntime::set_services_armed(bool armed) {
@@ -446,12 +427,12 @@ std::unique_ptr<BaseDetector> EspIdfRuntime::make_detector_(DetectionAlgorithm a
 void EspIdfRuntime::cancel_calibration_(bool notify_listener) {
   const bool was_calibrating = snapshot_.calibrating;
   threshold_calibration_active_.store(false, std::memory_order_relaxed);
-  next_calibration_progress_percent_.store(25U, std::memory_order_relaxed);
-  calibration_progress_event_.clear();
   calibration_finished_event_.clear();
   csi_pipeline_.set_packet_interceptor(nullptr, nullptr);
   threshold_calibrator_.reset();
   snapshot_.calibrating = false;
+  snapshot_.calibration_packets = 0U;
+  snapshot_.calibration_target_packets = 0U;
   if (was_calibrating && notify_listener && listener_ != nullptr) {
     listener_->on_calibration_finished(snapshot_, false);
   }
@@ -498,8 +479,11 @@ void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) 
       snapshot_.link_rssi_dbm = csi_pipeline_.last_rssi_dbm();
       snapshot_.link_channel = csi_pipeline_.last_channel();
 
-      if (snapshot_.ready_to_publish && listener_ != nullptr) {
-        listener_->on_periodic_update(snapshot_, packets_received);
+      if (snapshot_.ready_to_publish) {
+        log_periodic_status_(packets_received);
+        if (listener_ != nullptr) {
+          listener_->on_periodic_update(snapshot_, packets_received);
+        }
       }
     });
     if (err != ESP_OK) {
@@ -517,6 +501,7 @@ void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) 
 
   start_calibration_();
   snapshot_.ready_to_publish = true;
+  reset_periodic_status_logger_();
 }
 
 void EspIdfRuntime::stop_sensing_services_() {
@@ -574,6 +559,8 @@ bool EspIdfRuntime::start_calibration_() {
     snapshot_.threshold = threshold;
     snapshot_.startup_threshold = threshold;
     snapshot_.calibrating = false;
+    snapshot_.calibration_packets = 0U;
+    snapshot_.calibration_target_packets = 0U;
     if (listener_ != nullptr) {
       listener_->on_threshold_changed(snapshot_);
       listener_->on_calibration_finished(snapshot_, true);
@@ -581,8 +568,18 @@ bool EspIdfRuntime::start_calibration_() {
     return true;
   }
 
+  const uint32_t calibration_duration_ms =
+      config_.segmentation_window_size_ms * CALIBRATION_NUM_WINDOWS;
+  uint32_t calibration_target_packets = temporal_window_slots(
+      config_.csi_target_pps, calibration_duration_ms);
+  if (calibration_target_packets > UINT16_MAX) {
+    calibration_target_packets = UINT16_MAX;
+  }
+
   if (!snapshot_.calibrating) {
     snapshot_.calibrating = true;
+    snapshot_.calibration_packets = 0U;
+    snapshot_.calibration_target_packets = static_cast<uint16_t>(calibration_target_packets);
     if (listener_ != nullptr) {
       listener_->on_calibration_started(snapshot_);
     }
@@ -594,21 +591,16 @@ bool EspIdfRuntime::start_calibration_() {
   threshold_calibrator_.reset(new (std::nothrow) StartupThresholdCalibrator());
   if (!threshold_calibrator_) {
     snapshot_.calibrating = false;
+    snapshot_.calibration_packets = 0U;
+    snapshot_.calibration_target_packets = 0U;
     notify_fault_("Failed to allocate startup calibrator");
     return false;
-  }
-  const uint32_t calibration_duration_ms =
-      config_.segmentation_window_size_ms * CALIBRATION_NUM_WINDOWS;
-  uint32_t calibration_target_packets = temporal_window_slots(
-      config_.csi_target_pps, calibration_duration_ms);
-  if (calibration_target_packets > UINT16_MAX) {
-    calibration_target_packets = UINT16_MAX;
   }
   threshold_calibrator_->begin(static_cast<uint16_t>(calibration_target_packets),
                                detector_ != nullptr && detector_->startup_gate_enabled());
   calibration_finished_event_.clear();
-  calibration_progress_event_.clear();
-  next_calibration_progress_percent_.store(25U, std::memory_order_relaxed);
+  snapshot_.calibration_packets = 0U;
+  snapshot_.calibration_target_packets = static_cast<uint16_t>(calibration_target_packets);
   threshold_calibration_active_.store(true, std::memory_order_relaxed);
   csi_pipeline_.clear_detector_buffer();
   if (detector_ != nullptr) {
@@ -632,7 +624,8 @@ bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data,
   if (temporal_reset) {
     const uint16_t target_packets = threshold_calibrator_->target_packets();
     threshold_calibrator_->begin(target_packets, detector_->startup_gate_enabled());
-    next_calibration_progress_percent_.store(25U, std::memory_order_relaxed);
+    snapshot_.calibration_packets = 0U;
+    snapshot_.calibration_target_packets = target_packets;
     detector_->on_startup_calibration_begin();
   }
 
@@ -653,16 +646,8 @@ bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data,
   }
   threshold_calibrator_->observe(true, detector_->get_motion_metric(), packet_weight);
 
-  const uint32_t packet_count = threshold_calibrator_->packet_count();
-  const uint16_t target_packets = threshold_calibrator_->target_packets();
-  uint8_t next_progress = next_calibration_progress_percent_.load(std::memory_order_relaxed);
-  while (next_progress <= 100U &&
-         (static_cast<uint64_t>(packet_count) * 100U) >=
-             (static_cast<uint64_t>(target_packets) * next_progress)) {
-    calibration_progress_event_.post(next_progress, std::min<uint32_t>(packet_count, target_packets), target_packets);
-    next_progress = static_cast<uint8_t>(next_progress + 25U);
-  }
-  next_calibration_progress_percent_.store(next_progress, std::memory_order_relaxed);
+  snapshot_.calibration_packets = threshold_calibrator_->packet_count();
+  snapshot_.calibration_target_packets = threshold_calibrator_->target_packets();
 
   if (threshold_calibrator_->is_complete()) {
     threshold_calibration_active_.store(false, std::memory_order_relaxed);
@@ -686,10 +671,10 @@ bool EspIdfRuntime::threshold_calibration_packet_callback_(void *context,
 
 void EspIdfRuntime::finish_threshold_calibration_(bool success) {
   threshold_calibration_active_.store(false, std::memory_order_relaxed);
-  next_calibration_progress_percent_.store(25U, std::memory_order_relaxed);
-  calibration_progress_event_.clear();
   csi_pipeline_.set_packet_interceptor(nullptr, nullptr);
   snapshot_.calibrating = false;
+  snapshot_.calibration_packets = 0U;
+  snapshot_.calibration_target_packets = 0U;
 
   if (success && threshold_calibrator_) {
     const float auto_factor = detector_ != nullptr
@@ -721,6 +706,18 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
   }
   ESP_LOGD(RUNTIME_TAG, "Calibration %s", success ? "completed successfully" : "failed");
   threshold_calibrator_.reset();
+  reset_periodic_status_logger_();
+}
+
+void EspIdfRuntime::log_periodic_status_(uint32_t packets_received) {
+  const RuntimeDiagnosticsSample sample =
+      status_diagnostics_sampler_.sample(get_diagnostics(), monotonic_now_ms());
+  status_logger_.log_status(RUNTIME_TAG, snapshot_, packets_received, &sample);
+}
+
+void EspIdfRuntime::reset_periodic_status_logger_() {
+  status_logger_.reset();
+  status_diagnostics_sampler_.reset(get_diagnostics(), monotonic_now_ms());
 }
 
 void EspIdfRuntime::refresh_csi_local_identity_(uint32_t local_ip_addr) {
