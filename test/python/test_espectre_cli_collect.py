@@ -2319,10 +2319,12 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
     assert len(FakeHighAccuracyDetector.instances) == 2
     assert "STATUS: COLLECTING 2/2" in output
     assert "collecting until Ctrl+C" in output
-    assert "ip=192.168.1.17 chip=C6 ch=08 rssi=-47" in output
-    assert "ip=192.168.1.24 chip=S3 ch=11 rssi=-51" in output
-    assert "[████████░░|░░░░░░░░░] | mvmt:0.400000 thr:0.500000 | IDLE | 0 pkt/s | drop 33.3%" in output
-    assert "[██████████|█░░░░░░░░] | mvmt:0.600000 thr:0.500000 | MOTION | 0 pkt/s | drop 33.3%" in output
+    assert "ip=192.168.1.17 chip=C6 |" in output
+    assert "ip=192.168.1.24 chip=S3 |" in output
+    assert "[████████░░|░░░░░░░░░] | mvmt:0.400000 thr:0.500000 | IDLE | csi:" in output
+    assert "[██████████|█░░░░░░░░] | mvmt:0.600000 thr:0.500000 | MOTION | csi:" in output
+    assert "| ch:8 rssi:-47 | bp:-- | pace:100pps(hold) | udp:0 drop:33.3%" in output
+    assert "| ch:11 rssi:-51 | bp:-- | pace:100pps(hold) | udp:0 drop:33.3%" in output
     assert "mvmt:1.000000" not in output
 
 
@@ -2556,7 +2558,8 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
     assert "STATUS: CALIBRATING" in output
     assert calibration_calls == [9.0, 9.0]
     assert FakeLightweightDetector.adaptive_thresholds == [8.0, 8.0]
-    assert "thr:8.000000 | IDLE | 0 pkt/s | drop 0.0% | bp:--" in output
+    assert "thr:8.000000 | IDLE | csi:" in output
+    assert "| bp:-- | pace:4pps(hold) | udp:0 drop:0.0%" in output
     assert "STATUS: COLLECTING 2/2" in output
 
 
@@ -2619,8 +2622,9 @@ def test_collect_live_runs_parallel_detectors_per_device(monkeypatch, capsys) ->
     assert "STATUS: CALIBRATING 1/1" in output
     assert "STATUS: COLLECTING 1/1" in output
     # One live line per (device, detector) pair.
-    assert "ip=192.168.1.24 chip=C3 ch=06 rssi=-45 [lightweight  ]" in output
-    assert "ip=192.168.1.24 chip=C3 ch=06 rssi=-45 [high_accuracy]" in output
+    assert "ip=192.168.1.24 chip=C3 [lightweight  ]" in output
+    assert "ip=192.168.1.24 chip=C3 [high_accuracy]" in output
+    assert "| ch:6 rssi:-45 |" in output
 
 
 def test_collect_live_shows_drop_rate_during_calibration(monkeypatch, capsys) -> None:
@@ -2675,7 +2679,9 @@ def test_collect_live_shows_drop_rate_during_calibration(monkeypatch, capsys) ->
 
     output = capsys.readouterr().out
     assert "STATUS: CALIBRATING 1/1" in output
-    assert "drop 33.3%" in output
+    assert "| WAITING | csi:" in output
+    assert "udp:0 drop:33.3%" in output
+    assert " pkt:" not in output
 
 
 def test_collect_live_surfaces_runtime_error(monkeypatch) -> None:
@@ -2755,8 +2761,9 @@ def test_collect_live_displays_device_drop_rate(monkeypatch, capsys) -> None:
     )
 
     output = capsys.readouterr().out
-    assert "ip=192.168.1.34 chip=S3 ch=08 rssi=-46" in output
-    assert "drop 33.3%" in output
+    assert "ip=192.168.1.34 chip=S3 |" in output
+    assert "| ch:8 rssi:-46 |" in output
+    assert "udp:0 drop:33.3%" in output
 
 
 def _collection_gate_packet(timestamp_us: int) -> SimpleNamespace:

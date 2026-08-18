@@ -35,10 +35,9 @@ def format_progress_bar(
     width=20,
     threshold_pos=-1,
     *,
-    filled_char="█",
-    empty_char="░",
+    filled_char="#",
+    empty_char="-",
     threshold_char="|",
-    include_percent=False,
 ):
     """Format the runtime-style progress bar for console output.
 
@@ -65,73 +64,75 @@ def format_progress_bar(
             bar += empty_char
     bar += "]"
 
-    if include_percent:
-        percent = int(progress * 100)
-        return f"{bar} {percent:>3d}%"
     return bar
 
 
-def _format_drop_text(*, packet_count=None, dropped_count=None):
-    """Format the shared drop-rate suffix when packet counters are available."""
-    if packet_count is None or dropped_count is None:
-        return ""
-    total_expected = max(int(packet_count) + int(dropped_count), 1)
-    drop_rate = (float(dropped_count) / float(total_expected)) * 100.0
-    return f" | drop {drop_rate:.1f}%"
+def _lookup_value(diagnostics, key, default=None):
+    if diagnostics is None:
+        return default
+    if isinstance(diagnostics, dict):
+        return diagnostics.get(key, default)
+    return getattr(diagnostics, key, default)
 
 
-def format_detection_publish_line(
-    *,
-    packet_count=None,
-    dropped_count=None,
-    pps,
-    motion_metric,
-    threshold,
-    effective_state,
-    device_label=None,
-    width=20,
-    filled_char="█",
-    empty_char="░",
-    threshold_char="|",
-):
-    """Build the shared runtime-style live publish log line."""
-    progress_bar = format_progress_bar(
-        _clamp_unit_interval(motion_metric),
-        width=width,
-        threshold_pos=_threshold_marker_index(threshold, width),
-        filled_char=filled_char,
-        empty_char=empty_char,
-        threshold_char=threshold_char,
+def _format_metric_value(value, *, placeholder="--"):
+    if value is None:
+        return placeholder
+    return f"{float(value):.6f}"
+
+
+def _format_integer_value(value, *, placeholder="--"):
+    if value is None:
+        return placeholder
+    return str(int(value))
+
+
+def _format_status_fields(diagnostics, *, placeholders=False):
+    placeholder = "--" if placeholders else "0"
+    admitted = _lookup_value(diagnostics, "csi_admitted_pps", 0.0)
+    accepted = _lookup_value(diagnostics, "csi_accepted_pps", 0.0)
+    traffic = _lookup_value(diagnostics, "traffic_tx_pps", 0.0)
+    occupancy = _lookup_value(diagnostics, "csi_occupancy", 0.0)
+    missing = _lookup_value(diagnostics, "csi_missing_slots_pps", 0.0)
+    excess = _lookup_value(diagnostics, "csi_excess_pps", 0.0)
+    stale = _lookup_value(diagnostics, "csi_stale_pps", 0.0)
+    out_of_order = _lookup_value(diagnostics, "csi_out_of_order_pps", 0.0)
+    channel = _lookup_value(diagnostics, "wifi_channel", 0)
+    rssi = _lookup_value(diagnostics, "wifi_rssi_dbm", None)
+
+    occupancy_text = placeholder
+    if not placeholders:
+        occupancy_text = str(int(float(occupancy) * 100.0 + 0.5))
+
+    return (
+        f"csi:{_format_integer_value(admitted if not placeholders else None, placeholder=placeholder)}/"
+        f"{_format_integer_value(accepted if not placeholders else None, placeholder=placeholder)} "
+        f"tx:{_format_integer_value(traffic if not placeholders else None, placeholder=placeholder)} "
+        f"occ:{occupancy_text}% "
+        f"miss:{_format_integer_value(missing if not placeholders else None, placeholder=placeholder)} "
+        f"excess:{_format_integer_value(excess if not placeholders else None, placeholder=placeholder)} "
+        f"stale:{_format_integer_value(stale if not placeholders else None, placeholder=placeholder)} "
+        f"ooo:{_format_integer_value(out_of_order if not placeholders else None, placeholder=placeholder)} "
+        f"| ch:{_format_integer_value(channel if not placeholders else None, placeholder=placeholder)} "
+        f"rssi:{_format_integer_value(rssi if not placeholders else None, placeholder=placeholder)}"
     )
-    state_str = "MOTION" if effective_state == 1 else "IDLE"
-    drop_text = _format_drop_text(packet_count=packet_count, dropped_count=dropped_count)
-    line = (
-        f"{progress_bar} | mvmt:{motion_metric:.6f} "
-        f"thr:{threshold:.6f} | {state_str} | {pps} pkt/s{drop_text}"
-    )
-    if device_label:
-        return f"{device_label} | {line}"
-    return line
 
 
-def format_calibration_status_line(
+def _format_status_line(
     *,
     progress,
-    pps,
-    packet_count=None,
-    dropped_count=None,
-    motion_metric=None,
-    calibration_packets=None,
-    calibration_target_packets=None,
-    effective_state_label="CALIBRATING",
+    threshold_pos,
+    motion_metric,
+    threshold,
+    state_label,
+    diagnostics,
     device_label=None,
     width=20,
-    threshold_pos=-1,
-    filled_char="█",
-    empty_char="░",
+    filled_char="#",
+    empty_char="-",
     threshold_char="|",
+    placeholder_metrics=False,
 ):
-    """Build a shared calibration progress line."""
     progress_bar = format_progress_bar(
         progress,
         width=width,
@@ -139,30 +140,85 @@ def format_calibration_status_line(
         filled_char=filled_char,
         empty_char=empty_char,
         threshold_char=threshold_char,
-        include_percent=True,
     )
-    packets_text = ""
-    if calibration_packets is not None and calibration_target_packets is not None:
-        packets_text = f" pkt:{calibration_packets}/{calibration_target_packets}"
-    drop_text = _format_drop_text(packet_count=packet_count, dropped_count=dropped_count)
-
-    line = f"{progress_bar} |{packets_text} | {effective_state_label} | {pps} pkt/s{drop_text}"
+    line = (
+        f"{progress_bar} | mvmt:{_format_metric_value(None if placeholder_metrics else motion_metric)} "
+        f"thr:{_format_metric_value(None if placeholder_metrics else threshold)} | {state_label} | "
+        f"{_format_status_fields(diagnostics, placeholders=placeholder_metrics)}"
+    )
     if device_label:
         return f"{device_label} | {line}"
     return line
 
 
+def format_detection_publish_line(
+    *,
+    diagnostics=None,
+    motion_metric,
+    threshold,
+    effective_state,
+    device_label=None,
+    width=20,
+    filled_char="#",
+    empty_char="-",
+    threshold_char="|",
+):
+    """Build the shared runtime-style live publish log line."""
+    state_str = "MOTION" if effective_state == 1 else "IDLE"
+    return _format_status_line(
+        progress=_clamp_unit_interval(motion_metric),
+        threshold_pos=_threshold_marker_index(threshold, width),
+        motion_metric=motion_metric,
+        threshold=threshold,
+        state_label=state_str,
+        diagnostics=diagnostics,
+        device_label=device_label,
+        width=width,
+        filled_char=filled_char,
+        empty_char=empty_char,
+        threshold_char=threshold_char,
+    )
+
+
+def format_calibration_status_line(
+    *,
+    progress,
+    motion_metric,
+    threshold,
+    diagnostics=None,
+    effective_state_label="CALIBRATING",
+    device_label=None,
+    width=20,
+    filled_char="#",
+    empty_char="-",
+    threshold_char="|",
+):
+    """Build a shared calibration progress line."""
+    return _format_status_line(
+        progress=progress,
+        threshold_pos=-1,
+        motion_metric=motion_metric,
+        threshold=threshold,
+        state_label=effective_state_label,
+        diagnostics=diagnostics,
+        device_label=device_label,
+        width=width,
+        filled_char=filled_char,
+        empty_char=empty_char,
+        threshold_char=threshold_char,
+    )
+
+
 def format_waiting_status_line(
     *,
-    device_label,
-    pps_placeholder="--",
+    device_label=None,
     metric_placeholder="--",
     threshold_placeholder="--",
     state_label="WAITING",
     width=20,
     threshold_pos=-1,
-    filled_char="█",
-    empty_char="░",
+    filled_char="#",
+    empty_char="-",
     threshold_char="|",
 ):
     """Build a placeholder line that matches the standard status layout."""
@@ -174,8 +230,10 @@ def format_waiting_status_line(
         empty_char=empty_char,
         threshold_char=threshold_char,
     )
-    return (
-        f"{device_label} | {progress_bar} | "
-        f"mvmt:{metric_placeholder} thr:{threshold_placeholder} | "
-        f"{state_label} | {pps_placeholder} pkt/s"
+    line = (
+        f"{progress_bar} | mvmt:{metric_placeholder} thr:{threshold_placeholder} | "
+        f"{state_label} | {_format_status_fields(None, placeholders=True)}"
     )
+    if device_label:
+        return f"{device_label} | {line}"
+    return line

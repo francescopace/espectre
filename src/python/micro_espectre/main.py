@@ -37,6 +37,7 @@ from src.detector_interface import (
 from src.runtime_diagnostics import (
     RuntimeDiagnosticsSampler,
     collect_runtime_diagnostics_snapshot,
+    empty_diagnostics_sample,
     wifi_rssi_dbm,
 )
 from src.traffic_rate_controller import CsiPacingHealthMonitor
@@ -303,10 +304,10 @@ def run_startup_calibration(wlan, detector, traffic_gen, packet_interval_us=None
 
     max_timeout_ms = 15000
     filtered_count = 0
+    accepted_packet_count = 0
     calibration_progress = 0
     packets_since_evaluation = 0
     next_progress_report = 100
-    dropped_at_calibration_start = wlan.csi_dropped()
     last_progress_time = time.ticks_ms()
     last_packet_time = last_progress_time
     last_progress_count = 0
@@ -377,6 +378,7 @@ def run_startup_calibration(wlan, detector, traffic_gen, packet_interval_us=None
                 remap_logged = True
             del frame
             current_timestamp_us = frame_result[4]
+            accepted_packet_count += 1
             emitted = temporal_sampler.admit(current_timestamp_us)
             if emitted:
                 emitted_csi_data[:] = pending_csi_data
@@ -439,29 +441,34 @@ def run_startup_calibration(wlan, detector, traffic_gen, packet_interval_us=None
             calibration_progress = calibration_tracker.packet_count
             if calibration_progress >= next_progress_report:
                 current_time = time.ticks_ms()
-                elapsed = time.ticks_diff(current_time, last_progress_time)
-                packets_delta = calibration_progress - last_progress_count
-                pps = int((packets_delta * 1000) / elapsed) if elapsed > 0 else 0
-                dropped = max(
-                    0,
-                    wlan.csi_dropped() - dropped_at_calibration_start,
+                calibration_diagnostics = collect_runtime_diagnostics_snapshot(
+                    traffic_generator=traffic_gen,
+                    callback_total=accepted_packet_count + filtered_count,
+                    accepted_total=accepted_packet_count,
+                    admitted_total=temporal_sampler.accepted_packets,
+                    filtered_total=filtered_count,
+                    missing_slots_total=temporal_sampler.missing_slots,
+                    excess_total=temporal_sampler.excess_packets,
+                    stale_total=temporal_sampler.stale_packets,
+                    out_of_order_total=temporal_sampler.out_of_order_packets,
+                    occupancy_slots=temporal_sampler.occupancy_slots,
+                    window_slots=temporal_sampler.window_slots,
+                    wifi_channel=g_state.current_channel,
+                    rssi_dbm=wifi_rssi_dbm(wlan),
                 )
-                tg_pps = traffic_gen.get_actual_pps()
                 current_mv = detector.get_motion_metric() if detector.is_ready() else None
                 print(
                     format_calibration_status_line(
                         progress=min(1.0, calibration_progress / calibration_target_packets),
-                        pps=pps,
                         motion_metric=current_mv,
-                        calibration_packets=calibration_progress,
-                        calibration_target_packets=calibration_target_packets,
+                        threshold=detector.get_threshold(),
+                        diagnostics=calibration_diagnostics,
                         effective_state_label=getattr(
                             calibration_tracker,
                             "get_phase_label",
                             lambda: "CALIBRATING",
                         )(),
                     )
-                    + f" | TG:{tg_pps} drop:{dropped}"
                 )
                 last_progress_time = current_time
                 last_progress_count = calibration_progress
@@ -758,7 +765,6 @@ def main():
     last_normalization_id = None
     # Reused per-frame assessment mapping: keeps the hot loop allocation-free.
     assessment_result = {}
-    dropped_at_main_loop_start = wlan.csi_dropped()
     csi_health = CsiPacingHealthMonitor(enabled=(g_state.chip_type == 'ESP32'))
     
     publish_interval_ms = max(1, int(getattr(config, 'PUBLISH_INTERVAL_MS', 1000)))
@@ -767,6 +773,28 @@ def main():
         getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000),
     )
     diagnostics_sampler = RuntimeDiagnosticsSampler()
+    diagnostics_sampler.reset(
+        collect_runtime_diagnostics_snapshot(
+            traffic_generator=traffic_gen,
+            callback_total=0,
+            accepted_total=0,
+            admitted_total=0,
+            filtered_total=0,
+            missing_slots_total=0,
+            excess_total=0,
+            stale_total=0,
+            out_of_order_total=0,
+            occupancy_slots=0,
+            window_slots=temporal_sampler.window_slots,
+            wifi_channel=g_state.current_channel,
+            rssi_dbm=wifi_rssi_dbm(wlan),
+        ),
+        time.ticks_ms(),
+    )
+    g_state.latest_diagnostics = empty_diagnostics_sample(
+        wifi_channel=g_state.current_channel,
+        wifi_rssi_dbm=wifi_rssi_dbm(wlan),
+    )
     pending_csi_data = bytearray(EXPECTED_CSI_LEN)
     emitted_csi_data = bytearray(EXPECTED_CSI_LEN)
     pending_timestamp_us = 0
@@ -794,20 +822,6 @@ def main():
             current_time = time.ticks_ms()
             time_delta = time.ticks_diff(current_time, last_publish_time)
             if time_delta >= publish_interval_ms:
-                pps = int((publish_counter * 1000) / time_delta) if time_delta > 0 else 0
-                print(
-                    format_detection_publish_line(
-                        packet_count=processed_packet_count,
-                        dropped_count=max(
-                            0,
-                            wlan.csi_dropped() - dropped_at_main_loop_start,
-                        ),
-                        pps=pps,
-                        motion_metric=latest_motion_metric,
-                        threshold=latest_threshold,
-                        effective_state=latest_effective_state,
-                    )
-                )
                 g_state.latest_diagnostics = diagnostics_sampler.sample(
                     collect_runtime_diagnostics_snapshot(
                         traffic_generator=traffic_gen,
@@ -825,6 +839,14 @@ def main():
                         rssi_dbm=wifi_rssi_dbm(wlan),
                     ),
                     current_time,
+                )
+                print(
+                    format_detection_publish_line(
+                        diagnostics=g_state.latest_diagnostics,
+                        motion_metric=latest_motion_metric,
+                        threshold=latest_threshold,
+                        effective_state=latest_effective_state,
+                    )
                 )
                 if mqtt_handler is not None:
                     mqtt_handler.check_messages()

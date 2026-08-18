@@ -57,26 +57,37 @@ void PeriodicSensingStatusLogger::log_status(const char *tag,
   // fresh AP query taken at print time.
   const int8_t rssi = snapshot.link_rssi_dbm;
   const uint8_t channel = snapshot.link_channel;
+  constexpr int kBarWidth = 20;
 
   if (snapshot.calibrating) {
-    ESP_LOGI(tag,
-             "CALIBRATING | %u/%u pkt | csi:%u/%u tx:%u occ:%u%% miss:%u excess:%u stale:%u ooo:%u | ch:%u rssi:%d",
-             static_cast<unsigned>(snapshot.calibration_packets),
-             static_cast<unsigned>(snapshot.calibration_target_packets),
-             static_cast<unsigned>(rate_pps),
-             static_cast<unsigned>(raw_rate_pps),
-             static_cast<unsigned>(traffic_rate_pps),
-             static_cast<unsigned>(occupancy_percent),
-             static_cast<unsigned>(missing_rate_pps),
-             static_cast<unsigned>(excess_rate_pps),
-             static_cast<unsigned>(stale_rate_pps),
-             static_cast<unsigned>(out_of_order_rate_pps),
-             static_cast<unsigned>(channel),
-             static_cast<int>(rssi));
+    float calibration_progress = 0.0f;
+    if (snapshot.calibration_target_packets > 0U) {
+      calibration_progress =
+          static_cast<float>(snapshot.calibration_packets) /
+          static_cast<float>(snapshot.calibration_target_packets);
+    }
+    if (calibration_progress < 0.0f) {
+      calibration_progress = 0.0f;
+    } else if (calibration_progress > 1.0f) {
+      calibration_progress = 1.0f;
+    }
+    log_progress_bar(tag, calibration_progress, kBarWidth, -1,
+                     "| mvmt:%.6f thr:%.6f | CALIBRATING | csi:%u/%u tx:%u occ:%u%% "
+                     "miss:%u excess:%u stale:%u ooo:%u | ch:%u rssi:%d",
+                     motion_metric, threshold,
+                     static_cast<unsigned>(rate_pps),
+                     static_cast<unsigned>(raw_rate_pps),
+                     static_cast<unsigned>(traffic_rate_pps),
+                     static_cast<unsigned>(occupancy_percent),
+                     static_cast<unsigned>(missing_rate_pps),
+                     static_cast<unsigned>(excess_rate_pps),
+                     static_cast<unsigned>(stale_rate_pps),
+                     static_cast<unsigned>(out_of_order_rate_pps),
+                     static_cast<unsigned>(channel),
+                     static_cast<int>(rssi));
     return;
   }
 
-  constexpr int kBarWidth = 20;
   float bar_progress = motion_metric;
   if (bar_progress < 0.0f) {
     bar_progress = 0.0f;

@@ -37,6 +37,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.python.espectre_cli.common import detect_chip_type, get_serial_port
+from src.python.espectre_cli.idf import resolve_idf_build_dir_name
 from src.python.espectre_cli.mqtt_shell import send_mqtt_command_and_wait
 from src.python.espectre_cli.targets import ESPHOME_CONFIGS, ESPHOME_EXAMPLES_DIR, IDF_FRONTENDS
 from src.python.micro_espectre.temporal_csi_sampler import (
@@ -56,8 +57,13 @@ MINIMUM_OCCUPANCY_PERCENT = 100.0 * MINIMUM_COVERAGE_NUMERATOR / MINIMUM_COVERAG
 STARTUP_GRACE_SECONDS = 10
 STATUS_SAMPLE_INTERVAL_SECONDS = 1
 TELEMETRY_SAMPLE_INTERVAL_SECONDS = 10
-ACTIVE_MONITOR_SECONDS = 50
 MIN_TELEMETRY_SAMPLES = 5
+IDF_APP_BIN_NAMES = {
+    "native": "espectre-native.bin",
+    "matter": "espectre-matter.bin",
+    "streamer": "espectre-streamer.bin",
+}
+IDF_IGNORED_BIN_NAMES = {"bootloader.bin", "partition-table.bin", "ota_data_initial.bin"}
 MIN_STREAMER_COLLECT_SAMPLES = 60
 MOTION_WARMUP_SAMPLES = 3
 DEFAULT_MQTT_COMMAND_TIMEOUT_SECONDS = 8.0
@@ -146,9 +152,11 @@ STREAMER_TELEMETRY_RE = re.compile(
     r"\s+age_ms=(?P<age_ms>\d+)"
 )
 COLLECT_DETAIL_RE = re.compile(
-    r"ip=(?P<ip>\S+)\s+chip=(?P<chip>\S+)\s+ch=(?P<channel>\S+)\s+rssi=(?P<rssi>\S+)"
-    r"(?:\s+\[(?P<detector>[^\]]+)\])?\s+\|.*?\|\s+mvmt:(?P<motion_metric>-?[0-9.]+)"
-    r"\s+thr:(?P<threshold>-?[0-9.]+)\s+\|\s+(?P<state>MOTION|IDLE)\s+\|\s+(?P<pps>\d+)\s+pkt/s"
+    r"ip=(?P<ip>\S+)\s+chip=(?P<chip>\S+)"
+    r"(?:\s+\[(?P<detector>[^\]]+)\])?\s+\|\s+\[.*?\]\s+\|\s+mvmt:(?P<motion_metric>-?[0-9.]+)"
+    r"\s+thr:(?P<threshold>-?[0-9.]+)\s+\|\s+(?P<state>MOTION|IDLE)\s+\|"
+    r"\s+csi:(?P<pps>\d+)/\d+\s+tx:\d+\s+occ:\d+%\s+miss:\d+\s+excess:\d+\s+stale:\d+\s+ooo:\d+"
+    r"\s+\|\s+ch:(?P<channel>\S+)\s+rssi:(?P<rssi>\S+)"
 )
 
 
@@ -538,8 +546,6 @@ def run_command(
 def parse_build_metrics(output: str, firmware_path: Path | None = None) -> BuildMetrics:
     text = strip_ansi(output)
     metrics = BuildMetrics()
-    if firmware_path is not None and firmware_path.is_file():
-        metrics.firmware_size_bytes = firmware_path.stat().st_size
 
     ram_match = re.search(
         r"RAM:.*?\(used\s+(\d+)\s+bytes\s+from\s+(\d+)\s+bytes\)",
@@ -561,21 +567,25 @@ def parse_build_metrics(output: str, firmware_path: Path | None = None) -> Build
         metrics.partition_free_bytes = metrics.partition_total_bytes - metrics.partition_used_bytes
         metrics.partition_free_percent = metrics.partition_free_bytes / metrics.partition_total_bytes * 100.0
 
-    native_size_match = re.search(r"binary size\s+0x([0-9a-f]+)\s+bytes", text, flags=re.IGNORECASE)
-    if metrics.firmware_size_bytes is None and native_size_match:
-        metrics.firmware_size_bytes = int(native_size_match.group(1), 16)
-
-    native_partition_match = re.search(
-        r"Smallest app partition is\s+0x([0-9a-f]+)\s+bytes.*?"
-        r"0x([0-9a-f]+)\s+bytes\s+\((\d+)%\)\s+free",
+    app_image_match = re.search(
+        r"(?:binary size\s+0x(?P<app_size>[0-9a-f]+)\s+bytes\.\s+)?"
+        r"Smallest app partition is\s+0x(?P<part_total>[0-9a-f]+)\s+bytes\.\s+"
+        r"0x(?P<part_free>[0-9a-f]+)\s+bytes\s+\((?P<part_free_pct>\d+)%\)\s+free",
         text,
-        flags=re.IGNORECASE | re.DOTALL,
+        flags=re.IGNORECASE,
     )
-    if native_partition_match:
-        metrics.partition_total_bytes = int(native_partition_match.group(1), 16)
-        metrics.partition_free_bytes = int(native_partition_match.group(2), 16)
-        metrics.partition_free_percent = float(native_partition_match.group(3))
-        metrics.partition_used_bytes = metrics.partition_total_bytes - metrics.partition_free_bytes
+    if app_image_match:
+        app_size = app_image_match.group("app_size")
+        if app_size is not None:
+            metrics.firmware_size_bytes = int(app_size, 16)
+        if metrics.partition_used_bytes is None:
+            metrics.partition_total_bytes = int(app_image_match.group("part_total"), 16)
+            metrics.partition_free_bytes = int(app_image_match.group("part_free"), 16)
+            metrics.partition_free_percent = float(app_image_match.group("part_free_pct"))
+            metrics.partition_used_bytes = metrics.partition_total_bytes - metrics.partition_free_bytes
+
+    if firmware_path is not None and firmware_path.is_file():
+        metrics.firmware_size_bytes = firmware_path.stat().st_size
 
     return metrics
 
@@ -624,6 +634,7 @@ def _append_common_monitor_reasons(
     *,
     require_detection_timing: bool,
     expected_telemetry_samples: int | None = None,
+    heap_telemetry: Sequence[dict[str, float]] | None = None,
 ) -> None:
     if expected_telemetry_samples is not None:
         if len(telemetry) < expected_telemetry_samples:
@@ -633,10 +644,16 @@ def _append_common_monitor_reasons(
             )
     elif len(telemetry) < MIN_TELEMETRY_SAMPLES:
         reasons.append(f"only {len(telemetry)} shared debug telemetry samples were logged")
-    if metrics.heap_free_last is not None and telemetry:
-        heap_free_first = telemetry[0].get("heap_free")
-        if heap_free_first is not None and metrics.heap_free_last < heap_free_first * 0.95:
-            reasons.append("free heap declined by more than 5% during monitoring")
+    settled_heap = list(heap_telemetry) if heap_telemetry is not None else list(telemetry)
+    if len(settled_heap) >= 2:
+        heap_free_first = settled_heap[0].get("heap_free")
+        heap_free_last = settled_heap[-1].get("heap_free")
+        if (
+            heap_free_first is not None
+            and heap_free_last is not None
+            and heap_free_last < heap_free_first * 0.95
+        ):
+            reasons.append("free heap declined by more than 5% after startup settled")
     if require_detection_timing and metrics.detection_samples == 0:
         reasons.append("detector timing was not logged")
 
@@ -688,10 +705,15 @@ def _output_has_sensing_status(output_lines: Sequence[str]) -> bool:
     return STATUS_RE.search("".join(output_lines)) is not None
 
 
-def _wait_for_esphome_sensing_window(process: subprocess.Popen[str], output_lines: list[str]) -> None:
+def _wait_for_runtime_sensing_window(
+    process: subprocess.Popen[str],
+    output_lines: list[str],
+    *,
+    start_index: int = 0,
+) -> None:
     connect_deadline = time.monotonic() + WIFI_CONNECT_WAIT_SECONDS
     while time.monotonic() < connect_deadline and process.poll() is None:
-        if _output_has_sensing_status(output_lines):
+        if _output_has_sensing_status(output_lines[start_index:]):
             break
         time.sleep(0.25)
     if process.poll() is not None:
@@ -702,16 +724,63 @@ def _wait_for_esphome_sensing_window(process: subprocess.Popen[str], output_line
         pass
 
 
+def _capture_runtime_monitor(
+    command: Sequence[str],
+    *,
+    env: dict[str, str] | None = None,
+    before_window: Callable[[], None] | None = None,
+    analysis_start_after_before_window: bool = False,
+) -> tuple[CommandResult, str]:
+    process, output_lines, relay_thread, started = _run_background_command(command, env=env)
+    analysis_start = 0
+    try:
+        if before_window is not None:
+            before_window()
+            if analysis_start_after_before_window:
+                analysis_start = len(output_lines)
+        _wait_for_runtime_sensing_window(process, output_lines, start_index=analysis_start)
+    finally:
+        if process.poll() is None:
+            _terminate_process(process)
+            process.wait(timeout=5)
+    result = _finalize_background_command(
+        process,
+        output_lines,
+        relay_thread,
+        started,
+        command,
+    )
+    return result, "".join(output_lines[analysis_start:])
+
+
 def monitor_timeout_seconds(case: BenchmarkCase) -> int:
-    if case.benchmark_mode == "runtime" and case.frontend == "esphome":
+    if case.benchmark_mode == "runtime" and case.frontend in {"esphome", "native"}:
         return MONITOR_DURATION_SECONDS + WIFI_CONNECT_WAIT_SECONDS
     return MONITOR_DURATION_SECONDS
 
 
+def _expected_periodic_samples(
+    first_timestamp_ms: int,
+    last_timestamp_ms: int,
+    interval_seconds: int,
+) -> int:
+    if last_timestamp_ms < first_timestamp_ms:
+        return 0
+    return 1 + (last_timestamp_ms - first_timestamp_ms) // (interval_seconds * 1000)
+
+
 def _expected_runtime_status_samples(
     first_timestamp_ms: int,
+    *,
+    last_timestamp_ms: int | None = None,
     monitor_duration_seconds: int = MONITOR_DURATION_SECONDS,
 ) -> int:
+    if last_timestamp_ms is not None:
+        return _expected_periodic_samples(
+            first_timestamp_ms,
+            last_timestamp_ms,
+            STATUS_SAMPLE_INTERVAL_SECONDS,
+        )
     remaining_ms = monitor_duration_seconds * 1000 - first_timestamp_ms
     if remaining_ms < 0:
         return 0
@@ -720,8 +789,16 @@ def _expected_runtime_status_samples(
 
 def _expected_runtime_telemetry_samples(
     first_timestamp_ms: int,
+    *,
+    last_timestamp_ms: int | None = None,
     monitor_duration_seconds: int = MONITOR_DURATION_SECONDS,
 ) -> int:
+    if last_timestamp_ms is not None:
+        return _expected_periodic_samples(
+            first_timestamp_ms,
+            last_timestamp_ms,
+            TELEMETRY_SAMPLE_INTERVAL_SECONDS,
+        )
     remaining_ms = monitor_duration_seconds * 1000 - first_timestamp_ms
     if remaining_ms < 0:
         return 0
@@ -826,7 +903,7 @@ def analyze_monitor_output(
         metrics.status_last_timestamp_ms = timestamps[-1]
         metrics.status_expected_samples = _expected_runtime_status_samples(
             timestamps[0],
-            monitor_duration_seconds,
+            last_timestamp_ms=timestamps[-1],
         )
         if len(timestamps) > 1:
             intervals = [current - previous for previous, current in zip(timestamps, timestamps[1:])]
@@ -849,11 +926,12 @@ def analyze_monitor_output(
             metrics.telemetry_samples = len(telemetry)
             metrics.telemetry_expected_samples = _expected_runtime_telemetry_samples(
                 runtime_telemetry[0].timestamp_ms or 0,
-                monitor_duration_seconds,
+                last_timestamp_ms=metrics.status_last_timestamp_ms or runtime_telemetry[-1].timestamp_ms,
             )
             telemetry_expected_samples = metrics.telemetry_expected_samples
         elif (
-            monitor_duration_seconds * 1000 - metrics.status_first_timestamp_ms
+            metrics.status_last_timestamp_ms is not None
+            and metrics.status_last_timestamp_ms - metrics.status_first_timestamp_ms
             >= TELEMETRY_SAMPLE_INTERVAL_SECONDS * 1000
         ):
             metrics.telemetry_expected_samples = 1
@@ -921,12 +999,21 @@ def analyze_monitor_output(
                 )
 
         _append_occupancy_reasons(metrics, reasons)
+        heap_telemetry = telemetry
+        if metrics.status_first_timestamp_ms is not None:
+            heap_settle_ms = metrics.status_first_timestamp_ms + STARTUP_GRACE_SECONDS * 1000
+            heap_telemetry = [
+                sample.fields
+                for sample in parsed_telemetry
+                if sample.timestamp_ms is not None and sample.timestamp_ms >= heap_settle_ms
+            ]
         _append_common_monitor_reasons(
             metrics,
             telemetry,
             reasons,
             require_detection_timing=True,
             expected_telemetry_samples=telemetry_expected_samples,
+            heap_telemetry=heap_telemetry,
         )
     elif benchmark_mode == "smoke":
         startup_state_match = MATTER_STARTUP_STATE_RE.search(text)
@@ -973,21 +1060,27 @@ def analyze_monitor_output(
     return metrics, reasons
 
 
-def _latest_firmware_artifact(frontend: str) -> Path | None:
+def _latest_firmware_artifact(frontend: str, chip: str | None = None) -> Path | None:
     if frontend == "esphome":
         candidates = list((ESPHOME_EXAMPLES_DIR / ".esphome").glob("build/*/build/espectre.bin"))
-    else:
-        app_dir = Path(IDF_FRONTENDS[frontend]["app_dir"])
-        build_dir = os.environ.get("ESPECTRE_IDF_BUILD_DIR", "build")
-        preferred = app_dir / build_dir / f"espectre-{frontend}.bin"
-        if preferred.is_file():
-            candidates = [preferred]
-        else:
-            candidates = [
-                path
-                for path in (app_dir / build_dir).glob("*.bin")
-                if path.name not in {"bootloader.bin", "partition-table.bin", "ota_data_initial.bin"}
-            ]
+        existing = [path for path in candidates if path.is_file()]
+        return max(existing, key=lambda path: (path.stat().st_size, path.stat().st_mtime)) if existing else None
+
+    app_dir = Path(IDF_FRONTENDS[frontend]["app_dir"])
+    idf_target = IDF_FRONTENDS[frontend]["targets"].get(chip) if chip is not None else None
+    build_dir_name = resolve_idf_build_dir_name(app_dir, idf_target, prefer_existing_default=True)
+    if not build_dir_name:
+        build_dir_name = os.environ.get("ESPECTRE_IDF_BUILD_DIR", "build")
+    build_dir = app_dir / build_dir_name
+    preferred_name = IDF_APP_BIN_NAMES.get(frontend, f"espectre-{frontend}.bin")
+    preferred = build_dir / preferred_name
+    if preferred.is_file():
+        return preferred
+    candidates = [
+        path
+        for path in build_dir.glob("*.bin")
+        if path.name not in IDF_IGNORED_BIN_NAMES
+    ]
     existing = [path for path in candidates if path.is_file()]
     return max(existing, key=lambda path: (path.stat().st_size, path.stat().st_mtime)) if existing else None
 
@@ -1303,7 +1396,7 @@ def build_case(
             result.build = run_command(build_command, env=env, output_prefix=output_prefix)
             result.build_metrics = parse_build_metrics(
                 result.build.output,
-                _latest_firmware_artifact(case.frontend),
+                _latest_firmware_artifact(case.frontend, chip),
             )
             if result.build.returncode != 0:
                 result.status = "FAIL"
@@ -1576,26 +1669,13 @@ def run_case(
                     output_prefix="[High Accuracy build] ",
                 )
             try:
-                if before_monitor is not None:
-                    before_monitor()
                 monitor_seconds = monitor_timeout_seconds(case)
-                if case.frontend == "esphome" and case.benchmark_mode == "runtime":
-                    process, output_lines, relay_thread, started = _run_background_command(
+                analysis_output = ""
+                if case.benchmark_mode == "runtime" and case.frontend in {"esphome", "native"}:
+                    result.monitor, analysis_output = _capture_runtime_monitor(
                         monitor_command,
                         env=env,
-                    )
-                    try:
-                        _wait_for_esphome_sensing_window(process, output_lines)
-                    finally:
-                        if process.poll() is None:
-                            _terminate_process(process)
-                            process.wait(timeout=5)
-                    result.monitor = _finalize_background_command(
-                        process,
-                        output_lines,
-                        relay_thread,
-                        started,
-                        monitor_command,
+                        before_window=before_monitor,
                     )
                     monitor_seconds = max(
                         MONITOR_DURATION_SECONDS,
@@ -1608,6 +1688,7 @@ def run_case(
                         timeout=monitor_seconds,
                         timeout_is_success=True,
                     )
+                    analysis_output = result.monitor.output
                 if build_future is not None:
                     overlapped_result = build_future.result()
             finally:
@@ -1619,7 +1700,7 @@ def run_case(
                 result.reasons.append(f"monitor exited with status {result.monitor.returncode}")
                 return result, overlapped_result
             result.runtime_metrics, analysis_reasons = analyze_monitor_output(
-                result.monitor.output,
+                analysis_output or result.monitor.output,
                 benchmark_mode=case.benchmark_mode,
                 monitor_duration_seconds=monitor_seconds,
             )
@@ -1642,35 +1723,29 @@ def run_native_monitor_only_case(
     result = prebuilt
     launcher = str(REPO_ROOT / "espectre")
     monitor_command = [launcher, "monitor", "--port", port]
+
+    def prepare_high_accuracy_window() -> None:
+        time.sleep(1.0)
+        if before_monitor is not None:
+            before_monitor()
+
     try:
-        monitor_process, monitor_output, relay_thread, monitor_started = _run_background_command(monitor_command)
-        try:
-            time.sleep(1.0)
-            if before_monitor is not None:
-                before_monitor()
-            try:
-                monitor_process.wait(timeout=MONITOR_DURATION_SECONDS)
-            except subprocess.TimeoutExpired:
-                _terminate_process(monitor_process)
-                monitor_process.wait(timeout=5)
-        finally:
-            if monitor_process.poll() is None:
-                _terminate_process(monitor_process)
-                monitor_process.wait(timeout=5)
-            result.monitor = _finalize_background_command(
-                monitor_process,
-                monitor_output,
-                relay_thread,
-                monitor_started,
-                monitor_command,
-            )
+        result.monitor, analysis_output = _capture_runtime_monitor(
+            monitor_command,
+            before_window=prepare_high_accuracy_window,
+            analysis_start_after_before_window=True,
+        )
         if result.monitor.returncode != 0:
             result.status = "FAIL"
             result.reasons.append(f"monitor exited with status {result.monitor.returncode}")
             return result
         result.runtime_metrics, analysis_reasons = analyze_monitor_output(
-            result.monitor.output,
+            analysis_output,
             benchmark_mode=case.benchmark_mode,
+            monitor_duration_seconds=max(
+                MONITOR_DURATION_SECONDS,
+                int(result.monitor.duration_seconds),
+            ),
         )
         result.reasons.extend(analysis_reasons)
         result.status = "PASS" if not result.reasons else "FAIL"
@@ -1898,7 +1973,7 @@ def render_report(
             "- Native Lightweight, Native High Accuracy, and ESPHome Lightweight runtime benchmarks log shared debug telemetry "
             "throughout the runtime window",
             f"- non-runtime benchmarks log at least {MIN_TELEMETRY_SAMPLES} shared debug telemetry samples",
-            "- free heap does not decline by more than 5% during monitoring",
+            "- free heap does not decline by more than 5% after startup has settled",
             "- Native Lightweight, Native High Accuracy, and ESPHome Lightweight runtime benchmarks log detector status "
             "once per second after the first detector status line",
             "- Native Lightweight, Native High Accuracy, and ESPHome Lightweight runtime benchmarks log CSI occupancy "

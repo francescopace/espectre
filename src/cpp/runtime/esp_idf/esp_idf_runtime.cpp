@@ -650,6 +650,7 @@ bool EspIdfRuntime::handle_threshold_calibration_packet_(const int8_t *csi_data,
   snapshot_.calibration_target_packets = threshold_calibrator_->target_packets();
 
   if (threshold_calibrator_->is_complete()) {
+    snapshot_.calibration_packets = snapshot_.calibration_target_packets;
     threshold_calibration_active_.store(false, std::memory_order_relaxed);
     calibration_finished_event_.post(threshold_calibrator_->is_successful());
   }

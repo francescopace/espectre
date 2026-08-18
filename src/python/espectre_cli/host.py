@@ -334,6 +334,7 @@ def _run_live_collect(args) -> None:
             supported_detector_algorithms,
         )
         from high_accuracy_detector import HIGH_ACCURACY_DEFAULT_THRESHOLD
+        from runtime_diagnostics import RuntimeDiagnosticsSampler, empty_diagnostics_sample
         from runtime_policy import (
             PacketTimingTracker,
             RuntimeMotionPolicy,
@@ -370,6 +371,7 @@ def _run_live_collect(args) -> None:
                 supported_detector_algorithms,
             )
             from src.high_accuracy_detector import HIGH_ACCURACY_DEFAULT_THRESHOLD
+            from src.runtime_diagnostics import RuntimeDiagnosticsSampler, empty_diagnostics_sample
             from src.runtime_policy import (
                 PacketTimingTracker,
                 RuntimeMotionPolicy,
@@ -512,24 +514,12 @@ def _run_live_collect(args) -> None:
     def format_device_label(device_state):
         source_ip = str(device_state.get("source_ip") or "?")
         chip_label = str(device_state.get("chip") or "unknown").upper()
-        channel = device_state.get("channel")
-        rssi_dbm = device_state.get("rssi_dbm")
-        channel_text = "--" if channel is None else f"{int(channel):02d}"
-        rssi_text = "---" if rssi_dbm is None else str(int(rssi_dbm))
-        return f"ip={source_ip} chip={chip_label} ch={channel_text} rssi={rssi_text}"
+        return f"ip={source_ip} chip={chip_label}"
 
     def format_pacing_text():
-        parts = []
-        admitted = adaptive_pacing.last_window_admitted_pps
-        if admitted is not None and adaptive_pacing.target_pps > 0:
-            occupancy_pct = 100.0 * admitted / adaptive_pacing.target_pps
-            excess = adaptive_pacing.last_window_excess_pps or 0.0
-            parts.append(f"occ:{occupancy_pct:.0f}% adm:{admitted:.0f} xs:{excess:.0f}")
-        if adaptive_enabled:
-            parts.append(f"pace:{adaptive_pacing.current_pps:.0f}pps({adaptive_pacing.last_action})")
-        if not parts:
+        if not adaptive_enabled:
             return ""
-        return " | " + " | ".join(parts)
+        return f" | pace:{adaptive_pacing.current_pps:.0f}pps({adaptive_pacing.last_action})"
 
     def format_backpressure_text(device_state):
         total = device_state.get("tx_backpressure_total")
@@ -539,6 +529,39 @@ def _run_live_collect(args) -> None:
         if recent_delta > 0:
             return f" | bp:active(+{recent_delta})" + format_pacing_text()
         return " | bp:no" + format_pacing_text()
+
+    def format_udp_text(device_state):
+        packet_count = int(device_state.get("packet_count", 0) or 0)
+        dropped_count = int(device_state.get("dropped_count", 0) or 0)
+        total_expected = max(packet_count + dropped_count, 1)
+        drop_rate = (float(dropped_count) / float(total_expected)) * 100.0
+        return f" | udp:{int(device_state.get('pps', 0) or 0)} drop:{drop_rate:.1f}%"
+
+    def build_device_diagnostics_snapshot(device_state):
+        sampler = device_state["temporal_controller"].sampler
+        return {
+            "traffic_packets_total": int(device_state.get("pacing_rx_total", 0) or 0),
+            "csi_callbacks_total": int(device_state.get("packet_count", 0) or 0),
+            "csi_accepted_total": int(device_state.get("packet_count", 0) or 0),
+            "csi_admitted_total": int(getattr(sampler, "accepted_packets", 0) or 0),
+            "csi_filtered_total": int(device_state.get("filtered_count", 0) or 0),
+            "csi_missing_slots_total": int(getattr(sampler, "missing_slots", 0) or 0),
+            "csi_excess_total": int(getattr(sampler, "excess_packets", 0) or 0),
+            "csi_stale_total": int(getattr(sampler, "stale_packets", 0) or 0),
+            "csi_out_of_order_total": int(getattr(sampler, "out_of_order_packets", 0) or 0),
+            "csi_occupancy_slots": int(getattr(sampler, "occupancy_slots", 0) or 0),
+            "csi_window_slots": int(getattr(sampler, "window_slots", 0) or 0),
+            "wifi_channel": int(device_state.get("channel") or 0),
+            "wifi_rssi_dbm": device_state.get("rssi_dbm"),
+        }
+
+    def sample_device_diagnostics(device_state, now):
+        diagnostics = device_state["diagnostics_sampler"].sample(
+            build_device_diagnostics_snapshot(device_state),
+            int(now * 1000.0),
+        )
+        device_state["latest_diagnostics"] = diagnostics
+        return diagnostics
 
     def get_packet_device_id(pkt):
         device_id = getattr(pkt, "device_id", None)
@@ -708,7 +731,7 @@ def _run_live_collect(args) -> None:
             "ready_stable_for": 0.0,
         }
 
-    def build_device_state(device_id):
+    def build_device_state(device_id, now):
         calibration_target_packets = duration_packet_count(
             calibration_duration_ms,
             initial_nominal_interval_us
@@ -723,6 +746,7 @@ def _run_live_collect(args) -> None:
             "chip": "unknown",
             "channel": None,
             "rssi_dbm": None,
+            "filtered_count": 0,
             "label": "",
             "packet_count": 0,
             "dropped_count": 0,
@@ -745,6 +769,8 @@ def _run_live_collect(args) -> None:
             "calibration_target_packets": calibration_target_packets,
             "timing_tracker": build_timing_tracker(initial_nominal_interval_us),
             "temporal_controller": temporal_controller,
+            "diagnostics_sampler": RuntimeDiagnosticsSampler(),
+            "latest_diagnostics": empty_diagnostics_sample(),
             "slots": [
                 build_detector_slot(
                     kind,
@@ -755,13 +781,18 @@ def _run_live_collect(args) -> None:
             ],
         }
         device_state["label"] = format_device_label(device_state)
+        device_state["diagnostics_sampler"].reset(
+            build_device_diagnostics_snapshot(device_state),
+            int(now * 1000.0),
+        )
+        device_state["latest_diagnostics"] = empty_diagnostics_sample()
         return device_state
 
-    def get_device_state(pkt):
+    def get_device_state(pkt, now):
         device_id = get_packet_device_id(pkt)
         device_state = state["devices"].get(device_id)
         if device_state is None:
-            device_state = build_device_state(device_id)
+            device_state = build_device_state(device_id, now)
             state["devices"][device_id] = device_state
         source_ip = getattr(pkt, "source_ip", None)
         if source_ip:
@@ -1050,6 +1081,7 @@ def _run_live_collect(args) -> None:
         detail_lines = []
         for device_id in sorted(state["devices"], key=lambda value: (value is None, value if value is not None else 0)):
             device_state = state["devices"][device_id]
+            diagnostics = sample_device_diagnostics(device_state, now)
             for slot in device_state["slots"]:
                 status = get_slot_status(slot)
                 slot_label = format_slot_label(device_state, slot)
@@ -1057,52 +1089,50 @@ def _run_live_collect(args) -> None:
                     calibration_tracker = slot["calibration_tracker"]
                     calibration_packets = calibration_tracker.packet_count
                     if slot["calibration_done"]:
-                        detail_lines.append(
+                        detail_line = (
                             "    "
-                            + format_calibration_status_line(
-                                progress=1.0,
-                                pps=device_state["pps"],
-                                packet_count=device_state["packet_count"],
-                                dropped_count=device_state["dropped_count"],
+                            + format_detection_publish_line(
+                                diagnostics=diagnostics,
                                 motion_metric=slot["motion_metric"],
-                                calibration_packets=calibration_packets,
-                                calibration_target_packets=device_state["calibration_target_packets"],
-                                effective_state_label="READY",
+                                threshold=slot["metric_threshold"],
+                                effective_state=slot["effective_state"],
                                 device_label=slot_label,
+                                filled_char="█",
+                                empty_char="░",
                             )
-                            + format_backpressure_text(device_state)
-                            + f" | thr:{slot['metric_threshold']:.4f} src:{slot['calibration_threshold_source']}"
                         )
+                        detail_line += format_backpressure_text(device_state) + format_udp_text(device_state)
+                        detail_lines.append(detail_line)
                     else:
-                        detail_lines.append(
+                        detail_line = (
                             "    "
                             + format_calibration_status_line(
                                 progress=(calibration_packets / device_state["calibration_target_packets"]),
-                                pps=device_state["pps"],
-                                packet_count=device_state["packet_count"],
-                                dropped_count=device_state["dropped_count"],
                                 motion_metric=slot["motion_metric"],
-                                calibration_packets=calibration_packets,
-                                calibration_target_packets=device_state["calibration_target_packets"],
+                                threshold=slot["metric_threshold"],
+                                diagnostics=diagnostics,
                                 effective_state_label=status,
                                 device_label=slot_label,
+                                filled_char="█",
+                                empty_char="░",
                             )
-                            + format_backpressure_text(device_state)
                         )
+                        detail_line += format_backpressure_text(device_state) + format_udp_text(device_state)
+                        detail_lines.append(detail_line)
                 else:
                     detail_line = (
                         "    "
                         + format_detection_publish_line(
-                            packet_count=device_state["packet_count"],
-                            dropped_count=device_state["dropped_count"],
-                            pps=device_state["pps"],
+                            diagnostics=diagnostics,
                             motion_metric=slot["motion_metric"],
                             threshold=slot["metric_threshold"],
                             effective_state=slot["effective_state"],
                             device_label=slot_label,
+                            filled_char="█",
+                            empty_char="░",
                         )
                     )
-                    detail_line += format_backpressure_text(device_state)
+                    detail_line += format_backpressure_text(device_state) + format_udp_text(device_state)
                     if save_enabled and not state["capture_ready"]:
                         detail_line += f" | {get_slot_gate_label(slot)}"
                     detail_lines.append(detail_line)
@@ -1242,7 +1272,7 @@ def _run_live_collect(args) -> None:
         if state["session_started_at"] is None:
             state["session_started_at"] = now
 
-        device_state = get_device_state(pkt)
+        device_state = get_device_state(pkt, now)
         device_state["packet_count"] += 1
         timing = device_state["timing_tracker"].observe_packet(pkt)
         temporal_controller = device_state["temporal_controller"]
