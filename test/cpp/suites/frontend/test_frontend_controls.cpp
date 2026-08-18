@@ -395,7 +395,6 @@ void test_traffic_mode_selects_switch_and_republish_runtime_state(void) {
 void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void) {
   ESpectreComponentProbe component;
   esphome::sensor::Sensor movement_sensor;
-  esphome::sensor::Sensor intensity_sensor;
   esphome::binary_sensor::BinarySensor binary_sensor;
   ThresholdNumberProbe threshold_number;
   CalibrateSwitchProbe calibrate_switch;
@@ -405,7 +404,6 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   component.set_threshold_number(&threshold_number);
   component.set_calibrate_switch(&calibrate_switch);
   component.set_movement_sensor(&movement_sensor);
-  component.set_intensity_sensor(&intensity_sensor);
   component.set_motion_binary_sensor(&binary_sensor);
   component.setup();
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.live_telemetry_enabled);
@@ -420,7 +418,7 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   TEST_ASSERT_FALSE(component.threshold_republished_);
   TEST_ASSERT_FALSE(binary_sensor.has_state());
   component.on_live_telemetry(7.25f, 5.5f);
-  TEST_ASSERT_EQUAL(0, intensity_sensor.get_publish_count());
+  TEST_ASSERT_EQUAL(0, movement_sensor.get_publish_count());
 
   RuntimeSnapshot motion_snapshot{};
   motion_snapshot.ready_to_publish = true;
@@ -429,24 +427,21 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   motion_snapshot.movement_metric = 7.25f;
   component.on_motion_state_changed(motion_snapshot);
   TEST_ASSERT_TRUE(binary_sensor.get_state());
-  TEST_ASSERT_EQUAL(0, intensity_sensor.get_publish_count());
+  TEST_ASSERT_EQUAL(0, movement_sensor.get_publish_count());
 
   component.on_periodic_update(idle_snapshot, 42);
   TEST_ASSERT_EQUAL(0, movement_sensor.get_publish_count());
-  TEST_ASSERT_EQUAL(0, intensity_sensor.get_publish_count());
 
   component.on_periodic_update(motion_snapshot, 42);
   component.on_periodic_update(motion_snapshot, 42);
   TEST_ASSERT_TRUE(threshold_number.has_state());
   TEST_ASSERT_EQUAL_FLOAT(5.5f, threshold_number.get_state());
   TEST_ASSERT_EQUAL(1, threshold_number.get_publish_count());
-  TEST_ASSERT_EQUAL(2, movement_sensor.get_publish_count());
-  TEST_ASSERT_EQUAL(0, intensity_sensor.get_publish_count());
+  TEST_ASSERT_EQUAL(0, movement_sensor.get_publish_count());
 
   component.on_live_telemetry(7.25f, 5.5f);
-  TEST_ASSERT_EQUAL(1, intensity_sensor.get_publish_count());
-  TEST_ASSERT_EQUAL_FLOAT((7.25f / 5.5f) * 50.0f, intensity_sensor.get_state());
-  TEST_ASSERT_EQUAL(2, movement_sensor.get_publish_count());
+  TEST_ASSERT_EQUAL(1, movement_sensor.get_publish_count());
+  TEST_ASSERT_EQUAL_FLOAT(7.25f, movement_sensor.get_state());
   TEST_ASSERT_EQUAL(1, binary_sensor.get_publish_count());
 
   RuntimeSnapshot threshold_snapshot = motion_snapshot;
@@ -454,14 +449,13 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   component.on_threshold_changed(threshold_snapshot);
   TEST_ASSERT_EQUAL_FLOAT(6.75f, component.runtime_.config().segmentation_threshold);
   TEST_ASSERT_EQUAL_FLOAT(6.75f, threshold_number.get_state());
-  TEST_ASSERT_EQUAL(2, intensity_sensor.get_publish_count());
+  TEST_ASSERT_EQUAL(1, movement_sensor.get_publish_count());
 
   component.on_calibration_started(motion_snapshot);
   TEST_ASSERT_TRUE(calibrate_switch.state);
   component.sensor_publisher_.log_status("frontend", motion_snapshot, 25);
   TEST_ASSERT_TRUE(component.sensor_publisher_.has_motion_binary_sensor());
   TEST_ASSERT_TRUE(component.sensor_publisher_.has_movement_sensor());
-  TEST_ASSERT_TRUE(component.sensor_publisher_.has_intensity_sensor());
   component.on_calibration_finished(motion_snapshot, false);
   TEST_ASSERT_FALSE(calibrate_switch.state);
 }

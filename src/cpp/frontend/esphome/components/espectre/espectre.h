@@ -93,7 +93,6 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   
   // Setters for ESPHome sensors (delegated to SensorPublisher)
   void set_movement_sensor(sensor::Sensor *sensor) { this->sensor_publisher_.set_movement_sensor(sensor); }
-  void set_intensity_sensor(sensor::Sensor *sensor) { this->sensor_publisher_.set_intensity_sensor(sensor); }
   void set_motion_binary_sensor(binary_sensor::BinarySensor *sensor) { this->sensor_publisher_.set_motion_binary_sensor(sensor); }
   void set_traffic_rate_sensor(sensor::Sensor *sensor) { this->traffic_rate_sensor_ = sensor; }
   void set_csi_callback_rate_sensor(sensor::Sensor *sensor) { this->csi_callback_rate_sensor_ = sensor; }

@@ -452,52 +452,69 @@ class TestMQTTHandler:
         discovery_calls = [
             call for call in client.publish.call_args_list if call.args[0].startswith("homeassistant/")
         ]
-        assert len(discovery_calls) == 9
+        assert len(discovery_calls) == 31
         assert all(call.kwargs.get("retain") is True for call in discovery_calls)
         discovery_topics = [call.args[0] for call in discovery_calls]
-        assert "homeassistant/binary_sensor/micro_test_device_motion/config" in discovery_topics
-        assert "homeassistant/sensor/micro_test_device_movement/config" in discovery_topics
-        assert "homeassistant/sensor/micro_test_device_intensity/config" in discovery_topics
+        assert "homeassistant/binary_sensor/micro_test_device_motion_detected/config" in discovery_topics
+        assert "homeassistant/sensor/micro_test_device_movement_score/config" in discovery_topics
+        intensity_topic = "homeassistant/sensor/micro_test_device_intensity/config"
+        assert intensity_topic in discovery_topics
+        intensity_payloads = [call.args[1] for call in discovery_calls if call.args[0] == intensity_topic]
+        assert intensity_payloads == [""]
+        retired_motion_topic = "homeassistant/binary_sensor/micro_test_device_motion/config"
+        assert retired_motion_topic in discovery_topics
+        retired_motion_payloads = [call.args[1] for call in discovery_calls if call.args[0] == retired_motion_topic]
+        assert retired_motion_payloads == [""]
+        assert "homeassistant/sensor/micro_test_device_traffic_tx_rate/config" in discovery_topics
+        assert "homeassistant/sensor/micro_test_device_csi_missing_slot_rate/config" in discovery_topics
+        assert "homeassistant/sensor/micro_test_device_csi_temporal_occupancy/config" in discovery_topics
+        assert "homeassistant/button/micro_test_device_refresh_diagnostics/config" in discovery_topics
         assert "homeassistant/number/micro_test_device_threshold/config" in discovery_topics
         assert "homeassistant/number/micro_test_device_motion_on_hits/config" in discovery_topics
         assert "homeassistant/number/micro_test_device_motion_off_hits/config" in discovery_topics
-        assert "homeassistant/switch/micro_test_device_calibrate/config" in discovery_topics
-        assert "homeassistant/select/micro_test_device_csi_traffic_mode/config" in discovery_topics
-        assert "homeassistant/select/micro_test_device_traffic_generator_mode/config" in discovery_topics
+        assert "homeassistant/switch/micro_test_device_trigger_calibration/config" in discovery_topics
+        assert "homeassistant/select/micro_test_device_csi_traffic_ownership/config" in discovery_topics
+        assert "homeassistant/select/micro_test_device_csi_traffic_source/config" in discovery_topics
         assert discovery_topics.index(
-            "homeassistant/select/micro_test_device_csi_traffic_mode/config"
+            "homeassistant/select/micro_test_device_csi_traffic_ownership/config"
         ) < discovery_topics.index(
-            "homeassistant/select/micro_test_device_traffic_generator_mode/config"
+            "homeassistant/select/micro_test_device_csi_traffic_source/config"
         )
         assert discovery_topics.index(
-            "homeassistant/select/micro_test_device_traffic_generator_mode/config"
-        ) < discovery_topics.index("homeassistant/switch/micro_test_device_calibrate/config")
+            "homeassistant/select/micro_test_device_csi_traffic_source/config"
+        ) < discovery_topics.index("homeassistant/switch/micro_test_device_trigger_calibration/config")
         assert "test/espectre/devices/test-device/ha/threshold/set" in subscribed_topics
         assert "test/espectre/devices/test-device/ha/motion_on_hits/set" in subscribed_topics
         assert "test/espectre/devices/test-device/ha/motion_off_hits/set" in subscribed_topics
         assert "test/espectre/devices/test-device/ha/calibrate/set" in subscribed_topics
         assert "test/espectre/devices/test-device/ha/csi_traffic_mode/set" in subscribed_topics
         assert "test/espectre/devices/test-device/ha/traffic_generator_mode/set" in subscribed_topics
+        assert "test/espectre/devices/test-device/ha/diagnostics/set" in subscribed_topics
 
         client.publish.reset_mock()
         handler._on_message(b"homeassistant/status", b"online")
         republished = [call.args[0] for call in client.publish.call_args_list]
-        assert "homeassistant/binary_sensor/micro_test_device_motion/config" in republished
+        assert "homeassistant/binary_sensor/micro_test_device_motion_detected/config" in republished
         assert "homeassistant/sensor/micro_test_device_intensity/config" in republished
+        assert "homeassistant/binary_sensor/micro_test_device_motion/config" in republished
+        assert "homeassistant/sensor/micro_test_device_traffic_tx_rate/config" in republished
+        assert "homeassistant/button/micro_test_device_refresh_diagnostics/config" in republished
         assert "homeassistant/number/micro_test_device_threshold/config" in republished
         assert "homeassistant/number/micro_test_device_motion_on_hits/config" in republished
         assert "homeassistant/number/micro_test_device_motion_off_hits/config" in republished
-        assert "homeassistant/switch/micro_test_device_calibrate/config" in republished
-        assert "homeassistant/select/micro_test_device_csi_traffic_mode/config" in republished
-        assert "homeassistant/select/micro_test_device_traffic_generator_mode/config" in republished
+        assert "homeassistant/switch/micro_test_device_trigger_calibration/config" in republished
+        assert "homeassistant/select/micro_test_device_csi_traffic_ownership/config" in republished
+        assert "homeassistant/select/micro_test_device_csi_traffic_source/config" in republished
         assert "test/espectre/devices/test-device/ha/availability" in republished
-        assert "test/espectre/devices/test-device/ha/intensity/state" in republished
+        assert "test/espectre/devices/test-device/ha/movement/state" in republished
+        assert "test/espectre/devices/test-device/ha/intensity/state" not in republished
         assert "test/espectre/devices/test-device/ha/threshold/state" in republished
         assert "test/espectre/devices/test-device/ha/motion_on_hits/state" in republished
         assert "test/espectre/devices/test-device/ha/motion_off_hits/state" in republished
         assert "test/espectre/devices/test-device/ha/calibrate/state" in republished
         assert "test/espectre/devices/test-device/ha/csi_traffic_mode/state" in republished
         assert "test/espectre/devices/test-device/ha/traffic_generator_mode/state" in republished
+        assert "test/espectre/devices/test-device/ha/traffic_tx_rate/state" not in republished
 
     def test_publish_state_mirrors_ha_topics_when_enabled(
         self,
@@ -507,7 +524,7 @@ class TestMQTTHandler:
         mock_mqtt_client_instance,
         mock_global_state,
     ):
-        """HA-enabled heartbeats should mirror movement, not live intensity or motion edges."""
+        """HA-enabled telemetry should mirror movement, not motion edges."""
         from mqtt.handler import MQTTHandler
 
         mock_config.MQTT_HA_DISCOVERY_ENABLED = True
@@ -529,7 +546,7 @@ class TestMQTTHandler:
         assert "test/espectre/devices/test-device/ha/threshold/state" not in published_topics
         assert "test/espectre/devices/test-device/ha/calibrate/state" not in published_topics
 
-    def test_publish_live_ha_mirrors_intensity_and_motion_edges(
+    def test_publish_live_ha_mirrors_telemetry_movement_and_motion_edges(
         self,
         mock_config,
         mock_segmentation,
@@ -537,7 +554,7 @@ class TestMQTTHandler:
         mock_mqtt_client_instance,
         mock_global_state,
     ):
-        """Live HA publishes should update intensity every evaluation and motion only on edges."""
+        """Live publishes should update telemetry and movement every evaluation and motion only on edges."""
         from mqtt.handler import MQTTHandler
 
         mock_config.MQTT_HA_DISCOVERY_ENABLED = True
@@ -550,15 +567,15 @@ class TestMQTTHandler:
         first_payloads = {
             call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
         }
-        assert "test/espectre/devices/test-device/ha/intensity/state" in first_topics
-        assert first_payloads["test/espectre/devices/test-device/ha/intensity/state"] == "37.5"
+        assert handler.telemetry_topic in first_topics
+        assert "test/espectre/devices/test-device/ha/movement/state" in first_topics
+        assert first_payloads["test/espectre/devices/test-device/ha/movement/state"] == "0.7500"
+        assert "test/espectre/devices/test-device/ha/intensity/state" not in first_topics
         assert "test/espectre/devices/test-device/ha/threshold/state" in first_topics
         assert first_payloads["test/espectre/devices/test-device/ha/threshold/state"] == "1.0000"
         assert "test/espectre/devices/test-device/ha/motion/state" in first_topics
         assert first_payloads["test/espectre/devices/test-device/ha/motion/state"] == "ON"
-        assert "test/espectre/devices/test-device/ha/movement/state" not in first_topics
         assert "test/espectre/devices/test-device/ha/calibrate/state" not in first_topics
-        assert handler.telemetry_topic not in first_topics
 
         mock_mqtt_client_instance.publish.reset_mock()
         handler.publish_live_ha(1.0, 1, 1.0)
@@ -566,16 +583,18 @@ class TestMQTTHandler:
             call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
         }
         second_topics = [call.args[0] for call in mock_mqtt_client_instance.publish.call_args_list]
-        assert second_payloads["test/espectre/devices/test-device/ha/intensity/state"] == "50.0"
+        assert handler.telemetry_topic in second_topics
+        assert second_payloads["test/espectre/devices/test-device/ha/movement/state"] == "1.0000"
         assert "test/espectre/devices/test-device/ha/motion/state" not in second_topics
         assert "test/espectre/devices/test-device/ha/threshold/state" not in second_topics
+        assert "test/espectre/devices/test-device/ha/intensity/state" not in second_topics
 
         mock_mqtt_client_instance.publish.reset_mock()
         handler.publish_live_ha(0.1, 0, 1.0)
         third_payloads = {
             call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
         }
-        assert third_payloads["test/espectre/devices/test-device/ha/intensity/state"] == "5.0"
+        assert third_payloads["test/espectre/devices/test-device/ha/movement/state"] == "0.1000"
         assert third_payloads["test/espectre/devices/test-device/ha/motion/state"] == "OFF"
 
         mock_mqtt_client_instance.publish.reset_mock()
@@ -611,6 +630,50 @@ class TestMQTTHandler:
             call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
         }
         assert published["test/espectre/devices/test-device/ha/threshold/state"] == "0.4500"
+
+    def test_ha_diagnostics_command_publishes_cached_sample(
+        self,
+        mock_config,
+        mock_segmentation,
+        mock_wlan,
+        mock_mqtt_client_instance,
+        mock_global_state,
+    ):
+        """HA Refresh Diagnostics should publish the cached CSI/Wi-Fi sample."""
+        from mqtt.handler import MQTTHandler
+
+        mock_config.MQTT_HA_DISCOVERY_ENABLED = True
+        mock_global_state.latest_diagnostics = {
+            "traffic_tx_pps": 100.0,
+            "csi_callback_pps": 96.0,
+            "csi_accepted_pps": 90.0,
+            "csi_admitted_pps": 84.0,
+            "csi_filtered_pps": 6.0,
+            "csi_missing_slots_pps": 10.0,
+            "csi_excess_pps": 6.0,
+            "csi_stale_pps": 0.0,
+            "csi_out_of_order_pps": 0.0,
+            "csi_occupancy": 0.84,
+            "wifi_channel": 10,
+            "wifi_rssi_dbm": -55,
+        }
+        handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan, mock_global_state)
+        handler.client = mock_mqtt_client_instance
+        handler.connected = True
+
+        handler._on_message(
+            b"test/espectre/devices/test-device/ha/diagnostics/set",
+            b"PRESS",
+        )
+
+        published = {
+            call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
+        }
+        assert published["test/espectre/devices/test-device/ha/traffic_tx_rate/state"] == "100.0"
+        assert published["test/espectre/devices/test-device/ha/csi_callback_rate/state"] == "96.0"
+        assert published["test/espectre/devices/test-device/ha/csi_occupancy/state"] == "84.0"
+        assert published["test/espectre/devices/test-device/ha/wifi_channel/state"] == "10"
+        assert published["test/espectre/devices/test-device/ha/wifi_rssi/state"] == "-55"
 
     def test_ha_motion_hits_commands_update_runtime_policy(
         self,
@@ -956,15 +1019,6 @@ class TestMQTTHandler:
         assert handler.take_recalibrate_request() is False
         assert len(calibrate_publishes) == 2
 
-    def test_ha_intensity_percent_matches_shared_scale(self):
-        """The MicroPython helper must match the shared 0-100 HA intensity mapping."""
-        from config import ha_intensity_percent
-
-        assert ha_intensity_percent(0.5, 0.5) == 50.0
-        assert ha_intensity_percent(1.0, 0.5) == 100.0
-        assert ha_intensity_percent(0.75, 0.5) == 75.0
-        assert ha_intensity_percent(0.0, 0.0) == 0.0
-    
     def test_publish_info(self, mock_config, mock_segmentation, mock_wlan, mock_mqtt_client_instance):
         """Test publish_info delegates to cmd_handler"""
         from mqtt.handler import MQTTHandler

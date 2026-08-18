@@ -187,8 +187,9 @@ MQTT_HA_DISCOVERY_PREFIX = "homeassistant"
 
 When enabled, the runtime:
 
-- publishes retained discovery payloads for Motion Detected, Movement Score, Intensity, Threshold, Motion On Hits, Motion Off Hits, CSI Traffic Ownership, CSI Traffic Source, and Trigger Calibration
-- publishes plain HA availability, motion, movement, intensity, threshold, motion-hit, calibrate, and traffic-control state topics under the existing device topic base
+- publishes retained discovery payloads for Motion Detected, Movement Score, Threshold, Motion On Hits, Motion Off Hits, CSI Traffic Ownership, CSI Traffic Source, Trigger Calibration, the ESPHome CSI diagnostic sensors, and Refresh Diagnostics
+- publishes empty retained discovery payloads for leftover Intensity and previous Micro object IDs so Home Assistant entity IDs match ESPHome slugs after a prefix swap
+- publishes plain HA availability, motion, movement, threshold, motion-hit, calibrate, traffic-control, and on-demand diagnostic state topics under the existing device topic base
 - subscribes to `homeassistant/status` and republishes discovery when Home Assistant announces `online`
 
 HA sensing cadences match ESPHome and Native MQTT so the same Home Assistant dashboard can be reused after replacing entity ID prefixes:
@@ -196,16 +197,21 @@ HA sensing cadences match ESPHome and Native MQTT so the same Home Assistant das
 | Entity | Topic suffix | Cadence |
 |--------|--------------|---------|
 | Motion Detected | `ha/motion/state` | Filtered state edges |
-| Movement Score | `ha/movement/state` | Heartbeat (`PUBLISH_INTERVAL_MS`, default 1000 ms) |
-| Intensity | `ha/intensity/state` | Detector evaluation (`EVALUATION_INTERVAL_MS`, default 250 ms); 0–100 percent, 50% at threshold |
+| Movement Score | `ha/movement/state` | Detector evaluation (`EVALUATION_INTERVAL_MS`, default 250 ms) |
 | Threshold | `ha/threshold/state` and `ha/threshold/set` | On change, plus connect/birth snapshot; writable 0.0–1.0 number |
 | Motion On Hits | `ha/motion_on_hits/state` and `ha/motion_on_hits/set` | On change, plus connect/birth snapshot; writable 1–20 number |
 | Motion Off Hits | `ha/motion_off_hits/state` and `ha/motion_off_hits/set` | On change, plus connect/birth snapshot; writable 1–20 number |
 | CSI Traffic Ownership | `ha/csi_traffic_mode/state` and `ha/csi_traffic_mode/set` | On change, plus connect/birth snapshot; writable `internal`, `external`, or `disabled` select; `pacing` is rejected |
 | CSI Traffic Source | `ha/traffic_generator_mode/state` and `ha/traffic_generator_mode/set` | On change, plus connect/birth snapshot; writable `ping` / `dns` select |
 | Trigger Calibration | `ha/calibrate/state` and `ha/calibrate/set` | ON while recalibrating; ON starts startup recalibration, OFF is ignored while a session is running |
+| Traffic TX Rate, CSI rates, occupancy, Wi-Fi channel, Wi-Fi RSSI | `ha/traffic_tx_rate/state`, `ha/csi_callback_rate/state`, `ha/csi_accepted_rate/state`, `ha/csi_admitted_rate/state`, `ha/csi_filtered_rate/state`, `ha/csi_missing_rate/state`, `ha/csi_excess_rate/state`, `ha/csi_stale_rate/state`, `ha/csi_out_of_order_rate/state`, `ha/csi_occupancy/state`, `ha/wifi_channel/state`, `ha/wifi_rssi/state` | On demand after Refresh Diagnostics; diagnostic category |
+| Refresh Diagnostics | `ha/diagnostics/set` | Button; publishes the latest cached diagnostic sample |
 
-Entity IDs look like `sensor.micro_micro_espectre_intensity`. Copy the ESPHome dashboard from [`home-assistant-dashboard.yaml`](../../cpp/frontend/esphome/examples/home-assistant-dashboard.yaml) and replace the `espectre_` prefix. Intensity is not part of canonical `telemetry` JSON.
+Entity IDs look like `sensor.micro_micro_espectre_movement_score`. Copy the ESPHome dashboard from [`home-assistant-dashboard.yaml`](../../cpp/frontend/esphome/examples/home-assistant-dashboard.yaml) and replace the `espectre_` prefix.
+
+![ESPectre Home Assistant dashboard](../../../docs/web/assets/images/guides/home-assistant-dashboard.png)
+
+*Home Assistant dashboard reused from the ESPHome example. Replace the `espectre_` prefix so the entity IDs match this Micro-ESPectre device.*
 
 The canonical ESPectre protocol topics remain unchanged.
 

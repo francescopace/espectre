@@ -17,6 +17,17 @@
 
 namespace espectre {
 
+struct FrontendHaDiagnosticSensor {
+  std::string name;
+  std::string key;
+  std::string object_id;
+  std::string state_topic;
+  const char *unit_of_measurement{nullptr};
+  const char *icon{nullptr};
+  const char *device_class{nullptr};
+  bool state_class_measurement{true};
+};
+
 struct FrontendHaMqttSettings {
   std::string discovery_prefix;
   std::string birth_topic;
@@ -24,7 +35,6 @@ struct FrontendHaMqttSettings {
   std::string availability_template;
   std::string motion_state_topic;
   std::string movement_state_topic;
-  std::string intensity_state_topic;
   std::string threshold_state_topic;
   std::string threshold_command_topic;
   std::string motion_on_hits_state_topic;
@@ -39,9 +49,9 @@ struct FrontendHaMqttSettings {
   std::string csi_traffic_mode_command_topic;
   std::string traffic_generator_mode_state_topic;
   std::string traffic_generator_mode_command_topic;
+  std::string diagnostics_command_topic;
   std::string motion_object_id;
   std::string movement_object_id;
-  std::string intensity_object_id;
   std::string threshold_object_id;
   std::string motion_on_hits_object_id;
   std::string motion_off_hits_object_id;
@@ -49,6 +59,9 @@ struct FrontendHaMqttSettings {
   std::string detector_object_id;
   std::string csi_traffic_mode_object_id;
   std::string traffic_generator_mode_object_id;
+  std::string diagnostics_object_id;
+  std::string ha_object_prefix;
+  std::vector<FrontendHaDiagnosticSensor> diagnostic_sensors;
   std::string device_id;
   std::string device_name;
   std::string model;

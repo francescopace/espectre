@@ -96,6 +96,7 @@ class NativeFrontend : public IRuntimeListener {
   void handle_ha_calibrate_command_(const std::string &payload);
   void handle_ha_csi_traffic_mode_command_(const std::string &payload);
   void handle_ha_traffic_generator_mode_command_(const std::string &payload);
+  void handle_ha_diagnostics_command_(const std::string &payload);
   void handle_connection_state_(bool connected);
   void handle_live_telemetry_subscription_(bool subscribed);
   void update_live_telemetry_enabled_();
@@ -105,12 +106,12 @@ class NativeFrontend : public IRuntimeListener {
   bool ha_mqtt_ready_();
   void publish_ha_motion_(MotionState state);
   void publish_ha_movement_(float movement);
-  void publish_ha_intensity_(float movement, float threshold);
   void publish_ha_threshold_(float threshold);
   void publish_ha_motion_hits_(uint8_t motion_on_hits, uint8_t motion_off_hits);
   void publish_ha_calibrate_(bool calibrating);
   void publish_ha_detector_(const char *detector_name);
   void publish_ha_traffic_control_(CsiTrafficMode csi_traffic_mode, RuntimeTrafficMode traffic_generator_mode);
+  void publish_ha_diagnostics_();
   void publish_ha_state_(const RuntimeSnapshot &snapshot);
   void publish_current_ha_state_();
   void publish_mqtt_info_();
@@ -141,6 +142,7 @@ class NativeFrontend : public IRuntimeListener {
   RuntimeDiagnosticsSampler diagnostics_sampler_;
   RuntimeDiagnosticsSample latest_diagnostics_{};
   bool client_connected_{false};
+  bool mqtt_connected_{false};
   bool mqtt_ha_online_{false};
   bool ble_active_{false};
   bool ble_forced_{false};

@@ -67,7 +67,9 @@ class IRuntimeListener {
   /**
    * Heartbeat, emitted every `RuntimeConfig::publish_interval_ms` milliseconds.
    *
-   * Use it for periodic telemetry and status logging rather than polling.
+   * Use it for status logging and diagnostics sampling rather than sensing
+   * telemetry. Movement and canonical MQTT telemetry follow detector evaluation
+   * through `on_live_telemetry()`.
    *
    * @param snapshot Current sensing state, including the metric and threshold.
    * @param packets_received CSI packets accepted since the previous heartbeat,
@@ -104,8 +106,8 @@ class IRuntimeListener {
   /**
    * High-rate movement stream, one call per detector evaluation.
    *
-   * Intended for live views such as BLE notifications. Considerably more
-   * frequent than `on_periodic_update()`; suppress it with
+   * Frontends publish canonical telemetry and Movement Score from this hook.
+   * Considerably more frequent than `on_periodic_update()`; suppress it with
    * `set_live_telemetry_enabled(false)` when nothing is watching.
    *
    * @param movement Current motion metric.

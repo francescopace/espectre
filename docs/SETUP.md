@@ -206,7 +206,7 @@ Support in this phase:
 | `csi_target_pps` | int | `100` | `1-500`; defines detector slot cadence and the managed-traffic target, but never enables or disables traffic |
 | `csi_traffic_mode` | `internal`, `external`, `pacing`, or `disabled` | `internal` | Selects traffic ownership independently from `csi_target_pps`; `disabled` means unmanaged ambient traffic, not disabled sensing |
 | `traffic_generator_mode` | `ping` or `dns` | `ping` | Shared internal traffic generator mode |
-| `publish_interval_ms` | int | `1000` | `100-60000` milliseconds between periodic updates. On Home Assistant surfaces this is the Movement Score heartbeat; Intensity follows `evaluation_interval_ms` |
+| `publish_interval_ms` | int | `1000` | `100-60000` milliseconds between periodic status-log and diagnostics samples. Canonical MQTT telemetry and Home Assistant Movement Score follow `evaluation_interval_ms` |
 | `evaluation_interval_ms` | int | `250` | `10-10000` milliseconds between detector evaluations |
 | `motion_on_hits` | int | `4` | `1-20` consecutive evaluation hits for `IDLE -> MOTION` (about `1.0 s` at the default `250 ms` interval) |
 | `motion_off_hits` | int | `3` | `1-20` consecutive evaluation hits for `MOTION -> IDLE` (about `0.75 s` at the same defaults) |

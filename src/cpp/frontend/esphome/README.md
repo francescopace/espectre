@@ -34,8 +34,7 @@ The frontend maps runtime state into ESPHome and Home Assistant entities.
 
 | Runtime state/event | ESPHome surface | Cadence |
 |---------------------|-----------------|---------|
-| movement metric | `movement_sensor` | Heartbeat (`publish_interval_ms`, default 1000 ms) |
-| movement vs threshold | `intensity_sensor` | Detector evaluation (`evaluation_interval_ms`, default 250 ms) |
+| movement metric | `movement_sensor` | Detector evaluation (`evaluation_interval_ms`, default 250 ms) |
 | motion state | `motion_sensor` | Filtered state edges |
 | runtime threshold write | `threshold_number` | On change |
 | runtime motion-hit debounce write | `motion_on_hits_number`, `motion_off_hits_number` | On change |
@@ -59,8 +58,7 @@ These options are applied from YAML during firmware configuration. Runtime contr
 
 | Runtime surface | Config key | Runtime behavior |
 |-----------------|------------|------------------|
-| Movement score | `movement_sensor` | Read-only Home Assistant sensor; heartbeat cadence |
-| Intensity | `intensity_sensor` | Read-only movement-vs-threshold percent (0–100, 50% at threshold); evaluation cadence |
+| Movement score | `movement_sensor` | Read-only Home Assistant sensor; evaluation cadence |
 | Motion state | `motion_sensor` | Read-only Home Assistant binary sensor; edge-published |
 | Threshold | `threshold_number` | Writable runtime threshold control |
 | Motion On Hits | `motion_on_hits_number` | Writable runtime motion-on debounce control |
@@ -130,8 +128,7 @@ espectre:
 
 | Sensor config | Type | Default name | Description |
 |---------------|------|--------------|-------------|
-| `movement_sensor` | sensor | `Movement Score` | Current movement score (0.0–1.0), published every `publish_interval_ms` |
-| `intensity_sensor` | sensor | `Intensity` | Movement relative to threshold (`min(100, movement / threshold × 50)`); 50% is at threshold, 100% is twice the threshold. Published every `evaluation_interval_ms` |
+| `movement_sensor` | sensor | `Movement Score` | Current movement score (0.0–1.0), published every `evaluation_interval_ms` |
 | `motion_sensor` | binary_sensor | `Motion Detected` | Edge-driven motion state |
 | `threshold_number` | number | `Threshold` | Runtime probability threshold (0.0–1.0) |
 | `motion_on_hits_number` | number | `Motion On Hits` | Runtime motion-on debounce count (1–20) |
@@ -146,11 +143,11 @@ espectre:
 | `csi_accepted_rate_sensor` | sensor | `CSI Accepted Rate` | Raw identity-accepted capture rate before temporal admission; diagnostic-only |
 | `csi_admitted_rate_sensor` | sensor | `CSI Admitted Rate` | Rate admitted to the detector's temporal grid; diagnostic-only |
 | `csi_filtered_rate_sensor` | sensor | `CSI Filtered Rate` | Capture rejection rate; diagnostic-only |
-| `csi_missing_rate_sensor` | sensor | `CSI Missing Rate` | Missing detector slots per second; diagnostic-only |
+| `csi_missing_rate_sensor` | sensor | `CSI Missing Slot Rate` | Missing detector slots per second; diagnostic-only |
 | `csi_excess_rate_sensor` | sensor | `CSI Excess Rate` | Non-selected same-slot candidates per second, including candidates replaced by one nearer the slot center; diagnostic-only |
 | `csi_stale_rate_sensor` | sensor | `CSI Stale Rate` | Packets discarded as stale per second; diagnostic-only |
 | `csi_out_of_order_rate_sensor` | sensor | `CSI Out-of-Order Rate` | Duplicate or backward-timestamp packets discarded per second; diagnostic-only |
-| `csi_occupancy_sensor` | sensor | `CSI Occupancy` | Valid-slot occupancy of the active detector window; diagnostic-only |
+| `csi_occupancy_sensor` | sensor | `CSI Temporal Occupancy` | Valid-slot occupancy of the active detector window; diagnostic-only |
 | `wifi_channel_sensor` | sensor | `WiFi Channel` | Current associated Wi-Fi channel; diagnostic-only |
 | `wifi_rssi_sensor` | sensor | `WiFi RSSI` | Current associated Wi-Fi RSSI; diagnostic-only |
 
@@ -205,7 +202,7 @@ Once the device is flashed and connected to Wi-Fi:
 3. Configure the discovered device
 4. The default entities are added automatically
 
-The ESPHome frontend exposes movement, intensity, motion, threshold control, motion-hit debounce control, recalibration, CSI traffic ownership, and traffic generator selection as Home Assistant entities. Native MQTT Discovery publishes the same full sensing-control family, while Micro-ESPectre MQTT matches it except that CSI traffic ownership rejects `pacing`. Intensity updates on the detector evaluation cadence (default 250 ms). Movement Score remains on the heartbeat (default 1000 ms), Motion Detected publishes only on filtered state edges, Threshold and motion-hit controls publish on change, Trigger Calibration reports ON while a recalibration session is running, and the traffic selects mirror runtime state on connect, Home Assistant birth, and each accepted change. If the Home Assistant recorder is a concern, exclude `sensor.*_intensity` rather than lowering `evaluation_interval_ms`.
+The ESPHome frontend exposes movement, motion, threshold control, motion-hit debounce control, recalibration, CSI traffic ownership, traffic generator selection, and on-demand CSI diagnostics as Home Assistant entities. Native MQTT Discovery publishes the same full sensing-control and diagnostic family, while Micro-ESPectre MQTT matches it except that CSI traffic ownership rejects `pacing`. Movement Score updates on the detector evaluation cadence (default 250 ms). Motion Detected publishes only on filtered state edges, Threshold and motion-hit controls publish on change, Trigger Calibration reports ON while a recalibration session is running, and the traffic selects mirror runtime state on connect, Home Assistant birth, and each accepted change. Diagnostic sensors publish only when Refresh Diagnostics is pressed. If the Home Assistant recorder is a concern, exclude `sensor.*_movement_score` rather than lowering `evaluation_interval_ms`.
 
 To manage configuration and OTA updates, install ESPHome Device Builder and adopt the discovered device. The adopted configuration compiles the component from the `git_ref` substitution, which defaults to `main` and therefore tracks the latest release, so the device follows each new release without manual edits.
 
@@ -226,7 +223,11 @@ Examples live in:
 
 | File | Description |
 |------|-------------|
-| [`home-assistant-dashboard.yaml`](examples/home-assistant-dashboard.yaml) | Production dashboard with motion entities |
+| [`home-assistant-dashboard.yaml`](examples/home-assistant-dashboard.yaml) | Production dashboard with motion, movement score, history, controls, and diagnostics |
+
+![ESPectre Home Assistant dashboard](../../../../docs/web/assets/images/guides/home-assistant-dashboard.png)
+
+*Home Assistant dashboard with motion state, movement score, movement-versus-threshold history, detection profile, threshold, calibration, and diagnostics. Native and Micro MQTT Discovery reuse these cards after replacing the `espectre_` prefix.*
 
 To import a dashboard:
 
@@ -236,7 +237,7 @@ To import a dashboard:
 4. Replace the default content with the YAML from the example file
 5. Save the dashboard
 
-If you changed the device name from `espectre`, update entity IDs in the YAML. If you enabled `name_add_mac_suffix: true`, include the MAC suffix in the entity names as well.
+If you changed the device name from `espectre`, update entity IDs in the YAML. If you enabled `name_add_mac_suffix: true`, include the MAC suffix in the entity names as well. Native and Micro MQTT Discovery use the same suffixes after a different device prefix, for example `sensor.native_0x0000111122223333_movement_score`.
 
 ## Traffic Generator and Runtime Notes
 

@@ -36,7 +36,7 @@ void ESpectreComponent::setup() {
   ESP_LOGI(TAG, "Initializing ESPectre component...");
   espectre::configure_debug_telemetry_log_levels();
 
-  this->runtime_.set_live_telemetry_enabled(this->sensor_publisher_.has_intensity_sensor());
+  this->runtime_.set_live_telemetry_enabled(this->sensor_publisher_.has_movement_sensor());
   uint8_t saved_motion_on_hits = 0U;
   uint8_t saved_motion_off_hits = 0U;
   bool has_saved_motion_hits = false;
@@ -239,14 +239,14 @@ void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint
     this->traffic_mode_republished_ = true;
   }
 
-  this->sensor_publisher_.publish_movement_metric(snapshot.movement_metric);
 }
 
 void ESpectreComponent::on_live_telemetry(float movement, float threshold) {
+  (void) threshold;
   if (!this->runtime_.snapshot().ready_to_publish) {
     return;
   }
-  this->sensor_publisher_.publish_intensity(movement, threshold);
+  this->sensor_publisher_.publish_movement_metric(movement);
 }
 
 void ESpectreComponent::on_threshold_changed(const RuntimeSnapshot &snapshot) {
@@ -254,7 +254,6 @@ void ESpectreComponent::on_threshold_changed(const RuntimeSnapshot &snapshot) {
   if (this->threshold_number_ != nullptr) {
     this->threshold_number_->publish_state(snapshot.threshold);
   }
-  this->sensor_publisher_.publish_intensity(snapshot.movement_metric, snapshot.threshold);
 }
 
 void ESpectreComponent::on_detector_changed(const RuntimeSnapshot &snapshot) {
@@ -317,9 +316,8 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, " └─ Status ............. %s", snapshot.ready_to_publish ? "[ACTIVE]" : "[IDLE]");
   ESP_LOGCONFIG(TAG, " ");
   ESP_LOGCONFIG(TAG, " PUBLISH INTERVAL");
-  ESP_LOGCONFIG(TAG, " ├─ Movement score ..... %u ms",
+  ESP_LOGCONFIG(TAG, " └─ Status log ......... %u ms",
                 static_cast<unsigned>(config.publish_interval_ms));
-  ESP_LOGCONFIG(TAG, " └─ Intensity .......... evaluation interval");
   ESP_LOGCONFIG(TAG, " ");
   ESP_LOGCONFIG(TAG, " EVALUATION");
   ESP_LOGCONFIG(TAG, " ├─ Interval ........... %u ms",
@@ -344,8 +342,6 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, " SENSORS");
   ESP_LOGCONFIG(TAG, " ├─ Movement ........... %s",
                 this->sensor_publisher_.has_movement_sensor() ? "[OK]" : "[--]");
-  ESP_LOGCONFIG(TAG, " ├─ Intensity .......... %s",
-                this->sensor_publisher_.has_intensity_sensor() ? "[OK]" : "[--]");
   ESP_LOGCONFIG(TAG, " └─ Motion Binary ...... %s",
                 this->sensor_publisher_.has_motion_binary_sensor() ? "[OK]" : "[--]");
   ESP_LOGCONFIG(TAG, " ");

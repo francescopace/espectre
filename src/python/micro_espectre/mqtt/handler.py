@@ -341,15 +341,11 @@ class MQTTHandler:
         self.last_threshold = current_threshold
 
     def publish_live_ha(self, current_variance, current_state, current_threshold):
-        """Publish HA intensity every evaluation and motion only on filtered edges."""
-        self.last_variance = current_variance
-        self.last_state = current_state
-        self.last_threshold = current_threshold
-        self.ha_adapter.record_state(current_variance, current_state, current_threshold)
+        """Publish telemetry and HA movement every evaluation; motion only on edges."""
+        self.publish_state(current_variance, current_state, current_threshold)
         if not self.connected:
             return
         try:
-            self.ha_adapter.publish_intensity(self.client, current_variance, current_threshold)
             self.ha_adapter.publish_threshold(self.client, current_threshold)
             self.ha_adapter.publish_motion(self.client, current_state)
         except Exception as e:
@@ -427,7 +423,6 @@ class MQTTHandler:
                 self.runtime_policy.motion_off_hits,
                 force=True,
             )
-        self.ha_adapter.publish_intensity(self.client, self.last_variance, self.last_threshold)
         self.ha_adapter.publish_motion(self.client, self.last_state, force=True)
     
     def disconnect(self):

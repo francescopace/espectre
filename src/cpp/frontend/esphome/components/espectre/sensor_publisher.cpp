@@ -1,8 +1,8 @@
 /*
  * ESPectre - Sensor Publisher
  *
- * Publishes motion, movement, intensity, and periodic status updates through
- * ESPHome sensors.
+ * Publishes motion, movement, and periodic status updates through ESPHome
+ * sensors.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -24,14 +24,6 @@ void SensorPublisher::publish_movement_metric(float motion_metric) {
   if (movement_sensor_) {
     movement_sensor_->publish_state(motion_metric);
   }
-}
-
-void SensorPublisher::publish_intensity(float movement_metric, float threshold) {
-  if (!intensity_sensor_ || threshold <= 0.0f) {
-    return;
-  }
-  const float intensity = ha_intensity_percent(movement_metric, threshold);
-  intensity_sensor_->publish_state(intensity);
 }
 
 void SensorPublisher::log_status(const char *tag,

@@ -37,26 +37,6 @@ MOTION_HITS_MAX = 20
 MOTION_ON_HITS = 4            # Consecutive evaluated hits required for IDLE -> MOTION
 MOTION_OFF_HITS = 3           # Consecutive evaluated hits required for MOTION -> IDLE
 
-
-def ha_intensity_percent(movement_metric, threshold):
-    """Map movement and threshold onto the shared 0-100 Home Assistant intensity.
-
-    50% is the decision threshold; 100% is twice the threshold.
-    """
-    try:
-        movement = float(movement_metric)
-        limit = float(threshold)
-    except (TypeError, ValueError):
-        return 0.0
-    if limit <= 0.0:
-        return 0.0
-    intensity = (movement / limit) * 50.0
-    if intensity > 100.0:
-        return 100.0
-    if intensity < 0.0:
-        return 0.0
-    return intensity
-
 # CSI Configuration
 CSI_BUFFER_SIZE = 8  # Circular buffer size (used to store csi packets until processed)
 

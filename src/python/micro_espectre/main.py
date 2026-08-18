@@ -833,11 +833,6 @@ def main():
                     current_time,
                 )
                 if mqtt_handler is not None:
-                    mqtt_handler.publish_state(
-                        latest_motion_metric,
-                        latest_effective_state,
-                        latest_threshold,
-                    )
                     mqtt_handler.check_messages()
                     if maybe_run_ha_recalibration(
                         mqtt_handler, wlan, detector, traffic_gen, runtime_policy, temporal_sampler

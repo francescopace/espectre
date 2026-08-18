@@ -10,10 +10,10 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
 try:
-    from src.config import MOTION_HITS_MAX, MOTION_HITS_MIN, ha_intensity_percent
+    from src.config import MOTION_HITS_MAX, MOTION_HITS_MIN
     from src.mqtt.commands import THRESHOLD_MAX, THRESHOLD_MIN, _normalize_chip_label, _protocol_device_name
 except ImportError:
-    from config import MOTION_HITS_MAX, MOTION_HITS_MIN, ha_intensity_percent
+    from config import MOTION_HITS_MAX, MOTION_HITS_MIN
     from mqtt.commands import THRESHOLD_MAX, THRESHOLD_MIN, _normalize_chip_label, _protocol_device_name
 
 
@@ -26,6 +26,50 @@ def _sanitize_identifier(value):
         else:
             chars.append("_")
     return "".join(chars)
+
+
+_DIAGNOSTIC_SENSORS = (
+    {"name": "Traffic TX Rate", "key": "traffic_tx_rate", "sample_key": "traffic_tx_pps", "unit": "pkt/s", "icon": "mdi:upload-network"},
+    {"name": "CSI Callback Rate", "key": "csi_callback_rate", "sample_key": "csi_callback_pps", "unit": "pkt/s", "icon": "mdi:access-point"},
+    {"name": "CSI Accepted Rate", "key": "csi_accepted_rate", "sample_key": "csi_accepted_pps", "unit": "pkt/s", "icon": "mdi:check-network"},
+    {"name": "CSI Admitted Rate", "key": "csi_admitted_rate", "sample_key": "csi_admitted_pps", "unit": "pkt/s", "icon": "mdi:timeline-check-outline"},
+    {"name": "CSI Filtered Rate", "key": "csi_filtered_rate", "sample_key": "csi_filtered_pps", "unit": "pkt/s", "icon": "mdi:filter-outline"},
+    {
+        "name": "CSI Missing Slot Rate",
+        "key": "csi_missing_rate",
+        "object_suffix": "csi_missing_slot_rate",
+        "sample_key": "csi_missing_slots_pps",
+        "unit": "slot/s",
+        "icon": "mdi:timeline-minus-outline",
+    },
+    {"name": "CSI Excess Rate", "key": "csi_excess_rate", "sample_key": "csi_excess_pps", "unit": "pkt/s", "icon": "mdi:timeline-plus-outline"},
+    {"name": "CSI Stale Rate", "key": "csi_stale_rate", "sample_key": "csi_stale_pps", "unit": "pkt/s", "icon": "mdi:timer-sand"},
+    {"name": "CSI Out-of-order Rate", "key": "csi_out_of_order_rate", "sample_key": "csi_out_of_order_pps", "unit": "pkt/s", "icon": "mdi:swap-vertical"},
+    {
+        "name": "CSI Temporal Occupancy",
+        "key": "csi_occupancy",
+        "object_suffix": "csi_temporal_occupancy",
+        "sample_key": "csi_occupancy",
+        "unit": "%",
+        "icon": "mdi:view-grid-outline",
+        "scale": 100.0,
+    },
+    {"name": "WiFi Channel", "key": "wifi_channel", "sample_key": "wifi_channel", "icon": "mdi:wifi-marker", "measurement": False, "integer": True},
+    {"name": "WiFi RSSI", "key": "wifi_rssi", "sample_key": "wifi_rssi_dbm", "unit": "dBm", "device_class": "signal_strength", "integer": True},
+)
+
+_RETIRED_DISCOVERY = (
+    ("sensor", "intensity"),
+    ("binary_sensor", "motion"),
+    ("sensor", "movement"),
+    ("switch", "calibrate"),
+    ("select", "detector"),
+    ("select", "csi_traffic_mode"),
+    ("select", "traffic_generator_mode"),
+    ("button", "diagnostics"),
+    ("sensor", "csi_missing_rate"),
+    ("sensor", "csi_occupancy"),
+)
 
 
 class HomeAssistantMqttAdapter:
@@ -46,7 +90,6 @@ class HomeAssistantMqttAdapter:
         self.availability_topic = "{}/availability".format(state_prefix)
         self.motion_state_topic = "{}/motion/state".format(state_prefix)
         self.movement_state_topic = "{}/movement/state".format(state_prefix)
-        self.intensity_state_topic = "{}/intensity/state".format(state_prefix)
         self.threshold_state_topic = "{}/threshold/state".format(state_prefix)
         self.threshold_command_topic = "{}/threshold/set".format(state_prefix)
         self.motion_on_hits_state_topic = "{}/motion_on_hits/state".format(state_prefix)
@@ -59,16 +102,35 @@ class HomeAssistantMqttAdapter:
         self.csi_traffic_mode_command_topic = "{}/csi_traffic_mode/set".format(state_prefix)
         self.traffic_generator_mode_state_topic = "{}/traffic_generator_mode/state".format(state_prefix)
         self.traffic_generator_mode_command_topic = "{}/traffic_generator_mode/set".format(state_prefix)
+        self.diagnostics_command_topic = "{}/diagnostics/set".format(state_prefix)
         object_prefix = _sanitize_identifier("micro_{}".format(self.device_id))
-        self.motion_object_id = "{}_motion".format(object_prefix)
-        self.movement_object_id = "{}_movement".format(object_prefix)
-        self.intensity_object_id = "{}_intensity".format(object_prefix)
+        self.ha_object_prefix = object_prefix
+        self.motion_object_id = "{}_motion_detected".format(object_prefix)
+        self.movement_object_id = "{}_movement_score".format(object_prefix)
         self.threshold_object_id = "{}_threshold".format(object_prefix)
         self.motion_on_hits_object_id = "{}_motion_on_hits".format(object_prefix)
         self.motion_off_hits_object_id = "{}_motion_off_hits".format(object_prefix)
-        self.calibrate_object_id = "{}_calibrate".format(object_prefix)
-        self.csi_traffic_mode_object_id = "{}_csi_traffic_mode".format(object_prefix)
-        self.traffic_generator_mode_object_id = "{}_traffic_generator_mode".format(object_prefix)
+        self.calibrate_object_id = "{}_trigger_calibration".format(object_prefix)
+        self.csi_traffic_mode_object_id = "{}_csi_traffic_ownership".format(object_prefix)
+        self.traffic_generator_mode_object_id = "{}_csi_traffic_source".format(object_prefix)
+        self.diagnostics_object_id = "{}_refresh_diagnostics".format(object_prefix)
+        self.diagnostic_sensors = []
+        for spec in _DIAGNOSTIC_SENSORS:
+            object_suffix = spec.get("object_suffix", spec["key"])
+            sensor = {
+                "name": spec["name"],
+                "key": spec["key"],
+                "sample_key": spec["sample_key"],
+                "object_id": "{}_{}".format(object_prefix, object_suffix),
+                "state_topic": "{}/{}/state".format(state_prefix, spec["key"]),
+                "unit": spec.get("unit"),
+                "icon": spec.get("icon"),
+                "device_class": spec.get("device_class"),
+                "measurement": spec.get("measurement", True),
+                "scale": spec.get("scale"),
+                "integer": spec.get("integer", False),
+            }
+            self.diagnostic_sensors.append(sensor)
         self._last_state = 0
         self._last_variance = 0.0
         self._last_threshold = 0.0
@@ -123,6 +185,7 @@ class HomeAssistantMqttAdapter:
         client.subscribe(self.calibrate_command_topic)
         client.subscribe(self.csi_traffic_mode_command_topic)
         client.subscribe(self.traffic_generator_mode_command_topic)
+        client.subscribe(self.diagnostics_command_topic)
 
     def set_calibrate_handler(self, handler):
         """Install the callback used by the HA Calibrate switch."""
@@ -189,18 +252,6 @@ class HomeAssistantMqttAdapter:
                 "icon": "mdi:sine-wave",
             }
         )
-        intensity_payload = dict(base)
-        intensity_payload.update(
-            {
-                "name": "Intensity",
-                "unique_id": self.intensity_object_id,
-                "object_id": self.intensity_object_id,
-                "state_topic": self.intensity_state_topic,
-                "state_class": "measurement",
-                "unit_of_measurement": "%",
-                "icon": "mdi:gauge",
-            }
-        )
         self._publish_json(
             client,
             "{}/binary_sensor/{}/config".format(self.discovery_prefix, self.motion_object_id),
@@ -213,10 +264,47 @@ class HomeAssistantMqttAdapter:
             movement_payload,
             retain=True,
         )
+        for sensor in self.diagnostic_sensors:
+            payload = dict(base)
+            payload.update(
+                {
+                    "name": sensor["name"],
+                    "unique_id": sensor["object_id"],
+                    "object_id": sensor["object_id"],
+                    "state_topic": sensor["state_topic"],
+                    "entity_category": "diagnostic",
+                }
+            )
+            if sensor["unit"]:
+                payload["unit_of_measurement"] = sensor["unit"]
+            if sensor["measurement"]:
+                payload["state_class"] = "measurement"
+            if sensor["device_class"]:
+                payload["device_class"] = sensor["device_class"]
+            if sensor["icon"]:
+                payload["icon"] = sensor["icon"]
+            self._publish_json(
+                client,
+                "{}/sensor/{}/config".format(self.discovery_prefix, sensor["object_id"]),
+                payload,
+                retain=True,
+            )
+        diagnostics_payload = dict(base)
+        diagnostics_payload.update(
+            {
+                "name": "Refresh Diagnostics",
+                "unique_id": self.diagnostics_object_id,
+                "object_id": self.diagnostics_object_id,
+                "command_topic": self.diagnostics_command_topic,
+                "payload_press": "PRESS",
+                "entity_category": "diagnostic",
+                "icon": "mdi:refresh",
+            }
+        )
         self._publish_json(
             client,
-            "{}/sensor/{}/config".format(self.discovery_prefix, self.intensity_object_id),
-            intensity_payload,
+            "{}/button/{}/config".format(self.discovery_prefix, self.diagnostics_object_id),
+            diagnostics_payload,
             retain=True,
         )
         threshold_payload = dict(base)
@@ -343,6 +431,12 @@ class HomeAssistantMqttAdapter:
             calibrate_payload,
             retain=True,
         )
+        for component, suffix in _RETIRED_DISCOVERY:
+            client.publish(
+                "{}/{}/{}_{}/config".format(self.discovery_prefix, component, self.ha_object_prefix, suffix),
+                "",
+                retain=True,
+            )
 
     def publish_availability(self, client, online):
         """Publish plain-text HA availability updates."""
@@ -367,17 +461,6 @@ class HomeAssistantMqttAdapter:
             return
         self._last_variance = float(movement_score)
         client.publish(self.movement_state_topic, "{:.4f}".format(self._last_variance), retain=False)
-
-    def publish_intensity(self, client, movement_score, threshold):
-        """Publish the shared 0-100 HA intensity percent."""
-        if not self.enabled:
-            return
-        self.record_state(movement_score, self._last_state, threshold)
-        client.publish(
-            self.intensity_state_topic,
-            "{:.1f}".format(ha_intensity_percent(movement_score, threshold)),
-            retain=False,
-        )
 
     def publish_threshold(self, client, threshold, force=False):
         """Publish the HA threshold number on change, or on demand."""
@@ -443,6 +526,34 @@ class HomeAssistantMqttAdapter:
         self._calibrating = state
         client.publish(self.calibrate_state_topic, "ON" if state else "OFF", retain=False)
 
+    def publish_diagnostics(self, client, sample=None):
+        """Publish cached CSI/Wi-Fi diagnostic sensors on demand."""
+        if not self.enabled:
+            return
+        if sample is None:
+            sample = getattr(self.global_state, "latest_diagnostics", None) or {}
+        for sensor in self.diagnostic_sensors:
+            value = sample.get(sensor["sample_key"])
+            if value is None:
+                continue
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                continue
+            scale = sensor.get("scale")
+            if scale:
+                number = number * float(scale)
+            if sensor.get("integer"):
+                client.publish(sensor["state_topic"], str(int(number)), retain=False)
+            else:
+                client.publish(sensor["state_topic"], "{:.1f}".format(number), retain=False)
+
+    def apply_diagnostics_command(self, client, payload):
+        """Publish the cached diagnostic sample when Home Assistant presses Refresh Diagnostics."""
+        del payload
+        self.publish_diagnostics(client)
+        return True
+
     def publish_snapshot(self, client, movement_score, motion_state, threshold):
         """Publish all HA entity states for connect and Home Assistant birth."""
         self.record_state(movement_score, motion_state, threshold)
@@ -450,7 +561,6 @@ class HomeAssistantMqttAdapter:
             return
         self.publish_motion(client, motion_state, force=True)
         self.publish_movement(client, movement_score)
-        self.publish_intensity(client, movement_score, threshold)
         self.publish_threshold(client, threshold, force=True)
         self.publish_motion_hits(client, self._last_motion_on_hits, self._last_motion_off_hits, force=True)
         self.publish_calibrate(client, self._calibrating, force=True)
@@ -568,6 +678,8 @@ class HomeAssistantMqttAdapter:
             return self.apply_traffic_control_command(client, payload, True)
         if topic == self.traffic_generator_mode_command_topic:
             return self.apply_traffic_control_command(client, payload, False)
+        if topic == self.diagnostics_command_topic:
+            return self.apply_diagnostics_command(client, payload)
         if topic != self.BIRTH_TOPIC:
             return False
         if isinstance(payload, bytes):

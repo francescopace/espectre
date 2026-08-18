@@ -46,56 +46,25 @@ void test_sensor_publisher_publish_movement_metric_only(void) {
     TEST_ASSERT_EQUAL(1, movement_sensor.get_publish_count());
 }
 
-void test_sensor_publisher_publish_intensity_only(void) {
-    SensorPublisher publisher;
-    esphome::binary_sensor::BinarySensor binary_sensor;
-    esphome::sensor::Sensor movement_sensor;
-    esphome::sensor::Sensor intensity_sensor;
-
-    publisher.set_motion_binary_sensor(&binary_sensor);
-    publisher.set_movement_sensor(&movement_sensor);
-    publisher.set_intensity_sensor(&intensity_sensor);
-    publisher.publish_intensity(0.75f, 0.5f);
-
-    TEST_ASSERT_FALSE(binary_sensor.has_state());
-    TEST_ASSERT_EQUAL(0, binary_sensor.get_publish_count());
-    TEST_ASSERT_FALSE(movement_sensor.has_state());
-    TEST_ASSERT_EQUAL(0, movement_sensor.get_publish_count());
-    TEST_ASSERT_TRUE(intensity_sensor.has_state());
-    TEST_ASSERT_EQUAL_FLOAT(75.0f, intensity_sensor.get_state());
-    TEST_ASSERT_EQUAL(1, intensity_sensor.get_publish_count());
-
-    publisher.publish_intensity(0.5f, 0.5f);
-    TEST_ASSERT_EQUAL_FLOAT(50.0f, intensity_sensor.get_state());
-
-    publisher.publish_intensity(2.0f, 0.5f);
-    TEST_ASSERT_EQUAL_FLOAT(100.0f, intensity_sensor.get_state());
-}
-
 void test_sensor_publisher_configuration_helpers(void) {
     SensorPublisher publisher;
     esphome::binary_sensor::BinarySensor binary_sensor;
     esphome::sensor::Sensor movement_sensor;
-    esphome::sensor::Sensor intensity_sensor;
 
     TEST_ASSERT_FALSE(publisher.has_motion_binary_sensor());
     TEST_ASSERT_FALSE(publisher.has_movement_sensor());
-    TEST_ASSERT_FALSE(publisher.has_intensity_sensor());
 
     publisher.set_motion_binary_sensor(&binary_sensor);
     publisher.set_movement_sensor(&movement_sensor);
-    publisher.set_intensity_sensor(&intensity_sensor);
 
     TEST_ASSERT_TRUE(publisher.has_motion_binary_sensor());
     TEST_ASSERT_TRUE(publisher.has_movement_sensor());
-    TEST_ASSERT_TRUE(publisher.has_intensity_sensor());
 }
 
 int process(void) {
     UNITY_BEGIN();
     RUN_TEST(test_sensor_publisher_publish_motion_binary_only);
     RUN_TEST(test_sensor_publisher_publish_movement_metric_only);
-    RUN_TEST(test_sensor_publisher_publish_intensity_only);
     RUN_TEST(test_sensor_publisher_configuration_helpers);
     return UNITY_END();
 }

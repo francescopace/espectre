@@ -102,16 +102,89 @@ std::string build_movement_discovery_payload(const FrontendHaMqttSettings &setti
   return out;
 }
 
-std::string build_intensity_discovery_payload(const FrontendHaMqttSettings &settings, const EspectreDeviceInfo &info) {
+struct DiagnosticSensorDef {
+  const char *name;
+  const char *key;
+  const char *object_suffix;
+  const char *unit;
+  const char *icon;
+  const char *device_class;
+  bool state_class_measurement;
+};
+
+constexpr DiagnosticSensorDef kDiagnosticSensors[] = {
+    {"Traffic TX Rate", "traffic_tx_rate", "traffic_tx_rate", "pkt/s", "mdi:upload-network", nullptr, true},
+    {"CSI Callback Rate", "csi_callback_rate", "csi_callback_rate", "pkt/s", "mdi:access-point", nullptr, true},
+    {"CSI Accepted Rate", "csi_accepted_rate", "csi_accepted_rate", "pkt/s", "mdi:check-network", nullptr, true},
+    {"CSI Admitted Rate", "csi_admitted_rate", "csi_admitted_rate", "pkt/s", "mdi:timeline-check-outline", nullptr, true},
+    {"CSI Filtered Rate", "csi_filtered_rate", "csi_filtered_rate", "pkt/s", "mdi:filter-outline", nullptr, true},
+    {"CSI Missing Slot Rate", "csi_missing_rate", "csi_missing_slot_rate", "slot/s", "mdi:timeline-minus-outline",
+     nullptr, true},
+    {"CSI Excess Rate", "csi_excess_rate", "csi_excess_rate", "pkt/s", "mdi:timeline-plus-outline", nullptr, true},
+    {"CSI Stale Rate", "csi_stale_rate", "csi_stale_rate", "pkt/s", "mdi:timer-sand", nullptr, true},
+    {"CSI Out-of-order Rate", "csi_out_of_order_rate", "csi_out_of_order_rate", "pkt/s", "mdi:swap-vertical", nullptr,
+     true},
+    {"CSI Temporal Occupancy", "csi_occupancy", "csi_temporal_occupancy", "%", "mdi:view-grid-outline", nullptr, true},
+    {"WiFi Channel", "wifi_channel", "wifi_channel", nullptr, "mdi:wifi-marker", nullptr, false},
+    {"WiFi RSSI", "wifi_rssi", "wifi_rssi", "dBm", nullptr, "signal_strength", true},
+};
+
+struct RetiredHaDiscovery {
+  const char *component;
+  const char *suffix;
+};
+
+constexpr RetiredHaDiscovery kRetiredHaDiscoveries[] = {
+    {"sensor", "intensity"},
+    {"binary_sensor", "motion"},
+    {"sensor", "movement"},
+    {"switch", "calibrate"},
+    {"select", "detector"},
+    {"select", "csi_traffic_mode"},
+    {"select", "traffic_generator_mode"},
+    {"button", "diagnostics"},
+    {"sensor", "csi_missing_rate"},
+    {"sensor", "csi_occupancy"},
+};
+
+std::string build_diagnostic_sensor_discovery_payload(const FrontendHaMqttSettings &settings,
+                                                      const EspectreDeviceInfo &info,
+                                                      const FrontendHaDiagnosticSensor &sensor) {
   std::string out = "{";
-  append_json_pair(&out, "name", "Intensity", true);
-  append_json_pair(&out, "unique_id", settings.intensity_object_id.c_str());
-  append_json_pair(&out, "object_id", settings.intensity_object_id.c_str());
-  append_json_pair(&out, "state_topic", settings.intensity_state_topic.c_str());
+  append_json_pair(&out, "name", sensor.name.c_str(), true);
+  append_json_pair(&out, "unique_id", sensor.object_id.c_str());
+  append_json_pair(&out, "object_id", sensor.object_id.c_str());
+  append_json_pair(&out, "state_topic", sensor.state_topic.c_str());
   append_discovery_availability(&out, settings);
-  append_json_pair(&out, "state_class", "measurement");
-  append_json_pair(&out, "unit_of_measurement", "%");
-  append_json_pair(&out, "icon", "mdi:gauge");
+  if (sensor.unit_of_measurement != nullptr) {
+    append_json_pair(&out, "unit_of_measurement", sensor.unit_of_measurement);
+  }
+  if (sensor.state_class_measurement) {
+    append_json_pair(&out, "state_class", "measurement");
+  }
+  if (sensor.device_class != nullptr) {
+    append_json_pair(&out, "device_class", sensor.device_class);
+  }
+  if (sensor.icon != nullptr) {
+    append_json_pair(&out, "icon", sensor.icon);
+  }
+  append_json_pair(&out, "entity_category", "diagnostic");
+  append_discovery_device(&out, settings, info);
+  out.push_back('}');
+  return out;
+}
+
+std::string build_diagnostics_button_discovery_payload(const FrontendHaMqttSettings &settings,
+                                                       const EspectreDeviceInfo &info) {
+  std::string out = "{";
+  append_json_pair(&out, "name", "Refresh Diagnostics", true);
+  append_json_pair(&out, "unique_id", settings.diagnostics_object_id.c_str());
+  append_json_pair(&out, "object_id", settings.diagnostics_object_id.c_str());
+  append_json_pair(&out, "command_topic", settings.diagnostics_command_topic.c_str());
+  append_discovery_availability(&out, settings);
+  append_json_pair(&out, "payload_press", "PRESS");
+  append_json_pair(&out, "entity_category", "diagnostic");
+  append_json_pair(&out, "icon", "mdi:refresh");
   append_discovery_device(&out, settings, info);
   out.push_back('}');
   return out;
@@ -282,7 +355,6 @@ FrontendHaMqttSettings build_frontend_ha_mqtt_settings(const EspectreDeviceConfi
   settings.availability_template = kStatusAvailabilityTemplate;
   settings.motion_state_topic = ha_entity_base_topic(config, "motion/state");
   settings.movement_state_topic = ha_entity_base_topic(config, "movement/state");
-  settings.intensity_state_topic = ha_entity_base_topic(config, "intensity/state");
   settings.threshold_state_topic = ha_entity_base_topic(config, "threshold/state");
   settings.threshold_command_topic = ha_entity_base_topic(config, "threshold/set");
   settings.motion_on_hits_state_topic = ha_entity_base_topic(config, "motion_on_hits/state");
@@ -297,16 +369,32 @@ FrontendHaMqttSettings build_frontend_ha_mqtt_settings(const EspectreDeviceConfi
   settings.csi_traffic_mode_command_topic = ha_entity_base_topic(config, "csi_traffic_mode/set");
   settings.traffic_generator_mode_state_topic = ha_entity_base_topic(config, "traffic_generator_mode/state");
   settings.traffic_generator_mode_command_topic = ha_entity_base_topic(config, "traffic_generator_mode/set");
-  settings.motion_object_id = device_key + "_motion";
-  settings.movement_object_id = device_key + "_movement";
-  settings.intensity_object_id = device_key + "_intensity";
+  settings.diagnostics_command_topic = ha_entity_base_topic(config, "diagnostics/set");
+  settings.ha_object_prefix = device_key;
+  settings.motion_object_id = device_key + "_motion_detected";
+  settings.movement_object_id = device_key + "_movement_score";
   settings.threshold_object_id = device_key + "_threshold";
   settings.motion_on_hits_object_id = device_key + "_motion_on_hits";
   settings.motion_off_hits_object_id = device_key + "_motion_off_hits";
-  settings.calibrate_object_id = device_key + "_calibrate";
-  settings.detector_object_id = device_key + "_detector";
-  settings.csi_traffic_mode_object_id = device_key + "_csi_traffic_mode";
-  settings.traffic_generator_mode_object_id = device_key + "_traffic_generator_mode";
+  settings.calibrate_object_id = device_key + "_trigger_calibration";
+  settings.detector_object_id = device_key + "_detection_profile";
+  settings.csi_traffic_mode_object_id = device_key + "_csi_traffic_ownership";
+  settings.traffic_generator_mode_object_id = device_key + "_csi_traffic_source";
+  settings.diagnostics_object_id = device_key + "_refresh_diagnostics";
+  settings.diagnostic_sensors.clear();
+  settings.diagnostic_sensors.reserve(sizeof(kDiagnosticSensors) / sizeof(kDiagnosticSensors[0]));
+  for (const DiagnosticSensorDef &def : kDiagnosticSensors) {
+    FrontendHaDiagnosticSensor sensor;
+    sensor.name = def.name;
+    sensor.key = def.key;
+    sensor.object_id = device_key + "_" + def.object_suffix;
+    sensor.state_topic = ha_entity_base_topic(config, (std::string(def.key) + "/state").c_str());
+    sensor.unit_of_measurement = def.unit;
+    sensor.icon = def.icon;
+    sensor.device_class = def.device_class;
+    sensor.state_class_measurement = def.state_class_measurement;
+    settings.diagnostic_sensors.push_back(std::move(sensor));
+  }
   settings.device_id = device_id;
   settings.device_name = effective_name;
   settings.model = std::string("ESPectre ") + frontend;
@@ -328,9 +416,15 @@ std::vector<FrontendHaDiscoveryMessage> build_frontend_ha_discovery_messages(
       build_discovery_topic("sensor", settings.discovery_prefix, settings.movement_object_id),
       build_movement_discovery_payload(settings, info),
   });
+  for (const FrontendHaDiagnosticSensor &sensor : settings.diagnostic_sensors) {
+    messages.push_back(FrontendHaDiscoveryMessage{
+        build_discovery_topic("sensor", settings.discovery_prefix, sensor.object_id),
+        build_diagnostic_sensor_discovery_payload(settings, info, sensor),
+    });
+  }
   messages.push_back(FrontendHaDiscoveryMessage{
-      build_discovery_topic("sensor", settings.discovery_prefix, settings.intensity_object_id),
-      build_intensity_discovery_payload(settings, info),
+      build_discovery_topic("button", settings.discovery_prefix, settings.diagnostics_object_id),
+      build_diagnostics_button_discovery_payload(settings, info),
   });
   messages.push_back(FrontendHaDiscoveryMessage{
       build_discovery_topic("number", settings.discovery_prefix, settings.threshold_object_id),
@@ -366,6 +460,13 @@ std::vector<FrontendHaDiscoveryMessage> build_frontend_ha_discovery_messages(
       build_discovery_topic("switch", settings.discovery_prefix, settings.calibrate_object_id),
       build_calibrate_discovery_payload(settings, info),
   });
+  for (const RetiredHaDiscovery &retired : kRetiredHaDiscoveries) {
+    messages.push_back(FrontendHaDiscoveryMessage{
+        build_discovery_topic(retired.component, settings.discovery_prefix,
+                              settings.ha_object_prefix + "_" + retired.suffix),
+        "",
+    });
+  }
   return messages;
 }
 

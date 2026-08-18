@@ -68,7 +68,7 @@ Managed-service MQTT should use TLS and per-device credentials. Local lab MQTT m
 
 Native and Micro-ESPectre can publish an additive Home Assistant MQTT Discovery surface without changing the canonical ESPectre topics above. Discovery payloads use the standard `{discovery_prefix}/{component}/{object_id}/config` topic shape. Native also retains its canonical `status` payload so late subscribers receive the current availability; entity-shaped state topics remain non-retained under `espectre/v1/devices/{device_id}/ha/...`.
 
-The HA adapter publishes sensing entities that match the ESPHome Home Assistant surface so one dashboard can be reused: Motion Detected on filtered state edges, Movement Score on the `publish_interval_ms` heartbeat, Intensity as a 0–100 percent gauge (`min(100, movement / threshold × 50)`, 50% at threshold) on the detector evaluation cadence, writable Threshold, Motion On Hits, and Motion Off Hits numbers, a Detection Profile select where the frontend supports runtime detector switching, CSI Traffic Ownership plus CSI Traffic Source selects where the frontend supports traffic control, and a Trigger Calibration switch that starts startup recalibration. Canonical `telemetry` JSON keeps `movement_score` and `threshold` and does not carry the intensity percent.
+The HA adapter publishes sensing entities that match the ESPHome Home Assistant surface so one dashboard can be reused after replacing the device prefix: Motion Detected on filtered state edges, Movement Score on every detector evaluation (`evaluation_interval_ms`), writable Threshold, Motion On Hits, and Motion Off Hits numbers, a Detection Profile select where the frontend supports runtime detector switching, CSI Traffic Ownership plus CSI Traffic Source selects where the frontend supports traffic control, a Trigger Calibration switch that starts startup recalibration, and the ESPHome CSI diagnostic sensors plus a Refresh Diagnostics button that publishes the latest cached sample on demand. Discovery `object_id` suffixes follow the ESPHome entity-ID slugs (`motion_detected`, `movement_score`, `trigger_calibration`, and so on); MQTT state and command topic suffixes under `ha/` stay unchanged. Canonical `telemetry` JSON keeps `movement_score` and `threshold` on that same evaluation cadence. Leftover Intensity and previous Native/Micro discovery object IDs are unpublished with empty retained configs.
 
 Both adapters subscribe to `homeassistant/status` and republish discovery when Home Assistant announces `online`; this birth message is a recovery trigger, not the only discovery bootstrap. Native derives availability from the retained canonical `status` payload and its retained Last Will, while Micro-ESPectre uses a plain `ha/availability` topic. The Native adapter is enabled in the published firmware defaults and can be disabled at build time; Micro-ESPectre keeps the adapter opt-in. See [`README.md`](../src/cpp/frontend/native/README.md) for Native and [`README.md`](../src/python/micro_espectre/README.md) for Micro-ESPectre entity surfaces and configuration options.
 
@@ -98,7 +98,7 @@ espectre/v1/devices/{device_id}/telemetry
 }
 ```
 
-Native MQTT telemetry uses a hybrid cadence. Filtered motion-state transitions are published immediately once `ready_to_publish` is true, while updates at the configured `publish_interval_ms` remain as a monotonic-clock heartbeat and current-metrics snapshot. Edge publishes occur only on state transitions, not on every detector evaluation, and heartbeat deadlines never force detector evaluation. Native BLE does not carry live sensing telemetry.
+Native MQTT telemetry publishes on every detector evaluation once `ready_to_publish` is true, matching Micro-ESPectre. Filtered motion-state transitions update the Home Assistant motion entity immediately without a second telemetry publish. `publish_interval_ms` remains a monotonic-clock heartbeat for status logs and diagnostics sampling; it never publishes sensing telemetry and never forces detector evaluation. Native BLE does not carry live sensing telemetry.
 
 ### Status
 
@@ -200,7 +200,7 @@ Stats are diagnostic. Product dashboards should prefer telemetry/status/info for
 
 Native and Micro always include the CSI and Wi-Fi fields in a requested `stats` response. Both derive rates from the cumulative counters whenever the existing periodic sensing update runs, cache that completed sample, and do not add a diagnostic timer or publish it periodically. `traffic_tx_pps` is the traffic-generator transmit rate; `csi_callback_pps` is the raw CSI callback rate; `csi_accepted_pps` is the identity-accepted rate; `csi_admitted_pps` is the detector input rate after temporal admission; `csi_filtered_pps` is the capture-filter drop rate; the temporal drop fields distinguish missing slots, same-slot excess, stale packets, and out-of-order packets; and `csi_occupancy` is the valid fraction of the active detector window. Occupancy is diagnostic telemetry and does not change the device send rate. The extra CSI fields are additive on protocol `1.0`; consumers may ignore unknown keys. The SDK sample uses `csi_occupancy_ratio` for the same occupancy value. Before the first periodic sensing update completes, rate fields are zero.
 
-ESPHome exposes the same cached measurements as diagnostic entities. Their states are published only when the `Refresh Diagnostics` button is pressed. These on-demand diagnostics are independent of the optional runtime debug logs.
+ESPHome exposes the same cached measurements as diagnostic entities. Native MQTT Discovery and Micro-ESPectre MQTT match that surface: the diagnostic sensors stay unpublished until Home Assistant presses `Refresh Diagnostics`. These on-demand diagnostics are independent of the optional runtime debug logs.
 
 ### Command catalog
 
@@ -503,7 +503,7 @@ Current BLE `sysinfo` diagnostic keys may include:
 | `csi_traffic_mode` | CSI traffic ownership mode: `internal`, `external`, `pacing`, or `disabled` |
 | `traffic_mode` | Internal traffic generator mode such as `ping` or `dns` |
 | `csi_target_pps` | Internal traffic generator target rate in packets per second |
-| `publish_interval_ms` | Periodic publish cadence in milliseconds |
+| `publish_interval_ms` | Periodic status-log cadence in milliseconds |
 | `evaluation_interval_ms` | Detector evaluation cadence in milliseconds |
 | `motion_hits` | Motion-on/off consecutive hit thresholds |
 | `ota_state` | Current OTA state reported by the shared HTTPS OTA service |

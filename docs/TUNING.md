@@ -130,7 +130,7 @@ espectre:
   publish_interval_ms: 1000
 ```
 
-This controls periodic movement-score reporting from the runtime's monotonic clock. Motion state edges are handled separately, and neither heartbeat deadlines nor state-edge publication force detector evaluation. On Home Assistant surfaces (ESPHome, Native MQTT Discovery, and Micro-ESPectre MQTT), Intensity follows `evaluation_interval_ms` instead of this heartbeat, so lowering `publish_interval_ms` does not make the gauge more responsive.
+This controls the periodic status log and diagnostics sampling from the runtime's monotonic clock. Canonical MQTT telemetry and Home Assistant Movement Score follow `evaluation_interval_ms` instead. Motion state edges are handled separately, and neither heartbeat deadlines nor state-edge publication force detector evaluation.
 
 ### Evaluation Interval And Hit Filtering
 
@@ -144,8 +144,9 @@ espectre:
 The detector processes every admitted CSI packet into its sliding window, but the published motion state updates only on a coarser cadence:
 
 1. every `evaluation_interval_ms` of packet arrival time, the runtime evaluates the detector and gets a raw `IDLE` or `MOTION` reading; there is no packet-count fallback, so live input and supported replay datasets must provide advancing timestamps
-2. that raw reading must repeat for `motion_on_hits` consecutive evaluations before the published state becomes `MOTION`
-3. leaving motion requires `motion_off_hits` consecutive `IDLE` evaluations
+2. Native MQTT, Micro MQTT, and ESPHome publish canonical telemetry and Movement Score from that evaluation once `ready_to_publish` is true
+3. that raw reading must repeat for `motion_on_hits` consecutive evaluations before the published state becomes `MOTION`
+4. leaving motion requires `motion_off_hits` consecutive `IDLE` evaluations
 
 These hits are consecutive evaluation ticks, not detector windows (`segmentation_window_size_ms`). One opposing reading resets the pending count.
 
