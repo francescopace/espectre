@@ -17,6 +17,7 @@
 
 #include "test_harness.h"
 
+#include <cstdio>
 #include <cstring>
 
 using namespace espectre;
@@ -42,11 +43,14 @@ void setUp(void) {}
 void tearDown(void) {}
 
 void test_sdk_version_macros_agree_with_each_other(void) {
-  char expected[32];
-  std::snprintf(expected, sizeof(expected), "%d.%d.%d", ESPECTRE_SDK_VERSION_MAJOR,
+  char core[32];
+  std::snprintf(core, sizeof(core), "%d.%d.%d", ESPECTRE_SDK_VERSION_MAJOR,
                 ESPECTRE_SDK_VERSION_MINOR, ESPECTRE_SDK_VERSION_PATCH);
+  const size_t core_len = std::strlen(core);
 
-  TEST_ASSERT_EQUAL_STRING(expected, ESPECTRE_SDK_VERSION_STRING);
+  TEST_ASSERT_TRUE(std::strncmp(ESPECTRE_SDK_VERSION_STRING, core, core_len) == 0);
+  TEST_ASSERT_TRUE(ESPECTRE_SDK_VERSION_STRING[core_len] == '\0' ||
+                   ESPECTRE_SDK_VERSION_STRING[core_len] == '-');
   TEST_ASSERT_EQUAL_STRING(ESPECTRE_SDK_VERSION_STRING, espectre_sdk_version());
 
   const int expected_number = (ESPECTRE_SDK_VERSION_MAJOR * 10000) +

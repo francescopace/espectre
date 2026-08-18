@@ -11,6 +11,8 @@
 
 substitutions:
   git_ref: main # branch, tag, or commit
+  # Device Builder: pin git_ref to a numeric release tag. A branch name is not a firmware version, and the GitHub clone has no git tags.
+  project_version: ${git_ref} # firmware identity; first-party CI sets git describe
   detection_algorithm: lightweight # lightweight (default) or high_accuracy
 
 esphome:
@@ -21,7 +23,7 @@ esphome:
   # name_add_mac_suffix: true
   project:
     name: francescopace.espectre
-    version: ${git_ref}
+    version: ${project_version}
 
 esp32:
   variant: ESP32S3

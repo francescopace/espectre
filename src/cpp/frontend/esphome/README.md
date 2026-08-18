@@ -204,9 +204,9 @@ Once the device is flashed and connected to Wi-Fi:
 
 The ESPHome frontend exposes movement, motion, threshold control, motion-hit debounce control, recalibration, CSI traffic ownership, traffic generator selection, and on-demand CSI diagnostics as Home Assistant entities. Native MQTT Discovery publishes the same full sensing-control and diagnostic family, while Micro-ESPectre MQTT matches it except that CSI traffic ownership rejects `pacing`. Movement Score updates on the detector evaluation cadence (default 250 ms). Motion Detected publishes only on filtered state edges, Threshold and motion-hit controls publish on change, Trigger Calibration reports ON while a recalibration session is running, and the traffic selects mirror runtime state on connect, Home Assistant birth, and each accepted change. Diagnostic sensors publish only when Refresh Diagnostics is pressed. If the Home Assistant recorder is a concern, exclude `sensor.*_movement_score` rather than lowering `evaluation_interval_ms`.
 
-To manage configuration and OTA updates, install ESPHome Device Builder and adopt the discovered device. The adopted configuration compiles the component from the `git_ref` substitution, which defaults to `main` and therefore tracks the latest release, so the device follows each new release without manual edits.
+To manage configuration and OTA updates, install ESPHome Device Builder and adopt the discovered device. The adopted configuration compiles the component from the `git_ref` substitution, which defaults to `main`. ESPHome's GitHub clone is shallow and has no numeric tags, so Device Builder cannot configure when `project_version` is a branch name. Pin `git_ref` to a numeric release tag before compiling. First-party CI overrides `project_version` with `git describe`. Local `-dev` checkouts resolve the same identity from the repository.
 
-To stay on one version instead, declare `git_ref` in the adopted configuration:
+To compile in Device Builder, or to stay on one version, declare `git_ref` in the adopted configuration:
 
 ```yaml
 substitutions:

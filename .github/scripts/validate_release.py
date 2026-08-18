@@ -7,12 +7,17 @@ from __future__ import annotations
 
 import argparse
 import re
+import sys
 from pathlib import Path
 
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from detect_git_version import detect_git_version
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHANGELOG = REPO_ROOT / "docs" / "CHANGELOG.md"
-SDK_VERSION_HEADER = REPO_ROOT / "src" / "cpp" / "runtime" / "espectre_sdk_version.h"
 SEMVER_PATTERN = re.compile(
     r"^(?P<core>(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))"
     r"(?:-(?P<prerelease>"
@@ -26,14 +31,6 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate an ESPectre release tag.")
     parser.add_argument("--tag", required=True)
     return parser.parse_args()
-
-
-def sdk_version() -> str:
-    source = SDK_VERSION_HEADER.read_text(encoding="utf-8")
-    match = re.search(r'#define\s+ESPECTRE_SDK_VERSION_STRING\s+"([^"]+)"', source)
-    if not match:
-        raise ValueError("Unable to detect ESPECTRE_SDK_VERSION_STRING")
-    return match.group(1)
 
 
 def changelog_header(tag: str) -> str:
@@ -55,12 +52,9 @@ def validate(tag: str) -> None:
             "Release tag must be semantic versioning without a leading v, "
             "for example 3.0.0 or 3.0.0-rc1"
         )
-    detected_sdk_version = sdk_version()
-    if match.group("core") != detected_sdk_version:
-        raise ValueError(
-            f"Release tag core {match.group('core')!r} does not match "
-            f"ESPECTRE_SDK_VERSION_STRING {detected_sdk_version!r}"
-        )
+    described = detect_git_version(exact_match=True)
+    if described != tag:
+        raise ValueError(f"git describe is {described!r}, expected the release tag {tag!r}")
     header = changelog_header(tag)
     if "unreleased" in header.casefold() or "in progress" in header.casefold():
         raise ValueError(f"CHANGELOG section is not finalized: {header}")

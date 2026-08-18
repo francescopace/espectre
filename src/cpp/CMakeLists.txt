@@ -76,6 +76,18 @@ idf_component_register(
 # so detection status and telemetry can be enabled per-tag at runtime.
 target_compile_definitions(${COMPONENT_LIB} PRIVATE LOG_LOCAL_LEVEL=4)
 
+include("${CMAKE_CURRENT_LIST_DIR}/espectre_git_version.cmake")
+if(ESPECTRE_GIT_VERSION AND NOT ESPECTRE_GIT_VERSION_STAMPED)
+    target_compile_definitions(
+        ${COMPONENT_LIB}
+        PUBLIC
+            ESPECTRE_SDK_VERSION_STRING="${ESPECTRE_GIT_VERSION}"
+            ESPECTRE_SDK_VERSION_MAJOR=${ESPECTRE_SDK_VERSION_MAJOR}
+            ESPECTRE_SDK_VERSION_MINOR=${ESPECTRE_SDK_VERSION_MINOR}
+            ESPECTRE_SDK_VERSION_PATCH=${ESPECTRE_SDK_VERSION_PATCH}
+    )
+endif()
+
 if(CONFIG_ESPECTRE_SDK_ENABLE_STREAM_RUNTIME)
     # make_stream_runtime() returns nullptr unless the profile is compiled in,
     # so the option has to reach the sources as well as the source list.

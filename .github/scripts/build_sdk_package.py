@@ -21,11 +21,18 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tarfile
 import tempfile
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from detect_git_version import parse_version_core
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CPP_ROOT = REPO_ROOT / "src" / "cpp"
@@ -45,6 +52,7 @@ SDK_REQUIRED_PATHS = (
     Path("src/cpp/idf_component.yml"),
     Path("src/cpp/espectre_sdk.h"),
     Path("src/cpp/espectre_sources.cmake"),
+    Path("src/cpp/espectre_git_version.cmake"),
     Path("src/cpp/core/ml_weights.h"),
     Path("src/cpp/runtime/espectre_sdk_version.h"),
     Path("docs/EMBEDDING.md"),
@@ -65,6 +73,7 @@ SDK_TOP_LEVEL_FILES = (
     Path("src/cpp/idf_component.yml"),
     Path("src/cpp/espectre_sdk.h"),
     Path("src/cpp/espectre_sources.cmake"),
+    Path("src/cpp/espectre_git_version.cmake"),
     Path("src/cpp/Doxyfile"),
     # The integration guide travels with the sources so a bundle is
     # self-contained: `doxygen src/cpp/Doxyfile` from the bundle root rebuilds
@@ -115,9 +124,9 @@ def detect_protocol_version() -> str:
     return match.group(1)
 
 
-def detect_sdk_version() -> str:
-    """Read the compile-time SDK version integrators can guard against."""
-    source = SDK_VERSION_HEADER.read_text(encoding="utf-8")
+def detect_sdk_version(header: Path | None = None) -> str:
+    """Read the compile-time SDK version from a stamped header."""
+    source = (header or SDK_VERSION_HEADER).read_text(encoding="utf-8")
     match = re.search(r'#define\s+ESPECTRE_SDK_VERSION_STRING\s+"([^"]+)"', source)
     if not match:
         raise ValueError("Unable to detect ESPECTRE_SDK_VERSION_STRING")
@@ -130,18 +139,20 @@ def detect_sdk_version() -> str:
             raise ValueError(f"Unable to detect ESPECTRE_SDK_VERSION_{name}")
         components[name] = component.group(1)
 
-    expected = f"{components['MAJOR']}.{components['MINOR']}.{components['PATCH']}"
-    if expected != version_string:
+    major, minor, patch = parse_version_core(version_string)
+    expected = (int(components["MAJOR"]), int(components["MINOR"]), int(components["PATCH"]))
+    if expected != (major, minor, patch):
         raise ValueError(
-            f"ESPECTRE_SDK_VERSION_STRING is {version_string!r} but the numeric macros say {expected!r}"
+            f"ESPECTRE_SDK_VERSION_STRING is {version_string!r} but the numeric macros say "
+            f"{components['MAJOR']}.{components['MINOR']}.{components['PATCH']}"
         )
     return version_string
 
 
-def idf_component_manifest_version() -> str:
+def idf_component_manifest_version(manifest: Path | None = None) -> str:
     match = re.search(
         r'^version:\s*"?([^"\s]+)"?\s*$',
-        IDF_COMPONENT_MANIFEST.read_text(encoding="utf-8"),
+        (manifest or IDF_COMPONENT_MANIFEST).read_text(encoding="utf-8"),
         re.MULTILINE,
     )
     if not match:
@@ -157,21 +168,9 @@ def release_asset_stem(channel: str, version: str) -> str:
     return "espectre-sdk-develop"
 
 
-def snapshot_package_version(base_version: str, suffix: str, commit: str | None) -> str:
-    normalized = base_version.split("+", 1)[0]
-    sha = (commit or "local")[:7]
-    if "-" in normalized:
-        core, prerelease = normalized.split("-", 1)
-        return f"{core}-{prerelease}.{suffix}+{sha}"
-    return f"{normalized}-{suffix}+{sha}"
-
-
-def package_version(channel: str, version: str, commit: str | None, base_version: str) -> str:
-    if channel == "release":
-        return version
-    if channel == "preview":
-        return snapshot_package_version(base_version, "preview", commit)
-    return snapshot_package_version(base_version, "develop", commit)
+def package_version(version: str) -> str:
+    parse_version_core(version)
+    return version
 
 
 def collect_bundle_files() -> list[Path]:
@@ -191,15 +190,48 @@ def validate_layout(bundle_files: list[Path]) -> None:
     if missing:
         raise ValueError(f"SDK bundle is missing required paths: {missing}")
 
-    # The compile-time macros integrators guard against are only useful if they
-    # agree with the package metadata a dependency manager resolves.
-    sdk_version = detect_sdk_version()
-    manifest_versions = {"src/cpp/idf_component.yml": idf_component_manifest_version()}
-    mismatched = {path: value for path, value in manifest_versions.items() if value != sdk_version}
+
+def validate_stamped_sdk_identity(destination_root: Path, sdk_package_version: str) -> None:
+    """Require stamped header macros and idf_component.yml to match the package version."""
+    header = destination_root / "src" / "cpp" / "runtime" / "espectre_sdk_version.h"
+    manifest = destination_root / "src" / "cpp" / "idf_component.yml"
+    stamped = detect_sdk_version(header)
+    yml_version = idf_component_manifest_version(manifest)
+    mismatched = {
+        path: value
+        for path, value in (
+            (str(header.relative_to(destination_root)), stamped),
+            (str(manifest.relative_to(destination_root)), yml_version),
+        )
+        if value != sdk_package_version
+    }
     if mismatched:
         raise ValueError(
-            f"ESPECTRE_SDK_VERSION_STRING is {sdk_version!r} but packaging metadata disagrees: {mismatched}"
+            f"Stamped SDK identity is {sdk_package_version!r} but packaging metadata disagrees: {mismatched}"
         )
+
+
+def stamp_sdk_version_header(path: Path, sdk_package_version: str) -> None:
+    major, minor, patch = parse_version_core(sdk_package_version)
+    source = path.read_text(encoding="utf-8")
+    stamped = (
+        "/* ESPECTRE_SDK_VERSION_VALUES_BEGIN */\n"
+        f"#define ESPECTRE_SDK_VERSION_MAJOR {major}\n"
+        f"#define ESPECTRE_SDK_VERSION_MINOR {minor}\n"
+        f"#define ESPECTRE_SDK_VERSION_PATCH {patch}\n"
+        f'#define ESPECTRE_SDK_VERSION_STRING "{sdk_package_version}"\n'
+        "/* ESPECTRE_SDK_VERSION_VALUES_END */"
+    )
+    source, count = re.subn(
+        r"/\* ESPECTRE_SDK_VERSION_VALUES_BEGIN \*/.*?/\* ESPECTRE_SDK_VERSION_VALUES_END \*/",
+        stamped,
+        source,
+        count=1,
+        flags=re.DOTALL,
+    )
+    if count != 1:
+        raise ValueError(f"Unable to stamp SDK version values in {path}")
+    path.write_text(source, encoding="utf-8")
 
 
 def stamp_idf_component_manifest(path: Path, sdk_package_version: str) -> None:
@@ -275,7 +307,12 @@ def stage_bundle_tree(destination_root: Path, sdk_package_version: str, bundle_f
         shutil.copy2(source, target)
 
     stamp_idf_component_manifest(destination_root / "src" / "cpp" / "idf_component.yml", sdk_package_version)
+    stamp_sdk_version_header(
+        destination_root / "src" / "cpp" / "runtime" / "espectre_sdk_version.h",
+        sdk_package_version,
+    )
     rewrite_bundle_doxyfile(destination_root / "src" / "cpp" / "Doxyfile")
+    validate_stamped_sdk_identity(destination_root, sdk_package_version)
     return len(bundle_files)
 
 
@@ -386,7 +423,7 @@ def build_manifest(
         "generated_at": generated_at,
         "commit": commit,
         "protocol_version": detect_protocol_version(),
-        "sdk_version": detect_sdk_version(),
+        "sdk_version": sdk_package_version,
         "supported_esp_idf": SDK_SUPPORTED_ESP_IDF,
         "bundle": {
             "root_dir": bundle_root,
@@ -431,12 +468,7 @@ def build_sdk_package(args: argparse.Namespace) -> dict:
     bundle_files = collect_bundle_files()
     validate_layout(bundle_files)
 
-    sdk_package_version = package_version(
-        args.channel,
-        args.version,
-        args.commit,
-        idf_component_manifest_version(),
-    )
+    sdk_package_version = package_version(args.version)
     asset_stem = release_asset_stem(args.channel, args.version)
     bundle_root = asset_stem
     tarball_name = f"{asset_stem}.tar.gz"

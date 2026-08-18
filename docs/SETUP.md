@@ -125,14 +125,14 @@ If you want to embed the sensing layers into your own firmware instead of flashi
 | Channel | Surface | Best for |
 |---------|---------|----------|
 | `release` | `https://espectre.dev/artifacts/sdk/release/` and semver GitHub Releases | production integrations and reproducible builds |
-| `preview` | `https://espectre.dev/artifacts/sdk/preview/` and the rolling `preview` prerelease | validating the latest `main` changes before release |
-| `develop` | `https://espectre.dev/artifacts/sdk/develop/` and the rolling `develop` prerelease | pre-main validation from `develop` |
+| `preview` | `https://espectre.dev/artifacts/sdk/preview/` and the rolling `snapshot` prerelease | validating the latest `main` changes before release |
+| `develop` | `https://espectre.dev/artifacts/sdk/develop/` and the rolling `snapshot-dev` prerelease | pre-main validation from `develop` |
 
 The bundle is source-first. It includes:
 
 - `src/cpp/espectre_sdk.h`, the single include that reaches the supported integration surface
 - `src/cpp/espectre_sources.cmake` for CMake / ESP-IDF integration
-- a component-shaped `src/cpp/` root with `CMakeLists.txt`, `idf_component.yml`, and `Kconfig.projbuild`, where the optional MQTT, BLE, provisioning, OTA, and stream-runtime groups are selected under the "ESPectre SDK" menuconfig menu
+- a component-shaped `src/cpp/` root with `CMakeLists.txt`, `espectre_git_version.cmake`, `idf_component.yml`, and `Kconfig.projbuild`, where the optional MQTT, BLE, provisioning, OTA, and stream-runtime groups are selected under the "ESPectre SDK" menuconfig menu
 
 Use [EMBEDDING.md](EMBEDDING.md) for the actual integration model and runtime contracts.
 

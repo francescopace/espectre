@@ -23,21 +23,19 @@
  *   *application* version supplied by your build system. In an integration it
  *   is your product's version, not ESPectre's.
  *
- * The value here is the single source of truth inside the C++ tree, and the
- * release tooling keeps it in step with `src/cpp/idf_component.yml`. Snapshot
- * bundles stamp a prerelease suffix onto the component manifest only; the
- * macros below always carry the numeric release they were branched from.
+ * First-party firmware and host tests define these macros from `git describe`
+ * (`2.8.0-237-g7439944` until the next numeric tag). Published SDK bundles
+ * stamp the same identity into this header. There is no in-tree fallback:
+ * configure fails without git history, and an unstamped header does not
+ * compile. `ESPECTRE_SDK_VERSION_AT_LEAST()` uses the numeric tag core.
  */
 
-/** Major version. Changes when the published integration surface breaks. */
-#define ESPECTRE_SDK_VERSION_MAJOR 3
-/** Minor version. Changes when the surface grows in a backward-compatible way. */
-#define ESPECTRE_SDK_VERSION_MINOR 0
-/** Patch version. Changes for fixes that keep the surface identical. */
-#define ESPECTRE_SDK_VERSION_PATCH 0
-
-/** Dotted version string, for example `"3.0.0"`. */
-#define ESPECTRE_SDK_VERSION_STRING "3.0.0"
+/* ESPECTRE_SDK_VERSION_VALUES_BEGIN */
+#if !defined(ESPECTRE_SDK_VERSION_MAJOR) || !defined(ESPECTRE_SDK_VERSION_MINOR) || \
+    !defined(ESPECTRE_SDK_VERSION_PATCH) || !defined(ESPECTRE_SDK_VERSION_STRING)
+#error "ESPectre SDK version is unresolved. Fetch numeric git tags, pass -DESPECTRE_GIT_VERSION, or use a stamped SDK bundle."
+#endif
+/* ESPECTRE_SDK_VERSION_VALUES_END */
 
 /**
  * Single comparable integer for the SDK version, as `MMmmpp`.

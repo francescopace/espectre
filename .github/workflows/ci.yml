@@ -59,16 +59,17 @@ jobs:
         run: |
           mkdir -p preview-firmware
           mkdir -p preview-sdk
-          if gh release view preview >/dev/null 2>&1; then
-            gh release download preview --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir preview-firmware --clobber
-            gh release download preview --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir preview-sdk --clobber
-            PREVIEW_COMMIT="$(gh release view preview --json targetCommitish --jq '.targetCommitish // ""')"
+          if gh release view snapshot >/dev/null 2>&1; then
+            gh release download snapshot --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir preview-firmware --clobber
+            gh release download snapshot --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir preview-sdk --clobber
+            PREVIEW_COMMIT="$(gh release view snapshot --json targetCommitish --jq '.targetCommitish // ""')"
+            PREVIEW_VERSION="$(python3 .github/scripts/detect_git_version.py --from-sdk-dir preview-sdk)"
             python .github/scripts/stage_web_firmware.py \
               --firmware-dir preview-firmware \
               --output-dir docs/web/artifacts/firmware/preview \
               --channel preview \
-              --version preview \
-              --release-tag preview \
+              --version "$PREVIEW_VERSION" \
+              --release-tag snapshot \
               --url-prefix /artifacts/firmware/preview \
               --commit "$PREVIEW_COMMIT"
             python .github/scripts/stage_web_sdk.py \
@@ -87,17 +88,17 @@ jobs:
         run: |
           mkdir -p develop-firmware
           mkdir -p develop-sdk
-          if gh release view develop >/dev/null 2>&1; then
-            gh release download develop --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir develop-firmware --clobber
-            gh release download develop --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir develop-sdk --clobber
+          if gh release view snapshot-dev >/dev/null 2>&1; then
+            gh release download snapshot-dev --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir develop-firmware --clobber
+            gh release download snapshot-dev --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir develop-sdk --clobber
             python .github/scripts/stage_web_firmware.py \
               --firmware-dir develop-firmware \
               --output-dir docs/web/artifacts/firmware/develop \
               --channel develop \
-              --version develop \
-              --release-tag develop \
+              --version "$(python3 .github/scripts/detect_git_version.py --from-sdk-dir develop-sdk)" \
+              --release-tag snapshot-dev \
               --url-prefix /artifacts/firmware/develop \
-              --commit "$(gh release view develop --json targetCommitish --jq '.targetCommitish // ""')"
+              --commit "$(gh release view snapshot-dev --json targetCommitish --jq '.targetCommitish // ""')"
             python .github/scripts/stage_web_sdk.py \
               --sdk-dir develop-sdk \
               --output-dir docs/web/artifacts/sdk/develop \
@@ -119,6 +120,8 @@ jobs:
     
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
       
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
@@ -210,6 +213,8 @@ jobs:
     
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
       
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
@@ -222,6 +227,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Resolve git version
+        id: git-version
+        run: echo "version=$(python3 .github/scripts/detect_git_version.py)" >> "$GITHUB_OUTPUT"
       
       - name: Prepare ESPHome config
         id: esphome-config
@@ -236,11 +245,13 @@ jobs:
           echo "config_path=${CONFIG_PATH}" >> "$GITHUB_OUTPUT"
 
       - name: Compile
+        env:
+          ESPECTRE_GIT_VERSION: ${{ steps.git-version.outputs.version }}
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
-            esphome -s git_ref "${{ github.sha }}" -s detection_algorithm lightweight compile "${{ steps.esphome-config.outputs.config_path }}"
+            esphome -s git_ref "${{ github.sha }}" -s project_version "${{ steps.git-version.outputs.version }}" -s detection_algorithm lightweight compile "${{ steps.esphome-config.outputs.config_path }}"
           else
-            esphome -s detection_algorithm lightweight compile "${{ steps.esphome-config.outputs.config_path }}"
+            esphome -s project_version "${{ steps.git-version.outputs.version }}" -s detection_algorithm lightweight compile "${{ steps.esphome-config.outputs.config_path }}"
           fi
 
       - name: Locate ESPHome factory image
@@ -306,6 +317,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
 
       - name: Select Matter artifact names
         id: matter-names
@@ -372,6 +385,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
 
       - name: Select native artifact names
         id: native-names
@@ -438,6 +453,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
 
       # The cached home contains target-independent Python and component dependencies.
       - name: Cache streamer toolchain
@@ -463,6 +480,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
@@ -472,23 +491,24 @@ jobs:
       - name: Select SDK release metadata
         id: sdk
         run: |
+          VERSION="$(python3 .github/scripts/detect_git_version.py)"
           if [ "${{ github.event_name }}" != "push" ]; then
             {
               echo "channel=preview"
-              echo "version=pr-preview"
+              echo "version=${VERSION}"
               echo "release_tag=pr-preview"
             } >> "$GITHUB_OUTPUT"
           elif [ "${{ github.ref }}" = "refs/heads/develop" ]; then
             {
               echo "channel=develop"
-              echo "version=develop"
-              echo "release_tag=develop"
+              echo "version=${VERSION}"
+              echo "release_tag=snapshot-dev"
             } >> "$GITHUB_OUTPUT"
           else
             {
               echo "channel=preview"
-              echo "version=preview"
-              echo "release_tag=preview"
+              echo "version=${VERSION}"
+              echo "release_tag=snapshot"
             } >> "$GITHUB_OUTPUT"
           fi
 

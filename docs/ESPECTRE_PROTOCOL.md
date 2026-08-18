@@ -350,7 +350,7 @@ Start OTA from the selected or firmware-default channel:
 }
 ```
 
-Native firmware resolves a per-chip GitHub Releases manifest URL from the channel. OTA commands do not accept server, manifest, image, or version parameters; payloads containing those overrides are rejected. When `channel` is omitted, release firmware uses the latest release, preview firmware uses the rolling `preview` release, and develop firmware uses the rolling `develop` release. Frontends advertise support through `supports_ota`; Micro-ESPectre does not implement OTA commands.
+Native firmware resolves a per-chip GitHub Releases manifest URL from the channel. OTA commands do not accept server, manifest, image, or version parameters; payloads containing those overrides are rejected. When `channel` is omitted, release firmware uses the latest release, preview firmware uses the rolling `snapshot` tag, and develop firmware uses the rolling `snapshot-dev` tag. Frontends advertise support through `supports_ota`; Micro-ESPectre does not implement OTA commands.
 
 Start or stop Native BLE setup mode. Sensing pauses while BLE is up. `off` is rejected until Wi-Fi is configured, so an unprovisioned device cannot drop its only setup radio:
 

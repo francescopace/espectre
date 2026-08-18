@@ -167,7 +167,7 @@ The shipped ESP-IDF runtime always collects these counters. Native and ESPHome r
 
 ### Versioning
 
-`ESPECTRE_SDK_VERSION_STRING` identifies the SDK sources you compiled against, and `ESPECTRE_SDK_VERSION_AT_LEAST(major, minor, patch)` guards code that needs a given release. This is distinct from `espectre_firmware_version()`, which reports *your* application version, and from `ESPECTRE_PROTOCOL_VERSION`, which versions the wire format. The release tooling keeps the header and `idf_component.yml` in agreement and fails the SDK build if they drift.
+`ESPECTRE_SDK_VERSION_STRING` identifies the SDK sources you compiled against, and `ESPECTRE_SDK_VERSION_AT_LEAST(major, minor, patch)` guards code that needs a given release using the numeric tag core. First-party firmware, host tests, and CMake configure resolve that string from `git describe` on numeric tags (`2.8.0-237-g7439944` until the next 3.x tag) and fail if git history is missing. Pass `-DESPECTRE_GIT_VERSION=...` or set `ESPECTRE_GIT_VERSION` in the environment when the checkout has no numeric tags, which is the ESPHome GitHub clone case. Published SDK bundles stamp the same identity into `espectre_sdk_version.h` and `idf_component.yml` so an unpacked tarball compiles without `.git`. There is no in-tree numeric fallback. Rolling GitHub tags stay `snapshot` (`preview`) and `snapshot-dev` (`develop`). This is distinct from `espectre_firmware_version()`, which reports *your* application version, and from `ESPECTRE_PROTOCOL_VERSION`, which versions the wire format.
 
 ## Build integration
 
@@ -199,8 +199,8 @@ ESPectre publishes source-first SDK bundles alongside the firmware release chann
 | Channel | Source | Intended use |
 |---------|--------|--------------|
 | `release` | semver GitHub Release and `https://espectre.dev/artifacts/sdk/release/` | Production integrations and reproducible open-source or commercial builds |
-| `preview` | rolling `preview` GitHub prerelease and `https://espectre.dev/artifacts/sdk/preview/` | Validate `main` before the next release |
-| `develop` | rolling `develop` GitHub prerelease and `https://espectre.dev/artifacts/sdk/develop/` | Pre-main validation from `develop` |
+| `preview` | rolling `snapshot` GitHub prerelease and `https://espectre.dev/artifacts/sdk/preview/` | Validate `main` before the next release |
+| `develop` | rolling `snapshot-dev` GitHub prerelease and `https://espectre.dev/artifacts/sdk/develop/` | Pre-main validation from `develop` |
 
 Each SDK bundle includes:
 
@@ -209,6 +209,7 @@ Each SDK bundle includes:
 - `src/cpp/runtime/`
 - `src/cpp/runtime/esp_idf/espectre_config/`
 - `src/cpp/espectre_sources.cmake`
+- `src/cpp/espectre_git_version.cmake`
 - `src/cpp/CMakeLists.txt`
 - `src/cpp/idf_component.yml`
 - `src/cpp/Kconfig.projbuild`

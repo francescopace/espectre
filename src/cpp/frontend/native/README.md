@@ -194,11 +194,12 @@ Operational model:
 
 - MQTT and BLE both call the same built-in OTA service
 - `ota_check` and `ota_start` resolve a per-chip GitHub Releases manifest URL
-- an optional `channel` of `release`, `preview`, or `develop` selects the rolling tag; omitting it keeps the firmware's build-time default
+- an optional `channel` of `release`, `preview`, or `develop` selects the channel; omitting it keeps the firmware's build-time default
+- `preview` fetches the rolling `snapshot` tag from `main`, and `develop` fetches `snapshot-dev` from `develop`
 - MQTT and BLE clients cannot override the server, manifest, image, or target version
 - successful OTA schedules an immediate reboot into the new slot
 
-The default channel follows the image that was flashed: release firmware uses the latest GitHub release, preview builds use the rolling `preview` release, and develop builds use the rolling `develop` release. The manifest filename is `espectre-native-ota-<chip>.json`, and its `image_url` points to the matching versioned `-ota.bin` release asset.
+The default channel follows the image that was flashed: release firmware uses the latest GitHub release, preview builds use the rolling `snapshot` tag, and develop builds use the rolling `snapshot-dev` tag. OTA compares `git describe` identities: the device firmware version and the manifest `version` must match for "already up to date". The manifest filename is `espectre-native-ota-<chip>.json`, and its `image_url` points to the matching versioned `-ota.bin` release asset.
 
 ## Firmware Limits and Expectations
 

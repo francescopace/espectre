@@ -438,12 +438,16 @@ void test_ota_channel_helpers_and_ble_commands(void) {
   TEST_ASSERT_EQUAL_STRING(
       "https://github.com/francescopace/espectre/releases/latest/download/espectre-native-ota-esp32c3.json",
       espectre_ota_manifest_url("native", "esp32c3", "release").c_str());
-  TEST_ASSERT_EQUAL_STRING(
-      "https://github.com/francescopace/espectre/releases/download/preview/espectre-native-ota-esp32c6.json",
-      espectre_ota_manifest_url("native", "esp32c6", "preview").c_str());
-  TEST_ASSERT_EQUAL_STRING(
-      "https://github.com/francescopace/espectre/releases/download/develop/espectre-native-ota-esp32s3.json",
-      espectre_ota_manifest_url("native", "esp32s3", "develop").c_str());
+  const std::string preview_url =
+      std::string("https://github.com/francescopace/espectre/releases/download/") +
+      ESPECTRE_OTA_RELEASE_TAG_PREVIEW + "/espectre-native-ota-esp32c6.json";
+  const std::string develop_url =
+      std::string("https://github.com/francescopace/espectre/releases/download/") +
+      ESPECTRE_OTA_RELEASE_TAG_DEVELOP + "/espectre-native-ota-esp32s3.json";
+  TEST_ASSERT_EQUAL_STRING(preview_url.c_str(),
+                           espectre_ota_manifest_url("native", "esp32c6", "preview").c_str());
+  TEST_ASSERT_EQUAL_STRING(develop_url.c_str(),
+                           espectre_ota_manifest_url("native", "esp32s3", "develop").c_str());
   TEST_ASSERT_TRUE(espectre_ota_manifest_url("native", "esp32c3", "latest").empty());
 
   EspectreCommand command;

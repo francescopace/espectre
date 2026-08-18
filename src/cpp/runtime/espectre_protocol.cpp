@@ -640,7 +640,8 @@ std::string espectre_ota_manifest_url(const char *frontend, const char *chip, co
     url += "latest/download/";
   } else {
     url += "download/";
-    url += channel;
+    url += (channel == ESPECTRE_OTA_CHANNEL_PREVIEW) ? ESPECTRE_OTA_RELEASE_TAG_PREVIEW
+                                                     : ESPECTRE_OTA_RELEASE_TAG_DEVELOP;
     url += "/";
   }
   url += "espectre-";

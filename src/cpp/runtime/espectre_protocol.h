@@ -46,10 +46,14 @@ inline constexpr const char *ESPECTRE_PROTOCOL_VERSION = "1.0";
 inline constexpr const char *ESPECTRE_TOPIC_PREFIX = "espectre/v1/devices";
 /** Official tagged GitHub Release OTA channel. */
 inline constexpr const char *ESPECTRE_OTA_CHANNEL_RELEASE = "release";
-/** Rolling `main` OTA channel. */
+/** Rolling `main` OTA channel. Fetches GitHub Releases tag `snapshot`. */
 inline constexpr const char *ESPECTRE_OTA_CHANNEL_PREVIEW = "preview";
-/** Rolling `develop` OTA channel. */
+/** Rolling `develop` OTA channel. Fetches GitHub Releases tag `snapshot-dev`. */
 inline constexpr const char *ESPECTRE_OTA_CHANNEL_DEVELOP = "develop";
+/** GitHub Releases tag for the `preview` OTA channel. Distinct from branch `main`. */
+inline constexpr const char *ESPECTRE_OTA_RELEASE_TAG_PREVIEW = "snapshot";
+/** GitHub Releases tag for the `develop` OTA channel. Distinct from branch `develop`. */
+inline constexpr const char *ESPECTRE_OTA_RELEASE_TAG_DEVELOP = "snapshot-dev";
 /** Sentinel meaning "derive the device id from the Wi-Fi MAC". */
 inline constexpr uint64_t ESPECTRE_DEFAULT_DEVICE_ID = 0U;
 /** Empty label, meaning the device id is used as the display name. */
@@ -344,6 +348,10 @@ bool parse_espectre_ble_ota_command(const std::string &command, EspectreCommand 
 bool espectre_ota_channel_accepted(const std::string &channel);
 /**
  * Built-in GitHub Releases manifest URL for a frontend, chip, and channel.
+ *
+ * `release` uses `/releases/latest/download/`. `preview` uses tag
+ * `ESPECTRE_OTA_RELEASE_TAG_PREVIEW` (`snapshot`). `develop` uses tag
+ * `ESPECTRE_OTA_RELEASE_TAG_DEVELOP` (`snapshot-dev`).
  *
  * @return Empty when `frontend`, `chip`, or `channel` is not a published value.
  */

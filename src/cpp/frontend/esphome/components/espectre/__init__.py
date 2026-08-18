@@ -10,7 +10,9 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
 from pathlib import Path
+import os
 import re
+import subprocess
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
@@ -23,7 +25,10 @@ from esphome.components.esp32 import (
 )
 from esphome.components.wifi import CONF_BAND_MODE
 from esphome.const import (
+    CONF_ESPHOME,
     CONF_ID,
+    CONF_PROJECT,
+    CONF_VERSION,
     CONF_WIFI,
     STATE_CLASS_MEASUREMENT,
     DEVICE_CLASS_MOTION,
@@ -106,6 +111,8 @@ ESpectreDiagnosticsButton = espectre_ns.class_("ESpectreDiagnosticsButton", butt
 _LIBRARY_ROOT = Path(__file__).resolve().parents[4]
 _COMPONENT_ROOT = Path(__file__).resolve().parent
 _SCHEMA_HEADER = _LIBRARY_ROOT / "runtime" / "runtime_sensing_schema.h"
+_GIT_VERSION_CORE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)")
+_GIT_DESCRIBE_CMD = ("git", "describe", "--tags", "--match", "[0-9]*", "--abbrev=7")
 _SCHEMA_CONST_PATTERN = re.compile(
     r"constexpr\s+(?:const char \*const|bool|float|uint8_t|uint16_t|uint32_t)\s+"
     r"(RUNTIME_[A-Z0-9_]+)\s*=\s*([^;]+);"
@@ -116,6 +123,72 @@ _WIFI_BAND_POLICY_BY_MODE = {
     "2.4GHZ": "2g",
     "5GHZ": "5g",
 }
+
+
+def _is_numeric_git_version(version: str) -> bool:
+    return bool(_GIT_VERSION_CORE.match(version.strip()))
+
+
+def _git_describe_version(repo_root: Path) -> str | None:
+    try:
+        result = subprocess.run(
+            _GIT_DESCRIBE_CMD,
+            cwd=repo_root,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    version = result.stdout.strip()
+    if result.returncode != 0 or not _is_numeric_git_version(version):
+        return None
+    return version
+
+
+def _git_describe_roots() -> list[Path]:
+    roots: list[Path] = []
+    seen: set[Path] = set()
+    candidates = [_LIBRARY_ROOT.parents[1], Path.cwd()]
+    workspace = os.environ.get("GITHUB_WORKSPACE")
+    if workspace:
+        candidates.append(Path(workspace))
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        roots.append(resolved)
+    return roots
+
+
+def resolve_espectre_git_version(project_version: str = "") -> str | None:
+    """Return a MAJOR.MINOR.PATCH git-describe identity for the SDK CMake path.
+
+    ESPHome GitHub clones are shallow and have no numeric tags, so CMake cannot
+    run `git describe` there. Prefer `esphome.project.version` when it already
+    carries that identity, then fall back to a checkout that has tags.
+    """
+    version = project_version.strip()
+    if _is_numeric_git_version(version):
+        return version
+    for root in _git_describe_roots():
+        described = _git_describe_version(root)
+        if described:
+            return described
+    return None
+
+
+def _export_espectre_git_version() -> None:
+    esphome_cfg = CORE.config.get(CONF_ESPHOME) or {}
+    project = esphome_cfg.get(CONF_PROJECT) or {}
+    project_version = str(project.get(CONF_VERSION) or "")
+    git_version = resolve_espectre_git_version(project_version)
+    if git_version:
+        os.environ["ESPECTRE_GIT_VERSION"] = git_version
 
 
 def _parse_schema_literal(raw_value):
@@ -384,6 +457,7 @@ def _runtime_wifi_band_policy():
 
 
 async def to_code(config):
+    _export_espectre_git_version()
     add_idf_component(name="espectre", path=str(_COMPONENT_ROOT))
 
     # The shared ESP-IDF component does not depend on the higher-level ESPHome

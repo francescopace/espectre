@@ -8,7 +8,9 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import os
 import re
+import shutil
 import subprocess
 import xml.etree.ElementTree as ET
 import zipfile
@@ -23,6 +25,15 @@ from espectre_cli.idf_container import IDF_DOCKER_IMAGE
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = REPO_ROOT / ".github" / "scripts"
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
+PROTOCOL_HEADER = REPO_ROOT / "src" / "cpp" / "runtime" / "espectre_protocol.h"
+
+
+def _ota_release_tags() -> tuple[str, str]:
+    header = PROTOCOL_HEADER.read_text(encoding="utf-8")
+    preview = re.search(r'ESPECTRE_OTA_RELEASE_TAG_PREVIEW\s*=\s*"([^"]+)"', header)
+    develop = re.search(r'ESPECTRE_OTA_RELEASE_TAG_DEVELOP\s*=\s*"([^"]+)"', header)
+    assert preview is not None and develop is not None
+    return preview.group(1), develop.group(1)
 
 
 def load_script(name: str):
@@ -44,8 +55,8 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     for output in outputs:
         args = argparse.Namespace(
             channel="release",
-            version=builder.detect_sdk_version(),
-            release_tag=builder.detect_sdk_version(),
+            version="3.0.0",
+            release_tag="3.0.0",
             output_dir=str(output),
             commit="0123456789abcdef",
             source_date_epoch=1_800_000_000,
@@ -112,13 +123,9 @@ def test_release_validator_requires_a_finalized_matching_changelog(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     validator = load_script("validate_release")
-    version_header = tmp_path / "version.h"
     changelog = tmp_path / "CHANGELOG.md"
-    version_header.write_text(
-        '#define ESPECTRE_SDK_VERSION_STRING "3.0.0"\n', encoding="utf-8"
-    )
-    monkeypatch.setattr(validator, "SDK_VERSION_HEADER", version_header)
     monkeypatch.setattr(validator, "CHANGELOG", changelog)
+    monkeypatch.setattr(validator, "detect_git_version", lambda **_kwargs: "3.0.0-rc1")
 
     changelog.write_text("## [3.0.0-rc1] - Unreleased\n", encoding="utf-8")
     with pytest.raises(ValueError, match="not finalized"):
@@ -126,6 +133,129 @@ def test_release_validator_requires_a_finalized_matching_changelog(
 
     changelog.write_text("## [3.0.0-rc1] - 2026-08-12\n", encoding="utf-8")
     validator.validate("3.0.0-rc1")
+
+
+def test_unstamped_sdk_header_has_no_numeric_fallback() -> None:
+    builder = load_script("build_sdk_package")
+    header = (REPO_ROOT / "src" / "cpp" / "runtime" / "espectre_sdk_version.h").read_text(
+        encoding="utf-8"
+    )
+    assert "#define ESPECTRE_SDK_VERSION_STRING" not in header
+    assert "ESPectre SDK version is unresolved" in header
+    with pytest.raises(ValueError, match="Unable to detect ESPECTRE_SDK_VERSION_STRING"):
+        builder.detect_sdk_version()
+
+
+def test_git_version_cmake_reads_environment_before_git_describe() -> None:
+    cmake = (REPO_ROOT / "src" / "cpp" / "espectre_git_version.cmake").read_text(encoding="utf-8")
+    env_index = cmake.index("ENV{ESPECTRE_GIT_VERSION}")
+    describe_index = cmake.index('git describe --tags --match "[0-9]*" --abbrev=7')
+    workspace_index = cmake.index("ENV{GITHUB_WORKSPACE}")
+    assert env_index < describe_index
+    assert describe_index < cmake.index("header is not stamped")
+    assert workspace_index < cmake.index("header is not stamped")
+
+
+def test_esphome_forwards_numeric_project_version_to_sdk_cmake() -> None:
+    pytest.importorskip("esphome")
+    path = (
+        REPO_ROOT
+        / "src"
+        / "cpp"
+        / "frontend"
+        / "esphome"
+        / "components"
+        / "espectre"
+        / "__init__.py"
+    )
+    spec = importlib.util.spec_from_file_location("espectre_esphome_component", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    module._git_describe_version = lambda _root: "2.8.0-1-gabcdef0"
+    assert module.resolve_espectre_git_version("9.9.9-ci-gdeadbee") == "9.9.9-ci-gdeadbee"
+    assert module.resolve_espectre_git_version("main") == "2.8.0-1-gabcdef0"
+
+    module._git_describe_version = lambda _root: None
+    assert module.resolve_espectre_git_version("main") is None
+
+
+def test_git_version_cmake_honors_environment(tmp_path: Path) -> None:
+    cmake = shutil.which("cmake")
+    if cmake is None:
+        pytest.skip("cmake is not installed")
+    script = tmp_path / "probe.cmake"
+    cmake_file = (REPO_ROOT / "src" / "cpp" / "espectre_git_version.cmake").as_posix()
+    script.write_text(
+        f'include("{cmake_file}")\n'
+        "if(NOT ESPECTRE_GIT_VERSION STREQUAL \"2.8.0-99-gdeadbee\")\n"
+        "  message(FATAL_ERROR \"got ${ESPECTRE_GIT_VERSION}\")\n"
+        "endif()\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["ESPECTRE_GIT_VERSION"] = "2.8.0-99-gdeadbee"
+    result = subprocess.run(
+        [cmake, "-P", str(script)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
+def test_detect_git_version_ignores_rolling_tags(monkeypatch: pytest.MonkeyPatch) -> None:
+    detector = load_script("detect_git_version")
+
+    def fake_run(command, **_kwargs):
+        assert command == list(detector.GIT_DESCRIBE_CMD)
+        class Result:
+            returncode = 0
+            stdout = "2.8.0-237-g7439944\n"
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr(detector.subprocess, "run", fake_run)
+    assert detector.detect_git_version() == "2.8.0-237-g7439944"
+    assert detector.parse_version_core("2.8.0-237-g7439944") == (2, 8, 0)
+    assert detector.parse_version_core("3.0.0-rc1") == (3, 0, 0)
+    with pytest.raises(ValueError, match="numeric MAJOR.MINOR.PATCH"):
+        detector.parse_version_core("preview")
+
+
+def test_sdk_snapshot_stamps_git_describe_identity(tmp_path: Path) -> None:
+    builder = load_script("build_sdk_package")
+    _, develop_tag = _ota_release_tags()
+    args = argparse.Namespace(
+        channel="develop",
+        version="2.8.0-237-g7439944",
+        release_tag=develop_tag,
+        output_dir=str(tmp_path),
+        commit="7439944d441e9a8e485a1d610d99265d743e93f8",
+        source_date_epoch=1_800_000_000,
+        url_prefix=None,
+    )
+    manifest = builder.build_sdk_package(args)
+    assert manifest["version"] == "2.8.0-237-g7439944"
+    assert manifest["package_version"] == "2.8.0-237-g7439944"
+    assert manifest["sdk_version"] == "2.8.0-237-g7439944"
+    assert manifest["release_tag"] == develop_tag
+    assert manifest["artifacts"][0]["filename"] == "espectre-sdk-develop.tar.gz"
+    assert f"/releases/download/{develop_tag}/" in manifest["artifacts"][0]["url"]
+
+    zip_path = tmp_path / "espectre-sdk-develop.zip"
+    with zipfile.ZipFile(zip_path) as archive:
+        header_name = next(name for name in archive.namelist() if name.endswith("/src/cpp/runtime/espectre_sdk_version.h"))
+        header = archive.read(header_name).decode("utf-8")
+        yml_name = next(name for name in archive.namelist() if name.endswith("/src/cpp/idf_component.yml"))
+        yml = archive.read(yml_name).decode("utf-8")
+    assert '#define ESPECTRE_SDK_VERSION_STRING "2.8.0-237-g7439944"' in header
+    assert "#define ESPECTRE_SDK_VERSION_MAJOR 2" in header
+    assert "ESPectre SDK version is unresolved" not in header
+    assert 'version: "2.8.0-237-g7439944"' in yml
 
 
 def test_indexnow_retries_transient_failures_and_sends_the_sitemap(tmp_path: Path) -> None:
@@ -449,6 +579,7 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     release = workflow_sources["release.yml"]
     assert "HEAD~1" not in snapshot
     assert "gh release delete" not in snapshot
+    assert "git.getRef" in snapshot
     assert "git.updateRef" in snapshot and "git.createRef" in snapshot
     assert "workflow_dispatch:" in snapshot
     assert "ci_run_id:" in snapshot
@@ -457,6 +588,29 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     assert "validate-release:" in release
     assert "No successful main CI push run" in release
     assert "git merge-base --is-ancestor" in release
+    preview_tag, develop_tag = _ota_release_tags()
+    assert re.search(rf'(?m)^              echo "tag={re.escape(develop_tag)}"$', snapshot)
+    assert re.search(rf'(?m)^              echo "tag={re.escape(preview_tag)}"$', snapshot)
+    assert f"gh release view {preview_tag}" in ci
+    assert f"gh release view {develop_tag}" in ci
+    assert f"gh release view {preview_tag}" in release
+    assert f"gh release view {develop_tag}" in release
+    assert f"gh release view {develop_tag}" in snapshot
+    assert re.search(rf'(?m)^              echo "release_tag={re.escape(develop_tag)}"$', ci)
+    assert re.search(rf'(?m)^              echo "release_tag={re.escape(preview_tag)}"$', ci)
+    assert "gh release view preview" not in ci
+    assert "gh release view preview" not in release
+    assert 'echo "tag=preview"' not in snapshot
+    assert 'echo "tag=develop"' not in snapshot
+    assert "detect_git_version.py" in ci
+    assert "detect_git_version.py" in snapshot
+    assert "detect_git_version.py" in release
+    assert "ESPECTRE_GIT_VERSION: ${{ steps.git-version.outputs.version }}" in ci
+    assert "ESPECTRE_GIT_VERSION: ${{ github.ref_name }}" in release
+    assert 'echo "version=preview"' not in ci
+    assert 'echo "version=develop"' not in ci
+    assert "--version preview" not in snapshot
+    assert "--version develop" not in snapshot
     for source in (ci, snapshot, release):
         assert "uses: ./.github/actions/build-pages" in source
         assert "fetch-depth: 0" in source
