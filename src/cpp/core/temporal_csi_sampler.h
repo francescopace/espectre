@@ -40,6 +40,9 @@ class TemporalCsiSampler {
   void reset();
   void clear_history();
 
+  // `now_us` is optional processing time on the same unsigned 32-bit clock as
+  // `timestamp_us`. Omit it when the clocks differ, including classic ESP32
+  // Wi-Fi RX timestamps versus `esp_timer`.
   bool admit(uint32_t timestamp_us, bool has_timestamp = true,
              uint32_t now_us = 0U, bool has_now = false);
   bool flush();

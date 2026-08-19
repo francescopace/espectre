@@ -207,7 +207,10 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
   last_rssi_dbm_ = rssi_dbm;
   last_channel_ = data->rx_ctrl.channel;
 
-#if ESP_PLATFORM
+#if ESP_PLATFORM && !CONFIG_IDF_TARGET_ESP32
+  // Wall-clock backlog rejection is valid only when RX timestamps share the
+  // esp_timer domain. Classic ESP32 reports a Wi-Fi hardware clock instead, so
+  // comparing the two marks every HT20 packet stale and blocks calibration.
   const uint32_t processing_time_us =
       static_cast<uint32_t>(static_cast<uint64_t>(esp_timer_get_time()));
   const bool emitted = sampler_.admit(

@@ -123,10 +123,10 @@ REPORT_STATUS_CADENCE_RE = re.compile(
     r"(?P<mean>\d+(?:\.\d+)?)\s+s mean,\s+(?P<max>\d+(?:\.\d+)?)\s+s max gap$"
 )
 REPORT_PACKET_RATE_RE = re.compile(
-    r"(?P<mean>-?\d+(?:\.\d+)?)\s+pps mean,\s+"
-    r"(?P<min>-?\d+)\s+min,\s+"
-    r"(?P<max>-?\d+)\s+max,\s+"
-    r"(?P<stddev>-?\d+(?:\.\d+)?)\s+standard deviation$"
+    r"(?P<mean>-?\d+(?:\.\d+)?|N/A)(?:\s+pps)?\s+mean,\s+"
+    r"(?P<min>-?\d+|N/A)\s+min,\s+"
+    r"(?P<max>-?\d+|N/A)\s+max,\s+"
+    r"(?P<stddev>-?\d+(?:\.\d+)?|N/A)\s+standard deviation$"
 )
 REPORT_OCCUPANCY_RE = re.compile(
     r"(?P<mean>-?\d+(?:\.\d+)?)%\s+mean,\s+"
@@ -2048,11 +2048,12 @@ def render_report(
                 )
             if runtime.packet_rate_samples > 0:
                 detail_rows.append(f"| Packet-rate samples | {runtime.packet_rate_samples} |")
-            detail_rows.append(
-                f"| Packet rate | {format_number(runtime.pps_mean, ' pps')} mean, "
-                f"{format_number(runtime.pps_min)} min, {format_number(runtime.pps_max)} max, "
-                f"{format_number(runtime.pps_stddev)} standard deviation |"
-            )
+            if runtime.pps_mean is not None:
+                detail_rows.append(
+                    f"| Packet rate | {format_number(runtime.pps_mean, ' pps')} mean, "
+                    f"{format_number(runtime.pps_min)} min, {format_number(runtime.pps_max)} max, "
+                    f"{format_number(runtime.pps_stddev)} standard deviation |"
+                )
             if runtime.occupancy_samples > 0:
                 detail_rows.append(
                     f"| CSI occupancy | {format_number(runtime.occupancy_mean, '%')} mean, "
@@ -2290,10 +2291,11 @@ def parse_report_results(text: str) -> list[BenchmarkResult]:
             match = REPORT_PACKET_RATE_RE.fullmatch(metric("Packet rate"))
             if match is None:
                 raise ValueError(f"invalid packet-rate field: {metric('Packet rate')!r}")
-            runtime.pps_mean = float(match.group("mean"))
-            runtime.pps_min = int(match.group("min"))
-            runtime.pps_max = int(match.group("max"))
-            runtime.pps_stddev = float(match.group("stddev"))
+            if match.group("mean") != "N/A":
+                runtime.pps_mean = float(match.group("mean"))
+                runtime.pps_min = int(match.group("min"))
+                runtime.pps_max = int(match.group("max"))
+                runtime.pps_stddev = float(match.group("stddev"))
         if "CSI occupancy" in metric_rows:
             match = REPORT_OCCUPANCY_RE.fullmatch(metric("CSI occupancy"))
             if match is None:

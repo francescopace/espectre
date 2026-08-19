@@ -184,6 +184,34 @@ def test_esphome_benchmark_logger_does_not_override_explicit_uart0():
     assert "hardware_uart: UART0" in updated
 
 
+def test_parse_report_results_accepts_na_packet_rate():
+    text = """### Native High Accuracy
+
+Result: **FAIL**
+
+| Metric | Value |
+|---|---:|
+| Benchmark mode | runtime |
+| Packet rate | N/A mean, N/A min, N/A max, N/A standard deviation |
+| CSI occupancy | 0.00% mean, 0% min, 0% max |
+| Status samples | 60/60 expected |
+
+Failure reasons:
+
+- mean CSI occupancy 0.0% is below the 70% detector-ready floor
+"""
+
+    results = bench.parse_report_results(text)
+
+    assert len(results) == 1
+    assert results[0].case.frontend == "native"
+    assert results[0].case.detector == "high_accuracy"
+    assert results[0].status == "FAIL"
+    assert results[0].runtime_metrics.pps_mean is None
+    assert results[0].runtime_metrics.occupancy_mean == 0.0
+    assert results[0].runtime_metrics.status_samples == 60
+
+
 def test_status_stream_is_stable_requires_consecutive_one_hertz_samples():
     too_few = "".join(_status_line(20_000 + offset) for offset in range(0, 4_000, 1_000))
     gapped = "".join(_status_line(10_000 + offset) for offset in range(0, 5_000, 1_000))
