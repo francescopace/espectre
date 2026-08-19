@@ -92,6 +92,15 @@ bool EspIdfRuntime::setup() {
   } else if (has_saved_csi_traffic_mode) {
     config_.csi_traffic_mode = saved_csi_traffic_mode;
   }
+  const CsiTrafficMode normalized_csi_traffic_mode = normalize_sensing_csi_traffic_mode(config_.csi_traffic_mode);
+  if (normalized_csi_traffic_mode != config_.csi_traffic_mode) {
+    ESP_LOGW(RUNTIME_TAG, "CSI traffic mode pacing is Streamer-only; using external");
+    config_.csi_traffic_mode = normalized_csi_traffic_mode;
+    const esp_err_t persist_err = save_runtime_csi_traffic_mode(normalized_csi_traffic_mode);
+    if (persist_err != ESP_OK) {
+      ESP_LOGW(RUNTIME_TAG, "Failed to persist CSI traffic mode: %s", esp_err_to_name(persist_err));
+    }
+  }
 
   bool has_saved_generator_mode = false;
   RuntimeTrafficMode saved_generator_mode = config_.traffic_generator_mode;
@@ -268,6 +277,10 @@ bool EspIdfRuntime::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t moti
 }
 
 bool EspIdfRuntime::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
+  if (!csi_traffic_mode_is_sensing_control(mode)) {
+    ESP_LOGW(RUNTIME_TAG, "CSI traffic mode pacing is not selectable on sensing firmware");
+    return false;
+  }
   if (mode == config_.csi_traffic_mode) {
     return true;
   }

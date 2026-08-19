@@ -67,6 +67,9 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void set_csi_traffic_mode(const std::string &mode) {
     this->runtime_.config().csi_traffic_mode = parse_csi_traffic_mode(mode.c_str());
   }
+  void set_csi_traffic_multicast_group(const std::string &group) {
+    this->runtime_.config().csi_traffic_multicast_group = group;
+  }
   void set_traffic_generator_mode(const std::string &mode) { 
     this->runtime_.config().traffic_generator_mode = parse_traffic_mode(mode.c_str());
   }

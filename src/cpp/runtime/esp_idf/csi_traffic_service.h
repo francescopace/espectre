@@ -35,6 +35,8 @@ TrafficGeneratorMode to_traffic_generator_mode(RuntimeTrafficMode mode);
  *
  * Traffic source ownership comes exclusively from `csi_traffic_mode`; the
  * positive `csi_target_pps` value never enables or disables the service.
+ * External and pacing modes join `csi_traffic_multicast_group` when it is
+ * non-empty; internal and disabled modes do not start the UDP listener.
  */
 CsiTrafficServiceConfig to_csi_traffic_config(const RuntimeConfig &config);
 

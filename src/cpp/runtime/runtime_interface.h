@@ -107,8 +107,12 @@ struct RuntimeConfig {
   CsiTrafficMode csi_traffic_mode{CsiTrafficMode::INTERNAL};
   /** UDP port used by the external and pacing CSI traffic modes. */
   uint16_t csi_traffic_udp_port{RUNTIME_CSI_TRAFFIC_UDP_PORT_DEFAULT};
-  /** Multicast group to join for externally sourced CSI traffic, when used. */
-  std::string csi_traffic_multicast_group;
+  /**
+   * IPv4 multicast group joined by the UDP listener in `external` and `pacing`.
+   *
+   * Empty disables the IGMP join. Unicast to the device IP still works.
+   */
+  std::string csi_traffic_multicast_group{RUNTIME_CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT};
   /** Payload marker that identifies accepted external CSI traffic, when used. */
   std::string csi_traffic_expected_payload;
   /**

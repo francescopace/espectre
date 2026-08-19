@@ -70,6 +70,15 @@ const char *csi_traffic_mode_name(CsiTrafficMode mode) {
   }
 }
 
+bool csi_traffic_mode_is_sensing_control(CsiTrafficMode mode) {
+  return mode == CsiTrafficMode::INTERNAL || mode == CsiTrafficMode::EXTERNAL ||
+         mode == CsiTrafficMode::DISABLED;
+}
+
+CsiTrafficMode normalize_sensing_csi_traffic_mode(CsiTrafficMode mode) {
+  return mode == CsiTrafficMode::PACING ? CsiTrafficMode::EXTERNAL : mode;
+}
+
 const char *detection_algorithm_name(DetectionAlgorithm algorithm) {
   switch (algorithm) {
     case DetectionAlgorithm::HIGH_ACCURACY:

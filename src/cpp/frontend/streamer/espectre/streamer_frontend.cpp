@@ -31,7 +31,6 @@ RuntimeConfig StreamerFrontend::build_runtime_config_() const {
   config.runtime_profile = RuntimeProfile::STREAM;
   config.csi_traffic_mode = CsiTrafficMode::PACING;
   config.csi_traffic_udp_port = static_cast<uint16_t>(CONFIG_ESPECTRE_TRAFFIC_RX_PORT);
-  config.csi_traffic_multicast_group = CONFIG_ESPECTRE_TRAFFIC_RX_MULTICAST_GROUP;
   config.csi_traffic_expected_payload.assign(reinterpret_cast<const char *>(kCollectorPacingPayload),
                                              sizeof(kCollectorPacingPayload));
   config.device_id = derive_runtime_device_id();

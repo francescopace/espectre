@@ -108,14 +108,14 @@ espectre:
 
 `csi_target_pps` is both the detector's temporal grid and the managed-traffic target. `csi_traffic_mode` separately chooses who supplies traffic. Internal traffic always uses a fixed send cadence at that target. Local socket send backoff still applies on `ENOMEM`; occupancy does not change the send rate. If occupancy stays below 70%, repair the traffic path or lower `csi_target_pps` explicitly and revalidate.
 
-Runtime traffic controls follow one family across ESPHome, Native MQTT, and Micro MQTT:
+Runtime traffic controls follow one family across ESPHome, Native MQTT, Micro MQTT, and the website:
 
-- `csi_traffic_mode`: `internal`, `external`, `pacing`, or `disabled`
+- `csi_traffic_mode`: `internal`, `external`, or `disabled`
 - `traffic_generator_mode`: `ping` or `dns`
 
-Micro-ESPectre is the only exception: it rejects `pacing`, because it does not expose the UDP pacing listener used by the ESP-IDF runtime. Native and ESPHome persist accepted traffic-control changes; Micro keeps them session-only.
+`pacing` is Streamer collector mode only and is not selectable on sensing MQTT, Home Assistant, ESPHome, or the website. Native and ESPHome persist accepted traffic-control changes; Micro keeps them session-only. Leftover persisted `pacing` values load as `external`.
 
-Host `espectre collect` slows only on sustained firmware TX backpressure, then recovers toward `--pps`. Occupancy remains telemetry. `--pps` stays the detector grid; `--fixed` holds a constant send rate for A/B experiments, especially on Streamer where pacing is host-owned and does not require a firmware reflash.
+Host `espectre collect` slows only on sustained firmware TX backpressure, then recovers toward `--pps`. Occupancy remains telemetry. `--pps` stays the detector grid; `--fixed` holds a constant send rate for A/B experiments, especially on Streamer where pacing is host-owned and does not require a firmware reflash. Pace Streamer with a unicast IP or the firmware multicast group `239.255.0.1`; do not use LAN broadcast. ESPHome, Native, and Matter `external` mode listen on port `5555` and join the same multicast group, so [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) can use a unicast `TARGETS` list or `239.255.0.1`.
 
 Rules of thumb:
 

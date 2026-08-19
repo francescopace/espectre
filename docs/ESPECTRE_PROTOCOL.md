@@ -313,7 +313,7 @@ Update CSI traffic ownership on frontends that advertise traffic control:
 }
 ```
 
-Accepted values are `internal`, `external`, `pacing`, and `disabled`. Native persists the accepted value across reboot. Micro-ESPectre accepts `internal`, `external`, and `disabled`, rejects `pacing`, and keeps the selection session-only.
+Accepted values are `internal`, `external`, and `disabled`. Native persists the accepted value across reboot. Micro-ESPectre keeps the selection session-only. `pacing` is Streamer collector mode only and is rejected on sensing MQTT. On ESP-IDF sensing frontends, `external` opens the UDP listener on port `5555` and joins multicast group `239.255.0.1` unless `csi_traffic_multicast_group` is empty.
 
 Update the internal traffic generator type on frontends that advertise traffic control:
 
@@ -507,7 +507,7 @@ Current BLE `sysinfo` diagnostic keys may include:
 | `hampel` | Whether the Hampel filter is enabled |
 | `hampel_window` | Hampel window size |
 | `hampel_threshold` | Hampel threshold in MAD units |
-| `csi_traffic_mode` | CSI traffic ownership mode: `internal`, `external`, `pacing`, or `disabled` |
+| `csi_traffic_mode` | CSI traffic ownership mode: `internal`, `external`, or `disabled` on sensing firmware; Streamer uses collector `pacing` internally |
 | `traffic_mode` | Internal traffic generator mode such as `ping` or `dns` |
 | `csi_target_pps` | Internal traffic generator target rate in packets per second |
 | `publish_interval_ms` | Periodic status-log cadence in milliseconds |

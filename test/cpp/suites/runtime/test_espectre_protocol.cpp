@@ -368,7 +368,11 @@ void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(v
 
   TEST_ASSERT_FALSE(parse_espectre_command(
       "{\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"bogus\"}", &command, &error));
-  TEST_ASSERT_EQUAL_STRING("invalid csi traffic mode (accepted: internal, external, pacing, and disabled)", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("invalid csi traffic mode (accepted: internal, external, and disabled)", error.c_str());
+
+  TEST_ASSERT_FALSE(parse_espectre_command(
+      "{\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"pacing\"}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("invalid csi traffic mode (accepted: internal, external, and disabled)", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_command(
       "{\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"udp\"}", &command, &error));

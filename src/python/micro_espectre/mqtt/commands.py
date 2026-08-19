@@ -434,9 +434,9 @@ class MQTTCommands:
         command_id = cmd_obj.get('command_id', '')
         command = cmd_obj.get('command', 'set_csi_traffic_mode')
         mode = str(cmd_obj.get('csi_traffic_mode', '')).strip().lower()
-        if mode not in ("internal", "external", "pacing", "disabled"):
+        if mode not in ("internal", "external", "disabled"):
             self.send_response(
-                "ERROR: Invalid CSI traffic mode (accepted: internal, external, pacing, and disabled)",
+                "ERROR: Invalid CSI traffic mode (accepted: internal, external, and disabled)",
                 accepted=False,
                 command_id=command_id,
                 command=command,
@@ -448,8 +448,7 @@ class MQTTCommands:
             return
         generator_mode = getattr(self.ha_adapter, "_last_traffic_generator_mode", "ping")
         if not callback(mode, generator_mode):
-            message = "ERROR: CSI traffic mode unsupported" if mode == "pacing" else "ERROR: CSI traffic mode rejected"
-            self.send_response(message, accepted=False, command_id=command_id, command=command)
+            self.send_response("ERROR: CSI traffic mode rejected", accepted=False, command_id=command_id, command=command)
             return
         self.send_response(
             "CSI traffic mode updated: {} (session-only)".format(mode),

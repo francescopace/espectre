@@ -123,6 +123,7 @@ constexpr uint32_t RUNTIME_STREAM_LOG_INTERVAL_MS_DEFAULT = 1000;
 constexpr uint8_t RUNTIME_STREAM_TX_BATCH_RECORDS_DEFAULT = 4;
 
 constexpr uint16_t RUNTIME_CSI_TRAFFIC_UDP_PORT_DEFAULT = 5555;
+constexpr const char *const RUNTIME_CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT = "239.255.0.1";
 
 constexpr float runtime_threshold_max(DetectionAlgorithm algorithm) {
   return algorithm == DetectionAlgorithm::LIGHTWEIGHT ? LIGHTWEIGHT_MAX_THRESHOLD

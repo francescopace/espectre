@@ -26,6 +26,8 @@ const char *wifi_band_policy_name(WifiBandPolicy policy);
 
 const char *traffic_mode_name(RuntimeTrafficMode mode);
 const char *csi_traffic_mode_name(CsiTrafficMode mode);
+bool csi_traffic_mode_is_sensing_control(CsiTrafficMode mode);
+CsiTrafficMode normalize_sensing_csi_traffic_mode(CsiTrafficMode mode);
 const char *detection_algorithm_name(DetectionAlgorithm algorithm);
 const char *subcarrier_source_name(RuntimeSubcarrierSource source);
 

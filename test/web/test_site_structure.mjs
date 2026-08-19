@@ -476,6 +476,7 @@ describe('website UX and content contracts', () => {
         assert.match(app, /getElementById\('sense-motion-on'\)\.addEventListener\('change'/);
         assert.match(app, /getElementById\('sense-motion-off'\)\.addEventListener\('change'/);
         assert.match(app, /getElementById\('sense-csi-mode'\)\.addEventListener\('change'/);
+        assert.match(index, /<select id="sense-csi-mode"><option value="internal">Internal<\/option><option value="external">External<\/option><option value="disabled">Disabled<\/option><\/select>/);
         assert.match(app, /getElementById\('sense-generator-mode'\)\.addEventListener\('change'/);
         assert.match(index, /Hold the <strong>BOOT<\/strong> button for 3 seconds/);
         assert.match(index, /class="js-configure-onboarding"/);

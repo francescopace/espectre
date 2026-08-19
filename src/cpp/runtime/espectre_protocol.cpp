@@ -522,9 +522,8 @@ bool parse_espectre_command(const std::string &payload, EspectreCommand *command
     parsed.csi_traffic_mode = extract_json_string(payload, "csi_traffic_mode");
     if (parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME &&
         parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME &&
-        parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_PACING_NAME &&
         parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_DISABLED_NAME) {
-      return reject("invalid csi traffic mode (accepted: internal, external, pacing, and disabled)");
+      return reject("invalid csi traffic mode (accepted: internal, external, and disabled)");
     }
     parsed.has_csi_traffic_mode = true;
   } else if (parsed.command == "set_traffic_generator_mode") {

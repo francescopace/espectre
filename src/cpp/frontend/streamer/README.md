@@ -141,7 +141,9 @@ Key knobs in the frontend surface:
 Shared runtime traffic ingress:
 
 - `ESPECTRE_TRAFFIC_RX_PORT`
-- `ESPECTRE_TRAFFIC_RX_MULTICAST_GROUP`
+- `ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP` (shared sensing default `239.255.0.1`, joined in pacing; leave empty to disable the join)
+
+Pacing must be unicast to the device IP, or UDP to that joined multicast group. Subnet and limited broadcast (`x.x.x.255`, `255.255.255.255`) do not produce a usable CSI stream: the device typically never receives those pacing packets as HT20 frames.
 
 Streamer-local transport:
 
@@ -183,9 +185,11 @@ The streamer expects lightweight host UDP pacing traffic plus a paired uplink CS
 
 The collector is responsible for:
 
-- sending UDP pacing traffic to the configured target port
+- sending UDP pacing traffic to a unicast device IP, comma-separated unicast IPs, or the firmware multicast group (`239.255.0.1` by default)
 - controlling the effective stream rate by changing the pacing packet rate
 - receiving the CSI UDP stream on `ESPECTRE_COLLECTOR_PORT`
+
+Do not pace Streamer devices with LAN broadcast. `./espectre collect --target 239.255.0.1` is the supported one-target path for several streamers that joined the default group.
 
 The streamer is responsible for:
 

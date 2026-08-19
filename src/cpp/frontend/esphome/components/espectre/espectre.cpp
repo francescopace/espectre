@@ -311,6 +311,9 @@ void ESpectreComponent::dump_config() {
   ESP_LOGCONFIG(TAG, " ├─ CSI target ......... %u pps",
                 static_cast<unsigned>(config.csi_target_pps));
   ESP_LOGCONFIG(TAG, " ├─ CSI traffic ........ %s", csi_traffic_mode_name(config.csi_traffic_mode));
+  ESP_LOGCONFIG(TAG, " ├─ Multicast join ..... %s",
+                config.csi_traffic_multicast_group.empty() ? "[disabled]"
+                                                          : config.csi_traffic_multicast_group.c_str());
   ESP_LOGCONFIG(TAG, " └─ Status ............. %s", snapshot.ready_to_publish ? "[ACTIVE]" : "[IDLE]");
   ESP_LOGCONFIG(TAG, " ");
   ESP_LOGCONFIG(TAG, " PUBLISH INTERVAL");

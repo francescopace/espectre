@@ -123,7 +123,7 @@ What is not currently exposed as a Matter configuration surface:
 
 Matter supports both `lightweight` and `high_accuracy` as build-time detection profile choices. Choose Lightweight to leave more detector CPU and working memory for the Matter stack or other product work; choose High Accuracy for higher detection accuracy, stronger generalization, and startup without Lightweight threshold calibration. Lightweight requires about 10 seconds of clean, ready quiet-room coverage after temporal warmup; insufficient occupancy extends that wall-clock duration. High Accuracy still waits for CSI readiness and feature-window warmup. The published firmware selects Lightweight, while a local build can select High Accuracy through the shared ESP-IDF sensing configuration. Unlike ESPHome and Native, Matter does not expose runtime profile selection or persist an end-user choice.
 
-The same build-time sensing menu defines positive `CONFIG_ESPECTRE_CSI_TARGET_PPS` and a separate `CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_*` ownership choice. Both Matter detectors use the fixed temporal-admission grid; arrival jitter does not resize them or restart calibration.
+The same build-time sensing menu defines positive `CONFIG_ESPECTRE_CSI_TARGET_PPS` and a separate `CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_*` ownership choice. Both Matter detectors use the fixed temporal-admission grid; arrival jitter does not resize them or restart calibration. `external` and `pacing` join `CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP` (`239.255.0.1` by default) on the shared UDP listener port `5555`.
 
 In practice, this frontend is best understood as:
 

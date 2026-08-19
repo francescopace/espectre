@@ -36,10 +36,6 @@ menu "ESPectre CSI Streamer"
         range 1 65535
         default 9999
 
-    config ESPECTRE_TRAFFIC_RX_MULTICAST_GROUP
-        string "Optional external traffic multicast group"
-        default ""
-
     comment "Streamer-local transport"
 
     config ESPECTRE_STREAM_LOG_INTERVAL_MS

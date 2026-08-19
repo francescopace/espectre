@@ -191,7 +191,7 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
     }
     if (!result.command.has_csi_traffic_mode) {
       result.accepted = false;
-      result.message = "invalid csi traffic mode (accepted: internal, external, pacing, and disabled)";
+      result.message = "invalid csi traffic mode (accepted: internal, external, and disabled)";
       return result;
     }
     result.accepted =

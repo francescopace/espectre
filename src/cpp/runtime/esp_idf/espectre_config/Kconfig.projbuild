@@ -70,10 +70,21 @@ choice ESPECTRE_CSI_TRAFFIC_MODE
 
     config ESPECTRE_CSI_TRAFFIC_MODE_PACING
         bool "Externally paced source"
+        help
+            Same UDP listener as External on sensing firmware. Streamer uses this
+            internally. Not offered over MQTT, Home Assistant, or the website.
 
     config ESPECTRE_CSI_TRAFFIC_MODE_DISABLED
         bool "Unmanaged ambient traffic"
 endchoice
+
+config ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP
+    string "External traffic multicast group"
+    default "239.255.0.1"
+    help
+        IPv4 multicast group the UDP listener joins in external and pacing
+        modes. Empty disables the join. Unicast to the device IP still works.
+        Subnet and limited broadcast do not produce reliable CSI.
 
 choice ESPECTRE_TRAFFIC_GENERATOR_MODE
     prompt "Traffic generator mode"

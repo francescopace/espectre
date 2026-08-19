@@ -164,7 +164,7 @@ Common flags:
 | Flag | Purpose |
 |------|---------|
 | `--list-devices` | Browse Streamer devices via mDNS, print the resolved targets, and exit |
-| `--target` | IPv4 target destination, or comma-separated destinations |
+| `--target` | Unicast device IP, comma-separated unicast IPs, or joined multicast group `239.255.0.1`; LAN broadcast does not produce CSI |
 | `--duration` | Stop after N seconds |
 | `--label` | Dataset label for saved collections; omit for live inspection without saving |
 | `--start-delay` | Wait N seconds before starting collection; requires `--duration` |
@@ -179,7 +179,7 @@ When `--target` is omitted, `collect` performs one mDNS/DNS-SD browse for `_espe
 - `1` device: auto-select it
 - `N` devices: prompt for an interactive choice
 
-`--target` remains the deterministic bypass, and keeps the existing single-target, multi-unicast, broadcast, and multicast workflows unchanged.
+`--target` remains the deterministic bypass. Use a unicast device IP, comma-separated unicast IPs, or the firmware multicast group (`239.255.0.1` by default). Subnet and limited broadcast targets are accepted by the CLI but do not produce a usable CSI stream.
 
 `--list-devices` uses the same one-shot browse, prints the resolved Streamer targets (`device_id`, chip, IP, and target port), and exits without starting UDP pacing, the CSI receiver, or dataset capture.
 
@@ -209,6 +209,8 @@ Examples:
 
 ```bash
 ./espectre collect --target 192.168.1.50
+./espectre collect --target 192.168.1.50,192.168.1.51
+./espectre collect --target 239.255.0.1
 ./espectre collect --target 192.168.1.50 --pps 120
 ./espectre collect --target 192.168.1.50 --pps 120 --fixed
 ./espectre collect --label wave --duration 45 --target 192.168.1.50

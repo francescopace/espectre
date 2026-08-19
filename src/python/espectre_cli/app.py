@@ -77,7 +77,7 @@ def _add_collect_parser(
         "--target",
         "-t",
         dest="target",
-        help="IPv4 target destination(s), comma-separated for multi-unicast",
+        help="IPv4 unicast IP(s), or the joined multicast group 239.255.0.1; LAN broadcast does not produce CSI",
     )
     collect_parser.add_argument("--target-port", dest="target_port", type=int, default=9999, help="UDP port used by the target listener (default: 9999)")
     collect_parser.add_argument(

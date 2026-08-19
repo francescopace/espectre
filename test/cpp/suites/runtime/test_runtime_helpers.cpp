@@ -346,6 +346,12 @@ void test_runtime_config_utils_validate_and_name_values(void) {
     TEST_ASSERT_TRUE(parse_csi_traffic_mode("pacing") == CsiTrafficMode::PACING);
     TEST_ASSERT_TRUE(parse_csi_traffic_mode("disabled") == CsiTrafficMode::DISABLED);
     TEST_ASSERT_TRUE(parse_csi_traffic_mode("unsupported") == CsiTrafficMode::INTERNAL);
+    TEST_ASSERT_TRUE(csi_traffic_mode_is_sensing_control(CsiTrafficMode::INTERNAL));
+    TEST_ASSERT_TRUE(csi_traffic_mode_is_sensing_control(CsiTrafficMode::EXTERNAL));
+    TEST_ASSERT_TRUE(csi_traffic_mode_is_sensing_control(CsiTrafficMode::DISABLED));
+    TEST_ASSERT_FALSE(csi_traffic_mode_is_sensing_control(CsiTrafficMode::PACING));
+    TEST_ASSERT_TRUE(normalize_sensing_csi_traffic_mode(CsiTrafficMode::PACING) == CsiTrafficMode::EXTERNAL);
+    TEST_ASSERT_TRUE(normalize_sensing_csi_traffic_mode(CsiTrafficMode::INTERNAL) == CsiTrafficMode::INTERNAL);
     TEST_ASSERT_TRUE(parse_detection_algorithm("high_accuracy") == DetectionAlgorithm::HIGH_ACCURACY);
     TEST_ASSERT_TRUE(parse_detection_algorithm("lightweight") == DetectionAlgorithm::LIGHTWEIGHT);
     TEST_ASSERT_EQUAL_STRING("2g", wifi_band_policy_name(WifiBandPolicy::BAND_2G));

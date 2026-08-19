@@ -107,6 +107,15 @@ void test_csi_traffic_projection_keeps_mode_separate_from_positive_target(void) 
   TEST_ASSERT_EQUAL(static_cast<int>(CsiTrafficMode::INTERNAL),
                     static_cast<int>(service_config.mode));
   TEST_ASSERT_EQUAL(94U, service_config.rate_pps);
+  TEST_ASSERT_EQUAL_STRING(RUNTIME_CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT,
+                           service_config.multicast_group.c_str());
+
+  runtime_config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
+  runtime_config.csi_traffic_multicast_group.clear();
+  service_config = to_csi_traffic_config(runtime_config);
+  TEST_ASSERT_EQUAL(static_cast<int>(CsiTrafficMode::EXTERNAL),
+                    static_cast<int>(service_config.mode));
+  TEST_ASSERT_TRUE(service_config.multicast_group.empty());
 }
 
 int process(void) {

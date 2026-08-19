@@ -296,8 +296,6 @@ std::string build_csi_traffic_mode_discovery_payload(const FrontendHaMqttSetting
   out.push_back(',');
   append_json_string(&out, "external");
   out.push_back(',');
-  append_json_string(&out, "pacing");
-  out.push_back(',');
   append_json_string(&out, "disabled");
   out.push_back(']');
   append_json_pair(&out, "entity_category", "config");

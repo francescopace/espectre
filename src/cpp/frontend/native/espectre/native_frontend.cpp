@@ -524,6 +524,10 @@ bool NativeFrontend::handle_csi_traffic_mode_write_(CsiTrafficMode mode) {
     ESP_LOGW(TAG, "Runtime traffic control is not supported");
     return false;
   }
+  if (!csi_traffic_mode_is_sensing_control(mode)) {
+    ESP_LOGW(TAG, "CSI traffic mode pacing is not selectable");
+    return false;
+  }
   if (!runtime_.set_csi_traffic_mode_runtime(mode)) {
     return false;
   }
@@ -669,7 +673,6 @@ void NativeFrontend::handle_ha_csi_traffic_mode_command_(const std::string &payl
   const std::string mode = normalize_text_token(payload);
   if (mode != RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME &&
       mode != RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME &&
-      mode != RUNTIME_CSI_TRAFFIC_MODE_PACING_NAME &&
       mode != RUNTIME_CSI_TRAFFIC_MODE_DISABLED_NAME) {
     ESP_LOGW(TAG, "Invalid HA CSI traffic mode command: %s", payload.c_str());
     return;

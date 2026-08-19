@@ -70,6 +70,9 @@
 #ifndef CONFIG_ESPECTRE_HAMPEL_THRESHOLD
 #define CONFIG_ESPECTRE_HAMPEL_THRESHOLD "5.0"
 #endif
+#ifndef CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP
+#define CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP "239.255.0.1"
+#endif
 
 namespace espectre {
 
@@ -164,6 +167,7 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
 #else
   config.csi_traffic_mode = CsiTrafficMode::INTERNAL;
 #endif
+  config.csi_traffic_multicast_group = CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP;
 #if CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS
   config.traffic_generator_mode = RuntimeTrafficMode::DNS;
 #else

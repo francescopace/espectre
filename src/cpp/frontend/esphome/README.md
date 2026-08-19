@@ -65,7 +65,7 @@ These options are applied from YAML during firmware configuration. Runtime contr
 | Motion Off Hits | `motion_off_hits_number` | Writable runtime motion-off debounce control |
 | Detection profile | `detector_select` | Writable, persisted `lightweight` / `high_accuracy` selection |
 | Recalibration | `calibrate_switch` | Writable runtime recalibration trigger |
-| CSI traffic ownership | `csi_traffic_mode_select` | Writable, persisted `internal` / `external` / `pacing` / `disabled` selection |
+| CSI traffic ownership | `csi_traffic_mode_select` | Writable, persisted `internal` / `external` / `disabled` selection |
 | Traffic generator | `traffic_generator_mode_select` | Writable, persisted `ping` / `dns` selection |
 
 ### Diagnostic Telemetry
@@ -116,6 +116,7 @@ espectre:
   detection_algorithm: lightweight
   csi_target_pps: 100
   csi_traffic_mode: internal
+  csi_traffic_multicast_group: "239.255.0.1"
   traffic_generator_mode: ping
   segmentation_window_size_ms: 1000
   motion_on_hits: 4
@@ -134,7 +135,7 @@ espectre:
 | `motion_on_hits_number` | number | `Motion On Hits` | Runtime motion-on debounce count (1–20) |
 | `motion_off_hits_number` | number | `Motion Off Hits` | Runtime motion-off debounce count (1–20) |
 | `detector_select` | select | `Detection Profile` | Runtime `lightweight` / `high_accuracy` selection |
-| `csi_traffic_mode_select` | select | `CSI Traffic Ownership` | Runtime `internal` / `external` / `pacing` / `disabled` selection |
+| `csi_traffic_mode_select` | select | `CSI Traffic Ownership` | Runtime `internal` / `external` / `disabled` selection |
 | `traffic_generator_mode_select` | select | `CSI Traffic Source` | Runtime `ping` / `dns` selection |
 | `calibrate_switch` | switch | `Trigger Calibration` | Startup recalibration trigger |
 | `diagnostics_button` | button | `Refresh Diagnostics` | Publishes the latest cached diagnostic sample on demand |
@@ -202,7 +203,7 @@ Once the device is flashed and connected to Wi-Fi:
 3. Configure the discovered device
 4. The default entities are added automatically
 
-The ESPHome frontend exposes movement, motion, threshold control, motion-hit debounce control, recalibration, CSI traffic ownership, traffic generator selection, and on-demand CSI diagnostics as Home Assistant entities. Native MQTT Discovery publishes the same full sensing-control and diagnostic family, while Micro-ESPectre MQTT matches it except that CSI traffic ownership rejects `pacing`. Movement Score updates on the detector evaluation cadence (default 250 ms). Motion Detected publishes only on filtered state edges, Threshold and motion-hit controls publish on change, Trigger Calibration reports ON while a recalibration session is running, and the traffic selects mirror runtime state on connect, Home Assistant birth, and each accepted change. Diagnostic sensors publish only when Refresh Diagnostics is pressed. If the Home Assistant recorder is a concern, exclude `sensor.*_movement_score` rather than lowering `evaluation_interval_ms`.
+The ESPHome frontend exposes movement, motion, threshold control, motion-hit debounce control, recalibration, CSI traffic ownership, traffic generator selection, and on-demand CSI diagnostics as Home Assistant entities. Native MQTT Discovery publishes the same full sensing-control and diagnostic family, and Micro-ESPectre MQTT matches it. Movement Score updates on the detector evaluation cadence (default 250 ms). Motion Detected publishes only on filtered state edges, Threshold and motion-hit controls publish on change, Trigger Calibration reports ON while a recalibration session is running, and the traffic selects mirror runtime state on connect, Home Assistant birth, and each accepted change. Diagnostic sensors publish only when Refresh Diagnostics is pressed. If the Home Assistant recorder is a concern, exclude `sensor.*_movement_score` rather than lowering `evaluation_interval_ms`.
 
 To manage configuration and OTA updates, install ESPHome Device Builder and adopt the discovered device. The adopted configuration compiles the component from the `git_ref` substitution, which defaults to `main`. ESPHome's GitHub clone is shallow and has no numeric tags, so Device Builder cannot configure when `project_version` is a branch name. Pin `git_ref` to a numeric release tag before compiling. First-party CI overrides `project_version` with `git describe`. Local `-dev` checkouts resolve the same identity from the repository.
 
@@ -252,7 +253,7 @@ espectre:
   traffic_generator_mode: ping
 ```
 
-`csi_target_pps` defines the temporal detector grid and the managed-traffic target. `csi_traffic_mode` independently selects `internal`, `external`, `pacing`, or `disabled`; a rate of zero is invalid. Internal traffic uses a fixed DNS or ICMP send rate at that target. Occupancy does not change the send rate; if occupancy stays below 70%, repair the traffic path or lower `csi_target_pps` explicitly.
+`csi_target_pps` defines the temporal detector grid and the managed-traffic target. `csi_traffic_mode` independently selects `internal`, `external`, or `disabled`; a rate of zero is invalid. Internal traffic uses a fixed DNS or ICMP send rate at that target. Occupancy does not change the send rate; if occupancy stays below 70%, repair the traffic path or lower `csi_target_pps` explicitly.
 
 Available modes:
 
@@ -269,11 +270,14 @@ To disable the internal generator and rely on external traffic:
 espectre:
   csi_target_pps: 100
   csi_traffic_mode: external
+  csi_traffic_multicast_group: "239.255.0.1"
   publish_interval_ms: 1000
   evaluation_interval_ms: 250
 ```
 
-In that mode the runtime opens a UDP listener on port `5555`. Use [`espectre_traffic_generator.py`](../../../../tools/espectre_traffic_generator.py) to drive one or more devices from the network.
+In that mode the runtime opens a UDP listener on port `5555` and joins multicast group `239.255.0.1` by default. Drive it with unicast UDP to each device IP, or with one datagram to `239.255.0.1`. Use [`espectre_traffic_generator.py`](../../../../tools/espectre_traffic_generator.py) and set `TARGETS` to a device IP, a list of addresses, or `['239.255.0.1']`. Set `csi_traffic_multicast_group: ""` to disable the join. Subnet and limited broadcast (`x.x.x.255`, `255.255.255.255`) do not produce reliable CSI: access points typically send those frames at legacy rates, which the HT20 capture contract drops.
+
+For Streamer collection, use `./espectre collect` with a unicast IP or the same multicast group on port `9999`, as documented in the Streamer [`README.md`](../streamer/README.md).
 
 For rate recommendations, airtime tradeoffs, and placement guidance, see [`TUNING.md`](../../../../docs/TUNING.md).
 
@@ -363,7 +367,7 @@ The frontend itself does not require a custom partition table.
 ### No motion detection
 
 1. Verify Wi-Fi is connected
-2. Verify traffic generation is active, or provide external traffic
+2. Verify traffic generation is active, or provide unicast or multicast (`239.255.0.1`) external traffic to port `5555`
 3. Wait for startup calibration to complete in `lightweight`
 4. Lower the Threshold number entity if the detector is too conservative
 

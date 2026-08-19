@@ -117,9 +117,10 @@ struct EspectreDeviceInfo {
   /** MQTT `set_ble` is honored. Native setup/recovery uses this; other frontends leave it false. */
   bool supports_ble{false};
   /**
-   * CSI traffic ownership mode: `"internal"`, `"external"`, `"pacing"`, or `"disabled"`.
+   * CSI traffic ownership mode: `"internal"`, `"external"`, or `"disabled"`.
    *
    * Omitted from `info` when empty. Sensing MQTT frontends that own traffic control fill it.
+   * `"pacing"` is Streamer collector mode only and is not a sensing MQTT value.
    */
   std::string csi_traffic_mode;
   /**

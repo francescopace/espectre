@@ -4,8 +4,12 @@
 """
 ESPectre - Traffic Generator
 
-Generates UDP traffic to trigger CSI extraction on ESPectre devices.
-Works on all platforms: Linux, macOS, Windows, Home Assistant.
+Generates UDP traffic to trigger CSI extraction on ESPectre devices
+in external traffic mode (port 5555). Works on Linux, macOS, Windows, and
+Home Assistant.
+
+Do not target a subnet or limited broadcast address. Those frames usually
+arrive as legacy PHY and do not produce HT20 CSI.
 
 Usage:
   python3 espectre_traffic_generator.py start         # Start in background
@@ -14,10 +18,15 @@ Usage:
   python3 espectre_traffic_generator.py run           # Run in foreground (Ctrl+C to stop)
 
 Configuration:
-  Edit TARGETS, PORT, RATE below.
+  Edit TARGETS, PORT, RATE below. Unicast each device IP, or use the joined
+  multicast group 239.255.0.1. Do not use x.x.x.255.
+
+Streamer collection should use ./espectre collect, not this script. The
+Streamer default pacing port is 9999, and several streamers can share the
+same multicast group 239.255.0.1.
 
 Home Assistant integration:
-  See SETUP.md for command_line switch configuration.
+  See src/cpp/frontend/esphome/README.md for external traffic mode.
 
 Thanks to: https://github.com/phoenixtechnam
 
@@ -34,8 +43,9 @@ import tempfile
 from pathlib import Path
 
 # ============= CONFIGURATION =============
-TARGETS = ['192.168.1.255']  # Broadcast address (recommended for multiple devices)
-# TARGETS = ['192.168.1.100', '192.168.1.101']  # Or list specific device IPs
+TARGETS = ['192.168.1.100']  # Unicast device IP
+# TARGETS = ['192.168.1.100', '192.168.1.101']  # Multiple devices: list each IP
+# TARGETS = ['239.255.0.1']  # All devices that joined the default multicast group
 PORT = 5555
 RATE = 100  # packets per second (recommended: 100)
 PID_FILE = Path(tempfile.gettempdir()) / "espectre_traffic.pid"

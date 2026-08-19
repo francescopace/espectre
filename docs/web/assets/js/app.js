@@ -236,6 +236,17 @@
         syncDiagnosticsPolling();
     }
 
+    function applyCsiTrafficModeSelect(value) {
+        const select = document.getElementById('sense-csi-mode');
+        if (!select || !value) {
+            return;
+        }
+        const normalized = value === 'pacing' ? 'external' : value;
+        if (Array.from(select.options).some((option) => option.value === normalized)) {
+            select.value = normalized;
+        }
+    }
+
     function applySensingSnapshot(snapshot) {
         const detection = snapshot.detection || {};
         const detector = snapshot.detector || detection.algorithm;
@@ -259,7 +270,7 @@
             document.getElementById('sense-motion-off').value = snapshot.motion_off_hits;
         }
         if (snapshot.csi_traffic_mode) {
-            document.getElementById('sense-csi-mode').value = snapshot.csi_traffic_mode;
+            applyCsiTrafficModeSelect(snapshot.csi_traffic_mode);
         }
         if (snapshot.traffic_mode || snapshot.traffic_generator_mode) {
             document.getElementById('sense-generator-mode').value =
@@ -2048,7 +2059,7 @@
                 return;
             }
             if (suffix === 'ha/csi_traffic_mode/state') {
-                document.getElementById('sense-csi-mode').value = text;
+                applyCsiTrafficModeSelect(text);
                 return;
             }
             if (suffix === 'ha/traffic_generator_mode/state') {

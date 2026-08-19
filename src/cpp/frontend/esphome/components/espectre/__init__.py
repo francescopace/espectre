@@ -10,6 +10,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
 from pathlib import Path
+import ipaddress
 import os
 import re
 import subprocess
@@ -49,6 +50,7 @@ AUTO_LOAD = ["sensor", "binary_sensor", "button", "number", "select", "switch"]
 CONF_SEGMENTATION_WINDOW_SIZE_MS = "segmentation_window_size_ms"
 CONF_CSI_TARGET_PPS = "csi_target_pps"
 CONF_CSI_TRAFFIC_MODE = "csi_traffic_mode"
+CONF_CSI_TRAFFIC_MULTICAST_GROUP = "csi_traffic_multicast_group"
 CONF_PUBLISH_INTERVAL_MS = "publish_interval_ms"
 CONF_EVALUATION_INTERVAL_MS = "evaluation_interval_ms"
 CONF_MOTION_ON_HITS = "motion_on_hits"
@@ -226,6 +228,7 @@ CSI_TARGET_PPS_MIN = _RUNTIME_SCHEMA["RUNTIME_CSI_TARGET_PPS_MIN"]
 CSI_TARGET_PPS_MAX = _RUNTIME_SCHEMA["RUNTIME_CSI_TARGET_PPS_MAX"]
 TRAFFIC_GENERATOR_MODE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_TRAFFIC_GENERATOR_MODE_DEFAULT_NAME"]
 CSI_TRAFFIC_MODE_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_CSI_TRAFFIC_MODE_DEFAULT_NAME"]
+CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT"]
 DETECTION_ALGORITHM_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_DETECTION_ALGORITHM_DEFAULT_NAME"]
 PUBLISH_INTERVAL_MS_DEFAULT = _RUNTIME_SCHEMA["RUNTIME_PUBLISH_INTERVAL_MS_DEFAULT"]
 PUBLISH_INTERVAL_MS_MIN = _RUNTIME_SCHEMA["RUNTIME_PUBLISH_INTERVAL_MS_MIN"]
@@ -250,6 +253,19 @@ HAMPEL_THRESHOLD_MIN = _RUNTIME_SCHEMA["RUNTIME_HAMPEL_THRESHOLD_MIN"]
 HAMPEL_THRESHOLD_MAX = _RUNTIME_SCHEMA["RUNTIME_HAMPEL_THRESHOLD_MAX"]
 
 
+def validate_csi_traffic_multicast_group(value):
+    value = cv.string(value).strip()
+    if not value:
+        return ""
+    try:
+        address = ipaddress.IPv4Address(value)
+    except ipaddress.AddressValueError as exc:
+        raise cv.Invalid("csi_traffic_multicast_group must be an IPv4 multicast address") from exc
+    if not address.is_multicast:
+        raise cv.Invalid("csi_traffic_multicast_group must be an IPv4 multicast address")
+    return str(address)
+
+
 CONFIG_SCHEMA = cv.Schema({
     cv.GenerateID(): cv.declare_id(ESpectreComponent),
     
@@ -262,8 +278,9 @@ CONFIG_SCHEMA = cv.Schema({
         min=CSI_TARGET_PPS_MIN, max=CSI_TARGET_PPS_MAX
     ),
     cv.Optional(CONF_CSI_TRAFFIC_MODE, default=CSI_TRAFFIC_MODE_DEFAULT): cv.one_of(
-        "internal", "external", "pacing", "disabled", lower=True
+        "internal", "external", "disabled", lower=True
     ),
+    cv.Optional(CONF_CSI_TRAFFIC_MULTICAST_GROUP, default=CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT): validate_csi_traffic_multicast_group,
     
     # Traffic generator mode: ping (default) or dns
     cv.Optional(CONF_TRAFFIC_GENERATOR_MODE, default=TRAFFIC_GENERATOR_MODE_DEFAULT): cv.one_of(
@@ -502,6 +519,7 @@ async def to_code(config):
     cg.add(var.set_wifi_band_policy(_runtime_wifi_band_policy()))
     cg.add(var.set_csi_target_pps(config[CONF_CSI_TARGET_PPS]))
     cg.add(var.set_csi_traffic_mode(config[CONF_CSI_TRAFFIC_MODE]))
+    cg.add(var.set_csi_traffic_multicast_group(config[CONF_CSI_TRAFFIC_MULTICAST_GROUP]))
     cg.add(var.set_traffic_generator_mode(config[CONF_TRAFFIC_GENERATOR_MODE]))
     cg.add(var.set_detection_algorithm(config[CONF_DETECTION_ALGORITHM]))
     cg.add(var.set_publish_interval_ms(config[CONF_PUBLISH_INTERVAL_MS]))
@@ -589,7 +607,7 @@ async def to_code(config):
 
     csi_traffic_mode = await select.new_select(
         config[CONF_CSI_TRAFFIC_MODE_SELECT],
-        options=["internal", "external", "pacing", "disabled"],
+        options=["internal", "external", "disabled"],
     )
     cg.add(csi_traffic_mode.set_parent(var))
     cg.add(csi_traffic_mode.set_csi_traffic_mode(True))

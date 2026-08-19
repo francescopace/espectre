@@ -196,7 +196,8 @@ Support in this phase:
 | Runtime threshold | probability | detector-specific | Selected automatically at startup; session-adjustable where the frontend exposes a writable control. Matter currently exposes no writable sensing controls |
 | `segmentation_window_size_ms` | int | `1000` | `1000-2000` milliseconds; combined with `csi_target_pps` to define a fixed temporal slot window |
 | `csi_target_pps` | int | `100` | `1-500`; defines detector slot cadence and the managed-traffic target, but never enables or disables traffic |
-| `csi_traffic_mode` | `internal`, `external`, `pacing`, or `disabled` | `internal` | Selects traffic ownership independently from `csi_target_pps`; `disabled` means unmanaged ambient traffic, not disabled sensing |
+| `csi_traffic_mode` | `internal`, `external`, or `disabled` | `internal` | Selects traffic ownership independently from `csi_target_pps`; `disabled` means unmanaged ambient traffic, not disabled sensing. `pacing` is Streamer collector mode only |
+| `csi_traffic_multicast_group` | IPv4 multicast address, or empty | `239.255.0.1` | Joined by the UDP listener in `external` and `pacing`. Empty disables the join. Unicast to the device IP still works |
 | `traffic_generator_mode` | `ping` or `dns` | `ping` | Shared internal traffic generator mode |
 | `publish_interval_ms` | int | `1000` | `100-60000` milliseconds between periodic status-log and diagnostics samples. Canonical MQTT telemetry and Home Assistant Movement Score follow `evaluation_interval_ms` |
 | `evaluation_interval_ms` | int | `250` | `10-10000` milliseconds between detector evaluations |
@@ -244,13 +245,15 @@ Raw rate near `csi_target_pps` does not prove that the target is usable: an AP m
 |------|--------------|----------------|--------------------|--------------|
 | Native / Matter | `CONFIG_ESPECTRE_CSI_TARGET_PPS` | `csi_traffic_mode`; internal by default | yes | fixed send cadence; local socket backoff only |
 | ESPHome | `csi_target_pps` | `csi_traffic_mode`; internal by default | yes | fixed send cadence; local socket backoff only |
-| Micro-ESPectre | `CSI_TARGET_PPS` | factory default from `TRAFFIC_GENERATOR_ENABLED`, with session-only MQTT overrides for `csi_traffic_mode` and `traffic_generator_mode` | yes | fixed send cadence; local socket backoff only; `pacing` is unsupported |
+| Micro-ESPectre | `CSI_TARGET_PPS` | factory default from `TRAFFIC_GENERATOR_ENABLED`, with session-only MQTT overrides for `csi_traffic_mode` and `traffic_generator_mode` | yes | fixed send cadence; local socket backoff only |
 | Streamer firmware | collector `--pps` | collector pacing | no; transports raw timestamped CSI | none on device; host collect owns pacing |
 | Collector detector, replay, training, and validation | recorded `csi_target_pps`, collector `--pps`, or a documented legacy fallback | recorded raw stream | yes, through the production Micro-ESPectre sampler | collect slows only on TX backpressure; occupancy is telemetry |
 
 Streamer remains collector-paced and preserves raw CSI. The collector applies the same production temporal admission to its live detector and derived sensing view. Host collect slows only on sustained firmware TX backpressure and recovers toward `--pps`; `--fixed` keeps a constant send rate. Occupancy remains telemetry. Firmware pacing credits and raw capture stay independent from the detector grid.
 
-Micro-ESPectre keeps its persisted factory default as `TRAFFIC_GENERATOR_ENABLED` plus `TRAFFIC_GENERATOR_MODE`, then exposes session-only MQTT and Home Assistant runtime control over `csi_traffic_mode` and `traffic_generator_mode`. `internal` starts the local generator, `external` and `disabled` stop it, and `pacing` is rejected because the MicroPython path does not provide the ESP-IDF UDP pacing listener.
+External UDP traffic can be unicast to each device IP, or sent to multicast group `239.255.0.1`. ESP-IDF frontends join that group automatically in `external` and `pacing` (ESPHome, Native, Matter, and Streamer). Empty `csi_traffic_multicast_group` disables the join. Subnet and limited broadcast (`x.x.x.255`, `255.255.255.255`) do not produce reliable HT20 CSI. ESPHome, Native, and Matter `external` mode listen on port `5555`; use [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) with a unicast `TARGETS` list or `TARGETS = ['239.255.0.1']`. Streamer collection listens on port `9999` and can pace several devices with `./espectre collect --target 239.255.0.1`.
+
+Micro-ESPectre keeps its persisted factory default as `TRAFFIC_GENERATOR_ENABLED` plus `TRAFFIC_GENERATOR_MODE`, then exposes session-only MQTT and Home Assistant runtime control over `csi_traffic_mode` and `traffic_generator_mode`. `internal` starts the local generator, and `external` and `disabled` stop it. Micro does not open a UDP listener, so it does not join the multicast group. Sensing MQTT, Home Assistant, ESPHome, and the website do not offer `pacing`; that mode is Streamer collector pacing only.
 
 If you are tuning `csi_target_pps`, thresholds, or filters, use [TUNING.md](TUNING.md) for the rationale and the frontend README for the configuration syntax.
 

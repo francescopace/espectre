@@ -774,6 +774,12 @@ void test_native_frontend_ha_traffic_control_commands_update_runtime(void) {
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == RuntimeTrafficMode::DNS);
   TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/csi_traffic_mode/state", "external"));
   TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/traffic_generator_mode/state", "dns"));
+
+  mqtt_transport_mock::state.publishes.clear();
+  mqtt.emit_message("espectre/v1/devices/0x0000abcdeffedcba/ha/csi_traffic_mode/set", "pacing");
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficMode::EXTERNAL);
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/csi_traffic_mode/state", "pacing"));
 }
 
 void test_native_frontend_ha_diagnostics_button_publishes_cached_sample(void) {
@@ -1084,8 +1090,15 @@ void test_native_frontend_mqtt_traffic_commands_update_runtime(void) {
   mqtt_transport_mock::state.publishes.clear();
   mqtt.emit_command(
       "{\"command_id\":\"traffic-1\",\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"pacing\"}");
+  TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
+  TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.back().payload.find("\"accepted\":false") !=
+                   std::string::npos);
+
+  mqtt.emit_command(
+      "{\"command_id\":\"traffic-1b\",\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"external\"}");
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficMode::PACING);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficMode::EXTERNAL);
 
   mqtt.emit_command(
       "{\"command_id\":\"traffic-2\",\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"ping\"}");

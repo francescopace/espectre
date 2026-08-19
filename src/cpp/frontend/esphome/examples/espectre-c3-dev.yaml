@@ -32,7 +32,8 @@ espectre:
   debug_telemetry: true
   # Traffic Generator
   csi_target_pps: 100           # Positive temporal sensing and managed-traffic target
-  csi_traffic_mode: internal    # internal, external, pacing, or disabled
+  csi_traffic_mode: internal    # internal, external, or disabled
+  csi_traffic_multicast_group: "239.255.0.1"  # joined in external; "" disables
   traffic_generator_mode: ping   # ping (default) or dns
   # Detection Algorithm
   detection_algorithm: lightweight  # lightweight (default) or high_accuracy (neural network)
