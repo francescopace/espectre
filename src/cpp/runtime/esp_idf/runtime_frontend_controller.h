@@ -88,7 +88,9 @@ class RuntimeFrontendController {
    * Latest known snapshot, without querying the backend.
    *
    * Refreshed at `setup()`, by control calls, and by whatever you pass to
-   * `record_snapshot()`. Use it for on-demand reads such as answering a status
+   * `record_snapshot()`. Threshold adaptation after startup arrives through
+   * `on_threshold_changed()`; record that snapshot if you cache the value.
+   * Use the cached snapshot for on-demand reads such as answering a status
    * query; use the listener callbacks to react to change.
    */
   const RuntimeSnapshot &snapshot() const { return snapshot_; }

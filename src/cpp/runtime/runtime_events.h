@@ -25,11 +25,13 @@ namespace espectre {
  * @par Threading and reentrancy
  * Callbacks are always delivered on the caller's task, never from an interrupt
  * or the Wi-Fi driver:
- * - Sensing events (motion, periodic, live telemetry, calibration completion)
- *   originate in the CSI callback but are deferred through an internal mailbox
- *   and dispatched from `loop()`.
- * - Control-driven events (threshold, detector) fire inline on whichever task
- *   called the corresponding setter.
+ * - Sensing events (motion, periodic, live telemetry, calibration completion,
+ *   and detector-driven threshold adaptation) originate in the CSI callback
+ *   but are deferred through an internal mailbox and dispatched from `loop()`.
+ * - Control-driven events (runtime threshold writes and detector selection)
+ *   fire inline on whichever task called the corresponding setter.
+ *   `on_threshold_changed()` is used for both: a setter, calibration finish,
+ *   or Lightweight settled-level recovery.
  *
  * Because they run on your own task, blocking is allowed: publishing over MQTT
  * or writing NVS from a callback costs loop latency, not CSI frames. Calling
@@ -77,9 +79,12 @@ class IRuntimeListener {
    */
   virtual void on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {}
   /**
-   * The active threshold changed, from a control call or from calibration.
+   * The active threshold changed, from a control call, calibration, or
+   * detector-driven adaptation such as Lightweight settled-level recovery.
    *
-   * Refresh any threshold you mirror in a UI or a published entity.
+   * Refresh any threshold you mirror in a UI or a published entity. Live
+   * telemetry still carries the per-sample comparison value; this hook is the
+   * control-plane notification when that value itself has moved.
    */
   virtual void on_threshold_changed(const RuntimeSnapshot &snapshot) {}
   /**
@@ -97,7 +102,7 @@ class IRuntimeListener {
   /**
    * Startup calibration finished.
    *
-   * @param snapshot Sensing state at completion, carrying the settled threshold.
+   * @param snapshot Sensing state at completion, carrying the applied threshold.
    * @param success false when calibration was cancelled or could not settle on
    *        a threshold. The runtime keeps sensing with the configured value,
    *        so treat this as a signal to surface, not a fatal error.

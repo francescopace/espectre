@@ -66,7 +66,7 @@ Current capabilities:
 
 BLE does not carry live sensing, threshold or detector writes, CSI traffic control, or recalibration. Sensing pauses while BLE is up.
 
-Use Lightweight Detection when the Native firmware must preserve more CPU time and working memory for MQTT, OTA, or product-specific services. Use High-Accuracy Detection when higher detection quality and calibration-free startup justify its additional feature state and inference work. Lightweight requires about 10 seconds of clean, ready quiet-room coverage after temporal warmup, so insufficient occupancy extends its wall-clock calibration; High Accuracy skips threshold calibration but still waits for CSI readiness and feature-window warmup. The selected profile persists across reboot and is changed over MQTT or Home Assistant, not BLE.
+Use Lightweight Detection when the Native firmware must preserve more CPU time and working memory for MQTT, OTA, or product-specific services. Use High-Accuracy Detection when higher detection quality and calibration-free startup justify its additional feature state and inference work. Lightweight requires about 10 seconds of clean, ready quiet-room coverage after temporal warmup, so insufficient occupancy extends its wall-clock calibration; a later quiet stretch can still lower the live threshold, and Home Assistant plus Monitor follow that value. High Accuracy skips threshold calibration but still waits for CSI readiness and feature-window warmup. The selected profile persists across reboot and is changed over MQTT or Home Assistant, not BLE.
 
 Requirements:
 
@@ -168,7 +168,7 @@ HA sensing cadences match ESPHome so the same Home Assistant dashboard can be re
 |--------|--------------|---------|
 | Motion Detected | `ha/motion/state` | Filtered state edges |
 | Movement Score | `ha/movement/state` | Detector evaluation (`evaluation_interval_ms`, default 250 ms) |
-| Threshold | `ha/threshold/state` and `ha/threshold/set` | On change, plus connect/birth snapshot; writable 0.0–1.0 number |
+| Threshold | `ha/threshold/state` and `ha/threshold/set` | On change (operator write, calibration, or Lightweight settled-level recovery), plus connect/birth snapshot; writable 0.0–1.0 number |
 | Motion On Hits | `ha/motion_on_hits/state` and `ha/motion_on_hits/set` | On change, plus connect/birth snapshot; writable 1–20 number |
 | Motion Off Hits | `ha/motion_off_hits/state` and `ha/motion_off_hits/set` | On change, plus connect/birth snapshot; writable 1–20 number |
 | Detection Profile | `ha/detector/state` and `ha/detector/set` | On change, plus connect/birth snapshot; writable `lightweight` / `high_accuracy` configuration select |

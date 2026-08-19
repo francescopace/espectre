@@ -93,6 +93,27 @@ void test_runtime_detector_switch_updates_pipeline_threshold_and_calibration(voi
   TEST_ASSERT_TRUE(listener.last_calibration_success);
 }
 
+void test_runtime_detector_adaptation_emits_threshold_changed(void) {
+  RuntimeConfig config;
+  EspIdfRuntime runtime(config);
+  DetectorListener listener;
+  runtime.set_listener(&listener);
+  runtime.snapshot_.threshold = 0.80f;
+  runtime.config_.segmentation_threshold = 0.80f;
+
+  runtime.notify_threshold_if_changed_(0.80f);
+  TEST_ASSERT_EQUAL(0, listener.threshold_changes);
+
+  runtime.notify_threshold_if_changed_(0.42f);
+  TEST_ASSERT_EQUAL(1, listener.threshold_changes);
+  TEST_ASSERT_EQUAL_FLOAT(0.42f, listener.last_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.42f, runtime.get_snapshot().threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.42f, runtime.config_.segmentation_threshold);
+
+  runtime.notify_threshold_if_changed_(0.42f);
+  TEST_ASSERT_EQUAL(1, listener.threshold_changes);
+}
+
 void test_runtime_motion_hits_runtime_updates_pipeline_and_persists(void) {
   RuntimeConfig config;
   config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
@@ -256,6 +277,7 @@ int main(int argc, char **argv) {
   (void)argv;
   UNITY_BEGIN();
   RUN_TEST(test_runtime_detector_switch_updates_pipeline_threshold_and_calibration);
+  RUN_TEST(test_runtime_detector_adaptation_emits_threshold_changed);
   RUN_TEST(test_runtime_motion_hits_runtime_updates_pipeline_and_persists);
   RUN_TEST(test_runtime_diagnostics_read_current_wifi_association);
   RUN_TEST(test_runtime_channel_change_rearms_csi_and_restarts_calibration);

@@ -73,7 +73,7 @@
 
     <h2 id="setup-test">Step 4 — Let it calibrate, then test</h2>
     <ul class="checklist">
-      <li>Published firmware defaults to Lightweight Detection. After joining Wi-Fi, it calibrates its quiet threshold for up to about ten seconds: keep the room still, then move normally. High-Accuracy Detection skips this threshold calibration but still waits for its feature window to fill.</li>
+      <li>Published firmware defaults to Lightweight Detection. After joining Wi-Fi, it calibrates its quiet threshold for up to about ten seconds: keep the room still, then move normally. A later quiet stretch can still lower that threshold; Home Assistant and Monitor follow the live value. High-Accuracy Detection skips this threshold calibration but still waits for its feature window to fill.</li>
       <li>Wave an arm a few meters from the board: the motion state should turn active within about a second and clear shortly after you stop.</li>
       <li>If you later move a Lightweight device to another room or position, trigger a recalibration from Home Assistant, Monitor’s live controls, or just power-cycle it.</li>
     </ul>

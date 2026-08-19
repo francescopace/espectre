@@ -254,7 +254,7 @@
         const motionHits = String(snapshot.motion_hits || '').split('/');
         if (Number.isFinite(threshold)) {
             conn.threshold = threshold;
-            document.getElementById('sense-threshold').value = String(threshold);
+            syncThresholdControl(threshold);
         }
         if (detector) {
             document.getElementById('sense-detector').value = detector;
@@ -393,11 +393,19 @@
         });
     }
 
+    function syncThresholdControl(threshold) {
+        const input = document.getElementById('sense-threshold');
+        if (!input || input === document.activeElement) return;
+        if (Number(input.value) === threshold) return;
+        input.value = String(threshold);
+    }
+
     function applyLiveTelemetry(movement, threshold, motionState) {
         markToolReady('telemetry');
         conn.movement = movement;
         if (Number.isFinite(threshold) && threshold >= 0 && threshold <= 1) {
             conn.threshold = threshold;
+            syncThresholdControl(threshold);
         }
         conn.motion = motionState !== null && motionState !== undefined
             ? motionState === 1 || motionState === 'motion'
@@ -2028,7 +2036,7 @@
                 const threshold = Number(text);
                 if (!Number.isFinite(threshold)) return;
                 conn.threshold = threshold;
-                document.getElementById('sense-threshold').value = String(threshold);
+                syncThresholdControl(threshold);
                 renderTelemetry();
                 return;
             }

@@ -27,7 +27,7 @@
     </a>
     <a href="/artifacts/sdk/api/classespectre_1_1_i_runtime_listener.html">
       <code>IRuntimeListener</code>
-      <span>Delivers motion, periodic status, calibration, telemetry, and fault events.</span>
+      <span>Delivers motion, threshold, periodic status, calibration, telemetry, and fault events.</span>
     </a>
     <a href="/artifacts/sdk/api/structespectre_1_1_runtime_snapshot.html">
       <code>RuntimeSnapshot</code>
@@ -35,7 +35,7 @@
     </a>
   </div>
 
-  <div class="note"><strong>Treat the detection profile as a product-budget choice.</strong> Lightweight uses less active CPU and working memory; High Accuracy improves accuracy and generalization with additional feature state and inference work. Lightweight calibrates for up to about 10 seconds at startup, while High Accuracy skips threshold calibration but still waits for CSI readiness and feature-window warmup. See the <a href="/guides/detectors/">profile guide</a>.</div>
+  <div class="note"><strong>Treat the detection profile as a product-budget choice.</strong> Lightweight uses less active CPU and working memory; High Accuracy improves accuracy and generalization with additional feature state and inference work. Lightweight calibrates for up to about 10 seconds at startup and can still lower its threshold after a later quiet stretch; override <code>on_threshold_changed()</code> if you publish that control. High Accuracy skips threshold calibration but still waits for CSI readiness and feature-window warmup. See the <a href="/guides/detectors/">profile guide</a>.</div>
 
   <h2>Lifecycle at a glance</h2>
   <div class="pipeline api-lifecycle" aria-label="Runtime lifecycle">

@@ -234,7 +234,7 @@ Use High-Accuracy Detection where accuracy, quiet-room robustness, or held-out g
 
 ### Settled-Level Threshold Recovery
 
-The runtime therefore revisits the threshold once a session proves itself quieter than its own opening. Every `20` evaluations it records the maximum metric logit in that block, keeps the last `12` blocks, and once the ring is full compares the median of those maxima against the live threshold. If that level plus `LIGHTWEIGHT_SETTLE_MARGIN_LOGITS` sits below the threshold, the threshold drops to it.
+The runtime therefore revisits the threshold once a session proves itself quieter than its own opening. Every `20` evaluations it records the maximum metric logit in that block, keeps the last `12` blocks, and once the ring is full compares the median of those maxima against the live threshold. If that level plus `LIGHTWEIGHT_SETTLE_MARGIN_LOGITS` sits below the threshold, the threshold drops to it. The runtime emits `on_threshold_changed` when that happens, so Home Assistant, ESPHome, and the website Monitor control follow the live value rather than remaining on the post-calibration snapshot.
 
 Three properties make this safe rather than a drift toward the noise floor:
 

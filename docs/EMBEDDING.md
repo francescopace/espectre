@@ -73,7 +73,7 @@ Set `RuntimeConfig::wifi_band_policy` to choose `BAND_2G`, `BAND_5G`, or `AUTO`.
 
 Choose Lightweight Detection when sensing must leave more CPU time and working memory for the rest of the product. It runs fewer feature trackers and less per-packet computation, but gives up accuracy and cross-environment robustness relative to High-Accuracy Detection. Choose High Accuracy when detection quality is the priority and the product can afford its additional feature state and neural inference.
 
-Lightweight adapts its threshold from about 10 seconds of clean, ready quiet-room coverage after temporal warmup; missing or burst-concentrated slots extend wall-clock calibration instead of counting as evidence. High Accuracy uses a trained threshold and skips that calibration, although it still needs CSI readiness and one feature window of warmup. A runtime-switching build may contain both detector implementations and ML weights in flash even while Lightweight is active; budget flash separately from active detector CPU and working memory.
+Lightweight adapts its threshold from about 10 seconds of clean, ready quiet-room coverage after temporal warmup; missing or burst-concentrated slots extend wall-clock calibration instead of counting as evidence. After that, a long quiet stretch can still lower the live threshold if the opening was noisier than the rest of the session. The runtime reports those drops through `IRuntimeListener::on_threshold_changed()`, the same hook used for control writes and calibration finish; live telemetry still carries the per-sample comparison value. High Accuracy uses a trained threshold and skips that calibration, although it still needs CSI readiness and one feature window of warmup. A runtime-switching build may contain both detector implementations and ML weights in flash even while Lightweight is active; budget flash separately from active detector CPU and working memory.
 
 ## Integration paths
 
@@ -82,13 +82,13 @@ Lightweight adapts its threshold from about 10 seconds of clean, ready quiet-roo
 Your firmware owns boot, provisioning, networking policy, OTA, and the product surface; the ESPectre runtime owns CSI capture, calibration, detection, and eventing behind two contracts:
 
 - `IEspectreRuntime` (`runtime/runtime_interface.h`): `setup()`, `loop()`, runtime threshold/detector control, recalibration, and snapshot access.
-- `IRuntimeListener` (`runtime/runtime_events.h`): callbacks for motion-state changes, periodic updates, threshold/detector changes, calibration lifecycle, live telemetry, and runtime faults.
+- `IRuntimeListener` (`runtime/runtime_events.h`): callbacks for motion-state changes, periodic updates, threshold/detector changes (including Lightweight settled-level recovery), calibration lifecycle, live telemetry, and runtime faults. If you publish a writable threshold control, override `on_threshold_changed()` rather than inferring the live value from telemetry.
 
 `RuntimeFrontendController` wires configuration, detector persistence, and the runtime backend together; the native and Matter frontends are the reference integrations for this path and stay intentionally small.
 
 ### Core-only
 
-If your firmware already owns Wi-Fi and CSI capture, you can consume the detectors directly: `core` detectors accept normalized CSI payloads and expose motion state, movement metric, and threshold control. Apply the same temporal admission as the shipped pipeline before `process_packet()`: retain the candidate nearest each `csi_target_pps` slot center, enforce the target-derived half-slot minimum spacing, and leave missing slots invalid. `core/temporal_csi_sampler.h` is the production sampler; it is internal to the bundle rather than part of the supported `espectre_sdk.h` facade. Use `runtime/esp_idf/csi_pipeline.cpp` as the reference for normalization, temporal admission, evaluation cadence, and hit filtering before committing to a custom wiring.
+If your firmware already owns Wi-Fi and CSI capture, you can consume the detectors directly: `core` detectors accept normalized CSI payloads and expose motion state, movement metric, and threshold control. Apply the same temporal admission as the shipped pipeline before `process_packet()`: retain the candidate nearest each `csi_target_pps` slot center, enforce the target-derived half-slot minimum spacing, and leave missing slots invalid. After each `update_state()`, re-read `get_threshold()`: Lightweight can lower it without a setter call, and the core-only path has no `on_threshold_changed()` hook. `core/temporal_csi_sampler.h` is the production sampler; it is internal to the bundle rather than part of the supported `espectre_sdk.h` facade. Use `runtime/esp_idf/csi_pipeline.cpp` as the reference for normalization, temporal admission, evaluation cadence, and hit filtering before committing to a custom wiring.
 
 ## Header map
 
@@ -220,7 +220,7 @@ The published bundle is not a chip-specific binary library. It is a versioned so
 
 ## Detection profile behavior
 
-- **Lightweight Detection** (`DetectionAlgorithm::LIGHTWEIGHT`) uses `LightweightDetector`, requires no training data, and adapts its probability threshold to the session.
+- **Lightweight Detection** (`DetectionAlgorithm::LIGHTWEIGHT`) uses `LightweightDetector`, requires no training data, and adapts its probability threshold to the session at startup and again if a later quiet stretch proves the opening was too noisy. Mirror `on_threshold_changed()` if your product publishes that threshold.
 - **High-Accuracy Detection** (`DetectionAlgorithm::HIGH_ACCURACY`) uses `HighAccuracyDetector` with a trained model (`core/ml_weights.h`) and a fixed default threshold. The training and export pipeline is documented in [ML_TRAINING.md](ML_TRAINING.md).
 - Shared defaults, ranges, and validation live in `runtime/runtime_sensing_schema.h` and are documented in [SETUP.md](SETUP.md).
 

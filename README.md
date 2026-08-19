@@ -43,7 +43,7 @@ ESPectre includes two on-device detection profiles because deployments have diff
 
 | Detection profile | Choose it when | Startup |
 |---|---|---|
-| `lightweight` | CPU time and working memory matter more than maximum accuracy, such as on smaller chips or firmware that must reserve resources for other features | Adapts to the room from about 10 seconds of clean, ready quiet-room coverage after temporal warmup |
+| `lightweight` | CPU time and working memory matter more than maximum accuracy, such as on smaller chips or firmware that must reserve resources for other features | Adapts to the room from about 10 seconds of clean, ready quiet-room coverage after temporal warmup; may still lower the live threshold after a later quiet stretch |
 | `high_accuracy` | Higher accuracy and better generalization justify additional feature state, memory, and inference work | Uses its trained threshold and skips quiet-room threshold calibration; it starts after CSI is ready and its feature window has filled |
 
 ## Build Your Own Path

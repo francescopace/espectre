@@ -50,6 +50,7 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
 
  private:
   void update_live_telemetry_callback_();
+  void notify_threshold_if_changed_(float threshold);
   bool configure_detector_();
   std::unique_ptr<BaseDetector> make_detector_(DetectionAlgorithm algorithm, float threshold,
                                                uint16_t window_packets);

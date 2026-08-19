@@ -36,9 +36,21 @@ static const char *const RUNTIME_TAG = "espectre.runtime";
 
 }  // namespace
 
+void EspIdfRuntime::notify_threshold_if_changed_(float threshold) {
+  if (threshold == snapshot_.threshold) {
+    return;
+  }
+  snapshot_.threshold = threshold;
+  config_.segmentation_threshold = threshold;
+  if (listener_ != nullptr) {
+    listener_->on_threshold_changed(snapshot_);
+  }
+}
+
 void EspIdfRuntime::update_live_telemetry_callback_() {
   if (live_telemetry_enabled_) {
     csi_pipeline_.set_live_telemetry_callback([this](float movement, float threshold) {
+      notify_threshold_if_changed_(threshold);
       if (listener_ != nullptr) {
         listener_->on_live_telemetry(movement, threshold);
       }
@@ -488,7 +500,9 @@ void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) 
     const esp_err_t err = csi_pipeline_.enable([this](MotionState state, uint32_t packets_received) {
       snapshot_.motion_state = state;
       snapshot_.movement_metric = detector_ != nullptr ? detector_->get_motion_metric() : 0.0f;
-      snapshot_.threshold = detector_ != nullptr ? detector_->get_threshold() : snapshot_.threshold;
+      if (detector_ != nullptr) {
+        notify_threshold_if_changed_(detector_->get_threshold());
+      }
       snapshot_.link_rssi_dbm = csi_pipeline_.last_rssi_dbm();
       snapshot_.link_channel = csi_pipeline_.last_channel();
 

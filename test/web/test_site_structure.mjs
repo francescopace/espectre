@@ -471,6 +471,9 @@ describe('website UX and content contracts', () => {
         assert.match(app, /conn\.status !== 'connected'/);
         assert.match(app, /if \(!monitor\.handoffReady\) return/);
         assert.match(app, /monitor\.handoffReady = true/);
+        assert.match(app, /function syncThresholdControl\(/);
+        assert.match(app, /input === document\.activeElement/);
+        assert.match(app, /conn\.threshold = threshold;[\s\S]*syncThresholdControl\(threshold\)/);
         assert.match(app, /getElementById\('sense-threshold'\)\.addEventListener\('change'/);
         assert.match(app, /getElementById\('sense-detector'\)\.addEventListener\('change'/);
         assert.match(app, /getElementById\('sense-motion-on'\)\.addEventListener\('change'/);

@@ -83,5 +83,5 @@ tools/benchmark_firmware.local.env
 .papers/
 .ga/
 
-# Local web flasher staging
-tmp/
+# MQTT broker configuration
+mosquitto.conf

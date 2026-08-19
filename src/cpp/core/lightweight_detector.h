@@ -54,7 +54,11 @@ constexpr float LIGHTWEIGHT_SETTLE_MARGIN_LOGITS = 2.7f;
  *
  * Fuses turbulence autocorrelation with robust spread from a five-bin
  * aggregated turbulence stream, and adapts its threshold to the room
- * during startup calibration. Prefer it unless you have a reason to run
+ * during startup calibration. After that, a long quiet stretch can still
+ * lower the live threshold when the opening was noisier than the rest of
+ * the session. The full runtime emits `IRuntimeListener::on_threshold_changed()`
+ * for that drop; a core-only integration must re-read `get_threshold()` after
+ * `update_state()`. Prefer it unless you have a reason to run
  * `HighAccuracyDetector`.
  *
  * Most integrations never construct one: `RuntimeConfig::detection_algorithm`

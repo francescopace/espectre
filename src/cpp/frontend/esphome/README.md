@@ -100,7 +100,7 @@ ESPHome owns Wi-Fi association policy through `wifi.band_mode`; it is not an `es
 Threshold behavior:
 
 - range: `0.0-1.0` for both detectors
-- `lightweight`: automatic session-adapted startup threshold
+- `lightweight`: automatic session-adapted startup threshold, then possible quiet-stretch lowering published through `on_threshold_changed`
 - `high_accuracy` default: `0.5`
 
 Lightweight Detection uses less active detector CPU and working memory, making it suitable when the ESPHome node also runs resource-intensive components. High-Accuracy Detection uses more feature state and inference work but provides higher accuracy and skips Lightweight's threshold calibration. Lightweight requires about 10 seconds of clean, ready quiet-room coverage after temporal warmup; insufficient occupancy extends that wall-clock duration. High Accuracy still waits for CSI readiness and its feature window to fill.
@@ -203,7 +203,7 @@ Once the device is flashed and connected to Wi-Fi:
 3. Configure the discovered device
 4. The default entities are added automatically
 
-The ESPHome frontend exposes movement, motion, threshold control, motion-hit debounce control, recalibration, CSI traffic ownership, traffic generator selection, and on-demand CSI diagnostics as Home Assistant entities. Native MQTT Discovery publishes the same full sensing-control and diagnostic family, and Micro-ESPectre MQTT matches it. Movement Score updates on the detector evaluation cadence (default 250 ms). Motion Detected publishes only on filtered state edges, Threshold and motion-hit controls publish on change, Trigger Calibration reports ON while a recalibration session is running, and the traffic selects mirror runtime state on connect, Home Assistant birth, and each accepted change. Diagnostic sensors publish only when Refresh Diagnostics is pressed. If the Home Assistant recorder is a concern, exclude `sensor.*_movement_score` rather than lowering `evaluation_interval_ms`.
+The ESPHome frontend exposes movement, motion, threshold control, motion-hit debounce control, recalibration, CSI traffic ownership, traffic generator selection, and on-demand CSI diagnostics as Home Assistant entities. Native MQTT Discovery publishes the same full sensing-control and diagnostic family, and Micro-ESPectre MQTT matches it. Movement Score updates on the detector evaluation cadence (default 250 ms). Motion Detected publishes only on filtered state edges. Threshold publishes on operator writes, calibration, and Lightweight settled-level recovery; motion-hit controls publish on change. Trigger Calibration reports ON while a recalibration session is running, and the traffic selects mirror runtime state on connect, Home Assistant birth, and each accepted change. Diagnostic sensors publish only when Refresh Diagnostics is pressed. If the Home Assistant recorder is a concern, exclude `sensor.*_movement_score` rather than lowering `evaluation_interval_ms`.
 
 To manage configuration and OTA updates, install ESPHome Device Builder and adopt the discovered device. The adopted configuration compiles the component from the `git_ref` substitution, which defaults to `main`. ESPHome's GitHub clone is shallow and has no numeric tags, so Device Builder cannot configure when `project_version` is a branch name. Pin `git_ref` to a numeric release tag before compiling. First-party CI overrides `project_version` with `git describe`. Local `-dev` checkouts resolve the same identity from the repository.
 
@@ -283,7 +283,7 @@ For rate recommendations, airtime tradeoffs, and placement guidance, see [`TUNIN
 
 ## Startup Calibration
 
-In `lightweight` mode, keep the room quiet after boot so the runtime can complete the startup threshold bootstrap; `high_accuracy` skips the bootstrap and starts once CSI capture is ready and its feature window has filled. For the startup workflow and budget details, see [`TUNING.md`](../../../../docs/TUNING.md).
+In `lightweight` mode, keep the room quiet after boot so the runtime can complete the startup threshold bootstrap; a later quiet stretch can still lower the live threshold, and the Home Assistant number follows it. `high_accuracy` skips the bootstrap and starts once CSI capture is ready and its feature window has filled. For the startup workflow and budget details, see [`TUNING.md`](../../../../docs/TUNING.md).
 
 Runtime recalibration is exposed as the `calibrate_switch` entity in Home Assistant.
 

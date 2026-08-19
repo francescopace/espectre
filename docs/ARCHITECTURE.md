@@ -144,7 +144,7 @@ Frontend-facing operations include:
 Normalized runtime events include:
 
 - motion-state changes
-- threshold changes
+- threshold changes, including Lightweight settled-level recovery
 - detector changes
 - calibration start and finish
 - periodic status updates

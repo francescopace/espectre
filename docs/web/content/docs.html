@@ -62,7 +62,7 @@
       <tbody>
         <tr><td>Runtime cost</td><td>Fewer feature trackers, less working memory, and less per-packet computation</td><td>More feature state and neural-inference work</td></tr>
         <tr><td>Detection quality</td><td>Lower accuracy and cross-environment robustness</td><td>Higher accuracy and stronger generalization on the maintained corpus</td></tr>
-        <tr><td>Startup</td><td>Adapts its threshold during up to about 10 seconds of quiet calibration</td><td>Skips threshold calibration; starts after CSI is ready and its feature window has filled</td></tr>
+        <tr><td>Startup</td><td>Adapts its threshold during up to about 10 seconds of quiet calibration; may still lower it after a later quiet stretch</td><td>Skips threshold calibration; starts after CSI is ready and its feature window has filled</td></tr>
         <tr><td>Typical fit</td><td>Constrained chips or firmware that must reserve resources for other product features</td><td>Products that prioritize detection quality and can afford the additional runtime cost</td></tr>
       </tbody>
     </table></div>

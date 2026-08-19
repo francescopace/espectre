@@ -134,7 +134,7 @@ MOTION_OFF_HITS = 3
 
 `CSI_TARGET_PPS` defines both the temporal detector grid and the internal generator target. `TRAFFIC_GENERATOR_ENABLED` selects traffic ownership independently; the target is always positive. Session MQTT `external` and `disabled` stop the local generator. Micro-ESPectre does not open a UDP listener, so it does not join multicast group `239.255.0.1`; ESP-IDF sensing frontends do. The production `TemporalCsiSampler` retains the packet nearest each slot center, enforces a half-slot minimum spacing derived from the target, preserves missing slots, and is imported unchanged by CPython collection, replay, training, and validation workflows. The live loop uses two fixed CSI payload buffers so the previous slot can be emitted while the current candidate is retained without hot-path allocation.
 
-Lightweight selects its threshold automatically during startup calibration; keep the room quiet immediately after boot. High Accuracy uses its trained default threshold. Both thresholds remain adjustable at runtime. For the practical startup workflow, see [TUNING.md](../../../docs/TUNING.md). For the calibration formulas and detector theory, see [ALGORITHMS.md](../../../docs/ALGORITHMS.md).
+Lightweight selects its threshold automatically during startup calibration; keep the room quiet immediately after boot. A later quiet stretch can still lower that threshold, and the HA number plus Monitor follow the live value. High Accuracy uses its trained default threshold. Both thresholds remain adjustable at runtime. For the practical startup workflow, see [TUNING.md](../../../docs/TUNING.md). For the calibration formulas and detector theory, see [ALGORITHMS.md](../../../docs/ALGORITHMS.md).
 
 ### Filters
 
@@ -197,7 +197,7 @@ HA sensing cadences match ESPHome and Native MQTT so the same Home Assistant das
 |--------|--------------|---------|
 | Motion Detected | `ha/motion/state` | Filtered state edges |
 | Movement Score | `ha/movement/state` | Detector evaluation (`EVALUATION_INTERVAL_MS`, default 250 ms) |
-| Threshold | `ha/threshold/state` and `ha/threshold/set` | On change, plus connect/birth snapshot; writable 0.0–1.0 number |
+| Threshold | `ha/threshold/state` and `ha/threshold/set` | On change (operator write, calibration, or Lightweight settled-level recovery), plus connect/birth snapshot; writable 0.0–1.0 number |
 | Motion On Hits | `ha/motion_on_hits/state` and `ha/motion_on_hits/set` | On change, plus connect/birth snapshot; writable 1–20 number |
 | Motion Off Hits | `ha/motion_off_hits/state` and `ha/motion_off_hits/set` | On change, plus connect/birth snapshot; writable 1–20 number |
 | CSI Traffic Ownership | `ha/csi_traffic_mode/state` and `ha/csi_traffic_mode/set` | On change, plus connect/birth snapshot; writable `internal`, `external`, or `disabled` select |

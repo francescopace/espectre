@@ -20,7 +20,7 @@
       <article>
         <span class="guide-tag">RESOURCE HEADROOM</span>
         <h2>Lightweight Detection</h2>
-        <p>Uses fewer feature trackers, less working memory, and less per-packet computation. It adapts its threshold to the room during a quiet startup calibration of up to about ten seconds.</p>
+        <p>Uses fewer feature trackers, less working memory, and less per-packet computation. It adapts its threshold to the room during a quiet startup calibration of up to about ten seconds, and can still lower that threshold after a later quiet stretch.</p>
         <p><code>lightweight</code></p>
       </article>
       <article>
@@ -37,7 +37,7 @@
       <tbody>
         <tr><td>Active runtime cost</td><td>Lower CPU and working-memory use</td><td>More feature state and neural-inference work</td></tr>
         <tr><td>Detection quality</td><td>Good production baseline, with less cross-environment robustness</td><td>Higher accuracy and stronger generalization on the maintained corpus</td></tr>
-        <tr><td>Startup</td><td>Up to about ten seconds of quiet threshold calibration</td><td>No threshold calibration; waits for CSI and feature-window readiness</td></tr>
+        <tr><td>Startup</td><td>Up to about ten seconds of quiet threshold calibration; may still lower the live threshold after a later quiet stretch</td><td>No threshold calibration; waits for CSI and feature-window readiness</td></tr>
         <tr><td>Training dependency</td><td>No training data needed</td><td>Ships with an open, pre-trained model</td></tr>
         <tr><td>Typical fit</td><td>Constrained devices or firmware reserving resources for other services</td><td>Products that prioritize detection quality and can afford the additional runtime cost</td></tr>
       </tbody>
@@ -54,7 +54,7 @@
     </ul>
 
     <h2 id="detectors-startup">Startup is different</h2>
-    <p>Lightweight observes a quiet room and adapts its threshold to the current session. Keep the room still after boot or when recalibrating, and recalibrate after moving the sensor to a substantially different position.</p>
+    <p>Lightweight observes a quiet room and adapts its threshold to the current session. Keep the room still after boot or when recalibrating, and recalibrate after moving the sensor to a substantially different position. After that, a long quiet stretch can still lower the live threshold if the opening was noisier than the rest of the session; Home Assistant and the website Monitor follow that value.</p>
     <p>High Accuracy uses the threshold validated with its trained model, so it skips quiet-room threshold calibration. It is not instant: CSI capture still has to become ready, and the feature window still has to fill before detection starts.</p>
 
     <h2 id="detectors-controls">Consumer and OEM controls</h2>
