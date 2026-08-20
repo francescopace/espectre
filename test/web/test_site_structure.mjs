@@ -832,6 +832,15 @@ describe('website UX and content contracts', () => {
         assert.match(mqttProtocol, /static parseDiscoveryMessage/);
         assert.match(app, /function recordDiscoveredMqttDevice/);
         assert.match(app, /function monitorStartDiscovery/);
+        assert.match(app, /client\.subscribe\(monitor\.discoveryTopics/);
+        assert.match(app, /function monitorDeviceChipLabel/);
+        assert.match(app, /function monitorDeviceStatus/);
+        assert.match(app, /dotClass: 'dot-ok'/);
+        assert.match(app, /dotClass: 'dot-error'/);
+        assert.match(app, /dotClass: 'dot-idle'/);
+        assert.match(app, /dot\.className = `dot \$\{status\.dotClass\}`/);
+        assert.doesNotMatch(app, /const frontend = device\.frontend \|\| 'unknown'/);
+        assert.match(styles, /\.device-choice-option \{/);
         assert.match(app, /function monitorSelectDevice/);
         assert.match(mqttProtocol, /`\$\{prefix\}\/\+\/info`/);
         assert.match(mqttProtocol, /`\$\{prefix\}\/\+\/status`/);
@@ -873,7 +882,7 @@ describe('website UX and content contracts', () => {
         assert.match(index, /id="mon-topic-prefix"[^>]*value="espectre\/v1\/devices"/);
         assert.match(index, /id="mon-device"[^>]*placeholder="3cf79180d3a0aca4"/);
         assert.match(index, /for="mon-device">Device ID <span class="opt">\(optional\)<\/span>/);
-        assert.match(index, /id="mon-device-choice"/);
+        assert.match(index, /id="mon-device-choice" class="device-choice-list"/);
         assert.match(index, /class="field js-mon-device-picker"/);
         assert.match(index, /Leave Device ID empty to discover devices on the broker/);
         assert.match(index, /id="mon-path"[^>]*value="\/mqtt"/);

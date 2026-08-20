@@ -2462,13 +2462,7 @@
         const choice = document.getElementById('mon-device-choice');
         if (picker) picker.hidden = true;
         if (!choice) return;
-        clearMonitorFieldError(choice);
         choice.replaceChildren();
-        const placeholder = document.createElement('option');
-        placeholder.value = '';
-        placeholder.textContent = 'Select a device';
-        choice.appendChild(placeholder);
-        choice.value = '';
     }
 
     function recordDiscoveredMqttDevice(topic, payload) {
@@ -2497,11 +2491,17 @@
         monitor.discoveredDevices[topicId] = device;
     }
 
-    function monitorDeviceChoiceLabel(device) {
-        const label = device.device_label || device.device_name || 'unnamed';
-        const frontend = device.frontend || 'unknown';
-        const online = device.online ? 'online' : 'offline/unknown';
-        return device.device_id + ' · ' + label + ' · ' + frontend + ' · ' + online;
+    function monitorDeviceChipLabel(chip) {
+        const value = String(chip || '').trim().toUpperCase().replace(/[-_]/g, '');
+        if (!value) return 'Unknown chip';
+        if (value === 'ESP32') return value;
+        return value.replace(/^ESP32/, '');
+    }
+
+    function monitorDeviceStatus(device) {
+        if (device.online === true) return { dotClass: 'dot-ok', label: 'Online' };
+        if (device.online === false) return { dotClass: 'dot-error', label: 'Offline' };
+        return { dotClass: 'dot-idle', label: 'Status unknown' };
     }
 
     function populateMonitorDevicePicker(devices) {
@@ -2509,18 +2509,37 @@
         const choice = document.getElementById('mon-device-choice');
         if (!choice) return;
         choice.replaceChildren();
-        const placeholder = document.createElement('option');
-        placeholder.value = '';
-        placeholder.textContent = 'Select a device';
-        choice.appendChild(placeholder);
         devices.forEach((device) => {
-            const option = document.createElement('option');
-            option.value = device.topic_id || device.device_id;
-            option.textContent = monitorDeviceChoiceLabel(device);
+            const deviceId = device.topic_id || device.device_id;
+            const chip = monitorDeviceChipLabel(device.chip);
+            const label = device.device_label || device.device_name || 'unnamed';
+            const status = monitorDeviceStatus(device);
+            const option = document.createElement('button');
+            option.type = 'button';
+            option.className = 'device-choice-option';
+            option.dataset.deviceId = deviceId;
+            option.setAttribute(
+                'aria-label',
+                `${status.label}, ${chip}, ${label}, device ID ${device.device_id}`
+            );
+
+            const dot = document.createElement('span');
+            dot.className = `dot ${status.dotClass}`;
+            dot.setAttribute('aria-hidden', 'true');
+            const chipText = document.createElement('span');
+            chipText.className = 'device-choice-chip';
+            chipText.textContent = chip;
+            const nameText = document.createElement('span');
+            nameText.className = 'device-choice-name';
+            nameText.textContent = label;
+            const idText = document.createElement('span');
+            idText.className = 'device-choice-id';
+            idText.textContent = device.device_id;
+            option.append(dot, chipText, nameText, idText);
             choice.appendChild(option);
         });
         if (picker) picker.hidden = false;
-        choice.focus({ preventScroll: true });
+        choice.querySelector('.device-choice-option')?.focus({ preventScroll: true });
     }
 
     function monitorUnsubscribeDiscovery(client) {
@@ -2598,7 +2617,7 @@
         monitorStatus('Scanning MQTT for devices…');
         toast('Scanning MQTT for devices…');
         syncMonitorDemoButton();
-        client.subscribe([infoTopic, statusTopic], (error) => {
+        client.subscribe(monitor.discoveryTopics, (error) => {
             if (monitor.client !== client) return;
             if (error) {
                 monitor.discoveryActive = false;
@@ -2948,11 +2967,10 @@
         });
         const deviceChoice = document.getElementById('mon-device-choice');
         if (deviceChoice) {
-            deviceChoice.addEventListener('change', () => {
-                const selected = deviceChoice.value.trim();
-                if (!selected) return;
-                clearMonitorFieldError(deviceChoice);
-                monitorSelectDevice(selected);
+            deviceChoice.addEventListener('click', (event) => {
+                const selected = event.target.closest('.device-choice-option');
+                if (!selected || !deviceChoice.contains(selected)) return;
+                monitorSelectDevice(selected.dataset.deviceId);
             });
         }
         const diagnostics = $('.device-live-diagnostics');
