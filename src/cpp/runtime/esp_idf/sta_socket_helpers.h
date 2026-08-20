@@ -1,15 +1,16 @@
 /*
- * ESPectre - Matter Surface Mapping
+ * ESPectre - Station Socket Helpers
  *
- * Maps runtime snapshots and events to the standard Matter occupancy
- * surface.
+ * Shared ESP-IDF helpers for binding sockets to the Wi-Fi station interface.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
-#include "matter_surface.h"
+#pragma once
 
 namespace espectre {
+
+bool bind_socket_to_sta_interface(int sock, const char *log_tag, const char *purpose);
 
 }  // namespace espectre

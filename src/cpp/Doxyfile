@@ -49,6 +49,7 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/runtime/esp_idf/runtime_frontend_controller.h \
                          src/cpp/runtime/esp_idf/runtime_sensing_kconfig.h \
                          src/cpp/core/base_detector.h \
+                         src/cpp/core/filtered_turbulence_ring.h \
                          src/cpp/core/lightweight_detector.h \
                          src/cpp/core/high_accuracy_detector.h \
                          src/cpp/core/csi_format.h \

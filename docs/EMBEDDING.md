@@ -111,7 +111,7 @@ If your firmware already owns Wi-Fi and CSI capture, you can consume the detecto
 | `runtime/ble_bindings.h` | Implement to reach your own BLE stack |
 | `runtime/ota_service.h` | Implement to reach your own update channel |
 | `runtime/firmware_version.h` | The application version reported on the wire |
-| `core/lightweight_detector.h`, `core/high_accuracy_detector.h` | The core-only detector path |
+| `core/lightweight_detector.h`, `core/high_accuracy_detector.h`, `core/filtered_turbulence_ring.h` | The core-only detector path and its shared filtered-sample storage |
 | `core/base_detector.h` | The shared detector lifecycle both detectors inherit |
 | `core/csi_format.h` | CSI layout, and the subcarrier band the detectors measure on |
 | `core/detector_limits.h`, `core/filters.h`, `core/utils.h` | Detector limits, filter state, and numeric helpers used by the public detector definitions |
@@ -123,13 +123,12 @@ If your firmware already owns Wi-Fi and CSI capture, you can consume the detecto
 
 ### Threading
 
-The runtime carries no internal locking.
+The control surface is single-owner. Internal bounded mailboxes protect callback-to-loop handoff, but they do not make control calls thread-safe.
 
 - Run `setup()`, `loop()`, and `shutdown()` on one task.
 - Every `IRuntimeListener` callback is delivered on the caller's task: from `loop()` for sensing events, or inline on the task that invoked a control method. Work raised in the Wi-Fi CSI callback is deferred through an internal mailbox first, so no listener callback runs in interrupt or Wi-Fi driver context.
 - Because callbacks run on your own task, blocking in them is allowed. Publishing over MQTT or writing NVS from a callback costs loop latency, not CSI frames.
-- The `set_*_runtime()` controls are the one surface reached from elsewhere in practice: the Native frontend applies MQTT sensing commands and BLE setup commands straight from their stack callbacks. Prefer queueing such a request and applying it from your loop task.
-- The transport seams follow their own stack instead: `IOtaService` callbacks arrive on the OTA worker task, and `IBleBindings` callbacks on the BLE host task.
+- Call `set_*_runtime()` only from the owner task. The shipped MQTT, BLE, and OTA adapters queue stack events and deliver application callbacks from the frontend loop, so Native follows this rule without external locks.
 
 ### Lifecycle
 

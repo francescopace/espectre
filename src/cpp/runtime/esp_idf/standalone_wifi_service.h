@@ -10,11 +10,13 @@
  */
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 
 #include "esp_err.h"
 #include "esp_event.h"
+#include "pending_queue.h"
 #include "wifi_lifecycle.h"
 
 namespace espectre {
@@ -50,13 +52,26 @@ class StandaloneWifiService {
   void shutdown();
 
  private:
+  enum class PendingWifiEventType : uint8_t {
+    STARTED = 0,
+    STOPPED,
+    DISCONNECTED,
+    GOT_IP,
+  };
+
+  struct PendingWifiEvent {
+    PendingWifiEventType type{PendingWifiEventType::STARTED};
+    uint8_t disconnect_reason{0U};
+    esp_netif_ip_info_t ip_info{};
+  };
+
   friend struct StandaloneWifiServiceTestAccess;
   static void wifi_event_handler_(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
 
   esp_err_t configure_station_();
   void handle_wifi_started_();
   void handle_wifi_stopped_();
-  void handle_wifi_disconnected_(void *event_data);
+  void handle_wifi_disconnected_(uint8_t reason);
   void handle_lifecycle_connected_();
   void handle_lifecycle_disconnected_();
   void maybe_run_deferred_connect_fallback_();
@@ -76,6 +91,9 @@ class StandaloneWifiService {
   uint64_t deferred_connect_fallback_deadline_us_{0U};
   int wifi_retry_count_{0};
   esp_netif_ip_info_t cached_ip_info_{};
+  static constexpr size_t kPendingWifiEventCapacity = 8U;
+  PendingQueue<PendingWifiEvent, kPendingWifiEventCapacity> pending_events_{};
+  std::atomic<uint32_t> dropped_events_{0U};
 };
 
 }  // namespace espectre

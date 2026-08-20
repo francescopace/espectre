@@ -9,11 +9,15 @@
  */
 #pragma once
 
+#include <array>
+#include <atomic>
 #include <string>
 #include <vector>
 
 #include "mqtt_transport.h"
 #include "mqtt_payload_assembler.h"
+#include "pending_event.h"
+#include "pending_queue.h"
 #include "mqtt_client.h"
 
 namespace espectre {
@@ -23,7 +27,7 @@ class EspIdfMqttTransport : public IMqttTransport {
   bool setup(const EspectreDeviceConfig &config) override;
   void loop() override;
   void shutdown() override;
-  bool connected() const override { return connected_; }
+  bool connected() const override { return connected_.load(std::memory_order_relaxed); }
   bool publish(const std::string &topic, const std::string &payload, bool retain) override;
   bool publish_suffix(const char *suffix, const std::string &payload, bool retain) override;
   bool subscribe(const std::string &topic, MessageCallback callback) override;
@@ -36,8 +40,18 @@ class EspIdfMqttTransport : public IMqttTransport {
     MessageCallback callback;
   };
 
+  struct PendingMessage {
+    std::array<char, 256U> topic{};
+    std::array<char, MqttPayloadAssembler::MAX_PAYLOAD_SIZE + 1U> payload{};
+    uint16_t topic_len{0U};
+    uint16_t payload_len{0U};
+  };
+
   static void event_handler_(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data);
   void handle_event_(esp_mqtt_event_handle_t event);
+  bool enqueue_message_(const char *topic, size_t topic_len, const char *payload, size_t payload_len);
+  void dispatch_message_(const PendingMessage &message);
+  void reset_message_slots_();
   bool subscribe_topic_(const std::string &topic);
   void subscribe_registered_topics_();
 
@@ -54,7 +68,13 @@ class EspIdfMqttTransport : public IMqttTransport {
   std::string last_will_topic_{};
   std::string last_will_payload_{};
   std::vector<TopicSubscription> subscriptions_{};
-  bool connected_{false};
+  static constexpr size_t kPendingMessageCapacity = 4U;
+  PendingEvent<bool> connection_event_{};
+  std::array<PendingMessage, kPendingMessageCapacity> message_slots_{};
+  PendingQueue<uint8_t, kPendingMessageCapacity> free_message_slots_{};
+  PendingQueue<uint8_t, kPendingMessageCapacity> ready_message_slots_{};
+  std::atomic<bool> connected_{false};
+  std::atomic<uint32_t> dropped_messages_{0U};
 };
 
 }  // namespace espectre

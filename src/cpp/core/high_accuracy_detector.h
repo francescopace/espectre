@@ -21,6 +21,7 @@
 #include "base_detector.h"
 #include "csi_format.h"
 #include "csi_features.h"
+#include "filtered_turbulence_ring.h"
 #include "l1_delta_tracker.h"
 #include "ml_feature_trackers.h"
 #include <cstdint>
@@ -151,11 +152,7 @@ private:
     // phases do not each reserve a window-sized buffer.
     float* feature_scratch_;
     float* aggregated_turbulence_buffer_;
-    uint16_t aggregated_turbulence_index_;
-    uint16_t aggregated_turbulence_count_;
-    uint16_t aggregated_valid_count_;
-    hampel_filter_state_t aggregated_hampel_state_;
-    lowpass_filter_state_t aggregated_lowpass_state_;
+    FilteredTurbulenceRing aggregated_turbulence_;
 };
 
 }  // namespace espectre

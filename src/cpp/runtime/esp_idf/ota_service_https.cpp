@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <new>
 #include <utility>
 
 #include "esp_crt_bundle.h"
@@ -69,6 +70,9 @@ esp_err_t manifest_http_event(esp_http_client_event_t *event) {
 }  // namespace
 
 HttpsOtaService::HttpsOtaService(const char *frontend, const char *chip, OtaReleaseChannel channel) {
+  lock_ = xSemaphoreCreateMutex();
+  worker_done_ = xSemaphoreCreateBinary();
+  prepare_done_ = xSemaphoreCreateBinary();
   frontend_ = frontend != nullptr ? frontend : "";
   chip_ = chip != nullptr ? chip : "";
   if (channel == OtaReleaseChannel::PREVIEW) {
@@ -85,13 +89,74 @@ HttpsOtaService::HttpsOtaService(const char *frontend, const char *chip, OtaRele
 HttpsOtaService::~HttpsOtaService() { shutdown(); }
 
 void HttpsOtaService::shutdown() {
-  if (worker_task_ != nullptr) {
-    vTaskDelete(worker_task_);
-    worker_task_ = nullptr;
+  shutdown_requested_.store(true, std::memory_order_release);
+  if (prepare_done_ != nullptr) {
+    xSemaphoreGive(prepare_done_);
   }
+
+  bool worker_active = false;
   if (lock_ != nullptr) {
+    xSemaphoreTake(lock_, portMAX_DELAY);
+    worker_active = worker_active_;
+    xSemaphoreGive(lock_);
+  }
+  if (worker_active && worker_done_ != nullptr) {
+    // HTTP and OTA APIs are synchronous. Let their owner unwind normally so
+    // client handles and TLS state are released before this service disappears.
+    xSemaphoreTake(worker_done_, portMAX_DELAY);
+  }
+
+  if (lock_ != nullptr) {
+    // A completion signal is posted while the worker still holds the mutex.
+    // This barrier guarantees finish_worker_ has left the critical section
+    // before the synchronization objects are destroyed.
+    xSemaphoreTake(lock_, portMAX_DELAY);
+    xSemaphoreGive(lock_);
     vSemaphoreDelete(lock_);
     lock_ = nullptr;
+  }
+  if (worker_done_ != nullptr) {
+    vSemaphoreDelete(worker_done_);
+    worker_done_ = nullptr;
+  }
+  if (prepare_done_ != nullptr) {
+    vSemaphoreDelete(prepare_done_);
+    prepare_done_ = nullptr;
+  }
+}
+
+void HttpsOtaService::loop() {
+  StatusCallback status_callback;
+  PrepareForUpdateCallback prepare_callback;
+  EspectreOtaStatus pending_status;
+  bool deliver_status = false;
+  bool prepare = false;
+
+  if (lock_ == nullptr) {
+    return;
+  }
+  xSemaphoreTake(lock_, portMAX_DELAY);
+  prepare = prepare_callback_pending_;
+  prepare_callback_pending_ = false;
+  prepare_callback = prepare_for_update_callback_;
+  deliver_status = status_callback_pending_;
+  status_callback_pending_ = false;
+  if (deliver_status) {
+    pending_status = pending_status_;
+    status_callback = status_callback_;
+  }
+  xSemaphoreGive(lock_);
+
+  if (prepare) {
+    if (prepare_callback) {
+      prepare_callback();
+    }
+    if (prepare_done_ != nullptr) {
+      xSemaphoreGive(prepare_done_);
+    }
+  }
+  if (deliver_status && status_callback) {
+    status_callback(pending_status);
   }
 }
 
@@ -129,16 +194,29 @@ EspectreOtaStatus HttpsOtaService::status() const {
   return snapshot;
 }
 
-void HttpsOtaService::set_status_callback(StatusCallback callback) { status_callback_ = std::move(callback); }
+void HttpsOtaService::set_status_callback(StatusCallback callback) {
+  if (lock_ == nullptr) {
+    return;
+  }
+  xSemaphoreTake(lock_, portMAX_DELAY);
+  status_callback_ = std::move(callback);
+  xSemaphoreGive(lock_);
+}
 
 void HttpsOtaService::set_prepare_for_update_callback(PrepareForUpdateCallback callback) {
+  if (lock_ == nullptr) {
+    return;
+  }
+  xSemaphoreTake(lock_, portMAX_DELAY);
   prepare_for_update_callback_ = std::move(callback);
+  xSemaphoreGive(lock_);
 }
 
 void HttpsOtaService::worker_entry_(void *ctx) {
   std::unique_ptr<WorkerContext> context(static_cast<WorkerContext *>(ctx));
   if (context != nullptr && context->service != nullptr) {
     context->service->run_worker_(context->request);
+    context->service->finish_worker_();
   }
   vTaskDelete(nullptr);
 }
@@ -161,7 +239,6 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
 
   if (manifest_url.empty()) {
     set_error_status_("invalid ota channel", current_version, "", "", "", channel);
-    worker_task_ = nullptr;
     return;
   }
 
@@ -170,7 +247,6 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
   if (!fetch_https_text_(manifest_url, &body, &error) || !parse_manifest_(body, &manifest, &error)) {
     set_error_status_(error.empty() ? "manifest fetch failed" : error, current_version, "", manifest_url, "",
                       channel);
-    worker_task_ = nullptr;
     return;
   }
 
@@ -188,7 +264,6 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
     ESP_LOGI(TAG, "%s current=%s target=%s", result.message.c_str(), current_version.c_str(),
              manifest.version.c_str());
     update_status_(result);
-    worker_task_ = nullptr;
     return;
   }
 
@@ -196,12 +271,15 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
   const std::string &target_version = manifest.version;
   if (image_url.empty()) {
     set_error_status_("missing image_url", current_version, target_version, manifest_url, image_url, channel);
-    worker_task_ = nullptr;
     return;
   }
 
-  if (prepare_for_update_callback_) {
-    prepare_for_update_callback_();
+  if (!request_prepare_for_update_()) {
+    if (!shutdown_requested_.load(std::memory_order_acquire)) {
+      set_error_status_("frontend did not quiesce for ota", current_version, target_version,
+                        manifest_url, image_url, channel);
+    }
+    return;
   }
 
   EspectreOtaStatus downloading;
@@ -226,7 +304,6 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
   const esp_err_t err = esp_https_ota(&ota_config);
   if (err != ESP_OK) {
     set_error_status_(esp_err_to_name(err), current_version, target_version, manifest_url, image_url, channel);
-    worker_task_ = nullptr;
     return;
   }
 
@@ -253,19 +330,25 @@ bool HttpsOtaService::begin_request_(const WorkerRequest &request) {
     return false;
   }
 
-  if (!ensure_lock_()) {
+  if (!ensure_lock_() || worker_done_ == nullptr || prepare_done_ == nullptr ||
+      shutdown_requested_.load(std::memory_order_acquire)) {
     return false;
   }
 
   xSemaphoreTake(lock_, portMAX_DELAY);
-  const bool busy = worker_task_ != nullptr || status_.busy;
-  xSemaphoreGive(lock_);
-  if (busy) {
+  if (worker_active_ || status_.busy) {
+    xSemaphoreGive(lock_);
     return false;
   }
+  worker_active_ = true;
+  xSemaphoreGive(lock_);
+  (void)xSemaphoreTake(worker_done_, 0);
 
-  auto *context = new WorkerContext{this, request};
+  auto *context = new (std::nothrow) WorkerContext{this, request};
   if (context == nullptr) {
+    xSemaphoreTake(lock_, portMAX_DELAY);
+    worker_active_ = false;
+    xSemaphoreGive(lock_);
     return false;
   }
 
@@ -274,30 +357,59 @@ bool HttpsOtaService::begin_request_(const WorkerRequest &request) {
                   kWorkerStackSize,
                   context,
                   kWorkerPriority,
-                  &worker_task_) != pdPASS) {
+                  nullptr) != pdPASS) {
     delete context;
+    xSemaphoreTake(lock_, portMAX_DELAY);
+    worker_active_ = false;
+    xSemaphoreGive(lock_);
     return false;
   }
   return true;
 }
 
 bool HttpsOtaService::ensure_lock_() const {
-  if (lock_ == nullptr) {
-    lock_ = xSemaphoreCreateMutex();
-  }
   return lock_ != nullptr;
+}
+
+void HttpsOtaService::finish_worker_() {
+  if (lock_ != nullptr) {
+    xSemaphoreTake(lock_, portMAX_DELAY);
+    if (worker_done_ != nullptr) {
+      xSemaphoreGive(worker_done_);
+    }
+    worker_active_ = false;
+    xSemaphoreGive(lock_);
+  } else if (worker_done_ != nullptr) {
+    xSemaphoreGive(worker_done_);
+  }
+}
+
+bool HttpsOtaService::request_prepare_for_update_() {
+  if (lock_ == nullptr || prepare_done_ == nullptr) {
+    return false;
+  }
+  (void)xSemaphoreTake(prepare_done_, 0);
+  xSemaphoreTake(lock_, portMAX_DELAY);
+  prepare_callback_pending_ = true;
+  xSemaphoreGive(lock_);
+
+  while (!shutdown_requested_.load(std::memory_order_acquire)) {
+    if (xSemaphoreTake(prepare_done_, pdMS_TO_TICKS(100U)) == pdTRUE) {
+      return !shutdown_requested_.load(std::memory_order_acquire);
+    }
+  }
+  return false;
 }
 
 void HttpsOtaService::update_status_(const EspectreOtaStatus &status) {
   if (ensure_lock_()) {
     xSemaphoreTake(lock_, portMAX_DELAY);
     status_ = status;
+    pending_status_ = status;
+    status_callback_pending_ = true;
     xSemaphoreGive(lock_);
   } else {
     status_ = status;
-  }
-  if (status_callback_) {
-    status_callback_(status);
   }
 }
 

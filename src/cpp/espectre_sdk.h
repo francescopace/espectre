@@ -68,7 +68,8 @@
  *
  * @section sdk_threading Threading contract
  *
- * The runtime carries no internal locking.
+ * The control surface is single-owner. Internal bounded mailboxes protect
+ * callback-to-loop handoff, but they do not make control calls thread-safe.
  *
  * - Run `setup()`, `loop()`, and `shutdown()` on one task. These are the calls
  *   that build and tear down runtime state, and they are not safe to race.
@@ -79,14 +80,9 @@
  *   driver context.
  * - Because callbacks run on your own task, you may block in them (publish
  *   over MQTT, write NVS). The cost is loop latency, not a dropped CSI frame.
- * - The `set_*_runtime()` controls are the one surface reached from elsewhere
- *   in practice: the shipped Native frontend applies BLE and MQTT commands
- *   straight from their stack callbacks. Prefer queueing such a request and
- *   applying it from your loop task, which keeps every runtime mutation on one
- *   task.
- * - Transport seams follow their own stack, not this rule. `IOtaService`
- *   callbacks arrive on the OTA worker task and `IBleBindings` callbacks on
- *   the BLE host task; each header says so.
+ * - Call `set_*_runtime()` only from the owner task. The shipped MQTT, BLE, and
+ *   OTA adapters queue stack events and deliver their application callbacks
+ *   from the frontend loop, so Native follows this rule without external locks.
  * - Do not drive the controller from inside `on_runtime_fault()` beyond
  *   `shutdown()`.
  *
@@ -114,6 +110,7 @@
 
 // Detectors and CSI format. Portable, C++17 standard library only.
 #include "core/base_detector.h"
+#include "core/filtered_turbulence_ring.h"
 #include "core/lightweight_detector.h"
 #include "core/csi_format.h"
 #include "core/high_accuracy_detector.h"

@@ -9,6 +9,8 @@
  */
 #pragma once
 
+#include <array>
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -16,6 +18,8 @@
 #include "host/ble_gatt.h"
 
 #include "ble_bindings.h"
+#include "pending_event.h"
+#include "pending_queue.h"
 
 namespace espectre {
 
@@ -36,6 +40,12 @@ class NimbleBleBindings : public IBleBindings {
   void report_fault(const char *message) override;
 
  private:
+  struct PendingControlWrite {
+    std::array<char, 513U> command{};
+    uint16_t length{0U};
+  };
+
+  void dispatch_pending_callbacks_();
   void flush_pending_sysinfo_(bool force = false);
   bool notify_sysinfo_line_(const std::string &line);
   bool start_advertising_();
@@ -59,15 +69,18 @@ class NimbleBleBindings : public IBleBindings {
   std::string sysinfo_value_;
   std::string device_name_;
   uint8_t addr_type_{0};
-  uint16_t conn_handle_{0xFFFF};
-  bool setup_complete_{false};
-  bool shutting_down_{false};
-  bool telemetry_subscribed_{false};
+  std::atomic<uint16_t> conn_handle_{0xFFFF};
+  std::atomic<bool> setup_complete_{false};
+  std::atomic<bool> shutting_down_{false};
+  std::atomic<bool> telemetry_subscribed_{false};
   bool advertising_active_{false};
   uint32_t sysinfo_line_interval_ms_{20U};
   uint32_t last_sysinfo_line_ms_{0U};
   std::vector<std::string> pending_sysinfo_lines_;
   size_t next_sysinfo_line_index_{0U};
+  PendingEvent<bool> connection_event_{};
+  PendingEvent<bool> telemetry_subscription_event_{};
+  PendingQueue<PendingControlWrite, 4U> control_write_queue_{};
 };
 
 }  // namespace espectre

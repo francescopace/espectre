@@ -299,6 +299,34 @@ esp_err_t StandaloneWifiService::start() {
 }
 
 void StandaloneWifiService::loop() {
+  PendingWifiEvent event;
+  while (pending_events_.take(event)) {
+    switch (event.type) {
+      case PendingWifiEventType::STARTED:
+        wifi_started_ = true;
+        handle_wifi_started_();
+        break;
+      case PendingWifiEventType::STOPPED:
+        wifi_started_ = false;
+        handle_wifi_stopped_();
+        break;
+      case PendingWifiEventType::DISCONNECTED:
+        handle_wifi_disconnected_(event.disconnect_reason);
+        if (!config_.manage_csi_lifecycle && disconnected_cb_) {
+          disconnected_cb_();
+        }
+        break;
+      case PendingWifiEventType::GOT_IP:
+        cached_ip_info_ = event.ip_info;
+        deferred_connect_fallback_pending_ = false;
+        deferred_connect_fallback_deadline_us_ = 0U;
+        wifi_retry_count_ = 0;
+        if (!config_.manage_csi_lifecycle && connected_cb_) {
+          connected_cb_();
+        }
+        break;
+    }
+  }
   maybe_run_deferred_connect_fallback_();
   if (config_.manage_csi_lifecycle) {
     (void)wifi_lifecycle_.process_pending_events();
@@ -384,6 +412,7 @@ void StandaloneWifiService::shutdown() {
     wifi_lifecycle_.unregister_handlers();
   }
   setup_complete_ = false;
+  pending_events_.clear();
   wifi_connect_requested_ = false;
   defer_connect_once_after_start_ = false;
   deferred_connect_fallback_pending_ = false;
@@ -432,9 +461,7 @@ void StandaloneWifiService::handle_wifi_stopped_() {
   clear_cached_ip_info_();
 }
 
-void StandaloneWifiService::handle_wifi_disconnected_(void *event_data) {
-  const auto *event = static_cast<const wifi_event_sta_disconnected_t *>(event_data);
-  const uint8_t reason = event != nullptr ? event->reason : 0U;
+void StandaloneWifiService::handle_wifi_disconnected_(uint8_t reason) {
   ESP_LOGW(TAG,
            "Wi-Fi disconnected: reason=%u (%s)",
            static_cast<unsigned>(reason),
@@ -492,36 +519,36 @@ void StandaloneWifiService::clear_cached_ip_info_() { cached_ip_info_ = {}; }
 
 void StandaloneWifiService::wifi_event_handler_(void *arg, esp_event_base_t event_base, int32_t event_id,
                                                 void *event_data) {
-  auto *manager = static_cast<StandaloneWifiService *>(arg);
-  if (manager == nullptr || event_base == nullptr) {
+  auto *service = static_cast<StandaloneWifiService *>(arg);
+  if (service == nullptr || event_base == nullptr) {
     return;
   }
 
+  PendingWifiEvent pending;
   if (std::strcmp(event_base, WIFI_EVENT) == 0) {
     if (event_id == WIFI_EVENT_STA_START) {
-      manager->handle_wifi_started_();
+      pending.type = PendingWifiEventType::STARTED;
     } else if (event_id == WIFI_EVENT_STA_STOP) {
-      manager->handle_wifi_stopped_();
+      pending.type = PendingWifiEventType::STOPPED;
     } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
-      manager->handle_wifi_disconnected_(event_data);
-      if (!manager->config_.manage_csi_lifecycle && manager->disconnected_cb_) {
-        manager->disconnected_cb_();
-      }
+      pending.type = PendingWifiEventType::DISCONNECTED;
+      const auto *event = static_cast<const wifi_event_sta_disconnected_t *>(event_data);
+      pending.disconnect_reason = event != nullptr ? event->reason : 0U;
+    } else {
+      return;
     }
+  } else if (std::strcmp(event_base, IP_EVENT) == 0 && event_id == IP_EVENT_STA_GOT_IP) {
+    pending.type = PendingWifiEventType::GOT_IP;
+    const auto *event = static_cast<const ip_event_got_ip_t *>(event_data);
+    if (event != nullptr) {
+      pending.ip_info = event->ip_info;
+    }
+  } else {
     return;
   }
 
-  if (std::strcmp(event_base, IP_EVENT) == 0 && event_id == IP_EVENT_STA_GOT_IP) {
-    const auto *event = static_cast<const ip_event_got_ip_t *>(event_data);
-    if (event != nullptr) {
-      manager->cached_ip_info_ = event->ip_info;
-    }
-    manager->deferred_connect_fallback_pending_ = false;
-    manager->deferred_connect_fallback_deadline_us_ = 0U;
-    manager->wifi_retry_count_ = 0;
-    if (!manager->config_.manage_csi_lifecycle && manager->connected_cb_) {
-      manager->connected_cb_();
-    }
+  if (!service->pending_events_.post(pending)) {
+    service->dropped_events_.fetch_add(1U, std::memory_order_relaxed);
   }
 }
 

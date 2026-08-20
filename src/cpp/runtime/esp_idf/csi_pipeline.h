@@ -24,6 +24,7 @@
 #include "esp_wifi.h"
 #include "csi_format.h"
 #include "pending_event.h"
+#include "pending_queue.h"
 #include "runtime_sensing_schema.h"
 #include "temporal_csi_sampler.h"
 #include "wifi_csi_interface.h"
@@ -253,6 +254,13 @@ class CsiPipeline {
   bool take_detection_timing(DetectionTimingStats *stats);
   
  private:
+  struct PendingCsiFrame {
+    wifi_pkt_rx_ctrl_t rx_ctrl{};
+    std::array<int8_t, HT20_CSI_LEN> csi{};
+    uint16_t len{0U};
+    bool reset_detector_before_consume{false};
+  };
+
   struct PendingCsiCandidate {
     std::array<int8_t, HT20_CSI_LEN> csi{};
     size_t len{0U};
@@ -260,7 +268,8 @@ class CsiPipeline {
     int8_t rssi_dbm{INT8_MIN};
   };
 
-  void process_normalized_packet_(const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized);
+  void process_pending_frame_(const PendingCsiFrame &frame);
+  void drain_pending_frames_();
   void process_admitted_candidate_();
   void apply_gap_history_reset_();
   void store_candidate_(const wifi_csi_info_t *data,
@@ -271,7 +280,7 @@ class CsiPipeline {
   static void capture_channel_change_callback_(void *context,
                                                uint8_t previous_channel,
                                                uint8_t current_channel);
-  void clear_detector_buffer_deferred_();
+  void clear_detector_state_();
   void request_motion_state_callback_(MotionState previous_state, MotionState current_state);
   MotionState update_effective_motion_state_(MotionState detector_state);
   void reset_motion_state_filter_(MotionState state = MotionState::IDLE);
@@ -302,10 +311,15 @@ class CsiPipeline {
   uint8_t pending_state_hits_{0};
   MotionState effective_motion_state_{MotionState::IDLE};
   MotionState pending_motion_state_{MotionState::IDLE};
+  detail::PendingEventLock local_identity_lock_{};
   uint32_t local_ip_addr_{0U};
-  std::array<uint8_t, 6> local_mac_addr_{};
+  std::array<uint8_t, 6U> local_mac_addr_{};
 
-  // Deferred notifications: posted from the CSI callback, drained by loop().
+  static constexpr size_t kPendingCsiFrameCapacity = 8U;
+  PendingQueue<PendingCsiFrame, kPendingCsiFrameCapacity> pending_frames_;
+  std::atomic<uint64_t> pending_frame_drops_{0U};
+  // Notifications are produced while the owning loop evaluates detector state
+  // and are consumed after the pending CSI batch has been drained.
   PendingEvent<MotionState> motion_state_event_;
   PendingEvent<float, float> live_telemetry_event_;
   PendingDetectionTiming detection_timing_;

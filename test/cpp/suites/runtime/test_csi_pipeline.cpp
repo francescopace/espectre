@@ -124,6 +124,7 @@ class WiFiCSIMock : public IWiFiCSI {
     return ESP_OK;
   }
   bool is_enabled() const { return enabled_; }
+  bool has_callback() const { return callback_ != nullptr; }
   
   void set_config_error(esp_err_t err) { config_error_ = err; }
   void set_callback_error(esp_err_t err) { callback_error_ = err; }
@@ -979,6 +980,7 @@ void test_csi_pipeline_enable_csi_error(void) {
     
     TEST_ASSERT_EQUAL(ESP_FAIL, result);
     TEST_ASSERT_FALSE(manager.is_enabled());
+    TEST_ASSERT_FALSE(g_wifi_mock.has_callback());
 }
 
 void test_csi_pipeline_disable_error(void) {
@@ -992,7 +994,8 @@ void test_csi_pipeline_disable_error(void) {
     esp_err_t result = manager.disable();
     
     TEST_ASSERT_EQUAL(ESP_FAIL, result);
-    TEST_ASSERT_TRUE(manager.is_enabled());
+    TEST_ASSERT_FALSE(manager.is_enabled());
+    TEST_ASSERT_FALSE(g_wifi_mock.has_callback());
 }
 
 // ============================================================================
@@ -1011,6 +1014,8 @@ void test_csi_pipeline_callback_wrapper_triggered(void) {
     fill_valid_csi_info_(&csi_info, csi_buf);
     
     g_wifi_mock.trigger_callback(&csi_info);
+    TEST_ASSERT_EQUAL(0, detector.get_total_packets());
+    manager.loop();
     manager.flush_pending_candidate();
     
     TEST_ASSERT_TRUE(detector.get_total_packets() > 0);

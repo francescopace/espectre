@@ -49,18 +49,41 @@ void test_lightweight_detector_hampel_master_switch_controls_turbulence(void) {
   LightweightDetector detector;
   detector.configure_hampel(true, 5U, 3.0f);
   TEST_ASSERT_TRUE(detector.hampel_state_.enabled);
-  TEST_ASSERT_TRUE(detector.aggregated_hampel_state_.enabled);
+  TEST_ASSERT_TRUE(detector.aggregated_turbulence_.hampel_enabled());
 
   detector.configure_hampel(false, 5U, 3.0f);
   TEST_ASSERT_FALSE(detector.hampel_state_.enabled);
-  TEST_ASSERT_FALSE(detector.aggregated_hampel_state_.enabled);
+  TEST_ASSERT_FALSE(detector.aggregated_turbulence_.hampel_enabled());
 }
 
 void test_lightweight_detector_owns_aggregated_turbulence_ring(void) {
   LightweightDetector detector;
   TEST_ASSERT_EQUAL(detector.get_window_size(),
                     detector.aggregated_turbulence_buffer_.size());
-  TEST_ASSERT_EQUAL(0, detector.aggregated_turbulence_count_);
+  TEST_ASSERT_EQUAL(0, detector.aggregated_turbulence_.count());
+}
+
+void test_filtered_turbulence_ring_skips_large_missing_runs(void) {
+  float storage[4];
+  float scratch[4];
+  FilteredTurbulenceRing ring;
+  ring.bind(storage, 4U);
+  ring.add(1.0f);
+  ring.add(2.0f);
+
+  ring.advance_missing_slots(9U);
+  TEST_ASSERT_EQUAL(4, ring.count());
+  TEST_ASSERT_EQUAL(0, ring.valid_count());
+
+  ring.add(3.0f);
+  uint16_t count = 0U;
+  const float *ordered = ring.ordered_view(scratch, 4U, count);
+  TEST_ASSERT_NOT_NULL(ordered);
+  TEST_ASSERT_EQUAL(4, count);
+  TEST_ASSERT_TRUE(std::isnan(ordered[0]));
+  TEST_ASSERT_TRUE(std::isnan(ordered[1]));
+  TEST_ASSERT_TRUE(std::isnan(ordered[2]));
+  TEST_ASSERT_EQUAL_FLOAT(3.0f, ordered[3]);
 }
 
 void test_lightweight_detector_startup_q95_adapts_threshold(void) {
@@ -130,6 +153,7 @@ int process(void) {
   RUN_TEST(test_lightweight_detector_logit_matches_exported_linear_fusion);
   RUN_TEST(test_lightweight_detector_hampel_master_switch_controls_turbulence);
   RUN_TEST(test_lightweight_detector_owns_aggregated_turbulence_ring);
+  RUN_TEST(test_filtered_turbulence_ring_skips_large_missing_runs);
   RUN_TEST(test_lightweight_detector_startup_q95_adapts_threshold);
   RUN_TEST(test_lightweight_detector_noisy_startup_still_uses_shifted_logit_threshold);
   RUN_TEST(test_lightweight_detector_clear_buffer_resets_feature_state);

@@ -21,9 +21,7 @@ static const char *TAG = "HighAccuracyDetector";
 static_assert(ML_MODEL_INPUT_SIZE == ML_NUM_FEATURES,
               "Exported model input size must match extracted ML feature count");
 
-// ============================================================================
-// CONSTRUCTOR
-// ============================================================================
+// Construction and ownership
 
 HighAccuracyDetector::HighAccuracyDetector(uint16_t window_size, float threshold, uint16_t lag)
     : BaseDetector(window_size)
@@ -33,10 +31,7 @@ HighAccuracyDetector::HighAccuracyDetector(uint16_t window_size, float threshold
     , uses_aggregated_turbulence_(false)
     , lag_(std::min<uint16_t>(lag > 0U ? lag : 1U, L1_DELTA_LAG_MAX))
     , feature_scratch_(nullptr)
-    , aggregated_turbulence_buffer_(nullptr)
-    , aggregated_turbulence_index_(0U)
-    , aggregated_turbulence_count_(0U)
-    , aggregated_valid_count_(0U) {
+    , aggregated_turbulence_buffer_(nullptr) {
     threshold_ = clamp_threshold(threshold_, HIGH_ACCURACY_MIN_THRESHOLD, HIGH_ACCURACY_MAX_THRESHOLD);
     // Maintain the L1-delta rings only when the exported model needs them, and
     // reserve the rebuilt series only for the features that read it.
@@ -64,12 +59,7 @@ HighAccuracyDetector::HighAccuracyDetector(uint16_t window_size, float threshold
             ESP_LOGE(TAG, "Failed to allocate aggregated turbulence buffer");
         }
     }
-    hampel_turbulence_init(
-        &aggregated_hampel_state_, HAMPEL_TURBULENCE_WINDOW_DEFAULT,
-        HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, false);
-    lowpass_filter_init(
-        &aggregated_lowpass_state_, LOWPASS_CUTOFF_DEFAULT,
-        LOWPASS_SAMPLE_RATE, false);
+    aggregated_turbulence_.bind(aggregated_turbulence_buffer_, window_size_);
     l1_tracker_.configure(uses_l1_tracker_ ? l1_delta_capacity_() : 0U, lag_);
     shape_trajectory_tracker_.configure(uses_shape_trajectory_tracker_);
     ESP_LOGI(TAG,
@@ -95,11 +85,7 @@ HighAccuracyDetector::HighAccuracyDetector(HighAccuracyDetector&& other) noexcep
     , shape_trajectory_tracker_(std::move(other.shape_trajectory_tracker_))
     , feature_scratch_(other.feature_scratch_)
     , aggregated_turbulence_buffer_(other.aggregated_turbulence_buffer_)
-    , aggregated_turbulence_index_(other.aggregated_turbulence_index_)
-    , aggregated_turbulence_count_(other.aggregated_turbulence_count_)
-    , aggregated_valid_count_(other.aggregated_valid_count_)
-    , aggregated_hampel_state_(other.aggregated_hampel_state_)
-    , aggregated_lowpass_state_(other.aggregated_lowpass_state_) {
+    , aggregated_turbulence_(std::move(other.aggregated_turbulence_)) {
     other.feature_scratch_ = nullptr;
     other.aggregated_turbulence_buffer_ = nullptr;
 }
@@ -119,11 +105,7 @@ HighAccuracyDetector& HighAccuracyDetector::operator=(HighAccuracyDetector&& oth
         other.feature_scratch_ = nullptr;
         delete[] aggregated_turbulence_buffer_;
         aggregated_turbulence_buffer_ = other.aggregated_turbulence_buffer_;
-        aggregated_turbulence_index_ = other.aggregated_turbulence_index_;
-        aggregated_turbulence_count_ = other.aggregated_turbulence_count_;
-        aggregated_valid_count_ = other.aggregated_valid_count_;
-        aggregated_hampel_state_ = other.aggregated_hampel_state_;
-        aggregated_lowpass_state_ = other.aggregated_lowpass_state_;
+        aggregated_turbulence_ = std::move(other.aggregated_turbulence_);
         other.aggregated_turbulence_buffer_ = nullptr;
     }
     return *this;
@@ -143,20 +125,16 @@ MLSeriesScratch HighAccuracyDetector::series_scratch_() const {
 void HighAccuracyDetector::configure_hampel(bool enabled, uint8_t window_size,
                                   float threshold) {
     BaseDetector::configure_hampel(enabled, window_size, threshold);
-    hampel_turbulence_init(
-        &aggregated_hampel_state_, window_size, threshold, enabled);
+    aggregated_turbulence_.configure_hampel(enabled, window_size, threshold);
     l1_tracker_.configure_hampel(enabled, window_size, threshold);
 }
 
 void HighAccuracyDetector::configure_lowpass(bool enabled, float cutoff_hz) {
     BaseDetector::configure_lowpass(enabled, cutoff_hz);
-    lowpass_filter_init(
-        &aggregated_lowpass_state_, cutoff_hz, LOWPASS_SAMPLE_RATE, enabled);
+    aggregated_turbulence_.configure_lowpass(enabled, cutoff_hz);
 }
 
-// ============================================================================
-// DETECTION LOGIC
-// ============================================================================
+// Detection
 
 void HighAccuracyDetector::update_state() {
     if (!is_ready()) {
@@ -189,9 +167,7 @@ bool HighAccuracyDetector::set_threshold(float threshold) {
     return true;
 }
 
-// ============================================================================
-// FEATURE EXTRACTION
-// ============================================================================
+// Feature extraction
 
 void HighAccuracyDetector::extract_features(float* features_out) {
     uint16_t turb_count = 0U;
@@ -226,9 +202,7 @@ void HighAccuracyDetector::extract_features(float* features_out) {
                               trajectory_kendall);
 }
 
-// ============================================================================
-// L1-DELTA PROFILE PIPELINE
-// ============================================================================
+// L1-delta profile pipeline
 
 uint16_t HighAccuracyDetector::l1_delta_capacity_() const {
     // window_size profiles yield window_size - lag deltas. Use the configured
@@ -249,8 +223,8 @@ bool HighAccuracyDetector::is_ready() const {
     return (!uses_l1_tracker_ || l1_delta_capacity_() == 0U ||
             l1_tracker_.count() > 0U) &&
            (!uses_aggregated_turbulence_ ||
-            (aggregated_turbulence_count_ >= window_size_ &&
-             aggregated_valid_count_ >= minimum_valid_samples_));
+            (aggregated_turbulence_.count() >= window_size_ &&
+             aggregated_turbulence_.valid_count() >= minimum_valid_samples_));
 }
 
 void HighAccuracyDetector::process_packet(const int8_t* csi_data, size_t csi_len,
@@ -318,90 +292,24 @@ void HighAccuracyDetector::clear_buffer() {
     BaseDetector::clear_buffer();
     l1_tracker_.clear();
     shape_trajectory_tracker_.clear();
-    if (aggregated_turbulence_buffer_ != nullptr) {
-        std::fill(
-            aggregated_turbulence_buffer_,
-            aggregated_turbulence_buffer_ + window_size_, 0.0f);
-    }
-    aggregated_turbulence_index_ = 0U;
-    aggregated_turbulence_count_ = 0U;
-    aggregated_valid_count_ = 0U;
-    hampel_turbulence_init(
-        &aggregated_hampel_state_, aggregated_hampel_state_.window_size,
-        aggregated_hampel_state_.threshold, aggregated_hampel_state_.enabled);
-    lowpass_filter_reset(&aggregated_lowpass_state_);
+    aggregated_turbulence_.clear();
 }
 
 void HighAccuracyDetector::add_aggregated_turbulence_(float turbulence) {
-    if (aggregated_turbulence_buffer_ == nullptr) return;
-    const float hampel_filtered = hampel_filter_turbulence(
-        &aggregated_hampel_state_, turbulence);
-    const float filtered = lowpass_filter_apply(
-        &aggregated_lowpass_state_, hampel_filtered);
-    if (!std::isfinite(aggregated_turbulence_buffer_[aggregated_turbulence_index_])) {
-        ++aggregated_valid_count_;
-    } else if (aggregated_turbulence_count_ < window_size_) {
-        ++aggregated_valid_count_;
-    }
-    aggregated_turbulence_buffer_[aggregated_turbulence_index_] = filtered;
-    aggregated_turbulence_index_++;
-    if (aggregated_turbulence_index_ >= window_size_) {
-        aggregated_turbulence_index_ = 0U;
-    }
-    if (aggregated_turbulence_count_ < window_size_) {
-        ++aggregated_turbulence_count_;
-    }
+    aggregated_turbulence_.add(turbulence);
 }
 
 void HighAccuracyDetector::advance_missing_slots(uint32_t count) {
     BaseDetector::advance_missing_slots(count);
     if (uses_l1_tracker_) l1_tracker_.advance_missing_slots(count);
-    if (aggregated_turbulence_buffer_ == nullptr) return;
-    const float missing = std::numeric_limits<float>::quiet_NaN();
-    for (uint32_t slot = 0U; slot < count; ++slot) {
-        if (aggregated_turbulence_count_ >= window_size_ &&
-            std::isfinite(aggregated_turbulence_buffer_[aggregated_turbulence_index_])) {
-            --aggregated_valid_count_;
-        }
-        aggregated_turbulence_buffer_[aggregated_turbulence_index_] = missing;
-        aggregated_turbulence_index_++;
-        if (aggregated_turbulence_index_ >= window_size_) {
-            aggregated_turbulence_index_ = 0U;
-        }
-        if (aggregated_turbulence_count_ < window_size_) {
-            ++aggregated_turbulence_count_;
-        }
-    }
+    aggregated_turbulence_.advance_missing_slots(count);
 }
 
 const float* HighAccuracyDetector::ordered_aggregated_turbulence_(uint16_t& count) const {
-    count = 0U;
-    if (aggregated_turbulence_buffer_ == nullptr ||
-        aggregated_turbulence_count_ == 0U) {
-        return nullptr;
-    }
-    if (aggregated_turbulence_count_ < window_size_) {
-        count = aggregated_turbulence_count_;
-        return aggregated_turbulence_buffer_;
-    }
-    if (feature_scratch_ == nullptr) return nullptr;
-    const uint16_t tail = static_cast<uint16_t>(
-        window_size_ - aggregated_turbulence_index_);
-    std::copy(
-        aggregated_turbulence_buffer_ + aggregated_turbulence_index_,
-        aggregated_turbulence_buffer_ + window_size_,
-        feature_scratch_);
-    std::copy(
-        aggregated_turbulence_buffer_,
-        aggregated_turbulence_buffer_ + aggregated_turbulence_index_,
-        feature_scratch_ + tail);
-    count = aggregated_turbulence_count_;
-    return feature_scratch_;
+    return aggregated_turbulence_.ordered_view(feature_scratch_, window_size_, count);
 }
 
-// ============================================================================
-// MLP INFERENCE
-// ============================================================================
+// MLP inference
 
 // Inference runs without floating-point contraction.
 //

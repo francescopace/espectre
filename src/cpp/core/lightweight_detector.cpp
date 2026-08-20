@@ -33,16 +33,9 @@ LightweightDetector::LightweightDetector(uint16_t window_size, float threshold,
       settle_block_evaluations_(0U),
       settle_block_count_(0U),
       settle_block_index_(0U),
-      aggregated_turbulence_buffer_(window_size_, 0.0f),
-      aggregated_turbulence_index_(0U),
-      aggregated_turbulence_count_(0U),
-      aggregated_valid_count_(0U) {
+      aggregated_turbulence_buffer_(window_size_, 0.0f) {
   reset_settled_level_();
-  hampel_turbulence_init(&aggregated_hampel_state_,
-                         HAMPEL_TURBULENCE_WINDOW_DEFAULT,
-                         HAMPEL_TURBULENCE_THRESHOLD_DEFAULT, false);
-  lowpass_filter_init(&aggregated_lowpass_state_, LOWPASS_CUTOFF_DEFAULT,
-                      LOWPASS_SAMPLE_RATE, false);
+  aggregated_turbulence_.bind(aggregated_turbulence_buffer_.data(), window_size_);
   ESP_LOGI(TAG, "Initialized weighted fusion (window=%u, threshold=%.3f, ac_lag=%u)",
            static_cast<unsigned>(window_size_), threshold_,
            static_cast<unsigned>(autocorr_lag_));
@@ -84,8 +77,8 @@ void LightweightDetector::process_packet(const int8_t* csi_data, size_t csi_len,
 
 bool LightweightDetector::is_ready() const {
   return BaseDetector::is_ready() &&
-         aggregated_turbulence_count_ >= window_size_ &&
-         aggregated_valid_count_ >= minimum_valid_samples_;
+         aggregated_turbulence_.count() >= window_size_ &&
+         aggregated_turbulence_.valid_count() >= minimum_valid_samples_;
 }
 
 float LightweightDetector::calculate_turb_autocorr_() const {
@@ -115,15 +108,14 @@ float LightweightDetector::calculate_turb_autocorr_() const {
 }
 
 float LightweightDetector::calculate_turb_iqr_over_mean_aggr_() const {
-  if (aggregated_turbulence_count_ < window_size_ ||
-      ordered_turbulence_ == nullptr) return 0.0f;
-  const uint16_t tail = static_cast<uint16_t>(
-      window_size_ - aggregated_turbulence_index_);
-  std::copy(aggregated_turbulence_buffer_.begin() + aggregated_turbulence_index_,
-            aggregated_turbulence_buffer_.end(), ordered_turbulence_);
-  std::copy(aggregated_turbulence_buffer_.begin(),
-            aggregated_turbulence_buffer_.begin() + aggregated_turbulence_index_,
-            ordered_turbulence_ + tail);
+  if (aggregated_turbulence_.count() < window_size_ || ordered_turbulence_ == nullptr) {
+    return 0.0f;
+  }
+  uint16_t ordered_count = 0U;
+  if (aggregated_turbulence_.ordered_view(ordered_turbulence_, window_size_, ordered_count) == nullptr ||
+      ordered_count != window_size_) {
+    return 0.0f;
+  }
   uint16_t valid_count = 0U;
   float sum = 0.0f;
   for (uint16_t i = 0U; i < window_size_; ++i) {
@@ -295,64 +287,28 @@ void LightweightDetector::reset() {
 void LightweightDetector::clear_buffer() {
   BaseDetector::clear_buffer();
   reset_settled_level_();
-  std::fill(aggregated_turbulence_buffer_.begin(),
-            aggregated_turbulence_buffer_.end(), 0.0f);
-  aggregated_turbulence_index_ = 0U;
-  aggregated_turbulence_count_ = 0U;
-  aggregated_valid_count_ = 0U;
-  hampel_turbulence_init(&aggregated_hampel_state_,
-                         aggregated_hampel_state_.window_size,
-                         aggregated_hampel_state_.threshold,
-                         aggregated_hampel_state_.enabled);
-  lowpass_filter_reset(&aggregated_lowpass_state_);
+  aggregated_turbulence_.clear();
   clear_fusion_inputs_();
 }
 
 void LightweightDetector::configure_hampel(bool enabled, uint8_t window_size,
                                        float threshold) {
   BaseDetector::configure_hampel(enabled, window_size, threshold);
-  hampel_turbulence_init(&aggregated_hampel_state_, window_size, threshold,
-                         enabled);
+  aggregated_turbulence_.configure_hampel(enabled, window_size, threshold);
 }
 
 void LightweightDetector::configure_lowpass(bool enabled, float cutoff_hz) {
   BaseDetector::configure_lowpass(enabled, cutoff_hz);
-  lowpass_filter_init(&aggregated_lowpass_state_, cutoff_hz,
-                      LOWPASS_SAMPLE_RATE, enabled);
+  aggregated_turbulence_.configure_lowpass(enabled, cutoff_hz);
 }
 
 void LightweightDetector::add_aggregated_turbulence_(float turbulence) {
-  const float hampel = hampel_filter_turbulence(
-      &aggregated_hampel_state_, turbulence);
-  const float filtered = lowpass_filter_apply(&aggregated_lowpass_state_, hampel);
-  if (!std::isfinite(aggregated_turbulence_buffer_[aggregated_turbulence_index_])) {
-    ++aggregated_valid_count_;
-  } else if (aggregated_turbulence_count_ < window_size_) {
-    ++aggregated_valid_count_;
-  }
-  aggregated_turbulence_buffer_[aggregated_turbulence_index_] = filtered;
-  aggregated_turbulence_index_++;
-  if (aggregated_turbulence_index_ >= window_size_) aggregated_turbulence_index_ = 0U;
-  if (aggregated_turbulence_count_ < window_size_) aggregated_turbulence_count_++;
+  aggregated_turbulence_.add(turbulence);
 }
 
 void LightweightDetector::advance_missing_slots(uint32_t count) {
   BaseDetector::advance_missing_slots(count);
-  const float missing = std::numeric_limits<float>::quiet_NaN();
-  for (uint32_t slot = 0U; slot < count; ++slot) {
-    if (aggregated_turbulence_count_ >= window_size_ &&
-        std::isfinite(aggregated_turbulence_buffer_[aggregated_turbulence_index_])) {
-      --aggregated_valid_count_;
-    }
-    aggregated_turbulence_buffer_[aggregated_turbulence_index_] = missing;
-    aggregated_turbulence_index_++;
-    if (aggregated_turbulence_index_ >= window_size_) {
-      aggregated_turbulence_index_ = 0U;
-    }
-    if (aggregated_turbulence_count_ < window_size_) {
-      ++aggregated_turbulence_count_;
-    }
-  }
+  aggregated_turbulence_.advance_missing_slots(count);
 }
 
 void LightweightDetector::clear_fusion_inputs_() {

@@ -23,6 +23,7 @@
 #include "freertos/FreeRTOS.h"
 #if defined(ESP_PLATFORM)
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 #endif
 #include "lwip/sockets.h"
@@ -40,8 +41,10 @@ class CsiStreamTransport {
  public:
   static constexpr size_t kStreamRecordMaxBytes = sizeof(CsiStreamHeaderV7) + HT20_CSI_LEN;
 
+  ~CsiStreamTransport();
   void configure(uint64_t device_id, uint16_t collector_port, uint32_t log_interval_ms, uint8_t tx_batch_records);
   void reset_session();
+  void shutdown();
   void clear_ap_bssid();
   void set_ap_bssid(const uint8_t *bssid, size_t len);
 
@@ -64,6 +67,13 @@ class CsiStreamTransport {
     uint64_t captured_at_us{0U};
   };
 
+  struct StreamRecordView final {
+    const wifi_pkt_rx_ctrl_t *rx_ctrl{nullptr};
+    const int8_t *csi{nullptr};
+    uint16_t csi_len{0U};
+    bool first_word_invalid{false};
+  };
+
   static constexpr uint64_t kFreshSampleMaxAgeUs = 10000U;
 
   size_t build_stream_packet_(uint8_t *buffer, size_t buffer_len);
@@ -78,6 +88,10 @@ class CsiStreamTransport {
                                           uint32_t pacing_rx_total,
                                           uint8_t *buffer,
                                           size_t buffer_len);
+  size_t build_stream_packet_from_view_(const StreamRecordView &view,
+                                        uint32_t pacing_rx_total,
+                                        uint8_t *buffer,
+                                        size_t buffer_len);
   bool ensure_stream_socket_();
   void close_stream_socket_();
   bool send_stream_datagram_();
@@ -87,6 +101,8 @@ class CsiStreamTransport {
   bool direct_credit_streaming_enabled_() const;
   bool consume_pending_pacing_credit_();
   bool ensure_direct_tx_worker_();
+  void stop_direct_tx_worker_();
+  void destroy_direct_tx_resources_();
   void reset_direct_tx_queue_();
   static void direct_tx_task_entry_(void *context);
   void run_direct_tx_task_();
@@ -124,6 +140,7 @@ class CsiStreamTransport {
   QueueHandle_t direct_tx_free_slots_{nullptr};
   QueueHandle_t direct_tx_ready_slots_{nullptr};
   TaskHandle_t direct_tx_task_handle_{nullptr};
+  SemaphoreHandle_t direct_tx_stopped_{nullptr};
   std::atomic<bool> direct_tx_task_running_{false};
 #endif
 

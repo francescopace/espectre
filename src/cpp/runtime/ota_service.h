@@ -26,11 +26,10 @@ namespace espectre {
  * underlying stack themselves.
  *
  * @par Threading
- * Unlike `IRuntimeListener`, these callbacks are **not** guaranteed to run on
- * your loop task: the shipped implementation runs the check and the download
- * on its own worker task and invokes both callbacks from there. Treat the
- * status and prepare callbacks as cross-task, keep them short, and hand work
- * back to your loop rather than driving the runtime from inside them.
+ * Deliver status and prepare callbacks from `loop()`, never from a private
+ * worker or stack task. The shipped implementation performs network I/O on a
+ * worker, queues progress, and waits for the loop to run the prepare hook
+ * before starting the download.
  *
  * @par Operation model
  * `start_check()` and `start_update()` are asynchronous and mutually
@@ -50,9 +49,8 @@ class IOtaService {
   /**
    * Advance service work from the frontend loop.
    *
-   * Implementations that do their work on a private task, including the
-   * shipped one, leave this empty. Call it anyway so a synchronous
-   * implementation stays a drop-in replacement.
+   * Implementations may do blocking work on a private task, but loop() owns
+   * callback delivery and other interaction with the frontend.
    */
   virtual void loop() = 0;
   /** Abandon any operation in flight and release resources. Safe to repeat. */

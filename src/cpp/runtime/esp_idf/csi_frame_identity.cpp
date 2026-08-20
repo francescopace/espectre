@@ -14,6 +14,7 @@
 #include <cstring>
 
 #include "lwip/inet.h"
+#include "mac_address_helpers.h"
 
 namespace espectre {
 
@@ -48,18 +49,6 @@ bool is_broadcast_mac(const uint8_t *mac) {
   return true;
 }
 
-bool is_zero_mac(const uint8_t *mac) {
-  if (mac == nullptr) {
-    return true;
-  }
-  for (size_t i = 0; i < 6U; i++) {
-    if (mac[i] != 0U) {
-      return false;
-    }
-  }
-  return true;
-}
-
 bool destination_mac_matches(const uint8_t *local_mac_addr, const uint8_t *frame_dmac) {
   if (frame_dmac == nullptr) {
     return true;
@@ -67,7 +56,7 @@ bool destination_mac_matches(const uint8_t *local_mac_addr, const uint8_t *frame
   if (is_broadcast_mac(frame_dmac) || (frame_dmac[0] & 0x01U) != 0U) {
     return true;
   }
-  if (is_zero_mac(local_mac_addr)) {
+  if (is_zero_mac_address(local_mac_addr)) {
     return true;
   }
   return std::memcmp(local_mac_addr, frame_dmac, 6U) == 0;

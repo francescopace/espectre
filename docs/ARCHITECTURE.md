@@ -158,7 +158,7 @@ Runtime detector selection is capability-gated. ESPHome and Native enable the sh
 
 ESP-IDF runtime implementations reuse `RuntimeDebugTelemetry` for one `[telemetry]` log line approximately every 10 seconds at `DEBUG` level. It reports current, minimum, and largest-block heap values; configured CPU frequency; runtime-loop load and timing; and sampled detector evaluation timing.
 
-`runtime_load` measures wall time spent inside the ESPectre runtime loop, not whole-system CPU utilization. Wi-Fi callbacks and frontend services may run in other tasks. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. For High Accuracy, it covers ML feature extraction, inference, and state update.
+`runtime_load` measures wall time spent inside the ESPectre runtime loop, not whole-system CPU utilization. Wi-Fi callbacks only normalize and enqueue CSI; detector processing, inference, state transitions, and frontend callback delivery run in the owning loop task. MQTT, BLE, and OTA stacks may still perform transport work on private tasks, but their application events are drained by the frontend loop. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. For High Accuracy, it covers ML feature extraction, inference, and state update.
 
 This debug log is an implementation diagnostic, not part of ESPectre Protocol. Streamer also retains its separate live transport telemetry for pacing, CSI, and uplink health during collection.
 

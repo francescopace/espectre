@@ -33,9 +33,9 @@ namespace espectre {
  * firmware unchanged.
  *
  * @par Threading
- * Callbacks come from the BLE stack's own task, not from your loop task. Keep
- * them short, and prefer queueing the request and applying it from your loop
- * over driving the runtime directly from the BLE context.
+ * Deliver application callbacks from `loop()`, never from the BLE host task.
+ * The shipped NimBLE implementation copies stack events into bounded
+ * mailboxes, so frontend state and runtime controls retain one task owner.
  */
 class IBleBindings {
  public:
@@ -58,7 +58,7 @@ class IBleBindings {
    *         Bluetooth enabled.
    */
   virtual bool setup() = 0;
-  /** Advance stack work from the frontend loop. Empty for event-driven stacks. */
+  /** Advance stack work and deliver queued callbacks from the frontend loop. */
   virtual void loop() = 0;
   /** Stop advertising, drop connections, and release the stack. Safe to repeat. */
   virtual void shutdown() = 0;

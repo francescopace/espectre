@@ -31,6 +31,8 @@ void CsiPipeline::init(BaseDetector* detector,
   capture_service_.set_packet_callback(&CsiPipeline::capture_packet_callback_, this);
   capture_service_.set_channel_change_callback(&CsiPipeline::capture_channel_change_callback_, this);
   accepted_packets_total_.store(0U, std::memory_order_relaxed);
+  pending_frames_.clear();
+  pending_frame_drops_.store(0U, std::memory_order_relaxed);
   sampler_.reset();
   pending_candidate_valid_ = false;
   if (detector_ != nullptr) {
@@ -69,16 +71,23 @@ void CsiPipeline::set_detector(BaseDetector *detector) {
     detector_->set_minimum_valid_samples(
         static_cast<uint16_t>(sampler_.minimum_valid_slots()));
   }
-  clear_detector_buffer_deferred_();
+  clear_detector_state_();
   ESP_LOGD(TAG, "Detector updated to %s", detector_ != nullptr ? detector_->get_name() : "NULL");
 }
 
 void CsiPipeline::clear_detector_buffer() {
-  clear_detector_buffer_deferred_();
-  loop();
+  // Frames accepted before this reset belong to the previous calibration or
+  // channel epoch and must not repopulate the freshly cleared detector.
+  pending_frames_.clear();
+  live_telemetry_event_.clear();
+  clear_detector_state_();
+  MotionState motion_state = MotionState::IDLE;
+  if (motion_state_event_.take(motion_state) && motion_state_callback_) {
+    motion_state_callback_(motion_state);
+  }
 }
 
-void CsiPipeline::clear_detector_buffer_deferred_() {
+void CsiPipeline::clear_detector_state_() {
   if (detector_) {
     MotionState previous_state = effective_motion_state_;
     // Cold reset: clear turbulence history and state.
@@ -100,6 +109,7 @@ void CsiPipeline::request_motion_state_callback_(MotionState previous_state, Mot
 }
 
 void CsiPipeline::loop() {
+  drain_pending_frames_();
   capture_service_.loop();
   MotionState motion_state = MotionState::IDLE;
   if (motion_state_event_.take(motion_state) && motion_state_callback_) {
@@ -130,10 +140,12 @@ void CsiPipeline::publish_if_due(uint32_t now_ms) {
 }
 
 void CsiPipeline::set_local_identity(uint32_t local_ip_addr, const uint8_t *local_mac_addr) {
+  std::lock_guard<detail::PendingEventLock> lock(local_identity_lock_);
   local_ip_addr_ = local_ip_addr;
-  local_mac_addr_.fill(0U);
-  if (local_mac_addr != nullptr) {
-    std::copy(local_mac_addr, local_mac_addr + local_mac_addr_.size(), local_mac_addr_.begin());
+  if (local_mac_addr == nullptr) {
+    local_mac_addr_.fill(0U);
+  } else {
+    std::copy_n(local_mac_addr, local_mac_addr_.size(), local_mac_addr_.begin());
   }
 }
 
@@ -186,26 +198,19 @@ bool CsiPipeline::flush_pending_candidate() {
   return true;
 }
 
-void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const NormalizedCSIPayload &normalized) {
-  if (data == nullptr || detector_ == nullptr || !normalized.valid()) {
+void CsiPipeline::process_pending_frame_(const PendingCsiFrame &frame) {
+  if (detector_ == nullptr || frame.len == 0U || frame.len > frame.csi.size()) {
     return;
   }
-  const CsiFormatAssessment &assessment = capture_service_.last_assessment();
-  if (!assessment.is_sensing_accepted()) {
-    return;
-  }
-  if (!csi_frame_matches_local_identity(data, local_ip_addr_, local_mac_addr_.data())) {
-    return;
-  }
-  if (assessment.reset_detector_before_consume) {
-    clear_detector_buffer_deferred_();
+  if (frame.reset_detector_before_consume) {
+    clear_detector_state_();
   }
 
   accepted_packets_total_.fetch_add(1U, std::memory_order_relaxed);
 
-  const int8_t rssi_dbm = data->rx_ctrl.rssi;
+  const int8_t rssi_dbm = frame.rx_ctrl.rssi;
   last_rssi_dbm_ = rssi_dbm;
-  last_channel_ = data->rx_ctrl.channel;
+  last_channel_ = frame.rx_ctrl.channel;
 
 #if ESP_PLATFORM && !CONFIG_IDF_TARGET_ESP32
   // Wall-clock backlog rejection is valid only when RX timestamps share the
@@ -214,9 +219,9 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
   const uint32_t processing_time_us =
       static_cast<uint32_t>(static_cast<uint64_t>(esp_timer_get_time()));
   const bool emitted = sampler_.admit(
-      data->rx_ctrl.timestamp, true, processing_time_us, true);
+      frame.rx_ctrl.timestamp, true, processing_time_us, true);
 #else
-  const bool emitted = sampler_.admit(data->rx_ctrl.timestamp);
+  const bool emitted = sampler_.admit(frame.rx_ctrl.timestamp);
 #endif
   if (emitted && pending_candidate_valid_) {
     process_admitted_candidate_();
@@ -225,7 +230,17 @@ void CsiPipeline::process_normalized_packet_(const wifi_csi_info_t *data, const 
     apply_gap_history_reset_();
   }
   if (sampler_.selected_current()) {
-    store_candidate_(data, normalized);
+    wifi_csi_info_t info{};
+    info.rx_ctrl = frame.rx_ctrl;
+    const NormalizedCSIPayload normalized{frame.csi.data(), frame.len};
+    store_candidate_(&info, normalized);
+  }
+}
+
+void CsiPipeline::drain_pending_frames_() {
+  PendingCsiFrame frame;
+  while (pending_frames_.take(frame)) {
+    process_pending_frame_(frame);
   }
 }
 
@@ -330,8 +345,29 @@ void CsiPipeline::capture_packet_callback_(void *context,
                                            const wifi_csi_info_t *data,
                                            const NormalizedCSIPayload &normalized) {
   auto *pipeline = static_cast<CsiPipeline *>(context);
-  if (pipeline != nullptr) {
-    pipeline->process_normalized_packet_(data, normalized);
+  if (pipeline == nullptr || data == nullptr || !normalized.valid() ||
+      normalized.len == 0U || normalized.len > HT20_CSI_LEN) {
+    return;
+  }
+
+  uint32_t local_ip_addr = 0U;
+  std::array<uint8_t, 6U> local_mac_addr{};
+  {
+    std::lock_guard<detail::PendingEventLock> lock(pipeline->local_identity_lock_);
+    local_ip_addr = pipeline->local_ip_addr_;
+    local_mac_addr = pipeline->local_mac_addr_;
+  }
+  if (!csi_frame_matches_local_identity(data, local_ip_addr, local_mac_addr.data())) {
+    return;
+  }
+
+  PendingCsiFrame frame;
+  frame.rx_ctrl = data->rx_ctrl;
+  frame.len = static_cast<uint16_t>(normalized.len);
+  frame.reset_detector_before_consume = normalized.reset_detector_before_consume;
+  std::copy_n(normalized.data, normalized.len, frame.csi.begin());
+  if (!pipeline->pending_frames_.post(frame)) {
+    pipeline->pending_frame_drops_.fetch_add(1U, std::memory_order_relaxed);
   }
 }
 
@@ -367,14 +403,15 @@ esp_err_t CsiPipeline::disable() {
   }
   
   esp_err_t err = capture_service_.disable();
-  if (err != ESP_OK) {
+  if (err != ESP_OK && capture_service_.is_enabled()) {
     return err;
   }
   
   enabled_ = false;
   packet_callback_ = nullptr;
   capture_service_.set_packet_callback(nullptr, nullptr);
-  clear_detector_buffer_deferred_();
+  pending_frames_.clear();
+  clear_detector_state_();
   motion_state_event_.clear();
   live_telemetry_event_.clear();
   detection_timing_.clear();
@@ -386,7 +423,7 @@ esp_err_t CsiPipeline::disable() {
   sampler_.reset();
   pending_candidate_valid_ = false;
   reset_motion_state_filter_();
-  return ESP_OK;
+  return err;
 }
 
 }  // namespace espectre

@@ -120,6 +120,10 @@ esp_err_t CsiCaptureService::enable() {
   last_set_enabled_err_.store(err, std::memory_order_relaxed);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to enable CSI: %s", esp_err_to_name(err));
+    const esp_err_t rollback_err = wifi_csi_->set_csi_rx_cb(nullptr, nullptr);
+    if (rollback_err != ESP_OK) {
+      ESP_LOGE(TAG, "Failed to roll back CSI callback registration: %s", esp_err_to_name(rollback_err));
+    }
     return err;
   }
 
@@ -139,16 +143,22 @@ esp_err_t CsiCaptureService::disable() {
   }
 
   const uint32_t attempt = disable_attempts_.fetch_add(1U, std::memory_order_relaxed) + 1U;
-  esp_err_t err = wifi_csi_->set_csi(false);
-  last_disable_err_.store(err, std::memory_order_relaxed);
+  // Remove the callback first so every return path is safe for destruction,
+  // even when disabling CSI itself reports an error.
+  esp_err_t err = wifi_csi_->set_csi_rx_cb(nullptr, nullptr);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to disable CSI: %s", esp_err_to_name(err));
+    last_disable_err_.store(err, std::memory_order_relaxed);
+    ESP_LOGE(TAG, "Failed to unregister CSI callback: %s", esp_err_to_name(err));
     return err;
   }
 
-  err = wifi_csi_->set_csi_rx_cb(nullptr, nullptr);
+  err = wifi_csi_->set_csi(false);
+  last_disable_err_.store(err, std::memory_order_relaxed);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to unregister CSI callback: %s", esp_err_to_name(err));
+    enabled_ = false;
+    rx_timestamp_tracker_.reset();
+    reset_channel_tracking_();
+    ESP_LOGE(TAG, "Failed to disable CSI after unregistering its callback: %s", esp_err_to_name(err));
     return err;
   }
 
@@ -226,10 +236,9 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
   assessment.reset_detector_before_consume = should_reset_detector;
   consecutive_format_drops_ = 0U;
 
-  int8_t csi_remapped[HT20_CSI_LEN];
   NormalizedCSIPayload normalized{data->buf, HT20_CSI_LEN, NormalizedCSIPayloadTag::NONE};
   if (assessment.requires_normalization()) {
-    normalized = normalize_ht20_csi_payload(data->buf, data->len, csi_remapped, sizeof(csi_remapped));
+    normalized = normalize_ht20_csi_payload(data->buf, data->len, remap_scratch_.data(), remap_scratch_.size());
   } else {
     normalized = {data->buf, HT20_CSI_LEN, NormalizedCSIPayloadTag::NONE};
   }
@@ -239,7 +248,6 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
   // DEFAULT_SUBCARRIERS assumes. Latch the first confident detection so a single
   // packet with a fully faded guard-adjacent tone cannot leave one frame
   // unrotated in an otherwise rotated stream.
-  int8_t csi_rotated[HT20_CSI_LEN];
   if (normalized.valid() && normalized.len == HT20_CSI_LEN) {
     if (bin_layout_ == Ht20BinLayout::UNKNOWN) {
       const Ht20BinLayout detected =
@@ -249,8 +257,8 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
       }
     }
     if (bin_layout_ == Ht20BinLayout::CLASSIC) {
-      rotate_ht20_classic_to_centered(normalized.data, csi_rotated);
-      normalized.data = csi_rotated;
+      rotate_ht20_classic_to_centered(normalized.data, rotation_scratch_.data());
+      normalized.data = rotation_scratch_.data();
       normalized.rotated_to_centered = true;
     }
   }
@@ -283,6 +291,7 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
     return;
   }
 
+  normalized.reset_detector_before_consume = assessment.reset_detector_before_consume;
   last_assessment_ = assessment;
   const uint8_t packet_channel = data->rx_ctrl.channel;
   const uint8_t previous_channel = current_channel_.load(std::memory_order_relaxed);

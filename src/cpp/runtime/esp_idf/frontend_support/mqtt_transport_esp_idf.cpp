@@ -10,6 +10,7 @@
 #include "mqtt_transport_esp_idf.h"
 
 #include <cstdio>
+#include <cstring>
 
 #include "esp_log.h"
 
@@ -89,6 +90,7 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
     shutdown();
   }
   subscriptions_.clear();
+  reset_message_slots_();
 
   broker_uri_ = make_broker_uri(config);
   mqtt_username_ = config.mqtt_username;
@@ -129,21 +131,40 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
   return true;
 }
 
-void EspIdfMqttTransport::loop() {}
+void EspIdfMqttTransport::loop() {
+  bool connected = false;
+  if (connection_event_.take(connected)) {
+    if (connected) {
+      subscribe_registered_topics_();
+    }
+    if (connection_callback_) {
+      connection_callback_(connected);
+    }
+  }
+
+  uint8_t slot_index = 0U;
+  while (ready_message_slots_.take(slot_index)) {
+    if (slot_index < message_slots_.size()) {
+      dispatch_message_(message_slots_[slot_index]);
+      (void)free_message_slots_.post(slot_index);
+    }
+  }
+}
 
 void EspIdfMqttTransport::shutdown() {
-  connected_ = false;
-  command_payload_assembler_.reset();
-  if (client_ == nullptr) {
-    return;
+  if (client_ != nullptr) {
+    esp_mqtt_client_stop(client_);
+    esp_mqtt_client_destroy(client_);
+    client_ = nullptr;
   }
-  esp_mqtt_client_stop(client_);
-  esp_mqtt_client_destroy(client_);
-  client_ = nullptr;
+  connected_.store(false, std::memory_order_relaxed);
+  command_payload_assembler_.reset();
+  connection_event_.clear();
+  reset_message_slots_();
 }
 
 bool EspIdfMqttTransport::publish(const std::string &topic, const std::string &payload, bool retain) {
-  if (client_ == nullptr || !connected_) {
+  if (client_ == nullptr || !connected_.load(std::memory_order_relaxed)) {
     return false;
   }
   const int id = esp_mqtt_client_publish(client_, topic.c_str(), payload.c_str(), 0, 0, retain ? 1 : 0);
@@ -151,7 +172,7 @@ bool EspIdfMqttTransport::publish(const std::string &topic, const std::string &p
 }
 
 bool EspIdfMqttTransport::publish_suffix(const char *suffix, const std::string &payload, bool retain) {
-  if (client_ == nullptr || !connected_ || suffix == nullptr || suffix[0] == '\0') {
+  if (client_ == nullptr || !connected_.load(std::memory_order_relaxed) || suffix == nullptr || suffix[0] == '\0') {
     return false;
   }
   publish_topic_.assign(topic_base_);
@@ -168,11 +189,11 @@ bool EspIdfMqttTransport::subscribe(const std::string &topic, MessageCallback ca
   for (auto &subscription : subscriptions_) {
     if (subscription.topic == topic) {
       subscription.callback = std::move(callback);
-      return connected_ ? subscribe_topic_(topic) : true;
+      return connected_.load(std::memory_order_relaxed) ? subscribe_topic_(topic) : true;
     }
   }
   subscriptions_.push_back(TopicSubscription{topic, std::move(callback)});
-  return connected_ ? subscribe_topic_(topic) : true;
+  return connected_.load(std::memory_order_relaxed) ? subscribe_topic_(topic) : true;
 }
 
 void EspIdfMqttTransport::set_command_callback(CommandCallback callback) {
@@ -201,19 +222,14 @@ void EspIdfMqttTransport::handle_event_(esp_mqtt_event_handle_t event) {
   }
   switch (event->event_id) {
     case MQTT_EVENT_CONNECTED:
-      connected_ = true;
-      subscribe_registered_topics_();
-      if (connection_callback_) {
-        connection_callback_(true);
-      }
+      connected_.store(true, std::memory_order_relaxed);
+      connection_event_.post(true);
       ESP_LOGI(TAG, "MQTT connected");
       break;
     case MQTT_EVENT_DISCONNECTED:
-      connected_ = false;
+      connected_.store(false, std::memory_order_relaxed);
       command_payload_assembler_.reset();
-      if (connection_callback_) {
-        connection_callback_(false);
-      }
+      connection_event_.post(false);
       ESP_LOGW(TAG, "MQTT disconnected");
       break;
     case MQTT_EVENT_DATA:
@@ -221,15 +237,18 @@ void EspIdfMqttTransport::handle_event_(esp_mqtt_event_handle_t event) {
         break;
       }
       {
-        const std::string topic(event->topic, static_cast<size_t>(event->topic_len));
-        if (topic == command_topic_ && command_callback_) {
+        const size_t topic_len = static_cast<size_t>(event->topic_len);
+        const bool is_command = topic_len == command_topic_.size() &&
+            std::memcmp(event->topic, command_topic_.data(), topic_len) == 0;
+        if (is_command) {
           const auto result = command_payload_assembler_.append(
               event->data,
               static_cast<size_t>(event->data_len),
               static_cast<size_t>(event->total_data_len),
               static_cast<size_t>(event->current_data_offset));
           if (result == MqttPayloadAssembler::Result::COMPLETE) {
-            command_callback_(command_payload_assembler_.payload());
+            const std::string_view payload = command_payload_assembler_.payload();
+            (void)enqueue_message_(event->topic, topic_len, payload.data(), payload.size());
             command_payload_assembler_.reset();
           } else if (result == MqttPayloadAssembler::Result::INVALID) {
             ESP_LOGW(TAG, "Rejected invalid or oversized MQTT command payload");
@@ -237,19 +256,74 @@ void EspIdfMqttTransport::handle_event_(esp_mqtt_event_handle_t event) {
           break;
         }
         if (event->current_data_offset != 0 || event->data_len != event->total_data_len) {
-          ESP_LOGW(TAG, "Ignoring fragmented MQTT payload on unsupported topic: %s", topic.c_str());
+          ESP_LOGW(TAG, "Ignoring fragmented MQTT payload on unsupported topic: %.*s",
+                   event->topic_len, event->topic);
           break;
         }
-        for (const auto &subscription : subscriptions_) {
-          if (subscription.topic == topic && subscription.callback) {
-            subscription.callback(topic, std::string(event->data, static_cast<size_t>(event->data_len)));
-            break;
-          }
-        }
+        (void)enqueue_message_(event->topic, topic_len, event->data,
+                               static_cast<size_t>(event->data_len));
       }
       break;
     default:
       break;
+  }
+}
+
+bool EspIdfMqttTransport::enqueue_message_(const char *topic,
+                                           size_t topic_len,
+                                           const char *payload,
+                                           size_t payload_len) {
+  if (topic == nullptr || payload == nullptr || topic_len == 0U ||
+      topic_len >= PendingMessage{}.topic.size() ||
+      payload_len > MqttPayloadAssembler::MAX_PAYLOAD_SIZE) {
+    dropped_messages_.fetch_add(1U, std::memory_order_relaxed);
+    return false;
+  }
+
+  uint8_t slot_index = 0U;
+  if (!free_message_slots_.take(slot_index) || slot_index >= message_slots_.size()) {
+    dropped_messages_.fetch_add(1U, std::memory_order_relaxed);
+    ESP_LOGW(TAG, "Dropping MQTT message because the frontend queue is full");
+    return false;
+  }
+  PendingMessage &message = message_slots_[slot_index];
+  std::memcpy(message.topic.data(), topic, topic_len);
+  std::memcpy(message.payload.data(), payload, payload_len);
+  message.topic[topic_len] = '\0';
+  message.payload[payload_len] = '\0';
+  message.topic_len = static_cast<uint16_t>(topic_len);
+  message.payload_len = static_cast<uint16_t>(payload_len);
+  if (!ready_message_slots_.post(slot_index)) {
+    (void)free_message_slots_.post(slot_index);
+    dropped_messages_.fetch_add(1U, std::memory_order_relaxed);
+    ESP_LOGW(TAG, "Dropping MQTT message because the frontend queue is full");
+    return false;
+  }
+  return true;
+}
+
+void EspIdfMqttTransport::reset_message_slots_() {
+  ready_message_slots_.clear();
+  free_message_slots_.clear();
+  for (uint8_t index = 0U; index < message_slots_.size(); ++index) {
+    (void)free_message_slots_.post(index);
+  }
+}
+
+void EspIdfMqttTransport::dispatch_message_(const PendingMessage &message) {
+  const std::string topic(message.topic.data(), message.topic_len);
+  const std::string payload(message.payload.data(), message.payload_len);
+  if (topic == command_topic_) {
+    if (command_callback_) {
+      command_callback_(payload);
+    }
+    return;
+  }
+  for (const auto &subscription : subscriptions_) {
+    if (subscription.topic == topic && subscription.callback) {
+      subscription.callback(topic, payload);
+      return;
+    }
   }
 }
 

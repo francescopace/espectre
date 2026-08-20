@@ -9,6 +9,8 @@
  */
 #include "runtime_diagnostics.h"
 
+#include "counter_helpers.h"
+
 #include <cstdio>
 
 #include "runtime_config_utils.h"
@@ -16,10 +18,6 @@
 namespace espectre {
 
 namespace {
-
-uint64_t counter_delta(uint64_t current, uint64_t previous) {
-  return current >= previous ? current - previous : current;
-}
 
 float packets_per_second(uint64_t delta, uint32_t elapsed_ms) {
   return elapsed_ms > 0U

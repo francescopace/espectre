@@ -430,12 +430,12 @@ void test_mqtt_payload_assembler_accepts_complete_and_fragmented_payloads(void) 
     MqttPayloadAssembler assembler;
 
     TEST_ASSERT_TRUE(assembler.append("ping", 4, 4, 0) == MqttPayloadAssembler::Result::COMPLETE);
-    TEST_ASSERT_EQUAL_STRING("ping", assembler.payload().c_str());
+    TEST_ASSERT_TRUE(assembler.payload() == "ping");
     assembler.reset();
 
     TEST_ASSERT_TRUE(assembler.append("calib", 5, 9, 0) == MqttPayloadAssembler::Result::INCOMPLETE);
     TEST_ASSERT_TRUE(assembler.append("rate", 4, 9, 5) == MqttPayloadAssembler::Result::COMPLETE);
-    TEST_ASSERT_EQUAL_STRING("calibrate", assembler.payload().c_str());
+    TEST_ASSERT_TRUE(assembler.payload() == "calibrate");
 }
 
 void test_mqtt_payload_assembler_rejects_invalid_fragments(void) {

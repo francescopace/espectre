@@ -142,12 +142,12 @@ void test_high_accuracy_detector_hampel_master_switch_controls_both_streams(void
     HighAccuracyDetector detector;
     detector.configure_hampel(true, 5U, 3.0f);
     TEST_ASSERT_TRUE(detector.hampel_state_.enabled);
-    TEST_ASSERT_TRUE(detector.aggregated_hampel_state_.enabled);
+    TEST_ASSERT_TRUE(detector.aggregated_turbulence_.hampel_enabled());
     TEST_ASSERT_TRUE(detector.l1_tracker_.hampel_state_.enabled);
 
     detector.configure_hampel(false, 5U, 3.0f);
     TEST_ASSERT_FALSE(detector.hampel_state_.enabled);
-    TEST_ASSERT_FALSE(detector.aggregated_hampel_state_.enabled);
+    TEST_ASSERT_FALSE(detector.aggregated_turbulence_.hampel_enabled());
     TEST_ASSERT_FALSE(detector.l1_tracker_.hampel_state_.enabled);
 }
 

@@ -16,7 +16,6 @@
 #include <cstdint>
 #include <cstring>
 #include <fcntl.h>
-#include <net/if.h>
 #include <unistd.h>
 
 #include "esp_netif.h"
@@ -24,6 +23,7 @@
 #include "espectre_log.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
+#include "sta_socket_helpers.h"
 
 namespace espectre {
 
@@ -123,29 +123,6 @@ const char *traffic_mode_name(TrafficGeneratorMode mode) {
   return mode == TrafficGeneratorMode::PING ? "ping" : "dns";
 }
 
-esp_netif_t *get_sta_netif() { return esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"); }
-
-bool bind_socket_to_sta_interface(int sock) {
-  esp_netif_t *netif = get_sta_netif();
-  if (netif == nullptr) {
-    return false;
-  }
-  const int if_index = esp_netif_get_netif_impl_index(netif);
-  if (if_index <= 0) {
-    return false;
-  }
-
-  struct ifreq iface{};
-  if (if_indextoname(static_cast<unsigned>(if_index), iface.ifr_name) == nullptr) {
-    return false;
-  }
-  if (setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, &iface, sizeof(iface)) != 0) {
-    ESP_LOGW(TAG, "Failed to bind socket to %s (errno=%d)", iface.ifr_name, errno);
-    return false;
-  }
-  return true;
-}
-
 int create_protocol_socket(const TrafficProtocol &protocol) {
   const int sock = socket(AF_INET, protocol.socket_type(), protocol.socket_protocol());
   if (sock < 0) {
@@ -153,7 +130,7 @@ int create_protocol_socket(const TrafficProtocol &protocol) {
     return -1;
   }
 
-  if (!bind_socket_to_sta_interface(sock)) {
+  if (!bind_socket_to_sta_interface(sock, TAG, protocol.name())) {
     ESP_LOGW(TAG, "Continuing without explicit %s socket binding", protocol.name());
   }
   const int sensing_tos = SENSING_IP_TOS;

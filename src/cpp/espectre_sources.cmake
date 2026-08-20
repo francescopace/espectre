@@ -7,6 +7,7 @@ set(ESPECTRE_CORE_SOURCES
     "${ESPECTRE_CPP_ROOT}/core/temporal_csi_sampler.cpp"
     "${ESPECTRE_CPP_ROOT}/core/lightweight_detector.cpp"
     "${ESPECTRE_CPP_ROOT}/core/filters.cpp"
+    "${ESPECTRE_CPP_ROOT}/core/filtered_turbulence_ring.cpp"
     "${ESPECTRE_CPP_ROOT}/core/high_accuracy_detector.cpp"
 )
 
@@ -51,6 +52,7 @@ set(ESPECTRE_RUNTIME_ESP_IDF_PLATFORM_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_sensing_kconfig.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stream_runtime_factory.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_service.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/sta_socket_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_frame_identity.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_traffic_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
@@ -98,7 +100,6 @@ set(ESPECTRE_FRONTEND_ESPHOME_SOURCES
 
 set(ESPECTRE_FRONTEND_MATTER_SOURCES
     "${ESPECTRE_CPP_ROOT}/frontend/matter/espectre/matter_frontend.cpp"
-    "${ESPECTRE_CPP_ROOT}/frontend/matter/espectre/matter_surface.cpp"
 )
 
 set(ESPECTRE_FRONTEND_NATIVE_SOURCES

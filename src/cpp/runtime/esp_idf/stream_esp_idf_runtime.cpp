@@ -130,6 +130,7 @@ void StreamEspIdfRuntime::shutdown() {
   }
 
   on_wifi_disconnected_();
+  stream_transport_.shutdown();
   wifi_manager_.shutdown();
   discovery_service_.shutdown();
   setup_complete_ = false;

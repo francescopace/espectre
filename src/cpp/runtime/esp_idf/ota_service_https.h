@@ -9,6 +9,7 @@
  */
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <string>
 
@@ -30,7 +31,7 @@ class HttpsOtaService : public IOtaService {
   HttpsOtaService(const char *frontend, const char *chip, OtaReleaseChannel channel);
   ~HttpsOtaService() override;
 
-  void loop() override {}
+  void loop() override;
   void shutdown() override;
   bool start_check(const std::string &current_version) override;
   bool start_check(const std::string &current_version, const std::string &channel) override;
@@ -64,6 +65,8 @@ class HttpsOtaService : public IOtaService {
 
   static void worker_entry_(void *ctx);
   void run_worker_(const WorkerRequest &request);
+  void finish_worker_();
+  bool request_prepare_for_update_();
   bool begin_request_(const WorkerRequest &request);
   bool ensure_lock_() const;
   void update_status_(const EspectreOtaStatus &status);
@@ -77,10 +80,16 @@ class HttpsOtaService : public IOtaService {
   bool parse_manifest_(const std::string &body, ManifestInfo *manifest, std::string *error) const;
 
   mutable SemaphoreHandle_t lock_{nullptr};
-  TaskHandle_t worker_task_{nullptr};
+  SemaphoreHandle_t worker_done_{nullptr};
+  SemaphoreHandle_t prepare_done_{nullptr};
   StatusCallback status_callback_{};
   PrepareForUpdateCallback prepare_for_update_callback_{};
   EspectreOtaStatus status_{};
+  EspectreOtaStatus pending_status_{};
+  bool worker_active_{false};
+  bool status_callback_pending_{false};
+  bool prepare_callback_pending_{false};
+  std::atomic<bool> shutdown_requested_{false};
   std::string frontend_{};
   std::string chip_{};
   std::string default_channel_{};

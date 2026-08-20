@@ -9,8 +9,10 @@
  */
 #pragma once
 
+#include <array>
 #include <cstddef>
-#include <string>
+#include <cstring>
+#include <string_view>
 
 namespace espectre {
 
@@ -32,14 +34,16 @@ class MqttPayloadAssembler {
     }
 
     if (offset == 0U) {
-      payload_.assign(data, data_len);
+      std::memcpy(payload_.data(), data, data_len);
+      payload_size_ = data_len;
       expected_total_len_ = total_len;
       next_offset_ = data_len;
     } else if (expected_total_len_ != total_len || offset != next_offset_) {
       reset();
       return Result::INVALID;
     } else {
-      payload_.append(data, data_len);
+      std::memcpy(payload_.data() + payload_size_, data, data_len);
+      payload_size_ += data_len;
       next_offset_ += data_len;
     }
 
@@ -49,16 +53,17 @@ class MqttPayloadAssembler {
     return next_offset_ == expected_total_len_ ? Result::COMPLETE : Result::INVALID;
   }
 
-  const std::string &payload() const { return payload_; }
+  std::string_view payload() const { return {payload_.data(), payload_size_}; }
 
   void reset() {
-    std::string{}.swap(payload_);
+    payload_size_ = 0U;
     expected_total_len_ = 0U;
     next_offset_ = 0U;
   }
 
  private:
-  std::string payload_;
+  std::array<char, MAX_PAYLOAD_SIZE> payload_{};
+  size_t payload_size_{0U};
   size_t expected_total_len_{0U};
   size_t next_offset_{0U};
 };

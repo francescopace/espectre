@@ -32,6 +32,9 @@ struct NormalizedCSIPayload {
   // True when the payload arrived in Espressif's classic bin order and was
   // rotated into the centered convention that `DEFAULT_SUBCARRIERS` assumes.
   bool rotated_to_centered{false};
+  // True when a format transition or a long invalid streak requires detector
+  // history to be cleared before this accepted packet is consumed.
+  bool reset_detector_before_consume{false};
 
   bool valid() const { return data != nullptr; }
 };
