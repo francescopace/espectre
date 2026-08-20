@@ -35,6 +35,7 @@ from src.detector_interface import (
     normalize_detector_algorithm,
 )
 from src.runtime_diagnostics import (
+    RuntimeDebugTelemetry,
     RuntimeDiagnosticsSampler,
     collect_runtime_diagnostics_snapshot,
     empty_diagnostics_sample,
@@ -767,6 +768,8 @@ def main():
         getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000),
     )
     diagnostics_sampler = RuntimeDiagnosticsSampler()
+    debug_telemetry_enabled = bool(getattr(config, 'DEBUG_TELEMETRY', False))
+    debug_telemetry = RuntimeDebugTelemetry(enabled=True) if debug_telemetry_enabled else None
     diagnostics_sampler.reset(
         collect_runtime_diagnostics_snapshot(
             traffic_generator=traffic_gen,
@@ -834,14 +837,20 @@ def main():
                     ),
                     current_time,
                 )
-                print(
-                    format_detection_publish_line(
-                        diagnostics=g_state.latest_diagnostics,
-                        motion_metric=latest_motion_metric,
-                        threshold=latest_threshold,
-                        effective_state=latest_effective_state,
-                    )
+                status_line = format_detection_publish_line(
+                    diagnostics=g_state.latest_diagnostics,
+                    motion_metric=latest_motion_metric,
+                    threshold=latest_threshold,
+                    effective_state=latest_effective_state,
                 )
+                if debug_telemetry_enabled:
+                    status_line = f"I ({current_time}) micro_espectre: {status_line}"
+                print(status_line)
+                if debug_telemetry_enabled:
+                    assert debug_telemetry is not None
+                    debug_line = debug_telemetry.format_if_due(current_time, gc.mem_free())
+                    if debug_line is not None:
+                        print(f"D ({current_time}) micro_espectre: {debug_line}")
                 if mqtt_handler is not None:
                     mqtt_handler.check_messages()
                     if maybe_run_ha_recalibration(
@@ -877,6 +886,9 @@ def main():
                         callback_total=callback_packet_count,
                     )
                     g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
+                    if debug_telemetry_enabled:
+                        assert debug_telemetry is not None
+                        debug_telemetry.record_loop_duration(g_state.loop_time_us)
                     time.sleep_us(100)
                     continue
 
@@ -896,6 +908,9 @@ def main():
                         callback_total=callback_packet_count,
                     )
                     g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
+                    if debug_telemetry_enabled:
+                        assert debug_telemetry is not None
+                        debug_telemetry.record_loop_duration(g_state.loop_time_us)
                     time.sleep_us(100)
                     continue
 
@@ -910,6 +925,9 @@ def main():
                         callback_total=callback_packet_count,
                     )
                     g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
+                    if debug_telemetry_enabled:
+                        assert debug_telemetry is not None
+                        debug_telemetry.record_loop_duration(g_state.loop_time_us)
                     time.sleep_us(100)
                     continue
 
@@ -1001,11 +1019,20 @@ def main():
                     latest_effective_state = runtime_policy.effective_state
                 if not emitted:
                     g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
+                    if debug_telemetry_enabled:
+                        assert debug_telemetry is not None
+                        debug_telemetry.record_loop_duration(g_state.loop_time_us)
                     time.sleep_us(100)
                     continue
 
                 if runtime_policy.should_evaluate():
+                    detection_start = time.ticks_us() if debug_telemetry_enabled else None
                     metrics = detector.update_state()
+                    if detection_start is not None:
+                        assert debug_telemetry is not None
+                        debug_telemetry.record_detection_duration(
+                            time.ticks_diff(time.ticks_us(), detection_start),
+                        )
                     effective_state, _ = runtime_policy.apply_state(metrics['state'])
                     runtime_policy.after_evaluation()
                     latest_motion_metric = metrics.get('motion_metric', 0.0)
@@ -1020,6 +1047,9 @@ def main():
 
                 # Update loop time metric
                 g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
+                if debug_telemetry_enabled:
+                    assert debug_telemetry is not None
+                    debug_telemetry.record_loop_duration(g_state.loop_time_us)
                 
                 time.sleep_us(100)
             else:
@@ -1030,6 +1060,9 @@ def main():
                 )
                 # Update loop time metric (idle iteration)
                 g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
+                if debug_telemetry_enabled:
+                    assert debug_telemetry is not None
+                    debug_telemetry.record_loop_duration(g_state.loop_time_us)
                 
                 time.sleep_us(100)
     

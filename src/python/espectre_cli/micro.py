@@ -42,6 +42,7 @@ MICRO_DEVICE_RELATIVE_FILES = [
     "config.py",
     "config_local.py",
     "device_utils.py",
+    "serial_sequence.py",
     "utils.py",
     "threshold.py",
     "filters.py",
@@ -50,8 +51,11 @@ MICRO_DEVICE_RELATIVE_FILES = [
     "detector_interface.py",
     "runtime_policy.py",
     "runtime_diagnostics.py",
+    "temporal_csi_sampler.py",
+    "traffic_rate_controller.py",
     "lightweight_detector.py",
     "high_accuracy_detector.py",
+    "ml_feature_trackers.py",
     "ml_weights.py",
     "traffic_generator.py",
     "console_output.py",
@@ -61,21 +65,58 @@ MICRO_DEVICE_RELATIVE_FILES = [
     "mqtt/commands.py",
     "mqtt/home_assistant.py",
 ]
+MICROPYTHON_READY_TIMEOUT_SECONDS = 15.0
+MICROPYTHON_HEALTHCHECK_TIMEOUT_SECONDS = 5.0
+MICROPYTHON_READY_RETRY_SECONDS = 1.0
 
 
-def _resolve_config_local_path() -> Path:
-    """Return the canonical runtime config file path."""
-    return PYTHON_SRC_DIR / "config_local.py"
+def _resolve_config_local_path(config_path: str | Path | None = None) -> Path:
+    """Return the selected runtime override, defaulting to config_local.py."""
+    return Path(config_path) if config_path is not None else PYTHON_SRC_DIR / "config_local.py"
 
 
-def _files_to_upload(config_local_path: Path) -> List[Tuple[str, str]]:
+def deployment_files(config_local_path: Path) -> List[Tuple[str, str]]:
     """Return the MicroPython source files copied by `micro deploy`."""
     files: List[Tuple[str, str]] = []
     for rel_path in MICRO_DEVICE_RELATIVE_FILES:
-        src_path = config_local_path if rel_path == "config_local.py" else (PYTHON_SRC_DIR / rel_path)
-        dst_dir = ":src/mqtt/" if rel_path.startswith("mqtt/") else ":src/"
-        files.append((str(src_path), dst_dir))
+        if rel_path == "config_local.py":
+            files.append((str(config_local_path), ":src/config_local.py"))
+            continue
+        src_path = PYTHON_SRC_DIR / rel_path
+        destination = ":src/mqtt/" if rel_path.startswith("mqtt/") else ":src/"
+        files.append((str(src_path), destination))
     return files
+
+
+def _wait_for_micropython(port: str) -> tuple[bool, str]:
+    """Wait briefly for the MicroPython REPL after a flash or hard reset."""
+    deadline = time.monotonic() + MICROPYTHON_READY_TIMEOUT_SECONDS
+    last_detail = ""
+    while True:
+        remaining_seconds = max(0.1, deadline - time.monotonic())
+        try:
+            health = subprocess.run(
+                ["mpremote", "connect", port, "exec", 'print("MP_OK")'],
+                capture_output=True,
+                text=True,
+                timeout=min(MICROPYTHON_HEALTHCHECK_TIMEOUT_SECONDS, remaining_seconds),
+            )
+            if health.returncode == 0 and "MP_OK" in (health.stdout or ""):
+                return True, ""
+            last_detail = "\n".join(
+                part.strip()
+                for part in (health.stdout or "", health.stderr or "")
+                if part.strip()
+            )
+        except subprocess.TimeoutExpired:
+            last_detail = "MicroPython readiness probe timed out"
+        except OSError as exc:
+            last_detail = str(exc)
+
+        remaining_seconds = deadline - time.monotonic()
+        if remaining_seconds <= 0:
+            return False, last_detail
+        time.sleep(min(MICROPYTHON_READY_RETRY_SECONDS, remaining_seconds))
 
 
 def _calculate_sha256(filepath: Path) -> str:
@@ -304,16 +345,16 @@ def deploy_code(args) -> None:
     _require_mpremote()
     port = get_serial_port(args.port)
 
-    config_local_path = _resolve_config_local_path()
+    config_local_path = _resolve_config_local_path(getattr(args, "config", None))
     if not config_local_path.exists():
-        print(f"{Fore.RED}❌ src/python/micro_espectre/config_local.py not found!{Style.RESET_ALL}")
+        print(f"{Fore.RED}❌ MicroPython config not found: {config_local_path}{Style.RESET_ALL}")
         print(f"\n{Fore.YELLOW}Create it from the template:{Style.RESET_ALL}")
         print(f"  {copy_config_command()}")
         print("  # Then edit src/python/micro_espectre/config_local.py with your credentials")
         print()
         raise SystemExit(1)
 
-    files_to_upload = _files_to_upload(config_local_path)
+    files_to_upload = deployment_files(config_local_path)
     missing_files = [src for src, _dst in files_to_upload if not Path(src).exists()]
     if missing_files:
         print(f"{Fore.RED}Cannot deploy: required source files are missing:{Style.RESET_ALL}")
@@ -327,16 +368,13 @@ def deploy_code(args) -> None:
     print()
 
     try:
-        health = subprocess.run(
-            ["mpremote", "connect", port, "exec", 'print("MP_OK")'],
-            capture_output=True,
-            text=True,
-        )
-        if health.returncode != 0 or "MP_OK" not in (health.stdout or ""):
+        ready, health_detail = _wait_for_micropython(port)
+        if not ready:
             print(f"{Fore.RED}❌ Device is not running a valid MicroPython firmware{Style.RESET_ALL}")
-            print(f"{Fore.YELLOW}   Serial output suggests boot failure (e.g. invalid header).{Style.RESET_ALL}")
+            if health_detail:
+                print(f"{Fore.YELLOW}   Probe output: {health_detail}{Style.RESET_ALL}")
             print(f"\n{Fore.CYAN}Recommended fix:{Style.RESET_ALL}")
-            print(f"  {Fore.GREEN}{cli_command('micro', 'flash', '--erase', '--chip', 'c5')}{Style.RESET_ALL}")
+            print(f"  {Fore.GREEN}{cli_command('micro', 'flash', '--erase')}{Style.RESET_ALL}")
             print(f"  {Fore.GREEN}{cli_command('micro', 'deploy')}{Style.RESET_ALL}")
             print()
             raise SystemExit(1)
@@ -385,7 +423,9 @@ def run_application(args) -> None:
                 "from src.main import main; main()",
             ]
         )
-        process.wait()
+        returncode = process.wait()
+        if returncode != 0:
+            raise SystemExit(returncode)
     except subprocess.CalledProcessError as e:
         print(f"\n{Fore.RED}❌ Error: {e}{Style.RESET_ALL}")
         raise SystemExit(1)

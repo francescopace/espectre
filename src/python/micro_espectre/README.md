@@ -81,6 +81,8 @@ Host-side workflows live at the repository CLI root:
 
 See the repository [CLI.md](../../../docs/CLI.md) for current CLI syntax and host-side workflow behavior, and the shared [SETUP.md](../../../docs/SETUP.md) for setup and frontend selection.
 
+`micro deploy --config <path>` uses the same production deployment manifest but copies the selected override to the device as `config_local.py`. This is primarily useful for isolated firmware benchmarks and other repeatable laboratory runs.
+
 ## Configure Wi-Fi and MQTT
 
 Create a local config file:

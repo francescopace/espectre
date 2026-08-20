@@ -123,6 +123,7 @@ Notes:
 
 - `--port` is optional; the CLI tries to auto-detect a serial device when possible.
 - `micro flash` also supports `--chip` and `--firmware`.
+- `micro deploy --config <path>` deploys an alternate local override as device `config_local.py`; the firmware benchmark uses this to keep laboratory settings isolated from the developer's normal config.
 
 ### `monitor`
 

@@ -32,6 +32,7 @@ TRAFFIC_GENERATOR_ENABLED = True  # False expects an external CSI traffic source
 TRAFFIC_GENERATOR_MODE = "ping"  # Default mode: "ping" or "dns"
 PUBLISH_INTERVAL_MS = 1000    # Time between periodic MQTT/log updates
 EVALUATION_INTERVAL_MS = 250  # Time between internal detector evaluations
+DEBUG_TELEMETRY = False       # Periodic benchmark-only heap and timing logs
 MOTION_HITS_MIN = 1
 MOTION_HITS_MAX = 20
 MOTION_ON_HITS = 4            # Consecutive evaluated hits required for IDLE -> MOTION

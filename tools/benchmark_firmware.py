@@ -37,8 +37,9 @@ REPO_ROOT = SCRIPT_DIR.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.python.espectre_cli.common import detect_chip_type, get_serial_port
+from src.python.espectre_cli.common import FIRMWARE_CACHE_DIR, detect_chip_type, get_serial_port
 from src.python.espectre_cli.idf import resolve_idf_build_dir_name
+from src.python.espectre_cli.micro import deployment_files
 from src.python.espectre_cli.mqtt_shell import send_mqtt_command_and_wait
 from src.python.espectre_cli.targets import ESPHOME_CONFIGS, ESPHOME_EXAMPLES_DIR, IDF_FRONTENDS
 from src.python.micro_espectre.temporal_csi_sampler import (
@@ -71,11 +72,19 @@ IDF_APP_BIN_NAMES = {
     "streamer": "espectre-streamer.bin",
 }
 IDF_IGNORED_BIN_NAMES = {"bootloader.bin", "partition-table.bin", "ota_data_initial.bin"}
+MICRO_FIRMWARE_NAMES = {
+    "esp32": "ESP32_CSI.bin",
+    "c3": "ESP32_CSI_C3.bin",
+    "c5": "ESP32_CSI_C5.bin",
+    "c6": "ESP32_CSI_C6.bin",
+    "s3": "ESP32_CSI_S3.bin",
+}
+MICRO_SOURCE_DIR = REPO_ROOT / "src/python/micro_espectre"
 MIN_STREAMER_COLLECT_SAMPLES = 60
 MOTION_WARMUP_SAMPLES = 3
 STABLE_STATUS_WARMUP_SAMPLES = 5
 STATUS_STABLE_WAIT_SECONDS = 30
-DEFAULT_MQTT_COMMAND_TIMEOUT_SECONDS = 8.0
+BENCHMARK_CONTROL_TIMEOUT_SECONDS = 8.0
 RUNTIME_STATUS_GAP_TOLERANCE_MS = 500
 
 SUPPORTED_CHIPS = tuple(sorted(set(ESPHOME_CONFIGS) & set(IDF_FRONTENDS["native"]["targets"])))
@@ -89,6 +98,7 @@ CHIP_LABELS = {
 FRONTEND_LABELS = {
     "esphome": "ESPHome",
     "matter": "Matter",
+    "micro": "Micro-ESPectre",
     "native": "Native",
     "streamer": "Streamer",
 }
@@ -103,10 +113,10 @@ REPORT_SNAPSHOT_SCOPE = (
     "they do not certify newer source revisions."
 )
 REPORT_DETECTOR_SCOPE = (
-    "Detector coverage: ESPHome, Native, and Matter support Lightweight and High Accuracy. "
-    "ESPHome and Native support runtime switching; Matter selects the detector "
-    "at build time. The matrix below samples representative cases rather than "
-    "every supported combination."
+    "Detector coverage: ESPHome, Micro-ESPectre, Native, and Matter support Lightweight and High Accuracy. "
+    "ESPHome and Native support runtime switching; Matter selects the detector at build time, "
+    "and Micro-ESPectre selects it at deploy time. The matrix below samples representative "
+    "cases rather than every supported combination."
 )
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -136,6 +146,7 @@ REPORT_OCCUPANCY_RE = re.compile(
 REPORT_TRAILING_MEAN_RE = re.compile(r"(?P<value>-?\d+(?:\.\d+)?)(?P<suffix>%| us)? mean$")
 REPORT_PLAIN_NUMBER_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
 FATAL_PATTERNS = (
+    "Brownout detector was triggered",
     "Guru Meditation Error",
     "abort() was called",
     "panic'ed",
@@ -193,6 +204,7 @@ class CommandResult:
 @dataclass
 class BuildMetrics:
     firmware_size_bytes: int | None = None
+    deployed_source_bytes: int | None = None
     partition_used_bytes: int | None = None
     partition_total_bytes: int | None = None
     partition_free_bytes: int | None = None
@@ -255,6 +267,7 @@ class BenchmarkResult:
     status: str = "NOT RUN"
     reasons: list[str] = field(default_factory=list)
     build: CommandResult | None = None
+    deploy: CommandResult | None = None
     flash: CommandResult | None = None
     monitor: CommandResult | None = None
     collect: CommandResult | None = None
@@ -280,6 +293,8 @@ CASES = tuple(
     [
         BenchmarkCase("native", "lightweight"),
         BenchmarkCase("native", "high_accuracy"),
+        BenchmarkCase("micro", "lightweight"),
+        BenchmarkCase("micro", "high_accuracy"),
         BenchmarkCase("esphome", "lightweight"),
         BenchmarkCase("esphome", "high_accuracy"),
         BenchmarkCase("matter", "default", benchmark_mode="smoke"),
@@ -337,13 +352,6 @@ def benchmark_setting_int(name: str, default: int) -> int:
     if value is None or value == "":
         return default
     return int(value)
-
-
-def benchmark_setting_float(name: str, default: float) -> float:
-    value = benchmark_setting(name)
-    if value is None or value == "":
-        return default
-    return float(value)
 
 
 def quote_kconfig_string(value: str) -> str:
@@ -488,7 +496,7 @@ def set_native_detector_via_mqtt(detector: str, device_id_source_text: str | Non
         )
 
     deadline = time.monotonic() + NATIVE_MQTT_READY_TIMEOUT_SECONDS
-    timeout_seconds = benchmark_setting_float("ESPECTRE_BENCHMARK_MQTT_TIMEOUT_SECONDS", DEFAULT_MQTT_COMMAND_TIMEOUT_SECONDS)
+    timeout_seconds = BENCHMARK_CONTROL_TIMEOUT_SECONDS
     last_error: Exception | None = None
     while time.monotonic() < deadline:
         attempt_timeout = min(timeout_seconds, max(1.0, deadline - time.monotonic()))
@@ -547,10 +555,7 @@ def set_esphome_detector_via_api(detector: str, source_text: str | None) -> None
 
     hosts = esphome_api_hosts(source_text)
     deadline = time.monotonic() + ESPHOME_API_READY_TIMEOUT_SECONDS
-    timeout_seconds = benchmark_setting_float(
-        "ESPECTRE_BENCHMARK_ESPHOME_API_TIMEOUT_SECONDS",
-        DEFAULT_MQTT_COMMAND_TIMEOUT_SECONDS,
-    )
+    timeout_seconds = BENCHMARK_CONTROL_TIMEOUT_SECONDS
     last_error: Exception | None = None
     while time.monotonic() < deadline:
         attempt_timeout = min(timeout_seconds, max(1.0, deadline - time.monotonic()))
@@ -817,6 +822,10 @@ def _output_has_sensing_status(output_lines: Sequence[str]) -> bool:
     return STATUS_RE.search("".join(output_lines)) is not None
 
 
+def _output_has_fatal_log(output_lines: Sequence[str]) -> bool:
+    return any(pattern in line for line in output_lines for pattern in FATAL_PATTERNS)
+
+
 def max_runtime_status_gap_ms() -> int:
     return STATUS_SAMPLE_INTERVAL_SECONDS * 1000 + RUNTIME_STATUS_GAP_TOLERANCE_MS
 
@@ -846,6 +855,8 @@ def _wait_for_runtime_sensing_window(
 ) -> int:
     connect_deadline = time.monotonic() + WIFI_CONNECT_WAIT_SECONDS
     while time.monotonic() < connect_deadline and process.poll() is None:
+        if _output_has_fatal_log(output_lines[start_index:]):
+            return start_index
         if _output_has_sensing_status(output_lines[start_index:]):
             break
         time.sleep(0.25)
@@ -854,6 +865,8 @@ def _wait_for_runtime_sensing_window(
     if process.poll() is None and _output_has_sensing_status(output_lines[start_index:]):
         stable_deadline = time.monotonic() + STATUS_STABLE_WAIT_SECONDS
         while time.monotonic() < stable_deadline and process.poll() is None:
+            if _output_has_fatal_log(output_lines[start_index:]):
+                return analysis_start
             if status_stream_is_stable("".join(output_lines[start_index:])):
                 analysis_start = len(output_lines)
                 break
@@ -861,10 +874,11 @@ def _wait_for_runtime_sensing_window(
 
     if process.poll() is not None:
         return analysis_start
-    try:
-        process.wait(timeout=MONITOR_DURATION_SECONDS)
-    except subprocess.TimeoutExpired:
-        pass
+    monitor_deadline = time.monotonic() + MONITOR_DURATION_SECONDS
+    while time.monotonic() < monitor_deadline and process.poll() is None:
+        if _output_has_fatal_log(output_lines[analysis_start:]):
+            return analysis_start
+        time.sleep(0.25)
     return analysis_start
 
 
@@ -1209,6 +1223,12 @@ def analyze_monitor_output(
 
 
 def _latest_firmware_artifact(frontend: str, chip: str | None = None) -> Path | None:
+    if frontend == "micro":
+        if chip is None:
+            return None
+        firmware_name = MICRO_FIRMWARE_NAMES.get(chip)
+        return FIRMWARE_CACHE_DIR / firmware_name if firmware_name is not None else None
+
     if frontend == "esphome":
         candidates = list((ESPHOME_EXAMPLES_DIR / ".esphome").glob("build/*/build/espectre.bin"))
         existing = [path for path in candidates if path.is_file()]
@@ -1345,6 +1365,54 @@ def apply_esphome_benchmark_logger(content: str) -> str:
     return "\n".join([*lines[:logger_index], *replacement_lines, *lines[logger_end:]]) + (
         "\n" if content.endswith("\n") else ""
     )
+
+
+def render_micro_benchmark_config(detector: str, device_id: str) -> str:
+    """Render a temporary device override from the shared benchmark settings."""
+    values: list[tuple[str, object]] = [
+        ("WIFI_SSID", require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID")),
+        ("WIFI_PASSWORD", require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD")),
+        ("MQTT_ENABLED", True),
+        ("MQTT_BROKER", require_benchmark_setting("ESPECTRE_BENCHMARK_MQTT_HOST")),
+        ("MQTT_PORT", benchmark_setting_int("ESPECTRE_BENCHMARK_MQTT_PORT", 1883)),
+        ("MQTT_CLIENT_ID", device_id),
+        ("MQTT_TOPIC_PREFIX", benchmark_setting("ESPECTRE_BENCHMARK_MQTT_TOPIC_PREFIX", "espectre/v1/devices")),
+        ("MQTT_USERNAME", benchmark_setting("ESPECTRE_BENCHMARK_MQTT_USERNAME", "")),
+        ("MQTT_PASSWORD", benchmark_setting("ESPECTRE_BENCHMARK_MQTT_PASSWORD", "")),
+        ("MQTT_HA_DISCOVERY_ENABLED", False),
+        ("DETECTION_ALGORITHM", detector),
+        ("DEBUG_TELEMETRY", True),
+    ]
+    bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "")
+    if bssid:
+        values.insert(2, ("WIFI_BSSID", bssid))
+    lines = [
+        "# Generated temporary Micro-ESPectre benchmark overrides.",
+        *(f"{name} = {value!r}" for name, value in values),
+        "",
+    ]
+    return "\n".join(lines)
+
+
+@contextmanager
+def micro_case_config(chip: str, detector: str, device_id: str) -> Iterator[Path]:
+    """Yield an isolated config deployed through the production Micro CLI."""
+    temporary_path = MICRO_SOURCE_DIR / f".espectre-benchmark-{chip}-{detector}.py"
+    if temporary_path.exists():
+        raise RuntimeError(f"temporary benchmark config already exists: {temporary_path}")
+    try:
+        temporary_path.write_text(
+            render_micro_benchmark_config(detector, device_id),
+            encoding="utf-8",
+        )
+        yield temporary_path
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def micro_deployed_source_size(config_path: Path) -> int:
+    """Return the exact source footprint selected by the production deploy manifest."""
+    return sum(Path(source).stat().st_size for source, _destination in deployment_files(config_path))
 
 
 @contextmanager
@@ -1855,6 +1923,78 @@ def run_case(
     return result, overlapped_result
 
 
+def run_micro_case(
+    case: BenchmarkCase,
+    chip: str,
+    port: str,
+    *,
+    shared_flash: CommandResult | None = None,
+) -> BenchmarkResult:
+    """Flash, deploy, and monitor one production Micro-ESPectre profile."""
+    print(f"\n{'=' * 72}\n{case.label}\n{'=' * 72}", flush=True)
+    result = BenchmarkResult(case=case)
+    launcher = str(REPO_ROOT / "espectre")
+    try:
+        flash_result = shared_flash
+        if flash_result is None:
+            result.flash = run_command(
+                [launcher, "micro", "flash", "--chip", chip, "--port", port, "--erase"],
+            )
+            flash_result = result.flash
+        assert flash_result is not None
+        firmware_path = _latest_firmware_artifact("micro", chip)
+        result.build_metrics = parse_build_metrics(flash_result.output, firmware_path)
+        if flash_result.returncode != 0:
+            result.status = "FAIL"
+            result.reasons.append(f"flash exited with status {flash_result.returncode}")
+            return result
+        device_id = detect_benchmark_mqtt_device_id_from_text(flash_result.output)
+        if device_id is None:
+            result.status = "FAIL"
+            result.reasons.append("Micro-ESPectre device id could not be derived from the flash MAC")
+            return result
+
+        with micro_case_config(chip, case.detector, device_id) as config_path:
+            result.build_metrics.deployed_source_bytes = micro_deployed_source_size(config_path)
+            result.deploy = run_command(
+                [
+                    launcher,
+                    "micro",
+                    "deploy",
+                    "--port",
+                    port,
+                    "--config",
+                    str(config_path),
+                ],
+            )
+            if result.deploy.returncode != 0:
+                result.status = "FAIL"
+                result.reasons.append(f"deploy exited with status {result.deploy.returncode}")
+                return result
+
+        result.monitor, analysis_output = _capture_runtime_monitor(
+            [launcher, "micro", "run", "--port", port],
+        )
+        if result.monitor.returncode != 0:
+            result.status = "FAIL"
+            result.reasons.append(f"runtime exited with status {result.monitor.returncode}")
+            return result
+        result.runtime_metrics, analysis_reasons = analyze_monitor_output(
+            analysis_output,
+            benchmark_mode=case.benchmark_mode,
+            monitor_duration_seconds=max(
+                MONITOR_DURATION_SECONDS,
+                int(result.monitor.duration_seconds),
+            ),
+        )
+        result.reasons.extend(analysis_reasons)
+        result.status = "PASS" if not result.reasons else "FAIL"
+    except (OSError, RuntimeError, ValueError) as exc:
+        result.status = "FAIL"
+        result.reasons.append(str(exc))
+    return result
+
+
 def run_monitor_only_case(
     case: BenchmarkCase,
     port: str,
@@ -2014,6 +2154,8 @@ def render_report(
 
         if result.build:
             detail_rows.append(f"| Build duration | {format_duration(result.build.duration_seconds)} |")
+        if result.deploy:
+            detail_rows.append(f"| Deploy duration | {format_duration(result.deploy.duration_seconds)} |")
         if result.flash:
             detail_rows.append(f"| Flash duration | {format_duration(result.flash.duration_seconds)} |")
         if result.monitor:
@@ -2023,6 +2165,8 @@ def render_report(
 
         if build.firmware_size_bytes is not None:
             detail_rows.append(f"| Firmware binary | {format_bytes(build.firmware_size_bytes)} |")
+        if build.deployed_source_bytes is not None:
+            detail_rows.append(f"| Deployed Python source | {format_bytes(build.deployed_source_bytes)} |")
         if build.partition_used_bytes is not None:
             detail_rows.append(f"| Application partition used | {format_bytes(build.partition_used_bytes)} |")
         if build.partition_free_bytes is not None:
@@ -2139,7 +2283,7 @@ def render_report(
         [
             "## Pass Criteria",
             "",
-            "- all builds and flashes complete successfully",
+            "- all required builds, flashes, and Micro-ESPectre deployments complete successfully",
             f"- {english_join(runtime_case_labels())} runtime benchmarks log shared debug telemetry "
             "throughout the runtime window",
             f"- non-runtime benchmarks log at least {MIN_TELEMETRY_SAMPLES} shared debug telemetry samples",
@@ -2255,6 +2399,8 @@ def parse_report_results(text: str) -> list[BenchmarkResult]:
         metric = metric_rows.get
         if "Build duration" in metric_rows:
             result.build = CommandResult(["report"], 0, parse_report_duration(metric("Build duration")), "")
+        if "Deploy duration" in metric_rows:
+            result.deploy = CommandResult(["report"], 0, parse_report_duration(metric("Deploy duration")), "")
         if "Flash duration" in metric_rows:
             result.flash = CommandResult(["report"], 0, parse_report_duration(metric("Flash duration")), "")
         if "Monitor duration" in metric_rows:
@@ -2263,6 +2409,7 @@ def parse_report_results(text: str) -> list[BenchmarkResult]:
             result.collect = CommandResult(["report"], 0, parse_report_duration(metric("Collect duration")), "")
 
         build.firmware_size_bytes = parse_report_bytes(metric("Firmware binary", "N/A"))
+        build.deployed_source_bytes = parse_report_bytes(metric("Deployed Python source", "N/A"))
         build.partition_used_bytes = parse_report_bytes(metric("Application partition used", "N/A"))
         build.partition_free_bytes = parse_report_bytes(metric("Application partition free", "N/A"))
         build.ram_used_bytes = parse_report_bytes(metric("Build RAM used", "N/A"))
@@ -2410,14 +2557,14 @@ def write_report(
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Build, flash, and benchmark Native Lightweight/High Accuracy, ESPHome "
+            "Build, flash, and benchmark Native, Micro-ESPectre, and ESPHome "
             "Lightweight/High Accuracy, Matter smoke, and Streamer host collect for one chip."
         ),
     )
     parser.add_argument("--chip", required=True, choices=SUPPORTED_CHIPS, help="Connected ESP32 target")
     parser.add_argument(
         "--frontend",
-        choices=("esphome", "native", "matter", "streamer"),
+        choices=("esphome", "micro", "native", "matter", "streamer"),
         help="Run only cases for one frontend",
     )
     parser.add_argument(
@@ -2518,6 +2665,20 @@ def main() -> int:
                 ),
             )
             results.append(high_accuracy_result)
+            write_current_report()
+
+        micro_cases = tuple(case for case in selected_cases if case.frontend == "micro")
+        shared_micro_flash: CommandResult | None = None
+        for micro_case in micro_cases:
+            micro_result = run_micro_case(
+                micro_case,
+                args.chip,
+                port,
+                shared_flash=shared_micro_flash,
+            )
+            results.append(micro_result)
+            if micro_result.flash is not None and micro_result.flash.returncode == 0:
+                shared_micro_flash = micro_result.flash
             write_current_report()
 
         esphome_lightweight_case = BenchmarkCase("esphome", "lightweight")

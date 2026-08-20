@@ -11,6 +11,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 from .about import print_about, print_version
 from .common import MICRO_CHIP_CHOICES, add_mqtt_connection_args, build_mqtt_namespace, cli_command, serial_port_example
@@ -159,6 +160,11 @@ def _add_micro_namespace(subparsers) -> None:
 
     deploy_parser = micro_subparsers.add_parser("deploy", help="Deploy code to MicroPython device")
     deploy_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
+    deploy_parser.add_argument(
+        "--config",
+        type=Path,
+        help="Local override file to deploy as config_local.py",
+    )
     deploy_parser.set_defaults(handler=deploy_code)
 
     run_parser = micro_subparsers.add_parser("run", help="Run application on ESP32")

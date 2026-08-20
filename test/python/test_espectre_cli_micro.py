@@ -11,6 +11,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 import argparse
+import ast
 import builtins
 import hashlib
 import subprocess
@@ -59,32 +60,7 @@ class _FakeResponse:
 
 
 def _create_micro_src_tree(base_dir: Path) -> None:
-    files = [
-        "__init__.py",
-        "branding.py",
-        "config.py",
-        "config_local.py",
-        "device_utils.py",
-        "utils.py",
-        "threshold.py",
-        "filters.py",
-        "csi_features.py",
-        "segmentation.py",
-        "detector_interface.py",
-        "runtime_policy.py",
-        "runtime_diagnostics.py",
-        "lightweight_detector.py",
-        "high_accuracy_detector.py",
-        "ml_weights.py",
-        "traffic_generator.py",
-        "console_output.py",
-        "main.py",
-        "mqtt/__init__.py",
-        "mqtt/handler.py",
-        "mqtt/commands.py",
-        "mqtt/home_assistant.py",
-    ]
-    for rel_path in files:
+    for rel_path in micro.MICRO_DEVICE_RELATIVE_FILES:
         target = base_dir / rel_path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("# test\n", encoding="utf-8")
@@ -109,6 +85,31 @@ def test_device_sources_avoid_unsupported_future_annotations() -> None:
         assert "from __future__ import annotations" not in source.read_text(
             encoding="utf-8"
         ), rel_path
+
+
+def test_deploy_manifest_contains_local_runtime_imports() -> None:
+    deployed = set(micro.MICRO_DEVICE_RELATIVE_FILES)
+    missing: set[str] = set()
+    for rel_path in deployed:
+        if rel_path == "config_local.py":
+            continue
+        source_path = micro.PYTHON_SRC_DIR / rel_path
+        tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=rel_path)
+        parent = Path(rel_path).parent
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            if node.module == "src":
+                required = (f"{alias.name.replace('.', '/')}.py" for alias in node.names)
+            elif node.module and node.module.startswith("src."):
+                required = (f"{node.module[4:].replace('.', '/')}.py",)
+            elif node.level == 1 and node.module:
+                required = (str(parent / f"{node.module.replace('.', '/')}.py"),)
+            else:
+                continue
+            missing.update(required_path for required_path in required if required_path not in deployed)
+
+    assert missing == set()
 
 
 def test_require_mpremote_accepts_installed_binary(monkeypatch) -> None:
@@ -335,6 +336,55 @@ def test_deploy_code_uploads_files_to_device(monkeypatch, tmp_path: Path) -> Non
     assert any(cmd[-2].endswith("runtime_diagnostics.py") for cmd in cp_calls)
 
 
+def test_deploy_code_uses_selected_config_as_device_override(monkeypatch, tmp_path: Path) -> None:
+    src_dir = tmp_path / "src"
+    _create_micro_src_tree(src_dir)
+    benchmark_config = tmp_path / "benchmark_config.py"
+    benchmark_config.write_text("DETECTION_ALGORITHM = 'high_accuracy'\n", encoding="utf-8")
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[:4] == ["mpremote", "connect", "/dev/cu.usbmodem1", "exec"]:
+            return SimpleNamespace(returncode=0, stdout="MP_OK", stderr="")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(micro, "PYTHON_SRC_DIR", src_dir)
+    monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro.subprocess, "run", fake_run)
+
+    micro.deploy_code(_make_args(config=benchmark_config))
+
+    config_copy = next(cmd for cmd in calls if "cp" in cmd and cmd[-2] == str(benchmark_config))
+    assert config_copy[-1] == ":src/config_local.py"
+
+
+def test_deploy_code_retries_healthcheck_while_micropython_starts(monkeypatch, tmp_path: Path) -> None:
+    src_dir = tmp_path / "src"
+    _create_micro_src_tree(src_dir)
+    health_attempts = 0
+
+    def fake_run(cmd, **kwargs):
+        nonlocal health_attempts
+        if cmd[:4] == ["mpremote", "connect", "/dev/cu.usbmodem1", "exec"]:
+            health_attempts += 1
+            if health_attempts == 1:
+                return SimpleNamespace(returncode=1, stdout="", stderr="port is not ready")
+            return SimpleNamespace(returncode=0, stdout="MP_OK", stderr="")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(micro, "PYTHON_SRC_DIR", src_dir)
+    monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro.subprocess, "run", fake_run)
+    monkeypatch.setattr(micro.time, "sleep", lambda _seconds: None)
+
+    micro.deploy_code(_make_args())
+
+    assert health_attempts == 2
+
+
 def test_deploy_code_rejects_invalid_healthcheck(monkeypatch, tmp_path: Path) -> None:
     src_dir = tmp_path / "src"
     _create_micro_src_tree(src_dir)
@@ -348,6 +398,7 @@ def test_deploy_code_rejects_invalid_healthcheck(monkeypatch, tmp_path: Path) ->
     monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
     monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
     monkeypatch.setattr(micro.subprocess, "run", fake_run)
+    monkeypatch.setattr(micro, "MICROPYTHON_READY_TIMEOUT_SECONDS", 0.0)
 
     with pytest.raises(SystemExit):
         micro.deploy_code(_make_args())
@@ -412,6 +463,19 @@ def test_run_application_starts_mpremote_process(monkeypatch) -> None:
     ]]
 
 
+def test_run_application_propagates_mpremote_failure(monkeypatch) -> None:
+    class FakeProcess:
+        def wait(self):
+            return 2
+
+    monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro.subprocess, "Popen", lambda _cmd: FakeProcess())
+
+    with pytest.raises(SystemExit, match="2"):
+        micro.run_application(_make_args())
+
+
 def test_run_application_handles_keyboard_interrupt_and_resets_device(monkeypatch) -> None:
     events: list[str] = []
 
@@ -451,16 +515,21 @@ def test_run_application_exits_on_subprocess_error(monkeypatch) -> None:
 
 
 def test_verify_installation_passes_when_all_checks_succeed(monkeypatch) -> None:
+    src_listing = [
+        Path(rel_path).name
+        for rel_path in micro.MICRO_DEVICE_RELATIVE_FILES
+        if "/" not in rel_path
+    ] + ["mqtt"]
+    mqtt_listing = [
+        Path(rel_path).name
+        for rel_path in micro.MICRO_DEVICE_RELATIVE_FILES
+        if rel_path.startswith("mqtt/")
+    ]
     results = [
         SimpleNamespace(stdout="csi_start,csi_stop\n", stderr=""),
         SimpleNamespace(stdout="(1, 24, 0)\n", stderr=""),
-        SimpleNamespace(
-                stdout="['__init__.py', 'branding.py', 'config.py', 'config_local.py', 'device_utils.py', 'utils.py', 'threshold.py', 'filters.py', "
-            "'csi_features.py', 'segmentation.py', 'detector_interface.py', 'runtime_policy.py', 'runtime_diagnostics.py', 'lightweight_detector.py', "
-            "'high_accuracy_detector.py', 'ml_weights.py', 'traffic_generator.py', 'console_output.py', 'main.py', 'mqtt']\n",
-            stderr="",
-        ),
-        SimpleNamespace(stdout="['__init__.py', 'handler.py', 'commands.py', 'home_assistant.py']\n", stderr=""),
+        SimpleNamespace(stdout=f"{src_listing!r}\n", stderr=""),
+        SimpleNamespace(stdout=f"{mqtt_listing!r}\n", stderr=""),
         SimpleNamespace(stdout="True\n", stderr=""),
     ]
 

@@ -156,7 +156,7 @@ Runtime detector selection is capability-gated. ESPHome and Native enable the sh
 
 ### Shared Runtime Debug Telemetry
 
-ESP-IDF runtime implementations reuse `RuntimeDebugTelemetry` for one `[telemetry]` log line approximately every 10 seconds at `DEBUG` level. It reports current, minimum, and largest-block heap values; configured CPU frequency; runtime-loop load and timing; and sampled detector evaluation timing.
+ESP-IDF runtime implementations reuse `RuntimeDebugTelemetry` for one `[telemetry]` log line approximately every 10 seconds at `DEBUG` level. Micro-ESPectre emits the same machine-readable timing keys when its default-off `DEBUG_TELEMETRY` benchmark switch is enabled. ESP-IDF reports current, minimum, and largest-block heap values plus configured CPU frequency; MicroPython reports current and sampled-minimum free heap. Both report runtime-loop load and timing plus sampled detector evaluation timing.
 
 `runtime_load` measures wall time spent inside the ESPectre runtime loop, not whole-system CPU utilization. Wi-Fi callbacks only normalize and enqueue CSI; detector processing, inference, state transitions, and frontend callback delivery run in the owning loop task. MQTT, BLE, and OTA stacks may still perform transport work on private tasks, but their application events are drained by the frontend loop. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. For High Accuracy, it covers ML feature extraction, inference, and state update.
 

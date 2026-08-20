@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from tools import benchmark_firmware as bench
+from src.python.micro_espectre.runtime_diagnostics import RuntimeDebugTelemetry
 
 
 IDF_SIZE_LOG = """
@@ -110,6 +111,128 @@ def test_cases_include_esphome_high_accuracy_after_lightweight():
     assert labels.index("ESPHome Lightweight") < labels.index("ESPHome High Accuracy")
 
 
+def test_cases_include_both_micro_espectre_profiles():
+    labels = [case.label for case in bench.CASES]
+
+    assert labels.index("Micro-ESPectre Lightweight") < labels.index(
+        "Micro-ESPectre High Accuracy"
+    )
+
+
+def test_micro_benchmark_config_enables_production_debug_telemetry(monkeypatch):
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_MQTT_HOST", "broker.local")
+
+    content = bench.render_micro_benchmark_config(
+        "high_accuracy",
+        "0x0000aabbccddeeff",
+    )
+
+    assert "DETECTION_ALGORITHM = 'high_accuracy'" in content
+    assert "DEBUG_TELEMETRY = True" in content
+    assert "MQTT_HA_DISCOVERY_ENABLED = False" in content
+    assert "MQTT_CLIENT_ID = '0x0000aabbccddeeff'" in content
+
+
+def test_micro_benchmark_config_reads_shared_local_env_not_developer_config(monkeypatch):
+    setting_names = (
+        "ESPECTRE_BENCHMARK_WIFI_SSID",
+        "ESPECTRE_BENCHMARK_WIFI_PASSWORD",
+        "ESPECTRE_BENCHMARK_WIFI_BSSID",
+        "ESPECTRE_BENCHMARK_MQTT_HOST",
+        "ESPECTRE_BENCHMARK_MQTT_PORT",
+        "ESPECTRE_BENCHMARK_MQTT_USERNAME",
+        "ESPECTRE_BENCHMARK_MQTT_PASSWORD",
+        "ESPECTRE_BENCHMARK_MQTT_TOPIC_PREFIX",
+    )
+    for name in setting_names:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(
+        bench,
+        "BENCHMARK_LOCAL_ENV",
+        {
+            "ESPECTRE_BENCHMARK_WIFI_SSID": "file-lab",
+            "ESPECTRE_BENCHMARK_WIFI_PASSWORD": "file-wifi-password",
+            "ESPECTRE_BENCHMARK_WIFI_BSSID": "AA:BB:CC:DD:EE:FF",
+            "ESPECTRE_BENCHMARK_MQTT_HOST": "file-broker.local",
+            "ESPECTRE_BENCHMARK_MQTT_PORT": "2883",
+            "ESPECTRE_BENCHMARK_MQTT_USERNAME": "file-user",
+            "ESPECTRE_BENCHMARK_MQTT_PASSWORD": "file-mqtt-password",
+            "ESPECTRE_BENCHMARK_MQTT_TOPIC_PREFIX": "file/espectre",
+        },
+    )
+
+    content = bench.render_micro_benchmark_config(
+        "lightweight",
+        "0x0000aabbccddeeff",
+    )
+
+    assert "WIFI_SSID = 'file-lab'" in content
+    assert "WIFI_PASSWORD = 'file-wifi-password'" in content
+    assert "WIFI_BSSID = 'AA:BB:CC:DD:EE:FF'" in content
+    assert "MQTT_BROKER = 'file-broker.local'" in content
+    assert "MQTT_PORT = 2883" in content
+    assert "MQTT_USERNAME = 'file-user'" in content
+    assert "MQTT_PASSWORD = 'file-mqtt-password'" in content
+    assert "MQTT_TOPIC_PREFIX = 'file/espectre'" in content
+
+
+def test_micro_debug_telemetry_uses_shared_benchmark_keys():
+    telemetry = RuntimeDebugTelemetry(enabled=True)
+    assert telemetry.format_if_due(1_000, 120_000) is None
+    telemetry.record_loop_duration(200)
+    telemetry.record_loop_duration(400)
+    telemetry.record_detection_duration(1_200)
+
+    payload = telemetry.format_if_due(11_000, 118_000)
+
+    assert payload is not None
+    assert "heap_free=118000 heap_min=118000" in payload
+    assert "loop_avg_us=300 loop_max_us=400" in payload
+    assert "detection_samples=1 detection_sum_us=1200" in payload
+    assert "detection_min_us=1200 detection_max_us=1200" in payload
+
+
+def test_run_micro_case_uses_production_cli_workflow(monkeypatch):
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_MQTT_HOST", "broker.local")
+    commands: list[list[str]] = []
+
+    def fake_run_command(command, **_kwargs):
+        resolved = list(command)
+        commands.append(resolved)
+        output = "MAC: AA:BB:CC:DD:EE:FF\n" if resolved[1:3] == ["micro", "flash"] else ""
+        return bench.CommandResult(resolved, 0, 1.0, output)
+
+    def fake_capture(command, **_kwargs):
+        resolved = list(command)
+        commands.append(resolved)
+        return (
+            bench.CommandResult(resolved, 0, 60.0, ""),
+            _runtime_log({offset: 140_000 for offset in range(0, 60_000, 10_000)}),
+        )
+
+    monkeypatch.setattr(bench, "run_command", fake_run_command)
+    monkeypatch.setattr(bench, "_capture_runtime_monitor", fake_capture)
+
+    result = bench.run_micro_case(
+        bench.BenchmarkCase("micro", "lightweight"),
+        "c3",
+        "/dev/cu.usbmodem1",
+    )
+
+    assert result.status == "PASS"
+    assert result.deploy is not None
+    assert result.build_metrics.deployed_source_bytes is not None
+    assert [command[1:3] for command in commands] == [
+        ["micro", "flash"],
+        ["micro", "deploy"],
+        ["micro", "run"],
+    ]
+
+
 def test_detect_esphome_api_host_prefers_sta_over_ap():
     text = (
         "[C][wifi:984]: Setting up AP:\n"
@@ -212,6 +335,27 @@ Failure reasons:
     assert results[0].runtime_metrics.status_samples == 60
 
 
+def test_parse_report_results_reads_micro_deploy_metrics():
+    text = """### Micro-ESPectre Lightweight
+
+Result: **PASS**
+
+| Metric | Value |
+|---|---:|
+| Benchmark mode | runtime |
+| Deploy duration | 2.5s |
+| Firmware binary | 1,024 bytes (1.0 KiB) |
+| Deployed Python source | 2,048 bytes (2.0 KiB) |
+"""
+
+    results = bench.parse_report_results(text)
+
+    assert results[0].deploy is not None
+    assert results[0].deploy.duration_seconds == 2.5
+    assert results[0].build_metrics.firmware_size_bytes == 1_024
+    assert results[0].build_metrics.deployed_source_bytes == 2_048
+
+
 def test_status_stream_is_stable_requires_consecutive_one_hertz_samples():
     too_few = "".join(_status_line(20_000 + offset) for offset in range(0, 4_000, 1_000))
     gapped = "".join(_status_line(10_000 + offset) for offset in range(0, 5_000, 1_000))
@@ -221,3 +365,18 @@ def test_status_stream_is_stable_requires_consecutive_one_hertz_samples():
     assert not bench.status_stream_is_stable(too_few)
     assert not bench.status_stream_is_stable(gapped)
     assert bench.status_stream_is_stable(stable)
+
+
+def test_runtime_window_stops_immediately_on_brownout():
+    class RunningProcess:
+        def poll(self):
+            return None
+
+        def wait(self, timeout=None):
+            raise AssertionError(f"fatal output should not wait for timeout {timeout}")
+
+    output = ["E BOD: Brownout detector was triggered\n"]
+
+    assert bench._wait_for_runtime_sensing_window(RunningProcess(), output) == 0
+    _metrics, reasons = bench.analyze_monitor_output("".join(output))
+    assert "fatal firmware log detected: Brownout detector was triggered" in reasons

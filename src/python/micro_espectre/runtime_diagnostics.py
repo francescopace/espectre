@@ -202,3 +202,105 @@ class RuntimeDiagnosticsSampler:
         )
         self.reset(snapshot, now_ms)
         return result
+
+
+class RuntimeDebugTelemetry:
+    """Aggregate optional loop, detector, and heap benchmark diagnostics."""
+
+    LOG_INTERVAL_MS = 10_000
+
+    def __init__(self, enabled=False):
+        self.enabled = bool(enabled)
+        self._minimum_heap_free = None
+        self.reset()
+
+    def reset(self):
+        """Clear the current timing window while retaining the heap low-water mark."""
+        self._window_start_ms = None
+        self._loop_busy_us = 0
+        self._loop_duration_sum_us = 0
+        self._loop_duration_max_us = 0
+        self._loop_samples = 0
+        self._detection_duration_sum_us = 0
+        self._detection_duration_min_us = 0
+        self._detection_duration_max_us = 0
+        self._detection_samples = 0
+
+    def record_loop_duration(self, duration_us):
+        """Record one measured main-loop body duration."""
+        if not self.enabled:
+            return
+        duration_us = max(0, int(duration_us))
+        self._loop_busy_us += duration_us
+        self._loop_duration_sum_us += duration_us
+        self._loop_duration_max_us = max(self._loop_duration_max_us, duration_us)
+        self._loop_samples += 1
+
+    def record_detection_duration(self, duration_us):
+        """Record one detector evaluation duration."""
+        if not self.enabled:
+            return
+        duration_us = max(0, int(duration_us))
+        self._detection_duration_sum_us += duration_us
+        if self._detection_samples == 0:
+            self._detection_duration_min_us = duration_us
+        else:
+            self._detection_duration_min_us = min(
+                self._detection_duration_min_us,
+                duration_us,
+            )
+        self._detection_duration_max_us = max(
+            self._detection_duration_max_us,
+            duration_us,
+        )
+        self._detection_samples += 1
+
+    def format_if_due(self, now_ms, heap_free):
+        """Return a C++-compatible telemetry payload when the window is due."""
+        if not self.enabled:
+            return None
+        now_ms = int(now_ms)
+        heap_free = max(0, int(heap_free))
+        if self._minimum_heap_free is None:
+            self._minimum_heap_free = heap_free
+        else:
+            self._minimum_heap_free = min(self._minimum_heap_free, heap_free)
+        if self._window_start_ms is None:
+            self._window_start_ms = now_ms
+            return None
+        elapsed_ms = _ticks_diff(now_ms, self._window_start_ms)
+        if elapsed_ms < self.LOG_INTERVAL_MS:
+            return None
+
+        elapsed_us = max(1, int(elapsed_ms) * 1000)
+        runtime_load = min(100.0, self._loop_busy_us * 100.0 / elapsed_us)
+        loop_average = (
+            self._loop_duration_sum_us // self._loop_samples
+            if self._loop_samples
+            else 0
+        )
+        detection_average = (
+            self._detection_duration_sum_us // self._detection_samples
+            if self._detection_samples
+            else 0
+        )
+        payload = (
+            "[telemetry] heap_free={} heap_min={} runtime_load={:.2f}% "
+            "loop_avg_us={} loop_max_us={} detection_samples={} "
+            "detection_sum_us={} detection_avg_us={} detection_min_us={} "
+            "detection_max_us={}"
+        ).format(
+            heap_free,
+            self._minimum_heap_free,
+            runtime_load,
+            loop_average,
+            self._loop_duration_max_us,
+            self._detection_samples,
+            self._detection_duration_sum_us,
+            detection_average,
+            self._detection_duration_min_us,
+            self._detection_duration_max_us,
+        )
+        self.reset()
+        self._window_start_ms = now_ms
+        return payload
