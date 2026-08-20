@@ -273,8 +273,7 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
   std::string out;
   out.reserve(256U + device_id.size() + device_name.size() + device_label.size() +
               info.frontend.size() + info.firmware_version.size() + info.chip.size() +
-              info.network.ip_address.size() + info.network.mac_address.size() + info.detector.size() +
-              info.csi_traffic_mode.size() + info.traffic_mode.size());
+              info.detector.size() + info.csi_traffic_mode.size() + info.traffic_mode.size());
   out = "{";
   append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
   append_json_pair(&out, "device_id", device_id.c_str());
@@ -302,25 +301,10 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
   out += ",\"supports_ble\":";
   out += info.supports_ble ? "true" : "false";
 
-  if (!info.network.ip_address.empty() || !info.network.mac_address.empty() || info.network.channel > 0U) {
-    out += ",\"network\":{";
-    bool first = true;
-    if (!info.network.ip_address.empty()) {
-      append_json_pair(&out, "ip_address", info.network.ip_address.c_str(), first);
-      first = false;
-    }
-    if (!info.network.mac_address.empty()) {
-      append_json_pair(&out, "mac_address", info.network.mac_address.c_str(), first);
-      first = false;
-    }
-    if (info.network.channel > 0U) {
-      if (!first) {
-        out += ",";
-      }
-      out += "\"channel\":{\"primary\":";
-      out += std::to_string(static_cast<unsigned>(info.network.channel));
-      out += "}";
-    }
+  if (info.network.channel > 0U) {
+    out += ",\"network\":{\"channel\":{\"primary\":";
+    out += std::to_string(static_cast<unsigned>(info.network.channel));
+    out += "}";
     out += "}";
   }
 
@@ -338,6 +322,14 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
   if (info.csi_target_pps > 0U) {
     out += ",\"csi_target_pps\":";
     out += std::to_string(static_cast<unsigned>(info.csi_target_pps));
+  }
+  if (info.evaluation_interval_ms > 0U) {
+    out += ",\"evaluation_interval_ms\":";
+    out += std::to_string(static_cast<unsigned>(info.evaluation_interval_ms));
+  }
+  if (info.publish_interval_ms > 0U) {
+    out += ",\"publish_interval_ms\":";
+    out += std::to_string(static_cast<unsigned>(info.publish_interval_ms));
   }
   out += "}";
   return out;

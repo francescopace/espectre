@@ -17,17 +17,11 @@
     if (!routeRegistry) throw new Error('ESPectre route registry is unavailable');
     const browserSupport = window.ESPectreBrowserSupport && window.ESPectreBrowserSupport.current;
     if (!browserSupport) throw new Error('ESPectre browser capability policy is unavailable');
+    const MqttProtocolClient = window.ESPectreMqttClient;
+    if (!MqttProtocolClient) throw new Error('ESPectre MQTT protocol client is unavailable');
 
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => Array.from(document.querySelectorAll(sel));
-
-    function mqttUtf8(value) {
-        if (typeof value === 'string') return value;
-        if (value == null) return '';
-        if (value instanceof ArrayBuffer) return new TextDecoder().decode(value);
-        if (ArrayBuffer.isView(value)) return new TextDecoder().decode(value);
-        return String(value);
-    }
 
     // analytics.js is optional: the app must work with it blocked or absent.
     const track = (name, params) => window.trackEvent ? window.trackEvent(name, params) : false;
@@ -92,12 +86,19 @@
 
     /* ==================================================== shared connection */
 
+    const EVALUATION_INTERVAL_MS_DEFAULT = 250;
+    const PUBLISH_INTERVAL_MS_DEFAULT = 1000;
+    const CSI_TARGET_PPS_DEFAULT = 100;
+
     const conn = {
         mode: null,             // 'ble' | 'mqtt' | 'demo'
         status: 'disconnected', // disconnected | connecting | connected
         movement: 0,
         threshold: 0.5,
         motion: false,
+        evaluationIntervalMs: 0,
+        publishIntervalMs: 0,
+        csiTargetPps: 0,
         deviceName: '',
         deviceId: '',
         generatedName: '',
@@ -253,8 +254,7 @@
         const threshold = Number(snapshot.threshold ?? detection.threshold);
         const motionHits = String(snapshot.motion_hits || '').split('/');
         if (Number.isFinite(threshold)) {
-            conn.threshold = threshold;
-            syncThresholdControl(threshold);
+            applyRemoteThreshold(threshold);
         }
         if (detector) {
             document.getElementById('sense-detector').value = detector;
@@ -276,6 +276,41 @@
             document.getElementById('sense-generator-mode').value =
                 snapshot.traffic_mode || snapshot.traffic_generator_mode;
         }
+        applySensingCadence(snapshot);
+    }
+
+    function positiveInt(value) {
+        const n = Number(value);
+        return Number.isInteger(n) && n > 0 ? n : 0;
+    }
+
+    function evaluationIntervalMs() {
+        return conn.evaluationIntervalMs || EVALUATION_INTERVAL_MS_DEFAULT;
+    }
+
+    function publishIntervalMs() {
+        return conn.publishIntervalMs || PUBLISH_INTERVAL_MS_DEFAULT;
+    }
+
+    function csiTargetPps() {
+        return conn.csiTargetPps || CSI_TARGET_PPS_DEFAULT;
+    }
+
+    function resetSensingCadence() {
+        conn.evaluationIntervalMs = 0;
+        conn.publishIntervalMs = 0;
+        conn.csiTargetPps = 0;
+    }
+
+    function applySensingCadence(snapshot) {
+        if (!snapshot || typeof snapshot !== 'object') return;
+        const evaluation = positiveInt(snapshot.evaluation_interval_ms);
+        const publish = positiveInt(snapshot.publish_interval_ms);
+        const pps = positiveInt(snapshot.csi_target_pps);
+        if (evaluation) conn.evaluationIntervalMs = evaluation;
+        if (publish) conn.publishIntervalMs = publish;
+        if (pps) conn.csiTargetPps = pps;
+        syncDiagnosticsPolling();
     }
 
     function syncSensingControls() {
@@ -372,6 +407,7 @@
         const switched = (previous && previous !== next) || (previousBound && previousBound !== next);
         if (!switched) return;
         monitor.handoffReady = false;
+        resetSensingCadence();
         resetMonitorLiveView();
         otaCheckTransport = '';
         if (monitorIsMqttLive() && previousBound && previousBound !== next) {
@@ -393,20 +429,99 @@
         });
     }
 
+    function thresholdControlActive() {
+        return document.getElementById('sense-threshold') === document.activeElement;
+    }
+
+    function formatThreshold(threshold) {
+        return Number(threshold).toFixed(2);
+    }
+
+    let gameThresholdOverride = null;
+
+    function gameThreshold() {
+        return Number.isFinite(gameThresholdOverride) ? gameThresholdOverride : conn.threshold;
+    }
+
+    function paintGameThresholdControl() {
+        const threshold = gameThreshold();
+        const display = formatThreshold(threshold);
+        const readout = $('.js-game-threshold-value');
+        if (readout) readout.textContent = display;
+        const slider = document.getElementById('game-threshold');
+        if (!slider) return;
+        slider.setAttribute('aria-valuetext', display);
+        if (slider === document.activeElement) return;
+        if (Number(slider.value) === threshold) return;
+        slider.value = String(threshold);
+    }
+
+    function snapshotGameThreshold() {
+        gameThresholdOverride = conn.threshold;
+        paintGameThresholdControl();
+    }
+
+    function paintThresholdControls(threshold) {
+        const sense = document.getElementById('sense-threshold');
+        if (sense && sense !== document.activeElement && Number(sense.value) !== threshold) {
+            sense.value = String(threshold);
+        }
+        if (gameThresholdOverride === null) paintGameThresholdControl();
+    }
+
     function syncThresholdControl(threshold) {
-        const input = document.getElementById('sense-threshold');
-        if (!input || input === document.activeElement) return;
-        if (Number(input.value) === threshold) return;
-        input.value = String(threshold);
+        if (thresholdControlActive()) return;
+        paintThresholdControls(threshold);
+    }
+
+    function applyRemoteThreshold(threshold) {
+        if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) return;
+        if (thresholdControlActive()) return;
+        conn.threshold = threshold;
+        syncThresholdControl(threshold);
+    }
+
+    function applyLocalThreshold(threshold) {
+        conn.threshold = threshold;
+        paintThresholdControls(threshold);
+        renderTelemetry();
+    }
+
+    function commitThreshold(threshold) {
+        if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
+            toast('Threshold must be between 0 and 1.');
+            return;
+        }
+        applyLocalThreshold(threshold);
+        runSensingCommand(
+            { command: 'set_threshold', threshold },
+            'Applying threshold…',
+            'Threshold updated.',
+            () => { conn.threshold = threshold; renderTelemetry(); }
+        );
+    }
+
+    function bindThresholdControls() {
+        const sense = document.getElementById('sense-threshold');
+        const gameSlider = document.getElementById('game-threshold');
+        if (sense) {
+            sense.addEventListener('change', () => commitThreshold(Number(sense.value)));
+        }
+        if (!gameSlider) return;
+        const applyGameThreshold = () => {
+            const threshold = Number(gameSlider.value);
+            if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) return;
+            gameThresholdOverride = threshold;
+            paintGameThresholdControl();
+        };
+        gameSlider.addEventListener('input', applyGameThreshold);
+        gameSlider.addEventListener('change', applyGameThreshold);
     }
 
     function applyLiveTelemetry(movement, threshold, motionState) {
         markToolReady('telemetry');
         conn.movement = movement;
-        if (Number.isFinite(threshold) && threshold >= 0 && threshold <= 1) {
-            conn.threshold = threshold;
-            syncThresholdControl(threshold);
-        }
+        applyRemoteThreshold(threshold);
         conn.motion = motionState !== null && motionState !== undefined
             ? motionState === 1 || motionState === 'motion'
             : movement >= conn.threshold;
@@ -756,15 +871,18 @@
             if (route !== 'game' && route !== 'theremin') setDeviceView('live');
             monitorResetChart();
             let t = 0;
+            const demoTickSec = evaluationIntervalMs() / 1000;
             demoTimer = setInterval(() => {
-                t += 0.16;
+                t += demoTickSec;
                 const gameDemoActive = route === 'game' && game.phase !== 'idle' && game.phase !== 'done';
                 const idle = 0.035 + Math.sin(t * 0.8) * 0.01 + Math.sin(t * 1.9) * 0.004;
                 const target = Math.min(1, idle + demoInputEnergy * 0.95);
-                const smoothing = gameDemoActive ? 0.42 : 0.28;
+                const smoothingTau = gameDemoActive ? 0.29 : 0.49;
+                const smoothing = 1 - Math.exp(-demoTickSec / smoothingTau);
                 conn.movement += (target - conn.movement) * smoothing;
                 conn.movement = Math.max(0.01, Math.min(1, conn.movement));
-                demoInputEnergy *= gameDemoActive ? 0.62 : 0.72;
+                const energyTau = gameDemoActive ? 0.33 : 0.49;
+                demoInputEnergy *= Math.exp(-demoTickSec / energyTau);
                 if (demoInputEnergy < 0.01) demoInputEnergy = 0;
                 monitorFeed(
                     conn.movement,
@@ -772,7 +890,7 @@
                     conn.movement >= conn.threshold ? 'motion' : 'idle'
                 );
                 applyLiveTelemetry(conn.movement, conn.threshold, conn.movement >= conn.threshold ? 1 : 0);
-            }, 160);
+            }, evaluationIntervalMs());
         }, 600);
     }
 
@@ -815,16 +933,13 @@
 
     function stopMqttTransport() {
         const client = monitor.client;
+        const protocol = monitor.protocol;
         monitor.client = null;
+        monitor.protocol = null;
         monitor.closing = true;
+        if (protocol) protocol.close();
         if (client) client.end(true);
         monitor.closing = false;
-        monitor.baseTopic = null;
-        monitor.pendingCommands.forEach((pending) => {
-            clearTimeout(pending.timer);
-            pending.reject(new Error('Broker connection closed.'));
-        });
-        monitor.pendingCommands.clear();
         monitor.commands.clear();
         monitor.commandCatalogReady = false;
         monitor.bleRequested = false;
@@ -888,6 +1003,7 @@
         conn.mode = null;
         conn.movement = 0;
         conn.motion = false;
+        resetSensingCadence();
         conn.deviceName = '';
         conn.deviceId = '';
         conn.generatedName = '';
@@ -1008,8 +1124,6 @@
         const setupTag = $('.js-setup-tag');
         if (setupTag) setupTag.hidden = conn.mode !== 'ble';
 
-        $('.js-demo-connected').hidden = !live;
-        $$('.js-demo-disconnected').forEach((el) => { el.hidden = live; });
         $$('.js-needs-conn').forEach((el) => { el.hidden = connected; });
         $$('.js-has-conn').forEach((el) => { el.hidden = !connected; });
         $$('.js-needs-live').forEach((el) => { el.hidden = live; });
@@ -1023,7 +1137,6 @@
         const monitorOnboarding = $('.js-monitor-onboarding');
         const monitorWorkspace = $('.js-monitor-workspace');
         const connectivitySetup = $('.js-connectivity-setup');
-        const setupNote = $('.js-setup-mode-note');
         const edit = $('.js-device-edit-connectivity');
         const startSensing = document.querySelector('[data-page="configure"] .js-start-detection');
         if (configureOnboarding) configureOnboarding.hidden = bleSetup || conn.mode === 'demo';
@@ -1031,7 +1144,6 @@
         if (monitorOnboarding) monitorOnboarding.hidden = mqttSession;
         if (monitorWorkspace) monitorWorkspace.hidden = !mqttSession;
         if (connectivitySetup) connectivitySetup.hidden = !(bleSetup || conn.mode === 'demo');
-        if (setupNote) setupNote.hidden = !bleSetup;
         if (startSensing) startSensing.disabled = monitor.closingBleForLive;
         if (edit) {
             edit.hidden = false;
@@ -1058,7 +1170,11 @@
 
     function renderTelemetry() {
         const pct = Math.round(energyFraction() * 100) + '%';
-        $$('.js-energy-fill').forEach((el) => { el.style.width = pct; });
+        const duration = (evaluationIntervalMs() / 1000) + 's';
+        $$('.js-energy-fill').forEach((el) => {
+            el.style.transitionDuration = duration;
+            el.style.width = pct;
+        });
         $$('.js-motion-label').forEach((el) => {
             el.textContent = conn.motion ? 'MOTION' : 'IDLE';
             el.classList.toggle('motion', conn.motion);
@@ -1126,6 +1242,7 @@
         if (!force && target === route) return;
         const previousRoute = route;
         if (previousRoute === 'game' && target !== 'game') reportGameAbandon('route_change');
+        if (target === 'game' && previousRoute !== 'game') snapshotGameThreshold();
         route = target;
         dropdownOpen = false;
         applyRoute({ focus });
@@ -1159,6 +1276,7 @@
             container.innerHTML = staticContentCache.get(contentUrl);
             container.dataset.loaded = 'true';
             if (window.initPageTocs) window.initPageTocs(container);
+            if (window.initSdkDownloadVersions) window.initSdkDownloadVersions(container);
         } catch (error) {
             console.warn('Static content fetch failed:', error);
             container.innerHTML = '<p class="guide-loading">This page could not be loaded. '
@@ -1226,6 +1344,8 @@
 
     let activeScrollyScene = -1;
     let scrollyFrame = null;
+    let scrollyKeyTargetScene = null;
+    let scrollyKeyTargetTimer = null;
     let heroFrameTimer = null;
     const HERO_FRAME_HOLD = 2000;
 
@@ -1272,7 +1392,12 @@
         });
 
         $$('.js-scrolly-scene, .js-scrolly-caption, .js-scrolly-marker').forEach((el) => {
-            el.classList.toggle('is-active', Number(el.dataset.scene) === scene);
+            const isActive = Number(el.dataset.scene) === scene;
+            el.classList.toggle('is-active', isActive);
+            if (el.classList.contains('js-scrolly-caption')) {
+                el.toggleAttribute('inert', !isActive);
+                el.setAttribute('aria-hidden', String(!isActive));
+            }
         });
         $('.scrolly-stage').classList.toggle('is-intro', scene === 0);
         if (scene === 0) startHeroFrameSequence();
@@ -1294,9 +1419,43 @@
         scrollyFrame = requestAnimationFrame(renderScrolly);
     }
 
+    function scrollyHandleKeydown(event) {
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+        if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+        const target = event.target;
+        if (target instanceof Element && target.closest('a, button, input, select, textarea, [contenteditable="true"]')) return;
+
+        const section = $('.js-scrolly');
+        if (!section || section.offsetParent === null) return;
+        const rect = section.getBoundingClientRect();
+        if (rect.bottom <= 0 || rect.top >= window.innerHeight) return;
+
+        const sceneCount = $$('.js-scrolly-scene').length;
+        const currentScene = scrollyKeyTargetScene === null
+            ? scrollySceneFromPosition(section, sceneCount)
+            : scrollyKeyTargetScene;
+        const direction = event.key === 'ArrowDown' ? 1 : -1;
+        const nextScene = Math.min(sceneCount - 1, Math.max(0, currentScene + direction));
+        if (nextScene === currentScene) return;
+
+        event.preventDefault();
+        scrollyKeyTargetScene = nextScene;
+        clearTimeout(scrollyKeyTargetTimer);
+        scrollyKeyTargetTimer = setTimeout(() => { scrollyKeyTargetScene = null; }, 500);
+
+        const travel = Math.max(1, rect.height - window.innerHeight);
+        const sectionTop = window.scrollY + rect.top;
+        const sceneProgress = (nextScene + 0.5) / sceneCount;
+        window.scrollTo({
+            top: sectionTop + (travel * sceneProgress),
+            behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+        });
+    }
+
     function scrollyInit() {
         window.addEventListener('scroll', queueScrollyRender, { passive: true });
         window.addEventListener('resize', queueScrollyRender);
+        document.addEventListener('keydown', scrollyHandleKeydown);
         renderScrolly();
     }
 
@@ -1305,7 +1464,7 @@
     const flash = {
         manifests: {}, installUrl: null, badgeChecked: false,
         installerObserver: null, watchedDialogs: new WeakSet(), catalogReports: new Set(),
-        downloadReady: false, detectedChip: '', supportedChipLabels: []
+        downloadReady: false, detectedChip: '', supportedChipLabels: [], modalReturnFocus: null
     };
 
     /*
@@ -1425,17 +1584,18 @@
         return link;
     }
 
-    function flashNextAction(label, className) {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'link-btn ' + className;
-        button.textContent = label;
-        return button;
+    function flashNextActionLink(label, className) {
+        const link = document.createElement('a');
+        link.href = '#flash';
+        link.className = className;
+        link.textContent = label;
+        return link;
     }
 
     function flashHideMatterQr() {
         const status = $('.js-matter-status');
         const result = $('.js-matter-result');
+        matterClose(false);
         if (status) {
             status.hidden = true;
             status.textContent = '';
@@ -1467,13 +1627,14 @@
             return;
         }
         if (frontendKey === 'matter') {
-            const readQr = flashNextAction('Read the onboarding QR over USB', 'js-matter-read');
+            const readQr = flashNextActionLink('Read the onboarding QR over USB', 'js-matter-read');
             if (!browserSupport.flash) {
-                readQr.disabled = true;
+                readQr.setAttribute('aria-disabled', 'true');
                 readQr.title = flashUnsupportedMessage();
             }
             note.replaceChildren(
-                'After flashing Matter, commission the device with a Matter controller. ',
+                'After flashing Matter, commission the device with a Matter controller.',
+                document.createElement('br'),
                 readQr,
                 ' or see the ',
                 flashNextLink('/guides/setup/', 'setup guide'),
@@ -1649,7 +1810,7 @@
             return;
         }
         let port;
-        if (trigger) trigger.disabled = true;
+        if (trigger) trigger.setAttribute('aria-disabled', 'true');
         result.hidden = true;
         status.hidden = false;
         status.textContent = 'Choose the ESPectre serial port, then wait for the device to restart.';
@@ -1671,7 +1832,8 @@
             $('.js-matter-payload').textContent = codes.qr;
             $('.js-matter-manual').textContent = codes.manual;
             result.hidden = false;
-            status.textContent = 'This QR is stored on the device and remains the same after normal updates.';
+            status.textContent = 'Onboarding codes read from the device.';
+            matterOpen(trigger);
             track('matter_qr_read', { result: 'success' });
         } catch (error) {
             status.textContent = error.message || 'Unable to read the Matter QR code.';
@@ -1680,12 +1842,38 @@
             if (port && (port.readable || port.writable)) {
                 await port.close().catch(() => {});
             }
-            if (trigger) trigger.disabled = false;
+            if (trigger) trigger.setAttribute('aria-disabled', 'false');
         }
     }
 
+    function syncModalOpenState() {
+        document.body.classList.toggle(
+            'modal-open',
+            $$('.modal-backdrop').some((modal) => !modal.hidden)
+        );
+    }
+
+    function matterOpen(returnFocus) {
+        const modal = $('.js-matter-modal');
+        flash.modalReturnFocus = returnFocus || document.activeElement;
+        modal.hidden = false;
+        syncModalOpenState();
+        modal.querySelector('.modal-card').focus();
+    }
+
+    function matterClose(restoreFocus = true) {
+        const modal = $('.js-matter-modal');
+        if (!modal || modal.hidden) return;
+        modal.hidden = true;
+        syncModalOpenState();
+        if (restoreFocus && flash.modalReturnFocus && flash.modalReturnFocus.isConnected) {
+            flash.modalReturnFocus.focus();
+        }
+        flash.modalReturnFocus = null;
+    }
+
     /**
-     * Shows the latest published release in the hero badge. The stable
+     * Shows the latest published release in the hero badge. The release
      * manifest is staged by CI from the GitHub release tag, so it is already
      * the newest version and needs no API call. The badge is decorative:
      * it stays hidden when the manifest is unavailable.
@@ -1694,7 +1882,7 @@
         if (flash.badgeChecked) return;
         flash.badgeChecked = true;
         try {
-            const manifest = await flashLoadManifest('stable');
+            const manifest = await flashLoadManifest('release');
             const version = String(manifest.release_tag || manifest.version || '').replace(/^v/, '');
             if (!version) return;
             $('.js-release-text').textContent = 'v' + version + ' available';
@@ -1806,27 +1994,44 @@
             });
         });
         $('.js-flash-next').addEventListener('click', (event) => {
-            if (!event.target.closest('.js-matter-read')) return;
+            const action = event.target.closest('.js-matter-read');
+            if (!action) return;
             event.preventDefault();
+            if (action.getAttribute('aria-disabled') === 'true') return;
             matterReadQr();
+        });
+        $$('.js-matter-close').forEach((button) => {
+            button.addEventListener('click', () => matterClose());
+        });
+        $('.js-matter-modal').addEventListener('click', (event) => {
+            if (event.target === event.currentTarget) matterClose();
         });
         if (browserSupport.flash) observeFirmwareInstaller();
     }
 
     /* ============================================================= monitor */
 
-    const MONITOR_CHART_WINDOW_MS = 5 * 60 * 1000;
-    const MONITOR_CHART_MAX_POINTS = 5 * 60 * 10;
-    const MONITOR_CHART_COALESCE_MS = 100;
-    const MONITOR_TELEMETRY_STALE_MS = 1500;
+    const MONITOR_CHART_WINDOW_MS = 60 * 1000;
     const MONITOR_CALIBRATION_FALLBACK_MS = 45 * 1000;
     const MONITOR_CALIBRATION_SAFETY_MS = 90 * 1000;
     const MONITOR_DEMO_CALIBRATION_MS = 2500;
     const MONITOR_DISCOVERY_TIMEOUT_MS = 2000;
 
+    function monitorChartMaxPoints() {
+        return Math.max(2, Math.ceil(MONITOR_CHART_WINDOW_MS / evaluationIntervalMs()) + 2);
+    }
+
+    function monitorChartCoalesceMs() {
+        return Math.max(16, Math.min(100, Math.floor(evaluationIntervalMs() / 2)));
+    }
+
+    function monitorTelemetryStaleMs() {
+        return Math.max(publishIntervalMs(), evaluationIntervalMs() * 6);
+    }
+
     const monitor = {
         client: null,
-        baseTopic: null,
+        protocol: null,
         demoTimer: null,
         demoT: 0,
         demoMove: 0.05,
@@ -1841,13 +2046,13 @@
         readyAt: 0,
         readyTracked: false,
         closing: false,
-        pendingCommands: new Map(),
         commands: new Set(),
         commandCatalogReady: false,
         bleRequested: false,
         handoffReady: false,
         closingBleForLive: false,
         diagTimer: null,
+        diagIntervalMs: 0,
         calibrating: false,
         calibrationTimer: null,
         boundDeviceId: '',
@@ -1871,13 +2076,6 @@
         if (!el) return;
         el.hidden = !message;
         el.textContent = message || '';
-    }
-
-    function monitorBaseTopic() {
-        const prefix = document.getElementById('mon-topic-prefix').value.trim().replace(/\/+$/, '');
-        const device = document.getElementById('mon-device').value.trim().replace(/^\/+|\/+$/g, '');
-        if (!prefix || !device) return '';
-        return prefix + '/' + device;
     }
 
     function clearMonitorFieldError(input) {
@@ -1908,11 +2106,12 @@
         const path = pathInput.value.trim();
         const portNumber = Number(port);
         const deviceValid = !device || (!device.includes('/') && !/[+#]/.test(device));
+        const prefixValid = !!prefix && !prefix.startsWith('/') && !/[+#\0]/.test(prefix);
         const fields = [
             [hostInput, !!host && !/\s|:\/\/|\//.test(host), 'Enter a valid broker host.'],
             [portInput, !!port && Number.isInteger(portNumber)
                 && portNumber >= 1 && portNumber <= 65535, 'Enter a port from 1 to 65535.'],
-            [prefixInput, !!prefix, 'Enter a topic prefix.'],
+            [prefixInput, prefixValid, 'Enter a topic prefix without a leading slash or MQTT wildcards.'],
             [deviceInput, deviceValid, 'Enter a device ID without / or wildcards.'],
             [pathInput, path.startsWith('/') && !/\s/.test(path), 'Enter a path starting with /.']
         ];
@@ -1932,8 +2131,7 @@
             path,
             tls: document.getElementById('mon-tls').checked,
             prefix,
-            device,
-            base: device ? prefix + '/' + device : ''
+            device
         };
     }
 
@@ -1953,40 +2151,19 @@
         applyLiveTelemetry(movement, threshold, motionState);
     }
 
-    function ingestMqttPayload(base, topic, payload) {
-        const topicName = mqttUtf8(topic);
-        const text = mqttUtf8(payload).trim();
-        if (!topicName || !text) return;
+    function ingestMqttMessage({ suffix, text, data }) {
         if (monitor.boundDeviceId && conn.deviceId && monitor.boundDeviceId !== conn.deviceId) return;
-        const suffix = topicName.startsWith(base + '/') ? topicName.slice(base.length + 1) : '';
-        try {
-            if (suffix === 'commands/accepted' || suffix === 'commands/rejected') {
-                const data = JSON.parse(text);
-                const pending = monitor.pendingCommands.get(data.command_id);
-                if (!pending) return;
-                clearTimeout(pending.timer);
-                monitor.pendingCommands.delete(data.command_id);
-                if (suffix === 'commands/accepted' && data.accepted !== false) {
-                    pending.resolve(data);
-                } else {
-                    pending.reject(new Error(data.message || 'The device rejected the command.'));
-                }
-                return;
-            }
-            if (suffix === 'commands/catalog') {
-                const data = JSON.parse(text);
+        switch (suffix) {
+            case 'commands/catalog':
                 if (!data || !Array.isArray(data.commands)) return;
                 monitor.commands = new Set(data.commands);
                 monitor.commandCatalogReady = true;
                 syncSensingControls();
                 return;
-            }
-            if (suffix === 'info') {
-                applyDeviceInfo(JSON.parse(text));
+            case 'info':
+                applyDeviceInfo(data);
                 return;
-            }
-            if (suffix === 'status') {
-                const data = JSON.parse(text);
+            case 'status': {
                 const online = data.online === true;
                 handleOtaDeviceAvailability(online);
                 if (!online && !otaAwaitingReconnect && otaState !== 'reboot_scheduled') {
@@ -1995,12 +2172,10 @@
                 }
                 return;
             }
-            if (suffix === 'ota/state') {
-                applyOtaStatus(JSON.parse(text));
+            case 'ota/state':
+                applyOtaStatus(data);
                 return;
-            }
-            if (suffix === 'stats') {
-                const data = JSON.parse(text);
+            case 'stats':
                 if (!data || typeof data !== 'object'
                         || !['traffic_tx_pps', 'csi_callback_pps', 'free_memory_kb']
                             .some((key) => data[key] !== undefined)) return;
@@ -2010,9 +2185,7 @@
                     monitorDiagStatus('Diagnostics received — this firmware does not expose the extended fields.');
                 }
                 return;
-            }
-            if (suffix === 'telemetry') {
-                const data = JSON.parse(text);
+            case 'telemetry': {
                 if (!data || typeof data !== 'object') return;
                 const movement = Number(data.movement_score ?? data.movement);
                 const threshold = Number(data.threshold);
@@ -2025,55 +2198,49 @@
                 );
                 return;
             }
-            if (suffix === 'ha/movement/state') {
+            case 'ha/movement/state': {
                 if (monitorHasFreshTelemetry()) return;
                 const movement = Number(text);
                 if (!Number.isFinite(movement)) return;
                 applyMqttLiveTelemetry(movement, conn.threshold, conn.motion ? 'motion' : 'idle');
                 return;
             }
-            if (suffix === 'ha/threshold/state') {
-                const threshold = Number(text);
-                if (!Number.isFinite(threshold)) return;
-                conn.threshold = threshold;
-                syncThresholdControl(threshold);
+            case 'ha/threshold/state':
+                applyRemoteThreshold(Number(text));
                 renderTelemetry();
                 return;
-            }
-            if (suffix === 'ha/motion/state') {
+            case 'ha/motion/state': {
                 if (monitorHasFreshTelemetry()) return;
                 const motion = text === 'ON' || text === '1' || text === 'motion';
                 applyMqttLiveTelemetry(conn.movement, conn.threshold, motion ? 'motion' : 'idle');
                 return;
             }
-            if (suffix === 'ha/detector/state') {
+            case 'ha/detector/state':
                 document.getElementById('sense-detector').value = text;
                 if (text !== 'lightweight') setCalibrationBusy(false);
                 else syncSensingControls();
                 return;
-            }
-            if (suffix === 'ha/calibrate/state') {
+            case 'ha/calibrate/state': {
                 const calibrating = text === 'ON' || text === '1';
                 setCalibrationBusy(calibrating);
                 if (calibrating) scheduleCalibrationIdle(MONITOR_CALIBRATION_SAFETY_MS);
                 return;
             }
-            if (suffix === 'ha/motion_on_hits/state') {
+            case 'ha/motion_on_hits/state':
                 document.getElementById('sense-motion-on').value = text;
                 return;
-            }
-            if (suffix === 'ha/motion_off_hits/state') {
+            case 'ha/motion_off_hits/state':
                 document.getElementById('sense-motion-off').value = text;
                 return;
-            }
-            if (suffix === 'ha/csi_traffic_mode/state') {
+            case 'ha/csi_traffic_mode/state':
                 applyCsiTrafficModeSelect(text);
                 return;
-            }
-            if (suffix === 'ha/traffic_generator_mode/state') {
+            case 'ha/traffic_generator_mode/state':
                 document.getElementById('sense-generator-mode').value = text;
-            }
-        } catch (error) { /* ignore malformed payloads */ }
+                return;
+            default:
+                return;
+        }
     }
 
     function syncMonitorDemoButton() {
@@ -2093,7 +2260,7 @@
 
     function monitorHasFreshTelemetry() {
         return monitor.lastTelemetryAt > 0
-            && (Date.now() - monitor.lastTelemetryAt) < MONITOR_TELEMETRY_STALE_MS;
+            && (Date.now() - monitor.lastTelemetryAt) < monitorTelemetryStaleMs();
     }
 
     function monitorResetChart() {
@@ -2139,7 +2306,7 @@
             ? state === 1 || state === 'motion'
             : movement >= threshold;
         const last = monitor.points[monitor.points.length - 1];
-        if (last && now - last.at < MONITOR_CHART_COALESCE_MS) {
+        if (last && now - last.at < monitorChartCoalesceMs()) {
             last.m = movement;
             last.t = threshold;
             last.at = now;
@@ -2149,7 +2316,7 @@
         }
         const oldest = now - MONITOR_CHART_WINDOW_MS;
         while (monitor.points.length
-                && (monitor.points[0].at < oldest || monitor.points.length > MONITOR_CHART_MAX_POINTS)) {
+                && (monitor.points[0].at < oldest || monitor.points.length > monitorChartMaxPoints())) {
             monitor.points.shift();
         }
         const stateEl = $('.js-mon-state');
@@ -2201,18 +2368,18 @@
         ctx.fillStyle = dim;
         ctx.font = '10px "JetBrains Mono", ui-monospace, monospace';
         ctx.textBaseline = 'top';
-        const minuteMs = 60 * 1000;
+        const tickMs = 10 * 1000;
         const labelEvery = width >= 420 ? 1 : 2;
-        for (let age = MONITOR_CHART_WINDOW_MS; age >= 0; age -= minuteMs) {
+        for (let age = MONITOR_CHART_WINDOW_MS; age >= 0; age -= tickMs) {
             const px = Math.max(0.5, Math.min(width - 0.5, x(now - age)));
             ctx.beginPath();
             ctx.moveTo(px, 0);
             ctx.lineTo(px, plotH);
             ctx.stroke();
-            const minutes = age / minuteMs;
-            if (minutes % labelEvery !== 0 && minutes !== 0) continue;
-            const label = minutes === 0 ? 'now' : `−${minutes}m`;
-            ctx.textAlign = minutes === 0 ? 'right' : (age === MONITOR_CHART_WINDOW_MS ? 'left' : 'center');
+            const ticks = age / tickMs;
+            if (ticks % labelEvery !== 0 && ticks !== 0) continue;
+            const label = age === 0 ? 'now' : `−${age / 1000}s`;
+            ctx.textAlign = age === 0 ? 'right' : (age === MONITOR_CHART_WINDOW_MS ? 'left' : 'center');
             ctx.fillText(label, px, plotH + 2);
         }
 
@@ -2304,38 +2471,27 @@
         choice.value = '';
     }
 
-    function monitorExtractDeviceIdFromTopic(topic, prefix) {
-        const root = prefix + '/';
-        if (!topic.startsWith(root)) return '';
-        const parts = topic.slice(root.length).split('/');
-        if (parts.length < 2 || !parts[0]) return '';
-        if (parts[1] !== 'info' && parts[1] !== 'status') return '';
-        return parts[0];
-    }
-
     function recordDiscoveredMqttDevice(topic, payload) {
         const prefix = monitor.discoveryPrefix;
         if (!prefix) return;
-        const topicName = mqttUtf8(topic);
-        const topicId = monitorExtractDeviceIdFromTopic(topicName, prefix);
-        if (!topicId) return;
-        let data;
+        let message;
         try {
-            data = JSON.parse(mqttUtf8(payload).trim());
+            message = MqttProtocolClient.parseDiscoveryMessage(prefix, topic, payload);
         } catch (error) {
             return;
         }
-        if (!data || typeof data !== 'object') return;
+        if (!message) return;
+        const { data, deviceId: topicId, suffix } = message;
         const device = monitor.discoveredDevices[topicId] || {
             topic_id: topicId,
             device_id: topicId
         };
         if (data.device_id) device.device_id = String(data.device_id);
-        if (topicName.endsWith('/info')) {
+        if (suffix === 'info') {
             ['device_name', 'device_label', 'frontend', 'chip'].forEach((key) => {
                 if (data[key]) device[key] = data[key];
             });
-        } else if (topicName.endsWith('/status') && 'online' in data) {
+        } else if (suffix === 'status' && 'online' in data) {
             device.online = data.online === true;
         }
         monitor.discoveredDevices[topicId] = device;
@@ -2408,6 +2564,7 @@
 
     function monitorFinishDiscovery(client) {
         monitor.discoveryActive = false;
+        monitorUnsubscribeDiscovery(client);
         syncMonitorDemoButton();
         const devices = Object.values(monitor.discoveredDevices)
             .sort((a, b) => a.device_id.localeCompare(b.device_id));
@@ -2431,12 +2588,13 @@
 
     function monitorStartDiscovery(client, prefix) {
         resetMonitorDevicePicker();
+        monitorUnsubscribeDiscovery(client);
         monitor.discoveryActive = true;
         monitor.discoveredDevices = {};
         monitor.discoveryPrefix = prefix;
-        const infoTopic = prefix + '/+/info';
-        const statusTopic = prefix + '/+/status';
-        monitor.discoveryTopics = [infoTopic, statusTopic];
+        monitor.protocol.setTopicPrefix(prefix);
+        monitor.protocol.setDevice('');
+        monitor.discoveryTopics = MqttProtocolClient.discoveryTopics(prefix);
         monitorStatus('Scanning MQTT for devices…');
         toast('Scanning MQTT for devices…');
         syncMonitorDemoButton();
@@ -2466,11 +2624,12 @@
     }
 
     function monitorBindSelectedDevice(client, prefix, device) {
-        const base = prefix + '/' + device;
-        monitor.baseTopic = base;
+        monitor.protocol.setTopicPrefix(prefix);
+        monitor.protocol.setDevice(device);
+        const subscriptionTopic = monitor.protocol.subscriptionTopic;
         monitor.boundDeviceId = device;
         monitor.inputMode = 'mqtt';
-        client.subscribe(base + '/#', async (error) => {
+        client.subscribe(subscriptionTopic, async (error) => {
             if (monitor.client !== client) return;
             monitorStatus(error
                 ? 'Subscribe failed: ' + error.message
@@ -2570,7 +2729,6 @@
         monitorStopAll('replaced');
         monitor.closing = false;
         resetMonitorLiveView();
-        monitor.baseTopic = device ? connection.base : null;
         monitor.boundDeviceId = device || '';
         monitor.handoffReady = false;
         monitor.startedAt = Date.now();
@@ -2595,6 +2753,11 @@
             protocolVersion: 4
         });
         monitor.client = client;
+        monitor.protocol = new MqttProtocolClient(client, { topicPrefix: prefix });
+        monitor.protocol.on('message', ingestMqttMessage);
+        monitor.protocol.on('protocol-error', (error) => {
+            console.warn('Ignored malformed ESPectre MQTT payload:', error.message);
+        });
         client.on('connect', () => {
             if (monitor.client !== client) return;
             monitor.connectedAt = Date.now();
@@ -2610,8 +2773,7 @@
                 recordDiscoveredMqttDevice(topic, payload);
                 return;
             }
-            if (!monitor.baseTopic) return;
-            ingestMqttPayload(monitor.baseTopic, topic, payload);
+            monitor.protocol.ingest(topic, payload);
         });
         client.on('error', (error) => {
             if (monitor.client !== client) return;
@@ -2649,43 +2811,17 @@
         statusFn = monitorStatus,
         timeoutMs = 8000
     } = {}) {
-        if (!monitorIsMqttLive() || !monitor.baseTopic) {
+        if (!monitorIsMqttLive() || !monitor.protocol?.baseTopic) {
             const error = new Error('Connect through the broker before changing the device.');
             statusFn(error.message);
             return Promise.reject(error);
         }
-        const commandId = 'web-' + Date.now() + '-' + Math.random().toString(16).slice(2, 7);
-        const command = JSON.stringify({
-            protocol_version: '1.0',
-            command_id: commandId,
-            ...fields
-        });
         statusFn(pendingMessage);
-        return new Promise((resolve, reject) => {
-            const timer = setTimeout(() => {
-                monitor.pendingCommands.delete(commandId);
-                reject(new Error('The device did not confirm the command in time.'));
-            }, timeoutMs);
-            monitor.pendingCommands.set(commandId, { resolve, reject, timer, command: fields.command });
-            monitor.client.publish(
-                monitor.baseTopic + '/commands/request',
-                command,
-                { qos: 0, retain: false },
-                (error) => {
-                    if (!error) return;
-                    clearTimeout(timer);
-                    monitor.pendingCommands.delete(commandId);
-                    reject(error);
-                }
-            );
-        });
+        return monitor.protocol.publishCommand(fields, { timeoutMs });
     }
 
     function diagnosticsRequestPending() {
-        for (const pending of monitor.pendingCommands.values()) {
-            if (pending.command === 'stats') return true;
-        }
-        return false;
+        return monitor.protocol?.hasPendingCommand('stats') || false;
     }
 
     function diagnosticsPanelOpen() {
@@ -2698,6 +2834,7 @@
         if (!monitor.diagTimer) return;
         clearInterval(monitor.diagTimer);
         monitor.diagTimer = null;
+        monitor.diagIntervalMs = 0;
     }
 
     function syncDiagnosticsPolling() {
@@ -2707,9 +2844,12 @@
             stopDiagnosticsPolling();
             return;
         }
-        if (monitor.diagTimer) return;
+        const interval = publishIntervalMs();
+        if (monitor.diagTimer && monitor.diagIntervalMs === interval) return;
+        stopDiagnosticsPolling();
         monitorRequestStats();
-        monitor.diagTimer = setInterval(monitorRequestStats, 1000);
+        monitor.diagIntervalMs = interval;
+        monitor.diagTimer = setInterval(monitorRequestStats, interval);
     }
 
     async function monitorRequestStats() {
@@ -2719,10 +2859,10 @@
         }
         if (conn.mode === 'demo') {
             monitorStats({
-                traffic_tx_pps: 100,
-                csi_callback_pps: 96,
+                traffic_tx_pps: csiTargetPps(),
+                csi_callback_pps: Math.max(1, csiTargetPps() - 4),
                 csi_filtered_pps: 6,
-                csi_admitted_pps: 84,
+                csi_admitted_pps: Math.max(1, csiTargetPps() - 16),
                 wifi_channel: 10,
                 wifi_rssi_dbm: -55,
                 free_memory_kb: 161.4,
@@ -2823,19 +2963,7 @@
         $$('.js-firmware-update-notice').forEach((button) => {
             button.addEventListener('click', (event) => otaOpen(event.currentTarget));
         });
-        document.getElementById('sense-threshold').addEventListener('change', () => {
-            const threshold = Number(document.getElementById('sense-threshold').value);
-            if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
-                toast('Threshold must be between 0 and 1.');
-                return;
-            }
-            runSensingCommand(
-                { command: 'set_threshold', threshold },
-                'Applying threshold…',
-                'Threshold updated.',
-                () => { conn.threshold = threshold; renderTelemetry(); }
-            );
-        });
+        bindThresholdControls();
         document.getElementById('sense-detector').addEventListener('change', () => {
             const detector = document.getElementById('sense-detector').value;
             syncSensingControls();
@@ -2882,7 +3010,7 @@
 
     /* ============================================================ theremin */
 
-    const theremin = { ctx: null, osc: null, gain: null, raf: null, smoothed: 0 };
+    const theremin = { ctx: null, osc: null, gain: null, raf: null, smoothed: 0, lastAt: 0 };
 
     function thereminStart() {
         if (theremin.ctx) return;
@@ -2899,10 +3027,16 @@
         theremin.gain.gain.value = 0;
         theremin.osc.connect(theremin.gain).connect(theremin.ctx.destination);
         theremin.osc.start();
+        theremin.lastAt = 0;
         $('.js-th-toggle').textContent = '⏹ Stop sound';
         const loop = () => {
+            const nowMs = performance.now();
+            const dt = theremin.lastAt ? Math.min(0.08, (nowMs - theremin.lastAt) / 1000) : 1 / 60;
+            theremin.lastAt = nowMs;
             const f = energyFraction();
-            theremin.smoothed += (f - theremin.smoothed) * 0.12;
+            const tau = evaluationIntervalMs() / 2000;
+            const alpha = 1 - Math.exp(-dt / tau);
+            theremin.smoothed += (f - theremin.smoothed) * alpha;
             const freq = 140 * Math.pow(2, theremin.smoothed * 2.6);
             const now = theremin.ctx.currentTime;
             theremin.osc.frequency.setTargetAtTime(freq, now, 0.05);
@@ -2922,6 +3056,7 @@
         theremin.osc = null;
         theremin.gain = null;
         theremin.smoothed = 0;
+        theremin.lastAt = 0;
         const toggle = $('.js-th-toggle');
         if (toggle) toggle.textContent = '▶ Start sound';
         const freq = $('.js-th-freq');
@@ -3402,7 +3537,7 @@
         const modal = $('.js-ota-modal');
         otaModalReturnFocus = returnFocus || document.activeElement;
         modal.hidden = false;
-        document.body.classList.add('modal-open');
+        syncModalOpenState();
         modal.querySelector('.modal-card').focus();
     }
 
@@ -3410,7 +3545,7 @@
         const modal = $('.js-ota-modal');
         if (!modal || modal.hidden) return;
         modal.hidden = true;
-        document.body.classList.remove('modal-open');
+        syncModalOpenState();
         if (restoreFocus && otaModalReturnFocus && otaModalReturnFocus.isConnected) {
             otaModalReturnFocus.focus();
         }
@@ -3473,7 +3608,9 @@
             if (event.target === event.currentTarget) otaClose();
         });
         document.addEventListener('keydown', (event) => {
-            if (event.key === 'Escape' && !$('.js-ota-modal').hidden) otaClose();
+            if (event.key !== 'Escape') return;
+            if (!$('.js-matter-modal').hidden) matterClose();
+            else if (!$('.js-ota-modal').hidden) otaClose();
         });
     }
 
@@ -3573,30 +3710,30 @@
         clearTimeout(game.holdTimer);
         clearTimeout(game.cooldownTimer);
         clearTimeout(game.strikeTimeout);
-        const waitForDemoSettle = () => {
-            const settleThreshold = Math.max(0.18, conn.threshold * 0.7);
-            if (demoInputEnergy > 0 || conn.motion || conn.movement >= settleThreshold) {
-                game.cooldownTimer = setTimeout(waitForDemoSettle, 220);
+        const waitForSettle = () => {
+            const settleThreshold = Math.max(0.18, gameThreshold() * 0.7);
+            if (demoInputEnergy > 0 || conn.movement >= settleThreshold) {
+                game.cooldownTimer = setTimeout(waitForSettle, evaluationIntervalMs());
                 return;
             }
             demoResetMotion();
             gameNextRound();
         };
-        if (conn.mode === 'demo') {
-            game.cooldownTimer = setTimeout(waitForDemoSettle, 900);
-        } else {
-            game.cooldownTimer = setTimeout(gameNextRound, 1700);
-        }
+        game.cooldownTimer = setTimeout(waitForSettle, conn.mode === 'demo' ? 900 : 700);
+    }
+
+    function gameSensingActive() {
+        return conn.movement >= gameThreshold();
     }
 
     function gameOnTelemetry() {
         if (route !== 'game') return;
-        if (game.phase === 'hold' && conn.motion) {
+        if (game.phase === 'hold' && gameSensingActive()) {
             gameOrb('fail');
             gameMsg('False start! The Spectre saw you twitch.');
             gameSet('.js-game-ms', 'false start');
             gameEndRound();
-        } else if (game.phase === 'strike' && conn.motion) {
+        } else if (game.phase === 'strike' && gameSensingActive()) {
             const ms = Math.round(performance.now() - game.strikeAt);
             const points = Math.max(0, 1500 - ms);
             game.score += points;

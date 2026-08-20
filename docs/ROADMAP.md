@@ -29,6 +29,7 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 Before deploy:
 
+- [ ] Validate Micro-ESPectre on the pinned upstream MicroPython firmware at the configured CSI target rate with Lightweight, High Accuracy, MQTT, Home Assistant Discovery, and the complete hardware benchmark passing without detector-contract overrides
 - [ ] Review docs/web content, imagery, UX, and UI for release readiness
 
 After deploy:
@@ -61,7 +62,6 @@ After deploy:
 **Scope**:
 
 - Expand the original ESP32 corpus across environments, and retrain when the evidence supports it
-- Improve Micro-ESPectre beyond its current approximately 70 packets per second ceiling while preserving detector quality and runtime stability
 - Compare `SIZE` and `PERF` compiler profiles across maintained firmware frontends, and adopt performance-oriented builds only where runtime gains justify binary-size and fit costs
 
 **Exit criteria**: detector-performance and C++/Python parity gates pass on the expanded corpus, high-rate capture remains independent of detector admission, and every adopted build optimization passes binary-fit and runtime validation on affected frontends.

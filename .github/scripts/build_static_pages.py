@@ -108,6 +108,18 @@ PAGES = (
         "active_nav": "guides",
     },
     {
+        "source": "content/guides/micropython.html",
+        "output": "guides/micropython",
+        "title": "Run ESPectre on MicroPython | ESPectre",
+        "description": (
+            "Use the upstream ESP32 Wi-Fi CSI support contributed by ESPectre "
+            "to run on-device motion sensing in MicroPython."
+        ),
+        "parent_href": "/guides/",
+        "parent_label": "Guides",
+        "active_nav": "guides",
+    },
+    {
         "source": "content/guides/firmware.html",
         "output": "guides/custom-firmware",
         "title": "Build custom firmware | ESPectre",
@@ -205,6 +217,71 @@ PAGES = (
         "main_class": "page-narrow",
         "og_type": "website",
     },
+    {
+        "source": "content/terms.html",
+        "output": "terms",
+        "title": "Terms of use | ESPectre",
+        "description": (
+            "Terms governing the ESPectre website, browser tools, authorized use, "
+            "open-source software, and the current commercial boundary."
+        ),
+        "active_nav": "terms",
+        "content_group": "legal",
+        "main_class": "page-narrow",
+        "og_type": "website",
+    },
+    {
+        "source": "content/legal.html",
+        "output": "legal",
+        "title": "Legal information | ESPectre",
+        "description": (
+            "Current operator identity, project status, commercial boundary, "
+            "copyright, licensing, and legal contact information for ESPectre."
+        ),
+        "active_nav": "legal",
+        "content_group": "legal",
+        "main_class": "page-narrow",
+        "og_type": "website",
+    },
+    {
+        "source": "content/security.html",
+        "output": "security",
+        "title": "Security and responsible use | ESPectre",
+        "description": (
+            "How ESPectre limits Wi-Fi sensing, supports responsible deployment, "
+            "rejects abuse, and receives private vulnerability reports."
+        ),
+        "active_nav": "security",
+        "content_group": "security",
+        "main_class": "page-narrow",
+        "og_type": "website",
+    },
+    {
+        "source": "content/licensing.html",
+        "output": "licensing",
+        "title": "Commercial licensing | ESPectre",
+        "description": (
+            "Commercial licensing options for embedding ESPectre sensing layers "
+            "in proprietary ESP-IDF firmware."
+        ),
+        "active_nav": "licensing",
+        "content_group": "licensing",
+        "main_class": "page-narrow",
+        "og_type": "website",
+    },
+    {
+        "source": "content/contact.html",
+        "output": "contact",
+        "title": "Contact | ESPectre",
+        "description": (
+            "Contact ESPectre for product and licensing inquiries, community support, "
+            "or bug reports."
+        ),
+        "active_nav": "contact",
+        "content_group": "contact",
+        "main_class": "page-narrow",
+        "og_type": "website",
+    },
 )
 
 PAGE_TEMPLATE = """<!DOCTYPE html>
@@ -240,7 +317,7 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 <header class="site-header">
   <div class="site-header-inner">
     <a href="/" class="brand">
-      <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="var(--accent)"/><circle cx="12.2" cy="13.5" r="1.9" fill="var(--bg)"/><circle cx="19.8" cy="13.5" r="1.9" fill="var(--bg)"/></svg>
+      <img src="/assets/images/brand/espectre-logo.svg?v={logo_version}" alt="" width="30" height="30" aria-hidden="true">
       ESPectre
     </a>
     <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="main-navigation">
@@ -266,13 +343,17 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 <footer class="site-footer">
   <div class="site-footer-inner">
     <div class="footer-brand">
-      <svg width="16" height="16" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="var(--dim)"/></svg>
-      ESPectre © 2026 · Open source Wi-Fi sensing platform · GPLv3 + commercial licensing
+      <img src="/assets/images/brand/espectre-logo.svg?v={logo_version}" alt="" width="23" height="23" aria-hidden="true">
+      ESPectre © 2026 · Open source Wi-Fi sensing platform
     </div>
     <div class="footer-links">
       <a href="/privacy/">Privacy</a>
-      <button class="footer-link-button js-cookie-settings" type="button">Cookie settings</button>
-      <a href="mailto:contact@espectre.dev">Contact/Commercial Licensing</a>
+      <a href="/privacy/#cookie-settings" class="js-cookie-settings">Cookie settings</a>
+      <a href="/terms/">Terms</a>
+      <a href="/legal/">Legal</a>
+      <a href="/security/">Security</a>
+      <a href="/licensing/">Licensing</a>
+      <a href="/contact/">Contact</a>
     </div>
   </div>
 </footer>
@@ -313,6 +394,7 @@ def build() -> None:
     route_registry_version = asset_version("assets/js/route-registry.js")
     navigation_version = asset_version("assets/js/navigation.js")
     analytics_version = asset_version("assets/js/analytics.js")
+    logo_version = asset_version("assets/images/brand/espectre-logo.svg")
 
     for spec in PAGES:
         fragment_path = WEB_ROOT / spec["source"]
@@ -328,6 +410,7 @@ def build() -> None:
             route_registry_version=route_registry_version,
             navigation_version=navigation_version,
             analytics_version=analytics_version,
+            logo_version=logo_version,
             og_type=spec.get("og_type", "article"),
             breadcrumb=breadcrumb(spec),
             guides_active=" active" if spec["active_nav"] == "guides" else "",

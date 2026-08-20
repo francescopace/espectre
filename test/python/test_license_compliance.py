@@ -104,10 +104,13 @@ def test_build_firmware_compliance_collects_actual_component_licenses(tmp_path):
     assert "espressif__esp_matter/NOTICE" in archived
 
 
-def test_repository_license_policy_covers_exceptions_and_release_artifacts():
+def test_repository_license_policy_covers_first_party_code_and_release_artifacts():
     licensing = (REPO_ROOT / "LICENSING.md").read_text(encoding="utf-8")
     notices = (REPO_ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
     ble_client = (REPO_ROOT / "docs" / "web" / "assets" / "js" / "espectre-ble.js").read_text(
+        encoding="utf-8"
+    )
+    mqtt_client = (REPO_ROOT / "docs" / "web" / "assets" / "js" / "espectre-mqtt.js").read_text(
         encoding="utf-8"
     )
     ble_tests = (REPO_ROOT / "test" / "web" / "test_espectre_ble.mjs").read_text(encoding="utf-8")
@@ -115,9 +118,10 @@ def test_repository_license_policy_covers_exceptions_and_release_artifacts():
     release_workflow = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     snapshot_workflow = (REPO_ROOT / ".github" / "workflows" / "snapshot.yml").read_text(encoding="utf-8")
 
-    assert "docs/web/assets/js/espectre-ble.js" in licensing
-    assert "docs/web/assets/js/LICENSES/Apache-2.0.txt" in licensing
-    assert "SPDX-License-Identifier: Apache-2.0" in ble_client
+    assert GPL_SPDX_HEADER in ble_client
+    assert COMMERCIAL_LICENSE_NOTICE in ble_client
+    assert GPL_SPDX_HEADER in mqtt_client
+    assert COMMERCIAL_LICENSE_NOTICE in mqtt_client
     assert GPL_SPDX_HEADER in ble_tests
     assert COMMERCIAL_LICENSE_NOTICE in ble_tests
     assert "ESPHome C++ runtime" in licensing
@@ -127,15 +131,8 @@ def test_repository_license_policy_covers_exceptions_and_release_artifacts():
     assert "firmware/*" in snapshot_workflow
     assert "THIRD_PARTY_NOTICES.md" in release_workflow
     assert "THIRD_PARTY_NOTICES.md" in snapshot_workflow
-    assert "LICENSES/Apache-2.0.txt" not in release_workflow
-    assert "LICENSES/Apache-2.0.txt" not in snapshot_workflow
     assert "build_firmware_compliance" in ci_workflow
-    apache_license = (
-        REPO_ROOT / "docs" / "web" / "assets" / "js" / "LICENSES" / "Apache-2.0.txt"
-    ).read_text(encoding="utf-8")
-    assert "Apache License" in apache_license
-    assert "Version 2.0" in apache_license
-    assert not (REPO_ROOT / "LICENSES" / "Apache-2.0.txt").exists()
+    assert not (REPO_ROOT / "docs" / "web" / "assets" / "js" / "LICENSES").exists()
     assert (
         REPO_ROOT / "src" / "cpp" / "frontend" / "matter" / "third_party" / "esp_matter" / "NOTICE"
     ).is_file()
@@ -265,7 +262,6 @@ def test_source_files_have_consistent_license_headers():
         if Path(path).suffix in (".css", ".html", ".js", ".mjs")
     )
     license_exceptions = {
-        "docs/web/assets/js/espectre-ble.js": "Apache-2.0",
         "test/cpp/support/cnpy.cpp": "MIT",
         "test/cpp/support/cnpy.h": "MIT",
     }

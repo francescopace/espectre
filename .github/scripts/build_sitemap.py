@@ -33,6 +33,7 @@ ROUTE_SOURCES = {
     "/guides/placement/": (Path("docs/web/content/guides/placement.html"), STATIC_PAGE_BUILDER),
     "/guides/detection/": (Path("docs/web/content/guides/detection.html"), STATIC_PAGE_BUILDER),
     "/guides/detectors/": (Path("docs/web/content/guides/detectors.html"), STATIC_PAGE_BUILDER),
+    "/guides/micropython/": (Path("docs/web/content/guides/micropython.html"), STATIC_PAGE_BUILDER),
     "/guides/custom-firmware/": (Path("docs/web/content/guides/firmware.html"), STATIC_PAGE_BUILDER),
     "/docs/": (Path("docs/web/content/docs.html"), STATIC_PAGE_BUILDER),
     "/docs/api/": (Path("docs/web/content/docs/api.html"), STATIC_PAGE_BUILDER),
@@ -41,6 +42,11 @@ ROUTE_SOURCES = {
     "/media/": (Path("docs/web/content/media.html"), STATIC_PAGE_BUILDER),
     "/roadmap/": (Path("docs/web/content/roadmap.html"), STATIC_PAGE_BUILDER),
     "/privacy/": (Path("docs/web/content/privacy.html"), STATIC_PAGE_BUILDER),
+    "/terms/": (Path("docs/web/content/terms.html"), STATIC_PAGE_BUILDER),
+    "/legal/": (Path("docs/web/content/legal.html"), STATIC_PAGE_BUILDER),
+    "/security/": (Path("docs/web/content/security.html"), STATIC_PAGE_BUILDER),
+    "/licensing/": (Path("docs/web/content/licensing.html"), STATIC_PAGE_BUILDER),
+    "/contact/": (Path("docs/web/content/contact.html"), STATIC_PAGE_BUILDER),
 }
 
 

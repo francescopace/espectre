@@ -98,6 +98,7 @@ def render_page(manifest: dict, channel: str) -> str:
     route_registry_version = asset_version("assets/js/route-registry.js")
     navigation_version = asset_version("assets/js/navigation.js")
     analytics_version = asset_version("assets/js/analytics.js")
+    logo_version = asset_version("assets/images/brand/espectre-logo.svg")
     return f"""<!DOCTYPE html>
 <html lang="en" data-theme="light" data-static-page data-site-section="documentation">
 <head>
@@ -120,7 +121,7 @@ def render_page(manifest: dict, channel: str) -> str:
 <header class="site-header">
   <div class="site-header-inner">
     <a href="/" class="brand">
-      <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="var(--accent)"/><circle cx="12.2" cy="13.5" r="1.9" fill="var(--bg)"/><circle cx="19.8" cy="13.5" r="1.9" fill="var(--bg)"/></svg>
+      <img src="/assets/images/brand/espectre-logo.svg?v={logo_version}" alt="" width="30" height="30" aria-hidden="true">
       ESPectre
     </a>
     <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="main-navigation">
@@ -177,13 +178,17 @@ def render_page(manifest: dict, channel: str) -> str:
 <footer class="site-footer">
   <div class="site-footer-inner">
     <div class="footer-brand">
-      <svg width="16" height="16" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="var(--dim)"/></svg>
-      ESPectre © 2026 · Open source Wi-Fi sensing platform · GPLv3 + commercial licensing
+      <img src="/assets/images/brand/espectre-logo.svg?v={logo_version}" alt="" width="23" height="23" aria-hidden="true">
+      ESPectre © 2026 · Open source Wi-Fi sensing platform
     </div>
     <div class="footer-links">
       <a href="/privacy/">Privacy</a>
-      <button class="footer-link-button js-cookie-settings" type="button">Cookie settings</button>
-      <a href="mailto:contact@espectre.dev">Contact/Commercial Licensing</a>
+      <a href="/privacy/#cookie-settings" class="js-cookie-settings">Cookie settings</a>
+      <a href="/terms/">Terms</a>
+      <a href="/legal/">Legal</a>
+      <a href="/security/">Security</a>
+      <a href="/licensing/">Licensing</a>
+      <a href="/contact/">Contact</a>
     </div>
   </div>
 </footer>

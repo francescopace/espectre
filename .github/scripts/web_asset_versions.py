@@ -32,7 +32,7 @@ HASH_LENGTH = 12
 STAMPED_HTML = ("index.html", "404.html")
 ASSET_URL_RE = re.compile(
     r'(?P<prefix>(?:href|src|data-content-url)=")'
-    r'(?P<path>(?:/assets/(?:css|js)/|content/)[^"?]+)'
+    r'(?P<path>(?:/assets/(?:css|js)/[^"?]+|/assets/images/brand/espectre-logo\.svg|content/[^"?]+))'
     r'(?:(?P<query>\?v=[^"]*))?'
     r'(?P<suffix>")'
 )

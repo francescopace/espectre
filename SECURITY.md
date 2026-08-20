@@ -1,5 +1,7 @@
 # Security Policy
 
+For responsible deployment guidance or to report suspected abuse of ESPectre or related Wi-Fi sensing, see [Security and responsible use](https://espectre.dev/security/). The process below is for product and project vulnerabilities.
+
 ## Reporting a Vulnerability
 
 **Please do not report security vulnerabilities through public GitHub issues.**

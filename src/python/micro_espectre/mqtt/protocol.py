@@ -107,19 +107,9 @@ def build_info_payload(
     """Build the retained frontend information payload without loading commands."""
     import sys
 
-    ip_address = ""
-    mac_address = ""
     channel_primary = 0
     chip = getattr(global_state, "chip_type", None) or sys.platform
     if wlan.active():
-        try:
-            mac_bytes = wlan.config("mac")
-            mac_address = ":".join("%02X" % byte for byte in mac_bytes)
-        except Exception:  # pragma: no cover
-            pass
-        if wlan.isconnected():
-            ip_info = wlan.ifconfig()
-            ip_address = ip_info[0] if ip_info else ""
         try:
             channel_primary = wlan.config("channel")
         except Exception:  # pragma: no cover
@@ -146,8 +136,6 @@ def build_info_payload(
         "supports_ota": False,
         "supports_ble": False,
         "network": {
-            "ip_address": ip_address,
-            "mac_address": mac_address,
             "channel": {"primary": channel_primary},
         },
         "detection": {"algorithm": detector_algorithm},

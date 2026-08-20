@@ -20,13 +20,13 @@ The website tests fail if a committed hash does not match the file contents. Gen
 
 ## Static content pages
 
-Guides, docs, media, the roadmap, and the privacy notice use shared HTML fragments for both SPA hash routes and canonical, indexable paths. Generate the standalone pages before previewing their direct URLs:
+Guides, docs, media, the roadmap, privacy, terms, legal, security, licensing, and contact content use shared HTML fragments for both SPA hash routes and canonical, indexable paths. Generate the standalone pages before previewing their direct URLs:
 
 ```bash
 python3 .github/scripts/build_static_pages.py
 ```
 
-Edit shared fragments under `content/`, including `content/guides.html`, `content/guides/*.html`, `content/docs.html`, `content/docs/*.html`, `content/media.html`, `content/roadmap.html`, and `content/privacy.html`. Keep stylesheets under `assets/css/`, public images under `assets/images/`, and first-party scripts under `assets/js/`. Do not edit generated route `index.html` pages.
+Edit shared fragments under `content/`, including `content/guides.html`, `content/guides/*.html`, `content/docs.html`, `content/docs/*.html`, `content/media.html`, `content/roadmap.html`, `content/privacy.html`, `content/terms.html`, `content/legal.html`, `content/security.html`, `content/licensing.html`, and `content/contact.html`. Keep stylesheets under `assets/css/`, public images under `assets/images/`, and first-party scripts under `assets/js/`. Do not edit generated route `index.html` pages.
 
 ## Browser dependencies
 
@@ -74,70 +74,15 @@ CI, official releases, and rolling preview builds use the same local `build-page
 
 The committed `.github/scripts/sitemap.template.xml` is the canonical URL inventory and intentionally contains neither `changefreq` nor generated dates. During the Pages build, `build_sitemap.py` writes the ignored deployment artifact `sitemap.xml` with date-only `lastmod` values from the latest owning Git commit for editorial routes and the API reference, and from the staged SDK manifests for `release`, `preview`, and `develop`. Unknown dates are omitted rather than replaced with the deployment time. Pages-producing checkouts must retain full Git history so these dates remain source-accurate.
 
-## BLE client API
+## Browser protocol clients
 
-`assets/js/espectre-ble.js` is a dependency-free client for the ESPectre BLE setup surface defined in `docs/ESPECTRE_PROTOCOL.md`. It exposes two globals: `ESPectreBleClient` and `ESPectreValidationError`. Web Bluetooth needs a Chromium-based browser and a secure context (HTTPS or `localhost`); check `ESPectreBleClient.supported` before connecting. Native uses this surface for Wi-Fi, MQTT, identity, and OTA. Monitor stays on MQTT.
+`assets/js/espectre-ble.js` implements the BLE setup and recovery transport used by Configure, while `assets/js/espectre-mqtt.js` implements the MQTT protocol layer used by Monitor. Both are dependency-free first-party components released under the same GPLv3 and commercial licensing policy as the rest of ESPectre.
 
-Unlike the rest of the site, the client is **Apache-2.0** licensed (see [Apache-2.0.txt](assets/js/LICENSES/Apache-2.0.txt)), so any web application, including proprietary ones, can embed it.
-
-```js
-const client = new ESPectreBleClient();
-client.on('sysinfo', (values) => console.log(values.chip, values.device_id));
-client.on('disconnect', () => console.log('device dropped'));
-
-await client.connect();          // opens the browser device chooser
-await client.requestSysinfo();   // resolves into a `sysinfo` event
-await client.setWifiConfig({ ssid: 'Lab Network', password: 'secret' });
-await client.disconnect();
-```
-
-### Events
-
-Subscribe with `on(event, handler)`, which returns an unsubscribe function; `off(event, handler)` also works. A throwing handler is logged and never breaks the client or other handlers.
-
-| Event | Payload | When |
-|---|---|---|
-| `sysinfo` | `(values, entries)` — object plus ordered pairs | A snapshot completed (`END` received) |
-| `sysinfo-line` | raw line | Every sysinfo line, including `END` |
-| `disconnect` | — | Unexpected GATT drop; never fired by `disconnect()` |
-
-### Connection
-
-| Member | Notes |
-|---|---|
-| `connect({ sysinfo })` | `sysinfo` defaults to `true`; reentrant (returns the in-flight promise or the connected device) |
-| `disconnect()` | Idempotent; stops notifications and closes GATT |
-| `setSysinfoNotifications(bool)` | Toggle sysinfo without disconnecting |
-| `connected`, `name`, `device` | Read-only state |
-
-### Commands
-
-Every `set*` method validates locally, throws `ESPectreValidationError` on a bad argument, and writes the command over the control characteristic. The matching static `build*Command` functions are pure and return the wire string, so arguments can be validated without a connected device.
-
-| Method | Command | Validation |
-|---|---|---|
-| `setWifiConfig({ ssid, password, bssid, channel, bandPolicy })` | `SET_WIFI_CONFIG` | `ssid` required; credentials optional; `bandPolicy` is optional `2g`, `5g`, or `auto`; `channel` is 0 (auto) or a matching 20 MHz center; `bssid` is empty or a MAC |
-| `clearWifiConfig()` | `CLEAR_WIFI` | — |
-| `setMqttConfig({ host, port, username, password, topicPrefix })` | `SET_MQTT_CONFIG` | `host` required; `port` 1-65535; credentials optional |
-| `clearMqttConfig()` | `CLEAR_MQTT_CONFIG` | — |
-| `setDeviceLabel(label)` | `SET_DEVICE_CONFIG` | single-line string, may be empty |
-| `clearDeviceConfig()` | `CLEAR_DEVICE_CONFIG` | — |
-| `otaStatus()` | `OTA_STATUS` | — |
-| `otaCheck({ channel })` | `OTA_CHECK` | optional `channel` is `release`, `preview`, or `develop` |
-| `otaStart({ channel })` | `OTA_START` | optional `channel` is `release`, `preview`, or `develop` |
-| `stopBle()` | `STOP_BLE` | — |
-| `requestSysinfo()` | `REQ_SYSINFO` | — |
-| `writeControl(command)` | any | Escape hatch for commands the library does not model |
-
-The library validates protocol correctness only. The device remains authoritative for hardware capabilities: clients should offer `5g` and `auto` only when sysinfo reports `supports_wifi_5ghz=true`. A changed band policy is persisted immediately and takes effect after the device restarts.
-
-### Errors
-
-Command builders throw `ESPectreValidationError` (`error.name === 'ESPectreValidationError'`); everything else that rejects is a transport or browser error. `ESPectreBleClient.VERSION` identifies the library version, independent of the device `proto_version` reported in sysinfo.
+The wire contract, supported commands, topic families, and capability boundaries are documented in `docs/ESPECTRE_PROTOCOL.md`. Keep protocol behavior in these clients instead of duplicating it in `app.js`; broker connection policy remains an application concern.
 
 ### Tests
 
-The hardware-independent BLE surface and website analytics and structural contracts are covered by unit tests:
+The hardware-independent BLE and MQTT surfaces, website analytics, and structural contracts are covered by unit tests:
 
 ```bash
 node --test 'test/web/*.mjs'

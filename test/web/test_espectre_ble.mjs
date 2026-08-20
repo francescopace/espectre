@@ -90,7 +90,7 @@ describe('command builders: wire format', () => {
         );
     });
 
-    it('builds the stop-BLE command', () => {
+    it('builds the stop-Bluetooth command', () => {
         assert.equal(Client.buildStopBleCommand(), 'STOP_BLE');
     });
 
@@ -171,6 +171,176 @@ describe('command builders: validation', () => {
 
     it('rejects multi-line device labels', () => {
         assertValidationError(() => Client.buildDeviceLabelCommand('a\nb'), /label/);
+        assertValidationError(() => Client.buildDeviceLabelCommand('a\rb'), /label/);
+    });
+
+    it('matches firmware byte limits and the 512-byte control queue', () => {
+        assertValidationError(
+            () => Client.buildWifiConfigCommand({ ssid: 'é'.repeat(17) }),
+            /1\.\.32 UTF-8 bytes/
+        );
+        assertValidationError(
+            () => Client.buildWifiConfigCommand({ ssid: 'ok', password: 'é'.repeat(32) }),
+            /0\.\.63 UTF-8 bytes/
+        );
+        assertValidationError(
+            () => Client.buildMqttConfigCommand({
+                host: 'broker',
+                port: 1883,
+                password: 'x'.repeat(480)
+            }),
+            /512 UTF-8 bytes/
+        );
+        assertValidationError(
+            () => Client.buildMqttConfigCommand({ host: 'broker\0hidden', port: 1883 }),
+            /NUL/
+        );
+    });
+});
+
+describe('GATT lifecycle', () => {
+    function deferred() {
+        let resolve;
+        const promise = new Promise((done) => { resolve = done; });
+        return { promise, resolve };
+    }
+
+    function fixture({ firstWrite } = {}) {
+        const deviceListeners = new Map();
+        const sysinfoListeners = new Map();
+        const writes = [];
+        const sysinfo = {
+            async startNotifications() {},
+            async stopNotifications() {},
+            addEventListener(name, handler) { sysinfoListeners.set(name, handler); },
+            removeEventListener(name) { sysinfoListeners.delete(name); },
+            emitLine(line) {
+                const bytes = new TextEncoder().encode(line);
+                const value = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+                sysinfoListeners.get('characteristicvaluechanged')?.({ target: { value } });
+            }
+        };
+        const control = {
+            async writeValueWithResponse(value) {
+                writes.push(new TextDecoder().decode(value));
+                if (writes.length === 1 && firstWrite) await firstWrite.promise;
+            }
+        };
+        const service = {
+            async getCharacteristic(uuid) {
+                return uuid === Client.UUIDS.sysinfo ? sysinfo : control;
+            }
+        };
+        const server = {
+            connected: false,
+            async getPrimaryService() { return service; },
+            disconnect() { this.connected = false; }
+        };
+        const device = {
+            id: 'device-a',
+            name: 'ESPectre BLE',
+            gatt: {
+                async connect() {
+                    server.connected = true;
+                    return server;
+                }
+            },
+            addEventListener(name, handler) { deviceListeners.set(name, handler); },
+            removeEventListener(name) { deviceListeners.delete(name); }
+        };
+        return {
+            control,
+            device,
+            server,
+            sysinfo,
+            writes,
+            emitDisconnect() {
+                server.connected = false;
+                deviceListeners.get('gattserverdisconnected')?.();
+            }
+        };
+    }
+
+    function useBluetooth(requestDevice) {
+        Object.defineProperty(globalThis, 'navigator', {
+            configurable: true,
+            value: { bluetooth: { requestDevice } }
+        });
+    }
+
+    it('serializes control writes so commands cannot overtake each other', async () => {
+        const firstWrite = deferred();
+        const gatt = fixture({ firstWrite });
+        useBluetooth(async () => gatt.device);
+        const client = new Client();
+        await client.connect({ sysinfo: false });
+        const first = client.writeControl('OTA_STATUS');
+        const second = client.writeControl('REQ_SYSINFO');
+        await new Promise((resolve) => setImmediate(resolve));
+        assert.deepEqual(gatt.writes, ['OTA_STATUS']);
+        firstWrite.resolve();
+        await Promise.all([first, second]);
+        assert.deepEqual(gatt.writes, ['OTA_STATUS', 'REQ_SYSINFO']);
+        await client.disconnect();
+    });
+
+    it('ignores incomplete sysinfo frames and emits a complete ordered snapshot', async () => {
+        const gatt = fixture();
+        useBluetooth(async () => gatt.device);
+        const client = new Client();
+        const snapshots = [];
+        client.on('sysinfo', (values, entries) => snapshots.push({ values, entries }));
+        await client.connect({ sysinfo: false });
+        gatt.sysinfo.emitLine('orphan=value');
+        gatt.sysinfo.emitLine('END');
+        gatt.sysinfo.emitLine('proto_version=1');
+        gatt.sysinfo.emitLine('device_id=0x1234');
+        gatt.sysinfo.emitLine('END');
+        assert.equal(snapshots.length, 1);
+        assert.equal(snapshots[0].values.device_id, '0x1234');
+        assert.deepEqual(snapshots[0].entries, [
+            ['proto_version', '1'],
+            ['device_id', '0x1234']
+        ]);
+        await client.disconnect();
+    });
+
+    it('invalidates queued writes and emits once after an unexpected disconnect', async () => {
+        const firstWrite = deferred();
+        const gatt = fixture({ firstWrite });
+        useBluetooth(async () => gatt.device);
+        const client = new Client();
+        let disconnects = 0;
+        client.on('disconnect', () => { disconnects += 1; });
+        await client.connect({ sysinfo: false });
+        const first = client.writeControl('OTA_STATUS');
+        const queued = client.writeControl('REQ_SYSINFO');
+        await new Promise((resolve) => setImmediate(resolve));
+        gatt.emitDisconnect();
+        firstWrite.resolve();
+        await first;
+        await assert.rejects(queued, (error) => error.name === 'AbortError');
+        assert.deepEqual(gatt.writes, ['OTA_STATUS']);
+        assert.equal(client.connected, false);
+        assert.equal(disconnects, 1);
+    });
+
+    it('cancels a device chooser result after an explicit disconnect', async () => {
+        const chooser = deferred();
+        const gatt = fixture();
+        let connectCalls = 0;
+        gatt.device.gatt.connect = async () => {
+            connectCalls += 1;
+            return gatt.server;
+        };
+        useBluetooth(() => chooser.promise);
+        const client = new Client();
+        const connecting = client.connect({ sysinfo: false });
+        await client.disconnect();
+        chooser.resolve(gatt.device);
+        await assert.rejects(connecting, (error) => error.name === 'AbortError');
+        assert.equal(connectCalls, 0);
+        assert.equal(client.connected, false);
     });
 });
 

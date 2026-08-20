@@ -244,8 +244,11 @@ function initializeConsentControls() {
             disableAnalytics();
         });
     });
-    document.querySelectorAll('.js-cookie-settings').forEach((button) => {
-        button.addEventListener('click', showConsentBanner);
+    document.querySelectorAll('.js-cookie-settings').forEach((control) => {
+        control.addEventListener('click', (event) => {
+            event.preventDefault();
+            showConsentBanner();
+        });
     });
 
     if (!analyticsAllowedHere()) {

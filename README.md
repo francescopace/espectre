@@ -63,7 +63,7 @@ ESPectre includes two on-device detection profiles because deployments have diff
 
 ## Responsible Use
 
-ESPectre does not use cameras, microphones, or wearables. It works with derived radio-channel measurements, and the project is designed around a local-first privacy boundary. Motion and occupancy signals can still reveal sensitive patterns such as presence, routines, sleep, and absence from home. Use ESPectre only in spaces where you have the right to deploy it, inform affected people, protect retained data, and follow local privacy laws.
+ESPectre does not use cameras, microphones, or wearables. It works with derived radio-channel measurements, and the project is designed around a local-first privacy boundary. Motion and occupancy signals can still reveal sensitive patterns such as presence, routines, sleep, and absence from home. Use ESPectre only in spaces where you have the right to deploy it, inform affected people, protect retained data, and follow local privacy laws. See [Security and responsible use](https://espectre.dev/security/) for the project’s technical safeguards, deployment guidance, abuse-reporting channel, and private vulnerability-reporting process.
 
 ## Documentation
 
@@ -77,7 +77,7 @@ ESPectre does not use cameras, microphones, or wearables. It works with derived 
 ## Related Projects
 
 - [radio-presence-scanner](https://github.com/francescopace/radio-presence-scanner): complementary BLE radio presence sensing from host devices, with an optional HTTP dashboard.
-- [micropython-esp32-csi](https://github.com/francescopace/micropython-esp32-csi): MicroPython firmware distribution used by the Micro-ESPectre workflow.
+- [micropython-esp32-csi](https://github.com/francescopace/micropython-esp32-csi): historical development fork that led to upstream MicroPython ESP32 CSI support.
 
 ## Acknowledgments
 

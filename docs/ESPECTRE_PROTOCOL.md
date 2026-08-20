@@ -36,6 +36,8 @@ Current BLE responsibilities:
 
 Native does not expose live sensing, threshold or detector writes, CSI traffic control, or recalibration over BLE. Those commands stay on MQTT and Home Assistant Discovery. Sensing pauses while BLE is up. The product decision is recorded in [`2026-08-17-keep-native-ble-as-setup-recovery.md`](adr/2026-08-17-keep-native-ble-as-setup-recovery.md).
 
+The dependency-free browser reference client is [`espectre-ble.js`](web/assets/js/espectre-ble.js). Its typed builders cover every command in the [Current BLE Control Surface](#current-ble-control-surface), enforce the firmware’s UTF-8 field and 512-byte control-write limits, serialize GATT writes, and accept only complete `proto_version=...` through `END` sysinfo snapshots.
+
 Future BLE responsibilities:
 
 - Wi-Fi scan and selection
@@ -63,6 +65,8 @@ espectre/v1/devices/{device_id}/commands/rejected
 ```
 
 Managed-service MQTT should use TLS and per-device credentials. Local lab MQTT may use a simpler broker/auth model, but should keep the same message shape.
+
+The dependency-free browser protocol layer is [`espectre-mqtt.js`](web/assets/js/espectre-mqtt.js). It is transport-policy agnostic and implements canonical topic construction, retained `info`/`status` discovery, protocol-version and JSON-object validation for every canonical message family above, generic command publication without a duplicated verb allowlist, correlation of `accepted`/`rejected` responses, timeouts, and pending-command cleanup. The website supplies the MQTT.js WebSocket transport and consumes the additive Home Assistant scalar topics separately.
 
 ### Home Assistant MQTT Adapter Profile
 
@@ -146,8 +150,6 @@ espectre/v1/devices/{device_id}/info
   "supports_ota": true,
   "supports_ble": true,
   "network": {
-    "ip_address": "192.168.1.28",
-    "mac_address": "7C:2C:67:42:BB:AC",
     "channel": {
       "primary": 6
     }
@@ -157,11 +159,13 @@ espectre/v1/devices/{device_id}/info
   },
   "csi_traffic_mode": "internal",
   "traffic_mode": "ping",
-  "csi_target_pps": 100
+  "csi_target_pps": 100,
+  "evaluation_interval_ms": 250,
+  "publish_interval_ms": 1000
 }
 ```
 
-The `supports_*` fields are authoritative capability declarations for clients. Clients should not infer command support from `frontend`, telemetry fields, or other payload content. Native and Micro publish `info` retained on connect and after an `info` command so late subscribers, including `./espectre mqtt` discovery, see the current frontend identity instead of a previous retained payload for the same `device_id`. MQTT clients that need command names should send `commands` and read `commands/catalog` instead of reconstructing the list from these flags. `network` and `detection` are optional. `csi_traffic_mode`, `traffic_mode`, and `csi_target_pps` are included when the frontend owns CSI traffic configuration; omit them when those values are unset. Local tools may display local IP and MAC values. Managed services should not collect local IP addresses, SSIDs, BSSIDs, access point MACs, or router identifiers by default.
+The `supports_*` fields are authoritative capability declarations for clients. Clients should not infer command support from `frontend`, telemetry fields, or other payload content. Native and Micro publish `info` retained on connect and after an `info` command so late subscribers, including `./espectre mqtt` discovery, see the current frontend identity instead of a previous retained payload for the same `device_id`. MQTT clients that need command names should send `commands` and read `commands/catalog` instead of reconstructing the list from these flags. `network` and `detection` are optional. Canonical MQTT `info` reports the active Wi-Fi channel when available, but does not serialize the local IP address or station MAC. `csi_traffic_mode`, `traffic_mode`, and `csi_target_pps` are included when the frontend owns CSI traffic configuration; omit them when those values are unset. `evaluation_interval_ms` and `publish_interval_ms` are the detector evaluation cadence and the status-log heartbeat; omit them when unset. Nearby setup and local logs may still expose configuration or link details, including SSID, BSSID, local IP, station MAC, broker host, or broker username. Managed services should not collect those values by default.
 
 ### Stats
 

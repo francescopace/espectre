@@ -3,13 +3,10 @@
   <desc id="description">A stylized ghost with a Wi-Fi signal.</desc>
   <defs>
     <path id="ghost" d="M16 3.25c-6.57 0-11 4.83-11 11.22v12.79c0 .68.78 1.08 1.33.68l2.42-1.76a1.4 1.4 0 0 1 1.64 0l2.43 1.76a1.4 1.4 0 0 0 1.64 0l.72-.52a1.4 1.4 0 0 1 1.64 0l.72.52a1.4 1.4 0 0 0 1.64 0l2.43-1.76a1.4 1.4 0 0 1 1.64 0l2.42 1.76c.55.4 1.33 0 1.33-.68V14.47C27 8.08 22.57 3.25 16 3.25Z"/>
-    <mask id="cutouts" x="0" y="0" width="32" height="32" maskUnits="userSpaceOnUse">
-      <use href="#ghost" fill="#fff"/>
-      <ellipse cx="12.15" cy="12.65" rx="1.85" ry="2.1" fill="#000"/>
-      <ellipse cx="19.85" cy="12.65" rx="1.85" ry="2.1" fill="#000"/>
-      <path d="M10.85 18.3Q16 14.35 21.15 18.3M13 20.45Q16 18.05 19 20.45" fill="none" stroke="#000" stroke-width="1.55" stroke-linecap="round"/>
-      <circle cx="16" cy="22.55" r="1.05" fill="#000"/>
-    </mask>
   </defs>
-  <use href="#ghost" fill="#4b7bee" mask="url(#cutouts)"/>
+  <use href="#ghost" fill="#4b7bee" stroke="#b8c8ff" stroke-width="2.8" stroke-linejoin="round"/>
+  <ellipse cx="12.15" cy="12.65" rx="1.85" ry="2.1" fill="#fff"/>
+  <ellipse cx="19.85" cy="12.65" rx="1.85" ry="2.1" fill="#fff"/>
+  <path d="M10.85 18.3Q16 14.35 21.15 18.3M13 20.45Q16 18.05 19 20.45" fill="none" stroke="#fff" stroke-width="1.55" stroke-linecap="round"/>
+  <circle cx="16" cy="22.55" r="1.05" fill="#fff"/>
 </svg>

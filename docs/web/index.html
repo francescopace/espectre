@@ -21,18 +21,19 @@
 <meta name="twitter:title" content="ESPectre — Wi-Fi motion sensing">
 <meta name="twitter:description" content="Turn a €3 ESP32 into a Wi-Fi motion sensor. No cameras or dedicated sensing hardware.">
 <meta name="twitter:image" content="https://espectre.dev/assets/images/brand/espectre-og.jpg">
-<link rel="icon" type="image/svg+xml" href="/assets/images/brand/espectre-logo.svg">
+<link rel="icon" type="image/svg+xml" href="/assets/images/brand/espectre-logo.svg?v=ec70d44476fe">
 <link rel="alternate icon" type="image/png" href="/assets/images/brand/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Instrument+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/styles.css?v=b928632e7d20">
-<script src="/assets/js/espectre-ble.js?v=e39ec77d24f8" defer></script>
+<link rel="stylesheet" href="/assets/css/styles.css?v=73d6ac976834">
+<script src="/assets/js/espectre-ble.js?v=bfbdd9db2844" defer></script>
+<script src="/assets/js/espectre-mqtt.js?v=2cce16edbd1b" defer></script>
 <script src="/assets/js/browser-support.js?v=33452b392605" defer></script>
-<script src="/assets/js/route-registry.js?v=0f4d529ed592" defer></script>
-<script src="/assets/js/navigation.js?v=39ff8fdd70f7" defer></script>
-<script src="/assets/js/analytics.js?v=341a8f98f507" defer></script>
-<script src="/assets/js/app.js?v=02da5790a4f1" defer></script>
+<script src="/assets/js/route-registry.js?v=f210aeb96d84" defer></script>
+<script src="/assets/js/navigation.js?v=edb93f4fda5b" defer></script>
+<script src="/assets/js/analytics.js?v=61733653690d" defer></script>
+<script src="/assets/js/app.js?v=e7d817740813" defer></script>
 </head>
 <body>
 
@@ -41,7 +42,7 @@
 <header class="site-header">
   <div class="site-header-inner">
     <a href="#home" class="brand" data-route-link="home">
-      <img src="/assets/images/brand/espectre-logo.svg" alt="" width="35" height="35" aria-hidden="true">
+      <img src="/assets/images/brand/espectre-logo.svg?v=ec70d44476fe" alt="" width="30" height="30" aria-hidden="true">
       ESPectre
     </a>
     <nav class="main-nav" id="main-navigation" aria-label="Main">
@@ -118,183 +119,90 @@
         <div class="scrolly-scene scrolly-hero js-scrolly-scene is-active" data-scene="0">
           <div class="hero-media">
             <picture>
-              <source media="(max-width: 720px)" srcset="/assets/images/home/hero-esp32-c3-poster-mobile.webp">
+              <source media="(max-width: 720px)" srcset="/assets/images/home/hero-esp32-poster-mobile.webp">
               <img class="hero-frame hero-frame-disconnected"
-                src="/assets/images/home/hero-esp32-c3-poster.jpg" alt="" width="1920" height="1080"
+                src="/assets/images/home/hero-esp32-poster.jpg" alt="" width="1920" height="1080"
                 fetchpriority="high">
             </picture>
             <picture>
-              <source media="(max-width: 720px)" srcset="/assets/images/home/hero-esp32-c3-connected-mobile.webp">
+              <source media="(max-width: 720px)" srcset="/assets/images/home/hero-esp32-connected-mobile.webp">
               <img class="hero-frame hero-frame-connected"
-                src="/assets/images/home/hero-esp32-c3-connected.jpg" alt="" width="1920" height="1080">
+                src="/assets/images/home/hero-esp32-connected.jpg" alt="" width="1920" height="1080">
             </picture>
           </div>
           <div class="hero-scrim"></div>
         </div>
         <figure class="scrolly-scene js-scrolly-scene" data-scene="1">
-          <img data-src="/assets/images/home/scene-motion-lights.jpg" data-src-mobile="/assets/images/home/scene-motion-lights-mobile.webp" alt="" width="1920" height="1080">
-        </figure>
-        <figure class="scrolly-scene js-scrolly-scene" data-scene="2">
-          <img data-src="/assets/images/home/scene-intrusion-alarm.jpg" data-src-mobile="/assets/images/home/scene-intrusion-alarm-mobile.webp" alt="" width="1920" height="1080">
-        </figure>
-        <figure class="scrolly-scene js-scrolly-scene" data-scene="3">
-          <img data-src="/assets/images/home/scene-smart-heating.jpg" data-src-mobile="/assets/images/home/scene-smart-heating-mobile.webp" alt="" width="1920" height="1080">
-        </figure>
-        <figure class="scrolly-scene js-scrolly-scene" data-scene="4">
-          <img data-src="/assets/images/home/scene-vacant-climate.jpg" data-src-mobile="/assets/images/home/scene-vacant-climate-mobile.webp" alt="" width="1920" height="1080">
-        </figure>
-        <figure class="scrolly-scene js-scrolly-scene" data-scene="5">
-          <img data-src="/assets/images/home/scene-presence-research.jpg" data-src-mobile="/assets/images/home/scene-presence-research-mobile.webp" alt="" width="1920" height="1080">
-        </figure>
-        <figure class="scrolly-scene js-scrolly-scene" data-scene="6">
-          <img data-src="/assets/images/home/scene-industrial-flow.jpg" data-src-mobile="/assets/images/home/scene-industrial-flow-mobile.webp" alt="" width="1920" height="1080">
-        </figure>
-        <figure class="scrolly-scene js-scrolly-scene" data-scene="7">
           <img data-src="/assets/images/home/scene-school-privacy.jpg" data-src-mobile="/assets/images/home/scene-school-privacy-mobile.webp" alt="" width="1672" height="941">
         </figure>
-        <figure class="scrolly-scene js-scrolly-scene" data-scene="8">
-          <img data-src="/assets/images/home/scene-gym-activity.jpg" data-src-mobile="/assets/images/home/scene-gym-activity-mobile.webp" alt="" width="1672" height="941">
+        <figure class="scrolly-scene js-scrolly-scene" data-scene="2">
+          <img data-src="/assets/images/home/scene-smart-heating.jpg" data-src-mobile="/assets/images/home/scene-smart-heating-mobile.webp" alt="" width="1920" height="1080">
         </figure>
-        <figure class="scrolly-scene js-scrolly-scene" data-scene="9">
+        <figure class="scrolly-scene js-scrolly-scene" data-scene="3">
+          <img data-src="/assets/images/home/scene-industrial-flow.jpg" data-src-mobile="/assets/images/home/scene-industrial-flow-mobile.webp" alt="" width="1920" height="1080">
+        </figure>
+        <figure class="scrolly-scene js-scrolly-scene" data-scene="4">
           <img data-src="/assets/images/home/scene-matter-integration.jpg" data-src-mobile="/assets/images/home/scene-matter-integration-mobile.webp" alt="" width="1920" height="1080">
         </figure>
-        <figure class="scrolly-scene js-scrolly-scene" data-scene="10">
-          <img data-src="/assets/images/home/scene-cloud-home-map.jpg" data-src-mobile="/assets/images/home/scene-cloud-home-map-mobile.webp" alt="" width="1672" height="941">
-        </figure>
-        <figure class="scrolly-scene js-scrolly-scene" data-scene="11">
+        <figure class="scrolly-scene js-scrolly-scene" data-scene="5">
           <img data-src="/assets/images/home/scene-embedded-sdk.jpg" data-src-mobile="/assets/images/home/scene-embedded-sdk-mobile.webp" alt="" width="1920" height="1080">
-        </figure>
-        <figure class="scrolly-scene js-scrolly-scene" data-scene="12">
-          <img data-src="/assets/images/home/scene-standards-backend.jpg" data-src-mobile="/assets/images/home/scene-standards-backend-mobile.webp" alt="" width="1920" height="1080">
         </figure>
       </div>
       <div class="scrolly-scrim" aria-hidden="true"></div>
       <div class="scrolly-inner">
-        <div class="hero-content scrolly-caption scrolly-hero-content js-scrolly-caption is-active" data-scene="0">
+        <div class="hero-content scrolly-caption scrolly-hero-content js-scrolly-caption is-active" data-scene="0" aria-hidden="false">
           <a href="#flash" class="hero-badge js-release-badge" hidden>
             <span class="dot dot-ok"></span>
             <span class="js-release-text"></span>
           </a>
           <div class="hero-eyebrow">On-device Wi-Fi sensing</div>
           <h1>Your Wi-Fi already<br>senses motion.</h1>
-          <p class="hero-sub">No cameras. No microphones. One tiny ESP32 and the router you already own.</p>
+          <p class="hero-sub">ESPectre detects movement in a room by sensing tiny changes in the Wi-Fi waves already traveling through it. No cameras. No microphones. <br>Just one tiny ESP32 and the router you already own.</p>
           <div class="hero-actions">
             <a href="#flash" class="hero-cta hero-cta-primary">Flash from browser</a>
             <a href="#docs" class="hero-cta hero-cta-secondary">Explore the SDK</a>
           </div>
-          <a href="#get-started" class="hero-skip">Skip the story <span aria-hidden="true">↓</span></a>
-          <div class="hero-proof">
-            <span>ESP32</span>
-            <span>Channel State Information</span>
-            <span>Private by design</span>
-          </div>
         </div>
 
-        <div class="scrolly-progress js-scrolly-progress" aria-hidden="true">
+        <div class="scrolly-progress" aria-hidden="true">
           <span class="js-scrolly-current">01</span>
-          <span>/ 12</span>
+          <span>/ 05</span>
         </div>
 
-        <article class="scrolly-caption js-scrolly-caption" data-scene="1">
+        <article class="scrolly-caption js-scrolly-caption" data-scene="1" aria-hidden="true" inert>
+          <div class="scrolly-kicker">Motion, not media</div>
+          <h2>Privacy first.<br>By design.</h2>
+          <p>ESPectre senses changes in the Wi-Fi channel, so there are no images or audio to collect. That makes it a natural fit for privacy-sensitive shared spaces such as schools, gyms, offices, public venues, and places of worship. <a href="/guides/detection/" class="scene-roadmap-link">See how it works →</a></p>
+          <div class="scene-ui scene-ui-school">
+            <span class="scene-ui-dot"></span>
+            <span><small>Privacy boundary</small><strong>No camera. No microphone.</strong></span>
+            <span class="scene-ui-action">Events local</span>
+          </div>
+        </article>
+
+        <article class="scrolly-caption js-scrolly-caption" data-scene="2" aria-hidden="true" inert>
           <div class="scrolly-kicker">Everyday automation</div>
-          <h2>Walk in.<br>Lights on.</h2>
-          <p>ESPectre detects motion from changes in the Wi-Fi channel and turns the room on as you arrive.</p>
+          <h2>One signal.<br>Many reactions.</h2>
+          <p>Motion and quiet periods can drive lights, alarms, heating, and cooling through your existing automations.</p>
           <div class="scene-ui scene-ui-motion">
             <span class="scene-ui-dot"></span>
             <span><small>Living room</small><strong>Motion detected</strong></span>
-            <span class="scene-ui-action">Lights on</span>
+            <span class="scene-ui-action">Lights · Climate</span>
           </div>
         </article>
 
-        <article class="scrolly-caption js-scrolly-caption" data-scene="2">
-          <div class="scrolly-kicker">Security</div>
-          <h2>Someone enters.<br>You know.</h2>
-          <p>No image leaves the room because there is no image. Unexpected motion can trigger your existing alarm.</p>
-          <div class="scene-ui scene-ui-alarm">
-            <span class="scene-ui-dot"></span>
-            <span><small>Entryway</small><strong>Unexpected motion</strong></span>
-            <span class="scene-ui-action">Alarm on</span>
-          </div>
-        </article>
-
-        <article class="scrolly-caption js-scrolly-caption" data-scene="3">
-          <div class="scrolly-kicker">Smarter heating</div>
-          <h2>No motion.<br>Eco mode.</h2>
-          <p>After a configurable period without motion, ESPectre can tell your smart-heating automation to lower the room temperature.</p>
-          <div class="scene-ui scene-ui-climate">
-            <span class="scene-ui-dot"></span>
-            <span><small>Bedroom</small><strong>No motion for 20 min</strong></span>
-            <span class="scene-ui-action">Eco · 17 °C</span>
-          </div>
-        </article>
-
-        <article class="scrolly-caption js-scrolly-caption" data-scene="4">
-          <div class="scrolly-kicker">Climate automation</div>
-          <h2>A quiet room.<br>Lighter cooling.</h2>
-          <p>ESPectre reports when motion has been quiet for a while. Your automation can then ease the air conditioning—without assuming the room is empty.</p>
-          <div class="scene-ui scene-ui-cooling">
-            <span class="scene-ui-dot"></span>
-            <span><small>Bedroom</small><strong>No motion for 30 min</strong></span>
-            <span class="scene-ui-action">Cooling eco</span>
-          </div>
-        </article>
-
-        <article class="scrolly-caption js-scrolly-caption" data-scene="5">
-          <div class="scrolly-kicker">Roadmap · Breathing</div>
-          <h2>Even at rest,<br>the channel moves.</h2>
-          <p>ESPectre is researching whether breathing-related micro-motion can become a reliable local sensing signal. Research only—not a medical measurement. <a href="/roadmap/" class="scene-roadmap-link">See the roadmap →</a></p>
-          <div class="scene-ui scene-ui-presence scene-ui-research">
-            <span class="scene-ui-dot"></span>
-            <span class="scene-ui-breathing">
-              <small>Micro-motion signal</small>
-              <strong>Experimental <em>R&amp;D only</em></strong>
-              <span class="breathing-trace" aria-hidden="true">
-                <i style="--h: 3px"></i><i style="--h: 5px"></i><i style="--h: 9px"></i>
-                <i style="--h: 13px"></i><i style="--h: 8px"></i><i style="--h: 5px"></i>
-                <i style="--h: 3px"></i>
-              </span>
-            </span>
-            <span class="scene-ui-presence-cue">
-              <small>Presence cue</small>
-              <strong>Occupied</strong>
-            </span>
-          </div>
-        </article>
-
-        <article class="scrolly-caption js-scrolly-caption" data-scene="6">
-          <div class="scrolly-kicker">Industrial analytics</div>
-          <h2>Activity trends.<br>No worker tracking.</h2>
-          <p>Aggregate local motion energy across production zones to understand when activity rises or falls without cameras, identities, or people counting.</p>
+        <article class="scrolly-caption js-scrolly-caption" data-scene="3" aria-hidden="true" inert>
+          <div class="scrolly-kicker">Responsive spaces</div>
+          <h2>Activity changes.<br>The space responds.</h2>
+          <p>Use local motion events for after-hours alerts, lighting, ventilation, classroom experiments, or aggregate activity trends—without cameras, identities, attendance, or people counting.</p>
           <div class="scene-ui scene-ui-industrial">
             <span class="scene-ui-dot"></span>
-            <span><small>Assembly line</small><strong>Activity above baseline</strong></span>
+            <span><small>Shared space</small><strong>Activity above baseline</strong></span>
             <span class="scene-ui-action">Local aggregate</span>
           </div>
         </article>
 
-        <article class="scrolly-caption js-scrolly-caption" data-scene="7">
-          <div class="scrolly-kicker">Schools</div>
-          <h2>Rooms react.<br>Students stay private.</h2>
-          <p>Use local motion events for after-hours alerts, lighting, or classroom experiments without recording faces, voices, or attendance.</p>
-          <div class="scene-ui scene-ui-school">
-            <span class="scene-ui-dot"></span>
-            <span><small>Classroom</small><strong>Motion detected</strong></span>
-            <span class="scene-ui-action">Lights on</span>
-          </div>
-        </article>
-
-        <article class="scrolly-caption js-scrolly-caption" data-scene="8">
-          <div class="scrolly-kicker">Gyms and studios</div>
-          <h2>Activity starts.<br>The space responds.</h2>
-          <p>Wake lights and ventilation, or use motion energy as an input for interactive training and games. No pose tracking or wearables.</p>
-          <div class="scene-ui scene-ui-gym">
-            <span class="scene-ui-dot"></span>
-            <span><small>Training studio</small><strong>Activity above baseline</strong></span>
-            <span class="scene-ui-action">Ventilation on</span>
-          </div>
-        </article>
-
-        <article class="scrolly-caption js-scrolly-caption" data-scene="9">
+        <article class="scrolly-caption js-scrolly-caption" data-scene="4" aria-hidden="true" inert>
           <div class="scrolly-kicker">Matter · Limited validation</div>
           <h2>One standard.<br>Many ecosystems.</h2>
           <p>Expose local motion through Matter’s standard occupancy sensor surface and use it with the ecosystems your home already understands.</p>
@@ -310,13 +218,7 @@
           </div>
         </article>
 
-        <article class="scrolly-caption js-scrolly-caption" data-scene="10">
-          <div class="scrolly-kicker">Web orchestration · Roadmap</div>
-          <h2>Movement,<br>room by room.</h2>
-          <p>An optional web layer could turn derived local events into a simple home map, with local, self-hosted, and managed deployment paths. Raw CSI stays inside the sensing environment. <a href="/roadmap/" class="scene-roadmap-link">See the roadmap →</a></p>
-        </article>
-
-        <article class="scrolly-caption js-scrolly-caption" data-scene="11">
+        <article class="scrolly-caption js-scrolly-caption" data-scene="5" aria-hidden="true" inert>
           <div class="scrolly-kicker">Built to embed</div>
           <h2>Your product.<br>Now motion-aware.</h2>
           <p>ESPectre’s shared C++ core adds local motion sensing to ESP32 products without cameras or dedicated radar hardware. OEMs can choose Lightweight Detection when CPU and working memory are tight, or High-Accuracy Detection when detection quality is the priority.</p>
@@ -327,102 +229,73 @@
           </div>
         </article>
 
-        <article class="scrolly-caption js-scrolly-caption" data-scene="12">
-          <div class="scrolly-kicker">Standards-backed sensing · Roadmap</div>
-          <h2>New radio.<br>Same product contract.</h2>
-          <p>Today ESPectre uses ESP32 CSI APIs. If embedded vendors expose practical IEEE 802.11bf or equivalent sensing measurements, a new runtime can be evaluated while preserving detectors, events, protocols, tooling, and product integrations. <a href="/roadmap/" class="scene-roadmap-link">See the roadmap →</a></p>
-          <div class="scene-ui scene-ui-standards">
-            <span class="scene-ui-dot"></span>
-            <span><small>Future sensing backend</small><strong>New runtime candidate</strong></span>
-            <span class="scene-ui-action">Validation required</span>
-          </div>
-        </article>
-
         <div class="scrolly-nav" aria-hidden="true">
           <span class="js-scrolly-marker" data-scene="1"></span>
           <span class="js-scrolly-marker" data-scene="2"></span>
           <span class="js-scrolly-marker" data-scene="3"></span>
           <span class="js-scrolly-marker" data-scene="4"></span>
           <span class="js-scrolly-marker" data-scene="5"></span>
-          <span class="js-scrolly-marker" data-scene="6"></span>
-          <span class="js-scrolly-marker" data-scene="7"></span>
-          <span class="js-scrolly-marker" data-scene="8"></span>
-          <span class="js-scrolly-marker" data-scene="9"></span>
-          <span class="js-scrolly-marker" data-scene="10"></span>
-          <span class="js-scrolly-marker" data-scene="11"></span>
-          <span class="js-scrolly-marker" data-scene="12"></span>
         </div>
         <div class="scrolly-cue" aria-hidden="true">Scroll to explore <span>↓</span></div>
+        <a href="#get-started" class="scrolly-skip">Skip the story <span aria-hidden="true">↓</span></a>
       </div>
     </div>
   </section>
 
-  <section class="home-section home-start home-privacy">
-    <div class="home-section-inner">
-      <div class="home-privacy-grid">
-        <div class="home-privacy-copy">
-          <span class="home-kicker">PRIVATE BY DESIGN</span>
-          <h2>Motion sensing without cameras or microphones.</h2>
-          <p>ESPectre reads changes in the Wi-Fi channel. It does not capture images, record sound, or need a person to carry a device.</p>
-          <a href="/guides/detection/" class="home-text-link">See how Wi-Fi sensing works →</a>
-        </div>
-        <div class="home-privacy-points">
-          <article><span>01</span><div><h3>Nothing to watch or listen to</h3><p>The sensor measures radio-channel variation instead of collecting audiovisual content.</p></div></article>
-          <article><span>02</span><div><h3>Detection happens on-device</h3><p>Normal sensing frontends publish derived motion state and telemetry, not raw CSI.</p></div></article>
-          <article><span>03</span><div><h3>Raw collection is explicit</h3><p>CSI leaves the device only when you deliberately run the separate Streamer workflow.</p></div></article>
-        </div>
-      </div>
-    </div>
-  </section>
+  <section class="home-action-hub" id="get-started" aria-labelledby="home-action-title">
+    <div class="home-action-inner">
+      <header class="home-action-head">
+        <h2 class="page-title" id="home-action-title">Choose what you want to do.</h2>
+        <p class="page-sub">Run a browser tool, learn how ESPectre works, or evaluate it for your product.</p>
+      </header>
 
-  <section class="home-section" id="get-started">
-    <div class="home-section-inner">
-      <div class="home-section-head">
+      <div class="home-action-group">
         <span class="home-kicker">START HERE</span>
-        <h2>Start with a sensor, or build with the SDK.</h2>
-        <p>Flash a board, provision Native over Bluetooth, then watch live motion over MQTT, or add the sensing engine to a product you already build.</p>
+        <div class="home-tool-grid" aria-label="Browser tools">
+          <a href="#flash" class="home-tool-card home-tool-card-primary">
+            <span class="home-card-label">FLASH</span>
+            <h3>Install firmware.</h3>
+            <p>Turn a supported ESP32 into a Wi-Fi motion sensor over USB.</p>
+            <span class="home-card-action">Open Flash →</span>
+          </a>
+          <a href="#configure" class="home-tool-card">
+            <span class="home-card-label">CONFIGURE</span>
+            <h3>Set up your sensor.</h3>
+            <p>Save Wi-Fi, MQTT, and the device name over nearby Bluetooth.</p>
+            <span class="home-card-action">Open Configure →</span>
+          </a>
+          <a href="#monitor" class="home-tool-card">
+            <span class="home-card-label">MONITOR</span>
+            <h3>Watch motion live.</h3>
+            <p>Connect over MQTT to inspect motion, tune detection, and view diagnostics.</p>
+            <span class="home-card-action">Open Monitor →</span>
+          </a>
+        </div>
       </div>
 
-      <div class="home-path-grid">
-        <article class="home-path home-path-primary">
-          <div class="home-path-top"><span>01</span><span class="home-state">No code</span></div>
-          <h3>Turn an ESP32 into a sensor.</h3>
-          <p>Install ESPectre firmware from the browser, connect it to Wi-Fi, and start publishing motion.</p>
-          <ul>
-            <li>One supported ESP32 board</li>
-            <li>Your existing Wi-Fi network</li>
-            <li>No local development environment</li>
-          </ul>
-          <a href="#flash" class="btn-primary">Flash a board →</a>
-        </article>
-
-        <article class="home-path home-path-live">
-          <div class="home-path-top"><span>02</span><span class="home-state">Native + MQTT</span></div>
-          <h3>Try your sensor live.</h3>
-          <p>After nearby Bluetooth setup has saved Wi-Fi and MQTT, start detection over the broker. Sensing runs over MQTT so Bluetooth can stay off the radio.</p>
-          <div class="demo-live">
-            <div class="js-demo-connected" hidden>
-              <div class="demo-meter-head"><span class="mono js-device-name">ESPectre</span><span class="mono js-motion-label">IDLE</span></div>
-              <div class="meter meter-lg"><span class="js-energy-fill"></span></div>
-              <div class="demo-try">Continue with the <a href="#theremin">Theremin</a> or the <a href="#game">Game →</a></div>
-            </div>
-            <button class="demo-connect js-start-detection js-demo-disconnected"><span class="js-connect-label">Start detection</span></button>
-            <div class="empty-alt js-demo-disconnected"><button class="link-btn js-demo">or try the demo</button></div>
+      <div class="home-action-group">
+        <span class="home-kicker">COMMERCIAL LICENSING</span>
+        <aside class="home-license-cta" aria-labelledby="home-license-title">
+          <div>
+            <h3 id="home-license-title">Building a proprietary product?</h3>
+            <p>See what a commercial license can cover, where GPLv3 applies, and how to contact us.</p>
           </div>
-        </article>
+          <a href="/licensing/" class="btn-primary">Explore commercial licensing →</a>
+        </aside>
+      </div>
 
-        <article class="home-path">
-          <div class="home-path-top"><span>03</span><span class="home-state">C++ SDK</span></div>
-          <h3>Embed sensing in your product.</h3>
-          <p>Reuse the C++ core and ESP-IDF runtime while your firmware keeps ownership of boot, networking, UI, and product behavior.</p>
-          <ul>
-            <li>ESP-IDF 5.1+ and C++17</li>
-            <li>Lightweight for resource headroom, or High Accuracy for detection quality</li>
-            <li>Reference frontends and public runtime contracts</li>
-            <li>GPLv3 or separate commercial licensing</li>
-          </ul>
-          <a href="#docs" class="btn-secondary">Explore the SDK →</a>
-        </article>
+      <div class="home-action-group">
+        <span class="home-kicker">EXPLORE</span>
+        <div class="home-resource-strip" aria-label="Explore ESPectre">
+          <div class="home-resource-links">
+            <a href="#tools"><strong>Tools</strong><span>Flash, configure, and monitor →</span></a>
+            <a href="/guides/"><strong>Guides</strong><span>Setup, placement, and detection →</span></a>
+            <a href="/media/"><strong>Media</strong><span>Demos, articles, and coverage →</span></a>
+            <a href="/roadmap/"><strong>Roadmap</strong><span>Product direction and priorities →</span></a>
+            <a href="/docs/"><strong>Docs</strong><span>SDK integration, API, and examples →</span></a>
+            <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener"><strong>GitHub</strong><span>Source, issues, and discussions ↗</span></a>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -502,13 +375,6 @@
       </div>
       <p class="tool-note js-flash-next" hidden></p>
       <p class="tool-note js-matter-status" role="status" hidden></p>
-      <div class="matter-result js-matter-result" hidden>
-        <div class="matter-qr js-matter-canvas" role="img" aria-label="Matter commissioning QR code"></div>
-        <dl class="matter-codes">
-          <div><dt>QR payload</dt><dd><code class="js-matter-payload"></code></dd></div>
-          <div><dt>Manual code</dt><dd><code class="js-matter-manual"></code></dd></div>
-        </dl>
-      </div>
     </section>
   </div>
 </main>
@@ -517,17 +383,16 @@
 <main class="js-page page-narrow page-tool" data-page="configure" hidden>
   <div class="breadcrumb"><a href="#tools">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Configure</span></div>
   <h1 class="page-title">Configure</h1>
-  <p class="page-sub">Set Wi-Fi, MQTT, and the device name over Bluetooth, then start sensing in Monitor.</p>
+  <p class="page-sub">For first setup or recovery, connect over Bluetooth to set Wi-Fi, MQTT, and the device name, then start sensing in Monitor.</p>
   <p class="support-notice js-ble-support" role="status" hidden></p>
 
   <div class="js-configure-onboarding">
     <section class="device-connect-card empty-state" data-transport="ble">
-      <span class="device-connect-kicker">First setup or recovery</span>
-      <h3>Connect with Bluetooth</h3>
+      <h2>Connect with Bluetooth</h2>
       <p>Use a nearby connection to set Wi-Fi, MQTT, and the device name.</p>
       <aside class="device-recovery-hint">
         <strong>Device not appearing nearby?</strong>
-        <p>Hold the <strong>BOOT</strong> button for 3 seconds to activate BLE.</p>
+        <p>Hold the <strong>BOOT</strong> button for 3 seconds to activate Bluetooth setup.</p>
         <details>
           <summary>Which of the two buttons is BOOT?</summary>
           <div class="boot-button-guide">
@@ -626,15 +491,12 @@
 <main class="js-page page-narrow page-tool" data-page="monitor" hidden>
   <div class="breadcrumb"><a href="#tools">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Monitor</span></div>
   <h1 class="page-title">Monitor</h1>
-  <p class="page-sub">Watch live motion, tune detection, and inspect diagnostics over MQTT. Leave Device ID empty to discover devices on the broker.</p>
-  <p class="support-notice js-mqtt-support" role="status" hidden></p>
-
+  <p class="page-sub">For an already configured device, connect over MQTT to watch live motion, tune detection, and inspect diagnostics. Leave Device ID empty to discover devices on the broker.</p>
   <div class="js-monitor-onboarding">
     <section class="device-connect-card empty-state" data-transport="mqtt">
-      <span class="device-connect-kicker">Already configured</span>
-      <h3>Connect with MQTT</h3>
+      <h2>Connect with MQTT</h2>
       <p>Use the broker to open live sensing, controls, and diagnostics.</p>
-      <div class="fields js-browser-broker-fields">
+      <div class="fields">
         <div class="field"><label for="mon-host">Host</label><input type="text" id="mon-host" class="mono-input" value="homeassistant.local" placeholder="homeassistant.local" autocomplete="off" spellcheck="false"></div>
         <div class="field-row">
           <div class="field"><label for="mon-user">Username</label><input type="text" id="mon-user" value="mqtt" placeholder="mqtt" autocomplete="off"></div>
@@ -696,7 +558,7 @@
             <div class="device-motion-score"><span class="stat-label">Movement score</span><strong class="js-mon-move">—</strong></div>
           </div>
           <canvas class="mon-chart js-mon-chart" height="210"></canvas>
-          <p class="tool-note">Movement score versus threshold, last 5 minutes.</p>
+          <p class="tool-note">Movement score versus threshold, last 60 seconds.</p>
         </section>
         <section class="panel">
           <div class="live-sensing-controls">
@@ -755,7 +617,6 @@
   <div class="breadcrumb"><a href="#tools">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Theremin</span></div>
   <h1 class="page-title">Motion theremin</h1>
   <p class="page-sub">Turn live MQTT motion energy into sound, or explore the interaction in demo mode.</p>
-  <p class="support-notice js-mqtt-support" role="status" hidden></p>
 
   <div class="empty-state js-needs-live">
     <svg width="44" height="44" viewBox="0 0 32 32" aria-hidden="true" class="empty-ghost"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="none" stroke="var(--dim)" stroke-width="1.6"/><circle cx="12.2" cy="13.5" r="1.7" fill="var(--dim)"/><circle cx="19.8" cy="13.5" r="1.7" fill="var(--dim)"/></svg>
@@ -793,7 +654,6 @@
   <div class="breadcrumb"><a href="#tools">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Game</span></div>
   <h1 class="page-title">Motion reaction game</h1>
   <p class="page-sub">Use live MQTT motion sensing as the controller, or play in demo mode.</p>
-  <p class="support-notice js-mqtt-support" role="status" hidden></p>
 
   <div class="empty-state js-needs-live">
     <svg width="44" height="44" viewBox="0 0 32 32" aria-hidden="true" class="empty-ghost"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="none" stroke="var(--dim)" stroke-width="1.6"/><circle cx="12.2" cy="13.5" r="1.7" fill="var(--dim)"/><circle cx="19.8" cy="13.5" r="1.7" fill="var(--dim)"/></svg>
@@ -815,7 +675,13 @@
         <div class="stat"><div class="stat-label">Score</div><div class="stat-value js-game-score">0</div></div>
         <div class="stat"><div class="stat-label">Best</div><div class="stat-value js-game-best">—</div></div>
       </div>
-      <div class="meter meter-lg game-meter"><span class="js-energy-fill"></span></div>
+      <div class="game-meter-block">
+        <div class="meter meter-lg game-meter"><span class="js-energy-fill"></span></div>
+        <div class="game-threshold-control">
+          <input type="range" id="game-threshold" class="game-threshold-slider js-game-threshold" min="0" max="1" step="0.01" value="0.5" aria-label="Game hit threshold" aria-valuetext="0.50">
+          <p class="tool-note">Hit line <strong class="js-game-threshold-value">0.50</strong>. Copied from the device when you open this page, then frozen until you leave. Drag to retune the game only; the device threshold does not change.</p>
+        </div>
+      </div>
       <div class="theremin-controls">
         <button class="btn-primary js-game-start">Start game</button>
       </div>
@@ -826,14 +692,14 @@
 
 <!-- ============================== Guides ============================== -->
 <main class="js-page page-narrow" data-page="guides" hidden>
-  <div class="js-static-content" data-content-url="content/guides.html?v=6b9d74d92e5d" data-static-url="/guides/">
+  <div class="js-static-content" data-content-url="content/guides.html?v=271d3c2c15b0" data-static-url="/guides/">
     <p class="guide-loading">Loading guides…</p>
   </div>
 </main>
 
 <!-- ============================== Docs ============================== -->
 <main class="js-page page-narrow" data-page="docs" hidden>
-  <div class="js-static-content" data-content-url="content/docs.html?v=f2a9d8b9ffd5" data-static-url="/docs/">
+  <div class="js-static-content" data-content-url="content/docs.html?v=c4f8d8d4bdf5" data-static-url="/docs/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -854,15 +720,50 @@
 
 <!-- ============================== Privacy ============================== -->
 <main class="js-page page-narrow" data-page="privacy" hidden>
-  <div class="js-static-content" data-content-url="content/privacy.html?v=222441e2cbc4" data-static-url="/privacy/">
+  <div class="js-static-content" data-content-url="content/privacy.html?v=4431c1063df4" data-static-url="/privacy/">
     <p class="guide-loading">Loading privacy notice…</p>
+  </div>
+</main>
+
+<!-- ============================== Commercial Licensing ============================== -->
+<main class="js-page page-narrow" data-page="licensing" hidden>
+  <div class="js-static-content" data-content-url="content/licensing.html?v=4dfb80cf8970" data-static-url="/licensing/">
+    <p class="guide-loading">Loading licensing information…</p>
+  </div>
+</main>
+
+<!-- ============================== Terms ============================== -->
+<main class="js-page page-narrow" data-page="terms" hidden>
+  <div class="js-static-content" data-content-url="content/terms.html?v=25a026aeeba8" data-static-url="/terms/">
+    <p class="guide-loading">Loading terms of use…</p>
+  </div>
+</main>
+
+<!-- ============================== Legal Information ============================== -->
+<main class="js-page page-narrow" data-page="legal" hidden>
+  <div class="js-static-content" data-content-url="content/legal.html?v=87ab5b639bf8" data-static-url="/legal/">
+    <p class="guide-loading">Loading legal information…</p>
+  </div>
+</main>
+
+<!-- ============================== Security ============================== -->
+<main class="js-page page-narrow" data-page="security" hidden>
+  <div class="js-static-content" data-content-url="content/security.html?v=81930ae8d9c5" data-static-url="/security/">
+    <p class="guide-loading">Loading security information…</p>
+  </div>
+</main>
+
+<!-- ============================== Contact ============================== -->
+<main class="js-page page-narrow" data-page="contact" hidden>
+  <div class="js-static-content" data-content-url="content/contact.html?v=b21635f97169" data-static-url="/contact/">
+    <p class="guide-loading">Loading contact information…</p>
   </div>
 </main>
 
 <!-- ============================== Guide: Hardware ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-hardware" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Hardware</span></div>
-  <div class="js-static-content" data-content-url="content/guides/hardware.html?v=e68e0d3ebbb3" data-static-url="/guides/hardware/">
+  <div class="js-static-content" data-content-url="content/guides/hardware.html?v=aa314f1e2b94" data-static-url="/guides/hardware/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -899,10 +800,18 @@
   </div>
 </main>
 
+<!-- ============================== Guide: MicroPython ============================== -->
+<main class="js-page page-narrow page-article" data-page="guide-micropython" hidden>
+  <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Run ESPectre on MicroPython</span></div>
+  <div class="js-static-content" data-content-url="content/guides/micropython.html?v=f3f9fd219e6e" data-static-url="/guides/micropython/">
+    <p class="guide-loading">Loading guide…</p>
+  </div>
+</main>
+
 <!-- ============================== Guide: Custom firmware ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-firmware" hidden>
   <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Build custom firmware</span></div>
-  <div class="js-static-content" data-content-url="content/guides/firmware.html?v=b702fea8d9f7" data-static-url="/guides/custom-firmware/">
+  <div class="js-static-content" data-content-url="content/guides/firmware.html?v=6fbe11b7d0e9" data-static-url="/guides/custom-firmware/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -918,7 +827,7 @@
 <!-- ============================== Docs: Examples ============================== -->
 <main class="js-page page-narrow page-article" data-page="docs-examples" hidden>
   <div class="breadcrumb"><a href="/docs/">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">Examples</span></div>
-  <div class="js-static-content" data-content-url="content/docs/examples.html?v=c230510c6be4" data-static-url="/docs/examples/">
+  <div class="js-static-content" data-content-url="content/docs/examples.html?v=41952e6104a0" data-static-url="/docs/examples/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -926,7 +835,7 @@
 <!-- ============================== Docs: Architecture ============================== -->
 <main class="js-page page-narrow page-article" data-page="docs-architecture" hidden>
   <div class="breadcrumb"><a href="/docs/">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">Architecture</span></div>
-  <div class="js-static-content" data-content-url="content/docs/architecture.html?v=14bdca03b8b3" data-static-url="/docs/architecture/">
+  <div class="js-static-content" data-content-url="content/docs/architecture.html?v=910f6f180470" data-static-url="/docs/architecture/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -934,16 +843,43 @@
 <footer class="site-footer">
   <div class="site-footer-inner">
     <div class="footer-brand">
-      <img src="/assets/images/brand/espectre-logo.svg" alt="" width="16" height="16" aria-hidden="true">
+      <img src="/assets/images/brand/espectre-logo.svg?v=ec70d44476fe" alt="" width="23" height="23" aria-hidden="true">
       ESPectre © 2026 · Open source Wi-Fi sensing platform
     </div>
     <div class="footer-links">
       <a href="#privacy">Privacy</a>
-      <button type="button" class="footer-link-button js-cookie-settings">Cookie settings</button>
-      <a href="mailto:contact@espectre.dev">Contact/Commercial Licensing</a>
+      <a href="/privacy/#cookie-settings" class="js-cookie-settings">Cookie settings</a>
+      <a href="/terms/">Terms</a>
+      <a href="/legal/">Legal</a>
+      <a href="/security/">Security</a>
+      <a href="/licensing/">Licensing</a>
+      <a href="/contact/">Contact</a>
     </div>
   </div>
 </footer>
+
+<div class="modal-backdrop js-matter-modal" hidden>
+  <section class="modal-card matter-modal-card" role="dialog" aria-modal="true" aria-labelledby="matter-modal-title" aria-describedby="matter-modal-description" tabindex="-1">
+    <div class="modal-head">
+      <div>
+        <span class="modal-kicker">Matter onboarding</span>
+        <h2 id="matter-modal-title">Commission this device</h2>
+      </div>
+      <button type="button" class="modal-close js-matter-close" aria-label="Close Matter onboarding dialog">×</button>
+    </div>
+    <p class="modal-description" id="matter-modal-description">Scan the QR code with your Matter controller, or enter the manual code.</p>
+    <div class="matter-result js-matter-result" hidden>
+      <div class="matter-qr js-matter-canvas" role="img" aria-label="Matter commissioning QR code"></div>
+      <dl class="matter-codes">
+        <div><dt>QR payload</dt><dd><code class="js-matter-payload"></code></dd></div>
+        <div><dt>Manual code</dt><dd><code class="js-matter-manual"></code></dd></div>
+      </dl>
+    </div>
+    <div class="modal-actions matter-modal-actions">
+      <button type="button" class="btn-ghost js-matter-close">Close</button>
+    </div>
+  </section>
+</div>
 
 <div class="modal-backdrop js-ota-modal" hidden>
   <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="ota-modal-title" aria-describedby="ota-modal-description" tabindex="-1">

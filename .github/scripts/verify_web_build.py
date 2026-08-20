@@ -30,6 +30,7 @@ EXPECTED_SITEMAP_PATHS = {
     "/guides/placement/",
     "/guides/detection/",
     "/guides/detectors/",
+    "/guides/micropython/",
     "/guides/custom-firmware/",
     "/docs/",
     "/docs/api/",
@@ -42,6 +43,11 @@ EXPECTED_SITEMAP_PATHS = {
     "/media/",
     "/roadmap/",
     "/privacy/",
+    "/terms/",
+    "/legal/",
+    "/security/",
+    "/licensing/",
+    "/contact/",
 }
 
 
@@ -86,7 +92,7 @@ def verify_spa_routes() -> None:
 
 
 def verify_generated_pages() -> None:
-    for guide in ("hardware", "setup", "placement", "detection", "custom-firmware"):
+    for guide in ("hardware", "setup", "placement", "detection", "detectors", "micropython", "custom-firmware"):
         require_file(f"guides/{guide}/index.html")
     for page in (
         "docs/index.html",
@@ -96,6 +102,11 @@ def verify_generated_pages() -> None:
         "media/index.html",
         "roadmap/index.html",
         "privacy/index.html",
+        "terms/index.html",
+        "legal/index.html",
+        "security/index.html",
+        "licensing/index.html",
+        "contact/index.html",
     ):
         require_file(page)
 
@@ -235,7 +246,7 @@ def verify(args: argparse.Namespace) -> None:
         "assets/js/app.js",
         "assets/js/route-registry.js",
         "assets/js/espectre-ble.js",
-        "assets/js/LICENSES/Apache-2.0.txt",
+        "assets/js/espectre-mqtt.js",
         "assets/css/styles.css",
         "vendor/qrcodejs-1.0.0/qrcode.min.js",
         "vendor/esp-web-tools-10.4.0/install-button.js",

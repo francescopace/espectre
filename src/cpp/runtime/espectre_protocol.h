@@ -80,7 +80,7 @@ struct EspectreDeviceConfig {
   std::string topic_prefix{ESPECTRE_TOPIC_PREFIX};
 };
 
-/** Link details reported in the device info payload. */
+/** Link details available to frontends. Canonical MQTT info publishes only the channel. */
 struct EspectreNetworkInfo {
   std::string ip_address;
   std::string mac_address;
@@ -135,6 +135,18 @@ struct EspectreDeviceInfo {
    * Omitted from `info` when zero.
    */
   uint32_t csi_target_pps{0U};
+  /**
+   * Detector evaluation cadence, in milliseconds.
+   *
+   * Omitted from `info` when zero. Canonical MQTT telemetry follows this interval.
+   */
+  uint32_t evaluation_interval_ms{0U};
+  /**
+   * Status-log and diagnostics heartbeat, in milliseconds.
+   *
+   * Omitted from `info` when zero. This is not the sensing telemetry interval.
+   */
+  uint32_t publish_interval_ms{0U};
   EspectreNetworkInfo network{};
 };
 

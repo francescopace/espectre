@@ -26,6 +26,7 @@
         { name: 'guide-placement', group: 'guides', title: 'Sensor placement guide | ESPectre', staticPath: '/guides/placement/' },
         { name: 'guide-detection', group: 'guides', title: 'How detection works | ESPectre', staticPath: '/guides/detection/' },
         { name: 'guide-detectors', group: 'guides', title: 'Detection profiles | ESPectre', staticPath: '/guides/detectors/' },
+        { name: 'guide-micropython', group: 'guides', title: 'Run ESPectre on MicroPython | ESPectre', staticPath: '/guides/micropython/' },
         { name: 'guide-firmware', group: 'guides', title: 'Build custom firmware | ESPectre', staticPath: '/guides/custom-firmware/', analyticsName: 'firmware' },
         { name: 'docs', title: 'ESPectre SDK quick guide | ESPectre', staticPath: '/docs/', analyticsName: 'overview' },
         { name: 'docs-api', group: 'docs', title: 'API orientation | ESPectre', staticPath: '/docs/api/' },
@@ -33,7 +34,12 @@
         { name: 'docs-architecture', group: 'docs', title: 'Architecture | ESPectre', staticPath: '/docs/architecture/' },
         { name: 'media', title: 'Media | ESPectre', staticPath: '/media/' },
         { name: 'roadmap', title: 'Roadmap | ESPectre', staticPath: '/roadmap/' },
-        { name: 'privacy', title: 'Website privacy and analytics | ESPectre', staticPath: '/privacy/' }
+        { name: 'privacy', title: 'Website privacy and analytics | ESPectre', staticPath: '/privacy/' },
+        { name: 'terms', title: 'Terms of use | ESPectre', staticPath: '/terms/' },
+        { name: 'legal', title: 'Legal information | ESPectre', staticPath: '/legal/' },
+        { name: 'security', title: 'Security and responsible use | ESPectre', staticPath: '/security/' },
+        { name: 'licensing', title: 'Commercial licensing | ESPectre', staticPath: '/licensing/' },
+        { name: 'contact', title: 'Contact | ESPectre', staticPath: '/contact/' }
     ].map((definition) => Object.freeze({ ...definition }));
 
     const documentPathNames = new Map([

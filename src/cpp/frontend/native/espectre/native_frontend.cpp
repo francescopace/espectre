@@ -1040,6 +1040,8 @@ EspectreDeviceInfo NativeFrontend::mqtt_protocol_device_info_() const {
   info.csi_traffic_mode = csi_traffic_mode_name(runtime_.config().csi_traffic_mode);
   info.traffic_mode = traffic_mode_name(runtime_.config().traffic_generator_mode);
   info.csi_target_pps = runtime_.config().csi_target_pps;
+  info.evaluation_interval_ms = runtime_.config().evaluation_interval_ms;
+  info.publish_interval_ms = runtime_.config().publish_interval_ms;
   return info;
 }
 

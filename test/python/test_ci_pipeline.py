@@ -73,7 +73,6 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     manifest_path = next(outputs[0].glob("sdk-manifest-*.json"))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["generated_at"] == "2027-01-15T08:00:00+00:00"
-    assert "LICENSES/Apache-2.0.txt" not in manifest["bundle"]["top_level_files"]
     zip_path = next(outputs[0].glob("*.zip"))
     with zipfile.ZipFile(zip_path) as archive:
         archived = set(archive.namelist())
@@ -83,7 +82,6 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     assert "docs/web/artifacts/sdk" not in bundled_doxyfile
     repo_doxyfile = (REPO_ROOT / "src" / "cpp" / "Doxyfile").read_text(encoding="utf-8")
     assert re.search(r"(?m)^OUTPUT_DIRECTORY\s*=\s*docs/web/artifacts/sdk\s*$", repo_doxyfile)
-    assert not any(path.endswith("/LICENSES/Apache-2.0.txt") for path in archived)
     assert any(path.endswith("/THIRD_PARTY_NOTICES.md") for path in archived)
     for artifact in manifest["artifacts"]:
         assert artifact["sha256"] == file_sha256(outputs[0] / artifact["filename"])
@@ -645,6 +643,14 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     for source in (ci, snapshot, release):
         assert "uses: ./.github/actions/build-pages" in source
         assert "fetch-depth: 0" in source
+        assert "--output-dir docs/web/artifacts/firmware/release" in source
+        assert "--channel release" in source
+        assert "--url-prefix /artifacts/firmware/release" in source
+        assert "firmware/stable" not in source
+        assert "firmware-manifest-stable" not in source
+        assert "--channel stable" not in source
+    for source in (snapshot, release):
+        assert 'require-release: "true"' in source
     pages_action = (REPO_ROOT / ".github" / "actions" / "build-pages" / "action.yml").read_text(
         encoding="utf-8"
     )

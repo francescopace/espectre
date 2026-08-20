@@ -7,27 +7,11 @@
  *
  * No dependencies. Web Bluetooth requires a Chromium-based browser and a
  * secure context (HTTPS or localhost); check `ESPectreBleClient.supported`
- * before connecting. The full API is documented in this directory's
- * README.md.
+ * before connecting.
  *
- * This file is Apache-2.0 licensed so it can be embedded in any web application,
- * including proprietary ones. The complete license text is distributed alongside
- * this file in LICENSES/Apache-2.0.txt.
- *
- * Copyright 2026 Francesco Pace <francesco.pace@gmail.com>
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     https://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
- * License for the specific language governing permissions and limitations
- * under the License.
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 
 (function () {
@@ -55,6 +39,9 @@
     const WIFI_BAND_POLICIES = Object.freeze(['2g', '5g', 'auto']);
     const OTA_CHANNELS = Object.freeze(['release', 'preview', 'develop']);
     const DEFAULT_TOPIC_PREFIX = 'espectre/v1/devices';
+    const MAX_CONTROL_BYTES = 512;
+    const MAX_SSID_BYTES = 32;
+    const MAX_WIFI_PASSWORD_BYTES = 63;
 
     /**
      * Thrown by the command builders when an argument cannot produce a valid
@@ -80,7 +67,36 @@
         if (typeof value !== 'string' || value.length === 0) {
             throw new ESPectreValidationError(`${label} must be a non-empty string`);
         }
+        if (value.includes('\0')) {
+            throw new ESPectreValidationError(`${label} must not contain NUL`);
+        }
         return value;
+    }
+
+    function utf8Length(value) {
+        return new TextEncoder().encode(value).byteLength;
+    }
+
+    function requireUtf8Length(value, min, max, label) {
+        if (typeof value !== 'string' || value.includes('\0')) {
+            throw new ESPectreValidationError(`${label} must be a string without NUL`);
+        }
+        const length = utf8Length(value);
+        if (length < min || length > max) {
+            throw new ESPectreValidationError(`${label} must be ${min}..${max} UTF-8 bytes`);
+        }
+        return value;
+    }
+
+    function requireControlCommand(command) {
+        if (typeof command !== 'string' || command.length === 0 || command.includes('\0')) {
+            throw new ESPectreValidationError('command must be a non-empty string without NUL');
+        }
+        if (utf8Length(command) > MAX_CONTROL_BYTES) {
+            throw new ESPectreValidationError(
+                `command must not exceed ${MAX_CONTROL_BYTES} UTF-8 bytes`);
+        }
+        return command;
     }
 
     function requireIntegerInRange(value, min, max, label) {
@@ -141,7 +157,7 @@
 
     class ESPectreBleClient {
         /** Library version; independent from the device protocol version. */
-        static get VERSION() { return '1.2.0'; }
+        static get VERSION() { return '1.3.0'; }
 
         /** GATT service and characteristic UUIDs of the ESPectre BLE surface. */
         static get UUIDS() { return UUIDS; }
@@ -150,7 +166,11 @@
         static get EVENTS() { return EVENTS; }
 
         /** Whether this browser exposes Web Bluetooth. */
-        static get supported() { return 'bluetooth' in navigator; }
+        static get supported() {
+            return typeof navigator !== 'undefined'
+                && navigator.bluetooth
+                && typeof navigator.bluetooth.requestDevice === 'function';
+        }
 
         /* ---------------------------------------------- command builders */
         /*
@@ -204,7 +224,8 @@
         static buildWifiConfigCommand({
             ssid, password = '', bssid = '', channel = 0, bandPolicy
         } = {}) {
-            requireNonEmptyString(ssid, 'ssid');
+            requireUtf8Length(ssid, 1, MAX_SSID_BYTES, 'ssid');
+            requireUtf8Length(password, 0, MAX_WIFI_PASSWORD_BYTES, 'password');
             requireWifiChannel(channel, 'channel');
             if (bandPolicy !== undefined) {
                 requireWifiBandPolicy(bandPolicy);
@@ -215,7 +236,7 @@
             }
             const fields = { ssid, password, bssid, channel };
             if (bandPolicy !== undefined) fields.band_policy = bandPolicy;
-            return 'SET_WIFI_CONFIG:' + encodeFields(fields);
+            return requireControlCommand('SET_WIFI_CONFIG:' + encodeFields(fields));
         }
 
         /**
@@ -236,9 +257,14 @@
             requireNonEmptyString(host, 'host');
             requireIntegerInRange(port, 1, 65535, 'port');
             requireNonEmptyString(topicPrefix, 'topicPrefix');
-            return 'SET_MQTT_CONFIG:' + encodeFields({
-                host, port, username, password, topic_prefix: topicPrefix
+            [host, username, password, topicPrefix].forEach((value) => {
+                if (typeof value !== 'string' || value.includes('\0')) {
+                    throw new ESPectreValidationError('MQTT fields must be strings without NUL');
+                }
             });
+            return requireControlCommand('SET_MQTT_CONFIG:' + encodeFields({
+                host, port, username, password, topic_prefix: topicPrefix
+            }));
         }
 
         /**
@@ -250,10 +276,10 @@
          * @returns {string}
          */
         static buildDeviceLabelCommand(label) {
-            if (typeof label !== 'string' || label.includes('\n')) {
+            if (typeof label !== 'string' || /[\r\n\0]/.test(label)) {
                 throw new ESPectreValidationError('label must be a single-line string');
             }
-            return `SET_DEVICE_CONFIG:device_label=${label}`;
+            return requireControlCommand(`SET_DEVICE_CONFIG:device_label=${label}`);
         }
 
         /* -------------------------------------------------------- state */
@@ -264,8 +290,11 @@
         #notificationsActive = { sysinfo: false };
         #listeners = new Map();
         #sysinfoEntries = [];
+        #sysinfoActive = false;
         #connectPromise = null;
         #disconnecting = false;
+        #connectionRevision = 0;
+        #writeChain = Promise.resolve();
 
         // Bound once so add/removeEventListener see the same references.
         #onGattDisconnected = () => this.#handleGattDisconnected();
@@ -349,32 +378,55 @@
             if (this.connected) return this.#device;
             if (this.#connectPromise) return this.#connectPromise;
 
-            this.#connectPromise = this.#establish(sysinfo)
+            const revision = ++this.#connectionRevision;
+            this.#connectPromise = this.#establish(sysinfo, revision)
                 .finally(() => { this.#connectPromise = null; });
             return this.#connectPromise;
         }
 
-        async #establish(sysinfo) {
+        async #establish(sysinfo, revision) {
+            let device = null;
+            let server = null;
             try {
-                this.#device = await navigator.bluetooth.requestDevice({
+                device = await navigator.bluetooth.requestDevice({
                     filters: [{ services: [UUIDS.service] }]
                 });
-                this.#device.addEventListener('gattserverdisconnected', this.#onGattDisconnected);
+                this.#assertConnectionRevision(revision);
+                this.#device = device;
+                device.addEventListener('gattserverdisconnected', this.#onGattDisconnected);
 
-                this.#server = await this.#device.gatt.connect();
-                const service = await this.#server.getPrimaryService(UUIDS.service);
+                server = await device.gatt.connect();
+                this.#assertConnectionRevision(revision, server);
+                this.#server = server;
+                const service = await server.getPrimaryService(UUIDS.service);
+                this.#assertConnectionRevision(revision, server);
                 this.#characteristics.sysinfo = await service.getCharacteristic(UUIDS.sysinfo);
+                this.#assertConnectionRevision(revision, server);
                 this.#characteristics.control = await service.getCharacteristic(UUIDS.control);
+                this.#assertConnectionRevision(revision, server);
 
                 this.#characteristics.sysinfo.addEventListener(
                     'characteristicvaluechanged', this.#onSysinfoNotification);
 
                 await this.setSysinfoNotifications(sysinfo);
+                this.#assertConnectionRevision(revision, server);
                 return this.#device;
             } catch (error) {
-                await this.disconnect();
+                if (server?.connected) server.disconnect();
+                this.#clearConnectionState();
                 throw error;
             }
+        }
+
+        #assertConnectionRevision(revision, server = null) {
+            if (revision === this.#connectionRevision && (!server || server.connected)) return;
+            const cancelled = revision !== this.#connectionRevision;
+            if (cancelled && server?.connected) server.disconnect();
+            const error = new Error(cancelled
+                ? 'Bluetooth connection attempt was cancelled.'
+                : 'Bluetooth disconnected while the connection was being established.');
+            error.name = cancelled ? 'AbortError' : 'NetworkError';
+            throw error;
         }
 
         /**
@@ -384,6 +436,7 @@
         async disconnect() {
             if (this.#disconnecting) return;
             this.#disconnecting = true;
+            this.#connectionRevision += 1;
             try {
                 for (const kind of ['sysinfo']) {
                     try {
@@ -405,6 +458,9 @@
          * @param {boolean} enabled
          */
         setSysinfoNotifications(enabled) {
+            if (typeof enabled !== 'boolean') {
+                throw new ESPectreValidationError('enabled must be a boolean');
+            }
             return this.#setNotifications('sysinfo', enabled);
         }
 
@@ -427,13 +483,29 @@
          *
          * @param {string} command
          */
-        async writeControl(command) {
+        writeControl(command) {
+            requireControlCommand(command);
+            const revision = this.#connectionRevision;
+            const operation = this.#writeChain.then(() => {
+                if (revision !== this.#connectionRevision) {
+                    const error = new Error('Bluetooth connection changed before the command was written.');
+                    error.name = 'AbortError';
+                    throw error;
+                }
+                return this.#writeControlNow(command);
+            });
+            this.#writeChain = operation.catch(() => {});
+            return operation;
+        }
+
+        async #writeControlNow(command) {
             const control = this.#characteristics.control;
             if (!control) {
                 throw new Error('ESPectre is not connected.');
             }
             if (command === 'REQ_SYSINFO') {
                 this.#sysinfoEntries = [];
+                this.#sysinfoActive = false;
             }
             const payload = new TextEncoder().encode(command);
             if (typeof control.writeValueWithResponse === 'function') {
@@ -516,15 +588,21 @@
             this.#emit('sysinfo-line', line);
 
             if (line === 'END') {
+                if (!this.#sysinfoActive || this.#sysinfoEntries.length === 0) return;
                 const entries = this.#sysinfoEntries;
                 this.#sysinfoEntries = [];
+                this.#sysinfoActive = false;
                 this.#emit('sysinfo', Object.fromEntries(entries), entries);
                 return;
             }
 
             const separator = line.indexOf('=');
             if (separator <= 0) return;
-            if (line.startsWith('proto_version=')) this.#sysinfoEntries = [];
+            if (line.startsWith('proto_version=')) {
+                this.#sysinfoEntries = [];
+                this.#sysinfoActive = true;
+            }
+            if (!this.#sysinfoActive) return;
             this.#sysinfoEntries.push([
                 line.slice(0, separator).trim(),
                 line.slice(separator + 1).trim()
@@ -533,6 +611,7 @@
 
         #handleGattDisconnected() {
             if (this.#disconnecting) return;
+            this.#connectionRevision += 1;
             this.#clearConnectionState();
             this.#emit('disconnect');
         }
@@ -550,6 +629,7 @@
             this.#characteristics = { sysinfo: null, control: null };
             this.#notificationsActive = { sysinfo: false };
             this.#sysinfoEntries = [];
+            this.#sysinfoActive = false;
         }
     }
 

@@ -15,9 +15,11 @@ import { runInNewContext } from 'node:vm';
 const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
 const index = read('docs/web/index.html');
 const app = read('docs/web/assets/js/app.js');
+const mqttProtocol = read('docs/web/assets/js/espectre-mqtt.js');
 const browserSupportSource = read('docs/web/assets/js/browser-support.js');
 const routeRegistry = read('docs/web/assets/js/route-registry.js');
 const styles = read('docs/web/assets/css/styles.css');
+const security = read('docs/web/security/index.html');
 const GPL_HTML_HEADER = `<!--
   SPDX-License-Identifier: GPL-3.0-only
   Commercial licensing available under separate agreement; see LICENSING.md.
@@ -25,6 +27,22 @@ const GPL_HTML_HEADER = `<!--
 `;
 
 describe('website security and asset policy', () => {
+    it('renders the brand face in white instead of exposing the background', () => {
+        const logo = read('docs/web/assets/images/brand/espectre-logo.svg');
+        const staticPageBuilder = read('.github/scripts/build_static_pages.py');
+        const sdkStager = read('.github/scripts/stage_web_sdk.py');
+        assert.doesNotMatch(logo, /<mask\b|mask="url\(/);
+        assert.match(logo, /<use href="#ghost" fill="#4b7bee" stroke="#b8c8ff" stroke-width="2\.8" stroke-linejoin="round"\/>/);
+        assert.doesNotMatch(logo, /<use[^>]+stroke="#fff"/);
+        assert.equal((logo.match(/<ellipse[^>]+fill="#fff"/g) || []).length, 2);
+        assert.match(logo, /<path[^>]+stroke="#fff"/);
+        assert.match(logo, /<circle[^>]+fill="#fff"/);
+        assert.match(index, /class="brand"[^>]*>\s*<img src="\/assets\/images\/brand\/espectre-logo\.svg\?v=[0-9a-f]{12}" alt="" width="30" height="30"/);
+        assert.match(read('docs/web/404.html'), /class="brand"[^>]*>\s*<img src="\/assets\/images\/brand\/espectre-logo\.svg\?v=[0-9a-f]{12}" alt="" width="30" height="30"/);
+        assert.match(staticPageBuilder, /class="brand"[^>]*>\s*<img src="\/assets\/images\/brand\/espectre-logo\.svg\?v=\{logo_version\}" alt="" width="30" height="30"/);
+        assert.match(sdkStager, /class="brand"[^>]*>\s*<img src="\/assets\/images\/brand\/espectre-logo\.svg\?v=\{logo_version\}" alt="" width="30" height="30"/);
+    });
+
     it('does not execute third-party scripts before an explicit analytics choice', () => {
         const externalScripts = [...index.matchAll(/<script[^>]+src="(https?:[^\"]+)"/g)]
             .map((match) => match[1]);
@@ -41,6 +59,7 @@ describe('website security and asset policy', () => {
             firstPartyScripts.map((attrs) => attrs.match(/src="(\/assets\/js\/[^"?]+)/)[1]),
             [
                 '/assets/js/espectre-ble.js',
+                '/assets/js/espectre-mqtt.js',
                 '/assets/js/browser-support.js',
                 '/assets/js/route-registry.js',
                 '/assets/js/navigation.js',
@@ -68,7 +87,7 @@ describe('website security and asset policy', () => {
             .slice(0, hashLength);
         const assertStamped = (html, label) => {
             const refs = [...html.matchAll(
-                /(?:href|src|data-content-url)="((?:\/assets\/(?:css|js)\/|content\/)[^"]+)"/g
+                /(?:href|src|data-content-url)="((?:\/assets\/(?:css|js)\/|\/assets\/images\/brand\/espectre-logo\.svg|content\/)[^"]*)"/g
             )];
             assert.ok(refs.length > 0, `${label} references first-party assets`);
             for (const [, url] of refs) {
@@ -99,9 +118,9 @@ describe('website analytics contracts', () => {
         assert.match(app, /state === 'reboot_scheduled'/);
         assert.match(app, /state === 'error'/);
         assert.match(app, /entry_point: monitor\.entryPoint/);
-        assert.match(app, /monitor\.pendingCommands\.get\(data\.command_id\)/);
-        assert.match(app, /suffix === 'commands\/accepted'/);
-        assert.match(app, /suffix === 'commands\/rejected'/);
+        assert.match(mqttProtocol, /#pending\.get\(data\.command_id\)/);
+        assert.match(mqttProtocol, /parsed\.suffix === 'commands\/accepted'/);
+        assert.match(mqttProtocol, /parsed\.suffix === 'commands\/rejected'/);
         assert.match(app, /\.\.\.connectionParams\(\)/);
     });
 
@@ -186,27 +205,74 @@ describe('website accessibility and navigation', () => {
 });
 
 describe('website UX and content contracts', () => {
+    it('formats security guidance with project-native components', () => {
+        assert.match(security, /class="security-guidelines">\s*<ul>/);
+        assert.match(security, /Canonical MQTT sensing messages omit raw CSI, Wi-Fi names, BSSIDs, local IP and MAC addresses/);
+        assert.match(security, /Minimized does not mean anonymous/);
+        assert.doesNotMatch(security, /Default services should not collect/);
+        assert.match(styles, /\.security-guidelines ul \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+        assert.match(styles, /\.security-page \.note \{[^}]*background: var\(--accent-soft\);[^}]*border: 1px solid var\(--accent-line\);/);
+        assert.match(styles, /\.security-page \.docs-start-copy p \+ p \{ margin-top: 12px; \}/);
+        assert.match(styles, /\.security-page \.docs-path > :is\(\.btn-primary, \.btn-secondary\) \{[^}]*margin-top: auto;/);
+        assert.match(security, /class="docs-paths security-reporting-paths">/);
+        assert.doesNotMatch(security, /<span class="docs-path-label">POLICY<\/span>|Read the full scope|Read SECURITY\.md/);
+        assert.match(styles, /\.security-reporting-paths \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
+        assert.match(styles, /@media \(max-width: 720px\) \{[\s\S]*?\.security-guidelines ul \{ grid-template-columns: 1fr; \}/);
+    });
+
     it('uses natural scrolling and progressively loads narrative images', () => {
-        assert.match(index, /data-src-mobile="\/assets\/images\/home\/scene-motion-lights-mobile\.webp"/);
-        assert.match(index, /data-src="\/assets\/images\/home\/scene-standards-backend\.jpg" data-src-mobile="\/assets\/images\/home\/scene-standards-backend-mobile\.webp"/);
+        assert.match(index, /data-src-mobile="\/assets\/images\/home\/scene-smart-heating-mobile\.webp"/);
+        assert.match(index, /data-src="\/assets\/images\/home\/scene-embedded-sdk\.jpg" data-src-mobile="\/assets\/images\/home\/scene-embedded-sdk-mobile\.webp"/);
         assert.match(app, /image\.dataset\.srcMobile/);
         const sceneIds = [...index.matchAll(/class="[^"]*\bjs-scrolly-scene\b[^"]*" data-scene="(\d+)"/g)].map((match) => Number(match[1]));
         const captionIds = [...index.matchAll(/class="[^"]*\bjs-scrolly-caption\b[^"]*" data-scene="(\d+)"/g)].map((match) => Number(match[1]));
         const markerIds = [...index.matchAll(/class="js-scrolly-marker" data-scene="(\d+)"/g)].map((match) => Number(match[1]));
-        assert.deepEqual(sceneIds, Array.from({ length: 13 }, (_, index) => index));
+        assert.deepEqual(sceneIds, Array.from({ length: 6 }, (_, index) => index));
         assert.deepEqual(captionIds, sceneIds);
         assert.deepEqual(markerIds, sceneIds.slice(1));
-        assert.match(index, /<span>\/ 12<\/span>/);
-        assert.match(index, /href="#get-started" class="hero-skip">Skip the story/);
-        assert.match(index, /<section class="home-section" id="get-started">/);
+        assert.match(index, /<span>\/ 05<\/span>/);
+        assert.match(index, /ESPectre detects movement in a room by sensing tiny changes in the Wi-Fi waves already traveling through it\./);
+        assert.match(index, /<h2>Privacy first\.<br>By design\.<\/h2>/);
+        assert.match(index, /schools, gyms, offices, public venues, and places of worship/);
+        assert.match(index, /data-scene="1" aria-hidden="true" inert/);
+        assert.match(app, /el\.toggleAttribute\('inert', !isActive\)/);
+        assert.match(app, /el\.setAttribute\('aria-hidden', String\(!isActive\)\)/);
+        assert.match(app, /event\.key !== 'ArrowDown' && event\.key !== 'ArrowUp'/);
+        assert.match(app, /target\.closest\('a, button, input, select, textarea, \[contenteditable="true"\]'\)/);
+        assert.match(app, /document\.addEventListener\('keydown', scrollyHandleKeydown\)/);
+        assert.match(app, /sceneProgress = \(nextScene \+ 0\.5\) \/ sceneCount/);
+        assert.doesNotMatch(index, /class="hero-skip"/);
+        assert.match(index, /href="#get-started" class="scrolly-skip">Skip the story/);
+        assert.match(index, /<section class="home-action-hub" id="get-started" aria-labelledby="home-action-title">/);
+        const actionHub = index.match(/<section class="home-action-hub"[\s\S]*?<\/section>/)?.[0] || '';
+        assert.match(actionHub, /<header class="home-action-head">\s*<h2 class="page-title" id="home-action-title">Choose what you want to do\.<\/h2>\s*<p class="page-sub">/);
+        assert.match(actionHub, /class="home-action-group">\s*<span class="home-kicker">START HERE<\/span>\s*<div class="home-tool-grid"/);
+        assert.match(actionHub, /href="#flash" class="home-tool-card home-tool-card-primary"/);
+        assert.match(actionHub, /href="#configure" class="home-tool-card"/);
+        assert.match(actionHub, /href="#monitor" class="home-tool-card"/);
+        assert.match(actionHub, /class="home-action-group">\s*<span class="home-kicker">COMMERCIAL LICENSING<\/span>\s*<aside class="home-license-cta"/);
+        assert.match(actionHub, /class="home-action-group">\s*<span class="home-kicker">EXPLORE<\/span>\s*<div class="home-resource-strip"/);
+        const licenseCard = actionHub.match(/<aside class="home-license-cta"[\s\S]*?<\/aside>/)?.[0] || '';
+        assert.doesNotMatch(licenseCard, /home-kicker/);
+        assert.match(actionHub, /class="home-license-cta"[\s\S]*?class="home-resource-strip"/);
+        assert.match(actionHub, /class="home-resource-links">\s*<a href="#tools"><strong>Tools<\/strong>[\s\S]*?href="\/guides\/"[\s\S]*?<strong>Guides<\/strong>[\s\S]*?href="\/media\/"[\s\S]*?<strong>Media<\/strong>[\s\S]*?href="\/roadmap\/"[\s\S]*?<strong>Roadmap<\/strong>[\s\S]*?href="\/docs\/"[\s\S]*?<strong>Docs<\/strong><span>SDK integration, API, and examples →<\/span>[\s\S]*?href="https:\/\/github\.com\/francescopace\/espectre" target="_blank" rel="noopener"><strong>GitHub<\/strong>/);
+        assert.match(styles, /\.home-resource-links \{ display: grid; grid-template-columns: repeat\(6, minmax\(0, 1fr\)\); \}/);
+        assert.doesNotMatch(actionHub, /home-resource-intro/);
+        assert.match(styles, /\.home-license-cta \{[\s\S]*?background: var\(--surface\);/);
+        assert.match(actionHub, /href="\/licensing\/" class="btn-primary">Explore commercial licensing →/);
+        assert.doesNotMatch(actionHub, /js-start-detection|js-demo|or try the demo/);
+        assert.doesNotMatch(index, /home-(?:after-story|commercial|path|quick-links)/);
+        assert.match(styles, /\.home-action-hub \{[^}]*min-height: 100svh/);
+        assert.match(styles, /\.home-action-inner \{[^}]*min-height: 100svh;[^}]*padding: calc\(var\(--header-height\) \+ 64px\) 40px 40px;[^}]*justify-content: center;/);
+        assert.doesNotMatch(index, /home-privacy-grid/);
     });
 
     it('labels research and preview concepts without presenting simulated evidence', () => {
-        assert.match(index, /Roadmap · Breathing/);
-        assert.match(index, /Experimental <em>R&amp;D only<\/em>/);
+        assert.doesNotMatch(index, /Roadmap · Breathing/);
         assert.doesNotMatch(index, /13\.2 <em>cycles\/min<\/em>/);
         assert.match(index, /Matter · Limited validation/);
         assert.match(index, /Controller-dependent/);
+        assert.doesNotMatch(index, /ESP-IDF 5\.1\+/);
         assert.doesNotMatch(index, /Apple Home|Google Home/);
         const breathingCard = index.match(/<h2>Breathing research<\/h2>[\s\S]*?<\/a>/)?.[0] || '';
         assert.match(breathingCard, /ROADMAP/);
@@ -233,7 +299,18 @@ describe('website UX and content contracts', () => {
         assert.match(app, /installTrigger\.disabled = !browserSupport\.flash/);
         assert.match(app, /button\.disabled = !browserSupport\.bluetooth/);
         assert.match(app, /if \(browserSupport\.flash\) \{\s*loadBrowserDependency/);
-        assert.match(index, /class="empty-alt js-demo-disconnected"><button class="link-btn js-demo">or try the demo/);
+        assert.match(index, /class="link-btn js-demo">or try the demo/);
+        assert.match(styles, /\.link-btn \{[\s\S]*?color: var\(--accent\);[\s\S]*?text-decoration: none;/);
+        assert.match(styles, /\.link-btn:visited \{ color: var\(--accent\); \}/);
+        assert.match(styles, /\.link-btn:hover \{ color: var\(--accent\); text-decoration: underline; \}/);
+        assert.match(styles, /min-height: 100dvh/);
+        assert.match(styles, /touch-action: manipulation/);
+        const mobileCss = styles.split('@media (max-width: 720px)')[1]
+            .split('@media (max-width: 480px)')[0];
+        assert.match(mobileCss, /\.field input:not\(\[type="checkbox"\]\):not\(\[type="range"\]\)/);
+        assert.match(mobileCss, /min-height: 44px/);
+        assert.match(mobileCss, /font-size: 16px/);
+        assert.doesNotMatch(index, /js-mqtt-support|js-browser-broker-fields|js-scrolly-progress/);
     });
 
     it('keeps privacy discoverable and serves a real 404 page', () => {
@@ -251,8 +328,22 @@ describe('website UX and content contracts', () => {
         assert.doesNotMatch(notFound, /http-equiv="refresh"|location\.replace/);
         assert.match(notFound, /404 · PAGE NOT FOUND/);
         assert.match(notFound, /<footer class="site-footer">/);
+        assert.match(styles, /body \{[\s\S]*?display: flex;[\s\S]*?flex-direction: column;[\s\S]*?min-height: 100dvh;/);
+        assert.match(styles, /body > main \{[\s\S]*?width: 100%;[\s\S]*?box-sizing: border-box;[\s\S]*?flex: 1 0 auto;/);
+        const sharedFooterBrand = /<div class="footer-brand">\s*<img src="\/assets\/images\/brand\/espectre-logo\.svg(?:\?v=(?:[0-9a-f]{12}|\{logo_version\}))?" alt="" width="23" height="23" aria-hidden="true">\s*ESPectre © 2026 · Open source Wi-Fi sensing platform\s*<\/div>/;
+        assert.match(index, sharedFooterBrand);
+        assert.match(notFound, sharedFooterBrand);
+        assert.match(read('.github/scripts/build_static_pages.py'), sharedFooterBrand);
+        assert.match(read('.github/scripts/stage_web_sdk.py'), sharedFooterBrand);
+        assert.match(styles, /\.footer-brand \{[^}]*color: var\(--text\);/);
+        assert.doesNotMatch(read('.github/scripts/build_static_pages.py'), /footer-brand[\s\S]*?GPLv3 \+ commercial licensing/);
         assert.match(notFound, /data-static-page data-site-section="other"/);
-        assert.match(notFound, /class="footer-link-button js-cookie-settings"/);
+        assert.match(notFound, /<a href="\/privacy\/#cookie-settings" class="js-cookie-settings">Cookie settings<\/a>/);
+        assert.doesNotMatch(notFound, /footer-link-button/);
+        assert.match(styles, /\.footer-links a,\s*\.footer-links a:visited \{[\s\S]*?display: inline-flex;[\s\S]*?color: var\(--text\);[\s\S]*?text-decoration: none;/);
+        assert.match(styles, /\.footer-links a:hover,\s*\.footer-links a:focus-visible \{ color: var\(--accent\); text-decoration: none; \}/);
+        assert.match(read('docs/web/content/privacy.html'), /<h2 id="cookie-settings">Your choice<\/h2>/);
+        assert.match(read('docs/web/assets/js/analytics.js'), /document\.querySelectorAll\('\.js-cookie-settings'\)[\s\S]*?event\.preventDefault\(\);[\s\S]*?showConsentBanner\(\);/);
         assert.match(notFound, /class="consent-banner js-consent-banner"/);
         const notFoundScripts = [...notFound.matchAll(/<script\b([^>]*)>/g)]
             .map((match) => match[1]);
@@ -269,25 +360,144 @@ describe('website UX and content contracts', () => {
         }
     });
 
-    it('treats top-level docs, roadmap, and privacy as pages, not articles', () => {
+    it('publishes a dedicated commercial licensing page', () => {
+        const licensingContent = read('docs/web/content/licensing.html');
+        assert.match(index, /data-page="licensing"/);
+        assert.match(index, /data-content-url="content\/licensing\.html\?v=[0-9a-f]{12}"/);
+        assert.match(index, /<a href="\/licensing\/">Licensing<\/a>/);
+        assert.match(index, /<a href="\/contact\/">Contact<\/a>/);
+        assert.match(routeRegistry, /name: 'licensing'.*staticPath: '\/licensing\/'/);
+        assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/licensing\.html"/);
+        assert.match(read('.github/scripts/build_static_pages.py'), /<a href="\/licensing\/">Licensing<\/a>/);
+        assert.match(read('.github/scripts/stage_web_sdk.py'), /<a href="\/licensing\/">Licensing<\/a>/);
+        assert.match(read('docs/web/404.html'), /<a href="\/licensing\/">Licensing<\/a>/);
+        assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/licensing\//);
+        assert.match(read('.github/scripts/build_sitemap.py'), /"\/licensing\/": \(Path\("docs\/web\/content\/licensing\.html"\), STATIC_PAGE_BUILDER\)/);
+        assert.match(licensingContent, /<h1 class="page-title">Commercial licensing<\/h1>/);
+        assert.match(licensingContent, /ESPHome remains GPLv3/);
+        assert.match(licensingContent, /mailto:contact@espectre\.dev\?subject=Commercial%20licensing%20inquiry/);
+    });
+
+    it('publishes a dedicated contact page from every footer', () => {
+        const contactContent = read('docs/web/content/contact.html');
+        assert.match(index, /data-page="contact"/);
+        assert.match(index, /data-content-url="content\/contact\.html\?v=[0-9a-f]{12}"/);
+        assert.match(routeRegistry, /name: 'contact'.*staticPath: '\/contact\/'/);
+        assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/contact\.html"/);
+        assert.match(read('.github/scripts/build_static_pages.py'), /<a href="\/contact\/">Contact<\/a>/);
+        assert.match(read('.github/scripts/stage_web_sdk.py'), /<a href="\/contact\/">Contact<\/a>/);
+        assert.match(read('docs/web/404.html'), /<a href="\/contact\/">Contact<\/a>/);
+        assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/contact\//);
+        assert.match(read('.github/scripts/build_sitemap.py'), /"\/contact\/": \(Path\("docs\/web\/content\/contact\.html"\), STATIC_PAGE_BUILDER\)/);
+        assert.match(contactContent, /<h1 class="page-title">Contact ESPectre<\/h1>/);
+        assert.match(contactContent, /mailto:contact@espectre\.dev/);
+        assert.match(contactContent, /github\.com\/francescopace\/espectre\/discussions/);
+        assert.match(contactContent, /github\.com\/francescopace\/espectre\/issues/);
+        assert.doesNotMatch(contactContent, /mailto:security@espectre\.dev/);
+    });
+
+    it('publishes a dedicated security and responsible-use page', () => {
+        const securityContent = read('docs/web/content/security.html');
+        assert.match(index, /data-page="security"/);
+        assert.match(index, /data-content-url="content\/security\.html\?v=[0-9a-f]{12}"/);
+        assert.match(index, /<a href="\/security\/">Security<\/a>/);
+        assert.match(routeRegistry, /name: 'security'.*staticPath: '\/security\/'/);
+        assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/security\.html"/);
+        assert.match(read('.github/scripts/build_static_pages.py'), /<a href="\/security\/">Security<\/a>/);
+        assert.match(read('.github/scripts/stage_web_sdk.py'), /<a href="\/security\/">Security<\/a>/);
+        assert.match(read('docs/web/404.html'), /<a href="\/security\/">Security<\/a>/);
+        assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/security\//);
+        assert.match(read('.github/scripts/build_sitemap.py'), /"\/security\/": \(Path\("docs\/web\/content\/security\.html"\), STATIC_PAGE_BUILDER\)/);
+        assert.match(securityContent, /<h1 class="page-title">Security and responsible use<\/h1>/);
+        assert.match(securityContent, /does not enable Wi-Fi promiscuous mode/);
+        assert.match(securityContent, /association is a deliberate safeguard, not proof of consent or authority/);
+        assert.match(securityContent, /Illegal or unethical use is not acceptable/);
+        assert.match(securityContent, /competent law enforcement, regulatory, or data protection authority/);
+        assert.match(securityContent, /mailto:contact@espectre\.dev\?subject=Responsible%20use%20or%20abuse%20report/);
+        assert.match(securityContent, /mailto:security@espectre\.dev/);
+        assert.match(securityContent, /github\.com\/francescopace\/espectre\/security/);
+        assert.doesNotMatch(securityContent, /Read the full scope|github\.com\/francescopace\/espectre\/blob\/main\/SECURITY\.md/);
+    });
+
+    it('publishes website terms and current legal information', () => {
+        const termsContent = read('docs/web/content/terms.html');
+        const legalContent = read('docs/web/content/legal.html');
+        const staticPageBuilder = read('.github/scripts/build_static_pages.py');
+        const sdkPageBuilder = read('.github/scripts/stage_web_sdk.py');
+        const notFound = read('docs/web/404.html');
+        const sitemap = read('.github/scripts/sitemap.template.xml');
+        const sitemapBuilder = read('.github/scripts/build_sitemap.py');
+
+        assert.match(index, /data-page="terms"/);
+        assert.match(index, /data-content-url="content\/terms\.html\?v=[0-9a-f]{12}"/);
+        assert.match(index, /data-page="legal"/);
+        assert.match(index, /data-content-url="content\/legal\.html\?v=[0-9a-f]{12}"/);
+        assert.match(routeRegistry, /name: 'terms'.*staticPath: '\/terms\/'/);
+        assert.match(routeRegistry, /name: 'legal'.*staticPath: '\/legal\/'/);
+
+        for (const source of [index, staticPageBuilder, sdkPageBuilder, notFound]) {
+            assert.match(source, /<a href="\/terms\/">Terms<\/a>/);
+            assert.match(source, /<a href="\/legal\/">Legal<\/a>/);
+        }
+        assert.match(staticPageBuilder, /"source": "content\/terms\.html"/);
+        assert.match(staticPageBuilder, /"source": "content\/legal\.html"/);
+        assert.match(sitemap, /https:\/\/espectre\.dev\/terms\//);
+        assert.match(sitemap, /https:\/\/espectre\.dev\/legal\//);
+        assert.match(sitemapBuilder, /"\/terms\/": \(Path\("docs\/web\/content\/terms\.html"\), STATIC_PAGE_BUILDER\)/);
+        assert.match(sitemapBuilder, /"\/legal\/": \(Path\("docs\/web\/content\/legal\.html"\), STATIC_PAGE_BUILDER\)/);
+
+        assert.match(termsContent, /<h1 class="page-title">Terms of use<\/h1>/);
+        assert.match(termsContent, /operated by Francesco Pace, a natural person in Italy/);
+        assert.match(termsContent, /does not currently provide checkout, payment, ordering, or automatic contract formation/);
+        assert.match(termsContent, /mandatory protections or jurisdiction rules/);
+        assert.match(legalContent, /<h1 class="page-title">Legal information<\/h1>/);
+        assert.match(legalContent, /<dt>Name<\/dt><dd>Francesco Pace<\/dd>/);
+        assert.match(legalContent, /<dt>Legal form<\/dt><dd>Natural person<\/dd>/);
+        assert.match(legalContent, /<dt>Primary contact<\/dt><dd><a href="mailto:contact@espectre\.dev">contact@espectre\.dev<\/a><\/dd>/);
+        assert.match(legalContent, /ESPectre is available through official resellers/);
+        assert.match(legalContent, /For current reseller information, product availability, commercial licensing, integration, or support options/);
+        assert.doesNotMatch(legalContent, /Current project status|not operated through an incorporated company|francesco\.pace@espectre\.dev|security@espectre\.dev|href="\/security\/"/);
+    });
+
+    it('treats top-level docs, roadmap, privacy, terms, legal, security, licensing, and contact as pages, not articles', () => {
         const docsContent = read('docs/web/content/docs.html');
         const roadmapContent = read('docs/web/content/roadmap.html');
         const privacyContent = read('docs/web/content/privacy.html');
+        const termsContent = read('docs/web/content/terms.html');
+        const legalContent = read('docs/web/content/legal.html');
+        const securityContent = read('docs/web/content/security.html');
+        const licensingContent = read('docs/web/content/licensing.html');
+        const contactContent = read('docs/web/content/contact.html');
         const staticPageBuilder = read('.github/scripts/build_static_pages.py');
         assert.ok(docsContent.startsWith(`${GPL_HTML_HEADER}<div class="docs-quickstart">`));
         assert.ok(roadmapContent.startsWith(`${GPL_HTML_HEADER}<div class="roadmap-page">`));
         assert.ok(privacyContent.startsWith(`${GPL_HTML_HEADER}<div class="privacy-page">`));
+        assert.ok(termsContent.startsWith(`${GPL_HTML_HEADER}<div class="terms-page">`));
+        assert.ok(legalContent.startsWith(`${GPL_HTML_HEADER}<div class="legal-page">`));
+        assert.ok(securityContent.startsWith(`${GPL_HTML_HEADER}<div class="security-page">`));
+        assert.ok(licensingContent.startsWith(`${GPL_HTML_HEADER}<div class="licensing-page">`));
+        assert.ok(contactContent.startsWith(`${GPL_HTML_HEADER}<div class="contact-page">`));
         assert.match(index, /<main class="js-page page-narrow" data-page="roadmap"/);
         assert.match(index, /<main class="js-page page-narrow" data-page="privacy"/);
-        assert.doesNotMatch(index, /<main class="js-page page-narrow page-article" data-page="(?:docs|roadmap|privacy)"/);
+        assert.match(index, /<main class="js-page page-narrow" data-page="terms"/);
+        assert.match(index, /<main class="js-page page-narrow" data-page="legal"/);
+        assert.match(index, /<main class="js-page page-narrow" data-page="security"/);
+        assert.match(index, /<main class="js-page page-narrow" data-page="licensing"/);
+        assert.match(index, /<main class="js-page page-narrow" data-page="contact"/);
+        assert.doesNotMatch(index, /<main class="js-page page-narrow page-article" data-page="(?:docs|roadmap|privacy|terms|legal|security|licensing|contact)"/);
         assert.match(staticPageBuilder, /"source": "content\/docs\.html",[\s\S]*?"og_type": "website"/);
         assert.match(staticPageBuilder, /"source": "content\/roadmap\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
         assert.match(staticPageBuilder, /"source": "content\/privacy\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
+        assert.match(staticPageBuilder, /"source": "content\/terms\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
+        assert.match(staticPageBuilder, /"source": "content\/legal\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
+        assert.match(staticPageBuilder, /"source": "content\/security\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
+        assert.match(staticPageBuilder, /"source": "content\/licensing\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
+        assert.match(staticPageBuilder, /"source": "content\/contact\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
         assert.match(staticPageBuilder, /<meta property="og:type" content="\{og_type\}">/);
     });
 
     it('uses the shared page heading styles on every top-level inner page', () => {
-        for (const path of ['guides', 'docs', 'roadmap', 'privacy']) {
+        for (const path of ['guides', 'docs', 'roadmap', 'privacy', 'terms', 'legal', 'security', 'licensing', 'contact']) {
             const content = read(`docs/web/content/${path}.html`);
             assert.match(content, /<h1 class="page-title">/);
             assert.match(content, /<p class="page-sub">/);
@@ -297,6 +507,11 @@ describe('website UX and content contracts', () => {
         assert.match(pageSubRule, /font-size: 18px;/);
         assert.match(pageSubRule, /line-height: 1\.55;/);
         assert.match(styles, /@media \(max-width: 720px\) \{\s*\.page-title \{ font-size: 36px; \}\s*\.page-sub \{ font-size: 17px; \}/);
+    });
+
+    it('uses the widest inner-page measure for every footer information page', () => {
+        assert.match(styles, /\.page-narrow \{[\s\S]*?max-width: 1120px;/);
+        assert.match(styles, /\.privacy-page > \.article,\s*\.terms-page > \.article,\s*\.legal-page > \.article \{\s*max-width: none;\s*margin: 0;/);
     });
 
     it('gives the docs landing page a clear start-to-reference hierarchy', () => {
@@ -328,6 +543,21 @@ describe('website UX and content contracts', () => {
         assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/guides\/detectors\//);
     });
 
+    it('publishes the MicroPython contribution and runtime guide', () => {
+        const guide = read('docs/web/content/guides/micropython.html');
+        assert.match(guide, /<h1>Run ESPectre on MicroPython<\/h1>/);
+        assert.match(guide, /ESPectre brought ESP32 CSI to mainline MicroPython/);
+        assert.match(guide, /micropython\/micropython\/pull\/18460/);
+        assert.doesNotMatch(index, /OPEN-SOURCE INFRASTRUCTURE/);
+        assert.match(read('docs/web/content/docs.html'), /ESPectre also runs sensing directly in MicroPython/);
+        assert.match(read('docs/web/content/guides.html'), /micropython-csi-runtime-card\.avif/);
+        assert.match(guide, /micropython-csi-runtime\.webp/);
+        assert.match(index, /data-page="guide-micropython"/);
+        assert.match(routeRegistry, /name: 'guide-micropython'.*staticPath: '\/guides\/micropython\/'/);
+        assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/guides\/micropython\.html"/);
+        assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/guides\/micropython\//);
+    });
+
     it('adds anchor navigation and intrinsic image sizes to long guides', () => {
         const longPages = [
             'docs/web/content/docs.html',
@@ -337,6 +567,7 @@ describe('website UX and content contracts', () => {
             'docs/web/content/guides/placement.html',
             'docs/web/content/guides/detection.html',
             'docs/web/content/guides/detectors.html',
+            'docs/web/content/guides/micropython.html',
         ];
         for (const path of longPages) {
             const content = read(path);
@@ -368,6 +599,8 @@ describe('website UX and content contracts', () => {
         assert.match(index, /<option value="release">Latest Release<\/option>/);
         assert.match(index, /<option value="preview">Release Preview<\/option>/);
         assert.match(index, /<option value="develop">Development<\/option>/);
+        assert.match(app, /updateReleaseBadge[\s\S]*flashLoadManifest\('release'\)/);
+        assert.doesNotMatch(app, /flashLoadManifest\('stable'\)/);
         assert.match(app, /builds: artifacts\.map\(\(artifact\) => \(\{/);
         assert.match(app, /chipFamily: artifact\.chip_family/);
         assert.match(app, /FLASH_CHIP_UNSUPPORTED_RE/);
@@ -375,7 +608,16 @@ describe('website UX and content contracts', () => {
         assert.match(app, /Published firmware is available for/);
         assert.match(app, /function flashRenderDownloads/);
         assert.match(app, /function flashSetNextStep/);
-        assert.match(app, /js-matter-read/);
+        assert.match(app, /function flashNextActionLink[\s\S]*document\.createElement\('a'\)/);
+        assert.match(app, /flashNextActionLink\('Read the onboarding QR over USB', 'js-matter-read'\)/);
+        assert.doesNotMatch(app, /function flashNextAction\(/);
+        assert.match(app, /action\.getAttribute\('aria-disabled'\) === 'true'/);
+        assert.match(index, /class="modal-backdrop js-matter-modal" hidden>[\s\S]*class="modal-card matter-modal-card" role="dialog" aria-modal="true"/);
+        assert.match(index, /id="matter-modal-title">Commission this device<\/h2>/);
+        assert.match(index, /class="matter-result js-matter-result" hidden>/);
+        assert.match(app, /function matterOpen\(returnFocus\)/);
+        assert.match(app, /matterOpen\(trigger\)/);
+        assert.match(app, /if \(!\$\('\.js-matter-modal'\)\.hidden\) matterClose\(\)/);
         assert.match(app, /track\('matter_qr_read'/);
         assert.match(app, /installButton\.toggleAttribute\('inert', !browserSupport\.flash\)/);
         const setupGuide = read('docs/web/content/guides/setup.html');
@@ -387,6 +629,17 @@ describe('website UX and content contracts', () => {
         assert.doesNotMatch(setupGuide, /the flasher shows the device's Matter QR/);
         const docsContent = read('docs/web/content/docs.html');
         assert.match(docsContent, /href="\/artifacts\/sdk\/release\/"/);
+        assert.match(docsContent, /<details class="sdk-download">[\s\S]*?<summary class="btn-primary">Download SDK<\/summary>/);
+        assert.match(docsContent, /href="\/artifacts\/sdk\/preview\/"/);
+        assert.match(docsContent, /href="\/artifacts\/sdk\/develop\/"/);
+        assert.match(docsContent, /data-sdk-version="release"/);
+        assert.match(docsContent, /data-sdk-version="preview"/);
+        assert.match(docsContent, /data-sdk-version="develop"/);
+        assert.match(read('docs/web/assets/js/navigation.js'), /sdk-manifest-\$\{channel\}\.json/);
+        assert.match(read('docs/web/assets/js/navigation.js'), /label\.textContent = `Version \$\{version\}`/);
+        assert.match(read('docs/web/assets/js/navigation.js'), /details\.sdk-download\[open\][\s\S]*?!menu\.contains\(event\.target\)[\s\S]*?menu\.open = false/);
+        assert.match(app, /window\.initSdkDownloadVersions\(container\)/);
+        assert.doesNotMatch(docsContent, /Rolling bundles:/);
         assert.match(docsContent, /href="\/artifacts\/sdk\/api\/"/);
         assert.doesNotMatch(docsContent, /href="\/sdk\//);
         assert.match(read('docs/web/.gitignore'), /^\/artifacts\/$/m);
@@ -400,7 +653,7 @@ describe('website UX and content contracts', () => {
         }
     });
 
-    it('maps BLE capabilities, runtime controls, and dual-band Wi-Fi safely', () => {
+    it('maps Bluetooth capabilities, runtime controls, and dual-band Wi-Fi safely', () => {
         const ble = index.match(/data-page="configure"[\s\S]*?<\/main>/)?.[0] || '';
         const mqtt = index.match(/data-page="monitor"[\s\S]*?<\/main>/)?.[0] || '';
         const onboarding = ble.match(/class="js-configure-onboarding"[\s\S]*?<div class="js-configure-workspace"/)?.[0] || '';
@@ -444,7 +697,7 @@ describe('website UX and content contracts', () => {
         assert.match(app, /mqttCommand === 'recalibrate' && detector !== 'lightweight'/);
         assert.match(app, /function beginCalibration/);
         assert.match(app, /button\.textContent = monitor\.calibrating \? 'Calibrating…' : 'Recalibrate'/);
-        assert.match(app, /suffix === 'ha\/calibrate\/state'/);
+        assert.match(app, /case 'ha\/calibrate\/state'/);
         assert.match(index, /js-sense-recalibrate">Recalibrate/);
         assert.match(mqtt, /<details class="device-live-diagnostics">/);
         assert.doesNotMatch(mqtt, /<details class="device-live-diagnostics" open/);
@@ -472,9 +725,21 @@ describe('website UX and content contracts', () => {
         assert.match(app, /if \(!monitor\.handoffReady\) return/);
         assert.match(app, /monitor\.handoffReady = true/);
         assert.match(app, /function syncThresholdControl\(/);
-        assert.match(app, /input === document\.activeElement/);
+        assert.match(app, /function bindThresholdControls/);
+        assert.match(app, /function commitThreshold/);
+        assert.match(app, /sense !== document\.activeElement/);
         assert.match(app, /conn\.threshold = threshold;[\s\S]*syncThresholdControl\(threshold\)/);
-        assert.match(app, /getElementById\('sense-threshold'\)\.addEventListener\('change'/);
+        assert.match(app, /function gameThreshold/);
+        assert.match(app, /function snapshotGameThreshold/);
+        assert.match(app, /gameThresholdOverride = conn\.threshold/);
+        assert.match(app, /if \(gameThresholdOverride === null\) paintGameThresholdControl\(\)/);
+        assert.match(app, /if \(target === 'game' && previousRoute !== 'game'\) snapshotGameThreshold\(\)/);
+        assert.match(app, /gameThresholdOverride = threshold/);
+        assert.doesNotMatch(app, /textContent = 'Restart';\s*snapshotGameThreshold\(\)/);
+        assert.match(app, /getElementById\('game-threshold'\)/);
+        assert.match(index, /id="game-threshold"/);
+        assert.doesNotMatch(index, /data-page="game"[\s\S]*data-mqtt-command="set_threshold"/);
+        assert.doesNotMatch(app, /gameSlider\.addEventListener\('change', \(\) => commitThreshold/);
         assert.match(app, /getElementById\('sense-detector'\)\.addEventListener\('change'/);
         assert.match(app, /getElementById\('sense-motion-on'\)\.addEventListener\('change'/);
         assert.match(app, /getElementById\('sense-motion-off'\)\.addEventListener\('change'/);
@@ -482,6 +747,11 @@ describe('website UX and content contracts', () => {
         assert.match(index, /<select id="sense-csi-mode"><option value="internal">Internal<\/option><option value="external">External<\/option><option value="disabled">Disabled<\/option><\/select>/);
         assert.match(app, /getElementById\('sense-generator-mode'\)\.addEventListener\('change'/);
         assert.match(index, /Hold the <strong>BOOT<\/strong> button for 3 seconds/);
+        assert.match(index, /For first setup or recovery, connect over Bluetooth/);
+        assert.match(index, /For an already configured device, connect over MQTT/);
+        assert.match(index, /activate Bluetooth setup/);
+        assert.doesNotMatch(index, /device-connect-kicker|activate BLE/);
+        assert.doesNotMatch(styles, /\.device-connect-kicker/);
         assert.match(index, /class="js-configure-onboarding"/);
         assert.match(index, /class="js-monitor-onboarding"/);
         assert.match(index, /class="device-connect-card[^"]*" data-transport="ble"[\s\S]*Connect with Bluetooth/);
@@ -542,7 +812,7 @@ describe('website UX and content contracts', () => {
         const mqttPage = index.match(/data-page="monitor"[\s\S]*?<\/main>/)?.[0] || '';
         const broker = mqttPage.match(/<section class="device-connect-card[^"]*" data-transport="mqtt">[\s\S]*?<\/section>/)?.[0] || '';
         const diagnostics = mqttPage.match(/<details class="device-live-diagnostics">[\s\S]*?<\/details>/)?.[0] || '';
-        assert.match(broker, /js-browser-broker-fields/);
+        assert.match(broker, /<div class="fields">/);
         assert.match(broker, /js-mon-connect/);
         assert.match(broker, /class="tool-note js-mon-status" role="status" hidden><\/div>/);
         assert.match(diagnostics, /js-mon-diag-status/);
@@ -551,28 +821,28 @@ describe('website UX and content contracts', () => {
         assert.match(diagnostics, /class="diag-grid mon-stats-tiles"/);
         assert.match(mqttPage, /CSI pipeline, Wi-Fi, and runtime health/);
         assert.match(app, /function syncDiagnosticsPolling/);
-        assert.match(app, /setInterval\(monitorRequestStats, 1000\)/);
+        assert.match(app, /setInterval\(monitorRequestStats, interval\)/);
         assert.match(app, /function stopDiagnosticsPolling/);
         assert.match(app, /data\.csi_admitted_pps/);
         assert.match(app, /data\.csi_filtered_pps/);
         assert.match(app, /function monitorIsMqttLive/);
         assert.match(app, /connect\.disabled = mqttLive \|\| monitor\.discoveryActive/);
-        assert.match(app, /base \+ '\/#'/);
+        assert.match(app, /monitor\.protocol\.subscriptionTopic/);
         assert.match(app, /MONITOR_DISCOVERY_TIMEOUT_MS = 2000/);
-        assert.match(app, /function monitorExtractDeviceIdFromTopic/);
+        assert.match(mqttProtocol, /static parseDiscoveryMessage/);
         assert.match(app, /function recordDiscoveredMqttDevice/);
         assert.match(app, /function monitorStartDiscovery/);
         assert.match(app, /function monitorSelectDevice/);
-        assert.match(app, /prefix \+ '\/\+\/info'/);
-        assert.match(app, /prefix \+ '\/\+\/status'/);
+        assert.match(mqttProtocol, /`\$\{prefix\}\/\+\/info`/);
+        assert.match(mqttProtocol, /`\$\{prefix\}\/\+\/status`/);
         assert.match(app, /Selected device: /);
         assert.match(app, /No devices discovered\. Enter a device ID\./);
         assert.match(app, /\[deviceInput, deviceValid, 'Enter a device ID without \/ or wildcards\.'\]/);
         assert.doesNotMatch(app, /\[deviceInput, !!device, 'Enter a device ID\.'\]/);
-        assert.match(app, /function ingestMqttPayload/);
-        assert.match(app, /function mqttUtf8/);
+        assert.match(app, /function ingestMqttMessage/);
+        assert.match(mqttProtocol, /function mqttUtf8/);
         assert.match(app, /function applyMqttLiveTelemetry/);
-        assert.match(app, /MONITOR_CHART_WINDOW_MS = 5 \* 60 \* 1000/);
+        assert.match(app, /MONITOR_CHART_WINDOW_MS = 60 \* 1000/);
         assert.match(app, /function monitorHasFreshTelemetry/);
         assert.match(app, /function monitorResetChart/);
         assert.match(app, /function resetMonitorLiveView/);
@@ -580,10 +850,10 @@ describe('website UX and content contracts', () => {
         assert.match(app, /monitorStopAll\('device_changed'\)/);
         assert.match(app, /if \(ctx\) ctx\.clearRect\(0, 0, canvas\.width, canvas\.height\)/);
         assert.match(app, /if \(monitor\.boundDeviceId && conn\.deviceId && monitor\.boundDeviceId !== conn\.deviceId\) return;/);
-        assert.match(app, /if \(suffix === 'ha\/movement\/state'\) \{[\s\S]*?if \(monitorHasFreshTelemetry\(\)\) return;/);
-        assert.match(app, /if \(suffix === 'ha\/motion\/state'\) \{[\s\S]*?if \(monitorHasFreshTelemetry\(\)\) return;/);
-        assert.match(mqttPage, /last 5 minutes/);
-        assert.match(app, /suffix === 'commands\/catalog'/);
+        assert.match(app, /case 'ha\/movement\/state':[\s\S]*?if \(monitorHasFreshTelemetry\(\)\) return;/);
+        assert.match(app, /case 'ha\/motion\/state':[\s\S]*?if \(monitorHasFreshTelemetry\(\)\) return;/);
+        assert.match(mqttPage, /last 60 seconds/);
+        assert.match(app, /case 'commands\/catalog'/);
         assert.match(app, /monitor\.commandCatalogReady = true/);
         assert.match(app, /function monitorStartBle/);
         assert.match(app, /command: 'set_ble', ble: 'on'/);
@@ -611,11 +881,11 @@ describe('website UX and content contracts', () => {
         const mqttPage = index.match(/data-page="monitor"[\s\S]*?<\/main>/)?.[0] || '';
         const onboardingHtml = mqttPage.match(/class="js-monitor-onboarding"[\s\S]*?<div class="js-monitor-workspace"/)?.[0] || '';
         const broker = mqttPage.match(/<section class="device-connect-card[^"]*" data-transport="mqtt">[\s\S]*?<\/section>/)?.[0] || '';
-        assert.match(onboardingHtml, /js-browser-broker-fields/);
+        assert.match(onboardingHtml, /<div class="fields">/);
         assert.match(broker, /id="mon-host"[\s\S]*id="mon-user"[\s\S]*id="mon-port"[\s\S]*id="mon-topic-prefix"[\s\S]*id="mon-device"[\s\S]*js-mon-connect/);
         assert.match(broker, /id="mon-path"/);
         assert.match(broker, /id="mon-tls"/);
-        assert.match(app, /function monitorBaseTopic/);
+        assert.match(mqttProtocol, /static baseTopic/);
         assert.match(app, /function applyConfigureMqttDefaults/);
         assert.match(app, /host: 'homeassistant.local'/);
         assert.match(app, /topicPrefix: 'espectre\/v1\/devices'/);
@@ -625,8 +895,8 @@ describe('website UX and content contracts', () => {
         assert.match(app, /stopBleForDetection/);
         assert.match(app, /await ensureBleOffForLive/);
         assert.match(app, /if \(monitor\.bleRequested\) ensureBleOffForLive/);
-        assert.match(index, /Set Wi-Fi, MQTT, and the device name over Bluetooth/);
-        assert.match(index, /Watch live motion, tune detection, and inspect diagnostics over MQTT/);
+        assert.match(index, /connect over Bluetooth to set Wi-Fi, MQTT, and the device name/);
+        assert.match(index, /connect over MQTT to watch live motion, tune detection, and inspect diagnostics/);
         assert.match(index, /js-start-detection/);
         assert.match(index, /js-connect-ble/);
         assert.match(
@@ -649,5 +919,24 @@ describe('website UX and content contracts', () => {
             app,
             /if \(route !== 'game' && route !== 'theremin'\) setDeviceView\('live'\)/
         );
+    });
+
+    it('calibrates Game and Theremin to the detector evaluation cadence', () => {
+        assert.match(app, /const EVALUATION_INTERVAL_MS_DEFAULT = 250/);
+        assert.match(app, /function applySensingCadence/);
+        assert.match(app, /function evaluationIntervalMs/);
+        assert.match(app, /snapshot\.evaluation_interval_ms/);
+        assert.match(app, /snapshot\.publish_interval_ms/);
+        assert.match(app, /snapshot\.csi_target_pps/);
+        assert.match(app, /demoTimer = setInterval\(\(\) => \{[\s\S]*?\}, evaluationIntervalMs\(\)\)/);
+        assert.match(app, /function gameSensingActive/);
+        assert.match(app, /return conn\.movement >= gameThreshold\(\)/);
+        assert.doesNotMatch(app, /game\.phase === 'hold' && conn\.motion/);
+        assert.doesNotMatch(app, /game\.phase === 'strike' && conn\.motion/);
+        assert.match(app, /const tau = evaluationIntervalMs\(\) \/ 2000/);
+        assert.match(app, /function monitorChartMaxPoints/);
+        assert.match(app, /function monitorTelemetryStaleMs/);
+        assert.match(app, /setInterval\(monitorRequestStats, interval\)/);
+        assert.match(styles, /transition: width \.25s linear/);
     });
 });

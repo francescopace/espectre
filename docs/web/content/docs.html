@@ -7,7 +7,7 @@
   <p class="page-sub">Technical documentation for integrating ESPectre: follow the quick start, and explore the API, examples, and architecture.</p>
   <details class="page-toc" open>
     <summary>On this page</summary>
-    <nav aria-label="On this page"><strong>On this page</strong><a href="#docs-start-title">Start here</a><a href="#docs-paths-title">Integration paths</a><a href="#docs-detectors-title">Detector budget</a><a href="#docs-quick-start-title">Quick start</a><a href="#docs-next-title">Go deeper</a></nav>
+    <nav aria-label="On this page"><strong>On this page</strong><a href="#docs-start-title">Start here</a><a href="#docs-paths-title">Integration paths</a><a href="#docs-micropython-title">MicroPython</a><a href="#docs-detectors-title">Detector budget</a><a href="#docs-quick-start-title">Quick start</a><a href="#docs-next-title">Go deeper</a></nav>
   </details>
 
   <section class="docs-start" aria-labelledby="docs-start-title">
@@ -17,10 +17,16 @@
       <p>ESPectre owns CSI capture, calibration, detection, and events. Your firmware keeps control of boot, connectivity, updates, and product behavior.</p>
     </div>
     <div class="docs-start-actions">
-      <a href="/artifacts/sdk/release/" class="btn-primary">Download SDK</a>
+      <details class="sdk-download">
+        <summary class="btn-primary">Download SDK</summary>
+        <nav class="sdk-download-menu" aria-label="SDK download channel">
+          <a href="/artifacts/sdk/release/"><strong>Release</strong><span>Latest stable version</span><code class="sdk-download-version" data-sdk-version="release">Version —</code></a>
+          <a href="/artifacts/sdk/preview/"><strong>Preview</strong><span>Rolling build from <code>main</code></span><code class="sdk-download-version" data-sdk-version="preview">Version —</code></a>
+          <a href="/artifacts/sdk/develop/"><strong>Develop</strong><span>Rolling build from <code>develop</code></span><code class="sdk-download-version" data-sdk-version="develop">Version —</code></a>
+        </nav>
+      </details>
       <a href="/artifacts/sdk/api/" class="btn-secondary">Open API reference</a>
     </div>
-    <p>Rolling bundles: <a href="/artifacts/sdk/preview/">preview</a> from <code>main</code> and <a href="/artifacts/sdk/develop/">develop</a> from <code>develop</code>.</p>
   </section>
 
   <section class="docs-section" aria-labelledby="docs-paths-title">
@@ -34,7 +40,7 @@
         <span class="docs-path-label">Recommended</span>
         <h3>Full runtime</h3>
         <p>Your firmware owns boot, Wi-Fi, provisioning, OTA, and product behavior. ESPectre owns CSI capture, calibration, detection, and events.</p>
-        <span class="docs-path-meta">SDK minimum: ESP-IDF 5.1+ · Repository toolchain: 5.5.5 · C++17</span>
+        <span class="docs-path-meta">SDK baseline: ESP-IDF 5.5 · Repository toolchain: 5.5.5 · C++17</span>
       </div>
       <div class="docs-path">
         <span class="docs-path-label">Advanced</span>
@@ -48,6 +54,18 @@
         <p>Implement <code>IEspectreRuntime</code> when CSI capture and lifecycle come from another platform, while reusing the shared core and event contracts.</p>
         <span class="docs-path-meta">Arduino or Linux · not shipped today</span>
       </div>
+    </div>
+  </section>
+
+  <section class="docs-start" aria-labelledby="docs-micropython-title">
+    <div class="docs-start-copy">
+      <span class="guide-tag">MICROPYTHON RUNTIME</span>
+      <h2 id="docs-micropython-title">ESPectre also runs sensing directly in MicroPython.</h2>
+      <p>ESPectre contributed direct ESP32 CSI access to mainline MicroPython. Micro-ESPectre uses that upstream foundation for on-device Python experiments, MQTT telemetry, and detector parity work; it remains a maintained R&amp;D runtime rather than a stable embeddable SDK.</p>
+    </div>
+    <div class="docs-start-actions">
+      <a href="/guides/micropython/" class="btn-primary">Open MicroPython guide</a>
+      <a href="https://github.com/micropython/micropython/pull/18460" target="_blank" rel="noopener" class="btn-secondary">Read upstream PR</a>
     </div>
   </section>
 
@@ -86,7 +104,7 @@ idf_component_register(
   SRCS <span class="s">"main.cpp"</span>
   REQUIRES espectre
 )</pre></div>
-          <p class="docs-step-note">The SDK is source-based, so there is no chip-specific library to link. Optional BLE, MQTT, provisioning, OTA, and stream support stay disabled until selected in menuconfig.</p>
+          <p class="docs-step-note">The SDK is source-based, so there is no chip-specific library to link. Optional Bluetooth, MQTT, provisioning, OTA, and stream support stay disabled until selected in menuconfig.</p>
         </div>
       </section>
 
