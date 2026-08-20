@@ -871,7 +871,7 @@ describe('website UX and content contracts', () => {
         assert.match(index, /id="mon-user"[^>]*value="mqtt"/);
         assert.match(index, /id="mon-pass"[^>]*value="mqtt"/);
         assert.match(index, /id="mon-topic-prefix"[^>]*value="espectre\/v1\/devices"/);
-        assert.match(index, /id="mon-device"[^>]*placeholder="0x0000acebe64ae708"/);
+        assert.match(index, /id="mon-device"[^>]*placeholder="3cf79180d3a0aca4"/);
         assert.match(index, /for="mon-device">Device ID <span class="opt">\(optional\)<\/span>/);
         assert.match(index, /id="mon-device-choice"/);
         assert.match(index, /class="field js-mon-device-picker"/);

@@ -28,7 +28,7 @@
       <article class="docs-path">
         <span class="docs-path-label">MINIMIZATION</span>
         <h3>Limit what leaves the device</h3>
-        <p>Canonical MQTT sensing messages omit raw CSI, Wi-Fi names, BSSIDs, local IP and MAC addresses, packet captures, and serial logs. They still include a persistent device ID, user-provided labels, movement data, and operational diagnostics.</p>
+        <p>Canonical MQTT sensing messages omit raw CSI, Wi-Fi names, BSSIDs, local IP and MAC addresses, packet captures, and serial logs. The device ID is a stable SHA-256-derived pseudonym instead of the raw MAC, but messages still include that linkable ID, user-provided labels, movement data, and operational diagnostics.</p>
         <span class="docs-path-meta">Minimized does not mean anonymous</span>
       </article>
     </div>

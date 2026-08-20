@@ -192,7 +192,7 @@ Common fields:
 | `format_version` | `str` | Dataset format version |
 | `stream_seq_num` | `uint32[N]` | Stream sequence numbers |
 | `device_ticks_us` | `uint64[N]` | Device monotonic timestamps |
-| `device_id` | `uint64` | Stable device identifier |
+| `device_id` | `uint64` | Stable pseudonymous device identifier |
 | `wifi_rx_ts_us` | `uint32[N]` | Optional Wi-Fi RX timestamps |
 | `wifi_rx_start_ts_ns` | `uint64[N]` | Optional RX-start estimate |
 | `channel` | `uint8[N]` | Optional per-packet Wi-Fi channel |

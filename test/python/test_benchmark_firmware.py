@@ -121,6 +121,10 @@ def test_cases_include_both_micro_espectre_profiles():
     )
 
 
+def test_benchmark_device_id_matches_firmware_sha256_pseudonym():
+    assert bench.format_benchmark_device_id_from_mac("7C:2C:67:42:BB:AC") == "3cf79180d3a0aca4"
+
+
 def test_micro_benchmark_config_enables_production_debug_telemetry(monkeypatch):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")

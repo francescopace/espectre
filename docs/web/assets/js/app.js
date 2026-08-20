@@ -857,7 +857,7 @@
                 mqtt_port: '1883',
                 mqtt_username: 'mqtt',
                 topic_prefix: 'espectre/v1/devices',
-                device_id: '0x00007c2c6742bbac',
+                device_id: '3cf79180d3a0aca4',
                 device_name: 'Demo Device',
                 device_label: 'Demo Device',
                 motion_hits: '4/3',

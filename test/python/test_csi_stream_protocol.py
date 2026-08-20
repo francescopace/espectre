@@ -978,7 +978,7 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
     info = dataset_metadata.load_dataset_info()
     assert info['format_version'] == '1.2'
     assert info['files']['static_presence'][0]['filename'] == filepath.name
-    assert info['files']['static_presence'][0]['device_id'] == '0x0000000000abcdef'
+    assert info['files']['static_presence'][0]['device_id'] == '0000000000abcdef'
     assert info['files']['static_presence'][0]['description'] == 'HT20 static presence sample'
     assert 'dev0000000000abcdef' in filepath.name
 
@@ -1209,8 +1209,8 @@ def test_save_samples_by_device_splits_capture_window(tmp_path, monkeypatch):
     info = dataset_metadata.load_dataset_info()
     assert len(info['files']['motion']) == 2
     assert {entry['device_id'] for entry in info['files']['motion']} == {
-        '0x0000000000000010',
-        '0x0000000000000020',
+        '0000000000000010',
+        '0000000000000020',
     }
 
 

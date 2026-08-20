@@ -51,7 +51,7 @@ Current capabilities:
 - connect to the ESPectre BLE service from a desktop browser
 - subscribe to sysinfo notifications
 - request a fresh sysinfo block with `REQ_SYSINFO`
-- show a firmware-generated read-only `device_id`
+- show a firmware-generated, read-only, pseudonymous `device_id`
 - inspect the immutable firmware-derived `device_name`
 - edit the human-facing `device_label`
 - expose the immutable BLE pairing name as the shared `device_name`
@@ -178,7 +178,7 @@ HA sensing cadences match ESPHome so the same Home Assistant dashboard can be re
 | Traffic TX Rate, CSI rates, occupancy, Wi-Fi channel, Wi-Fi RSSI | `ha/traffic_tx_rate/state`, `ha/csi_callback_rate/state`, `ha/csi_accepted_rate/state`, `ha/csi_admitted_rate/state`, `ha/csi_filtered_rate/state`, `ha/csi_missing_rate/state`, `ha/csi_excess_rate/state`, `ha/csi_stale_rate/state`, `ha/csi_out_of_order_rate/state`, `ha/csi_occupancy/state`, `ha/wifi_channel/state`, `ha/wifi_rssi/state` | On demand after Refresh Diagnostics; diagnostic category |
 | Refresh Diagnostics | `ha/diagnostics/set` | Button; publishes the latest cached diagnostic sample |
 
-Entity IDs look like `sensor.native_0x0000111122223333_movement_score`. Copy the ESPHome dashboard from [`home-assistant-dashboard.yaml`](../esphome/examples/home-assistant-dashboard.yaml) and replace the `espectre_` prefix.
+Entity IDs look like `sensor.native_3cf79180d3a0aca4_movement_score`. Copy the ESPHome dashboard from [`home-assistant-dashboard.yaml`](../esphome/examples/home-assistant-dashboard.yaml) and replace the `espectre_` prefix.
 
 ![ESPectre Home Assistant dashboard](../../../../docs/web/assets/images/guides/home-assistant-dashboard.png)
 

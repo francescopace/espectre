@@ -29,7 +29,7 @@ from .streamer_discovery import (
 def _format_expected_device_id(device_id: int | None) -> str:
     if device_id is None:
         return "unknown"
-    return f"0x{int(device_id):016x}"
+    return f"{int(device_id):016x}"
 
 
 def _discover_streamer_devices_or_exit() -> list[StreamerDiscoveryRecord]:

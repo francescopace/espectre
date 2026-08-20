@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -362,10 +363,9 @@ def format_benchmark_device_id_from_mac(mac_text: str) -> str:
     octets = [part.strip() for part in mac_text.split(":")]
     if len(octets) != 6 or any(len(part) != 2 for part in octets):
         raise ValueError(f"invalid MAC address: {mac_text}")
-    value = 0
-    for octet in octets:
-        value = (value << 8) | int(octet, 16)
-    return f"0x{value:016x}"
+    mac = bytes(int(octet, 16) for octet in octets)
+    digest = hashlib.sha256(b"espectre-device-id-v1" + mac).digest()
+    return digest[:8].hex()
 
 
 def detect_benchmark_mqtt_device_id_from_text(text: str) -> str | None:

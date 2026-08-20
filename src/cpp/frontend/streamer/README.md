@@ -59,7 +59,7 @@ Header layout:
 | `seq_num` | `uint32` | Wrapping packet sequence |
 | `num_subcarriers` | `uint16` | Logical subcarrier count |
 | `csi_len_bytes` | `uint16` | CSI payload length |
-| `device_id` | `uint64` | Stable device identifier |
+| `device_id` | `uint64` | Stable SHA-256-derived device pseudonym |
 | `device_ticks_us` | `uint64` | Device-side timestamp |
 | `wifi_rx_ts_us` | `uint32` | Wi-Fi RX timestamp |
 | `wifi_rx_start_ts_ns` | `uint64` | Estimated Wi-Fi RX start |
@@ -202,7 +202,7 @@ The streamer is responsible for:
 The discovery advertisement publishes:
 
 - SRV port = `ESPECTRE_TRAFFIC_RX_PORT` (the pacing target)
-- TXT `device_id` = canonical ESPectre device ID already carried in the CSI stream
+- TXT `device_id` = the canonical 16-character ESPectre device ID already carried as a `uint64` in the CSI stream
 - TXT `chip` = active ESP-IDF target name
 - TXT `traffic_port` = pacing target port
 - TXT `collector_port` = CSI uplink port

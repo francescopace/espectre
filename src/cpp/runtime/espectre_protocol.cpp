@@ -163,8 +163,8 @@ bool parse_mqtt_port_value(const std::string &value, uint16_t *port) {
 }  // namespace
 
 std::string format_espectre_device_id(uint64_t device_id) {
-  char text[sizeof("0x0123456789abcdef")] = {0};
-  std::snprintf(text, sizeof(text), "0x%016" PRIx64, device_id);
+  char text[sizeof("0123456789abcdef")] = {0};
+  std::snprintf(text, sizeof(text), "%016" PRIx64, device_id);
   return text;
 }
 
@@ -174,7 +174,7 @@ bool parse_espectre_device_id(const std::string &value, uint64_t *device_id) {
   }
   char *end_ptr = nullptr;
   errno = 0;
-  const unsigned long long parsed = std::strtoull(value.c_str(), &end_ptr, 0);
+  const unsigned long long parsed = std::strtoull(value.c_str(), &end_ptr, 16);
   if (end_ptr == value.c_str() || end_ptr == nullptr || *end_ptr != '\0' || errno == ERANGE) {
     return false;
   }
@@ -187,7 +187,7 @@ uint64_t espectre_device_id_from_mac(const uint8_t *mac, size_t mac_len) {
     return ESPECTRE_DEFAULT_DEVICE_ID;
   }
   uint64_t device_id = 0U;
-  for (size_t i = 0; i < 6U; ++i) {
+  for (size_t i = 0U; i < 6U; ++i) {
     device_id = (device_id << 8U) | static_cast<uint64_t>(mac[i]);
   }
   return device_id;

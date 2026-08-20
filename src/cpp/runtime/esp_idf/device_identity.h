@@ -14,7 +14,9 @@
 
 namespace espectre {
 
+/** Return the cached 64-bit SHA-256 pseudonym derived from the station MAC. */
 uint64_t derive_runtime_device_id();
+/** Return the cached canonical text for `derive_runtime_device_id()`. */
 std::string derive_runtime_device_id_string();
 
 }  // namespace espectre

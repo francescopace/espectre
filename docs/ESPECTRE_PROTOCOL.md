@@ -13,7 +13,7 @@ This is an implementation reference for firmware, client, and integration develo
 - BLE is for proximity, setup, recovery, and nearby identity or status.
 - MQTT is the operational plane for telemetry, status, commands, dashboards, history, and alerts.
 - Web orchestration profiles add identity, credentials, tenancy, retention, and fleet management; they do not redefine device telemetry.
-- `device_id` is a logical protocol identifier. Current firmware derives it from the station MAC, so it must be treated as a persistent hardware identifier rather than anonymous data.
+- `device_id` is a logical protocol identifier. Native, Matter, Streamer, and Micro-ESPectre derive it once per boot as the first 64 bits of `SHA-256("espectre-device-id-v1" || station_mac_bytes)` and cache the result. This hides the MAC from routine inspection, but the stable pseudonym remains linkable and is not anonymous.
 - Privacy-sensitive values such as SSID, BSSID, local IP address, packet-level radio traces, and serial logs must not be sent to managed services by default.
 
 ## Transports
@@ -89,7 +89,7 @@ espectre/v1/devices/{device_id}/telemetry
 ```json
 {
   "protocol_version": "1.0",
-  "device_id": "0x00007c2c6742bbac",
+  "device_id": "3cf79180d3a0aca4",
   "frontend": "native",
   "timestamp_ms": 123456,
   "motion_state": "idle",
@@ -115,7 +115,7 @@ espectre/v1/devices/{device_id}/status
 ```json
 {
   "protocol_version": "1.0",
-  "device_id": "0x00007c2c6742bbac",
+  "device_id": "3cf79180d3a0aca4",
   "online": true,
   "timestamp_ms": 123456
 }
@@ -134,7 +134,7 @@ espectre/v1/devices/{device_id}/info
 ```json
 {
   "protocol_version": "1.0",
-  "device_id": "0x00007c2c6742bbac",
+  "device_id": "3cf79180d3a0aca4",
   "device_name": "ESPectre C6 42bbac",
   "device_label": "Living Room",
   "frontend": "native",
@@ -180,7 +180,7 @@ in response to an explicit `stats` command. Native and Micro include the CSI and
 ```json
 {
   "protocol_version": "1.0",
-  "device_id": "0x00007c2c6742bbac",
+  "device_id": "3cf79180d3a0aca4",
   "timestamp_ms": 123456,
   "uptime": 3821,
   "free_memory_kb": 182.4,
@@ -227,7 +227,7 @@ in response to:
 ```json
 {
   "protocol_version": "1.0",
-  "device_id": "0x00007c2c6742bbac",
+  "device_id": "3cf79180d3a0aca4",
   "commands": [
     "commands",
     "info",
@@ -378,7 +378,7 @@ espectre/v1/devices/{device_id}/ota/state
 ```json
 {
   "protocol_version": "1.0",
-  "device_id": "0x00007c2c6742bbac",
+  "device_id": "3cf79180d3a0aca4",
   "state": "update_available",
   "timestamp_ms": 123456,
   "busy": false,
@@ -399,7 +399,7 @@ Command result:
 ```json
 {
   "protocol_version": "1.0",
-  "device_id": "0x00007c2c6742bbac",
+  "device_id": "3cf79180d3a0aca4",
   "command_id": "cmd-001",
   "command": "set_threshold",
   "accepted": true,
@@ -431,7 +431,7 @@ This is the current BLE framing, not a separate protocol. A future BLE framing c
 
 Identity/config semantics for the current BLE control surface:
 
-- `device_id` is the firmware-generated station-MAC-packed identity rendered as a stable `0x...` hex string in BLE sysinfo, MQTT topics, and MQTT payloads; managed or privacy-sensitive profiles must pseudonymize or replace it before exposing it outside the local trust boundary
+- `device_id` is the firmware-generated pseudonymous identity rendered as 16 lowercase hexadecimal characters without a `0x` prefix in BLE sysinfo, MQTT topics, MQTT payloads, Streamer discovery, and collector output; it is stable and linkable, and hashing the 48-bit MAC input does not make it anonymous or prevent a determined party from testing likely MAC values
 - `device_name` is the immutable protocol/device name derived from chip and `device_id`
 - `device_label` is the optional user-facing human-readable device label
 - `SET_MQTT_CONFIG:...` replaces the full persisted MQTT broker block in one write
@@ -465,7 +465,7 @@ Current BLE `sysinfo` identity/config keys include:
 
 | Key | Meaning |
 |-----|---------|
-| `device_id` | Current firmware-generated device identifier in canonical `0x...` hex form |
+| `device_id` | Current firmware-generated device identifier as 16 lowercase hexadecimal characters without a `0x` prefix |
 | `device_name` | Current immutable protocol/device name derived from chip and `device_id` |
 | `device_label` | Current human-readable device label |
 | `mqtt_connected` | Whether the MQTT transport is currently connected |

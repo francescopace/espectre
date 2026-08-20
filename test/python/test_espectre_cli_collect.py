@@ -19,6 +19,7 @@ import builtins
 import pytest
 from espectre_cli.app import build_parser
 from espectre_cli import host
+from espectre_cli.streamer_discovery import _StreamerListener
 from tools.lib.csi_io import AdaptivePacingController
 
 
@@ -68,7 +69,7 @@ def _make_live_collect_args(**overrides) -> argparse.Namespace:
 def _make_discovered_streamer(
     *,
     device_id: int = 0xABC123,
-    device_id_text: str = "0x0000000000abc123",
+    device_id_text: str = "0000000000abc123",
     chip: str = "s3",
     ip_address: str = "192.168.1.29",
     target_port: int = 9999,
@@ -348,6 +349,18 @@ def test_collect_parser_accepts_list_devices() -> None:
     assert args.list_devices is True
 
 
+def test_streamer_discovery_normalizes_current_and_legacy_device_ids() -> None:
+    assert _StreamerListener._parse_device_id("3cf79180d3a0aca4") == (
+        0x3CF79180D3A0ACA4,
+        "3cf79180d3a0aca4",
+    )
+    assert _StreamerListener._parse_device_id("0xabc123") == (
+        0xABC123,
+        "0000000000abc123",
+    )
+    assert _StreamerListener._parse_device_id("1" * 17) is None
+
+
 def test_collect_routes_labelled_capture_to_live_collect(monkeypatch) -> None:
     routed_labels: list[str] = []
 
@@ -367,7 +380,7 @@ def test_collect_list_devices_prints_discovered_streamers(monkeypatch, capsys) -
         _make_discovered_streamer(),
         _make_discovered_streamer(
             device_id=0xABC124,
-            device_id_text="0x0000000000abc124",
+            device_id_text="0000000000abc124",
             ip_address="192.168.1.30",
             service_name="ESPectre Streamer 2._espectre-streamer._udp.local.",
         ),
@@ -380,8 +393,8 @@ def test_collect_list_devices_prints_discovered_streamers(monkeypatch, capsys) -
 
     output = capsys.readouterr().out
     assert "Discovered Streamer devices" in output
-    assert "0x0000000000abc123" in output
-    assert "0x0000000000abc124" in output
+    assert "0000000000abc123" in output
+    assert "0000000000abc124" in output
     assert run_live_calls == []
 
 
@@ -405,7 +418,7 @@ def test_collect_live_prompts_for_multiple_discovered_streamers(monkeypatch) -> 
         _make_discovered_streamer(),
         _make_discovered_streamer(
             device_id=0xABC124,
-            device_id_text="0x0000000000abc124",
+            device_id_text="0000000000abc124",
             ip_address="192.168.1.30",
             service_name="ESPectre Streamer 2._espectre-streamer._udp.local.",
         ),
@@ -590,8 +603,8 @@ def test_collect_live_rejects_discovery_device_id_mismatch(monkeypatch, capsys) 
         )
 
     output = capsys.readouterr().out
-    assert "expected 0x0000000000abc123" in output
-    assert "received 0x0000000000abc124" in output
+    assert "expected 0000000000abc123" in output
+    assert "received 0000000000abc124" in output
 
 
 def test_wait_before_collection_counts_down(monkeypatch, capsys) -> None:

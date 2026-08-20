@@ -20,6 +20,7 @@ idf_component_register(
         freertos
         heap
         log
+        mbedtls
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE ESPECTRE_ENABLE_STREAM_RUNTIME=1)

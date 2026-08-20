@@ -28,6 +28,7 @@ set(espectre_sdk_requires
     freertos
     heap
     log
+    mbedtls
 )
 
 if(CONFIG_ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT)

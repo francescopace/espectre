@@ -67,9 +67,12 @@ class _StreamerListener(ServiceListener):
         if not normalized:
             return None
         try:
-            return int(normalized, 16), f"0x{normalized}"
+            device_id = int(normalized, 16)
         except ValueError:
             return None
+        if device_id > 0xFFFFFFFFFFFFFFFF:
+            return None
+        return device_id, f"{device_id:016x}"
 
     def _resolve_record(self, service_type: str, name: str) -> StreamerDiscoveryRecord | None:
         info = self._zeroconf.get_service_info(service_type, name, timeout=1000)

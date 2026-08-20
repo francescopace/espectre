@@ -18,19 +18,25 @@
 
 using namespace espectre;
 
-void test_device_id_helpers_format_parse_and_pack_mac_consistently(void) {
-  TEST_ASSERT_EQUAL_STRING("0x00007c2c6742bbac", format_espectre_device_id(0x00007C2C6742BBACULL).c_str());
+void test_device_id_helpers_format_and_parse_canonical_hex_consistently(void) {
+  TEST_ASSERT_EQUAL_STRING("00007c2c6742bbac", format_espectre_device_id(0x00007C2C6742BBACULL).c_str());
 
   uint64_t parsed = 0U;
+  TEST_ASSERT_TRUE(parse_espectre_device_id("00007c2c6742bbac", &parsed));
+  TEST_ASSERT_EQUAL(0x00007C2C6742BBACULL, parsed);
+  // Accept the legacy prefix while clients migrate to the canonical form.
   TEST_ASSERT_TRUE(parse_espectre_device_id("0x00007c2c6742bbac", &parsed));
   TEST_ASSERT_EQUAL(0x00007C2C6742BBACULL, parsed);
   TEST_ASSERT_TRUE(parse_espectre_device_id("124", &parsed));
-  TEST_ASSERT_EQUAL(124ULL, parsed);
+  TEST_ASSERT_EQUAL(0x124ULL, parsed);
   TEST_ASSERT_FALSE(parse_espectre_device_id("bad-id", &parsed));
 
   const uint8_t mac[6] = {0x7C, 0x2C, 0x67, 0x42, 0xBB, 0xAC};
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
   TEST_ASSERT_EQUAL(0x00007C2C6742BBACULL, espectre_device_id_from_mac(mac, sizeof(mac)));
   TEST_ASSERT_EQUAL(ESPECTRE_DEFAULT_DEVICE_ID, espectre_device_id_from_mac(nullptr, 0));
+#pragma GCC diagnostic pop
   TEST_ASSERT_EQUAL_STRING("ESPectre C6 42bbac", espectre_device_name(0x00007C2C6742BBACULL, "esp32c6").c_str());
   TEST_ASSERT_EQUAL_STRING("ESPectre UNK 000000", espectre_device_name(ESPECTRE_DEFAULT_DEVICE_ID).c_str());
 }
@@ -41,10 +47,10 @@ void test_effective_device_helpers_and_topic_generation_use_defaults(void) {
   config.device_label.clear();
   config.topic_prefix = "custom/root/";
 
-  TEST_ASSERT_EQUAL_STRING("0x0000000000000000", espectre_effective_device_id(config).c_str());
+  TEST_ASSERT_EQUAL_STRING("0000000000000000", espectre_effective_device_id(config).c_str());
   TEST_ASSERT_EQUAL_STRING(ESPECTRE_DEFAULT_DEVICE_LABEL, espectre_effective_device_label(config).c_str());
-  TEST_ASSERT_EQUAL_STRING("custom/root/0x0000000000000000/telemetry", espectre_topic(config, "telemetry").c_str());
-  TEST_ASSERT_EQUAL_STRING("custom/root/0x0000000000000000/", espectre_topic(config, nullptr).c_str());
+  TEST_ASSERT_EQUAL_STRING("custom/root/0000000000000000/telemetry", espectre_topic(config, "telemetry").c_str());
+  TEST_ASSERT_EQUAL_STRING("custom/root/0000000000000000/", espectre_topic(config, nullptr).c_str());
 }
 
 void test_clear_mqtt_config_resets_runtime_defaults(void) {
@@ -112,7 +118,7 @@ void test_status_telemetry_and_stats_payloads_include_expected_fields(void) {
   const std::string telemetry = espectre_telemetry_payload(config, snapshot, 222, 33, "native");
   const std::string stats = espectre_stats_payload(config, snapshot, 333, 44, 128.5f, 6.25f);
 
-  TEST_ASSERT_TRUE(status.find("\"device_id\":\"0x0000000000000007\"") != std::string::npos);
+  TEST_ASSERT_TRUE(status.find("\"device_id\":\"0000000000000007\"") != std::string::npos);
   TEST_ASSERT_TRUE(status.find("\"online\":true") != std::string::npos);
   TEST_ASSERT_TRUE(telemetry.find("\"frontend\":\"native\"") != std::string::npos);
   TEST_ASSERT_TRUE(telemetry.find("\"motion_state\":\"motion\"") != std::string::npos);
@@ -191,7 +197,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
 
   const std::string payload = espectre_info_payload(config, info);
 
-  TEST_ASSERT_TRUE(payload.find("\"device_id\":\"0x0000000000000001\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"device_id\":\"0000000000000001\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"device_name\":\"ESPectre C6 000001\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"device_label\":\"Kitchen \\\"node\\\"\\nA\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"frontend\":\"streamer\"") != std::string::npos);
@@ -219,7 +225,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(payload.find("\"publish_interval_ms\":1000") != std::string::npos);
 
   const std::string catalog = espectre_commands_payload(config, info);
-  TEST_ASSERT_TRUE(catalog.find("\"device_id\":\"0x0000000000000001\"") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"device_id\":\"0000000000000001\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"commands\":[\"commands\",\"info\",\"stats\",\"set_threshold\","
                                 "\"set_motion_hits\",\"set_detector\",\"recalibrate\",\"set_csi_traffic_mode\","
                                 "\"set_traffic_generator_mode\",\"set_ble\",\"ota_status\",\"ota_check\","
@@ -239,7 +245,7 @@ void test_info_payload_omits_optional_sections_when_empty(void) {
 
   const std::string payload = espectre_info_payload(config, info);
 
-  TEST_ASSERT_TRUE(payload.find("\"device_id\":\"0x0000000000000000\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"device_id\":\"0000000000000000\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"device_name\":\"ESPectre UNK 000000\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"device_label\":\"\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"frontend\":\"native\"") != std::string::npos);
@@ -431,7 +437,7 @@ void test_ota_status_payload_includes_expected_fields(void) {
 
   const std::string payload = espectre_ota_status_payload(config, status, 4321);
 
-  TEST_ASSERT_TRUE(payload.find("\"device_id\":\"0x000000000000000a\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"device_id\":\"000000000000000a\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"state\":\"update_available\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"current_version\":\"1.0.0\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"target_version\":\"1.1.0\"") != std::string::npos);
@@ -508,7 +514,7 @@ void test_parse_espectre_config_command_rejects_invalid_inputs(void) {
 
 int process(void) {
   UNITY_BEGIN();
-  RUN_TEST(test_device_id_helpers_format_parse_and_pack_mac_consistently);
+  RUN_TEST(test_device_id_helpers_format_and_parse_canonical_hex_consistently);
   RUN_TEST(test_effective_device_helpers_and_topic_generation_use_defaults);
   RUN_TEST(test_clear_mqtt_config_resets_runtime_defaults);
   RUN_TEST(test_parse_mqtt_batch_config_command_updates_all_fields);

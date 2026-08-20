@@ -295,8 +295,8 @@ def format_device_token(device_id: int) -> str:
     return f"dev{int(device_id):016x}"
 
 
-def format_device_id_hex(device_id: int) -> str:
-    return f"0x{int(device_id):016x}"
+def format_device_id_text(device_id: int) -> str:
+    return f"{int(device_id):016x}"
 
 
 @dataclass
@@ -1306,15 +1306,15 @@ class CSICollector:
         if packet.device_id is None:
             raise ValueError(
                 "discovered target expected "
-                f"{format_device_id_hex(self.expected_device_id)}, "
+                f"{format_device_id_text(self.expected_device_id)}, "
                 f"but stream packet from {source_ip or '?'} had no device_id metadata"
             )
         packet_device_id = int(packet.device_id)
         if packet_device_id != self.expected_device_id:
             raise ValueError(
                 "discovered target expected "
-                f"{format_device_id_hex(self.expected_device_id)}, "
-                f"but received {format_device_id_hex(packet_device_id)} from {source_ip or '?'}"
+                f"{format_device_id_text(self.expected_device_id)}, "
+                f"but received {format_device_id_text(packet_device_id)} from {source_ip or '?'}"
             )
 
     def _get_label_dir(self) -> Path:
@@ -1502,7 +1502,7 @@ class CSICollector:
                     "duration_ms": int(duration_ms) if duration_ms else 0,
                     "num_packets": num_packets or 0,
                     "description": description or self._build_default_description(),
-                    "device_id": format_device_id_hex(device_id) if device_id is not None else "",
+                    "device_id": format_device_id_text(device_id) if device_id is not None else "",
                 }
                 if average_packet_rate is not None:
                     file_info["average_packet_rate"] = round(float(average_packet_rate), 3)

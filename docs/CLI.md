@@ -273,7 +273,7 @@ Examples:
 
 ```bash
 ./espectre mqtt
-./espectre mqtt --device-id 0x00007c2c6742bbac
+./espectre mqtt --device-id 3cf79180d3a0aca4
 ./espectre mqtt --broker 192.168.1.20 --device-id native-lab
 ```
 

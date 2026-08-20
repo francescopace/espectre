@@ -242,13 +242,13 @@ void test_native_frontend_device_config_commands_setup_mqtt_and_publish_info_sta
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
-                                 return publish.topic == "espectre/v1/devices/0x0000111122223333/info" &&
+                                 return publish.topic == "espectre/v1/devices/0000111122223333/info" &&
                                         publish.retain;
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
-                                 return publish.topic == "espectre/v1/devices/0x0000111122223333/status" &&
+                                 return publish.topic == "espectre/v1/devices/0000111122223333/status" &&
                                         publish.payload.find("\"online\":true") != std::string::npos && publish.retain;
                                }));
   drain_pending_sysinfo(frontend);
@@ -291,55 +291,55 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                mqtt_transport_mock::state.subscriptions.end(),
                                [](const mqtt_transport_mock::Subscription &subscription) {
                                  return subscription.topic ==
-                                        "espectre/v1/devices/0x0000111122223333/ha/threshold/set";
+                                        "espectre/v1/devices/0000111122223333/ha/threshold/set";
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.subscriptions.begin(),
                                mqtt_transport_mock::state.subscriptions.end(),
                                [](const mqtt_transport_mock::Subscription &subscription) {
                                  return subscription.topic ==
-                                        "espectre/v1/devices/0x0000111122223333/ha/motion_on_hits/set";
+                                        "espectre/v1/devices/0000111122223333/ha/motion_on_hits/set";
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.subscriptions.begin(),
                                mqtt_transport_mock::state.subscriptions.end(),
                                [](const mqtt_transport_mock::Subscription &subscription) {
                                  return subscription.topic ==
-                                        "espectre/v1/devices/0x0000111122223333/ha/motion_off_hits/set";
+                                        "espectre/v1/devices/0000111122223333/ha/motion_off_hits/set";
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.subscriptions.begin(),
                                mqtt_transport_mock::state.subscriptions.end(),
                                [](const mqtt_transport_mock::Subscription &subscription) {
                                  return subscription.topic ==
-                                        "espectre/v1/devices/0x0000111122223333/ha/calibrate/set";
+                                        "espectre/v1/devices/0000111122223333/ha/calibrate/set";
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.subscriptions.begin(),
                                mqtt_transport_mock::state.subscriptions.end(),
                                [](const mqtt_transport_mock::Subscription &subscription) {
                                  return subscription.topic ==
-                                        "espectre/v1/devices/0x0000111122223333/ha/detector/set";
+                                        "espectre/v1/devices/0000111122223333/ha/detector/set";
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.subscriptions.begin(),
                                mqtt_transport_mock::state.subscriptions.end(),
                                [](const mqtt_transport_mock::Subscription &subscription) {
                                  return subscription.topic ==
-                                        "espectre/v1/devices/0x0000111122223333/ha/csi_traffic_mode/set";
+                                        "espectre/v1/devices/0000111122223333/ha/csi_traffic_mode/set";
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.subscriptions.begin(),
                                mqtt_transport_mock::state.subscriptions.end(),
                                [](const mqtt_transport_mock::Subscription &subscription) {
                                  return subscription.topic ==
-                                        "espectre/v1/devices/0x0000111122223333/ha/traffic_generator_mode/set";
+                                        "espectre/v1/devices/0000111122223333/ha/traffic_generator_mode/set";
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.subscriptions.begin(),
                                mqtt_transport_mock::state.subscriptions.end(),
                                [](const mqtt_transport_mock::Subscription &subscription) {
                                  return subscription.topic ==
-                                        "espectre/v1/devices/0x0000111122223333/ha/diagnostics/set";
+                                        "espectre/v1/devices/0000111122223333/ha/diagnostics/set";
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "homeassistant/binary_sensor/native_0x0000111122223333_motion_detected/config" &&
+                                            "homeassistant/binary_sensor/native_0000111122223333_motion_detected/config" &&
                                         publish.retain &&
                                         publish.payload.find("\"name\":\"Motion Detected\"") != std::string::npos;
                                }));
@@ -347,7 +347,7 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "homeassistant/sensor/native_0x0000111122223333_movement_score/config" &&
+                                            "homeassistant/sensor/native_0000111122223333_movement_score/config" &&
                                         publish.retain &&
                                         publish.payload.find("\"name\":\"Movement Score\"") != std::string::npos;
                                }));
@@ -355,28 +355,28 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "homeassistant/sensor/native_0x0000111122223333_intensity/config" &&
+                                            "homeassistant/sensor/native_0000111122223333_intensity/config" &&
                                         publish.retain && publish.payload.empty();
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "homeassistant/binary_sensor/native_0x0000111122223333_motion/config" &&
+                                            "homeassistant/binary_sensor/native_0000111122223333_motion/config" &&
                                         publish.retain && publish.payload.empty();
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "homeassistant/switch/native_0x0000111122223333_calibrate/config" &&
+                                            "homeassistant/switch/native_0000111122223333_calibrate/config" &&
                                         publish.retain && publish.payload.empty();
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "homeassistant/sensor/native_0x0000111122223333_traffic_tx_rate/config" &&
+                                            "homeassistant/sensor/native_0000111122223333_traffic_tx_rate/config" &&
                                         publish.retain &&
                                         publish.payload.find("\"name\":\"Traffic TX Rate\"") != std::string::npos &&
                                         publish.payload.find("\"entity_category\":\"diagnostic\"") != std::string::npos;
@@ -385,7 +385,7 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "homeassistant/button/native_0x0000111122223333_refresh_diagnostics/config" &&
+                                            "homeassistant/button/native_0000111122223333_refresh_diagnostics/config" &&
                                         publish.retain &&
                                         publish.payload.find("\"name\":\"Refresh Diagnostics\"") != std::string::npos;
                                }));
@@ -393,7 +393,7 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "homeassistant/number/native_0x0000111122223333_threshold/config" &&
+                                            "homeassistant/number/native_0000111122223333_threshold/config" &&
                                         publish.retain &&
                                         publish.payload.find("\"name\":\"Threshold\"") != std::string::npos &&
                                         publish.payload.find("\"command_topic\"") != std::string::npos;
@@ -402,7 +402,7 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "homeassistant/number/native_0x0000111122223333_motion_on_hits/config" &&
+                                            "homeassistant/number/native_0000111122223333_motion_on_hits/config" &&
                                         publish.retain &&
                                         publish.payload.find("\"name\":\"Motion On Hits\"") != std::string::npos;
                                }));
@@ -410,7 +410,7 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "homeassistant/number/native_0x0000111122223333_motion_off_hits/config" &&
+                                            "homeassistant/number/native_0000111122223333_motion_off_hits/config" &&
                                         publish.retain &&
                                         publish.payload.find("\"name\":\"Motion Off Hits\"") != std::string::npos;
                                }));
@@ -418,7 +418,7 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "homeassistant/switch/native_0x0000111122223333_trigger_calibration/config" &&
+                                            "homeassistant/switch/native_0000111122223333_trigger_calibration/config" &&
                                         publish.retain &&
                                         publish.payload.find("\"name\":\"Trigger Calibration\"") != std::string::npos &&
                                         publish.payload.find("\"command_topic\"") != std::string::npos;
@@ -427,7 +427,7 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "homeassistant/select/native_0x0000111122223333_detection_profile/config" &&
+                                            "homeassistant/select/native_0000111122223333_detection_profile/config" &&
                                         publish.retain &&
                                         publish.payload.find("\"name\":\"Detection Profile\"") !=
                                             std::string::npos &&
@@ -438,7 +438,7 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "homeassistant/select/native_0x0000111122223333_csi_traffic_ownership/config" &&
+                                            "homeassistant/select/native_0000111122223333_csi_traffic_ownership/config" &&
                                         publish.retain &&
                                         publish.payload.find("\"name\":\"CSI Traffic Ownership\"") !=
                                             std::string::npos;
@@ -447,17 +447,17 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "homeassistant/select/native_0x0000111122223333_csi_traffic_source/config" &&
+                                            "homeassistant/select/native_0000111122223333_csi_traffic_source/config" &&
                                         publish.retain &&
                                         publish.payload.find("\"name\":\"CSI Traffic Source\"") !=
                                             std::string::npos;
                                }));
   const int csi_traffic_discovery = mqtt_publish_index(
-      "homeassistant/select/native_0x0000111122223333_csi_traffic_ownership/config");
+      "homeassistant/select/native_0000111122223333_csi_traffic_ownership/config");
   const int traffic_generator_discovery = mqtt_publish_index(
-      "homeassistant/select/native_0x0000111122223333_csi_traffic_source/config");
+      "homeassistant/select/native_0000111122223333_csi_traffic_source/config");
   const int calibrate_discovery =
-      mqtt_publish_index("homeassistant/switch/native_0x0000111122223333_trigger_calibration/config");
+      mqtt_publish_index("homeassistant/switch/native_0000111122223333_trigger_calibration/config");
   TEST_ASSERT_TRUE(csi_traffic_discovery >= 0);
   TEST_ASSERT_TRUE(csi_traffic_discovery < traffic_generator_discovery);
   TEST_ASSERT_TRUE(traffic_generator_discovery < calibrate_discovery);
@@ -465,9 +465,9 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "homeassistant/binary_sensor/native_0x0000111122223333_motion_detected/config" &&
+                                            "homeassistant/binary_sensor/native_0000111122223333_motion_detected/config" &&
                                         publish.payload.find(
-                                            "\"availability_topic\":\"espectre/v1/devices/0x0000111122223333/status\"") !=
+                                            "\"availability_topic\":\"espectre/v1/devices/0000111122223333/status\"") !=
                                             std::string::npos &&
                                         publish.payload.find("\"availability_template\"") != std::string::npos;
                                }));
@@ -475,42 +475,42 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "espectre/v1/devices/0x0000111122223333/ha/motion/state" &&
+                                            "espectre/v1/devices/0000111122223333/ha/motion/state" &&
                                         publish.payload == "ON";
                                }));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000111122223333/ha/motion_on_hits/state", "4"));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000111122223333/ha/motion_off_hits/state", "3"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000111122223333/ha/motion_on_hits/state", "4"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000111122223333/ha/motion_off_hits/state", "3"));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "espectre/v1/devices/0x0000111122223333/ha/movement/state" &&
+                                            "espectre/v1/devices/0000111122223333/ha/movement/state" &&
                                         publish.payload == "2.7500";
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "espectre/v1/devices/0x0000111122223333/ha/threshold/state" &&
+                                            "espectre/v1/devices/0000111122223333/ha/threshold/state" &&
                                         publish.payload == "1.5000";
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "espectre/v1/devices/0x0000111122223333/ha/calibrate/state" &&
+                                            "espectre/v1/devices/0000111122223333/ha/calibrate/state" &&
                                         publish.payload == "OFF";
                                }));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000111122223333/ha/csi_traffic_mode/state", "internal"));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000111122223333/ha/traffic_generator_mode/state", "ping"));
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000111122223333/ha/traffic_tx_rate/state"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000111122223333/ha/csi_traffic_mode/state", "internal"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000111122223333/ha/traffic_generator_mode/state", "ping"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000111122223333/ha/traffic_tx_rate/state"));
 
   mqtt_transport_mock::state.publishes.clear();
   frontend.shutdown();
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
-                                 return publish.topic == "espectre/v1/devices/0x0000111122223333/status" &&
+                                 return publish.topic == "espectre/v1/devices/0000111122223333/status" &&
                                         publish.payload.find("\"online\":false") != std::string::npos && publish.retain;
                                }));
 }
@@ -537,14 +537,14 @@ void test_native_frontend_ha_birth_message_republishes_discovery_and_state(void)
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "homeassistant/binary_sensor/native_0x0000111122223333_motion_detected/config" &&
+                                            "homeassistant/binary_sensor/native_0000111122223333_motion_detected/config" &&
                                         publish.retain;
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "espectre/v1/devices/0x0000111122223333/ha/movement/state";
+                                            "espectre/v1/devices/0000111122223333/ha/movement/state";
                                }));
   TEST_ASSERT_TRUE(std::none_of(mqtt_transport_mock::state.publishes.begin(),
                                 mqtt_transport_mock::state.publishes.end(),
@@ -555,26 +555,26 @@ void test_native_frontend_ha_birth_message_republishes_discovery_and_state(void)
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "homeassistant/sensor/native_0x0000111122223333_traffic_tx_rate/config" &&
+                                            "homeassistant/sensor/native_0000111122223333_traffic_tx_rate/config" &&
                                         publish.retain;
                                }));
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000111122223333/ha/traffic_tx_rate/state"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000111122223333/ha/traffic_tx_rate/state"));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "espectre/v1/devices/0x0000111122223333/ha/threshold/state";
+                                            "espectre/v1/devices/0000111122223333/ha/threshold/state";
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
                                  return publish.topic ==
-                                            "espectre/v1/devices/0x0000111122223333/ha/calibrate/state";
+                                            "espectre/v1/devices/0000111122223333/ha/calibrate/state";
                                }));
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
-                                 return publish.topic == "espectre/v1/devices/0x0000111122223333/status" &&
+                                 return publish.topic == "espectre/v1/devices/0000111122223333/status" &&
                                         publish.payload.find("\"online\":true") != std::string::npos && publish.retain;
                                }));
 }
@@ -596,36 +596,36 @@ void test_native_frontend_ha_entities_follow_esphome_cadences(void) {
   mqtt_transport_mock::state.publishes.clear();
   RuntimeSnapshot snapshot = make_ready_snapshot();
   frontend.on_live_telemetry(snapshot.movement_metric, snapshot.threshold);
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/movement/state", "2.7500"));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/telemetry"));
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/motion/state"));
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/threshold/state"));
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/calibrate/state"));
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/intensity/state"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/movement/state", "2.7500"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/telemetry"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/motion/state"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/threshold/state"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/calibrate/state"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/intensity/state"));
 
   mqtt_transport_mock::state.publishes.clear();
   frontend.on_periodic_update(snapshot, 10);
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/movement/state"));
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/telemetry"));
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/intensity/state"));
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/motion/state"));
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/threshold/state"));
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/calibrate/state"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/movement/state"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/telemetry"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/intensity/state"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/motion/state"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/threshold/state"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/calibrate/state"));
 
   mqtt_transport_mock::state.publishes.clear();
   frontend.on_motion_state_changed(snapshot);
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/motion/state", "ON"));
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/telemetry"));
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/movement/state"));
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/intensity/state"));
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/threshold/state"));
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/calibrate/state"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/motion/state", "ON"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/telemetry"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/movement/state"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/intensity/state"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/threshold/state"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/calibrate/state"));
 
   mqtt_transport_mock::state.publishes.clear();
   snapshot.threshold = 0.45f;
   frontend.on_threshold_changed(snapshot);
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/threshold/state", "0.4500"));
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/intensity/state"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/threshold/state", "0.4500"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/intensity/state"));
 }
 
 void test_native_frontend_mqtt_connect_enables_live_telemetry_without_ble(void) {
@@ -661,11 +661,11 @@ void test_native_frontend_ha_threshold_command_updates_runtime(void) {
   mqtt.emit_connection(true);
   mqtt_transport_mock::state.publishes.clear();
 
-  mqtt.emit_message("espectre/v1/devices/0x0000abcdeffedcba/ha/threshold/set", "0.45");
+  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/threshold/set", "0.45");
 
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_threshold_calls);
   TEST_ASSERT_EQUAL_FLOAT(0.45f, frontend_runtime_shim::state.last_threshold);
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/threshold/state", "0.4500"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/threshold/state", "0.4500"));
 }
 
 void test_native_frontend_ha_motion_hits_commands_update_runtime(void) {
@@ -682,14 +682,14 @@ void test_native_frontend_ha_motion_hits_commands_update_runtime(void) {
   mqtt.emit_connection(true);
   mqtt_transport_mock::state.publishes.clear();
 
-  mqtt.emit_message("espectre/v1/devices/0x0000abcdeffedcba/ha/motion_on_hits/set", "6");
-  mqtt.emit_message("espectre/v1/devices/0x0000abcdeffedcba/ha/motion_off_hits/set", "4");
+  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/motion_on_hits/set", "6");
+  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/motion_off_hits/set", "4");
 
   TEST_ASSERT_EQUAL(2, frontend_runtime_shim::state.set_motion_hits_calls);
   TEST_ASSERT_EQUAL_UINT8(6U, frontend_runtime_shim::state.last_motion_on_hits);
   TEST_ASSERT_EQUAL_UINT8(4U, frontend_runtime_shim::state.last_motion_off_hits);
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/motion_on_hits/state", "6"));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/motion_off_hits/state", "4"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/motion_on_hits/state", "6"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/motion_off_hits/state", "4"));
 }
 
 void test_native_frontend_ha_calibrate_command_triggers_runtime(void) {
@@ -706,28 +706,28 @@ void test_native_frontend_ha_calibrate_command_triggers_runtime(void) {
   mqtt.emit_connection(true);
   mqtt_transport_mock::state.publishes.clear();
 
-  mqtt.emit_message("espectre/v1/devices/0x0000abcdeffedcba/ha/calibrate/set", "ON");
+  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/calibrate/set", "ON");
 
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.trigger_recalibration_calls);
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/calibrate/state", "ON"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/calibrate/state", "ON"));
 
   mqtt_transport_mock::state.publishes.clear();
-  mqtt.emit_message("espectre/v1/devices/0x0000abcdeffedcba/ha/calibrate/set", "OFF");
+  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/calibrate/set", "OFF");
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.trigger_recalibration_calls);
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/calibrate/state", "ON"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/calibrate/state", "ON"));
 
   mqtt_transport_mock::state.publishes.clear();
   RuntimeSnapshot snapshot = make_ready_snapshot();
   snapshot.calibrating = true;
   frontend.on_calibration_started(snapshot);
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/calibrate/state", "ON"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/calibrate/state", "ON"));
 
   mqtt_transport_mock::state.publishes.clear();
   snapshot.calibrating = false;
   snapshot.threshold = 0.42f;
   frontend.on_calibration_finished(snapshot, true);
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/calibrate/state", "OFF"));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/threshold/state", "0.4200"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/calibrate/state", "OFF"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/threshold/state", "0.4200"));
 }
 
 void test_native_frontend_ha_calibrate_command_respects_manual_recalibration_capability(void) {
@@ -745,10 +745,10 @@ void test_native_frontend_ha_calibrate_command_respects_manual_recalibration_cap
   mqtt.emit_connection(true);
   mqtt_transport_mock::state.publishes.clear();
 
-  mqtt.emit_message("espectre/v1/devices/0x0000abcdeffedcba/ha/calibrate/set", "ON");
+  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/calibrate/set", "ON");
 
   TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.trigger_recalibration_calls);
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/calibrate/state", "OFF"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/calibrate/state", "OFF"));
 }
 
 void test_native_frontend_ha_traffic_control_commands_update_runtime(void) {
@@ -765,21 +765,21 @@ void test_native_frontend_ha_traffic_control_commands_update_runtime(void) {
   mqtt.emit_connection(true);
   mqtt_transport_mock::state.publishes.clear();
 
-  mqtt.emit_message("espectre/v1/devices/0x0000abcdeffedcba/ha/csi_traffic_mode/set", "external");
-  mqtt.emit_message("espectre/v1/devices/0x0000abcdeffedcba/ha/traffic_generator_mode/set", "dns");
+  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/csi_traffic_mode/set", "external");
+  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/traffic_generator_mode/set", "dns");
 
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficMode::EXTERNAL);
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == RuntimeTrafficMode::DNS);
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/csi_traffic_mode/state", "external"));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/traffic_generator_mode/state", "dns"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_traffic_mode/state", "external"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/traffic_generator_mode/state", "dns"));
 
   mqtt_transport_mock::state.publishes.clear();
-  mqtt.emit_message("espectre/v1/devices/0x0000abcdeffedcba/ha/csi_traffic_mode/set", "pacing");
+  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/csi_traffic_mode/set", "pacing");
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficMode::EXTERNAL);
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/csi_traffic_mode/state", "pacing"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_traffic_mode/state", "pacing"));
 }
 
 void test_native_frontend_ha_diagnostics_button_publishes_cached_sample(void) {
@@ -808,20 +808,20 @@ void test_native_frontend_ha_diagnostics_button_publishes_cached_sample(void) {
   frontend.latest_diagnostics_.wifi_rssi_dbm = -55;
   mqtt_transport_mock::state.publishes.clear();
 
-  mqtt.emit_message("espectre/v1/devices/0x0000abcdeffedcba/ha/diagnostics/set", "PRESS");
+  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/diagnostics/set", "PRESS");
 
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/traffic_tx_rate/state", "100.0"));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/csi_callback_rate/state", "96.0"));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/csi_accepted_rate/state", "90.0"));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/csi_admitted_rate/state", "84.0"));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/csi_filtered_rate/state", "6.0"));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/csi_missing_rate/state", "10.0"));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/csi_excess_rate/state", "6.0"));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/csi_stale_rate/state", "0.0"));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/csi_out_of_order_rate/state", "0.0"));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/csi_occupancy/state", "84.0"));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/wifi_channel/state", "10"));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/wifi_rssi/state", "-55"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/traffic_tx_rate/state", "100.0"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_callback_rate/state", "96.0"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_accepted_rate/state", "90.0"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_admitted_rate/state", "84.0"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_filtered_rate/state", "6.0"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_missing_rate/state", "10.0"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_excess_rate/state", "6.0"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_stale_rate/state", "0.0"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_out_of_order_rate/state", "0.0"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_occupancy/state", "84.0"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/wifi_channel/state", "10"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/wifi_rssi/state", "-55"));
 }
 
 void test_native_frontend_clear_device_config_forwards_to_callback_and_stops_mqtt(void) {
@@ -936,14 +936,14 @@ void test_native_frontend_live_telemetry_publishes_mqtt_telemetry(void) {
 
   RuntimeSnapshot snapshot = make_ready_snapshot();
   frontend.on_periodic_update(snapshot, 10);
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/telemetry"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/telemetry"));
 
   mqtt_transport_mock::state.publishes.clear();
   frontend.on_live_telemetry(snapshot.movement_metric, snapshot.threshold);
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
-                                 return publish.topic == "espectre/v1/devices/0x0000abcdeffedcba/telemetry" &&
+                                 return publish.topic == "espectre/v1/devices/0000abcdeffedcba/telemetry" &&
                                         publish.payload.find("\"motion_state\":\"motion\"") != std::string::npos &&
                                         publish.payload.find("\"movement_score\":2.75") != std::string::npos;
                                }));
@@ -966,13 +966,13 @@ void test_native_frontend_motion_edge_publishes_ready_ha_motion(void) {
   RuntimeSnapshot snapshot = make_ready_snapshot();
   snapshot.ready_to_publish = false;
   frontend.on_motion_state_changed(snapshot);
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/motion/state"));
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/telemetry"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/motion/state"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/telemetry"));
 
   snapshot.ready_to_publish = true;
   frontend.on_motion_state_changed(snapshot);
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/ha/motion/state", "ON"));
-  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0x0000abcdeffedcba/telemetry"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/motion/state", "ON"));
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/telemetry"));
 }
 
 void test_native_frontend_mqtt_set_threshold_command_publishes_result(void) {
@@ -993,7 +993,7 @@ void test_native_frontend_mqtt_set_threshold_command_publishes_result(void) {
   TEST_ASSERT_EQUAL_FLOAT(0.45f, frontend_runtime_shim::state.last_threshold);
   TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
   const auto &publish = mqtt_transport_mock::state.publishes.back();
-  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/commands/accepted", publish.topic.c_str());
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0000abcdeffedcba/commands/accepted", publish.topic.c_str());
   TEST_ASSERT_TRUE(publish.payload.find("\"accepted\":true") != std::string::npos);
 }
 
@@ -1014,7 +1014,7 @@ void test_native_frontend_mqtt_recalibrate_command_publishes_result(void) {
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.trigger_recalibration_calls);
   TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
   const auto &publish = mqtt_transport_mock::state.publishes.back();
-  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/commands/accepted", publish.topic.c_str());
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0000abcdeffedcba/commands/accepted", publish.topic.c_str());
   TEST_ASSERT_TRUE(publish.payload.find("\"accepted\":true") != std::string::npos);
 }
 
@@ -1143,7 +1143,7 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   mqtt.emit_command("{\"command_id\":\"cmd-stats\",\"command\":\"stats\"}");
 
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.size() >= 4);
-  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/info",
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0000abcdeffedcba/info",
                            mqtt_transport_mock::state.publishes[0].topic.c_str());
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].retain);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"supports_runtime_motion_hits\":true") !=
@@ -1164,9 +1164,9 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
                    std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"publish_interval_ms\":1000") !=
                    std::string::npos);
-  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/commands/accepted",
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0000abcdeffedcba/commands/accepted",
                            mqtt_transport_mock::state.publishes[1].topic.c_str());
-  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/stats",
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0000abcdeffedcba/stats",
                            mqtt_transport_mock::state.publishes[2].topic.c_str());
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"uptime\":") != std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"free_memory_kb\":") != std::string::npos);
@@ -1189,7 +1189,7 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
 
   mqtt.emit_command("{\"command_id\":\"cmd-commands\",\"command\":\"commands\"}");
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.size() >= 6);
-  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/commands/catalog",
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0000abcdeffedcba/commands/catalog",
                            mqtt_transport_mock::state.publishes[4].topic.c_str());
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[4].payload.find("\"commands\":[") != std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[4].payload.find("\"set_ble\"") != std::string::npos);
@@ -1216,7 +1216,7 @@ void test_native_frontend_mqtt_connect_publishes_current_ota_state(void) {
   TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
                                mqtt_transport_mock::state.publishes.end(),
                                [](const mqtt_transport_mock::Publish &publish) {
-                                 return publish.topic == "espectre/v1/devices/0x0000abcdeffedcba/ota/state" &&
+                                 return publish.topic == "espectre/v1/devices/0000abcdeffedcba/ota/state" &&
                                         publish.payload.find("\"state\":\"idle\"") != std::string::npos &&
                                         publish.payload.find("\"current_version\":\"1.2.3\"") != std::string::npos &&
                                         !publish.retain;
@@ -1244,7 +1244,7 @@ void test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state(vo
   TEST_ASSERT_EQUAL(1, ota_service_mock::state.start_check_calls);
   TEST_ASSERT_EQUAL_STRING("1.0.0", ota_service_mock::state.last_current_version.c_str());
   TEST_ASSERT_TRUE(ota_service_mock::state.last_channel.empty());
-  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/commands/accepted",
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0000abcdeffedcba/commands/accepted",
                            mqtt_transport_mock::state.publishes.back().topic.c_str());
 
   mqtt_transport_mock::state.publishes.clear();
@@ -1265,7 +1265,7 @@ void test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state(vo
   ota_status.image_url = "https://fw.example/native.bin";
   ota.emit_status(ota_status);
   TEST_ASSERT_EQUAL(1, static_cast<int>(mqtt_transport_mock::state.publishes.size()));
-  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0x0000abcdeffedcba/ota/state",
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0000abcdeffedcba/ota/state",
                            mqtt_transport_mock::state.publishes[0].topic.c_str());
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"state\":\"update_available\"") !=
                    std::string::npos);

@@ -19,4 +19,5 @@ idf_component_register(
         freertos
         heap
         log
+        mbedtls
 )

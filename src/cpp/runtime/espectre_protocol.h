@@ -54,7 +54,7 @@ inline constexpr const char *ESPECTRE_OTA_CHANNEL_DEVELOP = "develop";
 inline constexpr const char *ESPECTRE_OTA_RELEASE_TAG_PREVIEW = "snapshot";
 /** GitHub Releases tag for the `develop` OTA channel. Distinct from branch `develop`. */
 inline constexpr const char *ESPECTRE_OTA_RELEASE_TAG_DEVELOP = "snapshot-dev";
-/** Sentinel meaning "derive the device id from the Wi-Fi MAC". */
+/** Sentinel meaning "use the runtime-generated device id". */
 inline constexpr uint64_t ESPECTRE_DEFAULT_DEVICE_ID = 0U;
 /** Empty label, meaning the device id is used as the display name. */
 inline constexpr const char *ESPECTRE_DEFAULT_DEVICE_LABEL = "";
@@ -66,7 +66,7 @@ inline constexpr const char *ESPECTRE_DEFAULT_DEVICE_LABEL = "";
  * reboots and BLE reprovisioning.
  */
 struct EspectreDeviceConfig {
-  /** Stable device identity. Zero means derive it from the Wi-Fi MAC. */
+  /** Stable device identity. Zero means use the runtime-generated value. */
   uint64_t device_id{ESPECTRE_DEFAULT_DEVICE_ID};
   /** Human-readable name. Empty falls back to the formatted device id. */
   std::string device_label{ESPECTRE_DEFAULT_DEVICE_LABEL};
@@ -233,11 +233,17 @@ std::string format_espectre_device_id(uint64_t device_id);
  * @return false on a malformed value, leaving the output untouched.
  */
 bool parse_espectre_device_id(const std::string &value, uint64_t *device_id);
-/** Derive a stable device id from a Wi-Fi MAC. Returns zero for a bad address. */
-uint64_t espectre_device_id_from_mac(const uint8_t *mac, size_t mac_len);
+/**
+ * Pack the first six MAC bytes into the historical numeric representation.
+ *
+ * @deprecated Runtime firmware uses the cached, domain-separated SHA-256
+ * pseudonym from `derive_runtime_device_id()` instead.
+ */
+[[deprecated("use the runtime-generated device identity")]] uint64_t espectre_device_id_from_mac(
+    const uint8_t *mac, size_t mac_len);
 /** Conventional advertised name, so devices stay identifiable in a BLE scan. */
 std::string espectre_device_name(uint64_t device_id, const char *chip = nullptr);
-/** The id actually in use: the configured one, or the MAC-derived fallback. */
+/** The id actually in use. Frontend startup replaces the zero sentinel. */
 uint64_t espectre_effective_device_id_u64(const EspectreDeviceConfig &config);
 /** `espectre_effective_device_id_u64()` in wire form. */
 std::string espectre_effective_device_id(const EspectreDeviceConfig &config);
