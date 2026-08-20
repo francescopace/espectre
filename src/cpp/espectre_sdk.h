@@ -60,7 +60,7 @@
  *   networking, OTA, and the product surface. ESPectre owns Wi-Fi CSI capture,
  *   calibration, detection, and eventing behind
  *   `espectre::RuntimeFrontendController` and `espectre::IRuntimeListener`.
- *   Requires ESP-IDF >= 5.1.
+ *   Requires ESP-IDF >= 5.5.
  * - **Core-only.** Your firmware already captures CSI. Drive
  *   `espectre::LightweightDetector` or `espectre::HighAccuracyDetector` directly; they need
  *   nothing but the C++17 standard library. `runtime/esp_idf/csi_pipeline.cpp`

@@ -49,7 +49,7 @@ Three rules cover most integration mistakes:
 | `src/cpp/espectre_sdk.h` | The SDK facade: the supported surface in one include | Header only |
 | `src/cpp/core/` | Lightweight and High-Accuracy detectors, feature extraction, filters, CSI format | C++17 standard library only |
 | `src/cpp/runtime/` | Runtime contracts, snapshots, events, ESPectre Protocol model, traffic generation | Portable, host-testable |
-| `src/cpp/runtime/esp_idf/` | CSI capture, Wi-Fi lifecycle, sensing pipeline, traffic generation, NVS persistence | ESP-IDF `>= 5.1` |
+| `src/cpp/runtime/esp_idf/` | CSI capture, Wi-Fi lifecycle, sensing pipeline, traffic generation, NVS persistence | ESP-IDF `>= 5.5` |
 | `src/cpp/frontend/` | ESPHome, native BLE/MQTT, Matter, and streamer reference integrations | Frontend-specific stacks |
 
 The layering is strict: `core` has no upward or SDK dependencies, and `runtime` contracts stay platform-agnostic, so the sensing logic can be compiled, tested, and simulated on a host machine without ESP-IDF.
@@ -174,7 +174,7 @@ Both surfaces build the same sources; they differ only in how you select the opt
 
 - **CMake / ESP-IDF**: include `src/cpp/espectre_sources.cmake` and consume the source lists (`ESPECTRE_CORE_SOURCES`, `ESPECTRE_RUNTIME_ESP_IDF_SOURCES`, and the per-capability lists for BLE, MQTT, provisioning, and OTA) plus `ESPECTRE_SHARED_INCLUDE_DIRS`. The frontend `CMakeLists.txt` files show the working combinations.
 - **Vendored ESP-IDF component**: drop `src/cpp/` into your project's `components/` directory and add `espectre` to your own component's `REQUIRES`. The sensing runtime is always built; the optional groups are opt-in under the "ESPectre SDK" menuconfig menu.
-- **Toolchain**: C++17, ESP-IDF `>= 5.1` for the `runtime/esp_idf` services.
+- **Toolchain**: C++17, ESP-IDF `>= 5.5` for the `runtime/esp_idf` services. Repository builds use ESP-IDF `5.5.5`.
 
 `ESPECTRE_SHARED_INCLUDE_DIRS` puts the SDK root on the include path, so both the flat form (`#include "runtime_interface.h"`) and the layer-prefixed form (`#include "runtime/runtime_interface.h"`) work. Prefer the prefixed form: the shared tree contains generic basenames such as `utils.h` and `filters.h`, and the prefix keeps them from colliding with headers of your own.
 

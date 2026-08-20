@@ -243,6 +243,7 @@ def test_sdk_snapshot_stamps_git_describe_identity(tmp_path: Path) -> None:
     assert manifest["package_version"] == "2.8.0-237-g7439944"
     assert manifest["sdk_version"] == "2.8.0-237-g7439944"
     assert manifest["release_tag"] == develop_tag
+    assert manifest["supported_esp_idf"] == ">=5.5.0"
     assert manifest["artifacts"][0]["filename"] == "espectre-sdk-develop.tar.gz"
     assert f"/releases/download/{develop_tag}/" in manifest["artifacts"][0]["url"]
 
@@ -256,6 +257,15 @@ def test_sdk_snapshot_stamps_git_describe_identity(tmp_path: Path) -> None:
     assert "#define ESPECTRE_SDK_VERSION_MAJOR 2" in header
     assert "ESPectre SDK version is unresolved" not in header
     assert 'version: "2.8.0-237-g7439944"' in yml
+    assert 'version: ">=5.5.0"' in yml
+    for relative_path in (
+        "src/cpp/frontend/native/espectre/idf_component.yml",
+        "src/cpp/frontend/streamer/espectre/idf_component.yml",
+        "src/cpp/frontend/matter/espectre/idf_component.yml",
+        "src/cpp/frontend/matter/app/main/idf_component.yml",
+    ):
+        frontend_manifest = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+        assert 'version: ">=5.5.0"' in frontend_manifest
 
 
 def test_indexnow_retries_transient_failures_and_sends_the_sitemap(tmp_path: Path) -> None:
