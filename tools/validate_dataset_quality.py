@@ -3295,27 +3295,13 @@ def _mapping_optional_value(data, key):
 
 
 def _call_classic_self_baseline_stats(csi_data, packet_rate_pps, **kwargs):
-    """Call the idle-baseline helper with compatibility for older test doubles."""
-    try:
-        return _classic_self_baseline_stats(csi_data, packet_rate_pps, **kwargs)
-    except TypeError:
-        legacy_kwargs = dict(kwargs)
-        legacy_kwargs.pop("stream_seq_num", None)
-        legacy_kwargs.pop("device_ticks_us", None)
-        legacy_kwargs.pop("wifi_rx_ts_us", None)
-        return _classic_self_baseline_stats(csi_data, packet_rate_pps, **legacy_kwargs)
+    """Call the idle-baseline helper through its current timing-aware contract."""
+    return _classic_self_baseline_stats(csi_data, packet_rate_pps, **kwargs)
 
 
 def _call_replay_classic_metrics(csi_data, detector, **kwargs):
-    """Call the Lightweight replay helper with compatibility for older test doubles."""
-    try:
-        return _replay_classic_metrics(csi_data, detector, **kwargs)
-    except TypeError:
-        legacy_kwargs = dict(kwargs)
-        legacy_kwargs.pop("stream_seq_num", None)
-        legacy_kwargs.pop("device_ticks_us", None)
-        legacy_kwargs.pop("wifi_rx_ts_us", None)
-        return _replay_classic_metrics(csi_data, detector, **legacy_kwargs)
+    """Call Lightweight replay through its current timing-aware contract."""
+    return _replay_classic_metrics(csi_data, detector, **kwargs)
 
 
 def _calibration_packets(
@@ -3331,6 +3317,7 @@ def _calibration_packets(
     normalized_seq = None if stream_seq_num is None else np.asarray(stream_seq_num)
     normalized_ticks = None if device_ticks_us is None else np.asarray(device_ticks_us)
     normalized_wifi = None if wifi_rx_ts_us is None else np.asarray(wifi_rx_ts_us)
+
     for index, packet in enumerate(csi_data):
         rssi_value = _packet_rssi_at(normalized_rssi, index)
         payload = {"csi_data": packet}
@@ -3375,6 +3362,26 @@ def _replay_classic_metrics(
     normalized_seq = None if stream_seq_num is None else np.asarray(stream_seq_num)
     normalized_ticks = None if device_ticks_us is None else np.asarray(device_ticks_us)
     normalized_wifi = None if wifi_rx_ts_us is None else np.asarray(wifi_rx_ts_us)
+
+    def consume_admission(admission):
+        admitted_packet = admission.packet
+        if admission.reset_required:
+            cadence.reset()
+        apply_temporal_admission(detector, admission)
+        detector.process_packet(
+            admitted_packet["csi_data"],
+            DEFAULT_SUBCARRIERS,
+            rssi_dbm=admitted_packet["rssi_dbm"],
+        )
+        cadence.note_packet(elapsed_us=admission.coverage_us)
+        if not cadence.should_evaluate():
+            return
+        metrics = detector.update_state()
+        cadence.after_evaluation()
+        if detector.is_ready():
+            score_series.append(float(metrics.get("motion_metric", 0.0)))
+            state_series.append(int(detector.get_state() == MotionState.MOTION))
+
     for index, packet in enumerate(csi_data):
         packet_view = {
             "csi_data": packet,
@@ -3389,22 +3396,10 @@ def _replay_classic_metrics(
         admission = temporal.admit(packet_view)
         if admission is None:
             continue
-        if admission.reset_required:
-            cadence.reset()
-        apply_temporal_admission(detector, admission)
-        detector.process_packet(
-            packet,
-            DEFAULT_SUBCARRIERS,
-            rssi_dbm=packet_view["rssi_dbm"],
-        )
-        cadence.note_packet(elapsed_us=admission.coverage_us)
-        if not cadence.should_evaluate():
-            continue
-        metrics = detector.update_state()
-        cadence.after_evaluation()
-        if detector.is_ready():
-            score_series.append(float(metrics.get("motion_metric", 0.0)))
-            state_series.append(int(detector.get_state() == MotionState.MOTION))
+        consume_admission(admission)
+    admission = temporal.finish()
+    if admission is not None:
+        consume_admission(admission)
 
     return {
         "threshold": float(detector.get_threshold()),

@@ -210,7 +210,7 @@ def connect_wifi():
         raise Exception("Connection timeout")
 
 
-def run_startup_calibration(wlan, detector, traffic_gen, packet_interval_us=None):
+def run_startup_calibration(wlan, detector, traffic_gen):
     """
     Run startup calibration with fixed subcarriers.
     
@@ -308,9 +308,7 @@ def run_startup_calibration(wlan, detector, traffic_gen, packet_interval_us=None
     calibration_progress = 0
     packets_since_evaluation = 0
     next_progress_report = 100
-    last_progress_time = time.ticks_ms()
-    last_packet_time = last_progress_time
-    last_progress_count = 0
+    last_packet_time = time.ticks_ms()
     collapse_logged = False
     remap_logged = False
     ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
@@ -347,7 +345,7 @@ def run_startup_calibration(wlan, detector, traffic_gen, packet_interval_us=None
                     return False
                 continue
 
-            csi_data, raw_len, remap_tag = normalize_ht20_csi_payload(
+            csi_data, _, remap_tag = normalize_ht20_csi_payload(
                 frame[5], EXPECTED_CSI_LEN,
                 remap_buffer=ht57_remap_buffer,
                 assessment=assessment,
@@ -470,8 +468,6 @@ def run_startup_calibration(wlan, detector, traffic_gen, packet_interval_us=None
                         )(),
                     )
                 )
-                last_progress_time = current_time
-                last_progress_count = calibration_progress
                 while next_progress_report <= calibration_progress:
                     next_progress_report += 100
         else:
@@ -692,7 +688,6 @@ def main():
         wlan,
         detector,
         traffic_gen,
-        packet_interval_us=observed_interval_us,
     )
     if not calibration_ok:
         if traffic_gen.is_running():
@@ -740,7 +735,6 @@ def main():
     print(f'Free memory before main loop: {gc.mem_free()} bytes')
     
     # Main CSI processing loop with integrated MQTT publishing
-    publish_counter = 0
     processed_packet_count = 0
     callback_packet_count = 0
     mqtt_poll_counter = 0
@@ -856,10 +850,8 @@ def main():
                         latest_motion_metric = mqtt_handler.last_variance
                         latest_threshold = mqtt_handler.last_threshold
                         latest_effective_state = runtime_policy.effective_state
-                        publish_counter = 0
                         last_publish_time = current_time
                         continue
-                publish_counter = 0
                 last_publish_time = current_time
             
             frame = csi_read_frame(wlan, frame_result)
@@ -888,7 +880,7 @@ def main():
                     time.sleep_us(100)
                     continue
 
-                csi_data, raw_len, remap_tag = normalize_ht20_csi_payload(
+                csi_data, _, remap_tag = normalize_ht20_csi_payload(
                     frame[5], EXPECTED_CSI_LEN,
                     remap_buffer=ht57_remap_buffer,
                     assessment=assessment,
@@ -969,7 +961,6 @@ def main():
                             latest_effective_state = runtime_policy.effective_state
                             continue
                 
-                publish_counter += 1
                 if g_state.current_channel != 0 and packet_channel != g_state.current_channel:
                     print(f"[WARN] WiFi channel changed: {g_state.current_channel} -> {packet_channel}, resetting detection buffer")
                     detector.reset()

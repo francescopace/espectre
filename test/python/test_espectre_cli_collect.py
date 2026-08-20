@@ -136,7 +136,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
             self._context = FakeContext()
             self._threshold = kwargs.get("threshold", 0.5)
 
-        def process_packet(self, csi_data, subcarriers):
+        def process_packet(self, csi_data, subcarriers, rssi_dbm=None, timestamp_us=None):
             pass
 
         def update_state(self):
@@ -166,7 +166,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
             super().__init__(**kwargs)
             self._seen_packets = 0
 
-        def process_packet(self, csi_data, subcarriers):
+        def process_packet(self, csi_data, subcarriers, rssi_dbm=None, timestamp_us=None):
             self._seen_packets += 1
 
         def reset(self):
@@ -198,7 +198,7 @@ def _install_live_collect_modules(monkeypatch, receiver_cls, pacing_cls, collect
         def __init__(self, **kwargs):
             pass
 
-        def note_packet(self):
+        def note_packet(self, elapsed_us=None):
             pass
 
         def should_evaluate(self):
@@ -1112,7 +1112,7 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
         def __init__(self, **kwargs):
             self._context = FakeContext()
 
-        def process_packet(self, csi_data, subcarriers):
+        def process_packet(self, csi_data, subcarriers, rssi_dbm=None, timestamp_us=None):
             pass
 
         def update_state(self):
@@ -1128,7 +1128,7 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
         def __init__(self, **kwargs):
             pass
 
-        def note_packet(self):
+        def note_packet(self, elapsed_us=None):
             pass
 
         def should_evaluate(self):
@@ -1475,7 +1475,7 @@ def test_collect_live_zero_ready_gate_starts_saving_immediately(monkeypatch, cap
         def __init__(self, **kwargs):
             self._context = FakeContext()
 
-        def process_packet(self, csi_data, subcarriers):
+        def process_packet(self, csi_data, subcarriers, rssi_dbm=None, timestamp_us=None):
             pass
 
         def update_state(self):
@@ -1491,7 +1491,7 @@ def test_collect_live_zero_ready_gate_starts_saving_immediately(monkeypatch, cap
         def __init__(self, **kwargs):
             pass
 
-        def note_packet(self):
+        def note_packet(self, elapsed_us=None):
             pass
 
         def should_evaluate(self):
@@ -1617,7 +1617,7 @@ def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, c
         def __init__(self, **kwargs):
             self._context = FakeContext()
 
-        def process_packet(self, csi_data, subcarriers):
+        def process_packet(self, csi_data, subcarriers, rssi_dbm=None, timestamp_us=None):
             pass
 
         def update_state(self):
@@ -1633,7 +1633,7 @@ def test_collect_live_duration_interrupt_discards_partial_capture(monkeypatch, c
         def __init__(self, **kwargs):
             pass
 
-        def note_packet(self):
+        def note_packet(self, elapsed_us=None):
             pass
 
         def should_evaluate(self):
@@ -1813,7 +1813,7 @@ def test_collect_live_handles_save_without_packets(monkeypatch, capsys) -> None:
         def __init__(self, **kwargs):
             self._context = FakeContext()
 
-        def process_packet(self, csi_data, subcarriers):
+        def process_packet(self, csi_data, subcarriers, rssi_dbm=None, timestamp_us=None):
             pass
 
         def update_state(self):
@@ -1829,7 +1829,7 @@ def test_collect_live_handles_save_without_packets(monkeypatch, capsys) -> None:
         def __init__(self, **kwargs):
             pass
 
-        def note_packet(self):
+        def note_packet(self, elapsed_us=None):
             pass
 
         def should_evaluate(self):
@@ -2263,7 +2263,7 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
             self.seen = []
             self.__class__.instances.append(self)
 
-        def process_packet(self, csi_data, subcarriers):
+        def process_packet(self, csi_data, subcarriers, rssi_dbm=None, timestamp_us=None):
             self.seen.append(int(csi_data[0]))
 
         def update_state(self):
@@ -2281,7 +2281,7 @@ def test_collect_live_tracks_interleaved_devices_independently(monkeypatch, caps
         def __init__(self, **kwargs):
             pass
 
-        def note_packet(self):
+        def note_packet(self, elapsed_us=None):
             pass
 
         def should_evaluate(self):
@@ -2415,7 +2415,7 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
         def set_cv_normalization(self, enabled):
             pass
 
-        def process_packet(self, csi_data, subcarriers):
+        def process_packet(self, csi_data, subcarriers, rssi_dbm=None, timestamp_us=None):
             pass
 
         def update_state(self):
@@ -2438,7 +2438,7 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
         def set_cv_normalization(self, enabled):
             pass
 
-        def process_packet(self, csi_data, subcarriers):
+        def process_packet(self, csi_data, subcarriers, rssi_dbm=None, timestamp_us=None):
             self._seen.append(int(csi_data[0]))
             self._context.last_turbulence = float(self._seen[-1])
             self._context.buffer_count = min(len(self._seen), self._context.window_size)
@@ -2482,7 +2482,7 @@ def test_collect_live_calibrates_classic_per_device(monkeypatch, capsys) -> None
         def __init__(self, **kwargs):
             pass
 
-        def note_packet(self):
+        def note_packet(self, elapsed_us=None):
             pass
 
         def should_evaluate(self):

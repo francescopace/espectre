@@ -429,6 +429,7 @@ class EspectreMQTTShell:
         self.running = True
         self._typed_line: str | None = None
         self._pending_lock = threading.Lock()
+        self._discovery_lock = threading.Lock()
         self._pending_command_id = ""
         self._pending_command = ""
         self._pending_payload_label = ""
@@ -495,8 +496,9 @@ class EspectreMQTTShell:
         if not self.topic_cmd:
             return
         command_id = f"cmd-{uuid.uuid4().hex[:12]}"
-        self._quiet_command_ids.add(command_id)
-        self._suppress_catalog_payload = True
+        with self._pending_lock:
+            self._quiet_command_ids.add(command_id)
+            self._suppress_catalog_payload = True
         try:
             self.client.publish(
                 self.topic_cmd,
@@ -509,8 +511,9 @@ class EspectreMQTTShell:
                 ),
             )
         except Exception:
-            self._quiet_command_ids.discard(command_id)
-            self._suppress_catalog_payload = False
+            with self._pending_lock:
+                self._quiet_command_ids.discard(command_id)
+                self._suppress_catalog_payload = False
 
     def _topic_label(self, topic: str) -> str:
         """Return the selected-device topic suffix used in received-message output."""
@@ -578,8 +581,8 @@ class EspectreMQTTShell:
             self._pending_payload_label = ""
             self._pending_result = None
             self._pending_payload = None
-        self._pending_result_event.clear()
-        self._pending_payload_event.clear()
+            self._pending_result_event.clear()
+            self._pending_payload_event.clear()
 
     def _matches_pending_result(self, data: Dict[str, Any]) -> bool:
         """Return True when an ACK belongs to the in-flight shell command."""
@@ -620,22 +623,27 @@ class EspectreMQTTShell:
         except Exception:
             return
 
-        device = self.discovered_devices.setdefault(device_id, {"device_id": device_id})
-        if "device_id" in data and data["device_id"]:
-            device["device_id"] = data["device_id"]
-        if topic.endswith("/info"):
-            for key in ("device_name", "device_label", "frontend", "chip"):
-                if data.get(key):
-                    device[key] = data[key]
-        elif topic.endswith("/status"):
-            if "online" in data:
+        with self._discovery_lock:
+            device = self.discovered_devices.setdefault(
+                device_id,
+                {"device_id": device_id},
+            )
+            if "device_id" in data and data["device_id"]:
+                device["device_id"] = data["device_id"]
+            if topic.endswith("/info"):
+                for key in ("device_name", "device_label", "frontend", "chip"):
+                    if data.get(key):
+                        device[key] = data[key]
+            elif topic.endswith("/status") and "online" in data:
                 device["online"] = bool(data["online"])
-        if "timestamp_ms" in data:
-            device["timestamp_ms"] = data["timestamp_ms"]
+            if "timestamp_ms" in data:
+                device["timestamp_ms"] = data["timestamp_ms"]
 
     def _print_discovered_devices(self) -> list[dict[str, Any]]:
         """Render the devices discovered during the MQTT scan."""
-        devices = sorted(self.discovered_devices.values(), key=lambda item: item["device_id"])
+        with self._discovery_lock:
+            devices = [dict(device) for device in self.discovered_devices.values()]
+        devices.sort(key=lambda item: item["device_id"])
         print()
         print(f"{Fore.CYAN}Discovered MQTT devices:{Style.RESET_ALL}")
         for index, device in enumerate(devices, start=1):
@@ -692,7 +700,7 @@ class EspectreMQTTShell:
         )
         time.sleep(self.DISCOVERY_TIMEOUT_S)
 
-        devices = self._print_discovered_devices() if self.discovered_devices else []
+        devices = self._print_discovered_devices()
         if not devices:
             try:
                 manual_device_id = input(
@@ -739,12 +747,12 @@ class EspectreMQTTShell:
             if label in {"commands/accepted", "commands/rejected"}:
                 accepted = label == "commands/accepted"
                 command_id = str(data.get("command_id") or "")
-                if command_id in self._quiet_command_ids:
-                    self._quiet_command_ids.discard(command_id)
-                    if not accepted:
-                        self._suppress_catalog_payload = False
-                    return
                 with self._pending_lock:
+                    if command_id in self._quiet_command_ids:
+                        self._quiet_command_ids.discard(command_id)
+                        if not accepted:
+                            self._suppress_catalog_payload = False
+                        return
                     if self._matches_pending_result(data):
                         self._pending_result = {"accepted": accepted, "data": data}
                         self._pending_result_event.set()
@@ -753,14 +761,14 @@ class EspectreMQTTShell:
                 return
             if label == "commands/catalog":
                 self._apply_catalog_payload(data)
-                if self._suppress_catalog_payload:
-                    self._suppress_catalog_payload = False
-                    with self._pending_lock:
+                with self._pending_lock:
+                    if self._suppress_catalog_payload:
+                        self._suppress_catalog_payload = False
                         if self._pending_payload_label == label:
                             self._pending_payload = (label, data)
                             self._pending_payload_event.set()
                             return
-                    return
+                        return
             with self._pending_lock:
                 if self._pending_payload_label and label == self._pending_payload_label:
                     self._pending_payload = (label, data)
@@ -778,9 +786,9 @@ class EspectreMQTTShell:
         payload_label = self._PAYLOAD_LABELS.get(str(command.get("command") or ""))
         wait_s = self.COMMAND_ACK_TIMEOUT_S if timeout_s is None else timeout_s
 
-        self._pending_result_event.clear()
-        self._pending_payload_event.clear()
         with self._pending_lock:
+            self._pending_result_event.clear()
+            self._pending_payload_event.clear()
             self._pending_command_id = command_id
             self._pending_command = str(command.get("command") or "")
             self._pending_payload_label = payload_label or ""

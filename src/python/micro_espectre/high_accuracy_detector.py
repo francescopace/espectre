@@ -53,7 +53,14 @@ BIASES = _ml_weights.BIASES
 FEATURE_NAMES = _ml_weights.FEATURE_NAMES
 
 # Re-export for convenience
-__all__ = ['HighAccuracyDetector', 'predict', 'is_motion', 'DEFAULT_SUBCARRIERS', 'FEATURE_NAMES']
+__all__ = [
+    'ProductionFeatureExtractor',
+    'HighAccuracyDetector',
+    'predict',
+    'is_motion',
+    'DEFAULT_SUBCARRIERS',
+    'FEATURE_NAMES',
+]
 
 # High-Accuracy profile constants (direct 0-1 probability scale)
 HIGH_ACCURACY_DEFAULT_THRESHOLD = 0.5
@@ -175,6 +182,256 @@ def is_motion(features, threshold=HIGH_ACCURACY_DEFAULT_THRESHOLD):
     return predict(features) > threshold
 
 
+class ProductionFeatureExtractor:
+    """MicroPython-compatible owner of the production ML feature stream."""
+
+    def __init__(self, feature_names, window_size=100,
+                 enable_lowpass=False, lowpass_cutoff=11.0,
+                 enable_hampel=True, hampel_window=7, hampel_threshold=5.0,
+                 force_aggregated=False, force_l1_tracker=False):
+        self.feature_names = tuple(feature_names)
+        self.context = SegmentationContext(
+            window_size=window_size,
+            enable_lowpass=enable_lowpass,
+            lowpass_cutoff=lowpass_cutoff,
+            enable_hampel=enable_hampel,
+            hampel_window=hampel_window,
+            hampel_threshold=hampel_threshold,
+        )
+        self.uses_l1_tracker = force_l1_tracker or any(
+            name in L1_TRACKER_FEATURES for name in self.feature_names
+        )
+        self.uses_shape_trajectory = any(
+            name in CHANNEL_SHAPE_TRAJECTORY_FEATURES
+            for name in self.feature_names
+        )
+        self.uses_aggregated_turbulence = force_aggregated or any(
+            name in AGGREGATED_TURBULENCE_FEATURES
+            for name in self.feature_names
+        )
+        self.aggregated_context = (
+            SegmentationContext(
+                window_size=window_size,
+                enable_lowpass=enable_lowpass,
+                lowpass_cutoff=lowpass_cutoff,
+                enable_hampel=enable_hampel,
+                hampel_window=hampel_window,
+                hampel_threshold=hampel_threshold,
+                adjacent_aggregation_width=TURB_IQR_AGGREGATION_WIDTH,
+            )
+            if self.uses_aggregated_turbulence else None
+        )
+        delta_window = max(2, window_size - L1_DELTA_LAG)
+        self.l1_tracker = (
+            L1DeltaTracker(
+                window_size=delta_window,
+                lag=L1_DELTA_LAG,
+                allocate_amplitude_buffer=False,
+                enable_hampel=enable_hampel,
+                hampel_window=hampel_window,
+                hampel_threshold=hampel_threshold,
+            )
+            if self.uses_l1_tracker else None
+        )
+        self.shape_trajectory_tracker = (
+            ChannelShapeTrajectoryTracker()
+            if self.uses_shape_trajectory else None
+        )
+        self._ordered_turbulence = [0.0] * window_size
+        self._ordered_validity = [False] * window_size
+        self._ordered_aggregated_turbulence = (
+            [0.0] * window_size if self.uses_aggregated_turbulence else None
+        )
+        self._ordered_aggregated_validity = (
+            [False] * window_size if self.uses_aggregated_turbulence else None
+        )
+        self._sort_scratch = (
+            self._ordered_aggregated_turbulence
+            if self._ordered_aggregated_turbulence is not None
+            else ([0.0] * window_size if "turb_zcr" in self.feature_names else None)
+        )
+        self._feature_buffer = [0.0] * len(self.feature_names)
+        # Packet extraction and chronological ordering do not overlap.
+        self._packet_subcarrier_values = (
+            self._ordered_turbulence if window_size >= 64 else [0.0] * 64
+        )
+
+    @property
+    def packet_amplitudes(self):
+        """Return the current selected-subcarrier amplitude scratch and count."""
+        return self.context._amplitude_buffer, self.context._amplitude_count
+
+    @property
+    def aggregated_amplitudes(self):
+        """Return the current aggregated amplitude scratch and count, if enabled."""
+        if self.aggregated_context is None:
+            return None, 0
+        return (
+            self.aggregated_context._amplitude_buffer,
+            self.aggregated_context._amplitude_count,
+        )
+
+    def process_packet(self, csi_data, selected_subcarriers=None, timestamp_us=None):
+        """Update every production feature tracker from one CSI packet."""
+        if selected_subcarriers is None:
+            selected_subcarriers = DEFAULT_SUBCARRIERS
+        packet_values = self._packet_subcarrier_values
+        packet_count = SegmentationContext.fill_subcarrier_energy_buffer(
+            csi_data,
+            packet_values,
+        )
+        if self.shape_trajectory_tracker is not None:
+            self.shape_trajectory_tracker.process_packet(
+                csi_data,
+                timestamp_us,
+                packet_values,
+                packet_count,
+            )
+        SegmentationContext.energies_to_amplitudes_in_place(
+            packet_values,
+            packet_count,
+        )
+        turbulence = self.context.calculate_spatial_turbulence_from_subcarrier_amplitudes(
+            packet_values,
+            packet_count,
+            selected_subcarriers,
+        )
+        if self.l1_tracker is not None:
+            self.l1_tracker.process_amplitudes(
+                self.context._amplitude_buffer,
+                self.context._amplitude_count,
+                self.context._amplitude_mean,
+            )
+        self.context.add_turbulence(turbulence)
+        if self.aggregated_context is not None:
+            aggregated = (
+                self.aggregated_context.calculate_spatial_turbulence_from_subcarrier_amplitudes(
+                    packet_values,
+                    packet_count,
+                    selected_subcarriers,
+                )
+            )
+            self.aggregated_context.add_turbulence(aggregated)
+
+    def advance_missing_slots(self, count):
+        """Preserve absent slots in every production packet-indexed stream."""
+        missing = max(0, int(count))
+        for _ in range(missing):
+            self.context.add_missing_slot()
+            if self.aggregated_context is not None:
+                self.aggregated_context.add_missing_slot()
+        if self.l1_tracker is not None:
+            self.l1_tracker.advance_missing_slots(missing)
+
+    def is_ready(self, minimum_valid_samples=None):
+        """Return whether all requested production features own a valid window."""
+        minimum = (
+            self.context.window_size
+            if minimum_valid_samples is None
+            else max(1, min(int(minimum_valid_samples), self.context.window_size))
+        )
+        if self.context.buffer_count < self.context.window_size:
+            return False
+        if self.context.valid_count < minimum:
+            return False
+        if (
+            self.l1_tracker is not None
+            and self.context.window_size > L1_DELTA_LAG
+            and self.l1_tracker.count == 0
+        ):
+            return False
+        if self.aggregated_context is not None:
+            if self.aggregated_context.buffer_count < self.aggregated_context.window_size:
+                return False
+            if self.aggregated_context.valid_count < minimum:
+                return False
+        return True
+
+    def ordered_series(self, aggregated=False):
+        """Return reusable chronological values, validity, and active count."""
+        if aggregated:
+            if self.aggregated_context is None:
+                return None, None, 0
+            count = self.aggregated_context.copy_chronological_into(
+                self._ordered_aggregated_turbulence,
+                self._ordered_aggregated_validity,
+            )
+            return (
+                self._ordered_aggregated_turbulence,
+                self._ordered_aggregated_validity,
+                count,
+            )
+        count = self.context.copy_chronological_into(
+            self._ordered_turbulence,
+            self._ordered_validity,
+        )
+        return self._ordered_turbulence, self._ordered_validity, count
+
+    def extract_features(self):
+        """Extract the configured production vector from the current window."""
+        turbulence, validity, count = self.ordered_series()
+        aggregated, aggregated_validity, aggregated_count = self.ordered_series(
+            aggregated=True
+        )
+        trajectory_innovation = None
+        trajectory_excess = None
+        trajectory_spread = None
+        trajectory_kendall = None
+        if self.shape_trajectory_tracker is not None:
+            trajectory_innovation, trajectory_excess, trajectory_spread = (
+                self.shape_trajectory_tracker.trajectory_features_with_spread()
+            )
+            trajectory_kendall = (
+                self.shape_trajectory_tracker.subband_kendall_lag_excess()
+            )
+        return extract_features_by_name(
+            turbulence,
+            count,
+            feature_names=self.feature_names,
+            aggregated_turbulence_buffer=aggregated,
+            aggregated_turbulence_count=aggregated_count,
+            sort_scratch=self._sort_scratch,
+            l1_delta_lag_ratio=(
+                self.l1_tracker.delta_lag_ratio()
+                if self.l1_tracker is not None
+                and "l1_delta_lag_ratio" in self.feature_names
+                else None
+            ),
+            chan_shape_spread_subband=(
+                trajectory_spread
+                if "chan_shape_spread_subband" in self.feature_names else None
+            ),
+            chan_shape_coherent_innovation_energy=(
+                trajectory_innovation
+                if "chan_shape_coherent_innovation_energy" in self.feature_names
+                else None
+            ),
+            chan_shape_excess_path=(
+                trajectory_excess
+                if "chan_shape_excess_path" in self.feature_names else None
+            ),
+            chan_shape_subband_kendall_lag_excess=(
+                trajectory_kendall
+                if "chan_shape_subband_kendall_lag_excess" in self.feature_names
+                else None
+            ),
+            out=self._feature_buffer,
+            reuse_aggregated_turbulence_buffer=True,
+            turbulence_validity=validity,
+            aggregated_turbulence_validity=aggregated_validity,
+        )
+
+    def reset(self):
+        """Clear all production feature state."""
+        self.context.reset(full=True)
+        if self.l1_tracker is not None:
+            self.l1_tracker.reset()
+        if self.shape_trajectory_tracker is not None:
+            self.shape_trajectory_tracker.reset()
+        if self.aggregated_context is not None:
+            self.aggregated_context.reset(full=True)
+
+
 # ============================================================================
 # HighAccuracyDetector Class
 # ============================================================================
@@ -198,8 +455,7 @@ class HighAccuracyDetector(IDetector):
     
     def __init__(self, window_size=100, threshold=HIGH_ACCURACY_DEFAULT_THRESHOLD,
                  enable_lowpass=False, lowpass_cutoff=11.0,
-                 enable_hampel=True, hampel_window=7, hampel_threshold=5.0,
-                 **kwargs):
+                 enable_hampel=True, hampel_window=7, hampel_threshold=5.0):
         """
         Initialize the High-Accuracy detector.
         
@@ -212,80 +468,28 @@ class HighAccuracyDetector(IDetector):
             hampel_window: Hampel window size (default: 7)
             hampel_threshold: Hampel threshold in MAD (default: 5.0)
         """
-        # Use SegmentationContext for turbulence calculation and filtering
-        self._context = SegmentationContext(
+        self._feature_extractor = ProductionFeatureExtractor(
+            FEATURE_NAMES,
             window_size=window_size,
             enable_lowpass=enable_lowpass,
             lowpass_cutoff=lowpass_cutoff,
             enable_hampel=enable_hampel,
             hampel_window=hampel_window,
-            hampel_threshold=hampel_threshold
+            hampel_threshold=hampel_threshold,
+        )
+        # Retain these internal aliases for device diagnostics and tests.
+        self._context = self._feature_extractor.context
+        self._aggregated_context = self._feature_extractor.aggregated_context
+        self._l1_tracker = self._feature_extractor.l1_tracker
+        self._shape_trajectory_tracker = (
+            self._feature_extractor.shape_trajectory_tracker
         )
         self._threshold = threshold
         self._packet_count = 0
         self._motion_count = 0
         self._state = MotionState.IDLE
         self._current_probability = 0.0
-        # The lag ratio needs the profile rings, but no rebuilt delta series.
-        self._use_amplitude_history = any(
-            name in L1_TRACKER_FEATURES for name in FEATURE_NAMES
-        )
-        self._use_shape_trajectory_tracker = any(
-            name in CHANNEL_SHAPE_TRAJECTORY_FEATURES for name in FEATURE_NAMES
-        )
-        self._use_aggregated_turbulence = any(
-            name in AGGREGATED_TURBULENCE_FEATURES for name in FEATURE_NAMES
-        )
-        self._aggregated_context = (
-            SegmentationContext(
-                window_size=window_size,
-                enable_lowpass=enable_lowpass,
-                lowpass_cutoff=lowpass_cutoff,
-                enable_hampel=enable_hampel,
-                hampel_window=hampel_window,
-                hampel_threshold=hampel_threshold,
-                adjacent_aggregation_width=TURB_IQR_AGGREGATION_WIDTH,
-            )
-            if self._use_aggregated_turbulence else None
-        )
-        delta_window = max(2, window_size - L1_DELTA_LAG)
-        if self._use_amplitude_history:
-            self._l1_tracker = L1DeltaTracker(
-                window_size=delta_window,
-                lag=L1_DELTA_LAG,
-                allocate_amplitude_buffer=False,
-                enable_hampel=enable_hampel,
-                hampel_window=hampel_window,
-                hampel_threshold=hampel_threshold,
-            )
-        else:
-            self._l1_tracker = None
-        self._shape_trajectory_tracker = (
-            ChannelShapeTrajectoryTracker()
-            if self._use_shape_trajectory_tracker else None
-        )
-        self._ordered_turbulence = [0.0] * window_size
-        self._ordered_turbulence_validity = [False] * window_size
-        self._ordered_aggregated_turbulence = (
-            [0.0] * window_size if self._use_aggregated_turbulence else None
-        )
-        self._ordered_aggregated_validity = (
-            [False] * window_size if self._use_aggregated_turbulence else None
-        )
         self._minimum_valid_samples = window_size
-        self._series_sort_scratch = (
-            self._ordered_aggregated_turbulence
-            if self._ordered_aggregated_turbulence is not None
-            else ([0.0] * window_size if "turb_zcr" in FEATURE_NAMES else None)
-        )
-        self._feature_buffer = [0.0] * len(FEATURE_NAMES)
-        # Production windows already exceed one HT20 frame. Packet extraction
-        # and chronological ordering never overlap, so they share that scratch.
-        self._packet_subcarrier_values = (
-            self._ordered_turbulence
-            if window_size >= 64
-            else [0.0] * 64
-        )
         workspace_size = max(
             len(FEATURE_MEAN),
             max(len(layer_biases) for layer_biases in BIASES),
@@ -310,60 +514,15 @@ class HighAccuracyDetector(IDetector):
             timestamp_us: Optional monotonic packet timestamp in microseconds
         """
         self._packet_count += 1
-        if selected_subcarriers is None:
-            selected_subcarriers = DEFAULT_SUBCARRIERS
-
-        packet_values = self._packet_subcarrier_values
-        packet_value_count = SegmentationContext.fill_subcarrier_energy_buffer(
+        self._feature_extractor.process_packet(
             csi_data,
-            packet_values,
+            selected_subcarriers,
+            timestamp_us,
         )
-        if self._shape_trajectory_tracker is not None:
-            self._shape_trajectory_tracker.process_packet(
-                csi_data,
-                timestamp_us,
-                packet_values,
-                packet_value_count,
-            )
-        SegmentationContext.energies_to_amplitudes_in_place(
-            packet_values,
-            packet_value_count,
-        )
-
-        turbulence = (
-            self._context.calculate_spatial_turbulence_from_subcarrier_amplitudes(
-                packet_values,
-                packet_value_count,
-                selected_subcarriers,
-            )
-        )
-        if self._use_amplitude_history:
-            self._l1_tracker.process_amplitudes(
-                self._context._amplitude_buffer,
-                self._context._amplitude_count,
-                self._context._amplitude_mean,
-            )
-        # Add to buffer
-        self._context.add_turbulence(turbulence)
-        if self._aggregated_context is not None:
-            aggregated_turbulence = (
-                self._aggregated_context.calculate_spatial_turbulence_from_subcarrier_amplitudes(
-                    packet_values,
-                    packet_value_count,
-                    selected_subcarriers,
-                )
-            )
-            self._aggregated_context.add_turbulence(aggregated_turbulence)
 
     def advance_missing_slots(self, count):
         """Preserve absent slots in every packet-indexed feature stream."""
-        missing = max(0, int(count))
-        for _ in range(missing):
-            self._context.add_missing_slot()
-            if self._aggregated_context is not None:
-                self._aggregated_context.add_missing_slot()
-        if self._l1_tracker is not None:
-            self._l1_tracker.advance_missing_slots(missing)
+        self._feature_extractor.advance_missing_slots(count)
 
     def set_minimum_valid_samples(self, count):
         self._minimum_valid_samples = max(1, min(int(count), self._context.window_size))
@@ -414,119 +573,8 @@ class HighAccuracyDetector(IDetector):
         }
     
     def _extract_features(self):
-        """
-        Extract the configured feature vector from turbulence buffer.
-        
-        IMPORTANT: The turbulence_buffer is a circular buffer. After wrap-around,
-        a simple slice [:buffer_count] would NOT be in chronological order.
-        Features like slope, delta, zcr, and autocorr depend on temporal order.
-        
-        We reconstruct the chronological order: [oldest ... newest]
-        """
-        ctx = self._context
-        
-        # Build chronological list from circular buffer
-        turb_list = self._ordered_turbulence
-        turb_validity = self._ordered_turbulence_validity
-        count = ctx.buffer_count
-        if count < ctx.window_size:
-            for i in range(count):
-                turb_list[i] = ctx.turbulence_buffer[i]
-                turb_validity[i] = ctx.validity_buffer[i]
-        else:
-            idx = ctx.buffer_index
-            tail = count - idx
-            for i in range(tail):
-                turb_list[i] = ctx.turbulence_buffer[idx + i]
-                turb_validity[i] = ctx.validity_buffer[idx + i]
-            for i in range(idx):
-                turb_list[tail + i] = ctx.turbulence_buffer[i]
-                turb_validity[tail + i] = ctx.validity_buffer[i]
-
-        aggregated_count = 0
-        aggregated_turbulence = None
-        if self._aggregated_context is not None:
-            aggregated_ctx = self._aggregated_context
-            aggregated_turbulence = self._ordered_aggregated_turbulence
-            aggregated_validity = self._ordered_aggregated_validity
-            aggregated_count = aggregated_ctx.buffer_count
-            if aggregated_count < aggregated_ctx.window_size:
-                for i in range(aggregated_count):
-                    aggregated_turbulence[i] = (
-                        aggregated_ctx.turbulence_buffer[i]
-                    )
-                    aggregated_validity[i] = aggregated_ctx.validity_buffer[i]
-            else:
-                aggregated_idx = aggregated_ctx.buffer_index
-                aggregated_tail = aggregated_count - aggregated_idx
-                for i in range(aggregated_tail):
-                    aggregated_turbulence[i] = (
-                        aggregated_ctx.turbulence_buffer[aggregated_idx + i]
-                    )
-                    aggregated_validity[i] = (
-                        aggregated_ctx.validity_buffer[aggregated_idx + i]
-                    )
-                for i in range(aggregated_idx):
-                    aggregated_turbulence[aggregated_tail + i] = (
-                        aggregated_ctx.turbulence_buffer[i]
-                    )
-                    aggregated_validity[aggregated_tail + i] = (
-                        aggregated_ctx.validity_buffer[i]
-                    )
-        trajectory_innovation = None
-        trajectory_excess = None
-        trajectory_spread = None
-        trajectory_kendall = None
-        if self._shape_trajectory_tracker is not None:
-            trajectory_innovation, trajectory_excess, trajectory_spread = (
-                self._shape_trajectory_tracker.trajectory_features_with_spread()
-            )
-            trajectory_kendall = (
-                self._shape_trajectory_tracker.subband_kendall_lag_excess()
-            )
-        return extract_features_by_name(
-            turb_list, count,
-            feature_names=FEATURE_NAMES,
-            aggregated_turbulence_buffer=aggregated_turbulence,
-            aggregated_turbulence_count=aggregated_count,
-            sort_scratch=self._series_sort_scratch,
-            l1_delta_lag_ratio=(
-                self._l1_tracker.delta_lag_ratio()
-                if (
-                    self._l1_tracker is not None
-                    and "l1_delta_lag_ratio" in FEATURE_NAMES
-                )
-                else None
-            ),
-            chan_shape_spread_subband=(
-                trajectory_spread
-                if "chan_shape_spread_subband" in FEATURE_NAMES
-                else None
-            ),
-            chan_shape_coherent_innovation_energy=(
-                trajectory_innovation
-                if "chan_shape_coherent_innovation_energy" in FEATURE_NAMES
-                else None
-            ),
-            chan_shape_excess_path=(
-                trajectory_excess
-                if "chan_shape_excess_path" in FEATURE_NAMES
-                else None
-            ),
-            chan_shape_subband_kendall_lag_excess=(
-                trajectory_kendall
-                if "chan_shape_subband_kendall_lag_excess" in FEATURE_NAMES
-                else None
-            ),
-            out=self._feature_buffer,
-            reuse_aggregated_turbulence_buffer=True,
-            turbulence_validity=turb_validity,
-            aggregated_turbulence_validity=(
-                aggregated_validity
-                if self._aggregated_context is not None
-                else None
-            ),
-        )
+        """Extract the configured production feature vector."""
+        return self._feature_extractor.extract_features()
     
     def get_state(self):
         """Get current motion state."""
@@ -549,42 +597,15 @@ class HighAccuracyDetector(IDetector):
 
     def is_ready(self):
         """Check if buffer is full."""
-        if self._context.buffer_count < self._context.window_size:
-            return False
-        if self._context.valid_count < self._minimum_valid_samples:
-            return False
-        if (
-            self._l1_tracker is not None
-            and self._context.window_size > L1_DELTA_LAG
-            and self._l1_tracker.count == 0
-        ):
-            return False
-        if (
-            self._aggregated_context is not None
-            and self._aggregated_context.buffer_count
-            < self._aggregated_context.window_size
-        ):
-            return False
-        if (
-            self._aggregated_context is not None
-            and self._aggregated_context.valid_count < self._minimum_valid_samples
-        ):
-            return False
-        return True
+        return self._feature_extractor.is_ready(self._minimum_valid_samples)
     
     def reset(self):
         """Reset detector state."""
-        self._context.reset(full=True)
+        self._feature_extractor.reset()
         self._packet_count = 0
         self._state = MotionState.IDLE
         self._current_probability = 0.0
         self._motion_count = 0
-        if self._l1_tracker is not None:
-            self._l1_tracker.reset()
-        if self._shape_trajectory_tracker is not None:
-            self._shape_trajectory_tracker.reset()
-        if self._aggregated_context is not None:
-            self._aggregated_context.reset(full=True)
         self.probability_history = []
         self.state_history = []
     

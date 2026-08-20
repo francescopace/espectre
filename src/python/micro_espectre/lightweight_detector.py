@@ -24,6 +24,7 @@ except ImportError:
 
 # Lower than any reachable logit, so the first sample of a block wins.
 _SETTLE_FLOOR = -1e9
+_SORT_SENTINEL = float("inf")
 
 
 class LightweightDetector(IDetector):
@@ -83,6 +84,7 @@ class LightweightDetector(IDetector):
         self._packet_subcarrier_values = [0.0] * 64
         self._ordered_turbulence = [0.0] * window_size
         self._ordered_validity = [False] * window_size
+        self._valid_turbulence_scratch = [0.0] * window_size
         self._minimum_valid_samples = window_size
         self._threshold = self._clamp_probability(threshold)
         self._state = MotionState.IDLE
@@ -118,13 +120,14 @@ class LightweightDetector(IDetector):
         return LightweightDetector._quantile_sorted(ordered, quantile)
 
     @staticmethod
-    def _quantile_sorted(ordered, quantile):
+    def _quantile_sorted(ordered, quantile, count=None):
         """Interpolate a quantile from an already sorted non-empty sequence."""
-        if len(ordered) == 1:
+        size = len(ordered) if count is None else int(count)
+        if size == 1:
             return ordered[0]
-        position = (len(ordered) - 1) * quantile
+        position = (size - 1) * quantile
         lower = int(position)
-        upper = min(lower + 1, len(ordered) - 1)
+        upper = min(lower + 1, size - 1)
         fraction = position - lower
         return ordered[lower] * (1.0 - fraction) + ordered[upper] * fraction
 
@@ -163,27 +166,22 @@ class LightweightDetector(IDetector):
 
     def _turb_autocorr(self):
         ctx = self._context
-        count = ctx.buffer_count
         values = self._ordered_turbulence
         validity = self._ordered_validity
-        if count < ctx.window_size:
-            for i in range(count):
-                values[i] = ctx.turbulence_buffer[i]
-                validity[i] = ctx.validity_buffer[i]
-        else:
-            start = ctx.buffer_index
-            tail = count - start
-            for i in range(tail):
-                values[i] = ctx.turbulence_buffer[start + i]
-                validity[i] = ctx.validity_buffer[start + i]
-            for i in range(start):
-                values[tail + i] = ctx.turbulence_buffer[i]
-                validity[tail + i] = ctx.validity_buffer[i]
-        valid_values = [values[i] for i in range(count) if validity[i]]
-        valid_count = len(valid_values)
-        mean = sum(valid_values) / valid_count if valid_count else 0.0
+        count = ctx.copy_chronological_into(values, validity)
+        valid_values = self._valid_turbulence_scratch
+        valid_count = 0
+        total = 0.0
+        for index in range(count):
+            if validity[index]:
+                value = values[index]
+                valid_values[valid_count] = value
+                valid_count += 1
+                total += value
+        mean = total / valid_count if valid_count else 0.0
         variance = 0.0
-        for value in valid_values:
+        for index in range(valid_count):
+            value = valid_values[index]
             diff = value - mean
             variance += diff * diff
         variance = variance / valid_count if valid_count else 0.0
@@ -194,30 +192,26 @@ class LightweightDetector(IDetector):
 
     def _turb_iqr_over_mean_aggr(self):
         ctx = self._aggregated_context
-        count = ctx.buffer_count
         values = self._ordered_turbulence
-        start = ctx.buffer_index if count >= ctx.window_size else 0
-        tail = count - start
-        for i in range(tail):
-            values[i] = ctx.turbulence_buffer[start + i]
-        for i in range(start):
-            values[tail + i] = ctx.turbulence_buffer[i]
         validity = self._ordered_validity
-        if count < ctx.window_size:
-            for i in range(count):
-                validity[i] = ctx.validity_buffer[i]
-        else:
-            for i in range(tail):
-                validity[i] = ctx.validity_buffer[start + i]
-            for i in range(start):
-                validity[tail + i] = ctx.validity_buffer[i]
-        ordered = [values[i] for i in range(count) if validity[i]]
-        if not ordered:
+        count = ctx.copy_chronological_into(values, validity)
+        ordered = self._valid_turbulence_scratch
+        valid_count = 0
+        total = 0.0
+        for index in range(count):
+            if validity[index]:
+                value = values[index]
+                ordered[valid_count] = value
+                valid_count += 1
+                total += value
+        if not valid_count:
             return 0.0
-        mean = sum(ordered) / len(ordered)
+        mean = total / valid_count
+        for index in range(valid_count, len(ordered)):
+            ordered[index] = _SORT_SENTINEL
         ordered.sort()
-        q25 = self._quantile_sorted(ordered, 0.25)
-        q75 = self._quantile_sorted(ordered, 0.75)
+        q25 = self._quantile_sorted(ordered, 0.25, valid_count)
+        q75 = self._quantile_sorted(ordered, 0.75, valid_count)
         return (q75 - q25) / max(abs(mean), 1e-6)
 
     def _calculate_logit(self, turb_autocorr, turb_iqr_over_mean_aggr):

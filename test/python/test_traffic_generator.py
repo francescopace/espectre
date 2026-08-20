@@ -272,6 +272,29 @@ class TestTrafficGeneratorStop:
         assert traffic_gen.running is False
         assert traffic_gen.rate_pps == 0
 
+    def test_stale_worker_cannot_close_restarted_worker_socket(self, traffic_gen):
+        traffic_gen.running = True
+        traffic_gen.rate_pps = 100
+        traffic_gen.gateway_ip = '192.168.1.1'
+        traffic_gen._worker_generation = 1
+        old_sock = MagicMock()
+        new_sock = MagicMock()
+
+        def restart_during_send(*_args):
+            traffic_gen._worker_generation = 2
+            traffic_gen.running = True
+            traffic_gen.sock = new_sock
+
+        old_sock.send.side_effect = restart_during_send
+
+        with patch('traffic_generator.socket.socket', return_value=old_sock):
+            traffic_gen._run_sender_task('dns', 1)
+
+        old_sock.close.assert_called_once()
+        new_sock.close.assert_not_called()
+        assert traffic_gen.sock is new_sock
+        assert traffic_gen.running is True
+
 
 class TestTrafficGeneratorConstants:
     """Test module constants"""

@@ -377,3 +377,18 @@ class TestRuntimeMotionPolicy:
         assert policy.effective_state == MotionState.IDLE
         assert policy.pending_state == MotionState.IDLE
         assert policy.pending_hits == 0
+
+    def test_reset_starts_arrival_coverage_from_a_fresh_origin(self):
+        policy = RuntimeMotionPolicy(
+            evaluation_interval_ms=250,
+            motion_on_hits=3,
+            motion_off_hits=3,
+        )
+        policy.note_arrival(0)
+        policy.note_arrival(200_000)
+
+        policy.reset()
+        policy.note_arrival(249_000)
+
+        assert policy.packets_since_evaluation == 1
+        assert policy.elapsed_us_since_evaluation == 0

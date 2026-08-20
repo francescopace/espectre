@@ -266,6 +266,10 @@ class LightweightDetectorAdapter:
         admission = self._temporal.admit(packet)
         if admission is None:
             return
+        self._consume_admission(admission)
+
+    def _consume_admission(self, admission):
+        """Process the packet selected by the production temporal sampler."""
         if admission.reset_required:
             self._cadence.reset()
         apply_temporal_admission(self._detector, admission)
@@ -273,7 +277,7 @@ class LightweightDetectorAdapter:
         should_evaluate = self._cadence.should_evaluate()
         if should_evaluate:
             self._cadence.after_evaluation()
-        csi_data = _packet_csi_data(packet)
+        csi_data = _packet_csi_data(admission.packet)
         self._detector.process_packet(csi_data, DEFAULT_SUBCARRIERS)
         if not should_evaluate:
             return
@@ -281,6 +285,12 @@ class LightweightDetectorAdapter:
         if self._track_data:
             self.metric_history.append(float(state.get('motion_metric', 0.0)))
             self.state_history.append(str(state.get('state', 'IDLE')).upper())
+
+    def finish(self):
+        """Flush the final selected temporal slot."""
+        admission = self._temporal.finish()
+        if admission is not None:
+            self._consume_admission(admission)
 
     def reset(self):
         self._detector.reset()
@@ -328,6 +338,10 @@ class HighAccuracyDetectorAdapter:
         admission = self._temporal.admit(packet)
         if admission is None:
             return
+        self._consume_admission(admission)
+
+    def _consume_admission(self, admission):
+        """Process the packet selected by the production temporal sampler."""
         if admission.reset_required:
             self._cadence.reset()
         apply_temporal_admission(self._detector, admission)
@@ -335,13 +349,19 @@ class HighAccuracyDetectorAdapter:
         should_evaluate = self._cadence.should_evaluate()
         if should_evaluate:
             self._cadence.after_evaluation()
-        csi_data = _packet_csi_data(packet)
+        csi_data = _packet_csi_data(admission.packet)
         self._detector.process_packet(csi_data, DEFAULT_SUBCARRIERS)
         if not should_evaluate:
             return
         self._detector.update_state()
         self.probability_history = self._detector.probability_history
         self.state_history = self._detector.state_history
+
+    def finish(self):
+        """Flush the final selected temporal slot."""
+        admission = self._temporal.finish()
+        if admission is not None:
+            self._consume_admission(admission)
 
     def get_motion_count(self):
         return self._detector.get_motion_count()
@@ -399,12 +419,14 @@ def compare_detection_methods(
     )
     for pkt in static_presence_packets:
         classic_baseline.process_packet(pkt)
+    classic_baseline.finish()
     methods['Lightweight']['static_presence'] = np.array(classic_baseline.metric_history)
     classic_movement = LightweightDetectorAdapter(
         motion_packets, window_size, threshold, track_data=True
     )
     for pkt in motion_packets:
         classic_movement.process_packet(pkt)
+    classic_movement.finish()
     classic_time = time.perf_counter() - start
     timing['Lightweight'] = (classic_time / num_packets) * 1e6
     methods['Lightweight']['motion'] = np.array(classic_movement.metric_history)
@@ -431,12 +453,14 @@ def compare_detection_methods(
         )
         for pkt in static_presence_packets:
             ml_baseline.process_packet(pkt)
+        ml_baseline.finish()
         methods['High Accuracy']['static_presence'] = np.array(ml_baseline.probability_history)
         ml_movement = HighAccuracyDetectorAdapter(
             motion_packets, window_size, track_data=True
         )
         for pkt in motion_packets:
             ml_movement.process_packet(pkt)
+        ml_movement.finish()
         methods['High Accuracy']['motion'] = np.array(ml_movement.probability_history)
         
         ml_time = time.perf_counter() - start

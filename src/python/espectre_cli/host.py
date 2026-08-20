@@ -595,30 +595,18 @@ def _run_live_collect(args) -> None:
         return PacketTimingTracker(nominal_interval_us)
 
     def policy_note_packet(policy, elapsed_us):
-        try:
-            policy.note_packet(elapsed_us=elapsed_us)
-        except TypeError:
-            policy.note_packet()
+        policy.note_packet(elapsed_us=elapsed_us)
 
     def policy_should_evaluate(policy):
-        try:
-            return bool(policy.should_evaluate())
-        except TypeError:
-            return bool(policy.should_evaluate(False))
+        return bool(policy.should_evaluate())
 
     def detector_process_packet(detector, csi_data, rssi_dbm, timestamp_us=None):
-        try:
-            detector.process_packet(
-                csi_data,
-                subcarriers,
-                rssi_dbm=rssi_dbm,
-                timestamp_us=timestamp_us,
-            )
-        except TypeError:
-            try:
-                detector.process_packet(csi_data, subcarriers, rssi_dbm=rssi_dbm)
-            except TypeError:
-                detector.process_packet(csi_data, subcarriers)
+        detector.process_packet(
+            csi_data,
+            subcarriers,
+            rssi_dbm=rssi_dbm,
+            timestamp_us=timestamp_us,
+        )
 
     def policy_equivalent_packets(policy, fallback_packets, nominal_interval_us):
         getter = getattr(policy, "equivalent_packets_since_evaluation", None)

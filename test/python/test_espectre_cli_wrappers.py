@@ -1523,6 +1523,29 @@ def test_mqtt_shell_discovers_and_selects_device(monkeypatch, capsys) -> None:
     assert "Selected device: 0x00000000000000aa" in captured
 
 
+def test_mqtt_shell_guards_discovery_updates_and_snapshots(monkeypatch) -> None:
+    shell, _client, _rendered = _build_shell(monkeypatch, device_id=None)
+
+    class GuardedDevices(dict):
+        def setdefault(self, key, default=None):
+            assert shell._discovery_lock.locked()
+            return super().setdefault(key, default)
+
+        def values(self):
+            assert shell._discovery_lock.locked()
+            return super().values()
+
+    shell.discovered_devices = GuardedDevices()
+    shell._record_discovered_device(
+        "espectre/v1/devices/device-a/info",
+        b'{"device_id":"device-a","device_label":"Lab"}',
+    )
+
+    devices = shell._print_discovered_devices()
+
+    assert devices == [{"device_id": "device-a", "device_label": "Lab"}]
+
+
 def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> None:
     shell, client, rendered = _build_shell(monkeypatch)
     cleared: list[str] = []
@@ -1614,6 +1637,37 @@ def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> Non
     assert "Unknown command: unknown" not in captured
     assert "invalid ota channel (accepted: release, preview, and develop)" in captured
     assert shell.running is False
+
+
+def test_mqtt_shell_updates_pending_events_under_the_state_lock(monkeypatch) -> None:
+    shell, _client, _rendered = _build_shell(monkeypatch)
+
+    class LockAwareEvent:
+        def __init__(self):
+            self.event = threading.Event()
+            self.clear_count = 0
+
+        def clear(self):
+            assert shell._pending_lock.locked()
+            self.clear_count += 1
+            self.event.clear()
+
+        def set(self):
+            assert shell._pending_lock.locked()
+            self.event.set()
+
+        def wait(self, timeout=None):
+            return self.event.wait(timeout)
+
+    result_event = LockAwareEvent()
+    payload_event = LockAwareEvent()
+    shell._pending_result_event = result_event
+    shell._pending_payload_event = payload_event
+
+    shell.send_command({"command": "set_threshold", "threshold": 0.5})
+
+    assert result_event.clear_count == 2
+    assert payload_event.clear_count == 2
 
 
 def test_mqtt_command_payload_parses_set_and_key_value_tokens() -> None:

@@ -1202,14 +1202,11 @@ class CollectionDetectorGate:
             self.detector.advance_missing_slots(
                 admission.missing_slots_before
             )
-        try:
-            self.detector.process_packet(
-                csi_data,
-                config.DEFAULT_SUBCARRIERS,
-                timestamp_us=timestamp_us,
-            )
-        except TypeError:
-            self.detector.process_packet(csi_data, config.DEFAULT_SUBCARRIERS)
+        self.detector.process_packet(
+            csi_data,
+            config.DEFAULT_SUBCARRIERS,
+            timestamp_us=timestamp_us,
+        )
         self.cadence.note_packet(
             elapsed_us=admission.coverage_us
         )

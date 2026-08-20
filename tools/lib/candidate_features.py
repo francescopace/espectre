@@ -5,8 +5,8 @@ ESPectre - Host-Side Candidate Features
 
 Registry and evaluator for the still-active host-only candidate features.
 Shared tracker math and HT20 feature primitives live in
-`host_feature_trackers.py`, which the current production feature set also uses
-during host-side training and validation.
+`host_feature_trackers.py`. Promoted features use the MicroPython production
+extractor; this module owns only candidates that have not been promoted.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 """

@@ -13,8 +13,9 @@ import time
 import _thread
 import network
 
-# Note: No thread lock needed for simple integer operations on MicroPython/ESP32
-# Integer reads/writes are atomic on 32-bit systems
+# A generation token coordinates lifecycle changes without requiring a lock or
+# a MicroPython thread join. Each worker owns its socket and exits when a newer
+# start or stop invalidates its generation.
 
 TRAFFIC_RATE_MIN = 0          # Minimum rate (0=disabled)
 TRAFFIC_RATE_MAX = 1000       # Maximum rate (packets per second)
@@ -55,6 +56,7 @@ class TrafficGenerator:
         self.error_count = 0
         self.gateway_ip = None
         self.sock = None
+        self._worker_generation = 0
         self.mode = self._normalize_mode(mode)
         self.start_time = 0  # Time when generator started (ticks_ms)
         self.avg_loop_time_ms = 0  # Average loop time for diagnostics
@@ -167,27 +169,36 @@ class TrafficGenerator:
 
         return (~checksum) & 0xFFFF
     
-    def _run_sender_task(self, mode):
+    def _run_sender_task(self, mode, generation=None):
         """Run the shared paced send loop for DNS and ICMP traffic."""
-        if self.rate_pps <= 0:
-            self.running = False
+        if generation is None:
+            generation = self._worker_generation
+        if self.rate_pps <= 0 or generation != self._worker_generation:
+            if generation == self._worker_generation:
+                self.running = False
             return
 
         is_ping = mode == MODE_PING
+        sock = None
         try:
             if is_ping:
-                self.sock = socket.socket(socket.AF_INET, SOCK_RAW, IPPROTO_ICMP)
+                sock = socket.socket(socket.AF_INET, SOCK_RAW, IPPROTO_ICMP)
             else:
-                self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.sock.setblocking(False)
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.setblocking(False)
+            if generation != self._worker_generation:
+                sock.close()
+                return
+            self.sock = sock
         except Exception as e:
             label = "ping socket" if is_ping else "socket"
             print(f"Failed to create {label}: {e}")
-            self.running = False
+            if generation == self._worker_generation:
+                self.running = False
             return
 
         dest_addr = (self.gateway_ip, 1 if is_ping else 53)
-        send_packet, use_connected_send = self._prepare_sender(self.sock, dest_addr)
+        send_packet, use_connected_send = self._prepare_sender(sock, dest_addr)
         build_packet = self._build_ping_packet if is_ping else None
         send_error_label = "Ping socket error" if is_ping else "Socket error"
         ticks_us = time.ticks_us
@@ -207,7 +218,7 @@ class TrafficGenerator:
         accumulator = 0
         next_send_time = ticks_us()
 
-        while self.running:
+        while self.running and generation == self._worker_generation:
             try:
                 loop_start = ticks_us()
                 current_rate = max(1, int(self.rate_pps))
@@ -283,17 +294,17 @@ class TrafficGenerator:
                     last_task_error_log = now_ms
                 sleep_ms_fn(max(1, interval_us // 1000))
 
-        if self.sock:
-            self.sock.close()
+        sock.close()
+        if self.sock is sock:
             self.sock = None
 
-    def _dns_task(self):
+    def _dns_task(self, generation=None):
         """Background task that sends DNS queries."""
-        self._run_sender_task(MODE_DNS)
+        self._run_sender_task(MODE_DNS, generation)
 
-    def _ping_task(self):
+    def _ping_task(self, generation=None):
         """Background task that sends ICMP echo requests."""
-        self._run_sender_task(MODE_PING)
+        self._run_sender_task(MODE_PING, generation)
     
     def start(self, rate_pps, max_retries=3, retry_delay=2, mode=None):
         """
@@ -345,6 +356,8 @@ class TrafficGenerator:
         self.target_pps = rate_pps
         self.rate_pps = rate_pps
         self.start_time = time.ticks_ms()
+        self._worker_generation += 1
+        generation = self._worker_generation
         self.running = True
         self.ping_sequence = 0
         self._reset_ping_packet()
@@ -352,7 +365,7 @@ class TrafficGenerator:
         # Start background task
         try:
             task = self._ping_task if self.mode == MODE_PING else self._dns_task
-            _thread.start_new_thread(task, ())
+            _thread.start_new_thread(task, (generation,))
             return True
         except Exception as e:
             print(f"Failed to start traffic generator: {e}")
@@ -360,15 +373,12 @@ class TrafficGenerator:
             return False
     
     def stop(self):
-        """Stop traffic generator"""
+        """Invalidate the active worker without blocking the sensing loop."""
         if not self.running:
             return
-        
+
         self.running = False
-        time.sleep(0.5)  # Give thread time to stop
-        
-        #print(f"📡 Traffic generator stopped ({self.packet_count} packets sent, {self.error_count} errors)")
-        
+        self._worker_generation += 1
         self.rate_pps = 0
         self.target_pps = 0
 

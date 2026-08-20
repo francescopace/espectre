@@ -57,6 +57,8 @@ class SegmentationContext:
             enable_hampel: Enable Hampel filter for outlier removal (default: True)
             hampel_window: Hampel filter window size (default: 7)
             hampel_threshold: Hampel filter threshold in MAD units (default: 5.0)
+            allocate_amplitude_buffer: Allocate packet-amplitude scratch storage
+            adjacent_aggregation_width: Optional adjacent-bin aggregation width
         """
         self.window_size = window_size
         self.adjacent_aggregation_width = adjacent_aggregation_width
@@ -457,14 +459,16 @@ class SegmentationContext:
             try:
                 filtered_turbulence = self.hampel_filter.filter(filtered_turbulence)
             except Exception as e:
-                print(f"[ERROR] Hampel filter failed: {e}")
+                print(f"[ERROR] Hampel filter failed and was disabled: {e}")
+                self.hampel_filter = None
 
         # Apply low-pass filter (removes high-frequency noise)
         if self.lowpass_filter is not None:
             try:
                 filtered_turbulence = self.lowpass_filter.filter(filtered_turbulence)
             except Exception as e:
-                print(f"[ERROR] LowPass filter failed: {e}")
+                print(f"[ERROR] LowPass filter failed and was disabled: {e}")
+                self.lowpass_filter = None
 
         self.last_turbulence = filtered_turbulence
 
@@ -490,6 +494,23 @@ class SegmentationContext:
             self.buffer_index = 0
         if self.buffer_count < self.window_size:
             self.buffer_count += 1
+
+    def copy_chronological_into(self, values, validity=None):
+        """Copy the active temporal ring into caller-owned chronological buffers."""
+        count = self.buffer_count
+        start = self.buffer_index if count >= self.window_size else 0
+        tail = count - start
+        for index in range(tail):
+            source = start + index
+            values[index] = self.turbulence_buffer[source]
+            if validity is not None:
+                validity[index] = self.validity_buffer[source]
+        for index in range(start):
+            destination = tail + index
+            values[destination] = self.turbulence_buffer[index]
+            if validity is not None:
+                validity[destination] = self.validity_buffer[index]
+        return count
 
     def reset(self, full=False):
         """

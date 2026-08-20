@@ -41,11 +41,12 @@ def test_subband_rank_tracking_is_enabled_only_for_the_candidate() -> None:
         ["chan_shape_subband_rank_gap"]
     )
 
-    assert not production.shape_trajectory_tracker.track_subband_rank_gap
+    assert production.shape_trajectory_tracker is None
+    assert production.production_extractor.shape_trajectory_tracker is not None
     assert candidate.shape_trajectory_tracker.track_subband_rank_gap
 
 
-def test_subband_kendall_tracking_is_enabled_only_for_the_candidate() -> None:
+def test_promoted_subband_kendall_tracking_uses_production_extractor() -> None:
     production = train_ml_model.StreamingFeatureExtractor(
         ["chan_shape_spread_subband"]
     )
@@ -53,14 +54,10 @@ def test_subband_kendall_tracking_is_enabled_only_for_the_candidate() -> None:
         ["chan_shape_subband_kendall_lag_excess"]
     )
 
-    assert not (
-        production.shape_trajectory_tracker
-        .track_subband_kendall_lag_excess
-    )
-    assert (
-        candidate.shape_trajectory_tracker
-        .track_subband_kendall_lag_excess
-    )
+    assert production.shape_trajectory_tracker is None
+    assert candidate.shape_trajectory_tracker is None
+    assert production.production_extractor.shape_trajectory_tracker is not None
+    assert candidate.production_extractor.shape_trajectory_tracker is not None
 
 
 def test_turbulence_candidates_match_their_definitions() -> None:

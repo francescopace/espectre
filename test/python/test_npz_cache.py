@@ -294,6 +294,31 @@ def test_compare_detection_methods_accepts_read_only_packet_views(tmp_path):
     np.testing.assert_array_equal(csi_data, packet_view[0]["csi_data"])
 
 
+def test_compare_detection_methods_consumes_selected_packet_and_flushes_final_slot():
+    import tools.compare_detection_methods as compare_methods
+
+    packets = [
+        {
+            "csi_data": np.full(128, value, dtype=np.int8),
+            "wifi_rx_ts_us": timestamp_us,
+            "csi_target_pps": 10,
+        }
+        for value, timestamp_us in ((1, 0), (2, 40_000), (3, 100_000))
+    ]
+    adapter = compare_methods.LightweightDetectorAdapter(packets)
+    consumed = []
+    adapter._detector.process_packet = (
+        lambda csi_data, *_args, **_kwargs: consumed.append(int(csi_data[0]))
+    )
+
+    for packet in packets:
+        adapter.process_packet(packet)
+    assert consumed == [1]
+
+    adapter.finish()
+    assert consumed == [1, 3]
+
+
 def test_source_identity_survives_a_modification_time_rewrite(tmp_path):
     """A checkout rewrites mtime without changing content; the cache must hit."""
     source_path = tmp_path / "checkout.npz"

@@ -390,9 +390,10 @@ class RuntimeMotionPolicy:
         self.reset()
 
     def reset(self):
-        """Reset cadence counters and effective motion state."""
+        """Reset cadence counters, arrival origin, and effective motion state."""
         self.packets_since_evaluation = 0
         self.elapsed_us_since_evaluation = 0
+        self._last_arrival_us = None
         self.effective_state = MotionState.IDLE
         self.pending_state = MotionState.IDLE
         self.pending_hits = 0

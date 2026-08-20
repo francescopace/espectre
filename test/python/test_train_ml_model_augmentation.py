@@ -127,15 +127,23 @@ def test_trajectory_bin_experiment_has_distinct_host_cache_identity(monkeypatch)
     )
     trainer.set_active_trajectory_bin_ms(40)
     forty_ms = trainer._host_feature_stream_provenance(
-        ["turb_autocorr", "chan_shape_excess_path"],
+        [
+            "turb_autocorr",
+            "chan_shape_excess_path",
+            "chan_shape_scale_curvature",
+        ],
     )
     extractor = trainer.StreamingFeatureExtractor(
-        ["chan_shape_excess_path"],
+        ["chan_shape_excess_path", "chan_shape_scale_curvature"],
     )
 
     trainer.set_active_trajectory_bin_ms(80)
     eighty_ms = trainer._host_feature_stream_provenance(
-        ["turb_autocorr", "chan_shape_excess_path"],
+        [
+            "turb_autocorr",
+            "chan_shape_excess_path",
+            "chan_shape_scale_curvature",
+        ],
     )
 
     assert extractor.shape_trajectory_tracker.bin_us == 40_000
@@ -145,8 +153,19 @@ def test_trajectory_bin_experiment_has_distinct_host_cache_identity(monkeypatch)
     )
     assert (
         forty_ms["feature_identities"]["chan_shape_excess_path"]
-        != eighty_ms["feature_identities"]["chan_shape_excess_path"]
+        == eighty_ms["feature_identities"]["chan_shape_excess_path"]
     )
+    assert (
+        forty_ms["feature_identities"]["chan_shape_scale_curvature"]
+        != eighty_ms["feature_identities"]["chan_shape_scale_curvature"]
+    )
+
+
+def test_promoted_trajectory_feature_uses_only_production_tracker():
+    extractor = trainer.StreamingFeatureExtractor(["chan_shape_excess_path"])
+
+    assert extractor.shape_trajectory_tracker is None
+    assert extractor.production_extractor.shape_trajectory_tracker is not None
 
 
 def test_non_default_trajectory_bin_cannot_export(monkeypatch, capsys):

@@ -204,7 +204,10 @@ class TestAddTurbulence:
         ctx.add_turbulence(5.0)
 
         assert ctx.last_turbulence == 5.0
-        assert "Hampel filter failed: filter error" in capsys.readouterr().out
+        assert ctx.hampel_filter is None
+        assert "Hampel filter failed and was disabled: filter error" in capsys.readouterr().out
+        ctx.add_turbulence(6.0)
+        assert capsys.readouterr().out == ""
 
     def test_lowpass_failure_falls_back_to_raw_value(self, capsys):
         ctx = SegmentationContext(enable_hampel=False, enable_lowpass=True)
@@ -213,7 +216,10 @@ class TestAddTurbulence:
         ctx.add_turbulence(5.0)
 
         assert ctx.last_turbulence == 5.0
-        assert "LowPass filter failed: filter error" in capsys.readouterr().out
+        assert ctx.lowpass_filter is None
+        assert "LowPass filter failed and was disabled: filter error" in capsys.readouterr().out
+        ctx.add_turbulence(6.0)
+        assert capsys.readouterr().out == ""
 
 
 class TestReset:

@@ -70,6 +70,50 @@ def test_agnostic_baseline_uses_sampler_grid_for_elapsed_time() -> None:
     assert len(baseline["block_margins"]) == 2
 
 
+def test_classic_replay_consumes_selected_packet_rssi_and_flushes_final_slot() -> None:
+    module = _load_validator_module()
+
+    class RecordingDetector:
+        def __init__(self):
+            self.consumed = []
+
+        def reset(self):
+            pass
+
+        def advance_missing_slots(self, _count):
+            pass
+
+        def process_packet(self, packet, _subcarriers, rssi_dbm=None, timestamp_us=None):
+            self.consumed.append((int(packet[0]), int(rssi_dbm)))
+
+        def update_state(self):
+            return {"motion_metric": 0.0}
+
+        def is_ready(self):
+            return False
+
+        def get_state(self):
+            return module.MotionState.IDLE
+
+        def get_threshold(self):
+            return 0.5
+
+    detector = RecordingDetector()
+    csi_data = np.stack([
+        np.full(128, value, dtype=np.int8) for value in (1, 2, 3)
+    ])
+
+    module._replay_classic_metrics(
+        csi_data,
+        detector,
+        rssi_dbm=np.asarray([-41, -42, -43]),
+        wifi_rx_ts_us=np.asarray([0, 40_000, 100_000]),
+        target_pps=10,
+    )
+
+    assert detector.consumed == [(1, -41), (3, -43)]
+
+
 def test_configure_dataset_paths_updates_shared_roots(tmp_path, monkeypatch) -> None:
     module = _load_validator_module()
     dataset_root = tmp_path / "external_dataset"

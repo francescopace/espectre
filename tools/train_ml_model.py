@@ -384,7 +384,9 @@ from temporal_csi_sampler import (
     minimum_valid_slots,
     temporal_window_slots,
 )
-from segmentation import SegmentationContext
+from ml_feature_trackers import (
+    ChannelShapeTrajectoryTracker as ProductionChannelShapeTrajectoryTracker,
+)
 from tools.lib.performance_report import (
     STRESS_TARGET_FP_RATE,
     STRESS_TARGET_RECALL,
@@ -445,7 +447,11 @@ from tools.lib.host_feature_trackers import (
     ChannelShapeTracker,
     PhaseResidualTracker,
 )
-from high_accuracy_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES, HighAccuracyDetector  # noqa: F401 (re-exported for tests)
+from high_accuracy_detector import (  # noqa: F401 (re-exported for tests)
+    FEATURE_NAMES as EXPORTED_FEATURE_NAMES,
+    HighAccuracyDetector,
+    ProductionFeatureExtractor,
+)
 
 
 def _needs_l1_tracker(feature_names):
@@ -464,28 +470,6 @@ def _needs_l1_series(feature_names):
     """
     return needs_candidate_l1_series(feature_names)
 
-
-def _production_tracker_feature_kwargs(
-    feature_names,
-    shape_trajectory_tracker=None,
-):
-    """Return preprocessed production-only tracker values for extraction."""
-    kwargs = {}
-    if shape_trajectory_tracker is not None:
-        innovation, excess, spread = (
-            shape_trajectory_tracker.trajectory_features_with_spread()
-        )
-        if 'chan_shape_spread_subband' in feature_names:
-            kwargs['chan_shape_spread_subband'] = spread
-        if 'chan_shape_coherent_innovation_energy' in feature_names:
-            kwargs['chan_shape_coherent_innovation_energy'] = innovation
-        if 'chan_shape_excess_path' in feature_names:
-            kwargs['chan_shape_excess_path'] = excess
-        if 'chan_shape_subband_kendall_lag_excess' in feature_names:
-            kwargs['chan_shape_subband_kendall_lag_excess'] = (
-                shape_trajectory_tracker.subband_kendall_lag_excess()
-            )
-    return kwargs
 
 # ============================================================================
 # Feature Selection
@@ -1561,8 +1545,11 @@ def _host_feature_base_stream_provenance(feature_names, trajectory_bin_us):
         name: _host_feature_cache_identity(name)
         for name in feature_names
     }
-    for identity in feature_identities.values():
-        if identity.get('provider') == 'channel_shape_trajectory':
+    for name, identity in feature_identities.items():
+        if (
+            name in CANDIDATE_FEATURES
+            and identity.get('provider') == 'channel_shape_trajectory'
+        ):
             identity['trajectory_bin_us'] = int(trajectory_bin_us)
     return {
         'transform': 'host_feature_rows_v4',
@@ -1584,9 +1571,12 @@ def _host_feature_base_stream_provenance(feature_names, trajectory_bin_us):
                     timing_cadence_for_window,
                     iter_temporal_admissions,
                     TemporalCsiSampler.admit,
+                    ProductionFeatureExtractor.process_packet,
+                    ProductionFeatureExtractor.advance_missing_slots,
+                    ProductionFeatureExtractor.ordered_series,
+                    ProductionFeatureExtractor.extract_features,
                     StreamingFeatureExtractor.process_packet,
                     StreamingFeatureExtractor.advance_missing_slots,
-                    StreamingFeatureExtractor._ordered_series,
                 ),
             },
         },
@@ -1691,12 +1681,14 @@ def _production_provider_digest(provider):
         )
     if provider == 'channel_shape_trajectory':
         return _implementation_source_digest(
-            ChannelShapeTrajectoryTracker.__init__,
-            ChannelShapeTrajectoryTracker.reset,
-            ChannelShapeTrajectoryTracker.process_packet,
-            ChannelShapeTrajectoryTracker._binned_path,
-            ChannelShapeTrajectoryTracker.trajectory_features_with_spread,
-            ChannelShapeTrajectoryTracker.subband_kendall_lag_excess,
+            ProductionChannelShapeTrajectoryTracker.__init__,
+            ProductionChannelShapeTrajectoryTracker.reset,
+            ProductionChannelShapeTrajectoryTracker.process_packet,
+            ProductionChannelShapeTrajectoryTracker._bin_at,
+            ProductionChannelShapeTrajectoryTracker._kendall_at,
+            ProductionChannelShapeTrajectoryTracker._modes,
+            ProductionChannelShapeTrajectoryTracker.trajectory_features_with_spread,
+            ProductionChannelShapeTrajectoryTracker.subband_kendall_lag_excess,
         )
     raise ValueError(f'Unknown production provider: {provider}')
 
@@ -5725,108 +5717,71 @@ class StreamingFeatureExtractor:
         )
         self.trajectory_elapsed_us = 0
         self.trajectory_packet_count = 0
-        self.context = SegmentationContext(
+        self.production_names, self.candidate_names = split_feature_names(
+            self.feature_names
+        )
+        self.needs_l1_tracker = _needs_l1_tracker(self.feature_names)
+        self.needs_l1_series = _needs_l1_series(self.feature_names)
+        l1_capacity = max(2, self.window_packets - L1_DELTA_LAG)
+        needs_aggregated = (
+            any(
+                name in AGGREGATED_TURBULENCE_FEATURES
+                for name in self.feature_names
+            )
+            or needs_aggregated_turbulence(self.feature_names)
+        )
+        self.production_extractor = ProductionFeatureExtractor(
+            self.production_names,
             window_size=self.window_packets,
             enable_lowpass=ENABLE_LOWPASS_FILTER,
             lowpass_cutoff=LOWPASS_CUTOFF,
             enable_hampel=ENABLE_HAMPEL_FILTER,
             hampel_window=HAMPEL_WINDOW,
             hampel_threshold=HAMPEL_THRESHOLD,
+            force_aggregated=needs_aggregated,
+            force_l1_tracker=self.needs_l1_tracker,
         )
-        # L1 features share the Hampel-filtered delta stream used by training
-        # and both runtimes; skip the tracker when the model has no L1 inputs.
-        self.needs_l1_tracker = _needs_l1_tracker(self.feature_names)
-        self.needs_l1_series = _needs_l1_series(self.feature_names)
-        l1_capacity = max(2, self.window_packets - L1_DELTA_LAG)
-        self.l1_tracker = (
-            L1DeltaTracker(
-                window_size=l1_capacity,
-                lag=L1_DELTA_LAG,
-                allocate_amplitude_buffer=False,
-                enable_hampel=ENABLE_HAMPEL_FILTER,
-                hampel_window=HAMPEL_WINDOW,
-                hampel_threshold=HAMPEL_THRESHOLD,
-            )
-            if self.needs_l1_tracker else None
-        )
+        self.context = self.production_extractor.context
+        self.aggregated_context = self.production_extractor.aggregated_context
+        self.l1_tracker = self.production_extractor.l1_tracker
         self.l1_series = [0.0] * l1_capacity if self.needs_l1_series else None
-        # Candidate features run through the same streaming path as production
-        # ones, so the replay gates measure a candidate the way a runtime would.
-        self.production_names, self.candidate_names = split_feature_names(
-            self.feature_names
-        )
-        self.aggregated_context = (
-            SegmentationContext(
-                window_size=self.window_packets,
-                enable_lowpass=ENABLE_LOWPASS_FILTER,
-                lowpass_cutoff=LOWPASS_CUTOFF,
-                enable_hampel=ENABLE_HAMPEL_FILTER,
-                hampel_window=HAMPEL_WINDOW,
-                hampel_threshold=HAMPEL_THRESHOLD,
-                adjacent_aggregation_width=TURB_IQR_AGGREGATION_WIDTH,
-            )
-            if (
-                any(
-                    name in AGGREGATED_TURBULENCE_FEATURES
-                    for name in self.feature_names
-                )
-                or needs_aggregated_turbulence(self.feature_names)
-            ) else None
-        )
         self.coherence_tracker = (
             ChannelCoherenceTracker(
                 window_size=l1_capacity,
                 lag=L1_DELTA_LAG,
-                track_subbands=needs_subband_coherence(self.feature_names),
+                track_subbands=needs_subband_coherence(self.candidate_names),
             )
-            if needs_channel_coherence(self.feature_names) else None
+            if needs_channel_coherence(self.candidate_names) else None
         )
         self.phase_tracker = (
             PhaseResidualTracker(window_size=l1_capacity, lag=L1_DELTA_LAG)
-            if needs_phase_residual(self.feature_names) else None
+            if needs_phase_residual(self.candidate_names) else None
         )
         self.shape_tracker = (
             ChannelShapeTracker(
                 window_size=l1_capacity,
                 lag=L1_DELTA_LAG,
-                feature_names=self.feature_names,
+                feature_names=self.candidate_names,
             )
-            if needs_channel_shape(self.feature_names) else None
+            if needs_channel_shape(self.candidate_names) else None
         )
         self.shape_trajectory_tracker = (
             ChannelShapeTrajectoryTracker(
                 window_duration_us=SEGMENTATION_WINDOW_SIZE_MS * 1000,
                 bin_us=ACTIVE_TRAJECTORY_BIN_US,
                 track_subband_rank_gap=(
-                    'chan_shape_subband_rank_gap' in self.feature_names
+                    'chan_shape_subband_rank_gap' in self.candidate_names
                 ),
                 track_subband_kendall_lag_excess=(
                     'chan_shape_subband_kendall_lag_excess'
-                    in self.feature_names
+                    in self.candidate_names
                 ),
             )
-            if needs_channel_shape_trajectory(self.feature_names) else None
+            if needs_channel_shape_trajectory(self.candidate_names) else None
         )
         self.amplitude_profile_tracker = (
             AmplitudeProfileTracker(window_size=self.window_packets)
-            if needs_amplitude_profiles(self.feature_names) else None
-        )
-
-    @staticmethod
-    def _ordered_series(context):
-        """Return chronological turbulence values and missing-slot validity."""
-        count = context.buffer_count
-        if count < context.window_size:
-            return (
-                list(context.turbulence_buffer[:count]),
-                list(context.validity_buffer[:count]),
-            )
-        index = context.buffer_index
-        return (
-            list(context.turbulence_buffer[index:])
-            + list(context.turbulence_buffer[:index]),
-            list(context.validity_buffer[index:])
-            + list(context.validity_buffer[:index]),
+            if needs_amplitude_profiles(self.candidate_names) else None
         )
 
     def _trajectory_timestamp_us(self, packet, timestamp_us=None):
@@ -5850,12 +5805,7 @@ class StreamingFeatureExtractor:
     def advance_missing_slots(self, count):
         """Preserve temporal holes in every tracker that owns slot state."""
         missing = max(0, int(count))
-        for _ in range(missing):
-            self.context.add_missing_slot()
-            if self.aggregated_context is not None:
-                self.aggregated_context.add_missing_slot()
-        if self.l1_tracker is not None:
-            self.l1_tracker.advance_missing_slots(missing)
+        self.production_extractor.advance_missing_slots(missing)
         for tracker in (
             self.coherence_tracker,
             self.phase_tracker,
@@ -5868,65 +5818,34 @@ class StreamingFeatureExtractor:
 
     def is_ready(self, minimum_valid_samples=None):
         """Match the production detector readiness contract for host rows."""
-        minimum = (
-            self.window_packets
-            if minimum_valid_samples is None
-            else max(1, min(int(minimum_valid_samples), self.window_packets))
-        )
-        if self.context.buffer_count < self.window_packets:
-            return False
-        if self.context.valid_count < minimum:
-            return False
-        if (
-            self.aggregated_context is not None
-            and (
-                self.aggregated_context.buffer_count < self.window_packets
-                or self.aggregated_context.valid_count < minimum
-            )
-        ):
-            return False
-        if (
-            self.l1_tracker is not None
-            and self.window_packets > L1_DELTA_LAG
-            and self.l1_tracker.count == 0
-        ):
-            return False
-        return True
+        return self.production_extractor.is_ready(minimum_valid_samples)
 
     def process_packet(self, csi_data, packet=None, timestamp_us=None):
-        turbulence, amplitudes = self.context.calculate_spatial_turbulence(
+        needs_timestamp = (
+            self.production_extractor.shape_trajectory_tracker is not None
+            or self.shape_trajectory_tracker is not None
+        )
+        resolved_timestamp = (
+            self._trajectory_timestamp_us(packet, timestamp_us)
+            if needs_timestamp else timestamp_us
+        )
+        self.production_extractor.process_packet(
             csi_data,
             DEFAULT_SUBCARRIERS,
-            return_amplitudes=True,
+            resolved_timestamp,
         )
-        self.context.add_turbulence(turbulence)
-        aggregated_turbulence = None
-        aggregated_amplitudes = None
-        if self.aggregated_context is not None:
-            if self.amplitude_profile_tracker is not None:
-                (
-                    aggregated_turbulence,
-                    aggregated_amplitudes,
-                ) = self.aggregated_context.calculate_spatial_turbulence(
-                    csi_data,
-                    DEFAULT_SUBCARRIERS,
-                    return_amplitudes=True,
-                )
-            else:
-                aggregated_turbulence = (
-                    self.aggregated_context.calculate_spatial_turbulence(
-                        csi_data,
-                        DEFAULT_SUBCARRIERS,
-                    )
-                )
-            self.aggregated_context.add_turbulence(aggregated_turbulence)
         if self.amplitude_profile_tracker is not None:
-            self.amplitude_profile_tracker.process_amplitudes(
-                amplitudes,
-                aggregated_amplitudes,
+            amplitudes, amplitude_count = self.production_extractor.packet_amplitudes
+            aggregated_amplitudes, aggregated_count = (
+                self.production_extractor.aggregated_amplitudes
             )
-        if self.l1_tracker is not None:
-            self.l1_tracker.process_amplitudes(amplitudes, len(amplitudes))
+            self.amplitude_profile_tracker.process_amplitudes(
+                amplitudes[:amplitude_count],
+                (
+                    aggregated_amplitudes[:aggregated_count]
+                    if aggregated_amplitudes is not None else None
+                ),
+            )
         if self.coherence_tracker is not None:
             self.coherence_tracker.process_packet(csi_data)
         if self.phase_tracker is not None:
@@ -5936,46 +5855,24 @@ class StreamingFeatureExtractor:
         if self.shape_trajectory_tracker is not None:
             self.shape_trajectory_tracker.process_packet(
                 csi_data,
-                self._trajectory_timestamp_us(packet, timestamp_us),
+                resolved_timestamp,
             )
         if self.context.buffer_count < self.context.window_size:
             return None
 
-        turb_list, turb_validity = self._ordered_series(self.context)
+        turb_values, _, turb_count = self.production_extractor.ordered_series()
+        turb_list = list(turb_values[:turb_count])
         aggregated_turb_list = None
-        aggregated_validity = None
         if self.aggregated_context is not None:
-            aggregated_turb_list, aggregated_validity = self._ordered_series(
-                self.aggregated_context
+            aggregated_values, _, aggregated_count = (
+                self.production_extractor.ordered_series(aggregated=True)
             )
+            aggregated_turb_list = list(aggregated_values[:aggregated_count])
         l1_count = (
             self.l1_tracker.copy_deltas_into(self.l1_series)
             if self.l1_series is not None else 0
         )
-        features = extract_features_by_name(
-            turb_list,
-            len(turb_list),
-            feature_names=self.production_names,
-            aggregated_turbulence_buffer=aggregated_turb_list,
-            aggregated_turbulence_count=(
-                len(aggregated_turb_list)
-                if aggregated_turb_list is not None else None
-            ),
-            l1_delta_lag_ratio=(
-                self.l1_tracker.delta_lag_ratio()
-                if (
-                    self.l1_tracker is not None
-                    and 'l1_delta_lag_ratio' in self.production_names
-                )
-                else None
-            ),
-            turbulence_validity=turb_validity,
-            aggregated_turbulence_validity=aggregated_validity,
-            **_production_tracker_feature_kwargs(
-                self.production_names,
-                self.shape_trajectory_tracker,
-            ),
-        )
+        features = self.production_extractor.extract_features()
         if not self.candidate_names:
             return features
         return assemble_feature_vector(
