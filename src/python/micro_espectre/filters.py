@@ -187,14 +187,15 @@ class HampelFilter:
         
         # Copy to sorted buffer and calculate deviations in single pass
         # First pass: copy and sort for median
-        for i in range(n):
-            self.sorted_buffer[i] = self.buffer[i]
-        
         if n == self.window_size:
+            for i in range(n):
+                self.sorted_buffer[i] = self.buffer[i]
             # The full buffer has no unused tail, so the runtime's native
-            # in-place sort is substantially cheaper than a Python loop.
+            # in-place sort is substantially cheaper than a Python sort loop.
             self.sorted_buffer.sort()
         else:
+            for i in range(n):
+                self.sorted_buffer[i] = self.buffer[i]
             insertion_sort(self.sorted_buffer, n)
         if n % 2 == 0:
             median = (self.sorted_buffer[mid - 1] + self.sorted_buffer[mid]) / 2.0
@@ -220,8 +221,8 @@ class HampelFilter:
         # scaled_threshold = threshold * 1.4826 (pre-calculated)
         if mad > 1e-6:  # Avoid division by zero
             diff = value - median
-            deviation = (diff if diff >= 0 else -diff) / mad  # inline abs
-            if deviation > self.scaled_threshold:
+            deviation = diff if diff >= 0 else -diff
+            if deviation > self.scaled_threshold * mad:
                 # Value is an outlier - replace with median
                 return median
         

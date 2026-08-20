@@ -1,472 +1,236 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
-"""
-ESPectre - Traffic Generator Tests
+"""Contracts for the Micro-ESPectre native traffic-generator facade."""
 
-Unit tests for the Wi-Fi traffic generator.
-
-Author: Francesco Pace <francesco.pace@gmail.com>
-"""
+import sys
+import time
+from unittest.mock import MagicMock
 
 import pytest
-import sys
-from unittest.mock import MagicMock, patch
 
-# Mock MicroPython modules before importing
+
 mock_network = MagicMock()
-mock_network.WLAN = MagicMock()
 mock_network.STA_IF = 0
-sys.modules['network'] = mock_network
+sys.modules["network"] = mock_network
 
-mock_thread = MagicMock()
-sys.modules['_thread'] = mock_thread
 
-# Add MicroPython-specific time functions to time module for testing
-import time
-if not hasattr(time, 'ticks_ms'):
+class MockNativeTraffic:
+    def __init__(self):
+        self.start_result = True
+        self.start_error = None
+        self.running = False
+        self.start_calls = []
+        self.stop_calls = 0
+        self.pause_result = True
+        self.resume_result = True
+        self.reopen_result = True
+        self.sent_packets = 0
+        self.send_errors = 0
+
+    def start(self, gateway, rate_pps, mode):
+        self.start_calls.append((gateway, rate_pps, mode))
+        if self.start_error is not None:
+            raise self.start_error
+        self.running = self.start_result
+        return self.start_result
+
+    def stop(self):
+        self.stop_calls += 1
+        self.running = False
+
+    def pause(self):
+        return self.pause_result
+
+    def resume(self):
+        return self.resume_result
+
+    def reopen(self):
+        return self.reopen_result
+
+    def is_running(self):
+        return self.running
+
+    def packet_count(self):
+        return self.sent_packets
+
+    def error_count(self):
+        return self.send_errors
+
+
+mock_native_traffic = MagicMock()
+mock_native_traffic.TrafficGenerator = MockNativeTraffic
+sys.modules["espectre_native_traffic"] = mock_native_traffic
+
+if not hasattr(time, "ticks_ms"):
     time.ticks_ms = lambda: int(time.time() * 1000)
-if not hasattr(time, 'ticks_us'):
-    time.ticks_us = lambda: int(time.time() * 1000000)
-if not hasattr(time, 'ticks_diff'):
-    time.ticks_diff = lambda t1, t2: t1 - t2
-if not hasattr(time, 'sleep_ms'):
-    time.sleep_ms = lambda ms: time.sleep(ms / 1000)
-if not hasattr(time, 'sleep_us'):
-    time.sleep_us = lambda us: time.sleep(us / 1000000)
 
-from traffic_generator import TrafficGenerator, TRAFFIC_RATE_MIN, TRAFFIC_RATE_MAX
-from traffic_rate_controller import CsiPacingHealthMonitor
-
-
-@pytest.fixture
-def traffic_gen():
-    """Create a TrafficGenerator instance"""
-    return TrafficGenerator()
+from traffic_generator import (  # noqa: E402
+    MODE_DNS,
+    MODE_PING,
+    TRAFFIC_RATE_MAX,
+    TRAFFIC_RATE_MIN,
+    TrafficGenerator,
+)
 
 
 @pytest.fixture
 def mock_wlan():
-    """Create mock WLAN interface"""
     wlan = MagicMock()
     wlan.isconnected.return_value = True
-    wlan.ifconfig.return_value = ('192.168.1.100', '255.255.255.0', '192.168.1.1', '8.8.8.8')
+    wlan.ifconfig.return_value = (
+        "192.168.1.100",
+        "255.255.255.0",
+        "192.168.1.1",
+        "8.8.8.8",
+    )
+    mock_network.WLAN.return_value = wlan
+    mock_network.WLAN.side_effect = None
     return wlan
 
 
-class TestTrafficGeneratorInit:
-    """Test TrafficGenerator initialization"""
-    
-    def test_init(self, traffic_gen):
-        """Test traffic generator initialization"""
-        assert traffic_gen.running is False
-        assert traffic_gen.rate_pps == 0
-        assert traffic_gen.packet_count == 0
-        assert traffic_gen.error_count == 0
-        assert traffic_gen.gateway_ip is None
-        assert traffic_gen.sock is None
-    
-    def test_initial_metrics(self, traffic_gen):
-        """Test initial metrics values"""
-        assert traffic_gen.start_time == 0
-        assert traffic_gen.avg_loop_time_ms == 0
-        assert traffic_gen.actual_pps == 0
+@pytest.fixture
+def traffic_gen():
+    return TrafficGenerator()
 
 
-class TestTrafficGeneratorGetters:
-    """Test getter methods"""
-    
-    def test_is_running_false(self, traffic_gen):
-        """Test is_running when not running"""
-        assert traffic_gen.is_running() is False
-    
-    def test_is_running_true(self, traffic_gen):
-        """Test is_running when running"""
-        traffic_gen.running = True
-        assert traffic_gen.is_running() is True
-    
-    def test_get_packet_count(self, traffic_gen):
-        """Test get_packet_count"""
-        traffic_gen.packet_count = 1234
-        assert traffic_gen.get_packet_count() == 1234
-    
-    def test_get_rate(self, traffic_gen):
-        """Test get_rate"""
-        traffic_gen.rate_pps = 100
-        assert traffic_gen.get_rate() == 100
-    
-    def test_get_actual_pps(self, traffic_gen):
-        """Test get_actual_pps"""
-        traffic_gen.actual_pps = 99.5678
-        assert traffic_gen.get_actual_pps() == 99.6
-    
-    def test_get_error_count(self, traffic_gen):
-        """Test get_error_count"""
-        traffic_gen.error_count = 5
-        assert traffic_gen.get_error_count() == 5
-    
-    def test_get_avg_loop_time_ms(self, traffic_gen):
-        """Test get_avg_loop_time_ms"""
-        traffic_gen.avg_loop_time_ms = 9.5678
-        assert traffic_gen.get_avg_loop_time_ms() == 9.57
+def test_init_requires_native_backend(traffic_gen):
+    assert isinstance(traffic_gen._native_traffic, MockNativeTraffic)
+    assert traffic_gen.running is False
+    assert traffic_gen.rate_pps == 0
+    assert traffic_gen.packet_count == 0
+    assert traffic_gen.error_count == 0
+    assert traffic_gen.gateway_ip is None
+    assert traffic_gen.sock is None
+    assert not hasattr(traffic_gen, "_run_sender_task")
 
 
-class TestTrafficGeneratorGetGatewayIP:
-    """Test _get_gateway_ip method"""
-    
-    def test_get_gateway_ip_success(self, traffic_gen, mock_wlan):
-        """Test getting gateway IP successfully"""
-        mock_network.WLAN.return_value = mock_wlan
-        
-        result = traffic_gen._get_gateway_ip()
-        
-        assert result == '192.168.1.1'
-    
-    def test_get_gateway_ip_not_connected(self, traffic_gen):
-        """Test getting gateway IP when not connected"""
-        mock_wlan = MagicMock()
-        mock_wlan.isconnected.return_value = False
-        mock_network.WLAN.return_value = mock_wlan
-        
-        result = traffic_gen._get_gateway_ip()
-        
-        assert result is None
-    
-    def test_get_gateway_ip_short_ifconfig(self, traffic_gen):
-        """Test getting gateway IP with short ifconfig response"""
-        mock_wlan = MagicMock()
-        mock_wlan.isconnected.return_value = True
-        mock_wlan.ifconfig.return_value = ('192.168.1.100',)  # Too short
-        mock_network.WLAN.return_value = mock_wlan
-        
-        result = traffic_gen._get_gateway_ip()
-        
-        assert result is None
-    
-    def test_get_gateway_ip_exception(self, traffic_gen):
-        """Test getting gateway IP when exception occurs"""
-        mock_network.WLAN.side_effect = Exception("Network error")
-        
-        result = traffic_gen._get_gateway_ip()
-        
-        assert result is None
-        
-        # Reset mock
-        mock_network.WLAN.side_effect = None
+@pytest.mark.parametrize("mode", (MODE_PING, MODE_DNS))
+def test_start_delegates_every_mode_to_native_backend(mode, mock_wlan):
+    generator = TrafficGenerator(mode=mode)
+    backend = generator._native_traffic
+    backend.sent_packets = 321
+    backend.send_errors = 2
+
+    assert generator.start(100) is True
+    assert backend.start_calls == [("192.168.1.1", 100, mode)]
+    assert generator.get_packet_count() == 321
+    assert generator.get_error_count() == 2
+    assert generator.is_running() is True
 
 
-class TestTrafficGeneratorPingPacket:
-    """Test reusable ICMP packet generation."""
+def test_start_accepts_mode_override(mock_wlan):
+    generator = TrafficGenerator(mode=MODE_PING)
 
-    def test_build_ping_packet_reuses_buffer_and_updates_sequence(self, traffic_gen):
-        """Ping packet builder should reuse the same bytearray."""
-        first_packet = traffic_gen._build_ping_packet()
-        second_packet = traffic_gen._build_ping_packet()
-
-        assert first_packet is second_packet
-        assert len(first_packet) == 8
-        assert first_packet[0] == 8
-        assert first_packet[1] == 0
-        assert traffic_gen.ping_sequence == 2
-
-        # First packet had sequence 0, second had sequence 1.
-        assert second_packet[6] == 0
-        assert second_packet[7] == 1
-
-    def test_build_ping_packet_produces_valid_checksum(self, traffic_gen):
-        """Checksum over the final packet should validate to zero."""
-        packet = traffic_gen._build_ping_packet()
-        assert traffic_gen._checksum(packet) == 0
+    assert generator.start(60, mode=MODE_DNS)
+    assert generator.get_mode() == MODE_DNS
+    assert generator._native_traffic.start_calls == [
+        ("192.168.1.1", 60, MODE_DNS)
+    ]
 
 
-class TestTrafficGeneratorStart:
-    """Test start method"""
-    
-    def test_start_already_running(self, traffic_gen):
-        """Test start when already running"""
-        traffic_gen.running = True
-        
-        result = traffic_gen.start(100)
-        
-        assert result is False
-    
-    def test_start_invalid_rate_too_low(self, traffic_gen):
-        """Test start with rate below minimum"""
-        result = traffic_gen.start(-1)
-        
-        assert result is False
-    
-    def test_start_invalid_rate_too_high(self, traffic_gen):
-        """Test start with rate above maximum"""
-        result = traffic_gen.start(TRAFFIC_RATE_MAX + 1)
-        
-        assert result is False
-
-    def test_start_zero_keeps_generator_stopped(self, traffic_gen):
-        """A zero rate means disabled and must not start a sender thread."""
-        mock_thread.start_new_thread.reset_mock()
-
-        result = traffic_gen.start(0)
-
-        assert result is False
-        assert traffic_gen.running is False
-        assert traffic_gen.rate_pps == 0
-        mock_thread.start_new_thread.assert_not_called()
-    
-    def test_start_no_gateway_ip(self, traffic_gen):
-        """Test start when gateway IP cannot be obtained"""
-        mock_wlan = MagicMock()
-        mock_wlan.isconnected.return_value = False
-        mock_network.WLAN.return_value = mock_wlan
-        
-        result = traffic_gen.start(100, max_retries=1, retry_delay=0)
-        
-        assert result is False
-        assert traffic_gen.running is False
-    
-    def test_start_success(self, traffic_gen, mock_wlan):
-        """Test successful start"""
-        mock_network.WLAN.return_value = mock_wlan
-        mock_thread.start_new_thread = MagicMock()
-        
-        result = traffic_gen.start(100)
-        
-        assert result is True
-        assert traffic_gen.running is True
-        assert traffic_gen.rate_pps == 100
-        assert traffic_gen.gateway_ip == '192.168.1.1'
-        mock_thread.start_new_thread.assert_called_once()
-        
-        # Cleanup
-        traffic_gen.running = False
-    
-    def test_start_thread_exception(self, traffic_gen, mock_wlan):
-        """Test start when thread creation fails"""
-        mock_network.WLAN.return_value = mock_wlan
-        mock_thread.start_new_thread = MagicMock(side_effect=Exception("Thread error"))
-        
-        result = traffic_gen.start(100)
-        
-        assert result is False
-        assert traffic_gen.running is False
+def test_start_rejects_invalid_or_disabled_rates(traffic_gen):
+    assert traffic_gen.start(-1) is False
+    assert traffic_gen.start(0) is False
+    assert traffic_gen.start(TRAFFIC_RATE_MAX + 1) is False
+    assert traffic_gen._native_traffic.start_calls == []
 
 
-class TestTrafficGeneratorStop:
-    """Test stop method"""
-    
-    def test_stop_not_running(self, traffic_gen):
-        """Test stop when not running"""
-        traffic_gen.running = False
-        
-        # Should not raise exception
-        traffic_gen.stop()
-        
-        assert traffic_gen.running is False
-    
-    def test_stop_running(self, traffic_gen):
-        """Test stop when running"""
-        traffic_gen.running = True
-        traffic_gen.rate_pps = 100
-        
-        traffic_gen.stop()
-        
-        assert traffic_gen.running is False
-        assert traffic_gen.rate_pps == 0
-
-    def test_stale_worker_cannot_close_restarted_worker_socket(self, traffic_gen):
-        traffic_gen.running = True
-        traffic_gen.rate_pps = 100
-        traffic_gen.gateway_ip = '192.168.1.1'
-        traffic_gen._worker_generation = 1
-        old_sock = MagicMock()
-        new_sock = MagicMock()
-
-        def restart_during_send(*_args):
-            traffic_gen._worker_generation = 2
-            traffic_gen.running = True
-            traffic_gen.sock = new_sock
-
-        old_sock.send.side_effect = restart_during_send
-
-        with patch('traffic_generator.socket.socket', return_value=old_sock):
-            traffic_gen._run_sender_task('dns', 1)
-
-        old_sock.close.assert_called_once()
-        new_sock.close.assert_not_called()
-        assert traffic_gen.sock is new_sock
-        assert traffic_gen.running is True
+def test_start_rejects_second_active_start(mock_wlan):
+    generator = TrafficGenerator()
+    assert generator.start(100)
+    assert generator.start(100) is False
+    assert len(generator._native_traffic.start_calls) == 1
 
 
-class TestTrafficGeneratorConstants:
-    """Test module constants"""
-    
-    def test_rate_min(self):
-        """Test minimum rate constant"""
-        assert TRAFFIC_RATE_MIN == 0
-    
-    def test_rate_max(self):
-        """Test maximum rate constant"""
-        assert TRAFFIC_RATE_MAX == 1000
+def test_start_fails_without_gateway(traffic_gen, mock_wlan):
+    mock_wlan.isconnected.return_value = False
+
+    assert traffic_gen.start(100, max_retries=1, retry_delay=0) is False
+    assert traffic_gen._native_traffic.start_calls == []
 
 
-class TestCsiPacingHealthMonitor:
-    """Passive stall telemetry for original ESP32 CSI pacing deficits."""
+def test_start_handles_native_failure(mock_wlan):
+    rejected = TrafficGenerator()
+    rejected._native_traffic.start_result = False
+    assert rejected.start(100) is False
+    assert rejected.rate_pps == 0
+    assert rejected.target_pps == 0
 
-    def test_reports_stall_after_two_low_supply_windows(self):
-        monitor = CsiPacingHealthMonitor(enabled=True)
-
-        assert monitor.maintain(0, 0, 0) == CsiPacingHealthMonitor.ACTION_NONE
-        assert monitor.maintain(40, 10, 2000) == CsiPacingHealthMonitor.ACTION_NONE
-        assert monitor.maintain(80, 20, 4000) == CsiPacingHealthMonitor.ACTION_STALL_REPORTED
-
-    def test_stall_report_respects_log_cooldown(self):
-        monitor = CsiPacingHealthMonitor(enabled=True)
-
-        monitor.maintain(0, 0, 0)
-        monitor.maintain(40, 10, 2000)
-        assert monitor.maintain(80, 20, 4000) == CsiPacingHealthMonitor.ACTION_STALL_REPORTED
-        assert monitor.maintain(120, 30, 6000) == CsiPacingHealthMonitor.ACTION_NONE
-        assert monitor.maintain(160, 40, 8000) == CsiPacingHealthMonitor.ACTION_NONE
-        assert monitor.maintain(200, 50, 14000) == CsiPacingHealthMonitor.ACTION_STALL_REPORTED
-
-    def test_healthy_supply_resets_low_windows(self):
-        monitor = CsiPacingHealthMonitor(enabled=True)
-
-        monitor.maintain(0, 0, 0)
-        assert monitor.maintain(40, 10, 2000) == CsiPacingHealthMonitor.ACTION_NONE
-        assert monitor.maintain(80, 50, 4000) == CsiPacingHealthMonitor.ACTION_NONE
-        assert monitor.maintain(120, 60, 6000) == CsiPacingHealthMonitor.ACTION_NONE
-
-    def test_disabled_monitor_is_noop(self):
-        monitor = CsiPacingHealthMonitor(enabled=False)
-
-        assert monitor.maintain(0, 0, 0) == CsiPacingHealthMonitor.ACTION_NONE
-        assert monitor.maintain(40, 10, 2000) == CsiPacingHealthMonitor.ACTION_NONE
+    failed = TrafficGenerator()
+    failed._native_traffic.start_error = OSError("native unavailable")
+    assert failed.start(100) is False
+    assert failed.running is False
 
 
-class TestTrafficGeneratorDnsTask:
-    """Test _dns_task method (partial coverage due to MicroPython dependencies)"""
-    
-    def test_dns_task_socket_creation_failure(self, traffic_gen):
-        """Test DNS task handles socket creation failure"""
-        traffic_gen.running = True
-        traffic_gen.rate_pps = 100
-        traffic_gen.gateway_ip = '192.168.1.1'
-        
-        # Mock socket to fail on creation
-        with patch('traffic_generator.socket.socket') as mock_socket:
-            mock_socket.side_effect = Exception("Socket error")
-            
-            traffic_gen._dns_task()
-            
-            assert traffic_gen.running is False
-    
-    def test_dns_task_runs_and_stops(self, traffic_gen, mock_wlan):
-        """Test DNS task runs and stops correctly"""
-        mock_network.WLAN.return_value = mock_wlan
-        traffic_gen.rate_pps = 100
-        traffic_gen.gateway_ip = '192.168.1.1'
-        traffic_gen.running = True
-        
-        # Mock socket
-        mock_sock = MagicMock()
-        mock_sock.setblocking = MagicMock()
-        mock_sock.connect = MagicMock()
-        mock_sock.send = MagicMock()
-        mock_sock.sendto = MagicMock()
-        mock_sock.close = MagicMock()
-        
-        packets_sent = [0]
-        
-        def send_and_stop(*args):
-            packets_sent[0] += 1
-            if packets_sent[0] >= 3:
-                traffic_gen.running = False
-        
-        mock_sock.send.side_effect = send_and_stop
-        mock_sock.sendto.side_effect = send_and_stop
-        
-        with patch('traffic_generator.socket.socket', return_value=mock_sock):
-            traffic_gen._dns_task()
-        
-        assert (mock_sock.send.call_count + mock_sock.sendto.call_count) >= 1
-        mock_sock.close.assert_called_once()
-    
-    def test_dns_task_socket_error(self, traffic_gen):
-        """Test DNS task handles socket send errors"""
-        traffic_gen.rate_pps = 100
-        traffic_gen.gateway_ip = '192.168.1.1'
-        traffic_gen.running = True
-        
-        mock_sock = MagicMock()
-        mock_sock.setblocking = MagicMock()
-        mock_sock.connect = MagicMock()
-        mock_sock.send = MagicMock()
-        mock_sock.close = MagicMock()
-        
-        error_count = [0]
-        
-        def send_with_error(*args):
-            error_count[0] += 1
-            if error_count[0] >= 3:
-                traffic_gen.running = False
-            raise OSError("Network unavailable")
-        
-        mock_sock.send.side_effect = send_with_error
-        mock_sock.sendto.side_effect = send_with_error
-        
-        with patch('traffic_generator.socket.socket', return_value=mock_sock):
-            traffic_gen._dns_task()
-        
-        assert traffic_gen.error_count >= 1
-    
-    def test_dns_task_general_exception(self, traffic_gen):
-        """Test DNS task handles general exceptions"""
-        traffic_gen.rate_pps = 100
-        traffic_gen.gateway_ip = '192.168.1.1'
-        traffic_gen.running = True
-        
-        mock_sock = MagicMock()
-        mock_sock.setblocking = MagicMock()
-        mock_sock.connect = MagicMock()
-        mock_sock.send = MagicMock()
-        mock_sock.close = MagicMock()
-        
-        exception_count = [0]
-        
-        def send_with_exception(*args):
-            exception_count[0] += 1
-            if exception_count[0] >= 3:
-                traffic_gen.running = False
-            raise Exception("General error")
-        
-        mock_sock.send.side_effect = send_with_exception
-        mock_sock.sendto.side_effect = send_with_exception
-        
-        with patch('traffic_generator.socket.socket', return_value=mock_sock):
-            traffic_gen._dns_task()
-        
-        assert traffic_gen.error_count >= 1
+def test_gateway_lookup_contract(traffic_gen, mock_wlan):
+    assert traffic_gen._get_gateway_ip() == "192.168.1.1"
 
-    def test_dns_task_falls_back_to_sendto_when_connect_fails(self, traffic_gen):
-        """DNS task should fall back to sendto() if connect() is unsupported."""
-        traffic_gen.rate_pps = 100
-        traffic_gen.gateway_ip = '192.168.1.1'
-        traffic_gen.running = True
+    mock_wlan.ifconfig.return_value = ("192.168.1.100",)
+    assert traffic_gen._get_gateway_ip() is None
 
-        mock_sock = MagicMock()
-        mock_sock.setblocking = MagicMock()
-        mock_sock.connect.side_effect = OSError("connect unsupported")
-        mock_sock.send = MagicMock()
-        mock_sock.sendto = MagicMock()
-        mock_sock.close = MagicMock()
+    mock_wlan.isconnected.return_value = False
+    assert traffic_gen._get_gateway_ip() is None
 
-        def sendto_and_stop(*args):
-            traffic_gen.running = False
+    mock_network.WLAN.side_effect = OSError("network unavailable")
+    assert traffic_gen._get_gateway_ip() is None
 
-        mock_sock.sendto.side_effect = sendto_and_stop
 
-        with patch('traffic_generator.socket.socket', return_value=mock_sock):
-            traffic_gen._dns_task()
+def test_mode_validation_and_live_change_guard(traffic_gen):
+    assert traffic_gen.set_mode(MODE_DNS)
+    assert traffic_gen.get_mode() == MODE_DNS
+    with pytest.raises(ValueError, match="Invalid traffic generator mode"):
+        traffic_gen.set_mode("udp")
 
-        assert mock_sock.send.call_count == 0
-        assert mock_sock.sendto.call_count >= 1
+    traffic_gen.running = True
+    assert traffic_gen.set_mode(MODE_PING) is False
+    assert traffic_gen.get_mode() == MODE_DNS
+
+
+def test_pause_resume_and_reopen_delegate_to_native(mock_wlan):
+    generator = TrafficGenerator()
+    assert generator.start(60)
+    assert generator.pause()
+    assert generator.paused
+    assert generator.resume()
+    assert not generator.paused
+    assert generator.reopen_socket()
+
+    generator._native_traffic.pause_result = False
+    assert generator.pause() is False
+    generator._native_traffic.resume_result = False
+    assert generator.resume() is False
+    generator._native_traffic.reopen_result = False
+    assert generator.reopen_socket() is False
+
+
+def test_stop_retains_native_counters(mock_wlan):
+    generator = TrafficGenerator()
+    assert generator.start(100)
+    generator._native_traffic.sent_packets = 123
+    generator._native_traffic.send_errors = 4
+
+    generator.stop()
+
+    assert generator._native_traffic.stop_calls == 1
+    assert generator.running is False
+    assert generator.get_packet_count() == 123
+    assert generator.get_error_count() == 4
+    assert generator.get_rate() == 0
+    assert generator.get_target_rate() == 0
+
+
+def test_stopped_lifecycle_calls_are_noops(traffic_gen):
+    traffic_gen.stop()
+    assert traffic_gen.pause() is False
+    assert traffic_gen.resume() is False
+    assert traffic_gen.reopen_socket() is False
+    assert traffic_gen.is_running() is False
+
+
+def test_metrics_getters(traffic_gen):
+    traffic_gen.actual_pps = 99.5678
+    traffic_gen.avg_loop_time_ms = 9.5678
+    assert traffic_gen.get_actual_pps() == 99.6
+    assert traffic_gen.get_avg_loop_time_ms() == 9.57
+    assert TRAFFIC_RATE_MIN == 0
+    assert TRAFFIC_RATE_MAX == 1000

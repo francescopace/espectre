@@ -10,19 +10,22 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 """
 import json
 import time
-from umqtt.simple import MQTTClient
+
+from espectre_native_mqtt import MQTTClient
 
 try:
     from src.detector_interface import get_detector_algorithm
-    from src.mqtt.commands import MQTTCommands
-    from src.mqtt.home_assistant import HomeAssistantMqttAdapter
+    import src.mqtt.protocol as mqtt_protocol
 except ImportError:
     from detector_interface import get_detector_algorithm
-    from mqtt.commands import MQTTCommands
-    from mqtt.home_assistant import HomeAssistantMqttAdapter
+    import mqtt.protocol as mqtt_protocol
 
 MQTT_RECONNECT_INITIAL_MS = 1000
 MQTT_RECONNECT_MAX_MS = 60000
+NATIVE_MQTT_IDLE = 0
+NATIVE_MQTT_CONNECTING = 1
+NATIVE_MQTT_CONNECTED = 2
+NATIVE_MQTT_FAILED = 3
 
 
 def _ticks_ms():
@@ -42,13 +45,38 @@ def _ticks_add(value, delta):
     return add_fn(value, delta) if add_fn is not None else value + delta
 
 
+class _DisabledHomeAssistantAdapter:
+    """Allocation-light HA adapter used on constrained runtimes."""
+
+    enabled = False
+
+    def __init__(self, config):
+        self._last_csi_traffic_mode = (
+            "internal" if getattr(config, "TRAFFIC_GENERATOR_ENABLED", True) else "external"
+        )
+        self._last_traffic_generator_mode = str(
+            getattr(config, "TRAFFIC_GENERATOR_MODE", "ping")
+        ).lower()
+
+    @staticmethod
+    def _noop(*_args, **_kwargs):
+        return None
+
+    def __getattr__(self, _name):
+        return self._noop
+
+    def set_traffic_control(self, csi_traffic_mode, traffic_generator_mode):
+        self._last_csi_traffic_mode = str(csi_traffic_mode).lower()
+        self._last_traffic_generator_mode = str(traffic_generator_mode).lower()
+
+
 class MQTTHandler:
     """MQTT handler with publishing and command support"""
-    
+
     def __init__(self, config, detector, wlan, global_state=None, runtime_policy=None, traffic_generator=None):
         """
         Initialize MQTT handler
-        
+
         Args:
             config: Configuration module
             detector: IDetector instance
@@ -63,10 +91,24 @@ class MQTTHandler:
         self.cmd_handler = None
         self.runtime_policy = runtime_policy
         self.traffic_generator = traffic_generator
+        self.device_id = mqtt_protocol.derive_runtime_device_id(wlan)
         self.csi_target_pps = max(1, int(getattr(config, "CSI_TARGET_PPS", 100)))
         self.csi_traffic_mode = "internal" if getattr(config, "TRAFFIC_GENERATOR_ENABLED", True) else "external"
         self.traffic_generator_mode = str(getattr(config, "TRAFFIC_GENERATOR_MODE", "ping")).lower()
-        self.ha_adapter = HomeAssistantMqttAdapter(config, detector, wlan, global_state)
+        if getattr(config, "MQTT_HA_DISCOVERY_ENABLED", False):
+            try:
+                from src.mqtt.home_assistant import HomeAssistantMqttAdapter
+            except ImportError:
+                from mqtt.home_assistant import HomeAssistantMqttAdapter
+            self.ha_adapter = HomeAssistantMqttAdapter(
+                config,
+                detector,
+                wlan,
+                global_state,
+                device_id=self.device_id,
+            )
+        else:
+            self.ha_adapter = _DisabledHomeAssistantAdapter(config)
         self.ha_adapter.set_calibrate_handler(self.request_recalibration)
         self.ha_adapter.set_motion_hits_handler(self.set_motion_hits)
         self.ha_adapter.set_traffic_control_handler(self.set_traffic_control)
@@ -78,11 +120,11 @@ class MQTTHandler:
         self._recalibrate_requested = False
         self._next_reconnect_ms = 0
         self._reconnect_backoff_ms = MQTT_RECONNECT_INITIAL_MS
+        self._has_connected_once = False
         self.start_time = time.time()
-        
+
         # ESPectre Protocol topics
         topic_prefix = config.MQTT_TOPIC_PREFIX.rstrip('/')
-        self.device_id = config.MQTT_CLIENT_ID
         self.base_topic = f"{topic_prefix}/{self.device_id}"
         self.telemetry_topic = f"{self.base_topic}/telemetry"
         self.status_topic = f"{self.base_topic}/status"
@@ -92,7 +134,7 @@ class MQTTHandler:
         self.cmd_topic = f"{self.base_topic}/commands/request"
         self.accepted_topic = f"{self.base_topic}/commands/accepted"
         self.rejected_topic = f"{self.base_topic}/commands/rejected"
-        
+
         # Publishing state
         self.last_variance = 0.0
         self.last_state = 0  # STATE_IDLE
@@ -120,6 +162,16 @@ class MQTTHandler:
             return False
         if self.traffic_generator.is_running():
             self.traffic_generator.stop()
+            deadline = _ticks_add(_ticks_ms(), 1000)
+            sleep_ms = getattr(time, "sleep_ms", None)
+            while (
+                getattr(self.traffic_generator, "sock", None) is not None
+                and _ticks_diff(deadline, _ticks_ms()) > 0
+            ):
+                if sleep_ms is not None:
+                    sleep_ms(10)
+                else:
+                    time.sleep(0.01)
         if not self.traffic_generator.set_mode(self.traffic_generator_mode):
             return False
         return bool(self.traffic_generator.start(self.csi_target_pps))
@@ -159,7 +211,7 @@ class MQTTHandler:
                 force=True,
             )
         return True
-        
+
     def connect(self):
         """Connect to MQTT broker"""
         self._stopping = False
@@ -168,26 +220,18 @@ class MQTTHandler:
             return self.client
         except Exception as e:
             print(f"MQTT connection failed: {e}")
-            self._mark_disconnected()
+            self._discard_client()
+            self._schedule_connect_retry()
             return None
 
-    def _connect_client(self):
-        """Create, connect, subscribe, and announce one MQTT client."""
-        self.client = MQTTClient(
-            self.config.MQTT_CLIENT_ID,
-            self.config.MQTT_BROKER,
-            port=self.config.MQTT_PORT,
-            user=self.config.MQTT_USERNAME,
-            password=self.config.MQTT_PASSWORD
-        )
-        self.ha_adapter.configure_client(self.client)
-        
-        print('Connecting to MQTT broker...')
-        self.client.connect()
-        print('MQTT connected')
-        
-        # Initialize command handler
-        self.cmd_handler = MQTTCommands(
+    def _create_command_handler(self):
+        """Load the command processor only while a command or info request runs."""
+        try:
+            from src.mqtt.commands import MQTTCommands
+        except ImportError:
+            from mqtt.commands import MQTTCommands
+
+        handler = MQTTCommands(
             self.client,
             self.config,
             self.detector,
@@ -203,11 +247,84 @@ class MQTTHandler:
             traffic_control_callback=self.set_traffic_control,
             traffic_control_supported=self.traffic_generator is not None,
             catalog_topic=self.catalog_topic,
+            device_id=self.device_id,
         )
-        
+        handler.start_time = self.start_time
+        return handler
+
+    @staticmethod
+    def _release_command_module():
+        """Release command bytecode after transient use on MicroPython."""
+        try:
+            import gc
+            import sys
+
+            if getattr(sys.implementation, "name", "") != "micropython":
+                return
+            sys.modules.pop("src.mqtt.commands", None)
+            sys.modules.pop("mqtt.commands", None)
+            gc.collect()
+        except (AttributeError, ImportError):
+            pass
+
+    def _prepare_client(self):
+        """Allocate and configure the transport without starting its task."""
+        if self.client is not None:
+            return self.client
+        broker = self.config.MQTT_BROKER
+        # MicroPython's socket resolver adds `.local` mDNS handling that the
+        # ESP-IDF MQTT task does not provide. Resolve once before the native
+        # task starts, then release the transient result objects.
+        import socket
+        address_info = socket.getaddrinfo(
+            broker,
+            self.config.MQTT_PORT,
+            socket.AF_INET,
+            socket.SOCK_STREAM,
+        )
+        broker = address_info[0][-1][0]
+        del address_info
+        client_args = {
+            "port": self.config.MQTT_PORT,
+            "user": self.config.MQTT_USERNAME,
+            "password": self.config.MQTT_PASSWORD,
+            "last_will_topic": self.status_topic,
+            "last_will_msg": json.dumps(self._status_payload(False)),
+            "last_will_retain": True,
+        }
+        self.client = MQTTClient(self.device_id, broker, **client_args)
+        self.ha_adapter.configure_client(self.client)
+        return self.client
+
+    def prepare(self):
+        """Reserve transport memory before detector calibration fragments heap."""
+        try:
+            return self._prepare_client()
+        except Exception as e:
+            print(f"MQTT preparation failed: {e}")
+            self.client = None
+            return None
+
+    def _connect_client(self):
+        """Connect, subscribe, and announce one MQTT client."""
+        self._prepare_client()
+
+        print('Connecting to MQTT broker...')
+        self.client.connect()
+        # ESP-IDF owns the socket and reports completion through status(). Do
+        # not block the MicroPython VM while the broker is unavailable.
+        self._next_reconnect_ms = 0
+
+    def _finish_client_setup(self):
+        """Subscribe and publish the session snapshot after transport connect."""
+        if self.connected:
+            return False
+        is_reconnect = self._has_connected_once
+        print('MQTT connected')
+
         # Set callback for incoming messages
         self.client.set_callback(self._on_message)
-        
+
         # Subscribe to command topic
         self.client.subscribe(self.cmd_topic)
         self.ha_adapter.subscribe_topics(self.client)
@@ -222,11 +339,15 @@ class MQTTHandler:
         )
         if not self.connected:
             raise OSError("MQTT connection lost during session setup")
+        self._has_connected_once = True
+        return is_reconnect
 
     def _mark_disconnected(self):
-        """Schedule a non-blocking reconnect after a transport failure."""
-        if not self.connected and self._next_reconnect_ms:
-            return
+        """Let the native ESP-IDF task recover a transport failure."""
+        self.connected = False
+
+    def _schedule_connect_retry(self):
+        """Back off after failing to start a native MQTT task."""
         self.connected = False
         self._next_reconnect_ms = _ticks_add(
             _ticks_ms(), self._reconnect_backoff_ms
@@ -235,42 +356,66 @@ class MQTTHandler:
             self._reconnect_backoff_ms * 2,
             MQTT_RECONNECT_MAX_MS,
         )
+
+    def _discard_client(self):
+        """Release a client whose native task could not be started."""
         if self.client:
             try:
-                self.client.disconnect()
+                self.client.deinit()
             except Exception:
                 pass
+        self.client = None
 
     def _reconnect_if_due(self):
         """Attempt one reconnect when the backoff deadline has elapsed."""
         if self._stopping or self.connected:
             return self.connected
         now = _ticks_ms()
+
+        if self.client is not None:
+            try:
+                native_status = self.client.status()
+                if native_status == NATIVE_MQTT_CONNECTED:
+                    if self._finish_client_setup():
+                        print("MQTT reconnected")
+                    return True
+                if native_status == NATIVE_MQTT_CONNECTING:
+                    return False
+                if native_status == NATIVE_MQTT_FAILED:
+                    # The native ESP-IDF transport retries in its own task.
+                    return False
+            except Exception as e:
+                print(f"MQTT status failed: {e}")
+                self._mark_disconnected()
+                return False
+
         if self._next_reconnect_ms and _ticks_diff(now, self._next_reconnect_ms) < 0:
             return False
         try:
             print("Reconnecting to MQTT broker...")
             self._connect_client()
-            print("MQTT reconnected")
-            return True
+            return False
         except Exception as e:
             print(f"MQTT reconnect failed: {e}")
-            self._next_reconnect_ms = _ticks_add(now, self._reconnect_backoff_ms)
-            self._reconnect_backoff_ms = min(
-                self._reconnect_backoff_ms * 2,
-                MQTT_RECONNECT_MAX_MS,
-            )
+            self._discard_client()
+            self._schedule_connect_retry()
             return False
-    
+
     def _on_message(self, topic, msg):
         """Callback for incoming MQTT messages"""
         try:
             topic_str = topic.decode('utf-8') if isinstance(topic, bytes) else topic
-            
+
             if topic_str == self.cmd_topic:
-                # Process command
-                self.cmd_handler.process_command(msg)
-                self._sync_ha_threshold_from_detector()
+                transient_handler = self.cmd_handler is None
+                command_handler = self.cmd_handler or self._create_command_handler()
+                try:
+                    command_handler.process_command(msg)
+                    self._sync_ha_threshold_from_detector()
+                finally:
+                    if transient_handler:
+                        del command_handler
+                        self._release_command_module()
             else:
                 self.ha_adapter.handle_message(self.client, topic_str, msg)
                 getter = getattr(self.detector, "get_threshold", None)
@@ -279,10 +424,10 @@ class MQTTHandler:
                         self.last_threshold = float(getter())
                     except (TypeError, ValueError):
                         pass
-            
+
         except Exception as e:
             print(f"Error processing MQTT message: {e}")
-    
+
     def check_messages(self):
         """Check for incoming MQTT messages (non-blocking)"""
         if not self.connected and not self._reconnect_if_due():
@@ -292,11 +437,11 @@ class MQTTHandler:
         except Exception as e:
             print(f"Error checking MQTT messages: {e}")
             self._mark_disconnected()
-    
+
     def publish_state(self, current_variance, current_state, current_threshold):
         """
         Publish current state to MQTT
-        
+
         Args:
             current_variance: Current motion metric on the shared probability scale
             current_state: Current state (0=IDLE, 1=MOTION)
@@ -314,7 +459,7 @@ class MQTTHandler:
         health = {
             'uptime_s': int(time.time() - self.start_time),
         }
-        
+
         payload = {
             'protocol_version': '1.0',
             'device_id': self.device_id,
@@ -326,7 +471,7 @@ class MQTTHandler:
             'detector': get_detector_algorithm(self.detector),
             'health': health
         }
-        
+
         try:
             self.client.publish(self.telemetry_topic, json.dumps(payload))
             self.ha_adapter.publish_movement(self.client, current_variance)
@@ -334,7 +479,7 @@ class MQTTHandler:
         except Exception as e:
             print(f"Error publishing to MQTT: {e}")
             self._mark_disconnected()
-        
+
         # Update state
         self.last_variance = current_variance
         self.last_state = current_state
@@ -424,38 +569,61 @@ class MQTTHandler:
                 force=True,
             )
         self.ha_adapter.publish_motion(self.client, self.last_state, force=True)
-    
+
     def disconnect(self):
         """Disconnect from MQTT broker"""
         self._stopping = True
         if self.client:
             try:
                 self.publish_status(False)
-                self.client.disconnect()
+                self.client.deinit()
                 print('MQTT disconnected')
             except Exception as e:
                 print(f"Error disconnecting MQTT: {e}")
+        self.client = None
         self.connected = False
-    
+
     def publish_info(self):
         """Publish system info"""
         if self.cmd_handler:
             self.cmd_handler.cmd_info()
+            return
+        if self.client is None:
+            return
+        try:
+            from src.mqtt.protocol import build_info_payload
+        except ImportError:
+            from mqtt.protocol import build_info_payload
+        payload = build_info_payload(
+            self.config,
+            get_detector_algorithm(self.detector),
+            self.wlan,
+            self.global_state,
+            self.runtime_policy,
+            self.ha_adapter,
+            self.request_recalibration,
+            self.traffic_generator is not None,
+        )
+        self.client.publish(self.info_topic, json.dumps(payload), retain=True)
 
     def publish_status(self, online):
         """Publish live online/offline status."""
         if not self.client:
             return
-        payload = {
-            "protocol_version": "1.0",
-            "device_id": self.device_id,
-            "online": bool(online),
-            "timestamp_ms": int(time.time() * 1000)
-        }
+        payload = self._status_payload(online)
         try:
-            self.client.publish(self.status_topic, json.dumps(payload))
+            self.client.publish(self.status_topic, json.dumps(payload), retain=True)
             self.ha_adapter.publish_availability(self.client, online)
         except Exception as e:
             print(f"Error publishing MQTT status: {e}")
             if not self._stopping:
                 self._mark_disconnected()
+
+    def _status_payload(self, online):
+        """Build the shared retained availability payload."""
+        return {
+            "protocol_version": "1.0",
+            "device_id": self.device_id,
+            "online": bool(online),
+            "timestamp_ms": int(time.time() * 1000)
+        }

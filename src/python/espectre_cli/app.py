@@ -19,7 +19,13 @@ from .esphome import run_esphome_command
 from .host import collect_csi_data
 from .idf import run_idf_command, run_idf_doctor
 from .idf_container import DOCKER_PULL_POLICIES
-from .micro import deploy_code, flash_firmware, run_application, verify_installation
+from .micro import (
+    build_project_firmware_command,
+    deploy_code,
+    flash_firmware,
+    run_application,
+    verify_installation,
+)
 from .mqtt_shell import EspectreMQTTShell
 from .serial_monitor import run_serial_monitor
 from .targets import ESPHOME_CONFIGS, IDF_FRONTENDS
@@ -151,11 +157,20 @@ def _add_micro_namespace(subparsers) -> None:
     )
     micro_subparsers = micro_parser.add_subparsers(dest="micro_command", required=True, help="MicroPython commands")
 
+    build_parser = micro_subparsers.add_parser(
+        "build",
+        help="Build lean Micro-ESPectre firmware for a supported ESP32 chip",
+    )
+    build_parser.add_argument("--chip", choices=MICRO_CHIP_CHOICES, default="esp32")
+    build_parser.add_argument("--clean", action="store_true", help="Discard the cached build directory first")
+    build_parser.set_defaults(handler=build_project_firmware_command)
+
     flash_parser = micro_subparsers.add_parser("flash", help="Flash MicroPython firmware to ESP32")
     flash_parser.add_argument("--chip", choices=MICRO_CHIP_CHOICES, help="ESP32 chip type (auto-detected if not specified)")
     flash_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
     flash_parser.add_argument("--erase", action="store_true", help="Erase flash before flashing (recommended)")
     flash_parser.add_argument("--firmware", help="Custom firmware path (optional)")
+    flash_parser.add_argument("--clean", action="store_true", help="Discard the cached project build directory first")
     flash_parser.set_defaults(handler=flash_firmware)
 
     deploy_parser = micro_subparsers.add_parser("deploy", help="Deploy code to MicroPython device")

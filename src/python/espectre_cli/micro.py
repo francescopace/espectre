@@ -11,20 +11,15 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 import ast
-import hashlib
 import subprocess
+import tempfile
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import List, Tuple
 
 from .common import (
-    FIRMWARE_CACHE_DIR,
-    FIRMWARE_HASHES,
-    FIRMWARE_NAME_PREFIX,
-    FIRMWARE_RELEASE_URL,
     Fore,
+    MICRO_CHIP_CHOICES,
     PYTHON_SRC_DIR,
     Style,
     detect_chip_type,
@@ -49,10 +44,11 @@ MICRO_DEVICE_RELATIVE_FILES = [
     "csi_features.py",
     "segmentation.py",
     "detector_interface.py",
-    "runtime_policy.py",
+    "runtime_motion_policy.py",
     "runtime_diagnostics.py",
+    "runtime_main.py",
     "temporal_csi_sampler.py",
-    "traffic_rate_controller.py",
+    "wifi_bootstrap.py",
     "lightweight_detector.py",
     "high_accuracy_detector.py",
     "ml_feature_trackers.py",
@@ -64,7 +60,10 @@ MICRO_DEVICE_RELATIVE_FILES = [
     "mqtt/handler.py",
     "mqtt/commands.py",
     "mqtt/home_assistant.py",
+    "mqtt/protocol.py",
 ]
+MPY_CROSS_COMMAND = "mpy-cross-v6.3"
+MPY_OPTIMIZATION_LEVEL = "-O3"
 MICROPYTHON_READY_TIMEOUT_SECONDS = 15.0
 MICROPYTHON_HEALTHCHECK_TIMEOUT_SECONDS = 5.0
 MICROPYTHON_READY_RETRY_SECONDS = 1.0
@@ -76,7 +75,7 @@ def _resolve_config_local_path(config_path: str | Path | None = None) -> Path:
 
 
 def deployment_files(config_local_path: Path) -> List[Tuple[str, str]]:
-    """Return the MicroPython source files copied by `micro deploy`."""
+    """Return the MicroPython source manifest compiled by `micro deploy`."""
     files: List[Tuple[str, str]] = []
     for rel_path in MICRO_DEVICE_RELATIVE_FILES:
         if rel_path == "config_local.py":
@@ -86,6 +85,80 @@ def deployment_files(config_local_path: Path) -> List[Tuple[str, str]]:
         destination = ":src/mqtt/" if rel_path.startswith("mqtt/") else ":src/"
         files.append((str(src_path), destination))
     return files
+
+
+def compile_deployment_files(
+    config_local_path: Path,
+    output_dir: Path,
+) -> List[Tuple[str, str]]:
+    """Compile the complete device manifest to optimized portable bytecode."""
+    compiled: List[Tuple[str, str]] = []
+    source_files = deployment_files(config_local_path)
+    for rel_path, (source, _source_destination) in zip(
+        MICRO_DEVICE_RELATIVE_FILES,
+        source_files,
+        strict=True,
+    ):
+        output_relative = Path(rel_path).with_suffix(".mpy")
+        output_path = output_dir / output_relative
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        device_source = (Path("src") / rel_path).as_posix()
+        command = [
+            MPY_CROSS_COMMAND,
+            MPY_OPTIMIZATION_LEVEL,
+            "-s",
+            device_source,
+            "-o",
+            str(output_path),
+            source,
+        ]
+        try:
+            subprocess.run(
+                command,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or exc.stdout or str(exc)).strip()
+            raise RuntimeError(
+                f"Failed to compile {rel_path}: {detail}"
+            ) from exc
+        compiled.append(
+            (str(output_path), f":src/{output_relative.as_posix()}")
+        )
+    return compiled
+
+
+def build_project_firmware_image(*, chip: str = "esp32", clean: bool = False) -> Path:
+    """Build the pinned lean firmware for a supported Micro-ESPectre chip."""
+    from .micro_firmware import build_project_firmware
+
+    return build_project_firmware(
+        PYTHON_SRC_DIR,
+        chip=chip,
+        clean=clean,
+    )
+
+
+def build_project_firmware_command(args) -> None:
+    """Build a project MicroPython image for a supported chip."""
+    chip = getattr(args, "chip", "esp32")
+    if chip not in MICRO_CHIP_CHOICES:
+        print(f"{Fore.RED}❌ Unsupported Micro-ESPectre chip: {chip}{Style.RESET_ALL}")
+        raise SystemExit(1)
+    print_box_banner("Building Micro-ESPectre Firmware")
+    try:
+        firmware_path = build_project_firmware_image(
+            chip=chip,
+            clean=bool(getattr(args, "clean", False))
+        )
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+        print(f"{Fore.RED}❌ Project firmware build failed: {exc}{Style.RESET_ALL}")
+        raise SystemExit(1) from exc
+    print()
+    print(f"{Fore.GREEN}✅ Project firmware built successfully{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}Firmware: {firmware_path}{Style.RESET_ALL}")
 
 
 def _wait_for_micropython(port: str) -> tuple[bool, str]:
@@ -119,20 +192,25 @@ def _wait_for_micropython(port: str) -> tuple[bool, str]:
         time.sleep(min(MICROPYTHON_READY_RETRY_SECONDS, remaining_seconds))
 
 
-def _calculate_sha256(filepath: Path) -> str:
-    sha256 = hashlib.sha256()
-    with open(filepath, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            sha256.update(chunk)
-    return sha256.hexdigest()
-
-
 def _require_mpremote() -> None:
     try:
         subprocess.run(["mpremote", "--version"], capture_output=True, check=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
         print(f"{Fore.RED}❌ mpremote not found. Install it with:{Style.RESET_ALL}")
         print("   pip install mpremote")
+        raise SystemExit(1)
+
+
+def _require_mpy_cross() -> None:
+    try:
+        subprocess.run(
+            [MPY_CROSS_COMMAND, "--version"],
+            capture_output=True,
+            check=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print(f"{Fore.RED}❌ {MPY_CROSS_COMMAND} not found. Install dependencies with:{Style.RESET_ALL}")
+        print("   pip install -r requirements.txt")
         raise SystemExit(1)
 
 
@@ -147,79 +225,6 @@ def _reset_device(port: str) -> None:
         print(f"{Fore.GREEN}ESP32 reset completed{Style.RESET_ALL}")
     except Exception:
         print(f"{Fore.GREEN}ESP32 reset completed{Style.RESET_ALL}")
-
-
-def download_firmware(chip: str, firmware_dir: Path = FIRMWARE_CACHE_DIR) -> Path:
-    """Download firmware from GitHub releases if not already cached or verified."""
-    chip_suffix_map = {
-        "esp32": "",
-        "c3": "C3",
-        "s3": "S3",
-        "c5": "C5",
-        "c6": "C6",
-    }
-    chip_suffix = chip_suffix_map.get(chip, chip.upper())
-    firmware_name = f"{FIRMWARE_NAME_PREFIX}{chip_suffix}.bin" if chip_suffix else "ESP32_CSI.bin"
-    firmware_path = firmware_dir / firmware_name
-    expected_hash = FIRMWARE_HASHES.get(firmware_name)
-
-    if firmware_path.exists():
-        if expected_hash:
-            current_hash = _calculate_sha256(firmware_path)
-            if current_hash == expected_hash:
-                print(f"{Fore.GREEN}✅ Using cached firmware: {firmware_name} (hash verified){Style.RESET_ALL}")
-                return firmware_path
-            print(f"{Fore.YELLOW}⚠️  Cached firmware hash mismatch, re-downloading...{Style.RESET_ALL}")
-            print(f"   Expected: {expected_hash[:16]}...")
-            print(f"   Found:    {current_hash[:16]}...")
-            firmware_path.unlink()
-        else:
-            print(f"{Fore.GREEN}✅ Using cached firmware: {firmware_name}{Style.RESET_ALL}")
-            return firmware_path
-
-    firmware_dir.mkdir(parents=True, exist_ok=True)
-    url = f"{FIRMWARE_RELEASE_URL}/{firmware_name}"
-    print(f"{Fore.YELLOW}📥 Downloading firmware from GitHub...{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}   URL: {url}{Style.RESET_ALL}")
-
-    try:
-        with urllib.request.urlopen(url, timeout=60) as response:
-            total_size = int(response.headers.get("content-length", 0))
-            downloaded = 0
-            chunk_size = 8192
-            with open(firmware_path, "wb") as f:
-                while True:
-                    chunk = response.read(chunk_size)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if total_size:
-                        progress = (downloaded * 100) // total_size
-                        print(
-                            f"\r{Fore.YELLOW}   Progress: {progress}% ({downloaded // 1024} KB){Style.RESET_ALL}",
-                            end="",
-                            flush=True,
-                        )
-            print()
-
-        if expected_hash:
-            downloaded_hash = _calculate_sha256(firmware_path)
-            if downloaded_hash != expected_hash:
-                print(f"{Fore.RED}❌ Downloaded firmware hash mismatch!{Style.RESET_ALL}")
-                print(f"   Expected: {expected_hash[:16]}...")
-                print(f"   Got:      {downloaded_hash[:16]}...")
-                firmware_path.unlink()
-                raise SystemExit(1)
-            print(f"{Fore.GREEN}✅ Firmware downloaded and verified: {firmware_name}{Style.RESET_ALL}")
-        else:
-            print(f"{Fore.GREEN}✅ Firmware downloaded: {firmware_name}{Style.RESET_ALL}")
-        return firmware_path
-    except urllib.error.URLError as e:
-        print(f"{Fore.RED}❌ Failed to download firmware: {e}{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}   Check your internet connection or download manually from:{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}   https://github.com/francescopace/micropython-esp32-csi/releases{Style.RESET_ALL}")
-        raise SystemExit(1)
 
 
 def flash_firmware(args) -> None:
@@ -252,7 +257,14 @@ def flash_firmware(args) -> None:
             print(f"{Fore.RED}❌ Firmware not found: {firmware_path}{Style.RESET_ALL}")
             raise SystemExit(1)
     else:
-        firmware_path = download_firmware(chip, FIRMWARE_CACHE_DIR)
+        try:
+            firmware_path = build_project_firmware_image(
+                chip=chip,
+                clean=bool(getattr(args, "clean", False))
+            )
+        except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
+            print(f"{Fore.RED}❌ Project firmware build failed: {exc}{Style.RESET_ALL}")
+            raise SystemExit(1) from exc
 
     print_box_banner("Flashing MicroPython Firmware")
     print()
@@ -341,7 +353,7 @@ def flash_firmware(args) -> None:
 
 
 def deploy_code(args) -> None:
-    """Deploy Python code to a MicroPython device using mpremote."""
+    """Compile and deploy optimized MicroPython bytecode using mpremote."""
     _require_mpremote()
     port = get_serial_port(args.port)
 
@@ -361,6 +373,7 @@ def deploy_code(args) -> None:
         for missing in missing_files:
             print(f"  {missing}")
         raise SystemExit(1)
+    _require_mpy_cross()
 
     print_box_banner("Deploying Code to Device")
     print()
@@ -368,25 +381,46 @@ def deploy_code(args) -> None:
     print()
 
     try:
-        ready, health_detail = _wait_for_micropython(port)
-        if not ready:
-            print(f"{Fore.RED}❌ Device is not running a valid MicroPython firmware{Style.RESET_ALL}")
-            if health_detail:
-                print(f"{Fore.YELLOW}   Probe output: {health_detail}{Style.RESET_ALL}")
-            print(f"\n{Fore.CYAN}Recommended fix:{Style.RESET_ALL}")
-            print(f"  {Fore.GREEN}{cli_command('micro', 'flash', '--erase')}{Style.RESET_ALL}")
-            print(f"  {Fore.GREEN}{cli_command('micro', 'deploy')}{Style.RESET_ALL}")
-            print()
-            raise SystemExit(1)
+        with tempfile.TemporaryDirectory(prefix="espectre-mpy-") as build_dir:
+            ready, health_detail = _wait_for_micropython(port)
+            if not ready:
+                print(f"{Fore.RED}❌ Device is not running a valid MicroPython firmware{Style.RESET_ALL}")
+                if health_detail:
+                    print(f"{Fore.YELLOW}   Probe output: {health_detail}{Style.RESET_ALL}")
+                print(f"\n{Fore.CYAN}Recommended fix:{Style.RESET_ALL}")
+                print(f"  {Fore.GREEN}{cli_command('micro', 'flash', '--erase')}{Style.RESET_ALL}")
+                print(f"  {Fore.GREEN}{cli_command('micro', 'deploy')}{Style.RESET_ALL}")
+                print()
+                raise SystemExit(1)
 
-        print(f"{Fore.YELLOW}📁 Creating directories...{Style.RESET_ALL}")
-        subprocess.run(["mpremote", "connect", port, "mkdir", ":src"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-        subprocess.run(["mpremote", "connect", port, "mkdir", ":src/mqtt"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            print(f"{Fore.YELLOW}⚙️  Compiling optimized bytecode ({MPY_OPTIMIZATION_LEVEL})...{Style.RESET_ALL}")
+            compiled_files = compile_deployment_files(
+                config_local_path,
+                Path(build_dir),
+            )
 
-        print(f"{Fore.YELLOW}📤 Uploading files...{Style.RESET_ALL}")
-        for src, dst in files_to_upload:
-            print(f"  {src} → {dst}")
-            subprocess.run(["mpremote", "connect", port, "cp", src, dst], check=True, capture_output=True)
+            print(f"{Fore.YELLOW}📁 Creating directories...{Style.RESET_ALL}")
+            subprocess.run(["mpremote", "connect", port, "mkdir", ":src"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            subprocess.run(["mpremote", "connect", port, "mkdir", ":src/mqtt"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+            print(f"{Fore.YELLOW}📤 Uploading optimized bytecode...{Style.RESET_ALL}")
+            for src, dst in compiled_files:
+                print(f"  {Path(src).name} → {dst}")
+                subprocess.run(["mpremote", "connect", port, "cp", src, dst], check=True, capture_output=True)
+
+            print(f"{Fore.YELLOW}🧹 Removing superseded source files...{Style.RESET_ALL}")
+            for rel_path in MICRO_DEVICE_RELATIVE_FILES:
+                subprocess.run(
+                    ["mpremote", "connect", port, "rm", f":src/{rel_path}"],
+                    check=False,
+                    capture_output=True,
+                )
+            for legacy_config in (":config_local.py", ":config_local.mpy"):
+                subprocess.run(
+                    ["mpremote", "connect", port, "rm", legacy_config],
+                    check=False,
+                    capture_output=True,
+                )
 
         print()
         print(f"{Fore.GREEN}✅ Deployment complete!{Style.RESET_ALL}")
@@ -494,7 +528,7 @@ def verify_installation(args) -> None:
         all_ok = False
     print()
 
-    print(f"{Fore.YELLOW}🔍 Checking deployed files...{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}🔍 Checking application modules...{Style.RESET_ALL}")
     try:
         src_result = subprocess.run(
             ["mpremote", "connect", port, "exec", 'import os; print(os.listdir("/src"))'],
@@ -508,35 +542,31 @@ def verify_installation(args) -> None:
             text=True,
             check=True,
         )
-        src_listing = src_result.stdout.strip()
-        mqtt_listing = mqtt_result.stdout.strip()
-
         expected_src = {
-            Path(rel).name
+            Path(rel).with_suffix(".mpy").name
             for rel in MICRO_DEVICE_RELATIVE_FILES
             if "/" not in rel
         }
         expected_mqtt = {
-            Path(rel).name
+            Path(rel).with_suffix(".mpy").name
             for rel in MICRO_DEVICE_RELATIVE_FILES
             if rel.startswith("mqtt/")
         }
-        src_present = set(ast.literal_eval(src_listing))
-        mqtt_present = set(ast.literal_eval(mqtt_listing))
+        src_present = set(ast.literal_eval(src_result.stdout.strip()))
+        mqtt_present = set(ast.literal_eval(mqtt_result.stdout.strip()))
         missing_src = sorted(expected_src - src_present)
         missing_mqtt = sorted(expected_mqtt - mqtt_present)
-
         if missing_src or missing_mqtt:
-            print(f"{Fore.RED}❌ Missing deployed files detected{Style.RESET_ALL}")
+            print(f"{Fore.RED}❌ Missing deployed bytecode detected{Style.RESET_ALL}")
             if missing_src:
                 print(f"{Fore.YELLOW}   Missing in /src: {', '.join(missing_src)}{Style.RESET_ALL}")
             if missing_mqtt:
                 print(f"{Fore.YELLOW}   Missing in /src/mqtt: {', '.join(missing_mqtt)}{Style.RESET_ALL}")
             all_ok = False
         else:
-            print(f"{Fore.GREEN}✅ Required source files found in /src and /src/mqtt{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}✅ Required bytecode found in /src and /src/mqtt{Style.RESET_ALL}")
     except subprocess.CalledProcessError:
-        print(f"{Fore.RED}❌ Source files not found{Style.RESET_ALL}")
+        print(f"{Fore.RED}❌ Application modules not found{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}   Hint: Deploy the code first:{Style.RESET_ALL}")
         print(f"   {cli_command('micro', 'deploy')}")
         all_ok = False
@@ -544,18 +574,19 @@ def verify_installation(args) -> None:
 
     print(f"{Fore.YELLOW}🔍 Checking configuration...{Style.RESET_ALL}")
     try:
+        config_probe = 'import os; print("config_local.mpy" in os.listdir("/src"))'
         result = subprocess.run(
-            ["mpremote", "connect", port, "exec", 'import os; print("config_local.py" in os.listdir("/src"))'],
+            ["mpremote", "connect", port, "exec", config_probe],
             capture_output=True,
             text=True,
             check=True,
         )
         if "True" in result.stdout:
-            print(f"{Fore.GREEN}✅ config_local.py found{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}✅ config_local.mpy found{Style.RESET_ALL}")
         else:
-            print(f"{Fore.YELLOW}⚠️  config_local.py not found (will use defaults from config.py){Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}⚠️  config_local.mpy not found (will use defaults from config.py){Style.RESET_ALL}")
     except subprocess.CalledProcessError:
-        print(f"{Fore.YELLOW}⚠️  Could not check config_local.py{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}⚠️  Could not check config_local.mpy{Style.RESET_ALL}")
     print()
 
     if all_ok:

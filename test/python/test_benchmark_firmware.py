@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tools import benchmark_firmware as bench
 from src.python.micro_espectre.runtime_diagnostics import RuntimeDebugTelemetry
 
@@ -124,15 +126,12 @@ def test_micro_benchmark_config_enables_production_debug_telemetry(monkeypatch):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_MQTT_HOST", "broker.local")
 
-    content = bench.render_micro_benchmark_config(
-        "high_accuracy",
-        "0x0000aabbccddeeff",
-    )
+    content = bench.render_micro_benchmark_config("high_accuracy")
 
     assert "DETECTION_ALGORITHM = 'high_accuracy'" in content
     assert "DEBUG_TELEMETRY = True" in content
     assert "MQTT_HA_DISCOVERY_ENABLED = False" in content
-    assert "MQTT_CLIENT_ID = '0x0000aabbccddeeff'" in content
+    assert "MQTT_CLIENT_ID" not in content
 
 
 def test_micro_benchmark_config_reads_shared_local_env_not_developer_config(monkeypatch):
@@ -163,10 +162,7 @@ def test_micro_benchmark_config_reads_shared_local_env_not_developer_config(monk
         },
     )
 
-    content = bench.render_micro_benchmark_config(
-        "lightweight",
-        "0x0000aabbccddeeff",
-    )
+    content = bench.render_micro_benchmark_config("lightweight")
 
     assert "WIFI_SSID = 'file-lab'" in content
     assert "WIFI_PASSWORD = 'file-wifi-password'" in content
@@ -194,7 +190,8 @@ def test_micro_debug_telemetry_uses_shared_benchmark_keys():
     assert "detection_min_us=1200 detection_max_us=1200" in payload
 
 
-def test_run_micro_case_uses_production_cli_workflow(monkeypatch):
+@pytest.mark.parametrize("chip", ["c3", "esp32"])
+def test_run_micro_case_uses_production_cli_workflow(monkeypatch, chip):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_MQTT_HOST", "broker.local")
@@ -219,7 +216,7 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch):
 
     result = bench.run_micro_case(
         bench.BenchmarkCase("micro", "lightweight"),
-        "c3",
+        chip,
         "/dev/cu.usbmodem1",
     )
 
@@ -231,6 +228,7 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch):
         ["micro", "deploy"],
         ["micro", "run"],
     ]
+    assert "--frozen" not in commands[0]
 
 
 def test_detect_esphome_api_host_prefers_sta_over_ap():
@@ -380,3 +378,10 @@ def test_runtime_window_stops_immediately_on_brownout():
     assert bench._wait_for_runtime_sensing_window(RunningProcess(), output) == 0
     _metrics, reasons = bench.analyze_monitor_output("".join(output))
     assert "fatal firmware log detected: Brownout detector was triggered" in reasons
+
+
+def test_micro_benchmark_uses_project_firmware_for_every_chip(tmp_path, monkeypatch):
+    monkeypatch.setattr(bench, "FIRMWARE_CACHE_DIR", tmp_path)
+
+    for chip, firmware_name in bench.PROJECT_FIRMWARE_NAMES.items():
+        assert bench._latest_firmware_artifact("micro", chip) == tmp_path / firmware_name

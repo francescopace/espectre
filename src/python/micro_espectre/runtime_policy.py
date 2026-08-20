@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
-from collections.abc import Mapping as MappingABC
+try:
+    from collections.abc import Mapping as MappingABC
+except ImportError:
+    MappingABC = dict
 
 """
 Micro-ESPectre - Runtime Policy
@@ -12,25 +15,40 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
 try:
-    from src.detector_interface import MotionState
+    from src.runtime_motion_policy import (
+        UINT32_MODULUS as _UINT32_MODULUS,
+        RuntimeMotionPolicy,
+        equivalent_packet_weight,
+        make_evaluation_cadence,
+    )
 except ImportError:
-    from detector_interface import MotionState
+    from runtime_motion_policy import (
+        UINT32_MODULUS as _UINT32_MODULUS,
+        RuntimeMotionPolicy,
+        equivalent_packet_weight,
+        make_evaluation_cadence,
+    )
 
-from config import (
-    EVALUATION_INTERVAL_MS,
-    L1_DELTA_LAG_MAX,
-    SEG_WINDOW_MAX,
-    SEG_WINDOW_MIN,
-    SEGMENTATION_WINDOW_SIZE_MS,
-)
+try:
+    from src.config import (
+        L1_DELTA_LAG_MAX,
+        SEG_WINDOW_MAX,
+        SEG_WINDOW_MIN,
+        SEGMENTATION_WINDOW_SIZE_MS,
+    )
+except ImportError:
+    from config import (
+        L1_DELTA_LAG_MAX,
+        SEG_WINDOW_MAX,
+        SEG_WINDOW_MIN,
+        SEGMENTATION_WINDOW_SIZE_MS,
+    )
 
 DEFAULT_GAP_RESET_RATIO = 4.0
 # Medians are refreshed on this stride instead of on every packet.
 RATE_ESTIMATOR_REFRESH_STRIDE = 16
 DEFAULT_GAP_RESET_SEQ_THRESHOLD = 3
 DEFAULT_GAP_RESET_MIN_US = 250_000
-_UINT32_MODULUS = 1 << 32
-
 # Rolling sample count used to estimate the effective packet cadence. One
 # second of packets at the nominal rate is enough to be stable without making
 # the estimate slow to follow a genuine rate change.
@@ -180,18 +198,6 @@ def derive_detector_timing(interval_us, window_size_ms=SEGMENTATION_WINDOW_SIZE_
         "lag": min(PRODUCTION_L1_DELTA_LAG, L1_DELTA_LAG_MAX, max(1, window_packets // 2)),
         "autocorr_lag": min(PRODUCTION_AUTOCORR_LAG, max(1, window_packets // 2)),
     }
-
-
-def equivalent_packet_weight(elapsed_us, nominal_interval_us, fallback_packets=1):
-    """Convert elapsed clean time to one packet-equivalent coverage weight."""
-    fallback = max(1, int(fallback_packets))
-    nominal = max(1, int(nominal_interval_us))
-    if elapsed_us is None:
-        return fallback
-    elapsed = int(elapsed_us)
-    if elapsed <= 0:
-        return fallback
-    return max(1, int(round(float(elapsed) / float(nominal))))
 
 
 def _packet_field(packet, key):
@@ -368,129 +374,3 @@ class PacketTimingTracker:
             "source": source,
             "contaminated": bool(contaminated),
         }
-
-
-class RuntimeMotionPolicy:
-    """Central runtime policy for evaluation cadence and hit filtering."""
-
-    def __init__(
-        self,
-        evaluation_interval_ms=EVALUATION_INTERVAL_MS,
-        motion_on_hits=4,
-        motion_off_hits=3,
-        segmentation_window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
-    ):
-        self.evaluation_interval_ms = max(1, int(evaluation_interval_ms))
-        self.evaluation_interval_us = self.evaluation_interval_ms * 1000
-        self.motion_on_hits = max(1, int(motion_on_hits))
-        self.motion_off_hits = max(1, int(motion_off_hits))
-        self.segmentation_window_size_ms = max(1, int(segmentation_window_size_ms))
-        self.segmentation_window_us = self.segmentation_window_size_ms * 1000
-        self._last_arrival_us = None
-        self.reset()
-
-    def reset(self):
-        """Reset cadence counters, arrival origin, and effective motion state."""
-        self.packets_since_evaluation = 0
-        self.elapsed_us_since_evaluation = 0
-        self._last_arrival_us = None
-        self.effective_state = MotionState.IDLE
-        self.pending_state = MotionState.IDLE
-        self.pending_hits = 0
-
-    def note_arrival(self, timestamp_us):
-        """Record one packet from its Wi-Fi RX arrival timestamp.
-
-        Arrival time rather than loop time: the loop clock measures how fast
-        packets are processed, which matches arrival on hardware but not on
-        replay, and it would make the cadence depend on host scheduling. The
-        timestamp is an input, so the cadence is reproducible.
-
-        A missing or non-advancing timestamp contributes no elapsed coverage.
-        """
-        elapsed_us = None
-        if timestamp_us is not None:
-            if self._last_arrival_us is not None:
-                delta = (int(timestamp_us) - self._last_arrival_us) % _UINT32_MODULUS
-                # Past half the range the counter went backwards rather than a
-                # very long gap having elapsed.
-                if 0 < delta < (_UINT32_MODULUS // 2):
-                    if delta < self.segmentation_window_us:
-                        elapsed_us = delta
-                    else:
-                        self.elapsed_us_since_evaluation = 0
-            self._last_arrival_us = int(timestamp_us)
-        self.note_packet(elapsed_us=elapsed_us)
-
-    def note_packet(self, elapsed_us=None):
-        """Record that one new CSI packet has been processed."""
-        self.packets_since_evaluation += 1
-        if elapsed_us is not None:
-            self.elapsed_us_since_evaluation += max(0, int(elapsed_us))
-
-    def should_evaluate(self):
-        """Check whether the detector should be evaluated now."""
-        return self.elapsed_us_since_evaluation >= self.evaluation_interval_us
-
-    def after_evaluation(self):
-        """Reset the cadence counter after an evaluation."""
-        self.packets_since_evaluation = 0
-        self.elapsed_us_since_evaluation = 0
-
-    def note_evaluation_tick(self, elapsed_us=None):
-        """Record one packet and return True when an evaluation is due."""
-        self.note_packet(elapsed_us=elapsed_us)
-        if not self.should_evaluate():
-            return False
-        self.after_evaluation()
-        return True
-
-    def equivalent_packets_since_evaluation(self, nominal_packet_interval_us):
-        """Return elapsed coverage as nominal packet-equivalent weight."""
-        return equivalent_packet_weight(
-            self.elapsed_us_since_evaluation,
-            nominal_packet_interval_us,
-            fallback_packets=self.packets_since_evaluation,
-        )
-
-    def apply_state(self, detector_state):
-        """
-        Apply hit filtering to the raw detector state.
-
-        Returns:
-            tuple: (effective_state, state_changed)
-        """
-        previous_state = self.effective_state
-
-        if detector_state == self.effective_state:
-            self.pending_state = self.effective_state
-            self.pending_hits = 0
-            return self.effective_state, False
-
-        if detector_state != self.pending_state:
-            self.pending_state = detector_state
-            self.pending_hits = 1
-        else:
-            self.pending_hits += 1
-
-        required_hits = (
-            self.motion_on_hits
-            if self.pending_state == MotionState.MOTION
-            else self.motion_off_hits
-        )
-        if self.pending_hits >= required_hits:
-            self.effective_state = self.pending_state
-            self.pending_hits = 0
-
-        return self.effective_state, self.effective_state != previous_state
-
-
-def make_evaluation_cadence(
-    evaluation_interval_ms=EVALUATION_INTERVAL_MS,
-    segmentation_window_size_ms=SEGMENTATION_WINDOW_SIZE_MS,
-):
-    """Return a runtime policy used only for evaluation-interval cadence."""
-    return RuntimeMotionPolicy(
-        evaluation_interval_ms=evaluation_interval_ms,
-        segmentation_window_size_ms=segmentation_window_size_ms,
-    )

@@ -46,7 +46,8 @@ class SegmentationContext:
                  hampel_window=7,
                  hampel_threshold=5.0,
                  allocate_amplitude_buffer=True,
-                 adjacent_aggregation_width=None):
+                 adjacent_aggregation_width=None,
+                 track_lag1_autocorrelation=False):
         """
         Initialize segmentation context
 
@@ -59,6 +60,7 @@ class SegmentationContext:
             hampel_threshold: Hampel filter threshold in MAD units (default: 5.0)
             allocate_amplitude_buffer: Allocate packet-amplitude scratch storage
             adjacent_aggregation_width: Optional adjacent-bin aggregation width
+            track_lag1_autocorrelation: Maintain the Lightweight lag-1 statistic
         """
         self.window_size = window_size
         self.adjacent_aggregation_width = adjacent_aggregation_width
@@ -69,6 +71,13 @@ class SegmentationContext:
         self.buffer_index = 0
         self.buffer_count = 0
         self.valid_count = 0
+        self._track_lag1_autocorrelation = bool(track_lag1_autocorrelation)
+        self._value_sum = 0.0
+        self._value_square_sum = 0.0
+        self._lag1_product_sum = 0.0
+        self._lag1_left_sum = 0.0
+        self._lag1_right_sum = 0.0
+        self._lag1_pair_count = 0
 
         self.last_turbulence = 0.0
 
@@ -444,6 +453,74 @@ class SegmentationContext:
             self._amplitude_mean,
         )
 
+    def _store_lag1_value(self, value, valid):
+        """Replace the current ring slot while updating exact lag-1 sums."""
+        index = self.buffer_index
+        window_size = self.window_size
+        values = self.turbulence_buffer
+        validity = self.validity_buffer
+        full = self.buffer_count >= window_size
+
+        if full and window_size > 1:
+            following = index + 1
+            if following >= window_size:
+                following = 0
+            if validity[index] and validity[following]:
+                left = values[index]
+                right = values[following]
+                self._lag1_product_sum -= left * right
+                self._lag1_left_sum -= left
+                self._lag1_right_sum -= right
+                self._lag1_pair_count -= 1
+
+        if validity[index]:
+            previous_value = values[index]
+            self._value_sum -= previous_value
+            self._value_square_sum -= previous_value * previous_value
+            self.valid_count -= 1
+
+        if valid:
+            self._value_sum += value
+            self._value_square_sum += value * value
+            self.valid_count += 1
+
+        if window_size > 1 and self.buffer_count > 0:
+            previous = index - 1
+            if previous < 0:
+                previous = window_size - 1
+            if validity[previous] and valid:
+                left = values[previous]
+                self._lag1_product_sum += left * value
+                self._lag1_left_sum += left
+                self._lag1_right_sum += value
+                self._lag1_pair_count += 1
+
+        values[index] = value
+        validity[index] = valid
+        index += 1
+        if index >= window_size:
+            index = 0
+        self.buffer_index = index
+        if not full:
+            self.buffer_count += 1
+
+    def lag1_autocorrelation(self):
+        """Return lag-1 autocorrelation from the maintained valid-pair sums."""
+        valid_count = self.valid_count
+        pair_count = self._lag1_pair_count
+        if valid_count < 2 or pair_count == 0:
+            return 0.0
+        mean = self._value_sum / valid_count
+        variance = self._value_square_sum / valid_count - mean * mean
+        if variance < 1e-10:
+            return 0.0
+        autocovariance = (
+            self._lag1_product_sum
+            - mean * (self._lag1_left_sum + self._lag1_right_sum)
+            + pair_count * mean * mean
+        ) / pair_count
+        return autocovariance / variance
+
     def add_turbulence(self, turbulence):
         """
         Add turbulence value to the circular buffer.
@@ -473,18 +550,24 @@ class SegmentationContext:
         self.last_turbulence = filtered_turbulence
 
         # Store value in circular buffer
-        if not self.validity_buffer[self.buffer_index]:
-            self.valid_count += 1
-        self.turbulence_buffer[self.buffer_index] = filtered_turbulence
-        self.validity_buffer[self.buffer_index] = True
-        self.buffer_index += 1
-        if self.buffer_index >= self.window_size:
-            self.buffer_index = 0
-        if self.buffer_count < self.window_size:
-            self.buffer_count += 1
+        if self._track_lag1_autocorrelation:
+            self._store_lag1_value(filtered_turbulence, True)
+        else:
+            if not self.validity_buffer[self.buffer_index]:
+                self.valid_count += 1
+            self.turbulence_buffer[self.buffer_index] = filtered_turbulence
+            self.validity_buffer[self.buffer_index] = True
+            self.buffer_index += 1
+            if self.buffer_index >= self.window_size:
+                self.buffer_index = 0
+            if self.buffer_count < self.window_size:
+                self.buffer_count += 1
 
     def add_missing_slot(self):
         """Advance the temporal ring without inventing a CSI measurement."""
+        if self._track_lag1_autocorrelation:
+            self._store_lag1_value(0.0, False)
+            return
         if self.validity_buffer[self.buffer_index]:
             self.valid_count -= 1
         self.turbulence_buffer[self.buffer_index] = 0.0
@@ -524,6 +607,12 @@ class SegmentationContext:
             self.buffer_index = 0
             self.buffer_count = 0
             self.valid_count = 0
+            self._value_sum = 0.0
+            self._value_square_sum = 0.0
+            self._lag1_product_sum = 0.0
+            self._lag1_left_sum = 0.0
+            self._lag1_right_sum = 0.0
+            self._lag1_pair_count = 0
             for index in range(self.window_size):
                 self.validity_buffer[index] = False
             self.last_turbulence = 0.0

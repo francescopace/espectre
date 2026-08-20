@@ -62,7 +62,6 @@ def test_add_mqtt_connection_args_uses_environment_defaults(monkeypatch) -> None
     monkeypatch.setenv("MQTT_BROKER", "mqtt.local")
     monkeypatch.setenv("MQTT_PORT", "2883")
     monkeypatch.setenv("MQTT_TOPIC_PREFIX", "custom/topic")
-    monkeypatch.setenv("MQTT_CLIENT_ID", "0x0000abcdeffedcba")
     monkeypatch.setenv("MQTT_USERNAME", "env-user")
     monkeypatch.setenv("MQTT_PASSWORD", "env-pass")
 
@@ -73,20 +72,9 @@ def test_add_mqtt_connection_args_uses_environment_defaults(monkeypatch) -> None
     assert args.broker == "mqtt.local"
     assert args.port_mqtt == 2883
     assert args.topic_prefix == "custom/topic"
-    assert args.device_id == "0x0000abcdeffedcba"
+    assert args.device_id is None
     assert args.username == "env-user"
     assert args.password == "env-pass"
-
-
-def test_add_mqtt_connection_args_uses_runtime_discovery_without_device_env(monkeypatch) -> None:
-    monkeypatch.delenv("MQTT_CLIENT_ID", raising=False)
-
-    parser = argparse.ArgumentParser()
-    common.add_mqtt_connection_args(parser)
-    args = parser.parse_args([])
-
-    assert args.device_id is None
-
 
 def test_detect_serial_ports_filters_usb_like_devices(monkeypatch) -> None:
     fake_serial = ModuleType("serial")

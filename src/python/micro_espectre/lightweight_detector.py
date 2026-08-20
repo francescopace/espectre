@@ -12,12 +12,12 @@ import math
 
 try:
     from src.detector_interface import IDetector, MotionState
-    from src.csi_features import TURB_IQR_AGGREGATION_WIDTH, calc_autocorrelation
+    from src.csi_features import TURB_IQR_AGGREGATION_WIDTH
     from src.config import DEFAULT_SUBCARRIERS
     from src.segmentation import SegmentationContext
 except ImportError:
     from detector_interface import IDetector, MotionState
-    from csi_features import TURB_IQR_AGGREGATION_WIDTH, calc_autocorrelation
+    from csi_features import TURB_IQR_AGGREGATION_WIDTH
     from config import DEFAULT_SUBCARRIERS
     from segmentation import SegmentationContext
 
@@ -71,6 +71,7 @@ class LightweightDetector(IDetector):
             enable_hampel=enable_hampel,
             hampel_window=hampel_window,
             hampel_threshold=hampel_threshold,
+            track_lag1_autocorrelation=(self._autocorr_lag == 1),
         )
         self._aggregated_context = SegmentationContext(
             window_size=window_size,
@@ -81,9 +82,11 @@ class LightweightDetector(IDetector):
             hampel_threshold=hampel_threshold,
             adjacent_aggregation_width=TURB_IQR_AGGREGATION_WIDTH,
         )
-        self._packet_subcarrier_values = [0.0] * 64
-        self._ordered_turbulence = [0.0] * window_size
-        self._ordered_validity = [False] * window_size
+        self._selected_subcarriers = DEFAULT_SUBCARRIERS
+        self._amplitude_plan, self._amplitude_plan_max_offset = (
+            self._build_amplitude_plan(self._selected_subcarriers)
+        )
+        self._csi_values_signed = None
         self._valid_turbulence_scratch = [0.0] * window_size
         self._minimum_valid_samples = window_size
         self._threshold = self._clamp_probability(threshold)
@@ -131,6 +134,46 @@ class LightweightDetector(IDetector):
         fraction = position - lower
         return ordered[lower] * (1.0 - fraction) + ordered[upper] * fraction
 
+    @staticmethod
+    def _build_amplitude_plan(selected_subcarriers):
+        """Precompute direct and adjacent-bin offsets for the hot packet path."""
+        width = TURB_IQR_AGGREGATION_WIDTH
+        half = (width - 1) // 2
+        plan = []
+        max_offset = 0
+        for selected in selected_subcarriers:
+            selected = int(selected)
+            low = selected - half
+            high = selected + (width - 1 - half)
+            if low < 4:
+                low, high = 4, 4 + width - 1
+            if high > 60:
+                low, high = 60 - width + 1, 60
+
+            neighbour_offsets = []
+            aggregate_count = 0
+            for subcarrier in range(low, high + 1):
+                if subcarrier == 32:
+                    continue
+                aggregate_count += 1
+                if subcarrier != selected:
+                    offset = subcarrier * 2
+                    neighbour_offsets.append(offset)
+                    if offset > max_offset:
+                        max_offset = offset
+            selected_offset = selected * 2
+            if selected_offset > max_offset:
+                max_offset = selected_offset
+            plan.append(
+                (
+                    selected_offset,
+                    tuple(neighbour_offsets),
+                    aggregate_count,
+                    selected != 32 and low <= selected <= high,
+                )
+            )
+        return tuple(plan), max_offset + 1
+
     def process_packet(self, csi_data, selected_subcarriers=None, rssi_dbm=None,
                        timestamp_us=None):
         """Process one CSI packet. ``rssi_dbm`` is accepted for interface parity
@@ -139,19 +182,93 @@ class LightweightDetector(IDetector):
         del timestamp_us
         if selected_subcarriers is None:
             selected_subcarriers = DEFAULT_SUBCARRIERS
-        packet_values = self._packet_subcarrier_values
-        packet_count = SegmentationContext.fill_subcarrier_energy_buffer(
-            csi_data, packet_values
-        )
-        SegmentationContext.energies_to_amplitudes_in_place(
-            packet_values, packet_count
-        )
-        turbulence = self._context.calculate_spatial_turbulence_from_subcarrier_amplitudes(
-            packet_values, packet_count, selected_subcarriers
+        if selected_subcarriers is not self._selected_subcarriers:
+            selected_subcarriers = tuple(selected_subcarriers)
+            if selected_subcarriers != self._selected_subcarriers:
+                self._selected_subcarriers = selected_subcarriers
+                self._amplitude_plan, self._amplitude_plan_max_offset = (
+                    self._build_amplitude_plan(selected_subcarriers)
+                )
+        if len(csi_data) <= self._amplitude_plan_max_offset:
+            return
+
+        normal_values = self._context._amplitude_buffer
+        aggregate_values = self._aggregated_context._amplitude_buffer
+        sqrt = math.sqrt
+        normal_total = 0.0
+        aggregate_total = 0.0
+        packet_count = 0
+        if self._csi_values_signed is None:
+            try:
+                self._csi_values_signed = memoryview(csi_data).format == "b"
+            except (AttributeError, TypeError):
+                self._csi_values_signed = False
+        if self._csi_values_signed:
+            for (
+                selected_offset,
+                neighbour_offsets,
+                aggregate_count,
+                include_selected,
+            ) in self._amplitude_plan:
+                imag = int(csi_data[selected_offset])
+                real = int(csi_data[selected_offset + 1])
+                selected_amplitude = sqrt(real * real + imag * imag)
+                normal_values[packet_count] = selected_amplitude
+                normal_total += selected_amplitude
+                total = selected_amplitude if include_selected else 0.0
+                for offset in neighbour_offsets:
+                    imag = int(csi_data[offset])
+                    real = int(csi_data[offset + 1])
+                    total += sqrt(real * real + imag * imag)
+                aggregated_amplitude = total / aggregate_count
+                aggregate_values[packet_count] = aggregated_amplitude
+                aggregate_total += aggregated_amplitude
+                packet_count += 1
+        else:
+            for (
+                selected_offset,
+                neighbour_offsets,
+                aggregate_count,
+                include_selected,
+            ) in self._amplitude_plan:
+                imag = csi_data[selected_offset]
+                real = csi_data[selected_offset + 1]
+                if imag > 127:
+                    imag -= 256
+                if real > 127:
+                    real -= 256
+                selected_amplitude = sqrt(real * real + imag * imag)
+                normal_values[packet_count] = selected_amplitude
+                normal_total += selected_amplitude
+                total = selected_amplitude if include_selected else 0.0
+                for offset in neighbour_offsets:
+                    imag = csi_data[offset]
+                    real = csi_data[offset + 1]
+                    if imag > 127:
+                        imag -= 256
+                    if real > 127:
+                        real -= 256
+                    total += sqrt(real * real + imag * imag)
+                aggregated_amplitude = total / aggregate_count
+                aggregate_values[packet_count] = aggregated_amplitude
+                aggregate_total += aggregated_amplitude
+                packet_count += 1
+        if packet_count == 0:
+            return
+        normal_mean = normal_total / packet_count
+        aggregate_mean = aggregate_total / packet_count
+        self._context._amplitude_count = packet_count
+        self._context._amplitude_mean = normal_mean
+        turbulence = self._context._turbulence_from_amplitude_buffer(
+            normal_values, packet_count, normal_mean
         )
         self._context.add_turbulence(turbulence)
-        aggregated = self._aggregated_context.calculate_spatial_turbulence_from_subcarrier_amplitudes(
-            packet_values, packet_count, selected_subcarriers
+        self._aggregated_context._amplitude_count = packet_count
+        self._aggregated_context._amplitude_mean = aggregate_mean
+        aggregated = self._aggregated_context._turbulence_from_amplitude_buffer(
+            aggregate_values,
+            packet_count,
+            aggregate_mean,
         )
         self._aggregated_context.add_turbulence(aggregated)
 
@@ -166,44 +283,71 @@ class LightweightDetector(IDetector):
 
     def _turb_autocorr(self):
         ctx = self._context
-        values = self._ordered_turbulence
-        validity = self._ordered_validity
-        count = ctx.copy_chronological_into(values, validity)
-        valid_values = self._valid_turbulence_scratch
-        valid_count = 0
+        if self._autocorr_lag == 1:
+            return ctx.lag1_autocorrelation()
+        count = ctx.buffer_count
+        valid_count = ctx.valid_count
+        lag = self._autocorr_lag
+        if count < lag + 2 or valid_count < lag + 1:
+            return 0.0
+
+        values = ctx.turbulence_buffer
+        validity = ctx.validity_buffer
+        window_size = ctx.window_size
+        start = ctx.buffer_index if count >= window_size else 0
+        source = start
         total = 0.0
-        for index in range(count):
-            if validity[index]:
-                value = values[index]
-                valid_values[valid_count] = value
-                valid_count += 1
-                total += value
-        mean = total / valid_count if valid_count else 0.0
-        variance = 0.0
-        for index in range(valid_count):
-            value = valid_values[index]
-            diff = value - mean
-            variance += diff * diff
-        variance = variance / valid_count if valid_count else 0.0
-        return calc_autocorrelation(
-            values, count, mean=mean, variance=variance, lag=self._autocorr_lag,
-            validity=validity,
-        )
+        for _ in range(count):
+            if validity[source]:
+                total += values[source]
+            source += 1
+            if source >= window_size:
+                source = 0
+        mean = total / valid_count
+
+        variance_sum = 0.0
+        autocovariance = 0.0
+        pair_count = 0
+        source = start
+        for offset in range(count):
+            if validity[source]:
+                diff = values[source] - mean
+                variance_sum += diff * diff
+                if offset >= lag:
+                    previous = source - lag
+                    if previous < 0:
+                        previous += window_size
+                    if validity[previous]:
+                        autocovariance += (values[previous] - mean) * diff
+                        pair_count += 1
+            source += 1
+            if source >= window_size:
+                source = 0
+
+        variance = variance_sum / valid_count
+        if variance < 1e-10 or pair_count == 0:
+            return 0.0
+        return (autocovariance / pair_count) / variance
 
     def _turb_iqr_over_mean_aggr(self):
         ctx = self._aggregated_context
-        values = self._ordered_turbulence
-        validity = self._ordered_validity
-        count = ctx.copy_chronological_into(values, validity)
+        values = ctx.turbulence_buffer
+        validity = ctx.validity_buffer
+        count = ctx.buffer_count
         ordered = self._valid_turbulence_scratch
+        window_size = ctx.window_size
+        source = ctx.buffer_index if count >= window_size else 0
         valid_count = 0
         total = 0.0
-        for index in range(count):
-            if validity[index]:
-                value = values[index]
+        for _ in range(count):
+            if validity[source]:
+                value = values[source]
                 ordered[valid_count] = value
                 valid_count += 1
                 total += value
+            source += 1
+            if source >= window_size:
+                source = 0
         if not valid_count:
             return 0.0
         mean = total / valid_count

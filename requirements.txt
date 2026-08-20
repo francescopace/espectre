@@ -5,6 +5,7 @@ esphome==2026.7.4
 aioesphomeapi==45.7.0   # required by ESPHome 2026.7.4; used for ESPHome detector switching
 esptool==5.3.1          # aligned with ESPHome 2026.7.4
 mpremote==1.28.0        # CLI wrapper coverage in Python tests
+mpy-cross-v6.3==1.1.1   # MicroPython 1.23+ bytecode compiler used by micro deploy
 pyserial==3.5           # serial helpers used by CLI/runtime tests
 
 # Host-side CLI/runtime dependencies exercised in tests

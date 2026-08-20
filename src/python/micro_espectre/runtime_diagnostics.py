@@ -78,6 +78,19 @@ def wifi_rssi_dbm(wlan):
         return None
 
 
+def wifi_csi_dropped(wlan):
+    """Return the cumulative native CSI ring-buffer drop count."""
+    if wlan is None:
+        return 0
+    try:
+        get_dropped = getattr(wlan, "csi_dropped", None)
+        if not callable(get_dropped):
+            return 0
+        return max(0, int(get_dropped()))
+    except (AttributeError, OSError, TypeError, ValueError):
+        return 0
+
+
 def collect_runtime_diagnostics_snapshot(
     traffic_generator=None,
     callback_total=0,

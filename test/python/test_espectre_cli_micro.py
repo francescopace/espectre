@@ -13,16 +13,15 @@ from __future__ import annotations
 import argparse
 import ast
 import builtins
-import hashlib
 import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from urllib.error import URLError
 
 import pytest
 
 from espectre_cli import micro
+from espectre_cli import micro_firmware
 
 
 def _make_args(**overrides) -> argparse.Namespace:
@@ -31,6 +30,7 @@ def _make_args(**overrides) -> argparse.Namespace:
         "chip": "c3",
         "erase": False,
         "firmware": None,
+        "clean": False,
     }
     args.update(overrides)
     return argparse.Namespace(**args)
@@ -42,36 +42,11 @@ def _make_verify_args(**overrides) -> argparse.Namespace:
     return argparse.Namespace(**args)
 
 
-class _FakeResponse:
-    def __init__(self, chunks: list[bytes]):
-        self._chunks = list(chunks)
-        self.headers = {"content-length": str(sum(len(chunk) for chunk in chunks))}
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-    def read(self, _size: int) -> bytes:
-        if self._chunks:
-            return self._chunks.pop(0)
-        return b""
-
-
 def _create_micro_src_tree(base_dir: Path) -> None:
     for rel_path in micro.MICRO_DEVICE_RELATIVE_FILES:
         target = base_dir / rel_path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("# test\n", encoding="utf-8")
-
-
-def test_calculate_sha256_matches_hashlib(tmp_path: Path) -> None:
-    payload = b"firmware-bytes"
-    firmware = tmp_path / "firmware.bin"
-    firmware.write_bytes(payload)
-
-    assert micro._calculate_sha256(firmware) == hashlib.sha256(payload).hexdigest()
 
 
 def test_device_sources_avoid_unsupported_future_annotations() -> None:
@@ -136,6 +111,30 @@ def test_require_mpremote_exits_when_binary_missing(monkeypatch) -> None:
         micro._require_mpremote()
 
 
+def test_require_mpy_cross_accepts_installed_binary(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, capture_output, check):
+        calls.append(cmd)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(micro.subprocess, "run", fake_run)
+
+    micro._require_mpy_cross()
+
+    assert calls == [["mpy-cross-v6.3", "--version"]]
+
+
+def test_require_mpy_cross_exits_when_binary_missing(monkeypatch) -> None:
+    def fake_run(cmd, capture_output, check):
+        raise FileNotFoundError()
+
+    monkeypatch.setattr(micro.subprocess, "run", fake_run)
+
+    with pytest.raises(SystemExit):
+        micro._require_mpy_cross()
+
+
 def test_reset_device_reports_completion_even_on_exception(monkeypatch, capsys) -> None:
     calls: list[list[str]] = []
     monkeypatch.setattr(micro.time, "sleep", lambda _seconds: None)
@@ -156,62 +155,6 @@ def test_reset_device_reports_completion_even_on_exception(monkeypatch, capsys) 
     out = capsys.readouterr().out
     assert calls == [["mpremote", "connect", "/dev/cu.usbmodem1", "exec", "import machine; machine.reset()"]]
     assert out.count("ESP32 reset completed") == 2
-
-
-def test_download_firmware_uses_verified_cache(tmp_path: Path, monkeypatch) -> None:
-    payload = b"cached-ok"
-    firmware = tmp_path / "ESP32_CSI_C3.bin"
-    firmware.write_bytes(payload)
-    monkeypatch.setattr(micro, "FIRMWARE_HASHES", {"ESP32_CSI_C3.bin": hashlib.sha256(payload).hexdigest()})
-    monkeypatch.setattr(micro.urllib.request, "urlopen", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("no download")))
-
-    assert micro.download_firmware("c3", tmp_path) == firmware
-
-
-def test_download_firmware_redownloads_when_cached_hash_mismatches(tmp_path: Path, monkeypatch) -> None:
-    stale = b"stale"
-    fresh = b"fresh-firmware"
-    firmware = tmp_path / "ESP32_CSI_C3.bin"
-    firmware.write_bytes(stale)
-    monkeypatch.setattr(micro, "FIRMWARE_HASHES", {"ESP32_CSI_C3.bin": hashlib.sha256(fresh).hexdigest()})
-    monkeypatch.setattr(micro.urllib.request, "urlopen", lambda *_args, **_kwargs: _FakeResponse([fresh]))
-
-    result = micro.download_firmware("c3", tmp_path)
-
-    assert result == firmware
-    assert firmware.read_bytes() == fresh
-
-
-def test_download_firmware_supports_unknown_chip_without_hash(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(micro, "FIRMWARE_HASHES", {})
-    monkeypatch.setattr(micro.urllib.request, "urlopen", lambda *_args, **_kwargs: _FakeResponse([b"raw-fw"]))
-
-    result = micro.download_firmware("h2", tmp_path)
-
-    assert result.name == "ESP32_CSI_H2.bin"
-    assert result.read_bytes() == b"raw-fw"
-
-
-def test_download_firmware_rejects_bad_download_hash(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(micro, "FIRMWARE_HASHES", {"ESP32_CSI_C3.bin": "deadbeef"})
-    monkeypatch.setattr(micro.urllib.request, "urlopen", lambda *_args, **_kwargs: _FakeResponse([b"bad-fw"]))
-
-    with pytest.raises(SystemExit):
-        micro.download_firmware("c3", tmp_path)
-
-    assert not (tmp_path / "ESP32_CSI_C3.bin").exists()
-
-
-def test_download_firmware_handles_network_errors(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(micro, "FIRMWARE_HASHES", {})
-
-    def fake_urlopen(*_args, **_kwargs):
-        raise URLError("offline")
-
-    monkeypatch.setattr(micro.urllib.request, "urlopen", fake_urlopen)
-
-    with pytest.raises(SystemExit):
-        micro.download_firmware("c3", tmp_path)
 
 
 def test_flash_firmware_raises_when_esptool_missing(monkeypatch) -> None:
@@ -246,7 +189,11 @@ def test_flash_firmware_retries_after_failed_write_and_succeeds(tmp_path: Path, 
     monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
     monkeypatch.setattr(micro, "detect_chip_type", lambda _port: None)
     monkeypatch.setattr(micro, "prompt_chip_type", lambda: "c5")
-    monkeypatch.setattr(micro, "download_firmware", lambda chip, cache_dir: firmware)
+    monkeypatch.setattr(
+        micro,
+        "build_project_firmware_image",
+        lambda *, chip, clean: firmware,
+    )
     monkeypatch.setattr(micro.time, "sleep", lambda _seconds: None)
     monkeypatch.setitem(sys.modules, "esptool", FakeEsptool())
 
@@ -263,6 +210,40 @@ def test_flash_firmware_rejects_missing_custom_firmware(monkeypatch) -> None:
 
     with pytest.raises(SystemExit):
         micro.flash_firmware(_make_args(firmware="/tmp/does-not-exist.bin"))
+
+
+@pytest.mark.parametrize(
+    ("chip", "offset"),
+    (
+        ("esp32", "0x1000"),
+        ("c3", "0x0"),
+        ("c5", "0x2000"),
+        ("c6", "0x0"),
+        ("s3", "0x0"),
+    ),
+)
+def test_flash_firmware_uses_project_build_for_supported_chips(
+    chip: str, offset: str, tmp_path: Path, monkeypatch
+) -> None:
+    firmware = tmp_path / "project.bin"
+    firmware.write_bytes(b"project")
+    calls: list[list[str]] = []
+
+    monkeypatch.setitem(
+        sys.modules,
+        "esptool",
+        SimpleNamespace(main=lambda command: calls.append(command)),
+    )
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(
+        micro,
+        "build_project_firmware_image",
+        lambda *, chip, clean: firmware,
+    )
+
+    micro.flash_firmware(_make_args(chip=chip))
+
+    assert calls[-1][-2:] == [offset, str(firmware)]
 
 
 def test_flash_firmware_exits_when_chip_cannot_be_selected(monkeypatch) -> None:
@@ -286,11 +267,15 @@ def test_flash_firmware_exits_after_exhausting_retries(tmp_path: Path, monkeypat
 
     monkeypatch.setitem(sys.modules, "esptool", SimpleNamespace(main=always_fail))
     monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
-    monkeypatch.setattr(micro, "download_firmware", lambda chip, cache_dir: firmware)
+    monkeypatch.setattr(
+        micro,
+        "build_project_firmware_image",
+        lambda *, chip, clean: firmware,
+    )
     monkeypatch.setattr(micro.time, "sleep", lambda _seconds: None)
 
     with pytest.raises(SystemExit):
-        micro.flash_firmware(_make_args(chip="c3"))
+        micro.flash_firmware(_make_args(chip="c6"))
 
     assert len(attempts) == 3
 
@@ -326,14 +311,82 @@ def test_deploy_code_uploads_files_to_device(monkeypatch, tmp_path: Path) -> Non
 
     mkdir_calls = [cmd for cmd in calls if "mkdir" in cmd]
     cp_calls = [cmd for cmd in calls if "cp" in cmd]
+    rm_calls = [cmd for cmd in calls if "rm" in cmd]
     assert len(mkdir_calls) == 2
     assert len(cp_calls) == len(micro.MICRO_DEVICE_RELATIVE_FILES)
-    assert any(cmd[-1] == ":src/" for cmd in cp_calls)
-    assert any(cmd[-1] == ":src/mqtt/" for cmd in cp_calls)
-    assert any(cmd[-2].endswith("console_output.py") for cmd in cp_calls)
-    assert any(cmd[-2].endswith("branding.py") for cmd in cp_calls)
-    assert any(cmd[-2].endswith("lightweight_detector.py") for cmd in cp_calls)
-    assert any(cmd[-2].endswith("runtime_diagnostics.py") for cmd in cp_calls)
+    assert len(rm_calls) == len(micro.MICRO_DEVICE_RELATIVE_FILES) + 2
+    assert any(cmd[-1] == ":src/main.mpy" for cmd in cp_calls)
+    assert any(cmd[-1].startswith(":src/mqtt/") for cmd in cp_calls)
+    assert any(cmd[-2].endswith("console_output.mpy") for cmd in cp_calls)
+    assert any(cmd[-2].endswith("branding.mpy") for cmd in cp_calls)
+    assert any(cmd[-2].endswith("lightweight_detector.mpy") for cmd in cp_calls)
+    assert any(cmd[-2].endswith("runtime_diagnostics.mpy") for cmd in cp_calls)
+    assert any(cmd[-2].endswith("protocol.mpy") for cmd in cp_calls)
+    assert all(cmd[-2].endswith(".mpy") for cmd in cp_calls)
+    assert any(cmd[-1] == ":src/mqtt/protocol.py" for cmd in rm_calls)
+    assert any(cmd[-1] == ":config_local.mpy" for cmd in rm_calls)
+
+    compile_calls = [
+        cmd
+        for cmd in calls
+        if cmd and cmd[0] == micro.MPY_CROSS_COMMAND and micro.MPY_OPTIMIZATION_LEVEL in cmd
+    ]
+    assert len(compile_calls) == len(micro.MICRO_DEVICE_RELATIVE_FILES)
+    assert all(micro.MPY_OPTIMIZATION_LEVEL in cmd for cmd in compile_calls)
+
+
+def test_project_manifest_does_not_freeze_application(tmp_path: Path) -> None:
+    manifest = tmp_path / "manifest.py"
+
+    micro_firmware._write_manifest(manifest)
+
+    assert manifest.read_text(encoding="utf-8") == (
+        'freeze("$(PORT_DIR)/modules", ("_boot.py", "flashbdev.py", "inisetup.py"))\n'
+    )
+
+
+def test_project_firmware_rejects_unsupported_chip(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="Unsupported project firmware chip: h2"):
+        micro_firmware.build_project_firmware(tmp_path, chip="h2", cache_dir=tmp_path)
+
+
+def test_project_firmware_aligns_idf_55_lockfile(tmp_path: Path) -> None:
+    micropython_dir = tmp_path / "micropython"
+    lockfile = (
+        micropython_dir
+        / "ports"
+        / "esp32"
+        / "lockfiles"
+        / "dependencies.lock.esp32s3"
+    )
+    lockfile.parent.mkdir(parents=True)
+    lockfile.write_text(
+        "dependencies:\n  idf:\n    source:\n      type: idf\n    version: 5.5.2\n",
+        encoding="utf-8",
+    )
+    idf_path = tmp_path / "esp-idf"
+    idf_path.mkdir()
+    (idf_path / "version.txt").write_text("5.5.5\n", encoding="utf-8")
+
+    micro_firmware._align_idf_lockfile(micropython_dir, "s3", idf_path)
+
+    assert "    version: 5.5.5\n" in lockfile.read_text(encoding="utf-8")
+
+
+def test_project_boards_use_one_shared_profile_and_only_esp32_override() -> None:
+    boards_dir = micro.PYTHON_SRC_DIR / "firmware" / "boards"
+
+    for board in micro_firmware.PROJECT_FIRMWARE_BOARDS.values():
+        board_cmake = (boards_dir / board / "mpconfigboard.cmake").read_text(
+            encoding="utf-8"
+        )
+        assert "../micro_espectre.cmake" in board_cmake
+
+    overrides = sorted(
+        path.relative_to(boards_dir).as_posix()
+        for path in boards_dir.rglob("sdkconfig.override")
+    )
+    assert overrides == ["ESP32_MICRO_ESPECTRE/sdkconfig.override"]
 
 
 def test_deploy_code_uses_selected_config_as_device_override(monkeypatch, tmp_path: Path) -> None:
@@ -356,8 +409,13 @@ def test_deploy_code_uses_selected_config_as_device_override(monkeypatch, tmp_pa
 
     micro.deploy_code(_make_args(config=benchmark_config))
 
-    config_copy = next(cmd for cmd in calls if "cp" in cmd and cmd[-2] == str(benchmark_config))
-    assert config_copy[-1] == ":src/config_local.py"
+    config_compile = next(
+        cmd
+        for cmd in calls
+        if cmd and cmd[0] == micro.MPY_CROSS_COMMAND and cmd[-1] == str(benchmark_config)
+    )
+    assert config_compile[3] == "src/config_local.py"
+    assert any(cmd[-1] == ":src/config_local.mpy" for cmd in calls if "cp" in cmd)
 
 
 def test_deploy_code_retries_healthcheck_while_micropython_starts(monkeypatch, tmp_path: Path) -> None:
@@ -368,10 +426,12 @@ def test_deploy_code_retries_healthcheck_while_micropython_starts(monkeypatch, t
     def fake_run(cmd, **kwargs):
         nonlocal health_attempts
         if cmd[:4] == ["mpremote", "connect", "/dev/cu.usbmodem1", "exec"]:
-            health_attempts += 1
-            if health_attempts == 1:
-                return SimpleNamespace(returncode=1, stdout="", stderr="port is not ready")
-            return SimpleNamespace(returncode=0, stdout="MP_OK", stderr="")
+            if "MP_OK" in cmd[-1]:
+                health_attempts += 1
+                if health_attempts == 1:
+                    return SimpleNamespace(returncode=1, stdout="", stderr="port is not ready")
+                return SimpleNamespace(returncode=0, stdout="MP_OK", stderr="")
+            return SimpleNamespace(returncode=0, stdout="NONE", stderr="")
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(micro, "PYTHON_SRC_DIR", src_dir)
@@ -516,12 +576,12 @@ def test_run_application_exits_on_subprocess_error(monkeypatch) -> None:
 
 def test_verify_installation_passes_when_all_checks_succeed(monkeypatch) -> None:
     src_listing = [
-        Path(rel_path).name
+        Path(rel_path).with_suffix(".mpy").name
         for rel_path in micro.MICRO_DEVICE_RELATIVE_FILES
         if "/" not in rel_path
     ] + ["mqtt"]
     mqtt_listing = [
-        Path(rel_path).name
+        Path(rel_path).with_suffix(".mpy").name
         for rel_path in micro.MICRO_DEVICE_RELATIVE_FILES
         if rel_path.startswith("mqtt/")
     ]

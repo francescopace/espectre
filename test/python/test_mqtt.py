@@ -13,11 +13,10 @@ import json
 import sys
 from unittest.mock import MagicMock, patch
 
-# Mock MicroPython modules before importing mqtt modules
+# Mock native MicroPython firmware modules before importing mqtt modules
 mock_mqtt_client = MagicMock()
-sys.modules['umqtt'] = MagicMock()
-sys.modules['umqtt.simple'] = MagicMock()
-sys.modules['umqtt.simple'].MQTTClient = mock_mqtt_client
+sys.modules['espectre_native_mqtt'] = MagicMock()
+sys.modules['espectre_native_mqtt'].MQTTClient = mock_mqtt_client
 
 # Mock network module (MicroPython)
 mock_network = MagicMock()
@@ -26,10 +25,6 @@ mock_network.MODE_11G = 2
 mock_network.MODE_11N = 4
 mock_network.MODE_LR = 8
 sys.modules['network'] = mock_network
-
-# Mock _thread module (MicroPython)
-sys.modules['_thread'] = MagicMock()
-
 
 class MockWLAN:
     """Mock WLAN interface for testing"""
@@ -56,9 +51,14 @@ class MockWLAN:
         return ('192.168.1.100', '255.255.255.0', '192.168.1.1', '8.8.8.8')
 
 
+def test_device_id_matches_native_sha256_pseudonym():
+    from mqtt.protocol import _derive_device_id_from_mac
+
+    assert _derive_device_id_from_mac(bytes.fromhex("7c2c6742bbac")) == "3cf79180d3a0aca4"
+
+
 class MockConfig:
     """Mock configuration module"""
-    MQTT_CLIENT_ID = "test-device"
     MQTT_BROKER = "localhost"
     MQTT_PORT = 1883
     MQTT_USERNAME = "user"
@@ -176,8 +176,21 @@ def mock_mqtt_client_instance():
     client.set_callback = MagicMock()
     client.check_msg = MagicMock()
     client.disconnect = MagicMock()
+    client.deinit = MagicMock()
     client.set_last_will = MagicMock()
     return client
+
+
+@pytest.fixture(autouse=True)
+def stable_device_identity(monkeypatch):
+    """Keep topic-focused tests independent from the identity hash vector."""
+    from mqtt import protocol as mqtt_protocol
+
+    monkeypatch.setattr(
+        mqtt_protocol,
+        "derive_runtime_device_id",
+        lambda _wlan: "test-device",
+    )
 
 
 @pytest.fixture
@@ -253,6 +266,98 @@ class TestMQTTHandler:
         assert handler.connect() is None
         assert handler.connected is False
         assert handler._next_reconnect_ms != 0
+
+    def test_native_transport_resolves_broker_before_client_start(
+        self,
+        monkeypatch,
+        mock_config,
+        mock_segmentation,
+        mock_wlan,
+    ):
+        """The native ESP-IDF client should receive an address resolved by MicroPython."""
+        import mqtt.handler as handler_module
+        import socket
+
+        client = MagicMock()
+        client_factory = MagicMock(return_value=client)
+        monkeypatch.setattr(handler_module, "MQTTClient", client_factory)
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *_args, **_kwargs: [
+                (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("192.0.2.10", 1883))
+            ],
+        )
+
+        handler = handler_module.MQTTHandler(mock_config, mock_segmentation, mock_wlan)
+        handler._connect_client()
+
+        assert client_factory.call_args.args[:2] == ("test-device", "192.0.2.10")
+        assert client_factory.call_args.kwargs["last_will_topic"] == handler.status_topic
+        assert json.loads(client_factory.call_args.kwargs["last_will_msg"])["online"] is False
+        assert client_factory.call_args.kwargs["last_will_retain"] is True
+        client.connect.assert_called_once()
+
+    def test_native_transport_owns_runtime_reconnect(
+        self,
+        monkeypatch,
+        mock_config,
+        mock_segmentation,
+        mock_wlan,
+    ):
+        """A runtime failure must remain owned by the ESP-IDF client task."""
+        import mqtt.handler as handler_module
+        import socket
+
+        client = MagicMock()
+        client_factory = MagicMock(return_value=client)
+        monkeypatch.setattr(handler_module, "MQTTClient", client_factory)
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *_args, **_kwargs: [
+                (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("192.0.2.10", 1883))
+            ],
+        )
+
+        handler = handler_module.MQTTHandler(mock_config, mock_segmentation, mock_wlan)
+        handler._connect_client()
+        client.status.return_value = handler_module.NATIVE_MQTT_FAILED
+        assert handler._reconnect_if_due() is False
+
+        client_factory.assert_called_once()
+        client.connect.assert_called_once()
+
+    def test_native_transport_finishes_setup_after_async_connect(
+        self,
+        monkeypatch,
+        mock_config,
+        mock_segmentation,
+        mock_wlan,
+    ):
+        """Native session setup starts only after ESP-IDF reports connected."""
+        import mqtt.handler as handler_module
+        import socket
+
+        client = MagicMock()
+        client.status.return_value = handler_module.NATIVE_MQTT_CONNECTED
+        monkeypatch.setattr(handler_module, "MQTTClient", MagicMock(return_value=client))
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *_args, **_kwargs: [
+                (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("192.0.2.10", 1883))
+            ],
+        )
+
+        handler = handler_module.MQTTHandler(mock_config, mock_segmentation, mock_wlan)
+        handler._connect_client()
+
+        assert handler.connected is False
+        assert handler._reconnect_if_due() is True
+        assert handler.connected is True
+        client.set_callback.assert_called_once()
+        client.subscribe.assert_called_once_with(handler.cmd_topic)
     
     def test_publish_state_idle(self, mock_config, mock_segmentation, mock_wlan, mock_mqtt_client_instance, mock_global_state):
         """Test publishing idle state"""
@@ -349,9 +454,10 @@ class TestMQTTHandler:
         handler.check_messages()
 
         assert handler.connected is False
-        assert handler._next_reconnect_ms != 0
+        assert handler._next_reconnect_ms == 0
+        assert handler.client is mock_mqtt_client_instance
 
-    def test_check_messages_reconnects_after_backoff(
+    def test_check_messages_resumes_after_native_reconnect(
         self,
         monkeypatch,
         mock_config,
@@ -359,7 +465,7 @@ class TestMQTTHandler:
         mock_wlan,
         mock_mqtt_client_instance,
     ):
-        """A failed poll should reconnect, resubscribe, and resume polling."""
+        """Polling resumes after the ESP-IDF task reports its reconnect."""
         import mqtt.handler as handler_module
 
         handler = handler_module.MQTTHandler(mock_config, mock_segmentation, mock_wlan)
@@ -368,26 +474,60 @@ class TestMQTTHandler:
         mock_mqtt_client_instance.check_msg.side_effect = OSError("disconnected")
         handler.check_messages()
 
-        replacement = MagicMock()
-        monkeypatch.setattr(handler_module, "MQTTClient", lambda *args, **kwargs: replacement)
-        handler._next_reconnect_ms = 0
+        mock_mqtt_client_instance.check_msg.side_effect = None
+        mock_mqtt_client_instance.status.return_value = handler_module.NATIVE_MQTT_CONNECTED
         handler.check_messages()
 
         assert handler.connected is True
-        replacement.connect.assert_called_once()
-        replacement.subscribe.assert_called_once_with(handler.cmd_topic)
-        replacement.check_msg.assert_called_once()
-    
-    def test_disconnect(self, mock_config, mock_segmentation, mock_wlan, mock_mqtt_client_instance):
-        """Test disconnecting from MQTT broker"""
+        mock_mqtt_client_instance.subscribe.assert_called_once_with(handler.cmd_topic)
+        assert mock_mqtt_client_instance.check_msg.call_count == 2
+
+    def test_failed_native_task_start_releases_client(
+        self,
+        monkeypatch,
+        mock_config,
+        mock_segmentation,
+        mock_wlan,
+    ):
+        """A client whose ESP-IDF task cannot start must be released."""
+        import mqtt.handler as handler_module
+        import socket
+
+        failed_client = MagicMock()
+        failed_client.connect.side_effect = OSError("offline")
+        client_factory = MagicMock(return_value=failed_client)
+        monkeypatch.setattr(handler_module, "MQTTClient", client_factory)
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *_args, **_kwargs: [
+                (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("192.0.2.10", 1883))
+            ],
+        )
+        handler = handler_module.MQTTHandler(mock_config, mock_segmentation, mock_wlan)
+        handler._next_reconnect_ms = 0
+
+        assert handler._reconnect_if_due() is False
+        failed_client.deinit.assert_called_once()
+        assert handler.client is None
+        assert handler._next_reconnect_ms != 0
+        client_factory.assert_called_once()
+
+    def test_disconnect_deinitializes_native_client(
+        self, mock_config, mock_segmentation, mock_wlan
+    ):
+        """Final shutdown must release the native task, event loop, and buffers."""
         from mqtt.handler import MQTTHandler
-        
+
+        client = MagicMock()
         handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan)
-        handler.client = mock_mqtt_client_instance
-        
+        handler.client = client
+
         handler.disconnect()
-        
-        mock_mqtt_client_instance.disconnect.assert_called_once()
+
+        client.deinit.assert_called_once()
+        client.disconnect.assert_not_called()
+        assert handler.client is None
     
     def test_disconnect_error_handling(self, mock_config, mock_segmentation, mock_wlan, mock_mqtt_client_instance):
         """Test error handling during disconnect"""
@@ -395,7 +535,7 @@ class TestMQTTHandler:
         
         handler = MQTTHandler(mock_config, mock_segmentation, mock_wlan)
         handler.client = mock_mqtt_client_instance
-        mock_mqtt_client_instance.disconnect.side_effect = Exception("Error")
+        mock_mqtt_client_instance.deinit.side_effect = Exception("Error")
         
         # Should not raise exception
         handler.disconnect()
@@ -432,6 +572,7 @@ class TestMQTTHandler:
         client.set_callback = MagicMock()
         client.set_last_will = MagicMock()
         mock_client_class.return_value = client
+        client.status.return_value = 2
 
         handler = MQTTHandler(
             mock_config,
@@ -442,6 +583,7 @@ class TestMQTTHandler:
             traffic_generator=mock_traffic_generator,
         )
         handler.connect()
+        assert handler._reconnect_if_due() is True
 
         client.set_last_will.assert_called_once_with(
             "test/espectre/devices/test-device/ha/availability", "offline", retain=False
@@ -1261,6 +1403,17 @@ class TestMQTTCommands:
         assert sample["csi_occupancy"] == 0.82
         assert sample["wifi_channel"] == 10
         assert sample["wifi_rssi_dbm"] == -55
+
+    def test_runtime_diagnostics_reads_native_csi_ring_drops(self):
+        from runtime_diagnostics import wifi_csi_dropped
+
+        class _Wlan:
+            @staticmethod
+            def csi_dropped():
+                return 37
+
+        assert wifi_csi_dropped(_Wlan()) == 37
+        assert wifi_csi_dropped(object()) == 0
     
     def test_cmd_set_threshold_success(self, commands_instance, mock_mqtt_client_instance, mock_segmentation):
         """Test setting detection threshold (session-only, not persisted)"""
@@ -1367,6 +1520,8 @@ class TestMQTTCommands:
         assert payload['csi_traffic_mode'] == 'internal'
         assert payload['traffic_mode'] == 'ping'
         assert payload['csi_target_pps'] == 100
+        assert payload['evaluation_interval_ms'] == 250
+        assert payload['publish_interval_ms'] == 1000
         assert 'device' not in payload
         assert 'mqtt' not in payload
         assert 'subcarriers' not in payload
@@ -1415,8 +1570,8 @@ class TestMQTTCommands:
         payload = json.loads(call_args[0][1])
         
         assert payload['device_name'] == 'ESPectre C6 device'
-        assert payload['network']['ip_address'] == '192.168.1.100'
-        assert payload['network']['mac_address'] == '12:34:56:78:9A:BC'
+        assert 'ip_address' not in payload['network']
+        assert 'mac_address' not in payload['network']
         assert payload['network']['channel']['primary'] == 6
         assert payload['detection']['algorithm'] == 'lightweight'
     
@@ -1445,8 +1600,8 @@ class TestMQTTCommands:
         payload = json.loads(call_args[0][1])
         
         assert payload['device_name'] == 'ESPectre C6 device'
-        assert payload['network']['ip_address'] == ''
-        assert payload['network']['mac_address'] == ''
+        assert 'ip_address' not in payload['network']
+        assert 'mac_address' not in payload['network']
         assert payload['detection']['algorithm'] == 'lightweight'
 
     def test_cmd_info_uses_detector_algorithm_identifier(self, mock_mqtt_client_instance, mock_config, mock_wlan, mock_global_state):

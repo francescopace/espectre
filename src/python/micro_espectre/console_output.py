@@ -103,18 +103,38 @@ def _format_status_fields(diagnostics, *, placeholders=False):
     occupancy_text = placeholder
     if not placeholders:
         occupancy_text = str(int(float(occupancy) * 100.0 + 0.5))
+    admitted_value = None if placeholders else admitted
+    accepted_value = None if placeholders else accepted
+    traffic_value = None if placeholders else traffic
+    missing_value = None if placeholders else missing
+    excess_value = None if placeholders else excess
+    stale_value = None if placeholders else stale
+    out_of_order_value = None if placeholders else out_of_order
+    channel_value = None if placeholders else channel
+    rssi_value = None if placeholders else rssi
+    admitted_text = _format_integer_value(admitted_value, placeholder=placeholder)
+    accepted_text = _format_integer_value(accepted_value, placeholder=placeholder)
+    traffic_text = _format_integer_value(traffic_value, placeholder=placeholder)
+    missing_text = _format_integer_value(missing_value, placeholder=placeholder)
+    excess_text = _format_integer_value(excess_value, placeholder=placeholder)
+    stale_text = _format_integer_value(stale_value, placeholder=placeholder)
+    out_of_order_text = _format_integer_value(out_of_order_value, placeholder=placeholder)
+    channel_text = _format_integer_value(channel_value, placeholder=placeholder)
+    rssi_text = _format_integer_value(rssi_value, placeholder=placeholder)
 
     return (
-        f"csi:{_format_integer_value(admitted if not placeholders else None, placeholder=placeholder)}/"
-        f"{_format_integer_value(accepted if not placeholders else None, placeholder=placeholder)} "
-        f"tx:{_format_integer_value(traffic if not placeholders else None, placeholder=placeholder)} "
-        f"occ:{occupancy_text}% "
-        f"miss:{_format_integer_value(missing if not placeholders else None, placeholder=placeholder)} "
-        f"excess:{_format_integer_value(excess if not placeholders else None, placeholder=placeholder)} "
-        f"stale:{_format_integer_value(stale if not placeholders else None, placeholder=placeholder)} "
-        f"ooo:{_format_integer_value(out_of_order if not placeholders else None, placeholder=placeholder)} "
-        f"| ch:{_format_integer_value(channel if not placeholders else None, placeholder=placeholder)} "
-        f"rssi:{_format_integer_value(rssi if not placeholders else None, placeholder=placeholder)}"
+        "csi:{}/{} tx:{} occ:{}% miss:{} excess:{} stale:{} ooo:{} | ch:{} rssi:{}".format(
+            admitted_text,
+            accepted_text,
+            traffic_text,
+            occupancy_text,
+            missing_text,
+            excess_text,
+            stale_text,
+            out_of_order_text,
+            channel_text,
+            rssi_text,
+        )
     )
 
 
@@ -141,10 +161,14 @@ def _format_status_line(
         empty_char=empty_char,
         threshold_char=threshold_char,
     )
-    line = (
-        f"{progress_bar} | mvmt:{_format_metric_value(None if placeholder_metrics else motion_metric)} "
-        f"thr:{_format_metric_value(None if placeholder_metrics else threshold)} | {state_label} | "
-        f"{_format_status_fields(diagnostics, placeholders=placeholder_metrics)}"
+    display_motion_metric = None if placeholder_metrics else motion_metric
+    display_threshold = None if placeholder_metrics else threshold
+    line = "{} | mvmt:{} thr:{} | {} | {}".format(
+        progress_bar,
+        _format_metric_value(display_motion_metric),
+        _format_metric_value(display_threshold),
+        state_label,
+        _format_status_fields(diagnostics, placeholders=placeholder_metrics),
     )
     if device_label:
         return f"{device_label} | {line}"
@@ -230,9 +254,12 @@ def format_waiting_status_line(
         empty_char=empty_char,
         threshold_char=threshold_char,
     )
-    line = (
-        f"{progress_bar} | mvmt:{metric_placeholder} thr:{threshold_placeholder} | "
-        f"{state_label} | {_format_status_fields(None, placeholders=True)}"
+    line = "{} | mvmt:{} thr:{} | {} | {}".format(
+        progress_bar,
+        metric_placeholder,
+        threshold_placeholder,
+        state_label,
+        _format_status_fields(None, placeholders=True),
     )
     if device_label:
         return f"{device_label} | {line}"

@@ -114,16 +114,20 @@ The `micro` namespace owns MicroPython device lifecycle commands:
 
 | Command | Purpose |
 |---------|---------|
-| `./espectre micro flash --erase` | Flash the CSI-enabled MicroPython firmware |
-| `./espectre micro deploy` | Copy Micro-ESPectre Python sources to the device |
+| `./espectre micro build --chip <esp32|c3|c5|c6|s3>` | Build the lean Micro-ESPectre firmware for the selected chip |
+| `./espectre micro flash --chip <esp32|c3|c5|c6|s3> --erase` | Build and flash the optimized project firmware |
+| `./espectre micro flash --erase` | Auto-detect the chip, then build and flash its project firmware |
+| `./espectre micro deploy` | Compile and upload the complete `.mpy -O3` application manifest |
 | `./espectre micro run` | Start the device application |
 | `./espectre micro verify` | Check firmware and device readiness |
 
 Notes:
 
 - `--port` is optional; the CLI tries to auto-detect a serial device when possible.
-- `micro flash` also supports `--chip` and `--firmware`.
-- `micro deploy --config <path>` deploys an alternate local override as device `config_local.py`; the firmware benchmark uses this to keep laboratory settings isolated from the developer's normal config.
+- `micro flash` also supports `--chip` and `--firmware`. Every supported chip builds the optimized project firmware by default; `--firmware` remains available for an explicitly supplied image.
+- `micro build` and the default flash path pin one MicroPython revision for every supported chip. The images use one lean project board profile with ESP-IDF MQTT 3.1.1/TCP and STA-bound ICMP or DNS traffic generation modules, but do not embed the Micro-ESPectre application. The deployed application requires those native modules and does not provide Python transport fallbacks, so flash the matching project firmware before deployment. The shared profile prioritizes the Wi-Fi CSI path through performance optimization, balanced queues, a 1 kHz FreeRTOS tick, disabled power management, and Wi-Fi, PHY, and lwIP IRAM placement. Classic ESP32 alone uses reduced Wi-Fi queues and omits lwIP IRAM placement to preserve heap. RX AMPDU remains disabled for individual HT20 CSI delivery. DNS and mDNS broker-name resolution remain in MicroPython. Building requires an ESP-IDF 5.5 host toolchain; cached source and build trees live under `.firmware/`.
+- Firmware is normally flashed once. Application changes use `micro deploy`, which compiles the complete device manifest with MPY ABI 6.3 and optimization level `-O3`, uploads it to the filesystem, and removes superseded `.py` files afterward.
+- `micro deploy --config <path>` compiles an alternate local override as device `config_local.mpy`; the firmware benchmark uses this to keep laboratory settings isolated from the developer's normal config.
 
 ### `monitor`
 
@@ -261,7 +265,7 @@ Common MQTT flags:
 | `--broker` | `homeassistant.local` or `MQTT_BROKER` |
 | `--port-mqtt` | `1883` or `MQTT_PORT` |
 | `--topic-prefix` | `espectre/v1/devices` or `MQTT_TOPIC_PREFIX` |
-| `--device-id` | explicit argument or `MQTT_CLIENT_ID`; otherwise runtime discovery |
+| `--device-id` | Explicit device identifier; otherwise runtime discovery |
 | `--username` | `mqtt` or `MQTT_USERNAME` |
 | `--password` | `mqtt` or `MQTT_PASSWORD` |
 

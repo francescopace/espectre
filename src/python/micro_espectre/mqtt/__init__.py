@@ -9,8 +9,5 @@ Enables remote monitoring and configuration of the ESPectre system.
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
-from .handler import MQTTHandler
-from .commands import MQTTCommands
-from .home_assistant import HomeAssistantMqttAdapter
-
-__all__ = ['MQTTHandler', 'MQTTCommands', 'HomeAssistantMqttAdapter']
+# Keep package import side-effect free on memory-constrained MicroPython targets.
+# Consumers import the concrete submodule they need.

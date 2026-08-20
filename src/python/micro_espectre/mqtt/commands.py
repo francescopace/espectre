@@ -11,97 +11,34 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 import json
 import time
 import gc
-import sys
 
 try:
     from src.detector_interface import get_detector_algorithm
     from src.config import MOTION_HITS_MAX, MOTION_HITS_MIN
     from src.runtime_diagnostics import apply_diagnostics_sample, wifi_rssi_dbm
+    import src.mqtt.protocol as mqtt_protocol
+    from src.mqtt.protocol import (
+        THRESHOLD_MAX,
+        THRESHOLD_MIN,
+        _protocol_mqtt_commands,
+        build_info_payload,
+    )
 except ImportError:
     from detector_interface import get_detector_algorithm
     from config import MOTION_HITS_MAX, MOTION_HITS_MIN
     from runtime_diagnostics import apply_diagnostics_sample, wifi_rssi_dbm
-
-# Threshold limits shared by the runtime detectors
-THRESHOLD_MIN = 0.0
-THRESHOLD_MAX = 1.0
-
-
-def _protocol_mqtt_commands(
-    supports_info=True,
-    supports_stats=False,
-    supports_runtime_threshold=False,
-    supports_runtime_motion_hits=False,
-    supports_runtime_detector=False,
-    supports_manual_recalibration=False,
-    supports_traffic_control=False,
-    supports_ble=False,
-    supports_ota=False,
-):
-    """Return the MQTT command names advertised by this frontend."""
-    commands = ["commands"]
-    if supports_info:
-        commands.append("info")
-    if supports_stats:
-        commands.append("stats")
-    if supports_runtime_threshold:
-        commands.append("set_threshold")
-    if supports_runtime_motion_hits:
-        commands.append("set_motion_hits")
-    if supports_runtime_detector:
-        commands.append("set_detector")
-    if supports_manual_recalibration:
-        commands.append("recalibrate")
-    if supports_traffic_control:
-        commands.append("set_csi_traffic_mode")
-        commands.append("set_traffic_generator_mode")
-    if supports_ble:
-        commands.append("set_ble")
-    if supports_ota:
-        commands.extend(["ota_status", "ota_check", "ota_start"])
-    return commands
-
-
-def _is_ascii_alnum(char):
-    """Return whether one character is an ASCII letter or digit."""
-    code = ord(char)
-    return (
-        48 <= code <= 57
-        or 65 <= code <= 90
-        or 97 <= code <= 122
+    import mqtt.protocol as mqtt_protocol
+    from mqtt.protocol import (
+        THRESHOLD_MAX,
+        THRESHOLD_MIN,
+        _protocol_mqtt_commands,
+        build_info_payload,
     )
 
 
 def _threshold_bounds_for_detector(detector):
     """Return the accepted threshold range for the active detector."""
     return THRESHOLD_MIN, THRESHOLD_MAX
-
-
-def _normalize_chip_label(chip):
-    """Normalize chip identifiers to the shared short labels used by firmware."""
-    if not chip:
-        return "UNK"
-    normalized = ''.join(ch for ch in str(chip).upper() if _is_ascii_alnum(ch))
-    if normalized == "ESP32C3":
-        return "C3"
-    if normalized == "ESP32C5":
-        return "C5"
-    if normalized == "ESP32C6":
-        return "C6"
-    if normalized == "ESP32S3":
-        return "S3"
-    if normalized == "ESP32":
-        return "ESP32"
-    return normalized or "UNK"
-
-
-def _protocol_device_name(device_id, chip):
-    """Build the immutable ESPectre device name from chip and device_id."""
-    compact_id = ''.join(
-        ch for ch in str(device_id).lower() if _is_ascii_alnum(ch)
-    )
-    suffix = compact_id[-6:] if compact_id else "000000"
-    return "ESPectre {} {}".format(_normalize_chip_label(chip), suffix)
 
 
 class MQTTCommands:
@@ -122,7 +59,8 @@ class MQTTCommands:
                  recalibrate_callback=None,
                  traffic_control_callback=None,
                  traffic_control_supported=False,
-                 catalog_topic=None):
+                 catalog_topic=None,
+                 device_id=None):
         """
         Initialize MQTT commands
         
@@ -139,6 +77,7 @@ class MQTTCommands:
         """
         self.mqtt = mqtt_client
         self.config = config
+        self.device_id = device_id or mqtt_protocol.derive_runtime_device_id(wlan)
         self.detector = detector
         self.wlan = wlan
         self.global_state = global_state
@@ -183,7 +122,7 @@ class MQTTCommands:
                 if "response" in payload and "message" not in payload:
                     payload["message"] = payload.pop("response")
                 payload.setdefault("protocol_version", "1.0")
-                payload.setdefault("device_id", self.config.MQTT_CLIENT_ID)
+                payload.setdefault("device_id", self.device_id)
                 if command_id:
                     payload.setdefault("command_id", command_id)
                 if command:
@@ -204,64 +143,24 @@ class MQTTCommands:
     
     def cmd_info(self):
         """Get system information"""
-        ip_address = ""
-        mac_address = ""
-        channel_primary = 0
-        chip = getattr(self.global_state, 'chip_type', None) or sys.platform
-        
-        if self.wlan.active():
-            try:
-                mac_bytes = self.wlan.config('mac')
-                mac_address = ':'.join(['%02X' % b for b in mac_bytes])
-            except Exception:  # pragma: no cover
-                pass
-            
-            if self.wlan.isconnected():
-                ip_info = self.wlan.ifconfig()
-                ip_address = ip_info[0] if ip_info else ""
-            
-            try:
-                channel_primary = self.wlan.config('channel')
-            except Exception:  # pragma: no cover
-                pass
-        
-        response = {
-            "protocol_version": "1.0",
-            "device_id": self.config.MQTT_CLIENT_ID,
-            "device_name": _protocol_device_name(self.config.MQTT_CLIENT_ID, chip),
-            "device_label": getattr(self.config, "MQTT_DEVICE_LABEL", ""),
-            "frontend": "micro",
-            "firmware_version": "micropython",
-            "chip": chip,
-            "supports_info": True,
-            "supports_stats": True,
-            "supports_runtime_threshold": True,
-            "supports_runtime_motion_hits": self.runtime_policy is not None,
-            "supports_runtime_detector": False,
-            "supports_manual_recalibration": callable(self.recalibrate_callback),
-            "supports_traffic_control": self.traffic_control_supported,
-            "supports_ota": False,
-            "supports_ble": False,
-            "network": {
-                "ip_address": ip_address,
-                "mac_address": mac_address,
-                "channel": {
-                    "primary": channel_primary
-                }
-            },
-            "detection": self._get_detection_info(),
-            "csi_traffic_mode": getattr(self.ha_adapter, "_last_csi_traffic_mode", "internal"),
-            "traffic_mode": getattr(self.ha_adapter, "_last_traffic_generator_mode", "ping"),
-            "csi_target_pps": max(1, int(getattr(self.config, "CSI_TARGET_PPS", 100))),
-        }
-        
+        response = build_info_payload(
+            self.config,
+            get_detector_algorithm(self.detector),
+            self.wlan,
+            self.global_state,
+            self.runtime_policy,
+            self.ha_adapter,
+            self.recalibrate_callback,
+            self.traffic_control_supported,
+            device_id=self.device_id,
+        )
         self.publish_info_payload(response)
 
     def cmd_commands(self):
         """Publish the MQTT command catalog for this frontend."""
         payload = {
             "protocol_version": "1.0",
-            "device_id": self.config.MQTT_CLIENT_ID,
+            "device_id": self.device_id,
             "commands": _protocol_mqtt_commands(
                 supports_info=True,
                 supports_stats=True,
@@ -292,7 +191,7 @@ class MQTTCommands:
 
         response = {
             "protocol_version": "1.0",
-            "device_id": self.config.MQTT_CLIENT_ID,
+            "device_id": self.device_id,
             "timestamp_ms": int(current_time * 1000),
             "uptime": int(uptime_sec),
             "free_memory_kb": free_mem_kb,

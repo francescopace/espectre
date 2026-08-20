@@ -40,6 +40,7 @@ if str(REPO_ROOT) not in sys.path:
 from src.python.espectre_cli.common import FIRMWARE_CACHE_DIR, detect_chip_type, get_serial_port
 from src.python.espectre_cli.idf import resolve_idf_build_dir_name
 from src.python.espectre_cli.micro import deployment_files
+from src.python.espectre_cli.micro_firmware import PROJECT_FIRMWARE_NAMES
 from src.python.espectre_cli.mqtt_shell import send_mqtt_command_and_wait
 from src.python.espectre_cli.targets import ESPHOME_CONFIGS, ESPHOME_EXAMPLES_DIR, IDF_FRONTENDS
 from src.python.micro_espectre.temporal_csi_sampler import (
@@ -72,13 +73,6 @@ IDF_APP_BIN_NAMES = {
     "streamer": "espectre-streamer.bin",
 }
 IDF_IGNORED_BIN_NAMES = {"bootloader.bin", "partition-table.bin", "ota_data_initial.bin"}
-MICRO_FIRMWARE_NAMES = {
-    "esp32": "ESP32_CSI.bin",
-    "c3": "ESP32_CSI_C3.bin",
-    "c5": "ESP32_CSI_C5.bin",
-    "c6": "ESP32_CSI_C6.bin",
-    "s3": "ESP32_CSI_S3.bin",
-}
 MICRO_SOURCE_DIR = REPO_ROOT / "src/python/micro_espectre"
 MIN_STREAMER_COLLECT_SAMPLES = 60
 MOTION_WARMUP_SAMPLES = 3
@@ -1226,7 +1220,7 @@ def _latest_firmware_artifact(frontend: str, chip: str | None = None) -> Path | 
     if frontend == "micro":
         if chip is None:
             return None
-        firmware_name = MICRO_FIRMWARE_NAMES.get(chip)
+        firmware_name = PROJECT_FIRMWARE_NAMES.get(chip)
         return FIRMWARE_CACHE_DIR / firmware_name if firmware_name is not None else None
 
     if frontend == "esphome":
@@ -1367,7 +1361,7 @@ def apply_esphome_benchmark_logger(content: str) -> str:
     )
 
 
-def render_micro_benchmark_config(detector: str, device_id: str) -> str:
+def render_micro_benchmark_config(detector: str) -> str:
     """Render a temporary device override from the shared benchmark settings."""
     values: list[tuple[str, object]] = [
         ("WIFI_SSID", require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID")),
@@ -1375,7 +1369,6 @@ def render_micro_benchmark_config(detector: str, device_id: str) -> str:
         ("MQTT_ENABLED", True),
         ("MQTT_BROKER", require_benchmark_setting("ESPECTRE_BENCHMARK_MQTT_HOST")),
         ("MQTT_PORT", benchmark_setting_int("ESPECTRE_BENCHMARK_MQTT_PORT", 1883)),
-        ("MQTT_CLIENT_ID", device_id),
         ("MQTT_TOPIC_PREFIX", benchmark_setting("ESPECTRE_BENCHMARK_MQTT_TOPIC_PREFIX", "espectre/v1/devices")),
         ("MQTT_USERNAME", benchmark_setting("ESPECTRE_BENCHMARK_MQTT_USERNAME", "")),
         ("MQTT_PASSWORD", benchmark_setting("ESPECTRE_BENCHMARK_MQTT_PASSWORD", "")),
@@ -1395,14 +1388,14 @@ def render_micro_benchmark_config(detector: str, device_id: str) -> str:
 
 
 @contextmanager
-def micro_case_config(chip: str, detector: str, device_id: str) -> Iterator[Path]:
+def micro_case_config(chip: str, detector: str) -> Iterator[Path]:
     """Yield an isolated config deployed through the production Micro CLI."""
     temporary_path = MICRO_SOURCE_DIR / f".espectre-benchmark-{chip}-{detector}.py"
     if temporary_path.exists():
         raise RuntimeError(f"temporary benchmark config already exists: {temporary_path}")
     try:
         temporary_path.write_text(
-            render_micro_benchmark_config(detector, device_id),
+            render_micro_benchmark_config(detector),
             encoding="utf-8",
         )
         yield temporary_path
@@ -1937,8 +1930,18 @@ def run_micro_case(
     try:
         flash_result = shared_flash
         if flash_result is None:
+            flash_command = [
+                launcher,
+                "micro",
+                "flash",
+                "--chip",
+                chip,
+                "--port",
+                port,
+                "--erase",
+            ]
             result.flash = run_command(
-                [launcher, "micro", "flash", "--chip", chip, "--port", port, "--erase"],
+                flash_command,
             )
             flash_result = result.flash
         assert flash_result is not None
@@ -1948,13 +1951,7 @@ def run_micro_case(
             result.status = "FAIL"
             result.reasons.append(f"flash exited with status {flash_result.returncode}")
             return result
-        device_id = detect_benchmark_mqtt_device_id_from_text(flash_result.output)
-        if device_id is None:
-            result.status = "FAIL"
-            result.reasons.append("Micro-ESPectre device id could not be derived from the flash MAC")
-            return result
-
-        with micro_case_config(chip, case.detector, device_id) as config_path:
+        with micro_case_config(chip, case.detector) as config_path:
             result.build_metrics.deployed_source_bytes = micro_deployed_source_size(config_path)
             result.deploy = run_command(
                 [

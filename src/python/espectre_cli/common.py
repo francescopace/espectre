@@ -38,17 +38,7 @@ for path in (str(REPO_ROOT), str(PYTHON_ROOT_DIR), str(PYTHON_SRC_DIR), str(TOOL
     if path not in sys.path:
         sys.path.insert(0, path)
 
-FIRMWARE_RELEASE_URL = (
-    "https://github.com/francescopace/micropython-esp32-csi/releases/download/upstream-csi-merged-2026-06-26"
-)
-FIRMWARE_NAME_PREFIX = "ESP32_CSI_"
-FIRMWARE_HASHES = {
-    "ESP32_CSI.bin": "e24d42a3684733f6948b4ba37992db35a0c10fd90dcd122c48a18f1dafc4bc64",
-    "ESP32_CSI_C3.bin": "b822f2c34a0ba453154f2dc9cce77840e49ed24c44560e9dbb735eca4144d009",
-    "ESP32_CSI_C5.bin": "7fa46a8b18e42b919a7ea3e46290d7386bd1c51fcfe4dfe67bf47fd7fa4024fe",
-    "ESP32_CSI_C6.bin": "e904a0eb124f6925d32a80fa26b3f81f4af89937714c13735ae5f887db3044c0",
-    "ESP32_CSI_S3.bin": "0466fa4a6bbca941a91d978d44019c3a1cb3e7666a7bc44b46870827137ea0eb",
-}
+MICROPYTHON_FIRMWARE_BUILD = "20260818-v1.29.0-preview.731.g1c3c201149"
 MICRO_CHIP_CHOICES = ["esp32", "c3", "s3", "c5", "c6"]
 
 init()
@@ -213,8 +203,8 @@ def add_mqtt_connection_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--device-id",
-        default=os.getenv("MQTT_CLIENT_ID"),
-        help="MQTT device/client id (default: auto-discover at runtime)",
+        default=None,
+        help="ESPectre device id (default: auto-discover at runtime)",
     )
     parser.add_argument(
         "--username",

@@ -259,6 +259,22 @@ def assess_ht20_payload_layout(raw_len, *, expected_len=HT20_CSI_LEN, out=None):
 # them keeps the hot CSI loop free of per-frame dict allocations.
 _FRAME_PHY_SCRATCH = {}
 _FRAME_LAYOUT_SCRATCH = {}
+_HT20_FULL_WIFI_ASSESSMENT = {
+    "format_id": FORMAT_ID_HT20,
+    "layout_id": LAYOUT_ID_HT20_64,
+    "metadata_source": METADATA_SOURCE_WIFI,
+    "payload_view": PAYLOAD_VIEW_RAW,
+    "disposition": DISPOSITION_SENSE,
+    "reason_code": REASON_NONE,
+    "normalization_id": None,
+    "raw_len": HT20_CSI_LEN,
+    "raw_num_subcarriers": HT20_NUM_SUBCARRIERS,
+    "normalized_len": HT20_CSI_LEN,
+    "normalized_num_subcarriers": HT20_NUM_SUBCARRIERS,
+    "reset_detector_before_consume": False,
+}
+_HT20_FULL_HISTORICAL_ASSESSMENT = dict(_HT20_FULL_WIFI_ASSESSMENT)
+_HT20_FULL_HISTORICAL_ASSESSMENT["metadata_source"] = METADATA_SOURCE_HISTORICAL
 
 
 def assess_ht20_sensing_frame(frame, csi_data, *, expected_len=HT20_CSI_LEN,
@@ -274,6 +290,24 @@ def assess_ht20_sensing_frame(frame, csi_data, *, expected_len=HT20_CSI_LEN,
         frame_len = len(frame)
     except TypeError:
         frame_len = 0
+    try:
+        raw_len = len(csi_data)
+    except TypeError:
+        raw_len = 0
+
+    # The live device path overwhelmingly receives full-width HT20 frames.
+    # Refill the caller-owned mapping in C instead of rebuilding PHY, layout,
+    # and combined mappings field by field for every CSI callback.
+    if raw_len == HT20_CSI_LEN and expected_len == HT20_CSI_LEN:
+        if frame_len <= 9:
+            assessment = out if out is not None else {}
+            assessment.update(_HT20_FULL_HISTORICAL_ASSESSMENT)
+            return assessment
+        if is_ht20_sensing_phy_fields(frame[7], frame[9]):
+            assessment = out if out is not None else {}
+            assessment.update(_HT20_FULL_WIFI_ASSESSMENT)
+            return assessment
+
     if frame_len <= 9:
         phy_assessment = assess_ht20_sensing_phy(
             metadata_missing=True, out=_FRAME_PHY_SCRATCH
@@ -282,10 +316,6 @@ def assess_ht20_sensing_frame(frame, csi_data, *, expected_len=HT20_CSI_LEN,
         phy_assessment = assess_ht20_sensing_phy(
             frame[7], frame[9], metadata_missing=False, out=_FRAME_PHY_SCRATCH
         )
-    try:
-        raw_len = len(csi_data)
-    except TypeError:
-        raw_len = 0
     layout_assessment = assess_ht20_payload_layout(
         raw_len, expected_len=expected_len, out=_FRAME_LAYOUT_SCRATCH
     )

@@ -13,6 +13,8 @@ from detector_interface import (
     get_detector_algorithm,
     load_detector_class,
 )
+from csi_features import TURB_IQR_AGGREGATION_WIDTH, calc_autocorrelation
+from segmentation import SegmentationContext
 
 
 def test_registry_exposes_lightweight_detector() -> None:
@@ -47,6 +49,74 @@ def test_hampel_master_switch_controls_turbulence_stream() -> None:
     assert enabled._aggregated_context.hampel_filter is not None
     assert disabled._context.hampel_filter is None
     assert disabled._aggregated_context.hampel_filter is None
+
+
+def test_fused_packet_path_matches_shared_turbulence_helpers() -> None:
+    detector = LightweightDetector(enable_hampel=False)
+    payload = bytearray((index * 37 + 19) % 256 for index in range(128))
+    selected = tuple(detector._selected_subcarriers)
+    amplitudes = [0.0] * 64
+
+    count = SegmentationContext.fill_subcarrier_energy_buffer(payload, amplitudes)
+    SegmentationContext.energies_to_amplitudes_in_place(amplitudes, count)
+    direct = SegmentationContext(enable_hampel=False)
+    aggregated = SegmentationContext(
+        enable_hampel=False,
+        adjacent_aggregation_width=TURB_IQR_AGGREGATION_WIDTH,
+    )
+    expected_direct = direct.calculate_spatial_turbulence_from_subcarrier_amplitudes(
+        amplitudes, count, selected
+    )
+    expected_aggregated = (
+        aggregated.calculate_spatial_turbulence_from_subcarrier_amplitudes(
+            amplitudes, count, selected
+        )
+    )
+
+    detector.process_packet(payload, selected)
+
+    assert detector._context.last_turbulence == pytest.approx(expected_direct)
+    assert detector._aggregated_context.last_turbulence == pytest.approx(
+        expected_aggregated
+    )
+
+
+def test_direct_window_features_match_chronological_reference_with_missing_slots() -> None:
+    detector = LightweightDetector(window_size=8, enable_hampel=False)
+    direct_values = [0.12, 0.31, None, 0.27, 0.49, 0.18, None, 0.42, 0.36]
+    aggregate_values = [0.21, 0.44, None, 0.19, 0.38, 0.29, None, 0.47, 0.33]
+    for direct_value, aggregate_value in zip(direct_values, aggregate_values):
+        if direct_value is None:
+            detector._context.add_missing_slot()
+            detector._aggregated_context.add_missing_slot()
+        else:
+            detector._context.add_turbulence(direct_value)
+            detector._aggregated_context.add_turbulence(aggregate_value)
+
+    ordered = [0.0] * 8
+    validity = [False] * 8
+    count = detector._context.copy_chronological_into(ordered, validity)
+    valid = [ordered[index] for index in range(count) if validity[index]]
+    mean = sum(valid) / len(valid)
+    variance = sum((value - mean) ** 2 for value in valid) / len(valid)
+    expected_autocorr = calc_autocorrelation(
+        ordered,
+        count,
+        mean=mean,
+        variance=variance,
+        lag=detector._autocorr_lag,
+        validity=validity,
+    )
+
+    count = detector._aggregated_context.copy_chronological_into(ordered, validity)
+    valid = sorted(ordered[index] for index in range(count) if validity[index])
+    mean = sum(valid) / len(valid)
+    q25 = detector._quantile_sorted(valid, 0.25)
+    q75 = detector._quantile_sorted(valid, 0.75)
+    expected_iqr = (q75 - q25) / max(abs(mean), 1e-6)
+
+    assert detector._turb_autocorr() == pytest.approx(expected_autocorr)
+    assert detector._turb_iqr_over_mean_aggr() == pytest.approx(expected_iqr)
 
 
 def test_lightweight_allocates_aggregated_turbulence_state() -> None:

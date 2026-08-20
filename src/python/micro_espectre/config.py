@@ -18,16 +18,15 @@ WIFI_PASSWORD = "YourPassword"
 MQTT_ENABLED = True
 MQTT_BROKER = "homeassistant.local"  # Your MQTT broker IP
 MQTT_PORT = 1883
-MQTT_CLIENT_ID = "micro-espectre"
 MQTT_TOPIC_PREFIX = "espectre/v1/devices"
 MQTT_USERNAME = "mqtt"
 MQTT_PASSWORD = "mqtt"
-MQTT_HA_DISCOVERY_ENABLED = False
+MQTT_HA_DISCOVERY_ENABLED = True
 MQTT_HA_DISCOVERY_PREFIX = "homeassistant"
 
 # Traffic Generator Configuration
 # Generates WiFi traffic to ensure continuous CSI data
-CSI_TARGET_PPS = 100  # Temporal sensing grid and managed traffic target
+CSI_TARGET_PPS = 100  # Requested temporal sensing grid and managed traffic target
 TRAFFIC_GENERATOR_ENABLED = True  # False expects an external CSI traffic source
 TRAFFIC_GENERATOR_MODE = "ping"  # Default mode: "ping" or "dns"
 PUBLISH_INTERVAL_MS = 1000    # Time between periodic MQTT/log updates
@@ -81,7 +80,7 @@ LOWPASS_CUTOFF = 11.0          # Cutoff frequency in Hz (11 Hz: 2.3% FP, 92.4% R
                                # Human movement is typically 0.5-10 Hz, RF noise is >15 Hz
 
 # Hampel filter (removes outliers from turbulence and L1-delta streams)
-ENABLE_HAMPEL_FILTER = True    # Enable/disable Hampel preprocessing for all detector feature streams
+ENABLE_HAMPEL_FILTER = False   # Disabled by default to preserve MicroPython CPU and heap headroom
 HAMPEL_WINDOW = 7             # Window size for median calculation (3-11)
 HAMPEL_THRESHOLD = 5.0        # Outlier detection threshold in MAD units (2.0-6.0 recommended)
                               # Higher values = less aggressive filtering
