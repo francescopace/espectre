@@ -26,7 +26,7 @@ Guides, docs, media, the roadmap, privacy, terms, legal, security, licensing, an
 python3 .github/scripts/build_static_pages.py
 ```
 
-Edit shared fragments under `content/`, including `content/guides.html`, `content/guides/*.html`, `content/docs.html`, `content/docs/*.html`, `content/media.html`, `content/roadmap.html`, `content/privacy.html`, `content/terms.html`, `content/legal.html`, `content/security.html`, `content/licensing.html`, and `content/contact.html`. Keep stylesheets under `assets/css/`, public images under `assets/images/`, and first-party scripts under `assets/js/`. Do not edit generated route `index.html` pages.
+Edit shared fragments under `content/`, including `content/guides.html`, `content/guides/*.html`, `content/sdk.html`, `content/sdk/*.html`, `content/media.html`, `content/roadmap.html`, `content/privacy.html`, `content/terms.html`, `content/legal.html`, `content/security.html`, `content/licensing.html`, and `content/contact.html`. Keep stylesheets under `assets/css/`, public images under `assets/images/`, and first-party scripts under `assets/js/`. Do not edit generated route `index.html` pages.
 
 ## Browser dependencies
 

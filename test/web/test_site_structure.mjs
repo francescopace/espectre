@@ -562,8 +562,8 @@ describe('website UX and content contracts', () => {
         assert.doesNotMatch(legalContent, /Current project status|not operated through an incorporated company|francesco\.pace@espectre\.dev|security@espectre\.dev|href="\/security\/"/);
     });
 
-    it('treats top-level docs, roadmap, privacy, terms, legal, security, licensing, and contact as pages, not articles', () => {
-        const docsContent = read('docs/web/content/docs.html');
+    it('treats top-level SDK, roadmap, privacy, terms, legal, security, licensing, and contact as pages, not articles', () => {
+        const sdkContent = read('docs/web/content/sdk.html');
         const roadmapContent = read('docs/web/content/roadmap.html');
         const privacyContent = read('docs/web/content/privacy.html');
         const termsContent = read('docs/web/content/terms.html');
@@ -572,7 +572,7 @@ describe('website UX and content contracts', () => {
         const licensingContent = read('docs/web/content/licensing.html');
         const contactContent = read('docs/web/content/contact.html');
         const staticPageBuilder = read('.github/scripts/build_static_pages.py');
-        assert.ok(docsContent.startsWith(`${GPL_HTML_HEADER}<div class="docs-quickstart">`));
+        assert.ok(sdkContent.startsWith(`${GPL_HTML_HEADER}<div class="docs-quickstart">`));
         assert.ok(roadmapContent.startsWith(`${GPL_HTML_HEADER}<div class="roadmap-page">`));
         assert.ok(privacyContent.startsWith(`${GPL_HTML_HEADER}<div class="privacy-page">`));
         assert.ok(termsContent.startsWith(`${GPL_HTML_HEADER}<div class="terms-page">`));
@@ -588,7 +588,7 @@ describe('website UX and content contracts', () => {
         assert.match(index, /<main class="js-page page-narrow" data-page="licensing"/);
         assert.match(index, /<main class="js-page page-narrow" data-page="contact"/);
         assert.doesNotMatch(index, /<main class="js-page page-narrow page-article" data-page="(?:sdk|roadmap|privacy|terms|legal|security|licensing|contact)"/);
-        assert.match(staticPageBuilder, /"source": "content\/docs\.html",[\s\S]*?"og_type": "website"/);
+        assert.match(staticPageBuilder, /"source": "content\/sdk\.html",[\s\S]*?"og_type": "website"/);
         assert.match(staticPageBuilder, /"source": "content\/roadmap\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
         assert.match(staticPageBuilder, /"source": "content\/privacy\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
         assert.match(staticPageBuilder, /"source": "content\/terms\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
@@ -600,7 +600,7 @@ describe('website UX and content contracts', () => {
     });
 
     it('uses the shared page heading styles on every top-level inner page', () => {
-        for (const path of ['guides', 'docs', 'roadmap', 'privacy', 'terms', 'legal', 'security', 'licensing', 'contact']) {
+        for (const path of ['guides', 'sdk', 'roadmap', 'privacy', 'terms', 'legal', 'security', 'licensing', 'contact']) {
             const content = read(`docs/web/content/${path}.html`);
             assert.match(content, /<h1 class="page-title">/);
             assert.match(content, /<p class="page-sub">/);
@@ -626,19 +626,19 @@ describe('website UX and content contracts', () => {
     });
 
     it('gives the SDK landing page a clear start-to-reference hierarchy', () => {
-        const docsContent = read('docs/web/content/docs.html');
-        assert.match(docsContent, /<h1 class="page-title">SDK<\/h1>/);
-        assert.match(docsContent, /<section class="docs-start" aria-labelledby="docs-start-title">/);
-        assert.match(docsContent, /<section class="docs-section" aria-labelledby="docs-paths-title">/);
-        assert.match(docsContent, /<section class="docs-section" aria-labelledby="docs-quick-start-title">/);
-        assert.match(docsContent, /<section class="docs-next" aria-labelledby="docs-next-title">/);
-        assert.match(docsContent, /class="docs-cover"[\s\S]*?sdk-firmware-pipeline\.avif/);
-        assert.ok(docsContent.indexOf('class="docs-start"') < docsContent.indexOf('class="docs-paths"'));
-        assert.ok(docsContent.indexOf('class="docs-paths"') < docsContent.indexOf('class="docs-steps"'));
-        assert.ok(docsContent.indexOf('class="docs-steps"') < docsContent.indexOf('class="docs-next"'));
-        const docsIndexLinks = [...docsContent.matchAll(/<a href="(\/sdk\/(?:api|examples|architecture)\/)" class="doc-link">/g)].map((match) => match[1]);
-        assert.deepEqual(docsIndexLinks, ['/sdk/architecture/', '/sdk/api/', '/sdk/examples/']);
-        const pathCards = docsContent.match(/<div class="docs-path(?: docs-path-recommended)?">[\s\S]*?<\/div>/g) || [];
+        const sdkContent = read('docs/web/content/sdk.html');
+        assert.match(sdkContent, /<h1 class="page-title">SDK<\/h1>/);
+        assert.match(sdkContent, /<section class="docs-start" aria-labelledby="docs-start-title">/);
+        assert.match(sdkContent, /<section class="docs-section" aria-labelledby="docs-paths-title">/);
+        assert.match(sdkContent, /<section class="docs-section" aria-labelledby="docs-quick-start-title">/);
+        assert.match(sdkContent, /<section class="docs-next" aria-labelledby="docs-next-title">/);
+        assert.match(sdkContent, /class="docs-cover"[\s\S]*?sdk-firmware-pipeline\.avif/);
+        assert.ok(sdkContent.indexOf('class="docs-start"') < sdkContent.indexOf('class="docs-paths"'));
+        assert.ok(sdkContent.indexOf('class="docs-paths"') < sdkContent.indexOf('class="docs-steps"'));
+        assert.ok(sdkContent.indexOf('class="docs-steps"') < sdkContent.indexOf('class="docs-next"'));
+        const sdkIndexLinks = [...sdkContent.matchAll(/<a href="(\/sdk\/(?:api|examples|architecture)\/)" class="doc-link">/g)].map((match) => match[1]);
+        assert.deepEqual(sdkIndexLinks, ['/sdk/architecture/', '/sdk/api/', '/sdk/examples/']);
+        const pathCards = sdkContent.match(/<div class="docs-path(?: docs-path-recommended)?">[\s\S]*?<\/div>/g) || [];
         assert.equal(pathCards.length, 3);
         for (const card of pathCards) {
             assert.match(card, /<h3>/);
@@ -647,7 +647,7 @@ describe('website UX and content contracts', () => {
     });
 
     it('documents both public SDK facades and their compatibility boundary', () => {
-        const apiContent = read('docs/web/content/docs/api.html');
+        const apiContent = read('docs/web/content/sdk/api.html');
         assert.match(apiContent, /href="\/artifacts\/sdk\/api\/espectre__sdk_8h\.html"/);
         assert.match(apiContent, /href="\/artifacts\/sdk\/api\/espectre__core__sdk_8h\.html"/);
         assert.match(apiContent, /Everything reachable from <code>espectre_sdk\.h<\/code> belongs to the stable runtime surface/);
@@ -657,23 +657,23 @@ describe('website UX and content contracts', () => {
     });
 
     it('links the SDK pages in one previous and next sequence', () => {
-        const docs = [
+        const sdkPages = [
             { file: 'architecture', previous: null, next: '/sdk/api/' },
             { file: 'api', previous: '/sdk/architecture/', next: '/sdk/examples/' },
             { file: 'examples', previous: '/sdk/api/', next: 'https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md' },
         ];
-        for (const page of docs) {
-            const content = read(`docs/web/content/docs/${page.file}.html`);
+        for (const page of sdkPages) {
+            const content = read(`docs/web/content/sdk/${page.file}.html`);
             const articleNav = content.slice(content.lastIndexOf('<div class="article-nav">'));
             assert.match(articleNav, /^<div class="article-nav">/);
             const links = [...articleNav.matchAll(/<a href="([^"]+)" class="doc-link(?: doc-link-next)?"[^>]*>/g)].map((match) => match[1]);
-            assert.deepEqual(links, [page.previous, page.next].filter(Boolean), `${page.file} follows the docs order`);
+            assert.deepEqual(links, [page.previous, page.next].filter(Boolean), `${page.file} follows the SDK page order`);
             if (page.next) {
                 assert.match(articleNav, new RegExp(`<a href="${page.next}" class="doc-link doc-link-next"`), `${page.file} identifies its next page`);
             }
         }
-        assert.doesNotMatch(read('docs/web/content/docs/architecture.html'), /docs\/EMBEDDING\.md/);
-        assert.match(read('docs/web/content/docs/examples.html'), /docs\/EMBEDDING\.md/);
+        assert.doesNotMatch(read('docs/web/content/sdk/architecture.html'), /docs\/EMBEDDING\.md/);
+        assert.match(read('docs/web/content/sdk/examples.html'), /docs\/EMBEDDING\.md/);
     });
 
     it('publishes the detection profile guide through SPA and static routes', () => {
@@ -704,7 +704,7 @@ describe('website UX and content contracts', () => {
         assert.match(guide, /ESPectre brought ESP32 CSI to mainline MicroPython/);
         assert.match(guide, /micropython\/micropython\/pull\/18460/);
         assert.doesNotMatch(index, /OPEN-SOURCE INFRASTRUCTURE/);
-        assert.match(read('docs/web/content/docs.html'), /ESPectre also runs sensing directly in MicroPython/);
+        assert.match(read('docs/web/content/sdk.html'), /ESPectre also runs sensing directly in MicroPython/);
         assert.match(read('docs/web/content/guides.html'), /micropython-csi-runtime-card\.avif/);
         assert.match(guide, /micropython-csi-runtime-card\.avif/);
         assert.match(index, /data-page="guide-micropython"/);
@@ -955,21 +955,21 @@ describe('website UX and content contracts', () => {
         assert.match(app, /window\.initCodeTabs\(container\)/);
         assert.doesNotMatch(setupGuide, /your chip family/);
         assert.doesNotMatch(setupGuide, /the flasher shows the device's Matter QR/);
-        const docsContent = read('docs/web/content/docs.html');
-        assert.match(docsContent, /href="\/artifacts\/sdk\/release\/"/);
-        assert.match(docsContent, /<details class="sdk-download">[\s\S]*?<summary class="btn-primary">Download SDK<\/summary>/);
-        assert.match(docsContent, /href="\/artifacts\/sdk\/preview\/"/);
-        assert.match(docsContent, /href="\/artifacts\/sdk\/develop\/"/);
-        assert.match(docsContent, /data-sdk-version="release"/);
-        assert.match(docsContent, /data-sdk-version="preview"/);
-        assert.match(docsContent, /data-sdk-version="develop"/);
+        const sdkContent = read('docs/web/content/sdk.html');
+        assert.match(sdkContent, /href="\/artifacts\/sdk\/release\/"/);
+        assert.match(sdkContent, /<details class="sdk-download">[\s\S]*?<summary class="btn-primary">Download SDK<\/summary>/);
+        assert.match(sdkContent, /href="\/artifacts\/sdk\/preview\/"/);
+        assert.match(sdkContent, /href="\/artifacts\/sdk\/develop\/"/);
+        assert.match(sdkContent, /data-sdk-version="release"/);
+        assert.match(sdkContent, /data-sdk-version="preview"/);
+        assert.match(sdkContent, /data-sdk-version="develop"/);
         assert.match(read('docs/web/assets/js/navigation.js'), /sdk-manifest-\$\{channel\}\.json/);
         assert.match(read('docs/web/assets/js/navigation.js'), /label\.textContent = `Version \$\{version\}`/);
         assert.match(read('docs/web/assets/js/navigation.js'), /details\.sdk-download\[open\][\s\S]*?!menu\.contains\(event\.target\)[\s\S]*?menu\.open = false/);
         assert.match(app, /window\.initSdkDownloadVersions\(container\)/);
-        assert.doesNotMatch(docsContent, /Rolling bundles:/);
-        assert.match(docsContent, /href="\/artifacts\/sdk\/api\/"/);
-        assert.match(docsContent, /href="\/sdk\/api\/" class="doc-link"/);
+        assert.doesNotMatch(sdkContent, /Rolling bundles:/);
+        assert.match(sdkContent, /href="\/artifacts\/sdk\/api\/"/);
+        assert.match(sdkContent, /href="\/sdk\/api\/" class="doc-link"/);
         assert.match(read('docs/web/.gitignore'), /^\/artifacts\/$/m);
     });
 

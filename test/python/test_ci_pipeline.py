@@ -745,11 +745,11 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
 
 
 def test_website_sources_distinguish_sdk_api_orientation_from_reference() -> None:
-    sdk_landing = (REPO_ROOT / "docs" / "web" / "content" / "docs.html").read_text(
+    sdk_landing = (REPO_ROOT / "docs" / "web" / "content" / "sdk.html").read_text(
         encoding="utf-8"
     )
     api_orientation = (
-        REPO_ROOT / "docs" / "web" / "content" / "docs" / "api.html"
+        REPO_ROOT / "docs" / "web" / "content" / "sdk" / "api.html"
     ).read_text(encoding="utf-8")
 
     assert 'href="/sdk/api/" class="doc-link"' in sdk_landing

@@ -144,7 +144,7 @@ PAGES = (
         "active_nav": "guides",
     },
     {
-        "source": "content/docs.html",
+        "source": "content/sdk.html",
         "output": "sdk",
         "title": "ESPectre SDK quick guide | ESPectre",
         "description": (
@@ -156,7 +156,7 @@ PAGES = (
         "og_type": "website",
     },
     {
-        "source": "content/docs/api.html",
+        "source": "content/sdk/api.html",
         "output": "sdk/api",
         "title": "API orientation | ESPectre",
         "description": (
@@ -168,7 +168,7 @@ PAGES = (
         "active_nav": "sdk",
     },
     {
-        "source": "content/docs/examples.html",
+        "source": "content/sdk/examples.html",
         "output": "sdk/examples",
         "title": "Examples | ESPectre",
         "description": (
@@ -180,7 +180,7 @@ PAGES = (
         "active_nav": "sdk",
     },
     {
-        "source": "content/docs/architecture.html",
+        "source": "content/sdk/architecture.html",
         "output": "sdk/architecture",
         "title": "Architecture | ESPectre",
         "description": (
