@@ -475,9 +475,10 @@ def test_pages_verifier_requires_api_reference_to_show_sdk_version(
 ) -> None:
     verifier = load_script("verify_web_build")
     monkeypatch.setattr(verifier, "WEB_ROOT", tmp_path)
+    version = "2.8.0-237-g7439944"
+    monkeypatch.setattr(verifier, "detect_git_version", lambda: version)
     api = tmp_path / "artifacts" / "sdk" / "api"
     api.mkdir(parents=True)
-    version = load_script("detect_git_version").detect_git_version()
     (api / "index.html").write_text(
         f'<span id="projectnumber">&#160;{version}</span>',
         encoding="utf-8",
