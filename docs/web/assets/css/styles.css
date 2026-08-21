@@ -2657,9 +2657,11 @@ esp-web-install-button[inert] {
   .main-nav .nav-link { padding: 11px 12px; font-size: 15px; }
   .nav-toggle { display: inline-flex; order: 3; min-width: 44px; min-height: 44px; }
   .site-header-inner { justify-content: space-between; }
-  .conn { margin-left: auto; order: 2; }
+  .conn { margin-left: auto; min-width: 0; order: 2; }
   .site-header .brand { order: 1; min-height: 44px; }
   .conn-pill { min-height: 44px; padding: 7px 10px; font-size: 12px; }
+  .conn-connected { box-sizing: border-box; max-width: 100%; }
+  .conn-connected .js-device-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
   .field input:not([type="checkbox"]):not([type="range"]),
   .field select,

@@ -22,6 +22,7 @@ SITEMAP_NAMESPACE = "http://www.sitemaps.org/schemas/sitemap/0.9"
 SITE_HOST = "espectre.dev"
 SPA_ROUTE_NAME_RE = re.compile(r"\{\s*name:\s*'([^']+)'")
 SPA_PAGE_ROUTE_RE = re.compile(r'<main\b[^>]*\bdata-page="([^"]+)"')
+SPA_STATIC_PATH_RE = re.compile(r"staticPath:\s*'(/[^']+)'")
 EXPECTED_SITEMAP_PATHS = {
     "/",
     "/guides/",
@@ -79,6 +80,14 @@ def registered_spa_routes() -> list[str]:
     return routes
 
 
+def registered_static_paths() -> list[str]:
+    registry = require_file("assets/js/route-registry.js").read_text(encoding="utf-8")
+    paths = SPA_STATIC_PATH_RE.findall(registry)
+    if not paths:
+        raise ValueError("Route registry contains no static paths")
+    return paths
+
+
 def verify_spa_routes() -> None:
     index = require_file("index.html").read_text(encoding="utf-8")
     expected = registered_spa_routes()
@@ -93,23 +102,9 @@ def verify_spa_routes() -> None:
 
 
 def verify_generated_pages() -> None:
-    for guide in ("hardware", "setup", "placement", "detection", "detectors", "micropython", "future-wifi-sensing"):
-        require_file(f"guides/{guide}/index.html")
-    for page in (
-        "docs/index.html",
-        "docs/api/index.html",
-        "docs/examples/index.html",
-        "docs/architecture/index.html",
-        "media/index.html",
-        "roadmap/index.html",
-        "privacy/index.html",
-        "terms/index.html",
-        "legal/index.html",
-        "security/index.html",
-        "licensing/index.html",
-        "contact/index.html",
-    ):
-        require_file(page)
+    for static_path in registered_static_paths():
+        relative_path = static_path.strip("/")
+        require_file(f"{relative_path}/index.html")
 
     invalid_links = []
     for path in sorted(WEB_ROOT.rglob("*.html")):

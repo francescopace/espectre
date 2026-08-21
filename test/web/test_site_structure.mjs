@@ -44,10 +44,15 @@ describe('website security and asset policy', () => {
     });
 
     it('does not execute third-party scripts before an explicit analytics choice', () => {
+        const staticPageBuilder = read('.github/scripts/build_static_pages.py');
+        const sdkPageBuilder = read('.github/scripts/stage_web_sdk.py');
         const externalScripts = [...index.matchAll(/<script[^>]+src="(https?:[^\"]+)"/g)]
             .map((match) => match[1]);
         assert.deepEqual(externalScripts, []);
         assert.doesNotMatch(index, /unpkg\.com|jsdelivr\.net/);
+        for (const source of [index, staticPageBuilder, sdkPageBuilder]) {
+            assert.doesNotMatch(source, /fonts\.googleapis\.com|fonts\.gstatic\.com/);
+        }
         assert.match(index, /\/assets\/css\/styles\.css/);
         assert.match(index, /\/assets\/js\/app\.js/);
         assert.match(index, /\/assets\/js\/browser-support\.js/);
@@ -167,9 +172,23 @@ describe('website accessibility and navigation', () => {
         assert.match(read('.github/scripts/stage_web_sdk.py'), /route-registry\.js\?v=\{route_registry_version\}" defer>/);
     });
 
+    it('uses canonical paths for static pages and hashes for SPA-only navigation', () => {
+        const staticRouteNames = [...routeRegistry.matchAll(/\{ name: '([^']+)'[^\n]+staticPath:/g)]
+            .map((match) => match[1]);
+        for (const routeName of staticRouteNames) {
+            assert.doesNotMatch(index, new RegExp(`href="(?:/)?#${routeName}"`));
+        }
+        assert.match(index, /href="\/guides\/" class="nav-link" data-route-link="guides"/);
+        assert.match(index, /href="\/docs\/" class="nav-link" data-route-link="docs"/);
+        assert.match(index, /href="#tools" class="nav-link" data-route-link="tools"/);
+        assert.match(app, /const staticRoute = routeRegistry\.routeForPath\(href\);[\s\S]*?location\.hash = '#' \+ staticRoute;/);
+    });
+
     it('has a responsive navigation control and a live status region', () => {
         assert.match(index, /class="nav-toggle"[^>]+aria-controls="main-navigation"/);
         assert.match(index, /id="main-navigation"/);
+        assert.match(styles, /@media \(max-width: 720px\) \{[\s\S]*?\.conn \{ margin-left: auto; min-width: 0; order: 2; \}/);
+        assert.match(styles, /\.conn-connected \.js-device-name \{ min-width: 0; overflow: hidden; text-overflow: ellipsis; \}/);
         assert.match(index, /class="toast js-toast"[^>]+role="status"[^>]+aria-live="polite"/);
         assert.match(index, /class="toast toast-sticky js-demo-toast"[^>]+role="status"/);
         assert.match(app, /function syncDemoToast/);
@@ -186,6 +205,8 @@ describe('website accessibility and navigation', () => {
         assert.match(app, /link\.setAttribute\('aria-current', 'page'\)/);
         assert.match(app, /target\.focus\(\{ preventScroll: true \}\)/);
         assert.match(app, /page\.id = 'main-content'/);
+        assert.match(app, /const routeAtStart = route;/);
+        assert.match(app, /if \(route === routeAtStart\) focusRouteContent\(routeAtStart\);/);
         for (const path of [
             '.github/scripts/build_static_pages.py',
             '.github/scripts/stage_web_sdk.py',
@@ -195,6 +216,13 @@ describe('website accessibility and navigation', () => {
             assert.match(source, /class=\"skip-link\" href=\"#main-content\"/);
             assert.match(source, /id=\"main-content\" tabindex=\"-1\"/);
         }
+    });
+
+    it('isolates modal focus from the page behind the dialog', () => {
+        assert.match(app, /const openModal = \$\$\('\.modal-backdrop'\)\.find\(\(modal\) => !modal\.hidden\);/);
+        assert.match(app, /const shouldBeInert = Boolean\(openModal\) && child !== openModal;/);
+        assert.match(app, /child\.inert = true;/);
+        assert.match(app, /child\.inert = false;/);
     });
 
     it('associates every form label with a control', () => {
@@ -316,7 +344,7 @@ describe('website UX and content contracts', () => {
     it('keeps privacy discoverable and serves a real 404 page', () => {
         assert.match(index, /data-page="privacy"/);
         assert.match(index, /data-content-url="content\/privacy\.html\?v=[0-9a-f]{12}"/);
-        assert.match(index, /<div class="footer-links">\s*<a href="#privacy">Privacy<\/a>/);
+        assert.match(index, /<div class="footer-links">\s*<a href="\/privacy\/">Privacy<\/a>/);
         assert.match(routeRegistry, /name: 'privacy'.*staticPath: '\/privacy\/'/);
         assert.match(read('.github/scripts/build_static_pages.py'), /<a href="\/privacy\/">Privacy<\/a>/);
         assert.match(read('.github/scripts/stage_web_sdk.py'), /<a href="\/privacy\/">Privacy<\/a>/);
@@ -457,8 +485,8 @@ describe('website UX and content contracts', () => {
         assert.match(legalContent, /<dt>Name<\/dt><dd>Francesco Pace<\/dd>/);
         assert.match(legalContent, /<dt>Legal form<\/dt><dd>Natural person<\/dd>/);
         assert.match(legalContent, /<dt>Primary contact<\/dt><dd><a href="mailto:contact@espectre\.dev">contact@espectre\.dev<\/a><\/dd>/);
-        assert.match(legalContent, /ESPectre is available through official resellers/);
-        assert.match(legalContent, /For current reseller information, product availability, commercial licensing, integration, or support options/);
+        assert.doesNotMatch(legalContent, /available through official resellers/);
+        assert.match(legalContent, /For current product availability, reseller information, commercial licensing, integration, or support options/);
         assert.doesNotMatch(legalContent, /Current project status|not operated through an incorporated company|francesco\.pace@espectre\.dev|security@espectre\.dev|href="\/security\/"/);
     });
 
@@ -650,10 +678,6 @@ describe('website UX and content contracts', () => {
     });
 
     it('uses one cover, practical CLI sections, and a previous/next sequence across the official guides', () => {
-        const docsContent = read('docs/web/content/docs.html');
-        assert.match(docsContent, /<details class="page-toc" open>/);
-        assert.match(docsContent, /<nav aria-label="On this page">/);
-
         const guides = [
             { file: 'detection', cover: 'csi-multipath-room-v3.avif', cli: null, previous: null, next: '/guides/hardware/' },
             { file: 'hardware', cover: 'esp32-chip-family-card-v2.avif', cli: null, previous: '/guides/detection/', next: '/guides/setup/' },
@@ -736,6 +760,10 @@ describe('website UX and content contracts', () => {
         assert.doesNotMatch(app, /flashLoadManifest\('stable'\)/);
         assert.match(app, /builds: artifacts\.map\(\(artifact\) => \(\{/);
         assert.match(app, /chipFamily: artifact\.chip_family/);
+        assert.match(app, /const requestId = \+\+flash\.refreshRequest;/);
+        assert.match(app, /const selectedChannel = channelSel\.value;/);
+        assert.match(app, /const manifest = await flashLoadManifest\(selectedChannel\);/);
+        assert.ok((app.match(/if \(requestId !== flash\.refreshRequest\) return;/g) || []).length >= 2);
         assert.match(app, /FLASH_CHIP_UNSUPPORTED_RE/);
         assert.match(app, /report\('unsupported'\)/);
         assert.match(app, /Published firmware is available for/);

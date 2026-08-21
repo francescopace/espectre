@@ -1183,8 +1183,8 @@
 
     /* ============================================================= routing */
 
-    function focusRouteContent() {
-        const page = $(`[data-page="${route}"]`);
+    function focusRouteContent(routeName = route) {
+        const page = $(`[data-page="${routeName}"]`);
         if (!page) return;
         const target = page.querySelector('h1') || page;
         if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
@@ -1192,6 +1192,7 @@
     }
 
     function applyRoute({ focus = true } = {}) {
+        const routeAtStart = route;
         $$('.js-page').forEach((page) => {
             const current = page.dataset.page === route;
             page.hidden = !current;
@@ -1212,8 +1213,8 @@
         window.scrollTo(0, 0);
         if (route !== 'theremin') thereminStop();
         if (route === 'monitor') monitorResizeChart();
-        const contentPromise = $(`[data-page="${route}"] .js-static-content`)
-            ? loadStaticContent(route)
+        const contentPromise = $(`[data-page="${routeAtStart}"] .js-static-content`)
+            ? loadStaticContent(routeAtStart)
             : Promise.resolve();
         if (route === 'home') updateReleaseBadge();
         if (route === 'flash') {
@@ -1226,7 +1227,11 @@
             }
             flashRefresh();
         }
-        if (focus) contentPromise.finally(focusRouteContent);
+        if (focus) {
+            contentPromise.finally(() => {
+                if (route === routeAtStart) focusRouteContent(routeAtStart);
+            });
+        }
         // The router owns navigation, so it reports it.
         if (window.trackRouteView) window.trackRouteView(route);
     }
@@ -1465,7 +1470,8 @@
     const flash = {
         manifests: {}, installUrl: null, badgeChecked: false,
         installerObserver: null, watchedDialogs: new WeakSet(), catalogReports: new Set(),
-        downloadReady: false, detectedChip: '', supportedChipLabels: [], modalReturnFocus: null
+        downloadReady: false, detectedChip: '', supportedChipLabels: [], modalReturnFocus: null,
+        refreshRequest: 0
     };
 
     /*
@@ -1653,18 +1659,21 @@
         const channelSel = document.getElementById('flash-channel');
         const summary = $('.js-flash-summary');
         const installButton = $('.js-flash-install');
+        const requestId = ++flash.refreshRequest;
+        const selectedChannel = channelSel.value;
         flash.downloadReady = false;
 
         try {
-            const manifest = await flashLoadManifest(channelSel.value);
+            const manifest = await flashLoadManifest(selectedChannel);
+            if (requestId !== flash.refreshRequest) return;
             const frontendsMap = flashManifestFrontends(manifest);
 
             const frontends = Object.entries(frontendsMap)
                 .sort(([a], [b]) => byPreferredOrder(FRONTEND_ORDER, a, b));
-            const successKey = channelSel.value + ':success';
+            const successKey = selectedChannel + ':success';
             if (!flash.catalogReports.has(successKey)) {
                 const reported = track('firmware_catalog', {
-                    channel: channelSel.value,
+                    channel: selectedChannel,
                     result: 'success',
                     frontend_count: frontends.length,
                     artifact_count: frontends.reduce(
@@ -1732,6 +1741,7 @@
                 flashStatus('Ready. Connect the board over USB, then install.', 'is-ready');
             }
         } catch (error) {
+            if (requestId !== flash.refreshRequest) return;
             flash.supportedChipLabels = [];
             if (flash.installUrl) {
                 URL.revokeObjectURL(flash.installUrl);
@@ -1742,10 +1752,10 @@
             flashSetNextStep('');
             summary.textContent = 'Firmware metadata is currently unavailable.';
             flashStatus(error.message, 'is-error');
-            const failureKey = channelSel.value + ':failure';
+            const failureKey = selectedChannel + ':failure';
             if (!flash.catalogReports.has(failureKey)) {
                 const reported = track('firmware_catalog', {
-                    channel: channelSel.value,
+                    channel: selectedChannel,
                     result: 'failure',
                     error_type: errorType(error)
                 });
@@ -1848,10 +1858,19 @@
     }
 
     function syncModalOpenState() {
-        document.body.classList.toggle(
-            'modal-open',
-            $$('.modal-backdrop').some((modal) => !modal.hidden)
-        );
+        const openModal = $$('.modal-backdrop').find((modal) => !modal.hidden);
+        document.body.classList.toggle('modal-open', Boolean(openModal));
+        Array.from(document.body.children).forEach((child) => {
+            if (!(child instanceof HTMLElement)) return;
+            const shouldBeInert = Boolean(openModal) && child !== openModal;
+            if (shouldBeInert && !child.inert) {
+                child.inert = true;
+                child.dataset.modalInert = 'true';
+            } else if (!shouldBeInert && child.dataset.modalInert === 'true') {
+                child.inert = false;
+                delete child.dataset.modalInert;
+            }
+        });
     }
 
     function matterOpen(returnFocus) {

@@ -461,6 +461,29 @@ def test_pages_verifier_rejects_missing_spa_routes(
         verifier.verify_spa_routes()
 
 
+def test_pages_verifier_requires_every_registered_static_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    verifier = load_script("verify_web_build")
+    monkeypatch.setattr(verifier, "WEB_ROOT", tmp_path)
+    registry_dir = tmp_path / "assets" / "js"
+    registry_dir.mkdir(parents=True)
+    (registry_dir / "route-registry.js").write_text(
+        "{ name: 'guides', staticPath: '/guides/' }\n"
+        "{ name: 'guide-home-assistant', staticPath: '/guides/home-assistant/' }\n",
+        encoding="utf-8",
+    )
+    guides_dir = tmp_path / "guides"
+    guides_dir.mkdir()
+    (guides_dir / "index.html").write_text("<main></main>", encoding="utf-8")
+
+    with pytest.raises(
+        FileNotFoundError,
+        match="guides/home-assistant/index.html",
+    ):
+        verifier.verify_generated_pages()
+
+
 def test_generated_pages_have_sitemap_lastmod_ownership() -> None:
     static_pages = load_script("build_static_pages")
     sitemap_builder = load_script("build_sitemap")

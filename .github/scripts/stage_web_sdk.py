@@ -108,9 +108,6 @@ def render_page(manifest: dict, channel: str) -> str:
 <meta name="description" content="{description}">
 <link rel="canonical" href="https://espectre.dev/artifacts/sdk/{channel}/">
 <link rel="icon" type="image/png" href="/assets/images/brand/favicon.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Instrument+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/css/styles.css?v={styles_version}">
 <script src="/assets/js/route-registry.js?v={route_registry_version}" defer></script>
 <script src="/assets/js/navigation.js?v={navigation_version}" defer></script>

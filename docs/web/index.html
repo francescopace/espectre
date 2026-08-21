@@ -23,17 +23,14 @@
 <meta name="twitter:image" content="https://espectre.dev/assets/images/brand/espectre-og.jpg">
 <link rel="icon" type="image/svg+xml" href="/assets/images/brand/espectre-logo.svg?v=5c234009f6c5">
 <link rel="alternate icon" type="image/png" href="/assets/images/brand/favicon.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=Instrument+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/styles.css?v=cd268ae38082">
+<link rel="stylesheet" href="/assets/css/styles.css?v=e300857e0332">
 <script src="/assets/js/espectre-ble.js?v=bfbdd9db2844" defer></script>
 <script src="/assets/js/espectre-mqtt.js?v=2cce16edbd1b" defer></script>
 <script src="/assets/js/browser-support.js?v=33452b392605" defer></script>
 <script src="/assets/js/route-registry.js?v=0a3505f0a739" defer></script>
 <script src="/assets/js/navigation.js?v=177ddc6c2535" defer></script>
 <script src="/assets/js/analytics.js?v=61733653690d" defer></script>
-<script src="/assets/js/app.js?v=f8c9909ae638" defer></script>
+<script src="/assets/js/app.js?v=b2ca08464f4f" defer></script>
 </head>
 <body>
 
@@ -48,10 +45,10 @@
     <nav class="main-nav" id="main-navigation" aria-label="Main">
       <a href="#home" class="nav-link" data-route-link="home">Home</a>
       <a href="#tools" class="nav-link" data-route-link="tools">Tools</a>
-      <a href="#guides" class="nav-link" data-route-link="guides">Guides</a>
+      <a href="/guides/" class="nav-link" data-route-link="guides">Guides</a>
       <a href="/media/" class="nav-link" data-route-link="media">Media</a>
       <a href="/roadmap/" class="nav-link" data-route-link="roadmap">Roadmap</a>
-      <a href="#docs" class="nav-link" data-route-link="docs">Docs</a>
+      <a href="/docs/" class="nav-link" data-route-link="docs">Docs</a>
       <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener" class="nav-link">GitHub ↗</a>
     </nav>
     <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="main-navigation">
@@ -160,7 +157,7 @@
           <p class="hero-sub">ESPectre detects movement in a room by sensing tiny changes in the Wi-Fi waves already traveling through it. No cameras. No microphones. <br>Just one tiny ESP32 and the router you already own.</p>
           <div class="hero-actions">
             <a href="#flash" class="hero-cta hero-cta-primary">Flash from browser</a>
-            <a href="#docs" class="hero-cta hero-cta-secondary">Explore the SDK</a>
+            <a href="/docs/" class="hero-cta hero-cta-secondary">Explore the SDK</a>
           </div>
         </div>
 
@@ -697,7 +694,7 @@
 
 <!-- ============================== Docs ============================== -->
 <main class="js-page page-narrow" data-page="docs" hidden>
-  <div class="js-static-content" data-content-url="content/docs.html?v=f5703044ee59" data-static-url="/docs/">
+  <div class="js-static-content" data-content-url="content/docs.html?v=d4a0dc330da1" data-static-url="/docs/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -739,7 +736,7 @@
 
 <!-- ============================== Legal Information ============================== -->
 <main class="js-page page-narrow" data-page="legal" hidden>
-  <div class="js-static-content" data-content-url="content/legal.html?v=87ab5b639bf8" data-static-url="/legal/">
+  <div class="js-static-content" data-content-url="content/legal.html?v=73b2362df912" data-static-url="/legal/">
     <p class="guide-loading">Loading legal information…</p>
   </div>
 </main>
@@ -760,7 +757,7 @@
 
 <!-- ============================== Guide: Hardware ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-hardware" hidden>
-  <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Hardware</span></div>
+  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Hardware</span></div>
   <div class="js-static-content" data-content-url="content/guides/hardware.html?v=a808256bb847" data-static-url="/guides/hardware/">
     <p class="guide-loading">Loading guide…</p>
   </div>
@@ -768,7 +765,7 @@
 
 <!-- ============================== Guide: Setup ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-setup" hidden>
-  <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Flash &amp; Wi-Fi setup</span></div>
+  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Flash &amp; Wi-Fi setup</span></div>
   <div class="js-static-content" data-content-url="content/guides/setup.html?v=f44c714ed9dd" data-static-url="/guides/setup/">
     <p class="guide-loading">Loading guide…</p>
   </div>
@@ -776,7 +773,7 @@
 
 <!-- ============================== Guide: Home Assistant dashboard ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-home-assistant" hidden>
-  <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Home Assistant dashboard</span></div>
+  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Home Assistant dashboard</span></div>
   <div class="js-static-content" data-content-url="content/guides/home-assistant.html?v=2de5baf311ed" data-static-url="/guides/home-assistant/">
     <p class="guide-loading">Loading guide…</p>
   </div>
@@ -784,7 +781,7 @@
 
 <!-- ============================== Guide: Placement ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-placement" hidden>
-  <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Place your sensor</span></div>
+  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Place your sensor</span></div>
   <div class="js-static-content" data-content-url="content/guides/placement.html?v=6613246236ef" data-static-url="/guides/placement/">
     <p class="guide-loading">Loading guide…</p>
   </div>
@@ -792,7 +789,7 @@
 
 <!-- ============================== Guide: Detection ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-detection" hidden>
-  <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">How Wi-Fi sensing works</span></div>
+  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">How Wi-Fi sensing works</span></div>
   <div class="js-static-content" data-content-url="content/guides/detection.html?v=067c5aa3bc86" data-static-url="/guides/detection/">
     <p class="guide-loading">Loading guide…</p>
   </div>
@@ -800,7 +797,7 @@
 
 <!-- ============================== Guide: Detection profiles ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-detectors" hidden>
-  <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Choose a detection profile</span></div>
+  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Choose a detection profile</span></div>
   <div class="js-static-content" data-content-url="content/guides/detectors.html?v=a71acc90c963" data-static-url="/guides/detectors/">
     <p class="guide-loading">Loading guide…</p>
   </div>
@@ -808,7 +805,7 @@
 
 <!-- ============================== Guide: MicroPython ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-micropython" hidden>
-  <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Run ESPectre on MicroPython</span></div>
+  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Run ESPectre on MicroPython</span></div>
   <div class="js-static-content" data-content-url="content/guides/micropython.html?v=51902f5ae2ca" data-static-url="/guides/micropython/">
     <p class="guide-loading">Loading guide…</p>
   </div>
@@ -816,7 +813,7 @@
 
 <!-- ============================== Guide: Future Wi-Fi sensing ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-future-wifi-sensing" hidden>
-  <div class="breadcrumb"><a href="/#guides">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">The future of Wi-Fi sensing</span></div>
+  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">The future of Wi-Fi sensing</span></div>
   <div class="js-static-content" data-content-url="content/guides/future-wifi-sensing.html?v=2ce3963e1667" data-static-url="/guides/future-wifi-sensing/">
     <p class="guide-loading">Loading guide…</p>
   </div>
@@ -853,7 +850,7 @@
       ESPectre © 2026 · Open source Wi-Fi sensing platform
     </div>
     <div class="footer-links">
-      <a href="#privacy">Privacy</a>
+      <a href="/privacy/">Privacy</a>
       <a href="/privacy/#cookie-settings" class="js-cookie-settings">Cookie settings</a>
       <a href="/terms/">Terms</a>
       <a href="/legal/">Legal</a>
