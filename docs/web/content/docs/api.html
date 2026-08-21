@@ -4,7 +4,7 @@
 -->
 <article class="article">
   <h1>API orientation</h1>
-  <p class="article-lead">Most integrations need four public types. Use this page to find the right entry point, then use the generated Doxygen reference for signatures, defaults, ranges, and member-level documentation.</p>
+  <p class="article-lead">Most full-runtime integrations need four public types. Use this page to choose the right facade, then use the generated Doxygen reference for signatures, defaults, ranges, and member-level documentation.</p>
 
   <a href="/artifacts/sdk/api/" class="api-reference-cta">
     <span>
@@ -14,7 +14,7 @@
     <span aria-hidden="true">→</span>
   </a>
 
-  <h2>The four types to know</h2>
+  <h2>Full-runtime types to know</h2>
   <div class="api-map">
     <a href="/artifacts/sdk/api/classespectre_1_1_runtime_frontend_controller.html">
       <code>RuntimeFrontendController</code>
@@ -44,7 +44,23 @@
     <div><strong><code>shutdown()</code></strong><span>release runtime</span></div>
   </div>
 
-  <div class="note"><strong>Supported means reachable from <code>espectre_sdk.h</code>.</strong> Headers outside that facade ship as implementation details and may change in any release.</div>
+  <h2>Two public facades</h2>
+  <div class="api-map">
+    <a href="/artifacts/sdk/api/espectre__sdk_8h.html">
+      <code>espectre_sdk.h</code>
+      <span>The recommended facade for ESP-IDF products. Its runtime contracts, controller, configuration, events, diagnostics, and boundary interfaces form the stable full-runtime API.</span>
+    </a>
+    <a href="/artifacts/sdk/api/espectre__core__sdk_8h.html">
+      <code>espectre_core_sdk.h</code>
+      <span>The core-only facade for firmware that already captures and normalizes CSI. It exposes the detector classes and their documented public methods without the ESP-IDF runtime.</span>
+    </a>
+  </div>
+
+  <div class="note"><strong>The two facades have explicit support boundaries.</strong> Everything reachable from <code>espectre_sdk.h</code> belongs to the stable runtime surface. The detector classes and documented public methods exposed by <code>espectre_core_sdk.h</code> follow the source-compatibility contract; feature trackers, generated weights, and other implementation dependencies are not independent extension points.</div>
+
+  <h2>Compatibility</h2>
+  <p>Final numeric releases follow Semantic Versioning for C++ source compatibility. Patch releases preserve documented behavior, minor releases may add compatible declarations, and breaking changes require a major release. Preview and develop bundles may change before the corresponding final release.</p>
+  <p>The SDK ships as source and does not promise a stable binary ABI. Rebuild the SDK and your integration together, and initialize public structs with their defaults before assigning named fields. The complete contract, including detector-output limits and deprecation rules, lives in the <a href="https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md" target="_blank" rel="noopener">embedding guide</a>.</p>
 
   <h2>Replacing the runtime</h2>
   <p>A platform port implements <a href="/artifacts/sdk/api/classespectre_1_1_i_espectre_runtime.html"><code>IEspectreRuntime</code></a>. The interface covers lifecycle, state, controls, diagnostics, capabilities, and listener delivery; the existing <code>RuntimeFrontendController</code> remains ESP-IDF-specific and does not inject an arbitrary backend.</p>

@@ -503,10 +503,6 @@
             if (!control) {
                 throw new Error('ESPectre is not connected.');
             }
-            if (command === 'REQ_SYSINFO') {
-                this.#sysinfoEntries = [];
-                this.#sysinfoActive = false;
-            }
             const payload = new TextEncoder().encode(command);
             if (typeof control.writeValueWithResponse === 'function') {
                 await control.writeValueWithResponse(payload);

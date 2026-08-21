@@ -351,6 +351,7 @@ def test_run_idf_command_build_falls_back_to_cached_docker_backend(monkeypatch, 
             clean_all=False,
             backend="auto",
             pull="ask",
+            ota_channel="preview",
         ),
     )
 
@@ -364,6 +365,7 @@ def test_run_idf_command_build_falls_back_to_cached_docker_backend(monkeypatch, 
                     "-B",
                     "build-esp32c3-docker",
                     "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
+                    "-DNATIVE_OTA_CHANNEL=preview",
                     "set-target",
                     "esp32c3",
                 ],
@@ -372,6 +374,7 @@ def test_run_idf_command_build_falls_back_to_cached_docker_backend(monkeypatch, 
                     "-B",
                     "build-esp32c3-docker",
                     "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
+                    "-DNATIVE_OTA_CHANNEL=preview",
                     "build",
                 ],
             ],
@@ -977,7 +980,8 @@ def test_idf_build_parser_accepts_clean_flag() -> None:
     assert args.clean is True
 
 
-def test_idf_build_parser_accepts_backend_and_pull_policy() -> None:
+def test_idf_build_parser_accepts_backend_and_pull_policy(monkeypatch) -> None:
+    monkeypatch.delenv("NATIVE_OTA_CHANNEL", raising=False)
     parser = app.build_parser()
 
     args = parser.parse_args(
@@ -986,6 +990,65 @@ def test_idf_build_parser_accepts_backend_and_pull_policy() -> None:
 
     assert args.backend == "docker"
     assert args.pull == "missing"
+    assert args.ota_channel == "release"
+
+
+def test_native_build_parser_accepts_ota_channel() -> None:
+    parser = app.build_parser()
+
+    args = parser.parse_args(
+        ["native", "build", "--chip", "c3", "--ota-channel", "develop"]
+    )
+
+    assert args.ota_channel == "develop"
+
+
+def test_run_native_build_passes_ota_channel_to_cmake(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    calls: list[tuple[list[str], Path]] = []
+    env = idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py")
+
+    monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
+    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: env)
+    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append((cmd, Path(cwd))))
+
+    idf.run_idf_command(
+        "native",
+        argparse.Namespace(
+            chip="c3",
+            idf_command="build",
+            port=None,
+            clean=False,
+            ota_channel="develop",
+        ),
+    )
+
+    assert calls == [
+        (
+            [
+                "idf.py",
+                "-B",
+                "build-esp32c3",
+                "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
+                "-DNATIVE_OTA_CHANNEL=develop",
+                "set-target",
+                "esp32c3",
+            ],
+            app_dir,
+        ),
+        (
+            [
+                "idf.py",
+                "-B",
+                "build-esp32c3",
+                "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults",
+                "-DNATIVE_OTA_CHANNEL=develop",
+                "build",
+            ],
+            app_dir,
+        ),
+    ]
 
 
 def test_idf_build_parser_defaults_to_automatic_backend() -> None:

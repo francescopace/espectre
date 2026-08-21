@@ -549,6 +549,12 @@ def run_idf_command(frontend: str, args) -> None:
 
     sdkconfig_defaults = resolve_sdkconfig_defaults(app_path, idf_target)
     defaults_arg = f"-DSDKCONFIG_DEFAULTS={sdkconfig_defaults}"
+    cmake_args = [defaults_arg]
+    if frontend == "native" and args.idf_command == "build":
+        ota_channel = getattr(args, "ota_channel", None)
+        if ota_channel:
+            cmake_args.append(f"-DNATIVE_OTA_CHANNEL={ota_channel}")
+            print(f"{Fore.CYAN}OTA channel: {ota_channel}{Style.RESET_ALL}")
 
     commands = []
     flash_port = None
@@ -556,8 +562,8 @@ def run_idf_command(frontend: str, args) -> None:
         base_command = build_idf_base_command(build_dir_name)
         commands = []
         if clean_requested or not sdkconfig_matches_target(app_path, idf_target):
-            commands.append([*base_command, defaults_arg, "set-target", idf_target])
-        commands.append([*base_command, defaults_arg, "build"])
+            commands.append([*base_command, *cmake_args, "set-target", idf_target])
+        commands.append([*base_command, *cmake_args, "build"])
     elif args.idf_command == "flash":
         port = get_serial_port(args.port)
         flash_port = port

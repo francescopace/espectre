@@ -2460,7 +2460,7 @@ esp-web-install-button[inert] {
   padding: 34px;
   border: 1px solid var(--accent-line);
   border-radius: 20px;
-  background: linear-gradient(135deg, var(--accent-soft), color-mix(in srgb, var(--scene-presence) 8%, var(--surface)));
+  background: var(--surface);
 }
 .roadmap-foundation-head {
   display: grid;
@@ -2482,7 +2482,7 @@ esp-web-install-button[inert] {
   border-radius: 14px;
   background: var(--accent-line);
 }
-.roadmap-foundation-grid > div { padding: 18px; background: white; }
+.roadmap-foundation-grid > div { padding: 18px; background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--surface); }
 .roadmap-foundation-grid dt { margin-bottom: 7px; font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 650; }
 .roadmap-foundation-grid dd { margin: 0; color: var(--dim); font-size: 12.5px; line-height: 1.5; }
 .roadmap-direction { margin-bottom: 100px; }

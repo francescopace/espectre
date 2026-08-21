@@ -138,7 +138,6 @@ def render_page(manifest: dict, channel: str) -> str:
 <main class="page-narrow page-article" id="main-content" tabindex="-1">
   <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">{title}</span></div>
   <article class="article">
-    <span class="guide-tag">SDK · DOWNLOADS</span>
     <h1>{title}</h1>
     <p class="article-lead">{description}</p>
 

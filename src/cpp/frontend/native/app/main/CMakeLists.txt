@@ -24,14 +24,24 @@ idf_component_register(
         nvs_flash
 )
 
-if("$ENV{NATIVE_OTA_CHANNEL}" STREQUAL "preview")
+set(_native_ota_channel "${NATIVE_OTA_CHANNEL}")
+if(_native_ota_channel STREQUAL "")
+    set(_native_ota_channel "$ENV{NATIVE_OTA_CHANNEL}")
+endif()
+if(_native_ota_channel STREQUAL "")
+    set(_native_ota_channel "release")
+endif()
+
+if(_native_ota_channel STREQUAL "preview")
     target_compile_definitions(
         ${COMPONENT_LIB}
         PRIVATE ESPECTRE_OTA_PREVIEW_BUILD=1
     )
-elseif("$ENV{NATIVE_OTA_CHANNEL}" STREQUAL "develop")
+elseif(_native_ota_channel STREQUAL "develop")
     target_compile_definitions(
         ${COMPONENT_LIB}
         PRIVATE ESPECTRE_OTA_DEVELOP_BUILD=1
     )
+elseif(NOT _native_ota_channel STREQUAL "release")
+    message(FATAL_ERROR "Invalid Native OTA channel: ${_native_ota_channel}")
 endif()

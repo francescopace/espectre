@@ -92,6 +92,9 @@
     const EVALUATION_INTERVAL_MS_DEFAULT = 250;
     const PUBLISH_INTERVAL_MS_DEFAULT = 1000;
     const CSI_TARGET_PPS_DEFAULT = 100;
+    const CONFIG_VERIFICATION_INITIAL_DELAY_MS = 250;
+    const CONFIG_VERIFICATION_RETRY_MS = 1500;
+    const CONFIG_VERIFICATION_MAX_ATTEMPTS = 4;
 
     const conn = {
         mode: null,             // 'ble' | 'mqtt' | 'demo'
@@ -998,6 +1001,10 @@
             clearTimeout(monitor.discoveryTimer);
             monitor.discoveryTimer = 0;
         }
+        if (monitor.connectionTimer) {
+            clearTimeout(monitor.connectionTimer);
+            monitor.connectionTimer = 0;
+        }
         monitor.discoveryActive = false;
         monitor.discoveredDevices = {};
         monitor.discoveryPrefix = '';
@@ -1017,6 +1024,7 @@
         monitor.readyAt = 0;
         monitor.readyTracked = false;
         syncMonitorDemoButton();
+        renderConnection();
     }
 
     function teardownConnection(reason = 'route_change') {
@@ -1163,7 +1171,9 @@
             && !bleClient.connected;
         const mqttConnecting = conn.status === 'connecting' && !bleConnecting;
         const bleSetup = connected && conn.mode === 'ble';
-        const mqttSession = live || mqttConnecting || monitor.closingBleForLive;
+        const mqttConnectionPending = monitor.closingBleForLive
+            || (!!monitor.client && !monitor.connectedAt);
+        const mqttSession = live || mqttConnecting || mqttConnectionPending;
 
         $('.js-conn-disconnected').hidden = conn.status !== 'disconnected';
         $('.js-conn-connecting').hidden = conn.status !== 'connecting';
@@ -1197,7 +1207,8 @@
         if (startSensing) startSensing.disabled = monitor.closingBleForLive;
         if (edit) {
             edit.hidden = false;
-            edit.disabled = monitor.closingBleForLive;
+            edit.disabled = false;
+            edit.textContent = mqttConnectionPending ? 'Cancel connection' : 'Edit connectivity';
         }
 
         $$('.js-device-name').forEach((el) => { el.textContent = conn.deviceName || 'ESPectre'; });
@@ -2114,6 +2125,7 @@
     const MONITOR_CALIBRATION_SAFETY_MS = 90 * 1000;
     const MONITOR_DEMO_CALIBRATION_MS = 2500;
     const MONITOR_DISCOVERY_TIMEOUT_MS = 2000;
+    const MONITOR_CONNECTION_TIMEOUT_MS = 10000;
 
     function monitorChartMaxPoints() {
         return Math.max(2, Math.ceil(MONITOR_CHART_WINDOW_MS / evaluationIntervalMs()) + 2);
@@ -2159,6 +2171,7 @@
         discoveryPrefix: '',
         discoveryTopics: [],
         discoveryTimer: 0,
+        connectionTimer: 0,
         brokerUrl: ''
     };
 
@@ -2873,12 +2886,30 @@
         });
         monitor.client = client;
         monitor.protocol = new MqttProtocolClient(client, { topicPrefix: prefix });
+        renderConnection();
+        monitor.connectionTimer = setTimeout(() => {
+            if (monitor.client !== client || monitor.connectedAt) return;
+            monitorStatus('Connection failed: broker WebSocket timed out.');
+            monitor.closingBleForLive = false;
+            track('tool_connection', {
+                tool_name: 'monitor',
+                entry_point: monitor.entryPoint,
+                transport: 'mqtt_websocket',
+                result: 'failure',
+                error_type: 'ConnectionTimeout'
+            });
+            monitorStopAll('connection_timeout');
+            if (conn.mode === 'ble') setDeviceView('connectivity');
+            else if (conn.status === 'connecting') setStatus('disconnected');
+        }, MONITOR_CONNECTION_TIMEOUT_MS);
         monitor.protocol.on('message', ingestMqttMessage);
         monitor.protocol.on('protocol-error', (error) => {
             console.warn('Ignored malformed ESPectre MQTT payload:', error.message);
         });
         client.on('connect', () => {
             if (monitor.client !== client) return;
+            clearTimeout(monitor.connectionTimer);
+            monitor.connectionTimer = 0;
             monitor.connectedAt = Date.now();
             if (device) {
                 monitorBindSelectedDevice(client, prefix, device);
@@ -3024,6 +3055,29 @@
         }
     }
 
+    function monitorEditOrCancel() {
+        const connectionPending = monitor.closingBleForLive
+            || (!!monitor.client && !monitor.connectedAt);
+        if (!connectionPending) {
+            monitorStartBle();
+            return;
+        }
+        monitor.closingBleForLive = false;
+        track('tool_connection', {
+            tool_name: 'monitor',
+            entry_point: monitor.entryPoint,
+            transport: 'mqtt_websocket',
+            result: 'cancelled'
+        });
+        monitorStopAll('cancelled');
+        monitorStatus('Connection cancelled.');
+        if (conn.mode === 'ble') setDeviceView('connectivity');
+        else {
+            setStatus('disconnected');
+            renderConnection();
+        }
+    }
+
     async function beginCalibration() {
         if (monitor.calibrating) return;
         setCalibrationBusy(true);
@@ -3077,7 +3131,7 @@
         if (diagnostics) {
             diagnostics.addEventListener('toggle', syncDiagnosticsPolling);
         }
-        $('.js-device-edit-connectivity').addEventListener('click', monitorStartBle);
+        $('.js-device-edit-connectivity').addEventListener('click', monitorEditOrCancel);
         $$('.js-firmware-update-notice').forEach((button) => {
             button.addEventListener('click', (event) => otaOpen(event.currentTarget));
         });
@@ -3234,15 +3288,21 @@
         });
         pending.timer = setTimeout(() => {
             if (pendingConfigVerification !== pending) return;
-            if (pending.attempts >= 3) finishConfigVerification('unconfirmed', 'VerificationTimeout');
-            else requestConfigVerification();
-        }, 700);
+            if (pending.attempts >= CONFIG_VERIFICATION_MAX_ATTEMPTS) {
+                finishConfigVerification('unconfirmed', 'VerificationTimeout');
+            } else {
+                requestConfigVerification();
+            }
+        }, CONFIG_VERIFICATION_RETRY_MS);
     }
 
     function beginConfigVerification(action, verify) {
         if (pendingConfigVerification) finishConfigVerification('unconfirmed', 'Superseded');
         pendingConfigVerification = { action, verify, attempts: 0, timer: null };
-        pendingConfigVerification.timer = setTimeout(requestConfigVerification, 180);
+        pendingConfigVerification.timer = setTimeout(
+            requestConfigVerification,
+            CONFIG_VERIFICATION_INITIAL_DELAY_MS
+        );
     }
 
     function evaluateConfigVerification(snapshot) {
@@ -3251,10 +3311,10 @@
         clearTimeout(pending.timer);
         if (pending.verify(snapshot)) {
             finishConfigVerification('success');
-        } else if (pending.attempts >= 3) {
+        } else if (pending.attempts >= CONFIG_VERIFICATION_MAX_ATTEMPTS) {
             finishConfigVerification('unconfirmed', 'VerificationMismatch');
         } else {
-            pending.timer = setTimeout(requestConfigVerification, 250);
+            pending.timer = setTimeout(requestConfigVerification, CONFIG_VERIFICATION_RETRY_MS);
         }
     }
 
@@ -3507,15 +3567,17 @@
     function selectedOtaChannel() {
         const el = document.getElementById('ota-channel');
         const value = (el && el.value ? String(el.value) : '').trim();
-        return value || 'release';
+        return value;
     }
 
     function otaCommandFields(command) {
-        return { command, channel: selectedOtaChannel() };
+        const channel = selectedOtaChannel();
+        return channel ? { command, channel } : { command };
     }
 
     function otaBleOptions() {
-        return { channel: selectedOtaChannel() };
+        const channel = selectedOtaChannel();
+        return channel ? { channel } : {};
     }
 
     function syncOtaUpdateButton() {

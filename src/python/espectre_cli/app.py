@@ -11,6 +11,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 from .about import print_about, print_version
@@ -233,6 +234,13 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
         command_parser = idf_subparsers.add_parser(command_name, help=help_text)
         if command_name == "build":
             command_parser.add_argument("--chip", choices=sorted(IDF_FRONTENDS[frontend]["targets"].keys()), required=True, help="ESP-IDF target chip")
+            if frontend == "native":
+                command_parser.add_argument(
+                    "--ota-channel",
+                    choices=("release", "preview", "develop"),
+                    default=os.environ.get("NATIVE_OTA_CHANNEL", "release"),
+                    help="Default OTA channel compiled into Native firmware (default: release, or NATIVE_OTA_CHANNEL)",
+                )
             command_parser.add_argument(
                 "--backend",
                 choices=("auto", "local", "docker"),

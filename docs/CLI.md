@@ -279,6 +279,8 @@ MQTT commands are forwarded to the selected device. The shell keeps only local u
 
 `ble on` publishes MQTT `set_ble` with `ble=on` so a provisioned Native device advertises again. `ble off` stops BLE only when both Wi-Fi SSID and MQTT host are already present from Kconfig defaults or NVS. `ota_check` and `ota_start` accept an optional channel (`release`, `preview`, or `develop`), for example `ota_check preview` or `ota_start channel=develop`. Omitting the channel keeps the firmware's build-time default. OTA payloads containing server, manifest, image, or version overrides are rejected by the device. Frontends that report `supports_ota: false`, including Micro-ESPectre, reject the OTA commands. Frontends without Native BLE lifecycle control reject `set_ble`.
 
+Native builds accept `--ota-channel release|preview|develop`. The selected value is compiled into the firmware and is used whenever an MQTT or BLE OTA command omits `channel`; it is propagated through both local and Docker build backends. The default is `release`, or `NATIVE_OTA_CHANNEL` when that environment variable is set.
+
 Browser tools such as Flash, Configure, Monitor, and Theremin live on [espectre.dev](https://espectre.dev). Serial logs remain `./espectre monitor`.
 
 ## Utility Commands

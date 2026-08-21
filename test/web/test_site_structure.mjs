@@ -119,6 +119,10 @@ describe('website analytics contracts', () => {
         assert.match(app, /latency_ms:/);
         assert.match(app, /track\('configure_change', \{ action, result: 'accepted' \}\)/);
         assert.match(app, /finishConfigVerification\('success'\)/);
+        assert.match(app, /CONFIG_VERIFICATION_RETRY_MS = 1500/);
+        assert.match(app, /CONFIG_VERIFICATION_MAX_ATTEMPTS = 4/);
+        assert.match(app, /MONITOR_CONNECTION_TIMEOUT_MS = 10000/);
+        assert.match(app, /error_type: 'ConnectionTimeout'/);
         assert.match(app, /track\('ota_update_result'/);
         assert.match(app, /state === 'reboot_scheduled'/);
         assert.match(app, /state === 'error'/);
@@ -642,6 +646,16 @@ describe('website UX and content contracts', () => {
         }
     });
 
+    it('documents both public SDK facades and their compatibility boundary', () => {
+        const apiContent = read('docs/web/content/docs/api.html');
+        assert.match(apiContent, /href="\/artifacts\/sdk\/api\/espectre__sdk_8h\.html"/);
+        assert.match(apiContent, /href="\/artifacts\/sdk\/api\/espectre__core__sdk_8h\.html"/);
+        assert.match(apiContent, /Everything reachable from <code>espectre_sdk\.h<\/code> belongs to the stable runtime surface/);
+        assert.match(apiContent, /Final numeric releases follow Semantic Versioning for C\+\+ source compatibility/);
+        assert.match(apiContent, /does not promise a stable binary ABI/);
+        assert.doesNotMatch(apiContent, /Supported means reachable from <code>espectre_sdk\.h<\/code>/);
+    });
+
     it('links the SDK pages in one previous and next sequence', () => {
         const docs = [
             { file: 'architecture', previous: null, next: '/sdk/api/' },
@@ -1008,8 +1022,9 @@ describe('website UX and content contracts', () => {
         assert.match(mqtt, /<details class="device-live-diagnostics">/);
         assert.doesNotMatch(mqtt, /<details class="device-live-diagnostics" open/);
         assert.match(app, /const showLiveEnergy = live/);
-        assert.match(app, /js-device-edit-connectivity'\)\.addEventListener\('click', monitorStartBle\)/);
-        assert.match(app, /edit\.disabled = monitor\.closingBleForLive/);
+        assert.match(app, /js-device-edit-connectivity'\)\.addEventListener\('click', monitorEditOrCancel\)/);
+        assert.match(app, /edit\.textContent = mqttConnectionPending \? 'Cancel connection' : 'Edit connectivity'/);
+        assert.match(app, /result: 'cancelled'/);
         assert.match(app, /monitor\.closingBleForLive = false;[\s\S]*setStatus\('connected'\)/);
         assert.match(app, /await monitorConnect\(\)/);
         assert.match(app, /targetRoute = view === 'connectivity' \? 'configure' : 'monitor'/);
@@ -1120,12 +1135,11 @@ describe('website UX and content contracts', () => {
         assert.match(app, /message: 'Unable to check for updates'/);
         assert.match(app, /function otaOpen\(returnFocus\)/);
         assert.match(index, /id="ota-channel"/);
-        assert.match(index, /id="ota-channel"[\s\S]*?<option value="release" selected>Latest Release<\/option>/);
-        assert.doesNotMatch(index, /Firmware default/);
+        assert.match(index, /id="ota-channel"[\s\S]*?<option value="" selected>Firmware default<\/option>/);
+        assert.match(index, /<option value="release">Latest Release<\/option>/);
         assert.match(app, /function selectedOtaChannel/);
-        assert.match(app, /return value \|\| 'release'/);
-        assert.match(app, /return \{ command, channel: selectedOtaChannel\(\) \}/);
-        assert.match(app, /return \{ channel: selectedOtaChannel\(\) \}/);
+        assert.match(app, /return channel \? \{ command, channel \} : \{ command \}/);
+        assert.match(app, /return channel \? \{ channel \} : \{\}/);
         assert.match(app, /if \(conn\.mode === 'demo'\) return;/);
         assert.match(index, /<h2 class="panel-title-status">Wi-Fi <span class="dot dot-idle js-wifi-status-dot"/);
         assert.match(index, /<h2 class="panel-title-status">MQTT <span class="dot dot-idle js-mqtt-status-dot"/);

@@ -98,6 +98,8 @@ describe('command builders: wire format', () => {
         assert.equal(Client.buildOtaStatusCommand(), 'OTA_STATUS');
         assert.equal(Client.buildOtaCheckCommand(), 'OTA_CHECK');
         assert.equal(Client.buildOtaStartCommand(), 'OTA_START');
+        assert.equal(Client.buildOtaCheckCommand({ channel: '' }), 'OTA_CHECK');
+        assert.equal(Client.buildOtaStartCommand({ channel: '' }), 'OTA_START');
         assert.equal(Client.buildOtaCheckCommand({ channel: 'preview' }), 'OTA_CHECK:channel=preview');
         assert.equal(Client.buildOtaStartCommand({ channel: 'develop' }), 'OTA_START:channel=develop');
     });
@@ -302,6 +304,24 @@ describe('GATT lifecycle', () => {
             ['proto_version', '1'],
             ['device_id', '0x1234']
         ]);
+        await client.disconnect();
+    });
+
+    it('does not discard an in-flight sysinfo frame when requesting a refresh', async () => {
+        const gatt = fixture();
+        useBluetooth(async () => gatt.device);
+        const client = new Client();
+        const snapshots = [];
+        client.on('sysinfo', (values) => snapshots.push(values));
+        await client.connect({ sysinfo: false });
+        gatt.sysinfo.emitLine('proto_version=1');
+        gatt.sysinfo.emitLine('device_label=Bedroom');
+        await client.requestSysinfo();
+        gatt.sysinfo.emitLine('firmware_version=2.8.0');
+        gatt.sysinfo.emitLine('END');
+        assert.equal(snapshots.length, 1);
+        assert.equal(snapshots[0].device_label, 'Bedroom');
+        assert.deepEqual(gatt.writes, ['REQ_SYSINFO']);
         await client.disconnect();
     });
 

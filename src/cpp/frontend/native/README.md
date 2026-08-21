@@ -29,12 +29,12 @@ Before building locally, complete the shared [`Local Build Prerequisites`](../..
 Repository CLI:
 
 ```bash
-./espectre native build --chip c3 --clean
+./espectre native build --chip c3 --ota-channel develop --clean
 ./espectre native flash --port /dev/cu.usbmodemXXXX
 ./espectre monitor --port /dev/cu.usbmodemXXXX
 ```
 
-The CLI is a thin wrapper over the ESP-IDF app in this directory. On Windows, use `.\espectre.cmd native ...` and `.\espectre.cmd monitor --port COM5`. Docker can replace local ESP-IDF for `build`; `flash` and `doctor` continue to use the local environment.
+The CLI is a thin wrapper over the ESP-IDF app in this directory. `--ota-channel` selects the firmware default used when a later MQTT or BLE OTA command omits its channel; it defaults to `release`, or to `NATIVE_OTA_CHANNEL` when set, and is preserved by both local and Docker builds. On Windows, use `.\espectre.cmd native ...` and `.\espectre.cmd monitor --port COM5`. Docker can replace local ESP-IDF for `build`; `flash` and `doctor` continue to use the local environment.
 
 ### Browser Configure and Monitor tools
 
