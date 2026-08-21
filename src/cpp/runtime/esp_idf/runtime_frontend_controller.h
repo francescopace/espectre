@@ -39,7 +39,6 @@ namespace espectre {
  *   void loop() { runtime_.loop(); }
  *
  *   void on_motion_state_changed(const espectre::RuntimeSnapshot &snapshot) override {
- *     runtime_.record_snapshot(snapshot);
  *     if (snapshot.ready_to_publish) publish(snapshot.motion_state);
  *   }
  *
@@ -64,12 +63,14 @@ namespace espectre {
  * configuration, so a frontend can accept provisioning commands during boot
  * without special-casing the ordering.
  */
-class RuntimeFrontendController {
+class RuntimeFrontendController : private IRuntimeListener {
  public:
+  /** Shut the runtime down on scope exit. Explicit `shutdown()` remains recommended. */
+  ~RuntimeFrontendController() override;
   /**
    * Stage the configuration used by the next `setup()`.
    *
-   * Ignored once setup has completed, so reconfiguring a running runtime means
+   * Ignored once setup has started, so reconfiguring a running runtime means
    * `shutdown()` first, or the `set_*_runtime()` methods for the fields that
    * support live changes.
    */
@@ -87,9 +88,8 @@ class RuntimeFrontendController {
   /**
    * Latest known snapshot, without querying the backend.
    *
-   * Refreshed at `setup()`, by control calls, and by whatever you pass to
-   * `record_snapshot()`. Threshold adaptation after startup arrives through
-   * `on_threshold_changed()`; record that snapshot if you cache the value.
+   * Refreshed automatically at `setup()`, by control calls, and before every
+   * listener callback is forwarded to your frontend.
    * Use the cached snapshot for on-demand reads such as answering a status
    * query; use the listener callbacks to react to change.
    */
@@ -213,22 +213,31 @@ class RuntimeFrontendController {
   /** True while the backend is calibrating. False before setup. */
   bool is_calibrating() const;
 
-  /**
-   * Cache a snapshot delivered to your listener.
-   *
-   * The controller does not intercept callbacks, so call this from them to
-   * keep `snapshot()` current for code that reads state on demand.
-   */
-  void record_snapshot(const RuntimeSnapshot &snapshot);
-
  private:
+  void on_motion_state_changed(const RuntimeSnapshot &snapshot) override;
+  void on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) override;
+  void on_threshold_changed(const RuntimeSnapshot &snapshot) override;
+  void on_detector_changed(const RuntimeSnapshot &snapshot) override;
+  void on_calibration_started(const RuntimeSnapshot &snapshot) override;
+  void on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) override;
+  void on_live_telemetry(float movement, float threshold) override;
+  void on_runtime_fault(const char *message) override;
+
+  void cache_snapshot_(const RuntimeSnapshot &snapshot);
+  void begin_callback_();
+  void end_callback_();
+  void apply_deferred_shutdown_();
+
   RuntimeConfig config_{};
   RuntimeSnapshot snapshot_{};
   RuntimeCapabilities capabilities_{};
   std::unique_ptr<IEspectreRuntime> runtime_;
+  IRuntimeListener *listener_{nullptr};
   bool setup_complete_{false};
   bool services_armed_{true};
   bool live_telemetry_enabled_{true};
+  uint8_t callback_depth_{0U};
+  bool shutdown_requested_{false};
 };
 
 }  // namespace espectre

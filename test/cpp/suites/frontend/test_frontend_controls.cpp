@@ -86,7 +86,8 @@ void test_espectre_component_setup_uses_mock_runtime_snapshot(void) {
   ESpectreComponentProbe component;
   component.setup();
 
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_listener == &component);
+  TEST_ASSERT_NOT_NULL(frontend_runtime_shim::state.last_listener);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_listener != &component);
   TEST_ASSERT_NOT_NULL(frontend_runtime_shim::state.last_instance);
   TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
   TEST_ASSERT_EQUAL_FLOAT(4.5f, component.get_threshold());
@@ -358,8 +359,8 @@ void test_detector_select_switches_and_republishes_runtime_state(void) {
 
   RuntimeSnapshot snapshot = component.runtime_.snapshot();
   snapshot.detector_name = "lightweight";
-  snapshot.threshold = SEGMENTATION_DEFAULT_THRESHOLD;
-  component.on_detector_changed(snapshot);
+  snapshot.threshold = RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT;
+  frontend_runtime_shim::state.last_listener->on_detector_changed(snapshot);
   TEST_ASSERT_EQUAL_STRING("lightweight", detector_select.get_state().c_str());
   TEST_ASSERT_EQUAL_FLOAT(LIGHTWEIGHT_MAX_THRESHOLD, threshold_number.traits.get_max_value());
 }
@@ -414,10 +415,10 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   RuntimeSnapshot idle_snapshot{};
   idle_snapshot.ready_to_publish = false;
   idle_snapshot.motion_state = MotionState::IDLE;
-  component.on_motion_state_changed(idle_snapshot);
+  frontend_runtime_shim::state.last_listener->on_motion_state_changed(idle_snapshot);
   TEST_ASSERT_FALSE(component.threshold_republished_);
   TEST_ASSERT_FALSE(binary_sensor.has_state());
-  component.on_live_telemetry(7.25f, 5.5f);
+  frontend_runtime_shim::state.last_listener->on_live_telemetry(7.25f, 5.5f);
   TEST_ASSERT_EQUAL(0, movement_sensor.get_publish_count());
 
   RuntimeSnapshot motion_snapshot{};
@@ -425,37 +426,37 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   motion_snapshot.motion_state = MotionState::MOTION;
   motion_snapshot.threshold = 5.5f;
   motion_snapshot.movement_metric = 7.25f;
-  component.on_motion_state_changed(motion_snapshot);
+  frontend_runtime_shim::state.last_listener->on_motion_state_changed(motion_snapshot);
   TEST_ASSERT_TRUE(binary_sensor.get_state());
   TEST_ASSERT_EQUAL(0, movement_sensor.get_publish_count());
 
-  component.on_periodic_update(idle_snapshot, 42);
+  frontend_runtime_shim::state.last_listener->on_periodic_update(idle_snapshot, 42);
   TEST_ASSERT_EQUAL(0, movement_sensor.get_publish_count());
 
-  component.on_periodic_update(motion_snapshot, 42);
-  component.on_periodic_update(motion_snapshot, 42);
+  frontend_runtime_shim::state.last_listener->on_periodic_update(motion_snapshot, 42);
+  frontend_runtime_shim::state.last_listener->on_periodic_update(motion_snapshot, 42);
   TEST_ASSERT_TRUE(threshold_number.has_state());
   TEST_ASSERT_EQUAL_FLOAT(5.5f, threshold_number.get_state());
   TEST_ASSERT_EQUAL(1, threshold_number.get_publish_count());
   TEST_ASSERT_EQUAL(0, movement_sensor.get_publish_count());
 
-  component.on_live_telemetry(7.25f, 5.5f);
+  frontend_runtime_shim::state.last_listener->on_live_telemetry(7.25f, 5.5f);
   TEST_ASSERT_EQUAL(1, movement_sensor.get_publish_count());
   TEST_ASSERT_EQUAL_FLOAT(7.25f, movement_sensor.get_state());
   TEST_ASSERT_EQUAL(1, binary_sensor.get_publish_count());
 
   RuntimeSnapshot threshold_snapshot = motion_snapshot;
   threshold_snapshot.threshold = 6.75f;
-  component.on_threshold_changed(threshold_snapshot);
+  frontend_runtime_shim::state.last_listener->on_threshold_changed(threshold_snapshot);
   TEST_ASSERT_EQUAL_FLOAT(6.75f, component.runtime_.config().segmentation_threshold);
   TEST_ASSERT_EQUAL_FLOAT(6.75f, threshold_number.get_state());
   TEST_ASSERT_EQUAL(1, movement_sensor.get_publish_count());
 
-  component.on_calibration_started(motion_snapshot);
+  frontend_runtime_shim::state.last_listener->on_calibration_started(motion_snapshot);
   TEST_ASSERT_TRUE(calibrate_switch.state);
   TEST_ASSERT_TRUE(component.sensor_publisher_.has_motion_binary_sensor());
   TEST_ASSERT_TRUE(component.sensor_publisher_.has_movement_sensor());
-  component.on_calibration_finished(motion_snapshot, false);
+  frontend_runtime_shim::state.last_listener->on_calibration_finished(motion_snapshot, false);
   TEST_ASSERT_FALSE(calibrate_switch.state);
 }
 

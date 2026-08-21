@@ -9,14 +9,13 @@
  */
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
-#include "base_detector.h"
-#include "lightweight_detector.h"
+#include "detector_limits.h"
+#include "detector_types.h"
 #include "csi_traffic_types.h"
-#include "filters.h"
-#include "high_accuracy_detector.h"
-#include "threshold.h"
+#include "filter_config.h"
 
 /**
  * @file runtime_sensing_schema.h
@@ -81,7 +80,7 @@ constexpr const char *const RUNTIME_DETECTION_ALGORITHM_DEFAULT_NAME = "lightwei
 constexpr float RUNTIME_THRESHOLD_MIN = 0.0f;
 constexpr float RUNTIME_THRESHOLD_MAX = 1.0f;
 constexpr float RUNTIME_HIGH_ACCURACY_THRESHOLD_MAX = 1.0f;
-constexpr float RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT = 1.0f;
+constexpr float RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT = LIGHTWEIGHT_DEFAULT_THRESHOLD;
 
 constexpr uint32_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN = 1000U;
 constexpr uint32_t RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX = 2000U;
@@ -119,11 +118,18 @@ constexpr float RUNTIME_HAMPEL_THRESHOLD_MAX = 10.0f;
 constexpr float RUNTIME_HAMPEL_THRESHOLD_DEFAULT = 5.0f;
 
 constexpr uint16_t RUNTIME_STREAM_COLLECTOR_PORT_DEFAULT = 5001;
+constexpr uint16_t RUNTIME_NETWORK_PORT_MIN = 1U;
+constexpr uint16_t RUNTIME_NETWORK_PORT_MAX = UINT16_MAX;
+constexpr uint32_t RUNTIME_STREAM_LOG_INTERVAL_MS_MIN = 100U;
+constexpr uint32_t RUNTIME_STREAM_LOG_INTERVAL_MS_MAX = 60000U;
 constexpr uint32_t RUNTIME_STREAM_LOG_INTERVAL_MS_DEFAULT = 1000;
+constexpr uint8_t RUNTIME_STREAM_TX_BATCH_RECORDS_MIN = 1U;
+constexpr uint8_t RUNTIME_STREAM_TX_BATCH_RECORDS_MAX = 7U;
 constexpr uint8_t RUNTIME_STREAM_TX_BATCH_RECORDS_DEFAULT = 4;
 
 constexpr uint16_t RUNTIME_CSI_TRAFFIC_UDP_PORT_DEFAULT = 5555;
 constexpr const char *const RUNTIME_CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT = "239.255.0.1";
+constexpr size_t RUNTIME_CSI_TRAFFIC_EXPECTED_PAYLOAD_MAX = 16U;
 
 constexpr float runtime_threshold_max(DetectionAlgorithm algorithm) {
   return algorithm == DetectionAlgorithm::LIGHTWEIGHT ? LIGHTWEIGHT_MAX_THRESHOLD
@@ -133,6 +139,27 @@ constexpr float runtime_threshold_max(DetectionAlgorithm algorithm) {
 constexpr bool runtime_detection_algorithm_valid(DetectionAlgorithm algorithm) {
   return algorithm == DetectionAlgorithm::LIGHTWEIGHT ||
          algorithm == DetectionAlgorithm::HIGH_ACCURACY;
+}
+
+constexpr bool runtime_profile_valid(RuntimeProfile profile) {
+  return profile == RuntimeProfile::SENSING || profile == RuntimeProfile::STREAM;
+}
+
+constexpr bool runtime_traffic_mode_valid(RuntimeTrafficMode mode) {
+  return mode == RuntimeTrafficMode::DNS || mode == RuntimeTrafficMode::PING;
+}
+
+constexpr bool runtime_csi_traffic_mode_valid(CsiTrafficMode mode) {
+  return mode == CsiTrafficMode::INTERNAL || mode == CsiTrafficMode::EXTERNAL ||
+         mode == CsiTrafficMode::PACING || mode == CsiTrafficMode::DISABLED;
+}
+
+constexpr bool runtime_csi_traffic_mode_valid_for_profile(RuntimeProfile profile,
+                                                          CsiTrafficMode mode) {
+  if (!runtime_profile_valid(profile) || !runtime_csi_traffic_mode_valid(mode)) {
+    return false;
+  }
+  return profile == RuntimeProfile::STREAM || mode != CsiTrafficMode::PACING;
 }
 
 constexpr float runtime_default_threshold(DetectionAlgorithm algorithm) {
@@ -146,8 +173,8 @@ static_assert(RUNTIME_HIGH_ACCURACY_THRESHOLD_MAX == HIGH_ACCURACY_MAX_THRESHOLD
               "Runtime High Accuracy threshold max drifted from high_accuracy_detector.h");
 static_assert(RUNTIME_HIGH_ACCURACY_THRESHOLD_MAX == LIGHTWEIGHT_MAX_THRESHOLD,
               "Lightweight and High Accuracy probability scales must stay aligned");
-static_assert(RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT == SEGMENTATION_DEFAULT_THRESHOLD,
-              "Runtime segmentation threshold default drifted from threshold.h");
+static_assert(RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT == LIGHTWEIGHT_DEFAULT_THRESHOLD,
+              "Runtime segmentation threshold default drifted from lightweight_detector.h");
 static_assert(RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN == DETECTOR_WINDOW_SIZE_MS_MIN,
               "Runtime segmentation window duration min drifted from detector_limits.h");
 static_assert(RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX == DETECTOR_WINDOW_SIZE_MS_MAX,

@@ -24,8 +24,23 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CPP_ROOT = REPO_ROOT / "src" / "cpp"
 FACADE = CPP_ROOT / "espectre_sdk.h"
+CORE_FACADE = CPP_ROOT / "espectre_core_sdk.h"
 DOXYFILE = CPP_ROOT / "Doxyfile"
 EMBEDDING_GUIDE = REPO_ROOT / "docs" / "EMBEDDING.md"
+RUNTIME_INTERNAL_HEADERS = {
+    "core/base_detector.h",
+    "core/csi_features.h",
+    "core/csi_format.h",
+    "core/filtered_turbulence_ring.h",
+    "core/filters.h",
+    "core/high_accuracy_detector.h",
+    "core/l1_delta_tracker.h",
+    "core/lightweight_detector.h",
+    "core/ml_feature_trackers.h",
+    "core/ml_weights.h",
+    "core/threshold.h",
+    "core/utils.h",
+}
 
 FACADE_INCLUDE_PATTERN = re.compile(r'^\s*#include\s+"([^"]+)"', re.MULTILINE)
 FORWARD_DECLARATION_PATTERN = re.compile(r"^\s*(?:struct|class)\s+([A-Za-z_][A-Za-z0-9_]*)\s*;", re.MULTILINE)
@@ -40,8 +55,8 @@ def facade_includes() -> list[str]:
     return FACADE_INCLUDE_PATTERN.findall(FACADE.read_text(encoding="utf-8"))
 
 
-def facade_reachable_headers() -> list[Path]:
-    """The complete local include closure rooted at the facade."""
+def include_closure(root_header: Path) -> list[Path]:
+    """The complete local include closure rooted at one published facade."""
     available_by_name: dict[str, list[Path]] = {}
     maintained_headers = list(CPP_ROOT.glob("*.h"))
     for root in (CPP_ROOT / "core", CPP_ROOT / "runtime"):
@@ -50,7 +65,7 @@ def facade_reachable_headers() -> list[Path]:
         available_by_name.setdefault(header.name, []).append(header)
 
     headers: list[Path] = []
-    pending = [FACADE]
+    pending = [root_header]
     visited: set[Path] = set()
     while pending:
         header = pending.pop()
@@ -68,6 +83,11 @@ def facade_reachable_headers() -> list[Path]:
                 pending.append(resolved)
 
     return sorted(headers)
+
+
+def facade_reachable_headers() -> list[Path]:
+    """The complete local include closure rooted at the runtime facade."""
+    return include_closure(FACADE)
 
 
 def facade_reachable_header_names() -> set[str]:
@@ -125,6 +145,44 @@ def test_facade_headers_are_all_in_the_generated_reference() -> None:
     missing = sorted(facade_reachable_header_names() - doxygen_input_headers())
     assert not missing, (
         f"headers reachable from {FACADE.name} are absent from the Doxyfile INPUT list: {missing}"
+    )
+
+
+def test_runtime_facade_does_not_reach_detector_implementation_headers() -> None:
+    """The recommended include must stay free of the advanced detector implementation."""
+    leaked = sorted(facade_reachable_header_names() & RUNTIME_INTERNAL_HEADERS)
+    assert not leaked, (
+        f"{FACADE.name} leaks core-only implementation headers: {leaked}; "
+        "keep them behind espectre_core_sdk.h"
+    )
+
+
+def test_core_facade_is_complete_documented_and_mapped() -> None:
+    """The opt-in detector facade gets the same completeness checks as the runtime facade."""
+    reachable = include_closure(CORE_FACADE)
+    assert len(reachable) > 1, "the core facade should include the detector surface"
+
+    defined: set[str] = set()
+    declared: set[str] = set()
+    for header in reachable:
+        source = header.read_text(encoding="utf-8")
+        defined.update(DEFINITION_PATTERN.findall(source))
+        declared.update(FORWARD_DECLARATION_PATTERN.findall(source))
+    assert not (declared - defined), (
+        f"{CORE_FACADE.name} leaves public types incomplete: {sorted(declared - defined)}"
+    )
+
+    names = {header.relative_to(CPP_ROOT).as_posix() for header in reachable}
+    assert not (names - doxygen_input_headers()), (
+        f"headers reachable from {CORE_FACADE.name} are absent from the Doxyfile INPUT list: "
+        f"{sorted(names - doxygen_input_headers())}"
+    )
+
+    guide = EMBEDDING_GUIDE.read_text(encoding="utf-8")
+    documented = set(re.findall(r"`([\w/]+\.h)`", guide))
+    assert not (names - documented), (
+        f"headers reachable from {CORE_FACADE.name} are missing from the "
+        f"{EMBEDDING_GUIDE.name} header map: {sorted(names - documented)}"
     )
 
 

@@ -22,7 +22,6 @@ class ProductFrontend : public espectre::IRuntimeListener {
   void loop() { runtime_.loop(); }
 
   void on_motion_state_changed(const espectre::RuntimeSnapshot &snapshot) override {
-    runtime_.record_snapshot(snapshot);
     if (!snapshot.ready_to_publish) {
       return;
     }
@@ -39,6 +38,7 @@ On ESP-IDF, replace the bare `RuntimeConfig` with `espectre::make_runtime_sensin
 Before adding product-specific behavior, enforce these runtime constraints:
 
 - Gate everything user-visible on `snapshot.ready_to_publish`. The runtime emits snapshots while it calibrates, and motion state is not meaningful before that flag is true.
+- Read `runtime_.snapshot()` for on-demand state. The controller refreshes it before forwarding each listener callback; frontends do not maintain a second cache.
 - Run `setup()`, `loop()`, and `shutdown()` on one task.
 - Ask `capabilities()` before exposing a control, rather than assuming the active runtime supports it.
 
@@ -46,7 +46,8 @@ Before adding product-specific behavior, enforce these runtime constraints:
 
 | Layer | Contents | Dependencies |
 |-------|----------|--------------|
-| `src/cpp/espectre_sdk.h` | The SDK facade: the supported surface in one include | Header only |
+| `src/cpp/espectre_sdk.h` | Stable full-runtime SDK facade | Header only |
+| `src/cpp/espectre_core_sdk.h` | Optional core-only detector facade | C++17 standard library only |
 | `src/cpp/core/` | Lightweight and High-Accuracy detectors, feature extraction, filters, CSI format | C++17 standard library only |
 | `src/cpp/runtime/` | Runtime contracts, snapshots, events, ESPectre Protocol model, traffic generation | Portable, host-testable |
 | `src/cpp/runtime/esp_idf/` | CSI capture, Wi-Fi lifecycle, sensing pipeline, traffic generation, NVS persistence | ESP-IDF `>= 5.5` |
@@ -58,8 +59,9 @@ The layering is strict: `core` has no upward or SDK dependencies, and `runtime` 
 
 | Tier | What it covers | Change policy |
 |------|----------------|---------------|
-| Supported | Everything reachable from `espectre_sdk.h` | Follows the SDK version contract below |
-| Internal | Every other header in the bundle | May change in any release; it ships because the runtime needs it to compile |
+| Stable runtime | Everything reachable from `espectre_sdk.h` | Follows the SDK version contract below |
+| Core-only extension | Detector classes and documented public methods exposed by `espectre_core_sdk.h` | Follows source compatibility; algorithm internals and exact numeric output may evolve as documented below |
+| Internal | Headers and declarations not identified as either facade's public API | May change in any release; they ship because the runtime and core detector definitions need them to compile |
 
 The frontend layer is a set of reference integrations, not a supported API. Read it for patterns; do not link against it.
 
@@ -88,7 +90,7 @@ Your firmware owns boot, provisioning, networking policy, OTA, and the product s
 
 ### Core-only
 
-If your firmware already owns Wi-Fi and CSI capture, you can consume the detectors directly. The `core` detectors accept normalized CSI payloads and expose motion state, movement metric, and threshold control. Apply the same temporal admission as the shipped pipeline before `process_packet()`: retain the candidate nearest each `csi_target_pps` slot center, enforce the target-derived half-slot minimum spacing, and leave missing slots invalid.
+If your firmware already owns Wi-Fi and CSI capture, include `espectre_core_sdk.h` and consume the detectors directly. The `core` detectors accept normalized CSI payloads and expose motion state, movement metric, and threshold control. Apply the same temporal admission as the shipped pipeline before `process_packet()`: retain the candidate nearest each `csi_target_pps` slot center, enforce the target-derived half-slot minimum spacing, and leave missing slots invalid.
 
 After each `update_state()`, re-read `get_threshold()`: Lightweight can lower it without a setter call, and the core-only path has no `on_threshold_changed()` hook. `core/temporal_csi_sampler.h` is the production sampler; it is internal to the bundle rather than part of the supported `espectre_sdk.h` facade. Use `runtime/esp_idf/csi_pipeline.cpp` as the reference for normalization, temporal admission, evaluation cadence, and hit filtering before committing to custom wiring.
 
@@ -96,7 +98,8 @@ After each `update_state()`, re-read `get_threshold()`: Lightweight can lower it
 
 | Header | Use it for |
 |--------|------------|
-| `espectre_sdk.h` | The facade. Includes everything below and documents the contracts |
+| `espectre_sdk.h` | Stable full-runtime facade and recommended integration entry point |
+| `espectre_core_sdk.h` | Opt-in core-only facade for integrations that already own normalized CSI capture |
 | `runtime/espectre_sdk_version.h` | Compile-time SDK version and the `ESPECTRE_SDK_VERSION_AT_LEAST()` guard |
 | `runtime/runtime_interface.h` | `RuntimeConfig` and the backend contract |
 | `runtime/runtime_events.h` | `IRuntimeListener` and the threading contract |
@@ -113,13 +116,14 @@ After each `update_state()`, re-read `get_threshold()`: Lightweight can lower it
 | `runtime/ble_bindings.h` | Implement to reach your own BLE stack |
 | `runtime/ota_service.h` | Implement to reach your own update channel |
 | `runtime/firmware_version.h` | The application version reported on the wire |
+| `core/detector_types.h`, `core/csi_types.h`, `core/filter_config.h`, `core/detector_limits.h` | Stable value types, dimensions, defaults, and ranges shared by both facades |
+| **Core-only extension** | **Headers below are reached only through `espectre_core_sdk.h`** |
 | `core/lightweight_detector.h`, `core/high_accuracy_detector.h`, `core/filtered_turbulence_ring.h` | The core-only detector path and its shared filtered-sample storage |
 | `core/base_detector.h` | The shared detector lifecycle both detectors inherit |
 | `core/csi_format.h` | CSI layout and the subcarrier band the detectors measure on |
 | `core/detector_limits.h`, `core/filters.h`, `core/utils.h` | Detector limits, filter state, and numeric helpers used by the public detector definitions |
 | `core/csi_features.h`, `core/ml_feature_trackers.h`, `core/l1_delta_tracker.h` | Feature extraction and tracker types embedded in the public detector definitions |
-| `core/ml_weights.h` | Generated ML model metadata and weights reachable through `HighAccuracyDetector` |
-| `core/threshold.h` | Detector threshold validation and algorithm-name helpers reachable through the runtime contract |
+| `core/threshold.h` | Detector threshold validation and startup calibrator used by the core-only implementation |
 
 ## Runtime contract
 
@@ -170,6 +174,17 @@ The shipped ESP-IDF runtime always collects these counters. Native and ESPHome r
 
 `ESPECTRE_SDK_VERSION_STRING` identifies the SDK sources you compiled against. Use `ESPECTRE_SDK_VERSION_AT_LEAST(major, minor, patch)` to guard code that needs a given release.
 
+ESPectre uses Semantic Versioning for the published C++ source API:
+
+- Patch releases preserve source compatibility and documented lifecycle, validation, ownership, threading, capability, and error semantics. Detector coefficients and generated model weights may change when validation gates demonstrate a compatible quality fix; exact floating-point telemetry is not a compatibility guarantee.
+- Minor releases may append fields, add callbacks with default implementations, and add types, functions, or overloads. Existing calls keep their meaning, closed enums do not gain values, and removals require a prior deprecation in a released minor version.
+- Major releases may remove deprecated APIs or otherwise break source compatibility, with migration notes in `CHANGELOG.md`.
+- Prerelease and rolling `preview` or `develop` bundles may change before the corresponding final release. The compatibility promise begins at the final numeric release.
+
+The SDK is distributed and consumed as source. It does not promise a stable binary ABI: rebuild the SDK and integration together with the same C++ standard library and ESP-IDF toolchain. Construct public configuration and snapshot structs with their defaults, then assign named fields as shown in this guide; positional aggregate initialization is outside the compatibility contract so new fields can be appended safely.
+
+Everything reachable from `espectre_sdk.h` belongs to the stable runtime surface. `espectre_core_sdk.h` is a separate, explicit opt-in for custom capture pipelines: its detector classes and documented public methods follow the same source-compatibility rules, while feature trackers, generated weights, and other headers reached only as implementation dependencies are not independent extension points.
+
 First-party firmware, host tests, and CMake configuration resolve the string from `git describe` on numeric tags. The result is either the tag or a moving identity such as `<tag>-<commit-count>-g<hash>`. A checkout without usable Git history must pass `-DESPECTRE_GIT_VERSION=...` or set `ESPECTRE_GIT_VERSION`; ESPHome GitHub clones use this override.
 
 Published SDK bundles stamp the same identity into `espectre_sdk_version.h` and `idf_component.yml`, so an unpacked archive compiles without `.git`. There is no in-tree numeric fallback. Rolling GitHub tags remain `snapshot` for `preview` and `snapshot-dev` for `develop`. SDK identity is separate from `espectre_firmware_version()`, which reports the application version, and `ESPECTRE_PROTOCOL_VERSION`, which versions the wire format.
@@ -210,6 +225,7 @@ ESPectre publishes source-first SDK bundles alongside the firmware release chann
 Each SDK bundle includes:
 
 - `src/cpp/espectre_sdk.h`
+- `src/cpp/espectre_core_sdk.h`
 - `src/cpp/core/`
 - `src/cpp/runtime/`
 - `src/cpp/runtime/esp_idf/espectre_config/`
@@ -242,13 +258,12 @@ The published bundle is not a chip-specific binary library. It is a versioned so
 The headers carry Doxygen-compatible documentation. Generate a browsable reference for the supported surface from the repository root with:
 
 ```bash
-mkdir -p docs/web/artifacts/sdk
-doxygen src/cpp/Doxyfile
+python3 .github/scripts/generate_sdk_api.py
 ```
 
-The output lands in `docs/web/artifacts/sdk/api/`. It is generated on demand and is not committed, so it never drifts from the headers.
+The generator stamps Doxygen `PROJECT_NUMBER` from the same `git describe` identity used by SDK bundles, then writes `docs/web/artifacts/sdk/api/`. The output is not committed, so it never drifts from the headers.
 
-An unpacked SDK bundle ships this guide and `src/cpp/Doxyfile` rewritten to write `output/api/` instead, so `doxygen src/cpp/Doxyfile` works without the website tree. The published reference for the current release is at `https://espectre.dev/artifacts/sdk/api/`, rebuilt from source on every deploy.
+An unpacked SDK bundle ships this guide and `src/cpp/Doxyfile` rewritten to write `output/api/` and stamped with that bundle's version, so `doxygen src/cpp/Doxyfile` from the bundle root rebuilds a matching reference without the website tree. The published reference for the current site commit is at `https://espectre.dev/artifacts/sdk/api/`, rebuilt from source on every deploy.
 
 ## Licensing
 

@@ -8,10 +8,17 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
+
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from detect_git_version import detect_git_version
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -208,6 +215,15 @@ def verify_firmware_channel(channel: str) -> None:
         )
 
 
+def verify_sdk_api_version() -> None:
+    version = detect_git_version()
+    html = require_file("artifacts/sdk/api/index.html").read_text(encoding="utf-8")
+    if 'id="projectnumber"' not in html or version not in html:
+        raise ValueError(
+            f"Generated SDK API reference does not show version {version!r}"
+        )
+
+
 def verify_sdk_channel(channel: str) -> None:
     require_file(f"artifacts/sdk/{channel}/index.html")
     manifest_path = require_file(f"artifacts/sdk/{channel}/sdk-manifest-{channel}.json")
@@ -242,6 +258,7 @@ def verify(args: argparse.Namespace) -> None:
         require_file(path)
     verify_spa_routes()
     verify_generated_pages()
+    verify_sdk_api_version()
     verify_sitemap(
         require_preview=args.require_preview,
         require_release=args.require_release,

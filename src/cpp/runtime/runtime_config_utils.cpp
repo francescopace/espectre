@@ -35,6 +35,163 @@ bool validate_runtime_uint8(uint8_t value, uint8_t min_value, uint8_t max_value)
   return value >= min_value && value <= max_value;
 }
 
+namespace {
+
+bool wifi_band_policy_valid(WifiBandPolicy policy) {
+  return policy == WifiBandPolicy::BAND_2G || policy == WifiBandPolicy::BAND_5G ||
+         policy == WifiBandPolicy::AUTO;
+}
+
+bool multicast_group_valid(const std::string &group) {
+  if (group.empty()) {
+    return true;
+  }
+
+  unsigned octets[4]{};
+  size_t index = 0U;
+  size_t offset = 0U;
+  while (index < 4U && offset < group.size()) {
+    unsigned value = 0U;
+    size_t digits = 0U;
+    while (offset < group.size() && group[offset] >= '0' && group[offset] <= '9') {
+      value = value * 10U + static_cast<unsigned>(group[offset] - '0');
+      if (value > 255U) {
+        return false;
+      }
+      ++offset;
+      ++digits;
+    }
+    if (digits == 0U) {
+      return false;
+    }
+    octets[index++] = value;
+    if (index < 4U) {
+      if (offset >= group.size() || group[offset] != '.') {
+        return false;
+      }
+      ++offset;
+    }
+  }
+  return index == 4U && offset == group.size() && octets[0] >= 224U && octets[0] <= 239U;
+}
+
+}  // namespace
+
+RuntimeConfigError validate_runtime_config(const RuntimeConfig &config) {
+  if (!runtime_profile_valid(config.runtime_profile)) return RuntimeConfigError::RUNTIME_PROFILE;
+  if (!wifi_band_policy_valid(config.wifi_band_policy)) return RuntimeConfigError::WIFI_BAND_POLICY;
+  if (!validate_runtime_uint32(config.csi_target_pps, RUNTIME_CSI_TARGET_PPS_MIN,
+                               RUNTIME_CSI_TARGET_PPS_MAX)) {
+    return RuntimeConfigError::CSI_TARGET_PPS;
+  }
+  if (!runtime_traffic_mode_valid(config.traffic_generator_mode)) {
+    return RuntimeConfigError::TRAFFIC_GENERATOR_MODE;
+  }
+  if (!runtime_csi_traffic_mode_valid_for_profile(config.runtime_profile,
+                                                  config.csi_traffic_mode)) {
+    return RuntimeConfigError::CSI_TRAFFIC_MODE;
+  }
+  if (config.csi_traffic_mode == CsiTrafficMode::EXTERNAL ||
+      config.csi_traffic_mode == CsiTrafficMode::PACING) {
+    if (config.csi_traffic_udp_port < RUNTIME_NETWORK_PORT_MIN) {
+      return RuntimeConfigError::CSI_TRAFFIC_UDP_PORT;
+    }
+    if (!multicast_group_valid(config.csi_traffic_multicast_group)) {
+      return RuntimeConfigError::CSI_TRAFFIC_MULTICAST_GROUP;
+    }
+    if (config.csi_traffic_expected_payload.size() > RUNTIME_CSI_TRAFFIC_EXPECTED_PAYLOAD_MAX) {
+      return RuntimeConfigError::CSI_TRAFFIC_EXPECTED_PAYLOAD;
+    }
+  }
+
+  if (config.runtime_profile == RuntimeProfile::STREAM) {
+    if (config.collector_port < RUNTIME_NETWORK_PORT_MIN) {
+      return RuntimeConfigError::STREAM_COLLECTOR_PORT;
+    }
+    if (!validate_runtime_uint32(config.stream_log_interval_ms,
+                                 RUNTIME_STREAM_LOG_INTERVAL_MS_MIN,
+                                 RUNTIME_STREAM_LOG_INTERVAL_MS_MAX)) {
+      return RuntimeConfigError::STREAM_LOG_INTERVAL_MS;
+    }
+    if (!validate_runtime_uint8(config.stream_tx_batch_records,
+                                RUNTIME_STREAM_TX_BATCH_RECORDS_MIN,
+                                RUNTIME_STREAM_TX_BATCH_RECORDS_MAX)) {
+      return RuntimeConfigError::STREAM_TX_BATCH_RECORDS;
+    }
+  } else {
+    if (!runtime_detection_algorithm_valid(config.detection_algorithm)) {
+      return RuntimeConfigError::DETECTION_ALGORITHM;
+    }
+    if (!validate_runtime_threshold_for_algorithm(config.segmentation_threshold,
+                                                  config.detection_algorithm)) {
+      return RuntimeConfigError::SEGMENTATION_THRESHOLD;
+    }
+    if (!validate_runtime_uint32(config.segmentation_window_size_ms,
+                                 RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MIN,
+                                 RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX)) {
+      return RuntimeConfigError::SEGMENTATION_WINDOW_SIZE_MS;
+    }
+    if (!validate_runtime_uint32(config.publish_interval_ms, RUNTIME_PUBLISH_INTERVAL_MS_MIN,
+                                 RUNTIME_PUBLISH_INTERVAL_MS_MAX)) {
+      return RuntimeConfigError::PUBLISH_INTERVAL_MS;
+    }
+    if (!validate_runtime_uint32(config.evaluation_interval_ms,
+                                 RUNTIME_EVALUATION_INTERVAL_MS_MIN,
+                                 RUNTIME_EVALUATION_INTERVAL_MS_MAX)) {
+      return RuntimeConfigError::EVALUATION_INTERVAL_MS;
+    }
+    if (!validate_runtime_uint8(config.motion_on_hits, RUNTIME_MOTION_HITS_MIN,
+                                RUNTIME_MOTION_HITS_MAX) ||
+        !validate_runtime_uint8(config.motion_off_hits, RUNTIME_MOTION_HITS_MIN,
+                                RUNTIME_MOTION_HITS_MAX)) {
+      return RuntimeConfigError::MOTION_HITS;
+    }
+    if (config.lowpass_enabled &&
+        !validate_runtime_float(config.lowpass_cutoff, RUNTIME_LOWPASS_CUTOFF_MIN,
+                                RUNTIME_LOWPASS_CUTOFF_MAX)) {
+      return RuntimeConfigError::LOWPASS_CUTOFF;
+    }
+    if (config.hampel_enabled &&
+        !validate_runtime_uint8(config.hampel_window, RUNTIME_HAMPEL_WINDOW_MIN,
+                                RUNTIME_HAMPEL_WINDOW_MAX)) {
+      return RuntimeConfigError::HAMPEL_WINDOW;
+    }
+    if (config.hampel_enabled &&
+        !validate_runtime_float(config.hampel_threshold, RUNTIME_HAMPEL_THRESHOLD_MIN,
+                                RUNTIME_HAMPEL_THRESHOLD_MAX)) {
+      return RuntimeConfigError::HAMPEL_THRESHOLD;
+    }
+  }
+  return RuntimeConfigError::NONE;
+}
+
+const char *runtime_config_error_message(RuntimeConfigError error) {
+  switch (error) {
+    case RuntimeConfigError::NONE: return "valid configuration";
+    case RuntimeConfigError::RUNTIME_PROFILE: return "invalid runtime profile";
+    case RuntimeConfigError::WIFI_BAND_POLICY: return "invalid Wi-Fi band policy";
+    case RuntimeConfigError::DETECTION_ALGORITHM: return "invalid detection algorithm";
+    case RuntimeConfigError::SEGMENTATION_THRESHOLD: return "invalid segmentation threshold";
+    case RuntimeConfigError::SEGMENTATION_WINDOW_SIZE_MS: return "invalid segmentation window duration";
+    case RuntimeConfigError::CSI_TARGET_PPS: return "invalid CSI target PPS";
+    case RuntimeConfigError::TRAFFIC_GENERATOR_MODE: return "invalid traffic generator mode";
+    case RuntimeConfigError::CSI_TRAFFIC_MODE: return "invalid CSI traffic mode for runtime profile";
+    case RuntimeConfigError::CSI_TRAFFIC_UDP_PORT: return "invalid CSI traffic UDP port";
+    case RuntimeConfigError::CSI_TRAFFIC_MULTICAST_GROUP: return "invalid CSI multicast group";
+    case RuntimeConfigError::CSI_TRAFFIC_EXPECTED_PAYLOAD: return "CSI expected payload is too long";
+    case RuntimeConfigError::STREAM_COLLECTOR_PORT: return "invalid stream collector port";
+    case RuntimeConfigError::STREAM_LOG_INTERVAL_MS: return "invalid stream log interval";
+    case RuntimeConfigError::STREAM_TX_BATCH_RECORDS: return "invalid stream batch size";
+    case RuntimeConfigError::PUBLISH_INTERVAL_MS: return "invalid publish interval";
+    case RuntimeConfigError::EVALUATION_INTERVAL_MS: return "invalid evaluation interval";
+    case RuntimeConfigError::MOTION_HITS: return "invalid motion hit counts";
+    case RuntimeConfigError::LOWPASS_CUTOFF: return "invalid low-pass cutoff";
+    case RuntimeConfigError::HAMPEL_WINDOW: return "invalid Hampel window";
+    case RuntimeConfigError::HAMPEL_THRESHOLD: return "invalid Hampel threshold";
+  }
+  return "unknown configuration error";
+}
+
 const char *runtime_profile_name(RuntimeProfile profile) {
   return profile == RuntimeProfile::STREAM ? "stream" : "sensing";
 }

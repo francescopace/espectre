@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <cstring>
 
+#include "csi_types.h"
 #include "utils.h"
 
 namespace espectre {
@@ -24,34 +25,11 @@ namespace espectre {
 // =============================================================================
 // HT20 Constants (64 subcarriers - do not change)
 // =============================================================================
-constexpr uint16_t HT20_NUM_SUBCARRIERS = 64;      // HT20: 64 subcarriers
-constexpr uint16_t HT20_CSI_LEN = 128;             // 64 SC × 2 bytes (I/Q pairs)
-constexpr uint16_t HT20_CSI_LEN_DOUBLE = 256;      // 2 x HT20_CSI_LEN (double-LTF/STBC-like)
-constexpr uint16_t HT20_CSI_LEN_SHORT = 114;       // 57 SC × 2 bytes (short HT estimate)
-constexpr uint16_t HT20_CSI_LEN_SHORT_DOUBLE = 228; // 2 x HT20_CSI_LEN_SHORT
-constexpr uint8_t HT20_CSI_LEN_SHORT_LEFT_PAD = 8; // 4 SC × 2 bytes left guard padding
-constexpr uint8_t HT20_GUARD_BAND_LOW = 4;         // First valid subcarrier (-28)
-constexpr uint8_t HT20_GUARD_BAND_HIGH = 60;       // Last valid subcarrier (+28)
-constexpr uint8_t HT20_DC_SUBCARRIER = 32;         // DC null subcarrier
-constexpr uint8_t HT20_SELECTED_BAND_SIZE = 12;    // Selected subcarriers for motion detection
 // Subcarriers +/-4, +/-9, +/-14, +/-19, +/-24, +/-28. Spans the full usable range
 // because the motion perturbation stays coherent over ~10 subcarriers (3.1 MHz)
 // while quiet noise is nearly per-tone independent, so span is what buys
 // independent looks. Stops short of |sc| <= 3, where relative jitter rises ~10%.
 // See docs/adr/2026-07-25-select-the-classic-band-from-channel-coherence.md.
-constexpr uint8_t DEFAULT_SUBCARRIERS[HT20_SELECTED_BAND_SIZE] = {
-    4, 8, 13, 18, 23, 28, 36, 41, 46, 51, 56, 60
-};
-using SelectedSubcarriers = std::array<uint8_t, HT20_SELECTED_BAND_SIZE>;
-
-constexpr SelectedSubcarriers make_default_subcarriers() {
-    SelectedSubcarriers subcarriers{};
-    for (uint8_t i = 0; i < HT20_SELECTED_BAND_SIZE; ++i) {
-        subcarriers[i] = DEFAULT_SUBCARRIERS[i];
-    }
-    return subcarriers;
-}
-
 // =============================================================================
 // HT20 Bin Layout
 // =============================================================================

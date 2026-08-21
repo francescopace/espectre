@@ -363,6 +363,90 @@ void test_runtime_config_utils_validate_and_name_values(void) {
     TEST_ASSERT_TRUE(parse_wifi_band_policy("unsupported") == WifiBandPolicy::BAND_2G);
 }
 
+void test_runtime_config_validator_covers_the_public_schema(void) {
+    RuntimeConfig config;
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::NONE);
+
+    config.runtime_profile = static_cast<RuntimeProfile>(0x7f);
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::RUNTIME_PROFILE);
+    config = RuntimeConfig{};
+    config.wifi_band_policy = static_cast<WifiBandPolicy>(0x7f);
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::WIFI_BAND_POLICY);
+    config = RuntimeConfig{};
+    config.detection_algorithm = static_cast<DetectionAlgorithm>(0x7f);
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::DETECTION_ALGORITHM);
+    config = RuntimeConfig{};
+    config.segmentation_threshold = 2.0f;
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::SEGMENTATION_THRESHOLD);
+    config = RuntimeConfig{};
+    config.segmentation_window_size_ms = 0U;
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::SEGMENTATION_WINDOW_SIZE_MS);
+    config = RuntimeConfig{};
+    config.csi_target_pps = 0U;
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::CSI_TARGET_PPS);
+    config = RuntimeConfig{};
+    config.traffic_generator_mode = static_cast<RuntimeTrafficMode>(0x7f);
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::TRAFFIC_GENERATOR_MODE);
+    config = RuntimeConfig{};
+    config.csi_traffic_mode = CsiTrafficMode::PACING;
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::CSI_TRAFFIC_MODE);
+    config.runtime_profile = RuntimeProfile::STREAM;
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::NONE);
+    config = RuntimeConfig{};
+    config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
+    config.csi_traffic_udp_port = 0U;
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::CSI_TRAFFIC_UDP_PORT);
+    config = RuntimeConfig{};
+    config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
+    config.csi_traffic_multicast_group = "192.168.1.2";
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::CSI_TRAFFIC_MULTICAST_GROUP);
+    config = RuntimeConfig{};
+    config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
+    config.csi_traffic_expected_payload.assign(RUNTIME_CSI_TRAFFIC_EXPECTED_PAYLOAD_MAX + 1U, 'x');
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::CSI_TRAFFIC_EXPECTED_PAYLOAD);
+    config = RuntimeConfig{};
+    config.runtime_profile = RuntimeProfile::STREAM;
+    config.stream_tx_batch_records = 0U;
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::STREAM_TX_BATCH_RECORDS);
+    config = RuntimeConfig{};
+    config.runtime_profile = RuntimeProfile::STREAM;
+    config.collector_port = 0U;
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::STREAM_COLLECTOR_PORT);
+    config = RuntimeConfig{};
+    config.runtime_profile = RuntimeProfile::STREAM;
+    config.stream_log_interval_ms = 0U;
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::STREAM_LOG_INTERVAL_MS);
+    config = RuntimeConfig{};
+    config.publish_interval_ms = 0U;
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::PUBLISH_INTERVAL_MS);
+    config = RuntimeConfig{};
+    config.evaluation_interval_ms = 0U;
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::EVALUATION_INTERVAL_MS);
+    config = RuntimeConfig{};
+    config.motion_on_hits = 0U;
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::MOTION_HITS);
+    config = RuntimeConfig{};
+    config.lowpass_enabled = true;
+    config.lowpass_cutoff = 1.0f;
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::LOWPASS_CUTOFF);
+    config = RuntimeConfig{};
+    config.hampel_enabled = true;
+    config.hampel_window = 2U;
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::HAMPEL_WINDOW);
+    config = RuntimeConfig{};
+    config.hampel_threshold = 0.0f;
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::HAMPEL_THRESHOLD);
+    config = RuntimeConfig{};
+    config.lowpass_enabled = false;
+    config.lowpass_cutoff = 1.0f;
+    config.hampel_enabled = false;
+    config.hampel_window = 0U;
+    config.hampel_threshold = 0.0f;
+    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::NONE);
+    TEST_ASSERT_EQUAL_STRING("invalid Hampel window",
+                             runtime_config_error_message(RuntimeConfigError::HAMPEL_WINDOW));
+}
+
 void test_runtime_diagnostics_emit_expected_key_value_pairs(void) {
     RuntimeConfig config;
     RuntimeSnapshot snapshot;
@@ -463,6 +547,7 @@ int process(void) {
     RUN_TEST(test_csi_stream_transport_prefers_latest_fresh_sample);
     RUN_TEST(test_csi_stream_transport_drops_stale_latest_sample);
     RUN_TEST(test_runtime_config_utils_validate_and_name_values);
+    RUN_TEST(test_runtime_config_validator_covers_the_public_schema);
     RUN_TEST(test_runtime_diagnostics_emit_expected_key_value_pairs);
     RUN_TEST(test_runtime_diagnostics_sampler_derives_five_second_rates);
     RUN_TEST(test_mqtt_payload_assembler_accepts_complete_and_fragmented_payloads);

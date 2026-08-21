@@ -11,9 +11,9 @@
 
 #include <cstdint>
 
-#include "base_detector.h"
-#include "csi_format.h"
-#include "threshold.h"
+#include "csi_types.h"
+#include "detector_types.h"
+#include "runtime_sensing_schema.h"
 
 namespace espectre {
 
@@ -84,7 +84,7 @@ struct RuntimeSnapshot {
    */
   float movement_metric{0.0f};
   /** Threshold `movement_metric` is compared against, on the same scale. */
-  float threshold{SEGMENTATION_DEFAULT_THRESHOLD};
+  float threshold{RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT};
   // Link quality of the packets that produced `movement_metric`, carried here
   // so the shared status logger stays a formatter instead of querying the radio
   // itself at print time.

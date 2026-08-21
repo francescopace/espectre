@@ -22,7 +22,6 @@
 
 #include "debug_telemetry_log_helpers.h"
 #include "espectre_banner.h"
-#include "runtime_listener_utils.h"
 #include "runtime_motion_hits_store.h"
 #include "runtime_traffic_mode_store.h"
 #include "sdkconfig.h"
@@ -191,7 +190,6 @@ void ESpectreComponent::on_motion_state_changed(const RuntimeSnapshot &snapshot)
     this->motion_hits_republished_ = false;
     this->traffic_mode_republished_ = false;
   }
-  this->runtime_.record_snapshot(snapshot);
   if (snapshot.ready_to_publish) {
     this->sensor_publisher_.publish_motion_binary(snapshot.motion_state);
   }
@@ -199,12 +197,12 @@ void ESpectreComponent::on_motion_state_changed(const RuntimeSnapshot &snapshot)
 
 void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
   (void) packets_received;
-  if (!this->runtime_.snapshot().ready_to_publish && snapshot.ready_to_publish) {
+  if (!snapshot.ready_to_publish) {
     this->threshold_republished_ = false;
+    this->detector_republished_ = false;
     this->motion_hits_republished_ = false;
     this->traffic_mode_republished_ = false;
   }
-  this->runtime_.record_snapshot(snapshot);
   this->sample_diagnostics_();
   if (!snapshot.ready_to_publish) {
     return;
@@ -250,14 +248,12 @@ void ESpectreComponent::on_live_telemetry(float movement, float threshold) {
 }
 
 void ESpectreComponent::on_threshold_changed(const RuntimeSnapshot &snapshot) {
-  apply_threshold_snapshot(this->runtime_, snapshot);
   if (this->threshold_number_ != nullptr) {
     this->threshold_number_->publish_state(snapshot.threshold);
   }
 }
 
 void ESpectreComponent::on_detector_changed(const RuntimeSnapshot &snapshot) {
-  apply_detector_snapshot(this->runtime_, snapshot);
   if (this->detector_select_ != nullptr) {
     this->detector_select_->publish_state(detection_algorithm_name(this->runtime_.config().detection_algorithm));
   }
@@ -268,17 +264,20 @@ void ESpectreComponent::on_detector_changed(const RuntimeSnapshot &snapshot) {
 }
 
 void ESpectreComponent::on_calibration_started(const RuntimeSnapshot &snapshot) {
-  this->runtime_.record_snapshot(snapshot);
+  (void) snapshot;
   if (this->calibrate_switch_ != nullptr) {
     static_cast<ESpectreCalibrateSwitch *>(this->calibrate_switch_)->set_calibrating(true);
   }
 }
 
 void ESpectreComponent::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
+  (void) snapshot;
   if (this->calibrate_switch_ != nullptr) {
     static_cast<ESpectreCalibrateSwitch *>(this->calibrate_switch_)->set_calibrating(false);
   }
-  finalize_frontend_calibration(this->runtime_, snapshot, success, TAG);
+  if (!success) {
+    ESP_LOGW(TAG, "Calibration finished without a valid update");
+  }
 }
 
 void ESpectreComponent::on_runtime_fault(const char *message) {

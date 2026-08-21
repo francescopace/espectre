@@ -27,8 +27,6 @@
 #include "cnpy.h"
 
 using namespace espectre;
-static_assert(ML_MODEL_INPUT_SIZE == ML_NUM_FEATURES,
-              "Exported model input size must match extracted ML feature count");
 
 static const char *TEST_TAG = "test_high_accuracy_detector";
 
@@ -248,7 +246,7 @@ void test_ml_inference_classification(void) {
 
 void test_feature_extraction_basic(void) {
     float turb_buffer[50];
-    float features[ML_NUM_FEATURES];
+    float features[ML_MODEL_INPUT_SIZE];
     float sorted_scratch[50];
     const MLSeriesScratch scratch{sorted_scratch, 50U};
 
@@ -263,7 +261,7 @@ void test_feature_extraction_basic(void) {
                               scratch, 1.75f, 0.0f, 0.0f, 0.0f, 0.0f);
 
     // Every exported feature must be a finite number.
-    for (int i = 0; i < ML_NUM_FEATURES; i++) {
+    for (int i = 0; i < ML_MODEL_INPUT_SIZE; i++) {
         TEST_ASSERT_TRUE(features[i] == features[i]);  // not NaN
         TEST_ASSERT_TRUE(features[i] < 1e30f && features[i] > -1e30f);
     }
@@ -271,7 +269,7 @@ void test_feature_extraction_basic(void) {
 
 void test_feature_extraction_empty_buffer(void) {
     float turb_buffer[50] = {0};
-    float features[ML_NUM_FEATURES];
+    float features[ML_MODEL_INPUT_SIZE];
     float sorted_scratch[50];
     const MLSeriesScratch scratch{sorted_scratch, 50U};
 
@@ -283,7 +281,7 @@ void test_feature_extraction_empty_buffer(void) {
                               scratch, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 
     // Every series-derived feature should be 0 for an empty buffer.
-    for (int i = 0; i < ML_NUM_FEATURES; i++) {
+    for (int i = 0; i < ML_MODEL_INPUT_SIZE; i++) {
         if (ML_FEATURE_IDS[i] == ML_FEAT_L1_DELTA_LAG_RATIO) {
             TEST_ASSERT_EQUAL_FLOAT(1.0f, features[i]);
             continue;

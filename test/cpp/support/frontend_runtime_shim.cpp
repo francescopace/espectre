@@ -28,7 +28,7 @@ EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
   capabilities_ = frontend_runtime_shim::state.capabilities;
   frontend_runtime_shim::state.last_instance = this;
   capabilities_.supports_runtime_detector_selection = config.runtime_detector_selection_enabled;
-  if (frontend_runtime_shim::state.snapshot.threshold == SEGMENTATION_DEFAULT_THRESHOLD) {
+  if (frontend_runtime_shim::state.snapshot.threshold == RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT) {
     snapshot_.threshold = config.segmentation_threshold;
   }
 }
@@ -45,6 +45,10 @@ void EspIdfRuntime::shutdown() { frontend_runtime_shim::state.shutdown_called = 
 
 void EspIdfRuntime::loop() {
   frontend_runtime_shim::state.loop_calls++;
+  if (frontend_runtime_shim::state.emit_threshold_on_next_loop && listener_ != nullptr) {
+    frontend_runtime_shim::state.emit_threshold_on_next_loop = false;
+    listener_->on_threshold_changed(frontend_runtime_shim::state.snapshot);
+  }
 }
 
 RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {

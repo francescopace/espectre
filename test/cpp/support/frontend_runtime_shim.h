@@ -34,7 +34,7 @@ inline RuntimeCapabilities sensing_runtime_capabilities() {
   capabilities.supports_runtime_threshold_updates = true;
   capabilities.supports_runtime_motion_hits_updates = true;
   capabilities.supports_manual_recalibration = true;
-  capabilities.supports_ble_telemetry = true;
+  capabilities.supports_live_telemetry = true;
   capabilities.supports_extended_diagnostics = true;
   capabilities.supports_traffic_control = true;
   return capabilities;
@@ -63,6 +63,7 @@ struct State {
   bool services_armed{true};
   bool live_telemetry_enabled{true};
   int set_live_telemetry_enabled_calls{0};
+  bool emit_threshold_on_next_loop{false};
   IRuntimeListener *last_listener{nullptr};
   EspIdfRuntime *last_instance{nullptr};
 };

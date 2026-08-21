@@ -18,7 +18,6 @@
 #include <cmath>
 #include <cstdint>
 
-#include "ml_weights.h"
 #include "utils.h"
 
 namespace espectre {
@@ -26,11 +25,6 @@ namespace espectre {
 constexpr uint8_t L1_DELTA_LAG = 10;
 constexpr float L1_DELTA_STARTUP_THRESHOLD_FACTOR = 1.1f;
 constexpr uint8_t TURB_IQR_AGGREGATION_WIDTH = 5U;
-
-// Number of features extracted, driven by the exported model.
-constexpr uint8_t ML_NUM_FEATURES = ML_MODEL_INPUT_SIZE;
-static_assert(ML_MODEL_INPUT_SIZE >= 1,
-              "ML model must expose at least one input feature");
 
 // Canonical ML feature identifiers, shared with the exporter in
 // tools/train_ml_model.py (CPP_FEATURE_IDS).

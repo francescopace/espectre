@@ -18,8 +18,8 @@
 namespace espectre {
 
 static const char *TAG = "HighAccuracyDetector";
-static_assert(ML_MODEL_INPUT_SIZE == ML_NUM_FEATURES,
-              "Exported model input size must match extracted ML feature count");
+constexpr uint8_t ML_NUM_FEATURES = ML_MODEL_INPUT_SIZE;
+static_assert(ML_NUM_FEATURES >= 1U, "ML model must expose at least one input feature");
 
 // Construction and ownership
 

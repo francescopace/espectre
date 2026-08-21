@@ -93,6 +93,30 @@ void test_runtime_detector_switch_updates_pipeline_threshold_and_calibration(voi
   TEST_ASSERT_TRUE(listener.last_calibration_success);
 }
 
+void test_runtime_detector_configuration_preserves_the_requested_threshold(void) {
+  RuntimeConfig config;
+  config.detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
+  config.segmentation_threshold = 0.73f;
+  EspIdfRuntime runtime(config);
+
+  TEST_ASSERT_TRUE(runtime.configure_detector_());
+  TEST_ASSERT_EQUAL_FLOAT(0.73f, runtime.config_.segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.73f, runtime.get_snapshot().threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.73f, runtime.detector_->get_threshold());
+}
+
+void test_runtime_traffic_updates_roll_back_when_persistence_fails(void) {
+  RuntimeConfig config;
+  config.csi_traffic_mode = CsiTrafficMode::DISABLED;
+  EspIdfRuntime runtime(config);
+  nvs_mock_set_open_result(ESP_FAIL);
+
+  TEST_ASSERT_FALSE(runtime.set_csi_traffic_mode_runtime(CsiTrafficMode::EXTERNAL));
+  TEST_ASSERT_TRUE(runtime.config_.csi_traffic_mode == CsiTrafficMode::DISABLED);
+  TEST_ASSERT_FALSE(runtime.set_traffic_generator_mode_runtime(RuntimeTrafficMode::DNS));
+  TEST_ASSERT_TRUE(runtime.config_.traffic_generator_mode == RuntimeTrafficMode::PING);
+}
+
 void test_runtime_detector_adaptation_emits_threshold_changed(void) {
   RuntimeConfig config;
   EspIdfRuntime runtime(config);
@@ -277,6 +301,8 @@ int main(int argc, char **argv) {
   (void)argv;
   UNITY_BEGIN();
   RUN_TEST(test_runtime_detector_switch_updates_pipeline_threshold_and_calibration);
+  RUN_TEST(test_runtime_detector_configuration_preserves_the_requested_threshold);
+  RUN_TEST(test_runtime_traffic_updates_roll_back_when_persistence_fails);
   RUN_TEST(test_runtime_detector_adaptation_emits_threshold_changed);
   RUN_TEST(test_runtime_motion_hits_runtime_updates_pipeline_and_persists);
   RUN_TEST(test_runtime_diagnostics_read_current_wifi_association);

@@ -79,9 +79,11 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
         doxy_name = next(name for name in archived if name.endswith("/src/cpp/Doxyfile"))
         bundled_doxyfile = archive.read(doxy_name).decode("utf-8")
     assert re.search(r"(?m)^OUTPUT_DIRECTORY\s*=\s*output\s*$", bundled_doxyfile)
+    assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*3\.0\.0\s*$", bundled_doxyfile)
     assert "docs/web/artifacts/sdk" not in bundled_doxyfile
     repo_doxyfile = (REPO_ROOT / "src" / "cpp" / "Doxyfile").read_text(encoding="utf-8")
     assert re.search(r"(?m)^OUTPUT_DIRECTORY\s*=\s*docs/web/artifacts/sdk\s*$", repo_doxyfile)
+    assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*UNSTAMPED\s*$", repo_doxyfile)
     assert any(path.endswith("/THIRD_PARTY_NOTICES.md") for path in archived)
     for artifact in manifest["artifacts"]:
         assert artifact["sha256"] == file_sha256(outputs[0] / artifact["filename"])
@@ -251,11 +253,14 @@ def test_sdk_snapshot_stamps_git_describe_identity(tmp_path: Path) -> None:
         header = archive.read(header_name).decode("utf-8")
         yml_name = next(name for name in archive.namelist() if name.endswith("/src/cpp/idf_component.yml"))
         yml = archive.read(yml_name).decode("utf-8")
+        doxy_name = next(name for name in archive.namelist() if name.endswith("/src/cpp/Doxyfile"))
+        bundled_doxyfile = archive.read(doxy_name).decode("utf-8")
     assert '#define ESPECTRE_SDK_VERSION_STRING "2.8.0-237-g7439944"' in header
     assert "#define ESPECTRE_SDK_VERSION_MAJOR 2" in header
     assert "ESPectre SDK version is unresolved" not in header
     assert 'version: "2.8.0-237-g7439944"' in yml
     assert 'version: ">=5.5.0"' in yml
+    assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*2\.8\.0-237-g7439944\s*$", bundled_doxyfile)
     for relative_path in (
         "src/cpp/frontend/native/espectre/idf_component.yml",
         "src/cpp/frontend/streamer/espectre/idf_component.yml",
@@ -264,6 +269,32 @@ def test_sdk_snapshot_stamps_git_describe_identity(tmp_path: Path) -> None:
     ):
         frontend_manifest = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
         assert 'version: ">=5.5.0"' in frontend_manifest
+
+
+def test_generate_sdk_api_stamps_a_working_copy_without_mutating_the_repo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    generator = load_script("generate_sdk_api")
+    repo_doxyfile = (REPO_ROOT / "src" / "cpp" / "Doxyfile").read_text(encoding="utf-8")
+    stamped_versions: list[str] = []
+
+    def fake_run(cmd, *, cwd, check):
+        assert cmd[0] == "doxygen"
+        assert len(cmd) == 2
+        assert check is True
+        assert cwd == generator.REPO_ROOT
+        stamped = Path(cmd[1]).read_text(encoding="utf-8")
+        match = re.search(r"(?m)^PROJECT_NUMBER\s*=\s*(\S+)\s*$", stamped)
+        assert match is not None
+        stamped_versions.append(match.group(1))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(generator.subprocess, "run", fake_run)
+    version = generator.generate_sdk_api("3.0.0-12-gabcdef1")
+    assert version == "3.0.0-12-gabcdef1"
+    assert stamped_versions == ["3.0.0-12-gabcdef1"]
+    assert (REPO_ROOT / "src" / "cpp" / "Doxyfile").read_text(encoding="utf-8") == repo_doxyfile
+    assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*UNSTAMPED\s*$", repo_doxyfile)
 
 
 def test_indexnow_retries_transient_failures_and_sends_the_sitemap(tmp_path: Path) -> None:
@@ -437,6 +468,27 @@ def test_pages_build_outputs_do_not_overlap_committed_sources() -> None:
 def test_pages_verifier_spa_routes_match_the_route_registry() -> None:
     verifier = load_script("verify_web_build")
     verifier.verify_spa_routes()
+
+
+def test_pages_verifier_requires_api_reference_to_show_sdk_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    verifier = load_script("verify_web_build")
+    monkeypatch.setattr(verifier, "WEB_ROOT", tmp_path)
+    api = tmp_path / "artifacts" / "sdk" / "api"
+    api.mkdir(parents=True)
+    version = load_script("detect_git_version").detect_git_version()
+    (api / "index.html").write_text(
+        f'<span id="projectnumber">&#160;{version}</span>',
+        encoding="utf-8",
+    )
+    verifier.verify_sdk_api_version()
+    (api / "index.html").write_text(
+        '<span id="projectnumber">UNSTAMPED</span>',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="does not show version"):
+        verifier.verify_sdk_api_version()
 
 
 def test_website_asset_hashes_match_file_contents() -> None:
@@ -678,6 +730,8 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
         encoding="utf-8"
     )
     assert ".github/scripts/build_sitemap.py" in pages_action
+    assert ".github/scripts/generate_sdk_api.py" in pages_action
+    assert "doxygen src/cpp/Doxyfile" not in pages_action
 
     for script_name in (
         "build_matter_firmware.sh",

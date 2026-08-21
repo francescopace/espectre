@@ -171,8 +171,7 @@ After changing the published surface, run both gates:
 
 ```bash
 .venv/bin/pytest test/python/test_sdk_surface_invariants.py -v
-mkdir -p docs/web/artifacts/sdk
-doxygen src/cpp/Doxyfile
+python3 .github/scripts/generate_sdk_api.py
 ```
 
 

@@ -109,7 +109,6 @@ idf_component_register(
 
   <span class="k">void</span> on_motion_state_changed(
       <span class="k">const</span> espectre::RuntimeSnapshot&amp; snapshot) <span class="k">override</span> {
-    runtime_.record_snapshot(snapshot);
     <span class="k">if</span> (!snapshot.ready_to_publish) <span class="k">return</span>;
     publish_motion(snapshot.motion_state == espectre::MotionState::MOTION);
   }

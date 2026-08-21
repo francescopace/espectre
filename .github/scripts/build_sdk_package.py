@@ -50,6 +50,7 @@ SDK_REQUIRED_PATHS = (
     Path("src/cpp/CMakeLists.txt"),
     Path("src/cpp/Kconfig.projbuild"),
     Path("src/cpp/idf_component.yml"),
+    Path("src/cpp/espectre_core_sdk.h"),
     Path("src/cpp/espectre_sdk.h"),
     Path("src/cpp/espectre_sources.cmake"),
     Path("src/cpp/espectre_git_version.cmake"),
@@ -71,6 +72,7 @@ SDK_TOP_LEVEL_FILES = (
     Path("src/cpp/CMakeLists.txt"),
     Path("src/cpp/Kconfig.projbuild"),
     Path("src/cpp/idf_component.yml"),
+    Path("src/cpp/espectre_core_sdk.h"),
     Path("src/cpp/espectre_sdk.h"),
     Path("src/cpp/espectre_sources.cmake"),
     Path("src/cpp/espectre_git_version.cmake"),
@@ -191,17 +193,43 @@ def validate_layout(bundle_files: list[Path]) -> None:
         raise ValueError(f"SDK bundle is missing required paths: {missing}")
 
 
+def detect_doxyfile_project_number(path: Path) -> str:
+    match = re.search(
+        r'(?m)^PROJECT_NUMBER\s*=\s*"?([^"\s]+)"?\s*$',
+        path.read_text(encoding="utf-8"),
+    )
+    if not match:
+        raise ValueError(f"Unable to detect PROJECT_NUMBER in {path}")
+    return match.group(1)
+
+
+def stamp_doxyfile_project_number(path: Path, sdk_package_version: str) -> None:
+    parse_version_core(sdk_package_version)
+    text, count = re.subn(
+        r"(?m)^PROJECT_NUMBER\s*=\s*.*$",
+        f"PROJECT_NUMBER         = {sdk_package_version}",
+        path.read_text(encoding="utf-8"),
+        count=1,
+    )
+    if count != 1:
+        raise ValueError(f"Unable to stamp PROJECT_NUMBER in {path}")
+    path.write_text(text, encoding="utf-8")
+
+
 def validate_stamped_sdk_identity(destination_root: Path, sdk_package_version: str) -> None:
-    """Require stamped header macros and idf_component.yml to match the package version."""
+    """Require stamped header macros, idf_component.yml, and Doxygen to match the package version."""
     header = destination_root / "src" / "cpp" / "runtime" / "espectre_sdk_version.h"
     manifest = destination_root / "src" / "cpp" / "idf_component.yml"
+    doxyfile = destination_root / "src" / "cpp" / "Doxyfile"
     stamped = detect_sdk_version(header)
     yml_version = idf_component_manifest_version(manifest)
+    project_number = detect_doxyfile_project_number(doxyfile)
     mismatched = {
         path: value
         for path, value in (
             (str(header.relative_to(destination_root)), stamped),
             (str(manifest.relative_to(destination_root)), yml_version),
+            (str(doxyfile.relative_to(destination_root)), project_number),
         )
         if value != sdk_package_version
     }
@@ -249,8 +277,8 @@ def stamp_idf_component_manifest(path: Path, sdk_package_version: str) -> None:
     path.write_text("\n".join(output_lines) + "\n", encoding="utf-8")
 
 
-def rewrite_bundle_doxyfile(path: Path) -> None:
-    """Point the bundled Doxyfile at output/api for offline regeneration."""
+def rewrite_bundle_doxyfile(path: Path, sdk_package_version: str) -> None:
+    """Point the bundled Doxyfile at output/api and stamp the bundle identity."""
     text = path.read_text(encoding="utf-8")
     if not re.search(r"(?m)^OUTPUT_DIRECTORY\s*=", text):
         raise ValueError(f"Unable to rewrite OUTPUT_DIRECTORY in {path}")
@@ -297,6 +325,7 @@ def rewrite_bundle_doxyfile(path: Path) -> None:
         raise ValueError(f"Unable to rewrite Doxyfile OUTPUT_DIRECTORY comments in {path}")
 
     path.write_text(text, encoding="utf-8")
+    stamp_doxyfile_project_number(path, sdk_package_version)
 
 
 def stage_bundle_tree(destination_root: Path, sdk_package_version: str, bundle_files: list[Path]) -> int:
@@ -311,7 +340,7 @@ def stage_bundle_tree(destination_root: Path, sdk_package_version: str, bundle_f
         destination_root / "src" / "cpp" / "runtime" / "espectre_sdk_version.h",
         sdk_package_version,
     )
-    rewrite_bundle_doxyfile(destination_root / "src" / "cpp" / "Doxyfile")
+    rewrite_bundle_doxyfile(destination_root / "src" / "cpp" / "Doxyfile", sdk_package_version)
     validate_stamped_sdk_identity(destination_root, sdk_package_version)
     return len(bundle_files)
 

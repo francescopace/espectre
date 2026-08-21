@@ -72,20 +72,20 @@ void StreamerFrontend::shutdown() {
 
 StreamerFrontend::~StreamerFrontend() { shutdown(); }
 
-void StreamerFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) { runtime_.record_snapshot(snapshot); }
+void StreamerFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) { (void)snapshot; }
 
 void StreamerFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
   (void)packets_received;
-  runtime_.record_snapshot(snapshot);
+  (void)snapshot;
 }
 
-void StreamerFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) { runtime_.record_snapshot(snapshot); }
+void StreamerFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) { (void)snapshot; }
 
-void StreamerFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) { runtime_.record_snapshot(snapshot); }
+void StreamerFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) { (void)snapshot; }
 
 void StreamerFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
   (void)success;
-  runtime_.record_snapshot(snapshot);
+  (void)snapshot;
 }
 
 void StreamerFrontend::on_live_telemetry(float movement, float threshold) {

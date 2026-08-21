@@ -38,10 +38,10 @@
   <ol class="steps-list compact-steps">
     <li><h3>Configure and start</h3><p>Pass a <code>RuntimeConfig</code> to <code>RuntimeFrontendController</code> after Wi-Fi is ready.</p></li>
     <li><h3>Keep the loop moving</h3><p>Call <code>loop()</code> continuously from the task that owns the runtime.</p></li>
-    <li><h3>Map events into product behavior</h3><p>Publish motion only from a ready snapshot, and cache snapshots you need for later status reads.</p></li>
+    <li><h3>Map events into product behavior</h3><p>Publish motion only from a ready snapshot, and read the controller's automatically cached snapshot for later status requests.</p></li>
   </ol>
 
-  <div class="note"><strong>Need only the detector?</strong> The core-only path is intentionally advanced. Follow <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/runtime/esp_idf/csi_pipeline.cpp" target="_blank" rel="noopener"><code>csi_pipeline.cpp</code></a> for normalization, evaluation cadence, and hit filtering before replacing the runtime.</div>
+  <div class="note"><strong>Need only the detector?</strong> Include <code>espectre_core_sdk.h</code>. The core-only path is intentionally advanced; follow <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/runtime/esp_idf/csi_pipeline.cpp" target="_blank" rel="noopener"><code>csi_pipeline.cpp</code></a> for normalization, evaluation cadence, and hit filtering before replacing the runtime.</div>
 
   <div class="article-nav">
     <a href="/sdk/api/" class="doc-link"><div class="doc-link-title">← Previous: API orientation</div><div class="doc-link-sub">Find the public SDK types and generated reference.</div></a>

@@ -27,7 +27,6 @@
 #include "runtime_time.h"
 #include "runtime_config_utils.h"
 #include "runtime_diagnostics.h"
-#include "runtime_listener_utils.h"
 #include "sdkconfig.h"
 #include "wifi_band_helpers.h"
 
@@ -263,7 +262,6 @@ void NativeFrontend::shutdown() {
 NativeFrontend::~NativeFrontend() { shutdown(); }
 
 void NativeFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
-  runtime_.record_snapshot(snapshot);
   // State-change callbacks contain filtered motion edges, not every detector
   // evaluation. Canonical telemetry already follows evaluation.
   if (!snapshot.ready_to_publish) {
@@ -274,7 +272,6 @@ void NativeFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
 
 void NativeFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
   (void) packets_received;
-  runtime_.record_snapshot(snapshot);
   sample_diagnostics_(now_ms_());
   if (!snapshot.ready_to_publish) {
     return;
@@ -285,7 +282,6 @@ void NativeFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_
 }
 
 void NativeFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
-  apply_threshold_snapshot(runtime_, snapshot);
   system_info_refresh_.request();
   publish_mqtt_telemetry_(snapshot, now_ms_());
   if (snapshot.ready_to_publish) {
@@ -294,7 +290,6 @@ void NativeFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
 }
 
 void NativeFrontend::on_detector_changed(const RuntimeSnapshot &snapshot) {
-  apply_detector_snapshot(runtime_, snapshot);
   system_info_refresh_.request();
   publish_mqtt_info_();
   publish_mqtt_telemetry_(snapshot, now_ms_());
@@ -307,13 +302,15 @@ void NativeFrontend::on_detector_changed(const RuntimeSnapshot &snapshot) {
 }
 
 void NativeFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) {
-  runtime_.record_snapshot(snapshot);
+  (void) snapshot;
   system_info_refresh_.request();
   publish_ha_calibrate_(true);
 }
 
 void NativeFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
-  finalize_frontend_calibration(runtime_, snapshot, success, TAG);
+  if (!success) {
+    ESP_LOGW(TAG, "Calibration finished without a valid update");
+  }
   system_info_refresh_.request();
   publish_ha_calibrate_(false);
   if (snapshot.ready_to_publish) {
@@ -328,7 +325,6 @@ void NativeFrontend::on_live_telemetry(float movement, float threshold) {
   RuntimeSnapshot snapshot = runtime_.snapshot();
   snapshot.movement_metric = movement;
   snapshot.threshold = threshold;
-  runtime_.record_snapshot(snapshot);
   publish_mqtt_telemetry_(snapshot, now_ms_());
   publish_ha_movement_(movement);
 }

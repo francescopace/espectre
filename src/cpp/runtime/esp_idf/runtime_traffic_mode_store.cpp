@@ -18,15 +18,6 @@ constexpr const char *kNamespace = "espectre";
 constexpr const char *kCsiTrafficModeKey = "csi_traffic";
 constexpr const char *kTrafficGeneratorModeKey = "traffic_gen";
 
-bool runtime_traffic_mode_valid(RuntimeTrafficMode mode) {
-  return mode == RuntimeTrafficMode::PING || mode == RuntimeTrafficMode::DNS;
-}
-
-bool csi_traffic_mode_valid(CsiTrafficMode mode) {
-  return mode == CsiTrafficMode::INTERNAL || mode == CsiTrafficMode::EXTERNAL ||
-         mode == CsiTrafficMode::PACING || mode == CsiTrafficMode::DISABLED;
-}
-
 esp_err_t load_string_key(const char *key, char *value, size_t value_size, bool *has_saved_value) {
   if (key == nullptr || value == nullptr || value_size == 0U || has_saved_value == nullptr) {
     return ESP_ERR_INVALID_ARG;
@@ -82,7 +73,7 @@ esp_err_t load_runtime_csi_traffic_mode(CsiTrafficMode *mode, bool *has_saved_va
     return err;
   }
   *mode = parse_csi_traffic_mode(value);
-  if (!csi_traffic_mode_valid(*mode) || std::strcmp(value, csi_traffic_mode_name(*mode)) != 0) {
+  if (!runtime_csi_traffic_mode_valid(*mode) || std::strcmp(value, csi_traffic_mode_name(*mode)) != 0) {
     return ESP_ERR_INVALID_STATE;
   }
   return ESP_OK;
@@ -105,7 +96,7 @@ esp_err_t load_runtime_traffic_generator_mode(RuntimeTrafficMode *mode, bool *ha
 }
 
 esp_err_t save_runtime_csi_traffic_mode(CsiTrafficMode mode) {
-  if (!csi_traffic_mode_valid(mode)) {
+  if (!runtime_csi_traffic_mode_valid(mode)) {
     return ESP_ERR_INVALID_ARG;
   }
   return save_string_key(kCsiTrafficModeKey, csi_traffic_mode_name(mode));

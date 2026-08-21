@@ -17,6 +17,7 @@
 #include <cstring>
 
 #include "lwip/sockets.h"
+#include "runtime_sensing_schema.h"
 
 namespace espectre {
 
@@ -84,7 +85,7 @@ class UDPListener {
   bool running_{false};
   uint64_t packets_received_{0U};
   char multicast_group_[16]{};
-  static constexpr size_t kMaxExpectedPayloadLen = 16U;
+  static constexpr size_t kMaxExpectedPayloadLen = RUNTIME_CSI_TRAFFIC_EXPECTED_PAYLOAD_MAX;
   std::array<uint8_t, kMaxExpectedPayloadLen> expected_payload_{};
   size_t expected_payload_len_{0U};
   std::atomic<uint32_t> last_sender_ipv4_{0U};
@@ -94,4 +95,3 @@ class UDPListener {
 };
 
 }  // namespace espectre
-

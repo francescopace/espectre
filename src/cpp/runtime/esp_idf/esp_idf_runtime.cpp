@@ -69,7 +69,7 @@ EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
   capabilities_.supports_runtime_threshold_updates = true;
   capabilities_.supports_runtime_motion_hits_updates = true;
   capabilities_.supports_manual_recalibration = true;
-  capabilities_.supports_ble_telemetry = true;
+  capabilities_.supports_live_telemetry = true;
   capabilities_.supports_extended_diagnostics = true;
   capabilities_.supports_traffic_control = true;
   capabilities_.supports_runtime_detector_selection = config_.runtime_detector_selection_enabled;
@@ -78,6 +78,12 @@ EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
 bool EspIdfRuntime::setup() {
   if (setup_complete_) {
     return true;
+  }
+
+  const RuntimeConfigError config_error = validate_runtime_config(config_);
+  if (config_error != RuntimeConfigError::NONE) {
+    notify_fault_(runtime_config_error_message(config_error));
+    return false;
   }
 
   ESP_LOGI(RUNTIME_TAG, "Initializing ESPectre runtime...");
@@ -289,39 +295,55 @@ bool EspIdfRuntime::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t moti
 }
 
 bool EspIdfRuntime::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
-  if (!csi_traffic_mode_is_sensing_control(mode)) {
-    ESP_LOGW(RUNTIME_TAG, "CSI traffic mode pacing is not selectable on sensing firmware");
+  if (!runtime_csi_traffic_mode_valid_for_profile(RuntimeProfile::SENSING, mode)) {
+    ESP_LOGW(RUNTIME_TAG, "Invalid CSI traffic mode for sensing firmware");
     return false;
   }
   if (mode == config_.csi_traffic_mode) {
     return true;
   }
+  const RuntimeConfig previous_config = config_;
+  config_.csi_traffic_mode = mode;
+  if (!apply_traffic_runtime_config_(true, false)) {
+    restore_traffic_runtime_config_(previous_config);
+    return false;
+  }
   const esp_err_t persist_err = save_runtime_csi_traffic_mode(mode);
   if (persist_err != ESP_OK) {
     ESP_LOGW(RUNTIME_TAG, "Failed to persist CSI traffic mode: %s", esp_err_to_name(persist_err));
+    restore_traffic_runtime_config_(previous_config);
     return false;
   }
-  config_.csi_traffic_mode = mode;
-  if (!apply_traffic_runtime_config_(true, mode != CsiTrafficMode::DISABLED)) {
-    return false;
+  if (mode != CsiTrafficMode::DISABLED) {
+    (void) trigger_recalibration();
   }
   ESP_LOGI(RUNTIME_TAG, "CSI traffic mode updated to %s", csi_traffic_mode_name(mode));
   return true;
 }
 
 bool EspIdfRuntime::set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) {
+  if (!runtime_traffic_mode_valid(mode)) {
+    ESP_LOGW(RUNTIME_TAG, "Invalid traffic generator mode");
+    return false;
+  }
   if (mode == config_.traffic_generator_mode) {
     return true;
+  }
+  const RuntimeConfig previous_config = config_;
+  config_.traffic_generator_mode = mode;
+  const bool generator_active = config_.csi_traffic_mode == CsiTrafficMode::INTERNAL;
+  if (generator_active && !apply_traffic_runtime_config_(true, false)) {
+    restore_traffic_runtime_config_(previous_config);
+    return false;
   }
   const esp_err_t persist_err = save_runtime_traffic_generator_mode(mode);
   if (persist_err != ESP_OK) {
     ESP_LOGW(RUNTIME_TAG, "Failed to persist traffic generator mode: %s", esp_err_to_name(persist_err));
+    restore_traffic_runtime_config_(previous_config);
     return false;
   }
-  config_.traffic_generator_mode = mode;
-  const bool generator_active = config_.csi_traffic_mode == CsiTrafficMode::INTERNAL;
-  if (generator_active && !apply_traffic_runtime_config_(true, true)) {
-    return false;
+  if (generator_active) {
+    (void) trigger_recalibration();
   }
   ESP_LOGI(RUNTIME_TAG, "Traffic generator mode updated to %s", traffic_mode_name(mode));
   return true;
@@ -404,6 +426,13 @@ bool EspIdfRuntime::apply_traffic_runtime_config_(bool restart_service, bool rec
   return true;
 }
 
+void EspIdfRuntime::restore_traffic_runtime_config_(const RuntimeConfig &previous_config) {
+  config_ = previous_config;
+  if (!apply_traffic_runtime_config_(true, false)) {
+    notify_fault_("Failed to restore CSI traffic configuration");
+  }
+}
+
 bool EspIdfRuntime::configure_detector_() {
   if (!validate_runtime_uint32(config_.csi_target_pps,
                                RUNTIME_CSI_TARGET_PPS_MIN,
@@ -417,8 +446,12 @@ bool EspIdfRuntime::configure_detector_() {
     notify_fault_("Invalid detector window duration");
     return false;
   }
-  const float threshold = runtime_default_threshold(config_.detection_algorithm);
-  config_.segmentation_threshold = threshold;
+  if (!validate_runtime_threshold_for_algorithm(config_.segmentation_threshold,
+                                                config_.detection_algorithm)) {
+    notify_fault_("Invalid segmentation threshold");
+    return false;
+  }
+  const float threshold = config_.segmentation_threshold;
   snapshot_.threshold = threshold;
   resolved_window_packets_ = static_cast<uint16_t>(temporal_window_slots(
       config_.csi_target_pps, config_.segmentation_window_size_ms));

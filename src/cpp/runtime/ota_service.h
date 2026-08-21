@@ -76,7 +76,9 @@ class IOtaService {
    *         invalid, or the worker cannot start.
    */
   virtual bool start_check(const std::string &current_version, const std::string &channel) {
-    (void)channel;
+    if (!channel.empty()) {
+      return false;
+    }
     return start_check(current_version);
   }
   /**
@@ -102,7 +104,9 @@ class IOtaService {
    *         invalid, or the worker cannot start.
    */
   virtual bool start_update(const std::string &current_version, const std::string &channel) {
-    (void)channel;
+    if (!channel.empty()) {
+      return false;
+    }
     return start_update(current_version);
   }
   /** Current status. Safe to call from any task, including while an update runs. */

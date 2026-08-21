@@ -22,8 +22,10 @@ static const char *const TAG = "espectre.runtime";
 
 }  // namespace
 
+RuntimeFrontendController::~RuntimeFrontendController() { shutdown(); }
+
 void RuntimeFrontendController::set_config(const RuntimeConfig &config) {
-  if (setup_complete_) {
+  if (runtime_) {
     return;
   }
   config_ = config;
@@ -35,11 +37,23 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
     return true;
   }
 
+  const RuntimeConfigError config_error = validate_runtime_config(config_);
+  if (config_error != RuntimeConfigError::NONE) {
+    const char *message = runtime_config_error_message(config_error);
+    ESP_LOGE(TAG, "Rejected runtime configuration: %s", message);
+    if (listener != nullptr) {
+      listener->on_runtime_fault(message);
+    }
+    return false;
+  }
+
+  listener_ = listener;
   switch (config_.runtime_profile) {
     case RuntimeProfile::STREAM:
       runtime_ = make_stream_runtime(config_);
       if (!runtime_) {
         ESP_LOGE(TAG, "Stream runtime requested but not enabled in this build");
+        listener_ = nullptr;
         return false;
       }
       break;
@@ -48,11 +62,13 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
       runtime_.reset(new EspIdfRuntime(config_));
       break;
   }
-  runtime_->set_listener(listener);
+  runtime_->set_listener(this);
   runtime_->set_services_armed(services_armed_);
   runtime_->set_live_telemetry_enabled(live_telemetry_enabled_);
   if (!runtime_->setup()) {
     runtime_.reset();
+    listener_ = nullptr;
+    apply_deferred_shutdown_();
     return false;
   }
 
@@ -63,21 +79,33 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
     config_.segmentation_threshold = snapshot_.threshold;
   }
   setup_complete_ = true;
-  return true;
+  apply_deferred_shutdown_();
+  return setup_complete_;
 }
 
 void RuntimeFrontendController::loop() {
   if (runtime_) {
     runtime_->loop();
   }
+  apply_deferred_shutdown_();
 }
 
 void RuntimeFrontendController::shutdown() {
+  if (callback_depth_ > 0U) {
+    shutdown_requested_ = true;
+    return;
+  }
   if (runtime_) {
     runtime_->shutdown();
     runtime_.reset();
   }
+  listener_ = nullptr;
   setup_complete_ = false;
+  shutdown_requested_ = false;
+  capabilities_ = {};
+  snapshot_.motion_state = MotionState::IDLE;
+  snapshot_.calibrating = false;
+  snapshot_.ready_to_publish = false;
 }
 
 void RuntimeFrontendController::set_services_armed(bool armed) {
@@ -85,6 +113,7 @@ void RuntimeFrontendController::set_services_armed(bool armed) {
   if (runtime_) {
     runtime_->set_services_armed(armed);
   }
+  apply_deferred_shutdown_();
 }
 
 void RuntimeFrontendController::set_live_telemetry_enabled(bool enabled) {
@@ -92,6 +121,7 @@ void RuntimeFrontendController::set_live_telemetry_enabled(bool enabled) {
   if (runtime_) {
     runtime_->set_live_telemetry_enabled(enabled);
   }
+  apply_deferred_shutdown_();
 }
 
 void RuntimeFrontendController::quiesce_for_ota() {
@@ -100,11 +130,14 @@ void RuntimeFrontendController::quiesce_for_ota() {
 }
 
 bool RuntimeFrontendController::set_threshold_runtime(float threshold) {
-  if (!validate_runtime_threshold_for_algorithm(threshold, config_.detection_algorithm)) {
+  if (config_.runtime_profile != RuntimeProfile::SENSING ||
+      !validate_runtime_threshold_for_algorithm(threshold, config_.detection_algorithm)) {
     return false;
   }
   if (runtime_) {
-    if (!runtime_->set_threshold_runtime(threshold)) {
+    if (!capabilities_.supports_runtime_threshold_updates ||
+        !runtime_->set_threshold_runtime(threshold)) {
+      apply_deferred_shutdown_();
       return false;
     }
   } else {
@@ -112,52 +145,68 @@ bool RuntimeFrontendController::set_threshold_runtime(float threshold) {
   }
   config_.segmentation_threshold = threshold;
   snapshot_.threshold = threshold;
+  apply_deferred_shutdown_();
   return true;
 }
 
 bool RuntimeFrontendController::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits) {
-  if (motion_on_hits < RUNTIME_MOTION_HITS_MIN || motion_on_hits > RUNTIME_MOTION_HITS_MAX ||
+  if (config_.runtime_profile != RuntimeProfile::SENSING ||
+      motion_on_hits < RUNTIME_MOTION_HITS_MIN || motion_on_hits > RUNTIME_MOTION_HITS_MAX ||
       motion_off_hits < RUNTIME_MOTION_HITS_MIN || motion_off_hits > RUNTIME_MOTION_HITS_MAX) {
     return false;
   }
   if (runtime_) {
     if (!capabilities_.supports_runtime_motion_hits_updates ||
         !runtime_->set_motion_hits_runtime(motion_on_hits, motion_off_hits)) {
+      apply_deferred_shutdown_();
       return false;
     }
   }
   config_.motion_on_hits = motion_on_hits;
   config_.motion_off_hits = motion_off_hits;
+  apply_deferred_shutdown_();
   return true;
 }
 
 bool RuntimeFrontendController::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
+  if (!runtime_csi_traffic_mode_valid_for_profile(config_.runtime_profile, mode)) {
+    return false;
+  }
   if (runtime_) {
     if (!capabilities_.supports_traffic_control || !runtime_->set_csi_traffic_mode_runtime(mode)) {
+      apply_deferred_shutdown_();
       return false;
     }
   }
   config_.csi_traffic_mode = mode;
+  apply_deferred_shutdown_();
   return true;
 }
 
 bool RuntimeFrontendController::set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) {
+  if (!runtime_traffic_mode_valid(mode)) {
+    return false;
+  }
   if (runtime_) {
     if (!capabilities_.supports_traffic_control || !runtime_->set_traffic_generator_mode_runtime(mode)) {
+      apply_deferred_shutdown_();
       return false;
     }
   }
   config_.traffic_generator_mode = mode;
+  apply_deferred_shutdown_();
   return true;
 }
 
 bool RuntimeFrontendController::set_detection_algorithm_runtime(DetectionAlgorithm algorithm) {
-  if (!runtime_detection_algorithm_valid(algorithm)) {
+  if (config_.runtime_profile != RuntimeProfile::SENSING ||
+      !runtime_detection_algorithm_valid(algorithm)) {
     return false;
   }
   if (runtime_) {
     if (!capabilities_.supports_runtime_detector_selection ||
         !runtime_->set_detection_algorithm_runtime(algorithm)) {
+      apply_deferred_shutdown_();
       return false;
     }
     snapshot_ = runtime_->get_snapshot();
@@ -169,6 +218,7 @@ bool RuntimeFrontendController::set_detection_algorithm_runtime(DetectionAlgorit
   }
   config_.detection_algorithm = algorithm;
   config_.segmentation_threshold = snapshot_.threshold;
+  apply_deferred_shutdown_();
   return true;
 }
 
@@ -176,19 +226,114 @@ bool RuntimeFrontendController::trigger_recalibration() {
   if (!capabilities_.supports_manual_recalibration || !runtime_) {
     return false;
   }
-  return runtime_->trigger_recalibration();
+  const bool started = runtime_->trigger_recalibration();
+  apply_deferred_shutdown_();
+  return started;
 }
 
 bool RuntimeFrontendController::is_calibrating() const {
   return runtime_ != nullptr && runtime_->is_calibrating();
 }
 
-void RuntimeFrontendController::record_snapshot(const RuntimeSnapshot &snapshot) {
+RuntimeDiagnosticsSnapshot RuntimeFrontendController::diagnostics() const {
+  return runtime_ != nullptr ? runtime_->get_diagnostics() : RuntimeDiagnosticsSnapshot{};
+}
+
+void RuntimeFrontendController::cache_snapshot_(const RuntimeSnapshot &snapshot) {
   snapshot_ = snapshot;
 }
 
-RuntimeDiagnosticsSnapshot RuntimeFrontendController::diagnostics() const {
-  return runtime_ != nullptr ? runtime_->get_diagnostics() : RuntimeDiagnosticsSnapshot{};
+void RuntimeFrontendController::begin_callback_() { ++callback_depth_; }
+
+void RuntimeFrontendController::end_callback_() {
+  if (callback_depth_ > 0U) {
+    --callback_depth_;
+  }
+}
+
+void RuntimeFrontendController::apply_deferred_shutdown_() {
+  if (shutdown_requested_ && callback_depth_ == 0U) {
+    shutdown();
+  }
+}
+
+void RuntimeFrontendController::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
+  cache_snapshot_(snapshot);
+  if (listener_ != nullptr) {
+    begin_callback_();
+    listener_->on_motion_state_changed(snapshot);
+    end_callback_();
+  }
+}
+
+void RuntimeFrontendController::on_periodic_update(const RuntimeSnapshot &snapshot,
+                                                   uint32_t packets_received) {
+  cache_snapshot_(snapshot);
+  if (listener_ != nullptr) {
+    begin_callback_();
+    listener_->on_periodic_update(snapshot, packets_received);
+    end_callback_();
+  }
+}
+
+void RuntimeFrontendController::on_threshold_changed(const RuntimeSnapshot &snapshot) {
+  cache_snapshot_(snapshot);
+  config_.segmentation_threshold = snapshot.threshold;
+  if (listener_ != nullptr) {
+    begin_callback_();
+    listener_->on_threshold_changed(snapshot);
+    end_callback_();
+  }
+}
+
+void RuntimeFrontendController::on_detector_changed(const RuntimeSnapshot &snapshot) {
+  cache_snapshot_(snapshot);
+  config_.detection_algorithm = parse_detection_algorithm(snapshot.detector_name);
+  config_.segmentation_threshold = snapshot.threshold;
+  if (listener_ != nullptr) {
+    begin_callback_();
+    listener_->on_detector_changed(snapshot);
+    end_callback_();
+  }
+}
+
+void RuntimeFrontendController::on_calibration_started(const RuntimeSnapshot &snapshot) {
+  cache_snapshot_(snapshot);
+  if (listener_ != nullptr) {
+    begin_callback_();
+    listener_->on_calibration_started(snapshot);
+    end_callback_();
+  }
+}
+
+void RuntimeFrontendController::on_calibration_finished(const RuntimeSnapshot &snapshot,
+                                                        bool success) {
+  cache_snapshot_(snapshot);
+  config_.segmentation_threshold = snapshot.threshold;
+  if (listener_ != nullptr) {
+    begin_callback_();
+    listener_->on_calibration_finished(snapshot, success);
+    end_callback_();
+  }
+}
+
+void RuntimeFrontendController::on_live_telemetry(float movement, float threshold) {
+  snapshot_.movement_metric = movement;
+  snapshot_.threshold = threshold;
+  config_.segmentation_threshold = threshold;
+  if (listener_ != nullptr) {
+    begin_callback_();
+    listener_->on_live_telemetry(movement, threshold);
+    end_callback_();
+  }
+}
+
+void RuntimeFrontendController::on_runtime_fault(const char *message) {
+  if (listener_ != nullptr) {
+    begin_callback_();
+    listener_->on_runtime_fault(message);
+    end_callback_();
+  }
 }
 
 }  // namespace espectre

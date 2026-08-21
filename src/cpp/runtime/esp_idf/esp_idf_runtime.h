@@ -24,6 +24,7 @@
 #include "runtime_interface.h"
 #include "runtime_debug_telemetry.h"
 #include "csi_traffic_service.h"
+#include "threshold.h"
 #include "wifi_lifecycle.h"
 
 namespace espectre {
@@ -61,6 +62,7 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   void stop_sensing_services_();
   void on_csi_channel_changed_(uint8_t previous_channel, uint8_t current_channel);
   bool apply_traffic_runtime_config_(bool restart_service, bool recalibrate_if_active);
+  void restore_traffic_runtime_config_(const RuntimeConfig &previous_config);
   bool start_calibration_();
   bool handle_threshold_calibration_packet_(const int8_t *csi_data, size_t csi_len,
                                             int8_t rssi_dbm, bool evaluation_due,

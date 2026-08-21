@@ -6,16 +6,19 @@
 # stability tiers documented in docs/EMBEDDING.md.
 #
 # Usage, from the repository root:
-#   mkdir -p docs/web/artifacts/sdk
-#   doxygen src/cpp/Doxyfile
+#   python3 .github/scripts/generate_sdk_api.py
 #
-# Output is written to docs/web/artifacts/sdk/api/ and is not committed.
-# SDK bundles rewrite OUTPUT_DIRECTORY to output so the same command works
-# offline without the website tree; see .github/scripts/build_sdk_package.py.
+# That script stamps PROJECT_NUMBER from git describe, the same identity as
+# SDK bundles, and writes docs/web/artifacts/sdk/api/. The committed
+# PROJECT_NUMBER is a placeholder and is not current.
+#
+# SDK bundles rewrite OUTPUT_DIRECTORY to output and stamp PROJECT_NUMBER, so
+# `doxygen src/cpp/Doxyfile` from an unpacked bundle rebuilds a matching
+# reference without the website tree; see .github/scripts/build_sdk_package.py.
 
 PROJECT_NAME           = "ESPectre SDK"
 PROJECT_BRIEF          = "Wi-Fi CSI motion sensing for ESP32 firmware"
-PROJECT_NUMBER         = 3.0.0
+PROJECT_NUMBER         = UNSTAMPED
 
 # Create docs/web/artifacts/sdk before running Doxygen. OUTPUT_DIRECTORY is nested
 # under the committed docs/web/ tree, and Doxygen only creates the final segment.
@@ -31,6 +34,7 @@ GENERATE_TREEVIEW      = YES
 # reference is the entry point of the code. docs/EMBEDDING.md is deliberately
 # not an input: its links are repository-relative and only resolve on GitHub.
 INPUT                  = src/cpp/espectre_sdk.h \
+                         src/cpp/espectre_core_sdk.h \
                          src/cpp/runtime/espectre_sdk_version.h \
                          src/cpp/runtime/runtime_interface.h \
                          src/cpp/runtime/runtime_events.h \
@@ -49,6 +53,9 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/runtime/esp_idf/runtime_frontend_controller.h \
                          src/cpp/runtime/esp_idf/runtime_sensing_kconfig.h \
                          src/cpp/core/base_detector.h \
+                         src/cpp/core/detector_types.h \
+                         src/cpp/core/filter_config.h \
+                         src/cpp/core/csi_types.h \
                          src/cpp/core/filtered_turbulence_ring.h \
                          src/cpp/core/lightweight_detector.h \
                          src/cpp/core/high_accuracy_detector.h \
@@ -59,7 +66,6 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/core/csi_features.h \
                          src/cpp/core/ml_feature_trackers.h \
                          src/cpp/core/l1_delta_tracker.h \
-                         src/cpp/core/ml_weights.h \
                          src/cpp/core/threshold.h
 
 FILE_PATTERNS          = *.h

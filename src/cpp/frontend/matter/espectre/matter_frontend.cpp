@@ -11,7 +11,6 @@
 
 #include "espectre_log.h"
 #include "matter_surface.h"
-#include "runtime_listener_utils.h"
 
 namespace espectre {
 
@@ -56,7 +55,6 @@ void MatterFrontend::loop() {
 }
 
 void MatterFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
-  runtime_.record_snapshot(snapshot);
   if (!snapshot.ready_to_publish) {
     return;
   }
@@ -65,18 +63,21 @@ void MatterFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
 }
 
 void MatterFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
+  (void) snapshot;
   (void) packets_received;
-  runtime_.record_snapshot(snapshot);
 }
 
 void MatterFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
-  apply_threshold_snapshot(runtime_, snapshot);
+  (void) snapshot;
 }
 
-void MatterFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) { runtime_.record_snapshot(snapshot); }
+void MatterFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) { (void) snapshot; }
 
 void MatterFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
-  finalize_frontend_calibration(runtime_, snapshot, success, TAG);
+  (void) snapshot;
+  if (!success) {
+    ESP_LOGW(TAG, "Calibration finished without a valid update");
+  }
 }
 
 void MatterFrontend::on_live_telemetry(float movement, float threshold) {

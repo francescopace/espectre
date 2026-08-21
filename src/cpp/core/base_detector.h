@@ -13,20 +13,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <algorithm>
+#include "detector_types.h"
 #include "detector_limits.h"
 #include "filters.h"
 #include "utils.h"
 
 namespace espectre {
-
-// ============================================================================
-// MOTION STATE
-// ============================================================================
-
-enum class MotionState {
-    IDLE,       // No motion detected
-    MOTION      // Motion in progress
-};
 
 // ============================================================================
 // BASE DETECTOR CLASS

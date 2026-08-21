@@ -9,6 +9,8 @@
  */
 #include "stream_esp_idf_runtime.h"
 
+#include "runtime_config_utils.h"
+
 #include <algorithm>
 #include <cinttypes>
 #include <cstdio>
@@ -62,9 +64,9 @@ StreamEspIdfRuntime::StreamEspIdfRuntime(const RuntimeConfig &config)
   capabilities_.supports_runtime_threshold_updates = false;
   capabilities_.supports_runtime_detector_selection = false;
   capabilities_.supports_manual_recalibration = false;
-  capabilities_.supports_ble_telemetry = false;
+  capabilities_.supports_live_telemetry = false;
   capabilities_.supports_extended_diagnostics = true;
-  capabilities_.supports_traffic_control = true;
+  capabilities_.supports_traffic_control = false;
 }
 
 const char *StreamEspIdfRuntime::workflow_state_name_(WorkflowState state) const {
@@ -85,6 +87,12 @@ const char *StreamEspIdfRuntime::workflow_state_name_(WorkflowState state) const
 bool StreamEspIdfRuntime::setup() {
   if (setup_complete_) {
     return true;
+  }
+
+  const RuntimeConfigError config_error = validate_runtime_config(config_);
+  if (config_error != RuntimeConfigError::NONE) {
+    notify_fault_(runtime_config_error_message(config_error));
+    return false;
   }
 
   if (!init_nvs_()) {

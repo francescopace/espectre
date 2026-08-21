@@ -113,11 +113,15 @@ ESpectreDiagnosticsButton = espectre_ns.class_("ESpectreDiagnosticsButton", butt
 _LIBRARY_ROOT = Path(__file__).resolve().parents[4]
 _COMPONENT_ROOT = Path(__file__).resolve().parent
 _SCHEMA_HEADER = _LIBRARY_ROOT / "runtime" / "runtime_sensing_schema.h"
+_SCHEMA_DEPENDENCY_HEADERS = (
+    _LIBRARY_ROOT / "core" / "detector_types.h",
+    _LIBRARY_ROOT / "core" / "filter_config.h",
+)
 _GIT_VERSION_CORE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)")
 _GIT_DESCRIBE_CMD = ("git", "describe", "--tags", "--match", "[0-9]*", "--abbrev=7")
 _SCHEMA_CONST_PATTERN = re.compile(
-    r"constexpr\s+(?:const char \*const|bool|float|uint8_t|uint16_t|uint32_t)\s+"
-    r"(RUNTIME_[A-Z0-9_]+)\s*=\s*([^;]+);"
+    r"constexpr\s+(?:const char \*const|bool|float|size_t|uint8_t|uint16_t|uint32_t)\s+"
+    r"([A-Z][A-Z0-9_]+)\s*=\s*([^;]+);"
 )
 
 _WIFI_BAND_POLICY_BY_MODE = {
@@ -193,8 +197,10 @@ def _export_espectre_git_version() -> None:
         os.environ["ESPECTRE_GIT_VERSION"] = git_version
 
 
-def _parse_schema_literal(raw_value):
+def _parse_schema_literal(raw_value, constants):
     raw_value = raw_value.strip()
+    if raw_value in constants:
+        return constants[raw_value]
     if raw_value in ("true", "false"):
         return raw_value == "true"
     if raw_value.startswith('"') and raw_value.endswith('"'):
@@ -207,13 +213,14 @@ def _parse_schema_literal(raw_value):
 
 
 def _load_runtime_schema(schema_path: Path):
-    constants = {}
-    for line in schema_path.read_text(encoding="utf-8").splitlines():
-        match = _SCHEMA_CONST_PATTERN.search(line)
-        if match is None:
-            continue
-        constants[match.group(1)] = _parse_schema_literal(match.group(2))
-    return constants
+    constants = {"UINT16_MAX": 65535}
+    for path in (*_SCHEMA_DEPENDENCY_HEADERS, schema_path):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            match = _SCHEMA_CONST_PATTERN.search(line)
+            if match is None:
+                continue
+            constants[match.group(1)] = _parse_schema_literal(match.group(2), constants)
+    return {name: value for name, value in constants.items() if name.startswith("RUNTIME_")}
 
 
 _RUNTIME_SCHEMA = _load_runtime_schema(_SCHEMA_HEADER)

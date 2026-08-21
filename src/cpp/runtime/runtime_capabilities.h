@@ -20,9 +20,8 @@ namespace espectre {
  * declared anything and the sensing runtime shipped whatever the struct
  * happened to default to.
  *
- * `supports_ble_telemetry` describes the runtime side of the surface: whether
- * it drives the live-telemetry callback at all. Native uses that callback for
- * MQTT sensing telemetry and Home Assistant Movement Score, not for BLE notify.
+ * `supports_live_telemetry` describes the runtime side of the surface: whether
+ * it drives the live-telemetry callback at all.
  */
 struct RuntimeCapabilities {
   /** `set_threshold_runtime()` is honored. */
@@ -44,7 +43,7 @@ struct RuntimeCapabilities {
    * Native uses that callback for MQTT sensing telemetry and Home Assistant
    * Movement Score. It does not forward live sensing onto BLE.
    */
-  bool supports_ble_telemetry{false};
+  bool supports_live_telemetry{false};
   /** The runtime reports the extended diagnostics block used by stats payloads. */
   bool supports_extended_diagnostics{false};
   /** The runtime owns CSI traffic generation and can be asked to retune it. */

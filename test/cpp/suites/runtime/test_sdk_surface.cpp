@@ -1,19 +1,18 @@
 /*
  * ESPectre - SDK Surface Tests
  *
- * Guards the published embedding surface: that `espectre_sdk.h` alone reaches
- * every documented type, and that the defaults and ranges the SDK
- * documentation promises still hold.
+ * Guards both published embedding facades and the defaults and ranges the SDK
+ * documentation promises.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 
-// Deliberately the only ESPectre include. An integrator following
-// docs/EMBEDDING.md includes this and nothing else, so anything this suite
-// needs and cannot reach is a hole in the facade.
+// Deliberately the only two ESPectre includes: the recommended runtime facade
+// and the explicit core-only extension.
 #include "espectre_sdk.h"
+#include "espectre_core_sdk.h"
 
 #include "test_harness.h"
 
@@ -34,6 +33,26 @@ class MinimalListener : public IRuntimeListener {
 
   int motion_changes{0};
   MotionState last_state{MotionState::IDLE};
+};
+
+class LegacyOtaService : public IOtaService {
+ public:
+  void loop() override {}
+  void shutdown() override {}
+  bool start_check(const std::string &) override {
+    check_calls++;
+    return true;
+  }
+  bool start_update(const std::string &) override {
+    update_calls++;
+    return true;
+  }
+  EspectreOtaStatus status() const override { return {}; }
+  void set_status_callback(StatusCallback) override {}
+  void set_prepare_for_update_callback(PrepareForUpdateCallback) override {}
+
+  int check_calls{0};
+  int update_calls{0};
 };
 
 }  // namespace
@@ -76,6 +95,7 @@ void test_default_runtime_config_is_a_working_sensing_config(void) {
                     static_cast<int>(config.detection_algorithm));
   TEST_ASSERT_EQUAL(static_cast<int>(CsiTrafficMode::INTERNAL), static_cast<int>(config.csi_traffic_mode));
   TEST_ASSERT_TRUE(runtime_detection_algorithm_valid(config.detection_algorithm));
+  TEST_ASSERT_EQUAL_FLOAT(LIGHTWEIGHT_DEFAULT_THRESHOLD, config.segmentation_threshold);
 
   TEST_ASSERT_EQUAL_UINT8(RUNTIME_MOTION_ON_HITS_DEFAULT, config.motion_on_hits);
   TEST_ASSERT_EQUAL_UINT8(RUNTIME_MOTION_OFF_HITS_DEFAULT, config.motion_off_hits);
@@ -148,7 +168,7 @@ void test_default_capabilities_advertise_nothing(void) {
   TEST_ASSERT_FALSE(capabilities.supports_runtime_motion_hits_updates);
   TEST_ASSERT_FALSE(capabilities.supports_runtime_detector_selection);
   TEST_ASSERT_FALSE(capabilities.supports_manual_recalibration);
-  TEST_ASSERT_FALSE(capabilities.supports_ble_telemetry);
+  TEST_ASSERT_FALSE(capabilities.supports_live_telemetry);
   TEST_ASSERT_FALSE(capabilities.supports_extended_diagnostics);
   TEST_ASSERT_FALSE(capabilities.supports_traffic_control);
 }
@@ -192,7 +212,7 @@ void test_detector_names_round_trip_through_the_protocol_form(void) {
 
 void test_core_only_detector_path_is_reachable_from_the_facade(void) {
   // The core-only integration path documented on LightweightDetector must be
-  // usable with nothing but the facade include.
+  // usable through the explicit core facade.
   LightweightDetector detector;
 
   TEST_ASSERT_FALSE(detector.is_ready());
@@ -206,6 +226,18 @@ void test_core_only_detector_path_is_reachable_from_the_facade(void) {
   TEST_ASSERT_TRUE(subcarrier_count > 0U);
 }
 
+void test_legacy_ota_service_rejects_channels_it_cannot_honor(void) {
+  LegacyOtaService service;
+  IOtaService &api = service;
+
+  TEST_ASSERT_TRUE(api.start_check("3.0.0", ""));
+  TEST_ASSERT_TRUE(api.start_update("3.0.0", ""));
+  TEST_ASSERT_FALSE(api.start_check("3.0.0", ESPECTRE_OTA_CHANNEL_PREVIEW));
+  TEST_ASSERT_FALSE(api.start_update("3.0.0", "invalid"));
+  TEST_ASSERT_EQUAL(1, service.check_calls);
+  TEST_ASSERT_EQUAL(1, service.update_calls);
+}
+
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_sdk_version_macros_agree_with_each_other);
@@ -216,6 +248,7 @@ int process(void) {
   RUN_TEST(test_listener_callbacks_default_to_no_ops);
   RUN_TEST(test_detector_names_round_trip_through_the_protocol_form);
   RUN_TEST(test_core_only_detector_path_is_reachable_from_the_facade);
+  RUN_TEST(test_legacy_ota_service_rejects_channels_it_cannot_honor);
   return UNITY_END();
 }
 

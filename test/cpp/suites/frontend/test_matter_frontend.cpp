@@ -51,7 +51,8 @@ void test_matter_frontend_setup_registers_runtime_listener(void) {
   MatterFrontend frontend(&bindings, 7);
   TEST_ASSERT_TRUE(frontend.setup());
   TEST_ASSERT_TRUE(frontend.is_setup_complete());
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_listener == &frontend);
+  TEST_ASSERT_NOT_NULL(frontend_runtime_shim::state.last_listener);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_listener != &frontend);
   TEST_ASSERT_EQUAL_FLOAT(3.25f, frontend.snapshot().threshold);
 }
 
@@ -107,17 +108,17 @@ void test_matter_frontend_threshold_and_calibration_callbacks_update_runtime_sna
 
   RuntimeSnapshot threshold_snapshot = make_ready_snapshot(false);
   threshold_snapshot.threshold = 4.25f;
-  frontend.on_threshold_changed(threshold_snapshot);
+  frontend_runtime_shim::state.last_listener->on_threshold_changed(threshold_snapshot);
   TEST_ASSERT_EQUAL_FLOAT(4.25f, frontend.snapshot().threshold);
 
   RuntimeSnapshot calibrating = make_ready_snapshot(false);
   calibrating.calibrating = true;
-  frontend.on_calibration_started(calibrating);
+  frontend_runtime_shim::state.last_listener->on_calibration_started(calibrating);
   TEST_ASSERT_TRUE(frontend.snapshot().calibrating);
 
   RuntimeSnapshot finished = make_ready_snapshot(false);
   finished.calibrating = false;
-  frontend.on_calibration_finished(finished, false);
+  frontend_runtime_shim::state.last_listener->on_calibration_finished(finished, false);
   TEST_ASSERT_FALSE(frontend.snapshot().calibrating);
 }
 

@@ -104,6 +104,5 @@ static constexpr size_t STREAM_MAX_PACKET_BYTES = sizeof(CsiStreamHeaderV7) + ST
 // the datagram is exhausted.
 static constexpr size_t STREAM_MAX_BATCH_RECORDS = 8U;
 // Seven current V7 HT20 records fit in one Ethernet MTU after UDP/IP headers.
-static constexpr size_t STREAM_MAX_TX_BATCH_RECORDS = 7U;
 
 }  // namespace espectre

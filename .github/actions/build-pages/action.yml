@@ -40,9 +40,7 @@ runs:
 
     - name: Generate SDK API reference
       shell: bash
-      run: |
-        mkdir -p docs/web/artifacts/sdk
-        doxygen src/cpp/Doxyfile
+      run: python3 .github/scripts/generate_sdk_api.py
 
     - name: Generate sitemap lastmod values
       shell: bash

@@ -13,11 +13,48 @@
 #include "frontend_runtime_shim.h"
 #include "runtime_frontend_controller.h"
 
+#include <string>
+
 using namespace espectre;
 
 namespace {
 
-class DummyRuntimeListener : public IRuntimeListener {};
+class DummyRuntimeListener : public IRuntimeListener {
+ public:
+  void on_threshold_changed(const RuntimeSnapshot &snapshot) override {
+    threshold_count++;
+    last_threshold = snapshot.threshold;
+    if (controller != nullptr) {
+      cached_threshold_during_callback = controller->snapshot().threshold;
+      configured_threshold_during_callback = controller->config().segmentation_threshold;
+      if (shutdown_on_threshold) {
+        controller->shutdown();
+      }
+    }
+  }
+
+  void on_live_telemetry(float movement, float threshold) override {
+    telemetry_count++;
+    last_movement = movement;
+    last_threshold = threshold;
+  }
+
+  void on_runtime_fault(const char *message) override {
+    fault_count++;
+    last_fault = message != nullptr ? message : "";
+  }
+
+  int fault_count{0};
+  int threshold_count{0};
+  int telemetry_count{0};
+  float last_threshold{0.0f};
+  float last_movement{0.0f};
+  float cached_threshold_during_callback{0.0f};
+  float configured_threshold_during_callback{0.0f};
+  RuntimeFrontendController *controller{nullptr};
+  bool shutdown_on_threshold{false};
+  std::string last_fault;
+};
 
 }  // namespace
 
@@ -28,21 +65,35 @@ void tearDown(void) {}
 void test_runtime_frontend_controller_preserves_pre_setup_config_and_snapshot(void) {
   RuntimeFrontendController controller;
   RuntimeConfig config;
-  config.segmentation_threshold = 4.5f;
+  config.segmentation_threshold = 0.85f;
 
   controller.set_config(config);
 
-  TEST_ASSERT_EQUAL_FLOAT(4.5f, controller.config().segmentation_threshold);
-  TEST_ASSERT_EQUAL_FLOAT(4.5f, controller.snapshot().threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.85f, controller.config().segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.85f, controller.snapshot().threshold);
 
-  frontend_runtime_shim::state.snapshot.threshold = 2.25f;
+  frontend_runtime_shim::state.snapshot.threshold = 0.7f;
   DummyRuntimeListener listener;
   TEST_ASSERT_TRUE(controller.setup(&listener));
 
   RuntimeConfig updated = controller.config();
-  updated.segmentation_threshold = 1.5f;
+  updated.segmentation_threshold = 0.5f;
   controller.set_config(updated);
-  TEST_ASSERT_EQUAL_FLOAT(4.5f, controller.config().segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.85f, controller.config().segmentation_threshold);
+}
+
+void test_runtime_frontend_controller_rejects_invalid_config_before_backend_setup(void) {
+  RuntimeFrontendController controller;
+  RuntimeConfig config;
+  config.publish_interval_ms = 0U;
+  controller.set_config(config);
+  DummyRuntimeListener listener;
+
+  TEST_ASSERT_FALSE(controller.setup(&listener));
+  TEST_ASSERT_FALSE(controller.is_setup_complete());
+  TEST_ASSERT_NULL(frontend_runtime_shim::state.last_instance);
+  TEST_ASSERT_EQUAL(1, listener.fault_count);
+  TEST_ASSERT_EQUAL_STRING("invalid publish interval", listener.last_fault.c_str());
 }
 
 void test_runtime_frontend_controller_setup_propagates_state_and_handles_failure(void) {
@@ -56,7 +107,8 @@ void test_runtime_frontend_controller_setup_propagates_state_and_handles_failure
 
   TEST_ASSERT_TRUE(controller.setup(&listener));
   TEST_ASSERT_TRUE(controller.is_setup_complete());
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_listener == &listener);
+  TEST_ASSERT_NOT_NULL(frontend_runtime_shim::state.last_listener);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_listener != &listener);
   TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
   TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
   TEST_ASSERT_EQUAL_FLOAT(3.0f, controller.snapshot().threshold);
@@ -121,6 +173,18 @@ void test_runtime_frontend_controller_threshold_runtime_updates_config_and_snaps
   TEST_ASSERT_EQUAL_FLOAT(0.5f, controller.snapshot().threshold);
 }
 
+void test_runtime_frontend_controller_threshold_requires_capability(void) {
+  RuntimeFrontendController controller;
+  DummyRuntimeListener listener;
+  frontend_runtime_shim::state.capabilities.supports_runtime_threshold_updates = false;
+
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+  TEST_ASSERT_FALSE(controller.set_threshold_runtime(0.5f));
+  TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_threshold_calls);
+  TEST_ASSERT_EQUAL_FLOAT(RUNTIME_SEGMENTATION_THRESHOLD_DEFAULT,
+                          controller.config().segmentation_threshold);
+}
+
 void test_runtime_frontend_controller_motion_hits_runtime_updates_config(void) {
   RuntimeFrontendController controller;
   DummyRuntimeListener listener;
@@ -146,10 +210,14 @@ void test_runtime_frontend_controller_traffic_runtime_updates_config(void) {
   TEST_ASSERT_TRUE(controller.set_traffic_generator_mode_runtime(RuntimeTrafficMode::DNS));
   TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
 
+  TEST_ASSERT_FALSE(controller.set_csi_traffic_mode_runtime(CsiTrafficMode::PACING));
+  TEST_ASSERT_FALSE(controller.set_csi_traffic_mode_runtime(static_cast<CsiTrafficMode>(0x7f)));
+  TEST_ASSERT_FALSE(controller.set_traffic_generator_mode_runtime(static_cast<RuntimeTrafficMode>(0x7f)));
+
   TEST_ASSERT_TRUE(controller.setup(&listener));
-  TEST_ASSERT_TRUE(controller.set_csi_traffic_mode_runtime(CsiTrafficMode::PACING));
+  TEST_ASSERT_TRUE(controller.set_csi_traffic_mode_runtime(CsiTrafficMode::DISABLED));
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficMode::PACING);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficMode::DISABLED);
 
   TEST_ASSERT_TRUE(controller.set_traffic_generator_mode_runtime(RuntimeTrafficMode::PING));
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
@@ -158,12 +226,8 @@ void test_runtime_frontend_controller_traffic_runtime_updates_config(void) {
 
 void test_runtime_frontend_controller_recalibration_requires_capability_and_runtime(void) {
   RuntimeFrontendController controller;
-  RuntimeSnapshot snapshot;
-  snapshot.threshold = 1.25f;
 
   TEST_ASSERT_FALSE(controller.trigger_recalibration());
-  controller.record_snapshot(snapshot);
-  TEST_ASSERT_EQUAL_FLOAT(1.25f, controller.snapshot().threshold);
 
   DummyRuntimeListener listener;
   frontend_runtime_shim::state.capabilities.supports_manual_recalibration = true;
@@ -177,6 +241,44 @@ void test_runtime_frontend_controller_recalibration_requires_capability_and_runt
 
   controller.shutdown();
   TEST_ASSERT_FALSE(controller.is_calibrating());
+}
+
+void test_runtime_frontend_controller_caches_and_forwards_listener_events(void) {
+  RuntimeFrontendController controller;
+  DummyRuntimeListener listener;
+  listener.controller = &controller;
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+
+  RuntimeSnapshot snapshot = controller.snapshot();
+  snapshot.threshold = 0.65f;
+  frontend_runtime_shim::state.last_listener->on_threshold_changed(snapshot);
+
+  TEST_ASSERT_EQUAL(1, listener.threshold_count);
+  TEST_ASSERT_EQUAL_FLOAT(0.65f, listener.last_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.65f, listener.cached_threshold_during_callback);
+  TEST_ASSERT_EQUAL_FLOAT(0.65f, listener.configured_threshold_during_callback);
+
+  frontend_runtime_shim::state.last_listener->on_live_telemetry(0.4f, 0.6f);
+  TEST_ASSERT_EQUAL(1, listener.telemetry_count);
+  TEST_ASSERT_EQUAL_FLOAT(0.4f, listener.last_movement);
+  TEST_ASSERT_EQUAL_FLOAT(0.4f, controller.snapshot().movement_metric);
+  TEST_ASSERT_EQUAL_FLOAT(0.6f, controller.snapshot().threshold);
+}
+
+void test_runtime_frontend_controller_defers_shutdown_requested_by_listener(void) {
+  RuntimeFrontendController controller;
+  DummyRuntimeListener listener;
+  listener.controller = &controller;
+  listener.shutdown_on_threshold = true;
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+
+  frontend_runtime_shim::state.snapshot.threshold = 0.55f;
+  frontend_runtime_shim::state.emit_threshold_on_next_loop = true;
+  controller.loop();
+
+  TEST_ASSERT_EQUAL(1, listener.threshold_count);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.shutdown_called);
+  TEST_ASSERT_FALSE(controller.is_setup_complete());
 }
 
 void test_runtime_frontend_controller_switches_detector_and_resets_threshold(void) {
@@ -221,13 +323,17 @@ void test_runtime_frontend_controller_can_select_stream_runtime_profile(void) {
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_runtime_frontend_controller_preserves_pre_setup_config_and_snapshot);
+  RUN_TEST(test_runtime_frontend_controller_rejects_invalid_config_before_backend_setup);
   RUN_TEST(test_runtime_frontend_controller_setup_propagates_state_and_handles_failure);
   RUN_TEST(test_runtime_frontend_controller_loop_shutdown_and_runtime_toggles_forward);
   RUN_TEST(test_runtime_frontend_controller_reads_diagnostics_from_backend);
   RUN_TEST(test_runtime_frontend_controller_threshold_runtime_updates_config_and_snapshot);
+  RUN_TEST(test_runtime_frontend_controller_threshold_requires_capability);
   RUN_TEST(test_runtime_frontend_controller_motion_hits_runtime_updates_config);
   RUN_TEST(test_runtime_frontend_controller_traffic_runtime_updates_config);
   RUN_TEST(test_runtime_frontend_controller_recalibration_requires_capability_and_runtime);
+  RUN_TEST(test_runtime_frontend_controller_caches_and_forwards_listener_events);
+  RUN_TEST(test_runtime_frontend_controller_defers_shutdown_requested_by_listener);
   RUN_TEST(test_runtime_frontend_controller_switches_detector_and_resets_threshold);
   RUN_TEST(test_runtime_frontend_controller_can_select_stream_runtime_profile);
   return UNITY_END();

@@ -294,7 +294,9 @@ void CsiStreamTransport::configure(uint64_t device_id,
     ESP_LOGI(TAG, "Original ESP32 forces 1-record stream datagrams to avoid stale CSI batching");
   }
 #else
-  tx_batch_records_ = std::clamp<uint8_t>(tx_batch_records, 1U, STREAM_MAX_TX_BATCH_RECORDS);
+  tx_batch_records_ = std::clamp<uint8_t>(tx_batch_records,
+                                          RUNTIME_STREAM_TX_BATCH_RECORDS_MIN,
+                                          RUNTIME_STREAM_TX_BATCH_RECORDS_MAX);
 #endif
   batch_capacity_ = static_cast<size_t>(tx_batch_records_) * kStreamRecordMaxBytes;
   batch_buffer_.reset(new (std::nothrow) uint8_t[batch_capacity_]);

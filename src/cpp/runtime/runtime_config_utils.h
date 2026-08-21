@@ -10,16 +10,44 @@
 #pragma once
 
 #include "runtime_interface.h"
-#include "threshold.h"
-#include "utils.h"
 
 namespace espectre {
+
+/** Machine-readable reason a `RuntimeConfig` cannot be applied. */
+enum class RuntimeConfigError : uint8_t {
+  NONE = 0,
+  RUNTIME_PROFILE,
+  WIFI_BAND_POLICY,
+  DETECTION_ALGORITHM,
+  SEGMENTATION_THRESHOLD,
+  SEGMENTATION_WINDOW_SIZE_MS,
+  CSI_TARGET_PPS,
+  TRAFFIC_GENERATOR_MODE,
+  CSI_TRAFFIC_MODE,
+  CSI_TRAFFIC_UDP_PORT,
+  CSI_TRAFFIC_MULTICAST_GROUP,
+  CSI_TRAFFIC_EXPECTED_PAYLOAD,
+  STREAM_COLLECTOR_PORT,
+  STREAM_LOG_INTERVAL_MS,
+  STREAM_TX_BATCH_RECORDS,
+  PUBLISH_INTERVAL_MS,
+  EVALUATION_INTERVAL_MS,
+  MOTION_HITS,
+  LOWPASS_CUTOFF,
+  HAMPEL_WINDOW,
+  HAMPEL_THRESHOLD,
+};
 
 bool validate_runtime_threshold(float threshold);
 bool validate_runtime_threshold_for_algorithm(float threshold, DetectionAlgorithm algorithm);
 bool validate_runtime_float(float value, float min_value, float max_value);
 bool validate_runtime_uint32(uint32_t value, uint32_t min_value, uint32_t max_value);
 bool validate_runtime_uint8(uint8_t value, uint8_t min_value, uint8_t max_value);
+
+/** Validate the complete configuration before creating runtime state. */
+RuntimeConfigError validate_runtime_config(const RuntimeConfig &config);
+/** Stable diagnostic label for a configuration error. Never returns `nullptr`. */
+const char *runtime_config_error_message(RuntimeConfigError error);
 
 const char *runtime_profile_name(RuntimeProfile profile);
 const char *wifi_band_policy_name(WifiBandPolicy policy);

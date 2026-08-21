@@ -87,7 +87,8 @@ void test_native_frontend_setup_registers_runtime_listener_and_bindings_callback
   NativeFrontend frontend(&bindings);
   TEST_ASSERT_TRUE(frontend.setup());
   TEST_ASSERT_TRUE(frontend.is_setup_complete());
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_listener == &frontend);
+  TEST_ASSERT_NOT_NULL(frontend_runtime_shim::state.last_listener);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_listener != &frontend);
   TEST_ASSERT_TRUE(static_cast<bool>(ble_bindings_mock::state.connection_callback));
   TEST_ASSERT_TRUE(static_cast<bool>(ble_bindings_mock::state.control_callback));
   TEST_ASSERT_TRUE(static_cast<bool>(ble_bindings_mock::state.telemetry_subscription_callback));
@@ -623,7 +624,7 @@ void test_native_frontend_ha_entities_follow_esphome_cadences(void) {
 
   mqtt_transport_mock::state.publishes.clear();
   snapshot.threshold = 0.45f;
-  frontend.on_threshold_changed(snapshot);
+  frontend_runtime_shim::state.last_listener->on_threshold_changed(snapshot);
   TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/threshold/state", "0.4500"));
   TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/intensity/state"));
 }
@@ -719,7 +720,7 @@ void test_native_frontend_ha_calibrate_command_triggers_runtime(void) {
   mqtt_transport_mock::state.publishes.clear();
   RuntimeSnapshot snapshot = make_ready_snapshot();
   snapshot.calibrating = true;
-  frontend.on_calibration_started(snapshot);
+  frontend_runtime_shim::state.last_listener->on_calibration_started(snapshot);
   TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/calibrate/state", "ON"));
 
   mqtt_transport_mock::state.publishes.clear();
@@ -1420,18 +1421,18 @@ void test_native_frontend_threshold_and_calibration_callbacks_publish_sysinfo(vo
 
   RuntimeSnapshot snapshot = make_ready_snapshot();
   snapshot.threshold = 4.5f;
-  frontend.on_threshold_changed(snapshot);
+  frontend_runtime_shim::state.last_listener->on_threshold_changed(snapshot);
   TEST_ASSERT_EQUAL_FLOAT(4.5f, frontend.runtime_.config().segmentation_threshold);
   drain_pending_sysinfo(frontend);
   TEST_ASSERT_TRUE(!ble_bindings_mock::state.sysinfo_lines.empty());
 
   ble_bindings_mock::state.sysinfo_lines.clear();
-  frontend.on_calibration_started(snapshot);
+  frontend_runtime_shim::state.last_listener->on_calibration_started(snapshot);
   drain_pending_sysinfo(frontend);
   TEST_ASSERT_TRUE(!ble_bindings_mock::state.sysinfo_lines.empty());
 
   ble_bindings_mock::state.sysinfo_lines.clear();
-  frontend.on_calibration_finished(snapshot, false);
+  frontend_runtime_shim::state.last_listener->on_calibration_finished(snapshot, false);
   drain_pending_sysinfo(frontend);
   TEST_ASSERT_TRUE(!ble_bindings_mock::state.sysinfo_lines.empty());
 }

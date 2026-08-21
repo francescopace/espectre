@@ -29,12 +29,6 @@
 
 namespace espectre {
 
-// High-Accuracy profile constants
-constexpr float HIGH_ACCURACY_DEFAULT_THRESHOLD = 0.5f;
-constexpr float HIGH_ACCURACY_MIN_THRESHOLD = 0.0f;
-constexpr float HIGH_ACCURACY_MAX_THRESHOLD = 1.0f;
-constexpr float HIGH_ACCURACY_METRIC_SCALE = 1.0f;
-
 /**
  * Neural motion detector, using the MLP weights exported by training.
  *

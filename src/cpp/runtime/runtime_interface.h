@@ -17,8 +17,6 @@
 #include "runtime_snapshot.h"
 #include "runtime_sensing_schema.h"
 #include "csi_traffic_types.h"
-#include "threshold.h"
-#include "utils.h"
 
 /**
  * @file runtime_interface.h
@@ -113,7 +111,7 @@ struct RuntimeConfig {
    * Empty disables the IGMP join. Unicast to the device IP still works.
    */
   std::string csi_traffic_multicast_group{RUNTIME_CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT};
-  /** Payload marker that identifies accepted external CSI traffic, when used. */
+  /** Payload marker that identifies accepted external CSI traffic (0..16 bytes). */
   std::string csi_traffic_expected_payload;
   /**
    * Stable device identity used by the ESPectre Protocol and CSI streaming.
@@ -122,11 +120,11 @@ struct RuntimeConfig {
    * `derive_runtime_device_id()`.
    */
   uint64_t device_id{0U};
-  /** `RuntimeProfile::STREAM` only: UDP port of the host CSI collector. */
+  /** `RuntimeProfile::STREAM` only: UDP port of the host CSI collector (1..65535). */
   uint16_t collector_port{RUNTIME_STREAM_COLLECTOR_PORT_DEFAULT};
-  /** `RuntimeProfile::STREAM` only: interval between stream status logs, in ms. */
+  /** `RuntimeProfile::STREAM` only: interval between stream status logs, in ms (100..60000). */
   uint32_t stream_log_interval_ms{RUNTIME_STREAM_LOG_INTERVAL_MS_DEFAULT};
-  /** `RuntimeProfile::STREAM` only: CSI records coalesced into one datagram. */
+  /** `RuntimeProfile::STREAM` only: CSI records coalesced into one datagram (1..7). */
   uint8_t stream_tx_batch_records{RUNTIME_STREAM_TX_BATCH_RECORDS_DEFAULT};
   /** Milliseconds between `IRuntimeListener::on_periodic_update()` callbacks. */
   uint32_t publish_interval_ms{RUNTIME_PUBLISH_INTERVAL_MS_DEFAULT};

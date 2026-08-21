@@ -61,9 +61,9 @@
  *   calibration, detection, and eventing behind
  *   `espectre::RuntimeFrontendController` and `espectre::IRuntimeListener`.
  *   Requires ESP-IDF >= 5.5.
- * - **Core-only.** Your firmware already captures CSI. Drive
- *   `espectre::LightweightDetector` or `espectre::HighAccuracyDetector` directly; they need
- *   nothing but the C++17 standard library. `runtime/esp_idf/csi_pipeline.cpp`
+ * - **Core-only.** Your firmware already captures CSI. Include
+ *   `espectre_core_sdk.h` and drive `espectre::LightweightDetector` or
+ *   `espectre::HighAccuracyDetector` directly. `runtime/esp_idf/csi_pipeline.cpp`
  *   is the reference for normalization, evaluation cadence, and hit filtering.
  *
  * @section sdk_threading Threading contract
@@ -78,8 +78,9 @@
  *   method. Work raised in the Wi-Fi CSI callback is deferred through an
  *   internal mailbox first, so no listener callback runs in interrupt or Wi-Fi
  *   driver context.
- * - Because callbacks run on your own task, you may block in them (publish
- *   over MQTT, write NVS). The cost is loop latency, not a dropped CSI frame.
+ * - Keep callbacks bounded and non-blocking. Slow work delays `loop()` and can
+ *   fill the bounded CSI mailbox, dropping incoming frames. Queue network I/O,
+ *   NVS writes, and other blocking work for another task.
  * - Call `set_*_runtime()` only from the owner task. The shipped MQTT, BLE, and
  *   OTA adapters queue stack events and deliver their application callbacks
  *   from the frontend loop, so Native follows this rule without external locks.
@@ -94,10 +95,10 @@
  *
  * @section sdk_stability Stability tiers
  *
- * Everything reachable from this header is the supported surface and follows
- * the SDK version contract. Headers that this facade does not pull in are
- * internal: they ship in the bundle because the runtime needs them to compile,
- * and they can change in any release. `docs/EMBEDDING.md` lists the tiers.
+ * Everything reachable from this header is the stable runtime surface and
+ * follows the SDK version contract. The opt-in `espectre_core_sdk.h` facade is
+ * the lower-level detector extension. Other headers are internal and can
+ * change in any release. `docs/EMBEDDING.md` defines the exact guarantees.
  *
  * @section sdk_licensing Licensing
  *
@@ -107,13 +108,6 @@
 
 // SDK identity.
 #include "runtime/espectre_sdk_version.h"
-
-// Detectors and CSI format. Portable, C++17 standard library only.
-#include "core/base_detector.h"
-#include "core/filtered_turbulence_ring.h"
-#include "core/lightweight_detector.h"
-#include "core/csi_format.h"
-#include "core/high_accuracy_detector.h"
 
 // Runtime contracts. Platform-agnostic and host-testable.
 #include "runtime/firmware_version.h"
