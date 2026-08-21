@@ -5,10 +5,11 @@
 <div class="docs-quickstart">
   <h1 class="page-title">Docs</h1>
   <p class="page-sub">Technical documentation for integrating ESPectre: follow the quick start, and explore the API, examples, and architecture.</p>
-  <details class="page-toc" open>
-    <summary>On this page</summary>
-    <nav aria-label="On this page"><strong>On this page</strong><a href="#docs-start-title">Start here</a><a href="#docs-paths-title">Integration paths</a><a href="#docs-micropython-title">MicroPython</a><a href="#docs-detectors-title">Detector budget</a><a href="#docs-quick-start-title">Quick start</a><a href="#docs-next-title">Go deeper</a></nav>
-  </details>
+
+  <figure class="docs-cover">
+    <img src="/assets/images/docs/sdk-firmware-pipeline.avif" alt="A laptop, build step, processor, and ESP32 arranged as an SDK firmware pipeline" width="1068" height="600">
+    <figcaption>The source-based SDK brings ESPectre capture, sensing, and runtime events into an ESP-IDF product firmware.</figcaption>
+  </figure>
 
   <section class="docs-start" aria-labelledby="docs-start-title">
     <div class="docs-start-copy">
@@ -67,24 +68,6 @@
       <a href="/guides/micropython/" class="btn-primary">Open MicroPython guide</a>
       <a href="https://github.com/micropython/micropython/pull/18460" target="_blank" rel="noopener" class="btn-secondary">Read upstream PR</a>
     </div>
-  </section>
-
-  <section class="docs-section" aria-labelledby="docs-detectors-title">
-    <div class="docs-section-head">
-      <span class="guide-tag">DETECTOR BUDGET</span>
-      <h2 id="docs-detectors-title">Choose accuracy or resource headroom.</h2>
-      <p>Lightweight and High Accuracy are both production profiles. Select between them as part of the product's CPU, memory, startup, and detection-quality budget.</p>
-    </div>
-    <div class="table-wrap"><table>
-      <thead><tr><th>Product concern</th><th>Lightweight</th><th>High Accuracy</th></tr></thead>
-      <tbody>
-        <tr><td>Runtime cost</td><td>Fewer feature trackers, less working memory, and less per-packet computation</td><td>More feature state and neural-inference work</td></tr>
-        <tr><td>Detection quality</td><td>Lower accuracy and cross-environment robustness</td><td>Higher accuracy and stronger generalization on the maintained corpus</td></tr>
-        <tr><td>Startup</td><td>Adapts its threshold during up to about 10 seconds of quiet calibration; may still lower it after a later quiet stretch</td><td>Skips threshold calibration; starts after CSI is ready and its feature window has filled</td></tr>
-        <tr><td>Typical fit</td><td>Constrained chips or firmware that must reserve resources for other product features</td><td>Products that prioritize detection quality and can afford the additional runtime cost</td></tr>
-      </tbody>
-    </table></div>
-    <p>Set <code>RuntimeConfig::detection_algorithm</code> to <code>DetectionAlgorithm::LIGHTWEIGHT</code> or <code>DetectionAlgorithm::HIGH_ACCURACY</code> before setup. Runtime switching is an optional integration capability; a firmware image that contains both paths may still carry the ML code and weights in flash while Lightweight is active. See the <a href="/guides/detectors/">detection profile guide</a> for the complete product decision.</p>
   </section>
 
   <section class="docs-section" aria-labelledby="docs-quick-start-title">
@@ -157,12 +140,10 @@ idf_component_register(
       <h2 id="docs-next-title">Open the reference that answers your next question.</h2>
     </div>
     <div class="doc-links docs-link-grid">
-      <a href="/docs/examples/" class="doc-link"><div class="doc-link-title">Choose an example →</div><div class="doc-link-sub">Find the closest shipped frontend or integration pattern.</div></a>
-      <a href="/docs/architecture/#custom-runtime" class="doc-link"><div class="doc-link-title">Build a new runtime →</div><div class="doc-link-sub">Port capture and lifecycle to Arduino, Linux, or another platform.</div></a>
-      <a href="/docs/api/" class="doc-link"><div class="doc-link-title">Find the public surface →</div><div class="doc-link-sub">The four main SDK types, with a direct route to Doxygen.</div></a>
+      <a href="/docs/architecture/" class="doc-link"><div class="doc-link-title">Architecture →</div><div class="doc-link-sub">Understand core, runtime, frontends, data flow, and platform ports.</div></a>
+      <a href="/docs/api/" class="doc-link"><div class="doc-link-title">API orientation →</div><div class="doc-link-sub">Find the main SDK types and continue to the generated reference.</div></a>
+      <a href="/docs/examples/" class="doc-link"><div class="doc-link-title">Examples →</div><div class="doc-link-sub">Choose the closest shipped frontend or integration pattern.</div></a>
       <a href="https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md" target="_blank" rel="noopener" class="doc-link"><div class="doc-link-title">Read the full embedding guide →</div><div class="doc-link-sub">Build options, threading, capabilities, diagnostics, and versioning.</div></a>
     </div>
   </section>
-
-  <p class="docs-license">ESPectre is available under GPLv3 for open-source products, or under a separate <a href="mailto:contact@espectre.dev">commercial license</a> for proprietary firmware.</p>
 </div>

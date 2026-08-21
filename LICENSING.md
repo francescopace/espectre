@@ -11,7 +11,12 @@ Unless a file carries a different SPDX license identifier or third-party notice,
 Manufacturers and firmware teams that want to embed the ESPectre sensing engine (the shared `core` and `runtime` layers and the Native, Matter, or Streamer reference integrations) into proprietary firmware, without the source-disclosure obligations of GPLv3, can obtain a commercial license. The commercial license covers only material for which the maintainer can grant those rights; it does not replace third-party license terms, grant rights to third-party trademarks or media, or cover the GPL-only ESPHome C++ frontend.
 
 For commercial licensing inquiries, contact our team at <contact@espectre.dev>.
-For the technical shape of an embedded integration, see [EMBEDDING.md](docs/EMBEDDING.md).
+
+## Integration services
+
+Optional architecture review, firmware integration, validation, and tuning services may also be available under a separately scoped services agreement. These services are not included in a commercial license unless they are expressly included in the signed agreement.
+
+For integration-service inquiries, contact our team at <contact@espectre.dev>.
 
 ## Contributions
 

@@ -1,0 +1,92 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<article class="article">
+    <span class="guide-tag">HOME ASSISTANT · 6 MIN READ</span>
+    <h1>Build your Home Assistant dashboard</h1>
+    <p class="article-lead">Turn ESPectre's discovered entities into a focused two-column dashboard for motion, movement history, runtime controls, and on-demand diagnostics.</p>
+    <figure>
+      <img src="/assets/images/guides/home-assistant-dashboard-card-v3.avif" alt="An ESP32 sending sensing data to the ESPectre dashboard in Home Assistant" width="1068" height="600" loading="eager">
+      <figcaption>ESPectre publishes sensing, control, and diagnostic entities; Home Assistant arranges them into one focused dashboard.</figcaption>
+    </figure>
+
+    <h2 id="ha-before">Before you start</h2>
+    <ul class="checklist">
+      <li>Your ESPectre device is online in Home Assistant through ESPHome or Native MQTT Discovery. Micro-ESPectre works too when its optional MQTT Discovery adapter is enabled.</li>
+      <li>You can see the device under <em>Settings → Devices &amp; services</em>, and its Motion Detected and Movement Score entities have current values.</li>
+      <li>You have administrator access, which Home Assistant requires to create and manage dashboards.</li>
+    </ul>
+    <div class="note">Starting from a blank board? Complete the <a href="/guides/setup/">flash and setup guide</a> first. Native firmware and Home Assistant must use the same MQTT broker; MQTT Discovery is enabled by default in published Native firmware.</div>
+
+    <h2 id="ha-prefix">Step 1 — Find your entity IDs</h2>
+    <p>The maintained dashboard template uses the default ESPHome entity IDs, which start with <code>espectre_</code>. For MQTT Discovery, Home Assistant generates each entity ID when it first registers the entity and preserves later manual changes. Current Home Assistant versions do not derive that ID from the discovery topic's <code>object_id</code>; see <a href="https://www.home-assistant.io/integrations/mqtt/#naming-of-mqtt-entities" target="_blank" rel="noopener">Naming of MQTT entities</a>.</p>
+    <ol class="steps-list">
+      <li><h3>Open the entity list</h3><p>Go to <em>Settings → Devices &amp; services → Entities</em>, then filter for your ESPectre device.</p></li>
+      <li><h3>Identify the active entities</h3><p>Open <em>Movement Score</em>, confirm that it belongs to the intended ESPectre device and has a current value, then copy its complete entity ID.</p></li>
+      <li><h3>Check whether one prefix is enough</h3><p>If the ID ends in <code>movement_score</code>, the part before that suffix is the prefix you can reuse throughout the template. If it ends in a collision suffix such as <code>movement_score_2</code>, you must verify and replace the complete ID of each dashboard entity individually.</p></li>
+    </ol>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Situation</th><th>Movement Score example</th><th>Dashboard change</th></tr></thead>
+      <tbody>
+        <tr><td>Default ESPHome name</td><td><code>sensor.espectre_movement_score</code></td><td>No prefix change</td></tr>
+        <tr><td>Default Native or Micro device name</td><td><code>sensor.espectre_c3_f61093_movement_score</code></td><td>Replace <code>espectre_</code> with <code>espectre_c3_f61093_</code></td></tr>
+        <tr><td>Entity-ID collision</td><td><code>sensor.espectre_c3_f61093_movement_score_2</code></td><td>Replace each affected complete entity ID</td></tr>
+      </tbody>
+    </table></div>
+    <p>These are examples, not values to guess. The chip label, short device ID, custom device name, manual renames, and existing registry entries can all change the final ID. If Home Assistant shows both an unsuffixed entity and an <code>_2</code> variant, it registered two entities that requested the same ID. The suffix is not part of the device prefix and may differ from one entity to another; use the entities attached to the active device rather than mixing both sets.</p>
+
+    <h3 id="ha-recreate-ids" class="subheading">Optional — Recreate clean MQTT entity IDs</h3>
+    <p>Use this reset only for Native or Micro MQTT Discovery when stale registrations keep producing duplicate IDs. Dashboard cards and recorder history refer to entity IDs, so note the current IDs and back up the dashboard before changing them.</p>
+    <ol class="steps-list">
+      <li><h3>Keep only one publisher</h3><p>Turn off or disconnect every old ESPectre instance that uses the same device identity. Leave the intended device disconnected while cleaning the retained discovery configuration.</p></li>
+      <li><h3>Find this device's discovery topics</h3><p>With an MQTT client such as MQTT Explorer or your broker tooling, inspect retained topics matching <code>homeassistant/&lt;component&gt;/&lt;object-id&gt;/config</code>. Match the payload's device identifier, device name, and <code>unique_id</code> to the ESPectre device you are resetting.</p></li>
+      <li><h3>Remove only the matching configurations</h3><p>Publish an empty retained payload to every matching config topic for that device. Home Assistant treats the empty discovery payload as removal of that component; wait for the old entities to disappear. Do not clear <code>homeassistant/#</code> or another device's discovery topics.</p></li>
+      <li><h3>Publish one clean entity set</h3><p>Reconnect or reboot the intended ESPectre device. It republishes its MQTT Discovery configuration, and Home Assistant creates the entities again. When the unsuffixed IDs are free, the new entities should no longer need <code>_2</code>.</p></li>
+      <li><h3>Verify before editing the dashboard</h3><p>Confirm that every recreated entity belongs to the intended device, has a current value, and shares the expected prefix. Then update the dashboard template with those exact IDs.</p></li>
+    </ol>
+    <div class="note">If there is only one active entity set and you merely want cleaner names, open each entity's settings and edit its entity ID instead. ESPectre supplies a <code>unique_id</code>, so Home Assistant stores the rename in its Entity Registry; a Discovery reset is unnecessary.</div>
+
+    <h2 id="ha-create">Step 2 — Create an empty dashboard</h2>
+    <ol class="steps-list">
+      <li><h3>Add the dashboard</h3><p>Go to <em>Settings → Dashboards</em>, select <em>Add dashboard</em>, and choose <em>New dashboard from scratch</em>.</p></li>
+      <li><h3>Name it</h3><p>Use a clear name such as <em>ESPectre</em>, choose whether it appears in the sidebar, then select <em>Create</em>.</p></li>
+      <li><h3>Take control</h3><p>Open the new dashboard, select the edit button, then use the three-dot menu to take control if Home Assistant asks. The template uses the responsive <em>Sections</em> view.</p></li>
+    </ol>
+    <p>Home Assistant documents the same flow in its <a href="https://www.home-assistant.io/dashboards/dashboards/" target="_blank" rel="noopener">dashboard guide</a> and explains the responsive grid in the <a href="https://www.home-assistant.io/dashboards/sections/" target="_blank" rel="noopener">Sections view reference</a>.</p>
+
+    <h2 id="ha-template">Step 3 — Paste the maintained template</h2>
+    <ol class="steps-list">
+      <li><h3>Copy the YAML</h3><p>Open the maintained <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/esphome/examples/home-assistant-dashboard.yaml" target="_blank" rel="noopener">ESPectre dashboard template</a>, select <em>Raw</em>, and copy all of it. This file is the source of truth for the example dashboard.</p></li>
+      <li><h3>Open the raw editor</h3><p>In the dashboard editor, open the three-dot menu, select <em>Raw configuration editor</em>, replace the existing content with the copied YAML, and save.</p></li>
+      <li><h3>Replace the stable prefix</h3><p>If Step&nbsp;1 found a consistent prefix other than <code>espectre_</code>, replace every occurrence of <code>espectre_</code> with that exact prefix, then save again.</p></li>
+      <li><h3>Resolve collision suffixes</h3><p>If any active entity ends in <code>_2</code> or another numeric suffix, replace that complete entity ID on its dashboard row. Do not append the suffix to the shared prefix.</p></li>
+    </ol>
+    <div class="note">Do not change the entity domains before the dot: Motion Detected remains a <code>binary_sensor</code>, Movement Score remains a <code>sensor</code>, Threshold remains a <code>number</code>, and the other rows retain their discovered domains.</div>
+
+    <h2 id="ha-result">Step 4 — Verify the result</h2>
+    <p>The first column shows motion state, a full-width Movement Score bar, and 30 minutes of movement-versus-threshold history. The second column groups the detection controls and the diagnostics that matter most during installation.</p>
+    <figure>
+      <img src="/assets/images/guides/home-assistant-dashboard.png" alt="Home Assistant dashboard showing ESPectre motion detected, a full movement-score bar, movement-versus-threshold history, detection profile, threshold, calibration, and CSI diagnostics" width="1343" height="604" loading="lazy">
+      <figcaption>The maintained two-column dashboard: live sensing on the left, runtime controls and on-demand diagnostics on the right.</figcaption>
+    </figure>
+    <ul class="checklist">
+      <li>Move in the room and confirm that Motion changes state and Movement Score updates.</li>
+      <li>Confirm that the Threshold line appears in the history graph after the device has published its current value.</li>
+      <li>Select <em>Refresh Diagnostics</em> to populate Traffic TX Rate, CSI Admitted Rate, WiFi RSSI, and WiFi Channel. These diagnostic states update on demand.</li>
+      <li>Use Trigger Calibration only when the room can remain still during Lightweight calibration.</li>
+    </ul>
+
+    <h2 id="ha-troubleshooting">Troubleshooting</h2>
+    <div class="mini-cards">
+      <article><h3>Cards show “Entity not available”</h3><ul><li>Compare each entity ID with <em>Settings → Devices &amp; services → Entities</em>.</li><li>Replace the stable prefix, including its final underscore, then update any numeric-suffixed IDs individually.</li><li>Remove rows for capabilities that your frontend does not expose.</li></ul></article>
+      <article><h3>The graph is empty</h3><ul><li>Wait for Movement Score and Threshold to publish.</li><li>Confirm that Home Assistant's recorder is enabled for both entities.</li><li>The template intentionally shows only the most recent 30 minutes.</li></ul></article>
+      <article><h3>Diagnostics are stale</h3><ul><li>Select <em>Refresh Diagnostics</em>: these entities are intentionally on demand.</li><li>Wait a moment for the latest cached sample to appear.</li><li>Use Traffic TX Rate, CSI Admitted Rate, and RSSI together when checking placement.</li></ul></article>
+    </div>
+    <div class="note">Movement Score normally updates every detector evaluation, which is four times per second with the published defaults. If database growth matters more than the history card, exclude that entity from Home Assistant's recorder.</div>
+
+    <div class="article-nav">
+      <a href="/guides/placement/" class="doc-link"><div class="doc-link-title">← Previous: Place your sensor</div><div class="doc-link-sub">Find a stable radio link before building the dashboard.</div></a>
+      <a href="/guides/detectors/" class="doc-link doc-link-next"><div class="doc-link-title">Next: Choose your detection profile →</div><div class="doc-link-sub">Compare Lightweight and High Accuracy for your device.</div></a>
+    </div>
+  </article>

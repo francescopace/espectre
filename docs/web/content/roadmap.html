@@ -4,7 +4,7 @@
 -->
 <div class="roadmap-page">
   <h1 class="page-title">Roadmap</h1>
-  <p class="page-sub">ESPectre is evolving from local sensing on a single device to distributed sensing across coordinated nodesì.</p>
+  <p class="page-sub">ESPectre is evolving from local sensing on a single device to distributed sensing across coordinated nodes.</p>
 
   <section class="roadmap-baseline" aria-labelledby="roadmap-baseline-title">
     <div class="roadmap-baseline-mark">
@@ -42,10 +42,10 @@
         <p class="roadmap-outcome">Outcome: a dependable sensing component for developers, integrators, and device makers.</p>
         <ul class="roadmap-minor-sequence" aria-label="Version 3 minor release sequence">
           <li><strong>3.1</strong> Sensing quality and performance</li>
-          <li><strong>3.2</strong> SDK and integration distribution</li>
+          <li><strong>3.2</strong> ESP-IDF and Arduino SDK distribution</li>
           <li><strong>3.3</strong> Matter product readiness</li>
           <li><strong>3.4</strong> Local displays and node coordination</li>
-          <li class="roadmap-minor-conditional"><strong>3.5</strong> Embedded ecosystem candidates <small>Conditional</small></li>
+          <li><strong>3.5</strong> Embedded ecosystem candidates</li>
         </ul>
       </article>
 
@@ -91,22 +91,22 @@
       <article>
         <span class="roadmap-status status-research">Research</span>
         <h3>Bands and new PHYs</h3>
-        <p>Validate 5 GHz HT20 first, then consider VHT20, HE20, and wider layouts only when each path has representative detector evidence.</p>
+        <p>Validate HT20 on 5 GHz first, then evaluate VHT20, HE20, and wider layouts only with representative detector evidence.</p>
       </article>
       <article>
         <span class="roadmap-status status-research">Research</span>
         <h3>Stationary presence</h3>
-        <p>Separate an occupied but quiet room from an empty one using scale-invariant micro-motion and quiet-floor evidence.</p>
+        <p>Explore whether scale-invariant micro-motion and quiet-floor evidence can distinguish an occupied quiet room from an empty one.</p>
       </article>
       <article>
         <span class="roadmap-status status-research">Research</span>
         <h3>Brief gestures</h3>
-        <p>Preserve short-timescale information at higher CSI rates before evaluating gestures on their own corpus.</p>
+        <p>Evaluate brief gestures on their own corpus after the high-rate sensing path can preserve the required short-timescale information.</p>
       </article>
       <article>
         <span class="roadmap-status status-research">Research</span>
         <h3>Breathing-related motion</h3>
-        <p>Explore micro-motion only after presence is measurable. This remains experimental and is not a medical measurement.</p>
+        <p>Explore non-medical breathing-related micro-motion only after stationary presence is measurable and suitable paired recordings exist.</p>
       </article>
     </div>
   </section>

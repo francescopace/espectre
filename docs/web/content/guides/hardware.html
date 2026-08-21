@@ -3,13 +3,13 @@
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
 <article class="article">
-    <span class="guide-tag">HARDWARE · 6 MIN READ</span>
+    <span class="guide-tag">HARDWARE · 3 MIN READ</span>
     <h1>Choose your hardware</h1>
     <p class="article-lead">Any supported ESP32 works. This guide helps you pick a board that senses well, and explains what actually affects detection quality.</p>
-    <details class="page-toc" open>
-      <summary>On this page</summary>
-      <nav aria-label="On this page"><strong>On this page</strong><a href="#hardware-chips">Supported chips</a><a href="#hardware-details">What matters</a><a href="#hardware-shopping">Shopping checklist</a><a href="#hardware-product">Product integration</a></nav>
-    </details>
+    <figure>
+      <img src="/assets/images/guides/esp32-chip-family-card-v2.avif" alt="Six ESP32 development boards arranged in a row" width="1068" height="600" loading="eager">
+      <figcaption>The best board is usually the one that fits the installation; antenna, power quality, and placement matter more than board size.</figcaption>
+    </figure>
 
     <h2 id="hardware-chips">Supported chips</h2>
     <p>All chips below run every published firmware (ESPHome, Native, and Matter) and use the same detection pipeline. Differences are practical, not functional.</p>
@@ -31,11 +31,6 @@
       <li><strong>Placement beats hardware.</strong> A mediocre board placed well outperforms a great board inside a metal cabinet. Keep the sensor 3–8&nbsp;m from the access point, in the room you want to monitor. The <a href="/guides/placement/">placement guide</a> covers distance, orientation, obstacles, and room testing in detail.</li>
       <li><strong>The USB cable.</strong> For flashing you need a data cable; for permanent installs any power-only cable is fine.</li>
     </ul>
-    <figure>
-      <img src="/assets/images/guides/esp32-boards.jpg" alt="Several ESP32 development boards with external antennas mounted on a test bench" width="1400" height="1050" loading="lazy">
-      <figcaption>ESP32 devkits with external antennas: the kind of setup used to collect the project's validation datasets.</figcaption>
-    </figure>
-
     <h2 id="hardware-shopping">Shopping checklist</h2>
     <ul class="checklist">
       <li>A devkit-style board with native USB for one of the chips above (search for "<em>chip name</em> devkit").</li>
@@ -45,10 +40,8 @@
     </ul>
     <div class="note">One board covers one area, typically a room. For multiple rooms, use one sensor per room; every published firmware handles multiple devices side by side.</div>
 
-    <h2 id="hardware-product">Building ESPectre into a product?</h2>
-    <p>If your device already contains a supported ESP32, its radio can double as a motion sensor without adding hardware: the sensing engine embeds into existing ESP-IDF firmware, and the published firmwares serve as reference integrations. Start from the <a href="/guides/custom-firmware/">custom firmware guide</a> and the <a href="https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md" target="_blank" rel="noopener">embedding guide</a>; licensing options are described in the <a href="https://github.com/francescopace/espectre/blob/main/LICENSING.md" target="_blank" rel="noopener">licensing overview</a>.</p>
-
     <div class="article-nav">
-      <a href="/guides/setup/" class="doc-link"><div class="doc-link-title">Next: Flash &amp; Wi-Fi setup →</div><div class="doc-link-sub">From blank board to working sensor, in the browser.</div></a>
+      <a href="/guides/detection/" class="doc-link"><div class="doc-link-title">← Previous: How Wi-Fi sensing works</div><div class="doc-link-sub">Understand packets, CSI, multipath, and how channel changes reveal movement.</div></a>
+      <a href="/guides/setup/" class="doc-link doc-link-next"><div class="doc-link-title">Next: Flash &amp; Wi-Fi setup →</div><div class="doc-link-sub">From blank board to working sensor, in the browser.</div></a>
     </div>
   </article>

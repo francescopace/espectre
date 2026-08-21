@@ -5,18 +5,18 @@
 <article class="article">
     <span class="guide-tag">SETUP · 8 MIN READ</span>
     <h1>Flash and set up your device</h1>
-    <p class="article-lead">This tutorial takes you from a blank ESP32 board to a working motion sensor. No toolchain, no compiler: everything happens in the browser.</p>
-    <details class="page-toc" open>
-      <summary>On this page</summary>
-      <nav aria-label="On this page"><strong>On this page</strong><a href="#setup-requirements">Requirements</a><a href="#setup-firmware">Choose firmware</a><a href="#setup-flash">Flash</a><a href="#setup-network">Network</a><a href="#setup-test">Test</a><a href="#setup-troubleshooting">Troubleshooting</a><a href="#setup-cli">CLI fallback</a><a href="#setup-next">Next steps</a></nav>
-    </details>
+    <p class="article-lead">Take a blank ESP32 board to a working motion sensor through either published browser images or a local CLI build. Both paths meet at the same provisioning, verification, and monitoring steps.</p>
+    <figure>
+      <img src="/assets/images/guides/flash-connect-usb-card-v2.avif" alt="An ESP32 board connected to a laptop for browser flashing" width="1068" height="600" loading="eager">
+      <figcaption>Connect the board directly to the computer with a USB data cable before opening the browser flasher.</figcaption>
+    </figure>
 
     <h2 id="setup-requirements">What you need</h2>
     <ul class="checklist">
-      <li>An ESP32, ESP32-C3, ESP32-C5, ESP32-C6, or ESP32-S3 board.</li>
+      <li>A compatible Espressif board listed in the <a href="/guides/hardware/">hardware guide</a>.</li>
       <li>A USB cable that carries data, not only power. If in doubt, try another cable first: it is the single most common problem.</li>
-      <li>Chrome or Edge on desktop. Browser flashing uses Web Serial, which Firefox and Safari do not support.</li>
-      <li>The name of a Wi-Fi network supported by the board, plus its password unless the network is open. Native firmware defaults to 2.4&nbsp;GHz; Configure offers 5&nbsp;GHz and automatic band selection only when an ESP32-C5 reports that capability.</li>
+      <li>For the browser path, Chrome or Edge on desktop. Browser flashing uses Web Serial, which Firefox and Safari do not support.</li>
+      <li>For the CLI path, Python 3. Docker is optional; without it, install ESP-IDF 5.5 or newer locally. When Docker is available, the CLI automatically downloads and uses the pinned build image containing the correct ESP-IDF version.</li>
     </ul>
 
     <h2 id="setup-firmware">Step 1 — Choose your firmware</h2>
@@ -27,16 +27,13 @@
         <tr><td>Want a standalone sensor, browser tools, MQTT, or Home Assistant through an existing broker</td><td><strong>Native</strong></td><td>Bluetooth setup, MQTT telemetry, Home Assistant MQTT Discovery, live sensing, and browser games</td></tr>
         <tr><td>Want the most complete Home Assistant integration and YAML configuration</td><td><strong>ESPHome</strong></td><td>Auto-discovered device with motion, movement level, threshold slider, and recalibrate switch</td></tr>
         <tr><td>Use a controller that supports Matter occupancy sensors</td><td><strong>Matter</strong></td><td>A standard occupancy sensor; controller validation is still limited, so check the <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/matter/README.md" target="_blank" rel="noopener">current validation notes</a></td></tr>
-        <tr><td>Want raw CSI data for research</td><td><strong>Streamer</strong></td><td>Raw capture over UDP; not flashable from the browser, see the <a href="/guides/custom-firmware/">custom firmware guide</a></td></tr>
+        <tr><td>Want raw CSI data for research</td><td><strong>Streamer</strong></td><td>Raw capture over UDP; not flashable from the browser, see the <a href="https://github.com/francescopace/espectre/blob/main/docs/SETUP.md" target="_blank" rel="noopener">setup reference</a></td></tr>
       </tbody>
     </table></div>
     <div class="note">Not sure? Pick Native, the default in the flasher: it works on its own, supports Home Assistant through MQTT Discovery, and can use every tool on this website. Pick ESPHome when you want YAML configuration and the full Home Assistant control surface.</div>
 
-    <h2 id="setup-flash">Step 2 — Flash from the browser</h2>
-    <figure>
-      <img src="/assets/images/guides/flash-connect-usb.webp" alt="A USB data cable connecting an ESP32 development board to a laptop" width="1672" height="941" loading="lazy">
-      <figcaption>Connect the board directly to the computer with a USB data cable before opening the browser flasher.</figcaption>
-    </figure>
+    <h2 id="setup-flash">Step 2 — Build or select an image, then flash</h2>
+    <h3 class="subheading">Browser path: install a published image</h3>
     <ol class="steps-list">
       <li><h3>Plug the board in</h3><p>Connect the ESP32 to your computer over USB. Close anything that may be using the serial port, such as a previous flasher tab, the Arduino IDE, or a serial monitor.</p></li>
       <li><h3>Open the flasher</h3><p>Go to the <a href="/#flash">Flash page</a>, keep <em>Latest Release</em> selected unless you want a <em>Release Preview</em> from <code>main</code> or a <em>Development</em> image from <code>develop</code>, and choose the firmware from Step&nbsp;1. The installer detects the chip over USB and selects the matching image.</p></li>
@@ -45,39 +42,115 @@
     </ol>
     <div class="note">If the port never appears or the connection fails right away, hold the <strong>BOOT</strong> button on the board while plugging the cable in, then release it and click <em>Connect</em> again. That forces the chip into download mode.</div>
 
+    <h3 id="setup-cli" class="subheading">CLI path: build, flash, and monitor</h3>
+    <p>Prepare the repository environment once. Native, Matter, and Streamer prefer a local ESP-IDF installation and can use the pinned Docker build environment when it is absent; flashing still needs local serial tooling. ESPHome manages its own toolchain.</p>
+    <pre class="code"><code>git clone https://github.com/francescopace/espectre.git
+cd espectre
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt</code></pre>
+    <p>Choose the frontend from Step&nbsp;1. The examples target ESP32-C3; replace <code>c3</code> with <code>c5</code>, <code>c6</code>, <code>s3</code>, or <code>esp32</code> for another supported board. <code>--clean</code> is optional: add it to a build when configuration or toolchain changes require a clean rebuild of that frontend and chip. Flashing resets the board and starts the application, so no frontend needs a separate <code>run</code> command. Flash, QR, and serial-monitor commands select the only connected device automatically or present a selection menu when several devices are available.</p>
+    <div class="code-tabs" data-code-tabs>
+      <div class="code-tabs-list" role="tablist" aria-label="Firmware frontend">
+        <button type="button" role="tab" id="setup-native-tab" aria-controls="setup-native-panel" aria-selected="true">Native</button>
+        <button type="button" role="tab" id="setup-esphome-tab" aria-controls="setup-esphome-panel" aria-selected="false" tabindex="-1">ESPHome</button>
+        <button type="button" role="tab" id="setup-matter-tab" aria-controls="setup-matter-panel" aria-selected="false" tabindex="-1">Matter</button>
+        <button type="button" role="tab" id="setup-streamer-tab" aria-controls="setup-streamer-panel" aria-selected="false" tabindex="-1">Streamer</button>
+      </div>
+      <div class="code-tab-panel" id="setup-native-panel" role="tabpanel" aria-labelledby="setup-native-tab" data-frontend="native">
+        <p>Native uses the shared ESP-IDF build environment. Flashing starts the application; the top-level monitor follows its serial output:</p>
+        <pre class="code"><code>./espectre native build --chip c3 --clean
+./espectre native flash
+./espectre monitor --reset</code></pre>
+      </div>
+      <div class="code-tab-panel" id="setup-esphome-panel" role="tabpanel" aria-labelledby="setup-esphome-tab" data-frontend="esphome" hidden>
+        <p>ESPHome selects the maintained YAML for the target chip and manages its own build toolchain. Use the same chip when building, flashing, and monitoring:</p>
+        <pre class="code"><code>./espectre esphome build --chip c3 --clean
+./espectre esphome flash --chip c3
+./espectre esphome monitor --chip c3</code></pre>
+        <p>Flash and monitor discover the target automatically. With one available device they use it directly; with several serial or network devices, the CLI presents a selection menu.</p>
+        <p>For a specific local YAML, add the same <code>--config path/to/espectre.yaml</code> option to all three commands and keep its credentials in an ignored <code>secrets.yaml</code>. Use <code>--dev</code> instead of <code>--config</code> to select the maintained development YAML for that chip and load the component from the local checkout:</p>
+        <pre class="code"><code>./espectre esphome build --chip c3 --config path/to/espectre.yaml --clean
+./espectre esphome flash --chip c3 --config path/to/espectre.yaml
+./espectre esphome monitor --chip c3 --config path/to/espectre.yaml</code></pre>
+      </div>
+      <div class="code-tab-panel" id="setup-matter-panel" role="tabpanel" aria-labelledby="setup-matter-tab" data-frontend="matter" hidden>
+        <p>Matter uses the shared ESP-IDF build environment. After flashing, retrieve the device-specific onboarding code and use the serial monitor while commissioning:</p>
+        <pre class="code"><code>./espectre matter build --chip c3 --clean
+./espectre matter flash
+./espectre matter qr
+./espectre monitor --reset</code></pre>
+      </div>
+      <div class="code-tab-panel" id="setup-streamer-panel" role="tabpanel" aria-labelledby="setup-streamer-tab" data-frontend="streamer" hidden>
+        <p>Streamer has no browser image or interactive provisioning. Save local Wi-Fi values in the ignored <code>src/cpp/frontend/streamer/app/sdkconfig.wifi</code> before building:</p>
+        <pre class="code"><code>CONFIG_ESPECTRE_WIFI_SSID="YourSSID"
+CONFIG_ESPECTRE_WIFI_PASSWORD="YourPassword"
+CONFIG_ESPECTRE_WIFI_CHANNEL=0
+CONFIG_ESPECTRE_WIFI_BAND_2G=y</code></pre>
+        <p>Then build, flash, and monitor the device:</p>
+        <pre class="code"><code>./espectre streamer build --chip c3 --clean
+./espectre streamer flash
+./espectre monitor --reset</code></pre>
+        <section class="code-tab-subsection" aria-labelledby="setup-streamer-collect">
+          <h4 id="setup-streamer-collect" class="subheading">Collect on your computer</h4>
+          <p><code>./espectre collect</code> is a separate host-side process that runs locally on your computer, not on the ESP32. It discovers Streamer devices over mDNS, selects the only device automatically, or presents a selection menu when it finds several. The collector receives the raw CSI stream over UDP; when you save a capture, it creates the resulting dataset files locally rather than transferring files from the device.</p>
+          <pre class="code"><code>./espectre collect --list-devices
+./espectre collect</code></pre>
+        </section>
+      </div>
+    </div>
+    <p>On Windows, use <code>espectre.cmd</code> instead of <code>./espectre</code>; the <a href="https://github.com/francescopace/espectre/blob/main/docs/SETUP.md" target="_blank" rel="noopener">setup reference</a> and <a href="https://github.com/francescopace/espectre/blob/main/docs/CLI.md" target="_blank" rel="noopener">CLI reference</a> cover complete prerequisites, explicit device overrides, <code>--clean-all</code>, and backend options.</p>
+
     <h2 id="setup-network">Step 3 — Connect it to your network</h2>
-    <p>This step depends on the firmware you flashed.</p>
-
-    <h3 class="subheading">Native</h3>
-    <ol class="steps-list">
-      <li><h3>Open Configure</h3><p>Go to the <a href="/#configure">Configure page</a> in desktop Chrome or Edge, or Chrome on Android, and click <em>Connect nearby device</em>. Pick the <code>ESPectre BLE</code> device from the Bluetooth list. Bluetooth connection is not available on iPhone or iPad. A freshly flashed Native board advertises until both Wi-Fi and MQTT are saved. If a configured board is no longer nearby, hold the powered board’s BOOT button for 3 seconds.</p></li>
-      <li><h3>Save Wi-Fi and MQTT</h3><p>Enter your network name and its password, or leave the password empty for an open network. On a dual-band ESP32-C5, choose 2.4&nbsp;GHz, 5&nbsp;GHz, or automatic selection; restart the device after changing the band. If you have an MQTT broker, add its host and TCP port (1883 by default), with optional credentials.</p></li>
-      <li><h3>Start sensing</h3><p>Configure does not carry live motion. Select <em>Start sensing</em>. Monitor connects to the broker over WebSockets (port 9001 by default, not the device TCP port), waits for MQTT <code>set_ble off</code> to be accepted, then shows live sensing after the first device telemetry. If you open Monitor directly, leave Device ID empty to scan <code>info</code> and <code>status</code> under the topic prefix, the same way <code>./espectre mqtt</code> does: a single device is selected automatically, and several devices open a picker. Runtime inputs apply when changed, and diagnostics below Live refresh once per second while that section is open. The device banner subtitle labels chip, device ID, and firmware version, with the OTA status beside the version. Native also publishes MQTT Discovery for supported Home Assistant entities.</p></li>
-    </ol>
-
-    <h3 class="subheading">ESPHome</h3>
-    <ol class="steps-list">
-      <li><h3>Configure Wi-Fi in the flasher</h3><p>Right after installation, the same dialog offers <em>Configure Wi-Fi</em>. Enter your network name and password. Published images use 2.4&nbsp;GHz. On ESP32-C5 this dialog is not available yet: connect to the <code>ESPectre Fallback</code> hotspot the device creates and enter the credentials there.</p></li>
-      <li><h3>Add it in Home Assistant</h3><p>Within a minute, Home Assistant shows a notification for a discovered ESPHome device. Accept it, and you get the motion sensor, movement score, threshold control, and recalibrate switch.</p></li>
-    </ol>
-    <figure>
-      <img src="/assets/images/guides/home-assistant-dashboard.png" alt="Home Assistant dashboard showing ESPectre motion detected, a full movement-score bar, movement-versus-threshold history, detection profile, threshold, calibration, and CSI diagnostics" width="1343" height="604" loading="lazy">
-      <figcaption>Native MQTT Discovery in Home Assistant: motion state, movement score, history, detection profile, threshold, calibration, and diagnostics. ESPHome exposes the same cards after you accept the discovered device.</figcaption>
-    </figure>
-    <h3 class="subheading">Matter</h3>
-    <ol class="steps-list">
-      <li><h3>Get the QR code</h3><p>After flashing, use <em>Read the onboarding QR over USB</em> on the Flash page, or run <code>./espectre matter qr</code>. Each device has its own code, and reflashing does not change it, so you can save it.</p></li>
-      <li><h3>Add the device in your app</h3><p>In a controller that supports Matter occupancy sensors, choose its add-device flow and scan the QR code. The exact UI varies by controller. Keep the phone near the board: commissioning starts over Bluetooth, then the device joins your Wi-Fi.</p></li>
-      <li><h3>Place it in a room</h3><p>The device appears as an occupancy sensor. Use it in automations exactly like any other motion sensor.</p></li>
-    </ol>
+    <p>Select the firmware you flashed and follow only that setup path.</p>
+    <div class="code-tabs" data-code-tabs>
+      <div class="code-tabs-list" role="tablist" aria-label="Network setup frontend">
+        <button type="button" role="tab" id="setup-network-native-tab" aria-controls="setup-network-native-panel" aria-selected="true">Native</button>
+        <button type="button" role="tab" id="setup-network-esphome-tab" aria-controls="setup-network-esphome-panel" aria-selected="false" tabindex="-1">ESPHome</button>
+        <button type="button" role="tab" id="setup-network-matter-tab" aria-controls="setup-network-matter-panel" aria-selected="false" tabindex="-1">Matter</button>
+        <button type="button" role="tab" id="setup-network-streamer-tab" aria-controls="setup-network-streamer-panel" aria-selected="false" tabindex="-1">Streamer</button>
+      </div>
+      <div class="code-tab-panel" id="setup-network-native-panel" role="tabpanel" aria-labelledby="setup-network-native-tab" data-network-frontend="native">
+        <ol class="steps-list">
+          <li><h3>Open Configure</h3><p>Go to the <a href="/#configure">Configure page</a> in desktop Chrome or Edge, or Chrome on Android, and click <em>Connect nearby device</em>. Pick the <code>ESPectre BLE</code> device from the Bluetooth list. Bluetooth connection is not available on iPhone or iPad. A freshly flashed Native board advertises until both Wi-Fi and MQTT are saved. If a configured board is no longer nearby, hold the powered board’s BOOT button for 3 seconds.</p></li>
+          <li><h3>Save Wi-Fi and MQTT</h3><p>Enter your network name and its password, or leave the password empty for an open network. On a dual-band ESP32-C5, choose 2.4&nbsp;GHz, 5&nbsp;GHz, or automatic selection; restart the device after changing the band. If you have an MQTT broker, add its host and TCP port (1883 by default), with optional credentials.</p></li>
+          <li><h3>Start sensing</h3><p>Select <em>Start sensing</em> after saving the settings. Monitor opens, discovers the Native device through MQTT, and shows live motion after the first telemetry arrives. If several devices are online, choose the one you want to monitor.</p></li>
+        </ol>
+        <section class="code-tab-subsection" aria-labelledby="setup-native-mqtt-shell">
+          <h4 id="setup-native-mqtt-shell" class="subheading">Tune from the MQTT shell</h4>
+          <p>Run the shell on your computer with the broker address. It selects a single device automatically or presents a menu when several devices are online. Use <code>help</code> to see the available commands, then adjust the motion threshold or start a new calibration:</p>
+          <pre class="code"><code>./espectre mqtt --broker 192.168.1.20
+espectre&gt; help
+espectre&gt; set_threshold 0.35
+espectre&gt; recalibrate</code></pre>
+        </section>
+        <p>For a reproducible integrator image, Native also supports build-time Wi-Fi and MQTT defaults through its ESP-IDF Kconfig surface. Keep generated <code>sdkconfig</code> files and credentials local; the <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/native/README.md" target="_blank" rel="noopener">Native reference</a> owns those options.</p>
+      </div>
+      <div class="code-tab-panel" id="setup-network-esphome-panel" role="tabpanel" aria-labelledby="setup-network-esphome-tab" data-network-frontend="esphome" hidden>
+        <ol class="steps-list">
+          <li><h3>Configure Wi-Fi in the flasher</h3><p>Right after installation, the same dialog offers <em>Configure Wi-Fi</em>. Enter your network name and password. Published images use 2.4&nbsp;GHz. On ESP32-C5 this dialog is not available yet: connect to the <code>ESPectre Fallback</code> hotspot the device creates and enter the credentials there.</p></li>
+          <li><h3>Add it in Home Assistant</h3><p>Within a minute, Home Assistant shows a notification for a discovered ESPHome device. Accept it, and you get the motion sensor, movement score, threshold control, and recalibrate switch. The <a href="/guides/home-assistant/">Home Assistant dashboard guide</a> turns those entities into a focused sensing and diagnostics view.</p></li>
+        </ol>
+        <p><strong>CLI path:</strong> use <code>--dev</code> to embed the Wi-Fi credentials from <code>secrets.yaml</code> directly in the firmware.</p>
+      </div>
+      <div class="code-tab-panel" id="setup-network-matter-panel" role="tabpanel" aria-labelledby="setup-network-matter-tab" data-network-frontend="matter" hidden>
+        <ol class="steps-list">
+          <li><h3>Get the QR code</h3><p>After flashing, use <em>Read the onboarding QR over USB</em> on the Flash page, or run <code>./espectre matter qr</code>. Each device has its own code, and reflashing does not change it, so you can save it.</p></li>
+          <li><h3>Add the device in your app</h3><p>In a controller that supports Matter occupancy sensors, choose its add-device flow and scan the QR code. The exact UI varies by controller. Keep the phone near the board: commissioning starts over Bluetooth, then the device joins your Wi-Fi.</p></li>
+          <li><h3>Place it in a room</h3><p>The device appears as an occupancy sensor. Use it in automations exactly like any other motion sensor.</p></li>
+        </ol>
+      </div>
+      <div class="code-tab-panel" id="setup-network-streamer-panel" role="tabpanel" aria-labelledby="setup-network-streamer-tab" data-network-frontend="streamer" hidden>
+        <p><strong>CLI path only:</strong> the Streamer tab in Step&nbsp;2 covers its local Wi-Fi configuration, device build, flash, and serial monitor, followed by the separate collector process on your computer. Streamer does not expose motion entities by itself; it sends raw CSI to the host-side collector over UDP.</p>
+      </div>
+    </div>
 
     <h2 id="setup-test">Step 4 — Let it calibrate, then test</h2>
     <ul class="checklist">
-      <li>Published firmware defaults to Lightweight Detection. After joining Wi-Fi, it calibrates its quiet threshold for up to about ten seconds: keep the room still, then move normally. A later quiet stretch can still lower that threshold; Home Assistant and Monitor follow the live value. High-Accuracy Detection skips this threshold calibration but still waits for its feature window to fill.</li>
+      <li>Published firmware defaults to Lightweight Detection. After joining Wi-Fi, it calibrates its quiet threshold for up to about ten seconds: keep the room still, then move normally. High-Accuracy Detection skips this threshold calibration.</li>
       <li>Wave an arm a few meters from the board: the motion state should turn active within about a second and clear shortly after you stop.</li>
-      <li>If you later move a Lightweight device to another room or position, trigger a recalibration from Home Assistant, Monitor’s live controls, or just power-cycle it.</li>
     </ul>
-    <div class="note">The movement level is a 0.0–1.0 score specific to your room. If the sensor is too eager or too lazy, adjust the threshold slightly instead of expecting one universal value: the <a href="/guides/detection/">detection guide</a> explains what the numbers mean.</div>
+    <div class="note">The movement level is a 0.0–1.0 score specific to your room. If the sensor is too eager or too lazy, adjust the threshold slightly instead of expecting one universal value: the <a href="/guides/detection/">detection guide</a> explains what the score represents.</div>
 
     <h2 id="setup-troubleshooting">Troubleshooting</h2>
     <div class="mini-cards">
@@ -87,20 +160,10 @@
       <article><h3>Device will not join Wi-Fi</h3><ul><li>Confirm that the selected band is available. Configure exposes 5&nbsp;GHz and automatic selection only on capable ESP32-C5 devices, and a band change requires a restart.</li><li>Re-enter the exact SSID and password: both are case-sensitive.</li><li>Move the board closer to the access point for the first join.</li></ul></article>
       <article><h3>Matter commissioning times out</h3><ul><li>Keep the phone within a meter of the board while pairing.</li><li>Make sure the phone's Bluetooth is on and the board is powered.</li><li>Power-cycle the board to reopen the commissioning window, then retry.</li></ul></article>
       <article><h3>Native MQTT or Home Assistant discovery is missing</h3><ul><li>Check broker host, port, and credentials in <a href="/#configure">Configure</a> or <a href="/#monitor">Monitor</a>.</li><li>Confirm Home Assistant and the device use the same broker.</li><li>Use Monitor and expand its Diagnostics section to verify telemetry; discovery config should also appear as retained topics under <code>homeassistant/</code>.</li></ul></article>
-      <article><h3>Motion triggers with nobody there</h3><ul><li>With Lightweight, recalibrate with the room genuinely empty and still.</li><li>Raise the threshold a little.</li><li>Check for fans, curtains moving in airflow, or pets: the sensor sees them too.</li></ul></article>
     </div>
 
-    <h2 id="setup-cli">CLI flashing (fallback)</h2>
-    <p>If browser flashing does not work on your system, clone the repository and flash with the ESPectre CLI. After <code>./espectre doctor</code> succeeds, build and flash the frontend you chose in Step&nbsp;1:</p>
-    <pre class="code"><code>./espectre native build --chip c3
-./espectre native flash --port /dev/cu.usbmodemXXXX</code></pre>
-    <p>Use <code>esphome</code> or <code>matter</code> instead of <code>native</code> when that is your firmware. Full prerequisites and command reference are in the <a href="https://github.com/francescopace/espectre/blob/main/docs/SETUP.md" target="_blank" rel="noopener">setup reference</a>; the <a href="/guides/custom-firmware/">custom firmware guide</a> walks through the same local workflow.</p>
-
-    <h2 id="setup-next">Next steps</h2>
-    <ul class="checklist">
-      <li>Choose Lightweight or High Accuracy: <a href="/guides/detectors/">Detection profiles</a>.</li>
-      <li>Understand and tune the score: <a href="/guides/detection/">How detection works</a>.</li>
-      <li>Pick a better board or antenna: <a href="/guides/hardware/">Hardware guide</a>.</li>
-      <li>Build your own firmware or embed the engine: <a href="/guides/custom-firmware/">Custom firmware</a>.</li>
-    </ul>
+    <div class="article-nav">
+      <a href="/guides/hardware/" class="doc-link"><div class="doc-link-title">← Previous: Choose your hardware</div><div class="doc-link-sub">Pick a supported ESP32 and the parts needed for a stable installation.</div></a>
+      <a href="/guides/placement/" class="doc-link doc-link-next"><div class="doc-link-title">Next: Place your sensor →</div><div class="doc-link-sub">Find a stable radio link before tuning the detector.</div></a>
+    </div>
   </article>

@@ -1,0 +1,63 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1068" height="600" viewBox="0 0 1068 600" role="img" aria-labelledby="title description">
+  <title id="title">CSI in a quiet room and during movement</title>
+  <desc id="description">A simplified comparison of I and Q subcarrier measurements. Thin rings in a quiet room become wider bands during movement, and changes from multiple subcarriers are combined into one movement score.</desc>
+  <defs>
+    <filter id="soft-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+    </marker>
+  </defs>
+  <rect width="1068" height="600" rx="24" fill="#f5f7fb"/>
+  <text x="534" y="48" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="25" font-weight="700" fill="#172033">How movement changes CSI</text>
+  <g font-family="Inter, Arial, sans-serif">
+    <rect x="48" y="76" width="454" height="372" rx="18" fill="#ffffff" stroke="#dce3ed"/>
+    <text x="275" y="112" text-anchor="middle" font-size="19" font-weight="700" fill="#172033">Quiet room</text>
+    <text x="275" y="136" text-anchor="middle" font-size="14" fill="#64748b">Repeated measurements remain comparatively stable</text>
+    <line x1="105" y1="288" x2="445" y2="288" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="275" y1="412" x2="275" y2="158" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="453" y="294" font-size="16" font-weight="700" fill="#475569">I</text>
+    <text x="282" y="164" font-size="16" font-weight="700" fill="#475569">Q</text>
+    <circle cx="275" cy="288" r="52" fill="none" stroke="#22a6b3" stroke-width="6" opacity="0.9"/>
+    <circle cx="275" cy="288" r="88" fill="none" stroke="#4c7cf3" stroke-width="6" opacity="0.88"/>
+    <circle cx="275" cy="288" r="122" fill="none" stroke="#8b5cf6" stroke-width="6" opacity="0.82"/>
+    <g fill="#ffffff" stroke-width="3">
+      <circle cx="311" cy="251" r="5" stroke="#22a6b3"/><circle cx="231" cy="260" r="5" stroke="#22a6b3"/><circle cx="282" cy="340" r="5" stroke="#22a6b3"/>
+      <circle cx="356" cy="254" r="5" stroke="#4c7cf3"/><circle cx="205" cy="235" r="5" stroke="#4c7cf3"/><circle cx="237" cy="367" r="5" stroke="#4c7cf3"/>
+      <circle cx="388" cy="240" r="5" stroke="#8b5cf6"/><circle cx="166" cy="233" r="5" stroke="#8b5cf6"/><circle cx="312" cy="404" r="5" stroke="#8b5cf6"/>
+    </g>
+    <rect x="566" y="76" width="454" height="372" rx="18" fill="#ffffff" stroke="#dce3ed"/>
+    <text x="793" y="112" text-anchor="middle" font-size="19" font-weight="700" fill="#172033">Movement</text>
+    <text x="793" y="136" text-anchor="middle" font-size="14" fill="#64748b">Changing paths spread the same measurements</text>
+    <line x1="623" y1="288" x2="963" y2="288" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <line x1="793" y1="412" x2="793" y2="158" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="971" y="294" font-size="16" font-weight="700" fill="#475569">I</text>
+    <text x="800" y="164" font-size="16" font-weight="700" fill="#475569">Q</text>
+    <g fill="none" filter="url(#soft-glow)">
+      <circle cx="793" cy="288" r="52" stroke="#22a6b3" stroke-width="22" opacity="0.22"/>
+      <circle cx="793" cy="288" r="88" stroke="#4c7cf3" stroke-width="28" opacity="0.2"/>
+      <circle cx="793" cy="288" r="122" stroke="#8b5cf6" stroke-width="34" opacity="0.18"/>
+    </g>
+    <g fill="#ffffff" stroke-width="3" opacity="0.94">
+      <circle cx="827" cy="242" r="5" stroke="#22a6b3"/><circle cx="746" cy="260" r="5" stroke="#22a6b3"/><circle cx="801" cy="348" r="5" stroke="#22a6b3"/><circle cx="840" cy="309" r="5" stroke="#22a6b3"/>
+      <circle cx="879" cy="259" r="5" stroke="#4c7cf3"/><circle cx="715" cy="227" r="5" stroke="#4c7cf3"/><circle cx="746" cy="376" r="5" stroke="#4c7cf3"/><circle cx="861" cy="350" r="5" stroke="#4c7cf3"/>
+      <circle cx="918" cy="226" r="5" stroke="#8b5cf6"/><circle cx="675" cy="248" r="5" stroke="#8b5cf6"/><circle cx="826" cy="416" r="5" stroke="#8b5cf6"/><circle cx="884" cy="389" r="5" stroke="#8b5cf6"/>
+    </g>
+    <text x="104" y="494" font-size="15" font-weight="700" fill="#334155">Changes across selected subcarriers</text>
+    <circle cx="124" cy="532" r="12" fill="#22a6b3"/><circle cx="160" cy="532" r="12" fill="#4c7cf3"/><circle cx="196" cy="532" r="12" fill="#8b5cf6"/>
+    <line x1="230" y1="532" x2="385" y2="532" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+    <text x="425" y="527" text-anchor="middle" font-size="15" font-weight="700" fill="#334155">Combined</text>
+    <text x="425" y="547" text-anchor="middle" font-size="14" fill="#64748b">over time</text>
+    <line x1="474" y1="532" x2="636" y2="532" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+    <rect x="670" y="502" width="286" height="60" rx="14" fill="#172033"/>
+    <rect x="686" y="518" width="158" height="28" rx="8" fill="#28354d"/>
+    <rect x="686" y="518" width="112" height="28" rx="8" fill="#4c7cf3"/>
+    <text x="933" y="538" text-anchor="end" font-size="15" font-weight="700" fill="#ffffff">Movement score</text>
+  </g>
+</svg>

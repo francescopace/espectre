@@ -41,7 +41,7 @@ PAGES = (
         "title": "Guides | ESPectre",
         "description": (
             "Guides for ESP32 board choice, flashing, detection behavior, "
-            "and embedding ESPectre into product firmware."
+            "and the future of standards-backed Wi-Fi sensing."
         ),
         "active_nav": "guides",
         "main_class": "page-narrow",
@@ -72,6 +72,18 @@ PAGES = (
         "active_nav": "guides",
     },
     {
+        "source": "content/guides/home-assistant.html",
+        "output": "guides/home-assistant",
+        "title": "Build your Home Assistant dashboard | ESPectre",
+        "description": (
+            "Build the maintained ESPectre Home Assistant dashboard for motion, "
+            "movement history, runtime controls, and on-demand diagnostics."
+        ),
+        "parent_href": "/guides/",
+        "parent_label": "Guides",
+        "active_nav": "guides",
+    },
+    {
         "source": "content/guides/placement.html",
         "output": "guides/placement",
         "title": "Sensor placement guide | ESPectre",
@@ -86,10 +98,10 @@ PAGES = (
     {
         "source": "content/guides/detection.html",
         "output": "guides/detection",
-        "title": "How detection works | ESPectre",
+        "title": "How Wi-Fi sensing detects movement | ESPectre",
         "description": (
-            "What the ESPectre movement score measures, how CSI-based motion "
-            "detection works, and how to place and tune the sensor."
+            "How Wi-Fi packets, multipath, and Channel State Information let "
+            "a low-cost ESP32 detect movement without cameras or microphones."
         ),
         "parent_href": "/guides/",
         "parent_label": "Guides",
@@ -120,12 +132,12 @@ PAGES = (
         "active_nav": "guides",
     },
     {
-        "source": "content/guides/firmware.html",
-        "output": "guides/custom-firmware",
-        "title": "Build custom firmware | ESPectre",
+        "source": "content/guides/future-wifi-sensing.html",
+        "output": "guides/future-wifi-sensing",
+        "title": "The future of Wi-Fi sensing | ESPectre",
         "description": (
-            "Build an ESPectre frontend from source, or embed the C++ sensing "
-            "layers into your own ESP-IDF firmware."
+            "How IEEE 802.11bf makes sensing an explicit Wi-Fi capability, "
+            "why it inspired ESPectre, and what standards-backed hardware could enable."
         ),
         "parent_href": "/guides/",
         "parent_label": "Guides",
@@ -261,8 +273,8 @@ PAGES = (
         "output": "licensing",
         "title": "Commercial licensing | ESPectre",
         "description": (
-            "Commercial licensing options for embedding ESPectre sensing layers "
-            "in proprietary ESP-IDF firmware."
+            "Commercial licensing and optional engineering support for embedding "
+            "ESPectre sensing layers in proprietary ESP-IDF firmware."
         ),
         "active_nav": "licensing",
         "content_group": "licensing",

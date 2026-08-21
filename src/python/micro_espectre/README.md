@@ -217,7 +217,7 @@ HA sensing cadences match ESPHome and Native MQTT so the same Home Assistant das
 | Traffic TX Rate, CSI rates, occupancy, Wi-Fi channel, Wi-Fi RSSI | `ha/traffic_tx_rate/state`, `ha/csi_callback_rate/state`, `ha/csi_accepted_rate/state`, `ha/csi_admitted_rate/state`, `ha/csi_filtered_rate/state`, `ha/csi_missing_rate/state`, `ha/csi_excess_rate/state`, `ha/csi_stale_rate/state`, `ha/csi_out_of_order_rate/state`, `ha/csi_occupancy/state`, `ha/wifi_channel/state`, `ha/wifi_rssi/state` | On demand after Refresh Diagnostics; diagnostic category |
 | Refresh Diagnostics | `ha/diagnostics/set` | Button; publishes the latest cached diagnostic sample |
 
-Entity IDs look like `sensor.micro_micro_espectre_movement_score`. Copy the ESPHome dashboard from [`home-assistant-dashboard.yaml`](../../cpp/frontend/esphome/examples/home-assistant-dashboard.yaml) and replace the `espectre_` prefix.
+Home Assistant generates an MQTT entity ID when it first registers the entity; the discovery topic's `object_id` does not determine that ID. With the default device name, an ID can look like `sensor.espectre_s3_223333_movement_score`, while an existing registry collision can add a suffix such as `_2`. Copy the ESPHome dashboard from [`home-assistant-dashboard.yaml`](../../cpp/frontend/esphome/examples/home-assistant-dashboard.yaml), inspect the exact IDs under the Micro-ESPectre device, and replace the `espectre_` prefix only when the active entities share one consistent prefix.
 
 ![ESPectre Home Assistant dashboard](../../../docs/web/assets/images/guides/home-assistant-dashboard.png)
 

@@ -19,7 +19,7 @@ const mqttProtocol = read('docs/web/assets/js/espectre-mqtt.js');
 const browserSupportSource = read('docs/web/assets/js/browser-support.js');
 const routeRegistry = read('docs/web/assets/js/route-registry.js');
 const styles = read('docs/web/assets/css/styles.css');
-const security = read('docs/web/security/index.html');
+const security = read('docs/web/content/security.html');
 const GPL_HTML_HEADER = `<!--
   SPDX-License-Identifier: GPL-3.0-only
   Commercial licensing available under separate agreement; see LICENSING.md.
@@ -375,6 +375,9 @@ describe('website UX and content contracts', () => {
         assert.match(read('.github/scripts/build_sitemap.py'), /"\/licensing\/": \(Path\("docs\/web\/content\/licensing\.html"\), STATIC_PAGE_BUILDER\)/);
         assert.match(licensingContent, /<h1 class="page-title">Commercial licensing<\/h1>/);
         assert.match(licensingContent, /ESPHome remains GPLv3/);
+        assert.match(licensingContent, /Integration support for product firmware/);
+        assert.match(licensingContent, /Engineering services are scoped and quoted separately/);
+        assert.match(licensingContent, /Commercial%20licensing%20and%20firmware%20integration%20inquiry/);
         assert.match(licensingContent, /mailto:contact@espectre\.dev\?subject=Commercial%20licensing%20inquiry/);
     });
 
@@ -509,9 +512,17 @@ describe('website UX and content contracts', () => {
         assert.match(styles, /@media \(max-width: 720px\) \{\s*\.page-title \{ font-size: 36px; \}\s*\.page-sub \{ font-size: 17px; \}/);
     });
 
-    it('uses the widest inner-page measure for every footer information page', () => {
+    it('uses one shared measure for every inner page', () => {
+        const staticPageBuilder = read('.github/scripts/build_static_pages.py');
         assert.match(styles, /\.page-narrow \{[\s\S]*?max-width: 1120px;/);
-        assert.match(styles, /\.privacy-page > \.article,\s*\.terms-page > \.article,\s*\.legal-page > \.article \{\s*max-width: none;\s*margin: 0;/);
+        assert.match(styles, /\.article \{ width: 100%; \}/);
+        assert.doesNotMatch(styles, /\.article \{[^}]*max-width:/);
+        const innerPages = [...index.matchAll(/<main class="([^"]*)" data-page="([^"]+)"/g)]
+            .filter(([, , page]) => page !== 'home');
+        for (const [, classes] of innerPages) {
+            assert.match(classes, /(?:^|\s)page-narrow(?:\s|$)/);
+        }
+        assert.match(staticPageBuilder, /spec\.get\("main_class", "page-narrow page-article"\)/);
     });
 
     it('gives the docs landing page a clear start-to-reference hierarchy', () => {
@@ -521,9 +532,12 @@ describe('website UX and content contracts', () => {
         assert.match(docsContent, /<section class="docs-section" aria-labelledby="docs-paths-title">/);
         assert.match(docsContent, /<section class="docs-section" aria-labelledby="docs-quick-start-title">/);
         assert.match(docsContent, /<section class="docs-next" aria-labelledby="docs-next-title">/);
+        assert.match(docsContent, /class="docs-cover"[\s\S]*?sdk-firmware-pipeline\.avif/);
         assert.ok(docsContent.indexOf('class="docs-start"') < docsContent.indexOf('class="docs-paths"'));
         assert.ok(docsContent.indexOf('class="docs-paths"') < docsContent.indexOf('class="docs-steps"'));
         assert.ok(docsContent.indexOf('class="docs-steps"') < docsContent.indexOf('class="docs-next"'));
+        const docsIndexLinks = [...docsContent.matchAll(/<a href="(\/docs\/(?:api|examples|architecture)\/)" class="doc-link">/g)].map((match) => match[1]);
+        assert.deepEqual(docsIndexLinks, ['/docs/architecture/', '/docs/api/', '/docs/examples/']);
         const pathCards = docsContent.match(/<div class="docs-path(?: docs-path-recommended)?">[\s\S]*?<\/div>/g) || [];
         assert.equal(pathCards.length, 3);
         for (const card of pathCards) {
@@ -532,11 +546,42 @@ describe('website UX and content contracts', () => {
         }
     });
 
+    it('links the docs pages in one previous and next sequence', () => {
+        const docs = [
+            { file: 'architecture', previous: null, next: '/docs/api/' },
+            { file: 'api', previous: '/docs/architecture/', next: '/docs/examples/' },
+            { file: 'examples', previous: '/docs/api/', next: 'https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md' },
+        ];
+        for (const page of docs) {
+            const content = read(`docs/web/content/docs/${page.file}.html`);
+            const articleNav = content.slice(content.lastIndexOf('<div class="article-nav">'));
+            assert.match(articleNav, /^<div class="article-nav">/);
+            const links = [...articleNav.matchAll(/<a href="([^"]+)" class="doc-link(?: doc-link-next)?"[^>]*>/g)].map((match) => match[1]);
+            assert.deepEqual(links, [page.previous, page.next].filter(Boolean), `${page.file} follows the docs order`);
+            if (page.next) {
+                assert.match(articleNav, new RegExp(`<a href="${page.next}" class="doc-link doc-link-next"`), `${page.file} identifies its next page`);
+            }
+        }
+        assert.doesNotMatch(read('docs/web/content/docs/architecture.html'), /docs\/EMBEDDING\.md/);
+        assert.match(read('docs/web/content/docs/examples.html'), /docs\/EMBEDDING\.md/);
+    });
+
     it('publishes the detection profile guide through SPA and static routes', () => {
         const guide = read('docs/web/content/guides/detectors.html');
         assert.match(guide, /<h1>Choose your detection profile<\/h1>/);
-        assert.match(guide, /Lightweight Detection/);
-        assert.match(guide, /High-Accuracy Detection/);
+        assert.match(guide, /ESPectre includes two built-in production motion detectors: Lightweight Detection and High-Accuracy Detection/);
+        assert.match(guide, /Lightweight is the published default/);
+        assert.match(guide, /<h2 id="detectors-two">Two built-in detectors<\/h2>/);
+        assert.equal((guide.match(/class="profile-comparison-row"/g) || []).length, 5);
+        assert.doesNotMatch(guide, /<div class="table-wrap">/);
+        assert.match(guide, /Training required from you[\s\S]*?<strong>Lightweight<\/strong><p>None\.<\/p>[\s\S]*?the pretrained model is included in the firmware/);
+        assert.match(guide, /role="tablist" aria-label="Detection profile interface"/);
+        assert.equal((guide.match(/data-detector-interface=/g) || []).length, 4);
+        assert.match(guide, /id="detectors-native-tab"[^>]*aria-selected="true"/);
+        assert.match(guide, /<h3 id="detectors-cli" class="subheading">Native MQTT shell<\/h3>/);
+        assert.doesNotMatch(guide, /<h2 id="detectors-cli">CLI equivalent<\/h2>/);
+        assert.match(styles, /\.profile-comparison-row \{[\s\S]*?grid-template-columns: minmax\(130px, \.55fr\) repeat\(2, minmax\(0, 1fr\)\);/);
+        assert.match(styles, /@media \(max-width: 720px\) \{[\s\S]*?\.profile-comparison-row \{ grid-template-columns: minmax\(0, 1fr\); gap: 12px; \}/);
         assert.match(index, /data-page="guide-detectors"/);
         assert.match(routeRegistry, /name: 'guide-detectors'.*staticPath: '\/guides\/detectors\/'/);
         assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/guides\/detectors\.html"/);
@@ -550,39 +595,127 @@ describe('website UX and content contracts', () => {
         assert.match(guide, /micropython\/micropython\/pull\/18460/);
         assert.doesNotMatch(index, /OPEN-SOURCE INFRASTRUCTURE/);
         assert.match(read('docs/web/content/docs.html'), /ESPectre also runs sensing directly in MicroPython/);
-        assert.match(read('docs/web/content/guides.html'), /micropython-csi-runtime-card\.avif/);
-        assert.match(guide, /micropython-csi-runtime\.webp/);
+        assert.match(read('docs/web/content/guides.html'), /micropython-csi-runtime-card-v4\.avif/);
+        assert.match(guide, /micropython-csi-runtime-card-v4\.avif/);
         assert.match(index, /data-page="guide-micropython"/);
         assert.match(routeRegistry, /name: 'guide-micropython'.*staticPath: '\/guides\/micropython\/'/);
         assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/guides\/micropython\.html"/);
         assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/guides\/micropython\//);
     });
 
-    it('adds anchor navigation and intrinsic image sizes to long guides', () => {
-        const longPages = [
-            'docs/web/content/docs.html',
-            'docs/web/content/guides/setup.html',
-            'docs/web/content/guides/firmware.html',
-            'docs/web/content/guides/hardware.html',
-            'docs/web/content/guides/placement.html',
-            'docs/web/content/guides/detection.html',
-            'docs/web/content/guides/detectors.html',
-            'docs/web/content/guides/micropython.html',
+    it('publishes the IEEE 802.11bf future sensing guide', () => {
+        const guide = read('docs/web/content/guides/future-wifi-sensing.html');
+        const guideIndex = read('docs/web/content/guides.html');
+        assert.match(guide, /<h1>The future of Wi-Fi sensing<\/h1>/);
+        assert.match(guide, /<h2 id="future-origin">Why IEEE 802\.11bf matters to ESPectre<\/h2>/);
+        assert.match(guide, /ESPectre is not an IEEE 802\.11bf implementation/);
+        assert.match(guide, /standards\.ieee\.org\/ieee\/802\.11bf\/11574\//);
+        assert.match(guide, /www\.ieee802\.org\/11\/Reports\/tgbf_update\.htm/);
+        assert.match(guide, /future-wifi-sensing-card-v1\.avif/);
+        assert.match(guideIndex, /href="\/guides\/future-wifi-sensing\/"/);
+        assert.doesNotMatch(guideIndex, /href="\/guides\/custom-firmware\/"/);
+        assert.match(index, /data-page="guide-future-wifi-sensing"/);
+        assert.match(routeRegistry, /name: 'guide-future-wifi-sensing'.*staticPath: '\/guides\/future-wifi-sensing\/'/);
+        assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/guides\/future-wifi-sensing\.html"/);
+        assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/guides\/future-wifi-sensing\//);
+    });
+
+    it('publishes the Home Assistant dashboard guide with a distinct cover and an in-guide dashboard screenshot', () => {
+        const guide = read('docs/web/content/guides/home-assistant.html');
+        const guideIndex = read('docs/web/content/guides.html');
+        assert.match(guide, /<h1>Build your Home Assistant dashboard<\/h1>/);
+        assert.match(guide, /home-assistant-dashboard\.yaml/);
+        assert.match(guide, /home-assistant-dashboard\.png/);
+        assert.match(guide, /home-assistant-dashboard-card-v3\.avif/);
+        assert.ok(guide.indexOf('home-assistant-dashboard-card-v3.avif') < guide.indexOf('id="ha-before"'));
+        assert.ok(guide.indexOf('id="ha-result"') < guide.indexOf('home-assistant-dashboard.png'));
+        assert.match(guide, /sensor\.espectre_c3_f61093_movement_score/);
+        assert.match(guide, /sensor\.espectre_c3_f61093_movement_score_2/);
+        assert.match(guide, /The suffix is not part of the device prefix/);
+        assert.match(guide, /id="ha-recreate-ids"/);
+        assert.match(guide, /Publish an empty retained payload to every matching config topic for that device/);
+        assert.match(guide, /Do not clear <code>homeassistant\/#<\/code>/);
+        assert.doesNotMatch(guide, /sensor\.native_&lt;device-id&gt;_movement_score|sensor\.micro_&lt;client-id&gt;_movement_score/);
+        assert.match(guideIndex, /href="\/guides\/home-assistant\/"/);
+        assert.match(guideIndex, /home-assistant-dashboard-card-v3\.avif/);
+        assert.doesNotMatch(guide, /id="ha-cli"|CLI equivalent/);
+        assert.ok(guideIndex.indexOf('href="/guides/detection/"') < guideIndex.indexOf('href="/guides/hardware/"'));
+        assert.ok(guideIndex.indexOf('href="/guides/placement/"') < guideIndex.indexOf('href="/guides/home-assistant/"'));
+        assert.ok(guideIndex.indexOf('href="/guides/home-assistant/"') < guideIndex.indexOf('href="/guides/detectors/"'));
+        assert.match(index, /data-page="guide-home-assistant"/);
+        assert.match(routeRegistry, /name: 'guide-home-assistant'.*staticPath: '\/guides\/home-assistant\/'/);
+        assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/guides\/home-assistant\.html"/);
+        assert.match(read('.github/scripts/build_sitemap.py'), /"\/guides\/home-assistant\/": \(Path\("docs\/web\/content\/guides\/home-assistant\.html"\), STATIC_PAGE_BUILDER\)/);
+        assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/guides\/home-assistant\//);
+    });
+
+    it('uses one cover, practical CLI sections, and a previous/next sequence across the official guides', () => {
+        const docsContent = read('docs/web/content/docs.html');
+        assert.match(docsContent, /<details class="page-toc" open>/);
+        assert.match(docsContent, /<nav aria-label="On this page">/);
+
+        const guides = [
+            { file: 'detection', cover: 'csi-multipath-room-v3.avif', cli: null, previous: null, next: '/guides/hardware/' },
+            { file: 'hardware', cover: 'esp32-chip-family-card-v2.avif', cli: null, previous: '/guides/detection/', next: '/guides/setup/' },
+            { file: 'setup', cover: 'flash-connect-usb-card-v2.avif', cli: 'setup-cli', previous: '/guides/hardware/', next: '/guides/placement/' },
+            { file: 'placement', cover: 'sensor-placement-card-v2.avif', cli: null, previous: '/guides/setup/', next: '/guides/home-assistant/' },
+            { file: 'home-assistant', cover: 'home-assistant-dashboard-card-v3.avif', cli: null, previous: '/guides/placement/', next: '/guides/detectors/' },
+            { file: 'detectors', cover: 'detection-profiles-card-v2.avif', cli: 'detectors-cli', previous: '/guides/home-assistant/', next: '/guides/micropython/' },
+            { file: 'micropython', cover: 'micropython-csi-runtime-card-v4.avif', cli: 'micropython-cli', previous: '/guides/detectors/', next: '/guides/future-wifi-sensing/' },
+            { file: 'future-wifi-sensing', cover: 'future-wifi-sensing-card-v1.avif', cli: null, previous: '/guides/micropython/', next: null },
         ];
-        for (const path of longPages) {
+        for (const guide of guides) {
+            const path = `docs/web/content/guides/${guide.file}.html`;
             const content = read(path);
-            assert.match(content, /<details class="page-toc" open>/);
-            assert.match(content, /<nav aria-label="On this page">/);
-        }
-        for (const path of longPages.filter((path) => path.includes('/guides/'))) {
-            const images = [...read(path).matchAll(/<img\b[^>]*>/g)].map((match) => match[0]);
+            assert.doesNotMatch(content, /class="page-toc"/, `${guide.file} has no in-page shortcut`);
+            const firstImage = content.match(/<img\b[^>]*>/)?.[0] || '';
+            assert.ok(firstImage.includes(guide.cover), `${guide.file} starts with its guide-card cover`);
+            assert.ok(content.indexOf(guide.cover) < content.indexOf('<h2'), `${guide.file} cover precedes its sections`);
+            if (guide.cli) {
+                assert.match(content, new RegExp(`<h[23][^>]*\\bid="${guide.cli}"`), `${guide.file} documents its CLI equivalent`);
+            }
+            const images = [...content.matchAll(/<img\b[^>]*>/g)].map((match) => match[0]);
             for (const image of images) {
                 assert.match(image, /\bwidth="\d+"/);
                 assert.match(image, /\bheight="\d+"/);
             }
+            const articleNav = content.slice(content.lastIndexOf('<div class="article-nav">'));
+            assert.match(articleNav, /^<div class="article-nav">/);
+            const links = [...articleNav.matchAll(/<a href="([^"]+)" class="doc-link(?: doc-link-next)?">/g)].map((match) => match[1]);
+            assert.deepEqual(links, [guide.previous, guide.next].filter(Boolean), `${guide.file} follows the official guide order`);
+            if (guide.next) {
+                assert.match(articleNav, new RegExp(`<a href="${guide.next}" class="doc-link doc-link-next">`), `${guide.file} identifies its next guide`);
+            }
+        }
+        for (const guide of guides) {
+            assert.doesNotMatch(read(`docs/web/content/guides/${guide.file}.html`), /<h2[^>]*>Next steps<\/h2>/i);
         }
         assert.match(styles, /\.page-toc \{/);
-        assert.match(read('docs/web/content/guides/detection.html'), /Raw CSI leaves the device only when you deliberately use the separate Streamer research workflow/);
+        assert.match(styles, /\.article-nav \{[\s\S]*?display: flex;[\s\S]*?gap: 16px;/);
+        assert.match(styles, /\.article-nav \.doc-link \{ flex: 1 1 0; min-width: 0; \}/);
+        assert.match(styles, /\.article-nav \.doc-link-next \{ text-align: right; \}/);
+        assert.match(styles, /\.article-nav \.doc-link:only-child \{[\s\S]*?flex: 0 0 calc\(50% - 8px\);/);
+        assert.match(styles, /\.article-nav \.doc-link-next:only-child \{ margin-left: auto; \}/);
+        assert.match(styles, /@media \(max-width: 720px\) \{[\s\S]*?\.article-nav \{ flex-direction: column; gap: 12px; \}/);
+        assert.match(styles, /@media \(max-width: 720px\) \{[\s\S]*?\.article-nav \.doc-link:only-child \{ flex-basis: auto; \}/);
+        const detectionGuide = read('docs/web/content/guides/detection.html');
+        assert.match(detectionGuide, /known preamble/);
+        assert.match(detectionGuide, /Channel State Information/);
+        assert.match(detectionGuide, /csi-multipath-room-v3\.avif/);
+        assert.match(detectionGuide, /csi-iq-motion-v1\.svg/);
+        assert.doesNotMatch(detectionGuide, /csi-quiet-vs-movement|csi-amplitude-heatmap|wifi-frame-csi-path/);
+        assert.doesNotMatch(detectionGuide, /id="detection-cli"/);
+        assert.ok(detectionGuide.indexOf('csi-multipath-room-v3.avif') < detectionGuide.indexOf('id="detection-room"'));
+        assert.ok(detectionGuide.indexOf('id="detection-room"') < detectionGuide.indexOf('id="detection-csi"'));
+        assert.ok(detectionGuide.indexOf('id="detection-csi"') < detectionGuide.indexOf('id="detection-motion"'));
+        assert.ok(detectionGuide.indexOf('id="detection-motion"') < detectionGuide.indexOf('csi-iq-motion-v1.svg'));
+        const hardwareGuide = read('docs/web/content/guides/hardware.html');
+        assert.doesNotMatch(hardwareGuide, /id="hardware-cli"|id="hardware-product"/);
+        assert.doesNotMatch(hardwareGuide, /Building ESPectre into a product\?/);
+        const placementGuide = read('docs/web/content/guides/placement.html');
+        assert.match(placementGuide, /<h3>One per floor or apartment<\/h3>/);
+        assert.doesNotMatch(placementGuide, /id="placement-cli"|CLI equivalent/);
+        assert.doesNotMatch(placementGuide, /<h3>Through a wall<\/h3>|<h3>Several rooms<\/h3>/);
     });
 
     it('loads generated firmware and SDK output from the shared artifacts tree', () => {
@@ -621,10 +754,95 @@ describe('website UX and content contracts', () => {
         assert.match(app, /track\('matter_qr_read'/);
         assert.match(app, /installButton\.toggleAttribute\('inert', !browserSupport\.flash\)/);
         const setupGuide = read('docs/web/content/guides/setup.html');
+        assert.match(setupGuide, /flash-connect-usb-card-v2\.avif/);
+        assert.match(setupGuide, /A compatible Espressif board listed in the <a href="\/guides\/hardware\/">hardware guide<\/a>/);
+        assert.doesNotMatch(setupGuide, /flash-connect-usb\.webp/);
+        assert.doesNotMatch(setupGuide, /home-assistant-dashboard\.png/);
+        assert.match(setupGuide, /href="\/guides\/home-assistant\/"/);
         assert.match(setupGuide, /The installer detects the chip over USB/);
         assert.match(setupGuide, /\.\/espectre matter qr/);
-        assert.match(setupGuide, /leave Device ID empty to scan <code>info<\/code> and <code>status<\/code>/);
+        assert.match(setupGuide, /It selects a single device automatically or presents a menu when several devices are online/);
         assert.match(setupGuide, /\.\/espectre mqtt/);
+        for (const frontend of ['esphome', 'native', 'matter', 'streamer']) {
+            assert.match(setupGuide, new RegExp(`\\.\\/espectre ${frontend} build`));
+            assert.match(setupGuide, new RegExp(`\\.\\/espectre ${frontend} flash`));
+        }
+        assert.match(setupGuide, /no frontend needs a separate <code>run<\/code> command/i);
+        assert.match(setupGuide, /\.\/espectre esphome monitor/);
+        assert.doesNotMatch(setupGuide, /\.\/espectre esphome config/);
+        assert.match(setupGuide, /use <code>--dev<\/code> instead of <code>--config<\/code>/i);
+        assert.match(setupGuide, /\.\/espectre monitor --reset/);
+        assert.match(setupGuide, /\.\/espectre collect --list-devices/);
+        assert.match(setupGuide, /sdkconfig\.wifi/);
+        assert.match(setupGuide, /Docker is optional; without it, install ESP-IDF 5\.5 or newer locally/);
+        assert.match(setupGuide, /When Docker is available, the CLI automatically downloads and uses the pinned build image/);
+        assert.doesNotMatch(setupGuide, /CLI flashing \(fallback\)|If browser flashing does not work/);
+        assert.equal((setupGuide.match(/class="code-tabs" data-code-tabs/g) || []).length, 2);
+        assert.match(setupGuide, /role="tablist" aria-label="Firmware frontend"/);
+        const cliTabsSection = setupGuide.slice(setupGuide.indexOf('id="setup-cli"'), setupGuide.indexOf('id="setup-network"'));
+        assert.equal((cliTabsSection.match(/role="tab"/g) || []).length, 4);
+        assert.equal((cliTabsSection.match(/role="tabpanel"/g) || []).length, 4);
+        assert.match(setupGuide, /id="setup-native-tab"[^>]*aria-selected="true"[\s\S]*?id="setup-esphome-tab"[^>]*aria-selected="false"/);
+        assert.ok(setupGuide.indexOf('data-frontend="native"') < setupGuide.indexOf('data-frontend="esphome"'));
+        for (const chip of ['c5', 'c6', 's3', 'esp32']) {
+            assert.match(setupGuide, new RegExp(`<code>${chip}<\\/code>`));
+        }
+        for (const frontend of ['esphome', 'native', 'matter', 'streamer']) {
+            const panel = setupGuide.match(new RegExp(`<div class="code-tab-panel"[^>]*data-frontend="${frontend}"[^>]*>([\\s\\S]*?)<\\/div>`));
+            assert.ok(panel, `${frontend} CLI tab exists`);
+            assert.match(panel[1], new RegExp(`\\.\\/espectre ${frontend} build --chip c3 --clean`));
+            assert.match(panel[1], new RegExp(`\\.\\/espectre ${frontend} flash`));
+            assert.match(panel[1], frontend === 'esphome'
+                ? /\.\/espectre esphome monitor --chip c3/
+                : /\.\/espectre monitor --reset/);
+            assert.doesNotMatch(panel[1], /--device|--port/);
+        }
+        const esphomePanel = setupGuide.match(/<div class="code-tab-panel"[^>]*data-frontend="esphome"[^>]*>([\s\S]*?)<\/div>/)[1];
+        assert.match(esphomePanel, /--config path\/to\/espectre\.yaml/);
+        assert.match(esphomePanel, /Use <code>--dev<\/code> instead of <code>--config<\/code>/);
+        assert.doesNotMatch(esphomePanel, /--device/);
+        assert.match(esphomePanel, /With one available device they use it directly; with several serial or network devices, the CLI presents a selection menu/);
+        const streamerPanel = setupGuide.match(/<div class="code-tab-panel"[^>]*data-frontend="streamer"[^>]*>([\s\S]*?)<\/div>/)[1];
+        assert.match(streamerPanel, /sdkconfig\.wifi/);
+        assert.match(streamerPanel, /\.\/espectre collect --list-devices/);
+        assert.match(streamerPanel, /\.\/espectre collect<\/code>/);
+        assert.match(streamerPanel, /Collect on your computer/);
+        assert.match(streamerPanel, /runs locally on your computer, not on the ESP32/);
+        assert.match(streamerPanel, /discovers Streamer devices over mDNS/);
+        assert.match(streamerPanel, /receives the raw CSI stream over UDP/);
+        assert.ok(streamerPanel.indexOf('./espectre monitor --reset') < streamerPanel.indexOf('Collect on your computer'));
+        assert.ok(streamerPanel.indexOf('Collect on your computer') < streamerPanel.indexOf('./espectre collect --list-devices'));
+        assert.doesNotMatch(streamerPanel, /--target/);
+        const frontendOperations = setupGuide.slice(setupGuide.indexOf('id="setup-network"'));
+        assert.doesNotMatch(frontendOperations, /\.\/espectre (?:esphome|native|matter|streamer) build/);
+        const networkTabsSection = setupGuide.slice(setupGuide.indexOf('id="setup-network"'), setupGuide.indexOf('id="setup-test"'));
+        assert.match(networkTabsSection, /role="tablist" aria-label="Network setup frontend"/);
+        assert.equal((networkTabsSection.match(/role="tab"/g) || []).length, 4);
+        assert.equal((networkTabsSection.match(/role="tabpanel"/g) || []).length, 4);
+        assert.match(networkTabsSection, /id="setup-network-native-tab"[^>]*aria-selected="true"[\s\S]*?id="setup-network-esphome-tab"[^>]*aria-selected="false"/);
+        for (const frontend of ['native', 'esphome', 'matter', 'streamer']) {
+            assert.match(networkTabsSection, new RegExp(`data-network-frontend="${frontend}"`));
+        }
+        const nativeNetworkPanel = networkTabsSection.match(/<div class="code-tab-panel"[^>]*data-network-frontend="native"[^>]*>([\s\S]*?)<\/div>/)[1];
+        assert.match(nativeNetworkPanel, /Select <em>Start sensing<\/em> after saving the settings/);
+        assert.match(nativeNetworkPanel, /Monitor opens, discovers the Native device through MQTT, and shows live motion after the first telemetry arrives/);
+        assert.match(nativeNetworkPanel, /Tune from the MQTT shell/);
+        assert.match(nativeNetworkPanel, /\.\/espectre mqtt --broker 192\.168\.1\.20/);
+        assert.match(nativeNetworkPanel, /espectre&gt; help/);
+        assert.match(nativeNetworkPanel, /espectre&gt; set_threshold 0\.35/);
+        assert.match(nativeNetworkPanel, /espectre&gt; recalibrate/);
+        assert.doesNotMatch(nativeNetworkPanel, /waits for MQTT <code>set_ble off|device banner subtitle|OTA status/);
+        assert.match(networkTabsSection, /data-network-frontend="esphome"[\s\S]*?use <code>--dev<\/code> to embed the Wi-Fi credentials from <code>secrets\.yaml<\/code> directly in the firmware/);
+        assert.match(styles, /\.code-tabs \{[\s\S]*?border: 1px solid var\(--border\);[\s\S]*?border-radius: 14px;[\s\S]*?background: var\(--surface\);/);
+        assert.match(styles, /\.code-tabs-list \{[\s\S]*?display: flex;[\s\S]*?overflow-x: auto;/);
+        assert.match(styles, /\.code-tab-panel \{ padding: 18px; \}/);
+        assert.match(styles, /\.code-tab-subsection \{[\s\S]*?border-top: 1px solid var\(--border\);/);
+        assert.match(styles, /\.code-tabs-list \[role="tab"\]\[aria-selected="true"\]/);
+        const navigation = read('docs/web/assets/js/navigation.js');
+        assert.match(navigation, /function initCodeTabs/);
+        assert.match(navigation, /event\.key === 'ArrowRight'/);
+        assert.match(navigation, /event\.key === 'ArrowLeft'/);
+        assert.match(app, /window\.initCodeTabs\(container\)/);
         assert.doesNotMatch(setupGuide, /your chip family/);
         assert.doesNotMatch(setupGuide, /the flasher shows the device's Matter QR/);
         const docsContent = read('docs/web/content/docs.html');

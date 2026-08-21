@@ -27,11 +27,12 @@ EXPECTED_SITEMAP_PATHS = {
     "/guides/",
     "/guides/hardware/",
     "/guides/setup/",
+    "/guides/home-assistant/",
     "/guides/placement/",
     "/guides/detection/",
     "/guides/detectors/",
     "/guides/micropython/",
-    "/guides/custom-firmware/",
+    "/guides/future-wifi-sensing/",
     "/docs/",
     "/docs/api/",
     "/docs/examples/",
@@ -92,7 +93,7 @@ def verify_spa_routes() -> None:
 
 
 def verify_generated_pages() -> None:
-    for guide in ("hardware", "setup", "placement", "detection", "detectors", "micropython", "custom-firmware"):
+    for guide in ("hardware", "setup", "placement", "detection", "detectors", "micropython", "future-wifi-sensing"):
         require_file(f"guides/{guide}/index.html")
     for page in (
         "docs/index.html",

@@ -27,13 +27,6 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 **Exit criteria**:
 
-Before deploy:
-
-- [ ] Validate Micro-ESPectre on the pinned upstream MicroPython firmware at the configured CSI target rate with Lightweight, High Accuracy, MQTT, Home Assistant Discovery, and the complete hardware benchmark passing without detector-contract overrides
-- [ ] Review docs/web content, imagery, UX, and UI for release readiness
-
-After deploy:
-
 - [ ] Confirm `/documentation/setup/` falls through 404→home and `/guides/setup/` serves the static setup guide
 - [ ] Test the GitHub issue and pull request templates end to end
 - [ ] Confirm GA4 Realtime receives production events after consent
@@ -73,10 +66,11 @@ After deploy:
 **Scope**:
 
 - Define the supported distribution surface for ESP-IDF component consumers, including registry publication where it fits the project trust model
+- Add a supported Arduino-ESP32 SDK runtime adapter that reuses `RuntimeFrontendController` and `EspIdfRuntime`, leaves Wi-Fi and product integration to the consuming sketch, and does not introduce a separate Arduino frontend
 - Keep `release`, `preview`, and `develop` channels aligned across bundle manifests, website links, and release automation
 - Package the web BLE client with ESM, IIFE, npm, and TypeScript surfaces, or retain it in-tree with a documented rationale if a reusable package does not meet the support bar
 
-**Exit criteria**: every supported installation path works from a clean consumer project, every release channel resolves to its intended artifacts, and the web BLE client has a validated public package or a documented decision to keep it internal.
+**Exit criteria**: every supported installation path works from a clean consumer project, the Arduino runtime compiles and runs through Arduino CLI on the selected initial target matrix with Wi-Fi startup and reconnect lifecycle validated, every release channel resolves to its intended artifacts, and the web BLE client has a validated public package or a documented decision to keep it internal.
 
 ### v3.3.0 - Matter Product Readiness
 
@@ -183,7 +177,7 @@ This file owns product outcomes, release gates, and sequencing. Mutable details 
 - [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md) and [ARCHITECTURE.md](ARCHITECTURE.md) for stable system contracts
 - [CHANGELOG.md](CHANGELOG.md) for shipped behavior
 
-Last update: **August 17, 2026**
+Last update: **August 21, 2026**
 
 For discussion and proposed changes:
 

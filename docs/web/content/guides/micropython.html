@@ -3,17 +3,13 @@
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
 <article class="article">
-  <span class="guide-tag">MICROPYTHON · 10 MIN READ</span>
+  <span class="guide-tag">MICROPYTHON · 4 MIN READ</span>
   <h1>Run ESPectre on MicroPython</h1>
   <p class="article-lead">Capture ESP32 Wi-Fi CSI and run motion sensing directly on the device in Python, using the upstream MicroPython support contributed by ESPectre.</p>
   <figure>
-    <img src="/assets/images/guides/micropython-csi-runtime.webp" alt="An ESP32 connected to a laptop while incoming Wi-Fi signals become layered CSI traces" width="1672" height="941">
+    <img src="/assets/images/guides/micropython-csi-runtime-card-v4.avif" alt="A Python snake mascot perched on an Espressif board connected to a laptop displaying CSI traces" width="1068" height="600" loading="eager">
     <figcaption>MicroPython captures CSI on the ESP32; Micro-ESPectre turns the stream into on-device motion signals and local telemetry.</figcaption>
   </figure>
-  <details class="page-toc" open>
-    <summary>On this page</summary>
-    <nav aria-label="On this page"><strong>On this page</strong><a href="#micropython-upstream">Upstream CSI</a><a href="#micropython-runtime">What runs on-device</a><a href="#micropython-requirements">Requirements</a><a href="#micropython-start">Quick start</a><a href="#micropython-profiles">Detection profiles</a><a href="#micropython-boundary">Current role and limits</a></nav>
-  </details>
 
   <h2 id="micropython-upstream">ESPectre brought ESP32 CSI to mainline MicroPython</h2>
   <p>ESPectre contributed direct Wi-Fi Channel State Information access to MicroPython through <a href="https://github.com/micropython/micropython/pull/18460" target="_blank" rel="noopener">micropython/micropython#18460</a>. The merged ESP32 <code>network.WLAN</code> methods expose CSI capture, buffered reads, availability, and dropped-frame diagnostics from Python.</p>
@@ -43,7 +39,8 @@
     </tbody>
   </table></div>
 
-  <h2 id="micropython-start">Quick start</h2>
+  <h2 id="micropython-cli">CLI workflow</h2>
+  <p>The repository wrapper owns the complete MicroPython device flow, from installing the verified upstream firmware to deploying and checking Micro-ESPectre.</p>
   <ol class="steps-list">
     <li><h3>Prepare the repository environment</h3><p>Create the project virtual environment and install the base requirements.</p></li>
     <li><h3>Flash official MicroPython</h3><p>The wrapper selects the supported board firmware, verifies its hash, and installs it over USB.</p></li>
@@ -83,7 +80,7 @@ cp src/python/micro_espectre/config_local.py.example \
   <p>For configuration, MQTT topics, Home Assistant entities, implementation detail, and development checks, continue with the maintained <a href="https://github.com/francescopace/espectre/blob/main/src/python/micro_espectre/README.md" target="_blank" rel="noopener">Micro-ESPectre reference</a>.</p>
 
   <div class="article-nav">
-    <a href="https://github.com/micropython/micropython/pull/18460" target="_blank" rel="noopener" class="doc-link"><div class="doc-link-title">Read the upstream contribution →</div><div class="doc-link-sub">See how direct ESP32 CSI access entered mainline MicroPython.</div></a>
-    <a href="/guides/detectors/" class="doc-link"><div class="doc-link-title">Compare detection profiles →</div><div class="doc-link-sub">Choose Lightweight or High Accuracy for the available device budget.</div></a>
+    <a href="/guides/detectors/" class="doc-link"><div class="doc-link-title">← Previous: Choose your detection profile</div><div class="doc-link-sub">Compare Lightweight and High Accuracy for the available device budget.</div></a>
+    <a href="/guides/future-wifi-sensing/" class="doc-link doc-link-next"><div class="doc-link-title">Next: The future of Wi-Fi sensing →</div><div class="doc-link-sub">See how IEEE 802.11bf turns sensing into an explicit part of Wi-Fi.</div></a>
   </div>
 </article>

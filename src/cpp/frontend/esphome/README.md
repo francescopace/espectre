@@ -238,7 +238,7 @@ To import a dashboard:
 4. Replace the default content with the YAML from the example file
 5. Save the dashboard
 
-If you changed the device name from `espectre`, update entity IDs in the YAML. If you enabled `name_add_mac_suffix: true`, include the MAC suffix in the entity names as well. Native and Micro MQTT Discovery use the same suffixes after a different device prefix, for example `sensor.native_3cf79180d3a0aca4_movement_score`.
+If you changed the device name from `espectre`, update entity IDs in the YAML. If you enabled `name_add_mac_suffix: true`, include the MAC suffix in the entity names as well. Home Assistant generates Native and Micro MQTT entity IDs when it first registers them, so inspect the exact IDs under the device before adapting this dashboard. A default Native device can produce an ID such as `sensor.espectre_c3_223333_movement_score`, and an existing registry collision can add a suffix such as `_2`.
 
 ## Traffic Generator and Runtime Notes
 

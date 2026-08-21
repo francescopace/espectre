@@ -1277,6 +1277,7 @@
             container.dataset.loaded = 'true';
             if (window.initPageTocs) window.initPageTocs(container);
             if (window.initSdkDownloadVersions) window.initSdkDownloadVersions(container);
+            if (window.initCodeTabs) window.initCodeTabs(container);
         } catch (error) {
             console.warn('Static content fetch failed:', error);
             container.innerHTML = '<p class="guide-loading">This page could not be loaded. '

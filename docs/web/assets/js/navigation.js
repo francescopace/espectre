@@ -53,8 +53,46 @@
         });
     }
 
+    function activateCodeTab(group, nextTab, moveFocus = false) {
+        const tabs = [...group.querySelectorAll('[role="tab"]')];
+        const panels = [...group.querySelectorAll('[role="tabpanel"]')];
+        tabs.forEach((tab) => {
+            const active = tab === nextTab;
+            tab.setAttribute('aria-selected', String(active));
+            tab.tabIndex = active ? 0 : -1;
+        });
+        panels.forEach((panel) => {
+            panel.hidden = panel.id !== nextTab.getAttribute('aria-controls');
+        });
+        if (moveFocus) nextTab.focus();
+    }
+
+    function initCodeTabs(root = document) {
+        root.querySelectorAll('[data-code-tabs]:not([data-code-tabs-initialized])').forEach((group) => {
+            group.dataset.codeTabsInitialized = 'true';
+            const tabs = [...group.querySelectorAll('[role="tab"]')];
+            if (!tabs.length) return;
+            const initialTab = tabs.find((tab) => tab.getAttribute('aria-selected') === 'true') || tabs[0];
+            activateCodeTab(group, initialTab);
+            tabs.forEach((tab, index) => {
+                tab.addEventListener('click', () => activateCodeTab(group, tab));
+                tab.addEventListener('keydown', (event) => {
+                    let nextIndex;
+                    if (event.key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
+                    else if (event.key === 'ArrowLeft') nextIndex = (index - 1 + tabs.length) % tabs.length;
+                    else if (event.key === 'Home') nextIndex = 0;
+                    else if (event.key === 'End') nextIndex = tabs.length - 1;
+                    else return;
+                    event.preventDefault();
+                    activateCodeTab(group, tabs[nextIndex], true);
+                });
+            });
+        });
+    }
+
     window.initPageTocs = initPageTocs;
     window.initSdkDownloadVersions = initSdkDownloadVersions;
+    window.initCodeTabs = initCodeTabs;
     compactToc.addEventListener('change', () => {
         document.querySelectorAll('details.page-toc').forEach(setPageTocMode);
     });
@@ -69,6 +107,7 @@
     document.addEventListener('DOMContentLoaded', () => {
         initPageTocs();
         initSdkDownloadVersions();
+        initCodeTabs();
         const toggle = document.querySelector('.nav-toggle');
         const nav = document.getElementById('main-navigation');
         if (!toggle || !nav) return;
