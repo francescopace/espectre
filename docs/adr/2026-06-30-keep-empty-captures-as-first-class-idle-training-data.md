@@ -8,12 +8,12 @@
 
 The C3 empty-room retrain incident showed that the deployed task was broader than `static_presence` versus `motion`. A runtime that looks correct on paired static-presence data can still fail in a truly empty room if the training and validation sets do not treat that domain as part of IDLE.
 
-The incident established the core lesson twice:
+Two captures demonstrated the same gap:
 
 - a new C3 `empty` capture reproduced a runtime false-positive problem that the corresponding `static_presence` capture did not
 - a later C6 `empty` capture repeated the same pattern, confirming that this was not a one-off quirk of one device or room
 
-Retraining with `empty` mapped into the IDLE class materially reduced those false positives, even though broader domain-coverage problems still had to be managed through holdouts and long-recording gates.
+Retraining with `empty` mapped into the IDLE class reduced the observed false positives. Holdouts and long-recording gates remained necessary for other coverage gaps.
 
 ## Decision
 

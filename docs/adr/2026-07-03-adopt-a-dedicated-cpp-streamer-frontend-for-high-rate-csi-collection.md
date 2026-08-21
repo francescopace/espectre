@@ -6,11 +6,11 @@
 
 ## Context
 
-The older live-streaming workflow had grown around Python-first tooling, which was valuable for exploration but no longer matched the project's needs once the firmware architecture became explicitly modular and multi-frontend.
+The older live-streaming workflow grew around Python-first tooling. Once the firmware became modular and multi-frontend, that separate path no longer matched the production architecture.
 
-By the `v3` platform refactor, the repo needed a raw CSI transport path that could do all of the following at the same time:
+By the `v3` platform refactor, the repository needed a raw CSI transport path that could:
 
-- sustain materially higher packet rates and larger dataset collection runs
+- sustain higher packet rates and larger dataset collection runs
 - reuse the new `core / runtime / frontend` structure instead of keeping a side-channel streaming path outside the main firmware architecture
 - support collector-driven target traffic rather than a firmware-owned traffic generator
 - let the collector react to firmware-side TX saturation through explicit backpressure feedback instead of assuming a fixed safe pacing rate
@@ -20,7 +20,7 @@ The resulting shift was not only a transport optimization. It also retired the o
 
 That firmware-plus-collector split also established a closed-loop pacing model: the collector drives the rate by sending UDP pacing traffic, and the firmware reports cumulative TX backpressure when its uplink path cannot keep up. The collector can then reduce pacing quickly and recover more conservatively instead of treating stream rate as an open-loop constant.
 
-The changelog records the same convergence: the C++ streamer path became the main live-streaming implementation, collection became collector-driven, and the CLI grew broader multi-chip support plus live parallel detector display through `./espectre collect --detector classic,ml`.
+The changelog records the same convergence: the C++ Streamer became the main live-streaming implementation, collection became collector-driven, and the CLI added broader multi-chip support plus live parallel detector display through `./espectre collect --detector lightweight,high_accuracy`.
 
 ## Decision
 
@@ -51,7 +51,7 @@ Rejected. Raw high-rate CSI transport has a different goal and state machine tha
 
 Benefits:
 
-- the project can collect substantially more data and sustain higher streaming rates on the supported firmware targets
+- the project can collect at higher configured streaming rates on the supported firmware targets
 - the active streaming path now fits the same modular frontend architecture as the rest of the firmware platform
 - the collector can use firmware-reported backpressure as a control signal, reducing pacing quickly when the TX path saturates and recovering more slowly when the stream stabilizes
 - `collect` can inspect the same live stream with multiple detectors in parallel, which improves backend-side validation and A/B comparison during collection

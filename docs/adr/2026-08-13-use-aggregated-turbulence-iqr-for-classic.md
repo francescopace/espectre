@@ -6,11 +6,11 @@
 
 ## Context
 
-Classic is the resource-constrained alternative to `MLDetector`: it should remain a two-feature, linear detector with substantially lower memory, CPU, and implementation complexity, even when ML retains a quality advantage. The previous production pair combined turbulence autocorrelation with the temporal spread of offset-4/12 complex frequency coherence. It was viable, but required a full-band complex tracker whose work and physical feature family were independent from the turbulence primitives already maintained by both detectors.
+The detector now published as Lightweight is the lower-resource alternative to `HighAccuracyDetector`. It remains a two-feature linear detector with lower memory and CPU use. The previous production pair combined turbulence autocorrelation with the temporal spread of offset-4/12 complex frequency coherence, but required a full-band complex tracker separate from the turbulence primitives used by both detectors.
 
 The replacement campaign kept `turb_autocorr` fixed and compared `turb_zcr`, normal-turbulence `turb_iqr_over_mean`, and `W=5` adjacent-bin aggregated `turb_iqr_over_mean_aggr`. Candidates were fitted on de-overlapped `train` rows, ranked on `train + selection`, reported separately on historical holdout and `exclude`, and replayed under `base`, `drift`, `burst-loss`, and combined packet stress. Vacation-home `exclude` recordings remained diagnostic and did not participate in fitting or ranking.
 
-This record incorporates the useful lineage and operating-point lessons from the former offset-4/12 ADR. That file is removed rather than marked superseded because this ADR is the cumulative current Classic feature decision.
+This record incorporates the lineage and operating-point evidence from the former offset-4/12 ADR. That file is removed rather than marked superseded because this ADR is the cumulative current Lightweight feature decision. Historical entries retain the `Classic` name used when those experiments ran.
 
 ## Decision
 
@@ -31,11 +31,11 @@ The reproducible export command is:
 .venv/bin/python tools/fit_lightweight_detector.py --fp-target 1.0 --centered-threshold-logit 1.8 --apply --quiet
 ```
 
-The offset-4/12 coherence extractor, the normal-IQR alternative, ZCR, and other rejected candidates remain host-only under `tools/`. Production C++ and MicroPython contain only features consumed by Classic or ML.
+The offset-4/12 coherence extractor, the normal-IQR alternative, ZCR, and other rejected candidates remain host-only under `tools/`. Production C++ and MicroPython contain only features consumed by Lightweight or High Accuracy.
 
 ## Decision History
 
-Detailed feature evidence belongs in [`FEATURES.md`](../FEATURES.md). The cumulative Classic feature lineage is:
+Detailed feature evidence belongs in [`FEATURES.md`](../FEATURES.md). The cumulative Lightweight feature lineage is:
 
 | Date | Feature direction | Resolution |
 | --- | --- | --- |
@@ -93,11 +93,11 @@ Rejected. Its threshold-free separation was attractive, but its sequential calib
 
 ### Add nonlinear fusion or a third feature
 
-Rejected. Classic's product role requires a two-term linear model. Nonlinear and three-feature candidates either increased quiet tails, activated channel-shape trajectory state, or narrowed the resource gap to ML without sufficient independent benefit.
+Rejected. Lightweight's product role requires a two-term linear model. Nonlinear and three-feature candidates either increased quiet tails, activated channel-shape trajectory state, or narrowed the resource gap to High Accuracy without sufficient independent benefit.
 
 ## Consequences
 
-- Classic remains linear, vote-free, gain-invariant, and limited to two features.
+- Lightweight remains linear, vote-free, gain-invariant, and limited to two features.
 - C++ and MicroPython maintain a second filtered turbulence ring and share one packet magnitude frame between both streams.
 - Production no longer contains the complex frequency-coherence tracker or helpers; those candidates remain host-only.
 - The normal-IQR and ZCR alternatives remain research features and do not expand firmware or MicroPython production surfaces.

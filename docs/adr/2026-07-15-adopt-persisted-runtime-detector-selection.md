@@ -6,7 +6,7 @@
 
 ## Context
 
-ESPectre supports Classic and ML, but its frontends have different control contracts. ESPHome and Native expose writable runtime controls, Matter is intentionally read-only, and Streamer transports CSI without running a detector. A frontend-local implementation would duplicate validation, persistence, threshold reset, and calibration behavior.
+ESPectre supports Lightweight and High Accuracy, but its frontends have different control contracts. ESPHome and Native expose writable runtime controls, Matter is intentionally read-only, and Streamer transports CSI without running a detector. A frontend-local implementation would duplicate validation, persistence, threshold reset, and calibration behavior.
 
 ## Decision
 
@@ -14,20 +14,20 @@ Keep detector selection in the shared runtime and expose it through explicit fro
 
 | Frontend | Detector capability | Default and persistence |
 | --- | --- | --- |
-| ESPHome | Writable `classic` or `ml` | Persist the selected value in the shared ESP-IDF store |
-| Native | Writable `classic` or `ml` | Persist the selected value in the shared ESP-IDF store |
-| Matter | Read-only | Use Classic as the frontend-owned fixed default |
+| ESPHome | Writable `lightweight` or `high_accuracy` | Persist the selected value in the shared ESP-IDF store |
+| Native | Writable `lightweight` or `high_accuracy` | Persist the selected value in the shared ESP-IDF store |
+| Matter | Read-only | Use Lightweight as the frontend-owned fixed default |
 | Streamer | Unsupported | Run no detector |
 
 On a supported runtime switch:
 
 - validate the requested detector;
 - reset the threshold to that detector's automatic default;
-- start calibration when switching to Classic;
-- cancel active Classic calibration when switching to ML; and
+- start calibration when switching to Lightweight;
+- cancel active Lightweight calibration when switching to High Accuracy; and
 - emit the shared runtime and protocol state change without adding work to the CSI hot path.
 
-Matter intentionally exposes no persisted writable selection. Its original ML default changed to Classic before the v3 release candidate so the read-only occupancy frontend follows the platform's non-ML default.
+Matter intentionally exposes no persisted writable selection. Its original ML default changed to Classic before the v3 release candidate; those profiles were later renamed High Accuracy and Lightweight. The read-only occupancy frontend therefore follows the platform's Lightweight default.
 
 ## Decision History
 
@@ -55,7 +55,7 @@ Rejected. Matter's surface is read-only, and Streamer owns no detector.
 - ESPHome and Native can switch detectors without reflashing.
 - Persistence, threshold reset, and calibration remain aligned in the shared runtime.
 - Capability differences are explicit instead of appearing as frontend drift.
-- Choosing ML on Matter still requires a firmware-level product change.
+- Choosing High Accuracy on Matter still requires a firmware-level product change.
 
 ## Related
 

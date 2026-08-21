@@ -7,7 +7,7 @@
 
 ## Context
 
-The `2.0.0` release changelog describes a major architectural shift from standalone ESP-IDF firmware to a native ESPHome component. That release did not present ESPHome as a minor packaging tweak; it framed it as the new production-facing integration surface for smart-home users.
+The `2.0.0` release moved the primary smart-home integration from standalone ESP-IDF firmware to a native ESPHome component.
 
 This change also clarified the product split: ESPHome/C++ for production motion detection, and Micro-ESPectre/Python for experimentation and research work.
 
@@ -44,8 +44,7 @@ Rejected. The release explicitly promoted ESPHome to the main production-facing 
 
 Benefits:
 
-- the deployment path became much more natural for Home Assistant users
-- configuration, OTA, and entity exposure aligned with the target ecosystem
+- Home Assistant users gained configuration, OTA, and entities through established ESPHome workflows
 - the project could separate production integration concerns from R&D work more clearly
 
 Trade-offs:

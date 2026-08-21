@@ -9,7 +9,7 @@ Native firmware shares the ESP32 radio between Wi-Fi CSI sensing and Bluetooth L
 
 BLE had grown into a second operational plane: live movement notify, threshold and detector writes, motion-hit debounce, CSI traffic control, and recalibration. Configure still subscribed to that live surface. MQTT, Home Assistant Discovery, the Monitor, the Game, and the Theremin already carry the same sensing controls and telemetry once Wi-Fi and a broker are saved.
 
-A nearby “see motion without MQTT” preview looks useful and is not. With CSI paused the meter is empty. With CSI left armed the meter is the degraded coexistence path. Recalibration over BLE would fit Lightweight to that starved stream.
+A nearby “see motion without MQTT” preview cannot provide the supported sensing path. With CSI paused, the meter has no data; with CSI active, the meter uses the degraded coexistence path. Recalibration over BLE would fit Lightweight to that starved stream.
 
 ## Decision
 
@@ -65,7 +65,7 @@ Rejected. HTTP would avoid the BLE/Wi-Fi radio conflict, but Native already has 
 Benefits:
 
 - CSI occupancy on the supported Native path is no longer competing with BLE
-- nearby BLE setup, MQTT live sensing, Game, and Theremin have one live story: provision nearby, detect and operate over MQTT
+- nearby BLE setup, MQTT live sensing, Game, and Theremin follow one flow: provision nearby, then detect and operate over MQTT
 - the occupancy floor stays a sensing contract, not a BLE workaround
 
 Trade-offs:

@@ -6,7 +6,7 @@
 
 ## Context
 
-The `1.4.0` versioned changelog explicitly states that the refactoring of the C firmware was driven by lessons learned from the MicroPython implementation. It also states that Micro-ESPectre enabled faster parameter tuning and testing of optimal configurations, with successful patterns then ported back into the C firmware.
+The `1.4.0` versioned changelog records that lessons from the MicroPython implementation drove the C firmware refactor. Micro-ESPectre allowed faster parameter tuning and configuration tests, and the successful patterns were then ported to the C firmware.
 
 That workflow remains visible today in the project rules and structure: host-side and Python-side experimentation are used to validate ideas before they are promoted into shared C++ production paths.
 
@@ -34,9 +34,9 @@ Rejected. The project benefits when the Python path informs the production path 
 
 Benefits:
 
-- algorithm exploration is faster and easier to validate
+- algorithms can be compared and tuned in Python before production code changes
 - production C++ changes can be grounded in prior Python evidence
-- the project keeps a clear bridge between research work and deployed behavior
+- parity checks connect the experimental implementation to the deployed one
 
 Trade-offs:
 

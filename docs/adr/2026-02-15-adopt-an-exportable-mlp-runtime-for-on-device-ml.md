@@ -31,7 +31,7 @@ The generated weight files own the exact deployed run metadata. This ADR owns th
 | Date | Direction | Resolution |
 | --- | --- | --- |
 | 2026-02-15 | Export a lightweight MLP and share its artifacts between Python and C++ | Adopted as one runtime contract |
-| 2026-05-20 | Screen small temporal CNN and TCN replacements | Retained the MLP because the candidates did not clear the deployment trade-off |
+| 2026-05-20 | Screen small temporal CNN and TCN replacements | Retained the MLP because the measured gains did not justify another runtime family |
 | 2026-07-26 | Allow compiler-default floating-point contraction | Rejected after measurable Python/C++ decision drift; contraction is disabled for inference |
 
 ## Alternatives Considered

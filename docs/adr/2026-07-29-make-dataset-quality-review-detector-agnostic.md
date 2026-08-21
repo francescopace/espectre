@@ -30,7 +30,7 @@ Dataset admission remains unchanged and may still fail the run:
 
 The report-only review tables now derive from the shared scale-invariant feature pipeline already used elsewhere in production and training:
 
-- the core evidence surface is the current production ML feature set, all gain-invariant by construction: `turb_iqr_over_mean_aggr`, `turb_autocorr`, `turb_zcr`, `l1_delta_lag_ratio`, `chan_shape_spread`, `chan_shape_coherent_innovation_energy`, and `chan_shape_excess_path`
+- the core evidence surface is the current production High Accuracy feature set, all gain-invariant by construction: `turb_iqr_over_mean_aggr`, `turb_autocorr`, `turb_zcr`, `l1_delta_lag_ratio`, `chan_shape_spread_subband`, `chan_shape_coherent_innovation_energy`, `chan_shape_excess_path`, and `chan_shape_subband_kendall_lag_excess`
 - feature directions are fixed from the feature semantics, not inferred from a detector replay
 - pair review compares `static_presence` and `motion` through consensus feature-evidence series
 - idle review scores each capture against its own feature-space baseline
@@ -50,7 +50,7 @@ Idle rows replace self-calibrated Classic baseline terms with:
 - `Drift`: half-to-half median evidence drift
 - `Score`: an indicative 0-100 ranking from tail cleanliness and burst length
 
-Threshold-relative detector terms are removed from the generated report entirely. `ClassicDetector` remains visible in detector promotion and performance surfaces, but not in dataset-quality review.
+Threshold-relative detector terms are removed from the generated report entirely. Lightweight remains visible in detector promotion and performance surfaces, but not in dataset-quality review.
 
 ## Decision History
 

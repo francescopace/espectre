@@ -17,7 +17,7 @@ Use goal-oriented names for the two public detection profiles:
 | Public profile | Configuration value | SDK class | Intended choice |
 | --- | --- | --- | --- |
 | Lightweight Detection | `lightweight` | `LightweightDetector` | Lower CPU and memory demand when initial calibration and a lower accuracy ceiling are acceptable |
-| High-Accuracy Detection | `high_accuracy` | `HighAccuracyDetector` | Stronger generalization and no initial room calibration when the platform can provide more CPU and memory |
+| High-Accuracy Detection | `high_accuracy` | `HighAccuracyDetector` | Higher measured accuracy, better cross-environment transfer, and no initial room calibration when the platform can provide more CPU and memory |
 
 These names describe stable product roles rather than current algorithms. The implementation behind either profile may evolve without another public rename as long as its role and documented trade-offs remain intact.
 

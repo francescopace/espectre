@@ -23,10 +23,10 @@ DEFAULT_SUBCARRIERS = (4, 8, 13, 18, 23, 28, 36, 41, 46, 51, 56, 60)
 These centered-grid indices represent subcarriers `+/-4`, `+/-9`, `+/-14`, `+/-19`, `+/-24`, and `+/-28`.
 
 - Normalize recognized HT20 payload layouts before band extraction.
-- Keep the band fixed across sessions, chips, frontends, Classic, and ML.
+- Keep the band fixed across sessions, chips, frontends, Lightweight, and High Accuracy.
 - Select for full usable-band span and independent looks, not per-dataset detector score.
 - Keep twelve single-bin samples as the common amplitude path.
-- Do not average adjacent subcarriers into every selected tone. Localized aggregation may exist only as an explicit feature-specific path, such as the production ML aggregated-IQR input.
+- Do not average adjacent subcarriers into every selected tone. Localized aggregation may exist only as an explicit feature-specific path, such as the aggregated-IQR input used by both production profiles.
 
 ## Decision History
 
@@ -47,7 +47,7 @@ The count therefore remains twelve on two independent grounds:
 - channel coherence saturates the number of independent looks; and
 - end-to-end replay does not justify the extra runtime cost or reduced high-rate dynamic range of denser bands.
 
-Adjacent-bin averaging on the common path was also rejected after joint replay did not justify changing all Classic and ML amplitude inputs. The later ML aggregated-IQR feature is intentionally isolated and does not redefine this shared band.
+Adjacent-bin averaging on the common path was also rejected after joint replay did not justify changing all Lightweight and High Accuracy amplitude inputs. The aggregated-IQR feature uses its own stream in both profiles and does not redefine this shared band.
 
 ## Alternatives Considered
 

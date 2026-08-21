@@ -9,15 +9,15 @@
 
 Before the split, firmware concerns were clustered too closely around the ESPHome component layout. Detection logic, runtime orchestration, and ecosystem-specific integration surfaces were harder to evolve independently, which made new firmware targets expensive and risked leaking integration details into reusable sensing code.
 
-The repository history and later architecture documentation show a clear shift toward a platform that can support ESPHome, native firmware, Matter, and the streamer frontend without duplicating the sensing pipeline.
+The resulting layout supports ESPHome, Native, Matter, and Streamer without duplicating the sensing pipeline.
 
 ## Decision
 
 Split the firmware-side C++ code into three explicit layers:
 
 - `src/cpp/core/` for reusable detectors, signal processing, and domain logic
-- `src/cpp/runtime/` for CSI acquisition, calibration, Wi-Fi, and platform orchestration
-- `src/cpp/frontend/` for integration-specific surfaces such as ESPHome, native, Matter, and streamer
+- `src/cpp/runtime/` for portable lifecycle, event, snapshot, and boundary contracts, with ESP-IDF implementations under `runtime/esp_idf/`
+- `src/cpp/frontend/` for integration-specific surfaces such as ESPHome, Native, Matter, and Streamer
 
 Keep `core` frontend-agnostic, keep platform orchestration in `runtime`, and keep ecosystem-specific behavior in the relevant `frontend`.
 
@@ -34,7 +34,7 @@ Python retains a complementary role: Micro-ESPectre provides the device-side pro
 
 ### Keep the ESPHome-centered layout
 
-Rejected. It would keep shipping velocity acceptable for one integration, but would make native, Matter, and streamer support harder to maintain without copying logic.
+Rejected. It would reduce short-term work for ESPHome but require Native, Matter, and Streamer to copy or depend on ESPHome-specific logic.
 
 ### Split only by platform or chip family
 

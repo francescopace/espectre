@@ -6,17 +6,17 @@
 
 ## Context
 
-Classic calibrates its threshold once, from the opening of a session, and never revisits it. That is fine when the opening represents the session. When it does not, the threshold stays wrong for the entire run.
+This decision arose from the detector then named Classic, now published as Lightweight Detection. Lightweight calibrates its threshold from the opening of a session. When that opening is noisier than the rest of the session, the initial threshold can remain too high for the entire run.
 
-One ESP32 capture showed the failure clearly, and it was the last pair missing the project recall target at `94.2%` against `95%`. Three measurements located the cause.
+One ESP32 capture exposed the failure: it was the last pair below the project recall target, at `94.2%` against `95%`. Three measurements located the cause.
 
-**The information was never missing.** Measured threshold-free, that capture's window features separate motion from idle almost perfectly: `0.9999` AUC for `l1_delta` and `0.9994` for `turb_autocorr`. A wider selected band cannot help, because there is nothing left to collect; see [2026-07-25-select-the-classic-band-from-channel-coherence.md](2026-07-25-select-the-classic-band-from-channel-coherence.md).
+**The features already separated motion from idle.** Measured without a threshold, the capture reached `0.9999` AUC for `l1_delta` and `0.9994` for `turb_autocorr`. A wider selected band would not address the observed failure; see [2026-07-25-select-the-classic-band-from-channel-coherence.md](2026-07-25-select-the-classic-band-from-channel-coherence.md).
 
-**The loss is threshold placement, and only there.** Against the best threshold achievable at the same false-positive cost, the corpus leaves `+0.34` points of recall on the table on average, and `16` of `17` normal-link pairs leave `0.0-0.3`. ESP32 leaves `+4.7`.
+**Threshold placement caused the measured loss.** Against the best threshold achievable at the same false-positive cost, the corpus lost `0.34` recall points on average. Sixteen of seventeen normal-link pairs lost `0.0-0.3` points, while ESP32 lost `4.7`.
 
-**The prefix is the culprit.** On that capture the calibration prefix is `4.14x` noisier than the rest of the session, so the threshold settles at `0.4212` against a session whose idle metric never exceeds `0.1104`, a factor of `3.82`. Elsewhere the prefix is representative or quieter, which is why nothing else loses anything.
+**The calibration prefix was not representative.** It was `4.14x` noisier than the rest of the session, so the threshold settled at `0.4212` while the later idle metric never exceeded `0.1104`, a factor of `3.82`. The other prefixes were representative or quieter and did not produce the same recall loss.
 
-Everything that acted inside the prefix failed. Raising the startup shift strength above `0.75` lifts ESP32 recall but starts producing empty-room alarms at `0.78`, so the shipped value was already the largest safe one. Capping the calibrated threshold at the session's own quiet ceiling hit the same wall. Refitting the coefficients lost on every chip, ESP32 worst at `-2.3` points. They all fail together because they read the same unrepresentative prefix.
+Every intervention confined to the prefix failed in the original campaign. Raising the startup shift strength above `0.75` improved ESP32 recall but produced empty-room alarms at `0.78`, so `0.75` was the largest safe value tested. Capping the calibrated threshold at the session's quiet ceiling reached the same limit. Refitting the coefficients reduced recall on every chip, with the largest loss on ESP32 at `-2.3` points. Each method still depended on the same unrepresentative prefix.
 
 ## Decision
 
@@ -26,13 +26,13 @@ Every `LIGHTWEIGHT_SETTLE_BLOCK_EVALUATIONS` evaluations the detector records th
 
 `12` blocks of `20` evaluations is a `60 s` dwell at the nominal cadence, and the margin is `2.7` logits.
 
-Three properties carry the safety, and none of them is a tuning choice:
+Three properties constrain the rule:
 
 1. **One-sided.** The rule can only lower. It can never hide motion that the calibrated threshold would have caught.
 2. **Motion holds it up.** During activity the block maxima are high, so the candidate lands above the current threshold and nothing happens. The rule moves only after a long quiet stretch, which is the evidence that the threshold is too high.
 3. **Median of block maxima.** A single spike cannot pull the level down, and a single quiet block cannot either.
 
-The evidence is dropped on every restart: `reset()`, `clear_buffer()`, `on_startup_calibration_begin()`, and `set_adaptive_threshold()` all clear it, so a contaminated stream or a fresh calibration has to earn the lowering again.
+`reset()`, `clear_buffer()`, `on_startup_calibration_begin()`, and `set_adaptive_threshold()` clear the accumulated evidence. A restarted or recalibrated detector must therefore observe another quiet dwell before lowering the threshold.
 
 ## Decision History
 
@@ -71,9 +71,9 @@ The validation tables below record the original `3.0`-logit campaign. The curren
 | 0.5 | 100.0% | 98.0% | 0 | 3.97% | 15.6% | 3 |
 | 0.0 | 100.0% | 99.1% | 0 | 5.52% | 17.5% | 5 |
 
-`4.0` is not quite inert: it fires on one C3 pair for `+0.9` points and leaves ESP32 where it was. The lower wall is further down than the shipped value suggests. False positives are what bind first: the worst pair breaches the `12%` weak-link ceiling at `1.0`. The empty-room gate holds all the way to `1.0` and only breaks at `0.5`.
+`4.0` is not quite inert: it fires on one C3 pair for `+0.9` points and leaves ESP32 where it was. In this sweep, false positives bind first: the worst pair breaches the `12%` weak-link ceiling at `1.0`. The empty-room gate holds through `1.0` and breaks at `0.5`.
 
-So the usable range runs to roughly `1.5`, and `3.0` ships as its conservative end rather than as the last value that works. Tightening it is a decision to take on the re-collected corpus, not on this one.
+The usable range in this campaign extends to roughly `1.5`; `3.0` was selected as a conservative point rather than the last value that passed. Any tighter value required validation on the re-collected corpus.
 
 **The rule does not rescue the five excluded bedroom pairs.** Temporarily restoring the `[TO BE REPLACED]` captures to an evaluation role and replaying them gives, in recall:
 
@@ -85,7 +85,7 @@ So the usable range runs to roughly `1.5`, and `3.0` ships as its conservative e
 | C6 `...42bbac` 07-22 | 0.986 | 69.3% | 69.3% | 69.3% | 69.3% | 79.0% | 91.4% | 100.0% |
 | S3 `...e8ec00` 07-22 low-RSSI | 0.395 | 92.0% | 92.0% | 92.0% | 92.0% | 95.4% | 97.1% | 98.3% |
 
-At the shipped margin the rule leaves all five exactly where the rule-off run puts them. They only begin to move at `1.5` and below, past the point where the healthy corpus breaches the weak-link false-positive ceiling.
+At the tested `3.0` margin, the rule leaves all five exactly where the rule-off run puts them. They only begin to move at `1.5` and below, past the point where the healthy corpus breaches the weak-link false-positive ceiling.
 
 They are not one failure mode. The C3 `...adb64` capture defeats both detectors, ML worse than Classic, so its motion really is weak and excluding it is right. The other four are Classic-specific: ML reaches `94.5%` to `100%` on the same recordings, so the information is present and Classic is not reading it.
 
@@ -117,7 +117,7 @@ Rejected for now. A second full calibration pass would have to assume the window
 
 ## Consequences
 
-The last pair missing the recall target now clears it, and the worst per-chip recall moves from `94.2%` to `97.7%` with no cost to false positives, the weak-link slice, or the empty-room gate.
+In the original validation campaign, the last pair below the recall target cleared it, and worst per-chip recall moved from `94.2%` to `97.7%` without changing false positives, the weak-link slice, or the empty-room gate.
 
 A room that becomes genuinely noisier after the threshold has come down cannot push it back up. This is the exact mirror of the property that makes the rule safe, and recovery needs a recalibration.
 

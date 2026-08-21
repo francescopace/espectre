@@ -35,7 +35,7 @@ Rejected. Split paths complicated reasoning, weakened cross-stack alignment, and
 
 Benefits:
 
-- runtime, datasets, and ML share one normalization story
+- runtime, datasets, and ML use the same normalization contract
 - cross-chip and cross-session behavior is easier to interpret
 - the project avoids forced-gain side effects that can harm transport stability
 

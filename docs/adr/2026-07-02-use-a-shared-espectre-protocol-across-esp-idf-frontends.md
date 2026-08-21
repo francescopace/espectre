@@ -28,7 +28,7 @@ Rejected. That would duplicate transport behavior and increase the risk of incon
 
 ### Build one protocol per frontend
 
-Rejected. Frontends differ in presentation, not in the underlying device identity, command, and telemetry concepts.
+Rejected. Frontends expose different presentations and capability subsets, but share device identity, command, and telemetry semantics.
 
 ## Consequences
 

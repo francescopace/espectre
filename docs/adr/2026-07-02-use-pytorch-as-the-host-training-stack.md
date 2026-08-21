@@ -35,7 +35,7 @@ Rejected. Those artifacts were no longer the active runtime contract and added m
 
 Benefits:
 
-- the host-side ML workflow is lighter and more aligned with the deployed model
+- the host workflow no longer carries TensorFlow, TFLite, or scaler artifacts that the deployed runtime does not consume
 - the project keeps the same runtime exports while simplifying the trainer
 - framework evolution on the host side stays decoupled from runtime inference
 

@@ -9,21 +9,23 @@
 
 The project accumulated a multi-state detector, moving-variance variants, threshold modes, and several L1-based Classic formulations. They were useful during exploration, but keeping them in the production runtime multiplied configuration, calibration, tests, and frontend behavior.
 
-The durable decision is the production role of `ClassicDetector`, not any intermediate feature pair. The current feature definition is owned by the frequency-coherence ADR, while current calibration behavior is documented in `ALGORITHMS.md` and the settled-session recovery ADR.
+The durable decision is the production role of `ClassicDetector`, not any intermediate feature pair. The current feature definition is owned by the aggregated-turbulence ADR, while current calibration behavior is documented in `ALGORITHMS.md` and the settled-session recovery ADR.
+
+The public profile and class were later renamed Lightweight Detection and `LightweightDetector`. Historical `Classic` names below identify the decision lineage described by the goal-oriented naming ADR.
 
 An inert startup variance-floor sampling path was also removed from the shared C++ and Python calibration implementations. It never influenced detector output: replay metrics remained bit-for-bit identical, while `sizeof(StartupThresholdCalibrator)` fell from `4,636` to `328` bytes, saving `4,308` bytes during calibration. This removed path was distinct from the motion-level floor still used by the current threshold metric.
 
 ## Decision
 
-Use `ClassicDetector` as the only production non-ML detector and remove legacy detector baselines from the active runtime surface.
+Use the detector now exposed as `LightweightDetector` as the only production non-ML detector, and remove legacy detector baselines from the active runtime surface.
 
-Classic must:
+Lightweight must:
 
-- expose the same `0.0-1.0` probability threshold scale as ML;
+- expose the same `0.0-1.0` probability threshold scale as High Accuracy;
 - use one automatic startup-calibration path plus session-only runtime overrides;
 - restore its automatic threshold after recalibration or restart;
 - keep Python and C++ feature, filtering, fusion, reset, and calibration behavior aligned; and
-- remain a compact deterministic alternative for deployments that do not select ML.
+- remain a compact deterministic alternative for deployments that do not select High Accuracy.
 
 Historical MVS, moving-variance, L1-primary, recovery-vote, threshold-mode, and low-RSSI L1-blend formulations remain research history, not selectable runtime modes.
 
@@ -56,9 +58,9 @@ Rejected. Candidate features belong in host-side tools and `FEATURES.md` until a
 
 Benefits:
 
-- the project has one clear non-ML detector contract;
+- the project has one non-ML detector contract;
 - frontend controls and calibration lifecycle do not branch by historical baseline; and
-- algorithm evolution can replace Classic internals without reviving old runtime modes.
+- algorithm evolution can replace Lightweight internals without reviving old runtime modes.
 
 Trade-offs:
 

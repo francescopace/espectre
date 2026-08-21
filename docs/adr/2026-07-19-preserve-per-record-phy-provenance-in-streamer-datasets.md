@@ -5,7 +5,7 @@
 
 ## Context
 
-The streamer protocol exports normalized CSI records that the host later stores as datasets and reuses for offline validation, training, and regression tests. That data path benefits from keeping not only the normalized amplitudes, but also the PHY context that produced them.
+The Streamer protocol exports normalized CSI records that the host stores for offline validation, training, and regression tests. Each record must retain both its normalized amplitudes and the PHY context that produced them.
 
 Even when the current sensing contract is HT20-only, treating every normalized 64-subcarrier record as generic HT20 would erase information that can matter later:
 
