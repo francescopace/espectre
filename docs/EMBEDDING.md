@@ -6,7 +6,7 @@ It assumes C++17, an ESP-IDF application or equivalent host build, and familiari
 
 ## Five-minute integration
 
-Include one header, implement one interface, and drive one object:
+The shortest supported integration uses `espectre_sdk.h` and `RuntimeFrontendController`:
 
 ```cpp
 #include "espectre_sdk.h"
@@ -36,7 +36,7 @@ class ProductFrontend : public espectre::IRuntimeListener {
 
 On ESP-IDF, replace the bare `RuntimeConfig` with `espectre::make_runtime_sensing_config_from_kconfig()` to drive the sensing settings from menuconfig.
 
-Three rules cover most integration mistakes:
+Before adding product-specific behavior, enforce these runtime constraints:
 
 - Gate everything user-visible on `snapshot.ready_to_publish`. The runtime emits snapshots while it calibrates, and motion state is not meaningful before that flag is true.
 - Run `setup()`, `loop()`, and `shutdown()` on one task.
@@ -84,11 +84,13 @@ Your firmware owns boot, provisioning, networking policy, OTA, and the product s
 - `IEspectreRuntime` (`runtime/runtime_interface.h`): `setup()`, `loop()`, runtime threshold/detector control, recalibration, and snapshot access.
 - `IRuntimeListener` (`runtime/runtime_events.h`): callbacks for motion-state changes, periodic updates, threshold/detector changes (including Lightweight settled-level recovery), calibration lifecycle, live telemetry, and runtime faults. If you publish a writable threshold control, override `on_threshold_changed()` rather than inferring the live value from telemetry.
 
-`RuntimeFrontendController` wires configuration, detector persistence, and the runtime backend together; the native and Matter frontends are the reference integrations for this path and stay intentionally small.
+`RuntimeFrontendController` wires configuration, detector persistence, and the runtime backend together. The Native and Matter frontends are compact reference integrations for this path.
 
 ### Core-only
 
-If your firmware already owns Wi-Fi and CSI capture, you can consume the detectors directly: `core` detectors accept normalized CSI payloads and expose motion state, movement metric, and threshold control. Apply the same temporal admission as the shipped pipeline before `process_packet()`: retain the candidate nearest each `csi_target_pps` slot center, enforce the target-derived half-slot minimum spacing, and leave missing slots invalid. After each `update_state()`, re-read `get_threshold()`: Lightweight can lower it without a setter call, and the core-only path has no `on_threshold_changed()` hook. `core/temporal_csi_sampler.h` is the production sampler; it is internal to the bundle rather than part of the supported `espectre_sdk.h` facade. Use `runtime/esp_idf/csi_pipeline.cpp` as the reference for normalization, temporal admission, evaluation cadence, and hit filtering before committing to a custom wiring.
+If your firmware already owns Wi-Fi and CSI capture, you can consume the detectors directly. The `core` detectors accept normalized CSI payloads and expose motion state, movement metric, and threshold control. Apply the same temporal admission as the shipped pipeline before `process_packet()`: retain the candidate nearest each `csi_target_pps` slot center, enforce the target-derived half-slot minimum spacing, and leave missing slots invalid.
+
+After each `update_state()`, re-read `get_threshold()`: Lightweight can lower it without a setter call, and the core-only path has no `on_threshold_changed()` hook. `core/temporal_csi_sampler.h` is the production sampler; it is internal to the bundle rather than part of the supported `espectre_sdk.h` facade. Use `runtime/esp_idf/csi_pipeline.cpp` as the reference for normalization, temporal admission, evaluation cadence, and hit filtering before committing to custom wiring.
 
 ## Header map
 
@@ -96,13 +98,13 @@ If your firmware already owns Wi-Fi and CSI capture, you can consume the detecto
 |--------|------------|
 | `espectre_sdk.h` | The facade. Includes everything below and documents the contracts |
 | `runtime/espectre_sdk_version.h` | Compile-time SDK version and the `ESPECTRE_SDK_VERSION_AT_LEAST()` guard |
-| `runtime/runtime_interface.h` | `RuntimeConfig`, and the backend contract |
-| `runtime/runtime_events.h` | `IRuntimeListener`, and the threading contract |
+| `runtime/runtime_interface.h` | `RuntimeConfig` and the backend contract |
+| `runtime/runtime_events.h` | `IRuntimeListener` and the threading contract |
 | `runtime/runtime_snapshot.h` | `RuntimeSnapshot`: what every callback delivers |
 | `runtime/runtime_capabilities.h` | Which controls the active runtime honors |
 | `runtime/runtime_sensing_schema.h` | Defaults and valid ranges for every tunable |
-| `runtime/runtime_config_utils.h` | Validators, and name/enum conversion |
-| `runtime/runtime_diagnostics.h` | Capture and link counters, and the sampler that turns them into rates |
+| `runtime/runtime_config_utils.h` | Validators and name/enum conversion |
+| `runtime/runtime_diagnostics.h` | Capture and link counters, plus the sampler that turns them into rates |
 | `runtime/csi_traffic_types.h` | Runtime traffic-source and generator mode enums used by `RuntimeConfig` |
 | `runtime/esp_idf/runtime_frontend_controller.h` | The recommended entry point |
 | `runtime/esp_idf/runtime_sensing_kconfig.h` | Build a config from menuconfig |
@@ -113,7 +115,7 @@ If your firmware already owns Wi-Fi and CSI capture, you can consume the detecto
 | `runtime/firmware_version.h` | The application version reported on the wire |
 | `core/lightweight_detector.h`, `core/high_accuracy_detector.h`, `core/filtered_turbulence_ring.h` | The core-only detector path and its shared filtered-sample storage |
 | `core/base_detector.h` | The shared detector lifecycle both detectors inherit |
-| `core/csi_format.h` | CSI layout, and the subcarrier band the detectors measure on |
+| `core/csi_format.h` | CSI layout and the subcarrier band the detectors measure on |
 | `core/detector_limits.h`, `core/filters.h`, `core/utils.h` | Detector limits, filter state, and numeric helpers used by the public detector definitions |
 | `core/csi_features.h`, `core/ml_feature_trackers.h`, `core/l1_delta_tracker.h` | Feature extraction and tracker types embedded in the public detector definitions |
 | `core/ml_weights.h` | Generated ML model metadata and weights reachable through `HighAccuracyDetector` |
@@ -127,7 +129,7 @@ The control surface is single-owner. Internal bounded mailboxes protect callback
 
 - Run `setup()`, `loop()`, and `shutdown()` on one task.
 - Every `IRuntimeListener` callback is delivered on the caller's task: from `loop()` for sensing events, or inline on the task that invoked a control method. Work raised in the Wi-Fi CSI callback is deferred through an internal mailbox first, so no listener callback runs in interrupt or Wi-Fi driver context.
-- Because callbacks run on your own task, blocking in them is allowed. Publishing over MQTT or writing NVS from a callback costs loop latency, not CSI frames.
+- Keep callbacks bounded and non-blocking. A slow callback delays the next `loop()` iteration; sufficiently long work can fill the bounded CSI mailbox and drop incoming frames. Queue network publication, NVS writes, and other potentially blocking work for a separate task.
 - Call `set_*_runtime()` only from the owner task. The shipped MQTT, BLE, and OTA adapters queue stack events and deliver application callbacks from the frontend loop, so Native follows this rule without external locks.
 
 ### Lifecycle
@@ -146,7 +148,7 @@ Asynchronous failures arrive instead through `IRuntimeListener::on_runtime_fault
 
 ### Capabilities
 
-`RuntimeCapabilities` defaults every flag to false, so a runtime declares what it offers rather than inheriting a permissive default. Read `controller.capabilities()` after `setup()` and expose only what it advertises; the controller already refuses capability-gated calls, so this is about not showing a control that cannot work.
+`RuntimeCapabilities` defaults every flag to false, so a runtime declares what it offers rather than inheriting a permissive default. Read `controller.capabilities()` after `setup()` and expose only what it advertises. The controller already refuses capability-gated calls; this check keeps unsupported controls out of the product interface.
 
 ### Diagnostics
 
@@ -166,7 +168,11 @@ The shipped ESP-IDF runtime always collects these counters. Native and ESPHome r
 
 ### Versioning
 
-`ESPECTRE_SDK_VERSION_STRING` identifies the SDK sources you compiled against, and `ESPECTRE_SDK_VERSION_AT_LEAST(major, minor, patch)` guards code that needs a given release using the numeric tag core. First-party firmware, host tests, and CMake configure resolve that string from `git describe` on numeric tags (`2.8.0-237-g7439944` until the next 3.x tag) and fail if git history is missing. Pass `-DESPECTRE_GIT_VERSION=...` or set `ESPECTRE_GIT_VERSION` in the environment when the checkout has no numeric tags, which is the ESPHome GitHub clone case. Published SDK bundles stamp the same identity into `espectre_sdk_version.h` and `idf_component.yml` so an unpacked tarball compiles without `.git`. There is no in-tree numeric fallback. Rolling GitHub tags stay `snapshot` (`preview`) and `snapshot-dev` (`develop`). This is distinct from `espectre_firmware_version()`, which reports *your* application version, and from `ESPECTRE_PROTOCOL_VERSION`, which versions the wire format.
+`ESPECTRE_SDK_VERSION_STRING` identifies the SDK sources you compiled against. Use `ESPECTRE_SDK_VERSION_AT_LEAST(major, minor, patch)` to guard code that needs a given release.
+
+First-party firmware, host tests, and CMake configuration resolve the string from `git describe` on numeric tags. The result is either the tag or a moving identity such as `<tag>-<commit-count>-g<hash>`. A checkout without usable Git history must pass `-DESPECTRE_GIT_VERSION=...` or set `ESPECTRE_GIT_VERSION`; ESPHome GitHub clones use this override.
+
+Published SDK bundles stamp the same identity into `espectre_sdk_version.h` and `idf_component.yml`, so an unpacked archive compiles without `.git`. There is no in-tree numeric fallback. Rolling GitHub tags remain `snapshot` for `preview` and `snapshot-dev` for `develop`. SDK identity is separate from `espectre_firmware_version()`, which reports the application version, and `ESPECTRE_PROTOCOL_VERSION`, which versions the wire format.
 
 ## Build integration
 

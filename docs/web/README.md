@@ -8,7 +8,7 @@ Static single-page app published at `espectre.dev` through GitHub Pages.
 python -m http.server 8090 --directory docs/web
 ```
 
-Then open `http://localhost:8090`. The Flash tool and the Matter QR reader need a Chromium-based browser. Configure additionally needs `localhost` or HTTPS. Monitor, Game, and Theremin use MQTT over WebSockets and do not need Bluetooth.
+Then open `http://localhost:8090`. The Flash tool and the Matter QR reader need a Chromium-based browser. Configure also requires `localhost` or HTTPS. Monitor, Game, and Theremin use MQTT over WebSockets and do not need Bluetooth.
 
 First-party CSS, JS, and SPA content fragments use a 12-character SHA-256 prefix as `?v=`. After editing those files, restamp `index.html` and `404.html`:
 

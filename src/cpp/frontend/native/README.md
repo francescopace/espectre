@@ -1,18 +1,12 @@
 # ESPectre Native Frontend
 
-Use this guide for the standalone Native firmware, including BLE provisioning, MQTT operation, Home Assistant MQTT Discovery, and OTA. First-time users can jump to [Getting Started](#getting-started); client and firmware developers can continue through the protocol and implementation sections. The shared message model is documented in [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md).
+Start with [Getting Started](#getting-started) for a flashed Native device. The later sections document BLE and MQTT operation, Home Assistant MQTT Discovery, OTA, and firmware ownership. The shared message model is documented in [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md).
 
 ## Scope
 
-The native frontend is intentionally separate from the ESPHome frontend:
+Native is the standalone BLE/MQTT firmware. ESPHome owns YAML and Home Assistant entity integration, while Matter owns the cluster mapping. Native provides BLE setup, MQTT sensing and control, Home Assistant MQTT Discovery, and HTTPS OTA from its MQTT command plane.
 
-- `ESPHome` remains focused on the most complete Home Assistant entity surface and YAML/codegen
-- `Native` exposes the standalone integration surface over BLE and MQTT, plus an additive Home Assistant MQTT Discovery adapter
-- `Matter` exposes the same runtime through Matter clusters
-
-The native frontend now also supports HTTPS OTA triggered from its MQTT command plane.
-
-The current native frontend preserves the protocol used by the browser BLE and MQTT tools in `docs/web/index.html`, but it is not tied to that specific client.
+The firmware implements the protocol used by the browser BLE and MQTT tools in `docs/web/index.html`; other clients can use the same protocol.
 
 ## Getting Started
 
@@ -22,8 +16,8 @@ If you arrived here from [`SETUP.md`](../../../../docs/SETUP.md), this README is
 
 The web flasher can install published `Native` images for supported chips. After flashing, use a BLE client that understands this protocol, such as:
 
-- [Configure](https://espectre.dev/#configure): Bluetooth provisioning for Wi-Fi, MQTT, and the device name
-- [Monitor](https://espectre.dev/#monitor): MQTT telemetry, tuning, and diagnostics
+- [Configure](https://espectre.dev/configure): Bluetooth provisioning for Wi-Fi, MQTT, and the user-facing device label
+- [Monitor](https://espectre.dev/monitor): MQTT telemetry, tuning, and diagnostics
 - [The Game](https://espectre.dev/game/): example interactive client over MQTT after BLE setup
 
 Each `release`, `preview`, and `develop` channel publishes one full-flash native image and one application-only OTA payload per supported chip. Both contain the same application features; the smaller `-ota.bin` file omits the bootloader, partition table, and other full-flash regions required only for USB recovery. GitHub Pages stages only the full-flash image for the browser flasher.
@@ -44,7 +38,7 @@ The CLI is a thin wrapper over the ESP-IDF app in this directory. On Windows, us
 
 ### Browser Configure and Monitor tools
 
-[Configure](https://espectre.dev/#configure) is the reference browser BLE client. It uses Web Bluetooth only for nearby Wi-Fi, MQTT, and device-label setup. [Monitor](https://espectre.dev/#monitor) then uses MQTT over WebSockets for runtime controls, diagnostics, and recovery. To preview the same pages from this repository, serve `docs/web` locally as described in [docs/web/README.md](../../../../docs/web/README.md).
+[Configure](https://espectre.dev/configure) is the reference browser BLE client. It uses Web Bluetooth only for nearby Wi-Fi, MQTT, and device-label setup. [Monitor](https://espectre.dev/monitor) then uses MQTT over WebSockets for runtime controls, diagnostics, and recovery. To preview the same pages from this repository, serve `docs/web` locally as described in [docs/web/README.md](../../../../docs/web/README.md).
 
 Current capabilities:
 
@@ -76,7 +70,7 @@ Requirements:
 
 Usage notes:
 
-1. open [Configure](https://espectre.dev/#configure), click `Connect nearby device`, and select the ESPectre device
+1. open [Configure](https://espectre.dev/configure), click `Connect nearby device`, and select the ESPectre device
 2. wait for the initial `REQ_SYSINFO` refresh after notifications start
 3. use `Save Wi-Fi` to send one atomic `SET_WIFI_CONFIG` update
 4. use `Save MQTT` to send one atomic `SET_MQTT_CONFIG` update and enable MQTT transport
@@ -86,13 +80,13 @@ Usage notes:
 
 The shared protocol semantics remain documented in [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md).
 
-The standalone native frontend uses the same shared periodic progress-bar sensing status log helper used by the ESPHome and Matter frontends, so the serial log shape stays aligned across those frontend surfaces.
+The standalone Native frontend uses the shared periodic progress-bar sensing status helper, as do the ESPHome and Matter frontends. This keeps the serial log shape aligned across those firmware surfaces.
 
 ## Wi-Fi Configuration
 
 Unlike the ESPHome frontend, the standalone native firmware does not rely on YAML or Home Assistant for setup. In the current local-lab profile, Wi-Fi can be provisioned live over BLE and persisted in NVS.
 
-Frontend-owned options in [`Kconfig.projbuild`](espectre/Kconfig.projbuild) remain useful as firmware defaults for reproducible images or first boot. When those defaults include both a Wi-Fi SSID and an MQTT host, BLE stays idle at boot and CSI can arm as soon as the station joins. Shared sensing options and their defaults now live in [`SETUP.md`](../../../../docs/SETUP.md), and can be overridden per frontend in [`sdkconfig.defaults`](app/sdkconfig.defaults). Versioned transport defaults in [`sdkconfig.defaults`](app/sdkconfig.defaults) also tune the standalone native firmware with the shared ESP-IDF Wi-Fi transport baseline now used across the standalone frontends: AMPDU enabled, larger Wi-Fi RX/TX buffers, plus lwIP mailbox and IRAM optimizations.
+Frontend-owned options in [`Kconfig.projbuild`](espectre/Kconfig.projbuild) remain useful as firmware defaults for reproducible images or first boot. When those defaults include both a Wi-Fi SSID and an MQTT host, BLE stays idle at boot and CSI can arm as soon as the station joins. Shared sensing options and their defaults now live in [`SETUP.md`](../../../../docs/SETUP.md), and can be overridden per frontend in [`sdkconfig.defaults`](app/sdkconfig.defaults). Versioned transport defaults in [`sdkconfig.defaults`](app/sdkconfig.defaults) disable both TX and RX AMPDU so sensing receives individual HT20 frames, use Wi-Fi buffer counts `10/32/48`, enlarge the lwIP TCP/IP and UDP mailboxes, and enable lwIP IRAM optimization except on the original ESP32.
 
 The shared menu keeps cadence and traffic ownership separate: `CONFIG_ESPECTRE_CSI_TARGET_PPS` is always positive, while the `CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_*` choice selects internal, external, or unmanaged traffic. MQTT `set_csi_traffic_mode` to `external` opens the UDP listener on port `5555` and joins `CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP` (`239.255.0.1` by default). Unicast to the device IP still works; empty the group to disable the join. Drive several devices with [`espectre_traffic_generator.py`](../../../../tools/espectre_traffic_generator.py) and `TARGETS = ['239.255.0.1']`. The fixed target and detector-window duration define temporal slots; raw callback-rate jitter never reconstructs the detector.
 
@@ -114,18 +108,18 @@ Runtime provisioning behavior:
 - MQTT `set_ble` with `ble=on` starts BLE again for recovery or reconfiguration; `ble=off` or `STOP_BLE` stops it only when Wi-Fi and MQTT are already configured
 - holding BOOT for `ESPECTRE_BLE_RECOVERY_BUTTON_HOLD_MS` starts the same BLE recovery path and pauses sensing even when MQTT is unavailable; the default is 3000 ms
 - `CLEAR_WIFI` erases stored Wi-Fi values, disconnects the station, and brings BLE back for provisioning
-- `CLEAR_MQTT` or an empty MQTT host brings BLE back until a broker is saved again
+- `CLEAR_MQTT_CONFIG` or an empty MQTT host brings BLE back until a broker is saved again
 - `SET_MQTT_CONFIG` persists the full MQTT broker block in NVS and reinitializes the MQTT transport
 
 Physical BLE recovery is enabled by default when Bluetooth is built. `ESPECTRE_BLE_RECOVERY_BUTTON_GPIO` follows the BOOT strap used by the target family: GPIO0 on ESP32 and ESP32-S3, GPIO9 on ESP32-C3 and ESP32-C6, and GPIO28 on ESP32-C5. The input is active-low, is polled without blocking the runtime loop, and fires once per completed hold. Override the GPIO or disable `ESPECTRE_BLE_RECOVERY_BUTTON_ENABLED` when a custom board routes BOOT differently or owns that pin for another purpose.
 
-This means the current standalone native firmware is best suited for:
+The current standalone Native firmware is best suited to:
 
 - local integration experiments
 - custom client development
 - controlled deployments and recovery flows where BLE-assisted provisioning is acceptable
 
-It is still a lab-oriented provisioning path, not a polished end-user flow comparable to ESPHome.
+It remains a lab-oriented provisioning path. ESPHome provides the more complete end-user flow.
 
 ## Protocol Reference
 
@@ -205,17 +199,17 @@ The default channel follows the image that was flashed: release firmware uses th
 
 ## Firmware Limits and Expectations
 
-The current standalone native frontend intentionally stays small.
+The standalone Native frontend has a deliberately narrow surface.
 
 Important current limits:
 
 - provisioning is intentionally lab-oriented and low-ceremony
 - the BLE control surface is still ASCII commands rather than a structured schema
 - clients should not assume diagnostic sysinfo fields are stable forever
-- there is no capability discovery or negotiated feature set yet
+- BLE sysinfo exposes capability flags, and MQTT exposes its command catalog; there is no negotiated feature handshake
 - OTA uses HTTPS transport and dual OTA slots, so local recovery still starts from the published factory image when an image must be reflashed from USB
 
-This keeps the transport simple while allowing external BLE clients to provision Wi-Fi and MQTT, set device identity, trigger OTA, and inspect read-only status. Live sensing and runtime detector control stay on MQTT.
+This keeps the transport simple while allowing external BLE clients to provision Wi-Fi and MQTT, edit the user-facing device label, trigger OTA, and inspect read-only status. The firmware-generated `device_id` and derived `device_name` remain immutable. Live sensing and runtime detector control stay on MQTT.
 
 ## BLE-Specific Troubleshooting
 
@@ -246,7 +240,7 @@ Check the active Wi-Fi values first:
 
 ### The native firmware is not the right fit for the workflow
 
-That can be expected. This frontend is optimized for the native standalone integration surface, not for Home Assistant-style provisioning or the Matter commissioning flow.
+This frontend is designed for the standalone Native integration surface, not Home Assistant-style provisioning or Matter commissioning.
 
 ## Implementation Map
 

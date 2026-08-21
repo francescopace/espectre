@@ -1,6 +1,6 @@
 # ESPectre Streamer Frontend
 
-Use this guide to build the Streamer firmware, collect raw CSI, or integrate its UDP transport. Dataset contributors should start with [Build and Tooling](#build-and-tooling), then continue in [`ML_DATA_COLLECTION.md`](../../../../docs/ML_DATA_COLLECTION.md). Firmware and collector developers can use the protocol, pacing, and implementation sections as reference.
+Streamer sends timestamped raw CSI to the host collector and does not run a detector. [Build and Tooling](#build-and-tooling) covers firmware setup; dataset contributors should then continue in [`ML_DATA_COLLECTION.md`](../../../../docs/ML_DATA_COLLECTION.md). The protocol and pacing sections are for transport work.
 
 ## Scope
 

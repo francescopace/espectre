@@ -1,39 +1,18 @@
 # Micro-ESPectre
 
-**Python/MicroPython R&D layer for ESPectre Wi-Fi CSI sensing.**
-
-Micro-ESPectre is the fast experimentation path inside the ESPectre platform. It implements the shared motion-detection ideas in Python so algorithms, parameters, MQTT payloads, and data-collection workflows can be tested quickly before stable behavior is promoted into the C++ `core` / `runtime` layers and their frontends.
+Micro-ESPectre runs the detector, MQTT control path, and CSI collection helpers in MicroPython. Contributors use it to prototype device-side sensing changes and compare them with C++ before porting production behavior.
 
 This guide assumes basic Python and MQTT familiarity. CSI means channel state information, the per-packet Wi-Fi channel measurement used by the detectors.
 
-Use Micro-ESPectre when you want:
+Use it for MicroPython device experiments, MQTT inspection, dataset collection, and C++/Python parity work. Changes to shared detector behavior must remain aligned with the C++ implementation. For end-user firmware paths, start from the main [README](../../../README.md) and [SETUP.md](../../../docs/SETUP.md); [ARCHITECTURE.md](../../../docs/ARCHITECTURE.md) describes the platform split.
 
-- rapid Python-side prototyping without C++ firmware rebuilds
-- MicroPython deployment for CSI sensing experiments
-- MQTT-based runtime control and inspection
-- cross-checks against the C++ detector behavior
-- dataset collection and ML validation workflows
-
-For the production firmware paths, start from the main [README](../../../README.md) and [SETUP.md](../../../docs/SETUP.md).
-
-## Role in ESPectre
-
-ESPectre v3 is a multi-frontend C++ sensing platform. Micro-ESPectre is not a separate product surface; it is the Python R&D layer that helps validate sensing changes before they become shared platform behavior.
-
-| Layer | Purpose | Main users |
-|-------|---------|------------|
-| C++ platform | Shared `core` / `runtime` plus ESPHome, native, Matter, and streamer frontends | Smart home users, firmware developers, integrators |
-| Micro-ESPectre | Python/MicroPython R&D and MQTT workflow | Researchers, developers, algorithm contributors |
-
-Validated Micro-ESPectre changes should stay aligned with the C++ detector and runtime behavior. See [ARCHITECTURE.md](../../../docs/ARCHITECTURE.md) for the platform split.
-
-## ESPectre's Upstream MicroPython CSI Contribution
+## MicroPython CSI Dependency
 
 ESPectre brought direct ESP32 Wi-Fi CSI access to mainline MicroPython through [micropython/micropython#18460](https://github.com/micropython/micropython/pull/18460). The contribution added the ESP32 `network.WLAN` CSI methods now described in the [official MicroPython documentation](https://micropython.org/resources/docs/en/latest/library/network.WLAN.html#csi-methods-esp32-only), and it was merged for the `1.29.0` release cycle.
 
 Micro-ESPectre builds a pinned mainline MicroPython revision with the lean ESPectre board profile on top of that upstream foundation. The project firmware adds the native MQTT and traffic modules required by the filesystem-deployed application; it is not the earlier [micropython-esp32-csi](https://github.com/francescopace/micropython-esp32-csi) fork.
 
-This is enabling infrastructure beyond ESPectre itself: ESP32 developers can now capture CSI from MicroPython without adopting a project-specific firmware fork. For ESPectre, upstream support also removes a long-lived maintenance boundary from the Python sensing workflow.
+Because these methods are in mainline MicroPython, Micro-ESPectre no longer depends on the earlier CSI fork. Other MicroPython applications can use the same API independently.
 
 ## Requirements
 
@@ -85,7 +64,11 @@ Host-side workflows live at the repository CLI root:
 
 See the repository [CLI.md](../../../docs/CLI.md) for current CLI syntax and host-side workflow behavior, and the shared [SETUP.md](../../../docs/SETUP.md) for setup and frontend selection.
 
-All supported chips use the same lean project firmware profile without Bluetooth, ESP-NOW, asyncio, unused generic Python modules, or optional configurable peripheral bindings such as DAC, I²S, SD card, PCNT, and Ethernet. The frozen manifest contains only the upstream boot and filesystem helpers. Each image provides MQTT 3.1.1 over plain TCP and STA-bound ICMP or DNS traffic generation through ESP-IDF modules, leaving DNS and mDNS broker resolution in MicroPython. The filesystem application requires these native modules and has no Python transport fallback, so firmware and application revisions must remain aligned. The native MQTT client uses a 3 KiB task stack, 512-byte I/O buffers, ESP-IDF-managed reconnects, and a retained offline Last Will. The shared profile uses performance compiler optimization, a 1 kHz FreeRTOS tick, disabled power management, balanced Wi-Fi queues, and Wi-Fi, PHY, and lwIP IRAM optimization. RX AMPDU stays disabled so the detector continues to receive individual HT20 frames. Classic ESP32 alone overrides the shared profile with smaller Wi-Fi queues and without lwIP IRAM placement to preserve heap. No image freezes the Micro-ESPectre application: the same complete `.mpy -O3` deployment workflow is used on every supported chip, so application changes do not require reflashing.
+All supported chips use the same lean project firmware profile. It excludes Bluetooth, ESP-NOW, asyncio, unused generic Python modules, and optional peripheral bindings such as DAC, I²S, SD card, PCNT, and Ethernet. The frozen manifest contains only the upstream boot and filesystem helpers.
+
+Each image provides MQTT 3.1.1 over plain TCP and STA-bound ICMP or DNS traffic generation through ESP-IDF modules; DNS and mDNS broker resolution remain in MicroPython. The filesystem application requires these native modules and has no Python transport fallback, so firmware and application revisions must remain aligned. The native MQTT client uses a 3 KiB task stack, 512-byte I/O buffers, ESP-IDF-managed reconnects, and a retained offline Last Will.
+
+The shared profile uses performance compiler optimization, a 1 kHz FreeRTOS tick, disabled power management, balanced Wi-Fi queues, and Wi-Fi, PHY, and lwIP IRAM optimization. RX AMPDU stays disabled so the detector receives individual HT20 frames. Classic ESP32 uses smaller Wi-Fi queues and omits lwIP IRAM placement to preserve heap. The Micro-ESPectre application is not frozen into the image: every chip uses the same complete `.mpy -O3` deployment workflow, so application changes do not require reflashing.
 
 `micro deploy --config <path>` compiles the selected override as device `config_local.mpy` together with the complete device manifest. This is primarily useful for isolated firmware benchmarks and other repeatable laboratory runs. Filesystem deployment uses MPY ABI 6.3, removes superseded `.py` files only after every `.mpy` upload succeeds, cleans legacy root-level configuration left by older frozen images, and embeds device-relative source names so tracebacks remain readable.
 
@@ -125,7 +108,7 @@ Boot -> AGC-active startup -> Lightweight threshold bootstrap or High Accuracy s
 
 Micro-ESPectre implements the same two detector families as the C++ platform, `lightweight` and `high_accuracy`, described in [ALGORITHMS.md](../../../docs/ALGORITHMS.md).
 
-Lightweight is the leaner path: its Lightweight implementation uses fewer feature trackers and less per-packet computation, but is less accurate and robust than High Accuracy on the maintained corpus. High Accuracy uses the ML implementation, with more working memory and CPU for its eight features and neural inference, but provides better detection quality and skips Lightweight's threshold calibration. Lightweight requires about 10 seconds of clean, ready quiet-room coverage after temporal warmup, and insufficient occupancy extends that wall-clock duration. High Accuracy still waits for CSI readiness and its feature window to fill.
+Lightweight uses fewer feature trackers and less per-packet computation, but is less accurate and robust than High Accuracy on the maintained corpus. High Accuracy uses more working memory and CPU for its eight features and neural inference, but provides better detection quality and skips Lightweight's threshold calibration. Lightweight requires about 10 seconds of clean, ready quiet-room coverage after temporal warmup; insufficient occupancy extends that wall-clock duration. High Accuracy still waits for CSI readiness and its feature window to fill.
 
 Key config values live in `config.py`:
 

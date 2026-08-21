@@ -1,40 +1,18 @@
 # Contributing
 
-Thank you for your interest in contributing to ESPectre! This document provides guidelines and information for contributors.
-
----
-
-## Table of Contents
-
-- [Code of Conduct](#code-of-conduct)
-- [First-Time Contributors](#first-time-contributors)
-- [Ways to Contribute](#ways-to-contribute)
-- [Development Setup](#development-setup)
-- [Code Contributions](#code-contributions)
-- [Data Contributions](#data-contributions)
-- [Documentation](#documentation)
-- [Reporting Issues](#reporting-issues)
-- [Community](#community)
-
----
+Contributions are accepted through pull requests against `develop`. Use this guide for the development environment, tests, datasets, documentation, and review expectations.
 
 ## Code of Conduct
 
 This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you agree to uphold this code. Please report unacceptable behavior to contact@espectre.dev.
 
----
-
 ## First-Time Contributors
 
-New to open source? Welcome! Here's how to get started:
+Before opening your first pull request:
 
-1. Check [past contributions](https://github.com/francescopace/espectre/issues?q=is%3Aissue+is%3Aclosed+label%3A%22good+first+issue%22) for inspiration
-2. Read through this guide before submitting your first PR
-3. Don't hesitate to ask questions in the issue comments
-
-We appreciate all contributions, no matter how small!
-
----
+1. Review [closed `good first issue` contributions](https://github.com/francescopace/espectre/issues?q=is%3Aissue+is%3Aclosed+label%3A%22good+first+issue%22) for examples.
+2. Read the setup and test sections relevant to your change.
+3. Ask implementation questions on the issue that owns the work.
 
 ## Ways to Contribute
 
@@ -48,13 +26,11 @@ We appreciate all contributions, no matter how small!
 | **New Features** | Implement roadmap items | Advanced |
 | **Algorithm R&D** | Develop new detection algorithms | Advanced |
 
----
-
 ## Development Setup
 
 ### Prerequisites
 
-- Python 3.14 (recommended)
+- Python 3.14 (required for the maintained host and ML workflows)
 - ESP32 device (S3/C6 recommended)
 - Home Assistant (optional, for testing ESPHome integration)
 
@@ -115,8 +91,6 @@ Direct single-config CMake builds and `run_all_tests.sh` default to `RelWithDebI
 Python test auto-parallelism is capped at four workers because replay-heavy tests become slower under higher process counts. Set `PYTEST_XDIST_AUTO_NUM_WORKERS` to a positive integer to override the cap.
 
 The coverage helper is a Bash script used on macOS/Linux and CI. On Windows, run the CMake/CTest commands above for the host-side C++ suite, or use WSL/Git Bash if you specifically need the coverage script.
-
----
 
 ## Code Contributions
 
@@ -273,8 +247,6 @@ Third-party files retain their upstream license notices; do not replace them wit
 | Documentation | Features require docs |
 | Code review | At least one approval |
 
----
-
 ## Data Contributions
 
 Help build a diverse CSI dataset for ML training. For v3, the most useful data improves room-state robustness across real homes, routers, and ESP32 boards.
@@ -316,11 +288,9 @@ Gesture recognition, HAR, and people counting are useful future research tracks,
 - You retain ownership of your contributions
 - All contributions will be credited
 
----
-
 ## Documentation
 
-Good documentation is essential! Here's how you can help:
+Update the document that owns the behavior you changed.
 
 ### Types of Documentation
 
@@ -335,13 +305,15 @@ Good documentation is essential! Here's how you can help:
 
 ### Documentation Guidelines
 
-- Write in clear, simple English
-- Include code examples where helpful
-- Keep formatting consistent with existing docs
-- Test any commands or code snippets you include
-- Keep a single source of truth per topic: `docs/SETUP.md` for the shared hub, frontend READMEs for frontend-specific workflows and surfaces, `docs/TUNING.md` for tuning guidance, and `docs/ALGORITHMS.md` for theory
-
----
+- Start with the reader's task or the fact they need. Avoid openings such as "This guide provides..." when the title and first section already establish the scope.
+- Name the component, action, or evidence. Prefer direct verbs such as "is", "has", and "does" to vague phrases such as "serves as", "helps ensure", or "highlights".
+- Do not claim importance, maturity, broad applicability, or wider impact without repository evidence.
+- Use contrast when it changes a decision. Avoid repeated formulas such as "not X but Y", "not just X but Y", and "X rather than Y".
+- Use bullets and tables for real mappings, comparisons, or procedures. Do not turn a short explanation into a list to make it appear exhaustive.
+- Remove duplicate recaps and generic future-work conclusions. Link to the topic owner when another document already has the detail.
+- Distinguish deployed, partial, and target behavior explicitly.
+- Test every command and code sample you add.
+- Keep one source of truth per topic: `docs/SETUP.md` for the shared hub, frontend READMEs for frontend-specific workflows and surfaces, `docs/TUNING.md` for tuning guidance, and `docs/ALGORITHMS.md` for theory.
 
 ## Reporting Issues
 
@@ -371,8 +343,6 @@ Include:
 - **Proposed solution**: How might it work?
 - **Alternatives**: Other approaches considered
 
----
-
 ## Community
 
 ### Getting Help
@@ -385,8 +355,6 @@ Include:
 - **Watch** the repository for updates
 - **Star** if you find it useful
 - **Share** with others who might benefit
-
----
 
 ## Recognition
 

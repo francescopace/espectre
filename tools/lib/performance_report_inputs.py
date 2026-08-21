@@ -28,6 +28,7 @@ RESOURCE_BENCHMARK_SOURCES = (
     RESOURCE_BENCHMARK_SOURCE,
     CORE_SOURCE_DIR / "base_detector.cpp",
     CORE_SOURCE_DIR / "lightweight_detector.cpp",
+    CORE_SOURCE_DIR / "filtered_turbulence_ring.cpp",
     CORE_SOURCE_DIR / "filters.cpp",
     CORE_SOURCE_DIR / "high_accuracy_detector.cpp",
 )

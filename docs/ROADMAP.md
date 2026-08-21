@@ -48,7 +48,7 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 **Exit criteria**: no release blockers remain, every required gate passes on the release commit, release notes describe the final cumulative behavior and migration path, and published artifacts match the tagged source.
 
-### v3.1.0 - Sensing Quality and Performance
+## v3.1.0 - Sensing Quality and Performance
 
 **Product outcome**: make sensing more robust across environments and packet rates while improving embedded throughput on maintained device paths.
 
@@ -59,7 +59,7 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 **Exit criteria**: detector-performance and C++/Python parity gates pass on the expanded corpus, high-rate capture remains independent of detector admission, and every adopted build optimization passes binary-fit and runtime validation on affected frontends.
 
-### v3.2.0 - Developer Distribution
+## v3.2.0 - Developer Distribution
 
 **Product outcome**: provide explicit, reproducible ways to consume ESPectre from firmware projects and third-party web integrations.
 
@@ -72,7 +72,7 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 **Exit criteria**: every supported installation path works from a clean consumer project, the Arduino runtime compiles and runs through Arduino CLI on the selected initial target matrix with Wi-Fi startup and reconnect lifecycle validated, every release channel resolves to its intended artifacts, and the web BLE client has a validated public package or a documented decision to keep it internal.
 
-### v3.3.0 - Matter Product Readiness
+## v3.3.0 - Matter Product Readiness
 
 **Product outcome**: replace limited Matter coverage with a clear, evidence-backed interoperability and manufacturer-readiness position.
 
@@ -84,7 +84,7 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 **Exit criteria**: the selected controller matrix passes or records explicit limitations, and OTA plus certification work has a documented architecture, ownership model, and actionable gap list.
 
-### v3.4.0 - Local and Cooperative Operation
+## v3.4.0 - Local and Cooperative Operation
 
 **Product outcome**: improve standalone usability and determine whether nearby nodes can coordinate without depending on the future web orchestration layer.
 
@@ -96,7 +96,7 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 **Exit criteria**: the local display surface is documented and validated, and cooperative-node work ends with either an implementation that preserves CSI quality, latency, range, and interoperability or a measured rejection retained in [FEATURES.md](FEATURES.md).
 
-### v3.5.0 - Embedded Ecosystem Expansion
+## v3.5.0 - Embedded Ecosystem Expansion
 
 **Product outcome**: add an embedded ecosystem integration only when it can reuse the shared runtime without weakening licensing, maintainability, or sensing quality.
 

@@ -3,7 +3,7 @@
  *
  * UUIDs and device-name constants for the ESPectre BLE setup surface.
  *
- * Native uses sysinfo and control for provisioning, identity, and OTA.
+ * Native uses sysinfo and control for provisioning, device labels, and OTA.
  * `ESPECTRE_BLE_TELEMETRY_UUID` remains in the GATT table for discovery
  * compatibility; Native does not notify on it.
  *

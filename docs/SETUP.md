@@ -1,8 +1,6 @@
 # Setup Guide
 
-Use this guide to choose a frontend, flash published firmware, or prepare a local build. If you are embedding ESPectre into another firmware product, go directly to [EMBEDDING.md](EMBEDDING.md).
-
-The fastest path is [Web Flash](#web-flash-no-coding-required). Local builds require the repository environment and, for ESP-IDF frontends, the ESP-IDF prerequisite below. Each frontend README owns its configuration and troubleshooting after installation.
+Choose a frontend first. If it has a published image, [Web Flash](#web-flash-no-coding-required) is the shortest installation path. Local builds use the repository environment and the relevant frontend README. Firmware integrators should start with [EMBEDDING.md](EMBEDDING.md).
 
 ## Choose Your Frontend
 
@@ -12,6 +10,28 @@ The fastest path is [Web Flash](#web-flash-no-coding-required). Local builds req
 | `Native` | [Web Flash](#web-flash-no-coding-required) for standalone BLE/MQTT or Home Assistant MQTT Discovery, then the native frontend README for local ESP-IDF workflow | [`README.md` (native)](../src/cpp/frontend/native/README.md) |
 | `Matter` | [Web Flash](#web-flash-no-coding-required) for published preview firmware, then the frontend README for commissioning and local ESP-IDF workflow | [`README.md (matter)`](../src/cpp/frontend/matter/README.md) |
 | `Streamer` | Frontend README for the dedicated CSI stream workflow | [`README.md`](../src/cpp/frontend/streamer/README.md) |
+| `Micro-ESPectre` | Frontend README for the maintained MicroPython R&D runtime, project firmware, deployment, and MQTT workflow | [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md) |
+
+## Web Flash (no coding required)
+
+Go to [espectre.dev/flash](https://espectre.dev/flash/) and select:
+
+- the firmware frontend
+- the firmware channel
+- your target chip
+
+Use `Latest Release` for official firmware, `Release Preview` for the latest build from `main`, or `Development` for the latest build from `develop`. Published ESPHome firmware starts with Lightweight Detection and supports persisted runtime switching to High Accuracy. Published Matter firmware starts with Lightweight; High Accuracy is available in local Matter builds and is selected at build time. Streamer is source-built because it needs build-time Wi-Fi configuration.
+
+To flash:
+
+1. Connect the board over USB
+2. Click **Connect**
+3. Select the serial port
+4. Confirm the browser prompt
+
+If your browser does not support Web Serial, the same page exposes direct download links for manual flashing.
+
+Website maintainers can find local preview and artifact-staging instructions in [`docs/web/README.md`](web/README.md).
 
 ## Shared Prerequisites
 
@@ -29,6 +49,7 @@ Current chip support by frontend:
 | `Native` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Published web-flash images |
 | `Matter` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Published web-flash images |
 | `Streamer` | `ESP32`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6`, `ESP32-S3` | Local build workflow |
+| `Micro-ESPectre` | `ESP32`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6`, `ESP32-S3` | Local project-firmware build and filesystem deployment workflow |
 
 Use the frontend README for the workflow and surface details after you choose the firmware path.
 
@@ -63,7 +84,7 @@ Docker currently covers builds only. Flashing through the repository CLI still u
 
 #### Optional Compiler Cache
 
-`ccache` is optional but strongly recommended for local ESP-IDF builds, especially Matter. It reuses unchanged compiler output across rebuilds and clean build directories. Repository Docker builds enable a persistent cache automatically, so no host installation is needed for the Docker backend.
+`ccache` is optional. It shortens repeat ESP-IDF builds, especially Matter builds, by reusing unchanged compiler output across build directories. Repository Docker builds enable a persistent cache automatically, so the Docker backend needs no host installation.
 
 Install `ccache` for the local backend:
 
@@ -136,28 +157,7 @@ The bundle is source-first. It includes:
 
 Use [EMBEDDING.md](EMBEDDING.md) for the actual integration model and runtime contracts.
 
-## Web Flash (no coding required)
-
-Go to [espectre.dev/flash](https://espectre.dev/flash/) and select:
-
-- the firmware frontend
-- the firmware channel
-- your target chip
-
-Use `Latest Release` for official firmware, `Release Preview` for the latest build from `main`, or `Development` for the latest build from `develop`. Published ESPHome firmware starts with Lightweight Detection and supports persisted runtime switching to High Accuracy. Published Matter firmware starts with Lightweight; High Accuracy is available in local Matter builds and is selected at build time. Streamer is source-built because it needs build-time Wi-Fi configuration.
-
-To flash:
-
-1. Connect the board over USB
-2. Click **Connect**
-3. Select the serial port
-4. Confirm the browser prompt
-
-If your browser does not support Web Serial, the same page exposes direct download links for manual flashing.
-
-Website maintainers can find local preview and artifact-staging instructions in [`docs/web/README.md`](web/README.md).
-
-## After Flashing
+## After Installation
 
 The next step depends on the frontend you chose:
 
@@ -167,6 +167,7 @@ The next step depends on the frontend you chose:
 | `Native` | [`README.md`](../src/cpp/frontend/native/README.md) | Build/flash workflow, Wi-Fi and MQTT setup, Home Assistant MQTT Discovery, native control surface, and HTTPS OTA flow |
 | `Matter` | [`README.md`](../src/cpp/frontend/matter/README.md) | Commissioning flow, Matter occupancy surface, and local ESP-IDF workflow |
 | `Streamer` | [`README.md`](../src/cpp/frontend/streamer/README.md) | CSI streaming firmware, UDP packet format, build-time Wi-Fi setup, and the frontend's intentionally narrow scope |
+| `Micro-ESPectre` | [`README.md`](../src/python/micro_espectre/README.md) | Project firmware, filesystem deployment, local configuration, and MQTT operation |
 
 ## Reference: Shared Runtime Concepts
 
@@ -179,14 +180,16 @@ These options belong to the shared sensing runtime and apply to all sensing fron
 - `ESPHome`: YAML under `espectre:`, except the ESP32-C5 band policy, which uses ESPHome's native `wifi.band_mode`
 - `Native`: shared ESP-IDF sensing `sdkconfig` menu, with frontend-local overrides in `app/sdkconfig.defaults`
 - `Matter`: shared ESP-IDF sensing `sdkconfig` menu, with frontend-local overrides in `app/sdkconfig.defaults`
+- `Micro-ESPectre`: constants in `src/python/micro_espectre/config.py`, overridden locally through `config_local.py`; supported MQTT writes are session-only
 
-Support in this phase:
+Frontend coverage:
 
 | Frontend | Shared sensing options available |
 |----------|----------------------------------|
 | `ESPHome` | yes |
 | `Native` | yes |
 | `Matter` | yes |
+| `Micro-ESPectre` | yes, through its MicroPython configuration surface; runtime MQTT writes are session-only |
 | `Streamer` | no, streamer keeps its own stream/collector runtime profile |
 
 | Option | Type / values | Default | Range / notes |
@@ -205,7 +208,7 @@ Support in this phase:
 | `motion_off_hits` | int | `3` | `1-20` consecutive evaluation hits for `MOTION -> IDLE` (about `0.75 s` at the same defaults) |
 | `lowpass_enabled` | bool | `false` | Enables low-pass filtering |
 | `lowpass_cutoff` | float | `11.0` | `5.0-20.0` Hz |
-| `hampel_enabled` | bool | `true` | Enables Hampel outlier filtering |
+| `hampel_enabled` | bool | `true` in the C++ sensing frontends; `false` in Micro-ESPectre | Enables Hampel outlier filtering; Micro keeps it off by default to preserve CPU and heap headroom |
 | `hampel_window` | int | `7` | `3-11` samples |
 | `hampel_threshold` | float | `5.0` | `1.0-10.0` MAD units |
 
@@ -218,6 +221,7 @@ Use the frontend README for the exact syntax and local workflow:
 - [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md)
 - [`README.md` (native)](../src/cpp/frontend/native/README.md)
 - [`README.md` (matter)](../src/cpp/frontend/matter/README.md)
+- [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md)
 
 ### Detection Profiles And Startup
 
@@ -225,7 +229,7 @@ ESPectre keeps two production detection profiles because no single choice optimi
 
 At boot, Lightweight adapts its threshold to the room from about 10 seconds of clean, ready CSI coverage after temporal warmup. Missing or burst-concentrated slots extend wall-clock calibration instead of counting as evidence. After that, a long quiet stretch can still lower the live threshold if the opening was noisier than the rest of the session; Home Assistant, ESPHome, and the website Monitor follow that value. High Accuracy uses its trained threshold and skips threshold calibration; it becomes active after CSI capture is ready and the feature window has filled.
 
-ESPHome, Native, and Matter support both `lightweight` and `high_accuracy`. ESPHome and Native can switch profiles at runtime and persist the selection; the switch resets the threshold to the selected profile's default, and `high_accuracy -> lightweight` starts calibration automatically. Matter selects the profile at build time, exposes no runtime detector control, and uses `lightweight` in published firmware while the frontend remains preview. Streamer has no detector.
+ESPHome, Native, Matter, and Micro-ESPectre support both `lightweight` and `high_accuracy`. ESPHome and Native can switch profiles at runtime and persist the selection; the switch resets the threshold to the selected profile's default, and `high_accuracy -> lightweight` starts calibration automatically. Matter selects the profile at build time, exposes no runtime detector control, and uses `lightweight` in published firmware while the frontend remains preview. Micro-ESPectre selects the profile in its deployment configuration and does not expose runtime detector switching. Streamer has no detector.
 
 See:
 
@@ -257,13 +261,9 @@ Micro-ESPectre keeps its persisted factory default as `TRAFFIC_GENERATOR_ENABLED
 
 If you are tuning `csi_target_pps`, thresholds, or filters, use [TUNING.md](TUNING.md) for the rationale and the frontend README for the configuration syntax.
 
-## Frontend-Specific Workflows
+## Where to Go Next
 
-For build commands, commissioning steps, protocol details, integration behavior, and frontend-level configuration, continue in the local README of the frontend you selected.
-
-## Next Steps
-
-- [README.md](../README.md) for the project overview and documentation map
-- [TUNING.md](TUNING.md) for parameter tradeoffs and environment tuning
-- [ALGORITHMS.md](ALGORITHMS.md) for signal-processing and detector theory
-- [ARCHITECTURE.md](ARCHITECTURE.md) for `core` / `runtime` / `frontend` boundaries
+- To configure or troubleshoot an installed device, use its frontend README and [TUNING.md](TUNING.md).
+- To study detector behavior and formulas, use [ALGORITHMS.md](ALGORITHMS.md).
+- To change the shared code, use [ARCHITECTURE.md](ARCHITECTURE.md).
+- To integrate the SDK into another firmware product, use [EMBEDDING.md](EMBEDDING.md).

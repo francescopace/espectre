@@ -313,9 +313,9 @@ Whatever frontend you use, keep an eye on:
 
 ### Firmware Performance Check
 
-Use a `DEBUG` build when comparing firmware variants. Record the binary size and free application-partition space from the build summary, then monitor the device for several minutes after startup has settled.
+Compare firmware variants with the production compiler optimization for each frontend and enable only debug-level ESPectre telemetry. A compiler `DEBUG` build changes the CPU and memory profile being measured. Record the binary size and free application-partition space from the build summary, then monitor the device for several minutes after startup has settled.
 
-For the repository hardware benchmark, connect one supported board and run `python tools/benchmark_firmware.py --chip <chip>`. It samples Native Lightweight and High Accuracy, ESPHome Lightweight and High Accuracy, Matter's build-time default, and Streamer collection. This is representative benchmark coverage, not a capability matrix: ESPHome, Native, and Matter support both profiles, while only ESPHome and Native switch at runtime. See [tools/README.md](../tools/README.md#firmware-benchmark) for prerequisites and report behavior.
+For the repository hardware benchmark, connect one supported board and run `python tools/benchmark_firmware.py --chip <chip>`. It samples Native Lightweight and High Accuracy, Micro-ESPectre Lightweight and High Accuracy, ESPHome Lightweight and High Accuracy, Matter's build-time default, and Streamer collection. This is representative benchmark coverage, not a capability matrix: ESPHome, Native, Matter, and Micro-ESPectre support both profiles; ESPHome and Native switch at runtime, Matter selects at build time, and Micro-ESPectre selects at deploy time. See [tools/README.md](../tools/README.md#firmware-benchmark) for prerequisites and report behavior.
 
 The shared ESP-IDF runtime emits a `[telemetry]` line approximately every 10 seconds at `DEBUG` level. Check that:
 

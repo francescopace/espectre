@@ -12,6 +12,7 @@ import json
 
 import numpy as np
 
+from tools import generate_performance_report
 from tools.lib import performance_report, performance_report_inputs
 
 
@@ -165,6 +166,13 @@ def test_resource_benchmark_cache_tracks_core_headers():
     )
     assert core_headers.isdisjoint(
         set(performance_report_inputs.RESOURCE_BENCHMARK_SOURCES)
+    )
+
+
+def test_report_cache_tracks_replay_implementation():
+    assert (
+        performance_report.__file__
+        in {str(path) for path in generate_performance_report._replay_input_paths()}
     )
 
 

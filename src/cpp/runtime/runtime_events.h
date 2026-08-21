@@ -33,10 +33,11 @@ namespace espectre {
  *   `on_threshold_changed()` is used for both: a setter, calibration finish,
  *   or Lightweight settled-level recovery.
  *
- * Because they run on your own task, blocking is allowed: publishing over MQTT
- * or writing NVS from a callback costs loop latency, not CSI frames. Calling
- * back into the controller is allowed too, with one exception noted on
- * `on_runtime_fault()`.
+ * Keep callbacks bounded and non-blocking. Slow work delays the next `loop()`
+ * iteration and can fill the bounded CSI mailbox, causing incoming frames to be
+ * dropped. Queue network publication, NVS writes, and other potentially
+ * blocking work for another task. Calling back into the controller is allowed,
+ * with one exception noted on `on_runtime_fault()`.
  *
  * @par Snapshot lifetime
  * The `snapshot` reference is only valid for the duration of the call. Copy it

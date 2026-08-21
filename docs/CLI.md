@@ -85,7 +85,7 @@ For `flash`, the wrapper selects the serial port first, then prefers the build d
 
 `flash` still delegates to `idf.py flash`, so ESP-IDF may configure CMake or complete a missing build inside that selected directory before writing the firmware. The important guarantee is that the wrapper now prefers the chip-matched build directory first.
 
-Matter additionally exposes:
+Matter also exposes:
 
 | Command | Purpose |
 |---------|---------|
@@ -156,9 +156,7 @@ Reset on open:
 
 ### `collect`
 
-`collect` is the unified host-side CSI collection entry point.
-
-It uses one runtime collection path:
+`collect` is the unified host-side CSI collection entry point. One runtime path supports three modes:
 
 - live inspection when `--label` is omitted
 - live recording when `--label` is set

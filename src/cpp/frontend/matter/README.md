@@ -1,8 +1,8 @@
 # ESPectre Matter Frontend
 
-Matter is a smart-home interoperability standard that lets devices work across major ecosystems such as Apple Home, Google Home, Amazon Alexa, Samsung SmartThings, Home Assistant's Matter integration, and other Matter-compatible controllers. ESPectre exposes the standard occupancy sensor device type, so any controller that supports Matter occupancy sensors can consume it without a dedicated ESPectre integration.
+ESPectre's Matter firmware publishes the standard occupancy sensor device type. A controller that implements that type can consume it without an ESPectre-specific integration.
 
-Use this guide to flash, commission, or maintain the Matter frontend. First-time users can jump to [Getting Started](#getting-started) and [Exposed Matter Surface](#exposed-matter-surface); firmware developers can continue through runtime ownership and implementation details.
+Start with [Getting Started](#getting-started) to flash and commission a device. [Exposed Matter Surface](#exposed-matter-surface) documents the controller-visible contract; the later sections cover firmware ownership and implementation.
 
 ## Scope
 
@@ -75,13 +75,13 @@ The Matter frontend keeps ownership boundaries explicit:
 - the Matter stack starts first
 - the shared ESPectre runtime is initialized after `esp_matter::start()`
 - Wi-Fi ownership remains with `esp-matter`
-- the firmware keeps the shared Wi-Fi transport baseline active during commissioning, including AMPDU enabled plus the larger Wi-Fi and lwIP queues
+- the firmware keeps the standalone sensing Wi-Fi transport baseline active during commissioning, including disabled TX and RX AMPDU, Wi-Fi buffer counts `10/32/48`, and the enlarged lwIP queues
 - CSI services remain disarmed until commissioning completes
 - after commissioning, the reused runtime layers CSI Wi-Fi policy and capture setup on top of the initialized station stack
 
 That ordering is visible in [`app_main.cpp`](app/main/app_main.cpp).
 
-The Matter frontend also uses the same shared periodic progress-bar sensing status log helper used by the ESPHome and standalone native frontends, so runtime serial diagnostics stay aligned across the ecosystem-facing firmware targets.
+The Matter frontend uses the shared periodic progress-bar sensing status helper, as do the ESPHome and standalone Native frontends. This keeps runtime serial diagnostics aligned across the ecosystem-facing firmware targets.
 
 ### Commissioning Window Behavior
 
@@ -125,11 +125,7 @@ Matter supports both `lightweight` and `high_accuracy` as build-time detection p
 
 The same build-time sensing menu defines positive `CONFIG_ESPECTRE_CSI_TARGET_PPS` and a separate `CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_*` ownership choice. Both Matter detectors use the fixed temporal-admission grid; arrival jitter does not resize them or restart calibration. `external` and `pacing` join `CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP` (`239.255.0.1` by default) on the shared UDP listener port `5555`.
 
-In practice, this frontend is best understood as:
-
-- a Matter-native occupancy surface
-- without ESPectre-specific writable controls
-- over the shared ESPectre runtime
+The current frontend provides a Matter-native occupancy surface over the shared ESPectre runtime, without ESPectre-specific writable controls.
 
 ## Targets and Validation
 
@@ -186,7 +182,7 @@ Current behavior:
 - the shared ESPectre MQTT-triggered HTTPS OTA service is not reused by Matter
 - published Matter images are full firmware images intended for manual flashing and commissioning workflows
 
-Future Matter OTA work, if it returns, should come back as a complete Requestor-plus-Provider design rather than a direct firmware download path.
+Any future Matter OTA work should define a complete Requestor-plus-Provider design, not a direct firmware download path.
 
 ## Matter-Specific Troubleshooting
 
@@ -219,4 +215,4 @@ Check that:
 
 ### Runtime values are not exposed as writable Matter controls
 
-That is expected in the current frontend. The Matter surface is intentionally kept to standard occupancy behavior instead of mirroring the broader ESPectre runtime control plane.
+The current Matter surface exposes only standard occupancy behavior; it does not mirror the broader ESPectre runtime control plane.

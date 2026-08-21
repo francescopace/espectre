@@ -35,7 +35,7 @@ The most actionable scale-invariant experiments remain:
 
 | Priority | Experiment | Literature basis | ESPectre requirement |
 | ---: | --- | --- | --- |
-| 1 | Cross-subcarrier ratio or rank dynamics | SA-WiSense and statistical subcarrier utilization | Prove near-zero stability and incremental value over `chan_shape_spread` |
+| 1 | Cross-subcarrier ratio or rank dynamics | SA-WiSense and statistical subcarrier utilization | Prove near-zero stability and incremental value over the current eight-feature production model, including `chan_shape_spread_subband` |
 | 2 | Multi-offset frequency-coherence curve | Subcarrier-utilization and high-resolution sensing work | Compress to one ratio or normalized slope and test HT20 resolution |
 | 3 | Local phase closure | Phase sanitization and amplitude-plus-phase fusion work | Cancel common phase analytically before any classifier experiment |
 | 4 | Packet-age or cadence robustness | Resource-efficient sensing and large deployments | Treat as timing/provenance input unless it carries independent physical information |
@@ -89,7 +89,7 @@ The most actionable scale-invariant experiments remain:
 - **Released:** 2024-05-25
 - **Method:** transforms phase to reduce linear offsets, then fuses sanitized phase with amplitude because their blind spots are complementary.
 - **Results:** the joint representation outperforms either modality alone on the paper's gesture task.
-- **ESPectre:** **Adapt**. It supports a local closure-phase experiment, not reuse of raw phase or absolute amplitude. Any phase candidate must first survive chip, packet-rate, and clipping tests and add information beyond the five production features.
+- **ESPectre:** **Adapt**. It supports a local closure-phase experiment, not reuse of raw phase or absolute amplitude. Any phase candidate must first survive chip, packet-rate, and clipping tests and add information beyond the eight production features.
 
 ### Channel Phase Processing in Wireless Networks for Human Activity Recognition
 

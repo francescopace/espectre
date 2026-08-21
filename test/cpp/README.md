@@ -1,6 +1,6 @@
 # Test Suite
 
-Host-side **CMake + CTest** suite for validating the ESPectre `core / runtime / frontend` layers.
+Host-side CMake and CTest suite for the ESPectre `core`, `runtime`, and `frontend` layers.
 
 ## Quick Start
 
@@ -17,8 +17,6 @@ source .venv/bin/activate
 # Override automatic logical-CPU detection when needed
 CTEST_PARALLEL_LEVEL=2 ./test/cpp/run_all_tests.sh
 ```
-
----
 
 ## Test Suites
 
@@ -67,8 +65,6 @@ See [docs/performance](../../docs/performance/README.md) for detailed targets pe
 - If the paired or long-recording aggregates drift, the report generation fails and prints the mismatched chip/algorithm/metric entries instead of publishing stale documentation.
 - `test_motion_detection` and `test_long_recordings` are parity metric producers. Their local assertions protect replay accounting and output structure; the numerical promotion targets are owned by `test_validation_real_data.py::TestPerformanceMetrics` and the generated report gate.
 
----
-
 ## Real CSI Data
 
 Tests load real CSI data from NPZ files in `data/` using the [cnpy](https://github.com/rogersce/cnpy) library.
@@ -83,11 +79,7 @@ Tests load real CSI data from NPZ files in `data/` using the [cnpy](https://gith
 | ESP32-S3 | `static_presence_s3_64sc_*.npz` | `motion_s3_64sc_*.npz` |
 | ESP32 | `static_presence_esp32_64sc_*.npz` | `motion_esp32_64sc_*.npz` |
 
-Tests run with **multiple chip datasets** (C3, C5, C6, S3, and ESP32) using 64 SC (HT20 mode).
-
-Both Python and C++ tests use the same NPZ files, eliminating duplication.
-
----
+The Python and C++ suites read the same 64-subcarrier HT20 NPZ files for C3, C5, C6, S3, and ESP32.
 
 ## Code Coverage
 
@@ -105,8 +97,6 @@ Recent local snapshot (2026-05-30):
 - `core`: `92.25%`
 - `runtime`: `80.92%`
 - `frontend`: `97.69%`
-
----
 
 ## Project Structure
 
@@ -131,8 +121,6 @@ Production code under test lives outside `test/cpp/`:
 - `src/cpp/runtime/` for the shared runtime contract and `src/cpp/runtime/esp_idf/` for the current runtime orchestration
 - `src/cpp/frontend/esphome/components/espectre/` for the ESPHome component manifest and adapter layer
 - `src/cpp/frontend/matter/espectre/` for the Matter adapter and surface mapping
-
----
 
 ## Adding New Tests
 

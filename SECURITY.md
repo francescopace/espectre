@@ -39,10 +39,11 @@ Security issues relevant to ESPectre include:
 - MQTT authentication bypass
 - ESPHome/Home Assistant integration vulnerabilities
 - Firmware vulnerabilities on ESP32
+- Vulnerable dependency versions or configurations distributed by ESPectre
 
 ### Out of Scope
 
-- Vulnerabilities in dependencies (report to upstream projects)
+- Vulnerabilities that exist only in an upstream dependency and do not affect any version or configuration distributed by ESPectre; report those to the upstream project
 - Issues requiring physical access to the device
 - Social engineering attacks
 

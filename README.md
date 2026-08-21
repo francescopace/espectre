@@ -5,17 +5,11 @@
 
 <h1>ESPectre <img src="docs/web/assets/images/brand/espectre-logo.svg" alt="ESPectre logo" width="40" align="absmiddle" /></h1>
 
-**ESPectre** is an open-source Wi-Fi sensing platform for ESP32 devices.
-
-It detects motion from ordinary Wi-Fi signals, without cameras, microphones, wearables, or radar hardware. It integrates with Home Assistant through ESPHome or MQTT Discovery, and it exposes a standard Matter occupancy sensor for Google Home, Apple Home, and other Matter-compatible controllers.
+**ESPectre** is open-source firmware and tooling for motion sensing with ESP32 Wi-Fi channel state information (CSI). Detection runs on the device, without cameras, microphones, wearables, or radar hardware. ESPectre publishes motion and movement scores through ESPHome or MQTT, and exposes a standard Matter occupancy sensor.
 
 ## How It Works
 
-Wi-Fi signals bounce around a room. When a person moves, those reflections change. ESPectre reads channel state information (CSI), a measurement of how the radio channel changes across Wi-Fi frequencies, and turns those variations into motion and movement-score signals.
-
-ESPectre needs just one device to work, but you can put one in every room to build a room-level detection mesh.
-
-With ESPectre, ordinary Wi-Fi smart devices can double as ambient sensing nodes. Lights, switches, HVAC devices, appliances, and custom ESP32 products can add motion or occupancy awareness without cameras or dedicated sensors.
+An ESP32 associated with a Wi-Fi network receives packets and reads how the radio channel changes across Wi-Fi frequencies. The detectors track changes in those measurements and produce a movement score and motion state. One board covers one sensing area; room-level coverage requires one board in each room.
 
 ## Quick Start
 
@@ -28,8 +22,8 @@ If you want the fastest path, use the browser flasher:
 
 The browser tools share one site:
 
-- [Configure](https://espectre.dev/#configure) provisions Native over Bluetooth
-- [Monitor](https://espectre.dev/#monitor) watches motion, tunes detection, and inspects diagnostics over MQTT
+- [Configure](https://espectre.dev/configure) provisions Native over Bluetooth
+- [Monitor](https://espectre.dev/monitor) watches motion, tunes detection, and inspects diagnostics over MQTT
 - [The Game](https://espectre.dev/game/) and [Theremin](https://espectre.dev/theremin/) provide interactive sensing demos
 
 GitHub Releases also provide Native OTA payloads; ESPHome updates are compiled and installed through ESPHome Device Builder after the device is adopted.
@@ -43,10 +37,12 @@ ESPectre includes two on-device detection profiles because deployments have diff
 
 | Detection profile | Choose it when | Startup |
 |---|---|---|
-| `lightweight` | CPU time and working memory matter more than maximum accuracy, such as on smaller chips or firmware that must reserve resources for other features | Adapts to the room from about 10 seconds of clean, ready quiet-room coverage after temporal warmup; may still lower the live threshold after a later quiet stretch |
-| `high_accuracy` | Higher accuracy and better generalization justify additional feature state, memory, and inference work | Uses its trained threshold and skips quiet-room threshold calibration; it starts after CSI is ready and its feature window has filled |
+| `lightweight` | The surrounding firmware needs more CPU time and working memory | Learns a room-specific threshold from about 10 seconds of usable quiet-room data |
+| `high_accuracy` | Detection quality matters more than the additional feature state and inference work | Uses a trained threshold and starts after CSI and its feature window are ready |
 
-## Build Your Own Path
+Startup details and the measured trade-offs are documented in [SETUP.md](docs/SETUP.md#detection-profiles-and-startup) and [ALGORITHMS.md](docs/ALGORITHMS.md).
+
+## Choose a Firmware Path
 
 | Path | Best for | Start here |
 | ---- | -------- | ---------- |
@@ -83,7 +79,7 @@ ESPectre does not use cameras, microphones, or wearables. It works with derived 
 
 - Thanks to [Espressif](https://www.espressif.com/) for making CSI accessible in ESP-IDF and for recognizing ESPectre as a [community project](https://github.com/espressif/esp-csi#6-related-resources) in [esp-csi](https://github.com/espressif/esp-csi).
 - Thanks to the TOMMY team for the constructive public discussion around Wi-Fi sensing approaches, including their [TOMMY vs ESPectre](https://www.tommysense.com/docs/comparisons/espectre-comparison) comparison page.
-- Thanks to the [MicroPython](https://github.com/micropython/micropython) maintainers for reviewing, testing, and merging our [PR](https://github.com/micropython/micropython/pull/18460), which extended the ESP32 `network.WLAN` implementation in mainline MicroPython with direct Wi-Fi CSI access methods. That merge matters well beyond ESPectre: it opened public MicroPython access to ESP32 CSI data for the wider community, where that support did not previously exist, and turned a key part of our sensing stack into upstream open-source infrastructure.
+- Thanks to the [MicroPython](https://github.com/micropython/micropython) maintainers for reviewing, testing, and merging our [PR](https://github.com/micropython/micropython/pull/18460), which added direct ESP32 Wi-Fi CSI methods to the mainline `network.WLAN` implementation. Micro-ESPectre can therefore use a mainline MicroPython revision instead of a project-specific CSI fork.
 
 ## License
 

@@ -70,6 +70,9 @@ PERFORMANCE_DOC_PATH = repo_root() / "docs" / "performance" / "README.md"
 PERFORMANCE_REPLAY_IMPLEMENTATION_VERSION = 5
 REPORT_DATASET_ROLES = frozenset(("selection", "holdout"))
 DIAGNOSTIC_ALL_PHY = False
+# Published parity metrics use the C++ production default. Micro-ESPectre may
+# disable Hampel preprocessing to preserve heap and CPU headroom.
+REPORT_HAMPEL_ENABLED = True
 
 # Link-class policy: real weak-link (`low_rssi: true`) recordings are stress
 # diagnostics, not standard promotion material. Normal-link sessions keep the
@@ -1039,6 +1042,7 @@ def build_classic_replay_rows(
     )
     calibration_detector = build_lightweight_detector(
         threshold=1.0,
+        enable_hampel=REPORT_HAMPEL_ENABLED,
         timing=resolved_timing,
     )
     calibration_rows = _collect_classic_replay_phase_rows(
@@ -1051,9 +1055,14 @@ def build_classic_replay_rows(
     calibrated = build_calibrated_lightweight_detector(
         static_presence_packets,
         selected_subcarriers=selected_subcarriers,
+        enable_hampel=REPORT_HAMPEL_ENABLED,
     )
     detector = (
-        build_lightweight_detector(threshold=1.0, timing=resolved_timing)
+        build_lightweight_detector(
+            threshold=1.0,
+            enable_hampel=REPORT_HAMPEL_ENABLED,
+            timing=resolved_timing,
+        )
         if calibrated is None
         else calibrated[0]
     )
@@ -1205,7 +1214,11 @@ def _calibrate_classic_replay_rows(
         get_detector_startup_gate,
     )
 
-    detector = build_lightweight_detector(threshold=1.0, timing=dict(timing))
+    detector = build_lightweight_detector(
+        threshold=1.0,
+        enable_hampel=REPORT_HAMPEL_ENABLED,
+        timing=dict(timing),
+    )
     calibration_target_packets = max(
         1,
         int(round(CALIBRATION_DURATION_MS * 1000.0 / timing["interval_us"])),
@@ -1323,6 +1336,7 @@ def compute_classic_row_result(
         return None
     detector = build_lightweight_detector(
         threshold=adaptive_threshold,
+        enable_hampel=REPORT_HAMPEL_ENABLED,
         timing=timing,
     )
     detector._adapted_threshold_ready = True
@@ -1502,6 +1516,7 @@ def compute_classic_packet_result(
     calibrated = build_calibrated_lightweight_detector(
         static_presence_packets,
         selected_subcarriers=selected_band,
+        enable_hampel=REPORT_HAMPEL_ENABLED,
     )
     if calibrated is None:
         return None
@@ -2220,6 +2235,7 @@ def evaluate_classic_long_recording(
     calibrated = build_calibrated_lightweight_detector(
         baseline_packets,
         selected_subcarriers=DEFAULT_SUBCARRIERS,
+        enable_hampel=REPORT_HAMPEL_ENABLED,
     )
     if calibrated is None:
         return None

@@ -17,9 +17,9 @@ Terms used throughout this document:
 
 ## Overview
 
-ESPectre detects motion from Wi-Fi CSI by extracting a small, fixed slice of subcarriers, deriving gain-robust scalar signals from those amplitudes, and feeding those signals into either production profile:
+ESPectre detects motion from Wi-Fi CSI by extracting a small, fixed slice of subcarriers, deriving gain-robust scalar signals from those amplitudes, and passing those signals to one of two production profiles:
 
-- **Lightweight Detection** (`lightweight`), implemented by `LightweightDetector`, the default non-High-Accuracy detector
+- **Lightweight Detection** (`lightweight`), implemented by `LightweightDetector`, the default non-ML detector
 - **High-Accuracy Detection** (`high_accuracy`), implemented by `HighAccuracyDetector`, the neural detector with a trained probability threshold
 
 Representative raw CSI amplitude windows for empty room, static presence, and motion:
@@ -38,7 +38,7 @@ The current production detector definition is:
 
 Lightweight and High Accuracy are both production paths because they optimize different constraints.
 
-- **Lightweight Detection minimizes active detector cost.** Its Lightweight implementation uses two scalar feature streams, does not allocate the ML-only L1 and trajectory state, and performs less per-packet work. This leaves more CPU time and working memory for constrained chips or products in which sensing is only one firmware feature. The trade-off is lower accuracy and weaker generalization than High Accuracy on the maintained corpus.
+- **Lightweight Detection minimizes active detector cost.** It uses two scalar feature streams, does not allocate the ML-only L1 and trajectory state, and performs less per-packet work. This leaves more CPU time and working memory for constrained chips or products in which sensing is only one firmware feature. The trade-off is lower accuracy and weaker generalization than High Accuracy on the maintained corpus.
 - **High-Accuracy Detection prioritizes detection quality.** Its ML implementation maintains eight production features and runs a compact neural network, increasing memory and computation while improving accuracy and transfer across recorded environments. Its trained threshold also removes Lightweight's initial quiet-room calibration.
 
 Lightweight calibration requires about 10 seconds of clean, ready CSI coverage after temporal warmup. Its wall-clock duration can be longer when slots are missing, and it remains in calibration rather than consuming its budget with an invalid window. High Accuracy skips threshold calibration but still waits for CSI readiness and enough samples to fill its feature window. In images that support runtime profile switching, choosing Lightweight reduces active working state and per-packet detector work; it does not necessarily remove ML code or weights from flash.
@@ -80,7 +80,7 @@ The deployed detector uses a time-relative evaluation cadence and fixed feature 
 
 The runtime derives fixed slots from `csi_target_pps`, not from measured arrival rate. It admits at most one packet per slot, retaining the candidate nearest the ideal slot center until a later slot is observed. The minimum distance between consecutive selected candidates is half a target slot and is derived from `csi_target_pps`; other same-slot candidates count as excess. Duplicate, stale, and out-of-order timestamps are rejected, and a gap spanning the configured window clears detector history immediately even while the first post-gap candidate stays pending. Missing slots remain invalid in feature rings: window statistics consume valid samples, while adjacent and lagged features require valid samples at the exact configured slot offsets. Detection becomes ready after a complete temporal window with at least seven tenths valid occupancy. See the [fixed temporal-admission ADR](adr/2026-08-15-use-fixed-temporal-csi-admission.md).
 
-Calibration and steady-state detection share one cadence, so the interceptor that consumes packets during calibration evaluates on the same schedule the detection path does.
+Calibration and steady-state detection share one cadence. Both paths evaluate admitted packets on the same schedule.
 
 The detector instance, its slot capacity, and startup calibration remain stable under ordinary delivery jitter. A target or window configuration change is an explicit lifecycle boundary; measured receive rate is diagnostic only and never reconstructs a detector. Micro-ESPectre, collector sensing, replay, training, Python validation, and C++ integration replay all use their production-language sampler before feature processing. Streamer firmware alone preserves the unfiltered raw timestamped stream, while its collector-derived sensing view applies the same sampler.
 
@@ -119,7 +119,7 @@ Both detectors sample the same fixed 12-subcarrier set for their turbulence and 
 
 These bins are subcarriers `+/-4, +/-9, +/-14, +/-19, +/-24, +/-28`, and they assume the centered convention where bin `32` is DC. Classic-MAC parts deliver CSI in Espressif's native `0~31, -32~-1` order instead, so the capture path rotates those payloads before band selection; see [`csi_format.h`](../src/cpp/core/csi_format.h) and [`device_utils.py`](../src/python/micro_espectre/device_utils.py).
 
-The active runtime no longer performs per-session runtime subcarrier selection. This set is part of the detector definition for the current project surface. The indices come from measured channel coherence rather than from a detection-metric search: the motion perturbation stays coherent over about 10 subcarriers while quiet noise is nearly per-tone independent, so span is what buys independent looks. For the full rationale behind the band and the count, see [`2026-07-25-select-the-classic-band-from-channel-coherence.md`](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md).
+The active runtime no longer selects subcarriers for each session. This set is part of the current detector definition. The indices come from measured channel coherence, not a detection-metric search: motion perturbation stays coherent over about 10 subcarriers while quiet noise is nearly independent per tone, so spreading the selected tones across the band provides independent observations. For the full rationale behind the band and the count, see [`2026-07-25-select-the-classic-band-from-channel-coherence.md`](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md).
 
 ### Bands For Frequency-Domain Features
 
@@ -236,11 +236,11 @@ Use High-Accuracy Detection where accuracy, quiet-room robustness, or held-out g
 
 The runtime therefore revisits the threshold once a session proves itself quieter than its own opening. Every `20` evaluations it records the maximum metric logit in that block, keeps the last `12` blocks, and once the ring is full compares the median of those maxima against the live threshold. If that level plus `LIGHTWEIGHT_SETTLE_MARGIN_LOGITS` sits below the threshold, the threshold drops to it. The runtime emits `on_threshold_changed` when that happens, so Home Assistant, ESPHome, and the website Monitor control follow the live value rather than remaining on the post-calibration snapshot.
 
-Three properties make this safe rather than a drift toward the noise floor:
+The recovery has these safeguards:
 
-- **It only ever lowers.** Nothing here can raise a threshold, so it cannot hide motion that the calibrated threshold would have caught.
-- **Motion holds it up.** A stretch of real activity puts the block maxima high, the candidate lands above the current threshold, and nothing happens. The rule moves only after a long quiet stretch, which is exactly the evidence that the threshold is too high.
-- **A median of block maxima, not a mean or a global maximum.** One spike cannot pull the level down, and one quiet block cannot either.
+- It only lowers the threshold, so recovery cannot hide motion that the calibrated threshold would have caught.
+- Real activity raises the block maxima above the current threshold and prevents a change. A decrease requires a long quiet stretch.
+- The candidate is the median of block maxima. One spike or one quiet block cannot move it.
 
 The current `20`-evaluation blocks, `12`-block ring, and `2.7`-logit margin produce a `60 s` dwell at the nominal cadence. The recovery design and current operating point live in the [settled-level recovery ADR](adr/2026-07-26-recover-the-startup-threshold-once-a-session-settles.md). The temporal-admission contract that prompted the `2.7` revalidation is recorded in the [fixed temporal-admission ADR](adr/2026-08-15-use-fixed-temporal-csi-admission.md).
 
@@ -263,7 +263,7 @@ Current threshold:
 motion if probability > 0.5
 ```
 
-Unlike Lightweight Detection, High-Accuracy Detection does not need startup threshold calibration. It can begin detection as soon as CSI is ready and its feature window has filled, rather than requiring about 10 seconds of clean, ready quiet-room coverage after temporal warmup.
+High-Accuracy Detection skips startup threshold calibration. Detection begins after CSI is ready and the feature window has filled.
 
 ### Current Runtime Topology
 

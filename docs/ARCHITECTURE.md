@@ -19,20 +19,11 @@ src/cpp/
     └── streamer/
 ```
 
-High-level dependency shape:
-
 ```text
-Frontend -> Runtime contract -> Runtime implementation -> Core
+Frontend -> Runtime contracts -> ESP-IDF runtime services -> Core
 ```
 
-More concretely:
-
-```text
-ESPHome / Native / Matter / Streamer frontends
-  -> IEspectreRuntime + snapshots/events/capabilities
-  -> runtime backend selected by RuntimeFrontendController
-  -> shared runtime services
-```
+The contracts and detector logic compile on a host without ESP-IDF. Frontends select a backend through `RuntimeFrontendController` and do not call `core` directly.
 
 ## Layer Responsibilities
 
@@ -59,7 +50,7 @@ Rule of thumb: code in `core` should stay free of frontend-specific concerns suc
 - runtime snapshots, capabilities, and events
 - common runtime-facing configuration validation
 
-The frontend-oriented contract lives in the shared runtime layer. The current ESP-IDF implementations under `src/cpp/runtime/esp_idf/` include both the motion-oriented `EspIdfRuntime` and the transport-oriented `StreamEspIdfRuntime`.
+The shared runtime layer owns the frontend-facing contract. The ESP-IDF implementations under `src/cpp/runtime/esp_idf/` include the motion-oriented `EspIdfRuntime` and the transport-oriented `StreamEspIdfRuntime`.
 
 Shared runtime services also live here, including:
 
@@ -123,7 +114,7 @@ For the streamer workflow, see [`README.md` (streamer)](../src/cpp/frontend/stre
 
 ## Runtime Contract
 
-The shared runtime contract is intentionally frontend-oriented.
+The shared runtime contract is the interface used by frontends.
 
 Current key pieces:
 
@@ -166,41 +157,18 @@ This debug log is an implementation diagnostic, not part of ESPectre Protocol. S
 
 ## ESPectre Protocol In The Architecture
 
-ESPectre Protocol is the shared device-facing message model used by the standalone ESP-IDF frontends and related tools.
+ESPectre Protocol is the shared device-facing message model used by the standalone ESP-IDF frontends and related tools. [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md) owns its message families, BLE and MQTT mappings, payloads, and command surfaces.
 
-See [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md) for:
-
-- message families
-- BLE and MQTT transport mapping
-- payload semantics
-- OTA-related command surfaces
-
-Architecturally, the protocol sits at the frontend/runtime integration boundary for the non-ESPHome standalone firmware paths.
+For the non-ESPHome standalone firmware paths, the protocol sits at the boundary between the frontend and runtime layers.
 
 ## Packaging Note For ESPHome
 
 ESPHome still expects a component-shaped entry point under the external components root. For that reason, `src/cpp/frontend/esphome/components/espectre/` acts as the ESPHome packaging root even though the shared sources live under `src/cpp/core/` and `src/cpp/runtime/`.
 
-## Current Status
+## Related References
 
-Implemented today:
-
-- shared `core` sensing logic
-- shared `runtime` contract
-- current ESP-IDF runtime implementation
-- `esphome`, `native`, `matter`, and `streamer` frontends
-- shared ESPectre Protocol support across ESP-IDF standalone frontends
-
-For performance and detector behavior, continue in:
-
-- [`ALGORITHMS.md`](ALGORITHMS.md)
-- [`TUNING.md`](TUNING.md)
-- [`docs/performance`](performance/README.md)
-
-## Recommended Reading Order
-
-1. [README.md](../README.md) for the project overview
-2. [SETUP.md](SETUP.md) for the shared entry points
-3. this file for the current internal structure
-4. [ALGORITHMS.md](ALGORITHMS.md) for detector and pipeline details
-5. the relevant frontend README for operational workflow
+- Deployment and frontend selection: [SETUP.md](SETUP.md)
+- Supported SDK surface: [EMBEDDING.md](EMBEDDING.md)
+- Detector behavior and tuning: [ALGORITHMS.md](ALGORITHMS.md) and [TUNING.md](TUNING.md)
+- Measured detector results: [docs/performance](performance/README.md)
+- Frontend operation: the relevant README under `src/cpp/frontend/`

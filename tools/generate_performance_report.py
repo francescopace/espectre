@@ -122,6 +122,7 @@ def _replay_input_paths() -> tuple[Path, ...]:
     }
     paths.update(_report_dataset_paths())
     paths.add(_dataset_info_path())
+    paths.add(REPO_ROOT / "tools" / "lib" / "performance_report.py")
     paths.add(REPO_ROOT / "tools" / "lib" / "dataset_metadata.py")
     paths.add(REPO_ROOT / "tools" / "lib" / "npz_cache.py")
     return tuple(sorted(paths))

@@ -1,6 +1,6 @@
 # ESPectre ESPHome Frontend
 
-Use this guide to install, configure, or maintain the ESPHome integration for Home Assistant. First-time users can jump to [Getting Started](#getting-started) and [Configuration Surface](#configuration-surface); component maintainers can continue through the implementation and packaging sections.
+Installing an ESPHome image? Start with [Getting Started](#getting-started). If the device is already adopted, [Configuration Surface](#configuration-surface) lists the YAML options and entity controls. The implementation and packaging sections are for component maintainers.
 
 ## Scope
 

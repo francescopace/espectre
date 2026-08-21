@@ -23,9 +23,10 @@
  *   *application* version supplied by your build system. In an integration it
  *   is your product's version, not ESPectre's.
  *
- * First-party firmware and host tests define these macros from `git describe`
- * (`2.8.0-237-g7439944` until the next numeric tag). Published SDK bundles
- * stamp the same identity into this header. There is no in-tree fallback:
+ * First-party firmware and host tests define these macros from `git describe`,
+ * using either the numeric tag or a moving `<tag>-<commit-count>-g<hash>`
+ * identity. Published SDK bundles stamp the same identity into this header.
+ * There is no in-tree fallback:
  * configure fails without git history, and an unstamped header does not
  * compile. `ESPECTRE_SDK_VERSION_AT_LEAST()` uses the numeric tag core.
  */

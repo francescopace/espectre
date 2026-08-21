@@ -486,7 +486,7 @@ Capability-oriented `sysinfo` keys may include:
 | `frontend` | Firmware/frontend family currently exposing the BLE service |
 | `supports_wifi_provisioning` | Whether BLE clients can edit and apply Wi-Fi settings |
 | `supports_mqtt_config` | Whether BLE clients can edit MQTT broker settings |
-| `supports_device_config` | Whether BLE clients can edit device identity settings |
+| `supports_device_config` | Whether BLE clients can edit the user-facing `device_label` |
 | `supports_runtime_threshold` | Native reports `false`; threshold writes belong to MQTT |
 | `supports_runtime_motion_hits` | Native reports `false`; motion-hit writes belong to MQTT |
 | `supports_runtime_detector` | Native reports `false`; detector selection belongs to MQTT |
@@ -532,7 +532,7 @@ MQTT settings are also persisted in NVS as one block. `SET_MQTT_CONFIG:...` repl
 
 ## Deployment Profiles
 
-ESPectre Protocol can be carried by multiple deployment profiles. The currently implemented profile is the local lab path: [Configure](https://espectre.dev/#configure) uses BLE for connectivity setup, and [Monitor](https://espectre.dev/#monitor) uses MQTT over WebSockets for live sensing, runtime controls, diagnostics, and BLE recovery. Hosted HTTPS pages should use `wss://`; a local static preview of the website can still use an insecure `ws://` listener.
+ESPectre Protocol can be carried by multiple deployment profiles. The currently implemented profile is the local lab path: [Configure](https://espectre.dev/configure) uses BLE for connectivity setup, and [Monitor](https://espectre.dev/monitor) uses MQTT over WebSockets for live sensing, runtime controls, diagnostics, and BLE recovery. Hosted HTTPS pages should use `wss://`; a local static preview of the website can still use an insecure `ws://` listener.
 
 Web orchestration profiles add identity, tenancy, device claim, state mirrors, history, alerts, and OTA around the same protocol. Those system-level concerns belong to [ARCHITECTURE.md](ARCHITECTURE.md), not to this message schema.
 
