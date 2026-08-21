@@ -34,10 +34,10 @@ EXPECTED_SITEMAP_PATHS = {
     "/guides/detectors/",
     "/guides/micropython/",
     "/guides/future-wifi-sensing/",
-    "/docs/",
-    "/docs/api/",
-    "/docs/examples/",
-    "/docs/architecture/",
+    "/sdk/",
+    "/sdk/api/",
+    "/sdk/examples/",
+    "/sdk/architecture/",
     "/artifacts/sdk/api/",
     "/artifacts/sdk/release/",
     "/artifacts/sdk/preview/",
@@ -105,16 +105,6 @@ def verify_generated_pages() -> None:
     for static_path in registered_static_paths():
         relative_path = static_path.strip("/")
         require_file(f"{relative_path}/index.html")
-
-    invalid_links = []
-    for path in sorted(WEB_ROOT.rglob("*.html")):
-        text = path.read_text(encoding="utf-8")
-        if re.search(r'href="/sdk/api(?:/|\")', text):
-            invalid_links.append(str(path.relative_to(WEB_ROOT)))
-    if invalid_links:
-        raise ValueError(
-            "SDK API links must use /artifacts/sdk/api/: " + ", ".join(invalid_links)
-        )
 
 
 def verify_sitemap(*, require_preview: bool, require_release: bool, require_develop: bool) -> None:

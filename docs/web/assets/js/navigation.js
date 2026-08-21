@@ -11,6 +11,28 @@
 
     const compactToc = window.matchMedia('(max-width: 720px)');
 
+    function normalizeSpaEntryPath() {
+        if (window.location.pathname !== '/index.html') return;
+        const canonicalUrl = new URL('/', window.location.href);
+        canonicalUrl.search = window.location.search;
+        canonicalUrl.hash = window.location.hash;
+        window.history.replaceState(window.history.state, '', canonicalUrl);
+    }
+
+    function interceptStaticPageRoute(event) {
+        if (!document.documentElement.hasAttribute('data-static-page')) return;
+        if (event.defaultPrevented || event.button !== 0) return;
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        const link = event.target.closest('a[href]');
+        if (!link || (link.target && link.target !== '_self')) return;
+        const route = window.ESPectreRoutes?.routeForPath(link.getAttribute('href'));
+        if (!route) return;
+        event.preventDefault();
+        window.location.assign(`/#${route}`);
+    }
+
+    normalizeSpaEntryPath();
+
     function setPageTocMode(toc) {
         toc.open = !compactToc.matches;
     }
@@ -139,4 +161,5 @@
             toggle.focus();
         });
     });
+    document.addEventListener('click', interceptStaticPageRoute);
 })();

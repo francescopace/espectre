@@ -272,7 +272,7 @@ def test_indexnow_retries_transient_failures_and_sends_the_sitemap(tmp_path: Pat
     sitemap.write_text(
         '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
         "<url><loc>https://espectre.dev/</loc></url>"
-        "<url><loc>https://espectre.dev/docs/</loc></url></urlset>",
+        "<url><loc>https://espectre.dev/sdk/</loc></url></urlset>",
         encoding="utf-8",
     )
     urls = indexnow.sitemap_urls(sitemap)
@@ -690,11 +690,14 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
         assert "--backend local" in source
 
 
-def test_website_sources_use_the_generated_sdk_api_path() -> None:
-    content_root = REPO_ROOT / "docs" / "web" / "content"
-    invalid = [
-        path.relative_to(REPO_ROOT)
-        for path in content_root.rglob("*.html")
-        if re.search(r'href="/sdk/api(?:/|\")', path.read_text(encoding="utf-8"))
-    ]
-    assert invalid == []
+def test_website_sources_distinguish_sdk_api_orientation_from_reference() -> None:
+    sdk_landing = (REPO_ROOT / "docs" / "web" / "content" / "docs.html").read_text(
+        encoding="utf-8"
+    )
+    api_orientation = (
+        REPO_ROOT / "docs" / "web" / "content" / "docs" / "api.html"
+    ).read_text(encoding="utf-8")
+
+    assert 'href="/sdk/api/" class="doc-link"' in sdk_landing
+    assert 'href="/artifacts/sdk/api/" class="btn-secondary"' in sdk_landing
+    assert 'href="/artifacts/sdk/api/" class="api-reference-cta"' in api_orientation

@@ -7,20 +7,20 @@
     <h1>Flash and set up your device</h1>
     <p class="article-lead">Take a blank ESP32 board to a working motion sensor through either published browser images or a local CLI build. Both paths meet at the same provisioning, verification, and monitoring steps.</p>
     <figure>
-      <img src="/assets/images/guides/flash-connect-usb-card-v2.avif" alt="An ESP32 board connected to a laptop for browser flashing" width="1068" height="600" loading="eager">
+      <img src="/assets/images/guides/flash-connect-usb-card.avif" alt="An ESP32 board connected to a laptop for browser flashing" width="1068" height="600" loading="eager">
       <figcaption>Connect the board directly to the computer with a USB data cable before opening the browser flasher.</figcaption>
     </figure>
 
     <h2 id="setup-requirements">What you need</h2>
     <ul class="checklist">
       <li>A compatible Espressif board listed in the <a href="/guides/hardware/">hardware guide</a>.</li>
-      <li>A USB cable that carries data, not only power. If in doubt, try another cable first: it is the single most common problem.</li>
+      <li>A USB cable that carries data, not only power. If in doubt, try another cable first; charge-only cables are a common setup problem.</li>
       <li>For the browser path, Chrome or Edge on desktop. Browser flashing uses Web Serial, which Firefox and Safari do not support.</li>
       <li>For the CLI path, Python 3. Docker is optional; without it, install ESP-IDF 5.5 or newer locally. When Docker is available, the CLI automatically downloads and uses the pinned build image containing the correct ESP-IDF version.</li>
     </ul>
 
     <h2 id="setup-firmware">Step 1 — Choose your firmware</h2>
-    <p>Pick the row that matches how you want to use the sensor. You can always reflash later; switching firmware takes two minutes.</p>
+    <p>Pick the row that matches how you want to use the sensor. You can reflash later if your needs change.</p>
     <div class="table-wrap"><table>
       <thead><tr><th>If you...</th><th>Flash</th><th>You get</th></tr></thead>
       <tbody>
@@ -154,7 +154,7 @@ espectre&gt; recalibrate</code></pre>
 
     <h2 id="setup-troubleshooting">Troubleshooting</h2>
     <div class="mini-cards">
-      <article><h3>No serial port appears</h3><ul><li>Try another USB cable: charge-only cables are the top cause.</li><li>Try another USB port, ideally directly on the computer.</li><li>Hold <strong>BOOT</strong> while plugging in, then retry Connect.</li></ul></article>
+      <article><h3>No serial port appears</h3><ul><li>Try another USB cable; charge-only cables are a common cause.</li><li>Try another USB port, ideally directly on the computer.</li><li>Hold <strong>BOOT</strong> while plugging in, then retry Connect.</li></ul></article>
       <article><h3>Flashing starts but fails midway</h3><ul><li>Close other tabs or programs using the port and retry.</li><li>Use a rear USB port or a powered hub: unstable power interrupts flashing.</li><li>Retry with <em>Erase</em> enabled to start from a clean flash.</li></ul></article>
       <article><h3>The installer says the board is not supported</h3><ul><li>The connected chip has no published image for the selected firmware and channel.</li><li>The Flash page lists the chips that currently have firmware.</li><li>Espressif variants outside that list, such as ESP32-S2 or ESP32-H2, cannot be flashed from the browser.</li></ul></article>
       <article><h3>Device will not join Wi-Fi</h3><ul><li>Confirm that the selected band is available. Configure exposes 5&nbsp;GHz and automatic selection only on capable ESP32-C5 devices, and a band change requires a restart.</li><li>Re-enter the exact SSID and password: both are case-sensitive.</li><li>Move the board closer to the access point for the first join.</li></ul></article>

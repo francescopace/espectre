@@ -4,9 +4,9 @@
 
 | Milestone | Timing | Commitment | Product outcome |
 | --- | --- | --- | --- |
-| **v3.0.0-rc1** | August 2026 | Planned | Freeze the v3 platform scope and validate release artifacts |
-| **v3.0.0-rc2** | September 2026 | Planned | Resolve targeted `rc1` findings without widening the baseline |
-| **v3.0.0** | October 2026 | Planned | Ship the stable shared sensing platform and supported firmware frontends |
+| **v3.0.0-rc1** | 22 August 2026 | Planned | Freeze the v3 platform scope and validate release artifacts |
+| **v3.0.0-rc2** | First half of September 2026 | Planned | Resolve targeted `rc1` findings without widening the baseline |
+| **v3.0.0** | Late September 2026 | Planned | Ship the stable shared sensing platform and supported firmware frontends |
 | **v3.1.0** | After v3.0.x triage | Planned | Improve sensing quality, high-rate behavior, and device-side performance |
 | **v3.2.0** | After v3.1.0 | Planned | Make the SDK and web integration surfaces easier to consume |
 | **v3.3.0** | After v3.2.0 | Planned | Establish a validated Matter integration and manufacturer-readiness position |

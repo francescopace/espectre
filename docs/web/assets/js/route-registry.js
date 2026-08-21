@@ -29,10 +29,10 @@
         { name: 'guide-detectors', group: 'guides', title: 'Detection profiles | ESPectre', staticPath: '/guides/detectors/' },
         { name: 'guide-micropython', group: 'guides', title: 'Run ESPectre on MicroPython | ESPectre', staticPath: '/guides/micropython/' },
         { name: 'guide-future-wifi-sensing', group: 'guides', title: 'The future of Wi-Fi sensing | ESPectre', staticPath: '/guides/future-wifi-sensing/', analyticsName: 'future-wifi-sensing' },
-        { name: 'docs', title: 'ESPectre SDK quick guide | ESPectre', staticPath: '/docs/', analyticsName: 'overview' },
-        { name: 'docs-api', group: 'docs', title: 'API orientation | ESPectre', staticPath: '/docs/api/' },
-        { name: 'docs-examples', group: 'docs', title: 'Examples | ESPectre', staticPath: '/docs/examples/' },
-        { name: 'docs-architecture', group: 'docs', title: 'Architecture | ESPectre', staticPath: '/docs/architecture/' },
+        { name: 'sdk', title: 'ESPectre SDK quick guide | ESPectre', staticPath: '/sdk/', analyticsName: 'overview' },
+        { name: 'sdk-api', group: 'sdk', title: 'API orientation | ESPectre', staticPath: '/sdk/api/' },
+        { name: 'sdk-examples', group: 'sdk', title: 'Examples | ESPectre', staticPath: '/sdk/examples/' },
+        { name: 'sdk-architecture', group: 'sdk', title: 'Architecture | ESPectre', staticPath: '/sdk/architecture/' },
         { name: 'media', title: 'Media | ESPectre', staticPath: '/media/' },
         { name: 'roadmap', title: 'Roadmap | ESPectre', staticPath: '/roadmap/' },
         { name: 'privacy', title: 'Website privacy and analytics | ESPectre', staticPath: '/privacy/' },
@@ -62,8 +62,8 @@
         if (!definition) return 'other';
         if (definition.group === 'tools') return definition.name;
         if (definition.name === 'tools') return 'tools';
-        if (definition.group === 'guides' || definition.group === 'docs') return 'documentation';
-        if (definition.name === 'guides' || definition.name === 'docs' || definition.name === 'roadmap') {
+        if (definition.group === 'guides' || definition.group === 'sdk') return 'documentation';
+        if (definition.name === 'guides' || definition.name === 'sdk' || definition.name === 'roadmap') {
             return 'documentation';
         }
         return definition.name;
@@ -83,7 +83,7 @@
     function documentNameForPath(path) {
         const normalized = normalizedPath(path);
         return documentPathNames.get(normalized)
-            || contentNameForPath(normalized, 'docs-', 'docs');
+            || contentNameForPath(normalized, 'sdk-', 'sdk');
     }
 
     window.ESPectreRoutes = Object.freeze({

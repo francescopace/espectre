@@ -7,13 +7,13 @@
   <h1>Run ESPectre on MicroPython</h1>
   <p class="article-lead">Capture ESP32 Wi-Fi CSI and run motion sensing directly on the device in Python, using the upstream MicroPython support contributed by ESPectre.</p>
   <figure>
-    <img src="/assets/images/guides/micropython-csi-runtime-card-v4.avif" alt="A Python snake mascot perched on an Espressif board connected to a laptop displaying CSI traces" width="1068" height="600" loading="eager">
+    <img src="/assets/images/guides/micropython-csi-runtime-card.avif" alt="A Python snake mascot perched on an Espressif board connected to a laptop displaying CSI traces" width="1068" height="600" loading="eager">
     <figcaption>MicroPython captures CSI on the ESP32; Micro-ESPectre turns the stream into on-device motion signals and local telemetry.</figcaption>
   </figure>
 
   <h2 id="micropython-upstream">ESPectre brought ESP32 CSI to mainline MicroPython</h2>
   <p>ESPectre contributed direct Wi-Fi Channel State Information access to MicroPython through <a href="https://github.com/micropython/micropython/pull/18460" target="_blank" rel="noopener">micropython/micropython#18460</a>. The merged ESP32 <code>network.WLAN</code> methods expose CSI capture, buffered reads, availability, and dropped-frame diagnostics from Python.</p>
-  <p>Micro-ESPectre now uses pinned, hash-verified official MicroPython firmware rather than the historical project fork. The contribution was merged into mainline for the MicroPython 1.29.0 release cycle, turning a project prerequisite into reusable upstream infrastructure for the wider community.</p>
+  <p>Micro-ESPectre now uses pinned, hash-verified official MicroPython firmware rather than the historical project fork. The contribution was merged into mainline for the MicroPython 1.29.0 release cycle, so other MicroPython projects can use the same ESP32 CSI interface.</p>
   <div class="note"><strong>The durable claim is the contribution itself:</strong> ESPectre added direct ESP32 CSI access to mainline MicroPython, and then built an on-device sensing runtime on top of it.</div>
 
   <h2 id="micropython-runtime">What runs on the ESP32</h2>
@@ -25,7 +25,7 @@
     <div><strong>Detection</strong><span>on-device Python</span></div>
     <div><strong>MQTT event</strong><span>local network</span></div>
   </div>
-  <p>The Python and C++ implementations follow the same detector direction. Shared CSI format, timing, feature, threshold, and protocol contracts are kept aligned so Python experiments can be validated before stable behavior is promoted to the production C++ layers.</p>
+  <p>The Python and C++ implementations follow the same detector design. Shared CSI format, timing, feature, threshold, and protocol contracts stay aligned so Python experiments can be validated before stable behavior is promoted to the production C++ layers.</p>
 
   <h2 id="micropython-requirements">Requirements</h2>
   <div class="table-wrap"><table>
@@ -59,7 +59,7 @@ cp src/python/micro_espectre/config_local.py.example \
 ./espectre micro run</code></pre>
   <div class="note">Keep Wi-Fi and MQTT credentials in <code>config_local.py</code>. Never commit that local file.</div>
 
-  <h2 id="micropython-profiles">The same two detection directions</h2>
+  <h2 id="micropython-profiles">The same two detection profiles</h2>
   <div class="table-wrap"><table>
     <thead><tr><th>Profile</th><th>Choose it when</th><th>Startup</th></tr></thead>
     <tbody>
@@ -67,7 +67,7 @@ cp src/python/micro_espectre/config_local.py.example \
       <tr><td>High Accuracy</td><td>You can spend more memory and inference work for better detection quality.</td><td>Uses its trained threshold, then waits for CSI and feature-window readiness.</td></tr>
     </tbody>
   </table></div>
-  <p>Both publish through the same ESPectre Protocol direction used by the Native frontend. Micro-ESPectre can also enable an optional Home Assistant MQTT Discovery adapter for motion, movement score, controls, and on-demand diagnostics.</p>
+  <p>Both publish through the ESPectre Protocol message model used by the Native frontend. Micro-ESPectre can also enable an optional Home Assistant MQTT Discovery adapter for motion, movement score, controls, and on-demand diagnostics.</p>
 
   <h2 id="micropython-boundary">Current role and limits</h2>
   <p>Micro-ESPectre is ESPectre's maintained Python and MicroPython experimentation path. It is not yet presented as a stable embeddable SDK: the current distribution deploys the complete reference runtime, and its supported public library boundary has not been frozen.</p>

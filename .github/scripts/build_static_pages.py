@@ -145,51 +145,51 @@ PAGES = (
     },
     {
         "source": "content/docs.html",
-        "output": "docs",
+        "output": "sdk",
         "title": "ESPectre SDK quick guide | ESPectre",
         "description": (
             "Embed the ESPectre C++ sensing runtime in an ESP-IDF product with "
             "a concise setup path, integration examples, and architecture overview."
         ),
-        "active_nav": "docs",
+        "active_nav": "sdk",
         "main_class": "page-narrow",
         "og_type": "website",
     },
     {
         "source": "content/docs/api.html",
-        "output": "docs/api",
+        "output": "sdk/api",
         "title": "API orientation | ESPectre",
         "description": (
             "Find the main ESPectre SDK types, understand the runtime lifecycle, "
             "and continue to the generated Doxygen API reference."
         ),
-        "parent_href": "/docs/",
-        "parent_label": "Docs",
-        "active_nav": "docs",
+        "parent_href": "/sdk/",
+        "parent_label": "SDK",
+        "active_nav": "sdk",
     },
     {
         "source": "content/docs/examples.html",
-        "output": "docs/examples",
+        "output": "sdk/examples",
         "title": "Examples | ESPectre",
         "description": (
             "Choose among the maintained ESPHome, Native, Matter, and Streamer "
             "frontends when embedding ESPectre in a product."
         ),
-        "parent_href": "/docs/",
-        "parent_label": "Docs",
-        "active_nav": "docs",
+        "parent_href": "/sdk/",
+        "parent_label": "SDK",
+        "active_nav": "sdk",
     },
     {
         "source": "content/docs/architecture.html",
-        "output": "docs/architecture",
+        "output": "sdk/architecture",
         "title": "Architecture | ESPectre",
         "description": (
             "How ESPectre splits reusable sensing code across core, runtime, "
             "and frontend layers, including ports to new platforms."
         ),
-        "parent_href": "/docs/",
-        "parent_label": "Docs",
-        "active_nav": "docs",
+        "parent_href": "/sdk/",
+        "parent_label": "SDK",
+        "active_nav": "sdk",
     },
     {
         "source": "content/media.html",
@@ -208,9 +208,9 @@ PAGES = (
         "output": "roadmap",
         "title": "Roadmap | ESPectre",
         "description": (
-            "ESPectre product direction toward v3.0 and beyond: easier adoption, optional "
-            "multi-device orchestration, sensing research, and future "
-            "standards-backed Wi-Fi Sensing hardware."
+            "ESPectre's roadmap for privacy-first, local Wi-Fi sensing: a stable embeddable "
+            "v3 platform, optional multi-node orchestration, measured research, and future "
+            "standards-backed radios."
         ),
         "active_nav": "roadmap",
         "main_class": "page-narrow",
@@ -337,8 +337,8 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
       <a href="/#tools" class="nav-link">Tools</a>
       <a href="/guides/" class="nav-link{guides_active}"{guides_current}>Guides</a>
       <a href="/media/" class="nav-link{media_active}"{media_current}>Media</a>
+      <a href="/sdk/" class="nav-link{sdk_active}"{sdk_current}>SDK</a>
       <a href="/roadmap/" class="nav-link{roadmap_active}"{roadmap_current}>Roadmap</a>
-      <a href="/docs/" class="nav-link{docs_active}"{docs_current}>Docs</a>
       <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener" class="nav-link">GitHub ↗</a>
     </nav>
   </div>
@@ -423,11 +423,11 @@ def build() -> None:
             og_type=spec.get("og_type", "article"),
             breadcrumb=breadcrumb(spec),
             guides_active=" active" if spec["active_nav"] == "guides" else "",
-            docs_active=" active" if spec["active_nav"] == "docs" else "",
+            sdk_active=" active" if spec["active_nav"] == "sdk" else "",
             media_active=" active" if spec["active_nav"] == "media" else "",
             roadmap_active=" active" if spec["active_nav"] == "roadmap" else "",
             guides_current=' aria-current="page"' if spec["active_nav"] == "guides" else "",
-            docs_current=' aria-current="page"' if spec["active_nav"] == "docs" else "",
+            sdk_current=' aria-current="page"' if spec["active_nav"] == "sdk" else "",
             media_current=' aria-current="page"' if spec["active_nav"] == "media" else "",
             roadmap_current=' aria-current="page"' if spec["active_nav"] == "roadmap" else "",
             content_group=spec.get("content_group", "documentation"),

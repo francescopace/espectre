@@ -148,17 +148,17 @@ describe('analytics route metadata', () => {
         assert.equal(api.getRouteTitle('monitor'), 'Monitor | ESPectre');
         assert.equal(api.getRouteTitle('guide-detectors'), 'Detection profiles | ESPectre');
         assert.equal(api.getRouteTitle('guide-new-topic'), 'New topic | ESPectre');
-        assert.equal(api.getRouteTitle('docs-new-reference'), 'New reference | ESPectre');
+        assert.equal(api.getRouteTitle('sdk-new-reference'), 'New reference | ESPectre');
         assert.equal(api.getRouteTitle('privacy'), 'Website privacy and analytics | ESPectre');
         assert.equal(api.getSiteSection('configure'), 'configure');
         assert.equal(api.getSiteSection('monitor'), 'monitor');
         assert.equal(api.getSiteSection('guide-setup'), 'documentation');
-        assert.equal(api.getSiteSection('docs-api'), 'documentation');
+        assert.equal(api.getSiteSection('sdk-api'), 'documentation');
         assert.equal(window.ESPectreRoutes.guideNameForPath('/guides/detectors/'), 'detectors');
         assert.equal(window.ESPectreRoutes.guideNameForPath('/guides/future-wifi-sensing/'), 'future-wifi-sensing');
-        assert.equal(window.ESPectreRoutes.guideNameForPath('/docs/api/'), '');
-        assert.equal(window.ESPectreRoutes.documentNameForPath('/docs/api/'), 'api');
-        assert.equal(window.ESPectreRoutes.documentNameForPath('/docs/'), 'overview');
+        assert.equal(window.ESPectreRoutes.guideNameForPath('/sdk/api/'), '');
+        assert.equal(window.ESPectreRoutes.documentNameForPath('/sdk/api/'), 'api');
+        assert.equal(window.ESPectreRoutes.documentNameForPath('/sdk/'), 'overview');
         assert.equal(window.ESPectreRoutes.documentNameForPath('/artifacts/sdk/release/'), 'sdk_release');
         assert.equal(window.ESPectreRoutes.documentNameForPath('/artifacts/sdk/preview/'), 'sdk_preview');
         assert.equal(window.ESPectreRoutes.documentNameForPath('/artifacts/sdk/develop/'), 'sdk_develop');
@@ -210,5 +210,30 @@ describe('analytics route metadata', () => {
             (entry) => entry[0] === 'event' && entry[1] === 'page_view'
         ).length;
         assert.equal(after, before);
+    });
+});
+
+describe('analytics automatic events', () => {
+    it('tracks contact links added after analytics initialization', () => {
+        const { api, listeners, window } = analyticsContext();
+        api.enableAnalytics({ sendPageView: false });
+        listeners.get('DOMContentLoaded')();
+
+        const click = listeners.get('click');
+        const dispatchLink = (href) => click({
+            target: {
+                closest: () => ({
+                    href,
+                    getAttribute: () => href,
+                    querySelector: () => null,
+                    textContent: href
+                })
+            }
+        });
+
+        dispatchLink('mailto:contact@espectre.dev?subject=Product');
+        assert.equal(window.dataLayer.at(-1)[1], 'click_contact');
+        dispatchLink('mailto:security@espectre.dev');
+        assert.equal(window.dataLayer.at(-1)[1], 'click_security');
     });
 });

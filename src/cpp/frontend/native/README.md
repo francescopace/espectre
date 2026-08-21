@@ -18,7 +18,7 @@ The web flasher can install published `Native` images for supported chips. After
 
 - [Configure](https://espectre.dev/configure): Bluetooth provisioning for Wi-Fi, MQTT, and the user-facing device label
 - [Monitor](https://espectre.dev/monitor): MQTT telemetry, tuning, and diagnostics
-- [The Game](https://espectre.dev/game/): example interactive client over MQTT after BLE setup
+- [Run with the Spectre](https://espectre.dev/game/): example interactive client over MQTT after BLE setup
 
 Each `release`, `preview`, and `develop` channel publishes one full-flash native image and one application-only OTA payload per supported chip. Both contain the same application features; the smaller `-ota.bin` file omits the bootloader, partition table, and other full-flash regions required only for USB recovery. GitHub Pages stages only the full-flash image for the browser flasher.
 
@@ -263,4 +263,4 @@ The firmware app uses the shared standalone Wi-Fi manager for station setup, BSS
 - `espectre/native_frontend.cpp`: command parsing and sysinfo emission
 - `../../runtime/esp_idf/frontend_support/ble_bindings_nimble.cpp`: NimBLE transport implementation
 - `../../../../docs/web/index.html`: browser Configure and Monitor tools
-- [The Game](https://espectre.dev/game/): published example client over MQTT after BLE setup
+- [Run with the Spectre](https://espectre.dev/game/): published example client over MQTT after BLE setup

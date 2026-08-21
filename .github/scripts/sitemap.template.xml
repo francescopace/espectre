@@ -2,10 +2,10 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://espectre.dev/</loc></url>
   <url><loc>https://espectre.dev/guides/</loc></url>
-  <url><loc>https://espectre.dev/docs/</loc></url>
-  <url><loc>https://espectre.dev/docs/api/</loc></url>
-  <url><loc>https://espectre.dev/docs/examples/</loc></url>
-  <url><loc>https://espectre.dev/docs/architecture/</loc></url>
+  <url><loc>https://espectre.dev/sdk/</loc></url>
+  <url><loc>https://espectre.dev/sdk/api/</loc></url>
+  <url><loc>https://espectre.dev/sdk/examples/</loc></url>
+  <url><loc>https://espectre.dev/sdk/architecture/</loc></url>
   <url><loc>https://espectre.dev/artifacts/sdk/api/</loc></url>
   <url><loc>https://espectre.dev/artifacts/sdk/release/</loc></url>
   <url><loc>https://espectre.dev/artifacts/sdk/preview/</loc></url>

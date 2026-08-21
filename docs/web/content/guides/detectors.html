@@ -7,7 +7,7 @@
     <h1>Choose your detection profile</h1>
     <p class="article-lead">ESPectre includes two built-in production motion detectors: Lightweight Detection and High-Accuracy Detection. Both analyze the same Wi-Fi CSI stream and expose the same motion state. Lightweight is the published default and leaves more CPU and working memory available; High Accuracy uses a compact pretrained model to improve detection quality and generalization on the maintained corpus.</p>
     <figure>
-      <img src="/assets/images/guides/detection-profiles-card-v2.avif" alt="An ESP32 branching one Wi-Fi signal into short and deep processing paths" width="1068" height="600" loading="eager">
+      <img src="/assets/images/guides/detection-profiles-card.avif" alt="An ESP32 branching one Wi-Fi signal into short and deep processing paths" width="1068" height="600" loading="eager">
       <figcaption>One CSI stream feeds two built-in detectors. Native and ESPHome can switch between them at runtime, while Matter selects one at build time.</figcaption>
     </figure>
 
@@ -22,7 +22,7 @@
       <article>
         <span class="guide-tag">DETECTION QUALITY</span>
         <h3>High-Accuracy Detection</h3>
-        <p>Uses additional feature state and a compact neural network for stronger accuracy and generalization. It starts without quiet-room threshold calibration.</p>
+        <p>Uses additional feature state and a compact neural network for higher measured accuracy and better cross-environment transfer in the maintained corpus. It starts without quiet-room threshold calibration.</p>
         <p><code>high_accuracy</code></p>
       </article>
     </div>
@@ -43,8 +43,8 @@
       </article>
       <article class="profile-comparison-row">
         <h3>Detection quality</h3>
-        <div><strong>Lightweight</strong><p>A good production baseline with less robustness across environments.</p></div>
-        <div><strong>High Accuracy</strong><p>Higher accuracy and stronger generalization on the maintained corpus.</p></div>
+        <div><strong>Lightweight</strong><p>A production baseline with lower measured accuracy and weaker transfer across environments.</p></div>
+        <div><strong>High Accuracy</strong><p>Higher measured accuracy and better cross-environment transfer in the maintained corpus.</p></div>
       </article>
       <article class="profile-comparison-row">
         <h3>Startup</h3>

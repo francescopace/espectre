@@ -3,7 +3,6 @@
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
 <article class="article">
-  <span class="guide-tag">SDK · EXAMPLES</span>
   <h1>Choose the closest example</h1>
   <p class="article-lead">The maintained examples are the four shipped frontends. Start with the one that already owns the same product surface, then keep only the pieces you need.</p>
 
@@ -35,7 +34,7 @@
   </div>
 
   <h2>For a custom product frontend</h2>
-  <p>Start from the <a href="/docs/">quick guide</a> and use Native or Matter as the lifecycle reference. Your adapter normally needs to do only three things:</p>
+  <p>Start from the <a href="/sdk/">quick guide</a> and use Native or Matter as the lifecycle reference. At minimum, your adapter must:</p>
   <ol class="steps-list compact-steps">
     <li><h3>Configure and start</h3><p>Pass a <code>RuntimeConfig</code> to <code>RuntimeFrontendController</code> after Wi-Fi is ready.</p></li>
     <li><h3>Keep the loop moving</h3><p>Call <code>loop()</code> continuously from the task that owns the runtime.</p></li>
@@ -45,7 +44,7 @@
   <div class="note"><strong>Need only the detector?</strong> The core-only path is intentionally advanced. Follow <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/runtime/esp_idf/csi_pipeline.cpp" target="_blank" rel="noopener"><code>csi_pipeline.cpp</code></a> for normalization, evaluation cadence, and hit filtering before replacing the runtime.</div>
 
   <div class="article-nav">
-    <a href="/docs/api/" class="doc-link"><div class="doc-link-title">← Previous: API orientation</div><div class="doc-link-sub">Find the public SDK types and generated reference.</div></a>
+    <a href="/sdk/api/" class="doc-link"><div class="doc-link-title">← Previous: API orientation</div><div class="doc-link-sub">Find the public SDK types and generated reference.</div></a>
     <a href="https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md" class="doc-link doc-link-next" target="_blank" rel="noopener"><div class="doc-link-title">Next: Full embedding guide ↗</div><div class="doc-link-sub">Continue with build options, threading, capabilities, diagnostics, and versioning.</div></a>
   </div>
 </article>

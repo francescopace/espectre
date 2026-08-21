@@ -7,7 +7,7 @@
     <h1>How Wi-Fi sensing detects movement</h1>
     <p class="article-lead">Wi-Fi signals do more than carry data. As they cross a room, their reflections change whenever people move. ESPectre measures those changes with a low-cost ESP32, without cameras, microphones, or cloud processing.</p>
     <figure>
-      <img src="/assets/images/guides/csi-multipath-room-v3.avif" alt="Top-down room with an access point and an ESP32 connected by direct and reflected Wi-Fi paths, including a path changed by a walking person" width="1068" height="600" loading="eager">
+      <img src="/assets/images/guides/csi-multipath-room.avif" alt="Top-down room with an access point and an ESP32 connected by direct and reflected Wi-Fi paths, including a path changed by a walking person" width="1068" height="600" loading="eager">
       <figcaption>The ESP32 receives the same transmission over several paths. Some travel directly, while others reflect from the room and the people inside it.</figcaption>
     </figure>
 
@@ -21,12 +21,12 @@
 
     <h2 id="detection-motion">From channel changes to movement</h2>
     <p>ESPectre follows CSI over a sequence of packets. A quiet room produces a comparatively repeatable pattern; movement produces wider, coordinated changes across several subcarriers. The detector filters ordinary radio noise, combines the useful changes over time, and turns them into a movement score and a motion state. The score describes how strongly the channel is changing in that room; it is not a physical unit or a universal measurement.</p>
-    <p>The ESP32 family is one of the few inexpensive microcontroller platforms that exposes CSI through its Wi-Fi stack. It costs only a few euros, has enough processing power to run the detector locally, and is already widely used in home automation. That makes it possible to add Wi-Fi sensing without specialized radio hardware or sending raw measurements elsewhere.</p>
+    <p>Supported ESP32 chips expose CSI through their Wi-Fi stack and have enough processing capacity to run the detector locally. ESPectre can therefore add Wi-Fi motion sensing without a separate radar module or a service that receives raw measurements.</p>
 
     <div class="note">Wi-Fi sensing detects changes in the radio environment. It does not identify people, count them, reconstruct their exact movement, or replace a safety-certified presence sensor.</div>
 
     <figure>
-      <img src="/assets/images/guides/csi-iq-motion-v1.svg" alt="Simplified I and Q plots showing stable subcarrier rings in a quiet room and wider variations during movement, followed by their combination into a movement score" width="1068" height="600" loading="lazy">
+      <img src="/assets/images/guides/csi-iq-motion.svg" alt="Simplified I and Q plots showing stable subcarrier rings in a quiet room and wider variations during movement, followed by their combination into a movement score" width="1068" height="600" loading="lazy">
       <figcaption>Each dot represents one I/Q measurement. In this simplified view, repeated samples stay close to narrow rings while the room is quiet and spread as movement changes their amplitude. ESPectre combines evidence from selected subcarriers and across time instead of relying on a single point.</figcaption>
     </figure>
 

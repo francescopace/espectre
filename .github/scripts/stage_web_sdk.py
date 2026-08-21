@@ -129,14 +129,14 @@ def render_page(manifest: dict, channel: str) -> str:
       <a href="/#tools" class="nav-link">Tools</a>
       <a href="/guides/" class="nav-link">Guides</a>
       <a href="/media/" class="nav-link">Media</a>
+      <a href="/sdk/" class="nav-link active" aria-current="page">SDK</a>
       <a href="/roadmap/" class="nav-link">Roadmap</a>
-      <a href="/docs/" class="nav-link active" aria-current="page">Docs</a>
       <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener" class="nav-link">GitHub ↗</a>
     </nav>
   </div>
 </header>
 <main class="page-narrow page-article" id="main-content" tabindex="-1">
-  <div class="breadcrumb"><a href="/docs/">Docs</a> <span class="crumb-sep">/</span> <span class="crumb-here">{title}</span></div>
+  <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">{title}</span></div>
   <article class="article">
     <span class="guide-tag">SDK · DOWNLOADS</span>
     <h1>{title}</h1>

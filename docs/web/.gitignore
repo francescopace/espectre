@@ -2,6 +2,7 @@
 # directories before every deploy.
 /guides/
 /docs/
+/sdk/
 /media/
 /roadmap/
 /privacy/

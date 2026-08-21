@@ -36,7 +36,7 @@ function currentRoute() {
 function getRouteTitle(route = currentRoute()) {
     const registeredTitle = window.ESPectreRoutes?.title(route);
     if (registeredTitle) return registeredTitle;
-    const conventionalPrefix = ['guide-', 'docs-'].find((prefix) => route.startsWith(prefix));
+    const conventionalPrefix = ['guide-', 'sdk-'].find((prefix) => route.startsWith(prefix));
     if (conventionalPrefix) {
         const slug = route.slice(conventionalPrefix.length);
         const label = slug.replace(/[-_]+/g, ' ').trim();
@@ -266,6 +266,16 @@ function initializeAutoTracking() {
         const link = event.target.closest('a[href]');
         if (!link) return;
 
+        const href = link.getAttribute('href') || '';
+        if (href.toLowerCase().startsWith('mailto:contact@')) {
+            trackEvent('click_contact');
+            return;
+        }
+        if (href.toLowerCase().startsWith('mailto:security@')) {
+            trackEvent('click_security');
+            return;
+        }
+
         let url;
         try {
             url = new URL(link.href, window.location.origin);
@@ -309,19 +319,12 @@ function initializeAutoTracking() {
             trackEvent('select_tool', { tool_name: route, link_text: linkText(link) });
         } else if (route === 'guides') {
             trackEvent('select_guide', { guide_name: 'overview', link_text: linkText(link) });
-        } else if (route === 'docs' || route.startsWith('docs-')) {
+        } else if (route === 'sdk' || route.startsWith('sdk-')) {
             trackEvent('select_documentation', {
-                document_name: route === 'docs' ? 'overview' : route.replace(/^docs-/, ''),
+                document_name: route === 'sdk' ? 'overview' : route.replace(/^sdk-/, ''),
                 link_text: linkText(link)
             });
         }
-    });
-
-    document.querySelectorAll('a[href^="mailto:contact@"]').forEach((link) => {
-        link.addEventListener('click', () => trackEvent('click_contact'));
-    });
-    document.querySelectorAll('a[href^="mailto:security@"]').forEach((link) => {
-        link.addEventListener('click', () => trackEvent('click_security'));
     });
 }
 

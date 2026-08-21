@@ -130,7 +130,15 @@ describe('website analytics contracts', () => {
     });
 
     it('tracks abandonment and only reports valid download targets', () => {
-        assert.match(app, /track\('game_abandon'/);
+        const gameAbandonEvent = app.match(/track\('game_abandon', \{[\s\S]*?\n        \}\);/)?.[0] || '';
+        const gameOverEvent = app.match(/track\('game_over', \{[\s\S]*?\n        \}\);/)?.[0] || '';
+        assert.match(gameAbandonEvent, /score: game\.score/);
+        assert.match(gameAbandonEvent, /distance: Math\.floor\(game\.distance\)/);
+        assert.match(gameAbandonEvent, /reason/);
+        assert.match(gameOverEvent, /score: game\.score/);
+        assert.match(gameOverEvent, /orbs: game\.orbs/);
+        assert.match(gameOverEvent, /distance: Math\.floor\(game\.distance\)/);
+        assert.doesNotMatch(gameOverEvent, /rounds|best_time/);
         assert.match(app, /reportGameAbandon\('restart'\)/);
         assert.match(app, /reportGameAbandon\('route_change'\)/);
         assert.match(app, /reportGameAbandon\('page_exit'\)/);
@@ -179,9 +187,67 @@ describe('website accessibility and navigation', () => {
             assert.doesNotMatch(index, new RegExp(`href="(?:/)?#${routeName}"`));
         }
         assert.match(index, /href="\/guides\/" class="nav-link" data-route-link="guides"/);
-        assert.match(index, /href="\/docs\/" class="nav-link" data-route-link="docs"/);
+        assert.match(index, /href="\/sdk\/" class="nav-link" data-route-link="sdk"/);
         assert.match(index, /href="#tools" class="nav-link" data-route-link="tools"/);
+        for (const source of [
+            index,
+            read('docs/web/404.html'),
+            read('.github/scripts/build_static_pages.py'),
+            read('.github/scripts/stage_web_sdk.py'),
+        ]) {
+            assert.ok(source.indexOf('href="/sdk/" class="nav-link') < source.indexOf('href="/roadmap/" class="nav-link'));
+        }
         assert.match(app, /const staticRoute = routeRegistry\.routeForPath\(href\);[\s\S]*?location\.hash = '#' \+ staticRoute;/);
+    });
+
+    it('normalizes explicit HTML entries and static-page clicks to root SPA hashes', () => {
+        const navigation = read('docs/web/assets/js/navigation.js');
+        const listeners = new Map();
+        const replacements = [];
+        const assignments = [];
+        const location = {
+            pathname: '/index.html',
+            href: 'https://espectre.dev/index.html#contact',
+            search: '',
+            hash: '#contact',
+            assign: (href) => assignments.push(href),
+        };
+        const history = {
+            state: { source: 'test' },
+            replaceState: (state, title, href) => replacements.push(String(href)),
+        };
+        const document = {
+            documentElement: { hasAttribute: (name) => name === 'data-static-page' },
+            addEventListener: (type, listener) => listeners.set(type, listener),
+            querySelectorAll: () => [],
+        };
+        const window = {
+            location,
+            history,
+            matchMedia: () => ({ matches: false, addEventListener: () => {} }),
+            ESPectreRoutes: { routeForPath: (href) => href === '/contact/' ? 'contact' : '' },
+        };
+        runInNewContext(navigation, { document, URL, window });
+
+        assert.deepEqual(replacements, ['https://espectre.dev/#contact']);
+        let prevented = false;
+        listeners.get('click')({
+            defaultPrevented: false,
+            button: 0,
+            metaKey: false,
+            ctrlKey: false,
+            shiftKey: false,
+            altKey: false,
+            target: {
+                closest: () => ({
+                    target: '',
+                    getAttribute: () => '/contact/',
+                }),
+            },
+            preventDefault: () => { prevented = true; },
+        });
+        assert.equal(prevented, true);
+        assert.deepEqual(assignments, ['/#contact']);
     });
 
     it('has a responsive navigation control and a live status region', () => {
@@ -199,7 +265,7 @@ describe('website accessibility and navigation', () => {
     it('provides skip navigation, stable tool headings, and route focus management', () => {
         assert.match(index, /<a class="skip-link" href="#main-content">Skip to content<\/a>/);
         assert.match(index, /data-page="home" id="main-content" tabindex="-1"/);
-        for (const heading of ['Configure', 'Monitor', 'Motion theremin', 'Motion reaction game']) {
+        for (const heading of ['Configure', 'Monitor', 'Motion theremin', 'Run with the Spectre']) {
             assert.match(index, new RegExp(`<h1 class="page-title">${heading}<\\/h1>`));
         }
         assert.match(app, /link\.setAttribute\('aria-current', 'page'\)/);
@@ -259,8 +325,8 @@ describe('website UX and content contracts', () => {
         assert.deepEqual(captionIds, sceneIds);
         assert.deepEqual(markerIds, sceneIds.slice(1));
         assert.match(index, /<span>\/ 05<\/span>/);
-        assert.match(index, /ESPectre detects movement in a room by sensing tiny changes in the Wi-Fi waves already traveling through it\./);
-        assert.match(index, /<h2>Privacy first\.<br>By design\.<\/h2>/);
+        assert.match(index, /ESPectre measures how the Wi-Fi channel changes as people move through a room\./);
+        assert.match(index, /<h2>Motion without<br>images or audio\.<\/h2>/);
         assert.match(index, /schools, gyms, offices, public venues, and places of worship/);
         assert.match(index, /data-scene="1" aria-hidden="true" inert/);
         assert.match(app, /el\.toggleAttribute\('inert', !isActive\)/);
@@ -283,7 +349,7 @@ describe('website UX and content contracts', () => {
         const licenseCard = actionHub.match(/<aside class="home-license-cta"[\s\S]*?<\/aside>/)?.[0] || '';
         assert.doesNotMatch(licenseCard, /home-kicker/);
         assert.match(actionHub, /class="home-license-cta"[\s\S]*?class="home-resource-strip"/);
-        assert.match(actionHub, /class="home-resource-links">\s*<a href="#tools"><strong>Tools<\/strong>[\s\S]*?href="\/guides\/"[\s\S]*?<strong>Guides<\/strong>[\s\S]*?href="\/media\/"[\s\S]*?<strong>Media<\/strong>[\s\S]*?href="\/roadmap\/"[\s\S]*?<strong>Roadmap<\/strong>[\s\S]*?href="\/docs\/"[\s\S]*?<strong>Docs<\/strong><span>SDK integration, API, and examples →<\/span>[\s\S]*?href="https:\/\/github\.com\/francescopace\/espectre" target="_blank" rel="noopener"><strong>GitHub<\/strong>/);
+        assert.match(actionHub, /class="home-resource-links">\s*<a href="#tools"><strong>Tools<\/strong>[\s\S]*?href="\/guides\/"[\s\S]*?<strong>Guides<\/strong>[\s\S]*?href="\/media\/"[\s\S]*?<strong>Media<\/strong>[\s\S]*?href="\/sdk\/"[\s\S]*?<strong>SDK<\/strong><span>Integration, API, and examples →<\/span>[\s\S]*?href="\/roadmap\/"[\s\S]*?<strong>Roadmap<\/strong>[\s\S]*?href="https:\/\/github\.com\/francescopace\/espectre" target="_blank" rel="noopener"><strong>GitHub<\/strong>/);
         assert.match(styles, /\.home-resource-links \{ display: grid; grid-template-columns: repeat\(6, minmax\(0, 1fr\)\); \}/);
         assert.doesNotMatch(actionHub, /home-resource-intro/);
         assert.match(styles, /\.home-license-cta \{[\s\S]*?background: var\(--surface\);/);
@@ -302,9 +368,11 @@ describe('website UX and content contracts', () => {
         assert.match(index, /Controller-dependent/);
         assert.doesNotMatch(index, /ESP-IDF 5\.1\+/);
         assert.doesNotMatch(index, /Apple Home|Google Home/);
-        const breathingCard = index.match(/<h2>Breathing research<\/h2>[\s\S]*?<\/a>/)?.[0] || '';
-        assert.match(breathingCard, /ROADMAP/);
-        assert.doesNotMatch(breathingCard, /js-ble-chip/);
+        for (const title of ['Breathing detection', 'Presence detection', 'Gesture detection']) {
+            const researchCard = index.match(new RegExp(`<h2>${title}<\\/h2>[\\s\\S]*?<\\/a>`))?.[0] || '';
+            assert.match(researchCard, /ROADMAP/);
+            assert.doesNotMatch(researchCard, /js-ble-chip/);
+        }
     });
 
     it('enforces the supported desktop, Android, and iOS capability matrix', () => {
@@ -515,7 +583,7 @@ describe('website UX and content contracts', () => {
         assert.match(index, /<main class="js-page page-narrow" data-page="security"/);
         assert.match(index, /<main class="js-page page-narrow" data-page="licensing"/);
         assert.match(index, /<main class="js-page page-narrow" data-page="contact"/);
-        assert.doesNotMatch(index, /<main class="js-page page-narrow page-article" data-page="(?:docs|roadmap|privacy|terms|legal|security|licensing|contact)"/);
+        assert.doesNotMatch(index, /<main class="js-page page-narrow page-article" data-page="(?:sdk|roadmap|privacy|terms|legal|security|licensing|contact)"/);
         assert.match(staticPageBuilder, /"source": "content\/docs\.html",[\s\S]*?"og_type": "website"/);
         assert.match(staticPageBuilder, /"source": "content\/roadmap\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
         assert.match(staticPageBuilder, /"source": "content\/privacy\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
@@ -553,9 +621,9 @@ describe('website UX and content contracts', () => {
         assert.match(staticPageBuilder, /spec\.get\("main_class", "page-narrow page-article"\)/);
     });
 
-    it('gives the docs landing page a clear start-to-reference hierarchy', () => {
+    it('gives the SDK landing page a clear start-to-reference hierarchy', () => {
         const docsContent = read('docs/web/content/docs.html');
-        assert.match(docsContent, /<h1 class="page-title">Docs<\/h1>/);
+        assert.match(docsContent, /<h1 class="page-title">SDK<\/h1>/);
         assert.match(docsContent, /<section class="docs-start" aria-labelledby="docs-start-title">/);
         assert.match(docsContent, /<section class="docs-section" aria-labelledby="docs-paths-title">/);
         assert.match(docsContent, /<section class="docs-section" aria-labelledby="docs-quick-start-title">/);
@@ -564,8 +632,8 @@ describe('website UX and content contracts', () => {
         assert.ok(docsContent.indexOf('class="docs-start"') < docsContent.indexOf('class="docs-paths"'));
         assert.ok(docsContent.indexOf('class="docs-paths"') < docsContent.indexOf('class="docs-steps"'));
         assert.ok(docsContent.indexOf('class="docs-steps"') < docsContent.indexOf('class="docs-next"'));
-        const docsIndexLinks = [...docsContent.matchAll(/<a href="(\/docs\/(?:api|examples|architecture)\/)" class="doc-link">/g)].map((match) => match[1]);
-        assert.deepEqual(docsIndexLinks, ['/docs/architecture/', '/docs/api/', '/docs/examples/']);
+        const docsIndexLinks = [...docsContent.matchAll(/<a href="(\/sdk\/(?:api|examples|architecture)\/)" class="doc-link">/g)].map((match) => match[1]);
+        assert.deepEqual(docsIndexLinks, ['/sdk/architecture/', '/sdk/api/', '/sdk/examples/']);
         const pathCards = docsContent.match(/<div class="docs-path(?: docs-path-recommended)?">[\s\S]*?<\/div>/g) || [];
         assert.equal(pathCards.length, 3);
         for (const card of pathCards) {
@@ -574,11 +642,11 @@ describe('website UX and content contracts', () => {
         }
     });
 
-    it('links the docs pages in one previous and next sequence', () => {
+    it('links the SDK pages in one previous and next sequence', () => {
         const docs = [
-            { file: 'architecture', previous: null, next: '/docs/api/' },
-            { file: 'api', previous: '/docs/architecture/', next: '/docs/examples/' },
-            { file: 'examples', previous: '/docs/api/', next: 'https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md' },
+            { file: 'architecture', previous: null, next: '/sdk/api/' },
+            { file: 'api', previous: '/sdk/architecture/', next: '/sdk/examples/' },
+            { file: 'examples', previous: '/sdk/api/', next: 'https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md' },
         ];
         for (const page of docs) {
             const content = read(`docs/web/content/docs/${page.file}.html`);
@@ -623,8 +691,8 @@ describe('website UX and content contracts', () => {
         assert.match(guide, /micropython\/micropython\/pull\/18460/);
         assert.doesNotMatch(index, /OPEN-SOURCE INFRASTRUCTURE/);
         assert.match(read('docs/web/content/docs.html'), /ESPectre also runs sensing directly in MicroPython/);
-        assert.match(read('docs/web/content/guides.html'), /micropython-csi-runtime-card-v4\.avif/);
-        assert.match(guide, /micropython-csi-runtime-card-v4\.avif/);
+        assert.match(read('docs/web/content/guides.html'), /micropython-csi-runtime-card\.avif/);
+        assert.match(guide, /micropython-csi-runtime-card\.avif/);
         assert.match(index, /data-page="guide-micropython"/);
         assert.match(routeRegistry, /name: 'guide-micropython'.*staticPath: '\/guides\/micropython\/'/);
         assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/guides\/micropython\.html"/);
@@ -639,7 +707,7 @@ describe('website UX and content contracts', () => {
         assert.match(guide, /ESPectre is not an IEEE 802\.11bf implementation/);
         assert.match(guide, /standards\.ieee\.org\/ieee\/802\.11bf\/11574\//);
         assert.match(guide, /www\.ieee802\.org\/11\/Reports\/tgbf_update\.htm/);
-        assert.match(guide, /future-wifi-sensing-card-v1\.avif/);
+        assert.match(guide, /future-wifi-sensing-card\.avif/);
         assert.match(guideIndex, /href="\/guides\/future-wifi-sensing\/"/);
         assert.doesNotMatch(guideIndex, /href="\/guides\/custom-firmware\/"/);
         assert.match(index, /data-page="guide-future-wifi-sensing"/);
@@ -654,8 +722,8 @@ describe('website UX and content contracts', () => {
         assert.match(guide, /<h1>Build your Home Assistant dashboard<\/h1>/);
         assert.match(guide, /home-assistant-dashboard\.yaml/);
         assert.match(guide, /home-assistant-dashboard\.png/);
-        assert.match(guide, /home-assistant-dashboard-card-v3\.avif/);
-        assert.ok(guide.indexOf('home-assistant-dashboard-card-v3.avif') < guide.indexOf('id="ha-before"'));
+        assert.match(guide, /home-assistant-dashboard-card\.avif/);
+        assert.ok(guide.indexOf('home-assistant-dashboard-card.avif') < guide.indexOf('id="ha-before"'));
         assert.ok(guide.indexOf('id="ha-result"') < guide.indexOf('home-assistant-dashboard.png'));
         assert.match(guide, /sensor\.espectre_c3_f61093_movement_score/);
         assert.match(guide, /sensor\.espectre_c3_f61093_movement_score_2/);
@@ -665,7 +733,7 @@ describe('website UX and content contracts', () => {
         assert.match(guide, /Do not clear <code>homeassistant\/#<\/code>/);
         assert.doesNotMatch(guide, /sensor\.native_&lt;device-id&gt;_movement_score|sensor\.micro_&lt;client-id&gt;_movement_score/);
         assert.match(guideIndex, /href="\/guides\/home-assistant\/"/);
-        assert.match(guideIndex, /home-assistant-dashboard-card-v3\.avif/);
+        assert.match(guideIndex, /home-assistant-dashboard-card\.avif/);
         assert.doesNotMatch(guide, /id="ha-cli"|CLI equivalent/);
         assert.ok(guideIndex.indexOf('href="/guides/detection/"') < guideIndex.indexOf('href="/guides/hardware/"'));
         assert.ok(guideIndex.indexOf('href="/guides/placement/"') < guideIndex.indexOf('href="/guides/home-assistant/"'));
@@ -679,14 +747,14 @@ describe('website UX and content contracts', () => {
 
     it('uses one cover, practical CLI sections, and a previous/next sequence across the official guides', () => {
         const guides = [
-            { file: 'detection', cover: 'csi-multipath-room-v3.avif', cli: null, previous: null, next: '/guides/hardware/' },
-            { file: 'hardware', cover: 'esp32-chip-family-card-v2.avif', cli: null, previous: '/guides/detection/', next: '/guides/setup/' },
-            { file: 'setup', cover: 'flash-connect-usb-card-v2.avif', cli: 'setup-cli', previous: '/guides/hardware/', next: '/guides/placement/' },
-            { file: 'placement', cover: 'sensor-placement-card-v2.avif', cli: null, previous: '/guides/setup/', next: '/guides/home-assistant/' },
-            { file: 'home-assistant', cover: 'home-assistant-dashboard-card-v3.avif', cli: null, previous: '/guides/placement/', next: '/guides/detectors/' },
-            { file: 'detectors', cover: 'detection-profiles-card-v2.avif', cli: 'detectors-cli', previous: '/guides/home-assistant/', next: '/guides/micropython/' },
-            { file: 'micropython', cover: 'micropython-csi-runtime-card-v4.avif', cli: 'micropython-cli', previous: '/guides/detectors/', next: '/guides/future-wifi-sensing/' },
-            { file: 'future-wifi-sensing', cover: 'future-wifi-sensing-card-v1.avif', cli: null, previous: '/guides/micropython/', next: null },
+            { file: 'detection', cover: 'csi-multipath-room.avif', cli: null, previous: null, next: '/guides/hardware/' },
+            { file: 'hardware', cover: 'esp32-chip-family-card.avif', cli: null, previous: '/guides/detection/', next: '/guides/setup/' },
+            { file: 'setup', cover: 'flash-connect-usb-card.avif', cli: 'setup-cli', previous: '/guides/hardware/', next: '/guides/placement/' },
+            { file: 'placement', cover: 'sensor-placement-card.avif', cli: null, previous: '/guides/setup/', next: '/guides/home-assistant/' },
+            { file: 'home-assistant', cover: 'home-assistant-dashboard-card.avif', cli: null, previous: '/guides/placement/', next: '/guides/detectors/' },
+            { file: 'detectors', cover: 'detection-profiles-card.avif', cli: 'detectors-cli', previous: '/guides/home-assistant/', next: '/guides/micropython/' },
+            { file: 'micropython', cover: 'micropython-csi-runtime-card.avif', cli: 'micropython-cli', previous: '/guides/detectors/', next: '/guides/future-wifi-sensing/' },
+            { file: 'future-wifi-sensing', cover: 'future-wifi-sensing-card.avif', cli: null, previous: '/guides/micropython/', next: null },
         ];
         for (const guide of guides) {
             const path = `docs/web/content/guides/${guide.file}.html`;
@@ -725,14 +793,14 @@ describe('website UX and content contracts', () => {
         const detectionGuide = read('docs/web/content/guides/detection.html');
         assert.match(detectionGuide, /known preamble/);
         assert.match(detectionGuide, /Channel State Information/);
-        assert.match(detectionGuide, /csi-multipath-room-v3\.avif/);
-        assert.match(detectionGuide, /csi-iq-motion-v1\.svg/);
+        assert.match(detectionGuide, /csi-multipath-room\.avif/);
+        assert.match(detectionGuide, /csi-iq-motion\.svg/);
         assert.doesNotMatch(detectionGuide, /csi-quiet-vs-movement|csi-amplitude-heatmap|wifi-frame-csi-path/);
         assert.doesNotMatch(detectionGuide, /id="detection-cli"/);
-        assert.ok(detectionGuide.indexOf('csi-multipath-room-v3.avif') < detectionGuide.indexOf('id="detection-room"'));
+        assert.ok(detectionGuide.indexOf('csi-multipath-room.avif') < detectionGuide.indexOf('id="detection-room"'));
         assert.ok(detectionGuide.indexOf('id="detection-room"') < detectionGuide.indexOf('id="detection-csi"'));
         assert.ok(detectionGuide.indexOf('id="detection-csi"') < detectionGuide.indexOf('id="detection-motion"'));
-        assert.ok(detectionGuide.indexOf('id="detection-motion"') < detectionGuide.indexOf('csi-iq-motion-v1.svg'));
+        assert.ok(detectionGuide.indexOf('id="detection-motion"') < detectionGuide.indexOf('csi-iq-motion.svg'));
         const hardwareGuide = read('docs/web/content/guides/hardware.html');
         assert.doesNotMatch(hardwareGuide, /id="hardware-cli"|id="hardware-product"/);
         assert.doesNotMatch(hardwareGuide, /Building ESPectre into a product\?/);
@@ -782,7 +850,7 @@ describe('website UX and content contracts', () => {
         assert.match(app, /track\('matter_qr_read'/);
         assert.match(app, /installButton\.toggleAttribute\('inert', !browserSupport\.flash\)/);
         const setupGuide = read('docs/web/content/guides/setup.html');
-        assert.match(setupGuide, /flash-connect-usb-card-v2\.avif/);
+        assert.match(setupGuide, /flash-connect-usb-card\.avif/);
         assert.match(setupGuide, /A compatible Espressif board listed in the <a href="\/guides\/hardware\/">hardware guide<\/a>/);
         assert.doesNotMatch(setupGuide, /flash-connect-usb\.webp/);
         assert.doesNotMatch(setupGuide, /home-assistant-dashboard\.png/);
@@ -887,16 +955,8 @@ describe('website UX and content contracts', () => {
         assert.match(app, /window\.initSdkDownloadVersions\(container\)/);
         assert.doesNotMatch(docsContent, /Rolling bundles:/);
         assert.match(docsContent, /href="\/artifacts\/sdk\/api\/"/);
-        assert.doesNotMatch(docsContent, /href="\/sdk\//);
+        assert.match(docsContent, /href="\/sdk\/api\/" class="doc-link"/);
         assert.match(read('docs/web/.gitignore'), /^\/artifacts\/$/m);
-        for (const path of [
-            'docs/web/content/docs.html',
-            'docs/web/content/docs/api.html',
-            'docs/web/content/docs/architecture.html',
-            'docs/web/content/docs/examples.html',
-        ]) {
-            assert.doesNotMatch(read(path), /href="\/sdk\/api(?:\/|")/);
-        }
     });
 
     it('maps Bluetooth capabilities, runtime controls, and dual-band Wi-Fi safely', () => {
@@ -975,17 +1035,37 @@ describe('website UX and content contracts', () => {
         assert.match(app, /function commitThreshold/);
         assert.match(app, /sense !== document\.activeElement/);
         assert.match(app, /conn\.threshold = threshold;[\s\S]*syncThresholdControl\(threshold\)/);
+        assert.match(app, /const GAME_THRESHOLD_DEFAULT = 0\.5/);
         assert.match(app, /function gameThreshold/);
-        assert.match(app, /function snapshotGameThreshold/);
-        assert.match(app, /gameThresholdOverride = conn\.threshold/);
-        assert.match(app, /if \(gameThresholdOverride === null\) paintGameThresholdControl\(\)/);
-        assert.match(app, /if \(target === 'game' && previousRoute !== 'game'\) snapshotGameThreshold\(\)/);
+        assert.match(app, /function resetGameThreshold/);
+        assert.match(app, /gameThresholdOverride = GAME_THRESHOLD_DEFAULT/);
+        assert.doesNotMatch(app, /gameThresholdOverride = conn\.threshold/);
+        assert.match(app, /if \(target === 'game' && previousRoute !== 'game'\) resetGameThreshold\(\)/);
         assert.match(app, /gameThresholdOverride = threshold/);
-        assert.doesNotMatch(app, /textContent = 'Restart';\s*snapshotGameThreshold\(\)/);
+        assert.match(app, /js-game-fullscreen-threshold/);
+        assert.match(app, /const applyFullscreenPointerThreshold = \(event\) =>/);
+        assert.match(app, /\(bounds\.bottom - event\.clientY\) \/ bounds\.height/);
+        assert.doesNotMatch(app, /textContent = 'Restart';\s*resetGameThreshold\(\)/);
         assert.match(app, /getElementById\('game-threshold'\)/);
         assert.match(index, /id="game-threshold"/);
+        assert.match(index, /It starts at 0\.50 whenever you open the game/);
         assert.doesNotMatch(index, /data-page="game"[\s\S]*data-mqtt-command="set_threshold"/);
         assert.doesNotMatch(app, /gameSlider\.addEventListener\('change', \(\) => commitThreshold/);
+        assert.match(index, /<div class="game-screen">[\s\S]*<div class="game-status"[\s\S]*js-game-score[\s\S]*js-game-best[\s\S]*js-game-fullscreen/);
+        assert.equal((index.match(/class="js-game-score"/g) || []).length, 1);
+        assert.doesNotMatch(index, /class="game-stats"/);
+        assert.match(app, /function gameToggleFullscreen/);
+        assert.match(app, /requestFullscreen \|\| screen\.webkitRequestFullscreen/);
+        assert.match(app, /document\.addEventListener\('fullscreenchange', gameOnFullscreenChange\)/);
+        assert.match(styles, /\.game-screen:fullscreen/);
+        assert.match(styles, /\.game-screen:fullscreen \.game-canvas/);
+        assert.match(styles, /\.game-screen:fullscreen \.game-motion-gauge/);
+        assert.match(index, /class="game-motion-threshold-input js-game-fullscreen-threshold"/);
+        assert.match(styles, /\.game-motion-threshold-input \{[\s\S]*?cursor: ns-resize;/);
+        assert.match(styles, /\.game-status \{[\s\S]*?right: 14px;/);
+        assert.match(styles, /\.game-motion-gauge \{[\s\S]*?top: 0;[\s\S]*?bottom: 0;/);
+        assert.match(styles, /\.game-screen\[data-phase="done"\] \.game-status \{[\s\S]*?top: 50%;[\s\S]*?left: 50%;[\s\S]*?transform: translate\(-50%, -50%\);/);
+        assert.match(styles, /\.game-screen\[data-phase="done"\] \.game-score strong \{[\s\S]*?font-size: clamp\(52px, 10vw, 78px\);/);
         assert.match(app, /getElementById\('sense-detector'\)\.addEventListener\('change'/);
         assert.match(app, /getElementById\('sense-motion-on'\)\.addEventListener\('change'/);
         assert.match(app, /getElementById\('sense-motion-off'\)\.addEventListener\('change'/);
@@ -1170,9 +1250,23 @@ describe('website UX and content contracts', () => {
     it('keeps Game and Theremin demo sessions on the current tool', () => {
         assert.match(index, /data-page="theremin"[\s\S]*?class="link-btn js-demo">or try the demo/);
         assert.match(index, /data-page="game"[\s\S]*?class="link-btn js-demo">or try the demo/);
+        assert.match(app, /function connectDemo\(\)[\s\S]*?rememberLiveDestination\(\)/);
+        assert.match(app, /function connectDemo\(\)[\s\S]*?completeLiveConnectionNavigation\(\)/);
+    });
+
+    it('returns live connection flows to their requesting experience', () => {
+        assert.match(app, /const LIVE_EXPERIENCE_ROUTES = new Set\(\['game', 'theremin'\]\)/);
+        assert.match(app, /function rememberLiveDestination/);
+        assert.match(app, /function completeLiveConnectionNavigation/);
+        assert.match(app, /const destination = pendingLiveDestination;[\s\S]*?pendingLiveDestination = ''/);
+        assert.match(app, /function startDetection\(\) \{\s*rememberLiveDestination\(\)/);
+        assert.match(app, /function bindMqttToConnection\(\)[\s\S]*?completeLiveConnectionNavigation\(\)/);
+        assert.match(app, /monitor\.entryPoint = connectionIntentRoute\(\)/);
+        assert.match(app, /target !== 'monitor' && target !== 'configure'/);
+        assert.match(app, /if \(pendingLiveDestination \|\| route === 'monitor' \|\| route === 'configure'\)/);
         assert.match(
             app,
-            /if \(route !== 'game' && route !== 'theremin'\) setDeviceView\('live'\)/
+            /\$\('\.js-header-connect'\)\.addEventListener\('click',[\s\S]*?rememberLiveDestination\(\);[\s\S]*?location\.hash = '#configure'/
         );
     });
 
@@ -1193,5 +1287,83 @@ describe('website UX and content contracts', () => {
         assert.match(app, /function monitorTelemetryStaleMs/);
         assert.match(app, /setInterval\(monitorRequestStats, interval\)/);
         assert.match(styles, /transition: width \.25s linear/);
+    });
+
+    it('runs Game as a binary motion-flight endless runner', () => {
+        const gameScreen = index.match(/<div class="game-screen">[\s\S]*?<\/div>\s*<div class="game-msg/)?.[0] || '';
+        const gameFinish = app.slice(app.indexOf('function gameFinish'), app.indexOf('function gameSetFlight'));
+        const gameUpdate = app.slice(app.indexOf('function gameUpdate(dt)'), app.indexOf('function gameSensingActive'));
+        assert.match(index, /class="game-canvas js-game-canvas"/);
+        assert.match(styles, /\.game-stage \{[\s\S]*?width: 100%;[\s\S]*?max-width: none;/);
+        assert.match(styles, /\.game-canvas \{[\s\S]*?height: clamp\(250px, 40vw, 440px\);/);
+        assert.match(index, /Move to fly, stay quiet to descend/);
+        assert.match(gameScreen, /class="game-status"[\s\S]*js-game-score[\s\S]*js-game-orbs[\s\S]*js-game-distance[\s\S]*js-game-best/);
+        assert.match(gameScreen, /class="game-play js-game-start"/);
+        assert.match(gameScreen, /class="game-sound js-game-sound"[\s\S]*?aria-pressed="true"/);
+        assert.equal((index.match(/js-game-start/g) || []).length, 1);
+        assert.match(gameScreen, /js-game-motion-fill[\s\S]*js-game-motion-threshold/);
+        assert.match(app, /function renderGameMotionGauge/);
+        assert.match(app, /fill\.style\.height = Math\.round\(energyFraction\(\) \* 100\) \+ '%'/);
+        assert.match(app, /play\.hidden = phase === 'ready' \|\| phase === 'running'/);
+        assert.doesNotMatch(gameFinish, /gameExitFullscreen/);
+        assert.match(app, /const GAME_ORB_POINTS = 100/);
+        assert.match(app, /function gameFlightY/);
+        assert.match(app, /function gameOrbY\(lane\)/);
+        assert.match(app, /y: gameOrbY\(lane\),\s*lane,/);
+        assert.match(app, /entity\.y = gameOrbY\(entity\.lane\)/);
+        assert.doesNotMatch(app, /entity\.y = gameGroundY\(\) - \(oldGround - entity\.y\) \* scaleY/);
+        assert.match(app, /Math\.min\(maxAir, Math\.max\(0, air \* scaleY\)\)/);
+        assert.match(app, /function gameSpawnCourse/);
+        assert.match(app, /gameAddOrb\([^;]+, 'high'\)/);
+        assert.match(app, /gameAddOrb\([^;]+, 'low'\)/);
+        assert.match(app, /gameAddObstacle\('aerial_spikes'/);
+        assert.match(app, /function gameRectsOverlap/);
+        assert.match(app, /function gameOrbTouchesPlayer/);
+        assert.match(app, /game\.raf = requestAnimationFrame\(gameFrame\)/);
+        assert.match(app, /const targetY = game\.flightActive \? gameFlightY\(\)/);
+        assert.match(app, /const responseSeconds = game\.flightActive \? 0\.15 : 0\.18/);
+        assert.match(app, /function gameUpdatePlayer\(dt\)/);
+        assert.match(app, /function gamePreviewFrame\(now\)/);
+        assert.match(app, /game\.phase === 'idle' \|\| game\.phase === 'ready'/);
+        assert.match(app, /function gameStartPreview\(\)/);
+        assert.match(app, /gameStartPreview\(\);/);
+        assert.match(app, /const canFloat = game\.phase === 'idle' \|\| game\.phase === 'ready' \|\| game\.phase === 'running'/);
+        assert.match(app, /const bobAmplitude = game\.flightActive \? 2\.6/);
+        assert.match(app, /gameSetFlight\(gameSensingActive\(\)\)/);
+        assert.match(app, /function gameDemoFlight/);
+        assert.match(app, /\['idle', 'ready', 'running'\]\.includes\(game\.phase\)/);
+        assert.match(gameUpdate, /const player = game\.player/);
+        assert.match(app, /function gameScore\(\)/);
+        assert.match(app, /const GAME_MUSIC_NOTES = \[/);
+        assert.match(app, /function gameStartMusic\(\)/);
+        assert.match(app, /function gameStopMusic\(\)/);
+        assert.match(app, /function gameStartMotionSound\(\)/);
+        assert.match(app, /function gameUpdateMotionSound\(dt\)/);
+        assert.match(app, /const frequency = 96 \* Math\.pow\(2, gameAudio\.motionSmoothed \* 1\.8\);/);
+        assert.match(gameUpdate, /gameUpdateMotionSound\(dt\)/);
+        assert.match(app, /function gamePlaySound\(kind\)/);
+        assert.match(app, /gamePlaySound\('start'\)/);
+        assert.match(app, /gamePlaySound\('orb'\)/);
+        assert.match(gameFinish, /gamePlaySound\('hit'\)/);
+        assert.match(app, /function gameToggleSound\(\)/);
+        assert.match(app, /js-game-sound'\)\.addEventListener\('click', gameToggleSound\)/);
+        assert.match(styles, /\.game-sound\[aria-pressed="false"\]/);
+        assert.match(app, /Math\.floor\(game\.distance\) \+ game\.orbs \* GAME_ORB_POINTS/);
+        assert.match(app, /game\.score = gameScore\(\)/);
+        assert.match(app, /game\.scrollX \+= travel/);
+        assert.match(app, /entity\.x -= travel/);
+        assert.match(app, /game\.scrollX \* 0\.18/);
+        assert.match(app, /- game\.scrollX\) % width/);
+        assert.match(app, /gameFactoryImage\.src = '\/assets\/images\/game\/hardware-factory\.png'/);
+        assert.match(app, /function gameDrawFactoryBackdrop/);
+        assert.match(app, /function gameDrawFactoryParallax/);
+        assert.match(app, /game\.scrollX \* 0\.12/);
+        assert.match(app, /game\.scrollX \* 0\.24/);
+        assert.match(app, /function gameDrawChip/);
+        assert.match(app, /gameFactoryImage\.addEventListener\('load', gameDraw\)/);
+        assert.ok(readFileSync(new URL('../../docs/web/assets/images/game/hardware-factory.png', import.meta.url)).length > 100000);
+        assert.doesNotMatch(app, /game\.distance \* 12/);
+        assert.match(app, /if \(obstacleHit\) gameFinish\(\)/);
+        assert.doesNotMatch(app, /TOTAL_ROUNDS|game\.phase === 'strike'|game\.inputArmed|function gameJump/);
     });
 });

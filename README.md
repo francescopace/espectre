@@ -24,7 +24,7 @@ The browser tools share one site:
 
 - [Configure](https://espectre.dev/configure) provisions Native over Bluetooth
 - [Monitor](https://espectre.dev/monitor) watches motion, tunes detection, and inspects diagnostics over MQTT
-- [The Game](https://espectre.dev/game/) and [Theremin](https://espectre.dev/theremin/) provide interactive sensing demos
+- [Run with the Spectre](https://espectre.dev/game/) and [Theremin](https://espectre.dev/theremin/) provide interactive sensing demos
 
 GitHub Releases also provide Native OTA payloads; ESPHome updates are compiled and installed through ESPHome Device Builder after the device is adopted.
 

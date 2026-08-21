@@ -15,7 +15,7 @@ WIFI_PASSWORD = "YourPassword"
 # WIFI_BSSID = "AA:BB:CC:DD:EE:FF"
 
 # MQTT Configuration
-MQTT_ENABLED = True
+MQTT_ENABLED = False
 MQTT_BROKER = "homeassistant.local"  # Your MQTT broker IP
 MQTT_PORT = 1883
 MQTT_TOPIC_PREFIX = "espectre/v1/devices"
@@ -80,7 +80,7 @@ LOWPASS_CUTOFF = 11.0          # Cutoff frequency in Hz (11 Hz: 2.3% FP, 92.4% R
                                # Human movement is typically 0.5-10 Hz, RF noise is >15 Hz
 
 # Hampel filter (removes outliers from turbulence and L1-delta streams)
-ENABLE_HAMPEL_FILTER = False   # Disabled by default to preserve MicroPython CPU and heap headroom
+ENABLE_HAMPEL_FILTER = True   # Disabled by default to preserve MicroPython CPU and heap headroom
 HAMPEL_WINDOW = 7             # Window size for median calculation (3-11)
 HAMPEL_THRESHOLD = 5.0        # Outlier detection threshold in MAD units (2.0-6.0 recommended)
                               # Higher values = less aggressive filtering
