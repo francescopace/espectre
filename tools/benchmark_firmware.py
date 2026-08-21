@@ -289,7 +289,6 @@ CASES = tuple(
         BenchmarkCase("native", "lightweight"),
         BenchmarkCase("native", "high_accuracy"),
         BenchmarkCase("micro", "lightweight"),
-        BenchmarkCase("micro", "high_accuracy"),
         BenchmarkCase("esphome", "lightweight"),
         BenchmarkCase("esphome", "high_accuracy"),
         BenchmarkCase("matter", "default", benchmark_mode="smoke"),
@@ -1361,26 +1360,22 @@ def apply_esphome_benchmark_logger(content: str) -> str:
     )
 
 
-def render_micro_benchmark_config(detector: str) -> str:
-    """Render a temporary device override from the shared benchmark settings."""
+def render_micro_benchmark_config() -> str:
+    """Copy laboratory env keys and force debug telemetry; leave remaining Micro defaults."""
     values: list[tuple[str, object]] = [
         ("WIFI_SSID", require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID")),
         ("WIFI_PASSWORD", require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD")),
-        ("MQTT_ENABLED", True),
+        ("WIFI_BSSID", benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "")),
+        ("WIFI_CHANNEL", benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)),
         ("MQTT_BROKER", require_benchmark_setting("ESPECTRE_BENCHMARK_MQTT_HOST")),
         ("MQTT_PORT", benchmark_setting_int("ESPECTRE_BENCHMARK_MQTT_PORT", 1883)),
-        ("MQTT_TOPIC_PREFIX", benchmark_setting("ESPECTRE_BENCHMARK_MQTT_TOPIC_PREFIX", "espectre/v1/devices")),
         ("MQTT_USERNAME", benchmark_setting("ESPECTRE_BENCHMARK_MQTT_USERNAME", "")),
         ("MQTT_PASSWORD", benchmark_setting("ESPECTRE_BENCHMARK_MQTT_PASSWORD", "")),
-        ("MQTT_HA_DISCOVERY_ENABLED", False),
-        ("DETECTION_ALGORITHM", detector),
+        ("MQTT_TOPIC_PREFIX", benchmark_setting("ESPECTRE_BENCHMARK_MQTT_TOPIC_PREFIX", "espectre/v1/devices")),
         ("DEBUG_TELEMETRY", True),
     ]
-    bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "")
-    if bssid:
-        values.insert(2, ("WIFI_BSSID", bssid))
     lines = [
-        "# Generated temporary Micro-ESPectre benchmark overrides.",
+        "# Generated temporary Micro-ESPectre laboratory env and debug-telemetry overrides.",
         *(f"{name} = {value!r}" for name, value in values),
         "",
     ]
@@ -1395,7 +1390,7 @@ def micro_case_config(chip: str, detector: str) -> Iterator[Path]:
         raise RuntimeError(f"temporary benchmark config already exists: {temporary_path}")
     try:
         temporary_path.write_text(
-            render_micro_benchmark_config(detector),
+            render_micro_benchmark_config(),
             encoding="utf-8",
         )
         yield temporary_path
@@ -2554,8 +2549,9 @@ def write_report(
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Build, flash, and benchmark Native, Micro-ESPectre, and ESPHome "
-            "Lightweight/High Accuracy, Matter smoke, and Streamer host collect for one chip."
+            "Build, flash, and benchmark Native Lightweight/High Accuracy, "
+            "Micro-ESPectre Lightweight, ESPHome Lightweight/High Accuracy, "
+            "Matter smoke, and Streamer host collect for one chip."
         ),
     )
     parser.add_argument("--chip", required=True, choices=SUPPORTED_CHIPS, help="Connected ESP32 target")

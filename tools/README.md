@@ -110,21 +110,20 @@ Do not edit `docs/performance/README.md` manually. `--check-current` is a lightw
 1. Native Lightweight
 2. Native High Accuracy by runtime switching of the same Native firmware
 3. Micro-ESPectre Lightweight
-4. Micro-ESPectre High Accuracy by redeploying the same production MicroPython source manifest with an isolated benchmark config
-5. ESPHome Lightweight
-6. ESPHome High Accuracy by runtime switching of the same ESPHome firmware
-7. Matter with its build-time default detector
-8. Streamer collection
+4. ESPHome Lightweight
+5. ESPHome High Accuracy by runtime switching of the same ESPHome firmware
+6. Matter with its build-time default detector
+7. Streamer collection
 
-This matrix is not a capability table. ESPHome, Micro-ESPectre, Native, and Matter support Lightweight and High Accuracy; ESPHome and Native can switch at runtime, Matter selects the detector at build time, and Micro-ESPectre selects it at deploy time.
+This matrix is not a capability table. ESPHome, Micro-ESPectre, Native, and Matter support Lightweight and High Accuracy; ESPHome and Native can switch at runtime, Matter selects the detector at build time, and Micro-ESPectre selects it at deploy time. The hardware matrix samples only Lightweight on Micro-ESPectre.
 
-The benchmark requires shared laboratory Wi-Fi and MQTT settings. Native High Accuracy uses MQTT for its runtime switch, ESPHome High Accuracy uses the device native API already enabled in the example YAML, and Micro-ESPectre reads the same values from `tools/benchmark_firmware.local.env` to generate a temporary `config_local.py` that is copied through the normal `micro deploy` manifest; it never reads the developer's regular Micro-ESPectre `config_local.py`. The temporary Micro-ESPectre config uses the same domain-separated SHA-256 device pseudonym as the ESP-IDF firmware, so no Micro-specific MQTT client ID is required. Exported `ESPECTRE_BENCHMARK_*` variables retain the existing higher-priority override for every frontend. Copy `tools/benchmark_firmware.local.env.example` to `tools/benchmark_firmware.local.env`, fill in the laboratory values, connect the target board, and run:
+The benchmark requires shared laboratory Wi-Fi and MQTT settings. Native High Accuracy uses MQTT for its runtime switch, ESPHome High Accuracy uses the device native API already enabled in the example YAML, and Micro-ESPectre copies every laboratory key from `tools/benchmark_firmware.local.env` into a temporary `config_local.py` that is copied through the normal `micro deploy` manifest; it never reads the developer's regular Micro-ESPectre `config_local.py`. The temporary overlay also forces `DEBUG_TELEMETRY` so the runtime window can score heap and detector timing, and leaves `MQTT_ENABLED` and the remaining Micro-ESPectre defaults unchanged. Exported `ESPECTRE_BENCHMARK_*` variables retain the existing higher-priority override for every frontend. Copy `tools/benchmark_firmware.local.env.example` to `tools/benchmark_firmware.local.env`, fill in the laboratory values, connect the target board, and run:
 
 ```bash
 python tools/benchmark_firmware.py --chip c3
 ```
 
-The command writes a partial report when a case fails and returns success only when every selected case passes. Native, Micro-ESPectre, ESPHome, and Streamer collect cases pass when mean CSI occupancy stays at or above the 70% admitted-slot floor. Native, Micro-ESPectre, and ESPHome runtime monitoring wait for the first `IDLE`/`MOTION` heartbeat, then for five consecutive 1 Hz status lines, then measure 60 seconds; Native High Accuracy starts that wait after the MQTT detector switch, while each Micro-ESPectre profile starts from a fresh production deploy, and ESPHome High Accuracy starts after the native-API detector switch. Heap-decline scoring begins 10 seconds after the first heartbeat in the scored window. Matter smoke still checks boot and commissioning only. Each report is a snapshot of the Git revision, hardware, environment, and run time recorded in its header; it does not certify later source revisions. Do not edit or reformat generated chip reports separately from a hardware benchmark run.
+The command writes a partial report when a case fails and returns success only when every selected case passes. Native, Micro-ESPectre, ESPHome, and Streamer collect cases pass when mean CSI occupancy stays at or above the 70% admitted-slot floor. Native, Micro-ESPectre, and ESPHome runtime monitoring wait for the first `IDLE`/`MOTION` heartbeat, then for five consecutive 1 Hz status lines, then measure 60 seconds; Native High Accuracy starts that wait after the MQTT detector switch, Micro-ESPectre Lightweight starts from a fresh production deploy, and ESPHome High Accuracy starts after the native-API detector switch. Heap-decline scoring begins 10 seconds after the first heartbeat in the scored window. Matter smoke still checks boot and commissioning only. Each report is a snapshot of the Git revision, hardware, environment, and run time recorded in its header; it does not certify later source revisions. Do not edit or reformat generated chip reports separately from a hardware benchmark run.
 
 ## Research-Only Detector Experiments
 

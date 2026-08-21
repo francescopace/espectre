@@ -113,28 +113,31 @@ def test_cases_include_esphome_high_accuracy_after_lightweight():
     assert labels.index("ESPHome Lightweight") < labels.index("ESPHome High Accuracy")
 
 
-def test_cases_include_both_micro_espectre_profiles():
+def test_cases_include_micro_espectre_lightweight_only():
     labels = [case.label for case in bench.CASES]
 
-    assert labels.index("Micro-ESPectre Lightweight") < labels.index(
-        "Micro-ESPectre High Accuracy"
-    )
+    assert "Micro-ESPectre Lightweight" in labels
+    assert "Micro-ESPectre High Accuracy" not in labels
 
 
 def test_benchmark_device_id_matches_firmware_sha256_pseudonym():
     assert bench.format_benchmark_device_id_from_mac("7C:2C:67:42:BB:AC") == "3cf79180d3a0aca4"
 
 
-def test_micro_benchmark_config_enables_production_debug_telemetry(monkeypatch):
+def test_micro_benchmark_config_overrides_lab_wifi_and_debug_telemetry(monkeypatch):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_MQTT_HOST", "broker.local")
 
-    content = bench.render_micro_benchmark_config("high_accuracy")
+    content = bench.render_micro_benchmark_config()
 
-    assert "DETECTION_ALGORITHM = 'high_accuracy'" in content
+    assert "WIFI_SSID = 'lab'" in content
+    assert "WIFI_PASSWORD = 'secret'" in content
+    assert "MQTT_BROKER = 'broker.local'" in content
     assert "DEBUG_TELEMETRY = True" in content
-    assert "MQTT_HA_DISCOVERY_ENABLED = False" in content
+    assert "DETECTION_ALGORITHM" not in content
+    assert "MQTT_ENABLED" not in content
+    assert "MQTT_HA_DISCOVERY_ENABLED" not in content
     assert "MQTT_CLIENT_ID" not in content
 
 
@@ -143,6 +146,7 @@ def test_micro_benchmark_config_reads_shared_local_env_not_developer_config(monk
         "ESPECTRE_BENCHMARK_WIFI_SSID",
         "ESPECTRE_BENCHMARK_WIFI_PASSWORD",
         "ESPECTRE_BENCHMARK_WIFI_BSSID",
+        "ESPECTRE_BENCHMARK_WIFI_CHANNEL",
         "ESPECTRE_BENCHMARK_MQTT_HOST",
         "ESPECTRE_BENCHMARK_MQTT_PORT",
         "ESPECTRE_BENCHMARK_MQTT_USERNAME",
@@ -158,6 +162,7 @@ def test_micro_benchmark_config_reads_shared_local_env_not_developer_config(monk
             "ESPECTRE_BENCHMARK_WIFI_SSID": "file-lab",
             "ESPECTRE_BENCHMARK_WIFI_PASSWORD": "file-wifi-password",
             "ESPECTRE_BENCHMARK_WIFI_BSSID": "AA:BB:CC:DD:EE:FF",
+            "ESPECTRE_BENCHMARK_WIFI_CHANNEL": "6",
             "ESPECTRE_BENCHMARK_MQTT_HOST": "file-broker.local",
             "ESPECTRE_BENCHMARK_MQTT_PORT": "2883",
             "ESPECTRE_BENCHMARK_MQTT_USERNAME": "file-user",
@@ -166,16 +171,21 @@ def test_micro_benchmark_config_reads_shared_local_env_not_developer_config(monk
         },
     )
 
-    content = bench.render_micro_benchmark_config("lightweight")
+    content = bench.render_micro_benchmark_config()
 
     assert "WIFI_SSID = 'file-lab'" in content
     assert "WIFI_PASSWORD = 'file-wifi-password'" in content
     assert "WIFI_BSSID = 'AA:BB:CC:DD:EE:FF'" in content
+    assert "WIFI_CHANNEL = 6" in content
     assert "MQTT_BROKER = 'file-broker.local'" in content
     assert "MQTT_PORT = 2883" in content
     assert "MQTT_USERNAME = 'file-user'" in content
     assert "MQTT_PASSWORD = 'file-mqtt-password'" in content
     assert "MQTT_TOPIC_PREFIX = 'file/espectre'" in content
+    assert "DEBUG_TELEMETRY = True" in content
+    assert "DETECTION_ALGORITHM" not in content
+    assert "MQTT_ENABLED" not in content
+    assert "MQTT_HA_DISCOVERY_ENABLED" not in content
 
 
 def test_micro_debug_telemetry_uses_shared_benchmark_keys():
