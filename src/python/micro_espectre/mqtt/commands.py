@@ -164,6 +164,7 @@ class MQTTCommands:
             "commands": _protocol_mqtt_commands(
                 supports_info=True,
                 supports_stats=True,
+                supports_device_config=False,
                 supports_runtime_threshold=True,
                 supports_runtime_motion_hits=self.runtime_policy is not None,
                 supports_runtime_detector=False,

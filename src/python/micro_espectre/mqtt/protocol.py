@@ -30,6 +30,7 @@ def derive_runtime_device_id(wlan):
 def _protocol_mqtt_commands(
     supports_info=True,
     supports_stats=False,
+    supports_device_config=False,
     supports_runtime_threshold=False,
     supports_runtime_motion_hits=False,
     supports_runtime_detector=False,
@@ -44,6 +45,8 @@ def _protocol_mqtt_commands(
         commands.append("info")
     if supports_stats:
         commands.append("stats")
+    if supports_device_config:
+        commands.append("set_device_label")
     if supports_runtime_threshold:
         commands.append("set_threshold")
     if supports_runtime_motion_hits:
@@ -128,6 +131,7 @@ def build_info_payload(
         "chip": chip,
         "supports_info": True,
         "supports_stats": True,
+        "supports_device_config": False,
         "supports_runtime_threshold": True,
         "supports_runtime_motion_hits": runtime_policy is not None,
         "supports_runtime_detector": False,

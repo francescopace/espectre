@@ -1513,6 +1513,7 @@ class TestMQTTCommands:
         assert payload['device_label'] == ''
         assert payload['supports_info'] is True
         assert payload['supports_stats'] is True
+        assert payload['supports_device_config'] is False
         assert payload['supports_runtime_threshold'] is True
         assert payload['supports_runtime_detector'] is False
         assert payload['supports_ota'] is False

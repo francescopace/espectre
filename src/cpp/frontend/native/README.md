@@ -16,7 +16,7 @@ If you arrived here from [`SETUP.md`](../../../../docs/SETUP.md), this README is
 
 The web flasher can install published `Native` images for supported chips. After flashing, use a BLE client that understands this protocol, such as:
 
-- [Configure](https://espectre.dev/configure): Bluetooth provisioning for Wi-Fi, MQTT, and the user-facing device label
+- [Configure](https://espectre.dev/configure): Bluetooth provisioning for Wi-Fi and MQTT, plus device-label editing over Bluetooth or an active MQTT connection
 - [Monitor](https://espectre.dev/monitor): MQTT telemetry, tuning, and diagnostics
 - [Run with the Spectre](https://espectre.dev/game/): example interactive client over MQTT after BLE setup
 
@@ -74,7 +74,7 @@ Usage notes:
 2. wait for the initial `REQ_SYSINFO` refresh after notifications start
 3. use `Save Wi-Fi` to send one atomic `SET_WIFI_CONFIG` update
 4. use `Save MQTT` to send one atomic `SET_MQTT_CONFIG` update and enable MQTT transport
-5. use `Save Device` to persist the human-facing `device_label`
+5. select the device name in the banner to persist the human-facing `device_label`
 6. select `Start sensing`; Monitor connects to the broker, waits for MQTT `set_ble off` to be accepted, then opens live sensing and reports sensing as active after the first valid device telemetry
 7. adjust MQTT-owned runtime settings directly in Monitor; changes apply when their fields change, while OTA status and on-demand diagnostics remain in the collapsed Diagnostics section below
 
@@ -209,7 +209,7 @@ Important current limits:
 - BLE sysinfo exposes capability flags, and MQTT exposes its command catalog; there is no negotiated feature handshake
 - OTA uses HTTPS transport and dual OTA slots, so local recovery still starts from the published factory image when an image must be reflashed from USB
 
-This keeps the transport simple while allowing external BLE clients to provision Wi-Fi and MQTT, edit the user-facing device label, and inspect read-only setup status. The firmware-generated `device_id` and derived `device_name` remain immutable. OTA, live sensing, and runtime detector control stay on MQTT.
+This keeps the transport simple while allowing external BLE clients to provision Wi-Fi and MQTT, BLE or MQTT clients to edit the user-facing device label, and nearby clients to inspect read-only setup status. The firmware-generated `device_id` and derived `device_name` remain immutable. OTA, live sensing, and runtime detector control stay on MQTT.
 
 ## BLE-Specific Troubleshooting
 

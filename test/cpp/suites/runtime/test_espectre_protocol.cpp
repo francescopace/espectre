@@ -179,6 +179,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   info.chip = "esp32c6";
   info.detector = "lightweight";
   info.supports_stats = true;
+  info.supports_device_config = true;
   info.supports_runtime_threshold = true;
   info.supports_runtime_motion_hits = true;
   info.supports_runtime_detector = true;
@@ -205,6 +206,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(payload.find("\"chip\":\"esp32c6\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"supports_info\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"supports_stats\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"supports_device_config\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"supports_runtime_threshold\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"supports_runtime_motion_hits\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"supports_runtime_detector\":true") != std::string::npos);
@@ -226,7 +228,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
 
   const std::string catalog = espectre_commands_payload(config, info);
   TEST_ASSERT_TRUE(catalog.find("\"device_id\":\"0000000000000001\"") != std::string::npos);
-  TEST_ASSERT_TRUE(catalog.find("\"commands\":[\"commands\",\"info\",\"stats\",\"set_threshold\","
+  TEST_ASSERT_TRUE(catalog.find("\"commands\":[\"commands\",\"info\",\"stats\",\"set_device_label\",\"set_threshold\","
                                 "\"set_motion_hits\",\"set_detector\",\"recalibrate\",\"set_csi_traffic_mode\","
                                 "\"set_traffic_generator_mode\",\"set_ble\",\"ota_status\",\"ota_check\","
                                 "\"ota_start\"]") != std::string::npos);
@@ -293,6 +295,20 @@ void test_parse_espectre_command_parses_info_and_threshold_commands(void) {
 
   TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x-commands\",\"command\":\"commands\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("commands", command.command.c_str());
+
+  TEST_ASSERT_TRUE(parse_espectre_command(
+      "{\"command_id\":\"x-label\",\"command\":\"set_device_label\",\"device_label\":\"Kitchen\"}",
+      &command,
+      &error));
+  TEST_ASSERT_TRUE(command.has_device_label);
+  TEST_ASSERT_EQUAL_STRING("Kitchen", command.device_label.c_str());
+
+  TEST_ASSERT_TRUE(parse_espectre_command(
+      "{\"command_id\":\"x-label-clear\",\"command\":\"set_device_label\",\"device_label\":\"\"}",
+      &command,
+      &error));
+  TEST_ASSERT_TRUE(command.has_device_label);
+  TEST_ASSERT_TRUE(command.device_label.empty());
 
   TEST_ASSERT_TRUE(
       parse_espectre_command("{\"command_id\":\"x2\",\"command\":\"set_threshold\",\"threshold\":2.5}", &command, &error));
@@ -363,6 +379,13 @@ void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(v
 
   TEST_ASSERT_FALSE(parse_espectre_command("{\"command_id\":\"x3\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("missing command", error.c_str());
+
+  TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"set_device_label\"}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("invalid device label (accepted: a single-line string)", error.c_str());
+
+  TEST_ASSERT_FALSE(parse_espectre_command(
+      "{\"command\":\"set_device_label\",\"device_label\":123}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("invalid device label (accepted: a single-line string)", error.c_str());
 
   TEST_ASSERT_FALSE(
       parse_espectre_command("{\"command\":\"set_threshold\",\"threshold\":\"abc\"}", &command, &error));

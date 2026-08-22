@@ -405,6 +405,7 @@ void NativeFrontend::handle_mqtt_command_(const std::string &payload) {
       FrontendMqttCommandCapabilities{
           true,
           true,
+          true,
           runtime_.capabilities().supports_runtime_threshold_updates,
           runtime_.capabilities().supports_runtime_motion_hits_updates,
           runtime_.capabilities().supports_traffic_control,
@@ -414,6 +415,23 @@ void NativeFrontend::handle_mqtt_command_(const std::string &payload) {
       },
       [this]() { this->publish_mqtt_info_(); },
       [this]() { this->publish_mqtt_stats_(); },
+      [this](const std::string &device_label, std::string *message) {
+        EspectreDeviceConfig updated_config = this->device_config_;
+        updated_config.device_label = device_label;
+        if (this->device_config_change_callback_ &&
+            !this->device_config_change_callback_(updated_config, false, message)) {
+          return false;
+        }
+        this->set_device_config(updated_config);
+        this->publish_mqtt_info_();
+        this->publish_ha_discovery_();
+        this->publish_current_ha_state_();
+        this->system_info_refresh_.request();
+        if (message != nullptr && message->empty()) {
+          *message = "device label updated";
+        }
+        return true;
+      },
       [this](float threshold, std::string *message) {
         const bool accepted = this->handle_threshold_write_(threshold);
         if (message != nullptr && message->empty()) {
@@ -961,6 +979,7 @@ EspectreDeviceInfo NativeFrontend::mqtt_protocol_device_info_() const {
       normalize_protocol_device_info(device_info_, &runtime_.snapshot(), ota_service_ != nullptr, "native", CONFIG_IDF_TARGET);
   info.supports_info = true;
   info.supports_stats = true;
+  info.supports_device_config = true;
   info.supports_runtime_threshold = runtime_.capabilities().supports_runtime_threshold_updates;
   info.supports_runtime_motion_hits = runtime_.capabilities().supports_runtime_motion_hits_updates;
   info.supports_runtime_detector = runtime_.capabilities().supports_runtime_detector_selection;

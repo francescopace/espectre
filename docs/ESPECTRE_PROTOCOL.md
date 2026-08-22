@@ -142,6 +142,7 @@ espectre/v1/devices/{device_id}/info
   "chip": "esp32c6",
   "supports_info": true,
   "supports_stats": true,
+  "supports_device_config": true,
   "supports_runtime_threshold": true,
   "supports_runtime_motion_hits": true,
   "supports_runtime_detector": true,
@@ -232,6 +233,7 @@ in response to:
     "commands",
     "info",
     "stats",
+    "set_device_label",
     "set_threshold",
     "set_motion_hits",
     "set_detector",
@@ -255,6 +257,19 @@ Published to:
 ```text
 espectre/v1/devices/{device_id}/commands/request
 ```
+
+Set or clear the persisted user-facing label on frontends that advertise device configuration support. An empty string clears the label without changing the immutable `device_id` or derived `device_name`:
+
+```json
+{
+  "protocol_version": "1.0",
+  "command_id": "cmd-label",
+  "command": "set_device_label",
+  "device_label": "Living Room"
+}
+```
+
+Native republishes its retained `info` payload and Home Assistant discovery after accepting the change. Micro-ESPectre reports `supports_device_config: false` and does not advertise this command.
 
 Set threshold:
 
@@ -483,7 +498,7 @@ Capability-oriented `sysinfo` keys may include:
 | `frontend` | Firmware/frontend family currently exposing the BLE service |
 | `supports_wifi_provisioning` | Whether BLE clients can edit and apply Wi-Fi settings |
 | `supports_mqtt_config` | Whether BLE clients can edit MQTT broker settings |
-| `supports_device_config` | Whether BLE clients can edit the user-facing `device_label` |
+| `supports_device_config` | Whether clients can persist the user-facing `device_label`; Native exposes this over BLE and MQTT |
 | `supports_runtime_threshold` | Native reports `false`; threshold writes belong to MQTT |
 | `supports_runtime_motion_hits` | Native reports `false`; motion-hit writes belong to MQTT |
 | `supports_runtime_detector` | Native reports `false`; detector selection belongs to MQTT |

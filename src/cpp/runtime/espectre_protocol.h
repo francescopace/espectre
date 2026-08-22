@@ -108,6 +108,8 @@ struct EspectreDeviceInfo {
   std::string detector;
   bool supports_info{true};
   bool supports_stats{false};
+  /** MQTT `set_device_label` is honored and persists the user-facing label. */
+  bool supports_device_config{false};
   bool supports_runtime_threshold{false};
   bool supports_runtime_motion_hits{false};
   bool supports_runtime_detector{false};
@@ -162,6 +164,10 @@ struct EspectreCommand {
   std::string command_id;
   /** Command verb, for example `"set_threshold"` or `"recalibrate"`. */
   std::string command;
+  /** User-facing label requested by `set_device_label`; empty clears it. */
+  std::string device_label;
+  /** Whether the command carried a valid string-valued `device_label`. */
+  bool has_device_label{false};
   float threshold{0.0f};
   bool has_threshold{false};
   uint8_t motion_on_hits{0U};

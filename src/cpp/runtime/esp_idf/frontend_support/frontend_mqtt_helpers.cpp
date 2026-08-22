@@ -88,6 +88,7 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
                                                        const FrontendMqttCommandCapabilities &capabilities,
                                                        FrontendMqttInfoCallback info_callback,
                                                        FrontendMqttStatsCallback stats_callback,
+                                                       FrontendMqttDeviceLabelCallback device_label_callback,
                                                        FrontendMqttThresholdCallback threshold_callback,
                                                        FrontendMqttMotionHitsCallback motion_hits_callback,
                                                        FrontendMqttCsiTrafficModeCallback csi_traffic_mode_callback,
@@ -139,6 +140,24 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
     stats_callback();
     result.accepted = true;
     result.message = "stats published";
+    return result;
+  }
+
+  if (result.command.command == "set_device_label") {
+    if (!capabilities.supports_device_config || !device_label_callback) {
+      result.accepted = false;
+      result.message = "unsupported command";
+      return result;
+    }
+    if (!result.command.has_device_label) {
+      result.accepted = false;
+      result.message = "invalid device label (accepted: a single-line string)";
+      return result;
+    }
+    result.accepted = device_label_callback(result.command.device_label, &result.message);
+    if (result.message.empty()) {
+      result.message = result.accepted ? "device label updated" : "device label rejected";
+    }
     return result;
   }
 

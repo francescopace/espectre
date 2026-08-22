@@ -55,6 +55,7 @@ void append_supported_command_names(std::string *out, const EspectreDeviceInfo &
   add(true, "commands");
   add(info.supports_info, "info");
   add(info.supports_stats, "stats");
+  add(info.supports_device_config, "set_device_label");
   add(info.supports_runtime_threshold, "set_threshold");
   add(info.supports_runtime_motion_hits, "set_motion_hits");
   add(info.supports_runtime_detector, "set_detector");
@@ -103,6 +104,23 @@ bool parse_uint8_value(const std::string &value, uint8_t *out) {
   }
   *out = static_cast<uint8_t>(parsed);
   return true;
+}
+
+bool has_json_string_value(const std::string &payload, const char *key) {
+  if (key == nullptr || key[0] == '\0') {
+    return false;
+  }
+  const std::string needle = std::string("\"") + key + "\"";
+  const size_t key_pos = payload.find(needle);
+  if (key_pos == std::string::npos) {
+    return false;
+  }
+  const size_t colon = payload.find(':', key_pos + needle.size());
+  if (colon == std::string::npos) {
+    return false;
+  }
+  const size_t value = payload.find_first_not_of(" \t\r\n", colon + 1U);
+  return value != std::string::npos && payload[value] == '"';
 }
 
 std::string normalize_ble_chip_label(const char *chip) {
@@ -286,6 +304,8 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
   out += info.supports_info ? "true" : "false";
   out += ",\"supports_stats\":";
   out += info.supports_stats ? "true" : "false";
+  out += ",\"supports_device_config\":";
+  out += info.supports_device_config ? "true" : "false";
   out += ",\"supports_runtime_threshold\":";
   out += info.supports_runtime_threshold ? "true" : "false";
   out += ",\"supports_runtime_motion_hits\":";
@@ -498,7 +518,16 @@ bool parse_espectre_command(const std::string &payload, EspectreCommand *command
   if (parsed.command.empty()) {
     return reject("missing command");
   }
-  if (parsed.command == "set_threshold") {
+  if (parsed.command == "set_device_label") {
+    if (!has_json_string_value(payload, "device_label")) {
+      return reject("invalid device label (accepted: a single-line string)");
+    }
+    parsed.device_label = extract_json_string(payload, "device_label");
+    if (parsed.device_label.find_first_of("\r\n\0", 0U, 3U) != std::string::npos) {
+      return reject("invalid device label (accepted: a single-line string)");
+    }
+    parsed.has_device_label = true;
+  } else if (parsed.command == "set_threshold") {
     const std::string threshold_token = extract_json_number_token(payload, "threshold");
     if (!parse_float_value(threshold_token, &parsed.threshold)) {
       return reject("invalid threshold (accepted: 0.0-1.0)");

@@ -998,6 +998,47 @@ void test_native_frontend_mqtt_set_threshold_command_publishes_result(void) {
   TEST_ASSERT_TRUE(publish.payload.find("\"accepted\":true") != std::string::npos);
 }
 
+void test_native_frontend_mqtt_set_device_label_persists_and_republishes_info(void) {
+  MockBleBindings bindings;
+  MockMqttTransport mqtt;
+  EspectreDeviceConfig config;
+  config.device_id = 0x0000abcdeffedcbaULL;
+  config.device_label = "Living Room";
+  config.mqtt_host = "localhost";
+  std::vector<EspectreDeviceConfig> persisted_configs;
+
+  NativeFrontend frontend(&bindings, &mqtt);
+  frontend.set_device_config(config);
+  frontend.set_device_config_change_callback(
+      [&persisted_configs](const EspectreDeviceConfig &updated, bool clear, std::string *) {
+        TEST_ASSERT_FALSE(clear);
+        persisted_configs.push_back(updated);
+        return true;
+      });
+  TEST_ASSERT_TRUE(frontend.setup());
+  mqtt_transport_mock::state.publishes.clear();
+
+  mqtt.emit_command(
+      "{\"command_id\":\"label-1\",\"command\":\"set_device_label\",\"device_label\":\"Kitchen Sensor\"}");
+
+  TEST_ASSERT_EQUAL_STRING("Kitchen Sensor", frontend.device_config().device_label.c_str());
+  TEST_ASSERT_EQUAL(1, static_cast<int>(persisted_configs.size()));
+  TEST_ASSERT_EQUAL_STRING("Kitchen Sensor", persisted_configs[0].device_label.c_str());
+  TEST_ASSERT_TRUE(std::any_of(mqtt_transport_mock::state.publishes.begin(),
+                               mqtt_transport_mock::state.publishes.end(),
+                               [](const mqtt_transport_mock::Publish &publish) {
+                                 return publish.topic == "espectre/v1/devices/0000abcdeffedcba/info" &&
+                                        publish.retain &&
+                                        publish.payload.find("\"device_label\":\"Kitchen Sensor\"") !=
+                                            std::string::npos;
+                               }));
+  TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
+  const auto &result = mqtt_transport_mock::state.publishes.back();
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0000abcdeffedcba/commands/accepted", result.topic.c_str());
+  TEST_ASSERT_TRUE(result.payload.find("\"command\":\"set_device_label\"") != std::string::npos);
+  TEST_ASSERT_TRUE(result.payload.find("\"accepted\":true") != std::string::npos);
+}
+
 void test_native_frontend_mqtt_recalibrate_command_publishes_result(void) {
   MockBleBindings bindings;
   MockMqttTransport mqtt;
@@ -1149,6 +1190,8 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].retain);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"supports_runtime_motion_hits\":true") !=
                    std::string::npos);
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"supports_device_config\":true") !=
+                   std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"supports_manual_recalibration\":true") !=
                    std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[0].payload.find("\"supports_traffic_control\":true") !=
@@ -1193,6 +1236,7 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0000abcdeffedcba/commands/catalog",
                            mqtt_transport_mock::state.publishes[4].topic.c_str());
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[4].payload.find("\"commands\":[") != std::string::npos);
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[4].payload.find("\"set_device_label\"") != std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[4].payload.find("\"set_ble\"") != std::string::npos);
 }
 
@@ -1765,6 +1809,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_live_telemetry_publishes_mqtt_telemetry);
   RUN_TEST(test_native_frontend_motion_edge_publishes_ready_ha_motion);
   RUN_TEST(test_native_frontend_mqtt_set_threshold_command_publishes_result);
+  RUN_TEST(test_native_frontend_mqtt_set_device_label_persists_and_republishes_info);
   RUN_TEST(test_native_frontend_mqtt_recalibrate_command_publishes_result);
   RUN_TEST(test_native_frontend_mqtt_detector_command_updates_runtime);
   RUN_TEST(test_native_frontend_mqtt_motion_hits_command_updates_runtime);

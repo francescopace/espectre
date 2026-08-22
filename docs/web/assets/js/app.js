@@ -36,11 +36,74 @@
         device: 'configure'
     });
     const LOCAL_DEVELOPMENT_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+    const MQTT_PRESETS = Object.freeze({
+        home_assistant: Object.freeze({
+            configure: Object.freeze({
+                host: 'homeassistant.local', port: '1883', hostPlaceholder: 'homeassistant.local'
+            }),
+            monitor: Object.freeze({
+                host: 'homeassistant.local', port: '9001', path: '/mqtt', tls: false,
+                hostPlaceholder: 'homeassistant.local'
+            })
+        }),
+        lan_broker: Object.freeze({
+            configure: Object.freeze({
+                host: '', port: '1883', hostPlaceholder: 'broker.local or 192.168.1.20'
+            }),
+            monitor: Object.freeze({
+                host: 'localhost', port: '9001', path: '/mqtt', tls: false,
+                hostPlaceholder: 'localhost or broker.local'
+            })
+        }),
+        emqx_cloud: Object.freeze({
+            configure: Object.freeze({
+                host: 'deployment-id.ala.region.emqxsl.com', port: '8883',
+                hostPlaceholder: 'deployment-id.ala.region.emqxsl.com',
+                locked: Object.freeze(['port'])
+            }),
+            monitor: Object.freeze({
+                host: 'deployment-id.ala.region.emqxsl.com', port: '8084', path: '/mqtt', tls: true,
+                hostPlaceholder: 'deployment-id.ala.region.emqxsl.com',
+                locked: Object.freeze(['port', 'path', 'tls'])
+            })
+        }),
+        hivemq_cloud: Object.freeze({
+            configure: Object.freeze({
+                host: 'cluster-id.s1.region.hivemq.cloud', port: '8883',
+                hostPlaceholder: 'cluster-id.s1.region.hivemq.cloud',
+                locked: Object.freeze(['port'])
+            }),
+            monitor: Object.freeze({
+                host: 'cluster-id.s1.region.hivemq.cloud', port: '8884', path: '/mqtt', tls: true,
+                hostPlaceholder: 'cluster-id.s1.region.hivemq.cloud',
+                locked: Object.freeze(['port', 'path', 'tls'])
+            })
+        }),
+        flespi: Object.freeze({
+            configure: Object.freeze({
+                host: 'mqtt.flespi.io', port: '8883', hostPlaceholder: 'mqtt.flespi.io',
+                locked: Object.freeze(['host', 'port'])
+            }),
+            monitor: Object.freeze({
+                host: 'mqtt.flespi.io', port: '443', path: '/mqtt', tls: true,
+                hostPlaceholder: 'mqtt.flespi.io',
+                locked: Object.freeze(['host', 'port', 'path', 'tls'])
+            })
+        }),
+        cloud_broker: Object.freeze({
+            configure: Object.freeze({
+                host: 'cluster.example.com', port: '', hostPlaceholder: 'cluster.example.com'
+            }),
+            monitor: Object.freeze({
+                host: 'cluster.example.com', port: '', path: '/mqtt', tls: true,
+                hostPlaceholder: 'cluster.example.com'
+            })
+        })
+    });
+    const SECURE_CLOUD_MQTT_PRESETS = new Set([
+        'emqx_cloud', 'hivemq_cloud', 'flespi', 'cloud_broker'
+    ]);
     const MQTT_FORM_DEFAULTS = {
-        host: 'homeassistant.local',
-        port: '1883',
-        username: 'mqtt',
-        password: 'mqtt',
         topicPrefix: 'espectre/v1/devices'
     };
 
@@ -110,6 +173,7 @@
         deviceId: '',
         generatedName: '',
         deviceLabel: '',
+        deviceConfigSupported: false,
         chip: '',
         firmwareVersion: '',
         deviceBannerSub: '—',
@@ -130,6 +194,10 @@
     let route = 'home';
     const LIVE_EXPERIENCE_ROUTES = new Set(['game', 'theremin']);
     let pendingLiveDestination = '';
+    const deviceNameEditorState = {
+        configure: { editing: false, savePending: false },
+        monitor: { editing: false, savePending: false }
+    };
     let lastTrackedProfile = null;
     let wifiBandPolicyAvailable = false;
     let currentWifiBandPolicy = '2g';
@@ -386,6 +454,9 @@
         if (data.device_id) adoptDeviceId(data.device_id);
         if (data.device_name) conn.generatedName = data.device_name;
         if (data.device_label !== undefined) conn.deviceLabel = data.device_label;
+        if (data.supports_device_config !== undefined) {
+            conn.deviceConfigSupported = sysinfoBoolean(data.supports_device_config);
+        }
         if (data.device_label || data.device_name) {
             conn.deviceName = data.device_label || data.device_name;
         }
@@ -410,6 +481,128 @@
         if (deviceId) parts.push('Device ID ' + deviceId);
         if (firmware) parts.push('Firmware ' + firmware);
         return parts.join(' · ');
+    }
+
+    function deviceNameEditorElements(surface) {
+        return {
+            editor: $(`.js-${surface}-name-editor`),
+            trigger: $(`.js-${surface}-name-trigger`),
+            display: $(`.js-${surface}-name-display`),
+            input: $(`.js-${surface}-name-input`)
+        };
+    }
+
+    function renderDeviceNameEditor(surface) {
+        const state = deviceNameEditorState[surface];
+        const { editor, trigger, display, input } = deviceNameEditorElements(surface);
+        if (!state || !editor || !trigger || !display || !input) return;
+
+        const displayName = conn.deviceLabel || conn.generatedName || conn.deviceId
+            || conn.deviceName || 'ESPectre';
+        const mqttCanEdit = conn.mode === 'mqtt' && monitorIsMqttLive()
+            && (!monitor.commandCatalogReady || monitor.commands.has('set_device_label'));
+        const canEdit = conn.status === 'connected'
+            && (conn.mode === 'ble' || conn.mode === 'demo' || mqttCanEdit)
+            && conn.deviceConfigSupported;
+        display.textContent = displayName;
+        trigger.disabled = !canEdit || state.savePending;
+        trigger.setAttribute('aria-label', conn.deviceLabel ? 'Edit device name' : 'Set device name');
+        trigger.title = canEdit ? 'Click to edit the device name' : '';
+        trigger.hidden = state.editing;
+        input.hidden = !state.editing;
+        input.disabled = state.savePending;
+        if (!state.editing) input.value = conn.deviceLabel || '';
+        editor.setAttribute('aria-busy', String(state.savePending));
+        if (surface === 'configure') {
+            const identity = $('.js-configure-device-banner-sub');
+            if (identity) {
+                identity.textContent = formatDeviceIdentityLine(
+                    conn.chip,
+                    conn.deviceLabel ? conn.deviceId : '',
+                    conn.firmwareVersion
+                ) || '—';
+            }
+        }
+    }
+
+    function renderConfigureDeviceNameEditor() {
+        renderDeviceNameEditor('configure');
+    }
+
+    function renderMonitorDeviceNameEditor() {
+        renderDeviceNameEditor('monitor');
+    }
+
+    function startDeviceNameEdit(surface) {
+        const state = deviceNameEditorState[surface];
+        const { trigger, input } = deviceNameEditorElements(surface);
+        if (!state || !trigger || !input || trigger.disabled || state.savePending) return;
+        state.editing = true;
+        input.value = conn.deviceLabel || '';
+        renderDeviceNameEditor(surface);
+        requestAnimationFrame(() => {
+            input.focus();
+            input.select();
+        });
+    }
+
+    function cancelDeviceNameEdit(surface) {
+        const state = deviceNameEditorState[surface];
+        if (!state || !state.editing) return;
+        state.editing = false;
+        renderDeviceNameEditor(surface);
+        const { trigger } = deviceNameEditorElements(surface);
+        if (trigger) trigger.focus();
+    }
+
+    async function saveDeviceNameOnBlur(surface) {
+        const state = deviceNameEditorState[surface];
+        if (!state || !state.editing || state.savePending) return;
+        const { input } = deviceNameEditorElements(surface);
+        const label = input ? input.value.trim() : '';
+        const previousLabel = conn.deviceLabel;
+        const previousName = conn.deviceName;
+        state.editing = false;
+        if (label === previousLabel) {
+            renderDeviceNameEditor(surface);
+            return;
+        }
+
+        state.savePending = true;
+        conn.deviceLabel = label;
+        conn.deviceName = label || conn.generatedName || 'ESPectre';
+        renderConnection();
+        const saved = await cfgSaveDeviceLabel(label);
+        if (!saved) {
+            conn.deviceLabel = previousLabel;
+            conn.deviceName = previousName;
+        }
+        state.savePending = false;
+        renderConnection();
+    }
+
+    function startConfigureDeviceNameEdit() {
+        startDeviceNameEdit('configure');
+    }
+
+    function cancelConfigureDeviceNameEdit() {
+        cancelDeviceNameEdit('configure');
+    }
+
+    function saveConfigureDeviceNameOnBlur() {
+        return saveDeviceNameOnBlur('configure');
+    }
+
+    function startMonitorDeviceNameEdit() {
+        startDeviceNameEdit('monitor');
+    }
+
+    function cancelMonitorDeviceNameEdit() {
+        cancelDeviceNameEdit('monitor');
+    }
+
+    function saveMonitorDeviceNameOnBlur() {
+        return saveDeviceNameOnBlur('monitor');
     }
 
     function applyDeviceInfo(data) {
@@ -668,28 +861,160 @@
         }
     }
 
+    function mqttPresetNote(target, presetName) {
+        if (target === 'configure') {
+            if (presetName === 'home_assistant') {
+                return 'Enter the MQTT credentials created for ESPectre.';
+            }
+            if (presetName === 'lan_broker') {
+                return "Use the broker's LAN hostname or IP address.";
+            }
+            if (presetName === 'emqx_cloud') {
+                return 'Replace the template with your EMQX endpoint.';
+            }
+            if (presetName === 'hivemq_cloud') {
+                return 'Replace the template with your HiveMQ endpoint.';
+            }
+            if (presetName === 'flespi') {
+                return 'Use your Flespi token as username; no password.';
+            }
+            return 'Enter your broker endpoint and credentials.';
+        }
+        if (presetName === 'home_assistant') {
+            return location.protocol === 'https:'
+                ? 'Port 9001; HTTPS requires trusted WSS.'
+                : 'Home Assistant WebSockets use port 9001.';
+        }
+        if (presetName === 'lan_broker') {
+            return location.protocol === 'https:'
+                ? 'Defaults to localhost; HTTPS requires trusted WSS.'
+                : 'Defaults to localhost; replace it for another LAN host.';
+        }
+        if (presetName === 'emqx_cloud') {
+            return 'WSS uses port 8084 and path /mqtt.';
+        }
+        if (presetName === 'hivemq_cloud') {
+            return 'WSS uses port 8884 and path /mqtt.';
+        }
+        if (presetName === 'flespi') {
+            return 'Use your Flespi token as username; no password.';
+        }
+        return 'Enter your broker WSS settings and credentials.';
+    }
+
+    function updateMqttPresetNote(target, presetName) {
+        const note = target === 'configure'
+            ? $('.js-cfg-mqtt-preset-note')
+            : $('.js-mon-mqtt-preset-note');
+        if (note) note.textContent = mqttPresetNote(target, presetName);
+    }
+
+    function applyMqttPresetFieldLocks(target, preset) {
+        const fields = target === 'configure'
+            ? { host: 'cfg-mqtt-host', port: 'cfg-mqtt-port' }
+            : { host: 'mon-host', port: 'mon-port', path: 'mon-path', tls: 'mon-tls' };
+        const locked = new Set(preset.locked || []);
+        Object.entries(fields).forEach(([name, id]) => {
+            const input = document.getElementById(id);
+            if (!input) return;
+            const isLocked = locked.has(name);
+            if (input.type === 'checkbox') input.disabled = isLocked;
+            else input.readOnly = isLocked;
+            input.toggleAttribute('data-preset-locked', isLocked);
+            input.title = isLocked ? 'Set by the selected broker preset' : '';
+        });
+    }
+
+    function browserBrokerHost(host) {
+        return String(host || '')
+            .trim()
+            .replace(/^mqtts?:\/\//, '')
+            .replace(/:\d+$/, '');
+    }
+
+    function configuredBrokerPreset(host, port) {
+        const normalizedHost = browserBrokerHost(host).toLowerCase();
+        if (normalizedHost === 'homeassistant.local'
+                && Number(port) === Number(MQTT_PRESETS.home_assistant.configure.port)) {
+            return 'home_assistant';
+        }
+        if (normalizedHost === 'mqtt.flespi.io') return 'flespi';
+        if (normalizedHost.endsWith('.hivemq.cloud')) return 'hivemq_cloud';
+        if (normalizedHost.endsWith('.emqxsl.com') || normalizedHost.endsWith('.emqx.cloud')) {
+            return 'emqx_cloud';
+        }
+        const localIpv4 = /^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(normalizedHost);
+        if (normalizedHost === 'localhost' || normalizedHost.endsWith('.local') || localIpv4) {
+            return 'lan_broker';
+        }
+        return 'cloud_broker';
+    }
+
+    function applyConfigureMqttPreset(presetName, { clearCredentials = true } = {}) {
+        const select = document.getElementById('cfg-mqtt-preset');
+        const resolvedName = MQTT_PRESETS[presetName] ? presetName : 'cloud_broker';
+        const preset = MQTT_PRESETS[resolvedName];
+        select.value = resolvedName;
+        document.getElementById('cfg-mqtt-host').value = preset.configure.host;
+        document.getElementById('cfg-mqtt-host').placeholder = preset.configure.hostPlaceholder;
+        document.getElementById('cfg-mqtt-port').value = preset.configure.port;
+        document.getElementById('cfg-topic-prefix').value = MQTT_FORM_DEFAULTS.topicPrefix;
+        applyMqttPresetFieldLocks('configure', preset.configure);
+        if (clearCredentials) {
+            document.getElementById('cfg-mqtt-user').value = '';
+            document.getElementById('cfg-mqtt-pass').value = '';
+        }
+        updateMqttPresetNote('configure', select.value);
+    }
+
+    function applyMonitorMqttPreset(presetName, { clearCredentials = true } = {}) {
+        const select = document.getElementById('mon-mqtt-preset');
+        const resolvedName = MQTT_PRESETS[presetName] ? presetName : 'cloud_broker';
+        const preset = MQTT_PRESETS[resolvedName];
+        select.value = resolvedName;
+        document.getElementById('mon-host').value = preset.monitor.host;
+        document.getElementById('mon-host').placeholder = preset.monitor.hostPlaceholder;
+        document.getElementById('mon-port').value = preset.monitor.port;
+        document.getElementById('mon-path').value = preset.monitor.path;
+        document.getElementById('mon-tls').checked = preset.monitor.tls;
+        document.getElementById('mon-topic-prefix').value = MQTT_FORM_DEFAULTS.topicPrefix;
+        applyMqttPresetFieldLocks('monitor', preset.monitor);
+        if (clearCredentials) {
+            document.getElementById('mon-user').value = '';
+            document.getElementById('mon-pass').value = '';
+        }
+        updateMqttPresetNote('monitor', select.value);
+    }
+
     function applyConfigureMqttToMonitor() {
         const host = document.getElementById('cfg-mqtt-host');
         const user = document.getElementById('cfg-mqtt-user');
         const pass = document.getElementById('cfg-mqtt-pass');
         const prefix = document.getElementById('cfg-topic-prefix');
-        const device = document.getElementById('cfg-device-id');
+        const presetName = document.getElementById('cfg-mqtt-preset').value;
         const monHost = document.getElementById('mon-host');
         const monUser = document.getElementById('mon-user');
         const monPass = document.getElementById('mon-pass');
         const monPrefix = document.getElementById('mon-topic-prefix');
         const monDevice = document.getElementById('mon-device');
-        if (host && host.value.trim()) monHost.value = host.value.trim();
-        if (user && user.value.trim()) monUser.value = user.value.trim();
-        if (pass && pass.value) monPass.value = pass.value;
+        if (MQTT_PRESETS[presetName]) {
+            applyMonitorMqttPreset(presetName, { clearCredentials: false });
+            if (host && browserBrokerHost(host.value)) {
+                monHost.value = browserBrokerHost(host.value);
+            }
+        } else if (host && host.value.trim()) {
+            applyMonitorMqttPreset('cloud_broker', { clearCredentials: false });
+            monHost.value = browserBrokerHost(host.value);
+        }
+        monUser.value = user ? user.value.trim() : '';
+        monPass.value = pass ? pass.value : '';
         if (prefix && prefix.value.trim()) {
             monPrefix.value = prefix.value.trim().replace(/\/+$/, '');
         }
-        const deviceId = device
-            ? (device.value || device.textContent || '').trim()
-            : '';
+        const deviceId = conn.deviceId.trim();
         if (deviceId && deviceId !== '—') monDevice.value = deviceId;
-        // Device MQTT stores the broker TCP port (1883). The browser keeps its WebSocket port, path, and TLS.
+        // Presets map device TCP settings to browser WebSocket defaults where a stable mapping exists.
+        // Provider presets supply stable ports and paths; account-specific hostnames are copied without the MQTT scheme.
     }
 
     async function stopBleForDetection() {
@@ -817,15 +1142,16 @@
         if (snapshot.mqtt_host) {
             set('cfg-mqtt-host', snapshot.mqtt_host);
             set('cfg-mqtt-port', snapshot.mqtt_port);
+            const mqttPreset = configuredBrokerPreset(snapshot.mqtt_host, snapshot.mqtt_port);
+            document.getElementById('cfg-mqtt-preset').value = mqttPreset;
+            updateMqttPresetNote('configure', mqttPreset);
+            applyMqttPresetFieldLocks('configure', MQTT_PRESETS[mqttPreset].configure);
             const mqttUser = document.getElementById('cfg-mqtt-user');
             if (mqttUser) mqttUser.value = snapshot.mqtt_username || '';
             set('cfg-topic-prefix', snapshot.topic_prefix || MQTT_FORM_DEFAULTS.topicPrefix);
             const mqttPass = document.getElementById('cfg-mqtt-pass');
             if (mqttPass) mqttPass.value = '';
         }
-        set('cfg-device-id', snapshot.device_id);
-        set('cfg-device-name', snapshot.device_name);
-        set('cfg-label', snapshot.device_label);
         applyDeviceIdentity(snapshot);
         if (conn.mode === 'ble') otaSupported = false;
         else if (snapshot.supports_ota !== undefined) otaSupported = sysinfoBoolean(snapshot.supports_ota);
@@ -873,7 +1199,7 @@
             monitor.commands = new Set([
                 'set_threshold', 'set_motion_hits', 'set_detector', 'recalibrate',
                 'set_csi_traffic_mode', 'set_traffic_generator_mode', 'stats',
-                'ota_status', 'ota_check', 'set_ble'
+                'ota_status', 'ota_check', 'set_ble', 'set_device_label'
             ]);
             monitor.commandCatalogReady = true;
             applySysinfo({
@@ -1064,6 +1390,7 @@
         conn.deviceId = '';
         conn.generatedName = '';
         conn.deviceLabel = '';
+        conn.deviceConfigSupported = false;
         conn.chip = '';
         conn.firmwareVersion = '';
         conn.deviceBannerSub = '—';
@@ -1074,6 +1401,10 @@
         conn.readyState = '';
         conn.readyAt = 0;
         conn.readyTracked = false;
+        Object.values(deviceNameEditorState).forEach((state) => {
+            state.editing = false;
+            state.savePending = false;
+        });
         pendingLiveDestination = '';
         lastTrackedProfile = null;
         otaUpdateAvailable = false;
@@ -1224,6 +1555,8 @@
             el.textContent = displayedIdentity.deviceName || 'ESPectre';
         });
         $$('.js-device-banner-sub').forEach((el) => { el.textContent = conn.deviceBannerSub; });
+        renderConfigureDeviceNameEditor();
+        renderMonitorDeviceNameEditor();
         renderDeviceIdentity(displayedIdentity);
         const deviceIdLabel = $('.js-menu-device-id-label');
         if (deviceIdLabel) deviceIdLabel.textContent = usbConnected ? 'USB VID:PID' : 'Device ID';
@@ -2394,6 +2727,8 @@
                 monitor.commands = new Set(data.commands);
                 monitor.commandCatalogReady = true;
                 otaSupported = monitor.commands.has('ota_check') && monitor.commands.has('ota_start');
+                renderConfigureDeviceNameEditor();
+                renderMonitorDeviceNameEditor();
                 syncSensingControls();
                 syncOtaUpdateButton();
                 syncFirmwareUpdateNotice();
@@ -3254,12 +3589,18 @@
     }
 
     function monitorInit() {
+        const presetName = document.getElementById('mon-mqtt-preset').value;
+        updateMqttPresetNote('monitor', presetName);
+        applyMqttPresetFieldLocks('monitor', MQTT_PRESETS[presetName].monitor);
         $('.js-mon-connect').addEventListener('click', () => {
             if (monitorConnectionPending()) {
                 monitorCancelConnection();
                 return;
             }
             monitorConnect();
+        });
+        document.getElementById('mon-mqtt-preset').addEventListener('change', (event) => {
+            applyMonitorMqttPreset(event.currentTarget.value);
         });
         ['mon-host', 'mon-port', 'mon-topic-prefix', 'mon-device', 'mon-path'].forEach((id) => {
             const input = document.getElementById(id);
@@ -3278,6 +3619,18 @@
             diagnostics.addEventListener('toggle', syncDiagnosticsPolling);
         }
         $('.js-device-edit-connectivity').addEventListener('click', monitorEditOrCancel);
+        $('.js-monitor-name-trigger').addEventListener('click', startMonitorDeviceNameEdit);
+        const nameInput = $('.js-monitor-name-input');
+        nameInput.addEventListener('blur', () => { saveMonitorDeviceNameOnBlur(); });
+        nameInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                nameInput.blur();
+            } else if (event.key === 'Escape') {
+                event.preventDefault();
+                cancelMonitorDeviceNameEdit();
+            }
+        });
         $$('.js-firmware-update-notice').forEach((button) => {
             button.addEventListener('click', (event) => otaOpen(event.currentTarget));
         });
@@ -3554,11 +3907,20 @@
     }
 
     async function cfgSaveMqtt() {
-        const host = cfgValue('cfg-mqtt-host').trim();
+        const enteredHost = cfgValue('cfg-mqtt-host').trim();
+        const presetName = cfgValue('cfg-mqtt-preset');
+        const host = SECURE_CLOUD_MQTT_PRESETS.has(presetName)
+                && enteredHost && !/^mqtts?:\/\//i.test(enteredHost)
+            ? 'mqtts://' + enteredHost
+            : enteredHost;
         const username = cfgValue('cfg-mqtt-user').trim();
         const password = cfgValue('cfg-mqtt-pass');
         if (!host || !cfgValue('cfg-mqtt-port')) {
             cfgValidationFailed('set_mqtt', 'MQTT needs a host and port.');
+            return;
+        }
+        if (!browserBrokerHost(host)) {
+            cfgValidationFailed('set_mqtt', 'Complete the MQTT broker address after mqtts://.');
             return;
         }
         const port = Number(cfgValue('cfg-mqtt-port'));
@@ -3575,11 +3937,7 @@
     }
 
     function applyConfigureMqttDefaults() {
-        document.getElementById('cfg-mqtt-host').value = MQTT_FORM_DEFAULTS.host;
-        document.getElementById('cfg-mqtt-port').value = MQTT_FORM_DEFAULTS.port;
-        document.getElementById('cfg-mqtt-user').value = MQTT_FORM_DEFAULTS.username;
-        document.getElementById('cfg-mqtt-pass').value = MQTT_FORM_DEFAULTS.password;
-        document.getElementById('cfg-topic-prefix').value = MQTT_FORM_DEFAULTS.topicPrefix;
+        applyConfigureMqttPreset('home_assistant');
     }
 
     async function cfgClearMqtt() {
@@ -3589,9 +3947,34 @@
         if (ok) applyConfigureMqttDefaults();
     }
 
-    async function cfgSaveDevice() {
-        const label = cfgValue('cfg-label').trim();
-        await cfgApply('set_device', 'Device label saved.',
+    async function cfgSaveDeviceLabel(label) {
+        if (conn.mode === 'mqtt') {
+            try {
+                window.ESPectreBleClient.buildDeviceLabelCommand(label);
+            } catch (error) {
+                if (error && error.name === 'ESPectreValidationError') {
+                    cfgValidationFailed('set_device', error.message);
+                    return false;
+                }
+                throw error;
+            }
+            try {
+                await monitorPublishCommand(
+                    { command: 'set_device_label', device_label: label },
+                    { pendingMessage: 'Updating device name…', statusFn: () => {} }
+                );
+                toast('Device name saved.');
+                track('configure_change', { action: 'set_device', result: 'accepted' });
+                return true;
+            } catch (error) {
+                toast('Write failed: ' + (error.message || error));
+                track('configure_change', {
+                    action: 'set_device', result: 'failure', error_type: errorType(error)
+                });
+                return false;
+            }
+        }
+        return cfgApply('set_device', 'Device name saved.',
             () => window.ESPectreBleClient.buildDeviceLabelCommand(label),
             (snapshot) => (snapshot.device_label || '') === label);
     }
@@ -3906,13 +4289,30 @@
     }
 
     function configureInit() {
+        const presetName = document.getElementById('cfg-mqtt-preset').value;
+        updateMqttPresetNote('configure', presetName);
+        applyMqttPresetFieldLocks('configure', MQTT_PRESETS[presetName].configure);
         $('.js-wifi-save').addEventListener('click', cfgSaveWifi);
         $('.js-wifi-clear').addEventListener('click', cfgClearWifi);
         const startBle = $('.js-cfg-start-ble');
         if (startBle) startBle.addEventListener('click', monitorStartBle);
         $('.js-mqtt-save').addEventListener('click', cfgSaveMqtt);
         $('.js-mqtt-clear').addEventListener('click', cfgClearMqtt);
-        $('.js-dev-save').addEventListener('click', cfgSaveDevice);
+        document.getElementById('cfg-mqtt-preset').addEventListener('change', (event) => {
+            applyConfigureMqttPreset(event.currentTarget.value);
+        });
+        $('.js-configure-name-trigger').addEventListener('click', startConfigureDeviceNameEdit);
+        const nameInput = $('.js-configure-name-input');
+        nameInput.addEventListener('blur', () => { saveConfigureDeviceNameOnBlur(); });
+        nameInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                nameInput.blur();
+            } else if (event.key === 'Escape') {
+                event.preventDefault();
+                cancelConfigureDeviceNameEdit();
+            }
+        });
         $('.js-ota-start').addEventListener('click', cfgOtaStart);
         const otaChannel = document.getElementById('ota-channel');
         if (otaChannel) {

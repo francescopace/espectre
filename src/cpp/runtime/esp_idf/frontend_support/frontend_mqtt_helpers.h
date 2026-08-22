@@ -24,6 +24,7 @@ namespace espectre {
 using FrontendMqttConnectedCallback = std::function<void(bool)>;
 using FrontendMqttInfoCallback = std::function<void()>;
 using FrontendMqttStatsCallback = std::function<void()>;
+using FrontendMqttDeviceLabelCallback = std::function<bool(const std::string &device_label, std::string *message)>;
 using FrontendMqttThresholdCallback = std::function<bool(float threshold, std::string *message)>;
 using FrontendMqttMotionHitsCallback = std::function<bool(uint8_t motion_on_hits, uint8_t motion_off_hits, std::string *message)>;
 using FrontendMqttCsiTrafficModeCallback = std::function<bool(CsiTrafficMode mode, std::string *message)>;
@@ -36,6 +37,7 @@ using FrontendMqttCommandsCallback = std::function<void()>;
 struct FrontendMqttCommandCapabilities {
   bool supports_info{true};
   bool supports_stats{false};
+  bool supports_device_config{false};
   bool supports_threshold{false};
   bool supports_motion_hits{false};
   bool supports_traffic_control{false};
@@ -85,6 +87,7 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
                                                        const FrontendMqttCommandCapabilities &capabilities,
                                                        FrontendMqttInfoCallback info_callback,
                                                        FrontendMqttStatsCallback stats_callback,
+                                                       FrontendMqttDeviceLabelCallback device_label_callback,
                                                        FrontendMqttThresholdCallback threshold_callback,
                                                        FrontendMqttMotionHitsCallback motion_hits_callback,
                                                        FrontendMqttCsiTrafficModeCallback csi_traffic_mode_callback,

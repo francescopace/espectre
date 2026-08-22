@@ -1088,6 +1088,51 @@ a.hero-badge:hover {
 }
 .device-banner-id { display: flex; align-items: center; gap: 12px; min-width: 200px; }
 .device-banner-id h2 { font-size: 17px; margin: 0; }
+.device-banner-name-editor { display: flex; align-items: center; min-height: 30px; }
+.device-banner-name-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(420px, 60vw);
+  min-width: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 2px 0;
+  border: 0;
+  border-bottom: 1px dashed transparent;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.device-banner-name-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.device-banner-name-icon { flex: 0 0 auto; color: var(--dim); transition: color .15s ease; }
+.device-banner-name-trigger:not(:disabled):hover,
+.device-banner-name-trigger:not(:disabled):focus-visible {
+  border-bottom-color: var(--accent-line);
+  color: var(--accent);
+}
+.device-banner-name-trigger:not(:disabled):hover .device-banner-name-icon,
+.device-banner-name-trigger:not(:disabled):focus-visible .device-banner-name-icon { color: var(--accent); }
+.device-banner-name-trigger:disabled { cursor: default; }
+.device-banner-name-input {
+  width: min(320px, 60vw);
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid var(--accent-line);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.device-banner-name-editor[aria-busy="true"] .device-banner-name-trigger { opacity: .55; }
 .device-banner-identity {
   display: flex;
   flex-wrap: wrap;
@@ -1135,6 +1180,7 @@ a.hero-badge:hover {
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 18px;
 }
+.connectivity-grid { grid-template-columns: minmax(320px, 1fr) minmax(0, 2fr); }
 .panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1160,6 +1206,12 @@ a.hero-badge:hover {
   font-size: 13.5px;
 }
 .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.field input[data-preset-locked] {
+  background: var(--surface2);
+  color: var(--dim);
+  cursor: not-allowed;
+}
+.field input[type="checkbox"][data-preset-locked] { opacity: .55; }
 .field input.is-invalid,
 .field select.is-invalid {
   border-color: var(--danger);
@@ -1169,6 +1221,8 @@ a.hero-badge:hover {
 .field input.mono-input { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .field-row-2-1 { grid-template-columns: 2fr 1fr; }
+.mqtt-host-port-row { grid-template-columns: minmax(0, 1fr) 96px; }
+.mqtt-preset-note { margin: -2px 0 0; }
 .readonly-value {
   padding: 9px 12px;
   border: 1px solid var(--border);
@@ -1616,6 +1670,23 @@ body.modal-open { overflow: hidden; }
 }
 .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .field select.mono-input { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; }
+.broker-host-control {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+}
+.broker-host-control select {
+  min-width: 0;
+  border-radius: 9px 0 0 9px;
+}
+.broker-host-control input {
+  min-width: 0;
+  border-radius: 0 9px 9px 0;
+  margin-left: -1px;
+}
+.broker-host-control :where(select, input):focus {
+  position: relative;
+  z-index: 1;
+}
 .device-choice-list {
   overflow: hidden;
   border: 1px solid var(--border);
@@ -3163,6 +3234,7 @@ ewt-install-dialog {
   .game-screen:fullscreen .game-screen-controls,
   .game-screen:-webkit-full-screen .game-screen-controls { left: 28px; }
   .device-connect-card .field-row { grid-template-columns: minmax(0, 1fr); }
+  .mqtt-host-port-row { grid-template-columns: minmax(0, 1fr); }
   .device-banner-actions { margin-left: 0; width: 100%; }
   .ota-details-grid { grid-template-columns: 1fr; }
   .modal-actions { display: grid; grid-template-columns: 1fr 1fr; }

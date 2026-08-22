@@ -69,6 +69,7 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 - Add a supported Arduino-ESP32 SDK runtime adapter that reuses `RuntimeFrontendController` and `EspIdfRuntime`, leaves Wi-Fi and product integration to the consuming sketch, and does not introduce a separate Arduino frontend
 - Keep `release`, `preview`, and `develop` channels aligned across bundle manifests, website links, and release automation
 - Package the web BLE client with ESM, IIFE, npm, and TypeScript surfaces, or retain it in-tree with a documented rationale if a reusable package does not meet the support bar
+- If cost, isolation, abuse-resistance, and credential-revocation gates pass, add an ESPectre Cloud preset that offers free, time-limited broker access with isolated, expiring credentials; this access does not include the account, fleet-management, history, or alerting surfaces planned for v4
 
 **Exit criteria**: every supported installation path works from a clean consumer project, the Arduino runtime compiles and runs through Arduino CLI on the selected initial target matrix with Wi-Fi startup and reconnect lifecycle validated, every release channel resolves to its intended artifacts, and the web BLE client has a validated public package or a documented decision to keep it internal.
 
