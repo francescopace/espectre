@@ -257,6 +257,7 @@ class CsiPipeline {
   struct PendingCsiFrame {
     wifi_pkt_rx_ctrl_t rx_ctrl{};
     std::array<int8_t, HT20_CSI_LEN> csi{};
+    uint32_t callback_time_us{0U};
     uint16_t len{0U};
     bool reset_detector_before_consume{false};
   };

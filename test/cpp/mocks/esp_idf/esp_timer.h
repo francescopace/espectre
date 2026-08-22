@@ -14,6 +14,22 @@
 #include <stdint.h>
 
 #ifdef __cplusplus
+namespace esp_timer_mock {
+
+inline int64_t time_us = 0;
+inline int64_t step_us = 1000;
+
+inline void reset(int64_t initial_time_us = 0, int64_t time_step_us = 1000) {
+  time_us = initial_time_us;
+  step_us = time_step_us;
+}
+
+inline void advance(int64_t delta_us) {
+  time_us += delta_us;
+}
+
+}  // namespace esp_timer_mock
+
 extern "C" {
 #endif
 
@@ -65,9 +81,14 @@ static inline esp_err_t esp_timer_delete(esp_timer_handle_t timer) {
 }
 
 static inline int64_t esp_timer_get_time(void) {
+#ifdef __cplusplus
+  esp_timer_mock::time_us += esp_timer_mock::step_us;
+  return esp_timer_mock::time_us;
+#else
   static int64_t mock_time_us = 0;
   mock_time_us += 1000;  // Advance 1 ms on each call for freshness-sensitive tests.
   return mock_time_us;
+#endif
 }
 
 #ifdef __cplusplus

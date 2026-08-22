@@ -212,17 +212,15 @@ void CsiPipeline::process_pending_frame_(const PendingCsiFrame &frame) {
   last_rssi_dbm_ = rssi_dbm;
   last_channel_ = frame.rx_ctrl.channel;
 
-#if ESP_PLATFORM && !CONFIG_IDF_TARGET_ESP32
-  // Wall-clock backlog rejection is valid only when RX timestamps share the
-  // esp_timer domain. Classic ESP32 reports a Wi-Fi hardware clock instead, so
-  // comparing the two marks every HT20 packet stale and blocks calibration.
+  // The Wi-Fi RX timestamp belongs to the MAC clock, not the esp_timer clock.
+  // Measure only callback-to-loop queue age with esp_timer, then translate that
+  // duration into the RX timestamp domain for the sampler's unsigned age check.
   const uint32_t processing_time_us =
       static_cast<uint32_t>(static_cast<uint64_t>(esp_timer_get_time()));
+  const uint32_t queue_age_us = processing_time_us - frame.callback_time_us;
+  const uint32_t sampler_now_us = frame.rx_ctrl.timestamp + queue_age_us;
   const bool emitted = sampler_.admit(
-      frame.rx_ctrl.timestamp, true, processing_time_us, true);
-#else
-  const bool emitted = sampler_.admit(frame.rx_ctrl.timestamp);
-#endif
+      frame.rx_ctrl.timestamp, true, sampler_now_us, true);
   if (emitted && pending_candidate_valid_) {
     process_admitted_candidate_();
   }
@@ -371,6 +369,8 @@ void CsiPipeline::capture_packet_callback_(void *context,
 
   PendingCsiFrame frame;
   frame.rx_ctrl = data->rx_ctrl;
+  frame.callback_time_us =
+      static_cast<uint32_t>(static_cast<uint64_t>(esp_timer_get_time()));
   frame.len = static_cast<uint16_t>(normalized.len);
   frame.reset_detector_before_consume = normalized.reset_detector_before_consume;
   std::copy_n(normalized.data, normalized.len, frame.csi.begin());

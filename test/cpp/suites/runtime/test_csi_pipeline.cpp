@@ -17,6 +17,7 @@
 #include "utils.h"
 #include "wifi_csi_interface.h"
 #include "esphome/core/log.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 
 using namespace espectre;
@@ -150,6 +151,7 @@ static WiFiCSIMock g_wifi_mock;
 
 void setUp(void) {
     g_wifi_mock.reset_errors();
+    esp_timer_mock::reset();
 }
 
 void tearDown(void) {
@@ -1035,6 +1037,48 @@ void test_csi_pipeline_callback_wrapper_null_data(void) {
     TEST_ASSERT_EQUAL(packets_before, detector.get_total_packets());
 }
 
+void test_csi_pipeline_measures_queue_age_in_the_callback_clock_domain(void) {
+    int8_t csi_buf[128] = {0};
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+    // Deliberately unrelated to the esp_timer value below. A direct
+    // subtraction would falsely report this fresh frame as about 1,296 s old.
+    csi_info.rx_ctrl.timestamp = 3000000000U;
+
+    {
+        LightweightDetector detector(50, 1.0f);
+        CsiPipeline manager;
+        manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
+        manager.enable(nullptr);
+
+        esp_timer_mock::reset(100000, 0);
+        g_wifi_mock.trigger_callback(&csi_info);
+        esp_timer_mock::advance(500000);
+        manager.loop();
+        manager.flush_pending_candidate();
+
+        TEST_ASSERT_EQUAL(0U, manager.detector_stale_packets_total());
+        TEST_ASSERT_EQUAL(1U, manager.detector_admitted_packets_total());
+        TEST_ASSERT_EQUAL(1U, detector.get_total_packets());
+    }
+
+    {
+        LightweightDetector detector(50, 1.0f);
+        CsiPipeline manager;
+        manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
+        manager.enable(nullptr);
+
+        esp_timer_mock::reset(100000, 0);
+        g_wifi_mock.trigger_callback(&csi_info);
+        esp_timer_mock::advance(1000000);
+        manager.loop();
+
+        TEST_ASSERT_EQUAL(1U, manager.detector_stale_packets_total());
+        TEST_ASSERT_EQUAL(0U, manager.detector_admitted_packets_total());
+        TEST_ASSERT_EQUAL(0U, detector.get_total_packets());
+    }
+}
+
 namespace {
 
 struct CallbackRefillProbe {
@@ -1229,6 +1273,7 @@ int process(void) {
     // Callback wrapper tests
     RUN_TEST(test_csi_pipeline_callback_wrapper_triggered);
     RUN_TEST(test_csi_pipeline_callback_wrapper_null_data);
+    RUN_TEST(test_csi_pipeline_measures_queue_age_in_the_callback_clock_domain);
     RUN_TEST(test_csi_pipeline_loop_defers_callback_refill_to_next_iteration);
     
     // Clear buffer test
