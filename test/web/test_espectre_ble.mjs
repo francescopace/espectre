@@ -94,15 +94,6 @@ describe('command builders: wire format', () => {
         assert.equal(Client.buildStopBleCommand(), 'STOP_BLE');
     });
 
-    it('builds OTA commands with an optional channel', () => {
-        assert.equal(Client.buildOtaStatusCommand(), 'OTA_STATUS');
-        assert.equal(Client.buildOtaCheckCommand(), 'OTA_CHECK');
-        assert.equal(Client.buildOtaStartCommand(), 'OTA_START');
-        assert.equal(Client.buildOtaCheckCommand({ channel: '' }), 'OTA_CHECK');
-        assert.equal(Client.buildOtaStartCommand({ channel: '' }), 'OTA_START');
-        assert.equal(Client.buildOtaCheckCommand({ channel: 'preview' }), 'OTA_CHECK:channel=preview');
-        assert.equal(Client.buildOtaStartCommand({ channel: 'develop' }), 'OTA_START:channel=develop');
-    });
 });
 
 describe('command builders: validation', () => {
@@ -150,11 +141,6 @@ describe('command builders: validation', () => {
 
     it('rejects a malformed BSSID', () => {
         assertValidationError(() => Client.buildWifiConfigCommand({ ssid: 'a', bssid: 'nope' }), /bssid/);
-    });
-
-    it('rejects an unknown OTA channel', () => {
-        assertValidationError(() => Client.buildOtaCheckCommand({ channel: 'latest' }), /channel must be one of/);
-        assertValidationError(() => Client.buildOtaStartCommand({ channel: 'stable' }), /channel must be one of/);
     });
 
     it('rejects a missing host and invalid ports', () => {
@@ -276,13 +262,13 @@ describe('GATT lifecycle', () => {
         useBluetooth(async () => gatt.device);
         const client = new Client();
         await client.connect({ sysinfo: false });
-        const first = client.writeControl('OTA_STATUS');
+        const first = client.writeControl('CLEAR_WIFI');
         const second = client.writeControl('REQ_SYSINFO');
         await new Promise((resolve) => setImmediate(resolve));
-        assert.deepEqual(gatt.writes, ['OTA_STATUS']);
+        assert.deepEqual(gatt.writes, ['CLEAR_WIFI']);
         firstWrite.resolve();
         await Promise.all([first, second]);
-        assert.deepEqual(gatt.writes, ['OTA_STATUS', 'REQ_SYSINFO']);
+        assert.deepEqual(gatt.writes, ['CLEAR_WIFI', 'REQ_SYSINFO']);
         await client.disconnect();
     });
 
@@ -333,14 +319,14 @@ describe('GATT lifecycle', () => {
         let disconnects = 0;
         client.on('disconnect', () => { disconnects += 1; });
         await client.connect({ sysinfo: false });
-        const first = client.writeControl('OTA_STATUS');
+        const first = client.writeControl('CLEAR_WIFI');
         const queued = client.writeControl('REQ_SYSINFO');
         await new Promise((resolve) => setImmediate(resolve));
         gatt.emitDisconnect();
         firstWrite.resolve();
         await first;
         await assert.rejects(queued, (error) => error.name === 'AbortError');
-        assert.deepEqual(gatt.writes, ['OTA_STATUS']);
+        assert.deepEqual(gatt.writes, ['CLEAR_WIFI']);
         assert.equal(client.connected, false);
         assert.equal(disconnects, 1);
     });

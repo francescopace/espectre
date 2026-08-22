@@ -34,7 +34,7 @@
     </a>
   </div>
 
-  <div class="note"><strong>Treat the detection profile as a product-budget choice.</strong> Lightweight uses less active CPU and working memory; High Accuracy improves accuracy and generalization with additional feature state and inference work. Lightweight calibrates for up to about 10 seconds at startup and can still lower its threshold after a later quiet stretch; override <code>on_threshold_changed()</code> if you publish that control. High Accuracy skips threshold calibration but still waits for CSI readiness and feature-window warmup. See the <a href="/guides/detectors/">profile guide</a>.</div>
+  <div class="note"><strong>Treat the detection profile as a product-budget choice.</strong> Lightweight uses less active CPU and working memory; High Accuracy improves accuracy and generalization with additional feature state and inference work. Lightweight calibrates for up to about 10 seconds at startup and can still lower its threshold after a later quiet stretch; override <code>on_threshold_changed()</code> if you publish that control. High Accuracy skips threshold calibration but still waits for CSI readiness and feature-window warmup. See the <a href="/sdk/detectors/">detector architecture</a>.</div>
 
   <h2>Lifecycle at a glance</h2>
   <div class="pipeline api-lifecycle" aria-label="Runtime lifecycle">
@@ -67,6 +67,6 @@
 
   <div class="article-nav">
     <a href="/sdk/architecture/" class="doc-link"><div class="doc-link-title">← Previous: Architecture</div><div class="doc-link-sub">Understand the shared layers, data flow, and platform boundaries.</div></a>
-    <a href="/sdk/examples/" class="doc-link doc-link-next"><div class="doc-link-title">Next: Examples →</div><div class="doc-link-sub">Match your product to a shipped frontend.</div></a>
+    <a href="/sdk/detectors/" class="doc-link doc-link-next"><div class="doc-link-title">Next: Detector architecture →</div><div class="doc-link-sub">Follow CSI from temporal admission to an on-device motion decision.</div></a>
   </div>
 </article>

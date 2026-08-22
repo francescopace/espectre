@@ -154,10 +154,12 @@ describe('analytics route metadata', () => {
         assert.equal(api.getSiteSection('monitor'), 'monitor');
         assert.equal(api.getSiteSection('guide-setup'), 'documentation');
         assert.equal(api.getSiteSection('sdk-api'), 'documentation');
+        assert.equal(api.getSiteSection('sdk-detectors'), 'documentation');
         assert.equal(window.ESPectreRoutes.guideNameForPath('/guides/detectors/'), 'detectors');
         assert.equal(window.ESPectreRoutes.guideNameForPath('/guides/future-wifi-sensing/'), 'future-wifi-sensing');
         assert.equal(window.ESPectreRoutes.guideNameForPath('/sdk/api/'), '');
         assert.equal(window.ESPectreRoutes.documentNameForPath('/sdk/api/'), 'api');
+        assert.equal(window.ESPectreRoutes.documentNameForPath('/sdk/detectors/'), 'detectors');
         assert.equal(window.ESPectreRoutes.documentNameForPath('/sdk/'), 'overview');
         assert.equal(window.ESPectreRoutes.documentNameForPath('/artifacts/sdk/release/'), 'sdk_release');
         assert.equal(window.ESPectreRoutes.documentNameForPath('/artifacts/sdk/preview/'), 'sdk_preview');

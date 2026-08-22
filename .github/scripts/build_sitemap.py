@@ -37,6 +37,7 @@ ROUTE_SOURCES = {
     "/guides/micropython/": (Path("docs/web/content/guides/micropython.html"), STATIC_PAGE_BUILDER),
     "/guides/future-wifi-sensing/": (Path("docs/web/content/guides/future-wifi-sensing.html"), STATIC_PAGE_BUILDER),
     "/sdk/": (Path("docs/web/content/sdk.html"), STATIC_PAGE_BUILDER),
+    "/sdk/detectors/": (Path("docs/web/content/sdk/detectors.html"), STATIC_PAGE_BUILDER),
     "/sdk/api/": (Path("docs/web/content/sdk/api.html"), STATIC_PAGE_BUILDER),
     "/sdk/examples/": (Path("docs/web/content/sdk/examples.html"), STATIC_PAGE_BUILDER),
     "/sdk/architecture/": (Path("docs/web/content/sdk/architecture.html"), STATIC_PAGE_BUILDER),

@@ -95,6 +95,7 @@
     const CONFIG_VERIFICATION_INITIAL_DELAY_MS = 250;
     const CONFIG_VERIFICATION_RETRY_MS = 1500;
     const CONFIG_VERIFICATION_MAX_ATTEMPTS = 4;
+    const OTA_TRACKING_TIMEOUT_MS = 120000;
 
     const conn = {
         mode: null,             // 'ble' | 'mqtt' | 'demo'
@@ -136,7 +137,10 @@
     let otaBusy = false;
     let otaState = '';
     let otaMessage = '';
+    let otaTargetVersion = '';
     let otaSupported = null;
+    let otaDefaultChannel = '';
+    let otaChannelChanged = false;
     let otaActionPending = false;
     let otaCheckTransport = '';
     let otaModalReturnFocus = null;
@@ -391,13 +395,13 @@
         }
     }
 
-    function renderDeviceIdentity() {
+    function renderDeviceIdentity(identity = conn) {
         const write = (selector, value) => {
             $$(selector).forEach((el) => { el.textContent = value || '—'; });
         };
-        write('.js-menu-chip', conn.chip);
-        write('.js-menu-device-id', conn.deviceId);
-        write('.js-menu-firmware', conn.firmwareVersion);
+        write('.js-menu-chip', identity.chip);
+        write('.js-menu-device-id', identity.deviceId);
+        write('.js-menu-firmware', identity.firmwareVersion);
     }
 
     function formatDeviceIdentityLine(chip, deviceId, firmware) {
@@ -421,6 +425,7 @@
         if (line) conn.deviceBannerSub = line;
         applySensingSnapshot(data);
         renderConnection();
+        if (otaAwaitingReconnect) completeOtaReconnect();
     }
 
     function adoptDeviceId(deviceId) {
@@ -438,6 +443,7 @@
         monitor.handoffReady = false;
         resetSensingCadence();
         resetMonitorLiveView();
+        resetOtaChannelSelection();
         otaCheckTransport = '';
         if (monitorIsMqttLive() && previousBound && previousBound !== next) {
             monitorStopAll('device_changed');
@@ -613,6 +619,7 @@
         });
         try {
             bleClient = makeBleClient();
+            syncFirmwareUpdateNotice();
             if (!returningFromMqtt) setStatus('connecting');
             await bleClient.connect();
             conn.mode = 'ble';
@@ -629,10 +636,10 @@
                 await bleClient.requestSysinfo();
             } catch (error) {
                 console.warn('Sysinfo request failed:', error);
-                startSilentOtaCheck();
             }
         } catch (error) {
             bleClient = null;
+            syncFirmwareUpdateNotice();
             if (returningFromMqtt) {
                 conn.mode = 'mqtt';
                 setStatus('connected');
@@ -820,21 +827,13 @@
         set('cfg-device-name', snapshot.device_name);
         set('cfg-label', snapshot.device_label);
         applyDeviceIdentity(snapshot);
-        if (snapshot.supports_ota !== undefined) otaSupported = sysinfoBoolean(snapshot.supports_ota);
+        if (conn.mode === 'ble') otaSupported = false;
+        else if (snapshot.supports_ota !== undefined) otaSupported = sysinfoBoolean(snapshot.supports_ota);
         applySensingSnapshot(snapshot);
-        applyOtaStatus({
-            state: snapshot.ota_state,
-            current_version: snapshot.ota_current_version,
-            update_available: snapshot.ota_update_available,
-            busy: snapshot.ota_busy,
-            target_version: snapshot.ota_target_version,
-            channel: snapshot.ota_channel,
-            message: snapshot.ota_message
-        });
+        syncFirmwareUpdateNotice();
         evaluateConfigVerification(snapshot);
         setConnectionDot('.js-wifi-status-dot', snapshot.wifi_connected);
         setConnectionDot('.js-mqtt-status-dot', snapshot.mqtt_connected);
-        if (conn.mode === 'ble') startSilentOtaCheck();
 
         // Real hardware only: demo values would pollute the adoption report.
         if (conn.mode === 'ble' && snapshot.frontend && snapshot.chip) {
@@ -1081,7 +1080,9 @@
         otaBusy = false;
         otaState = '';
         otaMessage = '';
+        otaTargetVersion = '';
         otaSupported = null;
+        resetOtaChannelSelection();
         otaCheckTransport = '';
         otaAwaitingReconnect = false;
         syncFirmwareUpdateNotice();
@@ -1165,24 +1166,30 @@
 
     function renderConnection() {
         const connected = conn.status === 'connected';
+        const usbConnected = Boolean(flash.usbDialog);
+        const displayedConnected = usbConnected || connected;
+        const displayedConnecting = !usbConnected && conn.status === 'connecting';
+        const displayedMode = usbConnected ? 'usb' : conn.mode;
         const live = hasLiveDetection();
         const bleConnecting = conn.status === 'connecting'
             && !!bleClient
             && !bleClient.connected;
-        const mqttConnecting = conn.status === 'connecting' && !bleConnecting;
         const bleSetup = connected && conn.mode === 'ble';
-        const mqttConnectionPending = monitor.closingBleForLive
-            || (!!monitor.client && !monitor.connectedAt);
-        const mqttSession = live || mqttConnecting || mqttConnectionPending;
+        const mqttConnectionPending = monitorConnectionPending();
+        const mqttSession = live || (monitor.handoffReady && monitorIsMqttLive());
 
-        $('.js-conn-disconnected').hidden = conn.status !== 'disconnected';
-        $('.js-conn-connecting').hidden = conn.status !== 'connecting';
-        $('.js-conn-connected').hidden = !connected;
-        $('.js-dropdown').hidden = !(connected && dropdownOpen);
-        $('.js-dropdown-toggle').setAttribute('aria-expanded', String(connected && dropdownOpen));
-        $('.js-demo-tag').hidden = conn.mode !== 'demo';
-        const setupTag = $('.js-setup-tag');
-        if (setupTag) setupTag.hidden = conn.mode !== 'ble';
+        $('.js-conn-disconnected').hidden = displayedConnected || displayedConnecting;
+        $('.js-conn-connecting').hidden = !displayedConnecting;
+        $('.js-conn-connected').hidden = !displayedConnected;
+        $('.js-dropdown').hidden = !(displayedConnected && dropdownOpen);
+        $('.js-dropdown-toggle').setAttribute('aria-expanded', String(displayedConnected && dropdownOpen));
+        $('.js-demo-tag').hidden = displayedMode !== 'demo';
+        const transportTag = $('.js-transport-tag');
+        if (transportTag) {
+            const transportLabels = { ble: 'BLE', mqtt: 'MQTT', usb: 'USB' };
+            transportTag.textContent = transportLabels[displayedMode] || '';
+            transportTag.hidden = !displayedConnected || !transportLabels[displayedMode];
+        }
 
         $$('.js-needs-conn').forEach((el) => { el.hidden = connected; });
         $$('.js-has-conn').forEach((el) => { el.hidden = !connected; });
@@ -1212,8 +1219,20 @@
         }
 
         $$('.js-device-name').forEach((el) => { el.textContent = conn.deviceName || 'ESPectre'; });
+        const displayedIdentity = usbConnected ? flashUsbIdentity() : conn;
+        $$('.js-connection-device-name').forEach((el) => {
+            el.textContent = displayedIdentity.deviceName || 'ESPectre';
+        });
         $$('.js-device-banner-sub').forEach((el) => { el.textContent = conn.deviceBannerSub; });
-        renderDeviceIdentity();
+        renderDeviceIdentity(displayedIdentity);
+        const deviceIdLabel = $('.js-menu-device-id-label');
+        if (deviceIdLabel) deviceIdLabel.textContent = usbConnected ? 'USB VID:PID' : 'Device ID';
+        const firmwareLabel = $('.js-menu-firmware-label');
+        if (firmwareLabel) firmwareLabel.textContent = usbConnected ? 'Target firmware' : 'Firmware';
+        const usbNote = $('.js-usb-port-note');
+        if (usbNote) usbNote.hidden = !usbConnected;
+        const disconnectButton = $('.js-disconnect');
+        if (disconnectButton) disconnectButton.hidden = usbConnected;
         $$('.js-ble-chip').forEach((chip) => {
             chip.classList.toggle('ready', connected && conn.mode === 'ble' && browserSupport.bluetooth);
             chip.textContent = connected && conn.mode === 'ble' && browserSupport.bluetooth
@@ -1560,7 +1579,8 @@
         manifests: {}, installUrl: null, badgeChecked: false,
         installerObserver: null, watchedDialogs: new WeakSet(), catalogReports: new Set(),
         downloadReady: false, detectedChip: '', supportedChipLabels: [], modalReturnFocus: null,
-        refreshRequest: 0
+        refreshRequest: 0, targetVersion: '', usbDialog: null, usbPortInfo: null,
+        usbReleaseTimer: null
     };
 
     /*
@@ -1572,6 +1592,54 @@
     const CHIP_ORDER = ['esp32', 'esp32s3', 'esp32c3', 'esp32c5', 'esp32c6'];
     const FLASH_CHIP_FOUND_RE = /Initialized\. Found ([A-Z0-9-]+)/i;
     const FLASH_CHIP_UNSUPPORTED_RE = /Your ([A-Z0-9-]+) board is not supported/i;
+
+    function flashUsbId(info) {
+        if (!info || (!info.usbVendorId && !info.usbProductId)) return '';
+        const hex = (value) => Number(value || 0).toString(16).toUpperCase().padStart(4, '0');
+        return hex(info.usbVendorId) + ':' + hex(info.usbProductId);
+    }
+
+    function flashUsbIdentity() {
+        const chip = String(flash.detectedChip || '').toUpperCase();
+        const portId = flashUsbId(flash.usbPortInfo);
+        return {
+            deviceName: chip || portId || 'USB device',
+            chip,
+            deviceId: portId,
+            firmwareVersion: flash.targetVersion
+        };
+    }
+
+    function releaseUsbConnection(dialog) {
+        if (flash.usbDialog !== dialog) return;
+        clearTimeout(flash.usbReleaseTimer);
+        flash.usbReleaseTimer = null;
+        flash.usbDialog = null;
+        flash.usbPortInfo = null;
+        dropdownOpen = false;
+        renderConnection();
+        syncFirmwareUpdateNotice();
+    }
+
+    function scheduleUsbConnectionRelease(dialog) {
+        if (flash.usbDialog !== dialog) return;
+        clearTimeout(flash.usbReleaseTimer);
+        flash.usbReleaseTimer = setTimeout(() => releaseUsbConnection(dialog), 100);
+    }
+
+    function activateUsbConnection(dialog) {
+        flash.usbDialog = dialog;
+        try {
+            flash.usbPortInfo = dialog.port && typeof dialog.port.getInfo === 'function'
+                ? dialog.port.getInfo()
+                : null;
+        } catch (error) {
+            flash.usbPortInfo = null;
+        }
+        dialog.addEventListener('closed', () => scheduleUsbConnectionRelease(dialog), { once: true });
+        renderConnection();
+        syncFirmwareUpdateNotice();
+    }
 
     function flashManifestFrontends(manifest) {
         const frontends = manifest && manifest.frontends;
@@ -1751,6 +1819,7 @@
         const requestId = ++flash.refreshRequest;
         const selectedChannel = channelSel.value;
         flash.downloadReady = false;
+        flash.targetVersion = '';
 
         try {
             const manifest = await flashLoadManifest(selectedChannel);
@@ -1800,6 +1869,7 @@
             }
 
             const frontendLabel = (selectedFrontend || {}).label || frontendSel.value;
+            flash.targetVersion = manifest.version || '';
             const installManifest = {
                 name: 'ESPectre ' + frontendLabel,
                 version: manifest.version,
@@ -2011,40 +2081,84 @@
         };
     }
 
+    function flashDialogText(root) {
+        if (!root) return '';
+        let text = root.textContent || '';
+        root.querySelectorAll('*').forEach((element) => {
+            if (element.shadowRoot) text += ' ' + flashDialogText(element.shadowRoot);
+        });
+        return text;
+    }
+
     function watchFirmwareInstallDialog(dialog) {
         if (flash.watchedDialogs.has(dialog)) return;
         flash.watchedDialogs.add(dialog);
+        activateUsbConnection(dialog);
         let started = false;
         let reported = false;
         let shadowObserver = null;
+        let inspectTimer = null;
+        const observedRoots = new WeakSet();
 
+        const markStarted = () => {
+            if (started) return;
+            started = true;
+            track('firmware_install_start', flashParams());
+        };
         const report = (result) => {
             if (reported) return;
             reported = true;
             track('firmware_install_result', { ...flashParams(), result });
             if (shadowObserver) shadowObserver.disconnect();
+            clearInterval(inspectTimer);
+            inspectTimer = null;
+        };
+        const setDetectedChip = (chip) => {
+            const normalized = String(chip || '').toUpperCase();
+            if (!normalized || flash.detectedChip === normalized) return;
+            flash.detectedChip = normalized;
+            renderConnection();
         };
         const inspect = () => {
-            const text = dialog.shadowRoot ? dialog.shadowRoot.textContent : '';
-            if (/Installing|Preparing installation/i.test(text)) started = true;
+            observeRoot(dialog.shadowRoot);
+            const text = flashDialogText(dialog.shadowRoot);
+            // The vendored ESP Web Tools version exposes completion before its
+            // final Next screen. Text checks keep the listener resilient if
+            // those internal state properties change in a future upgrade.
+            const installState = dialog._installState && dialog._installState.state;
+            if (dialog._installState && dialog._installState.chipFamily) {
+                setDetectedChip(dialog._installState.chipFamily);
+            }
             const found = text.match(FLASH_CHIP_FOUND_RE);
-            if (found) flash.detectedChip = found[1];
+            if (found) setDetectedChip(found[1]);
+            if (dialog._installConfirmed === true
+                    || /Preparing installation|Erasing device|Writing progress:/i.test(text)) {
+                markStarted();
+            }
             const unsupported = text.match(FLASH_CHIP_UNSUPPORTED_RE);
             if (unsupported) {
-                flash.detectedChip = unsupported[1];
+                setDetectedChip(unsupported[1]);
                 flashStatus(flashUnsupportedBoardMessage(unsupported[1]), 'is-error');
                 report('unsupported');
                 return;
             }
-            if (/Installation complete!/i.test(text)) report('success');
-            else if (/Installation failed/i.test(text)) report('failure');
+            if (installState === 'finished' || /Installation complete!/i.test(text)) report('success');
+            else if (installState === 'error' || /Installation failed/i.test(text)) report('failure');
+        };
+        const observeRoot = (root) => {
+            if (!root || observedRoots.has(root)) return;
+            observedRoots.add(root);
+            shadowObserver.observe(root, {
+                childList: true, subtree: true, characterData: true
+            });
+            root.querySelectorAll('*').forEach((element) => {
+                if (element.shadowRoot) observeRoot(element.shadowRoot);
+            });
         };
         const attach = () => {
             if (!dialog.shadowRoot || shadowObserver) return false;
             shadowObserver = new MutationObserver(inspect);
-            shadowObserver.observe(dialog.shadowRoot, {
-                childList: true, subtree: true, characterData: true
-            });
+            inspectTimer = setInterval(inspect, 250);
             inspect();
             return true;
         };
@@ -2053,8 +2167,11 @@
         const removalObserver = new MutationObserver(() => {
             if (dialog.isConnected) return;
             removalObserver.disconnect();
+            scheduleUsbConnectionRelease(dialog);
             if (started && !reported) report('cancelled');
             if (shadowObserver) shadowObserver.disconnect();
+            clearInterval(inspectTimer);
+            inspectTimer = null;
         });
         removalObserver.observe(document.body, { childList: true, subtree: true });
     }
@@ -2091,7 +2208,7 @@
             }
             flash.detectedChip = '';
             flashStatus('Select the serial port. The installer detects the chip and chooses the matching firmware.');
-            track('firmware_install_start', flashParams());
+            track('firmware_installer_open', flashParams());
         });
         $('.js-flash-chip-downloads').addEventListener('click', (event) => {
             const link = event.target.closest('a[data-chip]');
@@ -2250,6 +2367,13 @@
         return monitor.inputMode === 'mqtt' && !!monitor.client;
     }
 
+    function monitorConnectionPending() {
+        return monitor.closingBleForLive || Boolean(
+            monitor.client
+            && (!monitor.connectedAt || monitor.discoveryActive || conn.status === 'connecting')
+        );
+    }
+
     function applyMqttLiveTelemetry(movement, threshold, motionState) {
         if (!monitor.handoffReady) return;
         if (monitorIsMqttLive() && conn.mode !== 'demo'
@@ -2269,7 +2393,10 @@
                 if (!data || !Array.isArray(data.commands)) return;
                 monitor.commands = new Set(data.commands);
                 monitor.commandCatalogReady = true;
+                otaSupported = monitor.commands.has('ota_check') && monitor.commands.has('ota_start');
                 syncSensingControls();
+                syncOtaUpdateButton();
+                syncFirmwareUpdateNotice();
                 return;
             case 'info':
                 applyDeviceInfo(data);
@@ -2359,12 +2486,14 @@
         const ble = $('.js-mon-ble');
         const connect = $('.js-mon-connect');
         const mqttLive = monitorIsMqttLive();
+        const mqttConnected = mqttLive && conn.status === 'connected';
+        const connectionPending = monitorConnectionPending();
         if (demo) demo.hidden = mqttLive;
         if (ble) ble.hidden = !mqttLive;
         if (connect) {
-            connect.disabled = mqttLive || monitor.discoveryActive;
-            connect.textContent = mqttLive ? 'Connected'
-                : monitor.discoveryActive ? 'Scanning…'
+            connect.disabled = mqttConnected;
+            connect.textContent = mqttConnected ? 'Connected'
+                : connectionPending ? 'Cancel connection'
                 : 'Connect broker';
         }
     }
@@ -2692,6 +2821,14 @@
         monitorBindSelectedDevice(client, prefix, device);
     }
 
+    function monitorShowDeviceSelection() {
+        if (conn.mode !== 'ble' && conn.status === 'connecting') {
+            setStatus('disconnected');
+            return;
+        }
+        renderConnection();
+    }
+
     function monitorFinishDiscovery(client) {
         monitor.discoveryActive = false;
         monitorUnsubscribeDiscovery(client);
@@ -2706,6 +2843,7 @@
         if (devices.length > 1) {
             populateMonitorDevicePicker(devices);
             monitorStatus('Select a device, or enter a device ID.');
+            monitorShowDeviceSelection();
             return;
         }
         const deviceInput = document.getElementById('mon-device');
@@ -2714,6 +2852,7 @@
             markMonitorFieldError(deviceInput, 'Enter a device ID.');
             deviceInput.focus({ preventScroll: true });
         }
+        monitorShowDeviceSelection();
     }
 
     function monitorStartDiscovery(client, prefix) {
@@ -2813,7 +2952,6 @@
                 pendingMessage: 'Reading firmware status…',
                 statusFn: () => {}
             }).catch(() => {});
-            startSilentOtaCheck();
         });
     }
 
@@ -2854,7 +2992,7 @@
             if (!monitor.discoveryActive) monitorStartDiscovery(monitor.client, prefix);
             return;
         }
-        if (device && conn.status === 'disconnected') {
+        if (conn.status === 'disconnected') {
             rememberConnectionOrigin();
             setStatus('connecting');
         }
@@ -3055,13 +3193,7 @@
         }
     }
 
-    function monitorEditOrCancel() {
-        const connectionPending = monitor.closingBleForLive
-            || (!!monitor.client && !monitor.connectedAt);
-        if (!connectionPending) {
-            monitorStartBle();
-            return;
-        }
+    function monitorCancelConnection() {
         monitor.closingBleForLive = false;
         track('tool_connection', {
             tool_name: 'monitor',
@@ -3076,6 +3208,14 @@
             setStatus('disconnected');
             renderConnection();
         }
+    }
+
+    function monitorEditOrCancel() {
+        if (monitorConnectionPending()) {
+            monitorCancelConnection();
+            return;
+        }
+        monitorStartBle();
     }
 
     async function beginCalibration() {
@@ -3114,7 +3254,13 @@
     }
 
     function monitorInit() {
-        $('.js-mon-connect').addEventListener('click', monitorConnect);
+        $('.js-mon-connect').addEventListener('click', () => {
+            if (monitorConnectionPending()) {
+                monitorCancelConnection();
+                return;
+            }
+            monitorConnect();
+        });
         ['mon-host', 'mon-port', 'mon-topic-prefix', 'mon-device', 'mon-path'].forEach((id) => {
             const input = document.getElementById(id);
             input.addEventListener('input', () => clearMonitorFieldError(input));
@@ -3465,28 +3611,13 @@
         });
     }
 
-    function pollOtaStatus() {
-        if (!otaTracking) return;
-        if (!bleClient) {
-            finishOtaTracking('unconfirmed', 'StatusUnavailable', otaTracking.lastState);
-            return;
-        }
-        otaTracking.attempts += 1;
-        if (otaTracking.attempts > 120) {
-            finishOtaTracking('unconfirmed', 'StatusTimeout', otaTracking.lastState);
-            return;
-        }
-        bleClient.requestSysinfo().catch(() => {
-            finishOtaTracking('unconfirmed', 'StatusRequestFailed', otaTracking?.lastState);
-        });
-        otaPollTimer = setTimeout(pollOtaStatus, 1000);
-    }
-
     function beginOtaTracking() {
         if (otaTracking) finishOtaTracking('unconfirmed', 'Superseded', otaTracking.lastState);
         otaTracking = { startedAt: Date.now(), attempts: 0, lastState: 'starting' };
         clearTimeout(otaPollTimer);
-        otaPollTimer = setTimeout(pollOtaStatus, 250);
+        otaPollTimer = setTimeout(() => {
+            finishOtaTracking('unconfirmed', 'StatusTimeout', otaTracking?.lastState);
+        }, OTA_TRACKING_TIMEOUT_MS);
     }
 
     function evaluateOtaTracking(snapshot) {
@@ -3527,9 +3658,14 @@
 
     function completeOtaReconnect() {
         if (!otaAwaitingReconnect) return;
+        const version = conn.firmwareVersion || (latestDeviceInfo && latestDeviceInfo.firmware_version) || '';
+        if (otaTargetVersion && version !== otaTargetVersion) {
+            setOtaModalDescription('Device is back online. Verifying the updated firmware version…');
+            return;
+        }
         otaAwaitingReconnect = false;
         otaBusy = false;
-        const version = conn.firmwareVersion || (latestDeviceInfo && latestDeviceInfo.firmware_version) || '';
+        finishOtaTracking('success', null, 'reconnected');
         applyOtaStatus({
             state: 'idle',
             busy: false,
@@ -3545,13 +3681,14 @@
         toast(version
             ? 'Device is back online on ' + version + '.'
             : 'Device is back online after the update.');
+        otaTargetVersion = '';
         otaCheckTransport = '';
-        startSilentOtaCheck();
+        maybeStartSilentOtaCheck();
     }
 
     function handleOtaDeviceAvailability(online) {
         if (!online) {
-            if (otaState === 'reboot_scheduled') {
+            if (otaBusy || otaTracking || otaState === 'reboot_scheduled') {
                 otaAwaitingReconnect = true;
                 setOtaModalDescription('Update applied. Waiting for the device to come back online…');
                 monitorStatus('Device rebooting after the update…');
@@ -3570,20 +3707,32 @@
         return value;
     }
 
+    function resetOtaChannelSelection() {
+        otaDefaultChannel = '';
+        otaChannelChanged = false;
+        const el = document.getElementById('ota-channel');
+        if (el) el.value = 'release';
+    }
+
+    function applyOtaDefaultChannel(channel) {
+        const normalized = String(channel || '').trim().toLowerCase();
+        if (!['release', 'preview', 'develop'].includes(normalized)) return;
+        if (!otaDefaultChannel) otaDefaultChannel = normalized;
+        if (otaChannelChanged) return;
+        const el = document.getElementById('ota-channel');
+        if (el) el.value = otaDefaultChannel;
+    }
+
     function otaCommandFields(command) {
         const channel = selectedOtaChannel();
         return channel ? { command, channel } : { command };
     }
 
-    function otaBleOptions() {
-        const channel = selectedOtaChannel();
-        return channel ? { channel } : {};
-    }
-
     function syncOtaUpdateButton() {
         const button = $('.js-ota-start');
         if (!button) return;
-        button.disabled = conn.mode === 'demo' || otaActionPending || otaBusy || !otaUpdateAvailable;
+        button.disabled = conn.mode !== 'mqtt' || !monitorIsMqttLive()
+            || otaActionPending || otaBusy || !otaUpdateAvailable;
         button.textContent = otaBusy ? 'Update in progress…' : 'Update device';
     }
 
@@ -3616,12 +3765,14 @@
         $$('.js-firmware-update-copy').forEach((el) => { el.textContent = copy; });
         $$('.js-firmware-update-notice').forEach((el) => {
             el.dataset.otaStatus = status;
-            el.hidden = otaSupported === false;
+            el.hidden = Boolean(flash.usbDialog) || Boolean(bleClient)
+                || conn.mode === 'ble' || otaSupported === false;
         });
     }
 
     function applyOtaStatus(status) {
         if (!status || typeof status !== 'object') return;
+        applyOtaDefaultChannel(status.default_channel || (!otaDefaultChannel ? status.channel : ''));
         const write = (id, value) => {
             const el = document.getElementById(id);
             if (el && value !== undefined && value !== '') el.textContent = value;
@@ -3632,7 +3783,11 @@
             otaState = String(state).toLowerCase();
         }
         if (status.current_version) write('cfg-ota-current', status.current_version);
-        if (status.target_version !== undefined) write('cfg-ota-target', status.target_version || '—');
+        if (status.target_version !== undefined) {
+            const targetVersion = String(status.target_version || '');
+            if (targetVersion || !otaBusy) otaTargetVersion = targetVersion;
+            write('cfg-ota-target', targetVersion || '—');
+        }
         if (status.message !== undefined) {
             otaMessage = status.message || '';
             write('cfg-ota-message', otaMessage || '—');
@@ -3661,6 +3816,7 @@
         syncOtaUpdateButton();
         syncFirmwareUpdateNotice();
         syncOtaModalDescription();
+        maybeStartSilentOtaCheck();
     }
 
     function reportOtaCheckFailure() {
@@ -3673,28 +3829,18 @@
     }
 
     function currentOtaCheckTransport() {
-        if (conn.mode === 'ble') return 'ble';
-        if (conn.mode === 'mqtt') return 'mqtt';
-        return '';
+        return conn.mode === 'mqtt' && monitorIsMqttLive() ? 'mqtt' : '';
     }
 
     function runOtaCheck({ manual = false } = {}) {
         if (conn.mode === 'demo') return;
         const transport = currentOtaCheckTransport();
+        if (!transport) return;
         if (!manual && transport && otaCheckTransport === transport) return;
         if (otaState === 'checking' && manual) return;
         otaState = 'checking';
         otaMessage = '';
         syncFirmwareUpdateNotice();
-        if (transport === 'ble' && bleClient && typeof bleClient.otaCheck === 'function') {
-            if (!manual) otaCheckTransport = 'ble';
-            bleClient.otaCheck(otaBleOptions()).catch((error) => {
-                console.warn('Silent OTA check failed:', error);
-                reportOtaCheckFailure();
-            });
-            return;
-        }
-        if (transport !== 'mqtt' || !monitorIsMqttLive()) return;
         if (!manual) otaCheckTransport = 'mqtt';
         monitorPublishCommand(otaCommandFields('ota_check'), {
             pendingMessage: '',
@@ -3707,6 +3853,12 @@
 
     function startSilentOtaCheck() {
         runOtaCheck();
+    }
+
+    function maybeStartSilentOtaCheck() {
+        if (!otaDefaultChannel || otaBusy) return;
+        if (['checking', 'downloading', 'applying', 'reboot_scheduled'].includes(otaState)) return;
+        startSilentOtaCheck();
     }
 
     function startManualOtaCheck() {
@@ -3733,34 +3885,22 @@
     }
 
     async function cfgOtaStart() {
-        if (conn.mode === 'demo') return;
+        if (conn.mode !== 'mqtt' || !monitorIsMqttLive()) return;
         otaActionPending = true;
         syncOtaUpdateButton();
         const description = $('.js-ota-modal') && $('.js-ota-modal').querySelector('.modal-description');
-        if (monitorIsMqttLive() && conn.mode !== 'ble') {
-            try {
-                await monitorPublishCommand(otaCommandFields('ota_start'), {
-                    pendingMessage: 'Starting firmware update…',
-                    statusFn: (message) => { if (description) description.textContent = message; }
-                });
-                otaBusy = true;
-                beginOtaTracking();
-                toast('OTA update started.');
-            } catch (error) {
-                toast(error.message);
-            }
-            otaActionPending = false;
-            syncOtaUpdateButton();
-            syncFirmwareUpdateNotice();
-            return;
-        }
-        const ok = await cfgApply('ota_start', 'OTA update started.',
-            () => window.ESPectreBleClient.buildOtaStartCommand(otaBleOptions()));
-        otaActionPending = false;
-        if (ok) {
+        try {
+            await monitorPublishCommand(otaCommandFields('ota_start'), {
+                pendingMessage: 'Starting firmware update…',
+                statusFn: (message) => { if (description) description.textContent = message; }
+            });
             otaBusy = true;
-            if (conn.mode === 'ble') beginOtaTracking();
+            beginOtaTracking();
+            toast('OTA update started.');
+        } catch (error) {
+            toast(error.message);
         }
+        otaActionPending = false;
         syncOtaUpdateButton();
         syncFirmwareUpdateNotice();
     }
@@ -3778,6 +3918,7 @@
         if (otaChannel) {
             otaChannel.addEventListener('change', () => {
                 if (conn.mode === null) return;
+                otaChannelChanged = true;
                 startManualOtaCheck();
             });
         }

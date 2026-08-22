@@ -1,0 +1,86 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<article class="article">
+  <h1>Detector architecture</h1>
+  <p class="article-lead">ESPectre runs both detector profiles on the device. They consume the same timestamped CSI stream and publish the same runtime snapshot and motion events; the profile changes the feature state, classifier, startup behavior, and runtime cost.</p>
+
+  <h2 id="sdk-detectors-pipeline">One physical-time pipeline</h2>
+  <div class="pipeline" aria-label="Detector data flow">
+    <div><strong>Wi-Fi CSI</strong><span>packet supply</span></div>
+    <div><strong>10 ms slots</strong><span>temporal admission</span></div>
+    <div><strong>Frequency views</strong><span>selected tones and subbands</span></div>
+    <div><strong>Features</strong><span>one-second window</span></div>
+    <div><strong>Motion state</strong><span>runtime event</span></div>
+  </div>
+  <p>The detector targets 100 admitted CSI samples per second. Each packet is assigned to a 10 ms slot, but only the packet nearest that slot's center is retained. Missing slots remain missing, and several packets arriving in the same slot still contribute one sample. This keeps detector evidence tied to elapsed time instead of packet count, so an access-point burst cannot advance the feature window faster than the physical-time grid.</p>
+  <p>A decision window covers one second and becomes ready at 70% slot occupancy. The runtime evaluates it every 250 ms. A gap resets temporal state instead of stitching two unrelated periods together.</p>
+  <div class="note"><strong>Packet rate is supply, not evidence.</strong> More received packets can help fill the time grid, but they do not create extra detector time inside an occupied slot.</div>
+
+  <h2 id="sdk-detectors-frequency">Frequency paths follow the feature</h2>
+  <p>ESPectre does not search for a different subcarrier set in every room. Both profiles use twelve fixed tones distributed across the usable HT20 band for temporal turbulence: <code>±4, ±9, ±14, ±19, ±24, ±28</code> in centered coordinates. The set came from measured channel-coherence behavior rather than a search over detector metrics, then remained fixed so every session uses the same frequency geometry.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Signal view</th><th>Frequency input</th><th>Used by</th></tr></thead>
+    <tbody>
+      <tr><td>Temporal turbulence</td><td>12 fixed tones across the usable band</td><td>Both profiles</td></tr>
+      <tr><td>Aggregated turbulence</td><td>Five-bin neighborhoods around the 12 tones</td><td>Both profiles</td></tr>
+      <tr><td>L1 displacement</td><td>The same 12 fixed tones</td><td>High Accuracy</td></tr>
+      <tr><td>Channel shape</td><td>All 56 live HT20 bins, reduced to 8 gain-normalized subbands</td><td>High Accuracy</td></tr>
+    </tbody>
+  </table></div>
+  <p>The twelve-tone path is therefore not the whole High Accuracy input. Its channel-shape features retain a normalized view of the full live band, while the narrower path keeps the temporal trackers small. Ratios, correlations, crossing rates, and normalized geometry limit sensitivity to absolute receive gain while AGC remains enabled.</p>
+
+  <h2 id="sdk-detectors-profiles">Two profiles, one integration contract</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th></th><th>Lightweight</th><th>High Accuracy</th></tr></thead>
+    <tbody>
+      <tr><td>Decision input</td><td>2 engineered features</td><td>8 engineered features</td></tr>
+      <tr><td>Classifier</td><td>Fixed weighted logistic fusion</td><td>MLP: <code>8 → 24 → 12 → 1</code></td></tr>
+      <tr><td>Learned parameters</td><td>None</td><td>529</td></tr>
+      <tr><td>Startup threshold</td><td>Adapts from clean equivalent slot coverage</td><td>Uses a default threshold of 0.5 without startup calibration</td></tr>
+      <tr><td>Runtime cost</td><td>Lower feature state and compute</td><td>Additional temporal and channel-shape work</td></tr>
+    </tbody>
+  </table></div>
+  <p>Lightweight combines temporal autocorrelation with a robust turbulence-spread ratio. Its startup calibration needs ten seconds of clean, ready slot coverage; because missing slots do not count, wall-clock calibration may take longer.</p>
+  <p>High Accuracy adds temporal, displacement, and channel-shape features before inference. The current production export has 492 connection weights and 37 biases: 529 parameters in total, or 2,116 bytes when stored as 32-bit floats. The C++ detector evaluates those generated arrays directly and does not depend on a separate neural-network runtime.</p>
+
+  <h2 id="sdk-detectors-small-model">Why the model can stay small</h2>
+  <p>The classifier does not start from raw CSI. Temporal admission has already restored a physical-time axis, the selected frequency views have reduced redundancy, and the eight inputs describe normalized motion and channel-shape behavior. The network only has to combine that compact representation. The 529-parameter count describes the current production export; it is not a promise that this topology will never change or a claim that no smaller model could work.</p>
+
+  <h2 id="sdk-detectors-performance">On-device performance</h2>
+  <p>Normal detection does not send CSI to a computer for processing. Capture, temporal admission, feature extraction, and inference all run on the ESP32. Once the one-second feature window is ready, the runtime evaluates the selected profile four times per second.</p>
+  <p>The High Accuracy path evaluates 492 matrix weights through fixed C++ loops and reuses its feature trackers and activation workspace. It performs more work than Lightweight, but neither profile allocates memory for each inference. The firmware benchmarks instrument the complete detection path, including feature extraction; their timings should not be read as isolated MLP latency.</p>
+
+  <h3>Current selection + holdout diagnostic</h3>
+  <p>The generated <a href="https://github.com/francescopace/espectre/blob/main/docs/performance/README.md" target="_blank" rel="noopener">performance report</a> compares both profiles on the same 13 real dataset pairs from the combined <code>selection + holdout</code> corpus. Both detectors receive identical <code>base + drift + burst-loss</code> augmentation generated from the same two fixed seeds. The device columns are unweighted arithmetic means of the Native campaign averages reported for ESP32, ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Detection profile</th><th>Recall</th><th>False-positive rate</th><th>F1</th><th>Mean device path</th><th>Mean runtime CPU</th></tr></thead>
+    <tbody>
+      <tr><td>Lightweight</td><td>98.8%</td><td>0.8%</td><td>98.6%</td><td>0.700 ms</td><td>3.21%</td></tr>
+      <tr><td>High Accuracy</td><td>99.4%</td><td>0.1%</td><td>99.5%</td><td>2.943 ms</td><td>3.52%</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><strong>Device cost is a descriptive average.</strong> Detection-path time includes live feature and inference work rather than isolated MLP latency. CPU is the total runtime load measured during each campaign, not detector-only utilization or energy consumption. The five device snapshots were collected separately. Power has not yet been measured.</div>
+  <div class="note"><strong>This is a development diagnostic, not a sealed blind result.</strong> The selection and holdout recordings are outside the High Accuracy training corpus, but project development has used parts of this evidence for selection decisions. The table supports a comparison between the current profiles under the same replay contract; it is not a final generalization claim.</div>
+
+  <h2 id="sdk-detectors-configure">Select the profile through the runtime</h2>
+  <p>Set the profile before <code>setup()</code>. The full runtime then owns temporal admission, evaluation cadence, readiness, and hit filtering.</p>
+  <pre class="code"><code>espectre::RuntimeConfig config;
+config.detection_algorithm =
+    espectre::DetectionAlgorithm::HIGH_ACCURACY;
+
+espectre::RuntimeFrontendController runtime;
+runtime.set_config(config);
+runtime.setup(listener);</code></pre>
+  <p>Use <code>DetectionAlgorithm::LIGHTWEIGHT</code> for the lower-cost profile. A core-only integration may instantiate the detector classes directly, but it must reproduce the runtime's timing, readiness, gap-reset, and hit-filter contracts. See the <a href="/sdk/architecture/">architecture reference</a> before choosing that path.</p>
+
+  <h2 id="sdk-detectors-evidence">Evidence and limits</h2>
+  <p>The <a href="https://github.com/francescopace/espectre/blob/main/docs/ALGORITHMS.md" target="_blank" rel="noopener">algorithm reference</a> specifies the temporal and frequency contracts, and the <a href="https://github.com/francescopace/espectre/blob/main/docs/FEATURES.md" target="_blank" rel="noopener">feature ledger</a> records evaluated features and their evidence. The generated replay and firmware reports remain the sources of truth for the current quality, timing, and resource measurements summarized above.</p>
+  <div class="note"><strong>Current validation boundary:</strong> production detection is validated for 2.4 GHz HT20 CSI with HT-LTF. Detection quality at 5 GHz has not yet been characterized.</div>
+
+  <div class="article-nav">
+    <a href="/sdk/api/" class="doc-link"><div class="doc-link-title">← Previous: API orientation</div><div class="doc-link-sub">Find the public SDK types and generated reference.</div></a>
+    <a href="/sdk/examples/" class="doc-link doc-link-next"><div class="doc-link-title">Next: Examples →</div><div class="doc-link-sub">Match your product to a shipped frontend.</div></a>
+  </div>
+</article>

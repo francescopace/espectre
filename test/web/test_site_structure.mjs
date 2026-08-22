@@ -636,8 +636,8 @@ describe('website UX and content contracts', () => {
         assert.ok(sdkContent.indexOf('class="docs-start"') < sdkContent.indexOf('class="docs-paths"'));
         assert.ok(sdkContent.indexOf('class="docs-paths"') < sdkContent.indexOf('class="docs-steps"'));
         assert.ok(sdkContent.indexOf('class="docs-steps"') < sdkContent.indexOf('class="docs-next"'));
-        const sdkIndexLinks = [...sdkContent.matchAll(/<a href="(\/sdk\/(?:api|examples|architecture)\/)" class="doc-link">/g)].map((match) => match[1]);
-        assert.deepEqual(sdkIndexLinks, ['/sdk/architecture/', '/sdk/api/', '/sdk/examples/']);
+        const sdkIndexLinks = [...sdkContent.matchAll(/<a href="(\/sdk\/(?:api|examples|architecture|detectors)\/)" class="doc-link">/g)].map((match) => match[1]);
+        assert.deepEqual(sdkIndexLinks, ['/sdk/architecture/', '/sdk/api/', '/sdk/detectors/', '/sdk/examples/']);
         const pathCards = sdkContent.match(/<div class="docs-path(?: docs-path-recommended)?">[\s\S]*?<\/div>/g) || [];
         assert.equal(pathCards.length, 3);
         for (const card of pathCards) {
@@ -659,8 +659,9 @@ describe('website UX and content contracts', () => {
     it('links the SDK pages in one previous and next sequence', () => {
         const sdkPages = [
             { file: 'architecture', previous: null, next: '/sdk/api/' },
-            { file: 'api', previous: '/sdk/architecture/', next: '/sdk/examples/' },
-            { file: 'examples', previous: '/sdk/api/', next: 'https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md' },
+            { file: 'api', previous: '/sdk/architecture/', next: '/sdk/detectors/' },
+            { file: 'detectors', previous: '/sdk/api/', next: '/sdk/examples/' },
+            { file: 'examples', previous: '/sdk/detectors/', next: 'https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md' },
         ];
         for (const page of sdkPages) {
             const content = read(`docs/web/content/sdk/${page.file}.html`);
@@ -674,6 +675,35 @@ describe('website UX and content contracts', () => {
         }
         assert.doesNotMatch(read('docs/web/content/sdk/architecture.html'), /docs\/EMBEDDING\.md/);
         assert.match(read('docs/web/content/sdk/examples.html'), /docs\/EMBEDDING\.md/);
+    });
+
+    it('publishes the detector architecture through SDK SPA and static routes', () => {
+        const detectors = read('docs/web/content/sdk/detectors.html');
+        assert.match(detectors, /<h1>Detector architecture<\/h1>/);
+        assert.match(detectors, /10 ms slot/);
+        assert.match(detectors, /All 56 live HT20 bins, reduced to 8 gain-normalized subbands/);
+        assert.match(detectors, /529 parameters in total/);
+        assert.match(detectors, /<h2 id="sdk-detectors-performance">On-device performance<\/h2>/);
+        assert.doesNotMatch(detectors, /<h3>Current Native device benchmark<\/h3>/);
+        assert.match(detectors, /unweighted arithmetic means of the Native campaign averages/);
+        assert.match(detectors, /Lightweight<\/td><td>98\.8%<\/td><td>0\.8%<\/td><td>98\.6%<\/td><td>0\.700 ms<\/td><td>3\.21%/);
+        assert.match(detectors, /High Accuracy<\/td><td>99\.4%<\/td><td>0\.1%<\/td><td>99\.5%<\/td><td>2\.943 ms<\/td><td>3\.52%/);
+        assert.match(detectors, /Device cost is a descriptive average/);
+        assert.match(detectors, /Power has not yet been measured/);
+        assert.match(detectors, /same 13 real dataset pairs from the combined <code>selection \+ holdout<\/code> corpus/);
+        assert.match(detectors, /Lightweight<\/td><td>98\.8%<\/td><td>0\.8%<\/td><td>98\.6%/);
+        assert.match(detectors, /High Accuracy<\/td><td>99\.4%<\/td><td>0\.1%<\/td><td>99\.5%/);
+        assert.match(detectors, /This is a development diagnostic, not a sealed blind result/);
+        assert.doesNotMatch(detectors, /docs\/performance\/ESP32(?:-C[356]|-S3)?\.md/);
+        assert.match(detectors, /DetectionAlgorithm::HIGH_ACCURACY/);
+        const detectorGuide = read('docs/web/content/guides/detectors.html');
+        assert.match(detectorGuide, /href="\/sdk\/detectors\/"/);
+        assert.match(detectorGuide, /It also covers the performance evidence available for both profiles/);
+        assert.doesNotMatch(detectorGuide, /performance report/);
+        assert.match(index, /data-page="sdk-detectors"[\s\S]*?data-static-url="\/sdk\/detectors\/"/);
+        assert.match(routeRegistry, /name: 'sdk-detectors'.*staticPath: '\/sdk\/detectors\/'/);
+        assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/sdk\/detectors\.html"/);
+        assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/sdk\/detectors\//);
     });
 
     it('publishes the detection profile guide through SPA and static routes', () => {
@@ -991,15 +1021,24 @@ describe('website UX and content contracts', () => {
         assert.match(index, /class="mono-sub device-banner-identity"/);
         assert.match(index, /js-device-banner-sub[\s\S]*js-firmware-update-notice/);
         assert.equal([...index.matchAll(/class="device-firmware-update js-firmware-update-notice"/g)].length, 3);
-        assert.match(index, /class="conn-dropdown-name js-device-name"/);
+        assert.match(index, /class="conn-dropdown-name js-device-name js-connection-device-name"/);
         assert.match(app, /function formatDeviceIdentityLine/);
         assert.match(app, /parts\.push\('Chip ' \+ chip\)/);
         assert.match(app, /parts\.push\('Device ID ' \+ deviceId\)/);
         assert.match(app, /parts\.push\('Firmware ' \+ firmware\)/);
         assert.match(app, /conn\.deviceBannerSub = deviceIdentity/);
-        assert.match(app, /write\('\.js-menu-chip', conn\.chip\)/);
-        assert.match(app, /write\('\.js-menu-device-id', conn\.deviceId\)/);
-        assert.match(app, /write\('\.js-menu-firmware', conn\.firmwareVersion\)/);
+        assert.match(app, /write\('\.js-menu-chip', identity\.chip\)/);
+        assert.match(app, /write\('\.js-menu-device-id', identity\.deviceId\)/);
+        assert.match(app, /write\('\.js-menu-firmware', identity\.firmwareVersion\)/);
+        assert.match(index, /js-transport-tag[^>]*hidden>BLE<\/span>/);
+        assert.match(index, /js-menu-device-id-label">Device ID/);
+        assert.match(index, /js-menu-firmware-label">Firmware/);
+        assert.match(index, /js-usb-port-note[^>]*hidden>The USB port stays reserved until the installer closes\./);
+        assert.match(app, /const transportLabels = \{ ble: 'BLE', mqtt: 'MQTT', usb: 'USB' \}/);
+        assert.match(app, /const displayedMode = usbConnected \? 'usb' : conn\.mode/);
+        assert.match(app, /deviceName: chip \|\| portId \|\| 'USB device'/);
+        assert.match(app, /deviceIdLabel\.textContent = usbConnected \? 'USB VID:PID' : 'Device ID'/);
+        assert.match(app, /firmwareLabel\.textContent = usbConnected \? 'Target firmware' : 'Firmware'/);
         assert.match(index, /energy-title">CURRENT STATE/);
         assert.match(app, /conn\.motion \? 'MOTION' : 'IDLE'/);
         assert.match(styles, /\.conn-dropdown \{[^}]*color: var\(--text\);/);
@@ -1034,7 +1073,7 @@ describe('website UX and content contracts', () => {
         assert.match(app, /device: 'configure'/);
         assert.match(app, /const bleSetup = connected && conn\.mode === 'ble'/);
         assert.match(app, /const bleConnecting = conn\.status === 'connecting'/);
-        assert.match(app, /const mqttConnecting = conn\.status === 'connecting' && !bleConnecting/);
+        assert.match(app, /const mqttConnectionPending = monitorConnectionPending\(\)/);
         assert.match(app, /bleConnecting \? 'Connecting…'/);
         assert.match(app, /function validateMonitorConnection\(\)/);
         assert.match(app, /input\.setAttribute\('aria-invalid', 'true'\)/);
@@ -1116,13 +1155,46 @@ describe('website UX and content contracts', () => {
         assert.match(index, /class="btn-primary js-ota-start" disabled>Update device<\/button>/);
         assert.match(index, /id="cfg-ota-message"/);
         assert.match(app, /function applyOtaStatus/);
+        assert.match(app, /function flashDialogText\(root\)/);
+        assert.match(app, /function activateUsbConnection\(dialog\)/);
+        assert.match(app, /dialog\.port && typeof dialog\.port\.getInfo === 'function'/);
+        assert.match(app, /activateUsbConnection\(dialog\);/);
+        assert.match(app, /dialog\.addEventListener\('closed', \(\) => scheduleUsbConnectionRelease\(dialog\)/);
+        assert.match(app, /scheduleUsbConnectionRelease\(dialog\);[\s\S]*if \(started && !reported\) report\('cancelled'\)/);
+        assert.match(app, /if \(element\.shadowRoot\) text \+= ' ' \+ flashDialogText\(element\.shadowRoot\)/);
+        assert.match(app, /const observedRoots = new WeakSet\(\)/);
+        assert.match(app, /observeRoot\(dialog\.shadowRoot\);[\s\S]*flashDialogText\(dialog\.shadowRoot\)/);
+        assert.match(app, /track\('firmware_installer_open', flashParams\(\)\)/);
+        assert.match(app, /dialog\._installConfirmed === true[\s\S]*markStarted\(\)/);
+        assert.match(app, /track\('firmware_install_start', flashParams\(\)\)/);
+        assert.match(app, /installState === 'finished'[\s\S]*report\('success'\)/);
+        assert.match(app, /inspectTimer = setInterval\(inspect, 250\)/);
+        assert.match(app, /clearInterval\(inspectTimer\)/);
+        assert.match(styles, /ewt-install-dialog \{[\s\S]*--md-dialog-container-shape: 16px/);
+        assert.match(styles, /ewt-install-dialog \{[\s\S]*--md-dialog-headline-font: 'Space Grotesk'/);
+        assert.match(styles, /ewt-install-dialog \{[\s\S]*--md-sys-color-primary: var\(--accent\)/);
+        assert.match(styles, /ewt-install-dialog \{[\s\S]*--md-circular-progress-active-indicator-color: var\(--accent\)/);
         assert.match(app, /function startSilentOtaCheck/);
+        assert.match(app, /function maybeStartSilentOtaCheck/);
         assert.match(app, /function currentOtaCheckTransport/);
         assert.match(app, /if \(conn\.mode === 'demo'\) return;/);
+        assert.match(app, /return conn\.mode === 'mqtt' && monitorIsMqttLive\(\) \? 'mqtt' : ''/);
+        assert.match(app, /if \(!transport\) return;/);
         assert.match(app, /if \(!manual && transport && otaCheckTransport === transport\) return;/);
-        assert.match(app, /if \(conn\.mode === 'ble'\) startSilentOtaCheck\(\)/);
-        assert.match(app, /transport === 'ble' && bleClient && typeof bleClient\.otaCheck === 'function'/);
-        assert.match(app, /transport !== 'mqtt' \|\| !monitorIsMqttLive\(\)/);
+        assert.match(app, /if \(!otaDefaultChannel \|\| otaBusy\) return;/);
+        assert.match(app, /maybeStartSilentOtaCheck\(\);/);
+        assert.doesNotMatch(app, /bleClient\.ota(?:Check|Start)/);
+        assert.match(app, /otaSupported = monitor\.commands\.has\('ota_check'\) && monitor\.commands\.has\('ota_start'\)/);
+        assert.match(app, /if \(conn\.mode === 'ble'\) otaSupported = false/);
+        assert.match(app, /el\.hidden = Boolean\(flash\.usbDialog\) \|\| Boolean\(bleClient\)[\s\S]*conn\.mode === 'ble' \|\| otaSupported === false/);
+        assert.match(app, /button\.disabled = conn\.mode !== 'mqtt' \|\| !monitorIsMqttLive\(\)/);
+        assert.match(app, /if \(conn\.mode !== 'mqtt' \|\| !monitorIsMqttLive\(\)\) return;/);
+        assert.match(app, /monitorPublishCommand\(otaCommandFields\('ota_start'\)/);
+        assert.match(app, /OTA_TRACKING_TIMEOUT_MS/);
+        assert.match(app, /otaBusy \|\| otaTracking \|\| otaState === 'reboot_scheduled'/);
+        assert.match(app, /if \(otaTargetVersion && version !== otaTargetVersion\)/);
+        assert.match(app, /finishOtaTracking\('success', null, 'reconnected'\)/);
+        assert.match(app, /if \(otaAwaitingReconnect\) completeOtaReconnect\(\)/);
         assert.match(index, /js-menu-firmware[\s\S]*js-firmware-update-notice[\s\S]*js-disconnect/);
         assert.match(index, /class="conn-firmware-row"/);
         assert.doesNotMatch(index, /device-firmware-update-icon/);
@@ -1135,11 +1207,13 @@ describe('website UX and content contracts', () => {
         assert.match(app, /message: 'Unable to check for updates'/);
         assert.match(app, /function otaOpen\(returnFocus\)/);
         assert.match(index, /id="ota-channel"/);
-        assert.match(index, /id="ota-channel"[\s\S]*?<option value="" selected>Firmware default<\/option>/);
-        assert.match(index, /<option value="release">Latest Release<\/option>/);
+        assert.doesNotMatch(index, /Firmware default/);
+        assert.match(index, /<option value="release" selected>Latest Release<\/option>/);
         assert.match(app, /function selectedOtaChannel/);
+        assert.match(app, /function applyOtaDefaultChannel/);
+        assert.match(app, /applyOtaDefaultChannel\(status\.default_channel/);
+        assert.match(app, /otaChannelChanged = true/);
         assert.match(app, /return channel \? \{ command, channel \} : \{ command \}/);
-        assert.match(app, /return channel \? \{ channel \} : \{\}/);
         assert.match(app, /if \(conn\.mode === 'demo'\) return;/);
         assert.match(index, /<h2 class="panel-title-status">Wi-Fi <span class="dot dot-idle js-wifi-status-dot"/);
         assert.match(index, /<h2 class="panel-title-status">MQTT <span class="dot dot-idle js-mqtt-status-dot"/);
@@ -1166,7 +1240,12 @@ describe('website UX and content contracts', () => {
         assert.match(app, /data\.csi_admitted_pps/);
         assert.match(app, /data\.csi_filtered_pps/);
         assert.match(app, /function monitorIsMqttLive/);
-        assert.match(app, /connect\.disabled = mqttLive \|\| monitor\.discoveryActive/);
+        assert.match(app, /function monitorConnectionPending/);
+        assert.match(app, /const mqttSession = live \|\| \(monitor\.handoffReady && monitorIsMqttLive\(\)\)/);
+        assert.match(app, /connect\.disabled = mqttConnected/);
+        assert.match(app, /connectionPending \? 'Cancel connection'/);
+        assert.match(app, /function monitorCancelConnection/);
+        assert.match(app, /if \(monitorConnectionPending\(\)\) \{[\s\S]*monitorCancelConnection\(\)/);
         assert.match(app, /monitor\.protocol\.subscriptionTopic/);
         assert.match(app, /MONITOR_DISCOVERY_TIMEOUT_MS = 2000/);
         assert.match(mqttProtocol, /static parseDiscoveryMessage/);
@@ -1186,6 +1265,8 @@ describe('website UX and content contracts', () => {
         assert.match(mqttProtocol, /`\$\{prefix\}\/\+\/status`/);
         assert.match(app, /Selected device: /);
         assert.match(app, /No devices discovered\. Enter a device ID\./);
+        assert.match(app, /function monitorShowDeviceSelection/);
+        assert.match(app, /monitorStatus\('Select a device, or enter a device ID\.'\);[\s\S]*monitorShowDeviceSelection\(\)/);
         assert.match(app, /\[deviceInput, deviceValid, 'Enter a device ID without \/ or wildcards\.'\]/);
         assert.doesNotMatch(app, /\[deviceInput, !!device, 'Enter a device ID\.'\]/);
         assert.match(app, /function ingestMqttMessage/);

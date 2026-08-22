@@ -156,6 +156,18 @@ PAGES = (
         "og_type": "website",
     },
     {
+        "source": "content/sdk/detectors.html",
+        "output": "sdk/detectors",
+        "title": "Detector architecture | ESPectre",
+        "description": (
+            "How ESPectre turns timestamped Wi-Fi CSI into on-device motion decisions "
+            "with temporal admission, selected frequency views, and two detector profiles."
+        ),
+        "parent_href": "/sdk/",
+        "parent_label": "SDK",
+        "active_nav": "sdk",
+    },
+    {
         "source": "content/sdk/api.html",
         "output": "sdk/api",
         "title": "API orientation | ESPectre",

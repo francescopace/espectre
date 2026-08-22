@@ -42,6 +42,7 @@ EXPECTED_SITEMAP_PATHS = {
     "/guides/micropython/",
     "/guides/future-wifi-sensing/",
     "/sdk/",
+    "/sdk/detectors/",
     "/sdk/api/",
     "/sdk/examples/",
     "/sdk/architecture/",

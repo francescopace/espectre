@@ -23,14 +23,14 @@
 <meta name="twitter:image" content="https://espectre.dev/assets/images/brand/espectre-og.jpg">
 <link rel="icon" type="image/svg+xml" href="/assets/images/brand/espectre-logo.svg?v=5c234009f6c5">
 <link rel="alternate icon" type="image/png" href="/assets/images/brand/favicon.png">
-<link rel="stylesheet" href="/assets/css/styles.css?v=393c6a6cc5e7">
-<script src="/assets/js/espectre-ble.js?v=d7b6307e5303" defer></script>
+<link rel="stylesheet" href="/assets/css/styles.css?v=de713a8dd293">
+<script src="/assets/js/espectre-ble.js?v=2938e094cf0e" defer></script>
 <script src="/assets/js/espectre-mqtt.js?v=2cce16edbd1b" defer></script>
 <script src="/assets/js/browser-support.js?v=33452b392605" defer></script>
-<script src="/assets/js/route-registry.js?v=bff2df315b36" defer></script>
+<script src="/assets/js/route-registry.js?v=d387a8d54a1b" defer></script>
 <script src="/assets/js/navigation.js?v=4f2595e7685f" defer></script>
 <script src="/assets/js/analytics.js?v=f864f32127a2" defer></script>
-<script src="/assets/js/app.js?v=2396b9bc376c" defer></script>
+<script src="/assets/js/app.js?v=313d8f22da2a" defer></script>
 </head>
 <body>
 
@@ -67,16 +67,16 @@
       </div>
       <button class="conn-pill conn-connected js-conn-connected js-dropdown-toggle" aria-expanded="false" hidden>
         <span class="dot dot-ok pulse"></span>
-        <span class="js-device-name">ESPectre</span>
+        <span class="js-device-name js-connection-device-name">ESPectre</span>
         <span class="demo-tag js-demo-tag" hidden>DEMO</span>
-        <span class="demo-tag js-setup-tag" hidden>BLE</span>
+        <span class="demo-tag js-setup-tag js-transport-tag" hidden>BLE</span>
         <span class="mini-meter js-live-energy" hidden><span class="js-energy-fill"></span></span>
         <span class="caret">▾</span>
       </button>
       <div class="conn-dropdown js-dropdown" hidden>
         <div class="conn-dropdown-head">
           <span class="dot dot-ok pulse"></span>
-          <div class="conn-dropdown-name js-device-name">ESPectre</div>
+          <div class="conn-dropdown-name js-device-name js-connection-device-name">ESPectre</div>
         </div>
         <dl class="conn-dropdown-meta">
           <div>
@@ -84,11 +84,11 @@
             <dd class="js-menu-chip">—</dd>
           </div>
           <div>
-            <dt>Device ID</dt>
+            <dt class="js-menu-device-id-label">Device ID</dt>
             <dd class="js-menu-device-id">—</dd>
           </div>
           <div>
-            <dt>Firmware</dt>
+            <dt class="js-menu-firmware-label">Firmware</dt>
             <dd class="conn-firmware-row">
               <span class="js-menu-firmware">—</span>
               <button type="button" class="device-firmware-update js-firmware-update-notice"
@@ -98,6 +98,7 @@
             </dd>
           </div>
         </dl>
+        <p class="conn-dropdown-note js-usb-port-note" hidden>The USB port stays reserved until the installer closes.</p>
         <div class="energy-block js-live-energy" hidden>
           <div class="energy-head"><span class="energy-title">CURRENT STATE</span><span class="mono js-motion-label">IDLE</span></div>
           <div class="meter"><span class="js-energy-fill"></span></div>
@@ -751,21 +752,21 @@
 
 <!-- ============================== Guides ============================== -->
 <main class="js-page page-narrow" data-page="guides" hidden>
-  <div class="js-static-content" data-content-url="content/guides.html?v=048b3b54f3c8" data-static-url="/guides/">
+  <div class="js-static-content" data-content-url="content/guides.html?v=c26dabcd319a" data-static-url="/guides/">
     <p class="guide-loading">Loading guides…</p>
   </div>
 </main>
 
 <!-- ============================== SDK ============================== -->
 <main class="js-page page-narrow" data-page="sdk" hidden>
-  <div class="js-static-content" data-content-url="content/sdk.html?v=cc2ab669ec40" data-static-url="/sdk/">
+  <div class="js-static-content" data-content-url="content/sdk.html?v=4e543842a874" data-static-url="/sdk/">
     <p class="guide-loading">Loading SDK…</p>
   </div>
 </main>
 
 <!-- ============================== Media ============================== -->
 <main class="js-page page-narrow" data-page="media" hidden>
-  <div class="js-static-content" data-content-url="content/media.html?v=fba591b504cf" data-static-url="/media/">
+  <div class="js-static-content" data-content-url="content/media.html?v=c7452ea11960" data-static-url="/media/">
     <p class="guide-loading">Loading media…</p>
   </div>
 </main>
@@ -822,7 +823,7 @@
 <!-- ============================== Guide: Hardware ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-hardware" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Hardware</span></div>
-  <div class="js-static-content" data-content-url="content/guides/hardware.html?v=08e348335150" data-static-url="/guides/hardware/">
+  <div class="js-static-content" data-content-url="content/guides/hardware.html?v=6271b2bf5adf" data-static-url="/guides/hardware/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -838,7 +839,7 @@
 <!-- ============================== Guide: Home Assistant dashboard ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-home-assistant" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Home Assistant dashboard</span></div>
-  <div class="js-static-content" data-content-url="content/guides/home-assistant.html?v=78d90c98c831" data-static-url="/guides/home-assistant/">
+  <div class="js-static-content" data-content-url="content/guides/home-assistant.html?v=1ac7e70abfac" data-static-url="/guides/home-assistant/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -846,7 +847,7 @@
 <!-- ============================== Guide: Placement ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-placement" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Place your sensor</span></div>
-  <div class="js-static-content" data-content-url="content/guides/placement.html?v=edb401bd45ee" data-static-url="/guides/placement/">
+  <div class="js-static-content" data-content-url="content/guides/placement.html?v=9fcd20692460" data-static-url="/guides/placement/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -854,7 +855,7 @@
 <!-- ============================== Guide: Detection ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-detection" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">How Wi-Fi sensing works</span></div>
-  <div class="js-static-content" data-content-url="content/guides/detection.html?v=eabafc14385a" data-static-url="/guides/detection/">
+  <div class="js-static-content" data-content-url="content/guides/detection.html?v=3180e0ee74cb" data-static-url="/guides/detection/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -862,7 +863,7 @@
 <!-- ============================== Guide: Detection profiles ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-detectors" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Choose a detection profile</span></div>
-  <div class="js-static-content" data-content-url="content/guides/detectors.html?v=7ba22afd8797" data-static-url="/guides/detectors/">
+  <div class="js-static-content" data-content-url="content/guides/detectors.html?v=824cbe1ef561" data-static-url="/guides/detectors/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -870,7 +871,7 @@
 <!-- ============================== Guide: MicroPython ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-micropython" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Run ESPectre on MicroPython</span></div>
-  <div class="js-static-content" data-content-url="content/guides/micropython.html?v=751992ae41a7" data-static-url="/guides/micropython/">
+  <div class="js-static-content" data-content-url="content/guides/micropython.html?v=a67b0a92de56" data-static-url="/guides/micropython/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -886,7 +887,15 @@
 <!-- ============================== SDK: API ============================== -->
 <main class="js-page page-narrow page-article" data-page="sdk-api" hidden>
   <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">API orientation</span></div>
-  <div class="js-static-content" data-content-url="content/sdk/api.html?v=bed4816fa8ac" data-static-url="/sdk/api/">
+  <div class="js-static-content" data-content-url="content/sdk/api.html?v=a51f93867747" data-static-url="/sdk/api/">
+    <p class="guide-loading">Loading docs…</p>
+  </div>
+</main>
+
+<!-- ============================== SDK: Detectors ============================== -->
+<main class="js-page page-narrow page-article" data-page="sdk-detectors" hidden>
+  <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">Detector architecture</span></div>
+  <div class="js-static-content" data-content-url="content/sdk/detectors.html?v=f2d1a77e22ab" data-static-url="/sdk/detectors/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -894,7 +903,7 @@
 <!-- ============================== SDK: Examples ============================== -->
 <main class="js-page page-narrow page-article" data-page="sdk-examples" hidden>
   <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">Examples</span></div>
-  <div class="js-static-content" data-content-url="content/sdk/examples.html?v=35d69deb05bb" data-static-url="/sdk/examples/">
+  <div class="js-static-content" data-content-url="content/sdk/examples.html?v=7f75f55e5784" data-static-url="/sdk/examples/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -961,8 +970,7 @@
     <div class="field ota-channel-field">
       <label for="ota-channel">Channel</label>
       <select id="ota-channel">
-        <option value="" selected>Firmware default</option>
-        <option value="release">Latest Release</option>
+        <option value="release" selected>Latest Release</option>
         <option value="preview">Release Preview</option>
         <option value="develop">Development</option>
       </select>

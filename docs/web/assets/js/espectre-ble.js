@@ -3,7 +3,7 @@
  *
  * Standalone client for the ESPectre BLE setup surface documented in
  * docs/ESPECTRE_PROTOCOL.md: the streamed sysinfo snapshot and the text
- * control commands for Wi-Fi, MQTT, identity, and OTA.
+ * control commands for Wi-Fi, MQTT, and identity.
  *
  * No dependencies. Web Bluetooth requires a Chromium-based browser and a
  * secure context (HTTPS or localhost); check `ESPectreBleClient.supported`
@@ -37,7 +37,6 @@
 
     const BSSID_PATTERN = /^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$/;
     const WIFI_BAND_POLICIES = Object.freeze(['2g', '5g', 'auto']);
-    const OTA_CHANNELS = Object.freeze(['release', 'preview', 'develop']);
     const DEFAULT_TOPIC_PREFIX = 'espectre/v1/devices';
     const MAX_CONTROL_BYTES = 512;
     const MAX_SSID_BYTES = 32;
@@ -131,20 +130,6 @@
         return value;
     }
 
-    function requireOtaChannel(value) {
-        if (!OTA_CHANNELS.includes(value)) {
-            throw new ESPectreValidationError(
-                `channel must be one of: ${OTA_CHANNELS.join(', ')}`);
-        }
-        return value;
-    }
-
-    function buildOtaActionCommand(verb, { channel } = {}) {
-        if (channel === undefined || channel === '') return verb;
-        requireOtaChannel(channel);
-        return `${verb}:channel=${encodeURIComponent(channel)}`;
-    }
-
     function requireChannelMatchesBandPolicy(channel, bandPolicy) {
         if (channel === 0 || bandPolicy === 'auto') return;
         const channelIs2g = channel <= 14;
@@ -179,29 +164,6 @@
          * exactly one place. Each instance `set*` method writes the built
          * command over the control characteristic.
          */
-
-        /** @returns {string} */
-        static buildOtaStatusCommand() {
-            return 'OTA_STATUS';
-        }
-
-        /**
-         * @param {object} [options]
-         * @param {string} [options.channel] - Optional `release`, `preview`, or `develop`.
-         * @returns {string}
-         */
-        static buildOtaCheckCommand({ channel } = {}) {
-            return buildOtaActionCommand('OTA_CHECK', { channel });
-        }
-
-        /**
-         * @param {object} [options]
-         * @param {string} [options.channel] - Optional `release`, `preview`, or `develop`.
-         * @returns {string}
-         */
-        static buildOtaStartCommand({ channel } = {}) {
-            return buildOtaActionCommand('OTA_START', { channel });
-        }
 
         /** Stops BLE after Wi-Fi is configured so sensing can resume. */
         static buildStopBleCommand() {
@@ -546,21 +508,6 @@
         /** Resets device naming and MQTT settings, keeping the device id. */
         clearDeviceConfig() {
             return this.writeControl('CLEAR_DEVICE_CONFIG');
-        }
-
-        /** Requests the current OTA status snapshot over the existing sysinfo surface. */
-        otaStatus() {
-            return this.writeControl(ESPectreBleClient.buildOtaStatusCommand());
-        }
-
-        /** Starts an OTA manifest check. Omit `channel` to use the firmware default. */
-        otaCheck({ channel } = {}) {
-            return this.writeControl(ESPectreBleClient.buildOtaCheckCommand({ channel }));
-        }
-
-        /** Starts OTA using the selected or firmware-default channel. */
-        otaStart({ channel } = {}) {
-            return this.writeControl(ESPectreBleClient.buildOtaStartCommand({ channel }));
         }
 
         /** Stops BLE after Wi-Fi is configured so sensing can resume. */
