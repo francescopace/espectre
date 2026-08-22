@@ -33,4 +33,4 @@ Contributions are accepted so they can be distributed under both licensing track
 - `test/cpp/support/cnpy.*` is third-party MIT-licensed test support; its complete notice is stored in `test/cpp/support/LICENSE.cnpy`.
 - Browser dependencies are staged with their upstream license files by `.github/scripts/stage_web_vendor.py`.
 
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for repository-level attribution. Every published firmware build also ships an SPDX SBOM, a notice summary, and an archive containing the license files collected from the exact components used by that build.
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for repository-level attribution. Every published firmware build also ships an SPDX SBOM, a notice summary, and an archive containing the license files collected from the exact components used by that build. GitHub Releases group those per-build files into `firmware-compliance-<channel-or-version>.zip`, while the ESPectre website keeps them available next to the corresponding firmware image.

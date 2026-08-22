@@ -14,9 +14,11 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import zipfile
 from pathlib import Path
 
 from build_firmware_manifest import build_manifest
+from build_firmware_compliance_bundle import COMPLIANCE_SUFFIXES
 
 
 def parse_args() -> argparse.Namespace:
@@ -52,11 +54,32 @@ def referenced_filenames(manifest: dict) -> set[str]:
     return filenames
 
 
+def materialize_compliance_bundle(firmware_dir: Path) -> None:
+    bundles = sorted(firmware_dir.glob("firmware-compliance-*.zip"))
+    if not bundles:
+        return
+    if len(bundles) != 1:
+        raise ValueError(f"Expected one firmware compliance bundle, found: {bundles}")
+
+    with zipfile.ZipFile(bundles[0]) as archive:
+        for info in archive.infolist():
+            if info.is_dir() or not info.filename.endswith(COMPLIANCE_SUFFIXES):
+                continue
+            if Path(info.filename).name != info.filename:
+                raise ValueError(f"Invalid firmware compliance bundle entry: {info.filename}")
+            destination = firmware_dir / info.filename
+            contents = archive.read(info)
+            if destination.is_file() and destination.read_bytes() != contents:
+                raise ValueError(f"Conflicting firmware compliance artifact: {info.filename}")
+            destination.write_bytes(contents)
+
+
 def stage_web_firmware(args: argparse.Namespace) -> Path:
     firmware_dir = Path(args.firmware_dir)
     output_dir = Path(args.output_dir)
     manifest_path = output_dir / f"firmware-manifest-{args.channel}.json"
 
+    materialize_compliance_bundle(firmware_dir)
     clean_output_dir(output_dir)
 
     manifest = build_manifest(

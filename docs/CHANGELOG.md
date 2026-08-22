@@ -22,6 +22,7 @@ This first release candidate brings production sensing onto the shared v3 archit
 - **Supported settings and detection profiles can be changed at runtime**. Threshold, motion-hit debounce, detector selection, CSI traffic ownership, and traffic source are available where each frontend supports them. Native and ESPHome persist detector, debounce, and traffic selections; thresholds remain session-only, and Micro-ESPectre keeps every runtime write session-only.
 - **The embeddable C++ SDK has a documented, source-stable public surface**. `espectre_sdk.h` exposes the recommended runtime API, `espectre_core_sdk.h` explicitly opts custom CSI integrations into the lower-level detectors, and the embedding contract defines Semantic Versioning, validation, capability, ownership, threading, error, and no-stable-ABI guarantees. Generated Doxygen pages stamp the same `git describe` identity as the matching SDK bundle.
 - **ESPectre is dual-licensed** under GPLv3 or a separate commercial license for proprietary and closed-source integrations. Contributions remain subject to the CLA and DCO checks.
+- **GitHub Releases keep firmware images direct and group build-specific compliance files into one archive**. Each channel or version publishes `firmware-compliance-<channel-or-version>.zip`, while the ESPectre website continues to expose the individual SBOMs, notices, and license archives next to their corresponding firmware images.
 
 ### Breaking changes and migration
 

@@ -34,7 +34,7 @@ jobs:
           mkdir -p release-sdk
           if gh release view >/dev/null 2>&1; then
             RELEASE_TAG="$(gh release view --json tagName --jq '.tagName')"
-            gh release download "$RELEASE_TAG" --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir release-firmware --clobber
+            gh release download "$RELEASE_TAG" --pattern '*.bin' --pattern 'firmware-compliance-*.zip' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir release-firmware --clobber
             gh release download "$RELEASE_TAG" --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir release-sdk --clobber
             python .github/scripts/stage_web_firmware.py \
               --firmware-dir release-firmware \
@@ -60,7 +60,7 @@ jobs:
           mkdir -p preview-firmware
           mkdir -p preview-sdk
           if gh release view snapshot >/dev/null 2>&1; then
-            gh release download snapshot --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir preview-firmware --clobber
+            gh release download snapshot --pattern '*.bin' --pattern 'firmware-compliance-*.zip' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir preview-firmware --clobber
             gh release download snapshot --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir preview-sdk --clobber
             PREVIEW_COMMIT="$(gh release view snapshot --json targetCommitish --jq '.targetCommitish // ""')"
             PREVIEW_VERSION="$(python3 .github/scripts/detect_git_version.py --from-sdk-dir preview-sdk)"
@@ -89,7 +89,7 @@ jobs:
           mkdir -p develop-firmware
           mkdir -p develop-sdk
           if gh release view snapshot-dev >/dev/null 2>&1; then
-            gh release download snapshot-dev --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir develop-firmware --clobber
+            gh release download snapshot-dev --pattern '*.bin' --pattern 'firmware-compliance-*.zip' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir develop-firmware --clobber
             gh release download snapshot-dev --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir develop-sdk --clobber
             python .github/scripts/stage_web_firmware.py \
               --firmware-dir develop-firmware \

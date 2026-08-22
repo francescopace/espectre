@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-This file records third-party material distributed directly by the ESPectre repository. It does not replace the upstream license text. Published firmware releases include build-specific SPDX SBOMs and license archives generated from the components actually linked into each image.
+This file records third-party material distributed directly by the ESPectre repository. It does not replace the upstream license text. Published GitHub firmware releases group the build-specific SPDX SBOMs, notices, and license archives generated for each image into `firmware-compliance-<channel-or-version>.zip`. The ESPectre website stages the same files next to their corresponding firmware images.
 
 ## Firmware frameworks
 

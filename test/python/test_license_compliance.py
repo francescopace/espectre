@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import zipfile
@@ -17,12 +18,22 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / ".github" / "scripts" / "build_firmware_compliance.py"
+BUNDLE_SCRIPT_PATH = REPO_ROOT / ".github" / "scripts" / "build_firmware_compliance_bundle.py"
 GPL_SPDX_HEADER = "SPDX-License-Identifier: GPL-3.0-only"
 COMMERCIAL_LICENSE_NOTICE = "Commercial licensing available under separate agreement; see LICENSING.md."
 
 
 def load_compliance_module():
     spec = importlib.util.spec_from_file_location("build_firmware_compliance", SCRIPT_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_bundle_module():
+    spec = importlib.util.spec_from_file_location("build_firmware_compliance_bundle_test", BUNDLE_SCRIPT_PATH)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -127,15 +138,92 @@ def test_repository_license_policy_covers_first_party_code_and_release_artifacts
     assert "ESPHome C++ runtime" in licensing
     assert "test/cpp/support/LICENSE.cnpy" in licensing
     assert "build-specific SPDX SBOMs" in notices
-    assert "firmware/*" in release_workflow
-    assert "firmware/*" in snapshot_workflow
-    assert "THIRD_PARTY_NOTICES.md" in release_workflow
-    assert "THIRD_PARTY_NOTICES.md" in snapshot_workflow
+    for workflow in (release_workflow, snapshot_workflow):
+        assert re.search(r"(?m)^\s+firmware/\*\.bin$", workflow)
+        assert re.search(r"(?m)^\s+firmware/firmware-compliance-\*\.zip$", workflow)
+        assert not re.search(r"(?m)^\s+firmware/\*$", workflow)
+        assert "build_firmware_compliance_bundle.py" in workflow
+        assert "Remove superseded unbundled compliance assets" in workflow
+        assert "--compliance-url-prefix" in workflow
+    assert "--pattern 'firmware-compliance-*.zip'" in ci_workflow
     assert "build_firmware_compliance" in ci_workflow
     assert not (REPO_ROOT / "docs" / "web" / "assets" / "js" / "LICENSES").exists()
     assert (
         REPO_ROOT / "src" / "cpp" / "frontend" / "matter" / "third_party" / "esp_matter" / "NOTICE"
     ).is_file()
+
+
+def test_firmware_compliance_bundle_groups_build_artifacts_and_legal_files(tmp_path):
+    builder = load_bundle_module()
+    firmware_dir = tmp_path / "firmware"
+    legal_dir = tmp_path / "legal"
+    firmware_dir.mkdir()
+    legal_dir.mkdir()
+    firmware = firmware_dir / "espectre-native-develop-esp32.bin"
+    firmware.write_bytes(b"firmware")
+    companions = []
+    for suffix in builder.COMPLIANCE_SUFFIXES:
+        companion = firmware.with_name(f"{firmware.stem}{suffix}")
+        companion.write_bytes(suffix.encode("utf-8"))
+        companions.append(companion)
+    legal_paths = tuple(legal_dir / name for name in ("LICENSE", "LICENSING.md", "THIRD_PARTY_NOTICES.md"))
+    for path in legal_paths:
+        path.write_text(path.name, encoding="utf-8")
+
+    output = firmware_dir / builder.bundle_filename("develop", "ignored")
+    builder.build_bundle(firmware_dir, output, legal_paths=legal_paths)
+
+    assert output.name == "firmware-compliance-develop.zip"
+    assert builder.bundle_filename("release", "3.0.0") == "firmware-compliance-3.0.0.zip"
+    with zipfile.ZipFile(output) as archive:
+        assert set(archive.namelist()) == {path.name for path in (*legal_paths, *companions)}
+        assert all(info.date_time == builder.ZIP_TIMESTAMP for info in archive.infolist())
+
+
+def test_web_staging_materializes_compliance_from_release_bundle(tmp_path):
+    builder = load_bundle_module()
+    firmware_dir = tmp_path / "firmware"
+    legal_dir = tmp_path / "legal"
+    output_dir = tmp_path / "web"
+    firmware_dir.mkdir()
+    legal_dir.mkdir()
+    firmware = firmware_dir / "espectre-esphome-preview-esp32c6.bin"
+    firmware.write_bytes(b"firmware")
+    companions = []
+    for suffix in builder.COMPLIANCE_SUFFIXES:
+        companion = firmware.with_name(f"{firmware.stem}{suffix}")
+        companion.write_bytes(suffix.encode("utf-8"))
+        companions.append(companion)
+    legal_paths = tuple(legal_dir / name for name in ("LICENSE", "LICENSING.md", "THIRD_PARTY_NOTICES.md"))
+    for path in legal_paths:
+        path.write_text(path.name, encoding="utf-8")
+    bundle = firmware_dir / builder.bundle_filename("preview", "ignored")
+    builder.build_bundle(firmware_dir, bundle, legal_paths=legal_paths)
+    for companion in companions:
+        companion.unlink()
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(REPO_ROOT / ".github" / "scripts" / "stage_web_firmware.py"),
+            "--firmware-dir",
+            str(firmware_dir),
+            "--output-dir",
+            str(output_dir),
+            "--channel",
+            "preview",
+            "--version",
+            "preview",
+            "--release-tag",
+            "snapshot",
+            "--url-prefix",
+            "/artifacts/firmware/preview",
+        ],
+        check=True,
+    )
+
+    assert (output_dir / firmware.name).is_file()
+    assert all((output_dir / companion.name).is_file() for companion in companions)
 
 
 def test_firmware_manifest_links_available_compliance_artifacts(tmp_path):
@@ -159,7 +247,8 @@ def test_firmware_manifest_links_available_compliance_artifacts(tmp_path):
             version="preview",
             release_tag="preview",
             commit="abcdef",
-            url_prefix="/artifacts/firmware/preview",
+            url_prefix=None,
+            compliance_url_prefix="https://espectre.dev/artifacts/firmware/preview",
         )
     )
 
@@ -169,7 +258,10 @@ def test_firmware_manifest_links_available_compliance_artifacts(tmp_path):
         "notices",
         "license-archive",
     ]
-    assert artifact["compliance"][0]["url"].startswith("/artifacts/firmware/preview/")
+    assert artifact["url"].startswith("https://github.com/francescopace/espectre/releases/download/")
+    assert artifact["compliance"][0]["url"].startswith(
+        "https://espectre.dev/artifacts/firmware/preview/"
+    )
 
 
 def test_complete_firmware_matrix_requires_every_compliance_companion(tmp_path):

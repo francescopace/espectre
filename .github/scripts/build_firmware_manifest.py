@@ -41,6 +41,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--commit", help="Optional source commit SHA for preview and develop builds")
     parser.add_argument("--url-prefix", help="Optional URL prefix used instead of GitHub Releases for web firmware assets")
     parser.add_argument(
+        "--compliance-url-prefix",
+        help="Optional URL prefix used for compliance artifacts independently of firmware images",
+    )
+    parser.add_argument(
         "--native-ota-manifest-dir",
         help="Optional directory where per-chip native OTA manifests are written",
     )
@@ -246,7 +250,11 @@ def build_manifest(args: argparse.Namespace) -> dict:
             "build_type": parsed["build_type"],
             "filename": filename,
             "url": build_artifact_url(filename, args.release_tag, args.url_prefix),
-            "compliance": compliance_artifacts(asset_path, args.release_tag, args.url_prefix),
+            "compliance": compliance_artifacts(
+                asset_path,
+                args.release_tag,
+                getattr(args, "compliance_url_prefix", None) or args.url_prefix,
+            ),
         }
         manifest["frontends"][parsed["frontend"]]["artifacts"].append(artifact)
 

@@ -188,8 +188,17 @@ jobs:
             --version "${{ steps.snapshot.outputs.version }}" \
             --release-tag "${{ steps.snapshot.outputs.tag }}" \
             --commit "${{ needs.validate-run.outputs.head_sha }}" \
+            --compliance-url-prefix "https://espectre.dev/artifacts/firmware/${{ steps.snapshot.outputs.channel }}" \
             --native-ota-manifest-dir firmware \
             --require-complete-matrix
+
+      - name: Build firmware compliance bundle
+        run: |
+          python .github/scripts/build_firmware_compliance_bundle.py \
+            --firmware-dir firmware \
+            --output-dir firmware \
+            --channel "${{ steps.snapshot.outputs.channel }}" \
+            --version "${{ steps.snapshot.outputs.version }}"
 
       - name: Recheck source commit before publishing
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
@@ -258,19 +267,53 @@ jobs:
             **Commit:** ${{ needs.validate-run.outputs.head_sha }}
             **Date:** ${{ needs.validate-run.outputs.created_at }}
           files: |
-            firmware/*
+            firmware/*.bin
+            firmware/espectre-native-ota-*.json
+            firmware/firmware-compliance-*.zip
+            firmware/firmware-manifest-*.json
             sdk/*.tar.gz
             sdk/*.zip
             sdk/*.json
-            LICENSE
-            LICENSING.md
-            THIRD_PARTY_NOTICES.md
           draft: false
           prerelease: true
           make_latest: false
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Remove superseded unbundled compliance assets
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          SNAPSHOT_TAG: ${{ steps.snapshot.outputs.tag }}
+        with:
+          script: |
+            const release = await github.rest.repos.getReleaseByTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag: process.env.SNAPSHOT_TAG
+            });
+            const assets = await github.paginate(github.rest.repos.listReleaseAssets, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: release.data.id,
+              per_page: 100
+            });
+            const legacyNames = new Set(['LICENSE', 'LICENSING.md', 'THIRD_PARTY_NOTICES.md']);
+            const legacySuffixes = [
+              '-sbom.spdx.json',
+              '-THIRD_PARTY_NOTICES.txt',
+              '-third-party-licenses.zip'
+            ];
+            for (const asset of assets) {
+              if (!legacyNames.has(asset.name) && !legacySuffixes.some(suffix => asset.name.endsWith(suffix))) {
+                continue;
+              }
+              await github.rest.repos.deleteReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                asset_id: asset.id
+              });
+            }
 
   publish-pages:
     name: Publish Website
@@ -330,7 +373,7 @@ jobs:
           mkdir -p release-sdk
           if gh release view >/dev/null 2>&1; then
             RELEASE_TAG="$(gh release view --json tagName --jq '.tagName')"
-            gh release download "$RELEASE_TAG" --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir release-firmware --clobber
+            gh release download "$RELEASE_TAG" --pattern '*.bin' --pattern 'firmware-compliance-*.zip' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir release-firmware --clobber
             gh release download "$RELEASE_TAG" --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir release-sdk --clobber
             echo "release_tag=$RELEASE_TAG" >> "$GITHUB_ENV"
           else
@@ -371,7 +414,7 @@ jobs:
           mkdir -p develop-firmware
           mkdir -p develop-sdk
           if gh release view snapshot-dev >/dev/null 2>&1; then
-            gh release download snapshot-dev --pattern '*.bin' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir develop-firmware --clobber
+            gh release download snapshot-dev --pattern '*.bin' --pattern 'firmware-compliance-*.zip' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir develop-firmware --clobber
             gh release download snapshot-dev --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir develop-sdk --clobber
             python .github/scripts/stage_web_firmware.py \
               --firmware-dir develop-firmware \
