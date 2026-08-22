@@ -188,8 +188,9 @@ class HampelFilter:
         # Copy to sorted buffer and calculate deviations in single pass
         # First pass: copy and sort for median
         if n == self.window_size:
-            for i in range(n):
-                self.sorted_buffer[i] = self.buffer[i]
+            # MicroPython handles full-list slice assignment in native code,
+            # avoiding one interpreted copy loop on every steady-state sample.
+            self.sorted_buffer[:] = self.buffer
             # The full buffer has no unused tail, so the runtime's native
             # in-place sort is substantially cheaper than a Python sort loop.
             self.sorted_buffer.sort()

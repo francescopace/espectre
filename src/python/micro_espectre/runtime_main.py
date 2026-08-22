@@ -42,6 +42,7 @@ class GlobalState:
         self.calibration_mode = False  # Flag to suspend main loop during calibration
         self.loop_time_us = 0  # Last loop iteration time in microseconds
         self.chip_type = None  # Detected chip type (S3, C6, etc.)
+        self.csi_phy_metadata_missing = False  # C5/C6 RX metadata omits legacy PHY fields
         self.current_channel = 0  # Track WiFi channel for change detection
         self.latest_diagnostics = None  # Cached MQTT stats CSI/Wi-Fi sample
 
@@ -207,15 +208,21 @@ def run_startup_calibration(wlan, detector, traffic_gen):
         if frame:
             frame_result = frame
             assessment = assess_ht20_sensing_frame(
-                frame, frame[5], expected_len=EXPECTED_CSI_LEN, out=assessment_result
+                frame,
+                frame[5],
+                expected_len=EXPECTED_CSI_LEN,
+                metadata_missing=g_state.csi_phy_metadata_missing,
+                out=assessment_result,
             )
             if assessment["disposition"] != DISPOSITION_SENSE:
                 filtered_count += 1
                 if filtered_count % 100 == 1:
                     print(
-                        f"[WARN] Filtered {filtered_count} packets before calibration "
+                        "[WARN] Filtered {} packets before calibration "
                         "(reason={}, len={})".format(
-                            assessment["reason_code"], assessment["raw_len"]
+                            filtered_count,
+                            assessment["reason_code"],
+                            assessment["raw_len"],
                         )
                     )
                 del frame
@@ -442,6 +449,9 @@ def main(wlan=None):
 
     # Detect chip type
     g_state.chip_type = get_chip_type()
+    # ESP-IDF's CSI RX-control v2, used by C5 and C6, does not expose the
+    # sig_mode/cwb fields carried by the classic RX-control structure.
+    g_state.csi_phy_metadata_missing = g_state.chip_type in ("C5", "C6")
     print(f'Detected chip: {g_state.chip_type}')
 
     # Connect to WiFi
@@ -746,7 +756,20 @@ def main(wlan=None):
                 print(status_line)
                 if debug_telemetry_enabled:
                     assert debug_telemetry is not None
-                    debug_line = debug_telemetry.format_if_due(current_time, gc.mem_free())
+                    heap_free = gc.mem_free()
+                    heap_free_post_gc = None
+                    gc_pause_us = None
+                    if debug_telemetry.is_due(current_time):
+                        gc_start_us = time.ticks_us()
+                        gc.collect()
+                        gc_pause_us = time.ticks_diff(time.ticks_us(), gc_start_us)
+                        heap_free_post_gc = gc.mem_free()
+                    debug_line = debug_telemetry.format_if_due(
+                        current_time,
+                        heap_free,
+                        heap_free_post_gc=heap_free_post_gc,
+                        gc_pause_us=gc_pause_us,
+                    )
                     if debug_line is not None:
                         print(f"D ({current_time}) micro_espectre: {debug_line}")
                 if mqtt_handler is not None:
@@ -772,16 +795,22 @@ def main(wlan=None):
                 frame_result = frame
                 callback_packet_count += 1
                 assessment = assess_ht20_sensing_frame(
-                    frame, frame[5], expected_len=EXPECTED_CSI_LEN, out=assessment_result
+                    frame,
+                    frame[5],
+                    expected_len=EXPECTED_CSI_LEN,
+                    metadata_missing=g_state.csi_phy_metadata_missing,
+                    out=assessment_result,
                 )
                 if assessment["disposition"] != DISPOSITION_SENSE:
                     filtered_count += 1
                     format_drop_streak += 1
                     if filtered_count % 100 == 1:
                         print(
-                            f"[WARN] Filtered {filtered_count} packets before detection "
+                            "[WARN] Filtered {} packets before detection "
                             "(reason={}, len={})".format(
-                                assessment["reason_code"], assessment["raw_len"]
+                                filtered_count,
+                                assessment["reason_code"],
+                                assessment["raw_len"],
                             )
                         )
                     del frame
@@ -875,11 +904,17 @@ def main(wlan=None):
                         if callable(advance_missing):
                             advance_missing(temporal_sampler.missing_slots_before)
 
+                    packet_start_us = time.ticks_us() if debug_telemetry_enabled else None
                     detector.process_packet(
                         emitted_csi_data,
                         config.DEFAULT_SUBCARRIERS,
                         timestamp_us=emitted_timestamp_us,
                     )
+                    if packet_start_us is not None:
+                        assert debug_telemetry is not None
+                        debug_telemetry.record_packet_duration(
+                            time.ticks_diff(time.ticks_us(), packet_start_us),
+                        )
                     runtime_policy.note_arrival(emitted_timestamp_us)
                 if temporal_sampler.gap_reset_required:
                     detector.reset()

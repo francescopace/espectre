@@ -273,6 +273,18 @@ class TestHt20Assessment:
         assert assessment["reason_code"] == REASON_NONE
         assert assessment["normalization_id"] is None
 
+    def test_sensing_frame_accepts_ht20_when_phy_metadata_is_unavailable(self):
+        frame = [0] * 22
+        frame[5] = bytes([0] * 128)
+        assessment = assess_ht20_sensing_frame(
+            frame,
+            frame[5],
+            metadata_missing=True,
+        )
+        assert assessment["disposition"] == DISPOSITION_SENSE
+        assert assessment["reason_code"] == REASON_NONE
+        assert assessment["normalization_id"] is None
+
 
 class TestCsiFrameTimestampFilter:
     """Test wrap-aware filtering before MicroPython detector callbacks."""

@@ -238,6 +238,16 @@ class RuntimeDebugTelemetry:
         self._detection_duration_min_us = 0
         self._detection_duration_max_us = 0
         self._detection_samples = 0
+        self._packet_duration_sum_us = 0
+        self._packet_duration_min_us = 0
+        self._packet_duration_max_us = 0
+        self._packet_samples = 0
+
+    def is_due(self, now_ms):
+        """Return whether the next call to format_if_due() will emit a sample."""
+        if not self.enabled or self._window_start_ms is None:
+            return False
+        return _ticks_diff(int(now_ms), self._window_start_ms) >= self.LOG_INTERVAL_MS
 
     def record_loop_duration(self, duration_us):
         """Record one measured main-loop body duration."""
@@ -268,7 +278,26 @@ class RuntimeDebugTelemetry:
         )
         self._detection_samples += 1
 
-    def format_if_due(self, now_ms, heap_free):
+    def record_packet_duration(self, duration_us):
+        """Record detector packet-processing time, excluding state evaluation."""
+        if not self.enabled:
+            return
+        duration_us = max(0, int(duration_us))
+        self._packet_duration_sum_us += duration_us
+        if self._packet_samples == 0:
+            self._packet_duration_min_us = duration_us
+        else:
+            self._packet_duration_min_us = min(
+                self._packet_duration_min_us,
+                duration_us,
+            )
+        self._packet_duration_max_us = max(
+            self._packet_duration_max_us,
+            duration_us,
+        )
+        self._packet_samples += 1
+
+    def format_if_due(self, now_ms, heap_free, heap_free_post_gc=None, gc_pause_us=None):
         """Return a C++-compatible telemetry payload when the window is due."""
         if not self.enabled:
             return None
@@ -297,11 +326,17 @@ class RuntimeDebugTelemetry:
             if self._detection_samples
             else 0
         )
+        packet_average = (
+            self._packet_duration_sum_us // self._packet_samples
+            if self._packet_samples
+            else 0
+        )
         payload = (
             "[telemetry] heap_free={} heap_min={} runtime_load={:.2f}% "
             "loop_avg_us={} loop_max_us={} detection_samples={} "
             "detection_sum_us={} detection_avg_us={} detection_min_us={} "
-            "detection_max_us={}"
+            "detection_max_us={} packet_samples={} packet_sum_us={} "
+            "packet_avg_us={} packet_min_us={} packet_max_us={}"
         ).format(
             heap_free,
             self._minimum_heap_free,
@@ -313,7 +348,16 @@ class RuntimeDebugTelemetry:
             detection_average,
             self._detection_duration_min_us,
             self._detection_duration_max_us,
+            self._packet_samples,
+            self._packet_duration_sum_us,
+            packet_average,
+            self._packet_duration_min_us,
+            self._packet_duration_max_us,
         )
+        if heap_free_post_gc is not None:
+            payload += " heap_free_post_gc={}".format(max(0, int(heap_free_post_gc)))
+        if gc_pause_us is not None:
+            payload += " gc_pause_us={}".format(max(0, int(gc_pause_us)))
         self.reset()
         self._window_start_ms = now_ms
         return payload

@@ -278,7 +278,7 @@ _HT20_FULL_HISTORICAL_ASSESSMENT["metadata_source"] = METADATA_SOURCE_HISTORICAL
 
 
 def assess_ht20_sensing_frame(frame, csi_data, *, expected_len=HT20_CSI_LEN,
-                              out=None):
+                              metadata_missing=False, out=None):
     """Classify one MicroPython CSI frame before normalization.
 
     Pass a reusable mapping as ``out`` in hot loops to avoid per-frame
@@ -299,7 +299,7 @@ def assess_ht20_sensing_frame(frame, csi_data, *, expected_len=HT20_CSI_LEN,
     # Refill the caller-owned mapping in C instead of rebuilding PHY, layout,
     # and combined mappings field by field for every CSI callback.
     if raw_len == HT20_CSI_LEN and expected_len == HT20_CSI_LEN:
-        if frame_len <= 9:
+        if frame_len <= 9 or metadata_missing:
             assessment = out if out is not None else {}
             assessment.update(_HT20_FULL_HISTORICAL_ASSESSMENT)
             return assessment
@@ -308,7 +308,7 @@ def assess_ht20_sensing_frame(frame, csi_data, *, expected_len=HT20_CSI_LEN,
             assessment.update(_HT20_FULL_WIFI_ASSESSMENT)
             return assessment
 
-    if frame_len <= 9:
+    if frame_len <= 9 or metadata_missing:
         phy_assessment = assess_ht20_sensing_phy(
             metadata_missing=True, out=_FRAME_PHY_SCRATCH
         )

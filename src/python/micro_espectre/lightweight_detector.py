@@ -25,6 +25,9 @@ except ImportError:
 # Lower than any reachable logit, so the first sample of a block wins.
 _SETTLE_FLOOR = -1e9
 _SORT_SENTINEL = float("inf")
+# One shared tagged-integer tuple is cheaper than two signed-byte branches for
+# every magnitude in the unsigned bytes/bytearray packet path.
+_SIGNED_INT8_VALUES = tuple(range(128)) + tuple(range(-128, 0))
 
 
 class LightweightDetector(IDetector):
@@ -225,29 +228,22 @@ class LightweightDetector(IDetector):
                 aggregate_total += aggregated_amplitude
                 packet_count += 1
         else:
+            signed_values = _SIGNED_INT8_VALUES
             for (
                 selected_offset,
                 neighbour_offsets,
                 aggregate_count,
                 include_selected,
             ) in self._amplitude_plan:
-                imag = csi_data[selected_offset]
-                real = csi_data[selected_offset + 1]
-                if imag > 127:
-                    imag -= 256
-                if real > 127:
-                    real -= 256
+                imag = signed_values[csi_data[selected_offset]]
+                real = signed_values[csi_data[selected_offset + 1]]
                 selected_amplitude = sqrt(real * real + imag * imag)
                 normal_values[packet_count] = selected_amplitude
                 normal_total += selected_amplitude
                 total = selected_amplitude if include_selected else 0.0
                 for offset in neighbour_offsets:
-                    imag = csi_data[offset]
-                    real = csi_data[offset + 1]
-                    if imag > 127:
-                        imag -= 256
-                    if real > 127:
-                        real -= 256
+                    imag = signed_values[csi_data[offset]]
+                    real = signed_values[csi_data[offset + 1]]
                     total += sqrt(real * real + imag * imag)
                 aggregated_amplitude = total / aggregate_count
                 aggregate_values[packet_count] = aggregated_amplitude

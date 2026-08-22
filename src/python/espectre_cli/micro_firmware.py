@@ -148,6 +148,69 @@ def _align_idf_lockfile(micropython_dir: Path, chip: str, idf_path: Path) -> Non
     raise RuntimeError(f"ESP-IDF dependency entry is missing: {lockfile}")
 
 
+def _configure_project_csi_capture(micropython_dir: Path) -> None:
+    """Restrict the project firmware's Wi-Fi 6 CSI capture to HT20 frames."""
+    source_path = micropython_dir / "ports" / "esp32" / "network_wlan_csi.c"
+    source = source_path.read_text(encoding="utf-8")
+    upstream_setting = ".acquire_csi_legacy = 1,"
+    project_setting = ".acquire_csi_legacy = 0,"
+    if upstream_setting in source:
+        source_path.write_text(
+            source.replace(upstream_setting, project_setting, 1),
+            encoding="utf-8",
+        )
+        return
+    if project_setting not in source:
+        raise RuntimeError(
+            f"MicroPython CSI legacy-capture setting is missing: {source_path}"
+        )
+
+
+def _configure_project_wifi_band_mode(micropython_dir: Path) -> None:
+    """Expose the ESP-IDF band selector required by dual-band WLAN targets."""
+    source_path = micropython_dir / "ports" / "esp32" / "network_wlan.c"
+    source = source_path.read_text(encoding="utf-8")
+    setter = """                    case MP_QSTR_band_mode: {
+                        esp_exceptions(esp_wifi_set_band_mode(mp_obj_get_int(kwargs->table[i].value)));
+                        break;
+                    }
+"""
+    constant = """    { MP_ROM_QSTR(MP_QSTR_BAND_MODE_2G_ONLY), MP_ROM_INT(WIFI_BAND_MODE_2G_ONLY) },
+"""
+    if setter in source and constant in source:
+        return
+
+    bandwidth_setter = """                    case MP_QSTR_bandwidth: {
+                        esp_exceptions(esp_wifi_set_bandwidth(self->if_id, mp_obj_get_int(kwargs->table[i].value)));
+                        break;
+                    }
+"""
+    bandwidth_constant = """    { MP_ROM_QSTR(MP_QSTR_BANDWIDTH_20), MP_ROM_INT(WIFI_BW20) },
+"""
+    if setter not in source and bandwidth_setter not in source:
+        raise RuntimeError(
+            f"MicroPython WLAN band-mode setter anchor is missing: {source_path}"
+        )
+    if constant not in source and bandwidth_constant not in source:
+        raise RuntimeError(
+            f"MicroPython WLAN band-mode constant anchor is missing: {source_path}"
+        )
+
+    if setter not in source:
+        source = source.replace(
+            bandwidth_setter,
+            setter + bandwidth_setter,
+            1,
+        )
+    if constant not in source:
+        source = source.replace(
+            bandwidth_constant,
+            constant + bandwidth_constant,
+            1,
+        )
+    source_path.write_text(source, encoding="utf-8")
+
+
 def _write_manifest(manifest_path: Path) -> None:
     """Freeze only the ESP32 boot and filesystem helpers, never the application."""
     manifest_path.write_text(
@@ -197,6 +260,9 @@ def build_project_firmware(
         MICROPYTHON_LIB_COMMIT,
         micropython_lib_dir,
     )
+    _configure_project_csi_capture(micropython_dir)
+    if chip == "c5":
+        _configure_project_wifi_band_mode(micropython_dir)
     _stage_firmware_support(source_dir, support_root)
     _write_manifest(manifest_path)
 

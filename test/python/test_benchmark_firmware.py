@@ -4,6 +4,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+import json
+import sys
+from types import SimpleNamespace
+
 import pytest
 
 from tools import benchmark_firmware as bench
@@ -23,13 +28,36 @@ def _status_line(timestamp_ms: int, state: str = "IDLE") -> str:
     )
 
 
-def _telemetry_line(timestamp_ms: int, heap_free: int, *, detection_samples: int = 4) -> str:
+def _esphome_status_line(timestamp_ms: int, *, csi_pps: int = 84, occupancy: int = 84) -> str:
     return (
+        f"\x1b[0;36m[D][esp-idf:000]: I ({timestamp_ms}) espectre.runtime: "
+        "[----------|---------] | mvmt:0.000000 thr:0.500000 | IDLE | "
+        f"csi:{csi_pps}/99 tx:99 occ:{occupancy}% miss:15 excess:14 stale:0 ooo:0 | "
+        "ch:2 rssi:-40\x1b[0m\n"
+    )
+
+
+def _telemetry_line(
+    timestamp_ms: int,
+    heap_free: int,
+    *,
+    detection_samples: int = 4,
+    heap_free_post_gc: int | None = None,
+    gc_pause_us: int | None = None,
+) -> str:
+    line = (
         f"D ({timestamp_ms}) espectre: [telemetry] heap_free={heap_free} heap_min=90000 "
         "heap_largest=114688 cpu_mhz=160 runtime_load=2.50% loop_avg_us=200 loop_max_us=800 "
         f"detection_samples={detection_samples} detection_sum_us=4000 detection_avg_us=1000 "
-        "detection_min_us=24 detection_max_us=1200\n"
+        "detection_min_us=24 detection_max_us=1200 "
+        "packet_samples=40 packet_sum_us=80000 packet_avg_us=2000 "
+        "packet_min_us=1500 packet_max_us=3000"
     )
+    if heap_free_post_gc is not None:
+        line += f" heap_free_post_gc={heap_free_post_gc}"
+    if gc_pause_us is not None:
+        line += f" gc_pause_us={gc_pause_us}"
+    return line + "\n"
 
 
 def _runtime_log(heap_by_offset_ms: dict[int, int], *, status_first_ms: int = 10_000) -> str:
@@ -77,7 +105,7 @@ def test_heap_decline_ignores_telemetry_during_startup_grace():
 
 
 def test_heap_decline_still_fails_after_startup_grace():
-    _metrics, reasons = bench.analyze_monitor_output(
+    metrics, reasons = bench.analyze_monitor_output(
         _runtime_log(
             {
                 10_000: 150_000,
@@ -88,6 +116,61 @@ def test_heap_decline_still_fails_after_startup_grace():
     )
 
     assert "free heap declined by more than 5% after startup settled" in reasons
+    assert metrics.heap_free_settled_first == 150_000
+    assert metrics.heap_free_settled_last == 140_000
+    assert metrics.heap_free_settled_delta == -10_000
+    assert metrics.heap_free_settled_delta_percent == pytest.approx(-6.6667, abs=0.001)
+
+
+def test_heap_decline_uses_post_gc_samples_when_available():
+    lines: list[str] = []
+    raw_heap = {10_000: 50_000, 20_000: 35_000, 30_000: 48_000, 40_000: 34_000, 50_000: 33_000}
+    for offset in range(0, 60_000, 1_000):
+        timestamp_ms = 10_000 + offset
+        lines.append(_status_line(timestamp_ms))
+        if offset in raw_heap:
+            lines.append(
+                _telemetry_line(
+                    timestamp_ms,
+                    raw_heap[offset],
+                    heap_free_post_gc=52_000,
+                    gc_pause_us=4_000,
+                )
+            )
+
+    metrics, reasons = bench.analyze_monitor_output("".join(lines))
+
+    assert "free heap declined by more than 5% after startup settled" not in reasons
+    assert "post-GC free heap declined by more than 5% after startup settled" not in reasons
+    assert metrics.heap_free_last == 33_000
+    assert metrics.heap_free_post_gc_last == 52_000
+    assert metrics.heap_free_settled_first == 52_000
+    assert metrics.heap_free_settled_last == 52_000
+    assert metrics.gc_pause_us_mean == 4_000
+    assert metrics.packet_processing_samples == 200
+    assert metrics.packet_processing_avg_us_mean == 2_000
+
+
+def test_post_gc_heap_decline_remains_a_failure():
+    lines: list[str] = []
+    post_gc_heap = {10_000: 50_000, 20_000: 49_000, 30_000: 48_000, 40_000: 47_000, 50_000: 46_000}
+    for offset in range(0, 60_000, 1_000):
+        timestamp_ms = 10_000 + offset
+        lines.append(_status_line(timestamp_ms))
+        if offset in post_gc_heap:
+            lines.append(
+                _telemetry_line(
+                    timestamp_ms,
+                    35_000,
+                    heap_free_post_gc=post_gc_heap[offset],
+                    gc_pause_us=4_000,
+                )
+            )
+
+    metrics, reasons = bench.analyze_monitor_output("".join(lines))
+
+    assert "post-GC free heap declined by more than 5% after startup settled" in reasons
+    assert metrics.heap_free_settled_delta == -4_000
 
 
 def test_runtime_expected_counts_use_status_span_not_boot_time():
@@ -107,6 +190,72 @@ def test_runtime_expected_counts_use_status_span_not_boot_time():
     assert not any("expected shared debug telemetry" in reason for reason in reasons)
 
 
+def test_runtime_status_count_uses_observed_clock_drift():
+    lines = "".join(_status_line(20_000 + index * 1_006) for index in range(298))
+
+    metrics, reasons = bench.analyze_monitor_output(lines)
+
+    assert metrics.status_samples == 298
+    assert metrics.status_expected_samples == 298
+    assert metrics.status_gap_count == 0
+    assert not any("expected detector status" in reason for reason in reasons)
+
+
+def test_runtime_status_count_allows_five_minutes_of_scheduler_drift():
+    timestamps = [329_719 + index * 1_008 for index in range(297)]
+    lines = "".join(_status_line(timestamp) for timestamp in timestamps)
+    host_times = [8.0 + index * 1.008 for index in range(297)]
+
+    metrics, reasons = bench.analyze_monitor_output(
+        lines,
+        line_elapsed_seconds=host_times,
+    )
+
+    assert metrics.status_samples == 297
+    assert metrics.status_expected_samples == 297
+    assert metrics.status_interval_mean_ms == 1_008
+    assert metrics.status_interval_max_ms == 1_008
+    assert metrics.status_gap_count == 0
+    assert not any("expected detector status" in reason for reason in reasons)
+    assert not any("detector status logging gap" in reason for reason in reasons)
+
+
+def test_runtime_status_parser_recovers_usb_record_concatenation():
+    truncated = (
+        "\x1b[0;36m[D][esp-idf:000]: I (465869) espectre.runtime: "
+        "[----------|---------] | mvmt:0.000000 thr:0.500000 | IDLE | csi:83/99 tx:"
+    )
+    assert len(truncated.encode()) == 128
+    output = truncated + _esphome_status_line(466_881, csi_pps=92, occupancy=94)
+
+    metrics, reasons = bench.analyze_monitor_output(
+        output,
+        line_elapsed_seconds=[2.0],
+    )
+
+    assert metrics.status_samples == 2
+    assert metrics.status_expected_samples == 2
+    assert metrics.packet_rate_samples == 2
+    assert metrics.occupancy_samples == 1
+    assert metrics.status_interval_max_ms == 1_012
+    assert metrics.status_gap_count == 0
+    assert metrics.serial_framing_anomalies == 1
+    assert not any("expected detector status" in reason for reason in reasons)
+    assert not any("detector status logging gap" in reason for reason in reasons)
+
+
+def test_runtime_status_real_device_gap_remains_a_failure():
+    lines = "".join(_status_line(timestamp) for timestamp in (10_000, 11_000, 13_000, 14_000))
+
+    metrics, reasons = bench.analyze_monitor_output(lines)
+
+    assert metrics.status_expected_samples == 5
+    assert metrics.status_samples == 4
+    assert metrics.status_interval_max_ms == 2_000
+    assert metrics.status_gap_count == 1
+    assert "detector status logging gap reached 2.00s" in reasons
+
+
 def test_cases_include_esphome_high_accuracy_after_lightweight():
     labels = [case.label for case in bench.CASES]
 
@@ -118,6 +267,67 @@ def test_cases_include_micro_espectre_lightweight_only():
 
     assert "Micro-ESPectre Lightweight" in labels
     assert "Micro-ESPectre High Accuracy" not in labels
+
+
+def test_resume_selects_only_failed_and_missing_requested_cases():
+    native_lightweight = bench.BenchmarkCase("native", "lightweight")
+    native_high_accuracy = bench.BenchmarkCase("native", "high_accuracy")
+    micro_lightweight = bench.BenchmarkCase("micro", "lightweight")
+    existing_results = [
+        bench.BenchmarkResult(case=native_lightweight, status="PASS"),
+        bench.BenchmarkResult(case=native_high_accuracy, status="FAIL"),
+    ]
+
+    selected = bench.select_resume_cases(
+        (native_lightweight, native_high_accuracy, micro_lightweight),
+        existing_results,
+    )
+
+    assert selected == (native_high_accuracy, micro_lightweight)
+
+
+def test_resume_expected_cases_include_existing_and_requested_cases():
+    native_lightweight = bench.BenchmarkCase("native", "lightweight")
+    micro_lightweight = bench.BenchmarkCase("micro", "lightweight")
+    existing_results = [bench.BenchmarkResult(case=native_lightweight, status="PASS")]
+
+    expected = bench.expected_preserved_cases(existing_results, (micro_lightweight,))
+
+    assert expected == (native_lightweight, micro_lightweight)
+
+
+def test_resume_with_no_failed_or_missing_cases_does_not_access_hardware(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    report_path = tmp_path / "ESP32-C3.md"
+    report_path.write_text(
+        """### Micro-ESPectre Lightweight
+
+Result: **PASS**
+
+| Metric | Value |
+|---|---:|
+| Benchmark mode | runtime |
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(bench, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(bench, "report_path_for_chip", lambda _chip: report_path)
+    monkeypatch.setattr(
+        bench,
+        "get_serial_port",
+        lambda _port: pytest.fail("resume should not access hardware when no selected case needs rerun"),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["benchmark_firmware.py", "--chip", "c3", "--frontend", "micro", "--resume"],
+    )
+
+    assert bench.main() == 0
+    assert "no failed or missing selected cases" in capsys.readouterr().out
 
 
 def test_benchmark_device_id_matches_firmware_sha256_pseudonym():
@@ -191,17 +401,29 @@ def test_micro_benchmark_config_reads_shared_local_env_not_developer_config(monk
 def test_micro_debug_telemetry_uses_shared_benchmark_keys():
     telemetry = RuntimeDebugTelemetry(enabled=True)
     assert telemetry.format_if_due(1_000, 120_000) is None
+    assert not telemetry.is_due(10_999)
+    assert telemetry.is_due(11_000)
     telemetry.record_loop_duration(200)
     telemetry.record_loop_duration(400)
     telemetry.record_detection_duration(1_200)
+    telemetry.record_packet_duration(2_000)
+    telemetry.record_packet_duration(3_000)
 
-    payload = telemetry.format_if_due(11_000, 118_000)
+    payload = telemetry.format_if_due(
+        11_000,
+        118_000,
+        heap_free_post_gc=124_000,
+        gc_pause_us=4_500,
+    )
 
     assert payload is not None
     assert "heap_free=118000 heap_min=118000" in payload
     assert "loop_avg_us=300 loop_max_us=400" in payload
     assert "detection_samples=1 detection_sum_us=1200" in payload
     assert "detection_min_us=1200 detection_max_us=1200" in payload
+    assert "packet_samples=2 packet_sum_us=5000 packet_avg_us=2500" in payload
+    assert "packet_min_us=2000 packet_max_us=3000" in payload
+    assert "heap_free_post_gc=124000 gc_pause_us=4500" in payload
 
 
 @pytest.mark.parametrize("chip", ["c3", "esp32"])
@@ -319,6 +541,76 @@ def test_esphome_benchmark_logger_does_not_override_explicit_uart0():
     assert "hardware_uart: UART0" in updated
 
 
+def test_esphome_benchmark_logger_routes_external_bridge_to_uart0(monkeypatch):
+    monkeypatch.setattr(
+        bench,
+        "_serial_port_infos",
+        lambda: (
+            SimpleNamespace(
+                device="/dev/cu.usbmodem5ABA0020571",
+                vid=0x1A86,
+            ),
+        ),
+    )
+
+    hardware_uart = bench.esphome_benchmark_logger_hardware_uart("/dev/cu.usbmodem5ABA0020571")
+    updated = bench.apply_esphome_benchmark_logger(
+        "logger:\n  level: INFO\n  hardware_uart: USB_SERIAL_JTAG\napi:\n",
+        hardware_uart=hardware_uart,
+    )
+
+    assert hardware_uart == "UART0"
+    assert "hardware_uart: UART0" in updated
+    assert "hardware_uart: USB_SERIAL_JTAG" not in updated
+
+
+def test_esphome_benchmark_logger_keeps_native_espressif_usb(monkeypatch):
+    monkeypatch.setattr(
+        bench,
+        "_serial_port_infos",
+        lambda: (
+            SimpleNamespace(
+                device="/dev/cu.usbmodem123101",
+                vid=bench.ESPRESSIF_USB_VENDOR_ID,
+            ),
+        ),
+    )
+
+    assert bench.esphome_benchmark_logger_hardware_uart("/dev/cu.usbmodem123101") is None
+
+
+def test_esphome_case_config_routes_logger_for_selected_bridge(tmp_path, monkeypatch):
+    source_path = tmp_path / "espectre-s3-dev.yaml"
+    source_path.write_text(
+        """espectre:
+  detection_algorithm: lightweight
+wifi:
+  networks:
+    - ssid: old
+      password: old
+logger:
+  level: INFO
+api:
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
+    monkeypatch.setattr(bench, "ESPHOME_CONFIGS", {"s3": {"dev": str(source_path)}})
+    monkeypatch.setattr(
+        bench,
+        "_serial_port_infos",
+        lambda: (SimpleNamespace(device="/dev/cu.bridge", vid=0x1A86),),
+    )
+
+    with bench.esphome_case_config("s3", "lightweight", "/dev/cu.bridge") as config_path:
+        content = config_path.read_text(encoding="utf-8")
+
+    assert "hardware_uart: UART0" in content
+    assert "level: DEBUG" in content
+    assert not config_path.exists()
+
+
 def test_parse_report_results_accepts_na_packet_rate():
     text = """### Native High Accuracy
 
@@ -368,18 +660,174 @@ Result: **PASS**
     assert results[0].build_metrics.deployed_source_bytes == 2_048
 
 
+def test_parse_report_results_skips_removed_legacy_case():
+    text = """### Micro-ESPectre High Accuracy
+
+Result: **FAIL**
+
+| Metric | Value |
+|---|---:|
+| Benchmark mode | runtime |
+
+### Micro-ESPectre Lightweight
+
+Result: **PASS**
+
+| Metric | Value |
+|---|---:|
+| Benchmark mode | runtime |
+"""
+
+    results = bench.parse_report_results(text)
+
+    assert len(results) == 1
+    assert results[0].case.frontend == "micro"
+    assert results[0].case.detector == "lightweight"
+
+
+def test_parse_report_results_rejects_unknown_case():
+    with pytest.raises(ValueError, match="unknown benchmark case label"):
+        bench.parse_report_results("### Unknown Legacy Case\n")
+
+
 def test_status_stream_is_stable_requires_consecutive_one_hertz_samples():
     too_few = "".join(_status_line(20_000 + offset) for offset in range(0, 4_000, 1_000))
     gapped = "".join(_status_line(10_000 + offset) for offset in range(0, 5_000, 1_000))
     gapped += _status_line(28_570)
     stable = "".join(_status_line(20_000 + offset) for offset in range(0, 5_000, 1_000))
+    restarted = stable + _status_line(500)
 
     assert not bench.status_stream_is_stable(too_few)
     assert not bench.status_stream_is_stable(gapped)
+    assert not bench.status_stream_is_stable(restarted)
     assert bench.status_stream_is_stable(stable)
 
 
-def test_runtime_window_stops_immediately_on_brownout():
+def test_runtime_clock_restart_is_a_failure_and_host_clock_keeps_cadence_positive():
+    lines = [
+        _status_line(50_000),
+        _status_line(51_000),
+        _status_line(52_000),
+        _status_line(500),
+        _status_line(1_500),
+        _status_line(2_500),
+    ]
+    host_times = [20.0, 21.0, 22.0, 25.0, 26.0, 27.0]
+
+    metrics, reasons = bench.analyze_monitor_output(
+        "".join(lines),
+        line_elapsed_seconds=host_times,
+    )
+
+    assert metrics.device_reboots == 1
+    assert metrics.status_interval_mean_ms == pytest.approx(1_400.0)
+    assert metrics.status_interval_max_ms == 3_000
+    assert metrics.status_gap_count == 1
+    assert metrics.status_expected_samples == 8
+    assert "device uptime restarted 1 time during the scored runtime window" in reasons
+    assert "detector status logging gap reached 3.00s" in reasons
+
+
+def test_report_round_trip_preserves_reboot_and_settled_heap_diagnostics():
+    case = bench.BenchmarkCase("esphome", "lightweight")
+    result = bench.BenchmarkResult(case=case, status="FAIL")
+    result.monitor = bench.CommandResult(["monitor"], 0, 60.0, "")
+    result.runtime_metrics = bench.RuntimeMetrics(
+        status_samples=58,
+        status_expected_samples=60,
+        status_interval_mean_ms=1_050.0,
+        status_interval_max_ms=3_000,
+        status_gap_count=2,
+        serial_framing_anomalies=3,
+        device_reboots=1,
+        heap_free_last=140_000,
+        heap_free_settled_first=150_000,
+        heap_free_settled_last=140_000,
+        heap_free_settled_delta=-10_000,
+        heap_free_settled_delta_percent=-6.6667,
+        heap_free_post_gc_last=155_000,
+        verified_detector="lightweight",
+        packet_processing_samples=240,
+        packet_processing_avg_us_mean=2_100.0,
+        packet_processing_min_us=1_500,
+        packet_processing_max_us=3_200,
+        gc_pause_us_mean=4_250.0,
+        gc_pause_us_max=4_800,
+    )
+
+    rendered = bench.render_report(
+        "c3",
+        "/dev/cu.test",
+        datetime.fromisoformat("2026-08-22T12:00:00+02:00"),
+        [result],
+        [case],
+    )
+    parsed = bench.parse_report_results(rendered)[0].runtime_metrics
+
+    assert parsed.device_reboots == 1
+    assert parsed.status_gap_count == 2
+    assert parsed.serial_framing_anomalies == 3
+    assert parsed.status_interval_mean_ms == 1_050.0
+    assert parsed.heap_free_settled_first == 150_000
+    assert parsed.heap_free_settled_delta == -10_000
+    assert parsed.heap_free_settled_delta_percent == -6.67
+    assert parsed.heap_free_post_gc_last == 155_000
+    assert parsed.verified_detector == "lightweight"
+    assert parsed.packet_processing_samples == 240
+    assert parsed.packet_processing_avg_us_mean == 2_100.0
+    assert parsed.packet_processing_max_us == 3_200
+    assert parsed.gc_pause_us_mean == 4_250.0
+    assert parsed.gc_pause_us_max == 4_800
+
+
+def test_artifacts_preserve_timed_raw_lines_and_redact_lab_values(tmp_path, monkeypatch):
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "super-secret-password")
+    case = bench.BenchmarkCase("native", "lightweight")
+    result = bench.BenchmarkResult(case=case, status="PASS")
+    result.monitor = bench.CommandResult(
+        ["monitor"],
+        0,
+        2.0,
+        "I (1000) connected super-secret-password\nI (2000) ready\n",
+        line_elapsed_seconds=[0.5, 1.5],
+        analysis_start_line=1,
+    )
+
+    bench.write_benchmark_artifacts(
+        tmp_path,
+        chip="c3",
+        port="/dev/cu.test",
+        started_at=datetime.fromisoformat("2026-08-22T12:00:00+02:00"),
+        results=[result],
+    )
+
+    case_dir = tmp_path / "native-lightweight"
+    raw_log = (case_dir / "monitor.log").read_text(encoding="utf-8")
+    events = [json.loads(line) for line in (case_dir / "monitor.jsonl").read_text().splitlines()]
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    assert "super-secret-password" not in raw_log
+    assert "<espectre_benchmark_wifi_password>" in raw_log
+    assert events[0]["host_elapsed_seconds"] == 0.5
+    assert events[0]["device_timestamp_ms"] == 1_000
+    assert not events[0]["scored"]
+    assert events[1]["scored"]
+    assert manifest["schema_version"] == bench.BENCHMARK_ARTIFACT_SCHEMA_VERSION
+
+
+@pytest.mark.parametrize(
+    "fatal_log, expected_reason",
+    [
+        (
+            "E BOD: Brownout detector was triggered\n",
+            "fatal firmware log detected: Brownout detector was triggered",
+        ),
+        (
+            "E task_wdt: Task watchdog got triggered.\n",
+            "fatal firmware log detected: Task watchdog got triggered",
+        ),
+    ],
+)
+def test_runtime_window_stops_immediately_on_fatal_firmware_log(fatal_log, expected_reason):
     class RunningProcess:
         def poll(self):
             return None
@@ -387,11 +835,11 @@ def test_runtime_window_stops_immediately_on_brownout():
         def wait(self, timeout=None):
             raise AssertionError(f"fatal output should not wait for timeout {timeout}")
 
-    output = ["E BOD: Brownout detector was triggered\n"]
+    output = [fatal_log]
 
     assert bench._wait_for_runtime_sensing_window(RunningProcess(), output) == 0
     _metrics, reasons = bench.analyze_monitor_output("".join(output))
-    assert "fatal firmware log detected: Brownout detector was triggered" in reasons
+    assert expected_reason in reasons
 
 
 def test_micro_benchmark_uses_project_firmware_for_every_chip(tmp_path, monkeypatch):

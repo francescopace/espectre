@@ -16,9 +16,10 @@ import asyncio
 import csv
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -52,6 +53,8 @@ from src.python.micro_espectre.temporal_csi_sampler import (
 
 BENCHMARK_LOCAL_ENV_PATH = SCRIPT_DIR / "benchmark_firmware.local.env"
 BENCHMARK_LOCAL_ENV = dotenv_values(BENCHMARK_LOCAL_ENV_PATH) if BENCHMARK_LOCAL_ENV_PATH.is_file() else {}
+BENCHMARK_ARTIFACT_ROOT = REPO_ROOT / "data" / "untracked" / "firmware_benchmarks"
+BENCHMARK_ARTIFACT_SCHEMA_VERSION = 1
 MONITOR_DURATION_SECONDS = 60
 WIFI_CONNECT_WAIT_SECONDS = 60
 STREAMER_COLLECT_DURATION_SECONDS = 60
@@ -62,7 +65,12 @@ ESPHOME_API_PORT = 6053
 ESPHOME_MDNS_HOST = "espectre.local"
 ESPHOME_DETECTOR_SELECT_OBJECT_ID = "detection_profile"
 ESPHOME_DETECTOR_SELECT_NAME = "Detection Profile"
+ESPHOME_CSI_TRAFFIC_SELECT_OBJECT_ID = "csi_traffic_ownership"
+ESPHOME_CSI_TRAFFIC_SELECT_NAME = "CSI Traffic Ownership"
+ESPHOME_TRAFFIC_GENERATOR_SELECT_OBJECT_ID = "csi_traffic_source"
+ESPHOME_TRAFFIC_GENERATOR_SELECT_NAME = "CSI Traffic Source"
 ESPHOME_AP_FALLBACK_IPS = frozenset({"192.168.4.1"})
+ESPRESSIF_USB_VENDOR_ID = 0x303A
 MINIMUM_OCCUPANCY_PERCENT = 100.0 * MINIMUM_COVERAGE_NUMERATOR / MINIMUM_COVERAGE_DENOMINATOR
 STARTUP_GRACE_SECONDS = 10
 STATUS_SAMPLE_INTERVAL_SECONDS = 1
@@ -81,6 +89,7 @@ STABLE_STATUS_WARMUP_SAMPLES = 5
 STATUS_STABLE_WAIT_SECONDS = 30
 BENCHMARK_CONTROL_TIMEOUT_SECONDS = 8.0
 RUNTIME_STATUS_GAP_TOLERANCE_MS = 500
+RUNTIME_STATUS_BOUNDARY_TOLERANCE_SAMPLES = 1
 
 SUPPORTED_CHIPS = tuple(sorted(set(ESPHOME_CONFIGS) & set(IDF_FRONTENDS["native"]["targets"])))
 CHIP_LABELS = {
@@ -104,8 +113,9 @@ DETECTOR_LABELS = {
     "high_accuracy": "High Accuracy",
 }
 REPORT_SNAPSHOT_SCOPE = (
-    "Snapshot scope: Results apply to the Git revision and run time above; "
-    "they do not certify newer source revisions."
+    "Snapshot scope: The header identifies the run that generated this report. "
+    "Cases preserved by `--update` or `--resume` may come from earlier runs; use the per-run artifacts "
+    "for exact case provenance."
 )
 REPORT_DETECTOR_SCOPE = (
     "Detector coverage: ESPHome, Micro-ESPectre, Native, and Matter support Lightweight and High Accuracy. "
@@ -120,12 +130,16 @@ STATUS_RE = re.compile(
 )
 OCCUPANCY_RE = re.compile(r"\bocc:(?P<occupancy>\d+)%")
 LOG_TIMESTAMP_RE = re.compile(r"\((?P<timestamp_ms>\d+)\)")
+LOG_RECORD_START_RE = re.compile(
+    r"(?=(?:\[[A-Z]{1,2}\]\[[^\]\r\n]+:\d+\]:\s+[A-Z]\s+\(\d+\)\s+|"
+    r"(?<!:\s)[A-Z]\s+\(\d+\)\s+))"
+)
 TELEMETRY_RE = re.compile(r"\[telemetry\]\s+(?P<fields>[^\r\n]+)")
 KEY_VALUE_RE = re.compile(r"(?P<key>[a-z_]+)=(?P<value>-?[0-9]+(?:\.[0-9]+)?)(?:%|\b)")
 REPORT_DURATION_RE = re.compile(r"(?:(?P<minutes>\d+)m\s+)?(?P<seconds>\d+(?:\.\d+)?)s$")
 REPORT_COUNT_RE = re.compile(r"(?P<count>\d+)(?:/(?P<expected>\d+)\s+expected)?$")
 REPORT_STATUS_CADENCE_RE = re.compile(
-    r"(?P<mean>\d+(?:\.\d+)?)\s+s mean,\s+(?P<max>\d+(?:\.\d+)?)\s+s max gap$"
+    r"(?P<mean>-?\d+(?:\.\d+)?)\s+s mean,\s+(?P<max>\d+(?:\.\d+)?)\s+s max gap$"
 )
 REPORT_PACKET_RATE_RE = re.compile(
     r"(?P<mean>-?\d+(?:\.\d+)?|N/A)(?:\s+pps)?\s+mean,\s+"
@@ -142,6 +156,7 @@ REPORT_TRAILING_MEAN_RE = re.compile(r"(?P<value>-?\d+(?:\.\d+)?)(?P<suffix>%| u
 REPORT_PLAIN_NUMBER_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
 FATAL_PATTERNS = (
     "Brownout detector was triggered",
+    "Task watchdog got triggered",
     "Guru Meditation Error",
     "abort() was called",
     "panic'ed",
@@ -194,6 +209,8 @@ class CommandResult:
     duration_seconds: float
     output: str
     reached_timeout: bool = False
+    line_elapsed_seconds: list[float] = field(default_factory=list)
+    analysis_start_line: int = 0
 
 
 @dataclass
@@ -217,6 +234,9 @@ class RuntimeMetrics:
     status_last_timestamp_ms: int | None = None
     status_interval_mean_ms: float | None = None
     status_interval_max_ms: int | None = None
+    status_gap_count: int = 0
+    serial_framing_anomalies: int = 0
+    device_reboots: int = 0
     telemetry_samples: int = 0
     telemetry_expected_samples: int = 0
     startup_state: str | None = None
@@ -237,6 +257,11 @@ class RuntimeMetrics:
     secondary_dominant_motion_state: str | None = None
     secondary_dominant_state_share_percent: float | None = None
     heap_free_last: int | None = None
+    heap_free_post_gc_last: int | None = None
+    heap_free_settled_first: int | None = None
+    heap_free_settled_last: int | None = None
+    heap_free_settled_delta: int | None = None
+    heap_free_settled_delta_percent: float | None = None
     heap_min: int | None = None
     heap_largest_last: int | None = None
     runtime_load_mean: float | None = None
@@ -246,6 +271,12 @@ class RuntimeMetrics:
     detection_avg_us_mean: float | None = None
     detection_min_us: int | None = None
     detection_max_us: int | None = None
+    packet_processing_samples: int = 0
+    packet_processing_avg_us_mean: float | None = None
+    packet_processing_min_us: int | None = None
+    packet_processing_max_us: int | None = None
+    gc_pause_us_mean: float | None = None
+    gc_pause_us_max: int | None = None
     stream_telemetry_samples: int = 0
     stream_csi_ap_mean: float | None = None
     stream_udp_rx_mean: float | None = None
@@ -254,6 +285,7 @@ class RuntimeMetrics:
     stream_tx_backpressure_total: int | None = None
     collect_devices_observed: int = 0
     collect_packets_seen: int = 0
+    verified_detector: str | None = None
 
 
 @dataclass
@@ -276,12 +308,14 @@ class RuntimeStatusSample:
     pps: int
     occupancy_percent: int | None = None
     timestamp_ms: int | None = None
+    host_elapsed_seconds: float | None = None
 
 
 @dataclass(frozen=True)
 class RuntimeTelemetrySample:
     fields: dict[str, float]
     timestamp_ms: int | None = None
+    host_elapsed_seconds: float | None = None
 
 
 CASES = tuple(
@@ -296,6 +330,11 @@ CASES = tuple(
     ]
 )
 
+# Keep --update compatible with reports generated before a benchmark case was
+# removed from the active matrix. Unknown labels still fail loudly so report
+# format drift and typos are not silently discarded.
+LEGACY_REPORT_CASE_LABELS = frozenset({"Micro-ESPectre High Accuracy"})
+
 
 def select_cases(frontend: str | None = None, detector: str | None = None) -> tuple[BenchmarkCase, ...]:
     """Return the benchmark cases matching the optional CLI filters."""
@@ -305,6 +344,25 @@ def select_cases(frontend: str | None = None, detector: str | None = None) -> tu
         if (frontend is None or case.frontend == frontend)
         and (detector is None or case.detector == detector)
     )
+
+
+def select_resume_cases(
+    requested_cases: Sequence[BenchmarkCase],
+    existing_results: Sequence[BenchmarkResult],
+) -> tuple[BenchmarkCase, ...]:
+    """Return requested cases that are missing or do not already pass."""
+    passed_cases = {result.case for result in existing_results if result.status == "PASS"}
+    return tuple(case for case in requested_cases if case not in passed_cases)
+
+
+def expected_preserved_cases(
+    existing_results: Sequence[BenchmarkResult],
+    requested_cases: Sequence[BenchmarkCase],
+) -> tuple[BenchmarkCase, ...]:
+    """Return the ordered union of existing and requested report cases."""
+    expected = {result.case for result in existing_results}
+    expected.update(requested_cases)
+    return tuple(case for case in CASES if case in expected)
 
 
 def strip_ansi(text: str) -> str:
@@ -330,6 +388,14 @@ def format_number(value: float | int | None, suffix: str = "") -> str:
     if isinstance(value, float):
         return f"{value:.2f}{suffix}"
     return f"{value}{suffix}"
+
+
+def positive_seconds(value: str) -> int:
+    """Parse a positive whole-second CLI duration."""
+    seconds = int(value)
+    if seconds <= 0:
+        raise argparse.ArgumentTypeError("duration must be a positive number of seconds")
+    return seconds
 
 
 def benchmark_setting(name: str, default: str | None = None) -> str | None:
@@ -395,15 +461,28 @@ def esphome_api_hosts(source_text: str | None) -> list[str]:
     return hosts
 
 
-def find_esphome_detector_select(entities: Sequence[object]) -> object | None:
+def find_esphome_select(
+    entities: Sequence[object],
+    *,
+    object_id: str,
+    name: str,
+) -> object | None:
     from aioesphomeapi.model import SelectInfo
 
     for entity in entities:
         if not isinstance(entity, SelectInfo):
             continue
-        if entity.object_id == ESPHOME_DETECTOR_SELECT_OBJECT_ID or entity.name == ESPHOME_DETECTOR_SELECT_NAME:
+        if entity.object_id == object_id or entity.name == name:
             return entity
     return None
+
+
+def find_esphome_detector_select(entities: Sequence[object]) -> object | None:
+    return find_esphome_select(
+        entities,
+        object_id=ESPHOME_DETECTOR_SELECT_OBJECT_ID,
+        name=ESPHOME_DETECTOR_SELECT_NAME,
+    )
 
 
 def english_join(items: Sequence[str]) -> str:
@@ -509,7 +588,11 @@ def set_native_detector_via_mqtt(detector: str, device_id_source_text: str | Non
     raise RuntimeError(f"failed to switch native detector to {detector} over MQTT: {last_error}")
 
 
-async def _set_esphome_detector_via_api(host: str, detector: str, timeout_seconds: float) -> None:
+async def _set_esphome_runtime_profile_via_api(
+    host: str,
+    detector: str,
+    timeout_seconds: float,
+) -> None:
     from aioesphomeapi import APIClient
     from aioesphomeapi.model import SelectState
 
@@ -523,27 +606,55 @@ async def _set_esphome_detector_via_api(host: str, detector: str, timeout_second
     await client.connect(login=True)
     try:
         _info, entities, _services = await client.device_info_and_list_entities()
-        select = find_esphome_detector_select(entities)
-        if select is None:
-            raise RuntimeError(f"ESPHome Detection Profile select was not found on {host}")
-        options = getattr(select, "options", [])
-        if detector not in options:
-            raise RuntimeError(f"ESPHome Detection Profile does not offer {detector}: {options}")
+        requested = (
+            (
+                ESPHOME_TRAFFIC_GENERATOR_SELECT_OBJECT_ID,
+                ESPHOME_TRAFFIC_GENERATOR_SELECT_NAME,
+                "ping",
+            ),
+            (
+                ESPHOME_CSI_TRAFFIC_SELECT_OBJECT_ID,
+                ESPHOME_CSI_TRAFFIC_SELECT_NAME,
+                "internal",
+            ),
+            (
+                ESPHOME_DETECTOR_SELECT_OBJECT_ID,
+                ESPHOME_DETECTOR_SELECT_NAME,
+                detector,
+            ),
+        )
+        pending: dict[int, str] = {}
+        selected: list[object] = []
+        for object_id, name, value in requested:
+            entity = find_esphome_select(entities, object_id=object_id, name=name)
+            if entity is None:
+                raise RuntimeError(f"ESPHome {name} select was not found on {host}")
+            options = getattr(entity, "options", [])
+            if value not in options:
+                raise RuntimeError(f"ESPHome {name} does not offer {value}: {options}")
+            pending[entity.key] = value
+            selected.append(entity)
         done = asyncio.Event()
 
         def on_state(state: object) -> None:
-            if isinstance(state, SelectState) and state.key == select.key and state.state == detector:
+            if not isinstance(state, SelectState):
+                return
+            expected = pending.get(state.key)
+            if expected is not None and state.state == expected:
+                pending.pop(state.key, None)
+            if not pending:
                 done.set()
 
         client.subscribe_states(on_state)
-        client.select_command(select.key, detector)
+        for entity, (_object_id, _name, value) in zip(selected, requested):
+            client.select_command(entity.key, value)
         await asyncio.wait_for(done.wait(), timeout=timeout_seconds)
         await asyncio.sleep(1.0)
     finally:
         await client.disconnect()
 
 
-def set_esphome_detector_via_api(detector: str, source_text: str | None) -> None:
+def set_esphome_runtime_profile_via_api(detector: str, source_text: str | None) -> None:
     from aioesphomeapi.core import APIConnectionError
 
     hosts = esphome_api_hosts(source_text)
@@ -554,12 +665,19 @@ def set_esphome_detector_via_api(detector: str, source_text: str | None) -> None
         attempt_timeout = min(timeout_seconds, max(1.0, deadline - time.monotonic()))
         for host in hosts:
             try:
-                asyncio.run(_set_esphome_detector_via_api(host, detector, attempt_timeout))
+                asyncio.run(_set_esphome_runtime_profile_via_api(host, detector, attempt_timeout))
                 return
             except (OSError, RuntimeError, ValueError, TimeoutError, APIConnectionError) as exc:
                 last_error = exc
         time.sleep(2.0)
-    raise RuntimeError(f"failed to switch ESPHome detector to {detector} over the native API: {last_error}")
+    raise RuntimeError(
+        f"failed to prepare ESPHome runtime profile with detector {detector} over the native API: {last_error}"
+    )
+
+
+def set_esphome_detector_via_api(detector: str, source_text: str | None) -> None:
+    """Compatibility wrapper for callers that prepare the complete benchmark profile."""
+    set_esphome_runtime_profile_via_api(detector, source_text)
 
 
 def clone_prebuilt_result(case: BenchmarkCase, source: BenchmarkResult) -> BenchmarkResult:
@@ -620,11 +738,13 @@ def run_command(
         start_new_session=(os.name == "posix"),
     )
     output_lines: list[str] = []
+    line_elapsed_seconds: list[float] = []
 
     def _relay_output() -> None:
         assert process.stdout is not None
         for line in process.stdout:
             output_lines.append(line)
+            line_elapsed_seconds.append(time.monotonic() - started)
             print(f"{output_prefix}{line}", end="", flush=True)
 
     relay_thread = threading.Thread(target=_relay_output, daemon=True)
@@ -650,6 +770,7 @@ def run_command(
         duration_seconds=time.monotonic() - started,
         output="".join(output_lines),
         reached_timeout=reached_timeout,
+        line_elapsed_seconds=line_elapsed_seconds,
     )
 
 
@@ -700,24 +821,53 @@ def parse_build_metrics(output: str, firmware_path: Path | None = None) -> Build
     return metrics
 
 
-def _parse_telemetry_samples(text: str) -> list[RuntimeTelemetrySample]:
+def _split_serial_log_records(line: str) -> list[str]:
+    """Recover records whose preceding USB write lost its trailing newline."""
+    starts = [match.start() for match in LOG_RECORD_START_RE.finditer(line)]
+    if len(starts) <= 1:
+        return [line]
+    prefix = line[: starts[0]]
+    records: list[str] = []
+    for index, start in enumerate(starts):
+        end = starts[index + 1] if index + 1 < len(starts) else len(line)
+        records.append((prefix if index == 0 else "") + line[start:end])
+    return records
+
+
+def _count_serial_framing_anomalies(text: str) -> int:
+    return sum(
+        max(0, len(LOG_RECORD_START_RE.findall(line)) - 1)
+        for line in strip_ansi(text).splitlines()
+    )
+
+
+def _parse_telemetry_samples(
+    text: str,
+    line_elapsed_seconds: Sequence[float] | None = None,
+) -> list[RuntimeTelemetrySample]:
     samples: list[RuntimeTelemetrySample] = []
-    for line in strip_ansi(text).splitlines():
-        match = TELEMETRY_RE.search(line)
-        if match is None:
-            continue
-        fields = {
-            item.group("key"): float(item.group("value"))
-            for item in KEY_VALUE_RE.finditer(match.group("fields"))
-        }
-        if fields:
-            timestamp_match = LOG_TIMESTAMP_RE.search(line[: match.start()])
-            samples.append(
-                RuntimeTelemetrySample(
-                    fields=fields,
-                    timestamp_ms=int(timestamp_match.group("timestamp_ms")) if timestamp_match else None,
+    for line_index, line in enumerate(strip_ansi(text).splitlines()):
+        for record in _split_serial_log_records(line):
+            match = TELEMETRY_RE.search(record)
+            if match is None:
+                continue
+            fields = {
+                item.group("key"): float(item.group("value"))
+                for item in KEY_VALUE_RE.finditer(match.group("fields"))
+            }
+            if fields:
+                timestamp_match = LOG_TIMESTAMP_RE.search(record[: match.start()])
+                samples.append(
+                    RuntimeTelemetrySample(
+                        fields=fields,
+                        timestamp_ms=int(timestamp_match.group("timestamp_ms")) if timestamp_match else None,
+                        host_elapsed_seconds=(
+                            line_elapsed_seconds[line_index]
+                            if line_elapsed_seconds is not None and line_index < len(line_elapsed_seconds)
+                            else None
+                        ),
+                    )
                 )
-            )
     return samples
 
 
@@ -745,6 +895,7 @@ def _append_common_monitor_reasons(
     require_detection_timing: bool,
     expected_telemetry_samples: int | None = None,
     heap_telemetry: Sequence[dict[str, float]] | None = None,
+    heap_key: str = "heap_free",
 ) -> None:
     if expected_telemetry_samples is not None:
         if len(telemetry) < expected_telemetry_samples:
@@ -756,14 +907,15 @@ def _append_common_monitor_reasons(
         reasons.append(f"only {len(telemetry)} shared debug telemetry samples were logged")
     settled_heap = list(heap_telemetry) if heap_telemetry is not None else list(telemetry)
     if len(settled_heap) >= 2:
-        heap_free_first = settled_heap[0].get("heap_free")
-        heap_free_last = settled_heap[-1].get("heap_free")
+        heap_free_first = settled_heap[0].get(heap_key)
+        heap_free_last = settled_heap[-1].get(heap_key)
         if (
             heap_free_first is not None
             and heap_free_last is not None
             and heap_free_last < heap_free_first * 0.95
         ):
-            reasons.append("free heap declined by more than 5% after startup settled")
+            qualifier = "post-GC " if heap_key == "heap_free_post_gc" else ""
+            reasons.append(f"{qualifier}free heap declined by more than 5% after startup settled")
     if require_detection_timing and metrics.detection_samples == 0:
         reasons.append("detector timing was not logged")
 
@@ -792,22 +944,31 @@ def _apply_state_series(
     metrics.dominant_state_share_percent = dominant_share_percent
 
 
-def _parse_runtime_status_samples(text: str) -> list[RuntimeStatusSample]:
+def _parse_runtime_status_samples(
+    text: str,
+    line_elapsed_seconds: Sequence[float] | None = None,
+) -> list[RuntimeStatusSample]:
     samples: list[RuntimeStatusSample] = []
-    for line in strip_ansi(text).splitlines():
-        match = STATUS_RE.search(line)
-        if match is None:
-            continue
-        timestamp_match = LOG_TIMESTAMP_RE.search(line[: match.start()])
-        occupancy_match = OCCUPANCY_RE.search(line)
-        samples.append(
-            RuntimeStatusSample(
-                state=match.group("state"),
-                pps=int(match.group("csi_pps") or match.group("legacy_pps")),
-                occupancy_percent=int(occupancy_match.group("occupancy")) if occupancy_match else None,
-                timestamp_ms=int(timestamp_match.group("timestamp_ms")) if timestamp_match else None,
+    for line_index, line in enumerate(strip_ansi(text).splitlines()):
+        for record in _split_serial_log_records(line):
+            match = STATUS_RE.search(record)
+            if match is None:
+                continue
+            timestamp_match = LOG_TIMESTAMP_RE.search(record[: match.start()])
+            occupancy_match = OCCUPANCY_RE.search(record)
+            samples.append(
+                RuntimeStatusSample(
+                    state=match.group("state"),
+                    pps=int(match.group("csi_pps") or match.group("legacy_pps")),
+                    occupancy_percent=int(occupancy_match.group("occupancy")) if occupancy_match else None,
+                    timestamp_ms=int(timestamp_match.group("timestamp_ms")) if timestamp_match else None,
+                    host_elapsed_seconds=(
+                        line_elapsed_seconds[line_index]
+                        if line_elapsed_seconds is not None and line_index < len(line_elapsed_seconds)
+                        else None
+                    ),
+                )
             )
-        )
     return samples
 
 
@@ -837,7 +998,10 @@ def status_stream_is_stable(
         return False
     recent = timestamps[-min_samples:]
     max_gap_ms = max_runtime_status_gap_ms()
-    return all(current - previous <= max_gap_ms for previous, current in zip(recent, recent[1:]))
+    return all(
+        0 <= current - previous <= max_gap_ms
+        for previous, current in zip(recent, recent[1:])
+    )
 
 
 def _wait_for_runtime_sensing_window(
@@ -882,7 +1046,7 @@ def _capture_runtime_monitor(
     before_window: Callable[[], None] | None = None,
     analysis_start_after_before_window: bool = False,
 ) -> tuple[CommandResult, str]:
-    process, output_lines, relay_thread, started = _run_background_command(command, env=env)
+    process, output_lines, line_elapsed_seconds, relay_thread, started = _run_background_command(command, env=env)
     analysis_start = 0
     try:
         if before_window is not None:
@@ -901,11 +1065,17 @@ def _capture_runtime_monitor(
     result = _finalize_background_command(
         process,
         output_lines,
+        line_elapsed_seconds,
         relay_thread,
         started,
         command,
     )
+    result.analysis_start_line = analysis_start
     return result, "".join(output_lines[analysis_start:])
+
+
+def scored_line_elapsed_seconds(result: CommandResult) -> list[float]:
+    return result.line_elapsed_seconds[result.analysis_start_line :]
 
 
 def monitor_timeout_seconds(case: BenchmarkCase) -> int:
@@ -922,6 +1092,24 @@ def _expected_periodic_samples(
     if last_timestamp_ms < first_timestamp_ms:
         return 0
     return 1 + (last_timestamp_ms - first_timestamp_ms) // (interval_seconds * 1000)
+
+
+def _expected_samples_from_observed_cadence(timestamps_ms: Sequence[int]) -> int:
+    """Estimate periodic samples without treating scheduler drift as loss."""
+    if not timestamps_ms:
+        return 0
+    intervals = [
+        current - previous
+        for previous, current in zip(timestamps_ms, timestamps_ms[1:])
+        if current > previous
+    ]
+    if not intervals:
+        return 1
+    typical_interval_ms = statistics.median(intervals)
+    if typical_interval_ms <= 0:
+        return len(timestamps_ms)
+    span_ms = timestamps_ms[-1] - timestamps_ms[0]
+    return max(1, int(round(span_ms / typical_interval_ms)) + 1)
 
 
 def _expected_runtime_status_samples(
@@ -1032,57 +1220,115 @@ def analyze_monitor_output(
     output: str,
     benchmark_mode: str = "runtime",
     monitor_duration_seconds: int = MONITOR_DURATION_SECONDS,
+    line_elapsed_seconds: Sequence[float] | None = None,
 ) -> tuple[RuntimeMetrics, list[str]]:
     text = strip_ansi(output)
-    status_samples = _parse_runtime_status_samples(text)
+    status_samples = _parse_runtime_status_samples(text, line_elapsed_seconds)
     pps_values = [sample.pps for sample in status_samples if sample.pps > 0]
     occupancy_values = [
         sample.occupancy_percent for sample in status_samples if sample.occupancy_percent is not None
     ]
     states = [sample.state for sample in status_samples]
     observed_states = states[MOTION_WARMUP_SAMPLES:]
-    parsed_telemetry = _parse_telemetry_samples(text)
+    parsed_telemetry = _parse_telemetry_samples(text, line_elapsed_seconds)
 
     metrics = RuntimeMetrics(
         status_samples=len(status_samples),
         packet_rate_samples=len(pps_values),
         occupancy_samples=len(occupancy_values),
         telemetry_samples=len(parsed_telemetry),
+        serial_framing_anomalies=_count_serial_framing_anomalies(text),
     )
     reasons: list[str] = []
     has_status_timestamps = bool(status_samples) and all(sample.timestamp_ms is not None for sample in status_samples)
 
+    has_status_host_times = bool(status_samples) and all(
+        sample.host_elapsed_seconds is not None for sample in status_samples
+    )
     if has_status_timestamps:
         timestamps = [sample.timestamp_ms for sample in status_samples if sample.timestamp_ms is not None]
         metrics.status_first_timestamp_ms = timestamps[0]
         metrics.status_last_timestamp_ms = timestamps[-1]
-        metrics.status_expected_samples = _expected_runtime_status_samples(
-            timestamps[0],
-            last_timestamp_ms=timestamps[-1],
-        )
         if len(timestamps) > 1:
-            intervals = [current - previous for previous, current in zip(timestamps, timestamps[1:])]
-            metrics.status_interval_mean_ms = statistics.fmean(intervals)
-            metrics.status_interval_max_ms = max(intervals)
+            metrics.device_reboots = sum(
+                current < previous for previous, current in zip(timestamps, timestamps[1:])
+            )
+            device_intervals = [
+                current - previous
+                for previous, current in zip(timestamps, timestamps[1:])
+                if current >= previous
+            ]
+            if device_intervals and metrics.device_reboots == 0:
+                metrics.status_interval_mean_ms = statistics.fmean(device_intervals)
+                metrics.status_interval_max_ms = max(device_intervals)
+        if metrics.device_reboots == 0:
+            metrics.status_expected_samples = _expected_samples_from_observed_cadence(timestamps)
+
+    if has_status_host_times and metrics.device_reboots > 0:
+        host_timestamps = [
+            sample.host_elapsed_seconds
+            for sample in status_samples
+            if sample.host_elapsed_seconds is not None
+        ]
+        host_intervals_ms = [
+            (current - previous) * 1000.0
+            for previous, current in zip(host_timestamps, host_timestamps[1:])
+        ]
+        metrics.status_expected_samples = _expected_periodic_samples(
+            int(round(host_timestamps[0] * 1000.0)),
+            int(round(host_timestamps[-1] * 1000.0)),
+            STATUS_SAMPLE_INTERVAL_SECONDS,
+        )
+        if host_intervals_ms:
+            metrics.status_interval_mean_ms = statistics.fmean(host_intervals_ms)
+            metrics.status_interval_max_ms = int(round(max(host_intervals_ms)))
+            metrics.status_gap_count = sum(
+                interval_ms > max_runtime_status_gap_ms() for interval_ms in host_intervals_ms
+            )
+    elif metrics.status_interval_max_ms is not None:
+        device_timestamps = [sample.timestamp_ms for sample in status_samples if sample.timestamp_ms is not None]
+        metrics.status_gap_count = sum(
+            current >= previous and current - previous > max_runtime_status_gap_ms()
+            for previous, current in zip(device_timestamps, device_timestamps[1:])
+        )
 
     telemetry = [sample.fields for sample in parsed_telemetry]
     telemetry_expected_samples: int | None = None
-    if benchmark_mode == "runtime" and metrics.status_first_timestamp_ms is not None:
+    if benchmark_mode == "runtime" and status_samples:
         telemetry = []
         metrics.telemetry_samples = 0
-        runtime_telemetry = [
-            sample
-            for sample in parsed_telemetry
-            if sample.timestamp_ms is not None and sample.timestamp_ms >= metrics.status_first_timestamp_ms
-        ]
+        if has_status_host_times:
+            status_first_host = status_samples[0].host_elapsed_seconds or 0.0
+            runtime_telemetry = [
+                sample
+                for sample in parsed_telemetry
+                if sample.host_elapsed_seconds is not None
+                and sample.host_elapsed_seconds >= status_first_host
+            ]
+        else:
+            runtime_telemetry = [
+                sample
+                for sample in parsed_telemetry
+                if sample.timestamp_ms is not None
+                and metrics.status_first_timestamp_ms is not None
+                and sample.timestamp_ms >= metrics.status_first_timestamp_ms
+            ]
         if runtime_telemetry:
             parsed_telemetry = runtime_telemetry
             telemetry = [sample.fields for sample in parsed_telemetry]
             metrics.telemetry_samples = len(telemetry)
-            metrics.telemetry_expected_samples = _expected_runtime_telemetry_samples(
-                runtime_telemetry[0].timestamp_ms or 0,
-                last_timestamp_ms=metrics.status_last_timestamp_ms or runtime_telemetry[-1].timestamp_ms,
-            )
+            if has_status_host_times and runtime_telemetry[0].host_elapsed_seconds is not None:
+                last_status_host = status_samples[-1].host_elapsed_seconds or runtime_telemetry[-1].host_elapsed_seconds
+                metrics.telemetry_expected_samples = _expected_periodic_samples(
+                    int(round(runtime_telemetry[0].host_elapsed_seconds * 1000.0)),
+                    int(round((last_status_host or 0.0) * 1000.0)),
+                    TELEMETRY_SAMPLE_INTERVAL_SECONDS,
+                )
+            else:
+                metrics.telemetry_expected_samples = _expected_runtime_telemetry_samples(
+                    runtime_telemetry[0].timestamp_ms or 0,
+                    last_timestamp_ms=metrics.status_last_timestamp_ms or runtime_telemetry[-1].timestamp_ms,
+                )
             telemetry_expected_samples = metrics.telemetry_expected_samples
         elif (
             metrics.status_last_timestamp_ms is not None
@@ -1111,12 +1357,15 @@ def analyze_monitor_output(
         )
 
     heap_free = _collect_values(telemetry, "heap_free")
+    heap_free_post_gc = _collect_values(telemetry, "heap_free_post_gc")
     heap_min = _collect_values(telemetry, "heap_min")
     heap_largest = _collect_values(telemetry, "heap_largest")
     runtime_load = _collect_values(telemetry, "runtime_load")
     loop_avg = _collect_values(telemetry, "loop_avg_us")
     loop_max = _collect_values(telemetry, "loop_max_us")
     detection_windows = [sample for sample in telemetry if sample.get("detection_samples", 0) > 0]
+    packet_windows = [sample for sample in telemetry if sample.get("packet_samples", 0) > 0]
+    gc_pause_us = _collect_values(telemetry, "gc_pause_us")
     detection_samples = int(sum(sample["detection_samples"] for sample in detection_windows))
     detection_sum_us = sum(
         sample.get("detection_sum_us", sample.get("detection_avg_us", 0) * sample["detection_samples"])
@@ -1124,6 +1373,7 @@ def analyze_monitor_output(
     )
 
     metrics.heap_free_last = int(heap_free[-1]) if heap_free else None
+    metrics.heap_free_post_gc_last = int(heap_free_post_gc[-1]) if heap_free_post_gc else None
     metrics.heap_min = int(min(heap_min)) if heap_min else None
     metrics.heap_largest_last = int(heap_largest[-1]) if heap_largest else None
     metrics.runtime_load_mean = statistics.fmean(runtime_load) if runtime_load else None
@@ -1137,12 +1387,39 @@ def analyze_monitor_output(
     metrics.detection_max_us = (
         int(max(sample["detection_max_us"] for sample in detection_windows)) if detection_windows else None
     )
+    metrics.packet_processing_samples = int(sum(sample["packet_samples"] for sample in packet_windows))
+    packet_processing_sum_us = sum(
+        sample.get("packet_sum_us", sample.get("packet_avg_us", 0) * sample["packet_samples"])
+        for sample in packet_windows
+    )
+    metrics.packet_processing_avg_us_mean = (
+        packet_processing_sum_us / metrics.packet_processing_samples
+        if metrics.packet_processing_samples
+        else None
+    )
+    metrics.packet_processing_min_us = (
+        int(min(sample["packet_min_us"] for sample in packet_windows)) if packet_windows else None
+    )
+    metrics.packet_processing_max_us = (
+        int(max(sample["packet_max_us"] for sample in packet_windows)) if packet_windows else None
+    )
+    metrics.gc_pause_us_mean = statistics.fmean(gc_pause_us) if gc_pause_us else None
+    metrics.gc_pause_us_max = int(max(gc_pause_us)) if gc_pause_us else None
 
     if benchmark_mode == "runtime":
+        if metrics.device_reboots > 0:
+            reasons.append(
+                f"device uptime restarted {metrics.device_reboots} time"
+                f"{'s' if metrics.device_reboots != 1 else ''} during the scored runtime window"
+            )
         if metrics.status_samples == 0:
             reasons.append("detector status was not logged")
         elif has_status_timestamps:
-            if metrics.status_expected_samples and metrics.status_samples < metrics.status_expected_samples:
+            if (
+                metrics.status_expected_samples
+                and metrics.status_samples + RUNTIME_STATUS_BOUNDARY_TOLERANCE_SAMPLES
+                < metrics.status_expected_samples
+            ):
                 reasons.append(
                     f"only {metrics.status_samples} of {metrics.status_expected_samples} expected detector "
                     "status logs were captured"
@@ -1155,13 +1432,38 @@ def analyze_monitor_output(
 
         _append_occupancy_reasons(metrics, reasons)
         heap_telemetry = telemetry
-        if metrics.status_first_timestamp_ms is not None:
+        if has_status_host_times:
+            status_first_host = status_samples[0].host_elapsed_seconds or 0.0
+            heap_settle_seconds = status_first_host + STARTUP_GRACE_SECONDS
+            heap_telemetry = [
+                sample.fields
+                for sample in parsed_telemetry
+                if sample.host_elapsed_seconds is not None
+                and sample.host_elapsed_seconds >= heap_settle_seconds
+            ]
+        elif metrics.status_first_timestamp_ms is not None:
             heap_settle_ms = metrics.status_first_timestamp_ms + STARTUP_GRACE_SECONDS * 1000
             heap_telemetry = [
                 sample.fields
                 for sample in parsed_telemetry
                 if sample.timestamp_ms is not None and sample.timestamp_ms >= heap_settle_ms
             ]
+        heap_key = (
+            "heap_free_post_gc"
+            if heap_telemetry and all("heap_free_post_gc" in sample for sample in heap_telemetry)
+            else "heap_free"
+        )
+        settled_heap_free = _collect_values(heap_telemetry, heap_key)
+        if settled_heap_free:
+            metrics.heap_free_settled_first = int(settled_heap_free[0])
+            metrics.heap_free_settled_last = int(settled_heap_free[-1])
+            metrics.heap_free_settled_delta = (
+                metrics.heap_free_settled_last - metrics.heap_free_settled_first
+            )
+            if metrics.heap_free_settled_first > 0:
+                metrics.heap_free_settled_delta_percent = (
+                    metrics.heap_free_settled_delta * 100.0 / metrics.heap_free_settled_first
+                )
         _append_common_monitor_reasons(
             metrics,
             telemetry,
@@ -1169,6 +1471,7 @@ def analyze_monitor_output(
             require_detection_timing=True,
             expected_telemetry_samples=telemetry_expected_samples,
             heap_telemetry=heap_telemetry,
+            heap_key=heap_key,
         )
     elif benchmark_mode == "smoke":
         startup_state_match = MATTER_STARTUP_STATE_RE.search(text)
@@ -1315,7 +1618,32 @@ def apply_esphome_benchmark_wifi(content: str) -> str:
     return "\n".join(updated_lines) + ("\n" if content.endswith("\n") else "")
 
 
-def apply_esphome_benchmark_logger(content: str) -> str:
+def _serial_port_infos() -> tuple[object, ...]:
+    try:
+        from serial.tools import list_ports
+    except ImportError:
+        return ()
+    return tuple(list_ports.comports())
+
+
+def esphome_benchmark_logger_hardware_uart(port: str) -> str | None:
+    """Route ESPHome logs to the selected external bridge when one is used."""
+    for info in _serial_port_infos():
+        device = getattr(info, "device", None)
+        if not isinstance(device, str) or device.casefold() != port.casefold():
+            continue
+        vendor_id = getattr(info, "vid", None)
+        if vendor_id is None or vendor_id == ESPRESSIF_USB_VENDOR_ID:
+            return None
+        return "UART0"
+    return None
+
+
+def apply_esphome_benchmark_logger(
+    content: str,
+    *,
+    hardware_uart: str | None = None,
+) -> str:
     lines = content.splitlines()
     logger_index = next((index for index, line in enumerate(lines) if re.match(r"^\s*logger:\s*$", line)), None)
     if logger_index is None:
@@ -1329,6 +1657,7 @@ def apply_esphome_benchmark_logger(content: str) -> str:
             *lines[:insert_at],
             "logger:",
             "  level: DEBUG",
+            *([f"  hardware_uart: {hardware_uart}"] if hardware_uart is not None else []),
             *lines[insert_at:],
         ]
         return "\n".join(inserted_lines) + ("\n" if content.endswith("\n") else "")
@@ -1347,11 +1676,14 @@ def apply_esphome_benchmark_logger(content: str) -> str:
     for line in lines[logger_index + 1 : logger_end]:
         if re.match(rf"^{re.escape(field_indent)}level:\s*", line):
             continue
+        if hardware_uart is not None and re.match(rf"^{re.escape(field_indent)}hardware_uart:\s*", line):
+            continue
         preserved_lines.append(line)
 
     replacement_lines = [
         lines[logger_index],
         f"{field_indent}level: DEBUG",
+        *([f"{field_indent}hardware_uart: {hardware_uart}"] if hardware_uart is not None else []),
         *preserved_lines,
     ]
 
@@ -1404,7 +1736,7 @@ def micro_deployed_source_size(config_path: Path) -> int:
 
 
 @contextmanager
-def esphome_case_config(chip: str, detector: str) -> Iterator[Path]:
+def esphome_case_config(chip: str, detector: str, port: str | None = None) -> Iterator[Path]:
     source_path = Path(ESPHOME_CONFIGS[chip]["dev"])
     content = source_path.read_text(encoding="utf-8")
     updated, replacements = re.subn(
@@ -1434,7 +1766,8 @@ def esphome_case_config(chip: str, detector: str) -> Iterator[Path]:
         if telemetry_insertions != 1:
             raise RuntimeError(f"could not enable debug telemetry in {source_path}")
     updated = apply_esphome_benchmark_wifi(updated)
-    updated = apply_esphome_benchmark_logger(updated)
+    hardware_uart = esphome_benchmark_logger_hardware_uart(port) if port is not None else None
+    updated = apply_esphome_benchmark_logger(updated, hardware_uart=hardware_uart)
 
     temporary_path = source_path.parent / f".espectre-benchmark-{chip}-{detector}.yaml"
     if temporary_path.exists():
@@ -1563,11 +1896,12 @@ def _pre_flash_command_for_case(case: BenchmarkCase, port: str) -> list[str] | N
 def case_context(
     case: BenchmarkCase,
     chip: str,
+    port: str,
     *,
     clean: bool,
 ) -> Iterator[tuple[dict[str, str] | None, Path | None]]:
     if case.frontend == "esphome":
-        with esphome_case_config(chip, case.detector) as config:
+        with esphome_case_config(chip, case.detector, port) as config:
             yield None, config
     else:
         with idf_case_environment(case.frontend, chip, case.detector) as env:
@@ -1584,7 +1918,7 @@ def build_case(
 ) -> BenchmarkResult:
     result = BenchmarkResult(case=case)
     try:
-        with case_context(case, chip, clean=clean) as (env, config):
+        with case_context(case, chip, port, clean=clean) as (env, config):
             build_command, _flash_command, _monitor_command = _commands_for_case(
                 case,
                 chip,
@@ -1612,7 +1946,7 @@ def _run_background_command(
     env: dict[str, str] | None = None,
     output_prefix: str = "",
     line_callback: Callable[[str], None] | None = None,
-) -> tuple[subprocess.Popen[str], list[str], threading.Thread, float]:
+) -> tuple[subprocess.Popen[str], list[str], list[float], threading.Thread, float]:
     display_command = " ".join(str(part) for part in command)
     print(f"\n{output_prefix}$ {display_command}", flush=True)
     process = subprocess.Popen(
@@ -1626,24 +1960,27 @@ def _run_background_command(
         start_new_session=(os.name == "posix"),
     )
     output_lines: list[str] = []
+    line_elapsed_seconds: list[float] = []
     started = time.monotonic()
 
     def _relay_output() -> None:
         assert process.stdout is not None
         for line in process.stdout:
             output_lines.append(line)
+            line_elapsed_seconds.append(time.monotonic() - started)
             print(f"{output_prefix}{line}", end="", flush=True)
             if line_callback is not None:
                 line_callback(line)
 
     relay_thread = threading.Thread(target=_relay_output, daemon=True)
     relay_thread.start()
-    return process, output_lines, relay_thread, started
+    return process, output_lines, line_elapsed_seconds, relay_thread, started
 
 
 def _finalize_background_command(
     process: subprocess.Popen[str],
     output_lines: list[str],
+    line_elapsed_seconds: list[float],
     relay_thread: threading.Thread,
     started: float,
     command: Sequence[str],
@@ -1660,6 +1997,7 @@ def _finalize_background_command(
         duration_seconds=time.monotonic() - started,
         output="".join(output_lines),
         reached_timeout=False,
+        line_elapsed_seconds=line_elapsed_seconds,
     )
 
 
@@ -1677,7 +2015,7 @@ def run_streamer_case(
 
     launcher = str(REPO_ROOT / "espectre")
     try:
-        with case_context(case, chip, clean=clean) as (env, config):
+        with case_context(case, chip, port, clean=clean) as (env, config):
             _build_command, flash_command, monitor_command = _commands_for_case(
                 case,
                 chip,
@@ -1708,7 +2046,13 @@ def run_streamer_case(
                     device_ip_holder["value"] = match.group("ip")
                     device_ip_event.set()
 
-            monitor_process, monitor_output, relay_thread, monitor_started = _run_background_command(
+            (
+                monitor_process,
+                monitor_output,
+                monitor_line_elapsed_seconds,
+                relay_thread,
+                monitor_started,
+            ) = _run_background_command(
                 monitor_command,
                 env=env,
                 output_prefix="[stream] ",
@@ -1721,6 +2065,7 @@ def run_streamer_case(
                     result.monitor = _finalize_background_command(
                         monitor_process,
                         monitor_output,
+                        monitor_line_elapsed_seconds,
                         relay_thread,
                         monitor_started,
                         monitor_command,
@@ -1728,6 +2073,7 @@ def run_streamer_case(
                     result.runtime_metrics, analysis_reasons = analyze_monitor_output(
                         result.monitor.output,
                         benchmark_mode=case.benchmark_mode,
+                        line_elapsed_seconds=result.monitor.line_elapsed_seconds,
                     )
                     result.reasons.extend(analysis_reasons)
                     result.reasons.append("timed out waiting for streamer Wi-Fi IP")
@@ -1754,6 +2100,7 @@ def run_streamer_case(
                 result.monitor = _finalize_background_command(
                     monitor_process,
                     monitor_output,
+                    monitor_line_elapsed_seconds,
                     relay_thread,
                     monitor_started,
                     monitor_command,
@@ -1769,6 +2116,7 @@ def run_streamer_case(
             result.runtime_metrics, analysis_reasons = analyze_monitor_output(
                 result.monitor.output,
                 benchmark_mode=case.benchmark_mode,
+                line_elapsed_seconds=result.monitor.line_elapsed_seconds,
             )
             collect_metrics = _parse_collect_output(result.collect.output)
             if result.runtime_metrics.device_ip is None:
@@ -1833,7 +2181,7 @@ def run_case(
         return result, None
 
     try:
-        with case_context(case, chip, clean=clean) as (env, config):
+        with case_context(case, chip, port, clean=clean) as (env, config):
             _build_command, flash_command, monitor_command = _commands_for_case(
                 case,
                 chip,
@@ -1902,7 +2250,14 @@ def run_case(
                 analysis_output or result.monitor.output,
                 benchmark_mode=case.benchmark_mode,
                 monitor_duration_seconds=monitor_seconds,
+                line_elapsed_seconds=(
+                    scored_line_elapsed_seconds(result.monitor)
+                    if analysis_output
+                    else result.monitor.line_elapsed_seconds
+                ),
             )
+            if before_monitor is not None:
+                result.runtime_metrics.verified_detector = case.detector
             result.reasons.extend(analysis_reasons)
             result.status = "PASS" if not result.reasons else "FAIL"
     except (OSError, RuntimeError) as exc:
@@ -1978,6 +2333,7 @@ def run_micro_case(
                 MONITOR_DURATION_SECONDS,
                 int(result.monitor.duration_seconds),
             ),
+            line_elapsed_seconds=scored_line_elapsed_seconds(result.monitor),
         )
         result.reasons.extend(analysis_reasons)
         result.status = "PASS" if not result.reasons else "FAIL"
@@ -2021,7 +2377,10 @@ def run_monitor_only_case(
                 MONITOR_DURATION_SECONDS,
                 int(result.monitor.duration_seconds),
             ),
+            line_elapsed_seconds=scored_line_elapsed_seconds(result.monitor),
         )
+        if before_monitor is not None:
+            result.runtime_metrics.verified_detector = case.detector
         result.reasons.extend(analysis_reasons)
         result.status = "PASS" if not result.reasons else "FAIL"
     except (OSError, RuntimeError) as exc:
@@ -2067,6 +2426,143 @@ def _git_revision() -> str:
     return completed.stdout.strip() if completed.returncode == 0 else "unknown"
 
 
+def _git_worktree_dirty() -> bool:
+    completed = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return completed.returncode == 0 and bool(completed.stdout.strip())
+
+
+def benchmark_artifact_dir(started_at: datetime, chip: str) -> Path:
+    timestamp = started_at.astimezone().strftime("%Y%m%dT%H%M%S%z")
+    return BENCHMARK_ARTIFACT_ROOT / f"{timestamp}-{chip}-{_git_revision()}"
+
+
+def _case_artifact_name(case: BenchmarkCase) -> str:
+    return f"{case.frontend}-{case.detector}".replace("_", "-")
+
+
+def _redact_benchmark_text(text: str) -> str:
+    redacted = text
+    for name in (
+        "ESPECTRE_BENCHMARK_WIFI_SSID",
+        "ESPECTRE_BENCHMARK_WIFI_PASSWORD",
+        "ESPECTRE_BENCHMARK_WIFI_BSSID",
+        "ESPECTRE_BENCHMARK_MQTT_HOST",
+        "ESPECTRE_BENCHMARK_MQTT_USERNAME",
+        "ESPECTRE_BENCHMARK_MQTT_PASSWORD",
+    ):
+        value = benchmark_setting(name)
+        if value and len(value) >= 4:
+            redacted = redacted.replace(value, f"<{name.lower()}>")
+    return redacted
+
+
+def _write_artifact_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = path.with_name(f".{path.name}.tmp")
+    temporary_path.write_text(content, encoding="utf-8")
+    temporary_path.replace(path)
+
+
+def _write_artifact_json(path: Path, value: object) -> None:
+    _write_artifact_text(path, json.dumps(value, indent=2, sort_keys=True) + "\n")
+
+
+def _command_metadata(command_result: CommandResult) -> dict[str, object]:
+    return {
+        "command": command_result.command,
+        "duration_seconds": command_result.duration_seconds,
+        "reached_timeout": command_result.reached_timeout,
+        "returncode": command_result.returncode,
+    }
+
+
+def _write_command_artifacts(
+    case_dir: Path,
+    phase: str,
+    command_result: CommandResult,
+) -> None:
+    redacted_output = _redact_benchmark_text(command_result.output)
+    _write_artifact_text(case_dir / f"{phase}.log", redacted_output)
+    lines = redacted_output.splitlines()
+    events: list[str] = []
+    for index, line in enumerate(lines):
+        timestamp_match = LOG_TIMESTAMP_RE.search(line)
+        event = {
+            "device_timestamp_ms": (
+                int(timestamp_match.group("timestamp_ms")) if timestamp_match is not None else None
+            ),
+            "host_elapsed_seconds": (
+                command_result.line_elapsed_seconds[index]
+                if index < len(command_result.line_elapsed_seconds)
+                else None
+            ),
+            "line": line,
+            "phase": phase,
+            "scored": phase == "monitor" and index >= command_result.analysis_start_line,
+        }
+        events.append(json.dumps(event, sort_keys=True))
+    _write_artifact_text(
+        case_dir / f"{phase}.jsonl",
+        "\n".join(events) + ("\n" if events else ""),
+    )
+
+
+def write_benchmark_artifacts(
+    destination: Path,
+    *,
+    chip: str,
+    port: str,
+    started_at: datetime,
+    results: Sequence[BenchmarkResult],
+) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    manifest_cases: list[dict[str, object]] = []
+    for result in results:
+        case_dir = destination / _case_artifact_name(result.case)
+        commands: dict[str, object] = {}
+        for phase in ("build", "deploy", "flash", "monitor", "collect"):
+            command_result = getattr(result, phase)
+            if command_result is None:
+                continue
+            _write_command_artifacts(case_dir, phase, command_result)
+            commands[phase] = _command_metadata(command_result)
+        analysis = {
+            "build_metrics": asdict(result.build_metrics),
+            "case": asdict(result.case),
+            "reasons": result.reasons,
+            "runtime_metrics": asdict(result.runtime_metrics),
+            "status": result.status,
+        }
+        _write_artifact_json(case_dir / "analysis.json", analysis)
+        manifest_cases.append(
+            {
+                "case": asdict(result.case),
+                "commands": commands,
+                "reasons": result.reasons,
+                "status": result.status,
+            }
+        )
+    _write_artifact_json(
+        destination / "manifest.json",
+        {
+            "cases": manifest_cases,
+            "chip": chip,
+            "git_revision": _git_revision(),
+            "git_worktree_dirty": _git_worktree_dirty(),
+            "monitor_duration_seconds": MONITOR_DURATION_SECONDS,
+            "port": port,
+            "run_started": started_at.astimezone().isoformat(timespec="seconds"),
+            "schema_version": BENCHMARK_ARTIFACT_SCHEMA_VERSION,
+        },
+    )
+
+
 def render_report(
     chip: str,
     port: str,
@@ -2106,7 +2602,7 @@ def render_report(
         f"Generated by: `tools/benchmark_firmware.py --chip {chip}`",
         f"Git revision: `{_git_revision()}`",
         f"Run started: `{started_at.astimezone().isoformat(timespec='seconds')}`",
-        f"Monitor duration per firmware: `{MONITOR_DURATION_SECONDS} seconds`",
+        f"Selected monitor duration: `{MONITOR_DURATION_SECONDS} seconds`",
         f"Overall result: **{overall}**",
         "",
         REPORT_SNAPSHOT_SCOPE,
@@ -2168,6 +2664,8 @@ def render_report(
 
         if runtime.startup_state is not None:
             detail_rows.append(f"| Startup state | {runtime.startup_state} |")
+        if runtime.verified_detector is not None:
+            detail_rows.append(f"| Verified detector | {runtime.verified_detector} |")
 
         if result.case.benchmark_mode == "runtime" and runtime.status_samples > 0:
             samples_value = str(runtime.status_samples)
@@ -2182,6 +2680,9 @@ def render_report(
                     f"| Status cadence | {format_number(runtime.status_interval_mean_ms / 1000.0, ' s')} mean, "
                     f"{format_number(max_gap_seconds, ' s')} max gap |"
                 )
+            detail_rows.append(f"| Status gaps over tolerance | {runtime.status_gap_count} |")
+            detail_rows.append(f"| Serial framing anomalies | {runtime.serial_framing_anomalies} |")
+            detail_rows.append(f"| Device uptime restarts | {runtime.device_reboots} |")
             if runtime.packet_rate_samples > 0:
                 detail_rows.append(f"| Packet-rate samples | {runtime.packet_rate_samples} |")
             if runtime.pps_mean is not None:
@@ -2219,6 +2720,29 @@ def render_report(
             detail_rows.append(f"| Telemetry samples | {telemetry_value} |")
         if runtime.heap_free_last is not None:
             detail_rows.append(f"| Last free heap | {format_bytes(runtime.heap_free_last)} |")
+        if runtime.heap_free_post_gc_last is not None:
+            detail_rows.append(
+                f"| Last post-GC free heap | {format_bytes(runtime.heap_free_post_gc_last)} |"
+            )
+        settled_heap_label = (
+            "Settled post-GC free heap"
+            if runtime.heap_free_post_gc_last is not None
+            else "Settled free heap"
+        )
+        if runtime.heap_free_settled_first is not None:
+            detail_rows.append(
+                f"| {settled_heap_label} first | {format_bytes(runtime.heap_free_settled_first)} |"
+            )
+        if runtime.heap_free_settled_last is not None:
+            detail_rows.append(
+                f"| {settled_heap_label} last | {format_bytes(runtime.heap_free_settled_last)} |"
+            )
+        if runtime.heap_free_settled_delta is not None:
+            delta_percent = runtime.heap_free_settled_delta_percent
+            delta_percent_text = f", {delta_percent:+.2f}%" if delta_percent is not None else ""
+            detail_rows.append(
+                f"| {settled_heap_label} delta | {runtime.heap_free_settled_delta:+,} bytes{delta_percent_text} |"
+            )
         if runtime.heap_min is not None:
             detail_rows.append(f"| Minimum free heap | {format_bytes(runtime.heap_min)} |")
         if runtime.heap_largest_last is not None:
@@ -2238,6 +2762,25 @@ def render_report(
                 detail_rows.append(f"| Detection minimum | {format_number(runtime.detection_min_us, ' us')} |")
             if runtime.detection_max_us is not None:
                 detail_rows.append(f"| Detection maximum | {format_number(runtime.detection_max_us, ' us')} |")
+            if runtime.packet_processing_samples > 0:
+                detail_rows.append(f"| Packet processing samples | {runtime.packet_processing_samples} |")
+            if runtime.packet_processing_avg_us_mean is not None:
+                detail_rows.append(
+                    f"| Packet processing average | {format_number(runtime.packet_processing_avg_us_mean, ' us')} |"
+                )
+            if runtime.packet_processing_min_us is not None:
+                detail_rows.append(
+                    f"| Packet processing minimum | {format_number(runtime.packet_processing_min_us, ' us')} |"
+                )
+            if runtime.packet_processing_max_us is not None:
+                detail_rows.append(
+                    f"| Packet processing maximum | {format_number(runtime.packet_processing_max_us, ' us')} |"
+                )
+            if runtime.gc_pause_us_mean is not None:
+                detail_rows.append(
+                    f"| GC pause | {format_number(runtime.gc_pause_us_mean, ' us')} mean, "
+                    f"{format_number(runtime.gc_pause_us_max, ' us')} max |"
+                )
 
         if result.case.benchmark_mode == "stream":
             if runtime.stream_telemetry_samples > 0:
@@ -2280,6 +2823,7 @@ def render_report(
             "throughout the runtime window",
             f"- non-runtime benchmarks log at least {MIN_TELEMETRY_SAMPLES} shared debug telemetry samples",
             "- free heap does not decline by more than 5% after startup has settled",
+            "- the device uptime does not restart during a scored runtime window",
             f"- {english_join(runtime_case_labels())} runtime benchmarks log detector status "
             "once per second after the first detector status line",
             f"- {english_join(runtime_case_labels())} runtime benchmarks log CSI occupancy "
@@ -2347,7 +2891,12 @@ def parse_report_results(text: str) -> list[BenchmarkResult]:
         label = line[4:].strip()
         case = case_by_label.get(label)
         if case is None:
-            raise ValueError(f"unknown benchmark case label in report: {label!r}")
+            if label not in LEGACY_REPORT_CASE_LABELS:
+                raise ValueError(f"unknown benchmark case label in report: {label!r}")
+            index += 1
+            while index < len(lines) and not lines[index].startswith("### "):
+                index += 1
+            continue
         index += 1
         while index < len(lines) and lines[index] == "":
             index += 1
@@ -2414,6 +2963,8 @@ def parse_report_results(text: str) -> list[BenchmarkResult]:
 
         if "Startup state" in metric_rows:
             runtime.startup_state = metric("Startup state")
+        if "Verified detector" in metric_rows:
+            runtime.verified_detector = metric("Verified detector")
         if "Status samples" in metric_rows:
             runtime.status_samples, runtime.status_expected_samples = parse_report_count(metric("Status samples"))
         if "Status cadence" in metric_rows:
@@ -2422,6 +2973,12 @@ def parse_report_results(text: str) -> list[BenchmarkResult]:
                 raise ValueError(f"invalid status cadence field: {metric('Status cadence')!r}")
             runtime.status_interval_mean_ms = float(match.group("mean")) * 1000.0
             runtime.status_interval_max_ms = int(round(float(match.group("max")) * 1000.0))
+        if "Status gaps over tolerance" in metric_rows:
+            runtime.status_gap_count = int(metric("Status gaps over tolerance"))
+        if "Serial framing anomalies" in metric_rows:
+            runtime.serial_framing_anomalies = int(metric("Serial framing anomalies"))
+        if "Device uptime restarts" in metric_rows:
+            runtime.device_reboots = int(metric("Device uptime restarts"))
         if "Packet-rate samples" in metric_rows:
             runtime.packet_rate_samples = int(metric("Packet-rate samples"))
             if case.benchmark_mode == "stream":
@@ -2449,6 +3006,39 @@ def parse_report_results(text: str) -> list[BenchmarkResult]:
             )
         if "Last free heap" in metric_rows:
             runtime.heap_free_last = parse_report_bytes(metric("Last free heap"))
+        if "Last post-GC free heap" in metric_rows:
+            runtime.heap_free_post_gc_last = parse_report_bytes(metric("Last post-GC free heap"))
+        settled_first_key = (
+            "Settled post-GC free heap first"
+            if "Settled post-GC free heap first" in metric_rows
+            else "Settled free heap first"
+        )
+        settled_last_key = (
+            "Settled post-GC free heap last"
+            if "Settled post-GC free heap last" in metric_rows
+            else "Settled free heap last"
+        )
+        settled_delta_key = (
+            "Settled post-GC free heap delta"
+            if "Settled post-GC free heap delta" in metric_rows
+            else "Settled free heap delta"
+        )
+        if settled_first_key in metric_rows:
+            runtime.heap_free_settled_first = parse_report_bytes(metric(settled_first_key))
+        if settled_last_key in metric_rows:
+            runtime.heap_free_settled_last = parse_report_bytes(metric(settled_last_key))
+        if settled_delta_key in metric_rows:
+            delta_match = re.fullmatch(
+                r"(?P<bytes>[+-]?[\d,]+) bytes(?:, (?P<percent>[+-]?\d+(?:\.\d+)?)%)?",
+                metric(settled_delta_key),
+            )
+            if delta_match is None:
+                raise ValueError(
+                    f"invalid settled free heap delta field: {metric(settled_delta_key)!r}"
+                )
+            runtime.heap_free_settled_delta = int(delta_match.group("bytes").replace(",", ""))
+            if delta_match.group("percent") is not None:
+                runtime.heap_free_settled_delta_percent = float(delta_match.group("percent"))
         if "Minimum free heap" in metric_rows:
             runtime.heap_min = parse_report_bytes(metric("Minimum free heap"))
         if "Last largest heap block" in metric_rows:
@@ -2476,6 +3066,29 @@ def parse_report_results(text: str) -> list[BenchmarkResult]:
             runtime.detection_max_us = int(
                 parse_report_metric_value(metric("Detection maximum").removesuffix(" us")) or 0
             )
+        if "Packet processing samples" in metric_rows:
+            runtime.packet_processing_samples = int(metric("Packet processing samples"))
+        if "Packet processing average" in metric_rows:
+            runtime.packet_processing_avg_us_mean = float(
+                str(parse_report_metric_value(metric("Packet processing average").removesuffix(" us")))
+            )
+        if "Packet processing minimum" in metric_rows:
+            runtime.packet_processing_min_us = int(
+                parse_report_metric_value(metric("Packet processing minimum").removesuffix(" us")) or 0
+            )
+        if "Packet processing maximum" in metric_rows:
+            runtime.packet_processing_max_us = int(
+                parse_report_metric_value(metric("Packet processing maximum").removesuffix(" us")) or 0
+            )
+        if "GC pause" in metric_rows:
+            match = re.fullmatch(
+                r"(?P<mean>\d+(?:\.\d+)?) us mean, (?P<max>\d+) us max",
+                metric("GC pause"),
+            )
+            if match is None:
+                raise ValueError(f"invalid GC pause field: {metric('GC pause')!r}")
+            runtime.gc_pause_us_mean = float(match.group("mean"))
+            runtime.gc_pause_us_max = int(match.group("max"))
         if "Stream telemetry samples" in metric_rows:
             runtime.stream_telemetry_samples = int(metric("Stream telemetry samples"))
         if "Stream CSI accepted" in metric_rows:
@@ -2547,6 +3160,8 @@ def write_report(
 
 
 def main() -> int:
+    global MONITOR_DURATION_SECONDS
+
     parser = argparse.ArgumentParser(
         description=(
             "Build, flash, and benchmark Native Lightweight/High Accuracy, "
@@ -2565,16 +3180,55 @@ def main() -> int:
         choices=("lightweight", "high_accuracy", "default", "collect"),
         help="Run only cases for one detector or the streamer collect workflow",
     )
-    parser.add_argument(
+    report_mode = parser.add_mutually_exclusive_group()
+    report_mode.add_argument(
         "--update",
         action="store_true",
         help="Preserve existing report cases and replace only rerun results",
     )
+    report_mode.add_argument(
+        "--resume",
+        action="store_true",
+        help="Preserve passing report cases and rerun only failed or missing cases",
+    )
+    parser.add_argument(
+        "--artifacts-dir",
+        type=Path,
+        help="Write raw logs and structured evidence to this run directory",
+    )
+    parser.add_argument(
+        "--duration",
+        type=positive_seconds,
+        default=MONITOR_DURATION_SECONDS,
+        metavar="SECONDS",
+        help="Score each monitor window for this many seconds (default: 60)",
+    )
     args = parser.parse_args()
+    MONITOR_DURATION_SECONDS = args.duration
 
-    selected_cases = select_cases(args.frontend, args.detector)
-    if not selected_cases:
+    requested_cases = select_cases(args.frontend, args.detector)
+    if not requested_cases:
         parser.error("the selected frontend and detector do not define a benchmark case")
+
+    report_path = report_path_for_chip(args.chip)
+    preserve_existing = args.update or args.resume
+    existing_results = load_report_results(report_path) if preserve_existing else []
+    selected_cases = (
+        select_resume_cases(requested_cases, existing_results)
+        if args.resume
+        else requested_cases
+    )
+    if args.resume and not selected_cases:
+        expected_cases = expected_preserved_cases(existing_results, requested_cases)
+        passed = (
+            len(existing_results) == len(expected_cases)
+            and all(result.status == "PASS" for result in existing_results)
+        )
+        print(f"Chip:     {CHIP_LABELS[args.chip]}")
+        print(f"Report:   {report_path.relative_to(REPO_ROOT)}")
+        print("Matrix:   no failed or missing selected cases")
+        print(f"Overall result: {'PASS' if passed else 'FAIL'}")
+        return 0 if passed else 1
 
     port = get_serial_port(None)
     detected_chip = detect_chip_type(port)
@@ -2584,20 +3238,37 @@ def main() -> int:
             f"but --chip selects {CHIP_LABELS[args.chip]}"
         )
     started_at = datetime.now().astimezone()
+    artifact_dir = (
+        args.artifacts_dir.resolve()
+        if args.artifacts_dir is not None
+        else benchmark_artifact_dir(started_at, args.chip)
+    )
     results: list[BenchmarkResult] = []
-    report_path = report_path_for_chip(args.chip)
-    existing_results = load_report_results(report_path) if args.update else []
     print(f"Chip:     {CHIP_LABELS[args.chip]}")
     print(f"Port:     {port}")
     print(f"Report:   {report_path.relative_to(REPO_ROOT)}")
+    print(f"Artifacts:{' ' * 2}{artifact_dir}")
     print(f"Matrix:   {', '.join(case.label for case in selected_cases)}")
 
     def write_current_report() -> Path:
-        if args.update:
+        if preserve_existing:
             report_results = merge_report_results(existing_results, results)
-            expected_cases = tuple(result.case for result in report_results)
-            return write_report(args.chip, port, started_at, report_results, expected_cases)
-        return write_report(args.chip, port, started_at, results, selected_cases)
+            expected_cases = (
+                expected_preserved_cases(existing_results, requested_cases)
+                if args.resume
+                else tuple(result.case for result in report_results)
+            )
+            destination = write_report(args.chip, port, started_at, report_results, expected_cases)
+        else:
+            destination = write_report(args.chip, port, started_at, results, selected_cases)
+        write_benchmark_artifacts(
+            artifact_dir,
+            chip=args.chip,
+            port=port,
+            started_at=started_at,
+            results=results,
+        )
+        return destination
 
     try:
         require_benchmark_prerequisites()
@@ -2682,6 +3353,10 @@ def main() -> int:
                 args.chip,
                 port,
                 clean=True,
+                before_monitor=lambda: set_esphome_runtime_profile_via_api(
+                    "lightweight",
+                    None,
+                ),
             )
             results.append(esphome_result)
             write_current_report()
@@ -2691,7 +3366,7 @@ def main() -> int:
                     esphome_high_accuracy_case,
                     port,
                     lightweight_result=esphome_result,
-                    before_monitor=lambda: set_esphome_detector_via_api(
+                    before_monitor=lambda: set_esphome_runtime_profile_via_api(
                         "high_accuracy",
                         esphome_result.monitor.output if esphome_result.monitor is not None else "",
                     ),
@@ -2705,6 +3380,10 @@ def main() -> int:
                 args.chip,
                 port,
                 clean=True,
+                before_monitor=lambda: set_esphome_runtime_profile_via_api(
+                    "lightweight",
+                    None,
+                ),
             )
             if bootstrap_result.build is None or bootstrap_result.build.returncode != 0:
                 results.append(BenchmarkResult(case=esphome_high_accuracy_case, status="FAIL", reasons=["ESPHome Lightweight bootstrap build failed"]))
@@ -2722,7 +3401,7 @@ def main() -> int:
                 esphome_high_accuracy_case,
                 port,
                 lightweight_result=bootstrap_result,
-                before_monitor=lambda: set_esphome_detector_via_api(
+                before_monitor=lambda: set_esphome_runtime_profile_via_api(
                     "high_accuracy",
                     bootstrap_result.monitor.output if bootstrap_result.monitor is not None else "",
                 ),
@@ -2757,8 +3436,13 @@ def main() -> int:
         return 130
 
     destination = write_current_report()
-    final_results = merge_report_results(existing_results, results) if args.update else list(results)
-    final_expected_cases = tuple(result.case for result in final_results) if args.update else selected_cases
+    final_results = merge_report_results(existing_results, results) if preserve_existing else list(results)
+    if args.resume:
+        final_expected_cases = expected_preserved_cases(existing_results, requested_cases)
+    elif args.update:
+        final_expected_cases = tuple(result.case for result in final_results)
+    else:
+        final_expected_cases = selected_cases
     passed = all(result.status == "PASS" for result in final_results) and len(final_results) == len(final_expected_cases)
     print(f"\nWrote {destination}")
     print(f"Overall result: {'PASS' if passed else 'FAIL'}")

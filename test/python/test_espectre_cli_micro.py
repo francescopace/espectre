@@ -373,6 +373,44 @@ def test_project_firmware_aligns_idf_55_lockfile(tmp_path: Path) -> None:
     assert "    version: 5.5.5\n" in lockfile.read_text(encoding="utf-8")
 
 
+def test_project_firmware_disables_legacy_csi_capture(tmp_path: Path) -> None:
+    source_path = tmp_path / "ports" / "esp32" / "network_wlan_csi.c"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text(
+        "wifi_csi_config_t config = {\n    .acquire_csi_legacy = 1,\n};\n",
+        encoding="utf-8",
+    )
+
+    micro_firmware._configure_project_csi_capture(tmp_path)
+    micro_firmware._configure_project_csi_capture(tmp_path)
+
+    source = source_path.read_text(encoding="utf-8")
+    assert ".acquire_csi_legacy = 0," in source
+    assert ".acquire_csi_legacy = 1," not in source
+
+
+def test_project_firmware_exposes_dual_band_mode_configuration(tmp_path: Path) -> None:
+    source_path = tmp_path / "ports" / "esp32" / "network_wlan.c"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text(
+        """                    case MP_QSTR_bandwidth: {
+                        esp_exceptions(esp_wifi_set_bandwidth(self->if_id, mp_obj_get_int(kwargs->table[i].value)));
+                        break;
+                    }
+    { MP_ROM_QSTR(MP_QSTR_BANDWIDTH_20), MP_ROM_INT(WIFI_BW20) },
+""",
+        encoding="utf-8",
+    )
+
+    micro_firmware._configure_project_wifi_band_mode(tmp_path)
+    micro_firmware._configure_project_wifi_band_mode(tmp_path)
+
+    source = source_path.read_text(encoding="utf-8")
+    assert source.count("case MP_QSTR_band_mode:") == 1
+    assert source.count("esp_wifi_set_band_mode") == 1
+    assert source.count("MP_QSTR_BAND_MODE_2G_ONLY") == 1
+
+
 def test_project_boards_use_one_shared_profile_and_only_esp32_override() -> None:
     boards_dir = micro.PYTHON_SRC_DIR / "firmware" / "boards"
 

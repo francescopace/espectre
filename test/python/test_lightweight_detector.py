@@ -81,6 +81,25 @@ def test_fused_packet_path_matches_shared_turbulence_helpers() -> None:
     )
 
 
+def test_unsigned_lookup_matches_signed_csi_packet_path() -> None:
+    payload = bytearray((index * 37 + 19) % 256 for index in range(128))
+    unsigned_detector = LightweightDetector(enable_hampel=False)
+    signed_detector = LightweightDetector(enable_hampel=False)
+
+    unsigned_detector.process_packet(payload, unsigned_detector._selected_subcarriers)
+    signed_detector.process_packet(
+        memoryview(payload).cast("b"),
+        signed_detector._selected_subcarriers,
+    )
+
+    assert unsigned_detector._context.last_turbulence == pytest.approx(
+        signed_detector._context.last_turbulence
+    )
+    assert unsigned_detector._aggregated_context.last_turbulence == pytest.approx(
+        signed_detector._aggregated_context.last_turbulence
+    )
+
+
 def test_direct_window_features_match_chronological_reference_with_missing_slots() -> None:
     detector = LightweightDetector(window_size=8, enable_hampel=False)
     direct_values = [0.12, 0.31, None, 0.27, 0.49, 0.18, None, 0.42, 0.36]
