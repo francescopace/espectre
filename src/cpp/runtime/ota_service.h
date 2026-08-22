@@ -22,8 +22,8 @@ namespace espectre {
  * Implement it to drive updates through your own distribution channel, or use
  * the shipped `HttpsOtaService` (`ota_service_https.h`), which resolves a
  * release manifest over HTTPS and applies the image with `esp_https_ota`.
- * Frontends expose the result over MQTT and BLE and never talk to the
- * underlying stack themselves.
+ * Frontends expose the result over their operational transport and never talk
+ * to the underlying stack themselves. Native uses MQTT for this surface.
  *
  * @par Threading
  * Deliver status and prepare callbacks from `loop()`, never from a private

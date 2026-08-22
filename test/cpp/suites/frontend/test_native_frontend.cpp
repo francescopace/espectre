@@ -1272,7 +1272,7 @@ void test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state(vo
                    std::string::npos);
 }
 
-void test_native_frontend_ble_ota_commands_use_ota_service_and_refresh_sysinfo(void) {
+void test_native_frontend_ble_ota_commands_are_rejected_and_not_advertised(void) {
   MockBleBindings bindings;
   MockOtaService ota;
   NativeFrontend frontend(&bindings, nullptr, &ota);
@@ -1284,33 +1284,60 @@ void test_native_frontend_ble_ota_commands_use_ota_service_and_refresh_sysinfo(v
   bindings.emit_connection(true);
   drain_pending_sysinfo(frontend);
 
-  TEST_ASSERT_TRUE(frontend.handle_control_command_("OTA_CHECK"));
-  TEST_ASSERT_EQUAL(1, ota_service_mock::state.start_check_calls);
-  TEST_ASSERT_EQUAL_STRING("1.0.0", ota_service_mock::state.last_current_version.c_str());
-  TEST_ASSERT_TRUE(ota_service_mock::state.last_channel.empty());
-
-  TEST_ASSERT_TRUE(frontend.handle_control_command_("OTA_START:channel=develop"));
-  TEST_ASSERT_EQUAL(1, ota_service_mock::state.start_update_calls);
-  TEST_ASSERT_EQUAL_STRING("develop", ota_service_mock::state.last_channel.c_str());
-
-  TEST_ASSERT_FALSE(frontend.handle_control_command_("OTA_CHECK:channel=latest"));
-
-  ble_bindings_mock::state.sysinfo_lines.clear();
-  EspectreOtaStatus ota_status;
-  ota_status.state = EspectreOtaState::UPDATE_AVAILABLE;
-  ota_status.current_version = "1.0.0";
-  ota_status.target_version = "1.1.0";
-  ota_status.message = "update available";
-  ota_status.update_available = true;
-  ota.emit_status(ota_status);
-  drain_pending_sysinfo(frontend);
-
+  TEST_ASSERT_FALSE(frontend.handle_control_command_("OTA_STATUS"));
+  TEST_ASSERT_FALSE(frontend.handle_control_command_("OTA_CHECK"));
+  TEST_ASSERT_FALSE(frontend.handle_control_command_("OTA_START:channel=develop"));
+  TEST_ASSERT_EQUAL(0, ota_service_mock::state.start_check_calls);
+  TEST_ASSERT_EQUAL(0, ota_service_mock::state.start_update_calls);
   TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
                              ble_bindings_mock::state.sysinfo_lines.end(),
-                             "ota_state=update_available") != ble_bindings_mock::state.sysinfo_lines.end());
-  TEST_ASSERT_TRUE(std::find(ble_bindings_mock::state.sysinfo_lines.begin(),
-                             ble_bindings_mock::state.sysinfo_lines.end(),
-                             "ota_target_version=1.1.0") != ble_bindings_mock::state.sysinfo_lines.end());
+                             "supports_ota=false") != ble_bindings_mock::state.sysinfo_lines.end());
+  TEST_ASSERT_TRUE(std::none_of(ble_bindings_mock::state.sysinfo_lines.begin(),
+                                ble_bindings_mock::state.sysinfo_lines.end(),
+                                [](const std::string &line) { return line.rfind("ota_", 0) == 0; }));
+}
+
+void test_native_frontend_ota_prepare_quiesces_transports_and_recovers_on_error(void) {
+  MockBleBindings bindings;
+  MockMqttTransport mqtt;
+  MockOtaService ota;
+  EspectreDeviceConfig config;
+  config.mqtt_host = "localhost";
+  NativeFrontend::WifiProvisioningInfo wifi;
+  wifi.ssid = "HomeNet";
+
+  NativeFrontend frontend(&bindings, &mqtt, &ota);
+  frontend.ble_forced_ = true;
+  frontend.set_device_config(config);
+  frontend.set_wifi_provisioning_info(wifi);
+  TEST_ASSERT_TRUE(frontend.setup());
+  bindings.emit_connection(true);
+  mqtt_transport_mock::state.publishes.clear();
+
+  ota.emit_prepare();
+
+  TEST_ASSERT_TRUE(frontend.ota_frontend_quiesced_);
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.shutdown_called);
+  TEST_ASSERT_TRUE(ble_bindings_mock::state.shutdown_called);
+  TEST_ASSERT_FALSE(frontend.client_connected_);
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
+
+  EspectreOtaStatus downloading;
+  downloading.state = EspectreOtaState::DOWNLOADING;
+  downloading.busy = true;
+  ota.emit_status(downloading);
+  TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.empty());
+
+  const int mqtt_setup_calls = mqtt_transport_mock::state.setup_calls;
+  const int ble_setup_calls = ble_bindings_mock::state.setup_calls;
+  EspectreOtaStatus error;
+  error.state = EspectreOtaState::ERROR;
+  error.message = "download failed";
+  ota.emit_status(error);
+
+  TEST_ASSERT_FALSE(frontend.ota_frontend_quiesced_);
+  TEST_ASSERT_EQUAL(mqtt_setup_calls + 1, mqtt_transport_mock::state.setup_calls);
+  TEST_ASSERT_EQUAL(ble_setup_calls + 1, ble_bindings_mock::state.setup_calls);
 }
 
 void test_espectre_protocol_parses_config_and_rejects_bad_commands(void) {
@@ -1745,7 +1772,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads);
   RUN_TEST(test_native_frontend_mqtt_connect_publishes_current_ota_state);
   RUN_TEST(test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state);
-  RUN_TEST(test_native_frontend_ble_ota_commands_use_ota_service_and_refresh_sysinfo);
+  RUN_TEST(test_native_frontend_ble_ota_commands_are_rejected_and_not_advertised);
+  RUN_TEST(test_native_frontend_ota_prepare_quiesces_transports_and_recovers_on_error);
   RUN_TEST(test_espectre_protocol_parses_config_and_rejects_bad_commands);
   RUN_TEST(test_native_frontend_ble_sensing_commands_are_rejected);
   RUN_TEST(test_native_frontend_wifi_provisioning_commands_forward_to_callback);

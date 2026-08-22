@@ -82,6 +82,7 @@ HttpsOtaService::HttpsOtaService(const char *frontend, const char *chip, OtaRele
   } else {
     default_channel_ = ESPECTRE_OTA_CHANNEL_RELEASE;
   }
+  status_.default_channel = default_channel_;
   status_.channel = default_channel_;
   status_.manifest_url = espectre_ota_manifest_url(frontend_.c_str(), chip_.c_str(), default_channel_);
 }
@@ -402,14 +403,16 @@ bool HttpsOtaService::request_prepare_for_update_() {
 }
 
 void HttpsOtaService::update_status_(const EspectreOtaStatus &status) {
+  EspectreOtaStatus normalized = status;
+  normalized.default_channel = default_channel_;
   if (ensure_lock_()) {
     xSemaphoreTake(lock_, portMAX_DELAY);
-    status_ = status;
-    pending_status_ = status;
+    status_ = normalized;
+    pending_status_ = normalized;
     status_callback_pending_ = true;
     xSemaphoreGive(lock_);
   } else {
-    status_ = status;
+    status_ = normalized;
   }
 }
 

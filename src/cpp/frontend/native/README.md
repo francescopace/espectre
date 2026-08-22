@@ -34,7 +34,7 @@ Repository CLI:
 ./espectre monitor --port /dev/cu.usbmodemXXXX
 ```
 
-The CLI is a thin wrapper over the ESP-IDF app in this directory. `--ota-channel` selects the firmware default used when a later MQTT or BLE OTA command omits its channel; it defaults to `release`, or to `NATIVE_OTA_CHANNEL` when set, and is preserved by both local and Docker builds. On Windows, use `.\espectre.cmd native ...` and `.\espectre.cmd monitor --port COM5`. Docker can replace local ESP-IDF for `build`; `flash` and `doctor` continue to use the local environment.
+The CLI is a thin wrapper over the ESP-IDF app in this directory. `--ota-channel` selects the firmware default used when a later MQTT OTA command omits its channel; it defaults to `release`, or to `NATIVE_OTA_CHANNEL` when set, and is preserved by both local and Docker builds. On Windows, use `.\espectre.cmd native ...` and `.\espectre.cmd monitor --port COM5`. Docker can replace local ESP-IDF for `build`; `flash` and `doctor` continue to use the local environment.
 
 ### Browser Configure and Monitor tools
 
@@ -52,7 +52,7 @@ Current capabilities:
 - provision or clear Wi-Fi credentials over BLE
 - select `2g`, `5g`, or `auto` over BLE when sysinfo reports `supports_wifi_5ghz=true`
 - provision or clear MQTT configuration over BLE
-- request OTA status, check for updates, and start HTTPS OTA over BLE
+- inspect the running firmware version over BLE; use MQTT to check for and install OTA updates
 - stop BLE after Wi-Fi and MQTT are saved with `STOP_BLE`; disconnecting the Configure client leaves BLE advertising so setup can be reopened without another recovery action
 - restart BLE later with MQTT `set_ble` (`ble on` in `./espectre mqtt`)
 - restart BLE without MQTT by holding the board BOOT button for the configured recovery interval, 3 seconds by default
@@ -182,20 +182,20 @@ This profile is additive. The canonical ESPectre topics under `espectre/v1/devic
 
 ## OTA
 
-The native frontend uses the shared ESPectre MQTT command surface plus a shared ESP-IDF HTTPS OTA implementation, and it exposes the same OTA service through its BLE control characteristic.
+The native frontend uses the shared ESPectre MQTT command surface plus a shared ESP-IDF HTTPS OTA implementation. BLE remains a setup and recovery transport and does not expose OTA commands.
 
 Operational model:
 
-- MQTT and BLE both call the same built-in OTA service
+- MQTT calls the built-in OTA service through `ota_status`, `ota_check`, and `ota_start`
 - `ota_check` and `ota_start` resolve a per-chip GitHub Releases manifest URL
 - an optional `channel` of `release`, `preview`, or `develop` selects the channel; omitting it keeps the firmware's build-time default
 - `preview` fetches the rolling `snapshot` tag from `main`, and `develop` fetches `snapshot-dev` from `develop`
-- MQTT and BLE clients cannot override the server, manifest, image, or target version
+- MQTT clients cannot override the server, manifest, image, or target version
 - successful OTA schedules an immediate reboot into the new slot
 - MQTT connect republishes retained `info`, retained `status` with `online: true`, and the current `ota/state`, so clients can close an in-flight update UI when the device returns
 - check, download, and failure progress is logged under `espectre.ota`
 
-The default channel follows the image that was flashed: release firmware uses the latest GitHub release, preview builds use the rolling `snapshot` tag, and develop builds use the rolling `snapshot-dev` tag. OTA compares `git describe` identities: the device firmware version and the manifest `version` must match for "already up to date". The manifest filename is `espectre-native-ota-<chip>.json`, and its `image_url` points to the matching versioned `-ota.bin` release asset.
+The default channel follows the image that was flashed: release firmware uses the latest GitHub release, preview builds use the rolling `snapshot` tag, and develop builds use the rolling `snapshot-dev` tag. MQTT `ota/state` reports it as `default_channel`; the separate `channel` value identifies the current or latest attempt. OTA compares `git describe` identities: the device firmware version and the manifest `version` must match for "already up to date". The manifest filename is `espectre-native-ota-<chip>.json`, and its `image_url` points to the matching versioned `-ota.bin` release asset.
 
 ## Firmware Limits and Expectations
 
@@ -209,7 +209,7 @@ Important current limits:
 - BLE sysinfo exposes capability flags, and MQTT exposes its command catalog; there is no negotiated feature handshake
 - OTA uses HTTPS transport and dual OTA slots, so local recovery still starts from the published factory image when an image must be reflashed from USB
 
-This keeps the transport simple while allowing external BLE clients to provision Wi-Fi and MQTT, edit the user-facing device label, trigger OTA, and inspect read-only status. The firmware-generated `device_id` and derived `device_name` remain immutable. Live sensing and runtime detector control stay on MQTT.
+This keeps the transport simple while allowing external BLE clients to provision Wi-Fi and MQTT, edit the user-facing device label, and inspect read-only setup status. The firmware-generated `device_id` and derived `device_name` remain immutable. OTA, live sensing, and runtime detector control stay on MQTT.
 
 ## BLE-Specific Troubleshooting
 
@@ -218,7 +218,7 @@ This keeps the transport simple while allowing external BLE clients to provision
 Check these first:
 
 1. the client writes exact ASCII commands from the setup surface in [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md)
-2. sensing writes such as `SET_THRESHOLD` or `RECALIBRATE` are rejected over BLE; use MQTT
+2. sensing and OTA writes are rejected over BLE; use MQTT
 3. the client does not depend on sysinfo ordering
 
 ### CSI occupancy drops while BLE is on

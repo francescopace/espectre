@@ -21,8 +21,7 @@ Keep over BLE:
 - Wi-Fi provision and clear
 - MQTT broker provision and clear
 - device identity (`device_id` read-only, `device_name`, `device_label`)
-- read-only sysinfo status, including firmware, chip, Wi-Fi/MQTT connection, OTA state, and the current detector settings as diagnostics
-- OTA status, check, and start
+- read-only sysinfo status, including firmware, chip, Wi-Fi/MQTT connection, and the current detector settings as diagnostics
 - `STOP_BLE`, MQTT `set_ble`, and a long BOOT-button press to re-enter setup
 
 Remove from BLE:
@@ -30,6 +29,7 @@ Remove from BLE:
 - live movement, threshold, and motion-state notify
 - `SET_THRESHOLD`, `SET_MOTION_HITS`, `SET_DETECTOR`, `SET_CSI_TRAFFIC_MODE`, `SET_TRAFFIC_GENERATOR_MODE`
 - `RECALIBRATE`
+- OTA status, check, and start; those remain on MQTT
 
 MQTT, Home Assistant Discovery, and ESPHome remain the sensing-control family. Native starts BLE automatically when Wi-Fi SSID or MQTT host is missing, pauses CSI while BLE is up, keeps advertising across nearby client disconnects, stops BLE only when `STOP_BLE` or MQTT `set_ble` with `ble=off` explicitly closes setup, and does not lower the production occupancy floor to make BLE coexistence look ready. Compile-time Kconfig Wi-Fi and MQTT defaults count as configured, so lab images skip BLE at boot.
 
@@ -43,8 +43,9 @@ The BLE telemetry characteristic UUID may remain in the GATT table so existing d
 | --- | --- | --- |
 | 2026-03-17 | BLE runtime control as a first-class standalone live surface | Replaced. Live notify and sensing writes assumed CSI and BLE could share the radio |
 | 2026-08-16 | Setup-only BLE with CSI paused, while keeping sensing writes and optional live notify | Incomplete. The remaining live and sensing-control surface still invited BLE-during-detection |
-| 2026-08-17 | Restrict BLE to Wi-Fi, MQTT, OTA, and identity/status | Accepted |
+| 2026-08-17 | Restrict BLE to Wi-Fi, MQTT, OTA, and identity/status | Superseded by the 2026-08-22 OTA transport decision |
 | 2026-08-18 | Treat Kconfig Wi-Fi and MQTT defaults as configured so lab images skip BLE at boot | Clarified |
+| 2026-08-22 | Keep OTA status, checks, and updates on MQTT instead of BLE | Accepted |
 
 ## Alternatives Considered
 
@@ -72,6 +73,7 @@ Trade-offs:
 
 - first-boot Native cannot preview live motion until MQTT is up
 - BLE clients that still send sensing writes or subscribe for movement must move those operations to MQTT
+- BLE clients that send OTA commands must move those operations to MQTT
 - the unused telemetry characteristic remains until a later GATT cleanup if binary size or service shape justifies removing it
 - holding BOOT for the recovery interval changes the running mode, so boards that reuse that pin must override or disable the recovery-button Kconfig option
 

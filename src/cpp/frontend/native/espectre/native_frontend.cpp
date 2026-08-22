@@ -98,29 +98,6 @@ std::string normalize_text_token(const std::string &value) {
   return normalized;
 }
 
-const char *ota_state_name(EspectreOtaState state) {
-  switch (state) {
-    case EspectreOtaState::IDLE:
-      return "idle";
-    case EspectreOtaState::CHECKING:
-      return "checking";
-    case EspectreOtaState::UPDATE_AVAILABLE:
-      return "update_available";
-    case EspectreOtaState::UP_TO_DATE:
-      return "up_to_date";
-    case EspectreOtaState::DOWNLOADING:
-      return "downloading";
-    case EspectreOtaState::APPLYING:
-      return "applying";
-    case EspectreOtaState::REBOOT_SCHEDULED:
-      return "reboot_scheduled";
-    case EspectreOtaState::ERROR:
-      return "error";
-    default:
-      return "unknown";
-  }
-}
-
 float current_free_memory_kb() {
 #ifdef ESPECTRE_HAVE_ESP_HEAP_CAPS
   return static_cast<float>(heap_caps_get_free_size(MALLOC_CAP_DEFAULT)) / 1024.0f;
@@ -211,8 +188,14 @@ bool NativeFrontend::setup() {
   latest_diagnostics_ = diagnostics_sampler_.sample(diagnostics, diagnostics_now_ms);
 
   if (ota_service_ != nullptr) {
-    ota_service_->set_prepare_for_update_callback([this]() { this->runtime_.quiesce_for_ota(); });
+    ota_service_->set_prepare_for_update_callback([this]() { this->prepare_for_ota_(); });
     ota_service_->set_status_callback([this](const EspectreOtaStatus &status) {
+      if (this->ota_frontend_quiesced_) {
+        if (status.state == EspectreOtaState::ERROR) {
+          this->resume_after_ota_error_();
+        }
+        return;
+      }
       this->publish_mqtt_ota_status_(status);
       this->system_info_refresh_.request();
     });
@@ -397,13 +380,8 @@ bool NativeFrontend::handle_control_command_(const std::string &command) {
     return handle_ble_mode_write_(false, nullptr);
   }
   if (command.rfind("OTA_", 0) == 0) {
-    EspectreCommand ota_command;
-    std::string ota_error;
-    if (!parse_espectre_ble_ota_command(command, &ota_command, &ota_error)) {
-      ESP_LOGW(TAG, "BLE OTA command rejected: %s", ota_error.c_str());
-      return false;
-    }
-    return handle_ble_ota_command_(ota_command);
+    ESP_LOGW(TAG, "BLE OTA commands are not supported; use MQTT");
+    return false;
   }
 
   ESP_LOGW(TAG, "Unknown BLE control command: %s", command.c_str());
@@ -553,50 +531,6 @@ bool NativeFrontend::handle_detector_write_(DetectionAlgorithm algorithm) {
     return false;
   }
   if (!runtime_.set_detection_algorithm_runtime(algorithm)) {
-    return false;
-  }
-  system_info_refresh_.request();
-  return true;
-}
-
-bool NativeFrontend::handle_ble_ota_command_(const EspectreCommand &command) {
-  std::string payload = "{\"command\":\"";
-  payload += command.command;
-  payload += "\"";
-  if (command.has_ota_channel) {
-    payload += ",\"channel\":\"";
-    payload += command.ota_channel;
-    payload += "\"";
-  }
-  payload += "}";
-  const FrontendMqttCommandResult result = handle_frontend_mqtt_command(
-      payload,
-      ota_service_,
-      device_info_.firmware_version.c_str(),
-      FrontendMqttCommandCapabilities{
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          false,
-          ota_service_ != nullptr,
-      },
-      {},
-      {},
-      {},
-      {},
-      {},
-      {},
-      {},
-      {},
-      [this](const EspectreOtaStatus &status) {
-        this->publish_mqtt_ota_status_(status);
-        this->system_info_refresh_.request();
-      });
-  if (!result.accepted) {
-    ESP_LOGW(TAG, "BLE OTA command rejected: %s", result.message.c_str());
     return false;
   }
   system_info_refresh_.request();
@@ -1095,18 +1029,35 @@ void NativeFrontend::publish_mqtt_command_result_(const EspectreCommand &command
   (void) publish_frontend_mqtt_command_result(mqtt_transport_, device_config_, command, accepted, message);
 }
 
-void NativeFrontend::append_ota_sysinfo_lines_(std::vector<std::string> *lines) const {
-  if (lines == nullptr || ota_service_ == nullptr) {
+void NativeFrontend::prepare_for_ota_() {
+  if (ota_frontend_quiesced_) {
     return;
   }
-  const EspectreOtaStatus status = ota_service_->status();
-  lines->emplace_back(std::string("ota_state=") + ota_state_name(status.state));
-  lines->emplace_back(std::string("ota_busy=") + (status.busy ? "true" : "false"));
-  lines->emplace_back(std::string("ota_update_available=") + (status.update_available ? "true" : "false"));
-  lines->emplace_back(std::string("ota_current_version=") + status.current_version);
-  lines->emplace_back(std::string("ota_target_version=") + status.target_version);
-  lines->emplace_back(std::string("ota_channel=") + status.channel);
-  lines->emplace_back(std::string("ota_message=") + status.message);
+  ota_frontend_quiesced_ = true;
+  mqtt_connected_ = false;
+  mqtt_ha_online_ = false;
+  if (mqtt_transport_ != nullptr) {
+    mqtt_transport_->shutdown();
+  }
+  pending_ble_intent_ = BleIntent::Unchanged;
+  stop_ble_();
+  runtime_.quiesce_for_ota();
+}
+
+void NativeFrontend::resume_after_ota_error_() {
+  if (!ota_frontend_quiesced_) {
+    return;
+  }
+  ota_frontend_quiesced_ = false;
+  if (ble_should_run_()) {
+    if (!start_ble_()) {
+      ESP_LOGE(TAG, "BLE restart failed after OTA error");
+    }
+  } else if (wifi_configured_()) {
+    runtime_.set_services_armed(true);
+  }
+  setup_mqtt_();
+  system_info_refresh_.request();
 }
 
 void NativeFrontend::send_system_info_() {
@@ -1131,7 +1082,7 @@ void NativeFrontend::send_system_info_() {
                           false,
                           false,
                           runtime_.capabilities().supports_extended_diagnostics,
-                          ota_service_ != nullptr,
+                          false,
                           ESPECTRE_WIFI_DUAL_BAND != 0},
       device_config_,
       sysinfo_device_info,
@@ -1152,7 +1103,6 @@ void NativeFrontend::send_system_info_() {
     std::snprintf(line, sizeof(line), "%s=%s", key, value);
     lines.emplace_back(line);
   });
-  append_ota_sysinfo_lines_(&lines);
   append_sysinfo_end_line(&lines);
   bindings_->replace_sysinfo_lines(std::move(lines));
 }

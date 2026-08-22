@@ -156,6 +156,15 @@ def test_git_version_cmake_reads_environment_before_git_describe() -> None:
     assert workspace_index < cmake.index("header is not stamped")
 
 
+def test_native_loop_processes_wifi_events_before_frontend_updates() -> None:
+    source = (
+        REPO_ROOT / "src" / "cpp" / "frontend" / "native" / "app" / "main" / "app_main.cpp"
+    ).read_text(encoding="utf-8")
+    loop = source[source.index("void espectre_loop_task") : source.index("bool init_wifi_station")]
+
+    assert loop.index("g_wifi_manager.loop();") < loop.index("g_frontend->loop();")
+
+
 def test_esphome_forwards_numeric_project_version_to_sdk_cmake() -> None:
     pytest.importorskip("esphome")
     path = (

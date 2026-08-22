@@ -211,6 +211,8 @@ struct EspectreOtaStatus {
   std::string manifest_url;
   std::string image_url;
   std::string message;
+  /** Build-time OTA channel used when a command omits its channel. */
+  std::string default_channel;
   /** Resolved OTA channel for the current attempt. Empty when unused. */
   std::string channel;
   bool busy{false};
@@ -346,18 +348,6 @@ std::string espectre_ota_status_payload(const EspectreDeviceConfig &config,
  * @return false on malformed input or an unknown command.
  */
 bool parse_espectre_command(const std::string &payload, EspectreCommand *command, std::string *error);
-/**
- * Parse a BLE ASCII OTA control command.
- *
- * Accepts `OTA_STATUS`, `OTA_CHECK`, `OTA_START`, and the optional
- * `OTA_CHECK:channel=preview` / `OTA_START:channel=develop` forms. Other
- * suffixes and unknown channels are rejected.
- *
- * @param command Full BLE control string.
- * @param parsed Populated only on success.
- * @param error Receives a human-readable reason on failure. May be `nullptr`.
- */
-bool parse_espectre_ble_ota_command(const std::string &command, EspectreCommand *parsed, std::string *error);
 /**
  * Whether `channel` is a published OTA channel name.
  *

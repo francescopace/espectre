@@ -31,10 +31,10 @@ Current BLE responsibilities:
 - expose the firmware-generated, read-only `device_id` and provision the mutable `device_label`
 - provision Wi-Fi credentials
 - provision MQTT endpoint settings
-- trigger OTA status, checks, and updates through the shared HTTPS OTA service
+- report the running firmware version; OTA status and commands remain on MQTT
 - recover from broken Wi-Fi or MQTT configuration
 
-Native does not expose live sensing, threshold or detector writes, CSI traffic control, or recalibration over BLE. Those commands stay on MQTT and Home Assistant Discovery. Sensing pauses while BLE is up. The product decision is recorded in [`2026-08-17-keep-native-ble-as-setup-recovery.md`](adr/2026-08-17-keep-native-ble-as-setup-recovery.md).
+Native does not expose live sensing, threshold or detector writes, CSI traffic control, recalibration, or OTA over BLE. Those operations stay on MQTT and Home Assistant Discovery where applicable. Sensing pauses while BLE is up. The product decision is recorded in [`2026-08-17-keep-native-ble-as-setup-recovery.md`](adr/2026-08-17-keep-native-ble-as-setup-recovery.md).
 
 The dependency-free browser reference client is [`espectre-ble.js`](web/assets/js/espectre-ble.js). Its typed builders cover every command in the [Current BLE Control Surface](#current-ble-control-surface), enforce the firmware’s UTF-8 field and 512-byte control-write limits, serialize GATT writes, and accept only complete `proto_version=...` through `END` sysinfo snapshots.
 
@@ -387,12 +387,13 @@ espectre/v1/devices/{device_id}/ota/state
   "target_version": "1.2.3",
   "manifest_url": "https://github.com/francescopace/espectre/releases/latest/download/espectre-native-ota-esp32c6.json",
   "image_url": "https://github.com/francescopace/espectre/releases/download/1.2.3/espectre-native-1.2.3-esp32c6-ota.bin",
+  "default_channel": "release",
   "channel": "release",
   "message": "update available"
 }
 ```
 
-`ota/state` is not retained. Native publishes the current snapshot when MQTT connects, when an OTA command changes state, and when the HTTPS OTA worker reports progress. After a successful update the device reboots, so the next connect snapshot is `idle` with `current_version` set to the firmware now running.
+`default_channel` is the firmware build-time default, while `channel` is the channel resolved for the current or latest attempt. `ota/state` is not retained. Native publishes the current snapshot when MQTT connects, when an OTA command changes state, and when the HTTPS OTA worker reports progress. After a successful update the device reboots, so the next connect snapshot is `idle` with `current_version` set to the firmware now running.
 
 Command result:
 
@@ -419,11 +420,6 @@ CLEAR_MQTT_CONFIG
 CLEAR_DEVICE_CONFIG
 SET_WIFI_CONFIG:ssid=Lab%20Network&password=secret-password&channel=6&bssid=aa%3Abb%3Acc%3Add%3Aee%3Aff&band_policy=2g
 CLEAR_WIFI
-OTA_STATUS
-OTA_CHECK
-OTA_CHECK:channel=preview
-OTA_START
-OTA_START:channel=develop
 STOP_BLE
 ```
 
@@ -440,6 +436,7 @@ Identity/config semantics for the current BLE control surface:
 - `SET_WIFI_CONFIG:...` replaces the full persisted Wi-Fi station block in one write; credentials, BSSID, and channel changes apply immediately, while a changed `band_policy` applies after restart so the Wi-Fi and CSI runtimes restart together
 - `band_policy` accepts `2g`, `5g`, or `auto`; firmware rejects `5g` and `auto` unless the target reports `supports_wifi_5ghz=true`
 - `CLEAR_WIFI` clears only persisted Wi-Fi station settings
+- OTA status, checks, and updates are not exposed on BLE; use the MQTT `ota/state` and command surfaces
 - `STOP_BLE` stops BLE after Wi-Fi and MQTT are configured so CSI sensing can use the radio alone; it is rejected while either is unconfigured
 
 ## Current BLE Status Surface
@@ -447,7 +444,7 @@ Identity/config semantics for the current BLE control surface:
 The standalone native frontend exposes two GATT paths for setup:
 
 - a line-based `sysinfo` characteristic for identity, configuration, and read-only diagnostics
-- a control characteristic for Wi-Fi, MQTT, identity, OTA, and `STOP_BLE` writes
+- a control characteristic for Wi-Fi, MQTT, identity, and `STOP_BLE` writes
 
 The telemetry characteristic UUID remains in the GATT table so older discovery still succeeds. Native does not notify on it, and `supports_live_telemetry` is `false`. Clients should not subscribe for live movement.
 
@@ -494,7 +491,7 @@ Capability-oriented `sysinfo` keys may include:
 | `supports_traffic_control` | Native reports `false`; CSI traffic writes belong to MQTT |
 | `supports_live_telemetry` | Native reports `false`; BLE does not notify live sensing |
 | `supports_extended_diagnostics` | Whether implementation-specific runtime diagnostics are exposed |
-| `supports_ota` | Whether BLE clients can expose OTA-related controls |
+| `supports_ota` | Native reports `false`; OTA status and commands belong to MQTT |
 | `supports_wifi_5ghz` | Whether the target radio can accept the `5g` and `auto` Wi-Fi band policies |
 | `ble_active` | Whether Native currently has the BLE stack up |
 
@@ -517,12 +514,6 @@ Current BLE `sysinfo` diagnostic keys may include:
 | `publish_interval_ms` | Periodic status-log cadence in milliseconds |
 | `evaluation_interval_ms` | Detector evaluation cadence in milliseconds |
 | `motion_hits` | Motion-on/off consecutive hit thresholds |
-| `ota_state` | Current OTA state reported by the shared HTTPS OTA service |
-| `ota_busy` | Whether an OTA worker is active |
-| `ota_update_available` | Whether the last OTA check found an update |
-| `ota_current_version` | Firmware version compared against the manifest |
-| `ota_target_version` | Version reported by the pending OTA target, when known |
-| `ota_message` | OTA progress or error message |
 
 These diagnostic keys are intentionally more implementation-oriented than the identity/config keys above. Nearby tools may display them, but clients should not treat the full diagnostic set or its formatting as a stable contract. BLE sysinfo reports the current detector settings as status; changing them requires MQTT.
 

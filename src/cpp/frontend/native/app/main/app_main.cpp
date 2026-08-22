@@ -117,6 +117,7 @@ espectre::EspectreDeviceConfig make_device_config() {
 void espectre_loop_task(void *arg) {
   (void) arg;
   while (true) {
+    g_wifi_manager.loop();
     if (g_frontend != nullptr) {
       g_frontend->loop();
     }

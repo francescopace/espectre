@@ -4,7 +4,7 @@ This document is the durable literature index for ESPectre sensing research. It 
 
 This index is for sensing researchers and feature contributors. It is intentionally detailed and does not explain the operational detector; start with [ALGORITHMS.md](ALGORITHMS.md) for current behavior or [TUNING.md](TUNING.md) for device settings. In the notes, HT20 means a 20 MHz Wi-Fi channel, CIR means channel impulse response, and a transfer limit explains why a published result may not apply directly to ESP32 hardware or ESPectre data.
 
-The index covers every external publication reviewed from the local `.papers` collection and the additional online sources reviewed through 2026-08-14. Internally authored ESPectre research is excluded; the historical NBVI work is retained in the decision history of the [fixed-band ADR](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md). Primary publisher, DOI, institutional, or arXiv links are preferred so the local PDF collection is not required. Release dates refer to the first public version or online publication date, not the date on which ESPectre reviewed the source.
+The index covers every external publication reviewed from the local `.papers` collection and the additional online sources reviewed through 2026-08-21. Internally authored ESPectre research is excluded; the historical NBVI work is retained in the decision history of the [fixed-band ADR](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md). Primary publisher, DOI, institutional, or arXiv links are preferred so the local PDF collection is not required. Release dates refer to the first public version or online publication date, not the date on which ESPectre reviewed the source.
 
 This is not evidence that an algorithm works on ESPectre data. Published accuracy values are rarely comparable because tasks, labels, radio hardware, packet rates, environments, splits, and leakage controls differ. Use [FEATURES.md](FEATURES.md) for ESPectre measurements and verdicts, and use ADRs for durable production decisions.
 
@@ -22,7 +22,7 @@ Unless a note explicitly says otherwise, amplitude-domain pipelines use absolute
 
 ## Conclusions For ESPectre
 
-The literature reinforces six project-level conclusions:
+The literature reinforces seven project-level conclusions:
 
 1. **Remove nuisances before extracting richer features.** Packet gain, carrier-frequency offset, sampling-frequency offset, packet detection delay, phase rotation, null tones, and irregular sampling can otherwise dominate the apparent sensing signal.
 2. **Frequency structure is the strongest unexploited HT20 axis.** Cross-subcarrier ratios, rank changes, coherence-versus-frequency-offset, and robust distributional aggregation retain channel-shape information without trusting absolute magnitude.
@@ -30,6 +30,7 @@ The literature reinforces six project-level conclusions:
 4. **Hardware and environment generalization dominate benchmark accuracy.** Room-random or packet-random splits can substantially overstate deployment performance. Recording lineage, device, room, person, and quiet-replay groups must remain outside one another across validation folds.
 5. **Presence is not merely a lower motion threshold.** Respiration and other micro-motion work uses different bands, windows, subcarrier selection, and stationarity assumptions. It belongs in a separate Presence-versus-Empty task.
 6. **Bandwidth limits the physical representation.** CIR, delay, range, and range-Doppler papers are useful long-term directions, but results obtained with 80-160 MHz, multiple antennas, or monostatic Wi-Fi cannot justify an HT20 ESP32 feature.
+7. **Embedded accuracy is not enough.** A deployment claim must report end-to-end cadence, latency, RAM, flash, energy, external-memory requirements, and whether capture and inference share the device. Offline inference over stored test samples is not evidence of a live sensing runtime.
 
 The most actionable scale-invariant experiments remain:
 
@@ -289,6 +290,22 @@ The most actionable scale-invariant experiments remain:
 - **Results:** link placement strongly changes activity accuracy; one multi-link example reports 58.52%, 71.24%, and 49.89% for individual links, while best-link selection adds 17.90 points over one link and 39.25 over another.
 - **ESPectre:** **Validation**. Placement, link quality, memory, latency, and energy belong beside F1 in any promotion decision.
 
+### WISDOM: A Framework for Scaling On-Device Wi-Fi Sensing Solutions
+
+- **Source:** [author manuscript](https://www.cse.iitm.ac.in/~ayon/files/chakraborty_wisdom_adhoc25.pdf); [DOI 10.1016/j.adhoc.2025.103915](https://doi.org/10.1016/j.adhoc.2025.103915)
+- **Released:** 2025-06-02; Ad Hoc Networks 178 (2025) 103915
+- **Setup and method:** preliminary deployability tests span 20 commercial IoT platforms, while the detailed benchmarks run locally on an ESP32-C3-Mini with a 160 MHz single-core RISC-V CPU, 400 KB RAM, and 4 MB flash. The six-class HAR corpus contains about 300,000 HT20 CSI packets collected at 90-100 Hz from five people in four locations. WISDOM compares CNN, LSTM, and fully connected architectures across parameter counts and pruning, clustering, quantization, and combined compression using the TensorFlow optimization and TFLite Micro toolchain.
+- **Results:** CNN and LSTM accuracy saturates near 95%, while the tested fully connected models reach about 80% but can infer up to two orders of magnitude faster. Quantization raises inference rate by 15-30 times and reduces runtime memory by up to 70%; the final framework reports up to 20-25% smaller models and 70-80% lower latency with no more than five percentage points of accuracy loss.
+- **ESPectre:** **Validation** and deployment prior art. Accuracy, inference rate, energy per inference, RAM, and flash must be evaluated together, and a compressed larger model can dominate an uncompressed smaller one. The published 100 x 48 amplitude spectrograms and HAR classifiers are not scale invariant as published, and the paper does not report ESPectre-style person-, room-, device-, or replay-group holdouts.
+
+### Tools and Methods for Achieving Wi-Fi Sensing in Embedded Devices
+
+- **Source:** [Sensors](https://www.mdpi.com/1424-8220/25/19/6220); [DOI 10.3390/s25196220](https://doi.org/10.3390/s25196220)
+- **Released:** 2025-10-08
+- **Setup and method:** two ESP32 boards collect HT20 CSI at a configured 50 packets/s for five activities performed by 22 volunteers in one laboratory. The authors augment 1,198 training samples to 11,513 with empirical mode decomposition, train a compact LSTM-embedded DenseNet, quantize it to unsigned 8-bit TensorFlow Lite, and run stored test samples on an ESP32-S3 N16R8 with 8 MB external PSRAM.
+- **Results:** the unquantized compact model reports 97.33% accuracy. The quantized 47-subcarrier path reports 93.32% but requires 10,904 ms per sample; selecting the single subcarrier with highest variance gives 92.43%, 232 ms, and a 127 kB model allocation. The paper states that external PSRAM is required.
+- **ESPectre:** **Validation** and close embedded deployment context, not evidence for ESPectre's live runtime. It supports reporting accuracy, latency, memory, collection cadence, and external-memory assumptions together. Collection and inference are evaluated as separate paths, no cross-domain or multi-person test is reported, and the selected absolute-amplitude subcarrier is neither scale invariant nor a safe replacement for robust cross-subcarrier summaries.
+
 ### SenseFi: A Library and Benchmark on Deep-Learning-Empowered WiFi Sensing
 
 - **Source:** [arXiv](https://arxiv.org/abs/2207.07859)
@@ -352,6 +369,14 @@ The most actionable scale-invariant experiments remain:
 - **Method:** cross-modal self-supervised representation learning plus station-wise masking augmentation to model long station outages and scarce labels.
 - **Results:** reports that missingness-invariant pretraining or masking alone is insufficient; their combination is needed for robustness to both station loss and limited labeled data.
 - **ESPectre:** **Validation** for the future multi-node orchestration layer. It is not a current single-device feature, but it argues for training and testing with whole missing nodes rather than random missing samples.
+
+### UniFi: Combining Irregularly Sampled CSI from Diverse Communication Packets and Frequency Bands for Wi-Fi Sensing
+
+- **Source:** [arXiv](https://arxiv.org/abs/2512.22143)
+- **Released:** 2025-12-14
+- **Setup and method:** CommCSI-HAR uses Raspberry Pi 3B+ Nexmon sniffers to capture irregular CSI from ordinary 2.4 GHz and 5 GHz traffic while eight people perform six activities. UniFi clusters packets by PHY metadata, normalizes magnitude across subcarriers, aligns compatible clusters, and retains a packet within each cluster only when it is at least 10 ms after its predecessor. A time-aware attention model consumes the remaining CSI at continuous timestamps without interpolation or resampling.
+- **Results:** dual-band fusion reports 96.88% +/- 0.54 accuracy, compared with 92.29% +/- 1.02 after linear interpolation and 94.65% +/- 0.84 for the concurrently captured fixed-rate reference. Across five sensing tasks, the model uses about 3% of CSI-BERT2's parameters; removing burst filtering causes a small accuracy loss and roughly doubles computation. Sanitization, training, and inference run offline on MATLAB and a server with an AMD EPYC 9354 CPU and NVIDIA H100 GPU.
+- **ESPectre:** **Direct** prior art for timestamp-aware burst thinning and **Adapt** for the learned pipeline. Packets inside a short burst are redundant observations rather than extra elapsed-time evidence, so any cadence-sensitive ESPectre feature should use measured timestamps. The 10 ms threshold, multi-band normalization, attention model, and AP-class capture setup do not transfer automatically to a single HT20 ESP32 runtime and require corpus-specific validation.
 
 ### Resource-Efficient WiFi CSI Sensing Through Sample Age
 

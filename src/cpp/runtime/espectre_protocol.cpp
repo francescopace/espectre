@@ -458,7 +458,8 @@ std::string espectre_ota_status_payload(const EspectreDeviceConfig &config,
   const std::string device_id = espectre_effective_device_id(config);
   std::string out;
   out.reserve(192U + device_id.size() + status.current_version.size() + status.target_version.size() +
-              status.manifest_url.size() + status.image_url.size() + status.message.size() + status.channel.size());
+              status.manifest_url.size() + status.image_url.size() + status.message.size() +
+              status.default_channel.size() + status.channel.size());
   out = "{";
   append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
   append_json_pair(&out, "device_id", device_id.c_str());
@@ -473,6 +474,7 @@ std::string espectre_ota_status_payload(const EspectreDeviceConfig &config,
   append_json_pair(&out, "target_version", status.target_version.c_str());
   append_json_pair(&out, "manifest_url", status.manifest_url.c_str());
   append_json_pair(&out, "image_url", status.image_url.c_str());
+  append_json_pair(&out, "default_channel", status.default_channel.c_str());
   append_json_pair(&out, "channel", status.channel.c_str());
   append_json_pair(&out, "message", status.message.c_str());
   out += "}";
@@ -558,61 +560,6 @@ bool parse_espectre_command(const std::string &payload, EspectreCommand *command
     // No additional payload required.
   }
   *command = parsed;
-  return true;
-}
-
-bool parse_espectre_ble_ota_command(const std::string &command, EspectreCommand *parsed, std::string *error) {
-  if (parsed == nullptr) {
-    return false;
-  }
-  EspectreCommand result;
-  const auto reject = [&](const char *message) {
-    if (error != nullptr) {
-      *error = message;
-    }
-    *parsed = result;
-    return false;
-  };
-
-  std::string verb = command;
-  std::string suffix;
-  const size_t colon = command.find(':');
-  if (colon != std::string::npos) {
-    verb = command.substr(0, colon);
-    suffix = command.substr(colon + 1);
-  }
-
-  if (verb == "OTA_STATUS") {
-    result.command = "ota_status";
-  } else if (verb == "OTA_CHECK") {
-    result.command = "ota_check";
-  } else if (verb == "OTA_START") {
-    result.command = "ota_start";
-  } else {
-    return reject("unknown ota command");
-  }
-
-  if (suffix.empty()) {
-    *parsed = result;
-    return true;
-  }
-  if (result.command == "ota_status") {
-    return reject("ota status does not accept channel");
-  }
-
-  const size_t equal = suffix.find('=');
-  if (equal == std::string::npos || suffix.find('&') != std::string::npos) {
-    return reject("invalid ota channel (accepted: release, preview, and develop)");
-  }
-  if (suffix.substr(0, equal) != "channel") {
-    return reject("invalid ota channel (accepted: release, preview, and develop)");
-  }
-  result.ota_channel = suffix.substr(equal + 1);
-  if (!espectre_ota_channel_accepted(result.ota_channel)) {
-    return reject("invalid ota channel (accepted: release, preview, and develop)");
-  }
-  result.has_ota_channel = true;
-  *parsed = result;
   return true;
 }
 

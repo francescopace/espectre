@@ -93,7 +93,7 @@ For the ESPHome workflow, see [`README.md` (esphome)](../src/cpp/frontend/esphom
 
 ### Native
 
-`src/cpp/frontend/native/` exposes the runtime through the standalone BLE/MQTT surface and reuses the shared ESP-IDF frontend-support services for provisioning, device configuration, and OTA-related control flows. Native refreshes the shared diagnostics sample from the existing sensing update that feeds its status log, but publishes the cached CSI and Wi-Fi values only after an explicit MQTT `stats` command. Micro-ESPectre uses the same rate-sampler contract on its publish heartbeat and exposes the cache on the same MQTT `stats` topic. ESPHome uses the same sampler and publishes its diagnostic entity states only after `Refresh Diagnostics` is pressed. These on-demand surfaces do not add a diagnostic timer and remain available in production builds independently of runtime debug logging.
+`src/cpp/frontend/native/` exposes the runtime through standalone BLE setup and MQTT operation surfaces and reuses the shared ESP-IDF frontend-support services for provisioning, device configuration, and MQTT-owned OTA control flows. Native refreshes the shared diagnostics sample from the existing sensing update that feeds its status log, but publishes the cached CSI and Wi-Fi values only after an explicit MQTT `stats` command. Micro-ESPectre uses the same rate-sampler contract on its publish heartbeat and exposes the cache on the same MQTT `stats` topic. ESPHome uses the same sampler and publishes its diagnostic entity states only after `Refresh Diagnostics` is pressed. These on-demand surfaces do not add a diagnostic timer and remain available in production builds independently of runtime debug logging.
 
 For the native workflow and protocol surface, see:
 
