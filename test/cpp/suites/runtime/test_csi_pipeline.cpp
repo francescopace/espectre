@@ -1035,6 +1035,60 @@ void test_csi_pipeline_callback_wrapper_null_data(void) {
     TEST_ASSERT_EQUAL(packets_before, detector.get_total_packets());
 }
 
+namespace {
+
+struct CallbackRefillProbe {
+    wifi_csi_info_t *csi_info{nullptr};
+    uint32_t next_timestamp_us{0U};
+    uint32_t remaining_refills{0U};
+};
+
+bool callback_refill_interceptor_(void *context, const int8_t *, size_t, int8_t,
+                                  bool, uint32_t, bool) {
+    auto *probe = static_cast<CallbackRefillProbe *>(context);
+    if (probe->remaining_refills > 0U) {
+        probe->csi_info->rx_ctrl.timestamp = probe->next_timestamp_us;
+        probe->next_timestamp_us += 10000U;
+        probe->remaining_refills--;
+        g_wifi_mock.trigger_callback(probe->csi_info);
+    }
+    return true;
+}
+
+}  // namespace
+
+void test_csi_pipeline_loop_defers_callback_refill_to_next_iteration(void) {
+    LightweightDetector detector(50, 1.0f);
+    CsiPipeline manager;
+    manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
+    manager.enable(nullptr);
+
+    int8_t csi_buf[128] = {0};
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+
+    constexpr uint32_t initial_frames = 8U;
+    uint32_t timestamp_us = 1000000U;
+    for (uint32_t frame = 0U; frame < initial_frames; ++frame) {
+        csi_info.rx_ctrl.timestamp = timestamp_us;
+        g_wifi_mock.trigger_callback(&csi_info);
+        timestamp_us += 10000U;
+    }
+
+    CallbackRefillProbe probe{&csi_info, timestamp_us, initial_frames - 1U};
+    manager.set_packet_interceptor(&callback_refill_interceptor_, &probe);
+
+    manager.loop();
+
+    TEST_ASSERT_EQUAL(initial_frames, manager.accepted_packets_total());
+    TEST_ASSERT_EQUAL(0U, probe.remaining_refills);
+
+    manager.loop();
+
+    TEST_ASSERT_EQUAL(initial_frames * 2U - 1U,
+                      manager.accepted_packets_total());
+}
+
 // ============================================================================
 // CLEAR DETECTOR BUFFER TEST
 // ============================================================================
@@ -1175,6 +1229,7 @@ int process(void) {
     // Callback wrapper tests
     RUN_TEST(test_csi_pipeline_callback_wrapper_triggered);
     RUN_TEST(test_csi_pipeline_callback_wrapper_null_data);
+    RUN_TEST(test_csi_pipeline_loop_defers_callback_refill_to_next_iteration);
     
     // Clear buffer test
     RUN_TEST(test_csi_pipeline_clear_detector_buffer);

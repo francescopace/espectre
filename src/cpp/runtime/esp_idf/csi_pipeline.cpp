@@ -239,7 +239,15 @@ void CsiPipeline::process_pending_frame_(const PendingCsiFrame &frame) {
 
 void CsiPipeline::drain_pending_frames_() {
   PendingCsiFrame frame;
-  while (pending_frames_.take(frame)) {
+  // Bound one runtime-loop iteration to the backlog observed on entry. The
+  // Wi-Fi callback may refill the queue while detector work is in progress;
+  // consuming that refill here could keep ESPHome's watched loop task inside
+  // the pipeline indefinitely.
+  const size_t pending_at_loop_start = pending_frames_.size();
+  for (size_t processed = 0U; processed < pending_at_loop_start; ++processed) {
+    if (!pending_frames_.take(frame)) {
+      break;
+    }
     process_pending_frame_(frame);
   }
 }
