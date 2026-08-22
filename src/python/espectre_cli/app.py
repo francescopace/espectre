@@ -207,6 +207,8 @@ def _add_esphome_namespace(subparsers) -> None:
         command_parser.add_argument("--dev", action="store_true", help="Use the *-dev example config")
         command_parser.add_argument("--config", help="Explicit ESPHome YAML path override")
         command_parser.add_argument("--device", help="Serial device or hostname for flash/monitor when needed")
+        if command_name == "flash":
+            command_parser.add_argument("--firmware", help="Prebuilt firmware image to upload")
         if command_name == "build":
             clean_group = command_parser.add_mutually_exclusive_group()
             clean_group.add_argument(

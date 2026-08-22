@@ -254,11 +254,13 @@ jobs:
             esphome -s project_version "${{ steps.git-version.outputs.version }}" -s detection_algorithm lightweight compile "${{ steps.esphome-config.outputs.config_path }}"
           fi
 
-      - name: Locate ESPHome factory image
+      - name: Locate ESPHome firmware images
         id: esphome-artifacts
         run: |
           FACTORY_BIN="$(python3 -c 'from pathlib import Path; matches = sorted(Path("src/cpp/frontend/esphome/examples/.esphome/build").glob("**/firmware.factory.bin")); assert matches, "firmware.factory.bin not found"; print(matches[0])')"
+          OTA_BIN="$(python3 -c 'from pathlib import Path; matches = sorted(Path("src/cpp/frontend/esphome/examples/.esphome/build").glob("**/firmware.ota.bin")); assert matches, "firmware.ota.bin not found"; print(matches[0])')"
           echo "factory_bin=${FACTORY_BIN}" >> "$GITHUB_OUTPUT"
+          echo "ota_bin=${OTA_BIN}" >> "$GITHUB_OUTPUT"
 
       - name: Rename ESPHome firmware
         if: github.event_name == 'push'
@@ -271,19 +273,20 @@ jobs:
             PREFIX="espectre-esphome-preview"
           fi
           cp "${{ steps.esphome-artifacts.outputs.factory_bin }}" "output/${PREFIX}-${CHIP}.bin"
+          cp "${{ steps.esphome-artifacts.outputs.ota_bin }}" "output/${PREFIX}-${CHIP}-ota.bin"
 
       - name: Build ESPHome compliance artifacts
         if: github.event_name == 'push'
         run: |
           PROJECT_DESCRIPTION="$(find src/cpp/frontend/esphome/examples/.esphome/build -path '*/build/project_description.json' -print -quit)"
-          FIRMWARE="$(find output -maxdepth 1 -type f \( -name 'espectre-esphome-preview-*.bin' -o -name 'espectre-esphome-develop-*.bin' \) -print -quit)"
           test -n "${PROJECT_DESCRIPTION}"
-          test -n "${FIRMWARE}"
-          python .github/scripts/build_firmware_compliance.py \
-            --frontend esphome \
-            --project-description "${PROJECT_DESCRIPTION}" \
-            --firmware "${FIRMWARE}" \
-            --output-dir output
+          for FIRMWARE in output/espectre-esphome-*.bin; do
+            python .github/scripts/build_firmware_compliance.py \
+              --frontend esphome \
+              --project-description "${PROJECT_DESCRIPTION}" \
+              --firmware "${FIRMWARE}" \
+              --output-dir output
+          done
 
       - name: Upload ESPHome firmware artifact
         if: github.event_name == 'push'

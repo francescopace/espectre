@@ -26,7 +26,7 @@ The browser tools share one site:
 - [Monitor](https://espectre.dev/monitor) watches motion, tunes detection, and inspects diagnostics over MQTT
 - [Run with the Spectre](https://espectre.dev/game/) and [Theremin](https://espectre.dev/theremin/) provide interactive sensing demos
 
-GitHub Releases also provide Native OTA payloads; ESPHome updates are compiled and installed through ESPHome Device Builder after the device is adopted.
+GitHub Releases provide OTA payloads for ESPHome and Native. ESPHome updates can be compiled through ESPHome Device Builder or installed from a downloaded OTA image with the ESPectre CLI.
 
 Supported hardware:
 

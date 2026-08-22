@@ -22,7 +22,7 @@ This first release candidate brings production sensing onto the shared v3 archit
 - **Supported settings and detection profiles can be changed at runtime**. Threshold, motion-hit debounce, detector selection, CSI traffic ownership, and traffic source are available where each frontend supports them. Native and ESPHome persist detector, debounce, and traffic selections; thresholds remain session-only, and Micro-ESPectre keeps every runtime write session-only.
 - **The embeddable C++ SDK has a documented, source-stable public surface**. `espectre_sdk.h` exposes the recommended runtime API, `espectre_core_sdk.h` explicitly opts custom CSI integrations into the lower-level detectors, and the embedding contract defines Semantic Versioning, validation, capability, ownership, threading, error, and no-stable-ABI guarantees. Generated Doxygen pages stamp the same `git describe` identity as the matching SDK bundle.
 - **ESPectre is dual-licensed** under GPLv3 or a separate commercial license for proprietary and closed-source integrations. Contributions remain subject to the CLA and DCO checks.
-- **GitHub Releases keep firmware images direct and group build-specific compliance files into one archive**. Each channel or version publishes `firmware-compliance-<channel-or-version>.zip`, while the ESPectre website continues to expose the individual SBOMs, notices, and license archives next to their corresponding firmware images.
+- **GitHub Releases keep firmware images direct and group build-specific compliance files into one archive**. Each channel or version publishes factory and OTA images for ESPHome, factory and OTA images for Native, factory images for Matter, and `firmware-compliance-<channel-or-version>.zip`; the ESPectre website continues to expose the individual SBOMs, notices, and license archives next to their corresponding factory images.
 
 ### Breaking changes and migration
 
@@ -35,7 +35,7 @@ This first release candidate brings production sensing onto the shared v3 archit
 - **Dataset metadata moved from format `1.0` to `1.2`**. Consumers of 2.8.0 `.npz` captures must migrate to the versioned metadata schema.
 - **C++ integrations must move to the supported SDK facade**. Include `espectre_sdk.h`, follow the `core -> runtime -> frontend` dependency direction, and update code that depends on the former `components/espectre/` layout or namespace.
 - **ESPHome example configurations moved under the ESPHome frontend**. Replace repository paths beginning with `examples/` with `src/cpp/frontend/esphome/examples/`, including package URLs that reference an example YAML file.
-- **ESPHome firmware URLs mow use the new filename pattern**: `espectre-esphome-<channel-or-version>-<chip>.bin`.
+- **ESPHome firmware URLs now use the new filename patterns**: `espectre-esphome-<channel-or-version>-<chip>.bin` for full-flash images and `espectre-esphome-<channel-or-version>-<chip>-ota.bin` for OTA images.
 
 For detector design, feature decisions, integration guidance, and validation results, see [ALGORITHMS.md](https://github.com/francescopace/espectre/blob/3.0.0-rc1/docs/ALGORITHMS.md), [FEATURES.md](https://github.com/francescopace/espectre/blob/3.0.0-rc1/docs/FEATURES.md), [EMBEDDING.md](https://github.com/francescopace/espectre/blob/3.0.0-rc1/docs/EMBEDDING.md), and [performance/README.md](https://github.com/francescopace/espectre/blob/3.0.0-rc1/docs/performance/README.md).
 

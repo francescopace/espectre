@@ -51,7 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--require-complete-matrix",
         action="store_true",
-        help="Fail unless all 15 factory and 5 Native OTA images are present",
+        help="Fail unless all 15 factory, 5 ESPHome OTA, and 5 Native OTA images are present",
     )
     return parser.parse_args()
 
@@ -94,7 +94,7 @@ def parse_esphome_asset(filename: str, version_prefix: str) -> dict | None:
         version_prefix,
         frontend="esphome",
         algorithm="lightweight",
-        supports_ota=False,
+        supports_ota=True,
     )
 
 
@@ -150,6 +150,7 @@ def validate_complete_matrix(manifest: dict) -> None:
     for chip in CHIP_METADATA:
         expected.add(("matter", chip, "factory"))
         expected.add(("esphome", chip, "factory"))
+        expected.add(("esphome", chip, "ota"))
         expected.add(("native", chip, "factory"))
         expected.add(("native", chip, "ota"))
 

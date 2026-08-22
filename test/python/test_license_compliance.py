@@ -188,18 +188,21 @@ def test_web_staging_materializes_compliance_from_release_bundle(tmp_path):
     firmware_dir.mkdir()
     legal_dir.mkdir()
     firmware = firmware_dir / "espectre-esphome-preview-esp32c6.bin"
-    firmware.write_bytes(b"firmware")
+    ota_firmware = firmware_dir / "espectre-esphome-preview-esp32c6-ota.bin"
     companions = []
-    for suffix in builder.COMPLIANCE_SUFFIXES:
-        companion = firmware.with_name(f"{firmware.stem}{suffix}")
-        companion.write_bytes(suffix.encode("utf-8"))
-        companions.append(companion)
+    ota_companions = []
+    for image, image_companions in ((firmware, companions), (ota_firmware, ota_companions)):
+        image.write_bytes(b"firmware")
+        for suffix in builder.COMPLIANCE_SUFFIXES:
+            companion = image.with_name(f"{image.stem}{suffix}")
+            companion.write_bytes(suffix.encode("utf-8"))
+            image_companions.append(companion)
     legal_paths = tuple(legal_dir / name for name in ("LICENSE", "LICENSING.md", "THIRD_PARTY_NOTICES.md"))
     for path in legal_paths:
         path.write_text(path.name, encoding="utf-8")
     bundle = firmware_dir / builder.bundle_filename("preview", "ignored")
     builder.build_bundle(firmware_dir, bundle, legal_paths=legal_paths)
-    for companion in companions:
+    for companion in (*companions, *ota_companions):
         companion.unlink()
 
     subprocess.run(
@@ -224,6 +227,8 @@ def test_web_staging_materializes_compliance_from_release_bundle(tmp_path):
 
     assert (output_dir / firmware.name).is_file()
     assert all((output_dir / companion.name).is_file() for companion in companions)
+    assert not (output_dir / ota_firmware.name).exists()
+    assert all(not (output_dir / companion.name).exists() for companion in ota_companions)
 
 
 def test_firmware_manifest_links_available_compliance_artifacts(tmp_path):
@@ -277,6 +282,7 @@ def test_complete_firmware_matrix_requires_every_compliance_companion(tmp_path):
         firmware_names.extend(
             (
                 f"espectre-esphome-preview-{chip}.bin",
+                f"espectre-esphome-preview-{chip}-ota.bin",
                 f"espectre-matter-preview-{chip}.bin",
                 f"espectre-native-preview-{chip}.bin",
                 f"espectre-native-preview-{chip}-ota.bin",

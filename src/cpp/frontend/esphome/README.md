@@ -26,7 +26,7 @@ After flashing, configure Wi-Fi with one of these provisioning paths:
 
 Once Wi-Fi is configured, the device is discovered automatically by Home Assistant through ESPHome.
 
-The `release`, `preview`, and `develop` channels publish one full-flash image per supported chip, with `lightweight` as the initial detector. Both `lightweight` and `high_accuracy` are available in the image and can be selected through the persisted runtime detector entity. After adoption, ESPHome Device Builder compiles and installs updates wirelessly from the device YAML; `detection_algorithm` sets the initial detector for a fresh configuration rather than limiting which detector the firmware supports.
+The `release`, `preview`, and `develop` channels publish one full-flash image and one OTA image per supported chip, with `lightweight` as the initial detector. Both `lightweight` and `high_accuracy` are available in the image and can be selected through the persisted runtime detector entity. After adoption, ESPHome Device Builder can compile and install updates wirelessly from the device YAML; `detection_algorithm` sets the initial detector for a fresh configuration rather than limiting which detector the firmware supports.
 
 ## Integration Surface
 
@@ -212,6 +212,12 @@ To compile in Device Builder, or to stay on one version, declare `git_ref` in th
 ```yaml
 substitutions:
   git_ref: "3.0.0"
+```
+
+To install a prebuilt OTA image from GitHub Releases instead, download the `espectre-esphome-<channel-or-version>-<chip>-ota.bin` asset and upload it over the network:
+
+```bash
+./espectre esphome flash --chip c6 --device espectre.local --firmware espectre-esphome-3.0.0-esp32c6-ota.bin
 ```
 
 The same value also drives the import URL the device republishes after the next build, so this one declaration is enough.

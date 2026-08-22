@@ -48,6 +48,8 @@ def run_esphome_command(args) -> None:
     command = [*ESPHOME_COMMAND_PREFIX, action, str(config_path)]
     if getattr(args, "device", None):
         command.extend(["--device", args.device])
+    if getattr(args, "firmware", None):
+        command.extend(["--file", args.firmware])
     commands.append(command)
 
     try:

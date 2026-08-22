@@ -49,7 +49,11 @@ The `esphome` namespace exposes:
 | `config` | Validate and render the selected config |
 | `monitor` | Open logs for the selected config |
 
-Common flags include `--chip`, `--dev`, `--config`, and `--device`.
+Common flags include `--chip`, `--dev`, `--config`, and `--device`. `esphome flash --firmware <path>` uploads a prebuilt image instead of the most recent local build; use an ESPHome OTA image when `--device` is a hostname or IP address:
+
+```bash
+./espectre esphome flash --chip c6 --device espectre.local --firmware espectre-esphome-3.0.0-esp32c6-ota.bin
+```
 
 The wrapper explicitly selects ESPHome's native `esp-idf` toolchain for every command. It does not use the legacy PlatformIO build backend.
 

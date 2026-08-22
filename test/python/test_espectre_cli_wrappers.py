@@ -204,6 +204,42 @@ def test_run_esphome_command_uses_resolved_config_and_device(monkeypatch, tmp_pa
     ]
 
 
+def test_run_esphome_flash_uploads_prebuilt_firmware(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "firmware.yaml"
+    config_path.write_text("esphome:", encoding="utf-8")
+    firmware_path = tmp_path / "firmware.ota.bin"
+    firmware_path.write_bytes(b"firmware")
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(esphome, "resolve_esphome_config", lambda *_args: config_path)
+    monkeypatch.setattr(esphome.subprocess, "run", lambda cmd, check: calls.append(cmd))
+
+    esphome.run_esphome_command(
+        argparse.Namespace(
+            chip="c6",
+            dev=False,
+            config=None,
+            esphome_command="flash",
+            device="espectre.local",
+            firmware=str(firmware_path),
+        )
+    )
+
+    assert calls == [
+        [
+            "esphome",
+            "--toolchain",
+            "esp-idf",
+            "upload",
+            str(config_path),
+            "--device",
+            "espectre.local",
+            "--file",
+            str(firmware_path),
+        ]
+    ]
+
+
 def test_run_esphome_monitor_uses_logs_action(monkeypatch, tmp_path: Path) -> None:
     config_path = tmp_path / "firmware.yaml"
     config_path.write_text("esphome:", encoding="utf-8")
@@ -1102,6 +1138,18 @@ def test_esphome_monitor_parser_accepts_device() -> None:
     assert args.esphome_command == "monitor"
     assert args.chip == "c6"
     assert args.device == "/dev/cu.test"
+
+
+def test_esphome_flash_parser_accepts_prebuilt_firmware() -> None:
+    parser = app.build_parser()
+
+    args = parser.parse_args(
+        ["esphome", "flash", "--chip", "c6", "--device", "espectre.local", "--firmware", "firmware.ota.bin"]
+    )
+
+    assert args.namespace == "esphome"
+    assert args.esphome_command == "flash"
+    assert args.firmware == "firmware.ota.bin"
 
 
 def test_run_idf_command_handles_resolution_and_subprocess_errors(monkeypatch, tmp_path: Path) -> None:
