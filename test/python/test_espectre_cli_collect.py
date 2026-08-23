@@ -814,17 +814,13 @@ def test_collect_reports_post_collect_gap_details(monkeypatch, capsys) -> None:
             self.status = status
             self.message = message
 
-    class FakeData(dict):
-        @property
-        def files(self):
-            return list(self.keys())
-
-    fake_quality.validate_file_integrity = lambda path: (
-        [FakeResult("file_load", "PASS", "File loads successfully")],
-        FakeData({"csi_data": object()}),
-    )
-    fake_quality.validate_signal_quality = lambda csi_data: []
-    fake_quality.validate_capture_continuity = lambda data, csi_data: [
+    fake_quality.validate_capture_file = lambda path, **kwargs: [
+        FakeResult("file_load", "PASS", "File loads successfully"),
+        FakeResult(
+            "temporal_occupancy",
+            "FAIL",
+            "Mean temporal occupancy: 68.0% (warn < 85.0%, fail < 70.0%)",
+        ),
         FakeResult(
             "inter_packet_gap",
             "FAIL",
@@ -838,10 +834,13 @@ def test_collect_reports_post_collect_gap_details(monkeypatch, capsys) -> None:
     ]
 
     monkeypatch.setitem(sys.modules, "tools.validate_dataset_quality", fake_quality)
-    host._run_post_collect_quality_checks([Path("sample_1.npz")])
+    all_passed = host._run_post_collect_quality_checks([Path("sample_1.npz")])
     output = capsys.readouterr().out
 
-    assert "sample_1.npz: 1 warn, 1 fail" in output
+    assert not all_passed
+    assert "sample_1.npz: 1 warn, 2 fail" in output
+    assert "Mean temporal occupancy: 68.0%" in output
+    assert "Low packet rate" not in output
     assert "Largest stream gap: 14 packets after packet 430 (seq 1821 -> 1836)" in output
     assert "Largest inter-packet gap: 187.0 ms via device_ticks_us at packet 431->432" in output
 
@@ -1069,11 +1068,6 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
             self.status = status
             self.message = message
 
-    class FakeData(dict):
-        @property
-        def files(self):
-            return list(self.keys())
-
     class FakeCollector:
         def __init__(self, **kwargs):
             events.append(("collector_init", kwargs["label"], kwargs["description"], kwargs["expected_device_count"]))
@@ -1162,16 +1156,11 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
     fake_high_accuracy_detector.HIGH_ACCURACY_DEFAULT_THRESHOLD = 0.5
     fake_high_accuracy_detector.HIGH_ACCURACY_METRIC_SCALE = 1.0
     fake_high_accuracy_detector.HighAccuracyDetector = FakeHighAccuracyDetector
-    fake_quality.validate_file_integrity = lambda path: (
-        [FakeResult("file_load", "PASS", "File loads successfully")],
-        FakeData({"csi_data": object()}),
-    )
-    fake_quality.validate_signal_quality = lambda csi_data: [
+    fake_quality.validate_capture_file = lambda path, **kwargs: [
+        FakeResult("file_load", "PASS", "File loads successfully"),
         FakeResult("packet_count", "PASS", "6000 packets"),
         FakeResult("signal_level", "PASS", "Mean amplitude: 22.0"),
-    ]
-    fake_quality.validate_capture_continuity = lambda data, csi_data: [
-        FakeResult("packet_rate", "PASS", "Packet rate: 100.0 pkt/s"),
+        FakeResult("temporal_occupancy", "PASS", "Mean temporal occupancy: 98.0%"),
     ]
     fake_runtime_policy.RuntimeMotionPolicy = FakeRuntimeMotionPolicy
 
@@ -1226,11 +1215,6 @@ def test_collect_live_filters_off_target_packets_for_multi_unicast(monkeypatch, 
             self.status = status
             self.message = message
 
-    class FakeData(dict):
-        @property
-        def files(self):
-            return list(self.keys())
-
     class FakeCollector:
         def __init__(self, **kwargs):
             pass
@@ -1278,12 +1262,7 @@ def test_collect_live_filters_off_target_packets_for_multi_unicast(monkeypatch, 
         def stop(self):
             pass
 
-    fake_quality.validate_file_integrity = lambda path: (
-        [FakeResult("file_load", "PASS", "File loads successfully")],
-        FakeData({"csi_data": object()}),
-    )
-    fake_quality.validate_signal_quality = lambda csi_data: []
-    fake_quality.validate_capture_continuity = lambda data, csi_data: []
+    fake_quality.validate_capture_file = lambda path, **kwargs: []
 
     _install_live_collect_modules(monkeypatch, FakeReceiver, FakePacingSender, FakeCollector)
     monkeypatch.setitem(sys.modules, "tools.validate_dataset_quality", fake_quality)
@@ -1327,11 +1306,6 @@ def test_collect_live_accepts_all_sources_for_multicast_targets(monkeypatch, cap
             self.name = name
             self.status = status
             self.message = message
-
-    class FakeData(dict):
-        @property
-        def files(self):
-            return list(self.keys())
 
     class FakeCollector:
         def __init__(self, **kwargs):
@@ -1379,12 +1353,7 @@ def test_collect_live_accepts_all_sources_for_multicast_targets(monkeypatch, cap
         def stop(self):
             pass
 
-    fake_quality.validate_file_integrity = lambda path: (
-        [FakeResult("file_load", "PASS", "File loads successfully")],
-        FakeData({"csi_data": object()}),
-    )
-    fake_quality.validate_signal_quality = lambda csi_data: []
-    fake_quality.validate_capture_continuity = lambda data, csi_data: []
+    fake_quality.validate_capture_file = lambda path, **kwargs: []
 
     _install_live_collect_modules(monkeypatch, FakeReceiver, FakePacingSender, FakeCollector)
     monkeypatch.setitem(sys.modules, "tools.validate_dataset_quality", fake_quality)

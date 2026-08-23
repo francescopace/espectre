@@ -70,6 +70,160 @@ def test_agnostic_baseline_uses_sampler_grid_for_elapsed_time() -> None:
     assert len(baseline["block_margins"]) == 2
 
 
+def test_temporal_occupancy_uses_complete_production_windows() -> None:
+    module = _load_validator_module()
+    packets = [
+        {"wifi_rx_ts_us": index * 200_000}
+        for index in range(11)
+    ]
+
+    occupancy = module._mean_temporal_occupancy(packets, target_pps=10)
+
+    assert occupancy == pytest.approx(0.5)
+    assert module._format_occupancy_cell(occupancy, markdown=True) == (
+        "**50.0% ❌**"
+    )
+    assert module._format_occupancy_cell(0.7, markdown=True) == "**70.0% ⚠️**"
+    assert module._format_occupancy_cell(0.85, markdown=True) == "85.0%"
+
+
+def test_post_collect_temporal_occupancy_uses_recorded_detector_grid(monkeypatch) -> None:
+    module = _load_validator_module()
+    packets = ({"csi_target_pps": 100},)
+    observed = {"occupancy": 0.69}
+    monkeypatch.setattr(module, "_load_validation_packet_view", lambda filepath: packets)
+    monkeypatch.setattr(
+        module,
+        "_mean_temporal_occupancy",
+        lambda values, target_pps: observed["occupancy"],
+    )
+
+    result = module.validate_temporal_occupancy(Path("capture.npz"))[0]
+
+    assert result.name == "temporal_occupancy"
+    assert result.status == "FAIL"
+    assert result.value == 0.69
+    assert "69.0%" in result.message
+
+    observed["occupancy"] = 0.70
+    assert module.validate_temporal_occupancy(Path("capture.npz"))[0].status == "WARN"
+    observed["occupancy"] = 0.85
+    assert module.validate_temporal_occupancy(Path("capture.npz"))[0].status == "PASS"
+
+
+def test_capture_file_centralizes_canonical_admission_checks(monkeypatch) -> None:
+    module = _load_validator_module()
+    data = {"csi_data": np.zeros((4, 128), dtype=np.int8)}
+    calls = []
+    monkeypatch.setattr(
+        module,
+        "validate_file_integrity",
+        lambda filepath: ([module.ValidationResult("file_load", "PASS", "ok")], data),
+    )
+    monkeypatch.setattr(
+        module,
+        "validate_signal_quality",
+        lambda csi_data: [module.ValidationResult("signal", "PASS", "ok")],
+    )
+
+    def validate_occupancy(filepath, *, target_pps=None):
+        calls.append(("occupancy", target_pps))
+        return [module.ValidationResult("temporal_occupancy", "PASS", "ok")]
+
+    def validate_continuity(data, csi_data, **kwargs):
+        calls.append(("continuity", kwargs))
+        return [module.ValidationResult("stream", "PASS", "ok")]
+
+    monkeypatch.setattr(module, "validate_temporal_occupancy", validate_occupancy)
+    monkeypatch.setattr(module, "validate_capture_continuity", validate_continuity)
+
+    results = module.validate_capture_file(
+        Path("capture.npz"),
+        low_rssi=True,
+        include_packet_rate=False,
+        target_pps=120,
+    )
+
+    assert [result.name for result in results] == [
+        "file_load",
+        "signal",
+        "temporal_occupancy",
+        "stream",
+    ]
+    assert calls == [
+        ("occupancy", 120),
+        ("continuity", {"low_rssi": True, "include_packet_rate": False}),
+    ]
+
+
+def test_occupancy_caps_quality_score() -> None:
+    module = _load_validator_module()
+
+    assert module.cap_quality_score_by_occupancy(100.0, 0.82) == 82.0
+    assert module.cap_quality_score_by_occupancy(90.0, 0.95, 0.88) == 88.0
+    assert module.cap_quality_score_by_occupancy(65.0, 0.95) == 65.0
+
+
+def test_occupancy_target_prefers_recorded_grid_over_legacy_fallback() -> None:
+    module = _load_validator_module()
+
+    assert module._resolve_temporal_occupancy_target_pps(
+        ({"csi_target_pps": 120},),
+        fallback=100,
+    ) == 120
+    assert module._resolve_temporal_occupancy_target_pps(
+        ({"csi_target_pps": None},),
+        fallback=100,
+    ) == 100
+
+
+def test_pair_score_table_replaces_composite_columns_with_occupancy() -> None:
+    module = _load_validator_module()
+    row = {
+        "chip": "C6",
+        "environment": "bedroom",
+        "static_presence": "static.npz",
+        "motion": "motion.npz",
+        "static_date": "2026-08-23 10:00",
+        "motion_date": "2026-08-23 10:05",
+        "static_rssi_dbm": -50.0,
+        "motion_rssi_dbm": -52.0,
+        "static_packet_rate_pps": 100.0,
+        "motion_packet_rate_pps": 100.0,
+        "static_mean_occupancy": 0.8,
+        "motion_mean_occupancy": 0.6,
+        "motion_coverage": 1.0,
+        "pair_separation": 1.0,
+        "pair_score": 100.0,
+        "reference_cleanliness": {
+            "basis": "environment",
+            "reference_count": 3,
+            "excursion_ratio": 0.0,
+            "longest_burst_seconds": 0.0,
+            "score": 100.0,
+        },
+        "feature_score": 60.0,
+    }
+
+    table = "\n".join(
+        module._render_score_table(
+            [row],
+            module._PAIR_SCORE_TABLE,
+            markdown=True,
+        )
+    )
+
+    header = module._PAIR_SCORE_TABLE["header"]
+    assert "| PPS | Occ | Ref |" in header
+    assert "| Pair |" not in header
+    assert "| Clean |" not in header
+    assert "**80.0% ⚠️** / **60.0% ❌**" in table
+    assert "| 60.0 |" in table
+    assert "| PPS | Occ | Exc |" in module._PRESENCE_SCORE_TABLE["header"]
+    assert "| PPS | Occ | Exc |" in module._EMPTY_SCORE_TABLE["header"]
+    assert "| PPS | Occ | Exc |" in module._LONG_TEST_SCORE_TABLE["header"]
+
+
 def test_classic_replay_consumes_selected_packet_rssi_and_flushes_final_slot() -> None:
     module = _load_validator_module()
 

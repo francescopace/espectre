@@ -140,49 +140,34 @@ def _wait_before_collection(delay_seconds: float) -> None:
 
 
 def _post_collect_quality_issue_sort_key(result) -> tuple[int, str]:
-    """Prioritize continuity gaps first in the compact post-collect summary."""
+    """Prioritize occupancy, then continuity gaps, in the post-collect summary."""
     priorities = {
-        "stream_seq_max_gap": 0,
-        "inter_packet_gap": 1,
-        "stream_seq_gaps": 2,
-        "packet_rate": 3,
+        "temporal_occupancy": 0,
+        "stream_seq_max_gap": 1,
+        "inter_packet_gap": 2,
+        "stream_seq_gaps": 3,
     }
     return priorities.get(getattr(result, "name", ""), 99), str(getattr(result, "name", ""))
 
 
-def _post_collect_quality_csi_key(data) -> str | None:
-    """Return the CSI matrix key from a materialized validation mapping."""
-    files = list(getattr(data, "files", []))
-    if "csi_data" in files:
-        return "csi_data"
-    if "csi" in files:
-        return "csi"
-    return files[0] if files else None
-
-
-def _run_post_collect_quality_checks(saved_paths) -> None:
-    """Run advisory quality checks on the just-saved capture files."""
+def _run_post_collect_quality_checks(saved_paths) -> bool:
+    """Run canonical quality checks and report whether every file passed."""
     try:
-        from tools.validate_dataset_quality import (
-            validate_capture_continuity,
-            validate_file_integrity,
-            validate_signal_quality,
-        )
+        from tools.validate_dataset_quality import validate_capture_file
     except ImportError as exc:
         print(
             f"  {Fore.YELLOW}⚠️ Post-collect quality checks unavailable: {exc}{Style.RESET_ALL}"
         )
-        return
+        return True
 
     print(f"  {Fore.CYAN}Post-collect quality:{Style.RESET_ALL}")
+    all_passed = True
     for filepath in saved_paths:
         try:
-            file_results, data = validate_file_integrity(filepath)
-            if data is not None:
-                csi_key = _post_collect_quality_csi_key(data)
-                if csi_key is not None:
-                    file_results.extend(validate_signal_quality(data[csi_key]))
-                    file_results.extend(validate_capture_continuity(data, data[csi_key]))
+            file_results = validate_capture_file(
+                filepath,
+                include_packet_rate=False,
+            )
 
             counts = {
                 "PASS": sum(1 for result in file_results if result.status == "PASS"),
@@ -198,6 +183,9 @@ def _run_post_collect_quality_checks(saved_paths) -> None:
                 f"    {Fore.YELLOW}⚠️ {filepath.name}: quality checks skipped ({exc}){Style.RESET_ALL}"
             )
             continue
+
+        if counts["FAIL"]:
+            all_passed = False
 
         if not issues:
             print(
@@ -216,6 +204,7 @@ def _run_post_collect_quality_checks(saved_paths) -> None:
                 f"      {color}{result.status}{Style.RESET_ALL} "
                 f"{result.name}: {result.message}"
             )
+    return all_passed
 
 
 def _print_dataset_catalog_stats(stats) -> None:
@@ -1456,13 +1445,19 @@ def _run_live_collect(args) -> None:
                     print(f"{Fore.RED}❌ Failed to save live capture: {e}{Style.RESET_ALL}")
                     raise SystemExit(1)
                 if saved_paths:
-                    _run_post_collect_quality_checks(saved_paths)
+                    quality_passed = _run_post_collect_quality_checks(saved_paths)
                     print(
                         f"{Fore.GREEN}✅ Saved {len(saved_paths)} live capture file(s) "
                         f"from {len(captured_packets)} packets{Style.RESET_ALL}"
                     )
                     for saved_path in saved_paths:
                         print(f"  - {saved_path.name}")
+                    if not quality_passed:
+                        print(
+                            f"{Fore.RED}❌ Saved capture failed post-collect quality admission"
+                            f"{Style.RESET_ALL}"
+                        )
+                        raise SystemExit(1)
                 else:
                     print(f"{Fore.RED}❌ Live capture had no packets to save{Style.RESET_ALL}")
             else:

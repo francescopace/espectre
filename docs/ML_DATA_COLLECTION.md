@@ -251,7 +251,7 @@ python tools/validate_dataset_quality.py
 python tools/train_ml_model.py --info
 ```
 
-`collect --info` summarizes collected files. `validate_dataset_quality.py` refreshes pair metadata, runs admission plus feature-space review, and updates `data/auto_generated/DATASET_QUALITY_CHECK.md`. Temporal quality and ML-readiness checks require a usable recorded packet rate, or `num_packets` plus `duration_ms`; insufficient timing metadata is a validation failure and is never interpreted as 100 pps. `train_ml_model.py --info` shows the dataset view used by the trainer.
+`collect --info` summarizes collected files. `validate_dataset_quality.py` refreshes pair metadata, runs admission plus quality review, and updates `data/auto_generated/DATASET_QUALITY_CHECK.md`. Mean valid-slot occupancy warns below 85%, fails admission below 70%, and caps every affected review score; temporal quality and ML-readiness checks require a usable recorded packet rate, or `num_packets` plus `duration_ms`. Insufficient timing metadata is a validation failure and is never interpreted as 100 pps. `train_ml_model.py --info` shows the dataset view used by the trainer.
 
 Run the validator before training. Admission failures block the workflow; feature-space scores are diagnostic only. Dataset roles remain manual, and the validator never assigns `train`, `selection`, or `holdout`. See [`tools/README.md`](../tools/README.md#dataset-inspection-and-validation) for command variants and report behavior.
 

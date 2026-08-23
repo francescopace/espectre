@@ -208,6 +208,8 @@ The default collect policy backs off on sustained TX backpressure, spaces reduct
 
 When `--label` is set, saved collection waits for the detector to stay below threshold for `--ready-stable-seconds` before packets are recorded. Set `--ready-stable-seconds 0` to bypass that gate explicitly.
 
+After saving each capture, the collector runs the validator's canonical per-file integrity, signal-quality, temporal-occupancy, and stream-continuity checks. Temporal occupancy is measured on complete production detector windows, warns below 85%, and fails below the shared 70% admission floor. The post-collect summary does not use average packet rate as a quality proxy because excess same-slot records do not improve detector occupancy. A failed capture remains saved for diagnosis, but `collect` exits unsuccessfully.
+
 When `--start-delay` is set, `--duration` is required. The collector waits first, then starts the ordinary live pacing and capture flow.
 
 For discovery-selected unicast targets, the collector also validates that the first CSI packets carry the same `device_id` announced over mDNS. If the IP was reused by a different Streamer, collection aborts instead of saving mixed data under the wrong identity.

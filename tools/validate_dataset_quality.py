@@ -10,10 +10,10 @@ Dual-purpose validator with an explicit anti-circularity rule:
    Integrity, continuity, signal quality, coarse empty/static sanity, and ML
    readiness. These checks stay detector-agnostic.
 
-2. Feature-space review scores (never veto admission)
+2. Quality review scores (never veto admission by themselves)
    Shared scale-invariant feature diagnostics on pairs and idle captures produce
-   0-100 review guidance. Useful for human review and corpus trend-watching,
-   not a hard filter of which files exist in the corpus.
+   0-100 review guidance capped by temporal occupancy. Useful for human review
+   and corpus trend-watching; admission is enforced by the checks above.
 
 See docs/adr/2026-07-29-make-dataset-quality-review-detector-agnostic.md.
 
@@ -22,7 +22,7 @@ Checks performed:
   2. File integrity        - NPZ loads, expected keys exist, shapes are valid
   3. Signal quality        - Amplitude range, zero-packet detection
   4. Empty presence        - Empty files exist and overlap chip/environment groups
-  5. Feature-space scores  - Pair separation plus independently scored idle baselines
+  5. Quality scores        - Feature evidence capped by temporal occupancy
   6. ML readiness          - Label balance, minimum samples, chip diversity
 
 SOURCE CODE ALIGNMENT:
@@ -77,6 +77,7 @@ from tools.lib.csi_io import (
     load_npz_arrays,
     load_npz_packet_view,
 )  # noqa: E402
+from tools.lib.occupancy_thinning import mean_window_occupancy  # noqa: E402
 from tools.lib.timing_quality import (  # noqa: E402
     MAX_INTER_PACKET_GAP_FAIL_MS,
     MAX_INTER_PACKET_GAP_WARN_MS,
@@ -101,6 +102,10 @@ from config import (  # noqa: E402
     SEGMENTATION_WINDOW_SIZE_MS,
 )
 from csi_features import DEFAULT_FEATURES  # noqa: E402
+from temporal_csi_sampler import (  # noqa: E402
+    MINIMUM_COVERAGE_DENOMINATOR,
+    MINIMUM_COVERAGE_NUMERATOR,
+)
 from runtime_policy import (  # noqa: E402
     derive_detector_timing,
     make_evaluation_cadence,
@@ -118,6 +123,10 @@ DATASET_INFO = DATA_DIR / "dataset_info.json"
 REPORT_OUTPUT = generated_data_dir() / "DATASET_QUALITY_CHECK.md"
 PAIR_MAX_DELTA_SECONDS = 30 * 60
 DIAGNOSTIC_ALL_PHY = False
+MINIMUM_TEMPORAL_OCCUPANCY_RATIO = (
+    MINIMUM_COVERAGE_NUMERATOR / MINIMUM_COVERAGE_DENOMINATOR
+)
+TEMPORAL_OCCUPANCY_WARN_RATIO = 0.85
 
 
 def configure_dataset_paths(data_dir, report_output=None):
@@ -294,6 +303,19 @@ FEATURE_EVIDENCE_DIRECTIONS = {
 def _clamp_score(value):
     """Clamp an indicative score into [0, 100]."""
     return float(max(0.0, min(100.0, value)))
+
+
+def occupancy_quality_score(mean_occupancy):
+    """Return the 0-100 score ceiling imposed by temporal occupancy."""
+    if mean_occupancy is None:
+        return 0.0
+    return round(_clamp_score(100.0 * float(mean_occupancy)), 1)
+
+
+def cap_quality_score_by_occupancy(score, *occupancies):
+    """Cap one quality score by every capture occupancy in its scope."""
+    ceilings = [occupancy_quality_score(value) for value in occupancies]
+    return round(min(float(score), *ceilings), 1) if ceilings else round(float(score), 1)
 
 
 def agnostic_pair_score(motion_coverage, pair_separation):
@@ -677,6 +699,58 @@ def _format_packet_rate_cell(value, *, markdown=False):
     """Format one observed packet-rate cell."""
     del markdown
     return f"{float(value):.1f}"
+
+
+def _mean_temporal_occupancy(packets, target_pps):
+    """Return mean valid-slot occupancy across complete temporal windows."""
+    if not packets or not target_pps:
+        return None
+    return float(
+        mean_window_occupancy(
+            packets,
+            target_pps=max(1, int(target_pps)),
+        )
+    )
+
+
+def _resolve_temporal_occupancy_target_pps(packets, *, fallback=None):
+    """Resolve the recorded detector grid, with one legacy metadata fallback."""
+    embedded = packets[0].get("csi_target_pps") if packets else None
+    for candidate in (embedded, fallback):
+        try:
+            resolved = int(candidate)
+        except (TypeError, ValueError):
+            continue
+        if resolved > 0:
+            return resolved
+    return None
+
+
+def _format_occupancy_cell(value, *, markdown=False):
+    """Format mean temporal occupancy with the production admission floor."""
+    if value is None:
+        return "n/a"
+    return _format_percent_ratio_cell(
+        value,
+        warn_below=TEMPORAL_OCCUPANCY_WARN_RATIO,
+        fail_below=MINIMUM_TEMPORAL_OCCUPANCY_RATIO,
+        markdown=markdown,
+    )
+
+
+def _format_pair_occupancy_cell(
+    static_occupancy,
+    motion_occupancy,
+    *,
+    markdown=False,
+):
+    """Format static/motion mean temporal occupancy in one shared cell."""
+    return " / ".join(
+        (
+            _format_occupancy_cell(static_occupancy, markdown=markdown),
+            _format_occupancy_cell(motion_occupancy, markdown=markdown),
+        )
+    )
 
 
 def _format_burst_cell(value, *, markdown=False, severity_profile=None):
@@ -1332,15 +1406,16 @@ def _format_reference_burst_cell(reference_stats, *, markdown=False):
 
 # Indicative score tables share one renderer; each table keeps its own schema.
 # Presence/Empty/Long-recording share the idle-evidence schema and expose every
-# baseline-score component plus exploratory tail/drift signals next to Score.
+# baseline-score component plus temporal occupancy and exploratory tail/drift
+# signals next to Score.
 _IDLE_EVIDENCE_SCORE_HEADER = (
-    "| Chip | Env | File | RSSI | PPS | Exc | Burst | Tail | Drift | Score |"
+    "| Chip | Env | File | RSSI | PPS | Occ | Exc | Burst | Tail | Drift | Score |"
 )
 _IDLE_EVIDENCE_SCORE_SEPARATOR = (
-    "|---|---|---|---:|---:|---:|---:|---:|---:|---:|"
+    "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|"
 )
 _IDLE_EVIDENCE_SCORE_CONSOLE_SEPARATOR = (
-    "  |------|-----|------|---------:|----:|-----:|------:|-----:|------:|------:|"
+    "  |------|-----|------|---------:|----:|------:|-----:|------:|-----:|------:|------:|"
 )
 
 
@@ -1361,7 +1436,7 @@ def _format_idle_evidence_score_row(
     """Format one idle-evidence score row with the shared column schema.
 
     Every baseline-score component is shown next to the final Score, plus
-    observed packet rate and exploratory tail/drift signals.
+    observed packet rate, temporal occupancy, and exploratory tail/drift signals.
     """
     file_cell = _idle_evidence_file_cell(row, label, markdown=markdown)
     baseline = row["baseline"]
@@ -1377,6 +1452,7 @@ def _format_idle_evidence_score_row(
             f"| {row['chip']} | {row.get('environment', '?')} | {file_cell} | "
             f"{_format_rssi_cell(row.get('rssi_dbm'))} | "
             f"{_format_packet_rate_cell(baseline['packet_rate_pps'])} | "
+            f"{_format_occupancy_cell(row.get('mean_occupancy'), markdown=True)} | "
             f"{_format_quiet_fp_cell(baseline['fp_rate'], markdown=True)} | "
             f"{_format_burst_cell(baseline['longest_burst_seconds'], markdown=True, severity_profile=severity_profile)} | "
             f"{_format_margin_q95_cell(baseline['margin_q95'], markdown=True, severity_profile=severity_profile)} | "
@@ -1388,6 +1464,7 @@ def _format_idle_evidence_score_row(
         f"{file_cell:<16} | "
         f"{_format_rssi_cell(row.get('rssi_dbm')):>9} | "
         f"{_format_packet_rate_cell(baseline['packet_rate_pps']):>4} | "
+        f"{_format_occupancy_cell(row.get('mean_occupancy')):>6} | "
         f"{_format_quiet_fp_cell(baseline['fp_rate']):>5} | "
         f"{_format_burst_cell(baseline['longest_burst_seconds'], severity_profile=severity_profile):>6} | "
         f"{_format_margin_q95_cell(baseline['margin_q95'], severity_profile=severity_profile):>5} | "
@@ -1455,7 +1532,6 @@ _LONG_TEST_SCORE_TABLE = _idle_evidence_table_spec(
 def _format_pair_score_row(row, *, markdown=False, review_profiles=None):
     """Format one static_presence/motion pair score row."""
     score_value = row.get("feature_score", 0.0)
-    pair_score = row.get("pair_score", score_value)
     reference_stats = row.get("reference_cleanliness")
     reference_severity = _reference_cleanliness_severity(reference_stats)
     severity_profile = _row_severity_profile(review_profiles, "pair", row["chip"])
@@ -1472,13 +1548,12 @@ def _format_pair_score_row(row, *, markdown=False, review_profiles=None):
             f"| {row['chip']} | {row.get('environment', '?')} | {files_cell} | "
             f"{_format_pair_rssi_cell(row.get('static_rssi_dbm'), row.get('motion_rssi_dbm'))} | "
             f"{_format_pair_packet_rate_cell(row.get('static_packet_rate_pps'), row.get('motion_packet_rate_pps'))} | "
+            f"{_format_pair_occupancy_cell(row.get('static_mean_occupancy'), row.get('motion_mean_occupancy'), markdown=True)} | "
             f"{_format_reference_basis_cell(reference_stats)} | "
             f"{_format_motion_above_cell(row['motion_coverage'], markdown=True)} | "
             f"{_format_pair_separation_cell(row['pair_separation'], markdown=True, severity_profile=severity_profile)} | "
-            f"{_format_score_cell(pair_score, markdown=True)} | "
             f"{_format_reference_excursion_cell(reference_stats, markdown=True)} | "
             f"{_format_reference_burst_cell(reference_stats, markdown=True)} | "
-            f"{_format_score_cell(reference_stats['score'], reference_severity, markdown=True) if reference_stats else 'n/a'} | "
             f"{_format_score_cell(score_value, severity, markdown=True)} |"
         )
     return (
@@ -1486,13 +1561,12 @@ def _format_pair_score_row(row, *, markdown=False, review_profiles=None):
         f"{files_cell:<23} | "
         f"{_format_pair_rssi_cell(row.get('static_rssi_dbm'), row.get('motion_rssi_dbm')):>17} | "
         f"{_format_pair_packet_rate_cell(row.get('static_packet_rate_pps'), row.get('motion_packet_rate_pps')):>13} | "
+        f"{_format_pair_occupancy_cell(row.get('static_mean_occupancy'), row.get('motion_mean_occupancy')):>15} | "
         f"{_format_reference_basis_cell(reference_stats):>7} | "
         f"{_format_motion_above_cell(row['motion_coverage']):>5} | "
         f"{_format_pair_separation_cell(row['pair_separation'], severity_profile=severity_profile):>6} | "
-        f"{_format_score_cell(pair_score):>5} | "
         f"{_format_reference_excursion_cell(reference_stats):>7} | "
         f"{_format_reference_burst_cell(reference_stats):>8} | "
-        f"{(_format_score_cell(reference_stats['score'], reference_severity) if reference_stats else 'n/a'):>8} | "
         f"{_format_score_cell(score_value, severity):>8} |"
     )
 
@@ -1501,14 +1575,14 @@ _PAIR_SCORE_TABLE = {
     "title": "Pair Scores",
     "table_key": "pair",
     "header": (
-        "| Chip | Env | static_presence / motion | RSSI | PPS | Ref | Cover | Sep | Pair | RefExc | RefBurst | Clean | Score |"
+        "| Chip | Env | static_presence / motion | RSSI | PPS | Occ | Ref | Cover | Sep | RefExc | RefBurst | Score |"
     ),
-    "separator": "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+    "separator": "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     "console_header": (
-        "| Chip | Env | static_presence / motion | RSSI | PPS | Ref | Cover | Sep | Pair | RefExc | RefBurst | Clean | Score |"
+        "| Chip | Env | static_presence / motion | RSSI | PPS | Occ | Ref | Cover | Sep | RefExc | RefBurst | Score |"
     ),
     "console_separator": (
-        "  |------|-----|-------------------------|-----------------:|-------------:|--------:|------:|------:|-----:|-------:|---------:|------:|------:|"
+        "  |------|-----|-------------------------|-----------------:|-------------:|---------------:|--------:|------:|------:|-------:|---------:|------:|"
     ),
     "console_heading": False,
     "sort_key": lambda item: -item.get("feature_score", 0.0),
@@ -1520,10 +1594,11 @@ _EXCLUDED_PAIR_SCORE_TABLE = {
     "title": "Excluded Pair Diagnostics",
     "intro": (
         "These pairs keep `dataset_role: exclude` and stay outside the validation "
-        "summary. `Pair` measures static/motion separation, while `Clean` "
-        "measures the static capture against independent idle references. The "
-        "final `Score` is the lower of the two, so a contaminated static capture "
-        "cannot receive 100 merely because motion separates from it."
+        "summary. `Cover` and `Sep` measure static/motion separation, while "
+        "`RefExc` and `RefBurst` measure the static capture against independent "
+        "idle references. The final `Score` is capped by both views, so a "
+        "contaminated static capture cannot receive 100 merely because motion "
+        "separates from it."
     ),
 }
 
@@ -1558,6 +1633,7 @@ def _format_excluded_idle_row(row, *, markdown=False, review_profiles=None):
             f"| {row['chip']} | {row.get('environment', '?')} | {file_cell} | "
             f"{_format_rssi_cell(row.get('rssi_dbm'))} | "
             f"{_format_packet_rate_cell(row.get('packet_rate_pps'))} | "
+            f"{_format_occupancy_cell(row.get('mean_occupancy'), markdown=True)} | "
             f"{reference_cell} | "
             f"{excursion_cell} | "
             f"{burst_cell} | "
@@ -1567,6 +1643,7 @@ def _format_excluded_idle_row(row, *, markdown=False, review_profiles=None):
         f"  | {row['chip']:<4} | {row.get('environment', '?'):<11} | "
         f"{file_cell:<16} | {_format_rssi_cell(row.get('rssi_dbm')):>4} | "
         f"{_format_packet_rate_cell(row.get('packet_rate_pps')):>5} | "
+        f"{_format_occupancy_cell(row.get('mean_occupancy')):>6} | "
         f"{reference_cell:>7} | "
         f"{excursion_cell:>7} | "
         f"{burst_cell:>8} | "
@@ -1588,10 +1665,10 @@ _EXCLUDED_IDLE_SCORE_TABLE = {
         "`Ref`, `RefExc`, `RefBurst`, and `Score` are marked `n/a ⚠️` and the "
         "row is listed first."
     ),
-    "header": "| Chip | Env | File | RSSI | PPS | Ref | RefExc | RefBurst | Score |",
-    "separator": "|---|---|---|---:|---:|---:|---:|---:|---:|",
+    "header": "| Chip | Env | File | RSSI | PPS | Occ | Ref | RefExc | RefBurst | Score |",
+    "separator": "|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
     "console_separator": (
-        "  |------|-----|------------------|-----:|------:|--------:|-------:|---------:|------:|"
+        "  |------|-----|------------------|-----:|------:|------:|--------:|-------:|---------:|------:|"
     ),
     "console_heading": False,
     "sort_key": lambda item: (
@@ -2490,7 +2567,53 @@ def _estimate_average_packet_rate_from_capture(label, entry):
     )
 
 
-def validate_capture_continuity(data, csi_data, *, low_rssi=False):
+def validate_temporal_occupancy(filepath, *, target_pps=None):
+    """Check mean valid-slot occupancy on the recorded detector grid."""
+    packets = _load_validation_packet_view(filepath)
+    if not packets:
+        return [ValidationResult(
+            "temporal_occupancy",
+            "FAIL",
+            "Temporal occupancy unavailable: no sensing packets",
+        )]
+
+    target_pps = _resolve_temporal_occupancy_target_pps(
+        packets,
+        fallback=target_pps,
+    )
+    if target_pps is None:
+        return [ValidationResult(
+            "temporal_occupancy",
+            "FAIL",
+            "Temporal occupancy unavailable: missing csi_target_pps metadata",
+        )]
+
+    occupancy = _mean_temporal_occupancy(packets, target_pps)
+    if occupancy < MINIMUM_TEMPORAL_OCCUPANCY_RATIO:
+        status = "FAIL"
+    elif occupancy < TEMPORAL_OCCUPANCY_WARN_RATIO:
+        status = "WARN"
+    else:
+        status = "PASS"
+    return [ValidationResult(
+        "temporal_occupancy",
+        status,
+        (
+            f"Mean temporal occupancy: {occupancy:.1%} "
+            f"(warn < {TEMPORAL_OCCUPANCY_WARN_RATIO:.1%}, "
+            f"fail < {MINIMUM_TEMPORAL_OCCUPANCY_RATIO:.1%})"
+        ),
+        round(occupancy, 4),
+    )]
+
+
+def validate_capture_continuity(
+    data,
+    csi_data,
+    *,
+    low_rssi=False,
+    include_packet_rate=True,
+):
     """Check packet cadence and stream continuity metadata when available.
 
     Real weak-link captures intentionally preserve bounded transport stress, so
@@ -2506,7 +2629,7 @@ def validate_capture_continuity(data, csi_data, *, low_rssi=False):
     except (TypeError, ValueError):
         duration_ms = 0.0
 
-    if duration_ms > 0:
+    if include_packet_rate and duration_ms > 0:
         packet_rate = num_packets / (duration_ms / 1000.0)
         if packet_rate < MIN_CAPTURE_PACKET_RATE_PPS:
             results.append(ValidationResult(
@@ -2675,6 +2798,33 @@ def validate_capture_continuity(data, csi_data, *, low_rssi=False):
         round(max_gap_ms, 1),
     ))
 
+    return results
+
+
+def validate_capture_file(
+    filepath,
+    *,
+    low_rssi=False,
+    include_packet_rate=True,
+    target_pps=None,
+):
+    """Run the canonical per-file admission checks used by CLI workflows."""
+    results, data = validate_file_integrity(filepath)
+    if data is None:
+        return results
+
+    csi_key = _get_csi_key(data)
+    if csi_key is None:
+        return results
+    csi_data = data[csi_key]
+    results.extend(validate_signal_quality(csi_data))
+    results.extend(validate_temporal_occupancy(filepath, target_pps=target_pps))
+    results.extend(validate_capture_continuity(
+        data,
+        csi_data,
+        low_rssi=low_rssi,
+        include_packet_rate=include_packet_rate,
+    ))
     return results
 
 
@@ -2847,7 +2997,7 @@ def _evaluate_pair_capture(
         bl_file,
         use_cache=use_cache,
     )
-    motion_matrix, motion_feature_names, _motion_row_timing = _load_or_compute_validation_feature_matrix(
+    motion_matrix, motion_feature_names, motion_row_timing = _load_or_compute_validation_feature_matrix(
         mv_file,
         use_cache=use_cache,
     )
@@ -2886,6 +3036,26 @@ def _evaluate_pair_capture(
         motion_coverage,
         pair_separation,
     )
+    static_mean_occupancy = _mean_temporal_occupancy(
+        static_packets,
+        _resolve_temporal_occupancy_target_pps(
+            static_packets,
+            fallback=(
+                static_entry.get("nominal_packet_rate")
+                or static_row_timing.get("target_pps")
+            ),
+        ),
+    )
+    motion_mean_occupancy = _mean_temporal_occupancy(
+        motion_packets,
+        _resolve_temporal_occupancy_target_pps(
+            motion_packets,
+            fallback=(
+                motion_entry.get("nominal_packet_rate")
+                or motion_row_timing.get("target_pps")
+            ),
+        ),
+    )
     reference_cleanliness = _reference_idle_stats(
         static_matrix,
         static_entry,
@@ -2894,9 +3064,13 @@ def _evaluate_pair_capture(
         row_timing=static_row_timing,
         exclude_filename=bl_file.name,
     )
-    score = min(
-        pair_score,
-        reference_cleanliness["score"] if reference_cleanliness else pair_score,
+    score = cap_quality_score_by_occupancy(
+        min(
+            pair_score,
+            reference_cleanliness["score"] if reference_cleanliness else pair_score,
+        ),
+        static_mean_occupancy,
+        motion_mean_occupancy,
     )
     severity = _pair_separation_severity(pair_separation)
     coverage_severity = _threshold_severity(
@@ -2920,7 +3094,8 @@ def _evaluate_pair_capture(
             f"Feature-space quality score={score:.1f}/100; "
             f"pair_score={pair_score:.1f}/100, "
             f"motion_cover={motion_coverage:.1%}, "
-            f"separation={pair_separation:.4f}"
+            f"separation={pair_separation:.4f}, "
+            f"occupancy={static_mean_occupancy:.1%}/{motion_mean_occupancy:.1%}"
             f"{reference_message}"
         ),
         score,
@@ -2935,6 +3110,8 @@ def _evaluate_pair_capture(
         "motion_rssi_dbm": float(np.median([pkt.get("rssi_dbm") for pkt in motion_packets if pkt.get("rssi_dbm") is not None])) if any(pkt.get("rssi_dbm") is not None for pkt in motion_packets) else None,
         "static_packet_rate_pps": static_packet_rate_pps,
         "motion_packet_rate_pps": motion_packet_rate_pps,
+        "static_mean_occupancy": static_mean_occupancy,
+        "motion_mean_occupancy": motion_mean_occupancy,
         "chip": str(static_entry.get("chip", "unknown")).upper(),
         "environment": _entry_environment(static_entry),
         "idle_tail": idle_baseline["margin_q95"],
@@ -3030,6 +3207,22 @@ def _collect_excluded_idle_rows(
                 for packet in packets
                 if packet.get("rssi_dbm") is not None
             ]
+            mean_occupancy = _mean_temporal_occupancy(
+                packets,
+                _resolve_temporal_occupancy_target_pps(
+                    packets,
+                    fallback=(
+                        entry.get("nominal_packet_rate")
+                        or row_timing.get("target_pps")
+                    ),
+                ),
+            )
+            if reference_cleanliness is not None:
+                reference_cleanliness["intrinsic_score"] = reference_cleanliness["score"]
+                reference_cleanliness["score"] = cap_quality_score_by_occupancy(
+                    reference_cleanliness["score"],
+                    mean_occupancy,
+                )
             rows.append({
                 "label": label,
                 "filename": filepath.name,
@@ -3038,6 +3231,7 @@ def _collect_excluded_idle_rows(
                 "environment": _entry_environment(entry),
                 "rssi_dbm": float(np.median(rssi_values)) if rssi_values else None,
                 "packet_rate_pps": _packet_rate_from_entry(entry),
+                "mean_occupancy": mean_occupancy,
                 "reference_cleanliness": reference_cleanliness,
                 "unusable": unusable,
             })
@@ -3680,12 +3874,12 @@ def _group_entries_by_chip_env(entries):
 
 
 def _compute_idle_evidence_for_entry(entry, label, *, use_cache=True):
-    """Return (baseline, median_rssi_dbm, error) for one idle-evidence entry."""
+    """Return baseline, median RSSI, mean occupancy, and an optional error."""
     try:
         filepath = _resolve_dataset_entry_path(entry, label)
         packet_rate_pps = _packet_rate_from_entry(entry)
         if packet_rate_pps is None:
-            return None, None, "insufficient timing metadata"
+            return None, None, None, "insufficient timing metadata"
         feature_names = tuple(VALIDATION_FEATURE_NAMES)
         packets = _load_validation_packet_view(filepath)
         feature_matrix, feature_names, row_timing = _load_or_compute_validation_feature_matrix(
@@ -3699,15 +3893,30 @@ def _compute_idle_evidence_for_entry(entry, label, *, use_cache=True):
         )
         baseline = _agnostic_baseline_stats_from_series(evidence, row_timing)
         if baseline is None:
-            return None, None, "insufficient data"
+            return None, None, None, "insufficient data"
         rssi_values = [pkt.get("rssi_dbm") for pkt in packets if pkt.get("rssi_dbm") is not None]
         median_rssi = float(np.median(rssi_values)) if rssi_values else None
-        return baseline, median_rssi, None
+        mean_occupancy = _mean_temporal_occupancy(
+            packets,
+            _resolve_temporal_occupancy_target_pps(
+                packets,
+                fallback=(
+                    entry.get("nominal_packet_rate")
+                    or row_timing.get("target_pps")
+                ),
+            ),
+        )
+        baseline["intrinsic_score"] = baseline["score"]
+        baseline["score"] = cap_quality_score_by_occupancy(
+            baseline["score"],
+            mean_occupancy,
+        )
+        return baseline, median_rssi, mean_occupancy, None
     except (OSError, ValueError, KeyError) as exc:
-        return None, None, str(exc)
+        return None, None, None, str(exc)
 
 
-def _idle_evidence_score_row(entry, baseline, verdict, rssi_dbm):
+def _idle_evidence_score_row(entry, baseline, verdict, rssi_dbm, mean_occupancy):
     """Build one shared idle-evidence score-table row."""
     filename = str(entry.get("filename", "?"))
     return {
@@ -3716,6 +3925,7 @@ def _idle_evidence_score_row(entry, baseline, verdict, rssi_dbm):
         "filename": filename,
         "display_date": _entry_display_date(entry, filename),
         "rssi_dbm": rssi_dbm,
+        "mean_occupancy": mean_occupancy,
         "baseline": baseline,
         "verdict": verdict,
     }
@@ -3735,7 +3945,7 @@ def _evaluate_idle_evidence_files(
     score_rows = []
     for entry in entries:
         filename = str(entry.get("filename", "?"))
-        baseline, rssi_dbm, error = _compute_idle_evidence_for_entry(
+        baseline, rssi_dbm, mean_occupancy, error = _compute_idle_evidence_for_entry(
             entry,
             label,
             use_cache=use_cache,
@@ -3769,6 +3979,7 @@ def _evaluate_idle_evidence_files(
                 baseline,
                 verdict,
                 rssi_dbm,
+                mean_occupancy,
             )
         )
     return results, score_rows
@@ -3920,7 +4131,7 @@ def validate_quiet_test_recordings(dataset_info, chip_filter=None, use_cache=Tru
     quiet_score_rows = []
     for label_group, entry in idle_candidates:
         filename = str(entry.get("filename", "?"))
-        baseline, rssi_dbm, error = _compute_idle_evidence_for_entry(
+        baseline, rssi_dbm, mean_occupancy, error = _compute_idle_evidence_for_entry(
             entry,
             label_group,
             use_cache=use_cache,
@@ -3948,7 +4159,13 @@ def validate_quiet_test_recordings(dataset_info, chip_filter=None, use_cache=Tru
             baseline["score"],
         ))
         quiet_score_rows.append(
-            _idle_evidence_score_row(entry, baseline, verdict, rssi_dbm)
+            _idle_evidence_score_row(
+                entry,
+                baseline,
+                verdict,
+                rssi_dbm,
+                mean_occupancy,
+            )
         )
     results.extend(idle_results)
     return results, quiet_score_rows
@@ -4053,24 +4270,12 @@ def run_validation(
                 continue
             validated_paths.add(resolved_path)
 
-            file_results = []
-            integrity_results, data = validate_file_integrity(npz_file)
-            _tag_results(integrity_results, 'integrity')
-            file_results.extend(integrity_results)
-
-            if data is not None:
-                csi_key = _get_csi_key(data)
-                quality_results = validate_signal_quality(data[csi_key])
-                _tag_results(quality_results, 'integrity')
-                file_results.extend(quality_results)
-
-                continuity_results = validate_capture_continuity(
-                    data,
-                    data[csi_key],
-                    low_rssi=bool(entry.get("low_rssi")),
-                )
-                _tag_results(continuity_results, 'integrity')
-                file_results.extend(continuity_results)
+            file_results = validate_capture_file(
+                npz_file,
+                low_rssi=bool(entry.get("low_rssi")),
+                target_pps=entry.get("nominal_packet_rate"),
+            )
+            _tag_results(file_results, 'integrity')
 
             _emit_issues(
                 file_results,
@@ -4374,13 +4579,15 @@ def _generate_report(
 
     lines.append("\n## Reading these tables\n")
     lines.append(
-        "Every score in these tables comes from the shared scale-invariant "
-        "feature set, not from a detector threshold or probability surface."
+        "Every score in these tables combines the shared scale-invariant "
+        "feature evidence with a temporal-occupancy ceiling; none depends on "
+        "a detector threshold or probability surface."
     )
     lines.append(
-        "- Pair rows keep separation (`Pair`) distinct from external static "
-        "cleanliness (`Clean`). Their final `Score` is the lower value, so "
-        "strong separation cannot hide a shifted or persistently active static capture."
+        "- Pair rows keep `Cover` and `Sep` distinct from external static "
+        "cleanliness (`RefExc` and `RefBurst`). Their final `Score` is capped by "
+        "both views, so strong separation cannot hide a shifted or persistently "
+        "active static capture."
     )
     lines.append(
         "- Presence, Empty, and Long-recording rows summarize within-capture "
@@ -4396,7 +4603,7 @@ def _generate_report(
     )
     lines.append(
         "- `Score` is a compact ranking signal only. Admission still turns on "
-        "integrity, continuity, metadata, overlap, and ML readiness."
+        "integrity, occupancy, continuity, metadata, overlap, and ML readiness."
     )
     lines.append("\n## Validation rule\n")
     lines.append(
@@ -4405,6 +4612,12 @@ def _generate_report(
         f"❌ `>{MAX_STREAM_SEQ_MISSING_FAIL_RATIO:.0%}` for normal recordings, "
         f"and ❌ `>{MAX_LOW_RSSI_STREAM_SEQ_MISSING_FAIL_RATIO:.0%}` when "
         f"`low_rssi: true`"
+    )
+    lines.append(
+        f"- `Occ` (mean valid-slot temporal occupancy): "
+        f"⚠️ `<{TEMPORAL_OCCUPANCY_WARN_RATIO:.0%}`, "
+        f"❌ `<{MINIMUM_TEMPORAL_OCCUPANCY_RATIO:.0%}`; "
+        f"the fail threshold is a dataset-admission gate, and occupancy is a score ceiling"
     )
     lines.append(
         f"- `Cover` (Pair Scores, motion windows above the idle p95): "
@@ -4494,8 +4707,10 @@ def _generate_report(
             "shown without soft marks until enough clean references exist"
         )
     lines.append(
-        "- `Score`: 0-100 review ranking only. On pair rows it is "
-        "`min(Pair, Clean)`; it remains outside dataset admission.\n"
+        "- `Score`: 0-100 review ranking only. On pair rows it is the lower "
+        "of the separation and external-cleanliness composites, capped by "
+        "the occupancy of every capture in scope. Score remains outside "
+        "dataset admission; occupancy has its own hard gate.\n"
     )
     lines.append("Computed metrics:\n")
     lines.append("- `Env`: capture environment from `dataset_info.json`")
@@ -4510,6 +4725,10 @@ def _generate_report(
         "(`num_packets / duration_ms`); pair rows show `static_presence / motion`"
     )
     lines.append(
+        "- `Occ`: mean valid-slot occupancy across complete production temporal "
+        "windows; pair rows show `static_presence / motion`"
+    )
+    lines.append(
         "- `Cover` (Pair Scores): share of motion windows whose consensus "
         "feature evidence rises above the idle half's own p95"
     )
@@ -4517,16 +4736,10 @@ def _generate_report(
         "- `Ref`: external-reference scope (`env` or `chip`) and independent capture count"
     )
     lines.append(
-        "- `Pair`: separation score built only from `Cover` and `Sep`"
-    )
-    lines.append(
         "- `RefExc`: share of five-second idle blocks above the external reference p95"
     )
     lines.append(
         "- `RefBurst`: longest contiguous five-second idle-block run above the external reference p99"
-    )
-    lines.append(
-        "- `Clean`: cross-capture static-cleanliness score built from `RefExc` and `RefBurst`"
     )
     lines.append(
         "- `Exc` (Presence/Empty/Long-recording): share of windows whose "
@@ -4546,9 +4759,10 @@ def _generate_report(
         "median centered feature evidence"
     )
     lines.append(
-        "- `Score`: indicative 0-100 feature-space ranking; pair score blends "
+        "- `Score`: indicative 0-100 quality ranking; pair score blends "
         "separation, motion coverage, and idle cleanliness, while idle score "
-        "blends tail cleanliness and burst length"
+        "blends tail cleanliness and burst length; every final score is capped "
+        "by mean temporal occupancy"
     )
 
     atomic_write_text(REPORT_OUTPUT, '\n'.join(lines) + '\n')
