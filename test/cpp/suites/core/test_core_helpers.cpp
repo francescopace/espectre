@@ -167,6 +167,8 @@ void test_utils_statistical_helpers_cover_edge_cases(void) {
 }
 
 void test_temporal_csi_sampler_matches_fixed_slot_contract(void) {
+    TEST_ASSERT_EQUAL(7U, TEMPORAL_CSI_MINIMUM_COVERAGE_NUMERATOR);
+    TEST_ASSERT_EQUAL(10U, TEMPORAL_CSI_MINIMUM_COVERAGE_DENOMINATOR);
     TEST_ASSERT_EQUAL(100U, temporal_window_slots(100U, 1000U));
     TEST_ASSERT_EQUAL(141U, temporal_window_slots(94U, 1500U));
     TEST_ASSERT_EQUAL(70U, temporal_minimum_valid_slots(100U));

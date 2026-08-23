@@ -474,16 +474,24 @@ def test_in_memory_gate_result_uses_training_metrics():
 
 def test_occupancy_thinning_reduces_admitted_count_deterministically():
     import tools.lib.occupancy_thinning as occupancy_thinning
+    from temporal_csi_sampler import (
+        MINIMUM_COVERAGE_DENOMINATOR,
+        MINIMUM_COVERAGE_NUMERATOR,
+    )
 
     packets = _synthetic_packets(count=400)
+    expected_gate_percent = (
+        100 * MINIMUM_COVERAGE_NUMERATOR // MINIMUM_COVERAGE_DENOMINATOR
+    )
+    assert occupancy_thinning.OCCUPANCY_GATE_PERCENT == expected_gate_percent
     first, keep_ratio, seed = occupancy_thinning.thin_to_occupancy(
         packets,
-        occupancy_percent=70,
+        occupancy_percent=occupancy_thinning.OCCUPANCY_GATE_PERCENT,
         dataset_id="sample.npz",
     )
     second, second_ratio, second_seed = occupancy_thinning.thin_to_occupancy(
         packets,
-        occupancy_percent=70,
+        occupancy_percent=occupancy_thinning.OCCUPANCY_GATE_PERCENT,
         dataset_id="sample.npz",
     )
 
@@ -495,6 +503,9 @@ def test_occupancy_thinning_reduces_admitted_count_deterministically():
     assert [packet["device_ticks_us"] for packet in first] == [
         packet["device_ticks_us"] for packet in second
     ]
+    assert occupancy_thinning.mean_window_occupancy(first) == pytest.approx(
+        expected_gate_percent / 100.0
+    )
 
 
 def test_in_memory_gate_result_requires_occupancy_pass():

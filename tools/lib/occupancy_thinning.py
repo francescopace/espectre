@@ -12,13 +12,19 @@ from .bootstrap import setup_paths
 setup_paths()
 
 from config import CSI_TARGET_PPS, SEGMENTATION_WINDOW_SIZE_MS  # noqa: E402
-from temporal_csi_sampler import TemporalCsiSampler  # noqa: E402
+from temporal_csi_sampler import (  # noqa: E402
+    MINIMUM_COVERAGE_DENOMINATOR,
+    MINIMUM_COVERAGE_NUMERATOR,
+    TemporalCsiSampler,
+)
 from tools.lib.temporal_replay import (  # noqa: E402
     iter_temporal_admissions,
     packet_timestamp_us,
 )
 
-OCCUPANCY_GATE_PERCENT = 70
+OCCUPANCY_GATE_PERCENT = (
+    100 * MINIMUM_COVERAGE_NUMERATOR // MINIMUM_COVERAGE_DENOMINATOR
+)
 OCCUPANCY_THIN_SEED = 20260807
 OCCUPANCY_GATE_TRANSFORM = "occupancy_gate_thin_v1"
 TARGET_PPS = int(CSI_TARGET_PPS)

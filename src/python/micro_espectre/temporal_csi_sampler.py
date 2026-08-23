@@ -49,7 +49,7 @@ class TemporalCsiSampler:
     MicroPython CSI loop and in CPython replay or training code.
     """
 
-    def __init__(self, target_pps, window_size_ms, phase_offset_us=0):
+    def __init__(self, target_pps, window_size_ms):
         self.target_pps = int(target_pps)
         self.window_size_ms = int(window_size_ms)
         self.window_size_us = self.window_size_ms * 1000
@@ -59,9 +59,6 @@ class TemporalCsiSampler:
         self.minimum_valid_slots = minimum_valid_slots(self.window_slots)
         self.minimum_sample_spacing_us = minimum_sample_spacing_us(
             self.target_pps
-        )
-        self.phase_offset_us = int(phase_offset_us) % max(
-            1, int(round(MICROSECONDS_PER_SECOND / self.target_pps))
         )
         self._slot_ids = [-1] * self.window_slots
         self.reset()
@@ -133,14 +130,13 @@ class TemporalCsiSampler:
         return False
 
     def _slot_for_elapsed(self, elapsed_us):
-        phased_elapsed = int(elapsed_us) + self.phase_offset_us
         return (
-            phased_elapsed * self.target_pps
+            int(elapsed_us) * self.target_pps
             + MICROSECONDS_PER_SECOND // 2
         ) // MICROSECONDS_PER_SECOND
 
     def _select_candidate(self, slot, elapsed_us, reset_required=False):
-        scaled_elapsed = (int(elapsed_us) + self.phase_offset_us) * self.target_pps
+        scaled_elapsed = int(elapsed_us) * self.target_pps
         scaled_center = int(slot) * MICROSECONDS_PER_SECOND
         center_error = abs(scaled_elapsed - scaled_center)
         if (
