@@ -70,6 +70,7 @@ class TemporalCsiSampler:
         self._elapsed_us = 0
         self._last_admitted_slot = None
         self._last_admitted_elapsed_us = None
+        self._window_origin_slot = None
         self._reported_slot = None
         self._active_slot = None
         self._pending_slot = None
@@ -92,14 +93,30 @@ class TemporalCsiSampler:
         self.gap_resets = 0
 
     def clear_history(self):
-        """Invalidate the active window while preserving lifetime counters."""
+        """Start a new temporal epoch while preserving lifetime counters."""
         self._clear_window()
         self._last_timestamp = None
         self._elapsed_us = 0
         self._last_admitted_slot = None
         self._last_admitted_elapsed_us = None
+        self._window_origin_slot = None
         self._reported_slot = None
         self._active_slot = None
+        self._pending_slot = None
+        self._pending_elapsed_us = None
+        self._pending_center_error = None
+        self._pending_reset_required = False
+        self.accepted = False
+        self.selected_current = False
+        self.reset_required = False
+        self.gap_reset_required = False
+        self.slots_advanced = 0
+        self.missing_slots_before = 0
+
+    def clear_window_preserving_phase(self):
+        """Clear window data without changing the temporal grid phase."""
+        self._clear_window()
+        self._window_origin_slot = self._active_slot
         self._pending_slot = None
         self._pending_elapsed_us = None
         self._pending_center_error = None
@@ -235,6 +252,7 @@ class TemporalCsiSampler:
             self._elapsed_us = 0
             slot = self._slot_for_elapsed(0)
             self._active_slot = slot
+            self._window_origin_slot = slot
             self._select_candidate(slot, 0)
             return False
 
@@ -256,6 +274,7 @@ class TemporalCsiSampler:
             self._last_admitted_elapsed_us = None
             slot = self._slot_for_elapsed(0)
             self._active_slot = slot
+            self._window_origin_slot = slot
             self._select_candidate(slot, 0, reset_required=True)
             self.gap_reset_required = True
             return emitted
@@ -299,7 +318,10 @@ class TemporalCsiSampler:
     @property
     def is_ready(self):
         return (
-            self._last_admitted_slot is not None
-            and self._last_admitted_slot + 1 >= self.window_slots
+            self._window_origin_slot is not None
+            and self._last_admitted_slot is not None
+            and self._last_admitted_slot >= self._window_origin_slot
+            and self._last_admitted_slot - self._window_origin_slot + 1
+            >= self.window_slots
             and self._occupancy >= self.minimum_valid_slots
         )

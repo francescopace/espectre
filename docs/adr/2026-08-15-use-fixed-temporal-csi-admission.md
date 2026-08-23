@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-15
-- Updated: 2026-08-16
+- Updated: 2026-08-23
 
 ## Context
 
@@ -28,6 +28,7 @@ Keep the public analysis window in milliseconds and admit CSI onto a fixed tempo
 - duplicate, backward, and stale packets are rejected, timestamp wrap is handled explicitly, and a gap spanning a detector window invalidates temporal history immediately, even while the first post-gap candidate remains pending until a later slot or an explicit flush;
 - missing slots remain missing: statistics use valid samples, while lagged and adjacent features use only pairs at their exact slot offsets;
 - evaluation and startup calibration consume the same admitted stream;
+- detector changes and calibration boundaries clear pending and admitted detector-window data without changing the timestamp-grid phase; only a CSI session discontinuity starts a new temporal epoch;
 - detector instances and slot capacity remain fixed until an explicit configuration or detector-profile change; measured receive rate never reconstructs a detector;
 - raw receive counters, detector-admitted counters, drop reasons, missing slots, and occupancy remain distinct diagnostics;
 - live and replay inputs require advancing packet timestamps; there is no packet-count timing fallback;
@@ -55,6 +56,7 @@ Streamer firmware continues to transport raw timestamped CSI under collector-own
 | 2026-08-15 | Admit CSI onto a fixed temporal slot grid and never reconstruct the detector from measured receive rate | Accepted |
 | 2026-08-16 | Occupancy floor of four fifths | Moved to seven tenths after reserved idle-versus-motion AUC stayed close to full occupancy at 70% and collapsed around 50% |
 | 2026-08-16 | Opt-in adaptive traffic that maximizes temporally admitted CSI rather than raw accepted callbacks | Rejected after C3 and classic ESP32 A/B; occupancy-adaptive send-rate trials did not beat fixed cadence, and `tx_bp` did not fire on the benches |
+| 2026-08-23 | Re-anchor the temporal grid after detector or calibration resets | Rejected after C3 runtime switches changed occupancy for an unchanged RX stream; software-only resets now preserve the active grid phase |
 
 A 60-second sweep over 22 normal-link pairs, under the earlier measured-rate window, removed packets from stable streams to create a genuine `80 pps` cadence. With the default temporal window resolved to 80 samples, aggregate ML recall was `98.844%`, aggregate false positives were `0.019%`, and worst-session recall was `92.797%`. The fixed 100-sample control produced `99.546%` recall and `0.041%` false positives. That evidence still argues against supporting arbitrarily slow sources by shrinking the configured duration; current readiness uses occupancy on the target grid instead of a second rate-derived window size.
 

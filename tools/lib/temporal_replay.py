@@ -52,8 +52,13 @@ class TemporalReplayController:
         self._pending = None
 
     def clear_history(self):
-        """Drop the buffered candidate and temporal history, preserving counters."""
+        """Drop buffered data and start a new sampler temporal epoch."""
         self.sampler.clear_history()
+        self._pending = None
+
+    def clear_window_preserving_phase(self):
+        """Drop buffered data while retaining the sampler grid phase."""
+        self.sampler.clear_window_preserving_phase()
         self._pending = None
 
     def _build_admission(self, pending):

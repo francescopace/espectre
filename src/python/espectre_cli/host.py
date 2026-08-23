@@ -1279,7 +1279,7 @@ def _run_live_collect(args) -> None:
             if is_calibration_complete():
                 state["calibration_active"] = False
                 for observed_device in state["devices"].values():
-                    observed_device["temporal_controller"].clear_history()
+                    observed_device["temporal_controller"].clear_window_preserving_phase()
                 render_multi_device_summary(now)
             elif calibration_render_due:
                 render_multi_device_summary(now)
@@ -1340,7 +1340,7 @@ def _run_live_collect(args) -> None:
         if state["calibration_active"] and is_calibration_complete():
             state["calibration_active"] = False
             for device_state in state["devices"].values():
-                device_state["temporal_controller"].clear_history()
+                device_state["temporal_controller"].clear_window_preserving_phase()
             should_render_summary = True
         if not state["calibration_active"]:
             for device_state in state["devices"].values():

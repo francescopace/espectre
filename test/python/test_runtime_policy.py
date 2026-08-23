@@ -122,6 +122,32 @@ class TestTemporalCsiSampler:
         assert sampler.occupancy_slots == 1
         assert sampler.gap_resets == 1
 
+    def test_clears_window_without_rephasing_temporal_grid(self):
+        sampler = TemporalCsiSampler(100, 1000)
+
+        assert not sampler.admit(1_000_000)
+        assert sampler.admit(1_010_000)
+        assert sampler.current_slot == 0
+
+        sampler.clear_window_preserving_phase()
+        assert sampler.occupancy_slots == 0
+        assert not sampler.has_pending_candidate
+
+        assert not sampler.admit(1_020_000)
+        assert sampler.admit(1_030_000)
+        assert sampler.current_slot == 2
+        assert sampler.missing_slots_before == 1
+        assert sampler.occupancy_slots == 1
+
+        for slot in range(4, 73):
+            assert sampler.admit(1_000_000 + slot * 10_000)
+        assert sampler.occupancy_slots == 70
+        assert not sampler.is_ready
+
+        for slot in range(73, 102):
+            assert sampler.admit(1_000_000 + slot * 10_000)
+        assert sampler.is_ready
+
     def test_matches_the_cpp_cross_runtime_trace(self):
         sampler = TemporalCsiSampler(20, 500)
         timestamps = (

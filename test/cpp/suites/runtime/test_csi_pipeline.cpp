@@ -1141,21 +1141,31 @@ void test_csi_pipeline_clear_detector_buffer(void) {
     LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
     manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
-    
-    // Process some packets
+
     int8_t csi_buf[128] = {0};
     wifi_csi_info_t csi_info = {};
     fill_valid_csi_info_(&csi_info, csi_buf);
-    
-    for (int i = 0; i < 10; i++) {
-        manager.process_packet(&csi_info);
-    }
-    
-    // Clear buffer
+
+    csi_info.rx_ctrl.timestamp = 1000000U;
+    manager.process_packet(&csi_info);
+    csi_info.rx_ctrl.timestamp = 1010000U;
+    manager.process_packet(&csi_info);
+    TEST_ASSERT_EQUAL(1U, manager.detector_window_occupancy_slots());
+
     manager.clear_detector_buffer();
-    
-    // Detector should be reset
+
     TEST_ASSERT_EQUAL_FLOAT(0.0f, detector.get_motion_metric());
+    TEST_ASSERT_EQUAL(0U, manager.detector_window_occupancy_slots());
+
+    // A detector-only reset must not make the next RX timestamp a new grid
+    // origin. Slot 1 was pending when the buffer was cleared, so slot 2 is
+    // still reported after the following packet closes it.
+    csi_info.rx_ctrl.timestamp = 1020000U;
+    manager.process_packet(&csi_info);
+    csi_info.rx_ctrl.timestamp = 1030000U;
+    manager.process_packet(&csi_info);
+    TEST_ASSERT_EQUAL(1U, manager.detector_missing_slots_total());
+    TEST_ASSERT_EQUAL(1U, manager.detector_window_occupancy_slots());
 }
 
 void test_csi_pipeline_aggregates_detection_timing_on_evaluation_ticks(void) {

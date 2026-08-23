@@ -94,7 +94,10 @@ void CsiPipeline::clear_detector_state_() {
     // Required after channel switch and post-calibration to avoid stale samples.
     detector_->clear_buffer();
     cadence_.reset_window();
-    sampler_.clear_history();
+    // Detector changes and calibration boundaries invalidate feature data,
+    // but they are not discontinuities in the Wi-Fi RX clock. Preserve the
+    // temporal grid phase so the same packet stream keeps the same slot map.
+    sampler_.clear_window_preserving_phase();
     pending_candidate_valid_ = false;
     reset_motion_state_filter_();
     request_motion_state_callback_(previous_state, effective_motion_state_);

@@ -86,8 +86,27 @@ void TemporalCsiSampler::clear_history() {
   has_last_admitted_slot_ = false;
   last_admitted_slot_ = 0U;
   last_admitted_elapsed_us_ = 0U;
+  has_window_origin_ = false;
+  window_origin_slot_ = 0U;
   has_active_slot_ = false;
   active_slot_ = 0U;
+  has_pending_candidate_ = false;
+  pending_slot_ = 0U;
+  pending_elapsed_us_ = 0U;
+  pending_center_error_ = 0U;
+  pending_reset_required_ = false;
+  accepted_ = false;
+  selected_current_ = false;
+  reset_required_ = false;
+  gap_reset_required_ = false;
+  slots_advanced_ = 0U;
+  missing_slots_before_ = 0U;
+}
+
+void TemporalCsiSampler::clear_window_preserving_phase() {
+  clear_window_();
+  has_window_origin_ = has_active_slot_;
+  window_origin_slot_ = active_slot_;
   has_pending_candidate_ = false;
   pending_slot_ = 0U;
   pending_elapsed_us_ = 0U;
@@ -208,6 +227,8 @@ bool TemporalCsiSampler::admit(uint32_t timestamp_us, bool has_timestamp,
     elapsed_us_ = 0U;
     has_active_slot_ = true;
     active_slot_ = 0U;
+    has_window_origin_ = true;
+    window_origin_slot_ = 0U;
     select_candidate_(0U, 0U, false);
     return false;
   }
@@ -230,6 +251,8 @@ bool TemporalCsiSampler::admit(uint32_t timestamp_us, bool has_timestamp,
     elapsed_us_ = 0U;
     has_last_admitted_slot_ = false;
     last_admitted_elapsed_us_ = 0U;
+    has_window_origin_ = true;
+    window_origin_slot_ = 0U;
     has_active_slot_ = true;
     active_slot_ = 0U;
     select_candidate_(0U, 0U, true);
@@ -272,7 +295,9 @@ float TemporalCsiSampler::occupancy_ratio() const {
 }
 
 bool TemporalCsiSampler::is_ready() const {
-  return has_last_admitted_slot_ && last_admitted_slot_ + 1U >= window_slots_ &&
+  return has_window_origin_ && has_last_admitted_slot_ &&
+         last_admitted_slot_ >= window_origin_slot_ &&
+         last_admitted_slot_ - window_origin_slot_ + 1U >= window_slots_ &&
          occupancy_slots_ >= minimum_valid_slots_;
 }
 

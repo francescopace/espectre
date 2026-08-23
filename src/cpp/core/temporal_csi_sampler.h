@@ -34,7 +34,10 @@ class TemporalCsiSampler {
 
   bool configure(uint32_t target_pps, uint32_t window_size_ms);
   void reset();
+  /** Clear the window and timestamp grid while retaining lifetime counters. */
   void clear_history();
+  /** Clear admitted window data while retaining the active timestamp grid. */
+  void clear_window_preserving_phase();
 
   // `now_us` is optional processing time on the same unsigned 32-bit clock as
   // `timestamp_us`. Omit it when the clocks differ, including classic ESP32
@@ -97,6 +100,8 @@ class TemporalCsiSampler {
   bool has_last_admitted_slot_{false};
   uint64_t last_admitted_slot_{0U};
   uint64_t last_admitted_elapsed_us_{0U};
+  bool has_window_origin_{false};
+  uint64_t window_origin_slot_{0U};
 
   bool has_active_slot_{false};
   uint64_t active_slot_{0U};
