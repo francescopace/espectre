@@ -345,7 +345,7 @@ Update the internal traffic generator type on frontends that advertise traffic c
 }
 ```
 
-Accepted values are `ping` and `dns`. Native persists the accepted value across reboot. The selection is always stored, but only takes effect while `csi_traffic_mode` is `internal`.
+Accepted values are `ping` and `dns`. `ping` selects stateless ICMP echo traffic. `dns` selects length-prefixed DNS queries over one persistent, non-blocking TCP connection to gateway port `53`, so the gateway must accept DNS over TCP. Native persists the accepted value across reboot. The selection is always stored, but only takes effect while `csi_traffic_mode` is `internal`. Streamer does not advertise this command because collector pacing owns its traffic source.
 
 Request an OTA manifest check. Omit `channel` to use the firmware's build-time default, or pass `release`, `preview`, or `develop`:
 

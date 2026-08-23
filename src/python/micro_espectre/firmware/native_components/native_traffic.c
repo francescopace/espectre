@@ -15,6 +15,7 @@
 #include "freertos/task.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
+#include "lwip/tcp.h"
 #include "py/mperrno.h"
 #include "py/mphal.h"
 #include "py/runtime.h"
@@ -24,6 +25,9 @@
 #define NATIVE_TRAFFIC_REOPEN_ERROR_COUNT (8)
 #define NATIVE_TRAFFIC_STOP_TIMEOUT_MS (1000)
 #define NATIVE_TRAFFIC_DNS_PORT (53)
+#define NATIVE_TRAFFIC_DNS_QUERY_SIZE (17)
+#define NATIVE_TRAFFIC_DNS_TCP_FRAME_SIZE (NATIVE_TRAFFIC_DNS_QUERY_SIZE + 2)
+#define NATIVE_TRAFFIC_TCP_RECONNECT_DELAY_US (1000000LL)
 
 typedef enum {
     NATIVE_TRAFFIC_MODE_PING,
@@ -38,10 +42,22 @@ typedef struct __attribute__((packed)) {
     uint16_t sequence;
 } native_traffic_ping_packet_t;
 
-static const uint8_t native_traffic_dns_query[] = {
-    0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+static const uint8_t native_traffic_dns_query_template[] = {
+    0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01,
 };
+
+typedef enum {
+    NATIVE_TRAFFIC_SOCKET_READY,
+    NATIVE_TRAFFIC_SOCKET_PEER_CLOSED,
+    NATIVE_TRAFFIC_SOCKET_ERROR,
+} native_traffic_socket_drain_result_t;
+
+typedef enum {
+    NATIVE_TRAFFIC_TCP_DISCONNECTED,
+    NATIVE_TRAFFIC_TCP_CONNECTING,
+    NATIVE_TRAFFIC_TCP_CONNECTED,
+} native_traffic_tcp_state_t;
 
 typedef struct _native_traffic_obj_t {
     mp_obj_base_t base;
@@ -78,8 +94,8 @@ static uint16_t native_traffic_checksum(const void *data, size_t len) {
 }
 
 static int native_traffic_open_socket(const native_traffic_obj_t *self) {
-    int socket_type = self->mode == NATIVE_TRAFFIC_MODE_PING ? SOCK_RAW : SOCK_DGRAM;
-    int socket_protocol = self->mode == NATIVE_TRAFFIC_MODE_PING ? IPPROTO_ICMP : IPPROTO_UDP;
+    int socket_type = self->mode == NATIVE_TRAFFIC_MODE_PING ? SOCK_RAW : SOCK_STREAM;
+    int socket_protocol = self->mode == NATIVE_TRAFFIC_MODE_PING ? IPPROTO_ICMP : IPPROTO_TCP;
     int sock = socket(AF_INET, socket_type, socket_protocol);
     if (sock < 0) {
         return -1;
@@ -111,6 +127,10 @@ static int native_traffic_open_socket(const native_traffic_obj_t *self) {
     // Match the production ESP-IDF traffic generator's low-latency WMM hint.
     int sensing_tos = 46 << 2;
     (void)setsockopt(sock, IPPROTO_IP, IP_TOS, &sensing_tos, sizeof(sensing_tos));
+    if (self->mode == NATIVE_TRAFFIC_MODE_DNS) {
+        int enabled = 1;
+        (void)setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &enabled, sizeof(enabled));
+    }
     return sock;
 }
 
@@ -121,10 +141,93 @@ static void native_traffic_close_socket(native_traffic_obj_t *self) {
     }
 }
 
-static void native_traffic_drain_socket(int sock) {
+static native_traffic_socket_drain_result_t native_traffic_drain_socket(int sock) {
     uint8_t buffer[128];
-    while (recv(sock, buffer, sizeof(buffer), MSG_DONTWAIT) > 0) {
+    while (true) {
+        ssize_t received = recv(sock, buffer, sizeof(buffer), MSG_DONTWAIT);
+        if (received > 0) {
+            continue;
+        }
+        if (received == 0) {
+            return NATIVE_TRAFFIC_SOCKET_PEER_CLOSED;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return NATIVE_TRAFFIC_SOCKET_READY;
+        }
+        return NATIVE_TRAFFIC_SOCKET_ERROR;
     }
+}
+
+static native_traffic_tcp_state_t native_traffic_start_tcp_connect(
+    int sock,
+    const struct sockaddr_in *destination
+) {
+    if (
+        connect(
+            sock,
+            (const struct sockaddr *)destination,
+            sizeof(*destination)
+        ) == 0
+    ) {
+        return NATIVE_TRAFFIC_TCP_CONNECTED;
+    }
+    if (errno == EISCONN) {
+        return NATIVE_TRAFFIC_TCP_CONNECTED;
+    }
+    if (errno == EINPROGRESS || errno == EALREADY) {
+        return NATIVE_TRAFFIC_TCP_CONNECTING;
+    }
+    return NATIVE_TRAFFIC_TCP_DISCONNECTED;
+}
+
+static native_traffic_tcp_state_t native_traffic_poll_tcp_connect(int sock) {
+    fd_set write_fds;
+    fd_set error_fds;
+    FD_ZERO(&write_fds);
+    FD_ZERO(&error_fds);
+    FD_SET(sock, &write_fds);
+    FD_SET(sock, &error_fds);
+    struct timeval timeout = {0};
+    int ready = select(sock + 1, NULL, &write_fds, &error_fds, &timeout);
+    if (ready == 0) {
+        return NATIVE_TRAFFIC_TCP_CONNECTING;
+    }
+    if (ready < 0) {
+        return NATIVE_TRAFFIC_TCP_DISCONNECTED;
+    }
+
+    int socket_error = 0;
+    socklen_t error_len = sizeof(socket_error);
+    if (
+        getsockopt(sock, SOL_SOCKET, SO_ERROR, &socket_error, &error_len) != 0 ||
+        socket_error != 0
+    ) {
+        if (socket_error != 0) {
+            errno = socket_error;
+        }
+        return NATIVE_TRAFFIC_TCP_DISCONNECTED;
+    }
+    return NATIVE_TRAFFIC_TCP_CONNECTED;
+}
+
+static int64_t native_traffic_next_send_deadline_us(
+    int64_t previous_deadline_us,
+    int64_t send_started_us,
+    int64_t interval_us
+) {
+    if (interval_us <= 0) {
+        return send_started_us;
+    }
+    if (previous_deadline_us <= 0) {
+        return send_started_us + interval_us;
+    }
+
+    int64_t phase_deadline_us = previous_deadline_us + interval_us;
+    int64_t remaining_us = phase_deadline_us - send_started_us;
+    if (remaining_us < interval_us / 2) {
+        return send_started_us + interval_us;
+    }
+    return phase_deadline_us;
 }
 
 static ssize_t native_traffic_send_packet(
@@ -132,14 +235,23 @@ static ssize_t native_traffic_send_packet(
     const struct sockaddr_in *destination
 ) {
     if (self->mode == NATIVE_TRAFFIC_MODE_DNS) {
-        return sendto(
-            self->sock,
-            native_traffic_dns_query,
-            sizeof(native_traffic_dns_query),
-            0,
-            (const struct sockaddr *)destination,
-            sizeof(*destination)
+        uint8_t frame[NATIVE_TRAFFIC_DNS_TCP_FRAME_SIZE];
+        uint16_t transaction_id = ++self->sequence;
+        frame[0] = 0;
+        frame[1] = NATIVE_TRAFFIC_DNS_QUERY_SIZE;
+        memcpy(
+            frame + 2,
+            native_traffic_dns_query_template,
+            sizeof(native_traffic_dns_query_template)
         );
+        frame[2] = (uint8_t)(transaction_id >> 8);
+        frame[3] = (uint8_t)(transaction_id & 0xff);
+        ssize_t sent = send(self->sock, frame, sizeof(frame), MSG_DONTWAIT);
+        if (sent >= 0 && (size_t)sent != sizeof(frame)) {
+            errno = EIO;
+            return -1;
+        }
+        return sent;
     }
 
     native_traffic_ping_packet_t packet = {
@@ -170,6 +282,12 @@ static void native_traffic_task(void *arg) {
         .sin_addr.s_addr = self->gateway_addr,
     };
     uint32_t consecutive_errors = 0;
+    int64_t next_send_deadline_us = 0;
+    int64_t next_connect_attempt_us = 0;
+    native_traffic_tcp_state_t connection_state =
+        self->mode == NATIVE_TRAFFIC_MODE_DNS
+            ? NATIVE_TRAFFIC_TCP_DISCONNECTED
+            : NATIVE_TRAFFIC_TCP_CONNECTED;
 
     while (self->running) {
         if (self->paused) {
@@ -186,25 +304,94 @@ static void native_traffic_task(void *arg) {
                 continue;
             }
             consecutive_errors = 0;
+            next_send_deadline_us = 0;
+            next_connect_attempt_us = 0;
+            connection_state = self->mode == NATIVE_TRAFFIC_MODE_DNS
+                ? NATIVE_TRAFFIC_TCP_DISCONNECTED
+                : NATIVE_TRAFFIC_TCP_CONNECTED;
+        }
+
+        if (
+            self->mode == NATIVE_TRAFFIC_MODE_DNS &&
+            connection_state != NATIVE_TRAFFIC_TCP_CONNECTED
+        ) {
+            int64_t now_us = esp_timer_get_time();
+            if (connection_state == NATIVE_TRAFFIC_TCP_DISCONNECTED) {
+                if (now_us < next_connect_attempt_us) {
+                    vTaskDelay(pdMS_TO_TICKS(10));
+                    continue;
+                }
+                connection_state = native_traffic_start_tcp_connect(
+                    self->sock,
+                    &destination
+                );
+            } else {
+                connection_state = native_traffic_poll_tcp_connect(self->sock);
+            }
+            if (connection_state == NATIVE_TRAFFIC_TCP_DISCONNECTED) {
+                native_traffic_close_socket(self);
+                self->sock = native_traffic_open_socket(self);
+                if (self->sock < 0) {
+                    self->error_count++;
+                }
+                next_connect_attempt_us =
+                    esp_timer_get_time() + NATIVE_TRAFFIC_TCP_RECONNECT_DELAY_US;
+                next_send_deadline_us = 0;
+            }
+            if (connection_state != NATIVE_TRAFFIC_TCP_CONNECTED) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+                continue;
+            }
+            next_send_deadline_us = 0;
+        }
+
+        native_traffic_socket_drain_result_t drain_result =
+            native_traffic_drain_socket(self->sock);
+        if (
+            self->mode == NATIVE_TRAFFIC_MODE_DNS &&
+            drain_result != NATIVE_TRAFFIC_SOCKET_READY
+        ) {
+            native_traffic_close_socket(self);
+            self->sock = native_traffic_open_socket(self);
+            if (self->sock < 0) {
+                self->error_count++;
+            }
+            connection_state = NATIVE_TRAFFIC_TCP_DISCONNECTED;
+            next_connect_attempt_us =
+                esp_timer_get_time() + NATIVE_TRAFFIC_TCP_RECONNECT_DELAY_US;
+            next_send_deadline_us = 0;
+            consecutive_errors = 0;
+            continue;
         }
 
         int64_t send_started_us = esp_timer_get_time();
-        native_traffic_drain_socket(self->sock);
         ssize_t sent = native_traffic_send_packet(self, &destination);
         if (sent > 0) {
             self->packet_count++;
             consecutive_errors = 0;
         } else {
+            int send_errno = errno;
             self->error_count++;
             consecutive_errors++;
-            if (consecutive_errors >= NATIVE_TRAFFIC_REOPEN_ERROR_COUNT) {
+            bool transient_error =
+                send_errno == EAGAIN || send_errno == EWOULDBLOCK || send_errno == ENOMEM;
+            if (
+                (self->mode == NATIVE_TRAFFIC_MODE_DNS && !transient_error) ||
+                consecutive_errors >= NATIVE_TRAFFIC_REOPEN_ERROR_COUNT
+            ) {
                 self->reopen_requested = true;
+                consecutive_errors = 0;
             }
         }
 
         uint32_t rate = self->rate_pps > 0 ? self->rate_pps : 1;
-        int64_t next_send_us = send_started_us + 1000000LL / rate;
-        int64_t sleep_us = next_send_us - esp_timer_get_time();
+        int64_t interval_us = 1000000LL / rate;
+        next_send_deadline_us = native_traffic_next_send_deadline_us(
+            next_send_deadline_us,
+            send_started_us,
+            interval_us
+        );
+        int64_t sleep_us = next_send_deadline_us - esp_timer_get_time();
         if (sleep_us > 0) {
             TickType_t ticks = pdMS_TO_TICKS((sleep_us + 999) / 1000);
             if (ticks > 0) {

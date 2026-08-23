@@ -145,6 +145,47 @@ void test_handle_send_error_handles_negative_sent_value(void) {
     TEST_ASSERT_TRUE(needs_backoff);
 }
 
+void test_pacing_deadline_starts_from_first_send(void) {
+    TEST_ASSERT_TRUE(next_traffic_send_deadline_us(0, 100000, 10000) == 110000);
+}
+
+void test_pacing_deadline_preserves_phase_across_small_jitter(void) {
+    TEST_ASSERT_TRUE(next_traffic_send_deadline_us(110000, 110750, 10000) == 120000);
+    TEST_ASSERT_TRUE(next_traffic_send_deadline_us(120000, 119500, 10000) == 130000);
+}
+
+void test_pacing_deadline_resets_instead_of_catching_up(void) {
+    TEST_ASSERT_TRUE(next_traffic_send_deadline_us(110000, 119500, 10000) == 129500);
+    TEST_ASSERT_TRUE(next_traffic_send_deadline_us(110000, 131000, 10000) == 141000);
+}
+
+void test_pacing_deadline_handles_invalid_interval(void) {
+    TEST_ASSERT_TRUE(next_traffic_send_deadline_us(120000, 123456, 0) == 123456);
+}
+
+void test_dns_tcp_query_frame_adds_length_and_transaction_id(void) {
+    uint8_t frame[TRAFFIC_DNS_TCP_FRAME_SIZE] = {};
+
+    TEST_ASSERT_TRUE(
+        build_dns_tcp_query_frame(0x1234U, frame, sizeof(frame)) == TRAFFIC_DNS_TCP_FRAME_SIZE);
+    TEST_ASSERT_EQUAL_UINT8(0U, frame[0]);
+    TEST_ASSERT_EQUAL_UINT8(TRAFFIC_DNS_QUERY_PAYLOAD_SIZE, frame[1]);
+    TEST_ASSERT_EQUAL_UINT8(0x12U, frame[2]);
+    TEST_ASSERT_EQUAL_UINT8(0x34U, frame[3]);
+    TEST_ASSERT_EQUAL_UINT8(0x01U, frame[4]);
+    TEST_ASSERT_EQUAL_UINT8(0x00U, frame[5]);
+    TEST_ASSERT_EQUAL_UINT8(0x01U, frame[7]);
+    TEST_ASSERT_EQUAL_UINT8(0x01U, frame[16]);
+    TEST_ASSERT_EQUAL_UINT8(0x01U, frame[18]);
+}
+
+void test_dns_tcp_query_frame_rejects_small_buffer(void) {
+    uint8_t frame[TRAFFIC_DNS_TCP_FRAME_SIZE - 1U] = {};
+
+    TEST_ASSERT_EQUAL(0U, build_dns_tcp_query_frame(1U, frame, sizeof(frame)));
+    TEST_ASSERT_EQUAL(0U, build_dns_tcp_query_frame(1U, nullptr, 0U));
+}
+
 // ============================================================================
 // ENTRY POINT
 // ============================================================================
@@ -163,6 +204,12 @@ int process(void) {
     RUN_TEST(test_handle_send_error_resets_window_after_interval);
     RUN_TEST(test_handle_send_error_resets_accumulated_errors_after_interval);
     RUN_TEST(test_handle_send_error_handles_negative_sent_value);
+    RUN_TEST(test_pacing_deadline_starts_from_first_send);
+    RUN_TEST(test_pacing_deadline_preserves_phase_across_small_jitter);
+    RUN_TEST(test_pacing_deadline_resets_instead_of_catching_up);
+    RUN_TEST(test_pacing_deadline_handles_invalid_interval);
+    RUN_TEST(test_dns_tcp_query_frame_adds_length_and_transaction_id);
+    RUN_TEST(test_dns_tcp_query_frame_rejects_small_buffer);
     
     return UNITY_END();
 }

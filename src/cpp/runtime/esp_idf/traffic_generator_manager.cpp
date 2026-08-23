@@ -18,6 +18,12 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#ifdef ESP_PLATFORM
+#include "lwip/tcp.h"
+#else
+#include <netinet/tcp.h>
+#endif
+
 #include "esp_netif.h"
 #include "esp_timer.h"
 #include "espectre_log.h"
@@ -31,8 +37,8 @@ namespace {
 
 static const char *const TAG = "TrafficGen";
 
-constexpr uint8_t DNS_QUERY[] = {
-    0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+constexpr uint8_t DNS_QUERY_TEMPLATE[] = {
+    0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01,
 };
 // Expedited Forwarding asks Wi-Fi/WMM queues to favor latency over aggregation.
@@ -71,24 +77,32 @@ class TrafficProtocol {
   virtual int socket_type() const = 0;
   virtual int socket_protocol() const = 0;
   virtual uint16_t destination_port() const = 0;
+  virtual bool connection_oriented() const { return false; }
   virtual ssize_t send_packet(int sock, const sockaddr_in &destination) = 0;
 };
 
 class DnsTrafficProtocol final : public TrafficProtocol {
  public:
   const char *name() const override { return "dns"; }
-  int socket_type() const override { return SOCK_DGRAM; }
-  int socket_protocol() const override { return IPPROTO_UDP; }
+  int socket_type() const override { return SOCK_STREAM; }
+  int socket_protocol() const override { return IPPROTO_TCP; }
   uint16_t destination_port() const override { return 53U; }
+  bool connection_oriented() const override { return true; }
 
   ssize_t send_packet(int sock, const sockaddr_in &destination) override {
-    return sendto(sock,
-                  DNS_QUERY,
-                  sizeof(DNS_QUERY),
-                  0,
-                  reinterpret_cast<const sockaddr *>(&destination),
-                  sizeof(destination));
+    (void)destination;
+    uint8_t frame[TRAFFIC_DNS_TCP_FRAME_SIZE];
+    const size_t frame_len = build_dns_tcp_query_frame(++transaction_id_, frame, sizeof(frame));
+    const ssize_t sent = send(sock, frame, frame_len, MSG_DONTWAIT);
+    if (sent >= 0 && static_cast<size_t>(sent) != frame_len) {
+      errno = EIO;
+      return -1;
+    }
+    return sent;
   }
+
+ private:
+  uint16_t transaction_id_{0U};
 };
 
 class IcmpTrafficProtocol final : public TrafficProtocol {
@@ -139,6 +153,13 @@ int create_protocol_socket(const TrafficProtocol &protocol) {
     ESP_LOGW(TAG, "Failed to mark %s traffic as low-latency (errno=%d)",
              protocol.name(), errno);
   }
+  if (protocol.connection_oriented()) {
+    const int enabled = 1;
+    if (setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &enabled, sizeof(enabled)) != 0) {
+      ESP_LOGW(TAG, "Failed to disable Nagle for %s traffic (errno=%d)",
+               protocol.name(), errno);
+    }
+  }
   const int flags = fcntl(sock, F_GETFL, 0);
   if (flags < 0 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) < 0) {
     ESP_LOGW(TAG, "Failed to set %s socket non-blocking (errno=%d)", protocol.name(), errno);
@@ -146,13 +167,90 @@ int create_protocol_socket(const TrafficProtocol &protocol) {
   return sock;
 }
 
-void drain_socket(int sock) {
+enum class SocketDrainResult {
+  READY,
+  PEER_CLOSED,
+  ERROR,
+};
+
+SocketDrainResult drain_socket(int sock) {
   uint8_t buffer[128];
-  while (recv(sock, buffer, sizeof(buffer), MSG_DONTWAIT) > 0) {
+  while (true) {
+    const ssize_t received = recv(sock, buffer, sizeof(buffer), MSG_DONTWAIT);
+    if (received > 0) {
+      continue;
+    }
+    if (received == 0) {
+      return SocketDrainResult::PEER_CLOSED;
+    }
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      return SocketDrainResult::READY;
+    }
+    return SocketDrainResult::ERROR;
   }
 }
 
+enum class TcpConnectionState {
+  DISCONNECTED,
+  CONNECTING,
+  CONNECTED,
+};
+
+TcpConnectionState start_tcp_connect(int sock, const sockaddr_in &destination) {
+  if (connect(sock,
+              reinterpret_cast<const sockaddr *>(&destination),
+              sizeof(destination)) == 0 || errno == EISCONN) {
+    return TcpConnectionState::CONNECTED;
+  }
+  if (errno == EINPROGRESS || errno == EALREADY) {
+    return TcpConnectionState::CONNECTING;
+  }
+  return TcpConnectionState::DISCONNECTED;
+}
+
+TcpConnectionState poll_tcp_connect(int sock) {
+  fd_set write_fds;
+  fd_set error_fds;
+  FD_ZERO(&write_fds);
+  FD_ZERO(&error_fds);
+  FD_SET(sock, &write_fds);
+  FD_SET(sock, &error_fds);
+  timeval timeout{};
+  const int ready = select(sock + 1, nullptr, &write_fds, &error_fds, &timeout);
+  if (ready == 0) {
+    return TcpConnectionState::CONNECTING;
+  }
+  if (ready < 0) {
+    return TcpConnectionState::DISCONNECTED;
+  }
+
+  int socket_error = 0;
+  socklen_t error_len = sizeof(socket_error);
+  if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &socket_error, &error_len) != 0 ||
+      socket_error != 0) {
+    if (socket_error != 0) {
+      errno = socket_error;
+    }
+    return TcpConnectionState::DISCONNECTED;
+  }
+  return TcpConnectionState::CONNECTED;
+}
+
 }  // namespace
+
+size_t build_dns_tcp_query_frame(uint16_t transaction_id,
+                                 uint8_t *buffer,
+                                 size_t buffer_len) {
+  if (buffer == nullptr || buffer_len < TRAFFIC_DNS_TCP_FRAME_SIZE) {
+    return 0U;
+  }
+  buffer[0] = 0U;
+  buffer[1] = static_cast<uint8_t>(TRAFFIC_DNS_QUERY_PAYLOAD_SIZE);
+  std::memcpy(buffer + 2U, DNS_QUERY_TEMPLATE, sizeof(DNS_QUERY_TEMPLATE));
+  buffer[2] = static_cast<uint8_t>(transaction_id >> 8U);
+  buffer[3] = static_cast<uint8_t>(transaction_id & 0xFFU);
+  return TRAFFIC_DNS_TCP_FRAME_SIZE;
+}
 
 void TrafficGeneratorManager::init(uint32_t target_pps, TrafficGeneratorMode mode) {
   task_handle_ = nullptr;
@@ -281,14 +379,66 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
 
   SendErrorState error_state;
   uint32_t consecutive_errors = 0U;
+  int64_t next_send_deadline_us = 0;
+  TcpConnectionState connection_state = protocol->connection_oriented()
+                                            ? TcpConnectionState::DISCONNECTED
+                                            : TcpConnectionState::CONNECTED;
+  int64_t next_connect_attempt_us = 0;
+  constexpr int64_t tcp_reconnect_delay_us = 1000000LL;
+
+  const auto recreate_socket = [&]() {
+    if (manager->sock_ >= 0) {
+      close(manager->sock_);
+    }
+    manager->sock_ = create_protocol_socket(*protocol);
+    connection_state = protocol->connection_oriented()
+                           ? TcpConnectionState::DISCONNECTED
+                           : TcpConnectionState::CONNECTED;
+    next_connect_attempt_us = esp_timer_get_time() + tcp_reconnect_delay_us;
+    next_send_deadline_us = 0;
+    return manager->sock_ >= 0;
+  };
+
   while (manager->running_.load(std::memory_order_relaxed)) {
     if (manager->paused_.load(std::memory_order_relaxed)) {
       vTaskDelay(pdMS_TO_TICKS(50));
       continue;
     }
 
+    if (protocol->connection_oriented() && connection_state != TcpConnectionState::CONNECTED) {
+      const int64_t now_us = esp_timer_get_time();
+      if (manager->sock_ < 0) {
+        if (now_us >= next_connect_attempt_us) {
+          (void)recreate_socket();
+        }
+      } else if (connection_state == TcpConnectionState::DISCONNECTED &&
+                 now_us >= next_connect_attempt_us) {
+        connection_state = start_tcp_connect(manager->sock_, destination);
+        if (connection_state == TcpConnectionState::DISCONNECTED) {
+          (void)recreate_socket();
+        }
+      } else if (connection_state == TcpConnectionState::CONNECTING) {
+        connection_state = poll_tcp_connect(manager->sock_);
+        if (connection_state == TcpConnectionState::DISCONNECTED) {
+          (void)recreate_socket();
+        } else if (connection_state == TcpConnectionState::CONNECTED) {
+          ESP_LOGI(TAG, "%s TCP connection established", protocol->name());
+          next_send_deadline_us = 0;
+        }
+      }
+      if (connection_state != TcpConnectionState::CONNECTED) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+        continue;
+      }
+    }
+
+    const SocketDrainResult drain_result = drain_socket(manager->sock_);
+    if (protocol->connection_oriented() && drain_result != SocketDrainResult::READY) {
+      ESP_LOGW(TAG, "%s TCP connection closed while draining responses", protocol->name());
+      (void)recreate_socket();
+      continue;
+    }
     const int64_t send_started_us = esp_timer_get_time();
-    drain_socket(manager->sock_);
     const ssize_t sent = protocol->send_packet(manager->sock_, destination);
     if (sent <= 0) {
       manager->send_error_count_.fetch_add(1U, std::memory_order_relaxed);
@@ -304,9 +454,11 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
                  current_errno,
                  consecutive_errors);
       }
-      if (consecutive_errors >= CONSECUTIVE_ERROR_REOPEN_THRESHOLD) {
-        close(manager->sock_);
-        manager->sock_ = create_protocol_socket(*protocol);
+      const bool transient_error = current_errno == EAGAIN || current_errno == EWOULDBLOCK ||
+                                   current_errno == ENOMEM;
+      if ((protocol->connection_oriented() && !transient_error) ||
+          consecutive_errors >= CONSECUTIVE_ERROR_REOPEN_THRESHOLD) {
+        (void)recreate_socket();
         consecutive_errors = 0U;
         if (manager->sock_ < 0) {
           vTaskDelay(pdMS_TO_TICKS(100));
@@ -323,13 +475,14 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
 
     const uint32_t rate_pps =
         std::max<uint32_t>(manager->current_rate_pps_.load(std::memory_order_relaxed), 1U);
-    // Schedule from the actual send start. Advancing an old absolute deadline
-    // causes an immediate catch-up send after scheduler or socket delays,
-    // turning a nominally uniform source into a burst.
-    const int64_t next_send_us =
-        send_started_us + 1000000LL / static_cast<int64_t>(rate_pps);
+    const int64_t interval_us = 1000000LL / static_cast<int64_t>(rate_pps);
+    // Keep the nominal phase across ordinary scheduler jitter, but reset it
+    // whenever recovery would place the next send less than half a period
+    // away. This preserves the average cadence without catch-up bursts.
+    next_send_deadline_us = next_traffic_send_deadline_us(
+        next_send_deadline_us, send_started_us, interval_us);
     const int64_t now_us = esp_timer_get_time();
-    const int64_t sleep_us = next_send_us - now_us;
+    const int64_t sleep_us = next_send_deadline_us - now_us;
     if (sleep_us > 0) {
       const TickType_t ticks = pdMS_TO_TICKS((sleep_us + 999LL) / 1000LL);
       if (ticks > 0) {

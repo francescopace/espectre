@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <sys/types.h>
 
@@ -35,6 +36,31 @@ inline bool handle_send_error(SendErrorState &state, ssize_t sent, int err_no, i
   }
   return err_no == 12;
 }
+
+inline int64_t next_traffic_send_deadline_us(int64_t previous_deadline_us,
+                                             int64_t send_started_us,
+                                             int64_t interval_us) {
+  if (interval_us <= 0) {
+    return send_started_us;
+  }
+  if (previous_deadline_us <= 0) {
+    return send_started_us + interval_us;
+  }
+
+  const int64_t phase_deadline_us = previous_deadline_us + interval_us;
+  const int64_t remaining_us = phase_deadline_us - send_started_us;
+  if (remaining_us < interval_us / 2) {
+    return send_started_us + interval_us;
+  }
+  return phase_deadline_us;
+}
+
+constexpr size_t TRAFFIC_DNS_QUERY_PAYLOAD_SIZE = 17U;
+constexpr size_t TRAFFIC_DNS_TCP_FRAME_SIZE = TRAFFIC_DNS_QUERY_PAYLOAD_SIZE + 2U;
+
+size_t build_dns_tcp_query_frame(uint16_t transaction_id,
+                                 uint8_t *buffer,
+                                 size_t buffer_len);
 
 enum class TrafficGeneratorMode {
   DNS,

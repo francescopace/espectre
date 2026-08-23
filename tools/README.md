@@ -48,7 +48,7 @@ The tools support the original ESP32, ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3
 | `replay_lightweight_candidates.py` | fit and replay research-only Lightweight candidates end to end |
 | `fit_lightweight_detector.py` | fit production Lightweight coefficients and optionally apply an approved result |
 | `prune_npz_cache.py` | remove cached analysis artifacts whose sources or implementation dependencies are no longer current |
-| `espectre_traffic_generator.py` | send unicast or multicast UDP pacing to devices in `csi_traffic_mode: external` |
+| `espectre_traffic_generator.py` | send phase-paced, DSCP 46 unicast or local-link multicast UDP traffic to devices in `csi_traffic_mode: external` |
 
 ## Dataset Inspection And Validation
 

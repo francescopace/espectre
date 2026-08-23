@@ -407,6 +407,23 @@ def build_pacing_datagram(*, payload: bytes = DEFAULT_PACING_PAYLOAD) -> bytes:
     return bytes(payload)
 
 
+def next_pacing_send_deadline(
+    previous_deadline: float,
+    send_started: float,
+    interval_s: float,
+) -> float:
+    """Keep ordinary pacing phase without scheduling a catch-up packet."""
+    if interval_s <= 0.0:
+        return send_started
+    if previous_deadline <= 0.0:
+        return send_started + interval_s
+
+    phase_deadline = previous_deadline + interval_s
+    if phase_deadline - send_started < interval_s / 2.0:
+        return send_started + interval_s
+    return phase_deadline
+
+
 class UdpPacingSender:
     """Background UDP sender that refreshes the collector pacing path periodically."""
 
@@ -499,11 +516,12 @@ class UdpPacingSender:
         self.sent_packets += 1
 
     def _run(self) -> None:
-        next_send_time = time.perf_counter()
+        next_send_time = 0.0
         while not self._stop_event.is_set():
-            sleep_time = next_send_time - time.perf_counter()
-            if sleep_time > 0 and self._stop_event.wait(sleep_time):
-                break
+            if next_send_time > 0.0:
+                sleep_time = next_send_time - time.perf_counter()
+                if sleep_time > 0 and self._stop_event.wait(sleep_time):
+                    break
             if self._stop_event.is_set():
                 break
 
@@ -512,13 +530,14 @@ class UdpPacingSender:
             with self._interval_lock:
                 interval_s = self.interval_s
 
-            # Stay phase-locked to the target grid so ordinary thread wake-up
-            # latency does not accumulate into a lower send rate. If a grid
-            # instant is already lost, skip it; never compensate with a burst.
-            next_send_time += interval_s
-            send_finished = time.perf_counter()
-            while next_send_time <= send_finished:
-                next_send_time += interval_s
+            # Stay phase-locked through ordinary wake-up jitter. If recovery
+            # would put the next packet less than half a period away, restart
+            # from this send instead of producing a close catch-up pair.
+            next_send_time = next_pacing_send_deadline(
+                next_send_time,
+                send_started,
+                interval_s,
+            )
 
 
 class AdaptivePacingController:

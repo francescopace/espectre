@@ -14,6 +14,7 @@ import socket
 import numpy as np
 import pytest
 
+from tools import espectre_traffic_generator
 from tools.lib import dataset_metadata
 from tools.lib.csi_io import (
     AdaptivePacingController,
@@ -31,6 +32,7 @@ from tools.lib.csi_io import (
     load_npz_arrays,
     load_npz_as_packets,
     load_npz_packet_view,
+    next_pacing_send_deadline,
     normalize_stored_csi_bin_layout,
 )
 
@@ -392,7 +394,7 @@ def test_udp_pacing_sender_does_not_catch_up_after_overrun(monkeypatch):
     sender._stop_event.wait = fake_wait
     sender._run()
 
-    assert send_starts == pytest.approx([10.0, 10.2, 10.4], abs=1e-6)
+    assert send_starts == pytest.approx([10.0, 10.15, 10.3], abs=1e-6)
 
 
 def test_udp_pacing_sender_preserves_rate_across_wakeup_latency(monkeypatch):
@@ -420,6 +422,55 @@ def test_udp_pacing_sender_preserves_rate_across_wakeup_latency(monkeypatch):
         current - previous >= 0.08
         for previous, current in zip(send_starts, send_starts[1:])
     )
+
+
+def test_udp_pacing_sender_resets_phase_after_large_wakeup_latency(monkeypatch):
+    sender = UdpPacingSender(target_host="192.168.1.17", target_port=9999, interval_s=0.1)
+    clock = {"now": 10.0}
+    send_starts = []
+
+    monkeypatch.setattr("tools.lib.csi_io.time.perf_counter", lambda: clock["now"])
+
+    def fake_send_once():
+        send_starts.append(clock["now"])
+        if len(send_starts) >= 4:
+            sender._stop_event.set()
+
+    def fake_wait(timeout):
+        clock["now"] += timeout + 0.08
+        return False
+
+    sender._send_once = fake_send_once
+    sender._stop_event.wait = fake_wait
+    sender._run()
+
+    assert send_starts == pytest.approx([10.0, 10.18, 10.36, 10.54], abs=1e-6)
+
+
+@pytest.mark.parametrize(
+    "deadline_fn",
+    [next_pacing_send_deadline, espectre_traffic_generator.next_send_deadline],
+)
+def test_host_pacing_deadline_resets_when_next_slot_is_too_close(deadline_fn):
+    assert deadline_fn(10.0, 10.08, 0.1) == pytest.approx(10.18)
+    assert deadline_fn(10.0, 10.02, 0.1) == pytest.approx(10.1)
+
+
+def test_external_traffic_generator_configures_low_latency_multicast(monkeypatch):
+    class FakeSocket:
+        def __init__(self):
+            self.options = []
+
+        def setsockopt(self, level, option, value):
+            self.options.append((level, option, value))
+
+    sock = FakeSocket()
+    monkeypatch.setattr(espectre_traffic_generator, "TARGETS", ["239.255.0.1"])
+
+    espectre_traffic_generator.configure_socket(sock)
+
+    assert (socket.IPPROTO_IP, socket.IP_TOS, 46 << 2) in sock.options
+    assert (socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1) in sock.options
 
 
 def test_parse_packet_reads_optional_metadata():

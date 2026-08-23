@@ -249,9 +249,9 @@ Raw rate near `csi_target_pps` does not prove that the target is usable: an AP m
 
 | Path | Target owner | Traffic source | Detector admission | Pacing notes |
 |------|--------------|----------------|--------------------|--------------|
-| Native / Matter | `CONFIG_ESPECTRE_CSI_TARGET_PPS` | `csi_traffic_mode`; internal by default | yes | fixed send cadence; local socket backoff only |
-| ESPHome | `csi_target_pps` | `csi_traffic_mode`; internal by default | yes | fixed send cadence; local socket backoff only |
-| Micro-ESPectre | `CSI_TARGET_PPS` | factory default from `TRAFFIC_GENERATOR_ENABLED`, with session-only MQTT overrides for `csi_traffic_mode` and `traffic_generator_mode` | yes | fixed send cadence; local socket backoff only |
+| Native / Matter | `CONFIG_ESPECTRE_CSI_TARGET_PPS` | `csi_traffic_mode`; internal by default | yes | phase-preserving cadence without catch-up bursts; local socket backoff only |
+| ESPHome | `csi_target_pps` | `csi_traffic_mode`; internal by default | yes | phase-preserving cadence without catch-up bursts; local socket backoff only |
+| Micro-ESPectre | `CSI_TARGET_PPS` | factory default from `TRAFFIC_GENERATOR_ENABLED`, with session-only MQTT overrides for `csi_traffic_mode` and `traffic_generator_mode` | yes | phase-preserving cadence without catch-up bursts; local socket backoff only |
 | Streamer firmware | collector `--pps` | collector pacing | no; transports raw timestamped CSI | none on device; host collect owns pacing |
 | Collector detector, replay, training, and validation | recorded `csi_target_pps`, collector `--pps`, or a documented legacy fallback | recorded raw stream | yes, through the production Micro-ESPectre sampler | collect slows only on TX backpressure; occupancy is telemetry |
 
@@ -260,6 +260,8 @@ Streamer remains collector-paced and preserves raw CSI. The collector applies th
 External UDP traffic can be unicast to each device IP, or sent to multicast group `239.255.0.1`. ESP-IDF frontends join that group automatically in `external` and `pacing` (ESPHome, Native, Matter, and Streamer). Empty `csi_traffic_multicast_group` disables the join. Subnet and limited broadcast (`x.x.x.255`, `255.255.255.255`) do not produce reliable HT20 CSI. ESPHome, Native, and Matter `external` mode listen on port `5555`; use [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) with a unicast `TARGETS` list or `TARGETS = ['239.255.0.1']`. Streamer collection listens on port `9999` and can pace several devices with `./espectre collect --target 239.255.0.1`.
 
 Micro-ESPectre keeps its persisted factory default as `TRAFFIC_GENERATOR_ENABLED` plus `TRAFFIC_GENERATOR_MODE`, then exposes session-only MQTT and Home Assistant runtime control over `csi_traffic_mode` and `traffic_generator_mode`. `internal` starts the local generator, and `external` and `disabled` stop it. Micro does not open a UDP listener, so it does not join the multicast group. Sensing MQTT, Home Assistant, ESPHome, and the website do not offer `pacing`; that mode is Streamer collector pacing only.
+
+Across Native, Matter, ESPHome, and Micro-ESPectre, internal `ping` mode sends ICMP echo requests, while internal `dns` mode sends DNS root queries through a persistent, non-blocking TCP connection to gateway port `53`. DNS mode requires the gateway resolver to accept TCP queries. Streamer does not use either local generator mode; its host collector remains the pacing owner.
 
 If you are tuning `csi_target_pps`, thresholds, or filters, use [TUNING.md](TUNING.md) for the rationale and the frontend README for the configuration syntax.
 

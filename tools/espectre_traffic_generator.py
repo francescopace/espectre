@@ -33,13 +33,14 @@ Thanks to: https://github.com/phoenixtechnam
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
-import socket
-import time
-import signal
-import sys
+import ipaddress
 import os
+import signal
+import socket
 import subprocess
+import sys
 import tempfile
+import time
 from pathlib import Path
 
 # ============= CONFIGURATION =============
@@ -49,7 +50,29 @@ TARGETS = ['192.168.1.100']  # Unicast device IP
 PORT = 5555
 RATE = 100  # packets per second (recommended: 100)
 PID_FILE = Path(tempfile.gettempdir()) / "espectre_traffic.pid"
+SENSING_IP_TOS = 46 << 2
 # =========================================
+
+
+def next_send_deadline(previous_deadline, send_started, interval):
+    """Keep ordinary pacing phase without scheduling a catch-up packet."""
+    if interval <= 0.0:
+        return send_started
+    if previous_deadline <= 0.0:
+        return send_started + interval
+
+    phase_deadline = previous_deadline + interval
+    if phase_deadline - send_started < interval / 2.0:
+        return send_started + interval
+    return phase_deadline
+
+
+def configure_socket(sock):
+    """Configure low-latency unicast or local-link multicast pacing."""
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_TOS, SENSING_IP_TOS)
+    if any(ipaddress.ip_address(target).is_multicast for target in TARGETS):
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
 
 
 def start():
@@ -145,20 +168,24 @@ def run_loop():
     signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
 
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-
+    if RATE <= 0:
+        raise ValueError(f"RATE must be > 0, got {RATE}")
     interval = 1.0 / RATE
-    next_time = time.perf_counter()
+    next_time = 0.0
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     try:
+        configure_socket(s)
         while True:
+            if next_time > 0.0:
+                sleep_time = next_time - time.perf_counter()
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+
+            send_started = time.perf_counter()
             for ip in TARGETS:
                 s.sendto(b'.', (ip, PORT))
-            next_time += interval
-            sleep_time = next_time - time.perf_counter()
-            if sleep_time > 0:
-                time.sleep(sleep_time)
+            next_time = next_send_deadline(next_time, send_started, interval)
     finally:
         s.close()
         if os.path.exists(PID_FILE):

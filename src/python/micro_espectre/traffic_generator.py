@@ -15,7 +15,7 @@ MODE_PING = "ping"
 
 
 class TrafficGenerator:
-    """Drive the firmware-native DNS or ICMP sensing traffic generator."""
+    """Drive the firmware-native DNS-over-TCP or ICMP sensing traffic generator."""
 
     def __init__(self, mode=MODE_PING):
         self.running = False

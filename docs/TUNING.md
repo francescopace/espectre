@@ -106,16 +106,18 @@ espectre:
   csi_traffic_mode: internal
 ```
 
-`csi_target_pps` is both the detector's temporal grid and the managed-traffic target. `csi_traffic_mode` separately chooses who supplies traffic. Internal traffic always uses a fixed send cadence at that target. Local socket send backoff still applies on `ENOMEM`; occupancy does not change the send rate. If occupancy stays below 70%, repair the traffic path or lower `csi_target_pps` explicitly and revalidate.
+`csi_target_pps` is both the detector's temporal grid and the managed-traffic target. `csi_traffic_mode` separately chooses who supplies traffic. Internal traffic follows a fixed-phase cadence at that target during ordinary scheduler jitter. After a delay would leave less than half a period before the next deadline, the generator resets from the actual send time instead of issuing a catch-up packet that would create a burst. Local socket send backoff still applies on `ENOMEM`; occupancy does not change the send rate. If occupancy stays below 70%, repair the traffic path or lower `csi_target_pps` explicitly and revalidate.
 
 Runtime traffic controls follow one family across ESPHome, Native MQTT, Micro MQTT, and the website:
 
 - `csi_traffic_mode`: `internal`, `external`, or `disabled`
 - `traffic_generator_mode`: `ping` or `dns`
 
+`ping` sends stateless ICMP echo requests and remains the portable default. `dns` sends length-prefixed DNS root queries over one persistent, non-blocking TCP connection to gateway port `53`, with `TCP_NODELAY`; it reconnects if the gateway closes the stream. DNS mode therefore requires the configured gateway to accept DNS over TCP. Both modes request the same low-latency IP/WMM treatment.
+
 `pacing` is Streamer collector mode only and is not selectable on sensing MQTT, Home Assistant, ESPHome, or the website. Native and ESPHome persist accepted traffic-control changes; Micro keeps them session-only. Leftover persisted `pacing` values load as `external`.
 
-Host `espectre collect` slows only on sustained firmware TX backpressure, then recovers toward `--pps`. Occupancy remains telemetry. `--pps` stays the detector grid; `--fixed` holds a constant send rate for A/B experiments, especially on Streamer where pacing is host-owned and does not require a firmware reflash. Pace Streamer with a unicast IP or the firmware multicast group `239.255.0.1`; do not use LAN broadcast. ESPHome, Native, and Matter `external` mode listen on port `5555` and join the same multicast group, so [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) can use a unicast `TARGETS` list or `239.255.0.1`.
+Host `espectre collect` slows only on sustained firmware TX backpressure, then recovers toward `--pps`. Occupancy remains telemetry. `--pps` stays the detector grid; `--fixed` holds a constant send rate for A/B experiments, especially on Streamer where pacing is host-owned and does not require a firmware reflash. Pace Streamer with a unicast IP or the firmware multicast group `239.255.0.1`; do not use LAN broadcast. ESPHome, Native, and Matter `external` mode listen on port `5555` and join the same multicast group, so [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) can use a unicast `TARGETS` list or `239.255.0.1`. Both host senders use the same phase-preserving, anti-catch-up rule as the internal generators, request DSCP 46 low-latency treatment, and limit multicast pacing to the local link.
 
 Rules of thumb:
 
