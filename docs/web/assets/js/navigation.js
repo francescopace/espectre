@@ -75,6 +75,36 @@
         });
     }
 
+    let publishedReleaseTagPromise;
+
+    function publishedReleaseTag() {
+        if (publishedReleaseTagPromise) return publishedReleaseTagPromise;
+        publishedReleaseTagPromise = fetch('/artifacts/firmware/release/firmware-manifest-release.json', {
+            cache: 'no-store'
+        })
+            .then((response) => {
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return response.json();
+            })
+            .then((manifest) => {
+                const version = String(manifest.release_tag || manifest.version || '').replace(/^v/, '');
+                if (!version) throw new Error('Published release tag is unavailable');
+                return `v${version}`;
+            });
+        return publishedReleaseTagPromise;
+    }
+
+    function initPublishedReleaseTags(root = document) {
+        root.querySelectorAll('[data-published-release-tag]:not([data-published-release-tag-initialized])').forEach((label) => {
+            label.dataset.publishedReleaseTagInitialized = 'true';
+            publishedReleaseTag().then((tag) => {
+                label.textContent = `Latest release · ${tag}`;
+            }).catch(() => {
+                label.title = 'Published release unavailable';
+            });
+        });
+    }
+
     function activateCodeTab(group, nextTab, moveFocus = false) {
         const tabs = [...group.querySelectorAll('[role="tab"]')];
         const panels = [...group.querySelectorAll('[role="tabpanel"]')];
@@ -114,6 +144,7 @@
 
     window.initPageTocs = initPageTocs;
     window.initSdkDownloadVersions = initSdkDownloadVersions;
+    window.initPublishedReleaseTags = initPublishedReleaseTags;
     window.initCodeTabs = initCodeTabs;
     compactToc.addEventListener('change', () => {
         document.querySelectorAll('details.page-toc').forEach(setPageTocMode);
@@ -129,6 +160,7 @@
     document.addEventListener('DOMContentLoaded', () => {
         initPageTocs();
         initSdkDownloadVersions();
+        initPublishedReleaseTags();
         initCodeTabs();
         const toggle = document.querySelector('.nav-toggle');
         const nav = document.getElementById('main-navigation');

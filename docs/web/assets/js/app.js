@@ -1723,6 +1723,7 @@
             container.dataset.loaded = 'true';
             if (window.initPageTocs) window.initPageTocs(container);
             if (window.initSdkDownloadVersions) window.initSdkDownloadVersions(container);
+            if (window.initPublishedReleaseTags) window.initPublishedReleaseTags(container);
             if (window.initCodeTabs) window.initCodeTabs(container);
         } catch (error) {
             console.warn('Static content fetch failed:', error);

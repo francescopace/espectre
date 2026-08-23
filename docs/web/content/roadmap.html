@@ -27,18 +27,18 @@
   <section class="roadmap-foundation" aria-labelledby="roadmap-foundation-title">
     <div class="roadmap-foundation-head">
       <div>
-        <span class="roadmap-status status-progress">Planned · September 2026</span>
-        <span class="roadmap-foundation-version">v3.0</span>
+        <span class="roadmap-status status-progress">Planned · after v3.0.0-rc2</span>
+        <span class="roadmap-foundation-version">v3.0.0</span>
       </div>
       <div>
-        <span class="roadmap-eyebrow">The first stable foundation</span>
+        <span class="roadmap-eyebrow">A shared foundation for product integration</span>
         <h2 id="roadmap-foundation-title">Make the sensing layer dependable and easy to carry into products.</h2>
-        <p>Version 3.0 is planned as the stable baseline for ESPectre as a reusable platform. One shared sensing core supports several firmware paths, so product teams can add local motion sensing without maintaining a separate implementation for each integration.</p>
+        <p>Version 3.0.0 is planned as the shared baseline for ESPectre as a reusable platform. One shared sensing core supports several firmware paths, so product teams can add local motion sensing without maintaining a separate implementation for each integration.</p>
       </div>
     </div>
     <dl class="roadmap-foundation-grid">
       <div><dt>Shared architecture</dt><dd>The sensing core and shared runtime intended for the stable v3 baseline.</dd></div>
-      <div><dt>Runtime contracts</dt><dd>Runtime behavior and protocol services frozen as one platform contract.</dd></div>
+      <div><dt>Runtime contracts</dt><dd>Runtime behavior, Direct WebSocket, and protocol services frozen as one platform contract.</dd></div>
       <div><dt>Supported frontends</dt><dd>ESPHome, Native, Matter, and Streamer included in the candidate scope.</dd></div>
       <div><dt>Release surfaces</dt><dd>Release artifacts and the embeddable SDK included in whole-platform validation.</dd></div>
     </dl>
@@ -55,17 +55,17 @@
       <article class="roadmap-chapter roadmap-chapter-now">
         <div class="roadmap-chapter-copy">
           <div class="roadmap-chapter-meta">
-            <span class="roadmap-status status-progress">Now · v3.0.0-rc1</span>
+            <span class="roadmap-status status-progress" data-published-release-tag>Latest release · unavailable</span>
           </div>
           <h3>Put private sensing inside real products.</h3>
-          <p>The v3 line focuses on the work that makes a sensing component useful outside its own repository: measured quality, documented distribution paths, product integrations, and reliable local operation.</p>
+          <p>The v3 line brings ESPectre closer to real products with broader integrations, SDK support, and new sensing capabilities.</p>
         </div>
         <ol class="roadmap-release-sequence" aria-label="Version 3 minor release sequence">
-          <li><strong>3.1</strong><span>Improve sensing quality and device-side performance.</span></li>
-          <li><strong>3.2</strong><span>Publish supported ESP-IDF and Arduino SDK distribution paths.</span></li>
-          <li><strong>3.3</strong><span>Establish an evidence-backed Matter and manufacturer-readiness position.</span></li>
-          <li><strong>3.4</strong><span>Add local displays and evaluate cooperative node behavior.</span></li>
-          <li><strong>3.5</strong><span>Promote embedded ecosystem integrations only when a candidate passes its production gates.</span></li>
+          <li><strong>v3.1.0</strong><span>Expand Matter support and validate it across more controllers.</span></li>
+          <li><strong>v3.2.0</strong><span>Bring ESPectre to Arduino projects through a supported SDK runtime.</span></li>
+          <li><strong>v3.3.0</strong><span>Bring ESPectre into Apple Home with a dedicated HomeKit frontend.</span></li>
+          <li><strong>v3.4.0</strong><span>Recognize stationary presence, even when no movement is visible.</span></li>
+          <li><strong>v3.5.0</strong><span>Explore gesture control and breathing-related micro-motion.</span></li>
         </ol>
       </article>
 
@@ -78,14 +78,14 @@
         </figure>
         <div class="roadmap-chapter-copy">
           <div class="roadmap-chapter-meta">
-            <span class="roadmap-status status-planned">Next · v4.x</span>
+            <span class="roadmap-status status-planned">Next major · v4.0.0</span>
           </div>
-          <h3>Let nearby nodes understand a space together.</h3>
-          <p>One detector can describe motion around itself. The planned v4 layer would let several devices appear as one coherent system, while raw CSI and unnecessary radio identifiers remain outside the default service boundary.</p>
+          <h3>Let nearby nodes cooperate as one sensing system.</h3>
+          <p>The planned v4 platform combines local node coordination with an optional web layer. Nodes keep sensing without a managed service and exchange only the minimum derived state required by the supported coordination contract.</p>
           <ul class="roadmap-chapter-points">
-            <li>Claim devices securely, and see rooms, motion state, connectivity, and health.</li>
-            <li>Apply supported settings and signed updates without exporting raw measurements.</li>
-            <li>Choose local, self-hosted, or managed deployment profiles.</li>
+            <li>Discover peers, coordinate traffic, and degrade cleanly when a node disappears.</li>
+            <li>Claim and manage rooms and devices, view live and historical state, and configure alerts.</li>
+            <li>Choose local, self-hosted, or managed deployment without exporting raw CSI.</li>
           </ul>
         </div>
       </article>
@@ -99,14 +99,15 @@
         </figure>
         <div class="roadmap-chapter-copy">
           <div class="roadmap-chapter-meta">
-            <span class="roadmap-status status-research">Later · v5.x</span>
+            <span class="roadmap-status status-research">Future hardware · v5.0.0</span>
           </div>
-          <h3>Carry the same product contract onto better radios.</h3>
-          <p>ESPectre will move only when an embedded platform exposes practical, documented IEEE 802.11bf or equivalent vendor measurements. Existing product integrations should not need a second control plane.</p>
+          <h3>Build on Wi-Fi hardware designed for sensing.</h3>
+          <p>v5 starts when practical embedded hardware exposes IEEE 802.11bf or equivalent measurements. Deliberate sensing procedures could make radio data more repeatable, improve coordination between nodes, and open a path to richer presence and motion capabilities.</p>
           <ul class="roadmap-chapter-points">
-            <li>Map new measurements into the existing runtime snapshots and events.</li>
-            <li>Measure calibration, false-positive control, and multi-node behavior again.</li>
-            <li>Preserve protocol, frontend, and tooling compatibility.</li>
+            <li>Qualify the first supported radio, driver, and measurement API on real embedded hardware.</li>
+            <li>Add a standards-backed sensing backend and validate every detector against new datasets.</li>
+            <li>Measure calibration, false positives, stationary presence, and multi-node fusion from scratch.</li>
+            <li>Let existing products adopt the new backend through the same SDK and protocol, with a documented migration path from ESP32 CSI.</li>
           </ul>
         </div>
       </article>
@@ -116,14 +117,14 @@
   <section class="roadmap-research" aria-labelledby="roadmap-research-title">
     <div class="roadmap-section-head">
       <span class="guide-tag">RESEARCH TRACKS</span>
-      <h2 id="roadmap-research-title">Some questions still need evidence.</h2>
+      <h2 id="roadmap-research-title">Research areas under evaluation.</h2>
       <p>Research does not reserve release scope. A track may become a product, remain a host-side experiment, or end with a measured rejection.</p>
     </div>
     <div class="roadmap-research-list">
       <article><span>01</span><div><h3>5 GHz and new PHYs</h3><p>Validate HT20 on 5 GHz first, then evaluate VHT20, HE20, and wider layouts with representative detector evidence.</p></div></article>
       <article><span>02</span><div><h3>Stationary presence</h3><p>Test whether scale-invariant micro-motion can distinguish an occupied quiet room from an empty one.</p></div></article>
       <article><span>03</span><div><h3>Brief gestures</h3><p>Build a gesture-specific corpus only after the high-rate sensing path preserves the necessary short-timescale information.</p></div></article>
-      <article><span>04</span><div><h3>Breathing-related motion</h3><p>Explore non-medical micro-motion only after stationary presence is measurable and suitable paired recordings exist.</p></div></article>
+      <article><span>04</span><div><h3>Breathing-related motion</h3><p>Explore breathing-related micro-motion only after stationary presence is measurable and suitable paired recordings exist.</p></div></article>
     </div>
   </section>
 

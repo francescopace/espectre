@@ -4,26 +4,30 @@
 
 | Milestone | Timing | Commitment | Product outcome |
 | --- | --- | --- | --- |
-| **v3.0.0-rc1** | 22 August 2026 | Planned | Freeze the v3 platform scope and validate release artifacts |
-| **v3.0.0-rc2** | First half of September 2026 | Planned | Resolve targeted `rc1` findings without widening the baseline |
-| **v3.0.0** | Late September 2026 | Planned | Ship the stable shared sensing platform and supported firmware frontends |
-| **v3.1.0** | After v3.0.x triage | Planned | Improve sensing quality, high-rate behavior, and device-side performance |
-| **v3.2.0** | After v3.1.0 | Planned | Make the SDK and web integration surfaces easier to consume |
-| **v3.3.0** | After v3.2.0 | Planned | Establish a validated Matter integration and manufacturer-readiness position |
-| **v3.4.0** | After v3.3.0 | Planned | Add local status surfaces and evidence-backed cooperative node behavior |
-| **v3.5.0** | Before v4.0.0, if promoted | Conditional | Promote supported embedded ecosystem integrations when a candidate qualifies |
-| **v4.0.0** | After v3.4.0 | Planned | Add optional privacy-first onboarding, fleet visibility, history, and alerting |
-| **v5.0.0** | Hardware-triggered | Exploratory | Adopt practical standards-backed Wi-Fi sensing without breaking product contracts |
+| **v3.0.0-rc1** | 24 August 2026 | Planned | Remove first-party BLE, add Direct WebSocket, freeze the v3 contract, and validate release artifacts |
+| **v3.0.0-rc2** | After `rc1` findings | Planned | Resolve targeted findings without widening the frozen v3 baseline |
+| **v3.0.0** | After `rc2` validation | Planned | Ship the stable shared sensing platform and supported firmware frontends |
+| **v3.1.0** | After v3.0.x triage | Planned | Expand Matter support and validate it across more controllers |
+| **v3.2.0** | After v3.1.0 | Planned | Bring ESPectre to Arduino projects through a supported SDK runtime |
+| **v3.3.0** | After v3.2.0 | Planned | Add a dedicated Apple Home frontend based on Espressif's HomeKit SDK |
+| **v3.4.0** | After v3.3.0 and the presence research gate | Research-gated | Add validated stationary-presence detection as a distinct sensing output |
+| **v3.5.0** | After v3.4.0 and candidate evaluation | Research-gated | Evaluate brief gestures and non-medical breathing-related micro-motion |
+| **v4.0.0** | After v3.5.0 | Planned | Coordinate multiple sensing nodes locally and manage them through an optional web layer |
+| **v5.0.0** | Hardware-triggered | Exploratory | Adopt IEEE 802.11bf or equivalent sensing on practical future hardware |
 
 ## v3.0.0-rc1 - First Release Candidate
 
-**Product outcome**: freeze the intended v3.0.0 platform contract, publish the first complete candidate artifacts, and finish whole-platform release validation.
+**Product outcome**: complete the BLE-free Native transport cutover, freeze the intended v3.0.0 platform contract, publish the first complete candidate artifacts, and finish whole-platform release validation.
 
 ### Release Scope
 
-The candidate covers the shared sensing architecture, runtime and protocol contracts, supported firmware frontends, release artifacts, and embeddable SDK surface intended for v3.0.0. Other new product capabilities move to a later minor release unless they are required to correct a release blocker.
+The candidate covers the shared sensing architecture, runtime and protocol contracts, supported firmware frontends, release artifacts, and embeddable SDK surface intended for v3.0.0. Before the candidate is published, standard Improv Serial provisioning and the versioned local Direct WebSocket API replace the first-party Native BLE surface across firmware, SDK, portal, tests, and current documentation. Other product capabilities move to a later minor release unless they are required to correct a release blocker.
 
 Completed implementation and detector experiments live in [CHANGELOG.md](CHANGELOG.md) and [FEATURES.md](FEATURES.md).
+
+**Release tasks**:
+
+- [ ] Complete the Native BLE-to-Direct WebSocket cutover and every blocking release gate in [2026-08-23-native-ble-to-local-websocket-migration.md](review/2026-08-23-native-ble-to-local-websocket-migration.md)
 
 **Exit criteria**:
 
@@ -52,34 +56,9 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 **Exit criteria**: no release blockers remain, every required gate passes on the release commit, release notes describe the final cumulative behavior and migration path, and published artifacts match the tagged source.
 
-## v3.1.0 - Sensing Quality and Performance
+## v3.1.0 - Matter Integration
 
-**Product outcome**: make sensing more robust across environments and packet rates while improving embedded throughput on maintained device paths.
-
-**Scope**:
-
-- Expand the original ESP32 corpus across environments, and retrain when the evidence supports it
-- Compare `SIZE` and `PERF` compiler profiles across maintained firmware frontends, and adopt performance-oriented builds only where runtime gains justify binary-size and fit costs
-
-**Exit criteria**: detector-performance and C++/Python parity gates pass on the expanded corpus, high-rate capture remains independent of detector admission, and every adopted build optimization passes binary-fit and runtime validation on affected frontends.
-
-## v3.2.0 - Developer Distribution
-
-**Product outcome**: provide explicit, reproducible ways to consume ESPectre from firmware projects and third-party web integrations.
-
-**Scope**:
-
-- Define the supported distribution surface for ESP-IDF component consumers, including registry publication where it fits the project trust model
-- Add a supported Arduino-ESP32 SDK runtime adapter that reuses `RuntimeFrontendController` and `EspIdfRuntime`, leaves Wi-Fi and product integration to the consuming sketch, and does not introduce a separate Arduino frontend
-- Keep `release`, `preview`, and `develop` channels aligned across bundle manifests, website links, and release automation
-- Package the web BLE client with ESM, IIFE, npm, and TypeScript surfaces, or retain it in-tree with a documented rationale if a reusable package does not meet the support bar
-- If cost, isolation, abuse-resistance, and credential-revocation gates pass, add an ESPectre Cloud preset that offers free, time-limited broker access with isolated, expiring credentials; this access does not include the account, fleet-management, history, or alerting surfaces planned for v4
-
-**Exit criteria**: every supported installation path works from a clean consumer project, the Arduino runtime compiles and runs through Arduino CLI on the selected initial target matrix with Wi-Fi startup and reconnect lifecycle validated, every release channel resolves to its intended artifacts, and the web BLE client has a validated public package or a documented decision to keep it internal.
-
-## v3.3.0 - Matter Product Readiness
-
-**Product outcome**: replace limited Matter coverage with a clear, evidence-backed interoperability and manufacturer-readiness position.
+**Product outcome**: make Matter commissioning and everyday operation dependable across a broader set of controllers, and define the path from the current integration to manufacturer-ready products.
 
 **Scope**:
 
@@ -89,34 +68,60 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 **Exit criteria**: the selected controller matrix passes or records explicit limitations, and OTA plus certification work has a documented architecture, ownership model, and actionable gap list.
 
-## v3.4.0 - Local and Cooperative Operation
+## v3.2.0 - Arduino SDK Runtime
 
-**Product outcome**: improve standalone usability and determine whether nearby nodes can coordinate without depending on the future web orchestration layer.
-
-**Scope**:
-
-- Add a non-blocking Native frontend contract for local TFT or LCD status displays
-- Evaluate same-Wi-Fi peer discovery, potentially through ESP-NOW
-- If discovery is reliable, prototype multi-node broadcast coordination as an alternative to the classic traffic generator that reduces router airtime
-
-**Exit criteria**: the local display surface is documented and validated, and cooperative-node work ends with either an implementation that preserves CSI quality, latency, range, and interoperability or a measured rejection retained in [FEATURES.md](FEATURES.md).
-
-## v3.5.0 - Embedded Ecosystem Expansion
-
-**Product outcome**: add an embedded ecosystem integration only when it can reuse the shared runtime without weakening licensing, maintainability, or sensing quality.
+**Product outcome**: let Arduino-ESP32 developers embed ESPectre through a supported SDK runtime while keeping control of their sketch, connectivity, and product behavior.
 
 **Scope**:
 
-- Run an ESP32-C6 Zigbee coexistence spike before considering a Zigbee occupancy frontend
-- Evaluate a TuyaOpen reference integration that embeds the shared `core` and `runtime`, with licensing and cloud coupling documented as integrator-side prerequisites
+- Add an Arduino-facing runtime adapter that reuses `RuntimeFrontendController`, `EspIdfRuntime`, and the shared detector implementation
+- Keep Wi-Fi startup, reconnect policy, and product integration under the consuming sketch's control
+- Publish a clean installation path and focused examples for the supported Arduino-ESP32 target matrix
 
-**Exit criteria**: each candidate has a measured promotion or rejection decision. Release `3.5.0` only when at least one candidate passes its production gates; otherwise retain the findings in [FEATURES.md](FEATURES.md) without creating an empty feature release. This conditional minor does not block `4.0.0`.
+**Exit criteria**: a clean Arduino project can install, build, and run the SDK on every selected target through Arduino CLI, with sensing startup, events, reset behavior, and Wi-Fi reconnect lifecycle validated against the shared runtime contract.
 
-## v4.0.0 - Web Orchestration Layer
+## v3.3.0 - Apple Home Frontend
 
-**Product outcome**: make multiple ESPectre devices behave like one coherent sensing system through an optional web layer for onboarding, visibility, management, history, and alerting.
+**Product outcome**: add a dedicated frontend that exposes ESPectre sensing in Apple Home through Espressif's `esp-homekit-sdk` without duplicating the shared runtime or detector stack.
 
-**Product boundary**: the service supports local, self-hosted, and managed deployment profiles. Raw CSI and unnecessary radio identifiers remain outside the default service boundary.
+**Scope**:
+
+- Confirm the SDK's license, redistribution terms, maintained ESP-IDF compatibility, supported targets, and the boundary between the open-source and MFi product paths before adding the dependency
+- Map ESPectre sensing state into supported HomeKit services and characteristics through a frontend adapter over the shared runtime
+- Validate Wi-Fi provisioning, pairing, reconnect, reset, accessory identity, and recovery in Apple Home on the selected device matrix
+- Document the certification, factory provisioning, credential, and OTA responsibilities that apply to commercial products
+
+**Exit criteria**: the dependency and distribution path satisfy the project's dual-license policy, every selected target passes build and runtime validation, Apple Home behavior is recorded in a controller matrix, and the open-source and MFi product boundaries are explicit.
+
+## v3.4.0 - Stationary Presence Detection
+
+**Product outcome**: distinguish an occupied quiet room from an empty room as a sensing result separate from motion, without making identity, people-counting, or precise-location claims.
+
+**Scope**:
+
+- Validate stationary presence across representative hardware and environments using paired same-session evidence
+- Promote a scale-invariant Presence-versus-Empty detector only if it generalizes across the required false-presence and missed-presence gates
+- Add the validated presence state to the shared runtime, protocol, maintained frontends, and user-facing privacy guidance without changing the meaning of the existing motion state
+
+**Exit criteria**: the detector passes its declared corpus and performance gates, C++ and Python behavior remain aligned, maintained frontends expose the same presence semantics, and unsupported inferences are explicit in current documentation. If the research gate fails, retain the result in [FEATURES.md](FEATURES.md) and defer the release scope.
+
+## v3.5.0 - Gesture and Micro-Motion Research
+
+**Product outcome**: determine whether ESPectre can support intentional brief gestures and non-medical breathing-related micro-motion beyond stationary presence.
+
+**Scope**:
+
+- Evaluate brief gestures only after the high-rate capture path preserves the required short-timescale information
+- Evaluate breathing-related micro-motion only after stationary presence is measurable and paired recordings support longer analysis windows
+- Keep candidates in host-side research until their evidence justifies production runtime work and C++/Python parity
+
+**Exit criteria**: each candidate has a measured promotion, rejection, or deferral decision in [FEATURES.md](FEATURES.md). Release production behavior under `3.5.0` only if at least one candidate passes its declared sensing, resource, privacy, and parity gates.
+
+## v4.0.0 - Cooperative Sensing and Web Orchestration
+
+**Product outcome**: make multiple ESPectre nodes cooperate as one local sensing system and present them through an optional web layer for onboarding, visibility, management, history, and alerting.
+
+**Product boundary**: local sensing and node coordination must not depend on the managed service. The web layer supports local, self-hosted, and managed deployment profiles. Raw CSI and unnecessary radio identifiers remain outside the default service boundary, and cooperative nodes exchange only the minimum derived state required by the supported coordination contract.
 
 **Provider feasibility**: before locking the deployment architecture, evaluate low-cost MQTT deployment candidates, including self-hosted Eclipse Mosquitto, EMQX Cloud, HiveMQ Cloud, and AWS IoT Core, and assess full IoT platforms such as ESP RainMaker separately. Record a promotion or rejection decision based on representative fleet cost, ESPectre Protocol compatibility, TLS and per-device credentials, tenant isolation, regional availability, operational burden, licensing, portability, and migration risk.
 
@@ -124,12 +129,13 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 | Stage | Product scope | Completion condition |
 | --- | --- | --- |
-| **1. Foundation** | Tenant, location, room, device ownership, roles, accounts, initial social login, deployment profiles and open-source boundaries, privacy, threat models, retention, consent, and cookie posture | Identity and deployment boundaries are documented, testable, and consistent across supported profiles |
-| **2. Device plane** | Physical-presence Web Bluetooth claim, short-lived credentials, derived telemetry and status ingestion, device inventory, remote supported settings, signed artifact storage, and OTA workflows | A device can be securely claimed, observed, configured, and updated without exporting raw CSI |
-| **3. Product MVP** | Home and room map, device placement, near-real-time movement score, motion state, connectivity, firmware version, device health, history with retention controls, and email alerts | A user can onboard devices, understand current and historical state, and configure the first alert path |
-| **4. Launch gate** | Security, abuse resistance, privacy, tenant isolation, resilience, backup, recovery, deployment, self-hosting, and service responsibilities | Operational and security reviews pass, and every deployment profile has complete operator documentation |
+| **1. Coordination contract** | Node identity, room membership, capability discovery, peer discovery options, trust boundaries, failure behavior, and the minimum derived state shared between nodes | The architecture selects or rejects same-Wi-Fi, ESP-NOW, or other candidate mechanisms using measured latency, range, interoperability, airtime, and CSI-quality evidence |
+| **2. Cooperative node plane** | Supported local discovery, coordinated traffic generation, derived event exchange, node health, and degraded operation when peers disappear | The supported coordination path improves multi-node operation or reduces airtime without weakening sensing quality, latency, standalone operation, or recovery |
+| **3. Web foundation** | Tenant, location, room, device ownership, roles, accounts, initial social login, deployment profiles and open-source boundaries, privacy, threat models, retention, consent, and cookie posture | Identity and deployment boundaries are documented, testable, and consistent across supported profiles |
+| **4. Product plane** | Physical-presence claim through supported local provisioning, derived telemetry and status ingestion, device inventory, remote supported settings, signed artifact storage, OTA workflows, room views, history with retention controls, and email alerts | A user can onboard, observe, configure, and update a multi-node deployment, understand current and historical state, and configure the first alert path without exporting raw CSI |
+| **5. Launch gate** | Security, abuse resistance, privacy, tenant isolation, resilience, backup, recovery, deployment, self-hosting, and service responsibilities | Operational and security reviews pass, and every deployment profile has complete operator documentation |
 
-**Exit criteria**: all four stages meet their completion conditions, the privacy boundary is enforced by default, and local or self-hosted operation does not depend on the managed service.
+**Exit criteria**: all five stages meet their completion conditions, cooperative sensing remains functional without the web layer, the privacy boundary is enforced by default, and local or self-hosted operation does not depend on the managed service.
 
 ### Post-Launch Candidates
 
@@ -140,9 +146,9 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 The shared device contract remains owned by [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md); deployment profiles and system boundaries remain owned by [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## v5.0.0 - Standards-Backed Wi-Fi Sensing
+## v5.0.0 - Future Hardware and IEEE 802.11bf
 
-**Product outcome**: add a standards-backed sensing backend while preserving the protocol, frontend, tooling, and device-maker contracts established by v3 and v4.
+**Product outcome**: add a standards-backed sensing backend on practical future hardware while preserving the protocol, frontend, tooling, and device-maker contracts established by v3 and v4.
 
 **Activation trigger**: an embedded Wi-Fi platform exposes practical, documented IEEE 802.11bf or equivalent vendor measurements suitable for the ESPectre runtime. No delivery date is assigned before this trigger exists.
 
@@ -163,9 +169,9 @@ Research answers product questions; it does not reserve release scope. Work is s
 | --- | --- | --- | --- |
 | R1 | **5 GHz HT20** | Can ESP32-C5 deployments make a validated 5 GHz sensing claim? | Paired dual-band captures on the same hardware and environments validate both detectors |
 | R2 | **VHT20** | Can the nearest PHY extension reuse the production sensing contract safely? | Proven capture provenance, safe normalization, representative detector results, and C++/Python parity after the 5 GHz HT20 baseline |
-| R3 | **Stationary presence** | Can ESPectre distinguish an occupied quiet room from an empty room? | Paired same-session data supports a scale-invariant Presence-versus-Empty boundary |
-| R4 | **Brief gestures** | Does preserved high-rate information support a distinct gesture product? | The `3.1.0` high-rate path is stable, and a gesture-specific corpus passes validation |
-| R5 | **Breathing-related motion** | Are longer-window spectral features useful for non-medical micro-motion? | Stationary presence is measurable, paired recordings support longer windows, and host-side evidence justifies runtime work |
+| R3 | **Stationary presence** | Can ESPectre distinguish an occupied quiet room from an empty room? | Paired same-session data supports a scale-invariant Presence-versus-Empty boundary for `v3.4.0` |
+| R4 | **Brief gestures** | Does preserved high-rate information support a distinct gesture product? | The high-rate capture path is stable, and a gesture-specific corpus passes validation for `v3.5.0` |
+| R5 | **Breathing-related motion** | Are longer-window spectral features useful for non-medical micro-motion? | Stationary presence is measurable, paired recordings support longer windows, and host-side evidence justifies runtime work for `v3.5.0` |
 | Later | **HE20** | Can a substantially different subcarrier layout map into detector inputs? | Host-side mapping, representative corpus validation, and C++/Python parity justify a new runtime path |
 | Later | **HT40 and wider layouts** | Does added bandwidth justify a separate sensing contract? | Each candidate proves value against the cost of its own grid, normalization, corpus, and detector validation |
 
@@ -182,7 +188,7 @@ This file owns product outcomes, release gates, and sequencing. Mutable details 
 - [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md) and [ARCHITECTURE.md](ARCHITECTURE.md) for stable system contracts
 - [CHANGELOG.md](CHANGELOG.md) for shipped behavior
 
-Last update: **August 21, 2026**
+Last update: **August 23, 2026**
 
 For discussion and proposed changes:
 

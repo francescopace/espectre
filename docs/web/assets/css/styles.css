@@ -2669,7 +2669,7 @@ ewt-install-dialog {
 .roadmap-chapter-media img { width: 100%; height: 100%; display: block; }
 .roadmap-chapter-media img { object-fit: cover; filter: saturate(.88) contrast(1.03); }
 .roadmap-release-sequence { margin: 0; padding: 18px 32px; list-style: none; background: var(--accent-soft); }
-.roadmap-release-sequence li { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 14px; align-items: baseline; padding: 16px 0; border-bottom: 1px solid var(--accent-line); }
+.roadmap-release-sequence li { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 14px; align-items: baseline; padding: 16px 0; border-bottom: 1px solid var(--accent-line); }
 .roadmap-release-sequence li:last-child { border-bottom: 0; }
 .roadmap-release-sequence strong { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
 .roadmap-release-sequence span { color: var(--dim); font-size: 13.5px; line-height: 1.5; }
@@ -3196,7 +3196,7 @@ ewt-install-dialog {
   .roadmap-chapter h3 { font-size: clamp(30px, 10vw, 40px); }
   .roadmap-chapter-media { min-height: 280px; }
   .roadmap-release-sequence { padding: 10px 24px; }
-  .roadmap-release-sequence li { grid-template-columns: 40px minmax(0, 1fr); gap: 10px; }
+  .roadmap-release-sequence li { grid-template-columns: 52px minmax(0, 1fr); gap: 10px; }
   .roadmap-research { margin: 0 -6px 56px; padding: 30px 24px; }
   .roadmap-research-list { grid-template-columns: minmax(0, 1fr); }
   .roadmap-research-list article,
