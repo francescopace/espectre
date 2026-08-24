@@ -11,6 +11,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -18,8 +19,12 @@ import builtins
 
 import pytest
 from espectre_cli.app import build_parser
-from espectre_cli import host
-from espectre_cli.streamer_discovery import _StreamerListener
+from espectre_cli import device_discovery, host
+from espectre_cli.device_discovery import (
+    ESPECTRE_SERVICE_TYPE,
+    DiscoveredDevice,
+    _DeviceListener,
+)
 from tools.lib.csi_io import AdaptivePacingController
 
 
@@ -73,17 +78,47 @@ def _make_discovered_streamer(
     chip: str = "s3",
     ip_address: str = "192.168.1.29",
     target_port: int = 9999,
-    collector_port: int | None = 5001,
-    service_name: str = "ESPectre Streamer._espectre-streamer._udp.local.",
+    service_name: str = "ESPectre Streamer._espectre._tcp.local.",
 ):
-    return host.StreamerDiscoveryRecord(
+    metadata = (("traffic_port", str(target_port)),)
+    return DiscoveredDevice(
         service_name=service_name,
+        service_type=ESPECTRE_SERVICE_TYPE,
+        frontend="streamer",
         device_id=device_id,
         device_id_text=device_id_text,
+        name="ESPectre Streamer",
         chip=chip,
         ip_address=ip_address,
-        target_port=target_port,
-        collector_port=collector_port,
+        port=80,
+        transport="ws",
+        endpoint=f"ws://{ip_address}/espectre/v1/ws",
+        protocol="1",
+        metadata=metadata,
+    )
+
+
+def _make_discovered_native(
+    *,
+    device_id: int = 0xD361ACEB3AF61093,
+    device_id_text: str = "d361aceb3af61093",
+    ip_address: str = "192.168.1.34",
+) -> DiscoveredDevice:
+    return DiscoveredDevice(
+        service_name="Living room._espectre._tcp.local.",
+        service_type=ESPECTRE_SERVICE_TYPE,
+        frontend="native",
+        device_id=device_id,
+        device_id_text=device_id_text,
+        name="Living room",
+        chip="esp32c3",
+        ip_address=ip_address,
+        port=80,
+        transport="ws",
+        endpoint=f"ws://{ip_address}/espectre/v1/ws",
+        protocol="1",
+        firmware="2.8.0",
+        capabilities=("config", "monitor", "ota"),
     )
 
 
@@ -349,16 +384,271 @@ def test_collect_parser_accepts_list_devices() -> None:
     assert args.list_devices is True
 
 
+def test_devices_parser_supports_frontend_timeout_and_json() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(["devices", "--frontend", "native", "--timeout", "4", "--json"])
+
+    assert args.namespace == "devices"
+    assert args.frontend == "native"
+    assert args.timeout == 4.0
+    assert args.json is True
+    assert parser.parse_args(["devices", "--frontend", "esphome"]).frontend == "esphome"
+    assert parser.parse_args(["devices", "--frontend", "matter"]).frontend == "matter"
+
+
+def test_device_listener_normalizes_canonical_frontend_records() -> None:
+    class FakeServiceInfo:
+        def __init__(self, *, address: str, port: int, properties: dict[bytes, bytes]):
+            self.port = port
+            self.properties = properties
+            self._address = address
+
+        def parsed_addresses(self, _ip_version):
+            return [self._address]
+
+    native_name = "Living room._espectre._tcp.local."
+    streamer_name = "ESPectre Streamer._espectre._tcp.local."
+    esphome_name = "ESPectre Office._espectre._tcp.local."
+    matter_name = "ESPectre Matter._espectre._tcp.local."
+
+    def properties(frontend: str, device_id: str, name: str, **extra: str) -> dict[bytes, bytes]:
+        values = {
+            "device_id": device_id,
+            "name": name,
+            "frontend": frontend,
+            "txtvers": "1",
+            "protovers": "1",
+            "path": "/espectre/v1/ws",
+            "firmware": "3.0.0",
+            "chip": "esp32c3",
+            "tls": "0",
+            "capabilities": "config,monitor",
+            **extra,
+        }
+        return {key.encode(): value.encode() for key, value in values.items()}
+
+    infos = {
+        (ESPECTRE_SERVICE_TYPE, native_name): FakeServiceInfo(
+            address="192.168.1.34",
+            port=80,
+            properties=properties("native", "d361aceb3af61093", "Living room", capabilities="config,monitor,ota"),
+        ),
+        (ESPECTRE_SERVICE_TYPE, streamer_name): FakeServiceInfo(
+            address="192.168.1.29",
+            port=80,
+            properties=properties(
+                "streamer",
+                "0xabc123",
+                "ESPectre Streamer",
+                traffic_port="9999",
+            ),
+        ),
+        (ESPECTRE_SERVICE_TYPE, esphome_name): FakeServiceInfo(
+            address="192.168.1.31",
+            port=6054,
+            properties=properties("esphome", "3cf79180d3a0aca4", "ESPectre Office"),
+        ),
+        (ESPECTRE_SERVICE_TYPE, matter_name): FakeServiceInfo(
+            address="192.168.1.32",
+            port=80,
+            properties=properties("matter", "a1b2c3d4e5f60708", "ESPectre Matter"),
+        ),
+    }
+
+    class FakeZeroconf:
+        def get_service_info(self, service_type, name, timeout):
+            assert timeout == 1000
+            return infos.get((service_type, name))
+
+    listener = _DeviceListener(FakeZeroconf())
+    for name in (native_name, streamer_name, esphome_name, matter_name):
+        listener.add_service(None, ESPECTRE_SERVICE_TYPE, name)
+
+    esphome, matter, native, streamer = listener.snapshot()
+    assert esphome.frontend == "esphome"
+    assert esphome.device_id_text == "3cf79180d3a0aca4"
+    assert esphome.name == "ESPectre Office"
+    assert esphome.chip == "esp32c3"
+    assert esphome.endpoint == "ws://192.168.1.31:6054/espectre/v1/ws"
+    assert matter.frontend == "matter"
+    assert matter.device_id_text == "a1b2c3d4e5f60708"
+    assert matter.endpoint == "ws://192.168.1.32/espectre/v1/ws"
+    assert native.frontend == "native"
+    assert native.endpoint == "ws://192.168.1.34/espectre/v1/ws"
+    assert native.capabilities == ("config", "monitor", "ota")
+    assert streamer.frontend == "streamer"
+    assert streamer.device_id_text == "0000000000abc123"
+    assert streamer.endpoint == "ws://192.168.1.29/espectre/v1/ws"
+    assert streamer.target_port == 9999
+
+
+def test_device_listener_rejects_noncanonical_and_unknown_frontend_records() -> None:
+    class FakeServiceInfo:
+        def __init__(self, properties):
+            self.port = 6053
+            self.properties = properties
+
+        def parsed_addresses(self, _ip_version):
+            return ["192.168.1.50"]
+
+    invalid_name = "Other._espectre._tcp.local."
+    incomplete_streamer_name = "Incomplete Streamer._espectre._tcp.local."
+    infos = {
+        (ESPECTRE_SERVICE_TYPE, invalid_name): FakeServiceInfo(
+            {
+                b"device_id": b"0011223344556677",
+                b"frontend": b"other",
+                b"txtvers": b"1",
+                b"protovers": b"1",
+                b"path": b"/espectre/v1/ws",
+            }
+        ),
+        (ESPECTRE_SERVICE_TYPE, incomplete_streamer_name): FakeServiceInfo(
+            {
+                b"device_id": b"0011223344556677",
+                b"frontend": b"streamer",
+                b"txtvers": b"1",
+                b"protovers": b"1",
+                b"path": b"/espectre/v1/ws",
+            }
+        ),
+    }
+
+    class FakeZeroconf:
+        def get_service_info(self, service_type, name, timeout):
+            assert timeout == 1000
+            return infos.get((service_type, name))
+
+    listener = _DeviceListener(FakeZeroconf())
+    listener.add_service(None, ESPECTRE_SERVICE_TYPE, invalid_name)
+    listener.add_service(None, ESPECTRE_SERVICE_TYPE, incomplete_streamer_name)
+
+    assert listener.snapshot() == []
+
+
+@pytest.mark.parametrize(
+    "frontend",
+    [None, "native", "streamer", "esphome", "matter"],
+)
+def test_discover_devices_browses_one_canonical_service(monkeypatch, frontend) -> None:
+    service_types: list[str] = []
+    cancelled: list[str] = []
+    waits: list[tuple[float, float]] = []
+
+    class FakeZeroconf:
+        def __init__(self, ip_version):
+            self.ip_version = ip_version
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    class FakeBrowser:
+        def __init__(self, _zeroconf, service_type, listener):
+            del listener
+            self.service_type = service_type
+            service_types.append(service_type)
+
+        def cancel(self):
+            cancelled.append(self.service_type)
+
+    fake_zeroconf = FakeZeroconf(device_discovery.IPVersion.V4Only)
+    monkeypatch.setattr(device_discovery, "Zeroconf", lambda ip_version: fake_zeroconf)
+    monkeypatch.setattr(device_discovery, "ServiceBrowser", FakeBrowser)
+    monkeypatch.setattr(
+        device_discovery._DeviceListener,
+        "wait_for_quiet",
+        lambda self, timeout_s, quiet_window_s: waits.append((timeout_s, quiet_window_s)),
+    )
+
+    assert device_discovery.discover_devices(frontend=frontend, timeout_s=0.2) == []
+    assert service_types == [ESPECTRE_SERVICE_TYPE]
+    assert cancelled == [ESPECTRE_SERVICE_TYPE]
+    assert waits == [(0.2, device_discovery.DISCOVERY_QUIET_WINDOW_S)]
+    assert fake_zeroconf.closed is True
+
+
+def test_device_listener_quiet_window_resets_after_a_change(monkeypatch) -> None:
+    listener = _DeviceListener(None)
+    listener._records[(ESPECTRE_SERVICE_TYPE, "native")] = _make_discovered_native()
+    listener._last_change_monotonic = 0.0
+    clock = [0.0]
+    waits: list[float] = []
+
+    class FakeCondition:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, _exc_type, _exc_value, _traceback):
+            return False
+
+        def wait(self, timeout):
+            waits.append(timeout)
+            if len(waits) == 1:
+                clock[0] += 0.1
+                listener._last_change_monotonic = clock[0]
+            else:
+                clock[0] += timeout
+
+    listener._records_changed = FakeCondition()
+    monkeypatch.setattr(device_discovery.time, "monotonic", lambda: clock[0])
+
+    listener.wait_for_quiet(timeout_s=2.5, quiet_window_s=0.35)
+
+    assert waits == pytest.approx([0.35, 0.35])
+    assert clock[0] == pytest.approx(0.45)
+
+
+def test_discover_devices_rejects_invalid_timeout_before_opening_mdns() -> None:
+    with pytest.raises(ValueError, match="finite value greater than zero"):
+        device_discovery.discover_devices(timeout_s=0)
+
+
+def test_collect_discovery_uses_the_conservative_quiet_window(monkeypatch) -> None:
+    calls: list[tuple[str | None, float]] = []
+
+    def fake_discover(*, frontend, quiet_window_s):
+        calls.append((frontend, quiet_window_s))
+        return []
+
+    monkeypatch.setattr(host, "discover_devices", fake_discover)
+
+    assert host._discover_streamer_devices_or_exit() == []
+    assert calls == [("streamer", device_discovery.COLLECT_DISCOVERY_QUIET_WINDOW_S)]
+
+
+def test_devices_command_prints_machine_readable_records(monkeypatch, capsys) -> None:
+    calls: list[tuple[str | None, float]] = []
+
+    def fake_discover(*, frontend, timeout_s):
+        calls.append((frontend, timeout_s))
+        return [_make_discovered_native(), _make_discovered_streamer()]
+
+    monkeypatch.setattr(device_discovery, "discover_devices", fake_discover)
+
+    result = device_discovery.run_devices_command(
+        argparse.Namespace(frontend=None, timeout=1.5, json=True)
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert result == 0
+    assert calls == [(None, 1.5)]
+    assert [record["frontend"] for record in payload] == ["native", "streamer"]
+    assert payload[0]["device_id"] == "d361aceb3af61093"
+    assert payload[0]["endpoint"] == "ws://192.168.1.34/espectre/v1/ws"
+
+
 def test_streamer_discovery_normalizes_current_and_legacy_device_ids() -> None:
-    assert _StreamerListener._parse_device_id("3cf79180d3a0aca4") == (
+    assert device_discovery._parse_device_id("3cf79180d3a0aca4") == (
         0x3CF79180D3A0ACA4,
         "3cf79180d3a0aca4",
     )
-    assert _StreamerListener._parse_device_id("0xabc123") == (
+    assert device_discovery._parse_device_id("0xabc123") == (
         0xABC123,
         "0000000000abc123",
     )
-    assert _StreamerListener._parse_device_id("1" * 17) is None
+    assert device_discovery._parse_device_id("1" * 17) is None
 
 
 def test_collect_routes_labelled_capture_to_live_collect(monkeypatch) -> None:
@@ -385,7 +675,7 @@ def test_collect_list_devices_prints_discovered_streamers(monkeypatch, capsys) -
             service_name="ESPectre Streamer 2._espectre-streamer._udp.local.",
         ),
     ]
-    monkeypatch.setattr(host, "discover_streamer_devices", lambda: devices)
+    monkeypatch.setattr(host, "discover_devices", lambda frontend=None, **_kwargs: devices)
     run_live_calls: list[object] = []
     monkeypatch.setattr(host, "_run_live_collect", lambda args: run_live_calls.append(args))
 
@@ -401,7 +691,7 @@ def test_collect_list_devices_prints_discovered_streamers(monkeypatch, capsys) -
 def test_collect_live_auto_selects_single_discovered_streamer(monkeypatch) -> None:
     selected_args: list[argparse.Namespace] = []
     device = _make_discovered_streamer(target_port=12000)
-    monkeypatch.setattr(host, "discover_streamer_devices", lambda: [device])
+    monkeypatch.setattr(host, "discover_devices", lambda frontend=None, **_kwargs: [device])
     monkeypatch.setattr(host, "_run_live_collect", lambda args: selected_args.append(args))
 
     host.collect_csi_data(_make_live_collect_args(target=None, label=None))
@@ -423,8 +713,8 @@ def test_collect_live_prompts_for_multiple_discovered_streamers(monkeypatch) -> 
             service_name="ESPectre Streamer 2._espectre-streamer._udp.local.",
         ),
     ]
-    monkeypatch.setattr(host, "discover_streamer_devices", lambda: devices)
-    monkeypatch.setattr(host, "choose_streamer_device_interactively", lambda records: records[1])
+    monkeypatch.setattr(host, "discover_devices", lambda frontend=None, **_kwargs: devices)
+    monkeypatch.setattr(host, "choose_device_interactively", lambda records, **_kwargs: records[1])
     monkeypatch.setattr(host, "_run_live_collect", lambda args: selected_args.append(args))
 
     host.collect_csi_data(_make_live_collect_args(target=None, label=None))
@@ -435,7 +725,7 @@ def test_collect_live_prompts_for_multiple_discovered_streamers(monkeypatch) -> 
 
 
 def test_collect_live_errors_when_discovery_finds_no_devices(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(host, "discover_streamer_devices", lambda: [])
+    monkeypatch.setattr(host, "discover_devices", lambda frontend=None, **_kwargs: [])
 
     with pytest.raises(SystemExit):
         host.collect_csi_data(_make_live_collect_args(target=None, label=None))
@@ -448,10 +738,11 @@ def test_collect_live_errors_when_discovery_finds_no_devices(monkeypatch, capsys
 def test_collect_live_explicit_target_bypasses_discovery(monkeypatch) -> None:
     run_live_calls: list[argparse.Namespace] = []
 
-    def unexpected_discovery():
+    def unexpected_discovery(frontend=None, **kwargs):
+        del frontend, kwargs
         raise AssertionError("discovery should not run when --target is set")
 
-    monkeypatch.setattr(host, "discover_streamer_devices", unexpected_discovery)
+    monkeypatch.setattr(host, "discover_devices", unexpected_discovery)
     monkeypatch.setattr(host, "_run_live_collect", lambda args: run_live_calls.append(args))
 
     host.collect_csi_data(_make_live_collect_args(target="192.168.1.15", label=None))
@@ -464,7 +755,7 @@ def test_collect_live_explicit_target_bypasses_discovery(monkeypatch) -> None:
 def test_collect_live_resolves_single_discovered_streamer(monkeypatch) -> None:
     routed_args: list[argparse.Namespace] = []
     device = _make_discovered_streamer(target_port=12000)
-    monkeypatch.setattr(host, "discover_streamer_devices", lambda: [device])
+    monkeypatch.setattr(host, "discover_devices", lambda frontend=None, **_kwargs: [device])
     monkeypatch.setattr(host, "_run_live_collect", lambda args: routed_args.append(args))
 
     host.collect_csi_data(_make_collect_args(target=None, start_delay=2.0))
@@ -592,7 +883,11 @@ def test_collect_live_rejects_discovery_device_id_mismatch(monkeypatch, capsys) 
             pass
 
     _install_live_collect_modules(monkeypatch, FakeReceiver, FakePacingSender)
-    monkeypatch.setattr(host, "discover_streamer_devices", lambda: [_make_discovered_streamer()])
+    monkeypatch.setattr(
+        host,
+        "discover_devices",
+        lambda frontend=None, **_kwargs: [_make_discovered_streamer()],
+    )
 
     with pytest.raises(SystemExit):
         host.collect_csi_data(
@@ -710,7 +1005,7 @@ def test_collect_csi_data_validates_start_delay_and_discovery(monkeypatch) -> No
             pass
 
     _install_live_collect_modules(monkeypatch, FakeReceiver, FakePacingSender)
-    monkeypatch.setattr(host, "discover_streamer_devices", lambda: [])
+    monkeypatch.setattr(host, "discover_devices", lambda frontend=None, **_kwargs: [])
 
     with pytest.raises(SystemExit):
         host.collect_csi_data(_make_live_collect_args(target=None, label=None))

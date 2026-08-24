@@ -17,12 +17,13 @@ import sys
 import time
 
 from .common import Fore, Style, cli_command, print_box_banner
-from .streamer_discovery import (
-    StreamerDiscoveryError,
-    StreamerDiscoveryRecord,
-    choose_streamer_device_interactively,
-    discover_streamer_devices,
-    print_streamer_device_list,
+from .device_discovery import (
+    COLLECT_DISCOVERY_QUIET_WINDOW_S,
+    DeviceDiscoveryError,
+    DiscoveredDevice,
+    choose_device_interactively,
+    discover_devices,
+    print_device_list,
 )
 
 
@@ -32,10 +33,13 @@ def _format_expected_device_id(device_id: int | None) -> str:
     return f"{int(device_id):016x}"
 
 
-def _discover_streamer_devices_or_exit() -> list[StreamerDiscoveryRecord]:
+def _discover_streamer_devices_or_exit() -> list[DiscoveredDevice]:
     try:
-        return discover_streamer_devices()
-    except StreamerDiscoveryError as exc:
+        return discover_devices(
+            frontend="streamer",
+            quiet_window_s=COLLECT_DISCOVERY_QUIET_WINDOW_S,
+        )
+    except DeviceDiscoveryError as exc:
         print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
         raise SystemExit(1)
 
@@ -45,7 +49,11 @@ def _list_streamer_devices(args) -> None:
         print(f"{Fore.RED}❌ --list-devices cannot be combined with --target{Style.RESET_ALL}")
         raise SystemExit(1)
     records = _discover_streamer_devices_or_exit()
-    print_streamer_device_list(records)
+    if not records:
+        print()
+        print(f"{Fore.YELLOW}No Streamer devices discovered via mDNS.{Style.RESET_ALL}")
+        return
+    print_device_list(records, heading="Discovered Streamer devices")
 
 
 def _resolve_collect_target_via_discovery(args) -> None:
@@ -70,7 +78,7 @@ def _resolve_collect_target_via_discovery(args) -> None:
         )
     else:
         try:
-            selected = choose_streamer_device_interactively(records)
+            selected = choose_device_interactively(records, frontend_label="Streamer")
         except KeyboardInterrupt:
             print(f"\n{Fore.YELLOW}Discovery selection cancelled{Style.RESET_ALL}")
             raise SystemExit(1)

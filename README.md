@@ -18,11 +18,11 @@ If you want the fastest path, use the browser flasher:
 1. Open [espectre.dev/flash](https://espectre.dev/flash/) with a Chromium-based browser
 2. Pick the Native, ESPHome, or Matter firmware and ESP32 target
 3. Flash the board
-4. Open Configure to provision connectivity over Bluetooth, then continue into Monitor
+4. Complete Improv Serial Wi-Fi provisioning, then use Direct WebSocket in Configure and Monitor
 
 The browser tools share one site:
 
-- [Configure](https://espectre.dev/configure) provisions Native over Bluetooth
+- [Configure](https://espectre.dev/configure) configures Native over Direct WebSocket after Improv Serial provisioning
 - [Monitor](https://espectre.dev/monitor) watches motion, tunes detection, and inspects diagnostics over MQTT
 - [Run with the Spectre](https://espectre.dev/game/) and [Theremin](https://espectre.dev/theremin/) provide interactive sensing demos
 
@@ -30,7 +30,7 @@ GitHub Releases provide OTA payloads for ESPHome and Native. ESPHome updates can
 
 Supported hardware:
 
-- ESP32-C6, ESP32-C5, ESP32-C3, ESP32-S3, and classic ESP32
+- ESP32-C6, ESP32-C5, ESP32-C3, ESP32-S3, ESP32-S2, and classic ESP32
 - a normal Wi-Fi network; 2.4 GHz on every board, plus 5 GHz on the ESP32-C5
 
 ESPectre includes two on-device detection profiles because deployments have different accuracy and resource budgets:
@@ -48,7 +48,7 @@ Startup details and the measured trade-offs are documented in [SETUP.md](docs/SE
 | ---- | -------- | ---------- |
 | **ESPHome** | Home Assistant users who want the most polished production path | [ESPHome frontend](src/cpp/frontend/esphome/README.md) |
 | **Matter** | Controllers with Matter occupancy-sensor support; validation is still limited | [Matter frontend](src/cpp/frontend/matter/README.md) |
-| **Native BLE/MQTT** | Standalone devices, Home Assistant MQTT Discovery, web clients, and custom apps | [Native frontend](src/cpp/frontend/native/README.md) |
+| **Native Direct/MQTT** | Standalone devices, browser-local sensing, Home Assistant MQTT Discovery, and custom apps | [Native frontend](src/cpp/frontend/native/README.md) |
 | **Streamer** | CSI data capture, dataset collection, live experiments, and ML workflows | [Streamer frontend](src/cpp/frontend/streamer/README.md) |
 | **Micro-ESPectre** | MicroPython prototyping and optional Home Assistant MQTT Discovery | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
 | **SDK** | Custom firmware, smart-device makers, and OEM exploration | [EMBEDDING.md](docs/EMBEDDING.md) |

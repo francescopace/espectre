@@ -44,7 +44,7 @@ from esphome.const import (
 from esphome.core import CORE
 
 DEPENDENCIES = ["wifi"]
-AUTO_LOAD = ["sensor", "binary_sensor", "button", "number", "select", "switch"]
+AUTO_LOAD = ["sensor", "binary_sensor", "button", "number", "select", "switch", "mdns"]
 
 # Configuration parameters
 CONF_SEGMENTATION_WINDOW_SIZE_MS = "segmentation_window_size_ms"
@@ -495,6 +495,9 @@ async def to_code(config):
     # Set required sdkconfig options for CSI functionality
     # These are automatically applied - user doesn't need to specify them in YAML
     add_idf_sdkconfig_option("CONFIG_ESP_WIFI_CSI_ENABLED", True)
+    add_idf_sdkconfig_option("CONFIG_ESPECTRE_SDK_ENABLE_DIRECT", True)
+    add_idf_sdkconfig_option("CONFIG_HTTPD_WS_SUPPORT", True)
+    add_idf_sdkconfig_option("CONFIG_HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT", True)
     add_idf_sdkconfig_option("CONFIG_PM_ENABLE", False)
     add_idf_sdkconfig_option("CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE", False)
     

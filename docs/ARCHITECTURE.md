@@ -37,7 +37,7 @@ The contracts and detector logic compile on a host without ESP-IDF. Frontends se
 - filters and helper utilities
 - exported ML artifacts and related constants
 
-Rule of thumb: code in `core` should stay free of frontend-specific concerns such as ESPHome entities, Matter clusters, BLE transport details, or MQTT topic handling.
+Rule of thumb: code in `core` should stay free of frontend-specific concerns such as ESPHome entities, Matter clusters, WebSocket transport details, or MQTT topic handling.
 
 ### `src/cpp/runtime/`
 
@@ -57,7 +57,7 @@ Shared runtime services also live here, including:
 - `RuntimeFrontendController`
 - standalone Wi-Fi helpers for non-ESPHome firmware
 - shared diagnostics helpers
-- ESPectre Protocol model and shared BLE/MQTT transport support
+- ESPectre Protocol model and shared Direct WebSocket/MQTT transport support
 - NVS-backed provisioning helpers reused by ESP-IDF frontends
 
 ### Shared Wi-Fi and CSI Lifecycle
@@ -76,10 +76,10 @@ The `GOT_IP` payload is also the source of truth for the local address, netmask,
 
 Current frontends:
 
-- `esphome`: Home Assistant-facing external component and packaging root
-- `native`: standalone BLE/MQTT firmware surface
-- `matter`: Matter-facing adapter and firmware path
-- `streamer`: raw CSI UDP streamer for collection workflows
+- `esphome`: Home Assistant-facing external component, Direct runtime controls, and packaging root
+- `native`: standalone Direct WebSocket/MQTT firmware surface
+- `matter`: Matter-facing adapter with a separate Direct tuning plane
+- `streamer`: raw CSI UDP streamer with Direct status and diagnostics
 
 Rule of thumb: frontend-specific schemas, transport bindings, and ecosystem integration belong here, not in `core`.
 
@@ -87,13 +87,13 @@ Rule of thumb: frontend-specific schemas, transport bindings, and ecosystem inte
 
 ### ESPHome
 
-`src/cpp/frontend/esphome/` maps the shared runtime into ESPHome entities, YAML/config-codegen, and external-component packaging.
+`src/cpp/frontend/esphome/` maps the shared runtime into ESPHome entities, YAML/config-codegen, external-component packaging, and the common Direct WebSocket bridge. Direct mutations republish matching entity state rather than creating a second configuration owner.
 
 For the ESPHome workflow, see [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md).
 
 ### Native
 
-`src/cpp/frontend/native/` exposes the runtime through standalone BLE setup and MQTT operation surfaces and reuses the shared ESP-IDF frontend-support services for provisioning, device configuration, and MQTT-owned OTA control flows. Native refreshes the shared diagnostics sample from the existing sensing update that feeds its status log, but publishes the cached CSI and Wi-Fi values only after an explicit MQTT `stats` command. Micro-ESPectre uses the same rate-sampler contract on its publish heartbeat and exposes the cache on the same MQTT `stats` topic. ESPHome uses the same sampler and publishes its diagnostic entity states only after `Refresh Diagnostics` is pressed. These on-demand surfaces do not add a diagnostic timer and remain available in production builds independently of runtime debug logging.
+`src/cpp/frontend/native/` exposes the runtime through Improv Serial provisioning, local Direct WebSocket, and optional MQTT. It reuses the shared ESP-IDF services for staged Wi-Fi configuration, device configuration, mDNS, transport-independent commands, and OTA. Native refreshes the shared diagnostics sample from the existing sensing update that feeds its status log and exposes the same cache through Direct diagnostics and MQTT `stats`. Micro-ESPectre uses the same rate-sampler contract on its publish heartbeat and exposes the cache on MQTT `stats`. ESPHome uses the same sampler and publishes its diagnostic entity states only after `Refresh Diagnostics` is pressed. These on-demand surfaces do not add a diagnostic timer and remain available in production builds independently of runtime debug logging.
 
 For the native workflow and protocol surface, see:
 
@@ -102,13 +102,13 @@ For the native workflow and protocol surface, see:
 
 ### Matter
 
-`src/cpp/frontend/matter/` maps runtime state and controls into the Matter surface without pulling Matter-specific concerns into the shared detector or runtime layers.
+`src/cpp/frontend/matter/` maps occupancy into Matter without pulling Matter-specific concerns into the shared detector or runtime layers. Detector configuration is not represented by the standard occupancy clusters, so the frontend also exposes the shared Direct WebSocket bridge as its local tuning plane.
 
 For the Matter workflow, see [`README.md` (matter)](../src/cpp/frontend/matter/README.md).
 
 ### Streamer
 
-`src/cpp/frontend/streamer/` is a dedicated CSI transport frontend. It now uses the same controller/runtime contract as the other standalone frontends, but it selects `StreamEspIdfRuntime` so the raw CSI transport path can stay focused and detector-free.
+`src/cpp/frontend/streamer/` is a dedicated CSI transport frontend. It uses the same controller/runtime contract and Direct WebSocket bridge as the other C++ frontends, but selects `StreamEspIdfRuntime` so raw CSI remains on its collector-paced UDP path and the firmware stays detector-free.
 
 For the streamer workflow, see [`README.md` (streamer)](../src/cpp/frontend/streamer/README.md).
 
@@ -145,19 +145,19 @@ Normalized runtime events include:
 
 Frontends should use this surface instead of reaching directly into low-level Wi-Fi or CSI pipeline services.
 
-Runtime detector selection is capability-gated. ESPHome and Native enable the shared ESP-IDF detector store, which persists `lightweight` or `high_accuracy` in NVS and restores it at boot. Matter can be built with either detector but has no writable runtime detector surface; published Matter firmware selects `lightweight`. Streamer remains detector-free.
+Runtime detector selection is capability-gated. ESPHome and Native enable the shared ESP-IDF detector store, which persists `lightweight` or `high_accuracy` in NVS and restores it at boot. Matter enables runtime detector selection through Direct WebSocket because its standard clusters do not expose detector configuration. Streamer remains detector-free.
 
 ### Shared Runtime Debug Telemetry
 
 ESP-IDF runtime implementations reuse `RuntimeDebugTelemetry` for one `[telemetry]` log line approximately every 10 seconds at `DEBUG` level. Micro-ESPectre emits the same machine-readable timing keys when its default-off `DEBUG_TELEMETRY` benchmark switch is enabled. ESP-IDF reports current, minimum, and largest-block heap values plus configured CPU frequency; MicroPython reports current and sampled-minimum free heap. Both report runtime-loop load and timing plus sampled detector evaluation timing.
 
-`runtime_load` measures wall time spent inside the ESPectre runtime loop, not whole-system CPU utilization. Wi-Fi callbacks only normalize and enqueue CSI; detector processing, inference, state transitions, and frontend callback delivery run in the owning loop task. MQTT, BLE, and OTA stacks may still perform transport work on private tasks, but their application events are drained by the frontend loop. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. For High Accuracy, it covers ML feature extraction, inference, and state update.
+`runtime_load` measures wall time spent inside the ESPectre runtime loop, not whole-system CPU utilization. Wi-Fi callbacks only normalize and enqueue CSI; detector processing, inference, state transitions, and frontend callback delivery run in the owning loop task. MQTT, Direct WebSocket, and OTA stacks may still perform transport work on private tasks, but their application events are drained by the frontend loop. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. For High Accuracy, it covers ML feature extraction, inference, and state update.
 
 This debug log is an implementation diagnostic, not part of ESPectre Protocol. Streamer also retains its separate live transport telemetry for pacing, CSI, and uplink health during collection.
 
 ## ESPectre Protocol In The Architecture
 
-ESPectre Protocol is the shared device-facing message model used by the standalone ESP-IDF frontends and related tools. [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md) owns its message families, BLE and MQTT mappings, payloads, and command surfaces.
+ESPectre Protocol is the shared device-facing message model used by the standalone ESP-IDF frontends and related tools. [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md) owns its message families, Direct WebSocket and MQTT mappings, payloads, and command surfaces.
 
 For the non-ESPHome standalone firmware paths, the protocol sits at the boundary between the frontend and runtime layers.
 

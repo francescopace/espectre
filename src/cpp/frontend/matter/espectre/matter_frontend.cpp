@@ -9,15 +9,22 @@
  */
 #include "matter_frontend.h"
 
+#include "device_identity.h"
 #include "espectre_log.h"
+#include "firmware_version.h"
 #include "matter_surface.h"
+#include "protocol_json.h"
+#include "runtime_config_utils.h"
+#include "sdkconfig.h"
 
 namespace espectre {
 
 static const char *const TAG = "espectre.matter";
 
-MatterFrontend::MatterFrontend(IMatterBindings *bindings, uint16_t endpoint_id)
-    : bindings_(bindings), endpoint_id_(endpoint_id) {}
+MatterFrontend::MatterFrontend(IMatterBindings *bindings,
+                               uint16_t endpoint_id,
+                               IDirectWebSocketService *direct_service)
+    : bindings_(bindings), endpoint_id_(endpoint_id), direct_service_(direct_service) {}
 
 void MatterFrontend::set_runtime_config(const RuntimeConfig &config) { runtime_.set_config(config); }
 
@@ -40,11 +47,33 @@ bool MatterFrontend::setup() {
     return false;
   }
 
+  const uint64_t device_id = runtime_.config().device_id != 0U
+                                 ? runtime_.config().device_id
+                                 : derive_runtime_device_id();
+  if (direct_service_ != nullptr && !direct_bridge_.setup(
+          direct_service_,
+          &runtime_,
+          RuntimeDirectWebSocketBridgeConfig{
+              "matter",
+              "ESPectre Matter",
+              espectre_firmware_version(),
+              CONFIG_IDF_TARGET,
+              device_id,
+              80U,
+              false,
+              false,
+          })) {
+    ESP_LOGE(TAG, "Matter Direct WebSocket setup failed");
+    runtime_.shutdown();
+    return false;
+  }
+
   ESP_LOGI(TAG, "Matter frontend initialized on endpoint %u", endpoint_id_);
   return true;
 }
 
 void MatterFrontend::shutdown() {
+  direct_bridge_.shutdown();
   runtime_.shutdown();
 }
 
@@ -52,6 +81,7 @@ MatterFrontend::~MatterFrontend() { shutdown(); }
 
 void MatterFrontend::loop() {
   runtime_.loop();
+  direct_bridge_.loop();
 }
 
 void MatterFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
@@ -60,6 +90,11 @@ void MatterFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
   }
 
   bindings_->publish_motion(endpoint_id_, snapshot_to_motion_detected(snapshot));
+  std::string data{"{\"motion\":"};
+  data += snapshot.motion_state == MotionState::MOTION ? "true" : "false";
+  data += ",\"movement\":" + std::to_string(snapshot.movement_metric);
+  data += ",\"threshold\":" + std::to_string(snapshot.threshold) + "}";
+  (void) direct_bridge_.publish_event("telemetry", data, true);
 }
 
 void MatterFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
@@ -68,7 +103,15 @@ void MatterFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_
 }
 
 void MatterFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
-  (void) snapshot;
+  const std::string data = "{\"threshold\":" + std::to_string(snapshot.threshold) + "}";
+  (void) direct_bridge_.publish_event("config", data);
+}
+
+void MatterFrontend::on_detector_changed(const RuntimeSnapshot &snapshot) {
+  std::string data{"{"};
+  append_json_pair(&data, "detector", snapshot.detector_name != nullptr ? snapshot.detector_name : "", true);
+  data += ",\"threshold\":" + std::to_string(snapshot.threshold) + "}";
+  (void) direct_bridge_.publish_event("config", data);
 }
 
 void MatterFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) { (void) snapshot; }
@@ -81,8 +124,9 @@ void MatterFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bo
 }
 
 void MatterFrontend::on_live_telemetry(float movement, float threshold) {
-  (void) movement;
-  (void) threshold;
+  const std::string data = "{\"movement\":" + std::to_string(movement) +
+                           ",\"threshold\":" + std::to_string(threshold) + "}";
+  (void) direct_bridge_.publish_event("telemetry", data, true);
 }
 
 void MatterFrontend::on_runtime_fault(const char *message) {
@@ -92,6 +136,10 @@ void MatterFrontend::on_runtime_fault(const char *message) {
   if (message != nullptr) {
     bindings_->report_fault(message);
   }
+  std::string data{"{"};
+  append_json_pair(&data, "message", message != nullptr ? message : "runtime fault", true);
+  data += "}";
+  (void) direct_bridge_.publish_event("fault", data);
 }
 
 }  // namespace espectre

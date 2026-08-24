@@ -194,18 +194,14 @@ Do not pace Streamer devices with LAN broadcast. `./espectre collect --target 23
 The streamer is responsible for:
 
 - learning the collector IP from the source address of valid UDP pacing traffic
-- advertising a one-shot discovery endpoint over mDNS/DNS-SD as `_espectre-streamer._udp.local.`
+- advertising its Direct WebSocket endpoint over mDNS/DNS-SD as `_espectre._tcp.local.` and carrying the UDP pacing port in TXT metadata
 - embedding the latest AP-sourced CSI sample only when it is fresh
 - flagging emitted CSI records with `STREAM_FLAG_CSI_FRESH`
 - emitting CSI records only for pacing slots that coincide with a fresh sample, batching them into uplink datagrams, and retargeting live when the collector address changes
 
-The discovery advertisement publishes:
+[`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) owns the shared SRV and TXT contract. The SRV endpoint is Direct WebSocket on port `80`; it is not the UDP pacing target. Run `./espectre devices --frontend streamer` to list advertisements without starting collection. When `--target` is omitted, `./espectre collect` performs the same fresh browse and reads `traffic_port` from the selected record; `./espectre collect --list-devices` remains a Streamer-only convenience alias.
 
-- SRV port = `ESPECTRE_TRAFFIC_RX_PORT` (the pacing target)
-- TXT `device_id` = the canonical 16-character ESPectre device ID already carried as a `uint64` in the CSI stream
-- TXT `chip` = active ESP-IDF target name
-- TXT `traffic_port` = pacing target port
-- TXT `collector_port` = CSI uplink port
+Streamer also exposes the common Direct status, diagnostics, and runtime-control surface. Raw CSI does not pass through WebSocket: collection remains on the bounded UDP data path described in this document.
 
 On clean Wi-Fi disconnects, the firmware disables the mDNS service so peers can observe a best-effort goodbye. On reconnects and IP changes, it re-announces the same service identity on the new address. Host discovery still validates the announced `device_id` against the first CSI packets, so stale records or DHCP IP reuse cannot silently redirect a capture to the wrong device.
 
@@ -246,7 +242,7 @@ The streamer firmware is intentionally narrow:
 - there is no separate BLE, MQTT, or OTA control surface in this frontend
 - CSI streaming is UDP-only and controlled by host pacing traffic
 
-Current repository CLI target coverage for the streamer frontend includes `ESP32`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6`, and `ESP32-S3`.
+Current repository CLI target coverage for the Streamer frontend includes `ESP32`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6`, `ESP32-S2`, and `ESP32-S3`.
 
 ## Implementation Note
 

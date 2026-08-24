@@ -27,9 +27,15 @@
 
 #include "espectre_banner.h"
 #include "debug_telemetry_log_helpers.h"
+#include "device_identity.h"
+#include "direct_websocket_protocol.h"
+#include "direct_websocket_service_esp_idf.h"
+#include "espectre_protocol.h"
+#include "firmware_version.h"
 #include "matter_bindings_esp_matter.h"
 #include "matter_commissioning_data.h"
 #include "matter_frontend.h"
+#include "mdns_discovery_service.h"
 #include "nvs_helpers.h"
 #include "runtime_config_utils.h"
 #include "runtime_sensing_kconfig.h"
@@ -48,7 +54,27 @@ espectre::MatterCommissioningDataProvider g_commissioning_data;
 espectre::MatterFrontend *g_frontend = nullptr;
 uint16_t g_motion_endpoint_id = 0;
 
-espectre::RuntimeConfig build_runtime_config() { return espectre::make_runtime_sensing_config_from_kconfig(); }
+espectre::RuntimeConfig build_runtime_config() {
+  espectre::RuntimeConfig config = espectre::make_runtime_sensing_config_from_kconfig();
+  config.device_id = espectre::derive_runtime_device_id();
+  config.runtime_detector_selection_enabled = true;
+  return config;
+}
+
+espectre::MdnsTxtRecords matter_mdns_txt(uint64_t device_id) {
+  return {
+      {"device_id", espectre::format_espectre_device_id(device_id)},
+      {"name", CONFIG_ESPECTRE_MATTER_NODE_LABEL},
+      {"frontend", "matter"},
+      {"txtvers", "1"},
+      {"protovers", "1"},
+      {"path", espectre::ESPECTRE_DIRECT_WEBSOCKET_ENDPOINT},
+      {"firmware", espectre::espectre_firmware_version()},
+      {"chip", CONFIG_IDF_TARGET},
+      {"tls", "0"},
+      {"capabilities", "config,monitor"},
+  };
+}
 
 bool has_commissioned_fabric() {
   lock::ScopedChipStackLock chip_stack_lock(portMAX_DELAY);
@@ -207,8 +233,11 @@ extern "C" void app_main() {
 
   g_motion_endpoint_id = endpoint::get_id(motion_endpoint);
 
-  static espectre::MatterFrontend frontend(&g_bindings, g_motion_endpoint_id);
-  frontend.set_runtime_config(build_runtime_config());
+  static espectre::EspIdfDirectWebSocketService direct_service;
+  static espectre::MdnsDiscoveryService mdns_discovery;
+  static espectre::MatterFrontend frontend(&g_bindings, g_motion_endpoint_id, &direct_service);
+  const espectre::RuntimeConfig runtime_config = build_runtime_config();
+  frontend.set_runtime_config(runtime_config);
   frontend.set_runtime_services_armed(false);
   g_frontend = &frontend;
   esp_err_t err = esp_event_loop_create_default();
@@ -225,6 +254,19 @@ extern "C" void app_main() {
 
   if (!frontend.setup()) {
     ESP_LOGE(TAG, "Failed to initialize ESPectre Matter frontend");
+    return;
+  }
+  const std::string device_id = espectre::format_espectre_device_id(runtime_config.device_id);
+  if (!mdns_discovery.setup(espectre::MdnsDiscoveryServiceConfig{
+          "",
+          std::string(CONFIG_ESPECTRE_MATTER_NODE_LABEL) + " " + device_id,
+          "_espectre",
+          "_tcp",
+          80U,
+          matter_mdns_txt(runtime_config.device_id),
+          espectre::MdnsResponderMode::USE_EXISTING_RESPONDER,
+      })) {
+    ESP_LOGE(TAG, "Failed to initialize Matter ESPectre mDNS discovery");
     return;
   }
 

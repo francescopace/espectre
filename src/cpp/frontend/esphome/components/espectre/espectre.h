@@ -25,7 +25,10 @@
 #include <vector>
 
 #include "sensor_publisher.h"
+#include "direct_websocket_service_esp_idf.h"
+#include "mdns_discovery_service.h"
 #include "runtime_config_utils.h"
+#include "runtime_direct_websocket_bridge.h"
 #include "runtime_diagnostics.h"
 #include "runtime_events.h"
 #include "runtime_frontend_controller.h"
@@ -149,8 +152,14 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void on_runtime_fault(const char *message) override;
   void sample_diagnostics_();
   void publish_cached_diagnostics_();
+  void sync_direct_config_();
+  void setup_mdns_discovery_();
+  std::string device_name_() const;
 
   RuntimeFrontendController runtime_;
+  EspIdfDirectWebSocketService direct_service_;
+  RuntimeDirectWebSocketBridge direct_bridge_;
+  MdnsDiscoveryService mdns_discovery_;
 
   SensorPublisher sensor_publisher_;
 
@@ -185,6 +194,7 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   bool detector_republished_{false};
   bool motion_hits_republished_{false};
   bool traffic_mode_republished_{false};
+  uint32_t next_mdns_setup_ms_{0U};
 };
 
 }  // namespace espectre_component

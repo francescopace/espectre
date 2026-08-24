@@ -15,11 +15,13 @@
 #undef protected
 #undef private
 
+#include "direct_websocket_service_mock.h"
 #include "frontend_runtime_shim.h"
 #include "matter_bindings_mock.h"
 #include "matter_surface.h"
 
 using namespace espectre;
+using espectre::direct_websocket_service_mock::MockDirectWebSocketService;
 using espectre::matter_bindings_mock::MockMatterBindings;
 
 namespace {
@@ -39,6 +41,7 @@ RuntimeSnapshot make_ready_snapshot(bool motion) {
 
 void setUp(void) {
   frontend_runtime_shim::reset();
+  direct_websocket_service_mock::reset();
   matter_bindings_mock::reset();
 }
 
@@ -132,6 +135,38 @@ void test_matter_frontend_runtime_fault_is_reported(void) {
   TEST_ASSERT_EQUAL_STRING("wifi disconnected", matter_bindings_mock::state.faults[0].c_str());
 }
 
+void test_matter_frontend_exposes_runtime_tuning_over_direct_websocket(void) {
+  RuntimeConfig config;
+  config.device_id = 0x0123456789abcdefULL;
+  config.runtime_detector_selection_enabled = true;
+
+  MockMatterBindings bindings;
+  MockDirectWebSocketService direct;
+  MatterFrontend frontend(&bindings, 9, &direct);
+  frontend.set_runtime_config(config);
+
+  TEST_ASSERT_TRUE(frontend.setup());
+  TEST_ASSERT_EQUAL(1, direct_websocket_service_mock::state.setup_calls);
+  TEST_ASSERT_EQUAL(80U, direct_websocket_service_mock::state.last_config.port);
+
+  const std::string info = direct.emit_request(DirectWebSocketRequest{"info-1", "info", "{}"});
+  TEST_ASSERT_TRUE(info.find("\"frontend\":\"matter\"") != std::string::npos);
+  TEST_ASSERT_TRUE(info.find("\"device_id\":\"0123456789abcdef\"") != std::string::npos);
+
+  const std::string status = direct.emit_request(DirectWebSocketRequest{"status-1", "status", "{}"});
+  TEST_ASSERT_TRUE(status.find("\"sensing_enabled\":true") != std::string::npos);
+
+  const std::string diagnostics = direct.emit_request(DirectWebSocketRequest{"diagnostics-1", "diagnostics", "{}"});
+  TEST_ASSERT_TRUE(diagnostics.find("\"traffic_packets_total\":0") != std::string::npos);
+
+  const std::string detector = direct.emit_request(
+      DirectWebSocketRequest{"detector-1", "set_detector", "{\"detector\":\"high_accuracy\"}"});
+  TEST_ASSERT_TRUE(detector.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_detector_calls);
+  TEST_ASSERT_EQUAL(static_cast<int>(DetectionAlgorithm::HIGH_ACCURACY),
+                    static_cast<int>(frontend_runtime_shim::state.last_detector));
+}
+
 void test_matter_surface_mapping_helpers(void) {
   RuntimeSnapshot snapshot = make_ready_snapshot(true);
 
@@ -149,6 +184,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_matter_frontend_motion_and_periodic_callbacks_publish_bindings);
   RUN_TEST(test_matter_frontend_threshold_and_calibration_callbacks_update_runtime_snapshot);
   RUN_TEST(test_matter_frontend_runtime_fault_is_reported);
+  RUN_TEST(test_matter_frontend_exposes_runtime_tuning_over_direct_websocket);
   RUN_TEST(test_matter_surface_mapping_helpers);
   return UNITY_END();
 }

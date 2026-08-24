@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .about import print_about, print_version
 from .common import MICRO_CHIP_CHOICES, add_mqtt_connection_args, build_mqtt_namespace, cli_command, serial_port_example
+from .device_discovery import DISCOVERY_TIMEOUT_S, SUPPORTED_DISCOVERY_FRONTENDS, run_devices_command
 from .esphome import run_esphome_command
 from .host import collect_csi_data
 from .idf import run_idf_command, run_idf_doctor
@@ -112,6 +113,30 @@ def _add_collect_parser(
     collect_parser.add_argument("--description", help="Description for the collected samples")
     collect_parser.set_defaults(adaptive=True, handler=collect_csi_data)
     return collect_parser
+
+
+def _add_devices_parser(subparsers) -> None:
+    devices_parser = subparsers.add_parser(
+        "devices",
+        help="Discover ESPectre devices advertised on the local network",
+    )
+    devices_parser.add_argument(
+        "--frontend",
+        choices=SUPPORTED_DISCOVERY_FRONTENDS,
+        help="Limit discovery to one advertised frontend",
+    )
+    devices_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=DISCOVERY_TIMEOUT_S,
+        help=f"Maximum mDNS browse duration in seconds (default: {DISCOVERY_TIMEOUT_S})",
+    )
+    devices_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON instead of the human-readable list",
+    )
+    devices_parser.set_defaults(handler=run_devices_command)
 
 
 def _add_mqtt_parser(subparsers, *, name: str = "mqtt", help_text: str | None = "Start the interactive MQTT shell"):
@@ -278,6 +303,8 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {cli_command('micro', 'flash', '--erase')}",
             f"  {cli_command('micro', 'deploy')}",
             f"  {cli_command('mqtt')}",
+            f"  {cli_command('devices')}",
+            f"  {cli_command('devices', '--frontend', 'native')}",
             f"  {cli_command('collect', '--list-devices')}",
             f"  {cli_command('collect', '--target', '192.168.1.50')}",
             f"  {cli_command('collect', '--label', 'wave', '--duration', '45', '--target', '192.168.1.50')}",
@@ -304,6 +331,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="namespace", help="Available namespaces")
     _add_micro_namespace(subparsers)
+    _add_devices_parser(subparsers)
     _add_collect_parser(subparsers)
     _add_mqtt_parser(subparsers)
     _add_monitor_parser(subparsers)

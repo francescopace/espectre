@@ -23,6 +23,8 @@ Start from [`SETUP.md`](../../../../docs/SETUP.md) for the shared browser-flash 
 
 Each release and snapshot publishes one full-flash Matter image per supported chip. The current Matter frontend does not publish a separate OTA image.
 
+ESP32-S2 is intentionally excluded. It has no Bluetooth radio, while the supported `esp-matter` onboarding path used by this frontend commissions Wi-Fi over Bluetooth. A different non-Bluetooth commissioning design would require a separate architectural decision and implementation.
+
 After flashing a Matter image:
 
 1. power-cycle if needed and wait for the device to boot
@@ -95,7 +97,7 @@ Current behavior from the firmware app:
 - the browser and CLI read those markers rather than generating competing codes
 - an uncommissioned device opens a `300` second commissioning window
 - the commissioning window advertises all supported discovery transports, including BLE
-- DNS-SD includes the commissionable device type for an occupancy sensor
+- DNS-SD includes the standard commissionable device type for an occupancy sensor, while the separate `_espectre._tcp.local.` service advertises the Direct WebSocket endpoint used by `./espectre devices --frontend matter`
 - commissioning completion is logged
 - a failed commissioning attempt is logged when the fail-safe timer expires
 - removing the last fabric re-opens the commissioning window automatically
@@ -114,12 +116,14 @@ The current frontend exposes:
 
 The shared sensing options, defaults, and ranges are documented in [`SETUP.md`](../../../../docs/SETUP.md). This README covers only the Matter-owned surface.
 
-What is not currently exposed as a Matter configuration surface:
+The standard Matter surface remains intentionally narrow. It does not expose:
 
-- writable ESPectre runtime controls
+- writable ESPectre detector controls through Matter clusters
 - full detector parameter parity with the ESPHome YAML surface
 - an end-user Matter-native workflow for every runtime knob
 - a separate frontend-owned tuning guide beyond the shared [`TUNING.md`](../../../../docs/TUNING.md)
+
+The firmware therefore exposes `ws://<device>/espectre/v1/ws` on port `80` as its local tuning plane. Direct WebSocket can select the detector, adjust threshold and motion-hit counts, trigger recalibration, control sensing, and report status and diagnostics according to the runtime capability catalog. It remains available after Matter commissioning; `_matterc` is still used only by Matter controllers during an open commissioning window. Direct does not replace commissioning, fabric access, or the read-only Matter occupancy attribute.
 
 Matter supports both `lightweight` and `high_accuracy` as build-time detection profile choices. Choose Lightweight to leave more detector CPU and working memory for the Matter stack or other product work; choose High Accuracy for higher detection accuracy, stronger generalization, and startup without Lightweight threshold calibration. Lightweight requires about 10 seconds of clean, ready quiet-room coverage after temporal warmup; insufficient occupancy extends that wall-clock duration. High Accuracy still waits for CSI readiness and feature-window warmup. The published firmware selects Lightweight, while a local build can select High Accuracy through the shared ESP-IDF sensing configuration. Unlike ESPHome and Native, Matter does not expose runtime profile selection or persist an end-user choice.
 

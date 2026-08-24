@@ -9,14 +9,16 @@
  */
 #pragma once
 
+#include "direct_websocket_service.h"
 #include "runtime_events.h"
+#include "runtime_direct_websocket_bridge.h"
 #include "runtime_frontend_controller.h"
 
 namespace espectre {
 
 class StreamerFrontend : public IRuntimeListener {
  public:
-  StreamerFrontend() = default;
+  explicit StreamerFrontend(IDirectWebSocketService *direct_service);
   bool setup();
   void loop();
   void shutdown();
@@ -33,6 +35,8 @@ class StreamerFrontend : public IRuntimeListener {
   void on_runtime_fault(const char *message) override;
 
   RuntimeFrontendController runtime_;
+  IDirectWebSocketService *direct_service_{nullptr};
+  RuntimeDirectWebSocketBridge direct_bridge_;
   bool setup_complete_{false};
 };
 

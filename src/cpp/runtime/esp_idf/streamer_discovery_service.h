@@ -1,7 +1,7 @@
 /*
  * ESPectre - Streamer Discovery Service
  *
- * Advertises streamer pacing endpoints through mDNS/DNS-SD.
+ * Advertises the Streamer Direct WebSocket through mDNS/DNS-SD.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <string>
 
+#include "mdns_discovery_service.h"
 #include "standalone_wifi_service.h"
 
 namespace espectre {
@@ -19,8 +20,8 @@ namespace espectre {
 struct StreamerDiscoveryServiceConfig {
   uint64_t device_id{0U};
   std::string chip{"unknown"};
+  uint16_t direct_port{0U};
   uint16_t traffic_port{0U};
-  uint16_t collector_port{0U};
 };
 
 class StreamerDiscoveryService {
@@ -31,19 +32,13 @@ class StreamerDiscoveryService {
   void shutdown();
 
  private:
-  bool initialize_mdns_();
-  bool configure_identity_();
-  bool configure_service_();
-  bool set_service_txt_();
-  void apply_netif_action_(int action);
+  MdnsTxtRecords txt_records_() const;
 
   StreamerDiscoveryServiceConfig config_{};
   std::string hostname_;
   std::string instance_name_;
   std::string device_id_text_;
-  bool mdns_initialized_{false};
-  bool service_added_{false};
-  bool service_enabled_{false};
+  MdnsDiscoveryService discovery_;
 };
 
 }  // namespace espectre

@@ -23,6 +23,7 @@ Run the CLI from the repository root.
 | `streamer` | Build or flash the streamer ESP-IDF frontend |
 | `micro` | Flash, deploy, run, and verify the MicroPython workflow |
 | `monitor` | Attach to serial logs with auto-reconnect support |
+| `devices` | Discover advertised ESPectre devices on the local network |
 | `collect` | Run live CSI inspection and dataset collection flows |
 | `doctor` | Validate the local ESP-IDF environment used by the wrapper |
 | `mqtt` | Open the interactive MQTT shell |
@@ -158,6 +159,29 @@ Reset on open:
 ./espectre monitor --port /dev/cu.usbmodemXXXX --reset
 ```
 
+### `devices`
+
+`devices` performs a fresh host-side browse for `_espectre._tcp.local.` and lists Native, Streamer, ESPHome, and Matter firmware through one first-party record contract. It does not inspect `_esphomelib`, `_matterc`, or other upstream service types. The normalized result includes the frontend, device identity, display name, chip, IP address, and Direct WebSocket endpoint. [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) defines the record-level contract.
+
+| Flag | Purpose |
+|------|---------|
+| `--frontend native|streamer|esphome|matter` | Limit discovery to one frontend; omit it to browse every supported service |
+| `--timeout <seconds>` | Set the maximum one-shot browse duration; the default is 2.5 seconds |
+| `--json` | Emit machine-readable normalized records for scripts and tooling |
+
+Examples:
+
+```bash
+./espectre devices
+./espectre devices --frontend native
+./espectre devices --frontend streamer --timeout 5
+./espectre devices --frontend esphome
+./espectre devices --frontend matter
+./espectre devices --json
+```
+
+The command uses the repository `zeroconf` dependency and requires the host and device to share an mDNS-visible network. Each invocation starts a new PTR browse; there is no discovery cache. The timeout is an upper bound rather than an unconditional delay: after the first complete record, discovery returns when no record has been added, changed, or removed for 350 ms. If no device responds, it waits for the full timeout. VLAN boundaries, client isolation, and multicast filtering may hide otherwise reachable devices; explicit IP addresses, Native `.local` names, remembered endpoints, and Improv Serial remain the deterministic fallbacks.
+
 ### `collect`
 
 `collect` is the unified host-side CSI collection entry point. One runtime path supports three modes:
@@ -180,15 +204,17 @@ Common flags:
 | `--detector` | Detector used by the ready gate: `lightweight` or `high_accuracy`; a comma-separated list is available only for live comparison |
 | `--ready-stable-seconds` | Seconds below threshold before saved collection starts; set `0` to disable the ready gate |
 
-When `--target` is omitted, `collect` performs one mDNS/DNS-SD browse for `_espectre-streamer._udp.local.` at startup:
+When `--target` is omitted, `collect` performs one fresh browse for `_espectre._tcp.local.` at startup and keeps only records with `frontend=streamer`. It reads the UDP pacing target from the selected record's `traffic_port` metadata rather than using the Direct WebSocket SRV port:
 
 - `0` devices: fail explicitly and suggest `--target`
 - `1` device: auto-select it
 - `N` devices: prompt for an interactive choice
 
+The collector uses the same event-driven completion as `devices`: once a complete record arrives, 350 ms without a changed record completes discovery. If no record arrives, the 2.5-second default timeout is consumed in full.
+
 `--target` remains the deterministic bypass. Use a unicast device IP, comma-separated unicast IPs, or the firmware multicast group (`239.255.0.1` by default). Subnet and limited broadcast targets are accepted by the CLI but do not produce a usable CSI stream.
 
-`--list-devices` uses the same one-shot browse, prints the resolved Streamer targets (`device_id`, chip, IP, and target port), and exits without starting UDP pacing, the CSI receiver, or dataset capture.
+`--list-devices` is a compatibility convenience backed by the shared `devices` discovery layer. It filters to Streamer advertisements, prints the resolved Streamer targets, and exits without starting UDP pacing, the CSI receiver, or dataset capture. Use `./espectre devices` to inspect every frontend or produce JSON.
 
 `--info` is also read-only: it uses `dataset_info.json` as the source of truth and prints one table per `environment`, with label rows and one column per chip.
 
@@ -217,6 +243,7 @@ For discovery-selected unicast targets, the collector also validates that the fi
 Examples:
 
 ```bash
+./espectre devices --frontend streamer
 ./espectre collect --target 192.168.1.50
 ./espectre collect --target 192.168.1.50,192.168.1.51
 ./espectre collect --target 239.255.0.1
@@ -281,9 +308,9 @@ Examples:
 ./espectre mqtt --broker 192.168.1.20 --device-id native-lab
 ```
 
-MQTT commands are forwarded to the selected device. The shell keeps only local utilities (`help`, `about`, `clear`, and `exit`) plus a few aliases (`i`, `st`, `ble`, …). Help and tab completion use the device `commands` catalog when the device publishes one. Unknown or unsupported commands are rejected by the device with `✗ command: reason`. Write values after the command name (`ble on`, `set_threshold 0.35`). Multi-field writes use named tokens after the command (`set_motion_hits motion_on_hits=4 motion_off_hits=3`).
+MQTT commands are forwarded to the selected device. The shell keeps only local utilities (`help`, `about`, `clear`, and `exit`) plus short read aliases such as `i` and `st`. Help and tab completion use the device `commands` catalog when the device publishes one. Unknown or unsupported commands are rejected by the device with `✗ command: reason`. Write values after the command name (`set_threshold 0.35`). Multi-field writes use named tokens after the command (`set_motion_hits motion_on_hits=4 motion_off_hits=3`).
 
-`ble on` publishes MQTT `set_ble` with `ble=on` so a provisioned Native device advertises again. `ble off` stops BLE only when both Wi-Fi SSID and MQTT host are already present from Kconfig defaults or NVS. `ota_check` and `ota_start` accept an optional channel (`release`, `preview`, or `develop`), for example `ota_check preview` or `ota_start channel=develop`. Omitting the channel keeps the firmware's build-time default. OTA payloads containing server, manifest, image, or version overrides are rejected by the device. Frontends that report `supports_ota: false`, including Micro-ESPectre, reject the OTA commands. Frontends without Native BLE lifecycle control reject `set_ble`.
+`ota_check` and `ota_start` accept an optional channel (`release`, `preview`, or `develop`), for example `ota_check preview` or `ota_start channel=develop`. Omitting the channel keeps the firmware's build-time default. OTA payloads containing server, manifest, image, or version overrides are rejected by the device. Frontends that report `supports_ota: false`, including Micro-ESPectre, reject the OTA commands.
 
 Native builds accept `--ota-channel release|preview|develop`. The selected value is compiled into the firmware and is used whenever an MQTT OTA command omits `channel`; it is propagated through both local and Docker build backends. The default is `release`, or `NATIVE_OTA_CHANNEL` when that environment variable is set.
 

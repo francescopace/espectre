@@ -26,6 +26,10 @@ After flashing, configure Wi-Fi with one of these provisioning paths:
 
 Once Wi-Fi is configured, the device is discovered automatically by Home Assistant through ESPHome.
 
+ESPHome continues to advertise its native API as `_esphomelib._tcp.local.`. ESPectre also publishes the canonical `_espectre._tcp.local.` record for its Direct WebSocket endpoint on port `6054`. Run `./espectre devices --frontend esphome` to list that first-party record with the standard ESPectre `device_id`; the CLI does not inspect or depend on ESPHome's upstream TXT schema. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) owns the shared record contract.
+
+Direct WebSocket exposes the same runtime threshold, motion-hit counts, detector selection, recalibration, CSI traffic ownership, and traffic-generator controls as the ESPHome entities when the runtime advertises them. A successful Direct mutation republishes the affected number or select state, so Home Assistant and Direct clients observe one current runtime configuration. Wi-Fi provisioning, OTA, and ESPHome API encryption remain owned by ESPHome rather than this Direct surface.
+
 The `release`, `preview`, and `develop` channels publish one full-flash image and one OTA image per supported chip, with `lightweight` as the initial detector. Both `lightweight` and `high_accuracy` are available in the image and can be selected through the persisted runtime detector entity. After adoption, ESPHome Device Builder can compile and install updates wirelessly from the device YAML; `detection_algorithm` sets the initial detector for a fresh configuration rather than limiting which detector the firmware supports.
 
 ## Integration Surface
@@ -456,7 +460,7 @@ This map is for component maintainers; it is not required for normal installatio
 - [`detector_select.cpp`](components/espectre/detector_select.cpp): persisted runtime detector selection
 - [`calibrate_switch.cpp`](components/espectre/calibrate_switch.cpp): runtime recalibration trigger
 - [`traffic_mode_select.cpp`](components/espectre/traffic_mode_select.cpp): runtime CSI traffic ownership and generator control
-- [`examples/`](examples/): production, local-development, S3 variant, and Home Assistant dashboard examples
+- [`examples/`](examples/): production and local-development configurations for ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, plus the Home Assistant dashboard
 
 ## Packaging Notes
 

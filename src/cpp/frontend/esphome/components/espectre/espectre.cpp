@@ -21,7 +21,12 @@
 #include "esphome/core/hal.h"
 
 #include "debug_telemetry_log_helpers.h"
+#include "device_identity.h"
+#include "direct_websocket_protocol.h"
 #include "espectre_banner.h"
+#include "espectre_protocol.h"
+#include "firmware_version.h"
+#include "protocol_json.h"
 #include "runtime_motion_hits_store.h"
 #include "runtime_traffic_mode_store.h"
 #include "sdkconfig.h"
@@ -31,9 +36,17 @@
 namespace esphome {
 namespace espectre_component {
 
+namespace {
+
+constexpr uint16_t kDirectWebSocketPort = 6054U;
+constexpr uint32_t kMdnsRetryIntervalMs = 5000U;
+
+}  // namespace
+
 void ESpectreComponent::setup() {
   ESP_LOGI(TAG, "Initializing ESPectre component...");
   espectre::configure_debug_telemetry_log_levels();
+  this->runtime_.config().device_id = espectre::derive_runtime_device_id();
 
   this->runtime_.set_live_telemetry_enabled(this->sensor_publisher_.has_movement_sensor());
   uint8_t saved_motion_on_hits = 0U;
@@ -79,15 +92,96 @@ void ESpectreComponent::setup() {
         ->update_detector_range(this->runtime_.config().detection_algorithm);
   }
 
+  if (!this->direct_bridge_.setup(
+          &this->direct_service_,
+          &this->runtime_,
+          RuntimeDirectWebSocketBridgeConfig{
+              "esphome",
+              this->device_name_(),
+              espectre_firmware_version(),
+              CONFIG_IDF_TARGET,
+              this->runtime_.config().device_id,
+              kDirectWebSocketPort,
+              false,
+              false,
+          },
+          [this]() { this->sync_direct_config_(); })) {
+    ESP_LOGE(TAG, "ESPHome Direct WebSocket setup failed");
+    this->runtime_.shutdown();
+    this->mark_failed();
+    return;
+  }
+
   ESP_LOGI(TAG, "ESPectre initialized successfully");
 }
 
 ESpectreComponent::~ESpectreComponent() {
+  this->mdns_discovery_.shutdown();
+  this->direct_bridge_.shutdown();
   this->runtime_.shutdown();
 }
 
 void ESpectreComponent::loop() {
   this->runtime_.loop();
+  this->direct_bridge_.loop();
+  if (!this->mdns_discovery_.service_enabled() && millis() >= this->next_mdns_setup_ms_) {
+    this->setup_mdns_discovery_();
+  }
+}
+
+std::string ESpectreComponent::device_name_() const {
+  return "ESPectre ESPHome " + format_espectre_device_id(this->runtime_.config().device_id);
+}
+
+void ESpectreComponent::setup_mdns_discovery_() {
+  const std::string device_id = format_espectre_device_id(this->runtime_.config().device_id);
+  const MdnsTxtRecords txt_records = {
+      {"device_id", device_id},
+      {"name", this->device_name_()},
+      {"frontend", "esphome"},
+      {"txtvers", "1"},
+      {"protovers", "1"},
+      {"path", ESPECTRE_DIRECT_WEBSOCKET_ENDPOINT},
+      {"firmware", espectre_firmware_version()},
+      {"chip", CONFIG_IDF_TARGET},
+      {"tls", "0"},
+      {"capabilities", "config,monitor"},
+  };
+  if (!this->mdns_discovery_.setup(MdnsDiscoveryServiceConfig{
+          "",
+          this->device_name_() + " " + device_id,
+          "_espectre",
+          "_tcp",
+          kDirectWebSocketPort,
+          txt_records,
+          MdnsResponderMode::USE_EXISTING_RESPONDER,
+      })) {
+    this->next_mdns_setup_ms_ = millis() + kMdnsRetryIntervalMs;
+    return;
+  }
+  ESP_LOGI(TAG, "Direct WebSocket discovery published on port %u", kDirectWebSocketPort);
+}
+
+void ESpectreComponent::sync_direct_config_() {
+  if (this->threshold_number_ != nullptr) {
+    this->threshold_number_->publish_state(this->runtime_.snapshot().threshold);
+  }
+  if (this->detector_select_ != nullptr) {
+    this->detector_select_->publish_state(detection_algorithm_name(this->runtime_.config().detection_algorithm));
+  }
+  if (this->motion_on_hits_number_ != nullptr) {
+    this->motion_on_hits_number_->publish_state(this->runtime_.config().motion_on_hits);
+  }
+  if (this->motion_off_hits_number_ != nullptr) {
+    this->motion_off_hits_number_->publish_state(this->runtime_.config().motion_off_hits);
+  }
+  if (this->csi_traffic_mode_select_ != nullptr) {
+    this->csi_traffic_mode_select_->publish_state(csi_traffic_mode_name(this->runtime_.config().csi_traffic_mode));
+  }
+  if (this->traffic_generator_mode_select_ != nullptr) {
+    this->traffic_generator_mode_select_->publish_state(
+        traffic_mode_name(this->runtime_.config().traffic_generator_mode));
+  }
 }
 
 void ESpectreComponent::sample_diagnostics_() {
@@ -192,6 +286,11 @@ void ESpectreComponent::on_motion_state_changed(const RuntimeSnapshot &snapshot)
   }
   if (snapshot.ready_to_publish) {
     this->sensor_publisher_.publish_motion_binary(snapshot.motion_state);
+    std::string data{"{\"motion\":"};
+    data += snapshot.motion_state == MotionState::MOTION ? "true" : "false";
+    data += ",\"movement\":" + std::to_string(snapshot.movement_metric);
+    data += ",\"threshold\":" + std::to_string(snapshot.threshold) + "}";
+    (void) this->direct_bridge_.publish_event("telemetry", data, true);
   }
 }
 
@@ -240,17 +339,21 @@ void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint
 }
 
 void ESpectreComponent::on_live_telemetry(float movement, float threshold) {
-  (void) threshold;
   if (!this->runtime_.snapshot().ready_to_publish) {
     return;
   }
   this->sensor_publisher_.publish_movement_metric(movement);
+  const std::string data = "{\"movement\":" + std::to_string(movement) +
+                           ",\"threshold\":" + std::to_string(threshold) + "}";
+  (void) this->direct_bridge_.publish_event("telemetry", data, true);
 }
 
 void ESpectreComponent::on_threshold_changed(const RuntimeSnapshot &snapshot) {
   if (this->threshold_number_ != nullptr) {
     this->threshold_number_->publish_state(snapshot.threshold);
   }
+  const std::string data = "{\"threshold\":" + std::to_string(snapshot.threshold) + "}";
+  (void) this->direct_bridge_.publish_event("config", data);
 }
 
 void ESpectreComponent::on_detector_changed(const RuntimeSnapshot &snapshot) {
@@ -261,6 +364,10 @@ void ESpectreComponent::on_detector_changed(const RuntimeSnapshot &snapshot) {
     static_cast<ESpectreThresholdNumber *>(this->threshold_number_)
         ->update_detector_range(this->runtime_.config().detection_algorithm);
   }
+  std::string data{"{"};
+  append_json_pair(&data, "detector", snapshot.detector_name != nullptr ? snapshot.detector_name : "", true);
+  data += ",\"threshold\":" + std::to_string(snapshot.threshold) + "}";
+  (void) this->direct_bridge_.publish_event("config", data);
 }
 
 void ESpectreComponent::on_calibration_started(const RuntimeSnapshot &snapshot) {
@@ -281,7 +388,10 @@ void ESpectreComponent::on_calibration_finished(const RuntimeSnapshot &snapshot,
 }
 
 void ESpectreComponent::on_runtime_fault(const char *message) {
-  (void)message;
+  std::string data{"{"};
+  append_json_pair(&data, "message", message != nullptr ? message : "runtime fault", true);
+  data += "}";
+  (void) this->direct_bridge_.publish_event("fault", data);
 }
 
 void ESpectreComponent::dump_config() {

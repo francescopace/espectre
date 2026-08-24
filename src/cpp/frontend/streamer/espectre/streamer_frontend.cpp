@@ -14,6 +14,9 @@
 
 #include "device_identity.h"
 #include "espectre_log.h"
+#include "espectre_protocol.h"
+#include "firmware_version.h"
+#include "protocol_json.h"
 #include "runtime_sensing_kconfig.h"
 #include "sdkconfig.h"
 
@@ -25,6 +28,8 @@ static const char *const TAG = "espectre.stream";
 constexpr uint8_t kCollectorPacingPayload[] = {'E', 'S', 'P', 'E'};
 
 }  // namespace
+
+StreamerFrontend::StreamerFrontend(IDirectWebSocketService *direct_service) : direct_service_(direct_service) {}
 
 RuntimeConfig StreamerFrontend::build_runtime_config_() const {
   RuntimeConfig config = make_runtime_sensing_config_from_kconfig();
@@ -45,9 +50,28 @@ bool StreamerFrontend::setup() {
     return true;
   }
 
-  runtime_.set_config(build_runtime_config_());
+  const RuntimeConfig config = build_runtime_config_();
+  runtime_.set_config(config);
   if (!runtime_.setup(this)) {
     ESP_LOGE(TAG, "Streamer runtime setup failed");
+    return false;
+  }
+
+  if (!direct_bridge_.setup(
+          direct_service_,
+          &runtime_,
+          RuntimeDirectWebSocketBridgeConfig{
+              "streamer",
+              "ESPectre Streamer " + format_espectre_device_id(config.device_id),
+              espectre_firmware_version(),
+              CONFIG_IDF_TARGET,
+              config.device_id,
+              80U,
+              false,
+              false,
+          })) {
+    ESP_LOGE(TAG, "Streamer Direct WebSocket setup failed");
+    runtime_.shutdown();
     return false;
   }
 
@@ -60,12 +84,14 @@ void StreamerFrontend::loop() {
     return;
   }
   runtime_.loop();
+  direct_bridge_.loop();
 }
 
 void StreamerFrontend::shutdown() {
   if (!setup_complete_) {
     return;
   }
+  direct_bridge_.shutdown();
   runtime_.shutdown();
   setup_complete_ = false;
 }
@@ -94,7 +120,10 @@ void StreamerFrontend::on_live_telemetry(float movement, float threshold) {
 }
 
 void StreamerFrontend::on_runtime_fault(const char *message) {
-  (void)message;
+  std::string data{"{"};
+  append_json_pair(&data, "message", message != nullptr ? message : "runtime fault", true);
+  data += "}";
+  (void) direct_bridge_.publish_event("fault", data);
 }
 
 }  // namespace espectre

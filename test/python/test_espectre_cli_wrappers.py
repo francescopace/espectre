@@ -187,6 +187,14 @@ def test_resolve_idf_target_returns_app_dir_and_target() -> None:
     assert chip == "esp32c3"
 
 
+def test_esp32_s2_is_supported_without_claiming_matter() -> None:
+    assert targets.resolve_esphome_config("s2", False, None).name == "espectre-s2.yaml"
+    assert targets.resolve_idf_target("native", "s2")[1] == "esp32s2"
+    assert targets.resolve_idf_target("streamer", "s2")[1] == "esp32s2"
+    with pytest.raises(ValueError, match="Unsupported matter target: s2"):
+        targets.resolve_idf_target("matter", "s2")
+
+
 def test_run_esphome_command_uses_resolved_config_and_device(monkeypatch, tmp_path: Path) -> None:
     config_path = tmp_path / "firmware.yaml"
     config_path.write_text("esphome:", encoding="utf-8")
@@ -1689,10 +1697,6 @@ def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> Non
     shell.process_input("ota_status")
     shell.process_input("ota_check")
     shell.process_input("ota_start")
-    shell.process_input("ble on")
-    shell.process_input("ble off")
-    shell.process_input("ble")
-    shell.process_input("ble maybe")
     shell.process_input("ota_check unexpected")
     shell.process_input("ota_start unexpected")
     shell.process_input("clear")
@@ -1712,17 +1716,9 @@ def test_mqtt_shell_message_send_and_command_routing(monkeypatch, capsys) -> Non
         "ota_status",
         "ota_check",
         "ota_start",
-        "set_ble",
-        "set_ble",
-        "set_ble",
-        "set_ble",
         "unknown",
     ]
     assert published[3]["threshold"] == 0.35
-    assert published[7]["ble"] == "on"
-    assert published[8]["ble"] == "off"
-    assert "ble" not in published[9]
-    assert published[10]["ble"] == "maybe"
     assert cleared == ["clear"]
     assert rendered
     assert "Received:" in captured
@@ -1774,9 +1770,9 @@ def test_mqtt_command_payload_parses_set_and_key_value_tokens() -> None:
     assert error is None
     assert payload == {"command": "set_threshold", "threshold": 0.35}
 
-    payload, error = mqtt_shell._mqtt_command_payload("set_ble", ["on"])
+    payload, error = mqtt_shell._mqtt_command_payload("set_detector", ["lightweight"])
     assert error is None
-    assert payload == {"command": "set_ble", "ble": "on"}
+    assert payload == {"command": "set_detector", "detector": "lightweight"}
 
     payload, error = mqtt_shell._mqtt_command_payload(
         "set_motion_hits",
@@ -1807,7 +1803,7 @@ def test_mqtt_command_payload_parses_set_and_key_value_tokens() -> None:
 
 
 def test_mqtt_shell_builds_command_catalog_from_device_payloads(monkeypatch) -> None:
-    assert mqtt_shell._mqtt_commands_from_catalog({"commands": ["info", "set_ble"]}) == ["info", "set_ble"]
+    assert mqtt_shell._mqtt_commands_from_catalog({"commands": ["info", "set_threshold"]}) == ["info", "set_threshold"]
 
     shell, _client, rendered = _build_shell(monkeypatch)
     catalogs: list[dict[str, object]] = []
@@ -1816,19 +1812,20 @@ def test_mqtt_shell_builds_command_catalog_from_device_payloads(monkeypatch) -> 
         "from_nested_dict",
         lambda data: catalogs.append(dict(data)) or object(),
     )
-    shell._apply_catalog_payload({"commands": ["info", "set_ble", "commands"]})
-    assert shell._device_commands == ["info", "set_ble", "commands"]
+    shell._apply_catalog_payload({"commands": ["info", "set_threshold", "commands"]})
+    assert shell._device_commands == ["info", "set_threshold", "commands"]
     assert catalogs[-1]["info"] is None
-    assert catalogs[-1]["ble"] is None
+    assert catalogs[-1]["set_threshold"] is None
+    assert catalogs[-1]["st"] is None
     assert catalogs[-1]["help"] is None
-    assert "set_threshold" not in catalogs[-1]
+    assert "ota_status" not in catalogs[-1]
 
     shell.show_help()
     help_arg = rendered[-1][0][0]
     help_html = getattr(help_arg, "value", str(help_arg))
-    assert "set_ble" in help_html
+    assert "set_threshold" in help_html
     assert "Device commands" in help_html
-    assert "ble on" in help_html
+    assert "st 0.35" in help_html
     assert "key=value" not in help_html
 
 
@@ -1839,7 +1836,7 @@ def test_mqtt_shell_annotates_typed_command_on_tty(monkeypatch) -> None:
     monkeypatch.setattr(mqtt_shell.sys.stdout, "write", lambda text: writes.append(text) or len(text))
     monkeypatch.setattr(mqtt_shell.sys.stdout, "flush", lambda: None)
 
-    shell.process_input("ble on")
+    shell.process_input("info")
     output = "".join(writes)
     assert "\033[A" in output or "\x1b[A" in output
     assert "✓" in output
@@ -1857,14 +1854,14 @@ def test_mqtt_shell_completes_when_reject_omits_command_id(monkeypatch, capsys) 
             None,
             SimpleNamespace(
                 topic=topic.replace("/commands/request", "/commands/rejected"),
-                payload=b'{"command":"unknown","accepted":false,"message":"invalid ble mode"}',
+                payload=b'{"command":"unknown","accepted":false,"message":"invalid command"}',
             ),
         )
 
     client.publish = publish
-    shell.process_input("ble")
+    shell.process_input("unknown")
     captured = capsys.readouterr().out
-    assert "invalid ble mode" in captured
+    assert "invalid command" in captured
     assert "timed out waiting for device" not in captured
 
 
