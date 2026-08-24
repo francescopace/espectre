@@ -26,6 +26,7 @@
 
 #include "sensor_publisher.h"
 #include "direct_websocket_service_esp_idf.h"
+#include "frontend_control_helpers.h"
 #include "mdns_discovery_service.h"
 #include "runtime_config_utils.h"
 #include "runtime_direct_websocket_bridge.h"
@@ -100,6 +101,7 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   // Setters for ESPHome sensors (delegated to SensorPublisher)
   void set_movement_sensor(sensor::Sensor *sensor) { this->sensor_publisher_.set_movement_sensor(sensor); }
   void set_motion_binary_sensor(binary_sensor::BinarySensor *sensor) { this->sensor_publisher_.set_motion_binary_sensor(sensor); }
+  void set_calibration_active_sensor(binary_sensor::BinarySensor *sensor) { this->calibration_active_sensor_ = sensor; }
   void set_traffic_rate_sensor(sensor::Sensor *sensor) { this->traffic_rate_sensor_ = sensor; }
   void set_csi_callback_rate_sensor(sensor::Sensor *sensor) { this->csi_callback_rate_sensor_ = sensor; }
   void set_csi_accepted_rate_sensor(sensor::Sensor *sensor) { this->csi_accepted_rate_sensor_ = sensor; }
@@ -119,27 +121,28 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void set_motion_off_hits_number(number::Number *num) { this->motion_off_hits_number_ = num; }
   
   // Runtime threshold adjustment (called from HA via number component)
-  void set_threshold_runtime(float threshold);
-  void set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits);
-  void set_detection_algorithm_runtime(const std::string &algorithm);
+  bool set_threshold_runtime(float threshold);
+  bool set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits);
+  bool set_detection_algorithm_runtime(const std::string &algorithm);
+  bool set_sensing_runtime(bool enabled);
+  bool is_sensing_enabled() const { return this->runtime_.services_armed(); }
   float get_threshold() const { return this->runtime_.snapshot().threshold; }
   uint8_t get_motion_on_hits() const { return this->runtime_.config().motion_on_hits; }
   uint8_t get_motion_off_hits() const { return this->runtime_.config().motion_off_hits; }
   
-  // Runtime calibration trigger (called from HA via switch component)
+  // Runtime calibration trigger (called from HA via button component)
   void trigger_recalibration();
   void publish_diagnostics_on_demand();
   
   // Check if calibration is in progress
   bool is_calibrating() const { return this->runtime_.is_calibrating(); }
   
-  // Setter for calibrate switch control
-  void set_calibrate_switch(switch_::Switch *sw) { this->calibrate_switch_ = sw; }
+  void set_sensing_switch(switch_::Switch *value) { this->sensing_switch_ = value; }
   void set_detector_select(select::Select *value) { this->detector_select_ = value; }
   void set_csi_traffic_mode_select(select::Select *value) { this->csi_traffic_mode_select_ = value; }
   void set_traffic_generator_mode_select(select::Select *value) { this->traffic_generator_mode_select_ = value; }
-  void set_csi_traffic_mode_runtime(const std::string &mode);
-  void set_traffic_generator_mode_runtime(const std::string &mode);
+  bool set_csi_traffic_mode_runtime(const std::string &mode);
+  bool set_traffic_generator_mode_runtime(const std::string &mode);
   
  protected:
   void on_motion_state_changed(const RuntimeSnapshot &snapshot) override;
@@ -152,11 +155,13 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void on_runtime_fault(const char *message) override;
   void sample_diagnostics_();
   void publish_cached_diagnostics_();
+  FrontendCommandResult execute_entity_command_(const EspectreCommand &command);
   void sync_direct_config_();
   void setup_mdns_discovery_();
   std::string device_name_() const;
 
   RuntimeFrontendController runtime_;
+  FrontendCommandEngine command_engine_;
   EspIdfDirectWebSocketService direct_service_;
   RuntimeDirectWebSocketBridge direct_bridge_;
   MdnsDiscoveryService mdns_discovery_;
@@ -168,8 +173,7 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   number::Number *motion_on_hits_number_{nullptr};
   number::Number *motion_off_hits_number_{nullptr};
   
-  // Switch controls
-  switch_::Switch *calibrate_switch_{nullptr};
+  switch_::Switch *sensing_switch_{nullptr};
   select::Select *detector_select_{nullptr};
   select::Select *csi_traffic_mode_select_{nullptr};
   select::Select *traffic_generator_mode_select_{nullptr};
@@ -186,6 +190,7 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   sensor::Sensor *csi_occupancy_sensor_{nullptr};
   sensor::Sensor *wifi_channel_sensor_{nullptr};
   sensor::Sensor *wifi_rssi_sensor_{nullptr};
+  binary_sensor::BinarySensor *calibration_active_sensor_{nullptr};
 
   RuntimeDiagnosticsSampler diagnostics_sampler_;
   RuntimeDiagnosticsSample latest_diagnostics_{};

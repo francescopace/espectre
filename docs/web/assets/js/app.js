@@ -414,6 +414,7 @@
         }
         if (detector) {
             document.getElementById('sense-detector').value = detector;
+            syncSensingControls();
         }
         if (motionHits.length === 2) {
             document.getElementById('sense-motion-on').value = motionHits[0];
@@ -960,7 +961,7 @@
     }
 
     function directCapabilitiesSnapshot(capabilities) {
-        const methods = new Set(capabilities.methods || []);
+        const methods = new Set((capabilities.commands || []).map((item) => item?.name).filter(Boolean));
         monitor.commands = methods;
         monitor.commandCatalogReady = true;
         conn.connectivityConfigSupported = methods.has('set_wifi_config') || methods.has('set_mqtt_config');
@@ -979,10 +980,12 @@
     }
 
     function applyDirectConfig(config) {
+        const device = config.device || {};
+        const runtime = config.runtime || {};
         const wifi = config.wifi || {};
         const mqtt = config.mqtt || {};
         applySysinfo({
-            device_label: config.device_label,
+            device_label: config.device_label ?? device.device_label,
             wifi_configured: wifi.configured,
             wifi_ssid: wifi.ssid,
             wifi_bssid: wifi.bssid,
@@ -996,6 +999,14 @@
             mqtt_topic_prefix: mqtt.topic_prefix,
             mqtt_username_configured: mqtt.username_configured
         });
+        applySensingSnapshot(runtime);
+    }
+
+    function applyRuntimeStatus(status) {
+        if (!status || status.calibrating === undefined) return;
+        const calibrating = sysinfoBoolean(status.calibrating);
+        setCalibrationBusy(calibrating);
+        if (calibrating) scheduleCalibrationIdle(MONITOR_CALIBRATION_SAFETY_MS);
     }
 
     function ingestDirectEvent(name, data) {
@@ -1012,6 +1023,7 @@
         }
         if (name === 'info' || name === 'status' || name === 'capabilities') {
             applySysinfo(data);
+            if (name === 'status') applyRuntimeStatus(data);
             return;
         }
         if (name === 'config') {
@@ -1149,6 +1161,55 @@
         return String(chip || '').toUpperCase().replace(/^ESP32([A-Z]\d)$/, 'ESP32-$1');
     }
 
+    function createDiscoveryDeviceButton({
+        deviceId,
+        displayDeviceId = deviceId,
+        displayName,
+        frontend,
+        chip,
+        endpoint = '',
+        className = '',
+        actionText = 'Connect →',
+        ariaLabel
+    }) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `btn-ghost direct-discovery-device ${className}`.trim();
+        button.dataset.deviceId = deviceId;
+        if (endpoint) button.dataset.endpoint = endpoint;
+        button.setAttribute('aria-label', ariaLabel);
+        const heading = document.createElement('span');
+        heading.className = 'direct-discovery-device-heading';
+        const name = document.createElement('strong');
+        name.className = 'direct-discovery-device-name';
+        name.textContent = displayName;
+        const action = document.createElement('span');
+        action.className = 'direct-discovery-device-action';
+        action.setAttribute('aria-hidden', 'true');
+        action.textContent = actionText;
+        heading.append(name, action);
+        const metadata = document.createElement('span');
+        metadata.className = 'direct-discovery-device-meta';
+        for (const [label, value, valueClass = ''] of [
+            ['Frontend', frontend || 'Unknown'],
+            ['Hardware', chip || 'Unknown'],
+            ['Device ID', displayDeviceId, 'mono']
+        ]) {
+            const field = document.createElement('span');
+            field.className = 'direct-discovery-device-field';
+            const fieldLabel = document.createElement('span');
+            fieldLabel.className = 'direct-discovery-device-label';
+            fieldLabel.textContent = label;
+            const fieldValue = document.createElement('span');
+            fieldValue.className = `direct-discovery-device-value ${valueClass}`.trim();
+            fieldValue.textContent = value;
+            field.append(fieldLabel, fieldValue);
+            metadata.appendChild(field);
+        }
+        button.append(heading, metadata);
+        return button;
+    }
+
     function renderDiscoveredPeers(panel, result, { selectionRequired = false } = {}) {
         panel.replaceChildren();
         const summary = document.createElement('p');
@@ -1164,45 +1225,19 @@
         list.className = 'direct-discovery-list';
         for (const peer of result.devices) {
             const item = document.createElement('li');
-            const button = document.createElement('button');
-            button.type = 'button';
-            button.className = 'btn-ghost direct-discovery-device';
-            button.dataset.endpoint = peer.endpoints[0];
-            button.dataset.deviceId = peer.device_id;
             const displayName = peer.name || `ESPectre ${peer.device_id.slice(-6)}`;
             const frontend = discoveredPeerFrontendLabel(peer.frontend);
             const chip = discoveredPeerChipLabel(peer.chip);
             const shortId = peer.device_id.slice(-6);
-            button.setAttribute('aria-label', `Connect to ${displayName}, ${frontend}, ${chip}, device ID ${shortId}`);
-            const heading = document.createElement('span');
-            heading.className = 'direct-discovery-device-heading';
-            const name = document.createElement('strong');
-            name.className = 'direct-discovery-device-name';
-            name.textContent = displayName;
-            const action = document.createElement('span');
-            action.className = 'direct-discovery-device-action';
-            action.setAttribute('aria-hidden', 'true');
-            action.textContent = 'Connect →';
-            heading.append(name, action);
-            const metadata = document.createElement('span');
-            metadata.className = 'direct-discovery-device-meta';
-            for (const [label, value, valueClass = ''] of [
-                ['Frontend', frontend],
-                ['Hardware', chip],
-                ['Device ID', shortId, 'mono']
-            ]) {
-                const field = document.createElement('span');
-                field.className = 'direct-discovery-device-field';
-                const fieldLabel = document.createElement('span');
-                fieldLabel.className = 'direct-discovery-device-label';
-                fieldLabel.textContent = label;
-                const fieldValue = document.createElement('span');
-                fieldValue.className = `direct-discovery-device-value ${valueClass}`.trim();
-                fieldValue.textContent = value;
-                field.append(fieldLabel, fieldValue);
-                metadata.appendChild(field);
-            }
-            button.append(heading, metadata);
+            const button = createDiscoveryDeviceButton({
+                deviceId: peer.device_id,
+                displayDeviceId: shortId,
+                displayName,
+                frontend,
+                chip,
+                endpoint: peer.endpoints[0],
+                ariaLabel: `Connect to ${displayName}, ${frontend}, ${chip}, device ID ${shortId}`
+            });
             item.appendChild(button);
             list.appendChild(item);
         }
@@ -1354,7 +1389,7 @@
 
     async function refreshDirectDevice() {
         if (!directClient?.connected) return;
-        const supportsOta = directClient.capabilities?.methods?.includes('ota_status');
+        const supportsOta = directClient.capabilities?.commands?.some((item) => item.name === 'ota_status');
         const [info, status, config, otaStatus] = await Promise.all([
             directClient.request('info'),
             directClient.request('status'),
@@ -1462,7 +1497,7 @@
             rememberDirectEndpoint(normalizedEndpoint);
             await refreshDirectDevice();
             if ((openView || (route === 'tool-monitor' ? 'live' : 'connectivity')) === 'live') {
-                await client.request('start_sensing');
+                await client.request('set_sensing', { enabled: true });
             }
             setStatus('connected');
             setDirectConnectionHelp();
@@ -1708,7 +1743,7 @@
         }
         if (conn.mode === 'ws' && directClient?.connected) {
             try {
-                await directClient.request('start_sensing');
+                await directClient.request('set_sensing', { enabled: true });
                 setDeviceView('live');
                 completeLiveConnectionNavigation();
                 toast('Sensing is live over Direct WebSocket.');
@@ -1859,7 +1894,7 @@
             markToolReady('telemetry');
             monitor.commands = new Set([
                 'set_threshold', 'set_motion_hits', 'set_detector', 'recalibrate',
-                'set_csi_traffic_mode', 'set_traffic_generator_mode', 'stats',
+                'set_csi_traffic_mode', 'set_traffic_generator_mode', 'diagnostics',
                 'set_device_label'
             ]);
             monitor.commandCatalogReady = true;
@@ -3274,9 +3309,9 @@
     function ingestMqttMessage({ suffix, text, data }) {
         if (monitor.boundDeviceId && conn.deviceId && monitor.boundDeviceId !== conn.deviceId) return;
         switch (suffix) {
-            case 'commands/catalog':
+            case 'capabilities':
                 if (!data || !Array.isArray(data.commands)) return;
-                monitor.commands = new Set(data.commands);
+                monitor.commands = new Set(data.commands.map((item) => item?.name).filter(Boolean));
                 monitor.commandCatalogReady = true;
                 otaSupported = monitor.commands.has('ota_check') && monitor.commands.has('ota_start');
                 renderConfigureDeviceNameEditor();
@@ -3288,8 +3323,13 @@
             case 'info':
                 applyDeviceInfo(data);
                 return;
+            case 'config':
+                if (!data || typeof data !== 'object') return;
+                applyDirectConfig(data);
+                return;
             case 'status': {
                 const online = data.online === true;
+                applyRuntimeStatus(data);
                 handleOtaDeviceAvailability(online);
                 if (!online && !otaAwaitingReconnect && otaState !== 'reboot_scheduled') {
                     toast('The broker is connected, but the device is offline.');
@@ -3297,17 +3337,12 @@
                 }
                 return;
             }
-            case 'ota/state':
+            case 'ota_status':
                 applyOtaStatus(data);
                 return;
-            case 'stats':
-                if (!data || typeof data !== 'object'
-                        || !['traffic_tx_pps', 'csi_callback_pps', 'free_memory_kb']
-                            .some((key) => data[key] !== undefined)) return;
-                markMonitorReady('diagnostics');
-                monitorStats(data);
-                if (data.traffic_tx_pps === undefined) {
-                    monitorDiagStatus('Diagnostics received — this firmware does not expose the extended fields.');
+            case 'commands/result':
+                if (data?.command === 'capabilities' && data.accepted && data.data) {
+                    ingestMqttMessage({ suffix: 'capabilities', text: JSON.stringify(data.data), data: data.data });
                 }
                 return;
             case 'telemetry': {
@@ -3371,6 +3406,7 @@
     function syncMonitorDemoButton() {
         const demo = $('.js-mon-demo');
         const connect = $('.js-mon-connect');
+        const device = document.getElementById('mon-device')?.value.trim() || '';
         const mqttLive = monitorIsMqttLive();
         const mqttConnected = mqttLive && conn.status === 'connected';
         const connectionPending = monitorConnectionPending();
@@ -3379,7 +3415,7 @@
             connect.disabled = mqttConnected;
             connect.textContent = mqttConnected ? 'Connected'
                 : connectionPending ? 'Cancel connection'
-                : 'Connect broker';
+                : device ? 'Connect device' : 'Find devices';
         }
     }
 
@@ -3616,55 +3652,38 @@
         monitor.discoveredDevices[topicId] = device;
     }
 
-    function monitorDeviceChipLabel(chip) {
-        const value = String(chip || '').trim().toUpperCase().replace(/[-_]/g, '');
-        if (!value) return 'Unknown chip';
-        if (value === 'ESP32') return value;
-        return value.replace(/^ESP32/, '');
-    }
-
-    function monitorDeviceStatus(device) {
-        if (device.online === true) return { dotClass: 'dot-ok', label: 'Online' };
-        if (device.online === false) return { dotClass: 'dot-error', label: 'Offline' };
-        return { dotClass: 'dot-idle', label: 'Status unknown' };
-    }
-
     function populateMonitorDevicePicker(devices) {
         const picker = $('.js-mon-device-picker');
         const choice = document.getElementById('mon-device-choice');
         if (!choice) return;
         choice.replaceChildren();
+        const summary = document.createElement('p');
+        summary.className = 'direct-discovery-summary';
+        summary.textContent = `${devices.length} online MQTT devices found. Select one to connect.`;
+        const list = document.createElement('ul');
+        list.className = 'direct-discovery-list';
         devices.forEach((device) => {
             const deviceId = device.topic_id || device.device_id;
-            const chip = monitorDeviceChipLabel(device.chip);
-            const label = device.device_label || device.device_name || 'unnamed';
-            const status = monitorDeviceStatus(device);
-            const option = document.createElement('button');
-            option.type = 'button';
-            option.className = 'device-choice-option';
-            option.dataset.deviceId = deviceId;
-            option.setAttribute(
-                'aria-label',
-                `${status.label}, ${chip}, ${label}, device ID ${device.device_id}`
-            );
-
-            const dot = document.createElement('span');
-            dot.className = `dot ${status.dotClass}`;
-            dot.setAttribute('aria-hidden', 'true');
-            const chipText = document.createElement('span');
-            chipText.className = 'device-choice-chip';
-            chipText.textContent = chip;
-            const nameText = document.createElement('span');
-            nameText.className = 'device-choice-name';
-            nameText.textContent = label;
-            const idText = document.createElement('span');
-            idText.className = 'device-choice-id';
-            idText.textContent = device.device_id;
-            option.append(dot, chipText, nameText, idText);
-            choice.appendChild(option);
+            const chip = discoveredPeerChipLabel(device.chip);
+            const frontend = discoveredPeerFrontendLabel(device.frontend);
+            const label = device.device_label || device.device_name
+                || `ESPectre ${device.device_id.slice(-6)}`;
+            const option = createDiscoveryDeviceButton({
+                deviceId,
+                displayDeviceId: device.device_id,
+                displayName: label,
+                frontend,
+                chip,
+                className: 'mqtt-discovery-device',
+                ariaLabel: `Connect to ${label}, ${frontend || 'unknown frontend'}, ${chip || 'unknown hardware'}, device ID ${device.device_id}`
+            });
+            const item = document.createElement('li');
+            item.appendChild(option);
+            list.appendChild(item);
         });
+        choice.append(summary, list);
         if (picker) picker.hidden = false;
-        choice.querySelector('.device-choice-option')?.focus({ preventScroll: true });
+        choice.querySelector('.mqtt-discovery-device')?.focus({ preventScroll: true });
     }
 
     function monitorUnsubscribeDiscovery(client) {
@@ -3718,6 +3737,7 @@
         monitorUnsubscribeDiscovery(client);
         syncMonitorDemoButton();
         const devices = Object.values(monitor.discoveredDevices)
+            .filter((device) => device.online === true)
             .sort((a, b) => a.device_id.localeCompare(b.device_id));
         if (devices.length === 1) {
             monitorStatus('Selected device: ' + devices[0].device_id);
@@ -3731,7 +3751,7 @@
             return;
         }
         const deviceInput = document.getElementById('mon-device');
-        monitorStatus('No devices discovered. Enter a device ID.');
+        monitorStatus('No online devices discovered. Enter a device ID.');
         if (deviceInput) {
             markMonitorFieldError(deviceInput, 'Enter a device ID.');
             deviceInput.focus({ preventScroll: true });
@@ -3989,7 +4009,7 @@
 
     function diagnosticsRequestPending() {
         if (conn.mode === 'ws') return monitor.diagRequestPending;
-        return monitor.protocol?.hasPendingCommand('stats') || false;
+        return monitor.protocol?.hasPendingCommand('diagnostics') || false;
     }
 
     function diagnosticsPanelOpen() {
@@ -4043,11 +4063,12 @@
         if (direct && !directClient?.connected) return;
         try {
             if (direct) monitor.diagRequestPending = true;
-            const data = await monitorPublishCommand({ command: direct ? 'diagnostics' : 'stats' }, {
+            const response = await monitorPublishCommand({ command: 'diagnostics' }, {
                 pendingMessage: '',
                 statusFn: () => {}
             });
-            if (direct && data && typeof data === 'object') {
+            const data = direct ? response : response?.data;
+            if (data && typeof data === 'object') {
                 markMonitorReady('diagnostics');
                 monitorStats(data);
                 monitorDiagStatus('');
@@ -4160,12 +4181,15 @@
         });
         ['mon-host', 'mon-port', 'mon-topic-prefix', 'mon-device', 'mon-path'].forEach((id) => {
             const input = document.getElementById(id);
-            input.addEventListener('input', () => clearMonitorFieldError(input));
+            input.addEventListener('input', () => {
+                clearMonitorFieldError(input);
+                if (id === 'mon-device') syncMonitorDemoButton();
+            });
         });
         const deviceChoice = document.getElementById('mon-device-choice');
         if (deviceChoice) {
             deviceChoice.addEventListener('click', (event) => {
-                const selected = event.target.closest('.device-choice-option');
+                const selected = event.target.closest('.mqtt-discovery-device');
                 if (!selected || !deviceChoice.contains(selected)) return;
                 monitorSelectDevice(selected.dataset.deviceId);
             });
@@ -4315,10 +4339,11 @@
     const utf8Length = (value) => new TextEncoder().encode(String(value)).byteLength;
 
     function directConfigSnapshot(config) {
+        const device = config.device || {};
         const wifi = config.wifi || {};
         const mqtt = config.mqtt || {};
         return {
-            device_label: config.device_label || '',
+            device_label: config.device_label ?? device.device_label ?? '',
             wifi_ssid: wifi.ssid || '',
             wifi_bssid: wifi.bssid || '',
             wifi_channel: wifi.channel || 0,

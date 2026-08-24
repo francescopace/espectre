@@ -32,7 +32,7 @@ void ESpectreThresholdNumber::control(float value) {
   // Called when user changes value from HA
   // set_threshold_runtime handles everything: update, save, and publish
   if (this->parent_ != nullptr) {
-    this->parent_->set_threshold_runtime(value);
+    if (!this->parent_->set_threshold_runtime(value)) this->republish_state();
   }
 }
 

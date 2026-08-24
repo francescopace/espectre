@@ -139,6 +139,7 @@ constexpr RetiredHaDiscovery kRetiredHaDiscoveries[] = {
     {"binary_sensor", "motion"},
     {"sensor", "movement"},
     {"switch", "calibrate"},
+    {"switch", "trigger_calibration"},
     {"select", "detector"},
     {"select", "csi_traffic_mode"},
     {"select", "traffic_generator_mode"},
@@ -246,18 +247,34 @@ std::string build_motion_hits_discovery_payload(const FrontendHaMqttSettings &se
   return out;
 }
 
-std::string build_calibrate_discovery_payload(const FrontendHaMqttSettings &settings, const EspectreDeviceInfo &info) {
+std::string build_recalibrate_button_discovery_payload(const FrontendHaMqttSettings &settings,
+                                                       const EspectreDeviceInfo &info) {
   std::string out = "{";
-  append_json_pair(&out, "name", "Trigger Calibration", true);
-  append_json_pair(&out, "unique_id", settings.calibrate_object_id.c_str());
-  append_json_pair(&out, "object_id", settings.calibrate_object_id.c_str());
-  append_json_pair(&out, "state_topic", settings.calibrate_state_topic.c_str());
+  append_json_pair(&out, "name", "Recalibrate", true);
+  append_json_pair(&out, "unique_id", settings.recalibrate_object_id.c_str());
+  append_json_pair(&out, "object_id", settings.recalibrate_object_id.c_str());
   append_json_pair(&out, "command_topic", settings.calibrate_command_topic.c_str());
+  append_discovery_availability(&out, settings);
+  append_json_pair(&out, "payload_press", "ON");
+  append_json_pair(&out, "entity_category", "config");
+  append_json_pair(&out, "icon", "mdi:tune-vertical");
+  append_discovery_device(&out, settings, info);
+  out.push_back('}');
+  return out;
+}
+
+std::string build_calibration_active_discovery_payload(const FrontendHaMqttSettings &settings,
+                                                       const EspectreDeviceInfo &info) {
+  std::string out = "{";
+  append_json_pair(&out, "name", "Calibration Active", true);
+  append_json_pair(&out, "unique_id", settings.calibration_active_object_id.c_str());
+  append_json_pair(&out, "object_id", settings.calibration_active_object_id.c_str());
+  append_json_pair(&out, "state_topic", settings.calibrate_state_topic.c_str());
   append_discovery_availability(&out, settings);
   append_json_pair(&out, "payload_on", "ON");
   append_json_pair(&out, "payload_off", "OFF");
-  append_json_pair(&out, "entity_category", "config");
-  append_json_pair(&out, "icon", "mdi:refresh");
+  append_json_pair(&out, "entity_category", "diagnostic");
+  append_json_pair(&out, "icon", "mdi:tune-vertical");
   append_discovery_device(&out, settings, info);
   out.push_back('}');
   return out;
@@ -374,7 +391,8 @@ FrontendHaMqttSettings build_frontend_ha_mqtt_settings(const EspectreDeviceConfi
   settings.threshold_object_id = device_key + "_threshold";
   settings.motion_on_hits_object_id = device_key + "_motion_on_hits";
   settings.motion_off_hits_object_id = device_key + "_motion_off_hits";
-  settings.calibrate_object_id = device_key + "_trigger_calibration";
+  settings.recalibrate_object_id = device_key + "_recalibrate";
+  settings.calibration_active_object_id = device_key + "_calibration_active";
   settings.detector_object_id = device_key + "_detection_profile";
   settings.csi_traffic_mode_object_id = device_key + "_csi_traffic_ownership";
   settings.traffic_generator_mode_object_id = device_key + "_csi_traffic_source";
@@ -455,8 +473,12 @@ std::vector<FrontendHaDiscoveryMessage> build_frontend_ha_discovery_messages(
     });
   }
   messages.push_back(FrontendHaDiscoveryMessage{
-      build_discovery_topic("switch", settings.discovery_prefix, settings.calibrate_object_id),
-      build_calibrate_discovery_payload(settings, info),
+      build_discovery_topic("button", settings.discovery_prefix, settings.recalibrate_object_id),
+      build_recalibrate_button_discovery_payload(settings, info),
+  });
+  messages.push_back(FrontendHaDiscoveryMessage{
+      build_discovery_topic("binary_sensor", settings.discovery_prefix, settings.calibration_active_object_id),
+      build_calibration_active_discovery_payload(settings, info),
   });
   for (const RetiredHaDiscovery &retired : kRetiredHaDiscoveries) {
     messages.push_back(FrontendHaDiscoveryMessage{

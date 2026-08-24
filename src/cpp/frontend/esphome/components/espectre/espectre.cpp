@@ -11,7 +11,7 @@
 #include "espectre.h"
 #include "threshold_number.h"
 #include "motion_hits_number.h"
-#include "calibrate_switch.h"
+#include "sensing_switch.h"
 #include "detector_select.h"
 #include "traffic_mode_select.h"
 
@@ -182,6 +182,12 @@ void ESpectreComponent::sync_direct_config_() {
     this->traffic_generator_mode_select_->publish_state(
         traffic_mode_name(this->runtime_.config().traffic_generator_mode));
   }
+  if (this->sensing_switch_ != nullptr) {
+    static_cast<ESpectreSensingSwitch *>(this->sensing_switch_)->republish_state();
+  }
+  if (this->calibration_active_sensor_ != nullptr) {
+    this->calibration_active_sensor_->publish_state(this->runtime_.is_calibrating());
+  }
 }
 
 void ESpectreComponent::sample_diagnostics_() {
@@ -231,50 +237,184 @@ void ESpectreComponent::publish_cached_diagnostics_() {
 }
 
 void ESpectreComponent::publish_diagnostics_on_demand() {
-  this->publish_cached_diagnostics_();
+  EspectreCommand command;
+  command.command = "diagnostics";
+  const FrontendCommandResult result = this->execute_entity_command_(command);
+  if (result.accepted) this->publish_cached_diagnostics_();
 }
 
-void ESpectreComponent::set_threshold_runtime(float threshold) {
-  this->runtime_.set_threshold_runtime(threshold);
+FrontendCommandResult ESpectreComponent::execute_entity_command_(const EspectreCommand &command) {
+  const RuntimeCapabilities &runtime_capabilities = this->runtime_.capabilities();
+  const FrontendCommandCapabilities capabilities{
+      true,
+      true,
+      true,
+      runtime_capabilities.supports_extended_diagnostics,
+      false,
+      false,
+      false,
+      true,
+      runtime_capabilities.supports_runtime_threshold_updates,
+      runtime_capabilities.supports_runtime_motion_hits_updates,
+      runtime_capabilities.supports_traffic_control,
+      runtime_capabilities.supports_runtime_detector_selection,
+      runtime_capabilities.supports_manual_recalibration,
+      false,
+      false,
+  };
+  FrontendCommandResult result = this->command_engine_.execute(
+      command,
+      FrontendCommandContext{FrontendCommandOrigin::ESPHOME},
+      nullptr,
+      espectre_firmware_version(),
+      capabilities,
+      [this, capabilities](const EspectreCommand &read) {
+        EspectreDeviceConfig device;
+        device.device_id = this->runtime_.config().device_id;
+        EspectreDeviceInfo info;
+        info.frontend = "esphome";
+        info.firmware_version = espectre_firmware_version();
+        info.chip = CONFIG_IDF_TARGET;
+        info.detector = detection_algorithm_name(this->runtime_.config().detection_algorithm);
+        info.supports_diagnostics = capabilities.supports_diagnostics;
+        info.supports_runtime_threshold = capabilities.supports_threshold;
+        info.supports_runtime_motion_hits = capabilities.supports_motion_hits;
+        info.supports_runtime_detector = capabilities.supports_detector;
+        info.supports_manual_recalibration = capabilities.supports_recalibrate;
+        info.supports_traffic_control = capabilities.supports_traffic_control;
+        if (read.command == "capabilities") {
+          return espectre_capabilities_payload(device, info, true, true, true);
+        }
+        if (read.command == "info") return espectre_info_payload(device, info);
+        if (read.command == "diagnostics") {
+          return espectre_diagnostics_payload(device,
+                                               this->runtime_.snapshot(),
+                                               millis(),
+                                               millis() / 1000U,
+                                               0.0f,
+                                               0.0f,
+                                               &this->latest_diagnostics_);
+        }
+        if (read.command == "status") {
+          const RuntimeSnapshot &snapshot = this->runtime_.snapshot();
+          std::string out = espectre_status_payload(device, true, millis());
+          out.pop_back();
+          out += std::string(",\"sensing_enabled\":") +
+                 (this->runtime_.services_armed() ? "true" : "false");
+          out += std::string(",\"ready_to_publish\":") +
+                 (snapshot.ready_to_publish ? "true" : "false");
+          out += std::string(",\"calibrating\":") +
+                 (this->runtime_.is_calibrating() ? "true" : "false");
+          out += "}";
+          return out;
+        }
+        if (read.command == "config") {
+          const RuntimeConfig &config = this->runtime_.config();
+          std::string out{"{\"runtime\":{"};
+          out += "\"threshold\":" + std::to_string(this->runtime_.snapshot().threshold);
+          append_json_pair(&out, "detector", detection_algorithm_name(config.detection_algorithm));
+          out += ",\"motion_on_hits\":" + std::to_string(config.motion_on_hits);
+          out += ",\"motion_off_hits\":" + std::to_string(config.motion_off_hits);
+          append_json_pair(&out, "csi_traffic_mode", csi_traffic_mode_name(config.csi_traffic_mode));
+          append_json_pair(&out, "traffic_generator_mode", traffic_mode_name(config.traffic_generator_mode));
+          out += "}}";
+          return out;
+        }
+        return std::string{};
+      },
+      {},
+      [this](float value, std::string *) { return this->runtime_.set_threshold_runtime(value); },
+      [this](uint8_t on, uint8_t off, std::string *) { return this->runtime_.set_motion_hits_runtime(on, off); },
+      [this](CsiTrafficMode mode, std::string *) { return this->runtime_.set_csi_traffic_mode_runtime(mode); },
+      [this](RuntimeTrafficMode mode, std::string *) {
+        return this->runtime_.set_traffic_generator_mode_runtime(mode);
+      },
+      [this](DetectionAlgorithm algorithm, std::string *) {
+        return this->runtime_.set_detection_algorithm_runtime(algorithm);
+      },
+      [this](std::string *) { return this->runtime_.trigger_recalibration(); },
+      {},
+      {},
+      [this](bool enabled, std::string *) {
+        this->runtime_.set_services_armed(enabled);
+        return true;
+      });
+  if (result.accepted && result.changes != FrontendCommandChange::NONE) {
+    (void) this->direct_bridge_.publish_changes(result.changes);
+    this->sync_direct_config_();
+    this->threshold_republished_ = true;
+    this->detector_republished_ = true;
+    this->motion_hits_republished_ = true;
+    this->traffic_mode_republished_ = true;
+  }
+  return result;
 }
 
-void ESpectreComponent::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits) {
-  if (!this->runtime_.set_motion_hits_runtime(motion_on_hits, motion_off_hits)) {
-    return;
-  }
-  if (this->motion_on_hits_number_ != nullptr) {
-    this->motion_on_hits_number_->publish_state(this->runtime_.config().motion_on_hits);
-  }
-  if (this->motion_off_hits_number_ != nullptr) {
-    this->motion_off_hits_number_->publish_state(this->runtime_.config().motion_off_hits);
-  }
+bool ESpectreComponent::set_threshold_runtime(float threshold) {
+  EspectreCommand command;
+  command.command = "set_threshold";
+  command.threshold = threshold;
+  command.has_threshold = true;
+  const FrontendCommandResult result = this->execute_entity_command_(command);
+  if (!result.accepted) this->sync_direct_config_();
+  return result.accepted;
 }
 
-void ESpectreComponent::set_detection_algorithm_runtime(const std::string &algorithm) {
-  this->runtime_.set_detection_algorithm_runtime(parse_detection_algorithm(algorithm.c_str()));
+bool ESpectreComponent::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits) {
+  EspectreCommand command;
+  command.command = "set_motion_hits";
+  command.motion_on_hits = motion_on_hits;
+  command.motion_off_hits = motion_off_hits;
+  command.has_motion_hits = true;
+  const FrontendCommandResult result = this->execute_entity_command_(command);
+  if (!result.accepted) this->sync_direct_config_();
+  return result.accepted;
 }
 
-void ESpectreComponent::set_csi_traffic_mode_runtime(const std::string &mode) {
-  if (!this->runtime_.set_csi_traffic_mode_runtime(parse_csi_traffic_mode(mode.c_str()))) {
-    return;
-  }
-  if (this->csi_traffic_mode_select_ != nullptr) {
-    this->csi_traffic_mode_select_->publish_state(csi_traffic_mode_name(this->runtime_.config().csi_traffic_mode));
-  }
+bool ESpectreComponent::set_detection_algorithm_runtime(const std::string &algorithm) {
+  EspectreCommand command;
+  command.command = "set_detector";
+  command.detector = algorithm;
+  command.has_detector = true;
+  const FrontendCommandResult result = this->execute_entity_command_(command);
+  if (!result.accepted) this->sync_direct_config_();
+  return result.accepted;
 }
 
-void ESpectreComponent::set_traffic_generator_mode_runtime(const std::string &mode) {
-  if (!this->runtime_.set_traffic_generator_mode_runtime(parse_traffic_mode(mode.c_str()))) {
-    return;
-  }
-  if (this->traffic_generator_mode_select_ != nullptr) {
-    this->traffic_generator_mode_select_->publish_state(
-        traffic_mode_name(this->runtime_.config().traffic_generator_mode));
-  }
+bool ESpectreComponent::set_sensing_runtime(bool enabled) {
+  EspectreCommand command;
+  command.command = "set_sensing";
+  command.sensing_enabled = enabled;
+  command.has_sensing_enabled = true;
+  const FrontendCommandResult result = this->execute_entity_command_(command);
+  if (!result.accepted) this->sync_direct_config_();
+  return result.accepted;
+}
+
+bool ESpectreComponent::set_csi_traffic_mode_runtime(const std::string &mode) {
+  EspectreCommand command;
+  command.command = "set_csi_traffic_mode";
+  command.csi_traffic_mode = mode;
+  command.has_csi_traffic_mode = true;
+  const FrontendCommandResult result = this->execute_entity_command_(command);
+  if (!result.accepted) this->sync_direct_config_();
+  return result.accepted;
+}
+
+bool ESpectreComponent::set_traffic_generator_mode_runtime(const std::string &mode) {
+  EspectreCommand command;
+  command.command = "set_traffic_generator_mode";
+  command.traffic_generator_mode = mode;
+  command.has_traffic_generator_mode = true;
+  const FrontendCommandResult result = this->execute_entity_command_(command);
+  if (!result.accepted) this->sync_direct_config_();
+  return result.accepted;
 }
 
 void ESpectreComponent::trigger_recalibration() {
-  this->runtime_.trigger_recalibration();
+  EspectreCommand command;
+  command.command = "recalibrate";
+  (void) this->execute_entity_command_(command);
 }
 
 void ESpectreComponent::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
@@ -286,11 +426,7 @@ void ESpectreComponent::on_motion_state_changed(const RuntimeSnapshot &snapshot)
   }
   if (snapshot.ready_to_publish) {
     this->sensor_publisher_.publish_motion_binary(snapshot.motion_state);
-    std::string data{"{\"motion\":"};
-    data += snapshot.motion_state == MotionState::MOTION ? "true" : "false";
-    data += ",\"movement\":" + std::to_string(snapshot.movement_metric);
-    data += ",\"threshold\":" + std::to_string(snapshot.threshold) + "}";
-    (void) this->direct_bridge_.publish_event("telemetry", data, true);
+    (void) this->direct_bridge_.publish_telemetry(snapshot);
   }
 }
 
@@ -343,17 +479,16 @@ void ESpectreComponent::on_live_telemetry(float movement, float threshold) {
     return;
   }
   this->sensor_publisher_.publish_movement_metric(movement);
-  const std::string data = "{\"movement\":" + std::to_string(movement) +
-                           ",\"threshold\":" + std::to_string(threshold) + "}";
-  (void) this->direct_bridge_.publish_event("telemetry", data, true);
+  (void) movement;
+  (void) threshold;
+  (void) this->direct_bridge_.publish_telemetry(this->runtime_.snapshot());
 }
 
 void ESpectreComponent::on_threshold_changed(const RuntimeSnapshot &snapshot) {
   if (this->threshold_number_ != nullptr) {
     this->threshold_number_->publish_state(snapshot.threshold);
   }
-  const std::string data = "{\"threshold\":" + std::to_string(snapshot.threshold) + "}";
-  (void) this->direct_bridge_.publish_event("config", data);
+  (void) this->direct_bridge_.publish_changes(FrontendCommandChange::CONFIG);
 }
 
 void ESpectreComponent::on_detector_changed(const RuntimeSnapshot &snapshot) {
@@ -364,24 +499,22 @@ void ESpectreComponent::on_detector_changed(const RuntimeSnapshot &snapshot) {
     static_cast<ESpectreThresholdNumber *>(this->threshold_number_)
         ->update_detector_range(this->runtime_.config().detection_algorithm);
   }
-  std::string data{"{"};
-  append_json_pair(&data, "detector", snapshot.detector_name != nullptr ? snapshot.detector_name : "", true);
-  data += ",\"threshold\":" + std::to_string(snapshot.threshold) + "}";
-  (void) this->direct_bridge_.publish_event("config", data);
+  (void) snapshot;
+  (void) this->direct_bridge_.publish_changes(FrontendCommandChange::CONFIG);
 }
 
 void ESpectreComponent::on_calibration_started(const RuntimeSnapshot &snapshot) {
   (void) snapshot;
-  if (this->calibrate_switch_ != nullptr) {
-    static_cast<ESpectreCalibrateSwitch *>(this->calibrate_switch_)->set_calibrating(true);
-  }
+  if (this->calibration_active_sensor_ != nullptr) this->calibration_active_sensor_->publish_state(true);
+  (void) this->direct_bridge_.publish_changes(FrontendCommandChange::STATUS);
 }
 
 void ESpectreComponent::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
   (void) snapshot;
-  if (this->calibrate_switch_ != nullptr) {
-    static_cast<ESpectreCalibrateSwitch *>(this->calibrate_switch_)->set_calibrating(false);
-  }
+  if (this->calibration_active_sensor_ != nullptr) this->calibration_active_sensor_->publish_state(false);
+  FrontendCommandChange changes = FrontendCommandChange::STATUS;
+  if (success) changes = changes | FrontendCommandChange::CONFIG;
+  (void) this->direct_bridge_.publish_changes(changes);
   if (!success) {
     ESP_LOGW(TAG, "Calibration finished without a valid update");
   }

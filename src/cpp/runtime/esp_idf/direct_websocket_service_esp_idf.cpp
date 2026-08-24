@@ -37,8 +37,8 @@ struct AsyncWebSocketPayload {
 constexpr uint8_t kMaxConsecutiveSendFailures = 3U;
 
 bool read_only_method(const std::string &method) {
-  return method == "capabilities" || method == "info" || method == "commands" || method == "status" ||
-         method == "config" || method == "diagnostics" || method == "stats" || method == "ota_status" ||
+  return method == "capabilities" || method == "info" || method == "status" ||
+         method == "config" || method == "diagnostics" || method == "ota_status" ||
          method == "discover_peers";
 }
 

@@ -299,15 +299,15 @@ After selection, the shell publishes commands to `commands/request` and subscrib
 
 ```text
 espectre/v1/devices/{device_id}/commands/request
-espectre/v1/devices/{device_id}/commands/accepted
-espectre/v1/devices/{device_id}/commands/rejected
-espectre/v1/devices/{device_id}/commands/catalog
+espectre/v1/devices/{device_id}/commands/result
+espectre/v1/devices/{device_id}/capabilities
 espectre/v1/devices/{device_id}/info
-espectre/v1/devices/{device_id}/stats
-espectre/v1/devices/{device_id}/ota/state
+espectre/v1/devices/{device_id}/status
+espectre/v1/devices/{device_id}/config
+espectre/v1/devices/{device_id}/ota_status
 ```
 
-After selection the shell requests MQTT `commands` to populate help and tab completion from `commands/catalog`. `info`, `stats`, `ota_status`, and `commands` publish their payloads on those dedicated topics. Command ACKs annotate the typed prompt line with `✓` or `✗ reason` when the terminal allows it. Otherwise they appear on the next line. Payload topics are still dumped as YAML.
+After selection the shell consumes the retained `capabilities` schema to populate help and tab completion. Every query, mutation, and action returns through `commands/result`; query payloads are nested in `data`. Command results annotate the typed prompt line with `✓` or `✗ code: reason` when the terminal allows it. Otherwise they appear on the next line. Retained state topics are still dumped as YAML.
 
 This behavior is transport-level and is not specific to the MicroPython frontend; it also applies to other ESPectre devices that expose the same MQTT topic surface.
 
@@ -330,9 +330,9 @@ Examples:
 ./espectre mqtt --broker 192.168.1.20 --device-id native-lab
 ```
 
-MQTT commands are forwarded to the selected device. The shell keeps only local utilities (`help`, `about`, `clear`, and `exit`) plus short read aliases such as `i` and `st`. Help and tab completion use the device `commands` catalog when the device publishes one. Unknown or unsupported commands are rejected by the device with `✗ command: reason`. Write values after the command name (`set_threshold 0.35`). Multi-field writes use named tokens after the command (`set_motion_hits motion_on_hits=4 motion_off_hits=3`).
+MQTT commands are forwarded to the selected device. The shell keeps only local utilities (`help`, `about`, `clear`, and `exit`) plus short read aliases such as `i` and `d`. Help, tab completion, and argument discovery use the device `capabilities` schema. Unknown or unsupported commands are rejected by the device with a stable result code. Write values after the command name (`set_threshold 0.35`). Multi-field writes use named tokens after the command (`set_motion_hits motion_on_hits=4 motion_off_hits=3`).
 
-`ota_check` and `ota_start` accept an optional channel (`release`, `preview`, or `develop`), for example `ota_check preview` or `ota_start channel=develop`. Omitting the channel keeps the firmware's build-time default. OTA payloads containing server, manifest, image, or version overrides are rejected by the device. Frontends that report `supports_ota: false`, including Micro-ESPectre, reject the OTA commands.
+`ota_check` and `ota_start` accept an optional channel (`release`, `preview`, or `develop`), for example `ota_check preview` or `ota_start channel=develop`. Omitting the channel keeps the firmware's build-time default. OTA payloads containing server, manifest, image, or version overrides are rejected by the device. Frontends such as Micro-ESPectre omit unsupported OTA commands from `capabilities`.
 
 Native builds accept `--ota-channel release|preview|develop`. The selected value is compiled into the firmware and is used whenever an MQTT OTA command omits `channel`; it is propagated through both local and Docker build backends. The default is `release`, or `NATIVE_OTA_CHANNEL` when that environment variable is set.
 

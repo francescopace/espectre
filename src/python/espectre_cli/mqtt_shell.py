@@ -46,7 +46,7 @@ from micro_espectre.branding import ASCII_BANNER
 
 _SHELL_ALIASES = {
     "i": "info",
-    "s": "stats",
+    "s": "diagnostics",
     "st": "set_threshold",
     "os": "ota_status",
     "oc": "ota_check",
@@ -67,10 +67,10 @@ _LOCAL_UTILITIES = {
 
 
 def _mqtt_commands_from_catalog(payload: Dict[str, Any]) -> list[str]:
-    """Return command names from a `commands/catalog` payload."""
+    """Return command names from a canonical capabilities payload."""
     raw = payload.get("commands")
     if isinstance(raw, list):
-        return [str(name) for name in raw if isinstance(name, str) and name]
+        return [str(item["name"]) for item in raw if isinstance(item, dict) and item.get("name")]
     if isinstance(raw, dict):
         return [str(name) for name in raw if name]
     return []
@@ -163,10 +163,7 @@ def _mqtt_topic_bindings(args: argparse.Namespace) -> tuple[str, str, list[str],
     return (
         base_topic,
         f"{base_topic}/commands/request",
-        [
-            f"{base_topic}/commands/accepted",
-            f"{base_topic}/commands/rejected",
-        ],
+        [f"{base_topic}/commands/result"],
         f"{base_topic}/info",
     )
 
@@ -310,8 +307,8 @@ def request_mqtt_info_and_wait(
     *,
     timeout_s: float = 10.0,
 ) -> tuple[Dict[str, Any], Dict[str, Any]]:
-    """Request MQTT info and wait for both the command ack and info payload."""
-    _base_topic, topic_cmd, topic_responses, info_topic = _mqtt_topic_bindings(args)
+    """Request MQTT info and return the command result plus its correlated data."""
+    _base_topic, topic_cmd, topic_responses, _info_topic = _mqtt_topic_bindings(args)
     command_id = f"cmd-{uuid.uuid4().hex[:12]}"
     command = {
         "protocol_version": "1.0",
@@ -322,9 +319,7 @@ def request_mqtt_info_and_wait(
     client = _make_mqtt_client(args.username, args.password)
     connected_event = threading.Event()
     command_event = threading.Event()
-    info_event = threading.Event()
     command_holder: dict[str, Dict[str, Any]] = {}
-    info_holder: dict[str, Dict[str, Any]] = {}
     error_holder: dict[str, str] = {}
     subscription_event: threading.Event | None = None
 
@@ -334,7 +329,7 @@ def request_mqtt_info_and_wait(
             nonlocal subscription_event
             subscription_event = _wait_for_subscription_ready(
                 client,
-                [*topic_responses, info_topic],
+                topic_responses,
                 timeout_s=timeout_s,
                 error_holder=error_holder,
             )
@@ -348,11 +343,6 @@ def request_mqtt_info_and_wait(
             payload = msg.payload.decode()
             data = json.loads(payload)
         except Exception:
-            return
-        topic = msg.topic.decode() if isinstance(msg.topic, bytes) else msg.topic
-        if topic == info_topic:
-            info_holder["payload"] = data
-            info_event.set()
             return
         if data.get("command_id") == command_id:
             command_holder["payload"] = data
@@ -381,9 +371,11 @@ def request_mqtt_info_and_wait(
             )
         if not command_event.wait(timeout=timeout_s):
             raise RuntimeError(f"timed out waiting for MQTT response to {command_id}")
-        if not info_event.wait(timeout=timeout_s):
-            raise RuntimeError(f"timed out waiting for MQTT info payload after {command_id}")
-        return command_holder["payload"], info_holder["payload"]
+        result = command_holder["payload"]
+        info = result.get("data")
+        if not isinstance(info, dict):
+            raise RuntimeError(f"MQTT info response to {command_id} has no data object")
+        return result, info
     finally:
         client.loop_stop()
         client.disconnect()
@@ -397,9 +389,9 @@ class EspectreMQTTShell:
     PROMPT_DISPLAY = "espectre> "
     _PAYLOAD_LABELS = {
         "info": "info",
-        "stats": "stats",
-        "ota_status": "ota/state",
-        "commands": "commands/catalog",
+        "diagnostics": "diagnostics",
+        "ota_status": "ota_status",
+        "capabilities": "capabilities",
     }
 
     def __init__(self, args):
@@ -458,12 +450,12 @@ class EspectreMQTTShell:
         self.base_topic = f"{self.topic_prefix}/{device_id}"
         self.topic_cmd = f"{self.base_topic}/commands/request"
         self.topic_responses = [
-            f"{self.base_topic}/commands/accepted",
-            f"{self.base_topic}/commands/rejected",
-            f"{self.base_topic}/commands/catalog",
+            f"{self.base_topic}/commands/result",
+            f"{self.base_topic}/capabilities",
             f"{self.base_topic}/info",
-            f"{self.base_topic}/stats",
-            f"{self.base_topic}/ota/state",
+            f"{self.base_topic}/status",
+            f"{self.base_topic}/config",
+            f"{self.base_topic}/ota_status",
         ]
 
     def _subscribe_selected_device(self, client) -> None:
@@ -485,7 +477,7 @@ class EspectreMQTTShell:
         self._update_completer()
 
     def _apply_catalog_payload(self, payload: Dict[str, Any]) -> None:
-        """Adopt command names from a `commands/catalog` payload."""
+        """Adopt command names from a capabilities payload."""
         commands = _mqtt_commands_from_catalog(payload)
         if commands:
             self._apply_device_commands(commands)
@@ -505,7 +497,7 @@ class EspectreMQTTShell:
                     {
                         "protocol_version": "1.0",
                         "command_id": command_id,
-                        "command": "commands",
+                        "command": "capabilities",
                     }
                 ),
             )
@@ -743,8 +735,8 @@ class EspectreMQTTShell:
             payload = msg.payload.decode()
             data = json.loads(payload)
             label = self._topic_label(topic)
-            if label in {"commands/accepted", "commands/rejected"}:
-                accepted = label == "commands/accepted"
+            if label == "commands/result":
+                accepted = data.get("accepted") is True
                 command_id = str(data.get("command_id") or "")
                 with self._pending_lock:
                     if command_id in self._quiet_command_ids:
@@ -758,7 +750,7 @@ class EspectreMQTTShell:
                         return
                 self._print_command_result(accepted, data)
                 return
-            if label == "commands/catalog":
+            if label == "capabilities":
                 self._apply_catalog_payload(data)
                 with self._pending_lock:
                     if self._suppress_catalog_payload:
@@ -811,7 +803,11 @@ class EspectreMQTTShell:
             accepted = bool(result.get("accepted"))
             data = result.get("data") or {"command": command.get("command")}
             self._show_command_ack(accepted, data)
-            if not accepted or not payload_label:
+            if accepted and isinstance(data, dict) and isinstance(data.get("data"), dict):
+                if command.get("command") == "capabilities":
+                    self._apply_catalog_payload(data["data"])
+                self._print_payload(data["data"], str(command.get("command")))
+            if not accepted or not payload_label or (isinstance(data, dict) and isinstance(data.get("data"), dict)):
                 return
             if not self._pending_payload_event.wait(timeout=wait_s):
                 print(f"{Fore.RED}timed out waiting for {payload_label}{Style.RESET_ALL}")
@@ -819,7 +815,7 @@ class EspectreMQTTShell:
             with self._pending_lock:
                 payload = self._pending_payload
             if payload is not None:
-                if payload[0] == "commands/catalog":
+                if payload[0] == "capabilities":
                     self._apply_catalog_payload(payload[1])
                 self._print_payload(payload[1], payload[0])
         finally:

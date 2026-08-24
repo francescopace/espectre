@@ -10,7 +10,9 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 
 import pytest
 import json
+import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 # Mock native MicroPython firmware modules before importing mqtt modules
@@ -55,6 +57,51 @@ def test_device_id_matches_native_sha256_pseudonym():
     from mqtt.protocol import _derive_device_id_from_mac
 
     assert _derive_device_id_from_mac(bytes.fromhex("7c2c6742bbac")) == "3cf79180d3a0aca4"
+
+
+def test_cpp_and_micropython_command_catalogs_match():
+    """Keep the independent C++ and MicroPython command registries aligned."""
+    from mqtt.protocol import build_capabilities_payload
+
+    repo_root = Path(__file__).resolve().parents[2]
+    build_dir = repo_root / "test" / "cpp" / "build"
+    probe = build_dir / "suites" / "espectre_capabilities_probe"
+    if not probe.exists():
+        subprocess.run(
+            ["cmake", "-S", str(repo_root / "test" / "cpp"), "-B", str(build_dir)],
+            cwd=repo_root,
+            check=True,
+        )
+        subprocess.run(
+            ["cmake", "--build", str(build_dir), "--target", "espectre_capabilities_probe"],
+            cwd=repo_root,
+            check=True,
+        )
+
+    cpp_catalog_text = subprocess.run(
+        [str(probe)],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    cpp_catalog = json.loads(cpp_catalog_text)
+    micro_catalog = build_capabilities_payload(
+        "0000000000000000",
+        supports_info=True,
+        supports_diagnostics=True,
+        supports_device_config=False,
+        supports_runtime_threshold=True,
+        supports_runtime_motion_hits=True,
+        supports_runtime_detector=True,
+        supports_manual_recalibration=True,
+        supports_traffic_control=True,
+        supports_ota=False,
+    )
+
+    assert cpp_catalog == micro_catalog
+    assert len(cpp_catalog_text.encode("utf-8")) < 4096
+    assert len(json.dumps(micro_catalog, separators=(",", ":")).encode("utf-8")) < 4096
 
 
 class MockConfig:
@@ -246,8 +293,9 @@ class TestMQTTHandler:
         assert handler.base_topic == "test/espectre/devices/test-device"
         assert handler.telemetry_topic == "test/espectre/devices/test-device/telemetry"
         assert handler.cmd_topic == "test/espectre/devices/test-device/commands/request"
-        assert handler.accepted_topic == "test/espectre/devices/test-device/commands/accepted"
-        assert handler.rejected_topic == "test/espectre/devices/test-device/commands/rejected"
+        assert handler.result_topic == "test/espectre/devices/test-device/commands/result"
+        assert handler.capabilities_topic == "test/espectre/devices/test-device/capabilities"
+        assert handler.config_topic == "test/espectre/devices/test-device/config"
 
     @patch('mqtt.handler.MQTTClient')
     def test_initial_connection_failure_schedules_reconnect(
@@ -772,6 +820,8 @@ class TestMQTTHandler:
             call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
         }
         assert published["test/espectre/devices/test-device/ha/threshold/state"] == "0.4500"
+        config_payload = json.loads(published["test/espectre/devices/test-device/config"])
+        assert config_payload["runtime"]["threshold"] == 0.45
 
     def test_ha_diagnostics_command_publishes_cached_sample(
         self,
@@ -856,6 +906,9 @@ class TestMQTTHandler:
         }
         assert published["test/espectre/devices/test-device/ha/motion_on_hits/state"] == "6"
         assert published["test/espectre/devices/test-device/ha/motion_off_hits/state"] == "4"
+        config_payload = json.loads(published["test/espectre/devices/test-device/config"])
+        assert config_payload["runtime"]["motion_on_hits"] == 6
+        assert config_payload["runtime"]["motion_off_hits"] == 4
         motion_on_publishes = [
             call for call in mock_mqtt_client_instance.publish.call_args_list
             if call.args[0] == "test/espectre/devices/test-device/ha/motion_on_hits/state"
@@ -896,10 +949,8 @@ class TestMQTTHandler:
             mock_mqtt_client_instance,
             mock_config,
             mock_segmentation,
-            handler.accepted_topic,
-            handler.rejected_topic,
+            handler.result_topic,
             handler.info_topic,
-            handler.stats_topic,
             mock_wlan,
             mock_global_state,
             runtime_policy=mock_runtime_policy,
@@ -919,10 +970,9 @@ class TestMQTTHandler:
         published = {
             call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
         }
-        assert published["test/espectre/devices/test-device/commands/accepted"]
-        info_payload = json.loads(published["test/espectre/devices/test-device/info"])
-        assert info_payload["supports_runtime_motion_hits"] is True
-        assert info_payload["supports_traffic_control"] is True
+        assert published["test/espectre/devices/test-device/commands/result"]
+        config_payload = json.loads(published["test/espectre/devices/test-device/config"])
+        assert config_payload["runtime"]["motion_on_hits"] == 5
         assert published["test/espectre/devices/test-device/ha/motion_on_hits/state"] == "5"
         assert published["test/espectre/devices/test-device/ha/motion_off_hits/state"] == "4"
 
@@ -967,6 +1017,9 @@ class TestMQTTHandler:
         }
         assert published["test/espectre/devices/test-device/ha/csi_traffic_mode/state"] == "external"
         assert published["test/espectre/devices/test-device/ha/traffic_generator_mode/state"] == "dns"
+        config_payload = json.loads(published["test/espectre/devices/test-device/config"])
+        assert config_payload["runtime"]["csi_traffic_mode"] == "external"
+        assert config_payload["runtime"]["traffic_generator_mode"] == "dns"
         csi_mode_publishes = [
             call for call in mock_mqtt_client_instance.publish.call_args_list
             if call.args[0] == "test/espectre/devices/test-device/ha/csi_traffic_mode/state"
@@ -1014,10 +1067,8 @@ class TestMQTTHandler:
             mock_mqtt_client_instance,
             mock_config,
             mock_segmentation,
-            handler.accepted_topic,
-            handler.rejected_topic,
+            handler.result_topic,
             handler.info_topic,
-            handler.stats_topic,
             mock_wlan,
             mock_global_state,
             ha_adapter=handler.ha_adapter,
@@ -1038,11 +1089,10 @@ class TestMQTTHandler:
         published = {
             call.args[0]: call.args[1] for call in mock_mqtt_client_instance.publish.call_args_list
         }
-        assert published["test/espectre/devices/test-device/commands/accepted"]
-        info_payload = json.loads(published["test/espectre/devices/test-device/info"])
-        assert info_payload["supports_traffic_control"] is True
-        assert info_payload["csi_traffic_mode"] == "disabled"
-        assert info_payload["traffic_mode"] == "dns"
+        assert published["test/espectre/devices/test-device/commands/result"]
+        config_payload = json.loads(published["test/espectre/devices/test-device/config"])
+        assert config_payload["runtime"]["csi_traffic_mode"] == "disabled"
+        assert config_payload["runtime"]["traffic_generator_mode"] == "dns"
         assert published["test/espectre/devices/test-device/ha/csi_traffic_mode/state"] == "disabled"
         assert published["test/espectre/devices/test-device/ha/traffic_generator_mode/state"] == "dns"
 
@@ -1052,7 +1102,7 @@ class TestMQTTHandler:
             b'{"command_id":"traffic-3","command":"set_csi_traffic_mode","csi_traffic_mode":"pacing"}',
         )
         published_topics = [call.args[0] for call in mock_mqtt_client_instance.publish.call_args_list]
-        assert handler.rejected_topic in published_topics
+        assert handler.result_topic in published_topics
 
     def test_ha_calibrate_command_requests_recalibration(
         self,
@@ -1120,10 +1170,8 @@ class TestMQTTHandler:
             mock_mqtt_client_instance,
             mock_config,
             mock_segmentation,
-            handler.accepted_topic,
-            handler.rejected_topic,
+            handler.result_topic,
             handler.info_topic,
-            handler.stats_topic,
             mock_wlan,
             mock_global_state,
             ha_adapter=handler.ha_adapter,
@@ -1142,12 +1190,12 @@ class TestMQTTHandler:
         accepted_payloads = [
             json.loads(call.args[1])
             for call in mock_mqtt_client_instance.publish.call_args_list
-            if call.args[0] == handler.accepted_topic
+            if call.args[0] == handler.result_topic and json.loads(call.args[1]).get("accepted") is True
         ]
         rejected_payloads = [
             json.loads(call.args[1])
             for call in mock_mqtt_client_instance.publish.call_args_list
-            if call.args[0] == handler.rejected_topic
+            if call.args[0] == handler.result_topic and json.loads(call.args[1]).get("accepted") is False
         ]
         calibrate_publishes = [
             call for call in mock_mqtt_client_instance.publish.call_args_list
@@ -1240,10 +1288,8 @@ class TestMQTTCommands:
             mock_mqtt_client_instance,
             mock_config,
             mock_segmentation,
-            "test/espectre/devices/test-device/commands/accepted",
-            "test/espectre/devices/test-device/commands/rejected",
+            "test/espectre/devices/test-device/commands/result",
             "test/espectre/devices/test-device/info",
-            "test/espectre/devices/test-device/stats",
             mock_wlan,
             mock_global_state
         )
@@ -1254,7 +1300,7 @@ class TestMQTTCommands:
         
         mock_mqtt_client_instance.publish.assert_called_once()
         call_args = mock_mqtt_client_instance.publish.call_args
-        assert call_args[0][0] == "test/espectre/devices/test-device/commands/accepted"
+        assert call_args[0][0] == "test/espectre/devices/test-device/commands/result"
         payload = json.loads(call_args[0][1])
         assert payload['status'] == 'ok'
         assert payload['device_id'] == 'test-device'
@@ -1289,16 +1335,11 @@ class TestMQTTCommands:
         # Should not raise exception
         commands_instance.send_response("test")
     
-    def test_cmd_stats(self, commands_instance, mock_mqtt_client_instance):
-        """Test stats command"""
+    def test_cmd_diagnostics(self, commands_instance, mock_mqtt_client_instance):
+        """Test diagnostics query."""
         with patch('mqtt.commands.gc') as mock_gc:
             mock_gc.mem_free.return_value = 100000
-            
-            commands_instance.cmd_stats()
-        
-        mock_mqtt_client_instance.publish.assert_called_once()
-        call_args = mock_mqtt_client_instance.publish.call_args
-        payload = json.loads(call_args[0][1])
+            payload = commands_instance.cmd_diagnostics()
         
         assert 'uptime' in payload
         assert 'free_memory_kb' in payload
@@ -1322,8 +1363,8 @@ class TestMQTTCommands:
         assert 'threshold' not in payload
         assert 'traffic_generator' not in payload
 
-    def test_cmd_stats_uses_cached_diagnostics(self, commands_instance, mock_mqtt_client_instance, mock_global_state):
-        """Test stats command publishes the cached CSI/Wi-Fi sample."""
+    def test_cmd_diagnostics_uses_cached_sample(self, commands_instance, mock_mqtt_client_instance, mock_global_state):
+        """Test diagnostics query uses the cached CSI/Wi-Fi sample."""
         mock_global_state.current_channel = 10
         mock_global_state.latest_diagnostics = {
             "traffic_tx_pps": 100.0,
@@ -1341,9 +1382,7 @@ class TestMQTTCommands:
         }
         with patch('mqtt.commands.gc') as mock_gc:
             mock_gc.mem_free.return_value = 100000
-            commands_instance.cmd_stats()
-
-        payload = json.loads(mock_mqtt_client_instance.publish.call_args[0][1])
+            payload = commands_instance.cmd_diagnostics()
         assert payload['traffic_tx_pps'] == 100.0
         assert payload['csi_callback_pps'] == 96.0
         assert payload['csi_admitted_pps'] == 84.0
@@ -1460,11 +1499,11 @@ class TestMQTTCommands:
             commands_instance.process_command(b'{"command": "info"}')
             mock_info.assert_called_once()
     
-    def test_process_command_stats(self, commands_instance, mock_mqtt_client_instance):
-        """Test processing stats command"""
-        with patch.object(commands_instance, 'cmd_stats') as mock_stats:
-            commands_instance.process_command(b'{"command": "stats"}')
-            mock_stats.assert_called_once()
+    def test_process_command_diagnostics(self, commands_instance, mock_mqtt_client_instance):
+        """Test processing diagnostics command."""
+        with patch.object(commands_instance, 'cmd_diagnostics', return_value={}) as mock_diagnostics:
+            commands_instance.process_command(b'{"command": "diagnostics"}')
+            mock_diagnostics.assert_called_once()
     
     def test_process_command_unknown(self, commands_instance, mock_mqtt_client_instance):
         """Test processing unknown command"""
@@ -1499,24 +1538,14 @@ class TestMQTTCommands:
     
     def test_cmd_info(self, commands_instance, mock_mqtt_client_instance):
         """Test info command returns system information"""
-        commands_instance.cmd_info()
-        
-        mock_mqtt_client_instance.publish.assert_called_once()
-        call_args = mock_mqtt_client_instance.publish.call_args
-        payload = json.loads(call_args[0][1])
-        assert call_args.kwargs.get("retain") is True
+        payload = commands_instance.cmd_info()
         assert payload["frontend"] == "micro"
         
         assert 'network' in payload
         assert 'detection' in payload
         assert payload['device_name'] == 'ESPectre C6 device'
         assert payload['device_label'] == ''
-        assert payload['supports_info'] is True
-        assert payload['supports_stats'] is True
-        assert payload['supports_device_config'] is False
-        assert payload['supports_runtime_threshold'] is True
-        assert payload['supports_runtime_detector'] is False
-        assert payload['supports_ota'] is False
+        assert not any(key.startswith("supports_") for key in payload)
         assert payload['csi_traffic_mode'] == 'internal'
         assert payload['traffic_mode'] == 'ping'
         assert payload['csi_target_pps'] == 100
@@ -1527,15 +1556,12 @@ class TestMQTTCommands:
         assert 'subcarriers' not in payload
         assert payload['detection']['algorithm'] == 'lightweight'
 
-    def test_cmd_commands_publishes_catalog(self, commands_instance, mock_mqtt_client_instance):
-        """Test commands catalog lists the MQTT verbs this frontend accepts."""
-        commands_instance.cmd_commands()
-
-        mock_mqtt_client_instance.publish.assert_called_once()
-        call_args = mock_mqtt_client_instance.publish.call_args
-        assert call_args[0][0].endswith("/commands/catalog")
-        payload = json.loads(call_args[0][1])
-        assert payload["commands"] == ["commands", "info", "stats", "set_threshold"]
+    def test_cmd_capabilities_returns_schema_catalog(self, commands_instance, mock_mqtt_client_instance):
+        """Test capabilities lists only executable canonical commands."""
+        payload = commands_instance.cmd_capabilities()
+        names = [item["name"] for item in payload["commands"]]
+        assert names == ["capabilities", "info", "status", "config", "diagnostics", "set_threshold"]
+        assert len(json.dumps(payload, separators=(",", ":"))) < 4096
     
     def test_cmd_info_with_connected_wlan(self, mock_mqtt_client_instance, mock_config, mock_segmentation, mock_global_state):
         """Test info command with connected WLAN"""
@@ -1556,18 +1582,13 @@ class TestMQTTCommands:
             mock_mqtt_client_instance,
             mock_config,
             mock_segmentation,
-            "test/espectre/devices/test-device/commands/accepted",
-            "test/espectre/devices/test-device/commands/rejected",
+            "test/espectre/devices/test-device/commands/result",
             "test/espectre/devices/test-device/info",
-            "test/espectre/devices/test-device/stats",
             mock_wlan,
             mock_global_state
         )
         
-        commands.cmd_info()
-        
-        call_args = mock_mqtt_client_instance.publish.call_args
-        payload = json.loads(call_args[0][1])
+        payload = commands.cmd_info()
         
         assert payload['device_name'] == 'ESPectre C6 device'
         assert 'ip_address' not in payload['network']
@@ -1586,18 +1607,13 @@ class TestMQTTCommands:
             mock_mqtt_client_instance,
             mock_config,
             mock_segmentation,
-            "test/espectre/devices/test-device/commands/accepted",
-            "test/espectre/devices/test-device/commands/rejected",
+            "test/espectre/devices/test-device/commands/result",
             "test/espectre/devices/test-device/info",
-            "test/espectre/devices/test-device/stats",
             mock_wlan,
             mock_global_state
         )
         
-        commands.cmd_info()
-        
-        call_args = mock_mqtt_client_instance.publish.call_args
-        payload = json.loads(call_args[0][1])
+        payload = commands.cmd_info()
         
         assert payload['device_name'] == 'ESPectre C6 device'
         assert 'ip_address' not in payload['network']
@@ -1618,16 +1634,11 @@ class TestMQTTCommands:
             mock_mqtt_client_instance,
             mock_config,
             MockNamedDetector(),
-            "test/espectre/devices/test-device/commands/accepted",
-            "test/espectre/devices/test-device/commands/rejected",
+            "test/espectre/devices/test-device/commands/result",
             "test/espectre/devices/test-device/info",
-            "test/espectre/devices/test-device/stats",
             mock_wlan,
             mock_global_state
         )
 
-        commands.cmd_info()
-
-        call_args = mock_mqtt_client_instance.publish.call_args
-        payload = json.loads(call_args[0][1])
+        payload = commands.cmd_info()
         assert payload['detection']['algorithm'] == 'lightweight'

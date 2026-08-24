@@ -90,11 +90,7 @@ void MatterFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
   }
 
   bindings_->publish_motion(endpoint_id_, snapshot_to_motion_detected(snapshot));
-  std::string data{"{\"motion\":"};
-  data += snapshot.motion_state == MotionState::MOTION ? "true" : "false";
-  data += ",\"movement\":" + std::to_string(snapshot.movement_metric);
-  data += ",\"threshold\":" + std::to_string(snapshot.threshold) + "}";
-  (void) direct_bridge_.publish_event("telemetry", data, true);
+  (void) direct_bridge_.publish_telemetry(snapshot);
 }
 
 void MatterFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
@@ -103,30 +99,34 @@ void MatterFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_
 }
 
 void MatterFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
-  const std::string data = "{\"threshold\":" + std::to_string(snapshot.threshold) + "}";
-  (void) direct_bridge_.publish_event("config", data);
+  (void) snapshot;
+  (void) direct_bridge_.publish_changes(FrontendCommandChange::CONFIG);
 }
 
 void MatterFrontend::on_detector_changed(const RuntimeSnapshot &snapshot) {
-  std::string data{"{"};
-  append_json_pair(&data, "detector", snapshot.detector_name != nullptr ? snapshot.detector_name : "", true);
-  data += ",\"threshold\":" + std::to_string(snapshot.threshold) + "}";
-  (void) direct_bridge_.publish_event("config", data);
+  (void) snapshot;
+  (void) direct_bridge_.publish_changes(FrontendCommandChange::CONFIG);
 }
 
-void MatterFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) { (void) snapshot; }
+void MatterFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) {
+  (void) snapshot;
+  (void) direct_bridge_.publish_changes(FrontendCommandChange::STATUS);
+}
 
 void MatterFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
   (void) snapshot;
+  FrontendCommandChange changes = FrontendCommandChange::STATUS;
+  if (success) changes = changes | FrontendCommandChange::CONFIG;
+  (void) direct_bridge_.publish_changes(changes);
   if (!success) {
     ESP_LOGW(TAG, "Calibration finished without a valid update");
   }
 }
 
 void MatterFrontend::on_live_telemetry(float movement, float threshold) {
-  const std::string data = "{\"movement\":" + std::to_string(movement) +
-                           ",\"threshold\":" + std::to_string(threshold) + "}";
-  (void) direct_bridge_.publish_event("telemetry", data, true);
+  (void) movement;
+  (void) threshold;
+  (void) direct_bridge_.publish_telemetry(runtime_.snapshot());
 }
 
 void MatterFrontend::on_runtime_fault(const char *message) {

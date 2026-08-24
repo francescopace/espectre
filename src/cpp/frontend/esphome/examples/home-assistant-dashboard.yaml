@@ -75,7 +75,11 @@ views:
                 name:
                   type: entity
                 secondary_info: none
-              - entity: switch.espectre_trigger_calibration
+              - entity: button.espectre_recalibrate
+                icon: mdi:tune-vertical
+                name:
+                  type: entity
+              - entity: binary_sensor.espectre_calibration_active
                 icon: mdi:tune-vertical
                 name:
                   type: entity

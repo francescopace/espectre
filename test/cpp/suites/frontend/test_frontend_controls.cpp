@@ -12,11 +12,12 @@
 #include <memory>
 #define private public
 #define protected public
-#include "calibrate_switch.h"
 #include "detector_select.h"
 #include "diagnostics_button.h"
 #include "espectre.h"
 #include "motion_hits_number.h"
+#include "recalibrate_button.h"
+#include "sensing_switch.h"
 #include "threshold_number.h"
 #include "traffic_mode_select.h"
 #undef protected
@@ -51,9 +52,14 @@ class MotionHitsNumberProbe : public ESpectreMotionHitsNumber {
   using ESpectreMotionHitsNumber::control;
 };
 
-class CalibrateSwitchProbe : public ESpectreCalibrateSwitch {
+class SensingSwitchProbe : public ESpectreSensingSwitch {
  public:
-  using ESpectreCalibrateSwitch::write_state;
+  using ESpectreSensingSwitch::write_state;
+};
+
+class RecalibrateButtonProbe : public ESpectreRecalibrateButton {
+ public:
+  using ESpectreRecalibrateButton::press_action;
 };
 
 class DetectorSelectProbe : public ESpectreDetectorSelect {
@@ -205,7 +211,7 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   ThresholdNumberProbe threshold_number;
   MotionHitsNumberProbe motion_on_hits_number;
   MotionHitsNumberProbe motion_off_hits_number;
-  CalibrateSwitchProbe calibrate_switch;
+  SensingSwitchProbe sensing_switch;
 
   component.set_segmentation_window_size_ms(1500);
   component.set_csi_target_pps(94);
@@ -232,7 +238,7 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   component.set_threshold_number(&threshold_number);
   component.set_motion_on_hits_number(&motion_on_hits_number);
   component.set_motion_off_hits_number(&motion_off_hits_number);
-  component.set_calibrate_switch(&calibrate_switch);
+  component.set_sensing_switch(&sensing_switch);
 
   component.set_traffic_generator_mode("dns");
   component.set_detection_algorithm("high_accuracy");
@@ -260,6 +266,7 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
 
 void test_threshold_number_behaviors_cover_parent_and_no_parent_paths(void) {
   ESpectreComponentProbe component;
+  component.setup();
   ThresholdNumberProbe number;
 
   number.setup();
@@ -313,32 +320,32 @@ void test_motion_hits_number_behaviors_cover_parent_and_no_parent_paths(void) {
   TEST_ASSERT_EQUAL_FLOAT(component.get_motion_off_hits(), motion_off_number.get_state());
 }
 
-void test_calibrate_switch_behaviors_cover_all_user_paths(void) {
+void test_sensing_switch_and_recalibrate_button_use_the_command_engine(void) {
   ESpectreComponentProbe component;
   frontend_runtime_shim::state.capabilities.supports_manual_recalibration = true;
   component.setup();
 
-  CalibrateSwitchProbe calibrate_switch;
-  calibrate_switch.setup();
-  calibrate_switch.dump_config();
-  calibrate_switch.write_state(true);
+  SensingSwitchProbe sensing_switch;
+  sensing_switch.dump_config();
+  sensing_switch.write_state(false);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.services_armed);
+
+  sensing_switch.set_parent(&component);
+  component.set_sensing_switch(&sensing_switch);
+  sensing_switch.write_state(false);
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
+  TEST_ASSERT_FALSE(sensing_switch.state);
+  sensing_switch.write_state(true);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.services_armed);
+  TEST_ASSERT_TRUE(sensing_switch.state);
+
+  RecalibrateButtonProbe recalibrate_button;
+  recalibrate_button.dump_config();
+  recalibrate_button.press_action();
   TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.trigger_recalibration_calls);
-
-  calibrate_switch.set_parent(&component);
-  calibrate_switch.set_calibrating(true);
-  TEST_ASSERT_TRUE(calibrate_switch.state);
-
-  frontend_runtime_shim::state.calibrating = true;
-  calibrate_switch.write_state(false);
-  TEST_ASSERT_TRUE(calibrate_switch.state);
-
-  frontend_runtime_shim::state.calibrating = false;
-  calibrate_switch.write_state(true);
+  recalibrate_button.set_parent(&component);
+  recalibrate_button.press_action();
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.trigger_recalibration_calls);
-
-  frontend_runtime_shim::state.calibrating = false;
-  calibrate_switch.write_state(false);
-  TEST_ASSERT_FALSE(calibrate_switch.state);
 }
 
 void test_detector_select_switches_and_republishes_runtime_state(void) {
@@ -397,13 +404,12 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   ESpectreComponentProbe component;
   esphome::sensor::Sensor movement_sensor;
   esphome::binary_sensor::BinarySensor binary_sensor;
+  esphome::binary_sensor::BinarySensor calibration_active_sensor;
   ThresholdNumberProbe threshold_number;
-  CalibrateSwitchProbe calibrate_switch;
 
   threshold_number.set_parent(&component);
-  calibrate_switch.set_parent(&component);
   component.set_threshold_number(&threshold_number);
-  component.set_calibrate_switch(&calibrate_switch);
+  component.set_calibration_active_sensor(&calibration_active_sensor);
   component.set_movement_sensor(&movement_sensor);
   component.set_motion_binary_sensor(&binary_sensor);
   component.setup();
@@ -437,7 +443,7 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   frontend_runtime_shim::state.last_listener->on_periodic_update(motion_snapshot, 42);
   TEST_ASSERT_TRUE(threshold_number.has_state());
   TEST_ASSERT_EQUAL_FLOAT(5.5f, threshold_number.get_state());
-  TEST_ASSERT_EQUAL(1, threshold_number.get_publish_count());
+  TEST_ASSERT_EQUAL(2, threshold_number.get_publish_count());
   TEST_ASSERT_EQUAL(0, movement_sensor.get_publish_count());
 
   frontend_runtime_shim::state.last_listener->on_live_telemetry(7.25f, 5.5f);
@@ -453,11 +459,11 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   TEST_ASSERT_EQUAL(1, movement_sensor.get_publish_count());
 
   frontend_runtime_shim::state.last_listener->on_calibration_started(motion_snapshot);
-  TEST_ASSERT_TRUE(calibrate_switch.state);
+  TEST_ASSERT_TRUE(calibration_active_sensor.get_state());
   TEST_ASSERT_TRUE(component.sensor_publisher_.has_motion_binary_sensor());
   TEST_ASSERT_TRUE(component.sensor_publisher_.has_movement_sensor());
   frontend_runtime_shim::state.last_listener->on_calibration_finished(motion_snapshot, false);
-  TEST_ASSERT_FALSE(calibrate_switch.state);
+  TEST_ASSERT_FALSE(calibration_active_sensor.get_state());
 }
 
 int process(void) {
@@ -469,7 +475,7 @@ int process(void) {
   RUN_TEST(test_espectre_component_configuration_setters_update_runtime_config);
   RUN_TEST(test_threshold_number_behaviors_cover_parent_and_no_parent_paths);
   RUN_TEST(test_motion_hits_number_behaviors_cover_parent_and_no_parent_paths);
-  RUN_TEST(test_calibrate_switch_behaviors_cover_all_user_paths);
+  RUN_TEST(test_sensing_switch_and_recalibrate_button_use_the_command_engine);
   RUN_TEST(test_detector_select_switches_and_republishes_runtime_state);
   RUN_TEST(test_traffic_mode_selects_switch_and_republish_runtime_state);
   RUN_TEST(test_motion_threshold_and_calibration_callbacks_publish_expected_state);

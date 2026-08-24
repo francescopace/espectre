@@ -2038,8 +2038,8 @@ def discover_direct_device(frontend: str, *, timeout_seconds: float = DIRECT_DIS
 def direct_handshake(client: DirectClient, *, frontend: str, chip: str) -> dict[str, dict[str, object]]:
     responses = {method: client.request(method) for method in ("capabilities", "info", "status", "config", "diagnostics")}
     capabilities = responses["capabilities"]
-    methods = capabilities.get("methods")
-    if capabilities.get("subprotocol") != "espectre.v1" or not isinstance(methods, list):
+    commands = capabilities.get("commands")
+    if not isinstance(commands, list) or not all(isinstance(item, dict) for item in commands):
         raise RuntimeError("Direct capabilities response is incompatible")
     info = responses["info"]
     if info.get("frontend") != frontend:
@@ -2052,14 +2052,17 @@ def direct_handshake(client: DirectClient, *, frontend: str, chip: str) -> dict[
 
 def prepare_direct_runtime(client: DirectClient, case: BenchmarkCase, *, chip: str) -> dict[str, dict[str, object]]:
     handshake = direct_handshake(client, frontend=case.frontend, chip=chip)
-    methods = set(handshake["capabilities"].get("methods", []))
+    methods = {
+        str(item.get("name"))
+        for item in handshake["capabilities"].get("commands", [])
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    }
     if case.benchmark_mode == "runtime":
         required = {
             "set_detector",
             "set_csi_traffic_mode",
             "set_traffic_generator_mode",
-            "start_sensing",
-            "stop_sensing",
+            "set_sensing",
             "diagnostics",
         }
         missing = sorted(required - methods)
@@ -2068,8 +2071,8 @@ def prepare_direct_runtime(client: DirectClient, case: BenchmarkCase, *, chip: s
         client.request("set_csi_traffic_mode", {"csi_traffic_mode": "internal"})
         client.request("set_traffic_generator_mode", {"traffic_generator_mode": "ping"})
         client.request("set_detector", {"detector": case.detector})
-    if "start_sensing" in methods:
-        client.request("start_sensing")
+    if "set_sensing" in methods:
+        client.request("set_sensing", {"enabled": True})
     confirmation = {method: client.request(method) for method in ("info", "status", "config")}
     status = confirmation["status"]
     if status.get("sensing_enabled") is not True:
@@ -2078,12 +2081,13 @@ def prepare_direct_runtime(client: DirectClient, case: BenchmarkCase, *, chip: s
         info = confirmation["info"]
         detection = info.get("detection") if isinstance(info.get("detection"), dict) else {}
         config = confirmation["config"]
-        detector = config.get("detector") or (detection.get("algorithm") if isinstance(detection, dict) else None)
+        runtime_config = config.get("runtime") if isinstance(config.get("runtime"), dict) else config
+        detector = runtime_config.get("detector") or (detection.get("algorithm") if isinstance(detection, dict) else None)
         if detector != case.detector:
             raise RuntimeError(f"Direct endpoint did not confirm detector {case.detector}")
-        if config.get("csi_traffic_mode") not in {None, "internal"}:
+        if runtime_config.get("csi_traffic_mode") not in {None, "internal"}:
             raise RuntimeError("Direct endpoint did not confirm internal CSI traffic")
-        if config.get("traffic_generator_mode") not in {None, "ping"}:
+        if runtime_config.get("traffic_generator_mode") not in {None, "ping"}:
             raise RuntimeError("Direct endpoint did not confirm ping traffic generation")
     return {**handshake, **confirmation}
 
@@ -2461,7 +2465,7 @@ def run_direct_frontend_cases(
                 result.reasons.append(str(exc))
             results.append(result)
         try:
-            client.request("stop_sensing")
+            client.request("set_sensing", {"enabled": False})
         except (OSError, RuntimeError, TimeoutError):
             pass
         return results

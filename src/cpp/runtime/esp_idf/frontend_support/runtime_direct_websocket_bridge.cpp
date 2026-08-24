@@ -100,102 +100,145 @@ bool RuntimeDirectWebSocketBridge::publish_event(const char *event_name,
   return event_name != nullptr && running() && service_->publish_event(event_name, data_json, replaceable_telemetry);
 }
 
+bool RuntimeDirectWebSocketBridge::publish_telemetry(const RuntimeSnapshot &snapshot) {
+  EspectreDeviceConfig device;
+  device.device_id = config_.device_id;
+  return publish_event("telemetry",
+                       espectre_telemetry_payload(device,
+                                                  snapshot,
+                                                  monotonic_now_ms(),
+                                                  monotonic_now_ms() / 1000U,
+                                                  config_.frontend.c_str()),
+                       true);
+}
+
+bool RuntimeDirectWebSocketBridge::publish_changes(FrontendCommandChange changes) {
+  if (!running() || runtime_ == nullptr) {
+    return false;
+  }
+  bool published = true;
+  const uint8_t flags = static_cast<uint8_t>(changes);
+  if ((flags & static_cast<uint8_t>(FrontendCommandChange::STATUS)) != 0U) {
+    published = publish_event("status", status_payload_()) && published;
+  }
+  if ((flags & static_cast<uint8_t>(FrontendCommandChange::INFO)) != 0U) {
+    published = publish_event("info", info_payload_()) && published;
+  }
+  if ((flags & static_cast<uint8_t>(FrontendCommandChange::CONFIG)) != 0U) {
+    published = publish_event("config", config_payload_()) && published;
+  }
+  return published;
+}
+
 std::string RuntimeDirectWebSocketBridge::handle_request_(const DirectWebSocketRequest &request) {
   EspectreCommand command;
   std::string parse_error;
   if (!direct_websocket_request_to_command(request, &command, &parse_error)) {
     return direct_websocket_error_response(request.id, "invalid_params", parse_error.c_str());
   }
-  if (command.command == "capabilities" || command.command == "commands") {
-    return direct_websocket_success_response(request.id, capabilities_payload_());
+  const RuntimeCapabilities &runtime_capabilities = runtime_->capabilities();
+  const FrontendCommandCapabilities capabilities{
+      true,
+      true,
+      true,
+      runtime_capabilities.supports_extended_diagnostics,
+      false,
+      false,
+      false,
+      true,
+      runtime_capabilities.supports_runtime_threshold_updates,
+      runtime_capabilities.supports_runtime_motion_hits_updates,
+      runtime_capabilities.supports_traffic_control,
+      runtime_capabilities.supports_runtime_detector_selection,
+      runtime_capabilities.supports_manual_recalibration,
+      false,
+      false,
+  };
+  FrontendCommandResult result = command_engine_.execute(
+      command,
+      FrontendCommandContext{FrontendCommandOrigin::DIRECT},
+      nullptr,
+      config_.firmware_version.c_str(),
+      capabilities,
+      [this](const EspectreCommand &read) {
+        if (read.command == "capabilities") return capabilities_payload_();
+        if (read.command == "info") return info_payload_();
+        if (read.command == "status") return status_payload_();
+        if (read.command == "config") return config_payload_();
+        if (read.command == "diagnostics") return diagnostics_payload_();
+        return std::string{};
+      },
+      {},
+      [this](float value, std::string *) { return runtime_->set_threshold_runtime(value); },
+      [this](uint8_t on, uint8_t off, std::string *) { return runtime_->set_motion_hits_runtime(on, off); },
+      [this](CsiTrafficMode mode, std::string *) { return runtime_->set_csi_traffic_mode_runtime(mode); },
+      [this](RuntimeTrafficMode mode, std::string *) { return runtime_->set_traffic_generator_mode_runtime(mode); },
+      [this](DetectionAlgorithm algorithm, std::string *) {
+        return runtime_->set_detection_algorithm_runtime(algorithm);
+      },
+      [this](std::string *) { return runtime_->trigger_recalibration(); },
+      {},
+      {},
+      [this](bool enabled, std::string *) {
+        runtime_->set_services_armed(enabled);
+        return true;
+      });
+  if (!result.accepted) {
+    return direct_websocket_error_response(request.id, result.code.c_str(), result.message.c_str());
   }
-  if (command.command == "info") {
-    return direct_websocket_success_response(request.id, info_payload_());
-  }
-  if (command.command == "status") {
-    return direct_websocket_success_response(request.id, status_payload_());
-  }
-  if (command.command == "config") {
-    return direct_websocket_success_response(request.id, config_payload_());
-  }
-  if (command.command == "diagnostics" || command.command == "stats") {
-    return direct_websocket_success_response(request.id, diagnostics_payload_());
-  }
-
-  bool accepted = false;
-  const char *message = "unsupported method";
-  if (command.command == "set_threshold" && command.has_threshold) {
-    accepted = runtime_->set_threshold_runtime(command.threshold);
-    message = accepted ? "threshold updated" : "threshold rejected";
-  } else if (command.command == "set_motion_hits" && command.has_motion_hits) {
-    accepted = runtime_->set_motion_hits_runtime(command.motion_on_hits, command.motion_off_hits);
-    message = accepted ? "motion hits updated" : "motion hits rejected";
-  } else if (command.command == "set_detector" && command.has_detector) {
-    accepted = runtime_->set_detection_algorithm_runtime(parse_detection_algorithm(command.detector.c_str()));
-    message = accepted ? "detector updated" : "detector rejected";
-  } else if (command.command == "set_csi_traffic_mode" && command.has_csi_traffic_mode) {
-    accepted = runtime_->set_csi_traffic_mode_runtime(parse_csi_traffic_mode(command.csi_traffic_mode.c_str()));
-    message = accepted ? "CSI traffic mode updated" : "CSI traffic mode rejected";
-  } else if (command.command == "set_traffic_generator_mode" && command.has_traffic_generator_mode) {
-    accepted = runtime_->set_traffic_generator_mode_runtime(
-        parse_traffic_mode(command.traffic_generator_mode.c_str()));
-    message = accepted ? "traffic generator mode updated" : "traffic generator mode rejected";
-  } else if (command.command == "recalibrate") {
-    accepted = runtime_->trigger_recalibration();
-    message = accepted ? "recalibration started" : "recalibration rejected";
-  } else if (command.command == "start_sensing" || command.command == "stop_sensing") {
-    runtime_->set_services_armed(command.command == "start_sensing");
-    accepted = true;
-    message = command.command == "start_sensing" ? "sensing started" : "sensing stopped";
-  }
-
-  if (accepted) {
+  if (result.changes != FrontendCommandChange::NONE) {
+    (void) publish_changes(result.changes);
     notify_config_changed_();
   }
-  return mutation_result_(request, accepted, message);
+  std::string response{"{"};
+  append_json_pair(&response, "command", command.command.c_str(), true);
+  append_json_pair(&response, "code", result.code.c_str());
+  append_json_pair(&response, "message", result.message.c_str());
+  if (!result.data_json.empty()) response += ",\"data\":" + result.data_json;
+  response += "}";
+  return direct_websocket_success_response(request.id, response);
 }
 
 std::string RuntimeDirectWebSocketBridge::capabilities_payload_() const {
   const RuntimeCapabilities &capabilities = runtime_->capabilities();
-  std::string out{"{\"protocol_version\":1"};
-  append_json_pair(&out, "subprotocol", ESPECTRE_DIRECT_WEBSOCKET_SUBPROTOCOL);
-  out += ",\"methods\":[\"capabilities\",\"commands\",\"info\",\"status\",\"config\",\"diagnostics\",\"stats\",\"start_sensing\",\"stop_sensing\"";
-  if (capabilities.supports_runtime_threshold_updates) out += ",\"set_threshold\"";
-  if (capabilities.supports_runtime_motion_hits_updates) out += ",\"set_motion_hits\"";
-  if (capabilities.supports_runtime_detector_selection) out += ",\"set_detector\"";
-  if (capabilities.supports_manual_recalibration) out += ",\"recalibrate\"";
-  if (capabilities.supports_traffic_control) {
-    out += ",\"set_csi_traffic_mode\",\"set_traffic_generator_mode\"";
-  }
-  out += "],\"events\":[\"status\",\"telemetry\",\"config\",\"fault\"]";
-  append_bool(&out, "raw_csi", config_.raw_csi);
-  out += "}";
-  return out;
+  EspectreDeviceConfig device;
+  device.device_id = config_.device_id;
+  EspectreDeviceInfo info;
+  info.frontend = config_.frontend;
+  info.firmware_version = config_.firmware_version;
+  info.chip = config_.chip;
+  info.supports_info = true;
+  info.supports_diagnostics = capabilities.supports_extended_diagnostics;
+  info.supports_runtime_threshold = capabilities.supports_runtime_threshold_updates;
+  info.supports_runtime_motion_hits = capabilities.supports_runtime_motion_hits_updates;
+  info.supports_runtime_detector = capabilities.supports_runtime_detector_selection;
+  info.supports_manual_recalibration = capabilities.supports_manual_recalibration;
+  info.supports_traffic_control = capabilities.supports_traffic_control;
+  return espectre_capabilities_payload(device, info, true, true, true);
 }
 
 std::string RuntimeDirectWebSocketBridge::info_payload_() const {
-  std::string out{"{"};
-  append_json_pair(&out, "device_id", format_espectre_device_id(config_.device_id).c_str(), true);
-  append_json_pair(&out, "name", config_.device_name.c_str());
-  append_json_pair(&out, "frontend", config_.frontend.c_str());
-  append_json_pair(&out, "firmware", config_.firmware_version.c_str());
-  append_json_pair(&out, "chip", config_.chip.c_str());
-  append_json_pair(&out, "path", ESPECTRE_DIRECT_WEBSOCKET_ENDPOINT);
-  append_bool(&out, "raw_csi", config_.raw_csi);
-  out += "}";
-  return out;
+  EspectreDeviceConfig device;
+  device.device_id = config_.device_id;
+  device.device_label = config_.device_name;
+  EspectreDeviceInfo info;
+  info.frontend = config_.frontend;
+  info.firmware_version = config_.firmware_version;
+  info.chip = config_.chip;
+  info.evaluation_interval_ms = runtime_->config().evaluation_interval_ms;
+  info.publish_interval_ms = runtime_->config().publish_interval_ms;
+  return espectre_info_payload(device, info);
 }
 
 std::string RuntimeDirectWebSocketBridge::status_payload_() const {
   const RuntimeSnapshot &snapshot = runtime_->snapshot();
-  std::string out{"{"};
-  append_bool(&out, "sensing_enabled", runtime_->services_armed(), true);
+  EspectreDeviceConfig device;
+  device.device_id = config_.device_id;
+  std::string out = espectre_status_payload(device, true, monotonic_now_ms());
+  out.pop_back();
+  append_bool(&out, "sensing_enabled", runtime_->services_armed());
   append_bool(&out, "ready_to_publish", snapshot.ready_to_publish);
   append_bool(&out, "calibrating", runtime_->is_calibrating());
-  append_bool(&out, "motion", snapshot.motion_state == MotionState::MOTION);
-  out += ",\"movement\":" + std::to_string(snapshot.movement_metric);
-  out += ",\"threshold\":" + std::to_string(snapshot.threshold);
-  append_json_pair(&out, "detector", snapshot.detector_name != nullptr ? snapshot.detector_name : "");
   out += "}";
   return out;
 }
@@ -203,6 +246,9 @@ std::string RuntimeDirectWebSocketBridge::status_payload_() const {
 std::string RuntimeDirectWebSocketBridge::config_payload_() const {
   const RuntimeConfig &config = runtime_->config();
   std::string out{"{"};
+  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
+  append_json_pair(&out, "device_id", format_espectre_device_id(config_.device_id).c_str());
+  out += ",\"runtime\":{";
   out += "\"threshold\":" + std::to_string(runtime_->snapshot().threshold);
   append_json_pair(&out, "detector", detection_algorithm_name(config.detection_algorithm));
   append_uint(&out, "motion_on_hits", config.motion_on_hits);
@@ -210,7 +256,7 @@ std::string RuntimeDirectWebSocketBridge::config_payload_() const {
   append_json_pair(&out, "csi_traffic_mode", csi_traffic_mode_name(config.csi_traffic_mode));
   append_json_pair(&out, "traffic_generator_mode", traffic_mode_name(config.traffic_generator_mode));
   append_uint(&out, "csi_target_pps", config.csi_target_pps);
-  out += "}";
+  out += "}}";
   return out;
 }
 
@@ -218,7 +264,9 @@ std::string RuntimeDirectWebSocketBridge::diagnostics_payload_() const {
   const RuntimeDiagnosticsSnapshot diagnostics = runtime_->diagnostics();
   const uint32_t now_ms = monotonic_now_ms();
   std::string out{"{"};
-  append_uint(&out, "timestamp_ms", now_ms, true);
+  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
+  append_json_pair(&out, "device_id", format_espectre_device_id(config_.device_id).c_str());
+  append_uint(&out, "timestamp_ms", now_ms);
   append_uint(&out, "uptime", now_ms / 1000U);
   append_uint(&out, "traffic_packets_total", diagnostics.traffic_packets_total);
   append_uint(&out, "csi_callbacks_total", diagnostics.csi_callbacks_total);
@@ -256,19 +304,6 @@ std::string RuntimeDirectWebSocketBridge::diagnostics_payload_() const {
   }
   out += "}";
   return out;
-}
-
-std::string RuntimeDirectWebSocketBridge::mutation_result_(const DirectWebSocketRequest &request,
-                                                           bool accepted,
-                                                           const char *message) {
-  if (!accepted) {
-    const char *code = std::string(message) == "unsupported method" ? "unsupported_method" : "rejected";
-    return direct_websocket_error_response(request.id, code, message);
-  }
-  std::string result{"{"};
-  append_json_pair(&result, "message", message, true);
-  result += "}";
-  return direct_websocket_success_response(request.id, result);
 }
 
 void RuntimeDirectWebSocketBridge::notify_config_changed_() {

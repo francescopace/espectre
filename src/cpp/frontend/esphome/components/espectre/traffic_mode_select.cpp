@@ -24,9 +24,9 @@ void ESpectreTrafficModeSelect::control(const std::string &value) {
     return;
   }
   if (this->csi_traffic_mode_) {
-    this->parent_->set_csi_traffic_mode_runtime(value);
+    if (!this->parent_->set_csi_traffic_mode_runtime(value)) this->republish_state();
   } else {
-    this->parent_->set_traffic_generator_mode_runtime(value);
+    if (!this->parent_->set_traffic_generator_mode_runtime(value)) this->republish_state();
   }
 }
 

@@ -32,6 +32,7 @@ Use `FEATURES.md` for detector-feature evidence and baseline lineage, `LITERATUR
 - [`2026-07-02-use-a-shared-espectre-protocol-across-esp-idf-frontends.md`](2026-07-02-use-a-shared-espectre-protocol-across-esp-idf-frontends.md)
 - [`2026-08-23-replace-native-ble-with-direct-websocket.md`](2026-08-23-replace-native-ble-with-direct-websocket.md)
 - [`2026-08-24-unify-frontend-discovery-and-direct-control.md`](2026-08-24-unify-frontend-discovery-and-direct-control.md)
+- [`2026-08-24-use-one-command-engine-across-frontends.md`](2026-08-24-use-one-command-engine-across-frontends.md)
 - [`2026-07-03-adopt-a-dedicated-cpp-streamer-frontend-for-high-rate-csi-collection.md`](2026-07-03-adopt-a-dedicated-cpp-streamer-frontend-for-high-rate-csi-collection.md)
 - [`2026-07-15-adopt-persisted-runtime-detector-selection.md`](2026-07-15-adopt-persisted-runtime-detector-selection.md)
 - [`2026-07-15-persist-per-device-matter-onboarding-data.md`](2026-07-15-persist-per-device-matter-onboarding-data.md)

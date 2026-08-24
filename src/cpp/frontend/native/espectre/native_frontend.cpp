@@ -298,17 +298,28 @@ void NativeFrontend::on_detector_changed(const RuntimeSnapshot &snapshot) {
 }
 
 void NativeFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) {
-  (void) snapshot;
+  calibration_started_ = true;
+  calibration_start_threshold_ = snapshot.threshold;
   publish_ha_calibrate_(true);
+  if (!protocol_recalibration_command_active_) {
+    publish_runtime_status_state_();
+  }
 }
 
 void NativeFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
+  const bool threshold_changed =
+      !calibration_started_ || std::fabs(snapshot.threshold - calibration_start_threshold_) > 1.0e-6f;
+  calibration_started_ = false;
   if (!success) {
     ESP_LOGW(TAG, "Calibration finished without a valid update");
   }
   publish_ha_calibrate_(false);
   if (snapshot.ready_to_publish) {
     publish_ha_threshold_(snapshot.threshold);
+  }
+  publish_runtime_status_state_();
+  if (success && threshold_changed) {
+    publish_runtime_config_state_();
   }
 }
 
@@ -359,41 +370,69 @@ void NativeFrontend::handle_mqtt_command_(const std::string &payload) {
     if (command.command.empty()) {
       command.command = "unknown";
     }
-    publish_mqtt_command_result_(command, false, parse_error.c_str());
+    FrontendCommandResult result;
+    result.handled = true;
+    result.command = std::move(command);
+    result.code = "invalid_params";
+    result.message = std::move(parse_error);
+    publish_mqtt_command_result_(result);
     return;
   }
-  const FrontendCommandResult result = dispatch_command_(command, false);
-  if (result.accepted && command.command == "info") {
-    publish_mqtt_info_();
-  } else if (result.accepted && command.command == "stats") {
-    publish_mqtt_stats_();
-  } else if (result.accepted && command.command == "commands") {
-    publish_mqtt_commands_();
-  }
-  publish_mqtt_command_result_(result.command, result.accepted, result.message.c_str());
+  const FrontendCommandResult result =
+      dispatch_command_(command, FrontendCommandOrigin::MQTT, false);
+  publish_mqtt_command_result_(result);
 }
 
-FrontendCommandResult NativeFrontend::dispatch_command_(const EspectreCommand &command, bool allow_local_config) {
-  return handle_frontend_command(
+FrontendCommandResult NativeFrontend::dispatch_command_(const EspectreCommand &command,
+                                                         FrontendCommandOrigin origin,
+                                                         bool allow_local_config) {
+  const FrontendCommandCapabilities capabilities{
+      true,
+      true,
+      true,
+      true,
+      true,
+      allow_local_config,
+      allow_local_config,
+      true,
+      runtime_.capabilities().supports_runtime_threshold_updates,
+      runtime_.capabilities().supports_runtime_motion_hits_updates,
+      runtime_.capabilities().supports_traffic_control,
+      runtime_.capabilities().supports_runtime_detector_selection,
+      runtime_.capabilities().supports_manual_recalibration,
+      ota_service_ != nullptr,
+      allow_local_config && peer_discovery_enabled_,
+  };
+  FrontendCommandResult result = command_engine_.execute(
       command,
+      FrontendCommandContext{origin},
       ota_service_,
       device_info_.firmware_version.c_str(),
-      FrontendCommandCapabilities{
-          true,
-          true,
-          true,
-          allow_local_config,
-          allow_local_config,
-          allow_local_config,
-          runtime_.capabilities().supports_runtime_threshold_updates,
-          runtime_.capabilities().supports_runtime_motion_hits_updates,
-          runtime_.capabilities().supports_traffic_control,
-          runtime_.capabilities().supports_runtime_detector_selection,
-          runtime_.capabilities().supports_manual_recalibration,
-          ota_service_ != nullptr,
+      capabilities,
+      [this, allow_local_config, capabilities](const EspectreCommand &read) {
+        if (read.command == "capabilities") {
+          return espectre_capabilities_payload(this->device_config_,
+                                               this->mqtt_protocol_device_info_(),
+                                               true,
+                                               true,
+                                               true,
+                                               allow_local_config,
+                                               allow_local_config,
+                                               capabilities.supports_peer_discovery);
+        }
+        if (read.command == "info") {
+          return espectre_info_payload(this->device_config_, this->mqtt_protocol_device_info_());
+        }
+        if (read.command == "status") {
+          return this->direct_status_payload_(!this->device_info_.network.ip_address.empty());
+        }
+        if (read.command == "config") return this->direct_config_payload_(allow_local_config);
+        if (read.command == "diagnostics") return this->direct_diagnostics_payload_();
+        if (read.command == "ota_status" && this->ota_service_ != nullptr) {
+          return espectre_ota_status_payload(this->device_config_, this->current_ota_status_(), this->now_ms_());
+        }
+        return std::string{};
       },
-      []() {},
-      []() {},
       [this](const std::string &device_label, std::string *message) {
         EspectreDeviceConfig updated_config = this->device_config_;
         updated_config.device_label = device_label;
@@ -402,7 +441,6 @@ FrontendCommandResult NativeFrontend::dispatch_command_(const EspectreCommand &c
           return false;
         }
         this->set_device_config(updated_config);
-        this->publish_mqtt_info_();
         this->publish_ha_discovery_();
         this->publish_current_ha_state_();
         if (message != nullptr && message->empty()) {
@@ -446,14 +484,14 @@ FrontendCommandResult NativeFrontend::dispatch_command_(const EspectreCommand &c
         return accepted;
       },
       [this](std::string *message) {
+        this->protocol_recalibration_command_active_ = true;
         const bool accepted = this->handle_recalibration_write_();
+        this->protocol_recalibration_command_active_ = false;
         if (message != nullptr && message->empty()) {
           *message = accepted ? "recalibration started" : "recalibration rejected";
         }
         return accepted;
       },
-      [this](const EspectreOtaStatus &status) { this->publish_ota_status_(status); },
-      []() {},
       [this](const EspectreCommand &wifi_command, bool clear, std::string *message) {
         if (!this->provisioning_command_callback_) {
           if (message != nullptr) {
@@ -537,6 +575,21 @@ FrontendCommandResult NativeFrontend::dispatch_command_(const EspectreCommand &c
         }
         return true;
       });
+  if (result.accepted) {
+    if ((static_cast<uint8_t>(result.changes) & static_cast<uint8_t>(FrontendCommandChange::STATUS)) != 0U) {
+      publish_runtime_status_state_();
+    }
+    if ((static_cast<uint8_t>(result.changes) & static_cast<uint8_t>(FrontendCommandChange::CONFIG)) != 0U) {
+      publish_runtime_config_state_();
+    }
+    if ((static_cast<uint8_t>(result.changes) & static_cast<uint8_t>(FrontendCommandChange::INFO)) != 0U) {
+      const std::string payload = espectre_info_payload(device_config_, mqtt_protocol_device_info_());
+      (void) publish_frontend_mqtt_message(
+          mqtt_transport_, device_config_, "info", payload, true);
+      publish_direct_event_("info", payload);
+    }
+  }
+  return result;
 }
 
 std::string NativeFrontend::handle_direct_request_(const DirectWebSocketRequest &request) {
@@ -546,53 +599,16 @@ std::string NativeFrontend::handle_direct_request_(const DirectWebSocketRequest 
     return direct_websocket_error_response(request.id, "invalid_params", parse_error.c_str());
   }
 
-  if (command.command == "capabilities") {
-    return direct_websocket_success_response(request.id, direct_capabilities_payload_());
-  }
-  if (command.command == "status") {
-    return direct_websocket_success_response(request.id, direct_status_payload_());
-  }
-  if (command.command == "config") {
-    return direct_websocket_success_response(request.id, direct_config_payload_());
-  }
-  if (command.command == "diagnostics") {
-    return direct_websocket_success_response(request.id, direct_diagnostics_payload_());
-  }
-  if (command.command == "ota_status") {
-    if (ota_service_ == nullptr) {
-      return direct_websocket_error_response(request.id, "unsupported_capability", "ota unavailable");
-    }
-    return direct_websocket_success_response(
-        request.id, espectre_ota_status_payload(device_config_, current_ota_status_(), now_ms_()));
-  }
-  const FrontendCommandResult result = dispatch_command_(command, true);
+  const FrontendCommandResult result =
+      dispatch_command_(command, FrontendCommandOrigin::DIRECT, true);
   if (!result.accepted) {
-    const char *code = result.message == "unsupported command" ? "unsupported_method" : "rejected";
-    return direct_websocket_error_response(request.id, code, result.message.c_str());
-  }
-
-  if (command.command == "info") {
-    return direct_websocket_success_response(
-        request.id, espectre_info_payload(device_config_, mqtt_protocol_device_info_()));
-  }
-  if (command.command == "commands") {
-    return direct_websocket_success_response(
-        request.id, espectre_commands_payload(device_config_, mqtt_protocol_device_info_()));
-  }
-  if (command.command == "stats") {
-    const uint32_t now = now_ms_();
-    return direct_websocket_success_response(
-        request.id,
-        espectre_stats_payload(device_config_,
-                               runtime_.snapshot(),
-                               now,
-                               now / 1000U,
-                               current_free_memory_kb(),
-                               last_loop_time_ms_,
-                               &latest_diagnostics_));
+    return direct_websocket_error_response(request.id, result.code.c_str(), result.message.c_str());
   }
   std::string response{"{"};
-  append_json_pair(&response, "message", result.message.c_str(), true);
+  append_json_pair(&response, "command", result.command.command.c_str(), true);
+  append_json_pair(&response, "code", result.code.c_str());
+  append_json_pair(&response, "message", result.message.c_str());
+  if (!result.data_json.empty()) response += ",\"data\":" + result.data_json;
   response += "}";
   return direct_websocket_success_response(request.id, response);
 }
@@ -606,7 +622,7 @@ IDirectWebSocketService::DeferredRequestResult NativeFrontend::handle_deferred_d
   if (!peer_discovery_enabled_ || peer_discovery_ == nullptr) {
     return {false,
             direct_websocket_error_response(
-                request.id, "unsupported_capability", "peer discovery is unavailable")};
+                request.id, "unsupported", "peer discovery is unavailable")};
   }
   std::vector<JsonObjectField> params;
   if (!parse_json_object_fields(request.params, &params) || !params.empty()) {
@@ -624,7 +640,9 @@ IDirectWebSocketService::DeferredRequestResult NativeFrontend::handle_deferred_d
         if (this->direct_service_ == nullptr) {
           return;
         }
-        const std::string result = peer_discovery_snapshot_json(snapshot);
+        std::string result{"{\"command\":\"discover_peers\",\"code\":\"ok\""};
+        append_json_pair(&result, "message", "peer discovery completed");
+        result += ",\"data\":" + peer_discovery_snapshot_json(snapshot) + "}";
         (void) this->direct_service_->complete_deferred_response(
             connection_token, direct_websocket_success_response(request_id, result));
       });
@@ -637,42 +655,19 @@ IDirectWebSocketService::DeferredRequestResult NativeFrontend::handle_deferred_d
 }
 
 std::string NativeFrontend::direct_capabilities_payload_() const {
-  const RuntimeCapabilities &runtime_capabilities = runtime_.capabilities();
-  std::string out{"{"};
-  out += "\"protocol_version\":1";
-  append_json_pair(&out, "subprotocol", ESPECTRE_DIRECT_WEBSOCKET_SUBPROTOCOL);
-  out += ",\"max_clients\":2,\"methods\":[\"capabilities\",\"info\",\"status\",\"config\",\"diagnostics\",";
-  out += "\"set_device_label\",\"set_wifi_config\",\"clear_wifi_config\",\"set_mqtt_config\",";
-  out += "\"clear_mqtt_config\",\"start_sensing\",\"stop_sensing\"";
-  if (runtime_capabilities.supports_runtime_threshold_updates) {
-    out += ",\"set_threshold\"";
-  }
-  if (runtime_capabilities.supports_runtime_motion_hits_updates) {
-    out += ",\"set_motion_hits\"";
-  }
-  if (runtime_capabilities.supports_runtime_detector_selection) {
-    out += ",\"set_detector\"";
-  }
-  if (runtime_capabilities.supports_manual_recalibration) {
-    out += ",\"recalibrate\"";
-  }
-  if (runtime_capabilities.supports_traffic_control) {
-    out += ",\"set_csi_traffic_mode\",\"set_traffic_generator_mode\"";
-  }
-  if (ota_service_ != nullptr) {
-    out += ",\"ota_status\",\"ota_check\",\"ota_start\"";
-  }
-  if (peer_discovery_enabled_) {
-    out += ",\"discover_peers\"";
-  }
-  out += "],\"events\":[\"capabilities\",\"info\",\"status\",\"telemetry\",\"diagnostics\",\"config\",\"ota_status\",\"command_result\",\"fault\"]";
-  out += ",\"home_assistant_discovery\":\"mqtt_only\",\"raw_csi\":false}";
-  return out;
+  return espectre_capabilities_payload(device_config_,
+                                       mqtt_protocol_device_info_(),
+                                       true,
+                                       true,
+                                       true,
+                                       true,
+                                       true,
+                                       peer_discovery_enabled_);
 }
 
-std::string NativeFrontend::direct_status_payload_() const {
+std::string NativeFrontend::direct_status_payload_(bool online) const {
   const uint32_t now = now_ms_();
-  std::string out = espectre_status_payload(device_config_, !device_info_.network.ip_address.empty(), now);
+  std::string out = espectre_status_payload(device_config_, online, now);
   if (!out.empty() && out.back() == '}') {
     out.pop_back();
   }
@@ -686,14 +681,32 @@ std::string NativeFrontend::direct_status_payload_() const {
   out += runtime_.services_armed() ? "true" : "false";
   out += ",\"ready_to_publish\":";
   out += runtime_.snapshot().ready_to_publish ? "true" : "false";
+  out += ",\"calibrating\":";
+  out += runtime_.is_calibrating() ? "true" : "false";
   out += "}";
   return out;
 }
 
-std::string NativeFrontend::direct_config_payload_() const {
+std::string NativeFrontend::direct_config_payload_(bool include_local) const {
+  const RuntimeConfig &runtime_config = runtime_.config();
   std::string out{"{"};
+  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
+  append_json_pair(&out, "device_id", espectre_effective_device_id(device_config_).c_str());
+  out += ",\"runtime\":{";
+  out += "\"threshold\":" + std::to_string(runtime_.snapshot().threshold);
+  append_json_pair(&out, "detector", detection_algorithm_name(runtime_config.detection_algorithm));
+  out += ",\"motion_on_hits\":" + std::to_string(runtime_config.motion_on_hits);
+  out += ",\"motion_off_hits\":" + std::to_string(runtime_config.motion_off_hits);
+  append_json_pair(&out, "csi_traffic_mode", csi_traffic_mode_name(runtime_config.csi_traffic_mode));
+  append_json_pair(&out, "traffic_generator_mode", traffic_mode_name(runtime_config.traffic_generator_mode));
+  out += ",\"csi_target_pps\":" + std::to_string(runtime_config.csi_target_pps) + "}";
+  if (!include_local) {
+    out += "}";
+    return out;
+  }
+  out += ",\"device\":{";
   append_json_pair(&out, "device_label", device_config_.device_label.c_str(), true);
-  out += ",\"wifi\":{\"configured\":";
+  out += "},\"wifi\":{\"configured\":";
   out += wifi_configured_() ? "true" : "false";
   append_json_pair(&out, "ssid", wifi_info_.ssid.c_str());
   append_json_pair(&out, "bssid", wifi_info_.bssid.c_str());
@@ -715,13 +728,13 @@ std::string NativeFrontend::direct_config_payload_() const {
 std::string NativeFrontend::direct_diagnostics_payload_() const {
   const uint32_t now = now_ms_();
   const RuntimeDiagnosticsSnapshot runtime_diagnostics = runtime_.diagnostics();
-  std::string out = espectre_stats_payload(device_config_,
-                                           runtime_.snapshot(),
-                                           now,
-                                           now / 1000U,
-                                           current_free_memory_kb(),
-                                           last_loop_time_ms_,
-                                           &latest_diagnostics_);
+  std::string out = espectre_diagnostics_payload(device_config_,
+                                                 runtime_.snapshot(),
+                                                 now,
+                                                 now / 1000U,
+                                                 current_free_memory_kb(),
+                                                 last_loop_time_ms_,
+                                                 &latest_diagnostics_);
   if (!out.empty() && out.back() == '}') {
     out.pop_back();
   }
@@ -847,7 +860,9 @@ void NativeFrontend::handle_ha_threshold_command_(const std::string &payload) {
     ESP_LOGW(TAG, "Invalid HA threshold command: %s", payload.c_str());
     return;
   }
-  (void) handle_threshold_write_(threshold);
+  if (handle_threshold_write_(threshold)) {
+    publish_runtime_config_state_();
+  }
 }
 
 void NativeFrontend::handle_ha_motion_hits_command_(bool motion_on, const std::string &payload) {
@@ -862,7 +877,9 @@ void NativeFrontend::handle_ha_motion_hits_command_(bool motion_on, const std::s
   const uint8_t value = static_cast<uint8_t>(parsed);
   const uint8_t motion_on_hits = motion_on ? value : runtime_.config().motion_on_hits;
   const uint8_t motion_off_hits = motion_on ? runtime_.config().motion_off_hits : value;
-  (void) handle_motion_hits_write_(motion_on_hits, motion_off_hits);
+  if (handle_motion_hits_write_(motion_on_hits, motion_off_hits)) {
+    publish_runtime_config_state_();
+  }
 }
 
 void NativeFrontend::handle_ha_calibrate_command_(const std::string &payload) {
@@ -892,7 +909,9 @@ void NativeFrontend::handle_ha_csi_traffic_mode_command_(const std::string &payl
     ESP_LOGW(TAG, "Invalid HA CSI traffic mode command: %s", payload.c_str());
     return;
   }
-  (void) handle_csi_traffic_mode_write_(parse_csi_traffic_mode(mode.c_str()));
+  if (handle_csi_traffic_mode_write_(parse_csi_traffic_mode(mode.c_str()))) {
+    publish_runtime_config_state_();
+  }
 }
 
 void NativeFrontend::handle_ha_traffic_generator_mode_command_(const std::string &payload) {
@@ -902,7 +921,9 @@ void NativeFrontend::handle_ha_traffic_generator_mode_command_(const std::string
     ESP_LOGW(TAG, "Invalid HA traffic generator mode command: %s", payload.c_str());
     return;
   }
-  (void) handle_traffic_generator_mode_write_(parse_traffic_mode(mode.c_str()));
+  if (handle_traffic_generator_mode_write_(parse_traffic_mode(mode.c_str()))) {
+    publish_runtime_config_state_();
+  }
 }
 
 void NativeFrontend::handle_ha_diagnostics_command_(const std::string &payload) {
@@ -1006,7 +1027,7 @@ void NativeFrontend::setup_mqtt_() {
   mqtt_ha_online_ = false;
   if (was_connected) {
     update_live_telemetry_enabled_();
-    publish_direct_event_("status", direct_status_payload_());
+    publish_direct_event_("status", direct_status_payload_(!device_info_.network.ip_address.empty()));
   }
   (void) setup_frontend_mqtt_transport(mqtt_transport_,
                                        device_config_,
@@ -1021,13 +1042,17 @@ void NativeFrontend::setup_mqtt_() {
                                          }
                                          this->update_live_telemetry_enabled_();
                                          if (connected) {
+                                           this->publish_mqtt_capabilities_();
                                            this->publish_mqtt_info_();
                                            this->publish_mqtt_status_(true);
+                                           this->publish_mqtt_config_();
                                            this->publish_current_mqtt_ota_status_();
                                            this->setup_ha_mqtt_();
                                            this->publish_ha_discovery_();
                                          }
-                                         this->publish_direct_event_("status", this->direct_status_payload_());
+                                         this->publish_direct_event_(
+                                             "status",
+                                             this->direct_status_payload_(!this->device_info_.network.ip_address.empty()));
                                        },
                                        TAG);
 }
@@ -1064,7 +1089,11 @@ void NativeFrontend::setup_ha_mqtt_() {
                                         const std::string detector = normalize_text_token(payload);
                                         if (detector == RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME ||
                                             detector == RUNTIME_DETECTION_ALGORITHM_HIGH_ACCURACY_NAME) {
-                                          (void) this->handle_detector_write_(parse_detection_algorithm(detector.c_str()));
+                                          const DetectionAlgorithm algorithm =
+                                              parse_detection_algorithm(detector.c_str());
+                                          if (this->handle_detector_write_(algorithm)) {
+                                            this->publish_runtime_config_state_();
+                                          }
                                         }
                                       });
   }
@@ -1226,23 +1255,38 @@ void NativeFrontend::publish_ha_state_(const RuntimeSnapshot &snapshot) {
 
 void NativeFrontend::publish_current_ha_state_() { publish_ha_state_(runtime_.snapshot()); }
 
+void NativeFrontend::publish_runtime_config_state_() {
+  publish_mqtt_config_();
+  publish_direct_event_("config", direct_config_payload_());
+}
+
+void NativeFrontend::publish_runtime_status_state_() {
+  const std::string payload = direct_status_payload_(!device_info_.network.ip_address.empty());
+  (void) publish_frontend_mqtt_message(mqtt_transport_, device_config_, "status", payload, true);
+  publish_direct_event_("status", payload);
+}
+
 void NativeFrontend::publish_mqtt_info_() {
   const EspectreDeviceInfo info = mqtt_protocol_device_info_();
   (void) publish_frontend_mqtt_message(
       mqtt_transport_, device_config_, "info", espectre_info_payload(device_config_, info), true);
 }
 
-void NativeFrontend::publish_mqtt_commands_() {
+void NativeFrontend::publish_mqtt_capabilities_() {
   const EspectreDeviceInfo info = mqtt_protocol_device_info_();
   (void) publish_frontend_mqtt_message(
-      mqtt_transport_, device_config_, "commands/catalog", espectre_commands_payload(device_config_, info), false);
+      mqtt_transport_,
+      device_config_,
+      "capabilities",
+      espectre_capabilities_payload(device_config_, info, true, true, true),
+      true);
 }
 
 EspectreDeviceInfo NativeFrontend::mqtt_protocol_device_info_() const {
   EspectreDeviceInfo info =
       normalize_protocol_device_info(device_info_, &runtime_.snapshot(), ota_service_ != nullptr, "native", CONFIG_IDF_TARGET);
   info.supports_info = true;
-  info.supports_stats = true;
+  info.supports_diagnostics = true;
   info.supports_device_config = true;
   info.supports_runtime_threshold = runtime_.capabilities().supports_runtime_threshold_updates;
   info.supports_runtime_motion_hits = runtime_.capabilities().supports_runtime_motion_hits_updates;
@@ -1258,7 +1302,8 @@ EspectreDeviceInfo NativeFrontend::mqtt_protocol_device_info_() const {
 }
 
 void NativeFrontend::publish_mqtt_status_(bool online) {
-  (void) publish_frontend_mqtt_status(mqtt_transport_, device_config_, online, now_ms_());
+  (void) publish_frontend_mqtt_message(
+      mqtt_transport_, device_config_, "status", direct_status_payload_(online), true);
 }
 
 void NativeFrontend::publish_mqtt_telemetry_(const RuntimeSnapshot &snapshot, uint32_t now) {
@@ -1270,13 +1315,13 @@ void NativeFrontend::publish_mqtt_telemetry_(const RuntimeSnapshot &snapshot, ui
                                        false);
 }
 
-void NativeFrontend::publish_mqtt_stats_() {
+void NativeFrontend::publish_mqtt_config_() {
   (void) publish_frontend_mqtt_message(
       mqtt_transport_,
       device_config_,
-      "stats",
-      direct_diagnostics_payload_(),
-      false);
+      "config",
+      direct_config_payload_(false),
+      true);
 }
 
 EspectreOtaStatus NativeFrontend::current_ota_status_() const {
@@ -1295,7 +1340,7 @@ void NativeFrontend::publish_ota_status_(const EspectreOtaStatus &status) {
     normalized.current_version = device_info_.firmware_version;
   }
   const std::string payload = espectre_ota_status_payload(device_config_, normalized, now_ms_());
-  fan_out_payload_("ota/state", "ota_status", payload);
+  fan_out_payload_("ota_status", "ota_status", payload, true);
 }
 
 void NativeFrontend::sample_diagnostics_(uint32_t now_ms) {
@@ -1313,8 +1358,8 @@ void NativeFrontend::publish_current_mqtt_ota_status_() {
   publish_mqtt_ota_status_(current_ota_status_());
 }
 
-void NativeFrontend::publish_mqtt_command_result_(const EspectreCommand &command, bool accepted, const char *message) {
-  (void) publish_frontend_mqtt_command_result(mqtt_transport_, device_config_, command, accepted, message);
+void NativeFrontend::publish_mqtt_command_result_(const FrontendCommandResult &result) {
+  (void) publish_frontend_mqtt_command_result(mqtt_transport_, device_config_, result);
 }
 
 void NativeFrontend::prepare_for_ota_() {

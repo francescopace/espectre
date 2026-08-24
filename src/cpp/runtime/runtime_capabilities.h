@@ -44,7 +44,7 @@ struct RuntimeCapabilities {
    * Movement Score. Transport adapters decide how to forward live sensing.
    */
   bool supports_live_telemetry{false};
-  /** The runtime reports the extended diagnostics block used by stats payloads. */
+  /** The runtime reports the extended fields used by diagnostics payloads. */
   bool supports_extended_diagnostics{false};
   /** The runtime owns CSI traffic generation and can be asked to retune it. */
   bool supports_traffic_control{false};

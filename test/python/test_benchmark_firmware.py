@@ -178,7 +178,18 @@ def test_direct_client_correlates_response_while_collecting_events():
     socket = _FakeWebSocket(
         [
             json.dumps({"v": 1, "type": "event", "event": "telemetry", "data": {"motion": False}}),
-            json.dumps({"v": 1, "type": "response", "id": "benchmark-1", "ok": True, "result": {"uptime": 7}}),
+            json.dumps({
+                "v": 1,
+                "type": "response",
+                "id": "benchmark-1",
+                "ok": True,
+                "result": {
+                    "command": "diagnostics",
+                    "code": "ok",
+                    "message": "diagnostics returned",
+                    "data": {"uptime": 7},
+                },
+            }),
         ]
     )
     connect_args: dict[str, object] = {}

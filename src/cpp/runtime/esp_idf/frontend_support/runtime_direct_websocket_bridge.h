@@ -14,6 +14,7 @@
 #include <string>
 
 #include "direct_websocket_service.h"
+#include "frontend_control_helpers.h"
 #include "runtime_frontend_controller.h"
 
 namespace espectre {
@@ -49,6 +50,8 @@ class RuntimeDirectWebSocketBridge {
   bool running() const;
   size_t client_count() const;
   bool publish_event(const char *event_name, const std::string &data_json, bool replaceable_telemetry = false);
+  bool publish_telemetry(const RuntimeSnapshot &snapshot);
+  bool publish_changes(FrontendCommandChange changes);
 
  private:
   std::string handle_request_(const DirectWebSocketRequest &request);
@@ -57,11 +60,11 @@ class RuntimeDirectWebSocketBridge {
   std::string status_payload_() const;
   std::string config_payload_() const;
   std::string diagnostics_payload_() const;
-  std::string mutation_result_(const DirectWebSocketRequest &request, bool accepted, const char *message);
   void notify_config_changed_();
 
   IDirectWebSocketService *service_{nullptr};
   RuntimeFrontendController *runtime_{nullptr};
+  FrontendCommandEngine command_engine_{};
   RuntimeDirectWebSocketBridgeConfig config_{};
   ConfigChangedCallback config_changed_{};
 };

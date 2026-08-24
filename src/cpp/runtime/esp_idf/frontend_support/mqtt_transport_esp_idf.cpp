@@ -190,8 +190,7 @@ bool EspIdfMqttTransport::publish_suffix(const char *suffix, const std::string &
   }
   publish_topic_.assign(topic_base_);
   publish_topic_.append(suffix);
-  const bool command_result = std::strcmp(suffix, "commands/accepted") == 0 ||
-                              std::strcmp(suffix, "commands/rejected") == 0;
+  const bool command_result = std::strcmp(suffix, "commands/result") == 0;
   return enqueue_publish_(publish_topic_, payload, retain, !command_result);
 }
 

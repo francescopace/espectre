@@ -80,8 +80,8 @@ describe('MQTT command lifecycle', () => {
         });
         assert.equal(client.hasPendingCommand('set_threshold'), true);
         assert.equal(client.ingest(
-            'espectre/v1/devices/0x1234/commands/accepted',
-            '{"protocol_version":"1.0","device_id":"0x1234","command_id":"web-test","accepted":true}'
+            'espectre/v1/devices/0x1234/commands/result',
+            '{"protocol_version":"1.0","device_id":"0x1234","command_id":"web-test","command":"set_threshold","accepted":true,"code":"ok","message":"threshold updated"}'
         ), true);
         assert.equal((await resultPromise).accepted, true);
         assert.equal(client.hasPendingCommand('set_threshold'), false);
@@ -95,12 +95,12 @@ describe('MQTT command lifecycle', () => {
             { commandId: 'reject-me' }
         );
         client.ingest(
-            'espectre/v1/devices/device-a/commands/rejected',
-            '{"protocol_version":"1.0","device_id":"device-a","command_id":"reject-me","message":"unsupported detector"}'
+            'espectre/v1/devices/device-a/commands/result',
+            '{"protocol_version":"1.0","device_id":"device-a","command_id":"reject-me","command":"set_detector","accepted":false,"code":"unsupported","message":"unsupported detector"}'
         );
         await assert.rejects(rejected, /unsupported detector/);
 
-        const closed = client.publishCommand({ command: 'stats' }, { commandId: 'close-me' });
+        const closed = client.publishCommand({ command: 'diagnostics' }, { commandId: 'close-me' });
         client.close();
         await assert.rejects(closed, /Broker connection closed/);
     });
@@ -111,10 +111,10 @@ describe('MQTT command lifecycle', () => {
         };
         const client = new Client(transport, { deviceId: 'device-a' });
         await assert.rejects(
-            client.publishCommand({ command: 'stats' }, { commandId: 'sync-failure' }),
+            client.publishCommand({ command: 'diagnostics' }, { commandId: 'sync-failure' }),
             /transport failed/
         );
-        assert.equal(client.hasPendingCommand('stats'), false);
+        assert.equal(client.hasPendingCommand('diagnostics'), false);
     });
 });
 

@@ -20,7 +20,7 @@ try:
     from src.mqtt.protocol import (
         THRESHOLD_MAX,
         THRESHOLD_MIN,
-        _protocol_mqtt_commands,
+        build_capabilities_payload,
         build_info_payload,
     )
 except ImportError:
@@ -31,7 +31,7 @@ except ImportError:
     from mqtt.protocol import (
         THRESHOLD_MAX,
         THRESHOLD_MIN,
-        _protocol_mqtt_commands,
+        build_capabilities_payload,
         build_info_payload,
     )
 
@@ -48,10 +48,8 @@ class MQTTCommands:
                  mqtt_client,
                  config,
                  detector,
-                 accepted_topic,
-                 rejected_topic,
+                 result_topic,
                  info_topic,
-                 stats_topic,
                  wlan,
                  global_state=None,
                  runtime_policy=None,
@@ -68,10 +66,8 @@ class MQTTCommands:
             mqtt_client: MQTT client instance
             config: Configuration module
             detector: IDetector instance
-            accepted_topic: MQTT topic for accepted command responses
-            rejected_topic: MQTT topic for rejected command responses
+            result_topic: MQTT topic for correlated command results
             info_topic: MQTT topic for live system info
-            stats_topic: MQTT topic for runtime stats
             wlan: wlan instance
             global_state: GlobalState instance for accessing loop metrics (optional)
         """
@@ -81,14 +77,14 @@ class MQTTCommands:
         self.detector = detector
         self.wlan = wlan
         self.global_state = global_state
-        self.accepted_topic = accepted_topic
-        self.rejected_topic = rejected_topic
+        self.result_topic = result_topic
         self.info_topic = info_topic
-        self.stats_topic = stats_topic
+        self.config_topic = info_topic[: -len("/info")] + "/config" if info_topic.endswith("/info") else ""
+        self.status_topic = info_topic[: -len("/info")] + "/status" if info_topic.endswith("/info") else ""
         if catalog_topic:
             self.catalog_topic = catalog_topic
         elif info_topic.endswith("/info"):
-            self.catalog_topic = info_topic[: -len("/info")] + "/commands/catalog"
+            self.catalog_topic = info_topic[: -len("/info")] + "/capabilities"
         else:
             self.catalog_topic = ""
         self.start_time = time.time()
@@ -102,10 +98,9 @@ class MQTTCommands:
         """Build detection info dict based on detector type."""
         return {"algorithm": get_detector_algorithm(self.detector)}
         
-    def send_response(self, message, accepted=True, command_id="", command=""):
+    def send_response(self, message, accepted=True, command_id="", command="", code=None, data=None):
         """Send response message to MQTT"""
         try:
-            topic = self.accepted_topic if accepted else self.rejected_topic
             # If message is a dict, convert to JSON
             if isinstance(message, dict):
                 payload = message
@@ -128,8 +123,15 @@ class MQTTCommands:
                 if command:
                     payload.setdefault("command", command)
                 payload.setdefault("accepted", bool(accepted))
+                payload.setdefault("code", code or ("ok" if accepted else "invalid_params"))
+                if data is not None:
+                    payload["data"] = data
             
-            self.mqtt.publish(topic, json.dumps(payload))
+            self.mqtt.publish(self.result_topic, json.dumps(payload))
+            if accepted and command.startswith("set_") and self.config_topic:
+                self.mqtt.publish(self.config_topic, json.dumps(self.build_config_payload()), retain=True)
+            elif accepted and command == "recalibrate" and self.status_topic:
+                self.mqtt.publish(self.status_topic, json.dumps(self.build_status_payload()), retain=True)
         except Exception as e:
             print(f"Error sending MQTT response: {e}")
 
@@ -137,13 +139,9 @@ class MQTTCommands:
         """Publish retained info so MQTT discovery sees the current frontend."""
         self.mqtt.publish(self.info_topic, json.dumps(payload), retain=True)
 
-    def publish_stats_payload(self, payload):
-        """Publish stats payload."""
-        self.mqtt.publish(self.stats_topic, json.dumps(payload))
-    
     def cmd_info(self):
         """Get system information"""
-        response = build_info_payload(
+        return build_info_payload(
             self.config,
             get_detector_algorithm(self.detector),
             self.wlan,
@@ -154,30 +152,24 @@ class MQTTCommands:
             self.traffic_control_supported,
             device_id=self.device_id,
         )
-        self.publish_info_payload(response)
 
-    def cmd_commands(self):
-        """Publish the MQTT command catalog for this frontend."""
-        payload = {
-            "protocol_version": "1.0",
-            "device_id": self.device_id,
-            "commands": _protocol_mqtt_commands(
-                supports_info=True,
-                supports_stats=True,
-                supports_device_config=False,
-                supports_runtime_threshold=True,
-                supports_runtime_motion_hits=self.runtime_policy is not None,
-                supports_runtime_detector=False,
-                supports_manual_recalibration=callable(self.recalibrate_callback),
-                supports_traffic_control=self.traffic_control_supported,
-                supports_ota=False,
-            ),
-        }
-        if self.catalog_topic:
-            self.mqtt.publish(self.catalog_topic, json.dumps(payload))
+    def cmd_capabilities(self):
+        """Return the filtered canonical command catalog."""
+        return build_capabilities_payload(
+            self.device_id,
+            supports_info=True,
+            supports_diagnostics=True,
+            supports_device_config=False,
+            supports_runtime_threshold=True,
+            supports_runtime_motion_hits=self.runtime_policy is not None,
+            supports_runtime_detector=False,
+            supports_manual_recalibration=callable(self.recalibrate_callback),
+            supports_traffic_control=self.traffic_control_supported,
+            supports_ota=False,
+        )
     
-    def cmd_stats(self):
-        """Get runtime statistics"""
+    def cmd_diagnostics(self):
+        """Return runtime diagnostics."""
         current_time = time.time()
         uptime_sec = current_time - self.start_time
         
@@ -209,7 +201,29 @@ class MQTTCommands:
             rssi_dbm=wifi_rssi_dbm(self.wlan),
         )
 
-        self.publish_stats_payload(response)
+        return response
+
+    def build_status_payload(self):
+        return {
+            "protocol_version": "1.0",
+            "device_id": self.device_id,
+            "online": True,
+            "sensing_enabled": True,
+            "ready_to_publish": bool(getattr(self.global_state, "ready_to_publish", False)),
+            "calibrating": bool(self.ha_adapter is not None and self.ha_adapter.is_calibrating()),
+        }
+
+    def build_config_payload(self):
+        runtime = {
+            "threshold": float(self.detector.get_threshold()),
+            "detector": get_detector_algorithm(self.detector),
+            "csi_traffic_mode": getattr(self.ha_adapter, "_last_csi_traffic_mode", "internal"),
+            "traffic_generator_mode": getattr(self.ha_adapter, "_last_traffic_generator_mode", "ping"),
+        }
+        if self.runtime_policy is not None:
+            runtime["motion_on_hits"] = int(self.runtime_policy.motion_on_hits)
+            runtime["motion_off_hits"] = int(self.runtime_policy.motion_off_hits)
+        return {"protocol_version": "1.0", "device_id": self.device_id, "runtime": runtime}
     
     def cmd_set_threshold(self, cmd_obj):
         """Set detection threshold (session-only, not persisted)"""
@@ -239,7 +253,8 @@ class MQTTCommands:
                     f"ERROR: Threshold rejected by detector (allowed range: {threshold_min}-{threshold_max})",
                     accepted=False,
                     command_id=command_id,
-                    command=command
+                    command=command,
+                    code="unavailable",
                 )
                 return
             
@@ -264,14 +279,13 @@ class MQTTCommands:
     
             
         # Send info response with updated configuration
-        self.cmd_info()
 
     def cmd_set_motion_hits(self, cmd_obj):
         """Set runtime motion-hit debounce counts (session-only)."""
         command_id = cmd_obj.get('command_id', '')
         command = cmd_obj.get('command', 'set_motion_hits')
         if self.runtime_policy is None:
-            self.send_response("ERROR: Motion hit updates are unsupported", accepted=False, command_id=command_id, command=command)
+            self.send_response("ERROR: Motion hit updates are unsupported", accepted=False, command_id=command_id, command=command, code="unsupported")
             return
         if 'motion_on_hits' not in cmd_obj or 'motion_off_hits' not in cmd_obj:
             self.send_response(
@@ -309,14 +323,13 @@ class MQTTCommands:
             command_id=command_id,
             command=command,
         )
-        self.cmd_info()
 
     def cmd_recalibrate(self, cmd_obj):
         """Queue a recalibration request for the main loop."""
         command_id = cmd_obj.get('command_id', '')
         command = cmd_obj.get('command', 'recalibrate')
         if not callable(self.recalibrate_callback):
-            self.send_response("ERROR: Recalibration is unsupported", accepted=False, command_id=command_id, command=command)
+            self.send_response("ERROR: Recalibration is unsupported", accepted=False, command_id=command_id, command=command, code="unsupported")
             return
         if not self.recalibrate_callback():
             self.send_response(
@@ -324,6 +337,7 @@ class MQTTCommands:
                 accepted=False,
                 command_id=command_id,
                 command=command,
+                code="busy",
             )
             return
         self.send_response("recalibration started", accepted=True, command_id=command_id, command=command)
@@ -343,11 +357,11 @@ class MQTTCommands:
             return
         callback = self.traffic_control_callback
         if not self.traffic_control_supported or not callable(callback):
-            self.send_response("ERROR: Traffic control is unsupported", accepted=False, command_id=command_id, command=command)
+            self.send_response("ERROR: Traffic control is unsupported", accepted=False, command_id=command_id, command=command, code="unsupported")
             return
         generator_mode = getattr(self.ha_adapter, "_last_traffic_generator_mode", "ping")
         if not callback(mode, generator_mode):
-            self.send_response("ERROR: CSI traffic mode rejected", accepted=False, command_id=command_id, command=command)
+            self.send_response("ERROR: CSI traffic mode rejected", accepted=False, command_id=command_id, command=command, code="unavailable")
             return
         self.send_response(
             "CSI traffic mode updated: {} (session-only)".format(mode),
@@ -355,7 +369,6 @@ class MQTTCommands:
             command_id=command_id,
             command=command,
         )
-        self.cmd_info()
 
     def cmd_set_traffic_generator_mode(self, cmd_obj):
         """Set the live internal traffic generator packet type (session-only)."""
@@ -372,11 +385,11 @@ class MQTTCommands:
             return
         callback = self.traffic_control_callback
         if not self.traffic_control_supported or not callable(callback):
-            self.send_response("ERROR: Traffic control is unsupported", accepted=False, command_id=command_id, command=command)
+            self.send_response("ERROR: Traffic control is unsupported", accepted=False, command_id=command_id, command=command, code="unsupported")
             return
         csi_mode = getattr(self.ha_adapter, "_last_csi_traffic_mode", "internal")
         if not callback(csi_mode, mode):
-            self.send_response("ERROR: Traffic generator mode rejected", accepted=False, command_id=command_id, command=command)
+            self.send_response("ERROR: Traffic generator mode rejected", accepted=False, command_id=command_id, command=command, code="unavailable")
             return
         self.send_response(
             "Traffic generator mode updated: {} (session-only)".format(mode),
@@ -384,8 +397,42 @@ class MQTTCommands:
             command_id=command_id,
             command=command,
         )
-        self.cmd_info()
     
+    @staticmethod
+    def _validate_params(cmd_obj, descriptor):
+        """Validate the canonical JSON Schema subset without CPython-only dependencies."""
+        schema = descriptor["params"]
+        properties = schema.get("properties", {})
+        allowed = {"protocol_version", "command_id", "command"}
+        allowed.update(properties)
+        if schema.get("additionalProperties") is False:
+            unknown = [key for key in cmd_obj if key not in allowed]
+            if unknown:
+                return False, "unknown command parameter"
+        for name in schema.get("required", []):
+            if name not in cmd_obj:
+                return False, "missing required parameter: {}".format(name)
+        for name, value_schema in properties.items():
+            if name not in cmd_obj:
+                continue
+            value = cmd_obj[name]
+            expected = value_schema.get("type")
+            valid_type = (
+                (expected == "boolean" and isinstance(value, bool))
+                or (expected == "string" and isinstance(value, str))
+                or (expected == "integer" and isinstance(value, int) and not isinstance(value, bool))
+                or (expected == "number" and isinstance(value, (int, float)) and not isinstance(value, bool))
+            )
+            if not valid_type:
+                return False, "invalid parameter type: {}".format(name)
+            if "enum" in value_schema and value not in value_schema["enum"]:
+                return False, "invalid parameter value: {}".format(name)
+            if "minimum" in value_schema and value < value_schema["minimum"]:
+                return False, "parameter below minimum: {}".format(name)
+            if "maximum" in value_schema and value > value_schema["maximum"]:
+                return False, "parameter above maximum: {}".format(name)
+        return True, ""
+
     def process_command(self, data):
         """
         Process incoming MQTT command
@@ -406,18 +453,32 @@ class MQTTCommands:
                 return
             
             command = cmd_obj['command']
+            descriptors = {item["name"]: item for item in self.cmd_capabilities()["commands"]}
+            descriptor = descriptors.get(command)
+            if descriptor is None:
+                self.send_response(f"ERROR: Unknown command '{command}'", accepted=False, command_id=command_id, command=command, code="unsupported")
+                return
+            valid, validation_message = self._validate_params(cmd_obj, descriptor)
+            if not valid:
+                self.send_response(validation_message, accepted=False, command_id=command_id, command=command, code="invalid_params")
+                return
             #print(f"Processing MQTT command: {command}")
             
-            # Dispatch command
-            if command == 'info':
-                self.cmd_info()
-                self.send_response("info published", accepted=True, command_id=command_id, command=command)
-            elif command == 'commands':
-                self.cmd_commands()
-                self.send_response("commands published", accepted=True, command_id=command_id, command=command)
-            elif command == 'stats':
-                self.cmd_stats()
-                self.send_response("stats published", accepted=True, command_id=command_id, command=command)
+            query_handlers = {
+                'capabilities': self.cmd_capabilities,
+                'info': self.cmd_info,
+                'status': self.build_status_payload,
+                'config': self.build_config_payload,
+                'diagnostics': self.cmd_diagnostics,
+            }
+            if command in query_handlers:
+                self.send_response(
+                    "{} returned".format(command),
+                    accepted=True,
+                    command_id=command_id,
+                    command=command,
+                    data=query_handlers[command](),
+                )
             elif command == 'set_threshold':
                 self.cmd_set_threshold(cmd_obj)
             elif command == 'set_motion_hits':
@@ -429,9 +490,9 @@ class MQTTCommands:
             elif command == 'recalibrate':
                 self.cmd_recalibrate(cmd_obj)
             else:
-                self.send_response(f"ERROR: Unknown command '{command}'", accepted=False, command_id=command_id, command=command)
+                self.send_response("ERROR: Command has no dispatcher", accepted=False, command_id=command_id, command=command, code="internal_error")
                 
         except Exception as e:
             error_msg = f"ERROR: Command processing failed: {e}"
             print(error_msg)
-            self.send_response(error_msg, accepted=False)
+            self.send_response(error_msg, accepted=False, code="internal_error")

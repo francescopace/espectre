@@ -107,7 +107,7 @@ The portal validates the complete result again before rendering or constructing 
 
 ### Direct WebSocket v1
 
-This section defines the Native local transport. The durable direction is recorded in `docs/adr/2026-08-23-replace-native-ble-with-direct-websocket.md`.
+This section defines the common local transport used by the C++ frontends. Native owns the complete local profile; Streamer, ESPHome, and Matter use the shared bridge and advertise a filtered command intersection. The durable direction is recorded in `docs/adr/2026-08-23-replace-native-ble-with-direct-websocket.md` and `docs/adr/2026-08-24-use-one-command-engine-across-frontends.md`.
 
 Native exposes Direct on `/espectre/v1/ws` and requires the `espectre.v1` WebSocket subprotocol. A client that cannot negotiate that exact subprotocol must stop before sending a request. The server accepts text frames only, with one complete JSON envelope per frame and a maximum frame size of 4,096 bytes. Binary frames, incompatible subprotocols, fragmented messages when the server cannot reassemble them within the same bound, and invalid UTF-8 are rejected.
 
@@ -119,19 +119,19 @@ Every client request uses this envelope:
 
 `v` is the integer envelope version. `type` is `request` for every client frame. `id` is a non-empty client-generated correlation identifier of at most 64 ASCII letters, digits, `.`, `_`, `-`, or `:`. `method` is a non-empty identifier of at most 64 ASCII letters, digits, `.`, `_`, or `-`. `params` is an object and defaults to `{}` when omitted. Unknown envelope fields are ignored so clients can add optional metadata within v1; duplicate fields, wrong field types, malformed JSON, and unsupported versions are rejected.
 
-A successful response echoes the request identifier:
+A successful response echoes the request identifier and wraps the transport-neutral engine result:
 
 ```json
-{"v":1,"type":"response","id":"req-42","ok":true,"result":{"threshold":0.42}}
+{"v":1,"type":"response","id":"req-42","ok":true,"result":{"command":"set_threshold","code":"ok","message":"threshold updated"}}
 ```
 
 A rejected request uses the same correlation identifier when it was valid:
 
 ```json
-{"v":1,"type":"response","id":"req-42","ok":false,"error":{"code":"invalid_request","message":"threshold must be between 0.0 and 1.0"}}
+{"v":1,"type":"response","id":"req-42","ok":false,"error":{"code":"invalid_params","message":"threshold must be between 0.0 and 1.0"}}
 ```
 
-Stable v1 error codes are `invalid_request`, `invalid_params`, `unsupported_version`, `unsupported_method`, `unsupported_capability`, `not_ready`, `unavailable`, `conflict`, `rate_limited`, `apply_failed`, and `internal_error`. Human-readable `message` text is diagnostic and may change without a protocol-version bump. An envelope that cannot yield a valid request identifier may be answered with an empty `id` before the server closes the connection.
+The command engine's stable v1 error codes are `invalid_params`, `unsupported`, `forbidden`, `busy`, `conflict`, `unavailable`, and `internal_error`; `ok` identifies an accepted command. Envelope parsing may additionally report `invalid_request` or `unsupported_version` before a command reaches the engine. Human-readable `message` text is diagnostic and must not drive client behavior. An envelope that cannot yield a valid request identifier may be answered with an empty `id` before the server closes the connection.
 
 Unsolicited state uses an event envelope:
 
@@ -139,7 +139,7 @@ Unsolicited state uses an event envelope:
 {"v":1,"type":"event","event":"telemetry","data":{"movement_score":0.18,"threshold":0.42,"motion":false}}
 ```
 
-The event names are `capabilities`, `info`, `status`, `telemetry`, `diagnostics`, `config`, `ota_status`, and `command_result`. Their `data` objects reuse the corresponding ESPectre message-family fields rather than MQTT topic names. Native emits `status` when its MQTT connection changes so Direct clients can update broker state without polling or reconnecting. Direct never carries raw CSI.
+The canonical event names are `telemetry`, `status`, `info`, `config`, `ota_status`, and `fault`. Diagnostics and command results are correlated responses, not events. Event `data` objects reuse the corresponding ESPectre message-family fields. Native emits `status` when its MQTT connection changes so Direct clients can update broker state without polling or reconnecting. Direct never carries raw CSI.
 
 Direct v1 methods are grouped by capability:
 
@@ -148,7 +148,7 @@ Direct v1 methods are grouped by capability:
 | Base reads | `capabilities`, `info`, `status`, `config` | Available to every compatible client. `config` may report SSID, associated or pinned BSSID, channel, band policy, MQTT configured state, and non-secret endpoint fields, but never Wi-Fi or MQTT passwords. |
 | Diagnostics | `diagnostics` | Returns the latest bounded runtime and transport diagnostics sample. |
 | Device configuration | `set_device_label`, `set_wifi_config`, `clear_wifi_config`, `set_mqtt_config`, `clear_mqtt_config` | Uses the same validation and persistence owner as MQTT or other adapters. Wi-Fi changes stage and verify a candidate before replacing the last-known-good configuration. Secrets are write-only. |
-| Sensing | `start_sensing`, `stop_sensing`, `set_threshold`, `set_motion_hits`, `set_detector`, `recalibrate` | Available only when advertised. `start_sensing` does not require MQTT. |
+| Sensing | `set_sensing`, `set_threshold`, `set_motion_hits`, `set_detector`, `recalibrate` | Available only when advertised. `set_sensing` carries the required Boolean `enabled` parameter and does not require MQTT. |
 | CSI traffic | `set_csi_traffic_mode`, `set_traffic_generator_mode` | Available only when the runtime advertises traffic control. |
 | OTA | `ota_status`, `ota_check`, `ota_start` | Uses the same channel and no-override policy as MQTT OTA commands. |
 | Peer discovery | `discover_peers` | Advertised by Native through its bounded peer-assisted discovery service and deferred transport. |
@@ -171,7 +171,7 @@ The additive `diagnostics` result is the production performance boundary for eve
 
 Unsupported values are `null` or are omitted only where the owning frontend does not expose that optional measurement. Clients must not synthesize zero for a missing measurement. Direct transport counters are cumulative, so a health window compares its first and last samples.
 
-Native accepts at most two Direct clients. Both clients may read, receive events, and issue mutations. Mutations enter one serialized dispatcher in receive order; the last accepted mutation becomes current state, and every requester receives its own correlated result. State transitions are broadcast after the mutation commits. This is an explicit multi-writer policy, not a lease hidden in the portal.
+Native accepts at most two Direct clients. Both clients may read, receive events, and issue mutations. Direct, MQTT, and frontend-native controls enter the same `FrontendCommandEngine` serially on the frontend task; no command worker or command queue is added. The last accepted mutation becomes current state, and every requester receives its own correlated result. A query responds only to its requesting transport. State transitions caused by a mutation are broadcast after it commits. This is an explicit multi-writer policy, not a lease hidden in the portal.
 
 Shared MQTT and Direct event payloads are serialized once and fanned out to every active transport. The transports retain independent backpressure because a slow broker must not delay local clients, and one slow WebSocket client must not delay MQTT or another client. Each Direct client therefore has a fixed-capacity outbound queue and at most one asynchronous send in flight. Telemetry coalesces to the newest value, while command responses and state transitions are never overwritten by telemetry. A client that repeatedly fails to drain is closed. MQTT has a separate 16-message freshness queue and an 8 KiB ESP-IDF network outbox: the first coalesces replaceable topics and orders command results, while the second transfers bytes to the esp-mqtt task and socket. The Native build uses a 20 ms esp-mqtt poll timeout and allows replaceable publications into the network outbox below a 2 KiB high-water mark, rather than serializing them behind an empty-outbox gate. An outbox-full result leaves the oldest frontend-queued message in place for a later retry. Runtime callbacks copy the latest numeric sensing snapshot into frontend-owned storage; JSON serialization and transport enqueueing happen after detector evaluation returns, and socket I/O remains owned by the transport tasks.
 
@@ -193,23 +193,23 @@ The same topic shape is valid for a local broker and for a managed broker, with 
 espectre/v1/devices/{device_id}/telemetry
 espectre/v1/devices/{device_id}/status
 espectre/v1/devices/{device_id}/info
-espectre/v1/devices/{device_id}/stats
-espectre/v1/devices/{device_id}/commands/catalog
-espectre/v1/devices/{device_id}/ota/state
+espectre/v1/devices/{device_id}/config
+espectre/v1/devices/{device_id}/capabilities
+espectre/v1/devices/{device_id}/ota_status
+espectre/v1/devices/{device_id}/fault
 espectre/v1/devices/{device_id}/commands/request
-espectre/v1/devices/{device_id}/commands/accepted
-espectre/v1/devices/{device_id}/commands/rejected
+espectre/v1/devices/{device_id}/commands/result
 ```
 
-Managed-service MQTT should use TLS and per-device credentials. Local lab MQTT may use a simpler broker/auth model, but should keep the same message shape.
+`status`, `info`, `config`, `capabilities`, and `ota_status` are retained. `telemetry`, `fault`, and `commands/result` are not retained. There is no diagnostics topic: a `diagnostics` query returns its correlated sample in `commands/result.data`. A query never publishes a second side response and never crosses into Direct; accepted mutations publish the relevant retained state events to every active transport. Managed-service MQTT should use TLS and per-device credentials. Local lab MQTT may use a simpler broker/auth model, but should keep the same message shape.
 
-The dependency-free browser protocol layer is [`espectre-mqtt.js`](web/assets/js/espectre-mqtt.js). It is transport-policy agnostic and implements canonical topic construction, retained `info`/`status` discovery, protocol-version and JSON-object validation for every canonical message family above, generic command publication without a duplicated verb allowlist, correlation of `accepted`/`rejected` responses, timeouts, and pending-command cleanup. The website supplies the MQTT.js WebSocket transport and consumes the additive Home Assistant scalar topics separately.
+The dependency-free browser protocol layer is [`espectre-mqtt.js`](web/assets/js/espectre-mqtt.js). It is transport-policy agnostic and implements canonical topic construction, retained discovery, protocol-version and JSON-object validation, generic command publication from the retained capability schema, `commands/result` correlation, timeouts, and pending-command cleanup. The website supplies the MQTT.js WebSocket transport and consumes the additive Home Assistant scalar topics separately.
 
 ### Home Assistant MQTT Adapter Profile
 
 Native and Micro-ESPectre can publish an additive Home Assistant MQTT Discovery surface without changing the canonical ESPectre topics above. Discovery payloads use the standard `{discovery_prefix}/{component}/{object_id}/config` topic shape. Native also retains its canonical `status` payload so late subscribers receive the current availability; entity-shaped state topics remain non-retained under `espectre/v1/devices/{device_id}/ha/...`.
 
-The HA adapter publishes sensing entities that match the ESPHome Home Assistant surface so one dashboard can be reused after replacing the device prefix: Motion Detected on filtered state edges, Movement Score on every detector evaluation (`evaluation_interval_ms`), writable Threshold on operator writes, calibration, and Lightweight settled-level recovery, Motion On Hits, and Motion Off Hits numbers, a Detection Profile select where the frontend supports runtime detector switching, CSI Traffic Ownership plus CSI Traffic Source selects where the frontend supports traffic control, a Trigger Calibration switch that starts startup recalibration, and the ESPHome CSI diagnostic sensors plus a Refresh Diagnostics button that publishes the latest cached sample on demand. Discovery `object_id` suffixes follow the ESPHome entity-ID slugs (`motion_detected`, `movement_score`, `trigger_calibration`, and so on); MQTT state and command topic suffixes under `ha/` stay unchanged. Canonical `telemetry` JSON keeps `movement_score` and `threshold` on that same evaluation cadence. Leftover Intensity and previous Native/Micro discovery object IDs are unpublished with empty retained configs.
+The Native HA adapter publishes sensing entities that match the ESPHome Home Assistant surface so one dashboard can be reused after replacing the device prefix: Motion Detected on filtered state edges, Movement Score on every detector evaluation (`evaluation_interval_ms`), writable Threshold on operator writes, calibration, and Lightweight settled-level recovery, Motion On Hits and Motion Off Hits numbers, a Detection Profile select where the frontend supports runtime detector switching, CSI Traffic Ownership plus CSI Traffic Source selects where the frontend supports traffic control, a configuration-category Recalibrate button that starts startup recalibration, a diagnostic-category Calibration Active binary sensor that reports the authoritative runtime state, and the ESPHome CSI diagnostic sensors plus a Refresh Diagnostics button that publishes the latest cached sample on demand. Native discovery `object_id` suffixes follow the ESPHome entity-ID slugs (`motion_detected`, `movement_score`, `recalibrate`, `calibration_active`, and so on); MQTT state and command topic suffixes under `ha/` stay unchanged. Micro-ESPectre currently retains its combined Trigger Calibration switch while matching the remaining applicable scalar and diagnostic entities. Canonical `telemetry` JSON keeps `movement_score` and `threshold` on that same evaluation cadence. Leftover Intensity and previous Native/Micro discovery object IDs are unpublished with empty retained configs.
 
 Both adapters subscribe to `homeassistant/status` and republish discovery when Home Assistant announces `online`; this birth message is a recovery trigger, not the only discovery bootstrap. Native derives availability from the retained canonical `status` payload and its retained Last Will, while Micro-ESPectre uses a plain `ha/availability` topic. The Native adapter is enabled in the published firmware defaults and can be disabled at build time; Micro-ESPectre keeps the adapter opt-in. See [`README.md`](../src/cpp/frontend/native/README.md) for Native and [`README.md`](../src/python/micro_espectre/README.md) for Micro-ESPectre entity surfaces and configuration options.
 
@@ -254,11 +254,14 @@ espectre/v1/devices/{device_id}/status
   "protocol_version": "1.0",
   "device_id": "3cf79180d3a0aca4",
   "online": true,
-  "timestamp_ms": 123456
+  "timestamp_ms": 123456,
+  "sensing_enabled": true,
+  "ready_to_publish": true,
+  "calibrating": false
 }
 ```
 
-Native retains the latest status payload. A normal shutdown publishes retained `online: false`; after an unexpected disconnect, the broker publishes the retained Last Will with the same offline state. A later connection replaces it with retained `online: true`, allowing availability consumers that subscribe after discovery to recover the current state. MQTT connect also publishes retained `info` and, when OTA is present, the current `ota/state`, so a client that watched `reboot_scheduled` can treat the next `online: true` as the device having returned from the OTA reboot. Micro-ESPectre retains `info` the same way; its canonical `status` remains non-retained because HA availability uses the separate `ha/availability` topic.
+Every MQTT frontend retains the latest status payload. A normal shutdown publishes retained `online: false`; after an unexpected disconnect, the broker publishes the retained Last Will with the same offline state. A later connection replaces it with retained `online: true`, allowing availability consumers that subscribe after discovery to recover the current state. MQTT connect also publishes retained `info`, `config`, `capabilities`, and, when OTA is present, `ota_status`. Motion and runtime tuning are deliberately absent from `status`; they belong to `telemetry` and `config`.
 
 ### Info
 
@@ -277,15 +280,6 @@ espectre/v1/devices/{device_id}/info
   "frontend": "native",
   "firmware_version": "1.2.3",
   "chip": "esp32c6",
-  "supports_info": true,
-  "supports_stats": true,
-  "supports_device_config": true,
-  "supports_runtime_threshold": true,
-  "supports_runtime_motion_hits": true,
-  "supports_runtime_detector": true,
-  "supports_manual_recalibration": true,
-  "supports_traffic_control": true,
-  "supports_ota": true,
   "network": {
     "channel": {
       "primary": 6
@@ -302,17 +296,36 @@ espectre/v1/devices/{device_id}/info
 }
 ```
 
-The `supports_*` fields are authoritative capability declarations for clients. Clients should not infer command support from `frontend`, telemetry fields, or other payload content. Native and Micro publish `info` retained on connect and after an `info` command so late subscribers, including `./espectre mqtt` discovery, see the current frontend identity instead of a previous retained payload for the same `device_id`. MQTT clients that need command names should send `commands` and read `commands/catalog` instead of reconstructing the list from these flags. `network` and `detection` are optional. Canonical MQTT `info` reports the active Wi-Fi channel when available, but does not serialize the local IP address or station MAC. `csi_traffic_mode`, `traffic_mode`, and `csi_target_pps` are included when the frontend owns CSI traffic configuration; omit them when those values are unset. `evaluation_interval_ms` and `publish_interval_ms` are the detector evaluation cadence and the status-log heartbeat; omit them when unset. Nearby setup and local logs may still expose configuration or link details, including SSID, BSSID, local IP, station MAC, broker host, or broker username. Managed services should not collect those values by default.
+`info` contains identity, firmware, chip, frontend, timing, and non-sensitive descriptive data. Capability booleans are not duplicated here; clients consume the `capabilities` schema. Native and Micro publish `info` retained on connect and after an accepted label change so late subscribers, including `./espectre mqtt` discovery, see the current frontend identity. `network` and `detection` are optional. Canonical MQTT `info` reports the active Wi-Fi channel when available, but does not serialize the local IP address or station MAC. `csi_traffic_mode`, `traffic_mode`, and `csi_target_pps` are included when the frontend owns CSI traffic configuration; omit them when those values are unset. `evaluation_interval_ms` and `publish_interval_ms` are the detector evaluation cadence and the status-log heartbeat; omit them when unset. Nearby setup and local logs may still expose configuration or link details, including SSID, BSSID, local IP, station MAC, broker host, or broker username. Managed services should not collect those values by default.
 
-### Stats
+### Config
 
-Published on:
+Published retained on:
 
 ```text
-espectre/v1/devices/{device_id}/stats
+espectre/v1/devices/{device_id}/config
 ```
 
-in response to an explicit `stats` command. Native and Micro include the CSI and Wi-Fi diagnostic fields below. A frontend that does not sample those counters omits the extra keys and keeps the shared core (`uptime`, `free_memory_kb`, `loop_time_ms`):
+```json
+{
+  "protocol_version": "1.0",
+  "device_id": "3cf79180d3a0aca4",
+  "runtime": {
+    "threshold": 0.45,
+    "motion_on_hits": 4,
+    "motion_off_hits": 3,
+    "detector": "lightweight",
+    "csi_traffic_mode": "internal",
+    "traffic_generator_mode": "ping"
+  }
+}
+```
+
+`runtime` is the uniform cross-frontend configuration section. `device`, `wifi`, and `mqtt` are optional and are included only when both the frontend and requesting transport authorize them. Passwords and other secrets are write-only and never appear in a response. Runtime tuning changes publish one `config` state transition; a label change publishes `info`; sensing state publishes `status`; OTA state publishes `ota_status`; and recalibration publishes `status`, followed by `config` only when the resulting threshold changes.
+
+### Diagnostics
+
+Returned only as `data` in the correlated response to an explicit `diagnostics` query. Native and Micro include the CSI and Wi-Fi diagnostic fields below. A frontend that does not sample those counters omits the extra keys and keeps the shared core (`uptime`, `free_memory_kb`, and `loop_time_ms`):
 
 ```json
 {
@@ -357,28 +370,18 @@ in response to an explicit `stats` command. Native and Micro include the CSI and
 }
 ```
 
-Stats are diagnostic. Product dashboards should prefer telemetry/status/info for normal operation. When available, `free_memory_kb` reports current free heap and `loop_time_ms` reports the measured last loop-body cost in milliseconds, excluding the outer task sleep or idle delay. Motion state, movement score, threshold, detector selection, and turbulence belong to telemetry or live config/info surfaces instead of `stats`.
+Diagnostics are on-demand. Product dashboards should prefer telemetry, status, and info for normal operation. When available, `free_memory_kb` reports current free heap and `loop_time_ms` reports the measured last loop-body cost in milliseconds, excluding the outer task sleep or idle delay. Motion state, movement score, threshold, detector selection, and turbulence belong to telemetry or live config and info surfaces instead of diagnostics.
 
-Native and Micro always include the CSI and Wi-Fi fields in a requested `stats` response. Native additionally includes the minimum observed free heap, the current frontend task's stack high-water mark in ESP-IDF bytes, and `direct` and `mqtt` transport diagnostics. The transport objects report their fixed queue and client or outbox budgets beside current occupancy and cumulative drop or failure counters; Micro omits those fields and objects. Both derive rates from the cumulative counters whenever the existing periodic sensing update runs, cache that completed sample, and do not add a diagnostic timer or publish it periodically. `traffic_tx_pps` is the traffic-generator transmit rate; `csi_callback_pps` is the raw CSI callback rate; `csi_accepted_pps` is the identity-accepted rate; `csi_admitted_pps` is the detector input rate after temporal admission; `csi_filtered_pps` is the capture-filter drop rate; the temporal drop fields distinguish missing slots, same-slot excess, stale packets, and out-of-order packets; and `csi_occupancy` is the valid fraction of the active detector window. Occupancy is diagnostic telemetry and does not change the device send rate. The extra CSI and transport fields are additive on protocol `1.0`; consumers may ignore unknown keys. The SDK sample uses `csi_occupancy_ratio` for the same occupancy value. Before the first periodic sensing update completes, rate fields are zero.
+Native and Micro include the CSI and Wi-Fi fields in a requested `diagnostics` response. Native additionally includes the minimum observed free heap, the current frontend task's stack high-water mark in ESP-IDF bytes, and `direct` and `mqtt` transport diagnostics. The transport objects report their fixed queue and client or outbox budgets beside current occupancy and cumulative drop or failure counters; Micro omits those fields and objects. Both derive rates from the cumulative counters whenever the existing periodic sensing update runs, cache that completed sample, and do not add a diagnostic timer or publish it periodically. `traffic_tx_pps` is the traffic-generator transmit rate; `csi_callback_pps` is the raw CSI callback rate; `csi_accepted_pps` is the identity-accepted rate; `csi_admitted_pps` is the detector input rate after temporal admission; `csi_filtered_pps` is the capture-filter drop rate; the temporal drop fields distinguish missing slots, same-slot excess, stale packets, and out-of-order packets; and `csi_occupancy` is the valid fraction of the active detector window. Occupancy is diagnostic telemetry and does not change the device send rate. The extra CSI and transport fields are additive on protocol `1.0`; consumers may ignore unknown keys. The SDK sample uses `csi_occupancy_ratio` for the same occupancy value. Before the first periodic sensing update completes, rate fields are zero.
 
 ESPHome exposes the same cached measurements as diagnostic entities. Native MQTT Discovery and Micro-ESPectre MQTT match that surface: the diagnostic sensors stay unpublished until Home Assistant presses `Refresh Diagnostics`. These on-demand diagnostics are independent of the optional runtime debug logs.
 
-### Command catalog
+### Capabilities
 
 Published on:
 
 ```text
-espectre/v1/devices/{device_id}/commands/catalog
-```
-
-in response to:
-
-```json
-{
-  "protocol_version": "1.0",
-  "command_id": "cmd-catalog",
-  "command": "commands"
-}
+espectre/v1/devices/{device_id}/capabilities
 ```
 
 ```json
@@ -386,24 +389,36 @@ in response to:
   "protocol_version": "1.0",
   "device_id": "3cf79180d3a0aca4",
   "commands": [
-    "commands",
-    "info",
-    "stats",
-    "set_device_label",
-    "set_threshold",
-    "set_motion_hits",
-    "set_detector",
-    "recalibrate",
-    "set_csi_traffic_mode",
-    "set_traffic_generator_mode",
-    "ota_status",
-    "ota_check",
-    "ota_start"
-  ]
+    {
+      "name": "status",
+      "kind": "query",
+      "access": "read",
+      "params": {
+        "additionalProperties": false
+      },
+      "result": "status"
+    },
+    {
+      "name": "set_threshold",
+      "kind": "mutation",
+      "access": "control",
+      "params": {
+        "type": "object",
+        "properties": {"threshold": {"type": "number", "minimum": 0, "maximum": 1}},
+        "required": ["threshold"],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "events": ["telemetry"],
+  "config_sections": ["runtime"],
+  "features": {"raw_csi": false}
 }
 ```
 
-The list is derived from the same `supports_*` flags carried by `info`, plus `commands` itself. It is not retained. Clients should use it for help and completion instead of a local command allowlist. Firmware that does not implement `commands` rejects it, and clients should not reconstruct the list from `info`.
+The example is abbreviated. The retained payload contains every command executable through that transport and frontend, the canonical event names, available configuration sections, and feature flags. Each command declares `name`, `kind` (`query`, `mutation`, or `action`), `access`, a constrained JSON Schema subset (`type`, `properties`, `required`, `additionalProperties`, `enum`, `minimum`, and `maximum`), and a named `result` schema only when it returns data. Because the transport envelope already requires an object, no-parameter schemas contain only `additionalProperties: false`; empty `properties` and `required` members are omitted. The complete minified catalog must remain below 4 KiB. Clients use it for rendering, validation, help, and completion instead of maintaining verb allowlists.
+
+Access classes are `read`, `control`, `device_admin`, `network_admin`, `firmware_update`, and `discovery`. Native Direct may expose every implemented class. Native MQTT exposes read, control, device administration, and firmware update, including `set_sensing`; Wi-Fi and MQTT configuration and `discover_peers` remain Direct-local. Other frontends publish only the intersection they can execute. C++ and MicroPython keep independent registries, with a host probe enforcing normalized catalog parity for the shared profile.
 
 ### Commands
 
@@ -411,6 +426,14 @@ Published to:
 
 ```text
 espectre/v1/devices/{device_id}/commands/request
+```
+
+Canonical reads are `capabilities`, `info`, `status`, `config`, `diagnostics`, and `ota_status`. Canonical mutations and actions are `set_sensing`, `set_threshold`, `set_motion_hits`, `set_detector`, `recalibrate`, `set_csi_traffic_mode`, `set_traffic_generator_mode`, `set_device_label`, the advertised Wi-Fi and MQTT configuration methods, `ota_check`, `ota_start`, and `discover_peers`. The removed `commands`, `stats`, `start_sensing`, and `stop_sensing` names have no v1 aliases because this contract has not shipped in a stable v3 release.
+
+Enable or pause sensing on frontends that advertise sensing control:
+
+```json
+{"protocol_version":"1.0","command_id":"cmd-sensing","command":"set_sensing","enabled":true}
 ```
 
 Set or clear the persisted user-facing label on frontends that advertise device configuration support. An empty string clears the label without changing the immutable `device_id` or derived `device_name`:
@@ -524,12 +547,12 @@ Start OTA from the selected or firmware-default channel:
 }
 ```
 
-Native firmware resolves a per-chip GitHub Releases manifest URL from the channel. OTA commands do not accept server, manifest, image, or version parameters; payloads containing those overrides are rejected. When `channel` is omitted, release firmware uses the latest release, preview firmware uses the rolling `snapshot` tag, and develop firmware uses the rolling `snapshot-dev` tag. Native orders numeric release tags, SemVer prereleases, and rolling `git describe` identities and advertises or applies only a strictly newer target. An older target is reported as `up_to_date`, while an unrecognized version or a divergent Git identity at the same commit distance is an error. Frontends advertise support through `supports_ota`; Micro-ESPectre does not implement OTA commands.
+Native firmware resolves a per-chip GitHub Releases manifest URL from the channel. OTA commands do not accept server, manifest, image, or version parameters; payloads containing those overrides are rejected. When `channel` is omitted, release firmware uses the latest release, preview firmware uses the rolling `snapshot` tag, and develop firmware uses the rolling `snapshot-dev` tag. Native orders numeric release tags, SemVer prereleases, and rolling `git describe` identities and advertises or applies only a strictly newer target. An older target is reported as `up_to_date`, while an unrecognized version or a divergent Git identity at the same commit distance is an error. Support is declared only through the `capabilities` catalog; Micro-ESPectre does not advertise OTA commands.
 
 Publish OTA state on:
 
 ```text
-espectre/v1/devices/{device_id}/ota/state
+espectre/v1/devices/{device_id}/ota_status
 ```
 
 ```json
@@ -550,7 +573,7 @@ espectre/v1/devices/{device_id}/ota/state
 }
 ```
 
-`default_channel` is the firmware build-time default, while `channel` is the channel resolved for the current or latest attempt. `ota/state` is not retained. Native publishes the current snapshot when MQTT connects, when an OTA command changes state, and when the HTTPS OTA worker reports progress. Direct returns the same snapshot from `ota_status` and broadcasts subsequent worker snapshots as `ota_status` events. After a successful update the device reboots, so the next connect snapshot is `idle` with `current_version` set to the firmware now running.
+`default_channel` is the firmware build-time default, while `channel` is the channel resolved for the current or latest attempt. `ota_status` is retained. Native publishes the current snapshot when MQTT connects, when an OTA command changes state, and when the HTTPS OTA worker reports progress. Direct returns the same snapshot from `ota_status` and broadcasts subsequent worker snapshots as `ota_status` events. After a successful update the device reboots, so the next connect snapshot is `idle` with `current_version` set to the firmware now running.
 
 Command result:
 
@@ -561,9 +584,12 @@ Command result:
   "command_id": "cmd-001",
   "command": "set_threshold",
   "accepted": true,
+  "code": "ok",
   "message": "threshold updated"
 }
 ```
+
+Every accepted or rejected MQTT request produces exactly one non-retained `commands/result`. A query adds `data` containing its schema payload; mutations and actions omit `data`. `command_id` is the caller's correlation key. Command results are non-replaceable in the frontend freshness queue, while all human-readable decisions remain subordinate to the stable `accepted` and `code` fields.
 
 ## Deployment Profiles
 

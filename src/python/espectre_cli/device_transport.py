@@ -441,6 +441,11 @@ class DirectClient:
                 result = envelope.get("result")
                 if not isinstance(result, dict):
                     raise DirectProtocolError("Direct success response result must be an object")
+                if "data" in result:
+                    data = result["data"]
+                    if not isinstance(data, dict):
+                        raise DirectProtocolError("Direct query response data must be an object")
+                    return data
                 return result
             error = envelope.get("error")
             if not isinstance(error, dict):

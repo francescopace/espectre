@@ -55,7 +55,8 @@ struct FrontendHaMqttSettings {
   std::string threshold_object_id;
   std::string motion_on_hits_object_id;
   std::string motion_off_hits_object_id;
-  std::string calibrate_object_id;
+  std::string recalibrate_object_id;
+  std::string calibration_active_object_id;
   std::string detector_object_id;
   std::string csi_traffic_mode_object_id;
   std::string traffic_generator_mode_object_id;

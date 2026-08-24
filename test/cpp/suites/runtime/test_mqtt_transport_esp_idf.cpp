@@ -73,11 +73,11 @@ void test_command_results_overtake_replaceable_snapshots() {
   TEST_ASSERT_TRUE(transport.publish_suffix("telemetry", "{\"sequence\":1}", false));
   g_mqtt_client_mock.enqueue_result = -2;
   transport.loop();
-  TEST_ASSERT_TRUE(transport.publish_suffix("commands/accepted", "{\"id\":\"cmd-1\"}", false));
+  TEST_ASSERT_TRUE(transport.publish_suffix("commands/result", "{\"id\":\"cmd-1\"}", false));
 
   g_mqtt_client_mock.enqueue_result = 7;
   transport.loop();
-  TEST_ASSERT_TRUE(std::string(g_mqtt_client_mock.enqueued_topics[1]).find("commands/accepted") !=
+  TEST_ASSERT_TRUE(std::string(g_mqtt_client_mock.enqueued_topics[1]).find("commands/result") !=
                    std::string::npos);
   TEST_ASSERT_EQUAL(1U, transport.diagnostics().queued_publishes);
 }

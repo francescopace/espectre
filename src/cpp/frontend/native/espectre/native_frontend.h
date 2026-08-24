@@ -80,14 +80,16 @@ class NativeFrontend : public IRuntimeListener {
 
  private:
   void handle_mqtt_command_(const std::string &payload);
-  FrontendCommandResult dispatch_command_(const EspectreCommand &command, bool allow_local_config);
+  FrontendCommandResult dispatch_command_(const EspectreCommand &command,
+                                          FrontendCommandOrigin origin,
+                                          bool allow_local_config);
   std::string handle_direct_request_(const DirectWebSocketRequest &request);
   IDirectWebSocketService::DeferredRequestResult handle_deferred_direct_request_(
       uint64_t connection_token,
       const DirectWebSocketRequest &request);
   std::string direct_capabilities_payload_() const;
-  std::string direct_status_payload_() const;
-  std::string direct_config_payload_() const;
+  std::string direct_status_payload_(bool online) const;
+  std::string direct_config_payload_(bool include_local = true) const;
   std::string direct_diagnostics_payload_() const;
   bool handle_threshold_write_(float threshold);
   bool handle_motion_hits_write_(uint8_t motion_on_hits, uint8_t motion_off_hits);
@@ -130,17 +132,19 @@ class NativeFrontend : public IRuntimeListener {
   void publish_ha_diagnostics_();
   void publish_ha_state_(const RuntimeSnapshot &snapshot);
   void publish_current_ha_state_();
+  void publish_runtime_config_state_();
+  void publish_runtime_status_state_();
   void publish_mqtt_info_();
-  void publish_mqtt_commands_();
+  void publish_mqtt_capabilities_();
   EspectreDeviceInfo mqtt_protocol_device_info_() const;
   void publish_mqtt_status_(bool online);
   void publish_mqtt_telemetry_(const RuntimeSnapshot &snapshot, uint32_t now_ms);
-  void publish_mqtt_stats_();
+  void publish_mqtt_config_();
   EspectreOtaStatus current_ota_status_() const;
   void publish_ota_status_(const EspectreOtaStatus &status);
   void publish_mqtt_ota_status_(const EspectreOtaStatus &status);
   void publish_current_mqtt_ota_status_();
-  void publish_mqtt_command_result_(const EspectreCommand &command, bool accepted, const char *message);
+  void publish_mqtt_command_result_(const FrontendCommandResult &result);
   void prepare_for_ota_();
   void resume_after_ota_error_();
   void sample_diagnostics_(uint32_t now_ms);
@@ -153,6 +157,7 @@ class NativeFrontend : public IRuntimeListener {
   ProvisioningCommandCallback provisioning_command_callback_{};
   DeviceConfigChangeCallback device_config_change_callback_{};
   RuntimeFrontendController runtime_;
+  FrontendCommandEngine command_engine_;
   EspectreDeviceConfig device_config_{};
   EspectreDeviceInfo device_info_{};
   FrontendHaMqttSettings ha_settings_{};
@@ -172,6 +177,9 @@ class NativeFrontend : public IRuntimeListener {
   bool ota_frontend_quiesced_{false};
   bool wifi_reconfigure_quiesced_{false};
   bool peer_discovery_enabled_{false};
+  bool protocol_recalibration_command_active_{false};
+  bool calibration_started_{false};
+  float calibration_start_threshold_{0.0f};
   float last_loop_time_ms_{0.0f};
 };
 

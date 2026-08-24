@@ -110,6 +110,7 @@ class MQTTHandler:
         else:
             self.ha_adapter = _DisabledHomeAssistantAdapter(config)
         self.ha_adapter.set_calibrate_handler(self.request_recalibration)
+        self.ha_adapter.set_threshold_handler(self.set_threshold)
         self.ha_adapter.set_motion_hits_handler(self.set_motion_hits)
         self.ha_adapter.set_traffic_control_handler(self.set_traffic_control)
         if runtime_policy is not None:
@@ -129,11 +130,10 @@ class MQTTHandler:
         self.telemetry_topic = f"{self.base_topic}/telemetry"
         self.status_topic = f"{self.base_topic}/status"
         self.info_topic = f"{self.base_topic}/info"
-        self.stats_topic = f"{self.base_topic}/stats"
-        self.catalog_topic = f"{self.base_topic}/commands/catalog"
+        self.config_topic = f"{self.base_topic}/config"
+        self.capabilities_topic = f"{self.base_topic}/capabilities"
         self.cmd_topic = f"{self.base_topic}/commands/request"
-        self.accepted_topic = f"{self.base_topic}/commands/accepted"
-        self.rejected_topic = f"{self.base_topic}/commands/rejected"
+        self.result_topic = f"{self.base_topic}/commands/result"
 
         # Publishing state
         self.last_variance = 0.0
@@ -176,7 +176,7 @@ class MQTTHandler:
             return False
         return bool(self.traffic_generator.start(self.csi_target_pps))
 
-    def set_traffic_control(self, csi_traffic_mode, traffic_generator_mode):
+    def set_traffic_control(self, csi_traffic_mode, traffic_generator_mode, publish_config=True):
         """Apply one session-only traffic ownership and generator update."""
         csi_mode = str(csi_traffic_mode).lower()
         generator_mode = str(traffic_generator_mode).lower()
@@ -210,6 +210,8 @@ class MQTTHandler:
                 self.traffic_generator_mode,
                 force=True,
             )
+            if publish_config:
+                self._publish_config_snapshot()
         return True
 
     def connect(self):
@@ -235,18 +237,20 @@ class MQTTHandler:
             self.client,
             self.config,
             self.detector,
-            self.accepted_topic,
-            self.rejected_topic,
+            self.result_topic,
             self.info_topic,
-            self.stats_topic,
             self.wlan,
             self.global_state,
             runtime_policy=self.runtime_policy,
             ha_adapter=self.ha_adapter,
             recalibrate_callback=self.request_recalibration,
-            traffic_control_callback=self.set_traffic_control,
+            traffic_control_callback=lambda csi_mode, generator_mode: self.set_traffic_control(
+                csi_mode,
+                generator_mode,
+                publish_config=False,
+            ),
             traffic_control_supported=self.traffic_generator is not None,
-            catalog_topic=self.catalog_topic,
+            catalog_topic=self.capabilities_topic,
             device_id=self.device_id,
         )
         handler.start_time = self.start_time
@@ -266,6 +270,23 @@ class MQTTHandler:
             gc.collect()
         except (AttributeError, ImportError):
             pass
+
+    def _publish_config_snapshot(self):
+        """Publish the current canonical runtime configuration."""
+        if not self.connected or self.client is None:
+            return
+        transient_handler = self.cmd_handler is None
+        command_handler = self.cmd_handler or self._create_command_handler()
+        try:
+            self.client.publish(
+                self.config_topic,
+                json.dumps(command_handler.build_config_payload()),
+                retain=True,
+            )
+        finally:
+            if transient_handler:
+                del command_handler
+                self._release_command_module()
 
     def _prepare_client(self):
         """Allocate and configure the transport without starting its task."""
@@ -333,6 +354,9 @@ class MQTTHandler:
         self._reconnect_backoff_ms = MQTT_RECONNECT_INITIAL_MS
         self.publish_status(True)
         self.publish_info()
+        command_handler = self._create_command_handler()
+        self.client.publish(self.config_topic, json.dumps(command_handler.build_config_payload()), retain=True)
+        self.client.publish(self.capabilities_topic, json.dumps(command_handler.cmd_capabilities()), retain=True)
         self.ha_adapter.publish_discovery(self.client)
         self.ha_adapter.publish_snapshot(
             self.client, self.last_variance, self.last_state, self.last_threshold
@@ -534,6 +558,17 @@ class MQTTHandler:
             return
         self.ha_adapter.publish_calibrate(self.client, calibrating, force=True)
 
+    def set_threshold(self, threshold):
+        """Apply one session-only threshold update from Home Assistant."""
+        setter = getattr(self.detector, "set_threshold", None)
+        if not callable(setter) or not setter(threshold):
+            return False
+        self.last_threshold = float(threshold)
+        if self.connected:
+            self.ha_adapter.publish_threshold(self.client, self.last_threshold, force=True)
+            self._publish_config_snapshot()
+        return True
+
     def set_motion_hits(self, motion_on_hits, motion_off_hits):
         """Apply one session-only motion-hit update."""
         if self.runtime_policy is None:
@@ -548,6 +583,7 @@ class MQTTHandler:
                 self.runtime_policy.motion_off_hits,
                 force=True,
             )
+            self._publish_config_snapshot()
         return True
 
     def finish_recalibration(self, movement_score, threshold):
@@ -569,6 +605,8 @@ class MQTTHandler:
                 force=True,
             )
         self.ha_adapter.publish_motion(self.client, self.last_state, force=True)
+        self.publish_status(True)
+        self._publish_config_snapshot()
 
     def disconnect(self):
         """Disconnect from MQTT broker"""
@@ -586,7 +624,7 @@ class MQTTHandler:
     def publish_info(self):
         """Publish system info"""
         if self.cmd_handler:
-            self.cmd_handler.cmd_info()
+            self.cmd_handler.publish_info_payload(self.cmd_handler.cmd_info())
             return
         if self.client is None:
             return
@@ -625,5 +663,8 @@ class MQTTHandler:
             "protocol_version": "1.0",
             "device_id": self.device_id,
             "online": bool(online),
-            "timestamp_ms": int(time.time() * 1000)
+            "timestamp_ms": int(time.time() * 1000),
+            "sensing_enabled": True,
+            "ready_to_publish": bool(getattr(self.global_state, "ready_to_publish", False)),
+            "calibrating": bool(self.ha_adapter.is_calibrating()),
         }

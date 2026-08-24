@@ -23,14 +23,14 @@
 <meta name="twitter:image" content="https://espectre.dev/assets/images/brand/espectre-og.jpg">
 <link rel="icon" type="image/svg+xml" href="/assets/images/brand/espectre-logo.svg?v=5c234009f6c5">
 <link rel="alternate icon" type="image/png" href="/assets/images/brand/favicon.png">
-<link rel="stylesheet" href="/assets/css/styles.css?v=c91b94707ba3">
-<script src="/assets/js/espectre-direct.js?v=83684a336497" defer></script>
-<script src="/assets/js/espectre-mqtt.js?v=2cce16edbd1b" defer></script>
+<link rel="stylesheet" href="/assets/css/styles.css?v=f948ce1ddff6">
+<script src="/assets/js/espectre-direct.js?v=4f7572fd406b" defer></script>
+<script src="/assets/js/espectre-mqtt.js?v=1dff4af20dee" defer></script>
 <script src="/assets/js/browser-support.js?v=1203c01f338e" defer></script>
 <script src="/assets/js/route-registry.js?v=092c36a3dd6a" defer></script>
 <script src="/assets/js/navigation.js?v=88d37c28b5a6" defer></script>
 <script src="/assets/js/analytics.js?v=a16db4b82883" defer></script>
-<script src="/assets/js/app.js?v=b441e46cfe57" defer></script>
+<script src="/assets/js/app.js?v=844848ee2977" defer></script>
 </head>
 <body>
 
@@ -508,18 +508,21 @@
               </div>
               <div class="field"><label for="mon-path">WebSocket path</label><input type="text" id="mon-path" class="mono-input" value="/mqtt" autocomplete="off" spellcheck="false"></div>
             </div>
-            <div class="field-row">
-              <div class="field"><label for="mon-topic-prefix">Topic prefix</label><input type="text" id="mon-topic-prefix" class="mono-input" value="espectre/v1/devices" placeholder="espectre/v1/devices" autocomplete="off" spellcheck="false"></div>
-              <div class="field"><label for="mon-device">Device ID <span class="opt">(optional)</span></label><input type="text" id="mon-device" class="mono-input" placeholder="3cf79180d3a0aca4" autocomplete="off" spellcheck="false"></div>
-            </div>
+            <div class="field"><label for="mon-topic-prefix">Topic prefix</label><input type="text" id="mon-topic-prefix" class="mono-input" value="espectre/v1/devices" placeholder="espectre/v1/devices" autocomplete="off" spellcheck="false"></div>
           </div>
         </details>
-        <div class="field js-mon-device-picker" hidden>
-          <span class="field-label" id="mon-device-choice-label">Discovered devices</span>
-          <div id="mon-device-choice" class="device-choice-list" aria-labelledby="mon-device-choice-label"></div>
+        <div class="field">
+          <label for="mon-device">Device ID <span class="opt">(optional)</span></label>
+          <div class="mqtt-device-control">
+            <input type="text" id="mon-device" class="mono-input" placeholder="3cf79180d3a0aca4" autocomplete="off" spellcheck="false" aria-describedby="mon-device-help">
+            <button type="button" class="btn-primary btn-sm js-mon-connect">Find devices</button>
+          </div>
+          <small class="field-help" id="mon-device-help">Leave blank to discover devices through this broker, or enter an ID to connect directly.</small>
+        </div>
+        <div class="direct-discovery js-mon-device-picker" role="status" aria-live="polite" hidden>
+          <div id="mon-device-choice"></div>
         </div>
       </div>
-      <button class="btn-primary js-mon-connect">Connect broker</button>
       <div class="tool-note js-mon-status" role="status" hidden></div>
     </section>
     <section class="device-connect-card connection-card demo-connect-card empty-state" data-monitor-transport-panel="demo" data-transport="demo" hidden>
@@ -805,7 +808,7 @@
 <!-- ============================== Guide: Setup ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-setup" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Flash &amp; Wi-Fi setup</span></div>
-  <div class="js-static-content" data-content-url="content/guides/setup.html?v=ec8ba931e27f" data-static-url="/guides/setup/">
+  <div class="js-static-content" data-content-url="content/guides/setup.html?v=3e8f54c30b8c" data-static-url="/guides/setup/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -813,7 +816,7 @@
 <!-- ============================== Guide: Home Assistant dashboard ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-home-assistant" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Home Assistant dashboard</span></div>
-  <div class="js-static-content" data-content-url="content/guides/home-assistant.html?v=1ac7e70abfac" data-static-url="/guides/home-assistant/">
+  <div class="js-static-content" data-content-url="content/guides/home-assistant.html?v=4a63d96a95cb" data-static-url="/guides/home-assistant/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>

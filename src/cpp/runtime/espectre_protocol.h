@@ -91,11 +91,9 @@ struct EspectreNetworkInfo {
 /**
  * What the device advertises about itself.
  *
- * The `supports_*` flags are how a client learns which controls to offer.
- * Derive them from `RuntimeCapabilities` rather than hardcoding, and let
- * `normalize_protocol_device_info()` fill the gaps from a snapshot.
- * MQTT clients that need command names should request `commands` rather than
- * reconstructing the list from these flags.
+ * The `supports_*` flags are internal inputs used to build the filtered
+ * `capabilities` catalog. They are deliberately omitted from `info` so clients
+ * have one authoritative feature-discovery surface.
  */
 struct EspectreDeviceInfo {
   /** Frontend name, for example `"native"`, `"matter"`, or your own. */
@@ -107,7 +105,7 @@ struct EspectreDeviceInfo {
   /** Active detector. Left empty, it is filled from the snapshot. */
   std::string detector;
   bool supports_info{true};
-  bool supports_stats{false};
+  bool supports_diagnostics{false};
   /** MQTT `set_device_label` is honored and persists the user-facing label. */
   bool supports_device_config{false};
   bool supports_runtime_threshold{false};
@@ -162,6 +160,9 @@ struct EspectreCommand {
   std::string command_id;
   /** Command verb, for example `"set_threshold"` or `"recalibrate"`. */
   std::string command;
+  /** Requested sensing-service state for `set_sensing`. */
+  bool sensing_enabled{false};
+  bool has_sensing_enabled{false};
   /** User-facing label requested by `set_device_label`; empty clears it. */
   std::string device_label;
   /** Whether the command carried a valid string-valued `device_label`. */
@@ -311,12 +312,16 @@ std::string espectre_status_payload(const EspectreDeviceConfig &config, bool onl
 /** Device description, supported controls, and optional CSI traffic settings. Publish retained on connect. */
 std::string espectre_info_payload(const EspectreDeviceConfig &config, const EspectreDeviceInfo &info);
 /**
- * MQTT command catalog for the current frontend.
- *
- * Published on `commands/catalog` in response to `commands`. The list is
- * derived from the same `supports_*` flags carried by `info`.
+ * Filtered command, event, feature, and configuration catalog.
  */
-std::string espectre_commands_payload(const EspectreDeviceConfig &config, const EspectreDeviceInfo &info);
+std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
+                                          const EspectreDeviceInfo &info,
+                                          bool supports_status = true,
+                                          bool supports_config = false,
+                                          bool supports_sensing_control = false,
+                                          bool supports_wifi_config = false,
+                                          bool supports_mqtt_config = false,
+                                          bool supports_peer_discovery = false);
 /** Motion state, metric, and threshold. The payload behind every motion update. */
 std::string espectre_telemetry_payload(const EspectreDeviceConfig &config,
                                     const RuntimeSnapshot &snapshot,
@@ -329,13 +334,13 @@ std::string espectre_telemetry_payload(const EspectreDeviceConfig &config,
  * `diagnostics` carries CSI and link rates from `RuntimeDiagnosticsSampler`.
  * Pass `nullptr` only for a frontend that does not expose extended diagnostics.
  */
-std::string espectre_stats_payload(const EspectreDeviceConfig &config,
-                                const RuntimeSnapshot &snapshot,
-                                uint32_t timestamp_ms,
-                                uint32_t uptime_s,
-                                float free_memory_kb,
-                                float loop_time_ms,
-                                const RuntimeDiagnosticsSample *diagnostics = nullptr);
+std::string espectre_diagnostics_payload(const EspectreDeviceConfig &config,
+                                         const RuntimeSnapshot &snapshot,
+                                         uint32_t timestamp_ms,
+                                         uint32_t uptime_s,
+                                         float free_memory_kb,
+                                         float loop_time_ms,
+                                         const RuntimeDiagnosticsSample *diagnostics = nullptr);
 /**
  * Acknowledge a command, echoing its `command_id`.
  *
@@ -343,9 +348,11 @@ std::string espectre_stats_payload(const EspectreDeviceConfig &config,
  * on the id and otherwise cannot tell rejection from packet loss.
  */
 std::string espectre_command_result_payload(const EspectreDeviceConfig &config,
-                                         const EspectreCommand &command,
-                                         bool accepted,
-                                         const char *message);
+                                            const EspectreCommand &command,
+                                            bool accepted,
+                                            const char *code,
+                                            const char *message,
+                                            const std::string &data_json = {});
 /** OTA progress payload, for each `IOtaService` status callback worth publishing. */
 std::string espectre_ota_status_payload(const EspectreDeviceConfig &config,
                                     const EspectreOtaStatus &status,

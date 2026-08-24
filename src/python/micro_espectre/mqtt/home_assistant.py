@@ -88,6 +88,7 @@ class HomeAssistantMqttAdapter:
         self._last_published_threshold = None
         self._calibrating = False
         self._calibrate_handler = None
+        self._threshold_handler = None
         self._motion_hits_handler = None
         self._traffic_control_handler = None
         self._last_csi_traffic_mode = "internal" if getattr(config, "TRAFFIC_GENERATOR_ENABLED", True) else "external"
@@ -154,6 +155,10 @@ class HomeAssistantMqttAdapter:
     def set_calibrate_handler(self, handler):
         """Install the callback used by the HA Calibrate switch."""
         self._calibrate_handler = handler
+
+    def set_threshold_handler(self, handler):
+        """Install the callback used by the HA threshold number."""
+        self._threshold_handler = handler
 
     def set_motion_hits_handler(self, handler):
         """Install the callback used by the HA motion-hit numbers."""
@@ -582,6 +587,9 @@ class HomeAssistantMqttAdapter:
             return False
         if threshold < THRESHOLD_MIN or threshold > THRESHOLD_MAX:
             return False
+        handler = self._threshold_handler
+        if callable(handler):
+            return bool(handler(threshold))
         setter = getattr(self.detector, "set_threshold", None)
         if not callable(setter) or not setter(threshold):
             return False

@@ -126,7 +126,7 @@ void test_parse_mqtt_batch_config_command_accepts_host_with_scheme(void) {
   TEST_ASSERT_EQUAL(8883, config.mqtt_port);
 }
 
-void test_status_telemetry_and_stats_payloads_include_expected_fields(void) {
+void test_status_telemetry_and_diagnostics_payloads_include_expected_fields(void) {
   EspectreDeviceConfig config;
   config.device_id = 0x0000000000000007ULL;
 
@@ -138,7 +138,7 @@ void test_status_telemetry_and_stats_payloads_include_expected_fields(void) {
 
   const std::string status = espectre_status_payload(config, true, 1234);
   const std::string telemetry = espectre_telemetry_payload(config, snapshot, 222, 33, "native");
-  const std::string stats = espectre_stats_payload(config, snapshot, 333, 44, 128.5f, 6.25f);
+  const std::string diagnostics = espectre_diagnostics_payload(config, snapshot, 333, 44, 128.5f, 6.25f);
 
   TEST_ASSERT_TRUE(status.find("\"device_id\":\"0000000000000007\"") != std::string::npos);
   TEST_ASSERT_TRUE(status.find("\"online\":true") != std::string::npos);
@@ -151,13 +151,13 @@ void test_status_telemetry_and_stats_payloads_include_expected_fields(void) {
   const std::string telemetry_nan = espectre_telemetry_payload(config, snapshot, 222, 33, "native");
   TEST_ASSERT_TRUE(telemetry_nan.find("nan") == std::string::npos);
   TEST_ASSERT_TRUE(telemetry_nan.find("\"movement_score\":0") != std::string::npos);
-  TEST_ASSERT_TRUE(stats.find("\"uptime\":44") != std::string::npos);
-  TEST_ASSERT_TRUE(stats.find("\"free_memory_kb\":128.5") != std::string::npos);
-  TEST_ASSERT_TRUE(stats.find("\"loop_time_ms\":6.25") != std::string::npos);
-  TEST_ASSERT_TRUE(stats.find("\"traffic_tx_pps\"") == std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"uptime\":44") != std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"free_memory_kb\":128.5") != std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"loop_time_ms\":6.25") != std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"traffic_tx_pps\"") == std::string::npos);
 }
 
-void test_stats_payload_includes_enabled_runtime_diagnostics_sample(void) {
+void test_diagnostics_payload_includes_enabled_runtime_sample(void) {
   EspectreDeviceConfig config;
   RuntimeSnapshot snapshot;
   RuntimeDiagnosticsSample diagnostics;
@@ -174,20 +174,21 @@ void test_stats_payload_includes_enabled_runtime_diagnostics_sample(void) {
   diagnostics.wifi_channel = 10U;
   diagnostics.wifi_rssi_dbm = -55;
 
-  const std::string stats = espectre_stats_payload(config, snapshot, 333, 44, 128.5f, 6.25f, &diagnostics);
+  const std::string payload =
+      espectre_diagnostics_payload(config, snapshot, 333, 44, 128.5f, 6.25f, &diagnostics);
 
-  TEST_ASSERT_TRUE(stats.find("\"traffic_tx_pps\":100") != std::string::npos);
-  TEST_ASSERT_TRUE(stats.find("\"csi_callback_pps\":96") != std::string::npos);
-  TEST_ASSERT_TRUE(stats.find("\"csi_accepted_pps\":90") != std::string::npos);
-  TEST_ASSERT_TRUE(stats.find("\"csi_admitted_pps\":84") != std::string::npos);
-  TEST_ASSERT_TRUE(stats.find("\"csi_filtered_pps\":6") != std::string::npos);
-  TEST_ASSERT_TRUE(stats.find("\"csi_missing_slots_pps\":16") != std::string::npos);
-  TEST_ASSERT_TRUE(stats.find("\"csi_excess_pps\":7") != std::string::npos);
-  TEST_ASSERT_TRUE(stats.find("\"csi_stale_pps\":1") != std::string::npos);
-  TEST_ASSERT_TRUE(stats.find("\"csi_out_of_order_pps\":2") != std::string::npos);
-  TEST_ASSERT_TRUE(stats.find("\"csi_occupancy\":0.84") != std::string::npos);
-  TEST_ASSERT_TRUE(stats.find("\"wifi_channel\":10") != std::string::npos);
-  TEST_ASSERT_TRUE(stats.find("\"wifi_rssi_dbm\":-55") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"traffic_tx_pps\":100") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"csi_callback_pps\":96") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"csi_accepted_pps\":90") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"csi_admitted_pps\":84") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"csi_filtered_pps\":6") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"csi_missing_slots_pps\":16") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"csi_excess_pps\":7") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"csi_stale_pps\":1") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"csi_out_of_order_pps\":2") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"csi_occupancy\":0.84") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"wifi_channel\":10") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"wifi_rssi_dbm\":-55") != std::string::npos);
 }
 
 void test_info_payload_uses_defaults_and_optional_sections(void) {
@@ -200,7 +201,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   info.firmware_version = "2026.7";
   info.chip = "esp32c6";
   info.detector = "lightweight";
-  info.supports_stats = true;
+  info.supports_diagnostics = true;
   info.supports_device_config = true;
   info.supports_runtime_threshold = true;
   info.supports_runtime_motion_hits = true;
@@ -225,15 +226,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(payload.find("\"frontend\":\"streamer\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"firmware_version\":\"2026.7\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"chip\":\"esp32c6\"") != std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"supports_info\":true") != std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"supports_stats\":true") != std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"supports_device_config\":true") != std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"supports_runtime_threshold\":true") != std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"supports_runtime_motion_hits\":true") != std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"supports_runtime_detector\":true") != std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"supports_manual_recalibration\":true") != std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"supports_traffic_control\":true") != std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"supports_ota\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"supports_") == std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"network\":{") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"ip_address\"") == std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"mac_address\"") == std::string::npos);
@@ -246,12 +239,17 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(payload.find("\"evaluation_interval_ms\":250") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"publish_interval_ms\":1000") != std::string::npos);
 
-  const std::string catalog = espectre_commands_payload(config, info);
+  const std::string catalog = espectre_capabilities_payload(config, info, true, true, true, true, true, true);
   TEST_ASSERT_TRUE(catalog.find("\"device_id\":\"0000000000000001\"") != std::string::npos);
-  TEST_ASSERT_TRUE(catalog.find("\"commands\":[\"commands\",\"info\",\"stats\",\"set_device_label\",\"set_threshold\","
-                                "\"set_motion_hits\",\"set_detector\",\"recalibrate\",\"set_csi_traffic_mode\","
-                                "\"set_traffic_generator_mode\",\"ota_status\",\"ota_check\","
-                                "\"ota_start\"]") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"name\":\"capabilities\"") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"name\":\"diagnostics\"") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"name\":\"set_sensing\"") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"required\":[\"enabled\"]") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"access\":\"network_admin\"") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"name\":\"discover_peers\"") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"name\":\"commands\"") == std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"name\":\"stats\"") == std::string::npos);
+  TEST_ASSERT_TRUE(catalog.size() < 4096U);
 }
 
 void test_info_payload_omits_optional_sections_when_empty(void) {
@@ -281,8 +279,10 @@ void test_info_payload_omits_optional_sections_when_empty(void) {
   TEST_ASSERT_TRUE(payload.find("\"evaluation_interval_ms\"") == std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"publish_interval_ms\"") == std::string::npos);
 
-  const std::string catalog = espectre_commands_payload(config, info);
-  TEST_ASSERT_TRUE(catalog.find("\"commands\":[\"commands\",\"info\"]") != std::string::npos);
+  const std::string catalog = espectre_capabilities_payload(config, info);
+  TEST_ASSERT_TRUE(catalog.find("\"name\":\"capabilities\"") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"name\":\"info\"") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"name\":\"diagnostics\"") == std::string::npos);
 }
 
 void test_command_result_payload_includes_acceptance_and_message(void) {
@@ -293,14 +293,20 @@ void test_command_result_payload_includes_acceptance_and_message(void) {
   command.command_id = "abc123";
   command.command = "set_threshold";
 
-  const std::string accepted = espectre_command_result_payload(config, command, true, "applied");
-  const std::string rejected = espectre_command_result_payload(config, command, false, nullptr);
+  const std::string accepted =
+      espectre_command_result_payload(config, command, true, "ok", "applied", "{\"threshold\":0.5}");
+  const std::string rejected =
+      espectre_command_result_payload(config, command, false, "invalid_params", "");
 
   TEST_ASSERT_TRUE(accepted.find("\"command_id\":\"abc123\"") != std::string::npos);
   TEST_ASSERT_TRUE(accepted.find("\"accepted\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(accepted.find("\"code\":\"ok\"") != std::string::npos);
   TEST_ASSERT_TRUE(accepted.find("\"message\":\"applied\"") != std::string::npos);
+  TEST_ASSERT_TRUE(accepted.find("\"data\":{\"threshold\":0.5}") != std::string::npos);
   TEST_ASSERT_TRUE(rejected.find("\"accepted\":false") != std::string::npos);
+  TEST_ASSERT_TRUE(rejected.find("\"code\":\"invalid_params\"") != std::string::npos);
   TEST_ASSERT_TRUE(rejected.find("\"message\":\"\"") != std::string::npos);
+  TEST_ASSERT_TRUE(rejected.find("\"data\"") == std::string::npos);
 }
 
 void test_parse_espectre_command_parses_info_and_threshold_commands(void) {
@@ -312,8 +318,14 @@ void test_parse_espectre_command_parses_info_and_threshold_commands(void) {
   TEST_ASSERT_EQUAL_STRING("info", command.command.c_str());
   TEST_ASSERT_FALSE(command.has_threshold);
 
-  TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x-commands\",\"command\":\"commands\"}", &command, &error));
-  TEST_ASSERT_EQUAL_STRING("commands", command.command.c_str());
+  TEST_ASSERT_TRUE(
+      parse_espectre_command("{\"command_id\":\"x-capabilities\",\"command\":\"capabilities\"}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("capabilities", command.command.c_str());
+
+  TEST_ASSERT_TRUE(parse_espectre_command(
+      "{\"command_id\":\"x-sensing\",\"command\":\"set_sensing\",\"enabled\":false}", &command, &error));
+  TEST_ASSERT_TRUE(command.has_sensing_enabled);
+  TEST_ASSERT_FALSE(command.sensing_enabled);
 
   TEST_ASSERT_TRUE(parse_espectre_command(
       "{\"command_id\":\"x-label\",\"command\":\"set_device_label\",\"device_label\":\"Kitchen\"}",
@@ -636,8 +648,8 @@ void test_direct_websocket_request_reuses_transport_neutral_command_validation(v
 
   request.method = "unknown_method";
   request.params = "{}";
-  TEST_ASSERT_FALSE(direct_websocket_request_to_command(request, &command, &error));
-  TEST_ASSERT_EQUAL_STRING("unsupported command", error.c_str());
+  TEST_ASSERT_TRUE(direct_websocket_request_to_command(request, &command, &error));
+  TEST_ASSERT_EQUAL_STRING("unknown_method", command.command.c_str());
 }
 
 void test_direct_websocket_configuration_commands_validate_write_only_fields(void) {
@@ -677,7 +689,7 @@ void test_direct_websocket_configuration_commands_validate_write_only_fields(voi
 
 void test_direct_websocket_read_and_sensing_methods_map_to_shared_commands(void) {
   const char *methods[] = {
-      "capabilities", "status", "config", "diagnostics", "start_sensing", "stop_sensing"};
+      "capabilities", "info", "status", "config", "diagnostics", "ota_status"};
   for (const char *method : methods) {
     EspectreCommand command;
     std::string error;
@@ -685,6 +697,19 @@ void test_direct_websocket_read_and_sensing_methods_map_to_shared_commands(void)
     TEST_ASSERT_EQUAL_STRING(method, command.command.c_str());
     TEST_ASSERT_EQUAL_STRING("direct-read", command.command_id.c_str());
   }
+
+  EspectreCommand command;
+  std::string error;
+  TEST_ASSERT_TRUE(
+      parse_espectre_command_request("direct-sensing", "set_sensing", "{\"enabled\":true}", &command, &error));
+  TEST_ASSERT_TRUE(command.has_sensing_enabled);
+  TEST_ASSERT_TRUE(command.sensing_enabled);
+
+  TEST_ASSERT_TRUE(parse_espectre_command_request("legacy", "start_sensing", "{}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("start_sensing", command.command.c_str());
+  TEST_ASSERT_FALSE(parse_espectre_command_request(
+      "extra", "set_sensing", "{\"enabled\":true,\"unexpected\":1}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("unknown command parameter", error.c_str());
 }
 
 int process(void) {
@@ -694,8 +719,8 @@ int process(void) {
   RUN_TEST(test_effective_device_helpers_and_topic_generation_use_defaults);
   RUN_TEST(test_clear_mqtt_config_resets_runtime_defaults);
   RUN_TEST(test_parse_mqtt_batch_config_command_updates_all_fields);
-  RUN_TEST(test_status_telemetry_and_stats_payloads_include_expected_fields);
-  RUN_TEST(test_stats_payload_includes_enabled_runtime_diagnostics_sample);
+  RUN_TEST(test_status_telemetry_and_diagnostics_payloads_include_expected_fields);
+  RUN_TEST(test_diagnostics_payload_includes_enabled_runtime_sample);
   RUN_TEST(test_info_payload_uses_defaults_and_optional_sections);
   RUN_TEST(test_info_payload_omits_optional_sections_when_empty);
   RUN_TEST(test_command_result_payload_includes_acceptance_and_message);

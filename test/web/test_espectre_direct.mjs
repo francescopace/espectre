@@ -209,9 +209,11 @@ describe('Direct request lifecycle', () => {
         });
         socket.receive({
             v: 1, type: 'response', id: 'cap-1', ok: true,
-            result: { subprotocol: 'espectre.v1', methods: ['set_threshold'] }
+            result: { command: 'capabilities', code: 'ok', message: 'capabilities returned', data: {
+                commands: [{ name: 'set_threshold' }]
+            } }
         });
-        assert.equal((await handshake).subprotocol, 'espectre.v1');
+        assert.equal((await handshake).commands[0].name, 'set_threshold');
         assert.equal(client.compatible, true);
 
         const command = client.request('set_threshold', { threshold: 0.42 }, { requestId: 'write-1' });
@@ -221,7 +223,7 @@ describe('Direct request lifecycle', () => {
         });
         socket.receive({
             v: 1, type: 'response', id: 'write-1', ok: true,
-            result: { message: 'threshold updated' }
+            result: { command: 'set_threshold', code: 'ok', message: 'threshold updated' }
         });
         assert.equal((await command).message, 'threshold updated');
     });
@@ -238,17 +240,19 @@ describe('Direct request lifecycle', () => {
         const handshake = client.handshake({ requestId: 'cap-peers' });
         socket.receive({
             v: 1, type: 'response', id: 'cap-peers', ok: true,
-            result: { subprotocol: 'espectre.v1', methods: ['discover_peers'] }
+            result: { command: 'capabilities', code: 'ok', message: 'capabilities returned', data: {
+                commands: [{ name: 'discover_peers' }]
+            } }
         });
         await handshake;
         const discovery = client.discoverPeers({ requestId: 'peers-1' });
         assert.equal(socket.sent.at(-1).method, 'discover_peers');
         socket.receive({
             v: 1, type: 'response', id: 'peers-1', ok: true,
-            result: {
+            result: { command: 'discover_peers', code: 'ok', message: 'peer discovery completed', data: {
                 schema_version: 1, elapsed_ms: 42, status: 'complete', truncated: false,
                 rejected_results: 0, devices: []
-            }
+            } }
         });
         assert.deepEqual((await discovery).devices, []);
     });
@@ -264,13 +268,15 @@ describe('Direct request lifecycle', () => {
         const delayedHandshake = delayedClient.handshake({ requestId: 'caps-delayed' });
         delayedSocket.receive({
             v: 1, type: 'response', id: 'caps-delayed', ok: true,
-            result: { subprotocol: 'espectre.v1', methods: ['discover_peers'] }
+            result: { command: 'capabilities', code: 'ok', message: 'capabilities returned', data: {
+                commands: [{ name: 'discover_peers' }]
+            } }
         });
         await delayedHandshake;
         const delayed = delayedClient.discoverPeers({ requestId: 'peers-delayed', timeoutMs: 50 });
         setTimeout(() => delayedSocket.receive({
             v: 1, type: 'response', id: 'peers-delayed', ok: true,
-            result: peerDiscoveryScenarios.partial
+            result: { command: 'discover_peers', code: 'ok', message: 'peer discovery completed', data: peerDiscoveryScenarios.partial }
         }), 2);
         assert.equal((await delayed).devices.length, 1);
         delayedClient.close();
@@ -283,7 +289,9 @@ describe('Direct request lifecycle', () => {
         const timeoutHandshake = timeoutClient.handshake({ requestId: 'caps-timeout' });
         timeoutSocket.receive({
             v: 1, type: 'response', id: 'caps-timeout', ok: true,
-            result: { subprotocol: 'espectre.v1', methods: ['discover_peers'] }
+            result: { command: 'capabilities', code: 'ok', message: 'capabilities returned', data: {
+                commands: [{ name: 'discover_peers' }]
+            } }
         });
         await timeoutHandshake;
         await assert.rejects(
@@ -300,7 +308,9 @@ describe('Direct request lifecycle', () => {
         const disconnectedHandshake = disconnectedClient.handshake({ requestId: 'caps-disconnect' });
         disconnectedSocket.receive({
             v: 1, type: 'response', id: 'caps-disconnect', ok: true,
-            result: { subprotocol: 'espectre.v1', methods: ['discover_peers'] }
+            result: { command: 'capabilities', code: 'ok', message: 'capabilities returned', data: {
+                commands: [{ name: 'discover_peers' }]
+            } }
         });
         await disconnectedHandshake;
         const pending = disconnectedClient.discoverPeers({ requestId: 'peers-disconnect' });

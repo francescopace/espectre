@@ -25,7 +25,7 @@
       <thead><tr><th>If you...</th><th>Flash</th><th>You get</th></tr></thead>
       <tbody>
         <tr><td>Want a standalone sensor, browser tools, MQTT, or Home Assistant through an existing broker</td><td><strong>Native</strong></td><td>Improv Serial setup, broker-free Direct monitoring, optional MQTT, Home Assistant MQTT Discovery, and browser games</td></tr>
-        <tr><td>Want the most complete Home Assistant integration and YAML configuration</td><td><strong>ESPHome</strong></td><td>Auto-discovered device with motion, movement level, threshold slider, and recalibrate switch</td></tr>
+        <tr><td>Want the most complete Home Assistant integration and YAML configuration</td><td><strong>ESPHome</strong></td><td>Auto-discovered device with motion, movement level, threshold slider, and recalibrate button</td></tr>
         <tr><td>Use a controller that supports Matter occupancy sensors</td><td><strong>Matter</strong></td><td>A standard occupancy sensor; controller validation is still limited, so check the <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/matter/README.md" target="_blank" rel="noopener">current validation notes</a></td></tr>
         <tr><td>Want raw CSI data for research</td><td><strong>Streamer</strong></td><td>Raw capture over UDP; not flashable from the browser, see the <a href="https://github.com/francescopace/espectre/blob/main/docs/SETUP.md" target="_blank" rel="noopener">setup reference</a></td></tr>
       </tbody>
@@ -130,7 +130,7 @@ espectre&gt; recalibrate</code></pre>
       <div class="code-tab-panel" id="setup-network-esphome-panel" role="tabpanel" aria-labelledby="setup-network-esphome-tab" data-network-frontend="esphome" hidden>
         <ol class="steps-list">
           <li><h3>Configure Wi-Fi in the flasher</h3><p>Right after installation, the same dialog offers <em>Configure Wi-Fi</em>. Enter your network name and password. Published images use 2.4&nbsp;GHz. If that prompt does not appear, connect to the <code>ESPectre Fallback</code> hotspot and finish setup in the browser.</p></li>
-          <li><h3>Add it in Home Assistant</h3><p>Within a minute, Home Assistant shows a notification for a discovered ESPHome device. Accept it, and you get the motion sensor, movement score, threshold control, and recalibrate switch. The <a href="/guides/home-assistant/">Home Assistant dashboard guide</a> turns those entities into a focused sensing and diagnostics view.</p></li>
+          <li><h3>Add it in Home Assistant</h3><p>Within a minute, Home Assistant shows a notification for a discovered ESPHome device. Accept it, and you get the motion sensor, movement score, threshold control, recalibrate button, and calibration-state sensor. The <a href="/guides/home-assistant/">Home Assistant dashboard guide</a> turns those entities into a focused sensing and diagnostics view.</p></li>
         </ol>
         <p><strong>CLI path:</strong> use <code>--dev</code> to embed the Wi-Fi credentials from <code>secrets.yaml</code> directly in the firmware.</p>
       </div>

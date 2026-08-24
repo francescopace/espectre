@@ -43,7 +43,9 @@ The frontend maps runtime state into ESPHome and Home Assistant entities.
 | runtime threshold write | `threshold_number` | On change |
 | runtime motion-hit debounce write | `motion_on_hits_number`, `motion_off_hits_number` | On change |
 | runtime detector selection | `detector_select` | On change |
-| runtime recalibration trigger | `calibrate_switch` | On change |
+| sensing lifecycle | `sensing_switch` | On change |
+| runtime recalibration trigger | `recalibrate_button` | On press |
+| calibration state | `calibration_active_sensor` | On change |
 | CSI traffic ownership | `csi_traffic_mode_select` | On change |
 | internal traffic generator type | `traffic_generator_mode_select` | On change |
 | on-demand CSI diagnostics | diagnostic sensors and `diagnostics_button` | On request |
@@ -68,7 +70,9 @@ These options are applied from YAML during firmware configuration. Runtime contr
 | Motion On Hits | `motion_on_hits_number` | Writable runtime motion-on debounce control |
 | Motion Off Hits | `motion_off_hits_number` | Writable runtime motion-off debounce control |
 | Detection profile | `detector_select` | Writable, persisted `lightweight` / `high_accuracy` selection |
-| Recalibration | `calibrate_switch` | Writable runtime recalibration trigger |
+| Sensing | `sensing_switch` | Writable runtime sensing lifecycle |
+| Recalibration | `recalibrate_button` | Writable runtime recalibration action |
+| Calibration state | `calibration_active_sensor` | Read-only runtime calibration state |
 | CSI traffic ownership | `csi_traffic_mode_select` | Writable, persisted `internal` / `external` / `disabled` selection |
 | Traffic generator | `traffic_generator_mode_select` | Writable, persisted `ping` / `dns` selection |
 
@@ -109,7 +113,7 @@ Threshold behavior:
 
 Lightweight Detection uses less active detector CPU and working memory, making it suitable when the ESPHome node also runs resource-intensive components. High-Accuracy Detection uses more feature state and inference work but provides higher accuracy and skips Lightweight's threshold calibration. Lightweight requires about 10 seconds of clean, ready quiet-room coverage after temporal warmup; insufficient occupancy extends that wall-clock duration. High Accuracy still waits for CSI readiness and its feature window to fill.
 
-The YAML value is the initial profile when no persisted selection exists. The Home Assistant `detector_select` changes it live and persists the choice across reboot. `high_accuracy -> lightweight` starts calibration automatically, and the `calibrate_switch` reflects automatic and user-triggered calibration state.
+The YAML value is the initial profile when no persisted selection exists. The Home Assistant `detector_select` changes it live and persists the choice across reboot. `high_accuracy -> lightweight` starts calibration automatically, and `calibration_active_sensor` reflects automatic and user-triggered calibration state.
 
 See [`ALGORITHMS.md`](../../../../docs/ALGORITHMS.md) for how the two detectors differ and [`TUNING.md`](../../../../docs/TUNING.md) for choosing between them.
 
@@ -141,7 +145,9 @@ espectre:
 | `detector_select` | select | `Detection Profile` | Runtime `lightweight` / `high_accuracy` selection |
 | `csi_traffic_mode_select` | select | `CSI Traffic Ownership` | Runtime `internal` / `external` / `disabled` selection |
 | `traffic_generator_mode_select` | select | `CSI Traffic Source` | Runtime `ping` / `dns` selection |
-| `calibrate_switch` | switch | `Trigger Calibration` | Startup recalibration trigger |
+| `sensing_switch` | switch | `Sensing Enabled` | Enables or pauses sensing through the common command engine |
+| `recalibrate_button` | button | `Recalibrate` | Starts runtime recalibration |
+| `calibration_active_sensor` | binary_sensor | `Calibration Active` | Read-only authoritative calibration state |
 | `diagnostics_button` | button | `Refresh Diagnostics` | Publishes the latest cached diagnostic sample on demand |
 | `traffic_rate_sensor` | sensor | `Traffic TX Rate` | Diagnostic traffic rate |
 | `csi_callback_rate_sensor` | sensor | `CSI Callback Rate` | Raw CSI callback rate; diagnostic-only |
@@ -207,7 +213,7 @@ Once the device is flashed and connected to Wi-Fi:
 3. Configure the discovered device
 4. The default entities are added automatically
 
-The ESPHome frontend exposes movement, motion, threshold control, motion-hit debounce control, recalibration, CSI traffic ownership, traffic generator selection, and on-demand CSI diagnostics as Home Assistant entities. Native MQTT Discovery publishes the same full sensing-control and diagnostic family, and Micro-ESPectre MQTT matches it. Movement Score updates on the detector evaluation cadence (default 250 ms). Motion Detected publishes only on filtered state edges. Threshold publishes on operator writes, calibration, and Lightweight settled-level recovery; motion-hit controls publish on change. Trigger Calibration reports ON while a recalibration session is running, and the traffic selects mirror runtime state on connect, Home Assistant birth, and each accepted change. Diagnostic sensors publish only when Refresh Diagnostics is pressed. If the Home Assistant recorder is a concern, exclude `sensor.*_movement_score` rather than lowering `evaluation_interval_ms`.
+The ESPHome frontend exposes movement, motion, sensing state, threshold control, motion-hit debounce control, recalibration, calibration state, CSI traffic ownership, traffic generator selection, and on-demand CSI diagnostics as Home Assistant entities. Every writable entity invokes the common command engine and republishes authoritative state when a command is rejected. Direct mutations use the same engine and immediately synchronize the affected entities. Movement Score updates on the detector evaluation cadence (default 250 ms). Motion Detected publishes only on filtered state edges. Threshold publishes on operator writes, calibration, and Lightweight settled-level recovery; motion-hit controls publish on change. Calibration Active reports the read-only runtime state, and the traffic selects mirror runtime state on connect and each accepted change. Diagnostic sensors publish only when Refresh Diagnostics runs the canonical `diagnostics` query. If the Home Assistant recorder is a concern, exclude `sensor.*_movement_score` rather than lowering `evaluation_interval_ms`.
 
 To manage configuration and OTA updates, install ESPHome Device Builder and adopt the discovered device. The adopted configuration compiles the component from the `git_ref` substitution, which defaults to `main`. ESPHome's GitHub clone is shallow and has no numeric tags, so Device Builder cannot configure when `project_version` is a branch name. Pin `git_ref` to a numeric release tag before compiling. First-party CI overrides `project_version` with `git describe`. Local `-dev` checkouts resolve the same identity from the repository.
 
@@ -295,7 +301,7 @@ For rate recommendations, airtime tradeoffs, and placement guidance, see [`TUNIN
 
 In `lightweight` mode, keep the room quiet after boot so the runtime can complete the startup threshold bootstrap; a later quiet stretch can still lower the live threshold, and the Home Assistant number follows it. `high_accuracy` skips the bootstrap and starts once CSI capture is ready and its feature window has filled. For the startup workflow and budget details, see [`TUNING.md`](../../../../docs/TUNING.md).
 
-Runtime recalibration is exposed as the `calibrate_switch` entity in Home Assistant.
+Runtime recalibration is exposed as the `recalibrate_button` entity in Home Assistant. `calibration_active_sensor` reports the authoritative in-progress state.
 
 ## Build and Consumption
 
@@ -458,7 +464,8 @@ This map is for component maintainers; it is not required for normal installatio
 - [`threshold_number.cpp`](components/espectre/threshold_number.cpp): runtime threshold control
 - [`motion_hits_number.cpp`](components/espectre/motion_hits_number.cpp): runtime motion-hit debounce control
 - [`detector_select.cpp`](components/espectre/detector_select.cpp): persisted runtime detector selection
-- [`calibrate_switch.cpp`](components/espectre/calibrate_switch.cpp): runtime recalibration trigger
+- [`sensing_switch.cpp`](components/espectre/sensing_switch.cpp): sensing lifecycle control
+- [`recalibrate_button.cpp`](components/espectre/recalibrate_button.cpp): runtime recalibration action
 - [`traffic_mode_select.cpp`](components/espectre/traffic_mode_select.cpp): runtime CSI traffic ownership and generator control
 - [`examples/`](examples/): production and local-development configurations for ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, plus the Home Assistant dashboard
 

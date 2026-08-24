@@ -36,36 +36,148 @@ double json_finite(float value) {
   return std::isfinite(value) ? static_cast<double>(value) : 0.0;
 }
 
-void append_supported_command_names(std::string *out, const EspectreDeviceInfo &info) {
+void append_command_descriptor(std::string *out,
+                               bool *first,
+                               bool enabled,
+                               const char *name,
+                               const char *kind,
+                               const char *access,
+                               const char *properties,
+                               const char *required,
+                               const char *result_schema) {
+  if (out == nullptr || first == nullptr || !enabled || name == nullptr) {
+    return;
+  }
+  if (!*first) {
+    out->append(",");
+  }
+  *first = false;
+  out->append("{\"name\":\"");
+  out->append(name);
+  out->append("\",\"kind\":\"");
+  out->append(kind != nullptr ? kind : "query");
+  out->append("\",\"access\":\"");
+  out->append(access != nullptr ? access : "read");
+  out->append("\",\"params\":{");
+  if (properties != nullptr && properties[0] != '\0') {
+    out->append("\"type\":\"object\",\"properties\":{");
+    out->append(properties);
+    out->append("}");
+  }
+  if (required != nullptr && required[0] != '\0') {
+    out->append(",\"required\":[");
+    out->append(required);
+    out->append("]");
+  }
+  if (properties != nullptr && properties[0] != '\0') out->append(",");
+  out->append("\"additionalProperties\":false}");
+  if (result_schema != nullptr && result_schema[0] != '\0') {
+    out->append(",\"result\":\"");
+    out->append(result_schema);
+    out->append("\"");
+  }
+  out->append("}");
+}
+
+void append_capability_commands(std::string *out,
+                                const EspectreDeviceInfo &info,
+                                bool supports_status,
+                                bool supports_config,
+                                bool supports_sensing_control,
+                                bool supports_wifi_config,
+                                bool supports_mqtt_config,
+                                bool supports_peer_discovery) {
   if (out == nullptr) {
     return;
   }
   bool first = true;
-  const auto add = [&](bool enabled, const char *name) {
-    if (!enabled || name == nullptr) {
-      return;
-    }
-    if (!first) {
-      out->append(",");
-    }
-    first = false;
-    out->append("\"");
-    out->append(name);
-    out->append("\"");
+  const auto add = [&](bool enabled,
+                       const char *name,
+                       const char *kind,
+                       const char *access,
+                       const char *properties = "",
+                       const char *required = "",
+                       const char *result = nullptr) {
+    append_command_descriptor(out, &first, enabled, name, kind, access, properties, required, result);
   };
-  add(true, "commands");
-  add(info.supports_info, "info");
-  add(info.supports_stats, "stats");
-  add(info.supports_device_config, "set_device_label");
-  add(info.supports_runtime_threshold, "set_threshold");
-  add(info.supports_runtime_motion_hits, "set_motion_hits");
-  add(info.supports_runtime_detector, "set_detector");
-  add(info.supports_manual_recalibration, "recalibrate");
-  add(info.supports_traffic_control, "set_csi_traffic_mode");
-  add(info.supports_traffic_control, "set_traffic_generator_mode");
-  add(info.supports_ota, "ota_status");
-  add(info.supports_ota, "ota_check");
-  add(info.supports_ota, "ota_start");
+  add(true, "capabilities", "query", "read", "", "", "capabilities");
+  add(info.supports_info, "info", "query", "read", "", "", "info");
+  add(supports_status, "status", "query", "read", "", "", "status");
+  add(supports_config, "config", "query", "read", "", "", "config");
+  add(info.supports_diagnostics, "diagnostics", "query", "read", "", "", "diagnostics");
+  add(supports_sensing_control,
+      "set_sensing",
+      "mutation",
+      "control",
+      "\"enabled\":{\"type\":\"boolean\"}",
+      "\"enabled\"");
+  add(info.supports_device_config,
+      "set_device_label",
+      "mutation",
+      "device_admin",
+      "\"device_label\":{\"type\":\"string\"}",
+      "\"device_label\"");
+  add(info.supports_runtime_threshold,
+      "set_threshold",
+      "mutation",
+      "control",
+      "\"threshold\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1}",
+      "\"threshold\"");
+  add(info.supports_runtime_motion_hits,
+      "set_motion_hits",
+      "mutation",
+      "control",
+      "\"motion_on_hits\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":20},"
+      "\"motion_off_hits\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":20}",
+      "\"motion_on_hits\",\"motion_off_hits\"");
+  add(info.supports_runtime_detector,
+      "set_detector",
+      "mutation",
+      "control",
+      "\"detector\":{\"type\":\"string\",\"enum\":[\"lightweight\",\"high_accuracy\"]}",
+      "\"detector\"");
+  add(info.supports_manual_recalibration, "recalibrate", "action", "control");
+  add(info.supports_traffic_control,
+      "set_csi_traffic_mode",
+      "mutation",
+      "control",
+      "\"csi_traffic_mode\":{\"type\":\"string\",\"enum\":[\"internal\",\"external\",\"disabled\"]}",
+      "\"csi_traffic_mode\"");
+  add(info.supports_traffic_control,
+      "set_traffic_generator_mode",
+      "mutation",
+      "control",
+      "\"traffic_generator_mode\":{\"type\":\"string\",\"enum\":[\"ping\",\"dns\"]}",
+      "\"traffic_generator_mode\"");
+  add(supports_wifi_config,
+      "set_wifi_config",
+      "mutation",
+      "network_admin",
+      "\"ssid\":{\"type\":\"string\"},\"password\":{\"type\":\"string\"},"
+      "\"bssid\":{\"type\":\"string\"},\"channel\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":255},"
+      "\"band_policy\":{\"type\":\"string\",\"enum\":[\"2g\",\"5g\",\"auto\"]}");
+  add(supports_wifi_config, "clear_wifi_config", "mutation", "network_admin");
+  add(supports_mqtt_config,
+      "set_mqtt_config",
+      "mutation",
+      "network_admin",
+      "\"host\":{\"type\":\"string\"},\"port\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":65535},"
+      "\"username\":{\"type\":\"string\"},\"password\":{\"type\":\"string\"},"
+      "\"topic_prefix\":{\"type\":\"string\"}",
+      "\"host\"");
+  add(supports_mqtt_config, "clear_mqtt_config", "mutation", "network_admin");
+  add(info.supports_ota, "ota_status", "query", "firmware_update", "", "", "ota_status");
+  add(info.supports_ota,
+      "ota_check",
+      "action",
+      "firmware_update",
+      "\"channel\":{\"type\":\"string\",\"enum\":[\"release\",\"preview\",\"develop\"]}");
+  add(info.supports_ota,
+      "ota_start",
+      "action",
+      "firmware_update",
+      "\"channel\":{\"type\":\"string\",\"enum\":[\"release\",\"preview\",\"develop\"]}");
+  add(supports_peer_discovery, "discover_peers", "query", "discovery", "", "", "peers");
 }
 
 bool parse_float_value(const std::string &value, float *out) {
@@ -221,11 +333,49 @@ bool parse_command_fields(const std::string &command_id,
     *value = field->value;
     return true;
   };
+  const auto bool_field = [&](const char *name, bool *value) {
+    const JsonObjectField *field = find_json_object_field(fields, name);
+    if (field == nullptr || field->type != JsonValueType::BOOLEAN || value == nullptr) {
+      return false;
+    }
+    *value = field->value == "true";
+    return true;
+  };
 
   if (parsed.command.empty()) {
     return reject("missing command");
   }
-  if (parsed.command == "set_device_label") {
+  const auto field_allowed = [&parsed](const std::string &name) {
+    if (name == "protocol_version" || name == "command_id" || name == "command") return true;
+    if (parsed.command == "set_sensing") return name == "enabled";
+    if (parsed.command == "set_device_label") return name == "device_label";
+    if (parsed.command == "set_threshold") return name == "threshold";
+    if (parsed.command == "set_motion_hits") return name == "motion_on_hits" || name == "motion_off_hits";
+    if (parsed.command == "set_detector") return name == "detector";
+    if (parsed.command == "set_csi_traffic_mode") return name == "csi_traffic_mode";
+    if (parsed.command == "set_traffic_generator_mode") return name == "traffic_generator_mode";
+    if (parsed.command == "set_wifi_config") {
+      return name == "ssid" || name == "password" || name == "bssid" || name == "channel" ||
+             name == "band_policy";
+    }
+    if (parsed.command == "set_mqtt_config") {
+      return name == "host" || name == "port" || name == "username" || name == "password" ||
+             name == "topic_prefix";
+    }
+    if (parsed.command == "ota_check" || parsed.command == "ota_start") {
+      return name == "channel" || name == "manifest_url" || name == "image_url" || name == "version";
+    }
+    return false;
+  };
+  for (const JsonObjectField &field : fields) {
+    if (!field_allowed(field.name)) return reject("unknown command parameter");
+  }
+  if (parsed.command == "set_sensing") {
+    if (!bool_field("enabled", &parsed.sensing_enabled)) {
+      return reject("invalid sensing state (accepted: boolean enabled)");
+    }
+    parsed.has_sensing_enabled = true;
+  } else if (parsed.command == "set_device_label") {
     if (!string_field("device_label", &parsed.device_label) ||
         parsed.device_label.find_first_of("\r\n\0", 0U, 3U) != std::string::npos) {
       return reject("invalid device label (accepted: a single-line string)");
@@ -358,13 +508,15 @@ bool parse_command_fields(const std::string &command_id,
       }
       parsed.has_ota_channel = true;
     }
-  } else if (parsed.command == "ota_status" || parsed.command == "info" || parsed.command == "stats" ||
-             parsed.command == "commands" || parsed.command == "capabilities" || parsed.command == "status" ||
-             parsed.command == "config" || parsed.command == "diagnostics" || parsed.command == "start_sensing" ||
-             parsed.command == "stop_sensing") {
+  } else if (parsed.command == "ota_status" || parsed.command == "info" ||
+             parsed.command == "capabilities" || parsed.command == "status" ||
+             parsed.command == "config" || parsed.command == "diagnostics" ||
+             parsed.command == "discover_peers") {
     // No additional payload required.
   } else {
-    return reject("unsupported command");
+    // The command engine owns registry filtering and returns the stable
+    // `unsupported` code. The transport parser only validates the envelope and
+    // parameters it knows how to decode.
   }
   *command = std::move(parsed);
   return true;
@@ -492,25 +644,6 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
   append_json_pair(&out, "frontend", info.frontend.empty() ? "native" : info.frontend.c_str());
   append_json_pair(&out, "firmware_version", info.firmware_version.empty() ? "unknown" : info.firmware_version.c_str());
   append_json_pair(&out, "chip", info.chip.empty() ? "unknown" : info.chip.c_str());
-  out += ",\"supports_info\":";
-  out += info.supports_info ? "true" : "false";
-  out += ",\"supports_stats\":";
-  out += info.supports_stats ? "true" : "false";
-  out += ",\"supports_device_config\":";
-  out += info.supports_device_config ? "true" : "false";
-  out += ",\"supports_runtime_threshold\":";
-  out += info.supports_runtime_threshold ? "true" : "false";
-  out += ",\"supports_runtime_motion_hits\":";
-  out += info.supports_runtime_motion_hits ? "true" : "false";
-  out += ",\"supports_runtime_detector\":";
-  out += info.supports_runtime_detector ? "true" : "false";
-  out += ",\"supports_manual_recalibration\":";
-  out += info.supports_manual_recalibration ? "true" : "false";
-  out += ",\"supports_traffic_control\":";
-  out += info.supports_traffic_control ? "true" : "false";
-  out += ",\"supports_ota\":";
-  out += info.supports_ota ? "true" : "false";
-
   if (info.network.channel > 0U) {
     out += ",\"network\":{\"channel\":{\"primary\":";
     out += std::to_string(static_cast<unsigned>(info.network.channel));
@@ -545,16 +678,37 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
   return out;
 }
 
-std::string espectre_commands_payload(const EspectreDeviceConfig &config, const EspectreDeviceInfo &info) {
+std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
+                                          const EspectreDeviceInfo &info,
+                                          bool supports_status,
+                                          bool supports_config,
+                                          bool supports_sensing_control,
+                                          bool supports_wifi_config,
+                                          bool supports_mqtt_config,
+                                          bool supports_peer_discovery) {
   const std::string device_id = espectre_effective_device_id(config);
   std::string out;
-  out.reserve(160U + device_id.size());
+  out.reserve(3072U + device_id.size());
   out = "{";
   append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
   append_json_pair(&out, "device_id", device_id.c_str());
   out += ",\"commands\":[";
-  append_supported_command_names(&out, info);
-  out += "]}";
+  append_capability_commands(&out,
+                             info,
+                             supports_status,
+                             supports_config,
+                             supports_sensing_control,
+                             supports_wifi_config,
+                             supports_mqtt_config,
+                             supports_peer_discovery);
+  out += "],\"events\":[\"telemetry\",\"status\",\"info\",\"config\"";
+  if (info.supports_ota) out += ",\"ota_status\"";
+  out += ",\"fault\"],"
+         "\"config_sections\":[\"runtime\"";
+  if (info.supports_device_config) out += ",\"device\"";
+  if (supports_wifi_config) out += ",\"wifi\"";
+  if (supports_mqtt_config) out += ",\"mqtt\"";
+  out += "],\"features\":{\"raw_csi\":false}}";
   return out;
 }
 
@@ -582,13 +736,13 @@ std::string espectre_telemetry_payload(const EspectreDeviceConfig &config,
   return line;
 }
 
-std::string espectre_stats_payload(const EspectreDeviceConfig &config,
-                                const RuntimeSnapshot &snapshot,
-                                uint32_t timestamp_ms,
-                                uint32_t uptime_s,
-                                float free_memory_kb,
-                                float loop_time_ms,
-                                const RuntimeDiagnosticsSample *diagnostics) {
+std::string espectre_diagnostics_payload(const EspectreDeviceConfig &config,
+                                         const RuntimeSnapshot &snapshot,
+                                         uint32_t timestamp_ms,
+                                         uint32_t uptime_s,
+                                         float free_memory_kb,
+                                         float loop_time_ms,
+                                         const RuntimeDiagnosticsSample *diagnostics) {
   (void) snapshot;
   char line[640];
   const std::string device_id = espectre_effective_device_id(config);
@@ -643,9 +797,11 @@ std::string espectre_stats_payload(const EspectreDeviceConfig &config,
 }
 
 std::string espectre_command_result_payload(const EspectreDeviceConfig &config,
-                                         const EspectreCommand &command,
-                                         bool accepted,
-                                         const char *message) {
+                                            const EspectreCommand &command,
+                                            bool accepted,
+                                            const char *code,
+                                            const char *message,
+                                            const std::string &data_json) {
   const std::string device_id = espectre_effective_device_id(config);
   std::string out;
   out.reserve(128U + device_id.size() + command.command_id.size() + command.command.size() +
@@ -657,7 +813,15 @@ std::string espectre_command_result_payload(const EspectreDeviceConfig &config,
   append_json_pair(&out, "command", command.command.c_str());
   out += ",\"accepted\":";
   out += accepted ? "true" : "false";
+  append_json_pair(&out, "code", code != nullptr ? code : (accepted ? "ok" : "internal_error"));
   append_json_pair(&out, "message", message != nullptr ? message : "");
+  if (!data_json.empty()) {
+    std::vector<JsonObjectField> fields;
+    if (parse_json_object_fields(data_json, &fields, nullptr)) {
+      out += ",\"data\":";
+      out += data_json;
+    }
+  }
   out += "}";
   return out;
 }

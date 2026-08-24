@@ -22,11 +22,11 @@ set(ESPECTRE_RUNTIME_COMMON_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_config_utils.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_diagnostics.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_time.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_control_helpers.cpp"
 )
 
 set(ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_bootstrap_helpers.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_control_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_ha_mqtt_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_mqtt_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_sysinfo_helpers.cpp"
@@ -97,7 +97,8 @@ set(ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES
 )
 
 set(ESPECTRE_FRONTEND_ESPHOME_SOURCES
-    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/calibrate_switch.cpp"
+    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/recalibrate_button.cpp"
+    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/sensing_switch.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/detector_select.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/diagnostics_button.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/espectre.cpp"

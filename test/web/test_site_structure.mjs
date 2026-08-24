@@ -130,8 +130,8 @@ describe('website analytics contracts', () => {
         assert.match(app, /state === 'error'/);
         assert.match(app, /entry_point: monitor\.entryPoint/);
         assert.match(mqttProtocol, /#pending\.get\(data\.command_id\)/);
-        assert.match(mqttProtocol, /parsed\.suffix === 'commands\/accepted'/);
-        assert.match(mqttProtocol, /parsed\.suffix === 'commands\/rejected'/);
+        assert.match(mqttProtocol, /parsed\.suffix === 'commands\/result'/);
+        assert.match(mqttProtocol, /data\.accepted === true/);
         assert.match(app, /\.\.\.connectionParams\(\)/);
     });
 
@@ -179,7 +179,8 @@ describe('website analytics contracts', () => {
         assert.match(app, /function discoveredPeerChipLabel[\s\S]*?replace\(\/\^ESP32/);
         assert.match(app, /heading\.className = 'direct-discovery-device-heading'/);
         assert.match(app, /metadata\.className = 'direct-discovery-device-meta'/);
-        assert.match(app, /\['Frontend', frontend\][\s\S]*?\['Hardware', chip\][\s\S]*?\['Device ID', shortId, 'mono'\]/);
+        assert.match(app, /\['Frontend', frontend \|\| 'Unknown'\][\s\S]*?\['Hardware', chip \|\| 'Unknown'\][\s\S]*?\['Device ID', displayDeviceId, 'mono'\]/);
+        assert.match(app, /displayDeviceId: shortId/);
         assert.match(styles, /\.direct-discovery-device-meta \{[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
         const discoveryEvents = [...app.matchAll(/track\('local_discovery',[\s\S]*?\}\);/g)]
             .map((match) => match[0]).join('\n');
@@ -1272,10 +1273,11 @@ describe('website UX contracts', () => {
         assert.match(app, /const DIRECT_FULL_DEVICE_ID = \/\^\[0-9a-f\]\{16\}\$\//);
         assert.match(app, /const DIRECT_SHORT_DEVICE_ID = \/\^\[0-9a-f\]\{6\}\$\//);
         assert.match(app, /if \(matches\.length > 1\)/);
-        assert.match(app, /button\.dataset\.deviceId = peer\.device_id/);
+        assert.match(app, /button\.dataset\.deviceId = deviceId/);
+        assert.match(app, /deviceId: peer\.device_id/);
         assert.match(app, /DIRECT_DISCOVERY_CONNECT_TIMEOUT_MS = 10000/);
         assert.doesNotMatch(directTemplate, /ws:\/\/|\.local/);
-        assert.match(app, /await client\.request\('start_sensing'\)/);
+        assert.match(app, /await client\.request\('set_sensing', \{ enabled: true \}\)/);
         assert.doesNotMatch(app, /set_ble|STOP_BLE/);
         assert.match(index, /class="modal-card" role="dialog" aria-modal="true"/);
         assert.match(index, /class="btn-primary js-ota-start" disabled/);
@@ -1381,8 +1383,8 @@ describe('website UX contracts', () => {
         assert.match(app, /function syncDiagnosticsPolling/);
         assert.match(app, /setInterval\(monitorRequestStats, interval\)/);
         assert.match(app, /function stopDiagnosticsPolling/);
-        assert.match(app, /command: direct \? 'diagnostics' : 'stats'/);
-        assert.match(app, /if \(direct && data && typeof data === 'object'\)[\s\S]*markMonitorReady\('diagnostics'\);[\s\S]*monitorStats\(data\)/);
+        assert.match(app, /command: 'diagnostics'/);
+        assert.match(app, /const data = direct \? response : response\?\.data;[\s\S]*markMonitorReady\('diagnostics'\);[\s\S]*monitorStats\(data\)/);
         assert.match(app, /if \(conn\.mode === 'ws'\) return monitor\.diagRequestPending/);
         assert.match(app, /data\.csi_admitted_pps/);
         assert.match(app, /data\.csi_filtered_pps/);
@@ -1398,14 +1400,8 @@ describe('website UX contracts', () => {
         assert.match(app, /function recordDiscoveredMqttDevice/);
         assert.match(app, /function monitorStartDiscovery/);
         assert.match(app, /client\.subscribe\(monitor\.discoveryTopics/);
-        assert.match(app, /function monitorDeviceChipLabel/);
-        assert.match(app, /function monitorDeviceStatus/);
-        assert.match(app, /dotClass: 'dot-ok'/);
-        assert.match(app, /dotClass: 'dot-error'/);
-        assert.match(app, /dotClass: 'dot-idle'/);
-        assert.match(app, /dot\.className = `dot \$\{status\.dotClass\}`/);
-        assert.doesNotMatch(app, /const frontend = device\.frontend \|\| 'unknown'/);
-        assert.match(styles, /\.device-choice-option \{/);
+        assert.match(app, /function createDiscoveryDeviceButton/);
+        assert.doesNotMatch(styles, /\.device-choice-option \{/);
         assert.match(app, /function monitorSelectDevice/);
         assert.match(mqttProtocol, /`\$\{prefix\}\/\+\/info`/);
         assert.match(mqttProtocol, /`\$\{prefix\}\/\+\/status`/);
@@ -1413,6 +1409,13 @@ describe('website UX contracts', () => {
         assert.match(app, /monitorStatus\('Select a device, or enter a device ID\.'\);[\s\S]*monitorShowDeviceSelection\(\)/);
         assert.doesNotMatch(app, /\[deviceInput, !!device, 'Enter a device ID\.'\]/);
         assert.match(app, /function ingestMqttMessage/);
+        assert.match(app, /function applyDirectConfig\(config\) \{[\s\S]*?const device = config\.device \|\| \{\};[\s\S]*?device_label: config\.device_label \?\? device\.device_label[\s\S]*?applySensingSnapshot\(runtime\);/);
+        assert.match(app, /function ingestMqttMessage\([\s\S]*?case 'config':[\s\S]*?applyDirectConfig\(data\);[\s\S]*?return;/);
+        assert.match(app, /function applyRuntimeStatus\(status\) \{[\s\S]*?setCalibrationBusy\(calibrating\);/);
+        assert.match(app, /if \(name === 'status'\) applyRuntimeStatus\(data\);/);
+        assert.match(app, /case 'status':[\s\S]*?applyRuntimeStatus\(data\);/);
+        assert.match(app, /if \(detector\) \{[\s\S]*?syncSensingControls\(\);/);
+        assert.match(app, /function directConfigSnapshot\(config\) \{[\s\S]*?device_label: config\.device_label \?\? device\.device_label \?\? ''/);
         assert.match(mqttProtocol, /function mqttUtf8/);
         assert.match(app, /function applyMqttLiveTelemetry/);
         assert.match(app, /MONITOR_CHART_WINDOW_MS = 60 \* 1000/);
@@ -1425,10 +1428,18 @@ describe('website UX contracts', () => {
         assert.match(app, /if \(monitor\.boundDeviceId && conn\.deviceId && monitor\.boundDeviceId !== conn\.deviceId\) return;/);
         assert.match(app, /case 'ha\/movement\/state':[\s\S]*?if \(monitorHasFreshTelemetry\(\)\) return;/);
         assert.match(app, /case 'ha\/motion\/state':[\s\S]*?if \(monitorHasFreshTelemetry\(\)\) return;/);
-        assert.match(app, /case 'commands\/catalog'/);
+        assert.match(app, /case 'capabilities'/);
         assert.match(app, /monitor\.commandCatalogReady = true/);
         assert.match(app, /function monitorOpenConnectivity/);
         assert.match(app, /if \(conn\.mode === 'ws' && directClient\?\.connected\)/);
+    });
+
+    it('lists only MQTT devices confirmed online', () => {
+        assert.match(app, /\.filter\(\(device\) => device\.online === true\)/);
+        assert.match(app, /online MQTT devices found\. Select one to connect\./);
+        assert.match(app, /No online devices discovered\. Enter a device ID\./);
+        assert.match(app, /className: 'mqtt-discovery-device'/);
+        assert.match(app, /choice\.append\(summary, list\)/);
     });
 
     it('offers MQTT broker presets and splits device TCP from browser WebSockets', () => {
@@ -1451,8 +1462,8 @@ describe('website UX contracts', () => {
         assert.doesNotMatch(index, /id="mon-pass"[^>]*value=/);
         assert.match(index, /id="mon-topic-prefix"[^>]*value="espectre\/v1\/devices"/);
         assert.match(index, /id="mon-device"[^>]*placeholder="3cf79180d3a0aca4"/);
-        assert.match(index, /id="mon-device-choice" class="device-choice-list"/);
-        assert.match(index, /class="field js-mon-device-picker"/);
+        assert.match(index, /id="mon-device"[^>]*aria-describedby="mon-device-help"[\s\S]*?class="btn-primary btn-sm js-mon-connect">Find devices<\/button>[\s\S]*?id="mon-device-help">Leave blank to discover devices through this broker/);
+        assert.match(index, /class="direct-discovery js-mon-device-picker" role="status" aria-live="polite" hidden>[\s\S]*id="mon-device-choice"/);
         assert.match(index, /id="mon-path"[^>]*value="\/mqtt"/);
         assert.match(index, /id="mon-tls"/);
         const mqttPage = index.match(/data-page="tool-monitor"[\s\S]*?<\/main>/)?.[0] || '';
@@ -1464,11 +1475,13 @@ describe('website UX contracts', () => {
         assert.match(broker, /class="device-connect-card connection-card mqtt-connect-card empty-state"/);
         assert.match(broker, /class="connection-card-eyebrow"/);
         assert.match(broker, /id="mon-host"[\s\S]*id="mon-user"[\s\S]*id="mon-port"[\s\S]*id="mon-topic-prefix"[\s\S]*id="mon-device"[\s\S]*js-mon-connect/);
-        assert.match(broker, /<details class="config-advanced mqtt-connect-advanced">[\s\S]*?<\/details>[\s\S]*?<button class="btn-primary js-mon-connect">/);
+        assert.doesNotMatch(broker.match(/<details class="config-advanced mqtt-connect-advanced">[\s\S]*?<\/details>/)?.[0] || '', /id="mon-device"/);
+        assert.match(broker, /<details class="config-advanced mqtt-connect-advanced">[\s\S]*?<\/details>[\s\S]*?id="mon-device"/);
         assert.match(broker, /id="mon-path"/);
         assert.match(broker, /id="mon-tls"/);
-        assert.match(styles, /\.connection-card \{ width: min\(100%, 540px\);/);
-        assert.match(styles, /\.connection-card > \.btn-primary \{ width: 100%; margin-top: 18px; \}/);
+        assert.match(styles, /\.connection-card \{ width: min\(100%, 572px\); max-width: 572px;/);
+        assert.match(styles, /\.mqtt-device-control \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) auto;/);
+        assert.match(app, /device \? 'Connect device' : 'Find devices'/);
         assert.match(demo, /class="device-connect-card connection-card demo-connect-card empty-state"/);
         assert.match(demo, /class="demo-connect-list"[\s\S]*class="btn-primary js-demo"/);
         assert.match(styles, /\.demo-connect-summary \{[\s\S]*?background: var\(--surface2\);/);

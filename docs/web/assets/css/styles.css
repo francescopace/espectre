@@ -1027,7 +1027,7 @@ a.hero-badge:hover {
 .device-connect-card-actions { margin-top: auto; }
 .device-connect-card-actions button, .device-connect-card .panel-actions button { width: 100%; }
 espectre-direct-connect:not([hidden]) { display: contents; }
-.connection-card { width: min(100%, 540px); box-sizing: border-box; text-align: left; }
+.connection-card { width: min(100%, 572px); max-width: 572px; box-sizing: border-box; text-align: left; }
 .connection-card > h2,
 .connection-card > p:first-of-type,
 .connection-card-eyebrow { text-align: center; }
@@ -1826,47 +1826,13 @@ body.modal-open { overflow: hidden; }
   position: relative;
   z-index: 1;
 }
-.device-choice-list {
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--bg);
-}
-.device-choice-option {
-  width: 100%;
-  min-height: 42px;
+.mqtt-device-control {
   display: grid;
-  grid-template-columns: 8px auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
-  padding: 9px 12px;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
 }
-.device-choice-option + .device-choice-option { border-top: 1px solid var(--border); }
-.device-choice-option:hover,
-.device-choice-option:focus-visible { background: var(--surface2); }
-.device-choice-option .dot { width: 7px; height: 7px; }
-.device-choice-chip {
-  min-width: 34px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  font-weight: 600;
-}
-.device-choice-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.device-choice-id {
-  color: var(--dim);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11.5px;
-}
+.mqtt-device-control .btn-primary { min-height: 39px; white-space: nowrap; }
 .field-port-tls {
   display: flex;
   align-items: center;
@@ -3367,6 +3333,8 @@ ewt-install-dialog {
   .empty-state { padding: 32px 20px; }
   .direct-connect-manual { grid-template-columns: minmax(0, 1fr); }
   .direct-connect-manual .btn-secondary { width: 100%; }
+  .mqtt-device-control { grid-template-columns: minmax(0, 1fr); }
+  .mqtt-device-control .btn-primary { width: 100%; }
   .mqtt-connect-card .broker-host-control { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .mqtt-connect-card .broker-host-control select,
   .mqtt-connect-card .broker-host-control input { margin-left: 0; border-radius: 9px; }

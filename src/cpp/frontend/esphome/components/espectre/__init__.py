@@ -88,6 +88,7 @@ CONF_CSI_OCCUPANCY_SENSOR = "csi_occupancy_sensor"
 CONF_WIFI_CHANNEL_SENSOR = "wifi_channel_sensor"
 CONF_WIFI_RSSI_SENSOR = "wifi_rssi_sensor"
 CONF_DIAGNOSTICS_BUTTON = "diagnostics_button"
+CONF_CALIBRATION_ACTIVE_SENSOR = "calibration_active_sensor"
 
 # Number controls
 CONF_THRESHOLD_NUMBER = "threshold_number"
@@ -97,8 +98,8 @@ CONF_DETECTOR_SELECT = "detector_select"
 CONF_CSI_TRAFFIC_MODE_SELECT = "csi_traffic_mode_select"
 CONF_TRAFFIC_GENERATOR_MODE_SELECT = "traffic_generator_mode_select"
 
-# Switch controls
-CONF_CALIBRATE_SWITCH = "calibrate_switch"
+CONF_SENSING_SWITCH = "sensing_switch"
+CONF_RECALIBRATE_BUTTON = "recalibrate_button"
 
 espectre_ns = cg.esphome_ns.namespace("espectre_component")
 ESpectreComponent = espectre_ns.class_("ESpectreComponent", cg.Component)
@@ -106,7 +107,8 @@ ESpectreThresholdNumber = espectre_ns.class_("ESpectreThresholdNumber", number.N
 ESpectreMotionHitsNumber = espectre_ns.class_("ESpectreMotionHitsNumber", number.Number, cg.Component)
 ESpectreDetectorSelect = espectre_ns.class_("ESpectreDetectorSelect", select.Select, cg.Component)
 ESpectreTrafficModeSelect = espectre_ns.class_("ESpectreTrafficModeSelect", select.Select, cg.Component)
-ESpectreCalibrateSwitch = espectre_ns.class_("ESpectreCalibrateSwitch", switch.Switch, cg.Component)
+ESpectreSensingSwitch = espectre_ns.class_("ESpectreSensingSwitch", switch.Switch, cg.Component)
+ESpectreRecalibrateButton = espectre_ns.class_("ESpectreRecalibrateButton", button.Button, cg.Component)
 ESpectreDiagnosticsButton = espectre_ns.class_("ESpectreDiagnosticsButton", button.Button, cg.Component)
 
 _LIBRARY_ROOT = Path(__file__).resolve().parents[4]
@@ -337,6 +339,10 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_MOTION_SENSOR, default={"name": "Motion Detected"}): binary_sensor.binary_sensor_schema(
         device_class=DEVICE_CLASS_MOTION,
     ),
+    cv.Optional(CONF_CALIBRATION_ACTIVE_SENSOR, default={"name": "Calibration Active"}): binary_sensor.binary_sensor_schema(
+        entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+        icon="mdi:tune-vertical",
+    ),
 
     # On-demand diagnostic entities. The component refreshes its internal
     # sample from the existing sensing callback, but publishes these states
@@ -459,11 +465,14 @@ CONFIG_SCHEMA = cv.Schema({
         entity_category=ENTITY_CATEGORY_CONFIG,
     ),
     
-    # Switch control for manual recalibration from HA
-    # ON = calibrating, OFF = idle. Switch auto-turns off when calibration completes.
-    cv.Optional(CONF_CALIBRATE_SWITCH, default={"name": "Trigger Calibration"}): switch.switch_schema(
-        ESpectreCalibrateSwitch,
+    cv.Optional(CONF_SENSING_SWITCH, default={"name": "Sensing Enabled"}): switch.switch_schema(
+        ESpectreSensingSwitch,
         entity_category=ENTITY_CATEGORY_CONFIG,
+    ),
+    cv.Optional(CONF_RECALIBRATE_BUTTON, default={"name": "Recalibrate"}): button.button_schema(
+        ESpectreRecalibrateButton,
+        entity_category=ENTITY_CATEGORY_CONFIG,
+        icon="mdi:tune-vertical",
     ),
 }).extend(cv.COMPONENT_SCHEMA)
 
@@ -548,6 +557,9 @@ async def to_code(config):
     sens = await binary_sensor.new_binary_sensor(config[CONF_MOTION_SENSOR])
     cg.add(var.set_motion_binary_sensor(sens))
 
+    calibration_active = await binary_sensor.new_binary_sensor(config[CONF_CALIBRATION_ACTIVE_SENSOR])
+    cg.add(var.set_calibration_active_sensor(calibration_active))
+
     diagnostic_sensors = (
         (CONF_TRAFFIC_RATE_SENSOR, var.set_traffic_rate_sensor),
         (CONF_CSI_CALLBACK_RATE_SENSOR, var.set_csi_callback_rate_sensor),
@@ -626,9 +638,9 @@ async def to_code(config):
     cg.add(traffic_generator_mode.set_csi_traffic_mode(False))
     cg.add(var.set_traffic_generator_mode_select(traffic_generator_mode))
     
-    # Register calibrate switch control
-    # Note: switch.new_switch() handles component registration internally
-    # Do NOT call register_component separately - same reason as above
-    sw = await switch.new_switch(config[CONF_CALIBRATE_SWITCH])
-    cg.add(sw.set_parent(var))
-    cg.add(var.set_calibrate_switch(sw))
+    sensing = await switch.new_switch(config[CONF_SENSING_SWITCH])
+    cg.add(sensing.set_parent(var))
+    cg.add(var.set_sensing_switch(sensing))
+
+    recalibrate = await button.new_button(config[CONF_RECALIBRATE_BUTTON])
+    cg.add(recalibrate.set_parent(var))

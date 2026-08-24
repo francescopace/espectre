@@ -27,9 +27,9 @@ def derive_runtime_device_id(wlan):
         return "0000000000000000"
 
 
-def _protocol_mqtt_commands(
+def command_registry(
     supports_info=True,
-    supports_stats=False,
+    supports_diagnostics=False,
     supports_device_config=False,
     supports_runtime_threshold=False,
     supports_runtime_motion_hits=False,
@@ -38,28 +38,53 @@ def _protocol_mqtt_commands(
     supports_traffic_control=False,
     supports_ota=False,
 ):
-    """Return the MQTT command names advertised by this frontend."""
-    commands = ["commands"]
+    """Return the filtered canonical command registry for this frontend."""
+    empty = {"additionalProperties": False}
+    commands = [
+        {"name": "capabilities", "kind": "query", "access": "read", "params": empty, "result": "capabilities"},
+        {"name": "status", "kind": "query", "access": "read", "params": empty, "result": "status"},
+        {"name": "config", "kind": "query", "access": "read", "params": empty, "result": "config"},
+    ]
     if supports_info:
-        commands.append("info")
-    if supports_stats:
-        commands.append("stats")
+        commands.insert(1, {"name": "info", "kind": "query", "access": "read", "params": empty, "result": "info"})
+    if supports_diagnostics:
+        commands.append({"name": "diagnostics", "kind": "query", "access": "read", "params": empty, "result": "diagnostics"})
     if supports_device_config:
-        commands.append("set_device_label")
+        commands.append({"name": "set_device_label", "kind": "mutation", "access": "device_admin", "params": {"type": "object", "properties": {"device_label": {"type": "string"}}, "required": ["device_label"], "additionalProperties": False}})
     if supports_runtime_threshold:
-        commands.append("set_threshold")
+        commands.append({"name": "set_threshold", "kind": "mutation", "access": "control", "params": {"type": "object", "properties": {"threshold": {"type": "number", "minimum": 0, "maximum": 1}}, "required": ["threshold"], "additionalProperties": False}})
     if supports_runtime_motion_hits:
-        commands.append("set_motion_hits")
+        commands.append({"name": "set_motion_hits", "kind": "mutation", "access": "control", "params": {"type": "object", "properties": {"motion_on_hits": {"type": "integer", "minimum": 1, "maximum": 20}, "motion_off_hits": {"type": "integer", "minimum": 1, "maximum": 20}}, "required": ["motion_on_hits", "motion_off_hits"], "additionalProperties": False}})
     if supports_runtime_detector:
-        commands.append("set_detector")
+        commands.append({"name": "set_detector", "kind": "mutation", "access": "control", "params": {"type": "object", "properties": {"detector": {"type": "string", "enum": ["lightweight", "high_accuracy"]}}, "required": ["detector"], "additionalProperties": False}})
     if supports_manual_recalibration:
-        commands.append("recalibrate")
+        commands.append({"name": "recalibrate", "kind": "action", "access": "control", "params": empty})
     if supports_traffic_control:
-        commands.append("set_csi_traffic_mode")
-        commands.append("set_traffic_generator_mode")
+        commands.append({"name": "set_csi_traffic_mode", "kind": "mutation", "access": "control", "params": {"type": "object", "properties": {"csi_traffic_mode": {"type": "string", "enum": ["internal", "external", "disabled"]}}, "required": ["csi_traffic_mode"], "additionalProperties": False}})
+        commands.append({"name": "set_traffic_generator_mode", "kind": "mutation", "access": "control", "params": {"type": "object", "properties": {"traffic_generator_mode": {"type": "string", "enum": ["ping", "dns"]}}, "required": ["traffic_generator_mode"], "additionalProperties": False}})
     if supports_ota:
-        commands.extend(["ota_status", "ota_check", "ota_start"])
+        ota_params = {"type": "object", "properties": {"channel": {"type": "string", "enum": ["release", "preview", "develop"]}}, "required": [], "additionalProperties": False}
+        commands.extend([
+            {"name": "ota_status", "kind": "query", "access": "firmware_update", "params": empty, "result": "ota_status"},
+            {"name": "ota_check", "kind": "action", "access": "firmware_update", "params": ota_params},
+            {"name": "ota_start", "kind": "action", "access": "firmware_update", "params": ota_params},
+        ])
     return commands
+
+
+def build_capabilities_payload(device_id, **supports):
+    commands = command_registry(**supports)
+    config_sections = ["runtime"]
+    if supports.get("supports_device_config"):
+        config_sections.append("device")
+    return {
+        "protocol_version": "1.0",
+        "device_id": device_id,
+        "commands": commands,
+        "events": ["telemetry", "status", "info", "config", "fault"],
+        "config_sections": config_sections,
+        "features": {"raw_csi": False},
+    }
 
 
 def _is_ascii_alnum(char):
@@ -126,15 +151,6 @@ def build_info_payload(
         "frontend": "micro",
         "firmware_version": "micropython",
         "chip": chip,
-        "supports_info": True,
-        "supports_stats": True,
-        "supports_device_config": False,
-        "supports_runtime_threshold": True,
-        "supports_runtime_motion_hits": runtime_policy is not None,
-        "supports_runtime_detector": False,
-        "supports_manual_recalibration": callable(recalibrate_callback),
-        "supports_traffic_control": bool(traffic_control_supported),
-        "supports_ota": False,
         "network": {
             "channel": {"primary": channel_primary},
         },

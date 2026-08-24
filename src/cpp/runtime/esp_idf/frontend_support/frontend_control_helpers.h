@@ -31,8 +31,7 @@ struct DeviceConfigCommandResult {
 using DeviceConfigClearHandler = std::function<bool(EspectreDeviceConfig *cleared_config, std::string *message)>;
 using DeviceConfigUpdateHandler = std::function<bool(EspectreDeviceConfig *updated_config, std::string *message)>;
 
-using FrontendInfoCallback = std::function<void()>;
-using FrontendStatsCallback = std::function<void()>;
+using FrontendReadPayloadCallback = std::function<std::string(const EspectreCommand &command)>;
 using FrontendDeviceLabelCallback = std::function<bool(const std::string &device_label, std::string *message)>;
 using FrontendThresholdCallback = std::function<bool(float threshold, std::string *message)>;
 using FrontendMotionHitsCallback =
@@ -41,8 +40,6 @@ using FrontendCsiTrafficModeCallback = std::function<bool(CsiTrafficMode mode, s
 using FrontendTrafficGeneratorModeCallback = std::function<bool(RuntimeTrafficMode mode, std::string *message)>;
 using FrontendDetectorCallback = std::function<bool(DetectionAlgorithm algorithm, std::string *message)>;
 using FrontendRecalibrateCallback = std::function<bool(std::string *message)>;
-using FrontendOtaStatusCallback = std::function<void(const EspectreOtaStatus &status)>;
-using FrontendCommandsCallback = std::function<void()>;
 using FrontendWifiConfigCallback =
     std::function<bool(const EspectreCommand &command, bool clear, std::string *message)>;
 using FrontendMqttConfigCallback =
@@ -51,7 +48,9 @@ using FrontendSensingControlCallback = std::function<bool(bool enabled, std::str
 
 struct FrontendCommandCapabilities {
   bool supports_info{true};
-  bool supports_stats{false};
+  bool supports_status{true};
+  bool supports_config{false};
+  bool supports_diagnostics{false};
   bool supports_device_config{false};
   bool supports_wifi_config{false};
   bool supports_mqtt_config{false};
@@ -62,13 +61,40 @@ struct FrontendCommandCapabilities {
   bool supports_detector{false};
   bool supports_recalibrate{false};
   bool supports_ota{false};
+  bool supports_peer_discovery{false};
+};
+
+enum class FrontendCommandChange : uint8_t {
+  NONE = 0U,
+  STATUS = 1U << 0U,
+  INFO = 1U << 1U,
+  CONFIG = 1U << 2U,
+  OTA_STATUS = 1U << 3U,
+};
+
+inline FrontendCommandChange operator|(FrontendCommandChange lhs, FrontendCommandChange rhs) {
+  return static_cast<FrontendCommandChange>(static_cast<uint8_t>(lhs) | static_cast<uint8_t>(rhs));
+}
+
+enum class FrontendCommandOrigin : uint8_t {
+  DIRECT = 0U,
+  MQTT,
+  ESPHOME,
+  MATTER,
+};
+
+struct FrontendCommandContext {
+  FrontendCommandOrigin origin{FrontendCommandOrigin::DIRECT};
 };
 
 struct FrontendCommandResult {
   bool handled{false};
   bool accepted{false};
   EspectreCommand command{};
+  std::string code{"internal_error"};
   std::string message;
+  std::string data_json;
+  FrontendCommandChange changes{FrontendCommandChange::NONE};
 };
 
 DeviceConfigCommandResult handle_device_config_command(const std::string &command,
@@ -76,23 +102,24 @@ DeviceConfigCommandResult handle_device_config_command(const std::string &comman
                                                        DeviceConfigClearHandler clear_handler,
                                                        DeviceConfigUpdateHandler update_handler);
 
-FrontendCommandResult handle_frontend_command(const EspectreCommand &command,
-                                              IOtaService *ota_service,
-                                              const char *current_version,
-                                              const FrontendCommandCapabilities &capabilities,
-                                              FrontendInfoCallback info_callback,
-                                              FrontendStatsCallback stats_callback,
-                                              FrontendDeviceLabelCallback device_label_callback,
-                                              FrontendThresholdCallback threshold_callback,
-                                              FrontendMotionHitsCallback motion_hits_callback,
-                                              FrontendCsiTrafficModeCallback csi_traffic_mode_callback,
-                                              FrontendTrafficGeneratorModeCallback traffic_generator_mode_callback,
-                                              FrontendDetectorCallback detector_callback,
-                                              FrontendRecalibrateCallback recalibrate_callback,
-                                              FrontendOtaStatusCallback ota_status_callback,
-                                              FrontendCommandsCallback commands_callback = {},
-                                              FrontendWifiConfigCallback wifi_config_callback = {},
-                                              FrontendMqttConfigCallback mqtt_config_callback = {},
-                                              FrontendSensingControlCallback sensing_control_callback = {});
+class FrontendCommandEngine {
+ public:
+  FrontendCommandResult execute(const EspectreCommand &command,
+                                const FrontendCommandContext &context,
+                                IOtaService *ota_service,
+                                const char *current_version,
+                                const FrontendCommandCapabilities &capabilities,
+                                FrontendReadPayloadCallback read_payload_callback,
+                                FrontendDeviceLabelCallback device_label_callback = {},
+                                FrontendThresholdCallback threshold_callback = {},
+                                FrontendMotionHitsCallback motion_hits_callback = {},
+                                FrontendCsiTrafficModeCallback csi_traffic_mode_callback = {},
+                                FrontendTrafficGeneratorModeCallback traffic_generator_mode_callback = {},
+                                FrontendDetectorCallback detector_callback = {},
+                                FrontendRecalibrateCallback recalibrate_callback = {},
+                                FrontendWifiConfigCallback wifi_config_callback = {},
+                                FrontendMqttConfigCallback mqtt_config_callback = {},
+                                FrontendSensingControlCallback sensing_control_callback = {}) const;
+};
 
 }  // namespace espectre

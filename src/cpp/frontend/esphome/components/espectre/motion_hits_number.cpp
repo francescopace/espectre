@@ -34,7 +34,7 @@ void ESpectreMotionHitsNumber::control(float value) {
   const uint8_t rounded = static_cast<uint8_t>(std::lround(value));
   const uint8_t motion_on_hits = this->motion_on_ ? rounded : this->parent_->get_motion_on_hits();
   const uint8_t motion_off_hits = this->motion_on_ ? this->parent_->get_motion_off_hits() : rounded;
-  this->parent_->set_motion_hits_runtime(motion_on_hits, motion_off_hits);
+  if (!this->parent_->set_motion_hits_runtime(motion_on_hits, motion_off_hits)) this->republish_state();
 }
 
 void ESpectreMotionHitsNumber::republish_state() {

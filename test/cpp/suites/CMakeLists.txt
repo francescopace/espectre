@@ -176,3 +176,14 @@ add_espectre_test(test_matter_frontend
     "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_matter_frontend.cpp"
     LIBRARIES espectre_frontend_matter_testlib
 )
+
+# This is intentionally a probe rather than a CTest case: the Python owner
+# suite executes it and compares its JSON with the independent MicroPython
+# registry.
+add_executable(espectre_capabilities_probe
+    "${ESPECTRE_TEST_ROOT}/support/espectre_capabilities_probe.cpp"
+)
+target_link_libraries(espectre_capabilities_probe
+    PRIVATE
+        espectre_runtime_testlib
+)

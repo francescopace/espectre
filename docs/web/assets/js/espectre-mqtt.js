@@ -20,11 +20,11 @@
         'telemetry',
         'status',
         'info',
-        'stats',
-        'commands/catalog',
-        'commands/accepted',
-        'commands/rejected',
-        'ota/state'
+        'config',
+        'capabilities',
+        'ota_status',
+        'fault',
+        'commands/result'
     ]));
 
     class ESPectreMqttError extends Error {
@@ -225,7 +225,7 @@
                 }
             }
 
-            if (parsed.suffix === 'commands/accepted' || parsed.suffix === 'commands/rejected') {
+            if (parsed.suffix === 'commands/result') {
                 this.#settleCommand(parsed.suffix, data);
             }
             this.#emit('message', { ...parsed, text, data });
@@ -312,7 +312,7 @@
             if (!pending) return;
             clearTimeout(pending.timer);
             this.#pending.delete(data.command_id);
-            if (suffix === 'commands/accepted' && data.accepted !== false) {
+            if (suffix === 'commands/result' && data.accepted === true) {
                 pending.resolve(data);
             } else {
                 pending.reject(new ESPectreMqttError(

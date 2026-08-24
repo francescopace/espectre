@@ -260,11 +260,11 @@ void test_rejects_bad_frames_and_rate_limits_mutations() {
   TEST_ASSERT_EQUAL(1U, service.diagnostics().oversized_frames);
 
   const char *mutation =
-      "{\"v\":1,\"type\":\"request\",\"id\":\"m1\",\"method\":\"start_sensing\",\"params\":{}}";
+      "{\"v\":1,\"type\":\"request\",\"id\":\"m1\",\"method\":\"set_sensing\",\"params\":{\"enabled\":true}}";
   httpd_mock_set_incoming(mutation, HTTPD_WS_TYPE_TEXT, true, false);
   TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uri.handler(&request));
   httpd_mock_set_incoming(
-      "{\"v\":1,\"type\":\"request\",\"id\":\"m2\",\"method\":\"stop_sensing\",\"params\":{}}",
+      "{\"v\":1,\"type\":\"request\",\"id\":\"m2\",\"method\":\"set_sensing\",\"params\":{\"enabled\":false}}",
       HTTPD_WS_TYPE_TEXT,
       true,
       false);
@@ -298,7 +298,7 @@ void test_read_requests_do_not_consume_the_mutation_budget() {
   httpd_req_t request = request_for(service);
 
   const char *read_methods[] = {
-      "capabilities", "info", "commands", "status", "config", "diagnostics", "stats", "ota_status"};
+      "capabilities", "info", "status", "config", "diagnostics", "ota_status"};
   for (size_t index = 0U; index < sizeof(read_methods) / sizeof(read_methods[0]); ++index) {
     const std::string frame = "{\"v\":1,\"type\":\"request\",\"id\":\"r" + std::to_string(index) +
                               "\",\"method\":\"" + read_methods[index] + "\",\"params\":{}}";
@@ -308,14 +308,14 @@ void test_read_requests_do_not_consume_the_mutation_budget() {
   }
 
   httpd_mock_set_incoming(
-      "{\"v\":1,\"type\":\"request\",\"id\":\"m1\",\"method\":\"start_sensing\",\"params\":{}}",
+      "{\"v\":1,\"type\":\"request\",\"id\":\"m1\",\"method\":\"set_sensing\",\"params\":{\"enabled\":true}}",
       HTTPD_WS_TYPE_TEXT,
       true,
       false);
   TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uri.handler(&request));
   service.loop();
   httpd_mock_set_incoming(
-      "{\"v\":1,\"type\":\"request\",\"id\":\"m2\",\"method\":\"stop_sensing\",\"params\":{}}",
+      "{\"v\":1,\"type\":\"request\",\"id\":\"m2\",\"method\":\"set_sensing\",\"params\":{\"enabled\":false}}",
       HTTPD_WS_TYPE_TEXT,
       true,
       false);
@@ -323,8 +323,8 @@ void test_read_requests_do_not_consume_the_mutation_budget() {
   service.loop();
 
   TEST_ASSERT_EQUAL(1U, service.diagnostics().rate_limited_requests);
-  TEST_ASSERT_TRUE(std::string(g_httpd_mock.sent_payloads[9]).find("\"id\":\"m2\"") != std::string::npos);
-  TEST_ASSERT_TRUE(std::string(g_httpd_mock.sent_payloads[9]).find("\"code\":\"rate_limited\"") !=
+  TEST_ASSERT_TRUE(std::string(g_httpd_mock.sent_payloads[7]).find("\"id\":\"m2\"") != std::string::npos);
+  TEST_ASSERT_TRUE(std::string(g_httpd_mock.sent_payloads[7]).find("\"code\":\"rate_limited\"") !=
                    std::string::npos);
 }
 

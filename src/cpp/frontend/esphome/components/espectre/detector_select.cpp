@@ -19,7 +19,7 @@ void ESpectreDetectorSelect::dump_config() { LOG_SELECT("", "ESPectre Detector",
 
 void ESpectreDetectorSelect::control(const std::string &value) {
   if (this->parent_ != nullptr) {
-    this->parent_->set_detection_algorithm_runtime(value);
+    if (!this->parent_->set_detection_algorithm_runtime(value)) this->republish_state();
   }
 }
 

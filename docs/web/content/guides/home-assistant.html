@@ -13,7 +13,7 @@
 
     <h2 id="ha-before">Before you start</h2>
     <ul class="checklist">
-      <li>Your ESPectre device is online in Home Assistant through ESPHome or Native MQTT Discovery. Micro-ESPectre works too when its optional MQTT Discovery adapter is enabled.</li>
+      <li>Your ESPectre device is online in Home Assistant through ESPHome or Native MQTT Discovery. Micro-ESPectre works too when its optional MQTT Discovery adapter is enabled, but its combined calibration switch requires replacing the template's separate Recalibrate and Calibration Active rows.</li>
       <li>You can see the device under <em>Settings → Devices &amp; services</em>, and its Motion Detected and Movement Score entities have current values.</li>
       <li>You have administrator access, which Home Assistant requires to create and manage dashboards.</li>
     </ul>
@@ -62,19 +62,19 @@
       <li><h3>Replace the stable prefix</h3><p>If Step&nbsp;1 found a consistent prefix other than <code>espectre_</code>, replace every occurrence of <code>espectre_</code> with that exact prefix, then save again.</p></li>
       <li><h3>Resolve collision suffixes</h3><p>If any active entity ends in <code>_2</code> or another numeric suffix, replace that complete entity ID on its dashboard row. Do not append the suffix to the shared prefix.</p></li>
     </ol>
-    <div class="note">Do not change the entity domains before the dot: Motion Detected remains a <code>binary_sensor</code>, Movement Score remains a <code>sensor</code>, Threshold remains a <code>number</code>, and the other rows retain their discovered domains.</div>
+    <div class="note">Do not change the entity domains before the dot: Motion Detected and Calibration Active remain <code>binary_sensor</code> entities, Movement Score remains a <code>sensor</code>, Threshold remains a <code>number</code>, Recalibrate remains a <code>button</code>, and the other rows retain their discovered domains.</div>
 
     <h2 id="ha-result">Step 4 — Verify the result</h2>
     <p>The first column shows motion state, a full-width Movement Score bar, and 30 minutes of movement-versus-threshold history. The second column groups the detection controls and the diagnostics that matter most during installation.</p>
     <figure>
       <img src="/assets/images/guides/home-assistant-dashboard.png" alt="Home Assistant dashboard showing ESPectre motion detected, a full movement-score bar, movement-versus-threshold history, detection profile, threshold, calibration, and CSI diagnostics" width="1343" height="604" loading="lazy">
-      <figcaption>The maintained two-column dashboard: live sensing on the left, runtime controls and on-demand diagnostics on the right.</figcaption>
+      <figcaption>The maintained two-column layout keeps live sensing on the left and runtime controls plus diagnostics on the right. The current template replaces the pictured calibration switch with separate Recalibrate and Calibration Active entities.</figcaption>
     </figure>
     <ul class="checklist">
       <li>Move in the room and confirm that Motion changes state and Movement Score updates.</li>
       <li>Confirm that the Threshold line appears in the history graph after the device has published its current value.</li>
       <li>Select <em>Refresh Diagnostics</em> to populate Traffic TX Rate, CSI Admitted Rate, WiFi RSSI, and WiFi Channel. These diagnostic states update on demand.</li>
-      <li>Use Trigger Calibration only when the room can remain still during Lightweight calibration.</li>
+      <li>Press Recalibrate only when the room can remain still, and use Calibration Active to confirm when Lightweight calibration finishes.</li>
     </ul>
 
     <h2 id="ha-troubleshooting">Troubleshooting</h2>

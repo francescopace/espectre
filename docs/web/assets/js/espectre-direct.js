@@ -26,8 +26,7 @@
         'clear_mqtt_config', 'clear_wifi_config', 'ota_start', 'recalibrate',
         'set_csi_traffic_mode', 'set_detector', 'set_device_label',
         'set_motion_hits', 'set_mqtt_config', 'set_threshold',
-        'set_traffic_generator_mode', 'set_wifi_config', 'start_sensing',
-        'stop_sensing'
+        'set_traffic_generator_mode', 'set_wifi_config', 'set_sensing'
     ]));
 
     class ESPectreDirectError extends Error {
@@ -273,10 +272,9 @@
         async handshake(options = {}) {
             const result = await this.request('capabilities', {}, { ...options, allowBeforeHandshake: true });
             if (!result || typeof result !== 'object' || Array.isArray(result)
-                || result.subprotocol !== SUBPROTOCOL
-                || !Array.isArray(result.methods)
-                || result.methods.some((method) => typeof method !== 'string'
-                    || !/^[A-Za-z0-9_.-]{1,64}$/.test(method))) {
+                || !Array.isArray(result.commands)
+                || result.commands.some((item) => !item || typeof item.name !== 'string'
+                    || !/^[A-Za-z0-9_.-]{1,64}$/.test(item.name))) {
                 throw new ESPectreDirectError('Device returned invalid capabilities.', 'invalid_capabilities');
             }
             this.#compatible = true;
@@ -324,7 +322,7 @@
         }
 
         async discoverPeers(options = {}) {
-            if (!this.#compatible || !this.#capabilities?.methods?.includes('discover_peers')) {
+            if (!this.#compatible || !this.#capabilities?.commands?.some((item) => item.name === 'discover_peers')) {
                 throw new ESPectreDirectError('This responder does not support peer discovery.', 'unsupported_capability');
             }
             const result = await this.request('discover_peers', {}, {
@@ -371,7 +369,7 @@
                     pending.reject(new ESPectreDirectError('Direct success result must be an object.', 'invalid_envelope'));
                     return;
                 }
-                pending.resolve(envelope.result);
+                pending.resolve(envelope.result.data ?? envelope.result);
                 return;
             }
             const code = typeof envelope.error?.code === 'string' ? envelope.error.code : 'device_error';

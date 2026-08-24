@@ -35,7 +35,7 @@ Direct mode provides:
 - capability negotiation, device identity, status, configuration, diagnostics, and correlated command results
 - Wi-Fi updates with optional BSSID and channel hints
 - device-label and optional MQTT add, change, or clear operations
-- sensing start and stop, recalibration, detector selection, thresholds, hit counts, and traffic controls
+- sensing enable or pause through `set_sensing`, recalibration, detector selection, thresholds, hit counts, and traffic controls
 - processed movement, state, calibration, diagnostics, and lifecycle events
 - supported OTA status and control operations
 
@@ -78,7 +78,7 @@ Automatic discovery requires working local multicast and client reachability. Mu
 
 MQTT is disabled until configured. Wi-Fi alone is sufficient for Native to start Direct WebSocket and sense. Adding, losing, slowing, or clearing MQTT does not disable Direct mode.
 
-When configured, MQTT runs concurrently with Direct WebSocket and provides the canonical ESPectre MQTT topic surface, Home Assistant MQTT Discovery, retained availability, and integration with broker-based clients. Monitor connects to the broker through MQTT over WebSockets, so the broker must expose a browser-compatible `ws://` or `wss://` listener.
+When configured, MQTT runs concurrently with Direct WebSocket and provides the canonical ESPectre MQTT topic surface, Home Assistant MQTT Discovery, retained availability, and integration with broker-based clients. Both transports invoke the same command engine; a query answers only its requester, while a mutation fans out the corresponding authoritative state event. Their outbound queues remain separate so broker backpressure cannot delay Direct sensing. Monitor connects to the broker through MQTT over WebSockets, so the broker must expose a browser-compatible `ws://` or `wss://` listener.
 
 The Native `diagnostics` request returns uptime, current, minimum, and largest-block heap, CPU frequency, frontend-task stack high-water, bounded loop-load and detector-timing windows, and cached traffic, CSI, Wi-Fi, Direct, and MQTT diagnostics. Transport diagnostics include fixed client, queue, and MQTT outbox budgets alongside current occupancy and cumulative drops, send failures, and slow-client disconnects. Performance aggregation is unconditional production runtime state; it does not require a build option or periodic debug logger.
 
@@ -91,7 +91,8 @@ Home Assistant discovery is enabled in the published defaults and can be disable
 | Threshold and hit counts | Retained state and writable control |
 | Detection Profile | `lightweight` or `high_accuracy` |
 | CSI Traffic Ownership and Source | Runtime traffic controls |
-| Trigger Calibration | Starts recalibration |
+| Recalibrate | Configuration button that starts recalibration |
+| Calibration Active | Diagnostic binary sensor that reports the authoritative runtime state |
 | CSI and Wi-Fi diagnostics | Published on demand after Refresh Diagnostics |
 
 Canonical topics under `espectre/v1/devices/{device_id}/...` remain available to standalone clients. See [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md) for the exact topic and payload contract.

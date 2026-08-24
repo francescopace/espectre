@@ -248,7 +248,7 @@ Current repository CLI target coverage for the Streamer frontend includes `ESP32
 
 This section explains the internal ownership boundary and can be skipped when you only need to build or use the Streamer.
 
-The streamer uses `RuntimeFrontendController` with a dedicated `StreamEspIdfRuntime` backend. This keeps the controller/runtime split aligned across frontends without forcing the motion-oriented `EspIdfRuntime` onto raw CSI transport.
+The streamer uses `RuntimeFrontendController` with a dedicated `StreamEspIdfRuntime` backend. Its Direct adapter invokes the shared `FrontendCommandEngine` and advertises only the read and action intersection that this detector-free runtime can execute. This keeps the controller/runtime split aligned across frontends without forcing the motion-oriented `EspIdfRuntime` onto raw CSI transport.
 
 - The goal is raw CSI transport, not motion-detection entity exposure.
 - The firmware keeps a packet-oriented streaming path and a Streamer-specific state machine.
