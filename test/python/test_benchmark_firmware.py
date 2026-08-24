@@ -13,6 +13,7 @@ import pytest
 
 from tools import benchmark_firmware as bench
 from src.python.espectre_cli.device_transport import (
+    DIRECT_MAX_RESPONSE_FRAME_SIZE,
     DIRECT_SUBPROTOCOL,
     DirectClient,
     DirectProtocolError,
@@ -214,7 +215,32 @@ def test_direct_client_correlates_response_while_collecting_events():
     assert connect_args["origin"] == "https://test.espectre.dev"
     assert connect_args["subprotocols"] == [DIRECT_SUBPROTOCOL]
     assert connect_args["ping_interval"] is None
+    assert connect_args["max_size"] == DIRECT_MAX_RESPONSE_FRAME_SIZE
     assert socket.closed
+
+
+def test_direct_client_accepts_response_larger_than_request_limit():
+    padding = "x" * 4200
+    socket = _FakeWebSocket(
+        [json.dumps({
+            "v": 1,
+            "type": "response",
+            "id": "benchmark-1",
+            "ok": True,
+            "result": {
+                "command": "diagnostics",
+                "code": "ok",
+                "message": "diagnostics returned",
+                "data": {"padding": padding},
+            },
+        })]
+    )
+
+    with DirectClient(
+        "ws://192.0.2.10/espectre/v1/ws",
+        connect_factory=lambda *_args, **_kwargs: socket,
+    ) as client:
+        assert client.request("diagnostics") == {"padding": padding}
 
 
 def test_direct_client_rejects_unknown_response_identifier():

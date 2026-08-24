@@ -47,6 +47,37 @@ typedef enum {
   MDNS_IP_PROTOCOL_V6 = 1,
   MDNS_IP_PROTOCOL_MAX,
 } mdns_ip_protocol_t;
+
+typedef enum {
+  ACTION_RX_HANDLE = 0,
+  ACTION_OTHER = 1,
+} mdns_action_type_t;
+
+typedef enum {
+  ACTION_RUN = 0,
+  ACTION_CLEANUP = 1,
+} mdns_action_subtype_t;
+
+typedef struct {
+  mdns_if_t tcpip_if;
+  mdns_ip_protocol_t ip_protocol;
+  void *pb;
+  esp_ip_addr_t src;
+  esp_ip_addr_t dest;
+  uint16_t src_port;
+  uint8_t multicast;
+  const uint8_t *mock_data;
+  size_t mock_length;
+} mdns_rx_packet_t;
+
+typedef struct {
+  mdns_action_type_t type;
+  union {
+    struct {
+      mdns_rx_packet_t *packet;
+    } rx_handle;
+  } data;
+} mdns_action_t;
 typedef struct mdns_search_once_s mdns_search_once_t;
 typedef void (*mdns_query_notify_t)(mdns_search_once_t *search);
 
@@ -139,6 +170,7 @@ typedef struct {
   int private_announce_count;
   int private_goodbye_count;
   int real_write_call_count;
+  int receive_real_call_count;
   int last_netif_action;
   bool async_new_succeeds;
   bool async_get_results_finished;
@@ -158,6 +190,10 @@ typedef struct {
   bool last_private_answer_flush;
   bool last_private_answer_goodbye;
   size_t last_write_len;
+  mdns_if_t last_write_interface;
+  mdns_ip_protocol_t last_write_protocol;
+  uint32_t last_write_destination_ipv4;
+  uint16_t last_write_destination_port;
   uint8_t last_write_packet[512];
   char hostname[64];
   char instance_name[96];
@@ -225,6 +261,8 @@ size_t __real_mdns_priv_if_write(mdns_if_t tcpip_if,
                                  uint16_t port,
                                  uint8_t *data,
                                  size_t len);
+void __real_mdns_priv_receive_action(mdns_action_t *action,
+                                     mdns_action_subtype_t type);
 
 #ifdef __cplusplus
 }

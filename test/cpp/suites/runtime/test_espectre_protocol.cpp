@@ -249,7 +249,13 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"discover_peers\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"commands\"") == std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"stats\"") == std::string::npos);
-  TEST_ASSERT_TRUE(catalog.size() < 4096U);
+  const std::string capability_result =
+      "{\"command\":\"capabilities\",\"code\":\"ok\",\"message\":\"capabilities returned\",\"data\":" +
+      catalog + "}";
+  const std::string capability_response =
+      direct_websocket_success_response("capabilities", capability_result);
+  TEST_ASSERT_TRUE(capability_response.size() > ESPECTRE_DIRECT_MAX_REQUEST_FRAME_SIZE);
+  TEST_ASSERT_TRUE(capability_response.size() <= ESPECTRE_DIRECT_MAX_RESPONSE_FRAME_SIZE);
 }
 
 void test_info_payload_omits_optional_sections_when_empty(void) {
@@ -599,7 +605,7 @@ void test_direct_websocket_request_rejects_invalid_boundaries(void) {
       &error));
   TEST_ASSERT_EQUAL_STRING("Direct request params must be an object", error.c_str());
 
-  const std::string oversized(ESPECTRE_DIRECT_MAX_FRAME_SIZE + 1U, 'x');
+  const std::string oversized(ESPECTRE_DIRECT_MAX_REQUEST_FRAME_SIZE + 1U, 'x');
   TEST_ASSERT_FALSE(parse_direct_websocket_request(oversized, &request, &error));
   TEST_ASSERT_EQUAL_STRING("Direct frame exceeds the size limit", error.c_str());
   TEST_ASSERT_FALSE(parse_direct_websocket_request("{}", nullptr, &error));

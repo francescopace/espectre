@@ -69,7 +69,7 @@ bool parse_direct_websocket_request(const std::string &payload,
   if (payload.empty()) {
     return reject("empty Direct frame");
   }
-  if (payload.size() > ESPECTRE_DIRECT_MAX_FRAME_SIZE) {
+  if (payload.size() > ESPECTRE_DIRECT_MAX_REQUEST_FRAME_SIZE) {
     return reject("Direct frame exceeds the size limit");
   }
 

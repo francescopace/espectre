@@ -89,6 +89,31 @@ describe('Direct endpoint policy', () => {
             'ws://[fd12:3456:789a::42]:6054/espectre/v1/ws'
         );
     });
+
+    it('creates a fresh 96-bit lowercase bootstrap endpoint from injected entropy', () => {
+        let invocation = 0;
+        const randomSource = {
+            getRandomValues(bytes) {
+                bytes.fill(invocation++);
+                return bytes;
+            }
+        };
+        assert.equal(
+            Client.createDiscoveryEndpoint(randomSource),
+            'ws://espectre-devices-000000000000000000000000.local/espectre/v1/ws'
+        );
+        assert.equal(
+            Client.createDiscoveryEndpoint(randomSource),
+            'ws://espectre-devices-010101010101010101010101.local/espectre/v1/ws'
+        );
+    });
+
+    it('fails explicitly when Web Crypto is unavailable', () => {
+        assert.throws(
+            () => Client.createDiscoveryEndpoint(null),
+            (error) => error instanceof DirectError && error.code === 'unsupported_crypto'
+        );
+    });
 });
 
 describe('Peer discovery schema', () => {
@@ -165,6 +190,35 @@ describe('Peer discovery schema', () => {
 });
 
 describe('Direct request lifecycle', () => {
+    it('accepts responses larger than requests and rejects responses above 8192 bytes', async () => {
+        globalThis.WebSocket = FakeWebSocket;
+        assert.equal(Client.MAX_FRAME_BYTES, 4096);
+        assert.equal(Client.MAX_REQUEST_FRAME_BYTES, 4096);
+        assert.equal(Client.MAX_RESPONSE_FRAME_BYTES, 8192);
+
+        const client = new Client('192.168.1.42');
+        const errors = [];
+        client.on('protocol-error', (error) => errors.push(error.code));
+        const connected = client.connect();
+        const socket = FakeWebSocket.instances[0];
+        socket.open();
+        await connected;
+
+        const handshake = client.handshake({ requestId: 'large-capabilities' });
+        socket.receive({
+            v: 1, type: 'response', id: 'large-capabilities', ok: true,
+            result: { command: 'capabilities', code: 'ok', message: 'capabilities returned', data: {
+                commands: [{ name: 'discover_peers' }], padding: 'x'.repeat(4200)
+            } }
+        });
+        assert.equal((await handshake).commands[0].name, 'discover_peers');
+
+        socket.receive({
+            v: 1, type: 'event', event: 'telemetry', data: { padding: 'x'.repeat(8200) }
+        });
+        assert.deepEqual(errors, ['frame_too_large']);
+    });
+
     it('classifies connection timeout and protocol negotiation failures', async () => {
         globalThis.WebSocket = FakeWebSocket;
         const timeoutClient = new Client('192.168.1.42');
@@ -230,7 +284,7 @@ describe('Direct request lifecycle', () => {
 
     it('requests peer discovery only after capability negotiation', async () => {
         globalThis.WebSocket = FakeWebSocket;
-        const client = new Client('espectre-devices.local');
+        const client = new Client('device.local');
         const connected = client.connect();
         const socket = FakeWebSocket.instances[0];
         socket.open();
@@ -260,7 +314,7 @@ describe('Direct request lifecycle', () => {
     it('handles delayed discovery, timeout, and responder disconnect deterministically', async () => {
         globalThis.WebSocket = FakeWebSocket;
 
-        const delayedClient = new Client('espectre-devices.local');
+        const delayedClient = new Client('device.local');
         const delayedConnection = delayedClient.connect();
         const delayedSocket = FakeWebSocket.instances.at(-1);
         delayedSocket.open();
@@ -281,7 +335,7 @@ describe('Direct request lifecycle', () => {
         assert.equal((await delayed).devices.length, 1);
         delayedClient.close();
 
-        const timeoutClient = new Client('espectre-devices.local');
+        const timeoutClient = new Client('device.local');
         const timeoutConnection = timeoutClient.connect();
         const timeoutSocket = FakeWebSocket.instances.at(-1);
         timeoutSocket.open();
@@ -300,7 +354,7 @@ describe('Direct request lifecycle', () => {
         );
         timeoutClient.close();
 
-        const disconnectedClient = new Client('espectre-devices.local');
+        const disconnectedClient = new Client('device.local');
         const disconnectedConnection = disconnectedClient.connect();
         const disconnectedSocket = FakeWebSocket.instances.at(-1);
         disconnectedSocket.open();

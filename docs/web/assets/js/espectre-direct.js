@@ -16,11 +16,14 @@
     const ENVELOPE_VERSION = 1;
     const SUBPROTOCOL = 'espectre.v1';
     const ENDPOINT_PATH = '/espectre/v1/ws';
-    const MAX_FRAME_BYTES = 4096;
+    const MAX_REQUEST_FRAME_BYTES = 4096;
+    const MAX_RESPONSE_FRAME_BYTES = 8192;
     const DEFAULT_TIMEOUT_MS = 8000;
     const PEER_DISCOVERY_TIMEOUT_MS = 5000;
     const PEER_DISCOVERY_MAX_DEVICES = 8;
     const PEER_DISCOVERY_MAX_ADDRESSES = 2;
+    const DISCOVERY_NONCE_BYTES = 12;
+    const DISCOVERY_HOST_PREFIX = 'espectre-devices-';
     const EVENTS = Object.freeze(['open', 'close', 'event', 'protocol-error']);
     const MUTATING_METHODS = Object.freeze(new Set([
         'clear_mqtt_config', 'clear_wifi_config', 'ota_start', 'recalibrate',
@@ -99,6 +102,19 @@
         }
         url.pathname = ENDPOINT_PATH;
         return url.toString();
+    }
+
+    function createDiscoveryEndpoint(randomSource = globalThis.crypto) {
+        if (!randomSource || typeof randomSource.getRandomValues !== 'function') {
+            throw new ESPectreDirectError(
+                'Web Crypto is required for local Auto-discovery.',
+                'unsupported_crypto'
+            );
+        }
+        const bytes = new Uint8Array(DISCOVERY_NONCE_BYTES);
+        randomSource.getRandomValues(bytes);
+        const nonce = [...bytes].map((value) => value.toString(16).padStart(2, '0')).join('');
+        return normalizeEndpoint(`${DISCOVERY_HOST_PREFIX}${nonce}.local`);
     }
 
     function parseObject(text) {
@@ -182,9 +198,12 @@
         static get ENVELOPE_VERSION() { return ENVELOPE_VERSION; }
         static get SUBPROTOCOL() { return SUBPROTOCOL; }
         static get ENDPOINT_PATH() { return ENDPOINT_PATH; }
-        static get MAX_FRAME_BYTES() { return MAX_FRAME_BYTES; }
+        static get MAX_FRAME_BYTES() { return MAX_REQUEST_FRAME_BYTES; }
+        static get MAX_REQUEST_FRAME_BYTES() { return MAX_REQUEST_FRAME_BYTES; }
+        static get MAX_RESPONSE_FRAME_BYTES() { return MAX_RESPONSE_FRAME_BYTES; }
         static get EVENTS() { return EVENTS; }
         static normalizeEndpoint(value) { return normalizeEndpoint(value); }
+        static createDiscoveryEndpoint(randomSource) { return createDiscoveryEndpoint(randomSource); }
         static validatePeerDiscoveryResult(value) { return validatePeerDiscoveryResult(value); }
 
         #endpoint;
@@ -302,7 +321,7 @@
                 return Promise.reject(new ESPectreDirectError('Direct request id is invalid or already pending.', 'invalid_request_id'));
             }
             const payload = JSON.stringify({ v: ENVELOPE_VERSION, type: 'request', id, method, params });
-            if (new TextEncoder().encode(payload).byteLength > MAX_FRAME_BYTES) {
+            if (new TextEncoder().encode(payload).byteLength > MAX_REQUEST_FRAME_BYTES) {
                 return Promise.reject(new ESPectreDirectError('Direct request exceeds the 4096-byte frame limit.', 'frame_too_large'));
             }
             return new Promise((resolve, reject) => {
@@ -337,8 +356,8 @@
             let envelope;
             try {
                 text = frameText(value);
-                if (new TextEncoder().encode(text).byteLength > MAX_FRAME_BYTES) {
-                    throw new ESPectreDirectError('Direct response exceeds the 4096-byte frame limit.', 'frame_too_large');
+                if (new TextEncoder().encode(text).byteLength > MAX_RESPONSE_FRAME_BYTES) {
+                    throw new ESPectreDirectError('Direct response exceeds the 8192-byte frame limit.', 'frame_too_large');
                 }
                 envelope = parseObject(text);
             } catch (error) {

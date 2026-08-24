@@ -201,7 +201,10 @@ void test_deferred_responses_keep_per_client_queue_budgets_and_cannot_be_replace
 
   TEST_ASSERT_FALSE(service.complete_deferred_response(tokens[0], {}));
   TEST_ASSERT_FALSE(service.complete_deferred_response(
-      tokens[0], std::string(ESPECTRE_DIRECT_MAX_FRAME_SIZE + 1U, 'x')));
+      tokens[0], std::string(ESPECTRE_DIRECT_MAX_RESPONSE_FRAME_SIZE + 1U, 'x')));
+  TEST_ASSERT_TRUE(service.complete_deferred_response(
+      tokens[0], std::string(ESPECTRE_DIRECT_MAX_REQUEST_FRAME_SIZE + 1U, 'x')));
+  service.loop();
   TEST_ASSERT_TRUE(service.complete_deferred_response(
       tokens[0], direct_websocket_success_response("peer-a", "{\"devices\":[]}")));
   TEST_ASSERT_FALSE(service.complete_deferred_response(
@@ -211,15 +214,16 @@ void test_deferred_responses_keep_per_client_queue_budgets_and_cannot_be_replace
   TEST_ASSERT_FALSE(service.publish_event("telemetry", "{\"movement\":0.9}", true));
 
   service.loop();
-  TEST_ASSERT_EQUAL(2, g_httpd_mock.send_calls);
+  TEST_ASSERT_EQUAL(3, g_httpd_mock.send_calls);
   TEST_ASSERT_EQUAL(7, g_httpd_mock.sent_fds[0]);
-  TEST_ASSERT_EQUAL(8, g_httpd_mock.sent_fds[1]);
-  TEST_ASSERT_TRUE(std::string(g_httpd_mock.sent_payloads[0]).find("\"id\":\"peer-a\"") !=
+  TEST_ASSERT_EQUAL(7, g_httpd_mock.sent_fds[1]);
+  TEST_ASSERT_EQUAL(8, g_httpd_mock.sent_fds[2]);
+  TEST_ASSERT_TRUE(std::string(g_httpd_mock.sent_payloads[1]).find("\"id\":\"peer-a\"") !=
                    std::string::npos);
-  TEST_ASSERT_TRUE(std::string(g_httpd_mock.sent_payloads[1]).find("\"id\":\"peer-b\"") !=
+  TEST_ASSERT_TRUE(std::string(g_httpd_mock.sent_payloads[2]).find("\"id\":\"peer-b\"") !=
                    std::string::npos);
-  TEST_ASSERT_TRUE(std::string(g_httpd_mock.sent_payloads[0]).find("telemetry") == std::string::npos);
   TEST_ASSERT_TRUE(std::string(g_httpd_mock.sent_payloads[1]).find("telemetry") == std::string::npos);
+  TEST_ASSERT_TRUE(std::string(g_httpd_mock.sent_payloads[2]).find("telemetry") == std::string::npos);
 }
 
 void test_first_request_notifies_client_count_before_loop_sync() {
@@ -254,7 +258,7 @@ void test_rejects_bad_frames_and_rate_limits_mutations() {
   service.loop();
   httpd_req_t request = request_for(service);
 
-  std::string oversized(ESPECTRE_DIRECT_MAX_FRAME_SIZE + 1U, 'x');
+  std::string oversized(ESPECTRE_DIRECT_MAX_REQUEST_FRAME_SIZE + 1U, 'x');
   httpd_mock_set_incoming(oversized.c_str(), HTTPD_WS_TYPE_TEXT, true, false);
   TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uri.handler(&request));
   TEST_ASSERT_EQUAL(1U, service.diagnostics().oversized_frames);

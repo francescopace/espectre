@@ -156,7 +156,7 @@ bool EspIdfDirectWebSocketService::setup_deferred(const DirectWebSocketServiceCo
 
 bool EspIdfDirectWebSocketService::complete_deferred_response(uint64_t connection_token,
                                                               std::string response) {
-  if (response.empty() || response.size() > ESPECTRE_DIRECT_MAX_FRAME_SIZE || !lock_()) {
+  if (response.empty() || response.size() > ESPECTRE_DIRECT_MAX_RESPONSE_FRAME_SIZE || !lock_()) {
     return false;
   }
   ClientState *client = find_client_token_locked_(connection_token);
@@ -201,6 +201,9 @@ void EspIdfDirectWebSocketService::loop() {
     }
     if (response.empty()) {
       response = direct_websocket_error_response(pending.request.id, "internal_error", "empty Direct response");
+    } else if (response.size() > ESPECTRE_DIRECT_MAX_RESPONSE_FRAME_SIZE) {
+      response = direct_websocket_error_response(
+          pending.request.id, "internal_error", "Direct response exceeds the size limit");
     }
     if (lock_()) {
       ClientState *client = find_client_token_locked_(pending.connection_token);
@@ -248,6 +251,9 @@ bool EspIdfDirectWebSocketService::publish_event(const std::string &event_name,
     return false;
   }
   const std::string payload = direct_websocket_event(event_name.c_str(), data_json);
+  if (payload.size() > ESPECTRE_DIRECT_MAX_RESPONSE_FRAME_SIZE) {
+    return false;
+  }
   bool accepted = false;
   if (lock_()) {
     for (auto &client : clients_) {
@@ -339,7 +345,7 @@ esp_err_t EspIdfDirectWebSocketService::handle_websocket_(httpd_req_t *request) 
   if (httpd_ws_recv_frame(request, &frame, 0U) != ESP_OK) {
     return ESP_FAIL;
   }
-  if (frame.len > ESPECTRE_DIRECT_MAX_FRAME_SIZE) {
+  if (frame.len > ESPECTRE_DIRECT_MAX_REQUEST_FRAME_SIZE) {
     if (lock_()) {
       diagnostics_.oversized_frames += 1U;
       unlock_();

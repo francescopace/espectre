@@ -20,7 +20,10 @@ struct EspectreCommand;
 inline constexpr const char *ESPECTRE_DIRECT_WEBSOCKET_ENDPOINT = "/espectre/v1/ws";
 inline constexpr const char *ESPECTRE_DIRECT_WEBSOCKET_SUBPROTOCOL = "espectre.v1";
 inline constexpr unsigned ESPECTRE_DIRECT_ENVELOPE_VERSION = 1U;
-inline constexpr size_t ESPECTRE_DIRECT_MAX_FRAME_SIZE = 4096U;
+inline constexpr size_t ESPECTRE_DIRECT_MAX_REQUEST_FRAME_SIZE = 4096U;
+inline constexpr size_t ESPECTRE_DIRECT_MAX_RESPONSE_FRAME_SIZE = 8192U;
+// Compatibility alias for integrations that use the original request bound.
+inline constexpr size_t ESPECTRE_DIRECT_MAX_FRAME_SIZE = ESPECTRE_DIRECT_MAX_REQUEST_FRAME_SIZE;
 inline constexpr size_t ESPECTRE_DIRECT_MAX_REQUEST_ID_SIZE = 64U;
 inline constexpr size_t ESPECTRE_DIRECT_MAX_METHOD_SIZE = 64U;
 

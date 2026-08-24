@@ -118,7 +118,7 @@ set(ESPECTRE_FRONTEND_NATIVE_SOURCES
 )
 
 set(ESPECTRE_FRONTEND_NATIVE_ESP_IDF_SOURCES
-    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_shared_mdns_alias.cpp"
+    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_mdns_bootstrap_responder.cpp"
 )
 
 set(ESPECTRE_FRONTEND_STREAMER_SOURCES

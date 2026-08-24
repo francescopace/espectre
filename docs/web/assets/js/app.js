@@ -164,7 +164,6 @@
     const DIRECT_FULL_DEVICE_ID = /^[0-9a-f]{16}$/;
     const DIRECT_SHORT_DEVICE_ID = /^[0-9a-f]{6}$/;
     const DIRECT_CANONICAL_HOSTNAME = /^espectre-([0-9a-f]{16})\.local$/;
-    const DIRECT_DISCOVERY_ENDPOINT = 'ws://espectre-devices.local/espectre/v1/ws';
     const DIRECT_DISCOVERY_CONNECT_TIMEOUT_MS = 10000;
 
     class DirectConnectElement extends HTMLElement {
@@ -1248,12 +1247,15 @@
         if (permissionState === 'denied') {
             return 'Local network access is blocked for this site. Allow it in the browser site settings, then retry.';
         }
+        if (error?.code === 'unsupported_crypto') {
+            return 'Auto-discovery requires Web Crypto, which is unavailable in this browser. Enter a private IP address or full device ID.';
+        }
         if (error?.code === 'unsupported_capability') {
             return 'The responder does not support Auto-discovery. Enter a private IP address or device ID.';
         }
         if (error?.code === 'timeout') {
             if (error.discoveryStage === 'connect') {
-                return 'Auto-discovery could not reach a local responder in time. Retry after the network cache refreshes, or enter a private IP address or full device ID.';
+                return 'Auto-discovery could not reach a local responder in time. Check that a current Native device is online, or enter a private IP address or full device ID.';
             }
             if (error.discoveryStage === 'handshake') {
                 return 'A local responder connected but did not complete discovery negotiation in time. Retry, or enter a private IP address or full device ID.';
@@ -1276,7 +1278,7 @@
     }
 
     async function queryLocalPeers(onProgress = () => {}) {
-        const client = makeDirectClient(DIRECT_DISCOVERY_ENDPOINT);
+        const client = makeDirectClient(DirectProtocolClient.createDiscoveryEndpoint());
         directDiscoveryClient = client;
         try {
             onProgress('Connecting to a local responder…');

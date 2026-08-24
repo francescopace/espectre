@@ -18,7 +18,7 @@
 #include <driver/gpio.h>
 
 #include "native_frontend.h"
-#include "native_shared_mdns_alias.h"
+#include "native_mdns_bootstrap_responder.h"
 #include "recovery_button_service.h"
 #include "device_config_store.h"
 #include "direct_websocket_protocol.h"
@@ -58,7 +58,7 @@ espectre::NativeFrontend *g_frontend = nullptr;
 espectre::RecoveryButtonService *g_recovery_button = nullptr;
 espectre::ImprovSerialService *g_improv_serial = nullptr;
 espectre::MdnsDiscoveryService *g_mdns_discovery = nullptr;
-espectre::NativeSharedMdnsAlias *g_shared_mdns_alias = nullptr;
+espectre::NativeMdnsBootstrapResponder *g_mdns_bootstrap_responder = nullptr;
 bool g_restart_after_wifi_apply = false;
 espectre::StandaloneWifiService g_wifi_manager;
 espectre::WifiProvisioningService g_wifi_provisioning(&g_wifi_manager);
@@ -141,20 +141,20 @@ void sync_frontend_wifi_info() {
   if (g_mdns_discovery != nullptr) {
     if (wifi_info.connected) {
       g_mdns_discovery->on_wifi_connected();
-      if (g_shared_mdns_alias != nullptr) {
+      if (g_mdns_bootstrap_responder != nullptr) {
         esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
         esp_netif_ip_info_t ip_info{};
         if (netif != nullptr && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
-          if (!g_shared_mdns_alias->published()) {
-            (void) g_shared_mdns_alias->setup("espectre-devices");
+          if (!g_mdns_bootstrap_responder->active()) {
+            (void) g_mdns_bootstrap_responder->setup();
           }
-          (void) g_shared_mdns_alias->update(ip_info.ip.addr);
+          (void) g_mdns_bootstrap_responder->update(ip_info.ip.addr);
         }
       }
     } else {
       g_mdns_discovery->on_wifi_disconnected();
-      if (g_shared_mdns_alias != nullptr) {
-        g_shared_mdns_alias->shutdown();
+      if (g_mdns_bootstrap_responder != nullptr) {
+        g_mdns_bootstrap_responder->shutdown();
       }
     }
   }
@@ -203,6 +203,9 @@ void espectre_loop_task(void *arg) {
     }
     if (g_improv_serial != nullptr) {
       g_improv_serial->loop();
+    }
+    if (g_mdns_bootstrap_responder != nullptr) {
+      g_mdns_bootstrap_responder->loop();
     }
     if (g_frontend != nullptr) {
       g_frontend->loop();
@@ -289,7 +292,7 @@ extern "C" void app_main() {
   static espectre::EspIdfMqttTransport mqtt_transport;
   static espectre::EspIdfDirectWebSocketService direct_service;
   static espectre::MdnsDiscoveryService mdns_discovery;
-  static espectre::NativeSharedMdnsAlias shared_mdns_alias;
+  static espectre::NativeMdnsBootstrapResponder mdns_bootstrap_responder;
   static espectre::EspIdfPeerDiscoveryService peer_discovery;
   static espectre::HttpsOtaService ota_service("native", CONFIG_IDF_TARGET, kOtaReleaseChannel);
   static espectre::NativeFrontend frontend(&mqtt_transport, &ota_service, &direct_service);
@@ -308,11 +311,11 @@ extern "C" void app_main() {
     return;
   }
   g_mdns_discovery = &mdns_discovery;
-  if (!shared_mdns_alias.setup("espectre-devices")) {
-    ESP_LOGE(TAG, "Failed to initialize shared mDNS bootstrap alias");
+  if (!mdns_bootstrap_responder.setup()) {
+    ESP_LOGE(TAG, "Failed to initialize the mDNS bootstrap responder");
     return;
   }
-  g_shared_mdns_alias = &shared_mdns_alias;
+  g_mdns_bootstrap_responder = &mdns_bootstrap_responder;
   peer_discovery.set_local_candidate(native_peer_candidate(device_config, mdns_name));
   frontend.set_peer_discovery_service(&peer_discovery);
   frontend.set_runtime_config(make_runtime_config());
@@ -327,10 +330,9 @@ extern "C" void app_main() {
   }
   g_wifi_provisioning.set_reconfigure_callbacks(
       []() {
-        // Send the shared-record goodbye while the station interface is still
-        // usable. The later disconnect callback is too late for mDNS to write.
-        if (g_shared_mdns_alias != nullptr) {
-          g_shared_mdns_alias->shutdown();
+        // Cancel pending bootstrap answers before the station is reconfigured.
+        if (g_mdns_bootstrap_responder != nullptr) {
+          g_mdns_bootstrap_responder->shutdown();
         }
         if (g_frontend != nullptr) {
           g_frontend->prepare_for_wifi_reconfigure();

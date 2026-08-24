@@ -16,8 +16,9 @@
 #include "esp_timer.h"
 #include "direct_websocket_protocol.h"
 #include "mdns.h"
+#include "mdns_private.h"
 #include "mdns_discovery_service.h"
-#include "native_shared_mdns_alias.h"
+#include "native_mdns_bootstrap_responder.h"
 #include "peer_discovery.h"
 #include "peer_discovery_service_esp_idf.h"
 #include "streamer_discovery_service.h"
@@ -26,12 +27,8 @@ using namespace espectre;
 
 namespace {
 
-extern "C" size_t __wrap_mdns_priv_if_write(mdns_if_t tcpip_if,
-                                             mdns_ip_protocol_t ip_protocol,
-                                             const esp_ip_addr_t *ip,
-                                             uint16_t port,
-                                             uint8_t *data,
-                                             size_t len);
+extern "C" void __wrap_mdns_priv_receive_action(mdns_action_t *action,
+                                                 mdns_action_subtype_t type);
 
 MdnsDiscoveryServiceConfig direct_config() {
   return {
@@ -128,119 +125,301 @@ void test_streamer_advertises_canonical_direct_service() {
   TEST_ASSERT_EQUAL_STRING("streamer", g_mdns_mock.txt_values[2]);
 }
 
-struct SharedAliasPacket {
-  std::vector<uint8_t> bytes;
-  size_t class_offset{0U};
-  size_t ttl_offset{0U};
-};
+constexpr char BOOTSTRAP_HOST[] =
+    "espectre-devices-0123456789abcdef01234567";
 
-SharedAliasPacket shared_alias_answer_packet() {
-  SharedAliasPacket packet;
-  packet.bytes.resize(12U, 0U);
-  packet.bytes[7] = 1U;
-  const auto append_label = [&packet](const char *label) {
-    const size_t length = std::strlen(label);
-    packet.bytes.push_back(static_cast<uint8_t>(length));
-    packet.bytes.insert(packet.bytes.end(), label, label + length);
-  };
-  append_label("espectre-devices");
-  append_label("local");
-  packet.bytes.push_back(0U);
-  packet.bytes.push_back(0U);
-  packet.bytes.push_back(MDNS_TYPE_A);
-  packet.class_offset = packet.bytes.size();
-  packet.bytes.push_back(0x80U);
-  packet.bytes.push_back(0x01U);
-  packet.ttl_offset = packet.bytes.size();
-  packet.bytes.insert(packet.bytes.end(), {0U, 0U, 0U, 120U, 0U, 4U, 192U, 168U, 1U, 42U});
+uint16_t packet_u16(const uint8_t *data) {
+  return static_cast<uint16_t>((static_cast<uint16_t>(data[0]) << 8U) | data[1]);
+}
+
+uint32_t packet_u32(const uint8_t *data) {
+  return (static_cast<uint32_t>(data[0]) << 24U) |
+         (static_cast<uint32_t>(data[1]) << 16U) |
+         (static_cast<uint32_t>(data[2]) << 8U) |
+         static_cast<uint32_t>(data[3]);
+}
+
+void append_dns_name(std::vector<uint8_t> *packet, const char *host) {
+  const size_t host_length = std::strlen(host);
+  packet->push_back(static_cast<uint8_t>(host_length));
+  packet->insert(packet->end(), host, host + host_length);
+  packet->push_back(5U);
+  packet->insert(packet->end(), {'l', 'o', 'c', 'a', 'l', 0U});
+}
+
+std::vector<uint8_t> bootstrap_query(const char *host = BOOTSTRAP_HOST,
+                                     uint16_t type = MDNS_TYPE_A,
+                                     uint16_t clas = 1U,
+                                     uint16_t id = 0U,
+                                     uint16_t flags = 0U) {
+  std::vector<uint8_t> packet(12U, 0U);
+  packet[0] = static_cast<uint8_t>(id >> 8U);
+  packet[1] = static_cast<uint8_t>(id);
+  packet[2] = static_cast<uint8_t>(flags >> 8U);
+  packet[3] = static_cast<uint8_t>(flags);
+  packet[5] = 1U;
+  append_dns_name(&packet, host);
+  packet.push_back(static_cast<uint8_t>(type >> 8U));
+  packet.push_back(static_cast<uint8_t>(type));
+  packet.push_back(static_cast<uint8_t>(clas >> 8U));
+  packet.push_back(static_cast<uint8_t>(clas));
   return packet;
 }
 
-void test_shared_alias_owns_add_update_goodbye_remove_and_packet_class() {
-  reset_mocks();
-  NativeSharedMdnsAlias alias;
-  TEST_ASSERT_FALSE(alias.setup(""));
-  TEST_ASSERT_FALSE(alias.setup("ESPectre-devices"));
-  TEST_ASSERT_TRUE(alias.setup("espectre-devices"));
-
-  const uint32_t first = ipv4(192U, 168U, 1U, 42U);
-  const uint32_t second = ipv4(192U, 168U, 1U, 43U);
-  TEST_ASSERT_TRUE(alias.update(first));
-  TEST_ASSERT_TRUE(alias.published());
-  TEST_ASSERT_EQUAL(1, g_mdns_mock.delegate_add_call_count);
-  TEST_ASSERT_EQUAL(1, g_mdns_mock.private_announce_count);
-  TEST_ASSERT_EQUAL(MDNS_FLAGS_QR_AUTHORITATIVE, g_mdns_mock.last_private_packet_flags);
-  TEST_ASSERT_EQUAL(MDNS_TYPE_A, g_mdns_mock.last_private_answer_type);
-  TEST_ASSERT_FALSE(g_mdns_mock.last_private_answer_flush);
-  TEST_ASSERT_FALSE(g_mdns_mock.last_private_answer_goodbye);
-
-  TEST_ASSERT_TRUE(alias.update(first));
-  TEST_ASSERT_EQUAL(1, g_mdns_mock.delegate_add_call_count);
-  TEST_ASSERT_EQUAL(0, g_mdns_mock.delegate_set_address_call_count);
-  TEST_ASSERT_EQUAL(2, g_mdns_mock.private_announce_count);
-
-  TEST_ASSERT_TRUE(alias.update(second));
-  TEST_ASSERT_EQUAL(1, g_mdns_mock.delegate_set_address_call_count);
-  TEST_ASSERT_EQUAL(second, g_mdns_mock.delegated_ipv4_address);
-  TEST_ASSERT_EQUAL(1, g_mdns_mock.private_goodbye_count);
-  TEST_ASSERT_EQUAL(3, g_mdns_mock.private_announce_count);
-
-  SharedAliasPacket packet = shared_alias_answer_packet();
-  TEST_ASSERT_EQUAL(0x80U, packet.bytes[packet.class_offset]);
-  TEST_ASSERT_EQUAL(packet.bytes.size(),
-                    __wrap_mdns_priv_if_write(0U,
-                                              MDNS_IP_PROTOCOL_V4,
-                                              nullptr,
-                                              5353U,
-                                              packet.bytes.data(),
-                                              packet.bytes.size()));
-  TEST_ASSERT_EQUAL(1, g_mdns_mock.real_write_call_count);
-  TEST_ASSERT_EQUAL(0U, g_mdns_mock.last_write_packet[packet.class_offset] & 0x80U);
-  TEST_ASSERT_EQUAL(10U, g_mdns_mock.last_write_packet[packet.ttl_offset + 3U]);
-
-  SharedAliasPacket goodbye = shared_alias_answer_packet();
-  goodbye.bytes[goodbye.ttl_offset + 3U] = 0U;
-  TEST_ASSERT_EQUAL(goodbye.bytes.size(),
-                    __wrap_mdns_priv_if_write(0U,
-                                              MDNS_IP_PROTOCOL_V4,
-                                              nullptr,
-                                              5353U,
-                                              goodbye.bytes.data(),
-                                              goodbye.bytes.size()));
-  TEST_ASSERT_EQUAL(2, g_mdns_mock.real_write_call_count);
-  TEST_ASSERT_EQUAL(0U, g_mdns_mock.last_write_packet[goodbye.ttl_offset + 3U]);
-
-  alias.shutdown();
-  TEST_ASSERT_FALSE(alias.published());
-  TEST_ASSERT_EQUAL(2, g_mdns_mock.private_goodbye_count);
-  TEST_ASSERT_EQUAL(1, g_mdns_mock.delegate_remove_call_count);
-  alias.shutdown();
-  TEST_ASSERT_EQUAL(1, g_mdns_mock.delegate_remove_call_count);
+std::vector<uint8_t> chrome_bootstrap_query() {
+  std::vector<uint8_t> packet =
+      bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 0x8001U);
+  packet[5] = 2U;
+  packet.insert(packet.end(), {0xc0U, 0x0cU, 0x00U, MDNS_TYPE_AAAA, 0x80U, 0x01U});
+  return packet;
 }
 
-void test_shared_alias_rolls_back_partial_publication_and_can_retry() {
+size_t skip_dns_name(const uint8_t *packet, size_t length, size_t offset) {
+  while (offset < length && packet[offset] != 0U) {
+    const size_t label_length = packet[offset++];
+    if (label_length > 63U || offset + label_length > length) return length;
+    offset += label_length;
+  }
+  return offset < length ? offset + 1U : length;
+}
+
+std::string dns_name_at(const uint8_t *packet, size_t length, size_t offset) {
+  std::string name;
+  while (offset < length && packet[offset] != 0U) {
+    const size_t label_length = packet[offset++];
+    if (label_length > 63U || offset + label_length > length) return {};
+    if (!name.empty()) name.push_back('.');
+    name.append(reinterpret_cast<const char *>(packet + offset), label_length);
+    offset += label_length;
+  }
+  return name;
+}
+
+size_t answer_offset(const uint8_t *packet, size_t length) {
+  size_t offset = 12U;
+  if (packet_u16(packet + 4U) != 0U) {
+    offset = skip_dns_name(packet, length, offset);
+    offset += 4U;
+  }
+  return offset;
+}
+
+void assert_bootstrap_answer(const char *expected_host,
+                             uint32_t expected_address,
+                             bool legacy_unicast,
+                             uint16_t expected_id) {
+  const uint8_t *packet = g_mdns_mock.last_write_packet;
+  const size_t length = g_mdns_mock.last_write_len;
+  TEST_ASSERT_TRUE(length > 12U);
+  TEST_ASSERT_EQUAL(expected_id, packet_u16(packet));
+  TEST_ASSERT_EQUAL(0x8400U, packet_u16(packet + 2U));
+  TEST_ASSERT_EQUAL(legacy_unicast ? 1U : 0U, packet_u16(packet + 4U));
+  TEST_ASSERT_EQUAL(1U, packet_u16(packet + 6U));
+  const size_t offset = answer_offset(packet, length);
+  const std::string expected_owner = std::string(expected_host) + ".local";
+  const std::string actual_owner = dns_name_at(packet, length, offset);
+  TEST_ASSERT_EQUAL_STRING(expected_owner.c_str(), actual_owner.c_str());
+  const size_t fields = skip_dns_name(packet, length, offset);
+  TEST_ASSERT_TRUE(fields + 14U <= length);
+  TEST_ASSERT_EQUAL(MDNS_TYPE_A, packet_u16(packet + fields));
+  TEST_ASSERT_EQUAL(1U, packet_u16(packet + fields + 2U));
+  TEST_ASSERT_EQUAL(NativeMdnsBootstrapResponder::RESPONSE_TTL_SECONDS,
+                    packet_u32(packet + fields + 4U));
+  TEST_ASSERT_EQUAL(4U, packet_u16(packet + fields + 8U));
+  uint32_t address = 0U;
+  std::memcpy(&address, packet + fields + 10U, sizeof(address));
+  TEST_ASSERT_EQUAL(expected_address, address);
+}
+
+void test_bootstrap_answers_multicast_a_after_bounded_delay() {
   reset_mocks();
-  NativeSharedMdnsAlias alias;
-  TEST_ASSERT_TRUE(alias.setup("espectre-devices"));
-  g_mdns_mock.private_alloc_succeeds = false;
-  TEST_ASSERT_FALSE(alias.update(ipv4(192U, 168U, 1U, 42U)));
-  TEST_ASSERT_FALSE(alias.published());
-  TEST_ASSERT_EQUAL(1, g_mdns_mock.delegate_add_call_count);
-  TEST_ASSERT_EQUAL(1, g_mdns_mock.delegate_remove_call_count);
-  TEST_ASSERT_EQUAL(0, g_mdns_mock.private_dispatch_call_count);
+  esp_timer_mock::reset(100000, 0);
+  NativeMdnsBootstrapResponder responder;
+  TEST_ASSERT_TRUE(responder.setup());
+  const uint32_t address = ipv4(192U, 168U, 1U, 42U);
+  TEST_ASSERT_TRUE(responder.update(address));
+  const std::vector<uint8_t> query = bootstrap_query();
+  responder.ingest_query(query.data(), query.size(), 1U, ipv4(192U, 168U, 1U, 9U), 5353U);
+  responder.loop();
+  TEST_ASSERT_EQUAL(0, g_mdns_mock.real_write_call_count);
+  esp_timer_mock::advance(24999);
+  responder.loop();
+  TEST_ASSERT_EQUAL(0, g_mdns_mock.real_write_call_count);
+  esp_timer_mock::advance(1);
+  responder.loop();
+  TEST_ASSERT_EQUAL(1, g_mdns_mock.real_write_call_count);
+  TEST_ASSERT_EQUAL(1U, g_mdns_mock.last_write_interface);
+  TEST_ASSERT_EQUAL(MDNS_IP_PROTOCOL_V4, g_mdns_mock.last_write_protocol);
+  TEST_ASSERT_EQUAL(ipv4(224U, 0U, 0U, 251U),
+                    g_mdns_mock.last_write_destination_ipv4);
+  TEST_ASSERT_EQUAL(5353U, g_mdns_mock.last_write_destination_port);
+  assert_bootstrap_answer(BOOTSTRAP_HOST, address, false, 0U);
+}
 
-  g_mdns_mock.private_alloc_succeeds = true;
-  g_mdns_mock.private_create_answer_succeeds = false;
-  TEST_ASSERT_FALSE(alias.update(ipv4(192U, 168U, 1U, 42U)));
-  TEST_ASSERT_FALSE(alias.published());
-  TEST_ASSERT_EQUAL(2, g_mdns_mock.delegate_add_call_count);
-  TEST_ASSERT_EQUAL(2, g_mdns_mock.delegate_remove_call_count);
-  TEST_ASSERT_EQUAL(1, g_mdns_mock.private_free_packet_call_count);
+void test_bootstrap_handles_qu_and_legacy_unicast() {
+  reset_mocks();
+  esp_timer_mock::reset(100000, 0);
+  NativeMdnsBootstrapResponder responder;
+  TEST_ASSERT_TRUE(responder.setup());
+  const uint32_t address = ipv4(10U, 0U, 0U, 7U);
+  const uint32_t source = ipv4(10U, 0U, 0U, 2U);
+  constexpr char uppercase_host[] =
+      "ESPECTRE-DEVICES-ABCDEF0123456789ABCDEF01";
+  TEST_ASSERT_TRUE(responder.update(address));
 
-  g_mdns_mock.private_create_answer_succeeds = true;
-  TEST_ASSERT_TRUE(alias.update(ipv4(192U, 168U, 1U, 42U)));
-  TEST_ASSERT_TRUE(alias.published());
-  alias.shutdown();
+  std::vector<uint8_t> query = bootstrap_query(uppercase_host, MDNS_TYPE_A, 0x8001U, 0x4567U);
+  responder.ingest_query(query.data(), query.size(), 0U, source, 5353U);
+  TEST_ASSERT_EQUAL(1, g_mdns_mock.real_write_call_count);
+  TEST_ASSERT_EQUAL(source, g_mdns_mock.last_write_destination_ipv4);
+  TEST_ASSERT_EQUAL(5353U, g_mdns_mock.last_write_destination_port);
+  assert_bootstrap_answer(uppercase_host, address, false, 0U);
+
+  query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 1U, 0x1234U);
+  responder.ingest_query(query.data(), query.size(), 0U, source, 9999U);
+  TEST_ASSERT_EQUAL(2, g_mdns_mock.real_write_call_count);
+  TEST_ASSERT_EQUAL(source, g_mdns_mock.last_write_destination_ipv4);
+  TEST_ASSERT_EQUAL(9999U, g_mdns_mock.last_write_destination_port);
+  assert_bootstrap_answer(BOOTSTRAP_HOST, address, true, 0x1234U);
+}
+
+void test_bootstrap_answers_chrome_a_with_compressed_aaaa_question() {
+  reset_mocks();
+  esp_timer_mock::reset(100000, 0);
+  NativeMdnsBootstrapResponder responder;
+  TEST_ASSERT_TRUE(responder.setup());
+  const uint32_t address = ipv4(192U, 168U, 1U, 42U);
+  const uint32_t source = ipv4(192U, 168U, 1U, 22U);
+  TEST_ASSERT_TRUE(responder.update(address));
+
+  const std::vector<uint8_t> query = chrome_bootstrap_query();
+  responder.ingest_query(query.data(), query.size(), 0U, source, 5353U);
+
+  TEST_ASSERT_EQUAL(1, g_mdns_mock.real_write_call_count);
+  TEST_ASSERT_EQUAL(source, g_mdns_mock.last_write_destination_ipv4);
+  TEST_ASSERT_EQUAL(5353U, g_mdns_mock.last_write_destination_port);
+  assert_bootstrap_answer(BOOTSTRAP_HOST, address, false, 0U);
+}
+
+void test_bootstrap_rejects_static_invalid_and_unsupported_queries() {
+  reset_mocks();
+  esp_timer_mock::reset(100000, 0);
+  NativeMdnsBootstrapResponder responder;
+  TEST_ASSERT_TRUE(responder.setup());
+  TEST_ASSERT_TRUE(responder.update(ipv4(192U, 168U, 1U, 42U)));
+  const char *invalid_hosts[] = {
+      "espectre-devices",
+      "espectre-devices-0123456789abcdef0123456",
+      "espectre-devices-0123456789abcdef012345678",
+      "espectre-devices-0123456789abcdef0123456g",
+  };
+  for (const char *host : invalid_hosts) {
+    const std::vector<uint8_t> query = bootstrap_query(host);
+    responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  }
+  std::vector<uint8_t> query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_AAAA);
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 3U);
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 1U, 0U, 0x8000U);
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 1U, 0U, 0x0200U);
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  query = bootstrap_query();
+  query[12] = 0xc0U;
+  query[13] = 0x0cU;
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  query = bootstrap_query();
+  query.pop_back();
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  esp_timer_mock::advance(100000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(0, g_mdns_mock.real_write_call_count);
+}
+
+void test_bootstrap_requires_ipv4_and_cancels_pending_responses() {
+  reset_mocks();
+  esp_timer_mock::reset(100000, 0);
+  NativeMdnsBootstrapResponder responder;
+  TEST_ASSERT_TRUE(responder.setup());
+  const std::vector<uint8_t> query = bootstrap_query();
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  TEST_ASSERT_TRUE(responder.update(ipv4(192U, 168U, 1U, 42U)));
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  TEST_ASSERT_TRUE(responder.update(ipv4(192U, 168U, 1U, 43U)));
+  esp_timer_mock::advance(100000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(0, g_mdns_mock.real_write_call_count);
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  responder.shutdown();
+  esp_timer_mock::advance(100000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(0, g_mdns_mock.real_write_call_count);
+}
+
+void test_bootstrap_bounds_pending_pool_and_global_rate() {
+  reset_mocks();
+  esp_timer_mock::reset(100000, 0);
+  NativeMdnsBootstrapResponder responder;
+  TEST_ASSERT_TRUE(responder.setup());
+  TEST_ASSERT_TRUE(responder.update(ipv4(192U, 168U, 1U, 42U)));
+  const std::vector<uint8_t> query = bootstrap_query();
+  for (size_t index = 0U; index < 5U; ++index) {
+    responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  }
+  for (int expected = 1; expected <= 4; ++expected) {
+    esp_timer_mock::advance(25000);
+    responder.loop();
+    TEST_ASSERT_EQUAL(expected, g_mdns_mock.real_write_call_count);
+  }
+  TEST_ASSERT_EQUAL(4, g_mdns_mock.real_write_call_count);
+  for (size_t index = 0U; index < 4U; ++index) {
+    responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+    esp_timer_mock::advance(25000);
+    responder.loop();
+  }
+  TEST_ASSERT_EQUAL(8, g_mdns_mock.real_write_call_count);
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  esp_timer_mock::advance(25000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(8, g_mdns_mock.real_write_call_count);
+  esp_timer_mock::advance(775000);
+  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
+  esp_timer_mock::advance(25000);
+  responder.loop();
+  TEST_ASSERT_EQUAL(9, g_mdns_mock.real_write_call_count);
+}
+
+void test_bootstrap_wrapper_always_forwards_to_espressif() {
+  reset_mocks();
+  esp_timer_mock::reset(100000, 0);
+  NativeMdnsBootstrapResponder responder;
+  TEST_ASSERT_TRUE(responder.setup());
+  TEST_ASSERT_TRUE(responder.update(ipv4(192U, 168U, 1U, 42U)));
+  std::vector<uint8_t> query = bootstrap_query();
+  mdns_rx_packet_t rx{};
+  rx.tcpip_if = 1U;
+  rx.ip_protocol = MDNS_IP_PROTOCOL_V4;
+  rx.src.type = ESP_IPADDR_TYPE_V4;
+  rx.src.u_addr.ip4.addr = ipv4(192U, 168U, 1U, 9U);
+  rx.src_port = 5353U;
+  rx.mock_data = query.data();
+  rx.mock_length = query.size();
+  mdns_action_t action{};
+  action.type = ACTION_RX_HANDLE;
+  action.data.rx_handle.packet = &rx;
+
+  __wrap_mdns_priv_receive_action(&action, ACTION_RUN);
+  TEST_ASSERT_EQUAL(1, g_mdns_mock.receive_real_call_count);
+  query = bootstrap_query("espectre-devices");
+  rx.mock_data = query.data();
+  rx.mock_length = query.size();
+  __wrap_mdns_priv_receive_action(&action, ACTION_RUN);
+  TEST_ASSERT_EQUAL(2, g_mdns_mock.receive_real_call_count);
+  __wrap_mdns_priv_receive_action(&action, ACTION_CLEANUP);
+  TEST_ASSERT_EQUAL(3, g_mdns_mock.receive_real_call_count);
+  rx.ip_protocol = MDNS_IP_PROTOCOL_V6;
+  __wrap_mdns_priv_receive_action(&action, ACTION_RUN);
+  TEST_ASSERT_EQUAL(4, g_mdns_mock.receive_real_call_count);
 }
 
 PeerDiscoveryCandidate peer(const char *device_id,
@@ -489,8 +668,13 @@ int main() {
   RUN_TEST(test_does_not_free_mdns_owned_by_another_component);
   RUN_TEST(test_attaches_without_mutating_existing_responder_identity);
   RUN_TEST(test_streamer_advertises_canonical_direct_service);
-  RUN_TEST(test_shared_alias_owns_add_update_goodbye_remove_and_packet_class);
-  RUN_TEST(test_shared_alias_rolls_back_partial_publication_and_can_retry);
+  RUN_TEST(test_bootstrap_answers_multicast_a_after_bounded_delay);
+  RUN_TEST(test_bootstrap_handles_qu_and_legacy_unicast);
+  RUN_TEST(test_bootstrap_answers_chrome_a_with_compressed_aaaa_question);
+  RUN_TEST(test_bootstrap_rejects_static_invalid_and_unsupported_queries);
+  RUN_TEST(test_bootstrap_requires_ipv4_and_cancels_pending_responses);
+  RUN_TEST(test_bootstrap_bounds_pending_pool_and_global_rate);
+  RUN_TEST(test_bootstrap_wrapper_always_forwards_to_espressif);
   RUN_TEST(test_peer_results_are_bounded_validated_sorted_and_serializable);
   RUN_TEST(test_peer_results_reject_every_malformed_and_nonlocal_boundary);
   RUN_TEST(test_peer_results_enforce_address_device_and_serialized_size_limits);

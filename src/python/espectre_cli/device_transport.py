@@ -19,7 +19,9 @@ IMPROV_MAX_FRAME_SIZE = 265
 DIRECT_VERSION = 1
 DIRECT_SUBPROTOCOL = "espectre.v1"
 DIRECT_PATH = "/espectre/v1/ws"
-DIRECT_MAX_FRAME_SIZE = 4096
+DIRECT_MAX_REQUEST_FRAME_SIZE = 4096
+DIRECT_MAX_RESPONSE_FRAME_SIZE = 8192
+DIRECT_MAX_FRAME_SIZE = DIRECT_MAX_REQUEST_FRAME_SIZE
 DEFAULT_DIRECT_ORIGIN = "https://test.espectre.dev"
 
 
@@ -361,7 +363,7 @@ class DirectClient:
                 open_timeout=timeout,
                 ping_interval=None,
                 close_timeout=timeout,
-                max_size=DIRECT_MAX_FRAME_SIZE,
+                max_size=DIRECT_MAX_RESPONSE_FRAME_SIZE,
                 proxy=None,
             )
         except Exception as exc:
@@ -384,7 +386,7 @@ class DirectClient:
     def _decode(self, raw: object) -> dict[str, object]:
         if not isinstance(raw, str):
             raise DirectProtocolError("Direct endpoint sent a non-text frame")
-        if len(raw.encode("utf-8")) > DIRECT_MAX_FRAME_SIZE:
+        if len(raw.encode("utf-8")) > DIRECT_MAX_RESPONSE_FRAME_SIZE:
             raise DirectProtocolError("Direct frame exceeds the size limit")
         try:
             envelope = json.loads(raw)
@@ -413,7 +415,7 @@ class DirectClient:
             },
             separators=(",", ":"),
         )
-        if len(message.encode("utf-8")) > DIRECT_MAX_FRAME_SIZE:
+        if len(message.encode("utf-8")) > DIRECT_MAX_REQUEST_FRAME_SIZE:
             raise ValueError("Direct request exceeds the size limit")
         self._socket.send(message)
         deadline = time.monotonic() + (self.timeout if timeout is None else timeout)

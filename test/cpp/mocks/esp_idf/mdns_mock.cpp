@@ -8,6 +8,7 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "mdns.h"
+#include "mdns_networking.h"
 
 #include <string.h>
 
@@ -298,11 +299,12 @@ size_t __real_mdns_priv_if_write(mdns_if_t tcpip_if,
                                  uint16_t port,
                                  uint8_t *data,
                                  size_t len) {
-  (void)tcpip_if;
-  (void)ip_protocol;
-  (void)ip;
-  (void)port;
   g_mdns_mock.real_write_call_count++;
+  g_mdns_mock.last_write_interface = tcpip_if;
+  g_mdns_mock.last_write_protocol = ip_protocol;
+  g_mdns_mock.last_write_destination_ipv4 =
+      ip != nullptr ? ip->u_addr.ip4.addr : 0U;
+  g_mdns_mock.last_write_destination_port = port;
   g_mdns_mock.last_write_len = len < sizeof(g_mdns_mock.last_write_packet)
                                    ? len
                                    : sizeof(g_mdns_mock.last_write_packet);
@@ -310,6 +312,30 @@ size_t __real_mdns_priv_if_write(mdns_if_t tcpip_if,
     memcpy(g_mdns_mock.last_write_packet, data, g_mdns_mock.last_write_len);
   }
   return len;
+}
+
+size_t mdns_priv_if_write(mdns_if_t tcpip_if,
+                          mdns_ip_protocol_t ip_protocol,
+                          const esp_ip_addr_t *ip,
+                          uint16_t port,
+                          uint8_t *data,
+                          size_t len) {
+  return __real_mdns_priv_if_write(tcpip_if, ip_protocol, ip, port, data, len);
+}
+
+void *mdns_priv_get_packet_data(mdns_rx_packet_t *packet) {
+  return packet != nullptr ? const_cast<uint8_t *>(packet->mock_data) : nullptr;
+}
+
+size_t mdns_priv_get_packet_len(mdns_rx_packet_t *packet) {
+  return packet != nullptr ? packet->mock_length : 0U;
+}
+
+void __real_mdns_priv_receive_action(mdns_action_t *action,
+                                     mdns_action_subtype_t type) {
+  (void)action;
+  (void)type;
+  g_mdns_mock.receive_real_call_count++;
 }
 
 namespace {

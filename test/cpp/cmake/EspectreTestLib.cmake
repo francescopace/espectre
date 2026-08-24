@@ -130,14 +130,14 @@ add_library(espectre_direct_service_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/direct_websocket_service_esp_idf.cpp"
 )
 
-add_library(espectre_native_mdns_alias_testlib STATIC
-    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_shared_mdns_alias.cpp"
+add_library(espectre_native_mdns_bootstrap_testlib STATIC
+    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_mdns_bootstrap_responder.cpp"
 )
-target_link_libraries(espectre_native_mdns_alias_testlib
+target_link_libraries(espectre_native_mdns_bootstrap_testlib
     PUBLIC
         espectre_test_mocks
 )
-target_include_directories(espectre_native_mdns_alias_testlib
+target_include_directories(espectre_native_mdns_bootstrap_testlib
     PUBLIC
         "${ESPECTRE_CPP_ROOT}/frontend/native/espectre"
 )

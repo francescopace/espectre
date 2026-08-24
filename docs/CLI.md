@@ -202,7 +202,7 @@ The password is never accepted as a command-line value, printed, or included in 
 ./espectre direct set_detector --frontend esphome --params '{"detector":"high_accuracy"}'
 ```
 
-The client sends the exact allowed `https://test.espectre.dev` Origin by default, negotiates `espectre.v1`, limits text frames to 4,096 bytes, validates response and event envelopes, and closes cleanly. Use `--origin` only for another exact Origin already allowed by the firmware; the CLI does not weaken device Origin policy.
+The client sends the exact allowed `https://test.espectre.dev` Origin by default, negotiates `espectre.v1`, limits request frames to 4,096 bytes, accepts response and event frames up to 8,192 bytes, validates their envelopes, and closes cleanly. Use `--origin` only for another exact Origin already allowed by the firmware; the CLI does not weaken device Origin policy.
 
 ### `collect`
 
