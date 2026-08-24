@@ -20,21 +20,13 @@ config ESPECTRE_SDK_ENABLE_MQTT
         over esp-mqtt. Leave it off if you implement IMqttTransport against
         your own client.
 
-config ESPECTRE_SDK_ENABLE_BLE
-    bool "Build the NimBLE bindings"
-    default n
-    depends on BT_ENABLED
-    help
-        Adds NimbleBleBindings, the shipped IBleBindings implementation. It
-        needs Bluetooth enabled in the project. Without it, use
-        NoopBleBindings, which is header-only and always available.
-
 config ESPECTRE_SDK_ENABLE_PROVISIONING
     bool "Build the Wi-Fi provisioning service"
     default n
     help
         Adds the NVS-backed device config store and the Wi-Fi provisioning
-        service used to commission credentials over BLE.
+        service used to commission credentials over Improv Serial and Direct
+        WebSocket.
 
 config ESPECTRE_SDK_ENABLE_OTA
     bool "Build the HTTPS OTA service"
@@ -43,6 +35,13 @@ config ESPECTRE_SDK_ENABLE_OTA
         Adds HttpsOtaService, which resolves a release manifest over HTTPS and
         applies the image with esp_https_ota. Leave it off if your product
         owns firmware updates.
+
+config ESPECTRE_SDK_ENABLE_DIRECT
+    bool "Build the Direct WebSocket control plane"
+    default n
+    help
+        Adds the local Direct WebSocket transport, the shared runtime bridge,
+        and the canonical _espectre._tcp discovery service.
 
 config ESPECTRE_SDK_ENABLE_STREAM_RUNTIME
     bool "Build the CSI stream runtime"

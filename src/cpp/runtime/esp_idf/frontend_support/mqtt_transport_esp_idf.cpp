@@ -9,6 +9,7 @@
  */
 #include "mqtt_transport_esp_idf.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -91,6 +92,9 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
   }
   subscriptions_.clear();
   reset_message_slots_();
+  pending_publishes_.clear();
+  diagnostics_ = {};
+  connected_once_ = false;
 
   broker_uri_ = make_broker_uri(config);
   mqtt_username_ = config.mqtt_username;
@@ -113,6 +117,7 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
   mqtt_config.session.last_will.msg_len = 0;
   mqtt_config.session.last_will.qos = 0;
   mqtt_config.session.last_will.retain = true;
+  mqtt_config.outbox.limit = kMqttOutboxLimitBytes;
 
   client_ = esp_mqtt_client_init(&mqtt_config);
   if (client_ == nullptr) {
@@ -135,6 +140,10 @@ void EspIdfMqttTransport::loop() {
   bool connected = false;
   if (connection_event_.take(connected)) {
     if (connected) {
+      if (connected_once_) {
+        diagnostics_.reconnects += 1U;
+      }
+      connected_once_ = true;
       subscribe_registered_topics_();
     }
     if (connection_callback_) {
@@ -149,6 +158,7 @@ void EspIdfMqttTransport::loop() {
       (void)free_message_slots_.post(slot_index);
     }
   }
+  drain_publish_queue_();
 }
 
 void EspIdfMqttTransport::shutdown() {
@@ -161,14 +171,17 @@ void EspIdfMqttTransport::shutdown() {
   command_payload_assembler_.reset();
   connection_event_.clear();
   reset_message_slots_();
+  pending_publishes_.clear();
+  diagnostics_.queued_publishes = 0U;
 }
 
 bool EspIdfMqttTransport::publish(const std::string &topic, const std::string &payload, bool retain) {
-  if (client_ == nullptr || !connected_.load(std::memory_order_relaxed)) {
+  if (client_ == nullptr || !connected_.load(std::memory_order_relaxed) || topic.empty()) {
     return false;
   }
-  const int id = esp_mqtt_client_publish(client_, topic.c_str(), payload.c_str(), 0, 0, retain ? 1 : 0);
-  return id >= 0;
+  const bool home_assistant_state = topic.compare(0U, topic_base_.size(), topic_base_) == 0 &&
+                                    topic.compare(topic_base_.size(), 3U, "ha/") == 0;
+  return enqueue_publish_(topic, payload, retain, retain || home_assistant_state);
 }
 
 bool EspIdfMqttTransport::publish_suffix(const char *suffix, const std::string &payload, bool retain) {
@@ -177,9 +190,17 @@ bool EspIdfMqttTransport::publish_suffix(const char *suffix, const std::string &
   }
   publish_topic_.assign(topic_base_);
   publish_topic_.append(suffix);
-  const int id = esp_mqtt_client_publish(
-      client_, publish_topic_.c_str(), payload.c_str(), 0, 0, retain ? 1 : 0);
-  return id >= 0;
+  const bool command_result = std::strcmp(suffix, "commands/accepted") == 0 ||
+                              std::strcmp(suffix, "commands/rejected") == 0;
+  return enqueue_publish_(publish_topic_, payload, retain, !command_result);
+}
+
+MqttTransportDiagnostics EspIdfMqttTransport::diagnostics() const {
+  MqttTransportDiagnostics snapshot = diagnostics_;
+  snapshot.queue_capacity = kPendingPublishCapacity;
+  snapshot.outbox_capacity_bytes = kMqttOutboxLimitBytes;
+  snapshot.queued_publishes = pending_publishes_.size();
+  return snapshot;
 }
 
 bool EspIdfMqttTransport::subscribe(const std::string &topic, MessageCallback callback) {
@@ -325,6 +346,77 @@ void EspIdfMqttTransport::dispatch_message_(const PendingMessage &message) {
       return;
     }
   }
+}
+
+bool EspIdfMqttTransport::enqueue_publish_(std::string topic,
+                                           const std::string &payload,
+                                           bool retain,
+                                           bool replaceable) {
+  if (replaceable) {
+    const auto existing = std::find_if(pending_publishes_.rbegin(),
+                                       pending_publishes_.rend(),
+                                       [&topic](const PendingPublish &pending) {
+                                         return pending.replaceable && pending.topic == topic;
+                                       });
+    if (existing != pending_publishes_.rend()) {
+      existing->payload = payload;
+      existing->retain = retain;
+      return true;
+    }
+  }
+  if (pending_publishes_.size() >= kPendingPublishCapacity) {
+    if (!replaceable) {
+      const auto stale = std::find_if(pending_publishes_.begin(),
+                                      pending_publishes_.end(),
+                                      [](const PendingPublish &pending) { return pending.replaceable; });
+      if (stale != pending_publishes_.end()) {
+        pending_publishes_.erase(stale);
+        diagnostics_.dropped_publishes += 1U;
+      } else {
+        diagnostics_.dropped_publishes += 1U;
+        return false;
+      }
+    } else {
+      diagnostics_.dropped_publishes += 1U;
+      return false;
+    }
+  }
+  PendingPublish pending{std::move(topic), payload, retain, replaceable};
+  if (replaceable) {
+    pending_publishes_.push_back(std::move(pending));
+  } else {
+    const auto first_replaceable = std::find_if(pending_publishes_.begin(),
+                                                pending_publishes_.end(),
+                                                [](const PendingPublish &queued) { return queued.replaceable; });
+    pending_publishes_.insert(first_replaceable, std::move(pending));
+  }
+  diagnostics_.queued_publishes = pending_publishes_.size();
+  return true;
+}
+
+void EspIdfMqttTransport::drain_publish_queue_() {
+  if (client_ == nullptr || !connected_.load(std::memory_order_relaxed) || pending_publishes_.empty()) {
+    return;
+  }
+  PendingPublish &pending = pending_publishes_.front();
+  if (pending.replaceable) {
+    const int outbox_size = esp_mqtt_client_get_outbox_size(client_);
+    if (outbox_size > 0) {
+      return;
+    }
+  }
+  const int id = esp_mqtt_client_enqueue(
+      client_, pending.topic.c_str(), pending.payload.c_str(), 0, 0, pending.retain ? 1 : 0, true);
+  if (id >= 0) {
+    pending_publishes_.pop_front();
+  } else {
+    diagnostics_.publish_failures += 1U;
+    if (id != -2) {
+      pending_publishes_.pop_front();
+      diagnostics_.dropped_publishes += 1U;
+    }
+  }
+  diagnostics_.queued_publishes = pending_publishes_.size();
 }
 
 bool EspIdfMqttTransport::subscribe_topic_(const std::string &topic) {

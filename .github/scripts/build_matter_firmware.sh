@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-BUILD_DIR="build-${MATTER_TARGET}"
+BUILD_DIR="build-container-${MATTER_TARGET}"
 DOCKER_IMAGE="${MATTER_DOCKER_IMAGE:-espressif/idf:v5.5.5@sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2}"
 MATTER_HOME="${REPO_ROOT}/.github/.cache/matter-home"
 MATTER_ROOT_MANAGED_COMPONENTS="${MATTER_HOME}/root_managed_components"
@@ -14,12 +14,14 @@ MATTER_CCACHE="${MATTER_HOME}/ccache-${MATTER_TARGET}"
 OUTPUT_DIR="$(dirname "${MATTER_OUTPUT}")"
 MATTER_OUTPUT_IN_WORK="/work/${MATTER_OUTPUT#"${REPO_ROOT}"/}"
 MATTER_SDKCONFIG_DEFAULTS="${MATTER_SDKCONFIG_DEFAULTS:-}"
+ESPECTRE_GIT_VERSION="${ESPECTRE_GIT_VERSION:-$(python3 "${REPO_ROOT}/.github/scripts/detect_git_version.py")}"
 
 mkdir -p "${MATTER_HOME}" "${MATTER_ROOT_MANAGED_COMPONENTS}" "${MATTER_CCACHE}" "${OUTPUT_DIR}"
 
 docker run --rm \
   --user "$(id -u):$(id -g)" \
   -e HOME="/work/.github/.cache/matter-home" \
+  -e ESPECTRE_GIT_VERSION="${ESPECTRE_GIT_VERSION}" \
   -e IDF_CCACHE_ENABLE=1 \
   -e CCACHE_DIR="/work/.github/.cache/matter-home/ccache-${MATTER_TARGET}" \
   -e CCACHE_MAXSIZE=750M \

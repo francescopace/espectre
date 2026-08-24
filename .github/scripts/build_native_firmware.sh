@@ -6,13 +6,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-BUILD_DIR="build-${NATIVE_TARGET}"
+BUILD_DIR="build-container-${NATIVE_TARGET}"
 DOCKER_IMAGE="${NATIVE_DOCKER_IMAGE:-espressif/idf:v5.5.5@sha256:a9231d0697ab8f7517cc072e93b7c83e04907bfbfba80b6440d7dbbf90665cf2}"
 OUTPUT_DIR="$(dirname "${NATIVE_OUTPUT}")"
 NATIVE_OUTPUT_IN_WORK="/work/${NATIVE_OUTPUT#"${REPO_ROOT}"/}"
 NATIVE_OTA_OUTPUT_IN_WORK=""
 NATIVE_SDKCONFIG_DEFAULTS="${NATIVE_SDKCONFIG_DEFAULTS:-}"
 NATIVE_OTA_CHANNEL="${NATIVE_OTA_CHANNEL:-release}"
+ESPECTRE_GIT_VERSION="${ESPECTRE_GIT_VERSION:-$(python3 "${REPO_ROOT}/.github/scripts/detect_git_version.py")}"
 NATIVE_HOME="${REPO_ROOT}/.github/.cache/native-home"
 NATIVE_ROOT_MANAGED_COMPONENTS="${NATIVE_HOME}/root_managed_components"
 
@@ -25,6 +26,7 @@ mkdir -p "${NATIVE_HOME}" "${NATIVE_ROOT_MANAGED_COMPONENTS}" "${OUTPUT_DIR}"
 docker run --rm \
   --user "$(id -u):$(id -g)" \
   -e HOME="/work/.github/.cache/native-home" \
+  -e ESPECTRE_GIT_VERSION="${ESPECTRE_GIT_VERSION}" \
   -e SDKCONFIG_DEFAULTS="${NATIVE_SDKCONFIG_DEFAULTS}" \
   -e NATIVE_OTA_CHANNEL="${NATIVE_OTA_CHANNEL}" \
   -e NATIVE_OUTPUT="${NATIVE_OUTPUT_IN_WORK}" \
@@ -41,6 +43,7 @@ docker run --rm \
       esp32c5) NATIVE_CHIP=c5 ;;
       esp32c6) NATIVE_CHIP=c6 ;;
       esp32s3) NATIVE_CHIP=s3 ;;
+      esp32s2) NATIVE_CHIP=s2 ;;
       *) echo \"Unsupported native target: ${NATIVE_TARGET}\" >&2; exit 1 ;;
     esac
     # ESP-IDF activates a venv where --user installs are rejected; install into HOME instead.

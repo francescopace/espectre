@@ -9,12 +9,23 @@
  */
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <string>
 
 #include "espectre_protocol.h"
 
 namespace espectre {
+
+struct MqttTransportDiagnostics {
+  size_t queue_capacity{0U};
+  size_t outbox_capacity_bytes{0U};
+  size_t queued_publishes{0U};
+  uint32_t dropped_publishes{0U};
+  uint32_t publish_failures{0U};
+  uint32_t reconnects{0U};
+};
 
 /**
  * The MQTT client seam.
@@ -70,8 +81,9 @@ class IMqttTransport {
    * @param payload Message body, copied before returning.
    * @param retain Ask the broker to retain the message, for state a late
    *        subscriber must still see, such as availability.
-   * @return false when disconnected or the publish is rejected. Published at
-   *         QoS 0, so true means handed to the client, not acknowledged.
+   * @return false when disconnected or the bounded publish queue rejects the
+   *         message. Published at QoS 0, so true means queued locally, not
+   *         delivered to the broker.
    */
   virtual bool publish(const std::string &topic, const std::string &payload, bool retain) = 0;
   /**
@@ -94,6 +106,8 @@ class IMqttTransport {
   virtual void set_command_callback(CommandCallback callback) = 0;
   /** Handler for connection state changes, including reconnects. */
   virtual void set_connection_callback(ConnectionCallback callback) = 0;
+  /** Bounded outbound queue, drop, failure, and reconnect counters. */
+  virtual MqttTransportDiagnostics diagnostics() const { return {}; }
 };
 
 }  // namespace espectre

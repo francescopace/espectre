@@ -37,6 +37,7 @@
   --scene-presence: #f2c46d;
   --scene-industrial: #d1b06c;
   --scene-school: #8bd7ff;
+  --scene-privacy: #73b8ff;
   --scene-gym: #ff8fc2;
   --scene-embedded: #ff9f66;
   --scene-integration: #a68cff;
@@ -647,7 +648,7 @@ a.hero-badge:hover {
   position: absolute;
   left: 40px;
   bottom: 62px;
-  width: min(550px, calc(100vw - 80px));
+  width: min(600px, calc(100vw - 80px));
   opacity: 0;
   transform: translateY(18px);
   pointer-events: none;
@@ -665,9 +666,9 @@ a.hero-badge:hover {
   max-width: none;
   padding: 150px 40px 44px;
 }
-.scrolly-caption[data-scene="1"] { --scene-color: var(--scene-school); }
+.scrolly-caption[data-scene="1"] { --scene-color: var(--scene-privacy); }
 .scrolly-caption[data-scene="2"] { --scene-color: var(--scene-motion); }
-.scrolly-caption[data-scene="3"] { --scene-color: var(--scene-industrial); }
+.scrolly-caption[data-scene="3"] { --scene-color: var(--scene-alarm); }
 .scrolly-caption[data-scene="4"] { --scene-color: var(--scene-integration); }
 .scrolly-caption[data-scene="5"] { --scene-color: var(--scene-embedded); }
 .scrolly-kicker {
@@ -1028,6 +1029,29 @@ a.hero-badge:hover {
 }
 .device-connect-card-actions { margin-top: auto; }
 .device-connect-card-actions button, .device-connect-card .panel-actions button { width: 100%; }
+.transport-choice {
+  max-width: 560px;
+  margin: 32px auto -36px;
+  padding: 5px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface2);
+}
+.transport-choice label {
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--dim);
+  font-size: 13px;
+  font-weight: 650;
+  text-align: center;
+  cursor: pointer;
+}
+.transport-choice label:has(input:checked) { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.transport-choice input { margin-right: 6px; }
+.transport-choice small { display: block; margin-top: 2px; color: var(--accent); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
 .device-recovery-hint {
   margin: 0 0 20px;
   padding: 14px 16px;
@@ -1760,6 +1784,19 @@ body.modal-open { overflow: hidden; }
 
 .empty-alt { margin-top: 12px; }
 .empty-state .tool-note { margin: 18px 0 0; }
+.direct-connection-help {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.direct-connection-help strong { color: var(--danger); }
+.direct-connection-help p { margin: 5px 0 0; }
+.direct-connection-help a { color: var(--accent); }
 .link-btn {
   border: none;
   background: none;

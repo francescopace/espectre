@@ -6,10 +6,10 @@ Choose a frontend first. If it has a published image, [Web Flash](#web-flash-no-
 
 | Frontend | Best starting point | Frontend README |
 |----------|---------------------|-----------------|
-| `ESPHome` | [Web Flash](#web-flash-no-coding-required) for the quickest start, then the frontend README for YAML, Home Assistant, and local development | [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md) |
-| `Native` | [Web Flash](#web-flash-no-coding-required) for standalone BLE/MQTT or Home Assistant MQTT Discovery, then the native frontend README for local ESP-IDF workflow | [`README.md` (native)](../src/cpp/frontend/native/README.md) |
-| `Matter` | [Web Flash](#web-flash-no-coding-required) for published preview firmware, then the frontend README for commissioning and local ESP-IDF workflow | [`README.md (matter)`](../src/cpp/frontend/matter/README.md) |
-| `Streamer` | Frontend README for the dedicated CSI stream workflow | [`README.md`](../src/cpp/frontend/streamer/README.md) |
+| `ESPHome` | [Web Flash](#web-flash-no-coding-required), Home Assistant entities, and Direct WebSocket runtime tuning | [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md) |
+| `Native` | [Web Flash](#web-flash-no-coding-required), Improv Serial Wi-Fi provisioning, Direct WebSocket, and optional MQTT or Home Assistant MQTT Discovery | [`README.md` (native)](../src/cpp/frontend/native/README.md) |
+| `Matter` | [Web Flash](#web-flash-no-coding-required), Matter commissioning, and Direct WebSocket detector tuning | [`README.md (matter)`](../src/cpp/frontend/matter/README.md) |
+| `Streamer` | Frontend README for the dedicated UDP CSI stream workflow and Direct WebSocket diagnostics | [`README.md`](../src/cpp/frontend/streamer/README.md) |
 | `Micro-ESPectre` | Frontend README for the maintained MicroPython R&D runtime, project firmware, deployment, and MQTT workflow | [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md) |
 
 ## Web Flash (no coding required)
@@ -45,10 +45,10 @@ Current chip support by frontend:
 
 | Frontend | Supported chips | Delivery |
 |----------|-----------------|----------|
-| `ESPHome` | `ESP32-S3`, `ESP32-C6`, `ESP32-C5`, `ESP32-C3`, `ESP32` | Published web-flash images |
-| `Native` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Published web-flash images |
+| `ESPHome` | `ESP32-S3`, `ESP32-S2`, `ESP32-C6`, `ESP32-C5`, `ESP32-C3`, `ESP32` | Published web-flash images; ESP32-S2 uses serial or fallback-AP provisioning because it has no Bluetooth radio |
+| `Native` | `ESP32`, `ESP32-S3`, `ESP32-S2`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Published web-flash images |
 | `Matter` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Published web-flash images |
-| `Streamer` | `ESP32`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6`, `ESP32-S3` | Local build workflow |
+| `Streamer` | `ESP32`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6`, `ESP32-S2`, `ESP32-S3` | Local build workflow |
 | `Micro-ESPectre` | `ESP32`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6`, `ESP32-S3` | Local project-firmware build and filesystem deployment workflow |
 
 Use the frontend README for the workflow and surface details after you choose the firmware path.
@@ -155,7 +155,7 @@ The bundle is source-first. It includes:
 
 - `src/cpp/espectre_sdk.h`, the single include that reaches the supported integration surface
 - `src/cpp/espectre_sources.cmake` for CMake / ESP-IDF integration
-- a component-shaped `src/cpp/` root with `CMakeLists.txt`, `espectre_git_version.cmake`, `idf_component.yml`, and `Kconfig.projbuild`, where the optional MQTT, BLE, provisioning, OTA, and stream-runtime groups are selected under the "ESPectre SDK" menuconfig menu
+- a component-shaped `src/cpp/` root with `CMakeLists.txt`, `espectre_git_version.cmake`, `idf_component.yml`, and `Kconfig.projbuild`, where the optional MQTT, provisioning, OTA, and stream-runtime groups are selected under the "ESPectre SDK" menuconfig menu
 
 Use [EMBEDDING.md](EMBEDDING.md) for the actual integration model and runtime contracts.
 
@@ -196,7 +196,7 @@ Frontend coverage:
 
 | Option | Type / values | Default | Range / notes |
 |--------|---------------|---------|---------------|
-| `wifi.band_mode` (ESPHome) / `RuntimeConfig::wifi_band_policy` | `2.4GHz`, `5GHz`, or `AUTO` in ESPHome; `BAND_2G`, `BAND_5G`, or `AUTO` in the SDK | ESPHome C5: `AUTO` when omitted; other frontends: `2.4GHz` | `5GHz` and `AUTO` require the dual-band ESP32-C5; Native can persist the policy over BLE and applies a changed policy after restart; ESPHome examples select `2.4GHz`, and the production PHY remains HT20 |
+| `wifi.band_mode` (ESPHome) / `RuntimeConfig::wifi_band_policy` | `2.4GHz`, `5GHz`, or `AUTO` in ESPHome; `BAND_2G`, `BAND_5G`, or `AUTO` in the SDK | ESPHome C5: `AUTO` when omitted; other frontends: `2.4GHz` | `5GHz` and `AUTO` require the dual-band ESP32-C5; Native can persist the policy over Direct WebSocket and applies a changed policy after restart; ESPHome examples select `2.4GHz`, and the production PHY remains HT20 |
 | `detection_algorithm` | `lightweight` or `high_accuracy` | `lightweight`, including Matter | Lightweight uses less detector CPU and working memory; High Accuracy improves detection quality and skips quiet-room threshold calibration |
 | Runtime threshold | probability | detector-specific | Selected automatically at startup; session-adjustable where the frontend exposes a writable control. Matter currently exposes no writable sensing controls |
 | `segmentation_window_size_ms` | int | `1000` | `1000-2000` milliseconds; combined with `csi_target_pps` to define a fixed temporal slot window |

@@ -15,6 +15,8 @@ set(ESPECTRE_RUNTIME_COMMON_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/periodic_sensing_status_logger.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/espectre_protocol.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/firmware_version.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/ota_version.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/direct_websocket_protocol.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/protocol_json.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_config_utils.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_diagnostics.cpp"
@@ -30,6 +32,7 @@ set(ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES
 )
 
 set(ESPECTRE_RUNTIME_STREAMER_FRONTEND_SUPPORT_SOURCES
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/mdns_discovery_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/streamer_discovery_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stream_esp_idf_runtime.cpp"
 )
@@ -74,17 +77,20 @@ set(ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/ota_service_https.cpp"
 )
 
-set(ESPECTRE_RUNTIME_ESP_IDF_BLE_SOURCES
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/ble_bindings_nimble.cpp"
-)
-
 set(ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/device_config_store.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/improv_serial_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/wifi_provisioning_service.cpp"
 )
 
 set(ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/mqtt_transport_esp_idf.cpp"
+)
+
+set(ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/direct_websocket_service_esp_idf.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/mdns_discovery_service.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/runtime_direct_websocket_bridge.cpp"
 )
 
 set(ESPECTRE_FRONTEND_ESPHOME_SOURCES
@@ -103,7 +109,7 @@ set(ESPECTRE_FRONTEND_MATTER_SOURCES
 )
 
 set(ESPECTRE_FRONTEND_NATIVE_SOURCES
-    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/ble_recovery_button_service.cpp"
+    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/recovery_button_service.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_frontend.cpp"
 )
 

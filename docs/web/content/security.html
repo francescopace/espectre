@@ -35,6 +35,24 @@
     <div class="note"><strong>Important limitation:</strong> association is a deliberate safeguard, not proof of consent or authority. Open networks do not require a password, authorized credentials can be misused, and open-source software can be modified. The operator remains responsible for every deployment.</div>
   </section>
 
+  <section class="docs-section" aria-labelledby="local-access-title">
+    <div class="docs-section-head">
+      <span class="guide-tag">LOCAL ACCESS</span>
+      <h2 id="local-access-title">Direct WebSocket stays inside the trusted LAN.</h2>
+      <p>The hosted portal connects from HTTPS to the Native device's cleartext local WebSocket. Chrome 147 added Local Network Access permission checks for WebSockets and prompts before a public site can reach a local address. Allow that permission only when you intend to manage a device on the current network.</p>
+    </div>
+    <div class="security-guidelines">
+      <ul>
+        <li><strong>Browser support:</strong> the hosted Direct workflow supports Chrome 147 or later on desktop with Local Network Access; Chrome 151 on macOS passed the hosted HTTPS validation path against a physical ESP32-C3. Firefox and Safari block this HTTPS-to-<code>ws://</code> path under their mixed-content policies. Edge and mobile Chrome remain unclaimed until their physical browser runs are recorded. An unclaimed browser is not assumed compatible merely because it shares an engine with Chrome.</li>
+        <li><strong>Origin check:</strong> published Native firmware accepts only the production ESPectre portal origins. An opted-in development build accepts HTTP on any port only for exact <code>localhost</code>, <code>127.0.0.1</code>, or <code>[::1]</code> hosts; host lookalikes remain rejected.</li>
+        <li><strong>Addressing:</strong> use the device's private IP if its <code>.local</code> name does not resolve. The portal does not scan the LAN or enumerate DNS-SD services. From a repository checkout, <code>./espectre devices</code> discovers the first-party Direct endpoints on the host; add <code>--frontend native</code> before entering an endpoint in Configure or Monitor, whose full device-configuration workflow is Native-specific.</li>
+        <li><strong>Connection failures:</strong> allow Local network access in site settings, confirm the current IP, close other ESPectre tabs if the device's two Direct client slots are occupied, and retry. A protocol error requires matching portal and firmware releases. If hosted Direct is unsupported, use MQTT Monitor or a supported desktop browser.</li>
+        <li><strong>No Internet exposure:</strong> do not port-forward the Direct endpoint, publish it through UPnP, or treat the local service as remotely authenticated.</li>
+      </ul>
+    </div>
+    <p class="docs-step-note">Browser policy references: <a href="https://developer.chrome.com/release-notes/147/" target="_blank" rel="noopener">Chrome 147 Local Network Access</a>, <a href="https://bugzilla.mozilla.org/show_bug.cgi?id=662692" target="_blank" rel="noopener">Mozilla's mixed-content WebSocket decision</a>, and <a href="https://bugs.webkit.org/show_bug.cgi?id=140624" target="_blank" rel="noopener">WebKit's mixed-content WebSocket decision</a>.</p>
+  </section>
+
   <section class="docs-section" aria-labelledby="responsible-deployment-title">
     <div class="docs-section-head">
       <span class="guide-tag">RESPONSIBLE DEPLOYMENT</span>

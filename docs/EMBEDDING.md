@@ -51,7 +51,7 @@ Before adding product-specific behavior, enforce these runtime constraints:
 | `src/cpp/core/` | Lightweight and High-Accuracy detectors, feature extraction, filters, CSI format | C++17 standard library only |
 | `src/cpp/runtime/` | Runtime contracts, snapshots, events, ESPectre Protocol model, traffic generation | Portable, host-testable |
 | `src/cpp/runtime/esp_idf/` | CSI capture, Wi-Fi lifecycle, sensing pipeline, traffic generation, NVS persistence | ESP-IDF `>= 5.5` |
-| `src/cpp/frontend/` | ESPHome, native BLE/MQTT, Matter, and streamer reference integrations | Frontend-specific stacks |
+| `src/cpp/frontend/` | ESPHome, Native Direct/MQTT, Matter, and Streamer reference integrations | Frontend-specific stacks |
 
 The layering is strict: `core` has no upward or SDK dependencies, and `runtime` contracts stay platform-agnostic, so the sensing logic can be compiled, tested, and simulated on a host machine without ESP-IDF.
 
@@ -113,7 +113,8 @@ After each `update_state()`, re-read `get_threshold()`: Lightweight can lower it
 | `runtime/esp_idf/runtime_sensing_kconfig.h` | Build a config from menuconfig |
 | `runtime/espectre_protocol.h` | Wire types, payload builders, command parsers |
 | `runtime/mqtt_transport.h` | Implement to reach your own MQTT client |
-| `runtime/ble_bindings.h` | Implement to reach your own BLE stack |
+| `runtime/direct_websocket_protocol.h` | Versioned Direct request envelopes, parsing, and response/event builders |
+| `runtime/direct_websocket_service.h` | Implement to expose the local Direct WebSocket boundary |
 | `runtime/ota_service.h` | Implement to reach your own update channel |
 | `runtime/firmware_version.h` | The application version reported on the wire |
 | `core/detector_types.h`, `core/csi_types.h`, `core/filter_config.h`, `core/detector_limits.h` | Stable value types, dimensions, defaults, and ranges shared by both facades |
@@ -134,7 +135,7 @@ The control surface is single-owner. Internal bounded mailboxes protect callback
 - Run `setup()`, `loop()`, and `shutdown()` on one task.
 - Every `IRuntimeListener` callback is delivered on the caller's task: from `loop()` for sensing events, or inline on the task that invoked a control method. Work raised in the Wi-Fi CSI callback is deferred through an internal mailbox first, so no listener callback runs in interrupt or Wi-Fi driver context.
 - Keep callbacks bounded and non-blocking. A slow callback delays the next `loop()` iteration; sufficiently long work can fill the bounded CSI mailbox and drop incoming frames. Queue network publication, NVS writes, and other potentially blocking work for a separate task.
-- Call `set_*_runtime()` only from the owner task. The shipped MQTT, BLE, and OTA adapters queue stack events and deliver application callbacks from the frontend loop, so Native follows this rule without external locks.
+- Call `set_*_runtime()` only from the owner task. The shipped MQTT, Direct WebSocket, and OTA adapters queue stack events and deliver application callbacks from the frontend loop, so Native follows this rule without external locks.
 
 ### Lifecycle
 
@@ -193,7 +194,7 @@ Published SDK bundles stamp the same identity into `espectre_sdk_version.h` and 
 
 Both surfaces build the same sources; they differ only in how you select the optional capability groups.
 
-- **CMake / ESP-IDF**: include `src/cpp/espectre_sources.cmake` and consume the source lists (`ESPECTRE_CORE_SOURCES`, `ESPECTRE_RUNTIME_ESP_IDF_SOURCES`, and the per-capability lists for BLE, MQTT, provisioning, and OTA) plus `ESPECTRE_SHARED_INCLUDE_DIRS`. The frontend `CMakeLists.txt` files show the working combinations.
+- **CMake / ESP-IDF**: include `src/cpp/espectre_sources.cmake` and consume the source lists (`ESPECTRE_CORE_SOURCES`, `ESPECTRE_RUNTIME_ESP_IDF_SOURCES`, and the per-capability lists for Direct WebSocket, MQTT, provisioning, and OTA) plus `ESPECTRE_SHARED_INCLUDE_DIRS`. The frontend `CMakeLists.txt` files show the working combinations.
 - **Vendored ESP-IDF component**: drop `src/cpp/` into your project's `components/` directory and add `espectre` to your own component's `REQUIRES`. The sensing runtime is always built; the optional groups are opt-in under the "ESPectre SDK" menuconfig menu.
 - **Toolchain**: C++17, ESP-IDF `>= 5.5` for the `runtime/esp_idf` services. Repository builds use ESP-IDF `5.5.5`.
 
@@ -205,12 +206,11 @@ Both surfaces build the same sources; they differ only in how you select the opt
 |-------------------|-----------------------------------|------|
 | `ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT` | `ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES` | Shared bootstrap, control, sysinfo, and MQTT payload helpers |
 | `ESPECTRE_SDK_ENABLE_MQTT` | `ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES` | `EspIdfMqttTransport` over `esp-mqtt` |
-| `ESPECTRE_SDK_ENABLE_BLE` | `ESPECTRE_RUNTIME_ESP_IDF_BLE_SOURCES` | `NimbleBleBindings` |
 | `ESPECTRE_SDK_ENABLE_PROVISIONING` | `ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES` | Device config store and Wi-Fi provisioning |
 | `ESPECTRE_SDK_ENABLE_OTA` | `ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES` | `HttpsOtaService` |
 | `ESPECTRE_SDK_ENABLE_STREAM_RUNTIME` | `ESPECTRE_RUNTIME_STREAMER_FRONTEND_SUPPORT_SOURCES` | The `RuntimeProfile::STREAM` backend |
 
-Each group is off by default, so a minimal integration does not pay for transports it never calls. Implementing `IMqttTransport`, `IBleBindings`, or `IOtaService` yourself needs no group at all: the interfaces are header-only.
+Each group is off by default, so a minimal integration does not pay for transports it never calls. Implementing `IMqttTransport`, `IDirectWebSocketService`, or `IOtaService` yourself needs no group at all: the interfaces are header-only. The Native reference app adds `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES` explicitly because Direct WebSocket and mDNS are frontend-owned deployment choices rather than a general SDK default.
 
 ## Published SDK channels
 

@@ -10,13 +10,35 @@
  */
 #include "test_harness.h"
 
+#include "direct_websocket_protocol.h"
 #include "espectre_protocol.h"
+#include "ota_version.h"
 #include "runtime_diagnostics.h"
 
 #include <cmath>
 #include <string>
 
 using namespace espectre;
+
+void test_ota_version_ordering_blocks_downgrades_and_divergent_builds(void) {
+  TEST_ASSERT_TRUE(compare_ota_versions("2.8.0-280-gac7af68", "2.8.0-279-gc63eaed") ==
+                   OtaVersionComparison::NEWER);
+  TEST_ASSERT_TRUE(compare_ota_versions("2.8.0-279-gc63eaed", "2.8.0-280-gac7af68") ==
+                   OtaVersionComparison::OLDER);
+  TEST_ASSERT_TRUE(compare_ota_versions("2.8.0-280-gac7af68", "2.8.0-280-gac7af68-dirty") ==
+                   OtaVersionComparison::SAME);
+  TEST_ASSERT_TRUE(compare_ota_versions("2.8.0-280-gfffffff", "2.8.0-280-gac7af68") ==
+                   OtaVersionComparison::UNORDERED);
+  TEST_ASSERT_TRUE(compare_ota_versions("2.8.0-1-g0000001", "2.8.0") ==
+                   OtaVersionComparison::NEWER);
+  TEST_ASSERT_TRUE(compare_ota_versions("3.0.0", "3.0.0-rc.2") == OtaVersionComparison::NEWER);
+  TEST_ASSERT_TRUE(compare_ota_versions("3.0.0-rc.2", "3.0.0-rc.1-5-gabcdef0") ==
+                   OtaVersionComparison::NEWER);
+  TEST_ASSERT_TRUE(compare_ota_versions("3.0.0", "2.8.0-999-gabcdef0") ==
+                   OtaVersionComparison::NEWER);
+  TEST_ASSERT_TRUE(compare_ota_versions("3.0.0", "unknown") == OtaVersionComparison::NEWER);
+  TEST_ASSERT_TRUE(compare_ota_versions("snapshot", "3.0.0") == OtaVersionComparison::UNORDERED);
+}
 
 void test_device_id_helpers_format_and_parse_canonical_hex_consistently(void) {
   TEST_ASSERT_EQUAL_STRING("00007c2c6742bbac", format_espectre_device_id(0x00007C2C6742BBACULL).c_str());
@@ -186,7 +208,6 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   info.supports_manual_recalibration = true;
   info.supports_traffic_control = true;
   info.supports_ota = true;
-  info.supports_ble = true;
   info.csi_traffic_mode = "internal";
   info.traffic_mode = "ping";
   info.csi_target_pps = 100U;
@@ -213,7 +234,6 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(payload.find("\"supports_manual_recalibration\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"supports_traffic_control\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"supports_ota\":true") != std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"supports_ble\":true") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"network\":{") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"ip_address\"") == std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"mac_address\"") == std::string::npos);
@@ -230,7 +250,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(catalog.find("\"device_id\":\"0000000000000001\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"commands\":[\"commands\",\"info\",\"stats\",\"set_device_label\",\"set_threshold\","
                                 "\"set_motion_hits\",\"set_detector\",\"recalibrate\",\"set_csi_traffic_mode\","
-                                "\"set_traffic_generator_mode\",\"set_ble\",\"ota_status\",\"ota_check\","
+                                "\"set_traffic_generator_mode\",\"ota_status\",\"ota_check\","
                                 "\"ota_start\"]") != std::string::npos);
 }
 
@@ -260,7 +280,6 @@ void test_info_payload_omits_optional_sections_when_empty(void) {
   TEST_ASSERT_TRUE(payload.find("\"csi_target_pps\"") == std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"evaluation_interval_ms\"") == std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"publish_interval_ms\"") == std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"supports_ble\":false") != std::string::npos);
 
   const std::string catalog = espectre_commands_payload(config, info);
   TEST_ASSERT_TRUE(catalog.find("\"commands\":[\"commands\",\"info\"]") != std::string::npos);
@@ -366,11 +385,6 @@ void test_parse_espectre_command_parses_info_and_threshold_commands(void) {
   TEST_ASSERT_TRUE(command.has_traffic_generator_mode);
   TEST_ASSERT_EQUAL_STRING("dns", command.traffic_generator_mode.c_str());
 
-  TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x8\",\"command\":\"set_ble\",\"ble\":\"on\"}",
-                                          &command,
-                                          &error));
-  TEST_ASSERT_TRUE(command.has_ble);
-  TEST_ASSERT_EQUAL_STRING("on", command.ble.c_str());
 }
 
 void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(void) {
@@ -413,14 +427,6 @@ void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(v
   TEST_ASSERT_FALSE(parse_espectre_command(
       "{\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"udp\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("invalid traffic generator mode (accepted: ping and dns)", error.c_str());
-
-  TEST_ASSERT_FALSE(parse_espectre_command("{\"command_id\":\"ble-1\",\"command\":\"set_ble\"}", &command, &error));
-  TEST_ASSERT_EQUAL_STRING("invalid ble mode (accepted: on and off)", error.c_str());
-  TEST_ASSERT_EQUAL_STRING("ble-1", command.command_id.c_str());
-  TEST_ASSERT_EQUAL_STRING("set_ble", command.command.c_str());
-
-  TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"set_ble\",\"ble\":\"maybe\"}", &command, &error));
-  TEST_ASSERT_EQUAL_STRING("invalid ble mode (accepted: on and off)", error.c_str());
 
   TEST_ASSERT_TRUE(parse_espectre_command("{\"command\":\"ota_check\"}", &command, &error));
 
@@ -522,8 +528,168 @@ void test_parse_espectre_config_command_rejects_invalid_inputs(void) {
   TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:device_label=test", nullptr, &error));
 }
 
+void test_direct_websocket_request_parses_versioned_envelope(void) {
+  DirectWebSocketRequest request;
+  std::string error;
+
+  TEST_ASSERT_TRUE(parse_direct_websocket_request(
+      "{\"v\":1,\"type\":\"request\",\"id\":\"req:42\",\"method\":\"set_threshold\","
+      "\"params\":{\"threshold\":0.42},\"future\":true}",
+      &request,
+      &error));
+  TEST_ASSERT_EQUAL_STRING("req:42", request.id.c_str());
+  TEST_ASSERT_EQUAL_STRING("set_threshold", request.method.c_str());
+  TEST_ASSERT_EQUAL_STRING("{\"threshold\":0.42}", request.params.c_str());
+
+  TEST_ASSERT_TRUE(parse_direct_websocket_request(
+      "{\"v\":1,\"type\":\"request\",\"id\":\"unicode-\\u0031\",\"method\":\"info\"}",
+      &request,
+      &error));
+  TEST_ASSERT_EQUAL_STRING("unicode-1", request.id.c_str());
+  TEST_ASSERT_EQUAL_STRING("{}", request.params.c_str());
+}
+
+void test_direct_websocket_request_rejects_invalid_boundaries(void) {
+  DirectWebSocketRequest request;
+  std::string error;
+
+  TEST_ASSERT_FALSE(parse_direct_websocket_request("", &request, &error));
+  TEST_ASSERT_EQUAL_STRING("empty Direct frame", error.c_str());
+  TEST_ASSERT_FALSE(parse_direct_websocket_request("{", &request, &error));
+  TEST_ASSERT_FALSE(parse_direct_websocket_request(
+      "{\"v\":1,\"v\":1,\"type\":\"request\",\"id\":\"x\",\"method\":\"info\"}",
+      &request,
+      &error));
+  TEST_ASSERT_EQUAL_STRING("duplicate JSON object field", error.c_str());
+  TEST_ASSERT_FALSE(parse_direct_websocket_request(
+      "{\"v\":\"1\",\"type\":\"request\",\"id\":\"x\",\"method\":\"info\"}",
+      &request,
+      &error));
+  TEST_ASSERT_EQUAL_STRING("unsupported Direct envelope version", error.c_str());
+  TEST_ASSERT_FALSE(parse_direct_websocket_request(
+      "{\"v\":1,\"type\":\"event\",\"id\":\"x\",\"method\":\"info\"}",
+      &request,
+      &error));
+  TEST_ASSERT_EQUAL_STRING("Direct client frames must have type request", error.c_str());
+  TEST_ASSERT_FALSE(parse_direct_websocket_request(
+      "{\"v\":1,\"type\":\"request\",\"id\":\"bad id\",\"method\":\"info\"}",
+      &request,
+      &error));
+  TEST_ASSERT_EQUAL_STRING("invalid Direct request id", error.c_str());
+  TEST_ASSERT_FALSE(parse_direct_websocket_request(
+      "{\"v\":1,\"type\":\"request\",\"id\":\"x\",\"method\":\"Info!\"}",
+      &request,
+      &error));
+  TEST_ASSERT_EQUAL_STRING("invalid Direct request method", error.c_str());
+  TEST_ASSERT_FALSE(parse_direct_websocket_request(
+      "{\"v\":1,\"type\":\"request\",\"id\":\"x\",\"method\":\"info\",\"params\":[]}",
+      &request,
+      &error));
+  TEST_ASSERT_EQUAL_STRING("Direct request params must be an object", error.c_str());
+
+  const std::string oversized(ESPECTRE_DIRECT_MAX_FRAME_SIZE + 1U, 'x');
+  TEST_ASSERT_FALSE(parse_direct_websocket_request(oversized, &request, &error));
+  TEST_ASSERT_EQUAL_STRING("Direct frame exceeds the size limit", error.c_str());
+  TEST_ASSERT_FALSE(parse_direct_websocket_request("{}", nullptr, &error));
+  TEST_ASSERT_EQUAL_STRING("request output is required", error.c_str());
+}
+
+void test_direct_websocket_builders_emit_valid_correlated_envelopes(void) {
+  const std::string success = direct_websocket_success_response("req-1", "{\"device_id\":\"abc\"}");
+  const std::string rejected = direct_websocket_error_response("req-2", "invalid_request", "bad \"field\"");
+  const std::string event = direct_websocket_event("telemetry", "{\"movement_score\":0.25}");
+
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"v\":1,\"type\":\"response\",\"id\":\"req-1\",\"ok\":true,\"result\":{\"device_id\":\"abc\"}}",
+      success.c_str());
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"v\":1,\"type\":\"response\",\"id\":\"req-2\",\"ok\":false,\"error\":{\"code\":\"invalid_request\",\"message\":\"bad \\\"field\\\"\"}}",
+      rejected.c_str());
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"v\":1,\"type\":\"event\",\"event\":\"telemetry\",\"data\":{\"movement_score\":0.25}}",
+      event.c_str());
+  TEST_ASSERT_TRUE(direct_websocket_success_response("req-3", "not-json").find("\"result\":{}") !=
+                   std::string::npos);
+  TEST_ASSERT_TRUE(direct_websocket_event("status", "[]").find("\"data\":{}") != std::string::npos);
+}
+
+void test_direct_websocket_request_reuses_transport_neutral_command_validation(void) {
+  DirectWebSocketRequest request;
+  EspectreCommand command;
+  std::string error;
+
+  TEST_ASSERT_TRUE(parse_direct_websocket_request(
+      "{\"v\":1,\"type\":\"request\",\"id\":\"direct-1\",\"method\":\"set_motion_hits\","
+      "\"params\":{\"motion_on_hits\":6,\"motion_off_hits\":4}}",
+      &request,
+      &error));
+  TEST_ASSERT_TRUE(direct_websocket_request_to_command(request, &command, &error));
+  TEST_ASSERT_EQUAL_STRING("direct-1", command.command_id.c_str());
+  TEST_ASSERT_EQUAL_STRING("set_motion_hits", command.command.c_str());
+  TEST_ASSERT_EQUAL_UINT8(6U, command.motion_on_hits);
+  TEST_ASSERT_EQUAL_UINT8(4U, command.motion_off_hits);
+
+  request.method = "set_threshold";
+  request.params = "{\"threshold\":\"0.5\"}";
+  TEST_ASSERT_FALSE(direct_websocket_request_to_command(request, &command, &error));
+  TEST_ASSERT_EQUAL_STRING("invalid threshold (accepted: 0.0-1.0)", error.c_str());
+
+  request.method = "unknown_method";
+  request.params = "{}";
+  TEST_ASSERT_FALSE(direct_websocket_request_to_command(request, &command, &error));
+  TEST_ASSERT_EQUAL_STRING("unsupported command", error.c_str());
+}
+
+void test_direct_websocket_configuration_commands_validate_write_only_fields(void) {
+  EspectreCommand command;
+  std::string error;
+
+  TEST_ASSERT_TRUE(parse_espectre_command_request(
+      "wifi-1",
+      "set_wifi_config",
+      "{\"bssid\":\"E6:FA:C4:20:19:DE\",\"channel\":6}",
+      &command,
+      &error));
+  TEST_ASSERT_TRUE(command.has_wifi_bssid);
+  TEST_ASSERT_EQUAL_STRING("E6:FA:C4:20:19:DE", command.wifi_bssid.c_str());
+  TEST_ASSERT_TRUE(command.has_wifi_channel);
+  TEST_ASSERT_EQUAL_UINT8(6U, command.wifi_channel);
+  TEST_ASSERT_FALSE(command.has_wifi_password);
+
+  TEST_ASSERT_TRUE(parse_espectre_command_request(
+      "mqtt-1",
+      "set_mqtt_config",
+      "{\"host\":\"homeassistant.local\",\"port\":1883,\"username\":\"mqtt\",\"password\":\"secret\"}",
+      &command,
+      &error));
+  TEST_ASSERT_EQUAL_STRING("homeassistant.local", command.mqtt_host.c_str());
+  TEST_ASSERT_EQUAL(1883U, command.mqtt_port);
+  TEST_ASSERT_EQUAL_STRING("mqtt", command.mqtt_username.c_str());
+  TEST_ASSERT_TRUE(command.has_mqtt_password);
+
+  TEST_ASSERT_FALSE(parse_espectre_command_request(
+      "wifi-bad", "set_wifi_config", "{\"bssid\":\"not-a-bssid\"}", &command, &error));
+  TEST_ASSERT_FALSE(parse_espectre_command_request(
+      "mqtt-bad", "set_mqtt_config", "{\"host\":\"homeassistant.local\",\"port\":0}", &command, &error));
+  TEST_ASSERT_TRUE(parse_espectre_command_request("clear-1", "clear_wifi_config", "{}", &command, &error));
+  TEST_ASSERT_TRUE(parse_espectre_command_request("clear-2", "clear_mqtt_config", "{}", &command, &error));
+}
+
+void test_direct_websocket_read_and_sensing_methods_map_to_shared_commands(void) {
+  const char *methods[] = {
+      "capabilities", "status", "config", "diagnostics", "start_sensing", "stop_sensing"};
+  for (const char *method : methods) {
+    EspectreCommand command;
+    std::string error;
+    TEST_ASSERT_TRUE(parse_espectre_command_request("direct-read", method, "{}", &command, &error));
+    TEST_ASSERT_EQUAL_STRING(method, command.command.c_str());
+    TEST_ASSERT_EQUAL_STRING("direct-read", command.command_id.c_str());
+  }
+}
+
 int process(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_ota_version_ordering_blocks_downgrades_and_divergent_builds);
   RUN_TEST(test_device_id_helpers_format_and_parse_canonical_hex_consistently);
   RUN_TEST(test_effective_device_helpers_and_topic_generation_use_defaults);
   RUN_TEST(test_clear_mqtt_config_resets_runtime_defaults);
@@ -539,6 +705,12 @@ int process(void) {
   RUN_TEST(test_ota_channel_helpers);
   RUN_TEST(test_parse_espectre_config_command_updates_supported_fields);
   RUN_TEST(test_parse_espectre_config_command_rejects_invalid_inputs);
+  RUN_TEST(test_direct_websocket_request_parses_versioned_envelope);
+  RUN_TEST(test_direct_websocket_request_rejects_invalid_boundaries);
+  RUN_TEST(test_direct_websocket_builders_emit_valid_correlated_envelopes);
+  RUN_TEST(test_direct_websocket_request_reuses_transport_neutral_command_validation);
+  RUN_TEST(test_direct_websocket_configuration_commands_validate_write_only_fields);
+  RUN_TEST(test_direct_websocket_read_and_sensing_methods_map_to_shared_commands);
   return UNITY_END();
 }
 

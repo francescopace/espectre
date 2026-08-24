@@ -1,7 +1,8 @@
 # ADR: keep Native BLE as setup and recovery
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-08-17
+- Superseded by: `2026-08-23-replace-native-ble-with-direct-websocket.md`
 
 ## Context
 

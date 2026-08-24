@@ -1,8 +1,8 @@
 /*
  * ESPectre - Frontend MQTT Helpers
  *
- * Sets up frontend MQTT transport and handles shared command and status
- * payloads.
+ * Sets up frontend MQTT transport and maps MQTT payloads to the shared
+ * frontend command dispatcher.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -14,44 +14,25 @@
 #include <functional>
 #include <string>
 
-#include "espectre_protocol.h"
+#include "frontend_control_helpers.h"
 #include "mqtt_transport.h"
-#include "ota_service.h"
-#include "runtime_config_utils.h"
 
 namespace espectre {
 
 using FrontendMqttConnectedCallback = std::function<void(bool)>;
-using FrontendMqttInfoCallback = std::function<void()>;
-using FrontendMqttStatsCallback = std::function<void()>;
-using FrontendMqttDeviceLabelCallback = std::function<bool(const std::string &device_label, std::string *message)>;
-using FrontendMqttThresholdCallback = std::function<bool(float threshold, std::string *message)>;
-using FrontendMqttMotionHitsCallback = std::function<bool(uint8_t motion_on_hits, uint8_t motion_off_hits, std::string *message)>;
-using FrontendMqttCsiTrafficModeCallback = std::function<bool(CsiTrafficMode mode, std::string *message)>;
-using FrontendMqttTrafficGeneratorModeCallback = std::function<bool(RuntimeTrafficMode mode, std::string *message)>;
-using FrontendMqttDetectorCallback = std::function<bool(DetectionAlgorithm algorithm, std::string *message)>;
-using FrontendMqttRecalibrateCallback = std::function<bool(std::string *message)>;
-using FrontendMqttOtaStatusCallback = std::function<void(const EspectreOtaStatus &status)>;
-using FrontendMqttCommandsCallback = std::function<void()>;
-
-struct FrontendMqttCommandCapabilities {
-  bool supports_info{true};
-  bool supports_stats{false};
-  bool supports_device_config{false};
-  bool supports_threshold{false};
-  bool supports_motion_hits{false};
-  bool supports_traffic_control{false};
-  bool supports_detector{false};
-  bool supports_recalibrate{false};
-  bool supports_ota{false};
-};
-
-struct FrontendMqttCommandResult {
-  bool handled{false};
-  bool accepted{false};
-  EspectreCommand command{};
-  std::string message;
-};
+using FrontendMqttInfoCallback = FrontendInfoCallback;
+using FrontendMqttStatsCallback = FrontendStatsCallback;
+using FrontendMqttDeviceLabelCallback = FrontendDeviceLabelCallback;
+using FrontendMqttThresholdCallback = FrontendThresholdCallback;
+using FrontendMqttMotionHitsCallback = FrontendMotionHitsCallback;
+using FrontendMqttCsiTrafficModeCallback = FrontendCsiTrafficModeCallback;
+using FrontendMqttTrafficGeneratorModeCallback = FrontendTrafficGeneratorModeCallback;
+using FrontendMqttDetectorCallback = FrontendDetectorCallback;
+using FrontendMqttRecalibrateCallback = FrontendRecalibrateCallback;
+using FrontendMqttOtaStatusCallback = FrontendOtaStatusCallback;
+using FrontendMqttCommandsCallback = FrontendCommandsCallback;
+using FrontendMqttCommandCapabilities = FrontendCommandCapabilities;
+using FrontendMqttCommandResult = FrontendCommandResult;
 
 bool setup_frontend_mqtt_transport(IMqttTransport *transport,
                                    const EspectreDeviceConfig &config,

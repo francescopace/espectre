@@ -2,17 +2,25 @@ rsource "../../../runtime/esp_idf/espectre_config/Kconfig.projbuild"
 
 menu "ESPectre Native Frontend"
 
-    config ESPECTRE_BLE_RECOVERY_BUTTON_ENABLED
-        bool "Enable long-press BOOT recovery for BLE setup"
-        depends on BT_ENABLED
+    config ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED
+        bool "Allow loopback development portal origins"
+        default n
+        help
+            Allow HTTP Origins on any port only when the host is exactly
+            localhost, 127.0.0.1, or [::1]. Published firmware must leave
+            this disabled.
+
+    config ESPECTRE_RECOVERY_BUTTON_ENABLED
+        bool "Enable long-press BOOT recovery for Wi-Fi setup"
         default y
         help
-            Hold the board BOOT button to start BLE setup and pause CSI
-            sensing. This provides local recovery when MQTT is unavailable.
+            Hold the board BOOT button to clear saved Wi-Fi credentials and
+            return to Improv Serial setup. This local recovery path does not
+            depend on Wi-Fi, MQTT, or a browser session.
 
-    config ESPECTRE_BLE_RECOVERY_BUTTON_GPIO
-        int "BLE recovery button GPIO"
-        depends on ESPECTRE_BLE_RECOVERY_BUTTON_ENABLED
+    config ESPECTRE_RECOVERY_BUTTON_GPIO
+        int "Wi-Fi recovery button GPIO"
+        depends on ESPECTRE_RECOVERY_BUTTON_ENABLED
         default 28 if IDF_TARGET_ESP32C5
         default 9 if IDF_TARGET_ESP32C3 || IDF_TARGET_ESP32C6
         default 0
@@ -21,9 +29,9 @@ menu "ESPectre Native Frontend"
             Active-low GPIO connected to the board BOOT button. Defaults to
             the download strap used by Espressif development boards.
 
-    config ESPECTRE_BLE_RECOVERY_BUTTON_HOLD_MS
-        int "BLE recovery button hold time (ms)"
-        depends on ESPECTRE_BLE_RECOVERY_BUTTON_ENABLED
+    config ESPECTRE_RECOVERY_BUTTON_HOLD_MS
+        int "Wi-Fi recovery button hold time (ms)"
+        depends on ESPECTRE_RECOVERY_BUTTON_ENABLED
         range 1000 10000
         default 3000
 

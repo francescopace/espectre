@@ -18,10 +18,6 @@ const IS_STATIC_PAGE = document.documentElement.hasAttribute('data-static-page')
 const STATIC_PAGE_SECTION = document.documentElement.dataset.siteSection || 'documentation';
 
 const CAPABILITY_BY_ROUTE = {
-    configure: ['web_bluetooth', 'bluetooth'],
-    monitor: ['mqtt_websocket'],
-    theremin: ['web_bluetooth', 'bluetooth'],
-    game: ['web_bluetooth', 'bluetooth'],
     flash: ['web_serial', 'serial']
 };
 

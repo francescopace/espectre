@@ -1,7 +1,7 @@
 /*
  * ESPectre - Frontend Sysinfo Helpers
  *
- * Builds shared sysinfo lines for BLE and MQTT frontend surfaces.
+ * Builds shared sysinfo lines for frontend status surfaces.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only

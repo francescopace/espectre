@@ -12,6 +12,9 @@ from pathlib import Path
 WEB_ROOT = Path(__file__).resolve().parents[2] / "docs" / "web"
 NODE_MODULES = WEB_ROOT / "node_modules"
 VENDOR_ROOT = WEB_ROOT / "vendor"
+ESP_WEB_TOOLS_DEVICE_LINK_LABEL = (
+    '${this._manifest.name==="ESPectre Native"?"Configure Device":"Visit Device"}'
+)
 
 
 def require(path: Path) -> Path:
@@ -25,6 +28,22 @@ def copy_file(source: Path, destination: Path) -> None:
     shutil.copy2(require(source), destination)
 
 
+def customize_esp_web_tools(destination: Path) -> None:
+    """Use the portal's Configure route wording for the Native device link."""
+    install_dialog = next(destination.glob("install-dialog-*.js"), None)
+    if install_dialog is None:
+        raise FileNotFoundError("Missing ESP Web Tools install dialog bundle")
+    source = install_dialog.read_text(encoding="utf-8")
+    expected_occurrences = 2
+    source_label = ">Visit Device</div>"
+    if source.count(source_label) != expected_occurrences:
+        raise ValueError("Unexpected ESP Web Tools device-link label count")
+    install_dialog.write_text(
+        source.replace(source_label, f">{ESP_WEB_TOOLS_DEVICE_LINK_LABEL}</div>"),
+        encoding="utf-8",
+    )
+
+
 def stage_vendor() -> None:
     if VENDOR_ROOT.exists():
         shutil.rmtree(VENDOR_ROOT)
@@ -33,6 +52,7 @@ def stage_vendor() -> None:
     esp_destination = VENDOR_ROOT / "esp-web-tools-10.4.0"
     shutil.copytree(esp_source, esp_destination)
     copy_file(NODE_MODULES / "esp-web-tools" / "LICENSE", esp_destination / "LICENSE")
+    customize_esp_web_tools(esp_destination)
 
     mqtt_destination = VENDOR_ROOT / "mqtt-5.3.0"
     copy_file(NODE_MODULES / "mqtt" / "dist" / "mqtt.min.js", mqtt_destination / "mqtt.min.js")

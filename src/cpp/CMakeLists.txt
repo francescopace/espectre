@@ -29,6 +29,7 @@ set(espectre_sdk_requires
     heap
     log
     mbedtls
+    ${ESPECTRE_SDK_ADDITIONAL_REQUIRES}
 )
 
 if(CONFIG_ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT)
@@ -40,11 +41,6 @@ if(CONFIG_ESPECTRE_SDK_ENABLE_MQTT)
     list(APPEND espectre_sdk_requires mqtt)
 endif()
 
-if(CONFIG_ESPECTRE_SDK_ENABLE_BLE)
-    list(APPEND espectre_sdk_sources ${ESPECTRE_RUNTIME_ESP_IDF_BLE_SOURCES})
-    list(APPEND espectre_sdk_requires bt)
-endif()
-
 if(CONFIG_ESPECTRE_SDK_ENABLE_PROVISIONING)
     list(APPEND espectre_sdk_sources ${ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES})
 endif()
@@ -52,6 +48,11 @@ endif()
 if(CONFIG_ESPECTRE_SDK_ENABLE_OTA)
     list(APPEND espectre_sdk_sources ${ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES})
     list(APPEND espectre_sdk_requires app_update esp_http_client esp_https_ota esp-tls mbedtls)
+endif()
+
+if(CONFIG_ESPECTRE_SDK_ENABLE_DIRECT)
+    list(APPEND espectre_sdk_sources ${ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES})
+    list(APPEND espectre_sdk_requires mdns esp_http_server)
 endif()
 
 if(CONFIG_ESPECTRE_SDK_ENABLE_STREAM_RUNTIME)

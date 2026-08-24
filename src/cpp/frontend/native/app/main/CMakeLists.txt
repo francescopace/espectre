@@ -9,7 +9,6 @@ idf_component_register(
         "../../../../runtime/esp_idf"
     REQUIRES
         espectre
-        bt
         esp_event
         esp_netif
         esp_wifi
@@ -18,6 +17,7 @@ idf_component_register(
         mqtt
         app_update
         esp_http_client
+        esp_http_server
         esp_https_ota
         esp-tls
         mbedtls

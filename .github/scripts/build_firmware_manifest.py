@@ -19,10 +19,17 @@ from pathlib import Path
 
 CHIP_METADATA = {
     "esp32": {"label": "ESP32", "family": "ESP32"},
+    "esp32s2": {"label": "ESP32-S2", "family": "ESP32-S2"},
     "esp32s3": {"label": "ESP32-S3", "family": "ESP32-S3"},
     "esp32c3": {"label": "ESP32-C3", "family": "ESP32-C3"},
     "esp32c5": {"label": "ESP32-C5", "family": "ESP32-C5"},
     "esp32c6": {"label": "ESP32-C6", "family": "ESP32-C6"},
+}
+
+FRONTEND_CHIPS = {
+    "esphome": frozenset(CHIP_METADATA),
+    "matter": frozenset(CHIP_METADATA) - {"esp32s2"},
+    "native": frozenset(CHIP_METADATA),
 }
 
 
@@ -51,7 +58,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--require-complete-matrix",
         action="store_true",
-        help="Fail unless all 15 factory, 5 ESPHome OTA, and 5 Native OTA images are present",
+        help="Fail unless all 17 factory, 6 ESPHome OTA, and 6 Native OTA images are present",
     )
     return parser.parse_args()
 
@@ -147,10 +154,12 @@ def compliance_artifacts(asset_path: Path, release_tag: str, url_prefix: str | N
 
 def validate_complete_matrix(manifest: dict) -> None:
     expected = set()
-    for chip in CHIP_METADATA:
+    for chip in FRONTEND_CHIPS["matter"]:
         expected.add(("matter", chip, "factory"))
+    for chip in FRONTEND_CHIPS["esphome"]:
         expected.add(("esphome", chip, "factory"))
         expected.add(("esphome", chip, "ota"))
+    for chip in FRONTEND_CHIPS["native"]:
         expected.add(("native", chip, "factory"))
         expected.add(("native", chip, "ota"))
 
@@ -218,10 +227,8 @@ def build_manifest(args: argparse.Namespace) -> dict:
             },
             "native": {
                 "label": "Native",
-                "post_flash": "Provision Wi-Fi and MQTT over BLE, then start live sensing over MQTT.",
-                "notes": [
-                    "The native frontend preserves the current custom GATT protocol, but it is not limited to any single client implementation."
-                ],
+                "post_flash": "Provision Wi-Fi over Improv Serial, then configure and monitor over Direct WebSocket.",
+                "notes": ["Native uses Improv Serial for Wi-Fi provisioning and Direct WebSocket for local setup and monitoring."],
                 "artifacts": [],
             },
         },
@@ -239,9 +246,11 @@ def build_manifest(args: argparse.Namespace) -> dict:
 
         chip_meta = CHIP_METADATA.get(parsed["chip"])
         if chip_meta is None:
-            if parsed["chip"] == "esp32s2":
-                continue
             raise ValueError(f"Unknown chip in firmware filename: {filename}")
+        if parsed["chip"] not in FRONTEND_CHIPS[parsed["frontend"]]:
+            raise ValueError(
+                f"Unsupported {parsed['frontend']} chip in firmware filename: {filename}"
+            )
 
         artifact = {
             "chip": parsed["chip"],

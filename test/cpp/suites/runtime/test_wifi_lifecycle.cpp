@@ -370,6 +370,12 @@ void test_standalone_wifi_service_get_info_uses_cached_ip_from_got_ip_event(void
 
   TEST_ASSERT_EQUAL(ESP_OK, service.setup(config));
 
+  StandaloneWifiInfo before_ip{};
+  TEST_ASSERT_TRUE(service.get_info(&before_ip));
+  TEST_ASSERT_FALSE(before_ip.connected);
+  TEST_ASSERT_EQUAL_STRING("", before_ip.ip_address);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.get_ap_info_call_count);
+
   g_esp_netif_mock.ip_addr = 0U;
 
   ip_event_got_ip_t event{};
@@ -380,6 +386,7 @@ void test_standalone_wifi_service_get_info_uses_cached_ip_from_got_ip_event(void
 
   TEST_ASSERT_TRUE(service.get_info(&info));
   TEST_ASSERT_EQUAL_STRING("192.168.1.55", info.ip_address);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.get_ap_info_call_count);
 
   wifi_event_sta_disconnected_t disconnect_event{};
   esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnect_event);

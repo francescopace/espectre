@@ -30,7 +30,14 @@ void MockMqttTransport::shutdown() { state.shutdown_called = true; }
 bool MockMqttTransport::connected() const { return state.connected; }
 
 bool MockMqttTransport::publish(const std::string &topic, const std::string &payload, bool retain) {
+  if (state.diagnostics.queue_capacity > 0U &&
+      state.diagnostics.queued_publishes >= state.diagnostics.queue_capacity) {
+    return false;
+  }
   state.publishes.push_back(Publish{topic, payload, retain});
+  if (state.diagnostics.queue_capacity > 0U) {
+    state.diagnostics.queued_publishes += 1U;
+  }
   return true;
 }
 
@@ -60,6 +67,8 @@ void MockMqttTransport::set_command_callback(CommandCallback callback) { state.c
 void MockMqttTransport::set_connection_callback(ConnectionCallback callback) {
   state.connection_callback = std::move(callback);
 }
+
+MqttTransportDiagnostics MockMqttTransport::diagnostics() const { return state.diagnostics; }
 
 void MockMqttTransport::emit_command(const std::string &payload) {
   if (state.command_callback) {

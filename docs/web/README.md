@@ -8,7 +8,18 @@ Static single-page app published at `espectre.dev` through GitHub Pages.
 python -m http.server 8090 --directory docs/web
 ```
 
-Then open `http://localhost:8090`. The Flash tool and the Matter QR reader need a Chromium-based browser. Configure also requires `localhost` or HTTPS. Monitor, Game, and Theremin use MQTT over WebSockets and do not need Bluetooth.
+Then open `http://localhost:8090`. A Native development build with `CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED=y` accepts HTTP loopback Origins on any port when the host is exactly `localhost`, `127.0.0.1`, or `[::1]`; published firmware leaves this exception disabled. Flash, Improv Serial, and the Matter QR reader need a Chromium-based browser. Configure and Direct Monitor connect to Native through local WebSocket; MQTT Monitor, Game, and Theremin use MQTT over WebSockets. The hosted Direct workflow supports Chrome 147 or later on desktop through WebSocket Local Network Access; Chrome 151 on macOS passed the hosted HTTPS validation path against a physical ESP32-C3. Firefox and Safari block the hosted HTTPS-to-`ws://` path; Edge and mobile Chrome remain unclaimed until their physical browser runs are recorded. A local HTTP preview does not prove hosted-portal compatibility.
+
+## Run the hosted test site
+
+On the project maintainer's macOS host, Homebrew Caddy serves this working tree's `docs/web` directory at `https://test.espectre.dev`. Install the versioned configuration and start the system service with:
+
+```bash
+sudo ln -sf /Users/fpace/git/espectre/docs/web/Caddyfile.test /opt/homebrew/etc/Caddyfile
+sudo brew services start caddy
+```
+
+Caddy obtains and renews the public certificate automatically while Home Assistant keeps the DNS-only `A` record for `test.espectre.dev` aligned with this host's public IPv4 address and TCP port 443 remains reachable. Reload a changed configuration with `sudo brew services restart caddy`, inspect the service with `sudo brew services list`, and stop it with `sudo brew services stop caddy`. The service exposes the current working tree immediately, so use it only for deliberate hosted-browser validation, and do not place secrets or unreviewed generated artifacts under `docs/web`.
 
 First-party CSS, JS, and SPA content fragments use a 12-character SHA-256 prefix as `?v=`. After editing those files, restamp `index.html` and `404.html`:
 
@@ -53,7 +64,7 @@ Guide and SDK analytics are convention-based: same-origin `/guides/<slug>/` and 
 
 `assets/js/route-registry.js` is the single source of truth for SPA route membership, navigation groups, page titles, canonical static paths, analytics content groups, and content-event names. Register a new SPA page there once; `app.js` uses it for routing and active navigation, while `analytics.js` uses the same metadata. The registry is also loaded by generated static pages, and structural tests require it to match every `main[data-page]` and `data-static-url` entry in `index.html`.
 
-The event contract is intentionally low-cardinality and excludes Wi-Fi SSIDs and passwords, broker addresses and credentials, device identifiers, Bluetooth identifiers, Matter pairing codes, raw CSI, and MQTT payloads.
+The event contract is intentionally low-cardinality and excludes Wi-Fi SSIDs and passwords, broker addresses and credentials, device identifiers, local device endpoints, Matter pairing codes, raw CSI, and MQTT payloads.
 
 | Journey | Events and required parameters | Intended use |
 |---|---|---|
@@ -61,10 +72,10 @@ The event contract is intentionally low-cardinality and excludes Wi-Fi SSIDs and
 | Browser support | `tool_capability` (`tool_name`, `capability`, `result`) | Separate unsupported browsers from product failures |
 | Firmware | `firmware_catalog`, `firmware_selection`, `firmware_install_start`, `firmware_install_result`, `firmware_download` | Measure catalog availability and the complete install funnel |
 | Device tools | `tool_connection`, `tool_ready`, `tool_disconnect`, `tool_demo_start`, `device_profile` | Separate transport connection from the first valid data, measure duration, and report supported platform adoption |
-| Configuration | `configure_change`, `ota_update_result`, `matter_qr_read` | Distinguish an accepted BLE setup write from a verified sysinfo value and the final MQTT OTA state |
+| Configuration | `configure_change`, `ota_update_result`, `matter_qr_read` | Distinguish an accepted Direct setup write from a verified device state and the final OTA state |
 | Experiences | `theremin_configuration`, `game_start`, `game_over` (`score`, `orbs`, `distance`), `game_abandon` (`score`, `distance`, `reason`) | Optional tool engagement, completion, and abandonment |
 
-Outcome events use `result` values such as `accepted`, `success`, `failure`, `unconfirmed`, `cancelled`, `unsupported`, or `validation_failure`. `configure_change=accepted` means the BLE write completed; `success` is emitted only after a matching sysinfo snapshot. `tool_connection=success` means the transport connected, while `tool_ready` is emitted once after the first valid sysinfo, telemetry, or diagnostic payload. OTA analytics success requires the device to report `reboot_scheduled`; a disconnect or status timeout is `unconfirmed`. The OTA dialog then stays open until Monitor sees retained `status` `online: true` or a post-reboot `ota/state` snapshot, updates the current firmware version from `info`, and closes. Failures use a normalized `error_type`; never add raw exception messages. `frontend`, `chip`, `channel`, `format`, `transport`, `entry_point`, `tool_name`, `readiness`, and `ota_state` are candidate event-scoped custom dimensions. `latency_ms`, `duration_ms`, `duration_seconds`, `score`, `orbs`, and `distance` are candidate custom metrics. Property-side configuration, retention, internal-traffic filters, key events, and funnel explorations must be verified in GA4 after deployment.
+Outcome events use `result` values such as `accepted`, `success`, `failure`, `unconfirmed`, `cancelled`, `unsupported`, or `validation_failure`. `configure_change=accepted` means the Direct request was accepted; `success` is emitted only after matching device state confirms it. `tool_connection=success` means the transport connected, while `tool_ready` is emitted once after the first valid state, telemetry, or diagnostic payload. OTA analytics success requires the device to report `reboot_scheduled`; a disconnect or status timeout is `unconfirmed`. The OTA dialog then stays open until Monitor sees retained `status` `online: true` or a post-reboot `ota/state` snapshot, updates the current firmware version from `info`, and closes. Failures use a normalized `error_type`; never add raw exception messages. `frontend`, `chip`, `channel`, `format`, `transport`, `entry_point`, `tool_name`, `readiness`, and `ota_state` are candidate event-scoped custom dimensions. `latency_ms`, `duration_ms`, `duration_seconds`, `score`, `orbs`, and `distance` are candidate custom metrics. Property-side configuration, retention, internal-traffic filters, key events, and funnel explorations must be verified in GA4 after deployment.
 
 ## Generated artifacts
 
@@ -76,13 +87,15 @@ The committed `.github/scripts/sitemap.template.xml` is the canonical URL invent
 
 ## Browser protocol clients
 
-`assets/js/espectre-ble.js` implements the BLE setup and recovery transport used by Configure, while `assets/js/espectre-mqtt.js` implements the MQTT protocol layer used by Monitor. Both are dependency-free first-party components released under the same GPLv3 and commercial licensing policy as the rest of ESPectre.
+`assets/js/espectre-direct.js` implements Direct WebSocket envelopes, request correlation, and reconnect behavior for Configure and Monitor, while `assets/js/espectre-mqtt.js` implements the MQTT protocol layer. Both are dependency-free first-party components released under the same GPLv3 and commercial licensing policy as the rest of ESPectre.
 
 The wire contract, supported commands, topic families, and capability boundaries are documented in `docs/ESPECTRE_PROTOCOL.md`. Keep protocol behavior in these clients instead of duplicating it in `app.js`; broker connection policy remains an application concern.
 
+`assets/js/browser-support.js` owns the declared browser matrix and queries the Local Network Access permission state when the browser exposes it. Direct failures stay visible in Configure and Monitor and give separate recovery guidance for a denied or pending permission, a hosted mixed-content restriction, an unsupported page Origin, `.local` resolution, an address timeout, a protocol mismatch, and occupied Direct client slots. The browser WebSocket API deliberately hides handshake response details, so an otherwise unclassified failure presents a safe checklist instead of claiming a cause. Direct support does not add a third-party script, relax a global security header, scan the LAN, or imply browser-side mDNS enumeration.
+
 ### Tests
 
-The hardware-independent BLE and MQTT surfaces, website analytics, and structural contracts are covered by unit tests:
+The hardware-independent Direct WebSocket and MQTT surfaces, website analytics, and structural contracts are covered by unit tests:
 
 ```bash
 node --test 'test/web/*.mjs'

@@ -36,7 +36,9 @@ static inline BaseType_t xTaskCreate(TaskFunction_t pvTaskCode,
 }
 
 // Task delay
+#ifndef pdMS_TO_TICKS
 #define pdMS_TO_TICKS(ms) ((ms) * CONFIG_FREERTOS_HZ / 1000)
+#endif
 
 // Task deletion
 static inline void vTaskDelete(TaskHandle_t xTask) { (void)xTask; }

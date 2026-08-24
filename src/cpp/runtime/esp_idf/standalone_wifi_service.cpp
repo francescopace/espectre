@@ -228,13 +228,17 @@ bool StandaloneWifiService::get_info(StandaloneWifiInfo *info) const {
                   mac[5]);
   }
 
-  wifi_ap_record_t ap_info{};
-  if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
-    info->connected = true;
-    info->channel = ap_info.primary;
-  }
-
   if (cached_ip_info_.ip.addr != 0U) {
+    // esp_wifi_sta_get_ap_info() logs a warning whenever the station is not
+    // associated. Improv polls this accessor from the 10 ms runtime loop, so
+    // querying before GOT_IP floods the provisioning console and can starve
+    // its binary protocol. The cached address is cleared on disconnect and is
+    // therefore a quiet, reliable gate for the AP query.
+    wifi_ap_record_t ap_info{};
+    if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+      info->connected = true;
+      info->channel = ap_info.primary;
+    }
     format_ip_address(cached_ip_info_.ip, info->ip_address, sizeof(info->ip_address));
   }
 
@@ -452,7 +456,7 @@ void StandaloneWifiService::handle_wifi_started_() {
 }
 
 void StandaloneWifiService::handle_wifi_stopped_() {
-  // Protocol/bandwidth changes (or BLE coexistence) can stop and restart STA
+  // Protocol or bandwidth changes can stop and restart STA
   // after an earlier connect request. Clear the latch so the next STA_START
   // associates again instead of leaving the radio idle.
   wifi_connect_requested_ = false;

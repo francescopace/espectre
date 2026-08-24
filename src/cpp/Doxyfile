@@ -46,8 +46,8 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/runtime/csi_traffic_types.h \
                          src/cpp/runtime/espectre_protocol.h \
                          src/cpp/runtime/mqtt_transport.h \
-                         src/cpp/runtime/ble_bindings.h \
-                         src/cpp/runtime/ble_protocol.h \
+                         src/cpp/runtime/direct_websocket_protocol.h \
+                         src/cpp/runtime/direct_websocket_service.h \
                          src/cpp/runtime/ota_service.h \
                          src/cpp/runtime/firmware_version.h \
                          src/cpp/runtime/esp_idf/runtime_frontend_controller.h \

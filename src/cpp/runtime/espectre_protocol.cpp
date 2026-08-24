@@ -17,6 +17,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
+#include <utility>
 
 #include "base_detector.h"
 #include "protocol_json.h"
@@ -62,7 +63,6 @@ void append_supported_command_names(std::string *out, const EspectreDeviceInfo &
   add(info.supports_manual_recalibration, "recalibrate");
   add(info.supports_traffic_control, "set_csi_traffic_mode");
   add(info.supports_traffic_control, "set_traffic_generator_mode");
-  add(info.supports_ble, "set_ble");
   add(info.supports_ota, "ota_status");
   add(info.supports_ota, "ota_check");
   add(info.supports_ota, "ota_start");
@@ -106,24 +106,7 @@ bool parse_uint8_value(const std::string &value, uint8_t *out) {
   return true;
 }
 
-bool has_json_string_value(const std::string &payload, const char *key) {
-  if (key == nullptr || key[0] == '\0') {
-    return false;
-  }
-  const std::string needle = std::string("\"") + key + "\"";
-  const size_t key_pos = payload.find(needle);
-  if (key_pos == std::string::npos) {
-    return false;
-  }
-  const size_t colon = payload.find(':', key_pos + needle.size());
-  if (colon == std::string::npos) {
-    return false;
-  }
-  const size_t value = payload.find_first_not_of(" \t\r\n", colon + 1U);
-  return value != std::string::npos && payload[value] == '"';
-}
-
-std::string normalize_ble_chip_label(const char *chip) {
+std::string normalize_chip_label(const char *chip) {
   if (chip == nullptr || chip[0] == '\0') {
     return "UNK";
   }
@@ -178,6 +161,215 @@ bool parse_mqtt_port_value(const std::string &value, uint16_t *port) {
   return parse_uint16_value(value, port) && port != nullptr && *port > 0U;
 }
 
+bool single_line_string(const std::string &value, size_t max_size) {
+  return value.size() <= max_size && value.find_first_of("\r\n\0", 0U, 3U) == std::string::npos;
+}
+
+bool bssid_string_accepted(const std::string &value) {
+  if (value.empty()) {
+    return true;
+  }
+  if (value.size() != 17U) {
+    return false;
+  }
+  for (size_t index = 0U; index < value.size(); ++index) {
+    if (index % 3U == 2U) {
+      if (value[index] != ':') {
+        return false;
+      }
+    } else if (!std::isxdigit(static_cast<unsigned char>(value[index]))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool parse_command_fields(const std::string &command_id,
+                          const std::string &command_name,
+                          const std::vector<JsonObjectField> &fields,
+                          EspectreCommand *command,
+                          std::string *error) {
+  if (command == nullptr) {
+    if (error != nullptr) {
+      *error = "command output is required";
+    }
+    return false;
+  }
+  EspectreCommand parsed;
+  parsed.command_id = command_id;
+  parsed.command = command_name;
+  const auto reject = [&](const char *message) {
+    if (error != nullptr) {
+      *error = message;
+    }
+    *command = parsed;
+    return false;
+  };
+  const auto string_field = [&](const char *name, std::string *value) {
+    const JsonObjectField *field = find_json_object_field(fields, name);
+    if (field == nullptr || field->type != JsonValueType::STRING || value == nullptr) {
+      return false;
+    }
+    *value = field->value;
+    return true;
+  };
+  const auto number_field = [&](const char *name, std::string *value) {
+    const JsonObjectField *field = find_json_object_field(fields, name);
+    if (field == nullptr || field->type != JsonValueType::NUMBER || value == nullptr) {
+      return false;
+    }
+    *value = field->value;
+    return true;
+  };
+
+  if (parsed.command.empty()) {
+    return reject("missing command");
+  }
+  if (parsed.command == "set_device_label") {
+    if (!string_field("device_label", &parsed.device_label) ||
+        parsed.device_label.find_first_of("\r\n\0", 0U, 3U) != std::string::npos) {
+      return reject("invalid device label (accepted: a single-line string)");
+    }
+    parsed.has_device_label = true;
+  } else if (parsed.command == "set_threshold") {
+    std::string threshold_token;
+    if (!number_field("threshold", &threshold_token) || !parse_float_value(threshold_token, &parsed.threshold)) {
+      return reject("invalid threshold (accepted: 0.0-1.0)");
+    }
+    parsed.has_threshold = true;
+  } else if (parsed.command == "set_motion_hits") {
+    std::string motion_on_hits_token;
+    std::string motion_off_hits_token;
+    if (!number_field("motion_on_hits", &motion_on_hits_token) ||
+        !number_field("motion_off_hits", &motion_off_hits_token) ||
+        !parse_uint8_value(motion_on_hits_token, &parsed.motion_on_hits) ||
+        !parse_uint8_value(motion_off_hits_token, &parsed.motion_off_hits)) {
+      return reject("invalid motion hits (accepted: motion_on_hits and motion_off_hits in 1-20)");
+    }
+    parsed.has_motion_hits = true;
+  } else if (parsed.command == "set_csi_traffic_mode") {
+    if (!string_field("csi_traffic_mode", &parsed.csi_traffic_mode) ||
+        (parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME &&
+         parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME &&
+         parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_DISABLED_NAME)) {
+      return reject("invalid csi traffic mode (accepted: internal, external, and disabled)");
+    }
+    parsed.has_csi_traffic_mode = true;
+  } else if (parsed.command == "set_traffic_generator_mode") {
+    if (!string_field("traffic_generator_mode", &parsed.traffic_generator_mode) ||
+        (parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME &&
+         parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME)) {
+      return reject("invalid traffic generator mode (accepted: ping and dns)");
+    }
+    parsed.has_traffic_generator_mode = true;
+  } else if (parsed.command == "set_detector") {
+    if (!string_field("detector", &parsed.detector) ||
+        (parsed.detector != RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME &&
+         parsed.detector != RUNTIME_DETECTION_ALGORITHM_HIGH_ACCURACY_NAME)) {
+      return reject("invalid detector (accepted: lightweight and high_accuracy)");
+    }
+    parsed.has_detector = true;
+  } else if (parsed.command == "set_wifi_config") {
+    if (find_json_object_field(fields, "ssid") != nullptr) {
+      if (!string_field("ssid", &parsed.wifi_ssid) || parsed.wifi_ssid.empty() ||
+          !single_line_string(parsed.wifi_ssid, 32U)) {
+        return reject("invalid SSID (accepted: 1..32 bytes)");
+      }
+      parsed.has_wifi_ssid = true;
+    }
+    if (find_json_object_field(fields, "password") != nullptr) {
+      if (!string_field("password", &parsed.wifi_password) || !single_line_string(parsed.wifi_password, 63U)) {
+        return reject("invalid Wi-Fi password (accepted: 0..63 bytes)");
+      }
+      parsed.has_wifi_password = true;
+    }
+    if (find_json_object_field(fields, "bssid") != nullptr) {
+      if (!string_field("bssid", &parsed.wifi_bssid) || !bssid_string_accepted(parsed.wifi_bssid)) {
+        return reject("invalid BSSID (accepted: empty or six hexadecimal octets)");
+      }
+      parsed.has_wifi_bssid = true;
+    }
+    if (find_json_object_field(fields, "channel") != nullptr) {
+      std::string channel_token;
+      if (!number_field("channel", &channel_token) || !parse_uint8_value(channel_token, &parsed.wifi_channel)) {
+        return reject("invalid Wi-Fi channel");
+      }
+      parsed.has_wifi_channel = true;
+    }
+    if (find_json_object_field(fields, "band_policy") != nullptr) {
+      if (!string_field("band_policy", &parsed.wifi_band_policy) ||
+          (parsed.wifi_band_policy != "2g" && parsed.wifi_band_policy != "5g" &&
+           parsed.wifi_band_policy != "auto")) {
+        return reject("invalid Wi-Fi band policy (accepted: 2g, 5g, and auto)");
+      }
+      parsed.has_wifi_band_policy = true;
+    }
+    if (!parsed.has_wifi_ssid && !parsed.has_wifi_password && !parsed.has_wifi_bssid && !parsed.has_wifi_channel &&
+        !parsed.has_wifi_band_policy) {
+      return reject("set_wifi_config requires at least one field");
+    }
+  } else if (parsed.command == "clear_wifi_config") {
+    // No additional payload required.
+  } else if (parsed.command == "set_mqtt_config") {
+    if (!string_field("host", &parsed.mqtt_host) || parsed.mqtt_host.empty() ||
+        !single_line_string(parsed.mqtt_host, 253U)) {
+      return reject("invalid MQTT host");
+    }
+    parsed.has_mqtt_host = true;
+    if (find_json_object_field(fields, "port") != nullptr) {
+      std::string port_token;
+      if (!number_field("port", &port_token) || !parse_mqtt_port_value(port_token, &parsed.mqtt_port)) {
+        return reject("invalid MQTT port (accepted: 1..65535)");
+      }
+      parsed.has_mqtt_port = true;
+    }
+    if (find_json_object_field(fields, "username") != nullptr) {
+      if (!string_field("username", &parsed.mqtt_username) || !single_line_string(parsed.mqtt_username, 128U)) {
+        return reject("invalid MQTT username");
+      }
+      parsed.has_mqtt_username = true;
+    }
+    if (find_json_object_field(fields, "password") != nullptr) {
+      if (!string_field("password", &parsed.mqtt_password) || !single_line_string(parsed.mqtt_password, 256U)) {
+        return reject("invalid MQTT password");
+      }
+      parsed.has_mqtt_password = true;
+    }
+    if (find_json_object_field(fields, "topic_prefix") != nullptr) {
+      if (!string_field("topic_prefix", &parsed.mqtt_topic_prefix) ||
+          !single_line_string(parsed.mqtt_topic_prefix, 128U)) {
+        return reject("invalid MQTT topic prefix");
+      }
+      parsed.has_mqtt_topic_prefix = true;
+    }
+  } else if (parsed.command == "clear_mqtt_config") {
+    // No additional payload required.
+  } else if (parsed.command == "recalibrate") {
+    // No additional payload required.
+  } else if (parsed.command == "ota_check" || parsed.command == "ota_start") {
+    if (find_json_object_field(fields, "manifest_url") != nullptr ||
+        find_json_object_field(fields, "image_url") != nullptr ||
+        find_json_object_field(fields, "version") != nullptr) {
+      return reject("ota overrides are not supported (manifest_url, image_url, and version are not accepted)");
+    }
+    if (find_json_object_field(fields, "channel") != nullptr) {
+      if (!string_field("channel", &parsed.ota_channel) || !espectre_ota_channel_accepted(parsed.ota_channel)) {
+        return reject("invalid ota channel (accepted: release, preview, and develop)");
+      }
+      parsed.has_ota_channel = true;
+    }
+  } else if (parsed.command == "ota_status" || parsed.command == "info" || parsed.command == "stats" ||
+             parsed.command == "commands" || parsed.command == "capabilities" || parsed.command == "status" ||
+             parsed.command == "config" || parsed.command == "diagnostics" || parsed.command == "start_sensing" ||
+             parsed.command == "stop_sensing") {
+    // No additional payload required.
+  } else {
+    return reject("unsupported command");
+  }
+  *command = std::move(parsed);
+  return true;
+}
+
 }  // namespace
 
 std::string format_espectre_device_id(uint64_t device_id) {
@@ -212,7 +404,7 @@ uint64_t espectre_device_id_from_mac(const uint8_t *mac, size_t mac_len) {
 }
 
 std::string espectre_device_name(uint64_t device_id, const char *chip) {
-  const std::string chip_label = normalize_ble_chip_label(chip);
+  const std::string chip_label = normalize_chip_label(chip);
   const std::string formatted_id = format_espectre_device_id(device_id);
   const std::string suffix = formatted_id.size() >= 6 ? formatted_id.substr(formatted_id.size() - 6) : formatted_id;
   return std::string("ESPectre ") + chip_label + " " + suffix;
@@ -318,8 +510,6 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
   out += info.supports_traffic_control ? "true" : "false";
   out += ",\"supports_ota\":";
   out += info.supports_ota ? "true" : "false";
-  out += ",\"supports_ble\":";
-  out += info.supports_ble ? "true" : "false";
 
   if (info.network.channel > 0U) {
     out += ",\"network\":{\"channel\":{\"primary\":";
@@ -503,93 +693,63 @@ std::string espectre_ota_status_payload(const EspectreDeviceConfig &config,
 
 bool parse_espectre_command(const std::string &payload, EspectreCommand *command, std::string *error) {
   if (command == nullptr) {
-    return false;
-  }
-  EspectreCommand parsed;
-  parsed.command_id = extract_json_string(payload, "command_id");
-  parsed.command = extract_json_string(payload, "command");
-  const auto reject = [&](const char *message) {
     if (error != nullptr) {
-      *error = message;
+      *error = "command output is required";
     }
-    *command = parsed;
     return false;
-  };
-  if (parsed.command.empty()) {
-    return reject("missing command");
   }
-  if (parsed.command == "set_device_label") {
-    if (!has_json_string_value(payload, "device_label")) {
-      return reject("invalid device label (accepted: a single-line string)");
+  std::vector<JsonObjectField> fields;
+  std::string json_error;
+  if (!parse_json_object_fields(payload, &fields, &json_error)) {
+    if (error != nullptr) {
+      *error = json_error.empty() ? "invalid command JSON" : json_error;
     }
-    parsed.device_label = extract_json_string(payload, "device_label");
-    if (parsed.device_label.find_first_of("\r\n\0", 0U, 3U) != std::string::npos) {
-      return reject("invalid device label (accepted: a single-line string)");
-    }
-    parsed.has_device_label = true;
-  } else if (parsed.command == "set_threshold") {
-    const std::string threshold_token = extract_json_number_token(payload, "threshold");
-    if (!parse_float_value(threshold_token, &parsed.threshold)) {
-      return reject("invalid threshold (accepted: 0.0-1.0)");
-    }
-    parsed.has_threshold = true;
-  } else if (parsed.command == "set_motion_hits") {
-    const std::string motion_on_hits_token = extract_json_number_token(payload, "motion_on_hits");
-    const std::string motion_off_hits_token = extract_json_number_token(payload, "motion_off_hits");
-    if (!parse_uint8_value(motion_on_hits_token, &parsed.motion_on_hits) ||
-        !parse_uint8_value(motion_off_hits_token, &parsed.motion_off_hits)) {
-      return reject("invalid motion hits (accepted: motion_on_hits and motion_off_hits in 1-20)");
-    }
-    parsed.has_motion_hits = true;
-  } else if (parsed.command == "set_csi_traffic_mode") {
-    parsed.csi_traffic_mode = extract_json_string(payload, "csi_traffic_mode");
-    if (parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME &&
-        parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME &&
-        parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_DISABLED_NAME) {
-      return reject("invalid csi traffic mode (accepted: internal, external, and disabled)");
-    }
-    parsed.has_csi_traffic_mode = true;
-  } else if (parsed.command == "set_traffic_generator_mode") {
-    parsed.traffic_generator_mode = extract_json_string(payload, "traffic_generator_mode");
-    if (parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME &&
-        parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME) {
-      return reject("invalid traffic generator mode (accepted: ping and dns)");
-    }
-    parsed.has_traffic_generator_mode = true;
-  } else if (parsed.command == "set_detector") {
-    parsed.detector = extract_json_string(payload, "detector");
-    if (parsed.detector != RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME &&
-        parsed.detector != RUNTIME_DETECTION_ALGORITHM_HIGH_ACCURACY_NAME) {
-      return reject("invalid detector (accepted: lightweight and high_accuracy)");
-    }
-    parsed.has_detector = true;
-  } else if (parsed.command == "recalibrate") {
-    // No additional payload required.
-  } else if (parsed.command == "set_ble") {
-    parsed.ble = extract_json_string(payload, "ble");
-    if (parsed.ble != "on" && parsed.ble != "off") {
-      return reject("invalid ble mode (accepted: on and off)");
-    }
-    parsed.has_ble = true;
-  } else if (parsed.command == "ota_check" || parsed.command == "ota_start") {
-    if (has_json_key(payload, "manifest_url") || has_json_key(payload, "image_url") ||
-        has_json_key(payload, "version")) {
-      return reject("ota overrides are not supported (manifest_url, image_url, and version are not accepted)");
-    }
-    if (has_json_key(payload, "channel")) {
-      parsed.ota_channel = extract_json_string(payload, "channel");
-      if (!espectre_ota_channel_accepted(parsed.ota_channel)) {
-        return reject("invalid ota channel (accepted: release, preview, and develop)");
+    *command = EspectreCommand{};
+    return false;
+  }
+  std::string command_id;
+  const JsonObjectField *id_field = find_json_object_field(fields, "command_id");
+  if (id_field != nullptr) {
+    if (id_field->type != JsonValueType::STRING) {
+      if (error != nullptr) {
+        *error = "invalid command_id (accepted: string)";
       }
-      parsed.has_ota_channel = true;
+      *command = EspectreCommand{};
+      return false;
     }
-  } else if (parsed.command == "ota_status") {
-    // No additional payload required.
-  } else if (parsed.command == "info" || parsed.command == "stats" || parsed.command == "commands") {
-    // No additional payload required.
+    command_id = id_field->value;
   }
-  *command = parsed;
-  return true;
+  const JsonObjectField *command_field = find_json_object_field(fields, "command");
+  if (command_field == nullptr || command_field->type != JsonValueType::STRING) {
+    if (error != nullptr) {
+      *error = "missing command";
+    }
+    *command = EspectreCommand{};
+    command->command_id = std::move(command_id);
+    return false;
+  }
+  return parse_command_fields(command_id, command_field->value, fields, command, error);
+}
+
+bool parse_espectre_command_request(const std::string &command_id,
+                                    const std::string &command_name,
+                                    const std::string &params_json,
+                                    EspectreCommand *command,
+                                    std::string *error) {
+  std::vector<JsonObjectField> fields;
+  std::string json_error;
+  if (!parse_json_object_fields(params_json, &fields, &json_error)) {
+    if (error != nullptr) {
+      *error = json_error.empty() ? "invalid command params" : json_error;
+    }
+    if (command != nullptr) {
+      *command = EspectreCommand{};
+      command->command_id = command_id;
+      command->command = command_name;
+    }
+    return false;
+  }
+  return parse_command_fields(command_id, command_name, fields, command, error);
 }
 
 bool espectre_ota_channel_accepted(const std::string &channel) {

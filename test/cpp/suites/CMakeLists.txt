@@ -77,6 +77,21 @@ add_espectre_test(test_wifi_lifecycle_dual_band
     LIBRARIES espectre_runtime_dual_band_testlib
 )
 
+add_espectre_test(test_mdns_discovery_service
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_mdns_discovery_service.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
+add_espectre_test(test_direct_websocket_service
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_direct_websocket_service.cpp"
+    LIBRARIES espectre_direct_service_testlib
+)
+
+add_espectre_test(test_mqtt_transport_esp_idf
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_mqtt_transport_esp_idf.cpp"
+    LIBRARIES espectre_mqtt_transport_testlib
+)
+
 add_espectre_test(test_pending_event
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_pending_event.cpp"
     LIBRARIES espectre_runtime_testlib

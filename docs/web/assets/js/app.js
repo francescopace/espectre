@@ -1,9 +1,9 @@
 /*
  * ESPectre - Website app shell
  *
- * Hash routing and a persistent session shared by every page. Configure
- * uses Web Bluetooth; Monitor uses MQTT over WebSockets for live sensing,
- * runtime controls, diagnostics, and recovery.
+ * Hash routing and a persistent session shared by every page. Configure and
+ * Monitor use the local Direct WebSocket transport, while Monitor can also
+ * use MQTT over WebSockets for integrations and multi-device deployments.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -19,22 +19,20 @@
     if (!browserSupport) throw new Error('ESPectre browser capability policy is unavailable');
     const MqttProtocolClient = window.ESPectreMqttClient;
     if (!MqttProtocolClient) throw new Error('ESPectre MQTT protocol client is unavailable');
+    const DirectProtocolClient = window.ESPectreDirectClient;
+    if (!DirectProtocolClient) throw new Error('ESPectre Direct WebSocket client is unavailable');
 
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
     // analytics.js is optional: the app must work with it blocked or absent.
     const track = (name, params) => window.trackEvent ? window.trackEvent(name, params) : false;
-    const errorType = (error) => (error && error.name) || 'Error';
+    const errorType = (error) => (error && (error.code || error.name)) || 'Error';
     const toolNameForRoute = (routeName) => routeRegistry.groupOf(routeName) === 'tools'
         ? routeName
         : 'monitor';
     const activeToolName = () => toolNameForRoute(route);
-    const LEGACY_TOOL_ROUTES = Object.freeze({
-        ble: 'configure',
-        mqtt: 'monitor',
-        device: 'configure'
-    });
+    const LEGACY_TOOL_ROUTES = Object.freeze({ mqtt: 'monitor', device: 'configure' });
     const LOCAL_DEVELOPMENT_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
     const MQTT_PRESETS = Object.freeze({
         home_assistant: Object.freeze({
@@ -159,9 +157,12 @@
     const CONFIG_VERIFICATION_RETRY_MS = 1500;
     const CONFIG_VERIFICATION_MAX_ATTEMPTS = 4;
     const OTA_TRACKING_TIMEOUT_MS = 120000;
+    const DIRECT_RECONNECT_DELAYS_MS = Object.freeze([500, 1500, 3000]);
+    const DIRECT_ENDPOINT_STORAGE_KEY = 'espectre.direct.endpoints.v1';
+    const DIRECT_ENDPOINT_LIMIT = 8;
 
     const conn = {
-        mode: null,             // 'ble' | 'mqtt' | 'demo'
+        mode: null,             // 'ws' | 'mqtt' | 'demo'
         status: 'disconnected', // disconnected | connecting | connected
         movement: 0,
         threshold: 0.5,
@@ -176,6 +177,7 @@
         deviceConfigSupported: false,
         chip: '',
         firmwareVersion: '',
+        endpoint: '',
         deviceBannerSub: '—',
         connectedAt: 0,
         startedAt: 0,
@@ -186,8 +188,10 @@
         readyTracked: false
     };
 
-    let bleClient = null;
-    let suppressBleDisconnectTeardown = false;
+    let directClient = null;
+    let directReconnectTimer = 0;
+    let directReconnectAttempt = 0;
+    let directShareReturnFocus = null;
     let demoTimer = null;
     let demoInputEnergy = 0;
     const demoPointer = { x: null, y: null, t: 0 };
@@ -223,10 +227,13 @@
 
     function applyConfigureCapabilities(snapshot) {
         $$('[data-capability]').forEach((element) => {
-            element.hidden = !sysinfoBoolean(snapshot[element.dataset.capability]);
+            const capability = element.dataset.capability;
+            if (!Object.prototype.hasOwnProperty.call(snapshot, capability)) return;
+            element.hidden = !sysinfoBoolean(snapshot[capability]);
         });
         $$('[data-capability-any]').forEach((element) => {
             const capabilities = element.dataset.capabilityAny.split(/\s+/).filter(Boolean);
+            if (!capabilities.some((key) => Object.prototype.hasOwnProperty.call(snapshot, key))) return;
             element.hidden = !capabilities.some((key) => sysinfoBoolean(snapshot[key]));
         });
     }
@@ -301,20 +308,20 @@
     }
 
     function connectionTransport() {
+        if (conn.mode === 'ws') return 'direct_websocket';
         if (conn.mode === 'mqtt') return 'mqtt_websocket';
         if (conn.mode === 'demo') return 'simulation';
-        return 'bluetooth';
+        return 'direct_websocket';
     }
 
     function connectionInputMode() {
         if (conn.mode === 'demo') return 'demo';
         if (conn.mode === 'mqtt') return 'mqtt';
-        return 'bluetooth';
+        return 'ws';
     }
 
     function hasLiveDetection() {
-        return conn.mode === 'demo' && conn.status === 'connected'
-            || (conn.status === 'connected' && conn.mode === 'mqtt');
+        return conn.status === 'connected' && ['demo', 'mqtt', 'ws'].includes(conn.mode);
     }
 
     function setDeviceView(view, { focus = false } = {}) {
@@ -333,7 +340,6 @@
         }
         if (targetRoute === 'monitor') {
             monitorResizeChart();
-            if (monitor.bleRequested) ensureBleOffForLive();
         }
         syncDiagnosticsPolling();
     }
@@ -502,7 +508,7 @@
         const mqttCanEdit = conn.mode === 'mqtt' && monitorIsMqttLive()
             && (!monitor.commandCatalogReady || monitor.commands.has('set_device_label'));
         const canEdit = conn.status === 'connected'
-            && (conn.mode === 'ble' || conn.mode === 'demo' || mqttCanEdit)
+            && (conn.mode === 'ws' || conn.mode === 'demo' || mqttCanEdit)
             && conn.deviceConfigSupported;
         display.textContent = displayName;
         trigger.disabled = !canEdit || state.savePending;
@@ -518,7 +524,7 @@
             if (identity) {
                 identity.textContent = formatDeviceIdentityLine(
                     conn.chip,
-                    conn.deviceLabel ? conn.deviceId : '',
+                    conn.deviceId,
                     conn.firmwareVersion
                 ) || '—';
             }
@@ -777,109 +783,409 @@
         gameOnTelemetry();
     }
 
-    /* ------------------------------------------------------------ BLE mode */
+    /* --------------------------------------------------------- Direct mode */
 
-    function makeBleClient() {
-        const client = new window.ESPectreBleClient();
-        client.on('sysinfo', (snapshot) => applySysinfo(snapshot));
-        client.on('disconnect', () => {
-            bleClient = null;
-            if (suppressBleDisconnectTeardown || conn.mode === 'mqtt') return;
-            teardownConnection('unexpected');
-            toast('Device disconnected.');
+    function directEndpointInput() {
+        const id = route === 'monitor' ? 'mon-direct-endpoint' : 'cfg-direct-endpoint';
+        return document.getElementById(id);
+    }
+
+    function syncDirectEndpointInputs(endpoint) {
+        ['cfg-direct-endpoint', 'mon-direct-endpoint'].forEach((id) => {
+            const input = document.getElementById(id);
+            if (input && endpoint) input.value = endpoint;
+        });
+    }
+
+    function storedDirectEndpoints() {
+        try {
+            const parsed = JSON.parse(localStorage.getItem(DIRECT_ENDPOINT_STORAGE_KEY) || '[]');
+            if (!Array.isArray(parsed)) return [];
+            return parsed.filter((value) => typeof value === 'string').flatMap((value) => {
+                try { return [DirectProtocolClient.normalizeEndpoint(value)]; } catch (_error) { return []; }
+            }).slice(0, DIRECT_ENDPOINT_LIMIT);
+        } catch (_error) {
+            return [];
+        }
+    }
+
+    function writeStoredDirectEndpoints(endpoints) {
+        try {
+            localStorage.setItem(DIRECT_ENDPOINT_STORAGE_KEY, JSON.stringify(endpoints.slice(0, DIRECT_ENDPOINT_LIMIT)));
+        } catch (_error) {
+            // Private browsing and locked-down storage must not block Direct mode.
+        }
+        renderStoredDirectEndpoints();
+    }
+
+    function renderStoredDirectEndpoints() {
+        const list = document.getElementById('direct-remembered-endpoints');
+        if (!list) return;
+        list.replaceChildren(...storedDirectEndpoints().map((endpoint) => {
+            const option = document.createElement('option');
+            option.value = endpoint;
+            return option;
+        }));
+    }
+
+    function rememberDirectEndpoint(endpoint) {
+        const endpoints = storedDirectEndpoints().filter((value) => value !== endpoint);
+        writeStoredDirectEndpoints([endpoint, ...endpoints]);
+    }
+
+    function forgetDirectEndpoint() {
+        const input = directEndpointInput();
+        let endpoint = input?.value || conn.endpoint;
+        try { endpoint = DirectProtocolClient.normalizeEndpoint(endpoint); } catch (_error) { endpoint = ''; }
+        if (!endpoint) {
+            toast('Enter a remembered device endpoint to forget.');
+            return;
+        }
+        writeStoredDirectEndpoints(storedDirectEndpoints().filter((value) => value !== endpoint));
+        if (input?.value === endpoint) input.value = '';
+        toast('Remembered endpoint removed.');
+    }
+
+    function directShareUrl(endpoint) {
+        const url = new URL('https://espectre.dev/');
+        url.searchParams.set('transport', 'ws');
+        url.searchParams.set('endpoint', endpoint);
+        url.hash = 'monitor';
+        return url.toString();
+    }
+
+    function closeDirectShare({ restoreFocus = true } = {}) {
+        const modal = $('.js-direct-share-modal');
+        if (!modal || modal.hidden) return;
+        modal.hidden = true;
+        syncModalOpenState();
+        if (restoreFocus && directShareReturnFocus?.isConnected) directShareReturnFocus.focus();
+        directShareReturnFocus = null;
+    }
+
+    async function shareDirectEndpoint(event) {
+        const input = directEndpointInput();
+        let endpoint;
+        try {
+            endpoint = DirectProtocolClient.normalizeEndpoint(input?.value || conn.endpoint || '');
+        } catch (error) {
+            toast(error.message);
+            return;
+        }
+        try {
+            await loadBrowserDependency(
+                '/vendor/qrcodejs-1.0.0/qrcode.min.js',
+                'https://unpkg.com/qrcodejs@1.0.0/qrcode.min.js'
+            );
+        } catch (_error) {
+            toast('The QR renderer could not be loaded.');
+            return;
+        }
+        const link = directShareUrl(endpoint);
+        const canvas = $('.js-direct-share-canvas');
+        canvas.replaceChildren();
+        new window.QRCode(canvas, {
+            text: link, width: 220, height: 220,
+            colorDark: '#000000', colorLight: '#ffffff',
+            correctLevel: window.QRCode.CorrectLevel.M
+        });
+        $('.js-direct-share-link').textContent = link;
+        directShareReturnFocus = event?.currentTarget || document.activeElement;
+        const modal = $('.js-direct-share-modal');
+        modal.hidden = false;
+        syncModalOpenState();
+        modal.querySelector('.modal-card').focus();
+    }
+
+    async function copyDirectShareLink() {
+        const link = $('.js-direct-share-link').textContent;
+        try {
+            await navigator.clipboard.writeText(link);
+            toast('Connection link copied.');
+        } catch (_error) {
+            toast('Copy was blocked. Select the link manually.');
+        }
+    }
+
+    function consumeDirectHandoff() {
+        const params = new URLSearchParams(location.search);
+        if (params.get('transport') !== 'ws' || !params.get('endpoint')) return;
+        try {
+            const endpoint = DirectProtocolClient.normalizeEndpoint(params.get('endpoint'));
+            syncDirectEndpointInputs(endpoint);
+            const radio = document.getElementById('monitor-transport-ws');
+            if (radio) radio.checked = true;
+            history.replaceState(null, '', location.pathname + location.hash);
+        } catch (_error) {
+            history.replaceState(null, '', location.pathname + location.hash);
+            toast('The device handoff contained an invalid local endpoint.');
+        }
+    }
+
+    function directCapabilitiesSnapshot(capabilities) {
+        const methods = new Set(capabilities.methods || []);
+        monitor.commands = methods;
+        monitor.commandCatalogReady = true;
+        return {
+            supports_wifi_provisioning: methods.has('set_wifi_config'),
+            supports_mqtt_config: methods.has('set_mqtt_config'),
+            supports_device_config: methods.has('set_device_label'),
+            supports_ota: methods.has('ota_status')
+        };
+    }
+
+    function applyDirectConfig(config) {
+        const wifi = config.wifi || {};
+        const mqtt = config.mqtt || {};
+        applySysinfo({
+            device_label: config.device_label,
+            wifi_ssid: wifi.ssid,
+            wifi_bssid: wifi.bssid,
+            wifi_channel: wifi.channel,
+            wifi_band_policy: wifi.band_policy,
+            wifi_apply_state: wifi.apply_state,
+            wifi_apply_message: wifi.apply_message,
+            mqtt_host: mqtt.host,
+            mqtt_port: mqtt.port,
+            mqtt_topic_prefix: mqtt.topic_prefix
+        });
+    }
+
+    function ingestDirectEvent(name, data) {
+        if (name === 'telemetry') {
+            applySensingCadence(data);
+            applyLiveTelemetry(
+                Number(data.movement_score ?? data.movement ?? 0),
+                Number(data.threshold ?? conn.threshold),
+                data.motion_state ?? data.motion
+            );
+            monitorFeed(conn.movement, conn.threshold, data.motion_state ?? data.motion);
+            monitorResizeChart();
+            return;
+        }
+        if (name === 'info' || name === 'status' || name === 'capabilities') {
+            applySysinfo(data);
+            return;
+        }
+        if (name === 'config') {
+            applyDirectConfig(data);
+            return;
+        }
+        if (name === 'diagnostics') {
+            markMonitorReady('diagnostics');
+            monitorStats(data);
+            return;
+        }
+        if (name === 'ota_status') applyOtaStatus(data);
+        if (name === 'fault') toast(data.message || 'The device reported a runtime fault.');
+    }
+
+    function makeDirectClient(endpoint) {
+        const client = new DirectProtocolClient(endpoint);
+        client.on('event', ingestDirectEvent);
+        client.on('protocol-error', (error) => console.warn('Ignored invalid Direct frame:', error.message));
+        client.on('close', ({ expected }) => {
+            if (expected || conn.mode !== 'ws') return;
+            scheduleDirectReconnect(client);
         });
         return client;
     }
 
-    async function connectBle() {
-        if (bleClient || (conn.status !== 'disconnected' && conn.mode !== 'mqtt')) return;
-        if (!browserSupport.bluetooth
-                || !window.ESPectreBleClient || !window.ESPectreBleClient.supported) {
-            track('tool_connection', {
-                tool_name: activeToolName(), entry_point: route,
-                transport: 'bluetooth', result: 'unsupported'
-            });
-            toast(bleUnsupportedMessage());
+    function directPageOriginKind() {
+        if (location.origin === 'https://espectre.dev'
+            || location.origin === 'https://www.espectre.dev') return 'production';
+        if (location.protocol === 'http:' && LOCAL_DEVELOPMENT_HOSTS.has(location.hostname)) {
+            return 'loopback';
+        }
+        return 'other';
+    }
+
+    function directBrowserGuidance() {
+        if (location.protocol !== 'https:') {
+            return 'Local development mode: the firmware must explicitly allow HTTP loopback Origins. Development builds accept localhost on any port; if a .local name does not resolve, use the device IP address.';
+        }
+        if (browserSupport.hostedDirect === 'unsupported') {
+            return 'This browser blocks hosted Direct WebSocket. Use supported desktop Chrome, or choose MQTT Monitor.';
+        }
+        if (browserSupport.hostedDirect === 'unclaimed') {
+            return 'Hosted Direct is not validated in this browser. Use targeted desktop Chrome, or choose MQTT Monitor.';
+        }
+        return 'Chrome may ask for Local network access. Allow it only for this site and the LAN you intend to manage.';
+    }
+
+    function renderDirectBrowserGuidance() {
+        $$('.js-direct-browser-note').forEach((note) => {
+            note.textContent = directBrowserGuidance();
+        });
+    }
+
+    function directConnectionErrorMessage(error, endpoint, permissionState = 'unavailable') {
+        const code = error?.code || 'connection_failed';
+        let url;
+        try { url = new URL(endpoint); } catch (_error) { url = null; }
+        const localName = Boolean(url?.hostname.endsWith('.local'));
+        const hostedCleartext = location.protocol === 'https:' && url?.protocol === 'ws:';
+        if (code === 'timeout') {
+            return localName
+                ? 'The device did not answer in time. Confirm it is online and on this LAN; if the .local name does not resolve, enter its router-assigned IP address.'
+                : 'The device did not answer in time. Confirm it is online, on this LAN, and that the IP address is current.';
+        }
+        if (code === 'subprotocol_mismatch' || code === 'unsupported_version'
+            || code === 'invalid_capabilities' || code === 'invalid_envelope') {
+            return 'The device answered with an incompatible Direct protocol. Confirm that the portal and Native firmware belong to the same supported release.';
+        }
+        if (code === 'connection_failed' || code === 'closed') {
+            if (directPageOriginKind() === 'other') {
+                return 'The device may have rejected this page Origin. Use https://espectre.dev, https://test.espectre.dev, or a loopback development portal explicitly enabled in the firmware.';
+            }
+            if (directPageOriginKind() === 'loopback') {
+                return 'A local HTTP portal does not require a Local network access prompt. Confirm that this is a development firmware with loopback Origins enabled, reflash if it predates any-port localhost support, close other ESPectre tabs, and retry.';
+            }
+            if (permissionState === 'denied') {
+                return 'Local network access is blocked for this site. Open the browser site settings, allow Local network access, and retry.';
+            }
+            if (hostedCleartext && browserSupport.hostedDirect === 'unsupported') {
+                return 'This browser blocks a hosted HTTPS page from opening the device cleartext WebSocket. Use supported desktop Chrome, or use MQTT Monitor as the manual fallback.';
+            }
+            if (hostedCleartext && permissionState === 'prompt') {
+                return 'The browser is waiting for Local network access. Retry, allow the permission prompt for this site, and keep the device on the same LAN.';
+            }
+            const addressHelp = localName
+                ? 'If the .local name does not resolve, enter the device IP address. '
+                : 'Confirm the device IP address. ';
+            return `The browser could not open the local Direct connection. ${addressHelp}Close other ESPectre Configure or Monitor tabs, allow Local network access when prompted, and retry. The device may be offline or at its two-client limit.`;
+        }
+        return error?.message || 'Direct WebSocket connection failed.';
+    }
+
+    function setDirectConnectionHelp(message = '') {
+        const selector = route === 'monitor' ? '.js-mon-direct-help' : '.js-cfg-direct-help';
+        const help = $(selector);
+        if (!help) return;
+        const copy = help.querySelector('.js-direct-help-copy');
+        if (copy) copy.textContent = message;
+        help.hidden = !message;
+    }
+
+    async function localNetworkAccessState() {
+        const detectState = window.ESPectreBrowserSupport.localNetworkAccessState;
+        return typeof detectState === 'function'
+            ? detectState(navigator) : 'unavailable';
+    }
+
+    function cancelDirectReconnect() {
+        clearTimeout(directReconnectTimer);
+        directReconnectTimer = 0;
+        directReconnectAttempt = 0;
+    }
+
+    function scheduleDirectReconnect(client) {
+        if (directClient !== client || conn.mode !== 'ws' || directReconnectTimer) return;
+        if (directReconnectAttempt >= DIRECT_RECONNECT_DELAYS_MS.length) {
+            directClient = null;
+            teardownConnection('reconnect_failed');
+            toast('Direct WebSocket disconnected. Enter the device address to reconnect.');
             return;
         }
-        const returningFromMqtt = monitorIsMqttLive();
-        if (!returningFromMqtt) {
-            rememberConnectionOrigin();
-        }
-        track('tool_connection', {
-            ...connectionParams(),
-            transport: 'bluetooth', result: 'attempt'
-        });
-        try {
-            bleClient = makeBleClient();
-            syncFirmwareUpdateNotice();
-            if (!returningFromMqtt) setStatus('connecting');
-            await bleClient.connect();
-            conn.mode = 'ble';
-            conn.deviceBannerSub = 'reading device info…';
-            conn.connectedAt = Date.now();
-            monitor.bleRequested = false;
-            setStatus('connected');
-            setDeviceView('connectivity');
-            track('tool_connection', {
-                ...connectionParams(),
-                transport: 'bluetooth', result: 'success'
-            });
+        const delay = DIRECT_RECONNECT_DELAYS_MS[directReconnectAttempt++];
+        setStatus('connecting');
+        directReconnectTimer = setTimeout(async () => {
+            directReconnectTimer = 0;
+            if (directClient !== client || conn.mode !== 'ws') return;
             try {
-                await bleClient.requestSysinfo();
-            } catch (error) {
-                console.warn('Sysinfo request failed:', error);
-            }
-        } catch (error) {
-            bleClient = null;
-            syncFirmwareUpdateNotice();
-            if (returningFromMqtt) {
-                conn.mode = 'mqtt';
+                await client.connect({ timeoutMs: 5000 });
+                await client.handshake({ timeoutMs: 5000 });
+                if (directClient !== client || conn.mode !== 'ws') {
+                    client.close();
+                    return;
+                }
+                await refreshDirectDevice();
+                directReconnectAttempt = 0;
                 setStatus('connected');
-            } else {
-                setStatus('disconnected');
+                toast('Direct WebSocket reconnected.');
+                if (pendingConfigVerification) requestConfigVerification();
+            } catch (_error) {
+                client.close();
+                scheduleDirectReconnect(client);
             }
-            // The chooser being dismissed is a user choice, not a failure.
-            const cancelled = error && error.name === 'NotFoundError';
+        }, delay);
+    }
+
+    async function refreshDirectDevice() {
+        if (!directClient?.connected) return;
+        const supportsOta = directClient.capabilities?.methods?.includes('ota_status');
+        const [info, status, config, otaStatus] = await Promise.all([
+            directClient.request('info'),
+            directClient.request('status'),
+            directClient.request('config'),
+            supportsOta ? directClient.request('ota_status') : Promise.resolve(null)
+        ]);
+        applySysinfo({ ...directCapabilitiesSnapshot(directClient.capabilities), ...info, ...status });
+        applyDirectConfig(config);
+        if (otaStatus) applyOtaStatus(otaStatus);
+    }
+
+    async function connectDirect({ endpoint, openView } = {}) {
+        if (directClient || (conn.status !== 'disconnected' && conn.mode !== 'mqtt')) return;
+        const input = directEndpointInput();
+        const requestedEndpoint = endpoint || input?.value || '';
+        let normalizedEndpoint;
+        try {
+            normalizedEndpoint = DirectProtocolClient.normalizeEndpoint(requestedEndpoint);
+        } catch (error) {
+            toast(error.message);
+            input?.setAttribute('aria-invalid', 'true');
+            return;
+        }
+        input?.removeAttribute('aria-invalid');
+        setDirectConnectionHelp();
+        if (monitorIsMqttLive()) monitorStopAll('transport_switch');
+        rememberConnectionOrigin();
+        track('tool_connection', {
+            ...connectionParams(), transport: 'direct_websocket', result: 'attempt'
+        });
+        setStatus('connecting');
+        try {
+            const client = makeDirectClient(normalizedEndpoint);
+            directClient = client;
+            cancelDirectReconnect();
+            await client.connect();
+            await client.handshake();
+            if (directClient !== client) return;
+            conn.mode = 'ws';
+            conn.endpoint = normalizedEndpoint;
+            conn.deviceBannerSub = normalizedEndpoint;
+            conn.connectedAt = Date.now();
+            syncDirectEndpointInputs(normalizedEndpoint);
+            rememberDirectEndpoint(normalizedEndpoint);
+            await refreshDirectDevice();
+            if ((openView || (route === 'monitor' ? 'live' : 'connectivity')) === 'live') {
+                await client.request('start_sensing');
+            }
+            setStatus('connected');
+            setDirectConnectionHelp();
+            setDeviceView(openView || (route === 'monitor' ? 'live' : 'connectivity'));
             track('tool_connection', {
-                ...connectionParams(),
-                transport: 'bluetooth',
-                result: cancelled ? 'cancelled' : 'failure',
+                ...connectionParams(), transport: 'direct_websocket', result: 'success'
+            });
+            markToolReady('info');
+        } catch (error) {
+            directClient?.close();
+            directClient = null;
+            setStatus('disconnected');
+            track('tool_connection', {
+                ...connectionParams(), transport: 'direct_websocket', result: 'failure',
                 error_type: errorType(error)
             });
-            conn.startedAt = 0;
-            conn.toolName = '';
-            conn.entryPoint = '';
-            if (cancelled) {
-                if (returningFromMqtt) {
-                    setDeviceView('live', { focus: true });
-                    renderConnection();
-                }
-                return;
-            }
-            toast(error && error.message ? error.message : 'Bluetooth connection failed.');
+            const message = directConnectionErrorMessage(
+                error, normalizedEndpoint, await localNetworkAccessState()
+            );
+            setDirectConnectionHelp(message);
+            toast(message);
         }
     }
 
-    function mqttPresetNote(target, presetName) {
-        if (target === 'configure') {
-            if (presetName === 'home_assistant') {
-                return 'Enter the MQTT credentials created for ESPectre.';
-            }
-            if (presetName === 'lan_broker') {
-                return "Use the broker's LAN hostname or IP address.";
-            }
-            if (presetName === 'emqx_cloud') {
-                return 'Replace the template with your EMQX endpoint.';
-            }
-            if (presetName === 'hivemq_cloud') {
-                return 'Replace the template with your HiveMQ endpoint.';
-            }
-            if (presetName === 'flespi') {
-                return 'Use your Flespi token as username; no password.';
-            }
-            return 'Enter your broker endpoint and credentials.';
-        }
+    function monitorMqttPresetNote(presetName) {
         if (presetName === 'home_assistant') {
             return location.protocol === 'https:'
                 ? 'Port 9001; HTTPS requires trusted WSS.'
@@ -902,11 +1208,21 @@
         return 'Enter your broker WSS settings and credentials.';
     }
 
-    function updateMqttPresetNote(target, presetName) {
-        const note = target === 'configure'
-            ? $('.js-cfg-mqtt-preset-note')
-            : $('.js-mon-mqtt-preset-note');
-        if (note) note.textContent = mqttPresetNote(target, presetName);
+    function updateMonitorMqttPresetNote(presetName) {
+        const note = $('.js-mon-mqtt-preset-note');
+        if (note) note.textContent = monitorMqttPresetNote(presetName);
+    }
+
+    function applyConfigureMqttCredentialPolicy(presetName) {
+        const username = document.getElementById('cfg-mqtt-user');
+        const password = document.getElementById('cfg-mqtt-pass');
+        const isFlespi = presetName === 'flespi';
+        username.placeholder = isFlespi ? 'Token' : 'MQTT username';
+        password.placeholder = isFlespi ? 'No password' : 'MQTT password';
+        password.disabled = isFlespi;
+        password.toggleAttribute('data-preset-locked', isFlespi);
+        password.title = isFlespi ? 'Flespi does not use a password' : '';
+        if (isFlespi) password.value = '';
     }
 
     function applyMqttPresetFieldLocks(target, preset) {
@@ -960,11 +1276,11 @@
         document.getElementById('cfg-mqtt-port').value = preset.configure.port;
         document.getElementById('cfg-topic-prefix').value = MQTT_FORM_DEFAULTS.topicPrefix;
         applyMqttPresetFieldLocks('configure', preset.configure);
+        applyConfigureMqttCredentialPolicy(resolvedName);
         if (clearCredentials) {
             document.getElementById('cfg-mqtt-user').value = '';
             document.getElementById('cfg-mqtt-pass').value = '';
         }
-        updateMqttPresetNote('configure', select.value);
     }
 
     function applyMonitorMqttPreset(presetName, { clearCredentials = true } = {}) {
@@ -983,7 +1299,7 @@
             document.getElementById('mon-user').value = '';
             document.getElementById('mon-pass').value = '';
         }
-        updateMqttPresetNote('monitor', select.value);
+        updateMonitorMqttPresetNote(select.value);
     }
 
     function applyConfigureMqttToMonitor() {
@@ -1017,44 +1333,6 @@
         // Provider presets supply stable ports and paths; account-specific hostnames are copied without the MQTT scheme.
     }
 
-    async function stopBleForDetection() {
-        if (!bleClient) return true;
-        suppressBleDisconnectTeardown = true;
-        try {
-            await bleClient.writeControl(window.ESPectreBleClient.buildStopBleCommand());
-        } catch (error) {
-            suppressBleDisconnectTeardown = false;
-            console.warn('STOP_BLE failed:', error);
-            toast('Setup could not close. Sensing remains paused.');
-            return false;
-        }
-        const client = bleClient;
-        bleClient = null;
-        try {
-            await client.disconnect();
-        } catch (error) {
-            console.warn(error);
-        }
-        suppressBleDisconnectTeardown = false;
-        monitor.bleRequested = false;
-        return true;
-    }
-
-    async function ensureBleOffForLive({ statusFn = () => {} } = {}) {
-        if (!monitorIsMqttLive()) return true;
-        if (monitor.commandCatalogReady && !monitor.commands.has('set_ble')) return true;
-        try {
-            await monitorPublishCommand({ command: 'set_ble', ble: 'off' }, {
-                pendingMessage: 'Closing nearby Bluetooth setup…',
-                statusFn
-            });
-            monitor.bleRequested = false;
-        } catch (error) {
-            console.warn('MQTT set_ble off failed:', error);
-        }
-        return true;
-    }
-
     function bindMqttToConnection() {
         if (conn.mode === 'demo') return;
         const device = document.getElementById('mon-device').value.trim();
@@ -1067,7 +1345,7 @@
             conn.connectedAt = Date.now();
         }
         conn.mode = 'mqtt';
-        monitor.closingBleForLive = false;
+        monitor.switchingTransport = false;
         setStatus('connected');
         completeLiveConnectionNavigation();
         toast('Sensing is live.');
@@ -1077,6 +1355,17 @@
         rememberLiveDestination();
         if (conn.mode === 'demo') {
             completeLiveConnectionNavigation();
+            return;
+        }
+        if (conn.mode === 'ws' && directClient?.connected) {
+            try {
+                await directClient.request('start_sensing');
+                setDeviceView('live');
+                completeLiveConnectionNavigation();
+                toast('Sensing is live over Direct WebSocket.');
+            } catch (error) {
+                toast(error.message);
+            }
             return;
         }
         applyConfigureMqttToMonitor();
@@ -1097,7 +1386,7 @@
                 rememberConnectionOrigin();
                 setStatus('connecting');
             }
-            monitor.closingBleForLive = true;
+            monitor.switchingTransport = true;
             setDeviceView('live');
         } else if (route !== 'monitor') {
             location.hash = '#monitor';
@@ -1106,19 +1395,21 @@
     }
 
     function applySysinfo(snapshot) {
-        if (conn.mode === 'ble' && conn.toolName === 'configure'
+        if (conn.mode === 'ws' && conn.toolName === 'configure'
                 && (snapshot.frontend || snapshot.chip || snapshot.proto_version)) {
-            markToolReady('sysinfo');
+            markToolReady('info');
         }
         applyConfigureCapabilities(snapshot);
         applyWifiBandOptions(snapshot);
-        const chip = (snapshot.chip || '').toUpperCase();
+        const chip = snapshot.chip ? String(snapshot.chip).toUpperCase() : conn.chip;
         const proto = snapshot.proto_version || snapshot.espectre_protocol_version || '';
-        const firmware = snapshot.firmware_version || snapshot.version || '';
+        const firmware = snapshot.firmware_version || snapshot.version || conn.firmwareVersion;
         const deviceIdentity = formatDeviceIdentityLine(chip, snapshot.device_id || conn.deviceId, firmware) || '—';
         conn.chip = chip;
         conn.firmwareVersion = firmware;
-        conn.deviceBannerSub = deviceIdentity;
+        conn.deviceBannerSub = conn.mode === 'ws'
+            ? deviceIdentity
+            : [deviceIdentity, conn.endpoint].filter((value) => value && value !== '—').join(' · ') || '—';
 
         const set = (id, value) => {
             const el = document.getElementById(id);
@@ -1144,17 +1435,14 @@
             set('cfg-mqtt-port', snapshot.mqtt_port);
             const mqttPreset = configuredBrokerPreset(snapshot.mqtt_host, snapshot.mqtt_port);
             document.getElementById('cfg-mqtt-preset').value = mqttPreset;
-            updateMqttPresetNote('configure', mqttPreset);
             applyMqttPresetFieldLocks('configure', MQTT_PRESETS[mqttPreset].configure);
-            const mqttUser = document.getElementById('cfg-mqtt-user');
-            if (mqttUser) mqttUser.value = snapshot.mqtt_username || '';
-            set('cfg-topic-prefix', snapshot.topic_prefix || MQTT_FORM_DEFAULTS.topicPrefix);
+            applyConfigureMqttCredentialPolicy(mqttPreset);
+            set('cfg-topic-prefix', snapshot.mqtt_topic_prefix || snapshot.topic_prefix || MQTT_FORM_DEFAULTS.topicPrefix);
             const mqttPass = document.getElementById('cfg-mqtt-pass');
             if (mqttPass) mqttPass.value = '';
         }
         applyDeviceIdentity(snapshot);
-        if (conn.mode === 'ble') otaSupported = false;
-        else if (snapshot.supports_ota !== undefined) otaSupported = sysinfoBoolean(snapshot.supports_ota);
+        if (snapshot.supports_ota !== undefined) otaSupported = sysinfoBoolean(snapshot.supports_ota);
         applySensingSnapshot(snapshot);
         syncFirmwareUpdateNotice();
         evaluateConfigVerification(snapshot);
@@ -1162,7 +1450,7 @@
         setConnectionDot('.js-mqtt-status-dot', snapshot.mqtt_connected);
 
         // Real hardware only: demo values would pollute the adoption report.
-        if (conn.mode === 'ble' && snapshot.frontend && snapshot.chip) {
+        if (conn.mode === 'ws' && snapshot.frontend && snapshot.chip) {
             const profile = snapshot.frontend + ':' + snapshot.chip;
             if (profile !== lastTrackedProfile) {
                 const reported = track('device_profile', {
@@ -1199,7 +1487,7 @@
             monitor.commands = new Set([
                 'set_threshold', 'set_motion_hits', 'set_detector', 'recalibrate',
                 'set_csi_traffic_mode', 'set_traffic_generator_mode', 'stats',
-                'ota_status', 'ota_check', 'set_ble', 'set_device_label'
+                'ota_status', 'ota_check', 'set_device_label'
             ]);
             monitor.commandCatalogReady = true;
             applySysinfo({
@@ -1298,14 +1586,11 @@
     /* ----------------------------------------------------- shared teardown */
 
     function disconnect() {
-        suppressBleDisconnectTeardown = true;
-        if (bleClient) {
-            const client = bleClient;
-            bleClient = null;
-            client.disconnect().catch((error) => console.warn(error));
-        }
+        cancelDirectReconnect();
+        const client = directClient;
+        directClient = null;
+        client?.close();
         teardownConnection('user');
-        suppressBleDisconnectTeardown = false;
     }
 
     function stopMqttTransport() {
@@ -1319,7 +1604,6 @@
         monitor.closing = false;
         monitor.commands.clear();
         monitor.commandCatalogReady = false;
-        monitor.bleRequested = false;
         monitor.handoffReady = false;
         monitor.boundDeviceId = '';
         if (monitor.discoveryTimer) {
@@ -1353,7 +1637,8 @@
     }
 
     function teardownConnection(reason = 'route_change') {
-        monitor.closingBleForLive = false;
+        cancelDirectReconnect();
+        monitor.switchingTransport = false;
         if (otaTracking) finishOtaTracking('unconfirmed', 'ClientDisconnected');
         if (pendingConfigVerification) {
             finishConfigVerification('unconfirmed', 'ClientDisconnected');
@@ -1367,16 +1652,17 @@
             track('tool_disconnect', {
                 ...connectionParams(),
                 transport: previousMode === 'mqtt' ? 'mqtt_websocket'
-                    : previousMode === 'demo' ? 'simulation' : 'bluetooth',
+                    : previousMode === 'demo' ? 'simulation' : 'direct_websocket',
                 input_mode: previousMode === 'demo' ? 'demo'
-                    : previousMode === 'mqtt' ? 'mqtt' : 'bluetooth',
+                    : previousMode === 'mqtt' ? 'mqtt' : 'ws',
                 reason,
                 duration_seconds: durationSeconds
             });
         }
         clearInterval(demoTimer);
         demoTimer = null;
-        bleClient = null;
+        directClient?.close();
+        directClient = null;
         demoInputEnergy = 0;
         demoPointer.x = null;
         demoPointer.y = null;
@@ -1393,6 +1679,7 @@
         conn.deviceConfigSupported = false;
         conn.chip = '';
         conn.firmwareVersion = '';
+        conn.endpoint = '';
         conn.deviceBannerSub = '—';
         conn.connectedAt = 0;
         conn.startedAt = 0;
@@ -1427,13 +1714,6 @@
 
     let dropdownOpen = false;
 
-    function bleUnsupportedMessage() {
-        if (browserSupport.ios) {
-            return 'Bluetooth connection is unavailable on iPhone and iPad. Use the demo, desktop Chrome or Edge, or Chrome on Android.';
-        }
-        return 'Web Bluetooth is unavailable in this browser. Use the demo, desktop Chrome or Edge, or Chrome on Android.';
-    }
-
     function flashUnsupportedMessage() {
         if (browserSupport.mobile) {
             return 'USB flashing is not available on mobile. Use desktop Chrome or Edge.';
@@ -1442,31 +1722,15 @@
     }
 
     function renderBrowserSupport() {
-        const bleConnecting = conn.status === 'connecting'
-            && !!bleClient
-            && !bleClient.connected;
-        $$('.js-connect-ble').forEach((button) => {
-            button.disabled = !browserSupport.bluetooth || bleConnecting;
+        const directConnecting = conn.status === 'connecting' && !!directClient && !directClient.connected;
+        $$('.js-connect-direct').forEach((button) => {
+            button.disabled = directConnecting;
             button.setAttribute('aria-disabled', String(button.disabled));
-            button.title = browserSupport.bluetooth ? '' : bleUnsupportedMessage();
             const label = button.querySelector('.js-connect-label');
             if (label) {
                 if (!label.dataset.supportedLabel) label.dataset.supportedLabel = label.textContent;
-                label.textContent = !browserSupport.bluetooth
-                    ? 'Bluetooth unavailable'
-                    : bleConnecting ? 'Connecting…' : label.dataset.supportedLabel;
+                label.textContent = directConnecting ? 'Connecting…' : label.dataset.supportedLabel;
             }
-        });
-        $$('.js-ble-chip').forEach((chip) => {
-            chip.classList.toggle('unavailable', !browserSupport.bluetooth);
-            if (!browserSupport.bluetooth) {
-                chip.classList.remove('ready');
-                chip.textContent = 'BLE · UNAVAILABLE';
-            }
-        });
-        $$('.js-ble-support').forEach((notice) => {
-            notice.hidden = browserSupport.bluetooth;
-            notice.textContent = browserSupport.bluetooth ? '' : bleUnsupportedMessage();
         });
 
         $$('.js-flash-chip').forEach((chip) => {
@@ -1502,10 +1766,7 @@
         const displayedConnecting = !usbConnected && conn.status === 'connecting';
         const displayedMode = usbConnected ? 'usb' : conn.mode;
         const live = hasLiveDetection();
-        const bleConnecting = conn.status === 'connecting'
-            && !!bleClient
-            && !bleClient.connected;
-        const bleSetup = connected && conn.mode === 'ble';
+        const directSetup = connected && conn.mode === 'ws';
         const mqttConnectionPending = monitorConnectionPending();
         const mqttSession = live || (monitor.handoffReady && monitorIsMqttLive());
 
@@ -1517,7 +1778,7 @@
         $('.js-demo-tag').hidden = displayedMode !== 'demo';
         const transportTag = $('.js-transport-tag');
         if (transportTag) {
-            const transportLabels = { ble: 'BLE', mqtt: 'MQTT', usb: 'USB' };
+            const transportLabels = { ws: 'WS', usb: 'USB', mqtt: 'MQTT' };
             transportTag.textContent = transportLabels[displayedMode] || '';
             transportTag.hidden = !displayedConnected || !transportLabels[displayedMode];
         }
@@ -1528,8 +1789,6 @@
         $$('.js-has-live').forEach((el) => { el.hidden = !live; });
         const showLiveEnergy = live;
         $$('.js-live-energy').forEach((el) => { el.hidden = !showLiveEnergy; });
-        const paused = $('.js-sensing-paused');
-        if (paused) paused.hidden = conn.mode !== 'ble';
         const configureOnboarding = $('.js-configure-onboarding');
         const configureWorkspace = $('.js-configure-workspace');
         const monitorOnboarding = $('.js-monitor-onboarding');
@@ -1537,12 +1796,12 @@
         const connectivitySetup = $('.js-connectivity-setup');
         const edit = $('.js-device-edit-connectivity');
         const startSensing = document.querySelector('[data-page="configure"] .js-start-detection');
-        if (configureOnboarding) configureOnboarding.hidden = bleSetup || conn.mode === 'demo';
-        if (configureWorkspace) configureWorkspace.hidden = !(bleSetup || conn.mode === 'demo');
+        if (configureOnboarding) configureOnboarding.hidden = directSetup || conn.mode === 'demo';
+        if (configureWorkspace) configureWorkspace.hidden = !(directSetup || conn.mode === 'demo');
         if (monitorOnboarding) monitorOnboarding.hidden = mqttSession;
         if (monitorWorkspace) monitorWorkspace.hidden = !mqttSession;
-        if (connectivitySetup) connectivitySetup.hidden = !(bleSetup || conn.mode === 'demo');
-        if (startSensing) startSensing.disabled = monitor.closingBleForLive;
+        if (connectivitySetup) connectivitySetup.hidden = !(directSetup || conn.mode === 'demo');
+        if (startSensing) startSensing.disabled = monitor.switchingTransport;
         if (edit) {
             edit.hidden = false;
             edit.disabled = false;
@@ -1566,11 +1825,9 @@
         if (usbNote) usbNote.hidden = !usbConnected;
         const disconnectButton = $('.js-disconnect');
         if (disconnectButton) disconnectButton.hidden = usbConnected;
-        $$('.js-ble-chip').forEach((chip) => {
-            chip.classList.toggle('ready', connected && conn.mode === 'ble' && browserSupport.bluetooth);
-            chip.textContent = connected && conn.mode === 'ble' && browserSupport.bluetooth
-                ? 'BLE · READY'
-                : 'BLE';
+        $$('.js-direct-chip').forEach((chip) => {
+            chip.classList.toggle('ready', connected && conn.mode === 'ws');
+            chip.textContent = connected && conn.mode === 'ws' ? 'WS · READY' : 'WS';
         });
 
         syncMonitorDemoButton();
@@ -2443,9 +2700,6 @@
             if (reported) return;
             reported = true;
             track('firmware_install_result', { ...flashParams(), result });
-            if (shadowObserver) shadowObserver.disconnect();
-            clearInterval(inspectTimer);
-            inspectTimer = null;
         };
         const setDetectedChip = (chip) => {
             const normalized = String(chip || '').toUpperCase();
@@ -2453,8 +2707,15 @@
             flash.detectedChip = normalized;
             renderConnection();
         };
+        const customizeNativeDeviceLink = () => {
+            if (document.getElementById('flash-frontend').value !== 'native' || !dialog.shadowRoot) return;
+            dialog.shadowRoot.querySelectorAll('[slot="headline"]').forEach((headline) => {
+                if (headline.textContent.trim() === 'Visit Device') headline.textContent = 'Configure Device';
+            });
+        };
         const inspect = () => {
             observeRoot(dialog.shadowRoot);
+            customizeNativeDeviceLink();
             const text = flashDialogText(dialog.shadowRoot);
             // The vendored ESP Web Tools version exposes completion before its
             // final Next screen. Text checks keep the listener resilient if
@@ -2609,11 +2870,11 @@
         closing: false,
         commands: new Set(),
         commandCatalogReady: false,
-        bleRequested: false,
         handoffReady: false,
-        closingBleForLive: false,
+        switchingTransport: false,
         diagTimer: null,
         diagIntervalMs: 0,
+        diagRequestPending: false,
         calibrating: false,
         calibrationTimer: null,
         boundDeviceId: '',
@@ -2702,7 +2963,7 @@
     }
 
     function monitorConnectionPending() {
-        return monitor.closingBleForLive || Boolean(
+        return monitor.switchingTransport || Boolean(
             monitor.client
             && (!monitor.connectedAt || monitor.discoveryActive || conn.status === 'connecting')
         );
@@ -2819,13 +3080,11 @@
 
     function syncMonitorDemoButton() {
         const demo = $('.js-mon-demo');
-        const ble = $('.js-mon-ble');
         const connect = $('.js-mon-connect');
         const mqttLive = monitorIsMqttLive();
         const mqttConnected = mqttLive && conn.status === 'connected';
         const connectionPending = monitorConnectionPending();
         if (demo) demo.hidden = mqttLive;
-        if (ble) ble.hidden = !mqttLive;
         if (connect) {
             connect.disabled = mqttConnected;
             connect.textContent = mqttConnected ? 'Connected'
@@ -3153,12 +3412,11 @@
             rememberConnectionOrigin();
             setStatus('connecting');
         }
-        if (bleClient) monitor.closingBleForLive = true;
         monitorBindSelectedDevice(client, prefix, device);
     }
 
     function monitorShowDeviceSelection() {
-        if (conn.mode !== 'ble' && conn.status === 'connecting') {
+        if (conn.mode !== 'ws' && conn.status === 'connecting') {
             setStatus('disconnected');
             return;
         }
@@ -3247,31 +3505,18 @@
                 ...(error ? { error_type: errorType(error) } : {})
             });
             if (error) {
-                monitor.closingBleForLive = false;
+                monitor.switchingTransport = false;
                 monitorStopAll('subscription_failure');
-                if (conn.status === 'connecting' && conn.mode !== 'ble') setStatus('disconnected');
+                if (conn.status === 'connecting' && conn.mode !== 'ws') setStatus('disconnected');
                 return;
             }
             syncMonitorDemoButton();
             monitorResizeChart();
-            const stopped = await stopBleForDetection();
-            if (!stopped || monitor.client !== client) {
-                monitor.closingBleForLive = false;
-                if (conn.mode === 'ble') setDeviceView('connectivity');
-                return;
-            }
-            await ensureBleOffForLive({
-                statusFn: (message) => {
-                    if (message) monitorStatus(message);
-                }
-            });
-            if (monitor.client !== client) {
-                monitor.closingBleForLive = false;
-                return;
-            }
+            if (monitor.client !== client) return;
             monitor.handoffReady = true;
             conn.mode = 'mqtt';
-            monitor.closingBleForLive = false;
+            conn.endpoint = monitor.brokerUrl;
+            monitor.switchingTransport = false;
             if (pendingLiveDestination || route === 'monitor' || route === 'configure') {
                 setDeviceView('live');
             }
@@ -3294,12 +3539,12 @@
     async function monitorConnect() {
         const connection = validateMonitorConnection();
         if (!connection) {
-            monitor.closingBleForLive = false;
+            monitor.switchingTransport = false;
             track('tool_connection', {
                 tool_name: 'monitor', entry_point: connectionIntentRoute(),
                 transport: 'mqtt_websocket', result: 'validation_failure'
             });
-            if (conn.status === 'connecting' && !bleClient) setStatus('disconnected');
+            if (conn.status === 'connecting' && !directClient) setStatus('disconnected');
             return;
         }
         try {
@@ -3309,13 +3554,13 @@
             );
         } catch (error) {
             monitorStatus('The local MQTT client could not be loaded.');
-            monitor.closingBleForLive = false;
+            monitor.switchingTransport = false;
             track('tool_connection', {
                 tool_name: 'monitor', entry_point: connectionIntentRoute(),
                 transport: 'mqtt_websocket', result: 'dependency_failure',
                 error_type: errorType(error)
             });
-            if (conn.status === 'connecting' && !bleClient) setStatus('disconnected');
+            if (conn.status === 'connecting' && !directClient) setStatus('disconnected');
             return;
         }
         const { host, port, path, tls, prefix, device } = connection;
@@ -3331,6 +3576,11 @@
         if (conn.status === 'disconnected') {
             rememberConnectionOrigin();
             setStatus('connecting');
+        }
+        if (directClient) {
+            const client = directClient;
+            directClient = null;
+            client.close();
         }
         monitorStopAll('replaced');
         monitor.closing = false;
@@ -3364,7 +3614,7 @@
         monitor.connectionTimer = setTimeout(() => {
             if (monitor.client !== client || monitor.connectedAt) return;
             monitorStatus('Connection failed: broker WebSocket timed out.');
-            monitor.closingBleForLive = false;
+            monitor.switchingTransport = false;
             track('tool_connection', {
                 tool_name: 'monitor',
                 entry_point: monitor.entryPoint,
@@ -3373,8 +3623,7 @@
                 error_type: 'ConnectionTimeout'
             });
             monitorStopAll('connection_timeout');
-            if (conn.mode === 'ble') setDeviceView('connectivity');
-            else if (conn.status === 'connecting') setStatus('disconnected');
+            if (conn.status === 'connecting') setStatus('disconnected');
         }, MONITOR_CONNECTION_TIMEOUT_MS);
         monitor.protocol.on('message', ingestMqttMessage);
         monitor.protocol.on('protocol-error', (error) => {
@@ -3402,7 +3651,7 @@
         client.on('error', (error) => {
             if (monitor.client !== client) return;
             monitorStatus('Connection failed: ' + error.message);
-            monitor.closingBleForLive = false;
+            monitor.switchingTransport = false;
             track('tool_connection', {
                 tool_name: 'monitor',
                 entry_point: monitor.entryPoint,
@@ -3413,13 +3662,12 @@
             monitorStopAll('error');
             if (conn.mode === 'mqtt') {
                 teardownConnection('error');
-            } else if (conn.status === 'connecting' && !bleClient) {
+            } else if (conn.status === 'connecting' && !directClient) {
                 setStatus('disconnected');
             }
         });
         client.on('close', () => {
             if (monitor.client !== client || monitor.closing) return;
-            if (conn.mode === 'ble') return;
             if (conn.mode !== 'mqtt') {
                 monitorStatus('Disconnected from broker.');
                 monitorStopAll('unexpected');
@@ -3435,8 +3683,13 @@
         statusFn = monitorStatus,
         timeoutMs = 8000
     } = {}) {
+        if (conn.mode === 'ws' && directClient?.connected) {
+            const { command, ...params } = fields;
+            statusFn(pendingMessage);
+            return directClient.request(command, params, { timeoutMs });
+        }
         if (!monitorIsMqttLive() || !monitor.protocol?.baseTopic) {
-            const error = new Error('Connect through the broker before changing the device.');
+            const error = new Error('Connect through Direct WebSocket or MQTT before changing the device.');
             statusFn(error.message);
             return Promise.reject(error);
         }
@@ -3445,6 +3698,7 @@
     }
 
     function diagnosticsRequestPending() {
+        if (conn.mode === 'ws') return monitor.diagRequestPending;
         return monitor.protocol?.hasPendingCommand('stats') || false;
     }
 
@@ -3463,7 +3717,7 @@
 
     function syncDiagnosticsPolling() {
         const canPoll = diagnosticsPanelOpen()
-            && (conn.mode === 'demo' || monitorIsMqttLive());
+            && (conn.mode === 'demo' || conn.mode === 'ws' || monitorIsMqttLive());
         if (!canPoll) {
             stopDiagnosticsPolling();
             return;
@@ -3495,42 +3749,33 @@
             return;
         }
         if (diagnosticsRequestPending()) return;
+        const direct = conn.mode === 'ws';
+        if (direct && !directClient?.connected) return;
         try {
-            await monitorPublishCommand({ command: 'stats' }, {
+            if (direct) monitor.diagRequestPending = true;
+            const data = await monitorPublishCommand({ command: direct ? 'diagnostics' : 'stats' }, {
                 pendingMessage: '',
                 statusFn: () => {}
             });
+            if (direct && data && typeof data === 'object') {
+                markMonitorReady('diagnostics');
+                monitorStats(data);
+                monitorDiagStatus('');
+            }
         } catch (error) {
             if (diagnosticsPanelOpen()) monitorDiagStatus(error.message);
+        } finally {
+            if (direct) monitor.diagRequestPending = false;
         }
     }
 
-    async function monitorStartBle() {
+    function monitorOpenConnectivity() {
         setDeviceView('connectivity');
         renderConnection();
-        if (monitor.bleRequested) {
-            await connectBle();
-            return;
-        }
-        if (conn.mode === 'demo') {
-            setDeviceView('connectivity');
-            return;
-        }
-        try {
-            await monitorPublishCommand({ command: 'set_ble', ble: 'on' }, {
-                pendingMessage: 'Opening Configure. Sensing will pause…'
-            });
-            monitor.bleRequested = true;
-            renderConnection();
-            await connectBle();
-        } catch (error) {
-            monitorStatus(error.message);
-            toast(error.message);
-        }
     }
 
     function monitorCancelConnection() {
-        monitor.closingBleForLive = false;
+        monitor.switchingTransport = false;
         track('tool_connection', {
             tool_name: 'monitor',
             entry_point: monitor.entryPoint,
@@ -3539,7 +3784,7 @@
         });
         monitorStopAll('cancelled');
         monitorStatus('Connection cancelled.');
-        if (conn.mode === 'ble') setDeviceView('connectivity');
+        if (conn.mode === 'ws') setDeviceView('connectivity');
         else {
             setStatus('disconnected');
             renderConnection();
@@ -3551,7 +3796,7 @@
             monitorCancelConnection();
             return;
         }
-        monitorStartBle();
+        monitorOpenConnectivity();
     }
 
     async function beginCalibration() {
@@ -3590,8 +3835,26 @@
     }
 
     function monitorInit() {
+        const transportRadios = $$('input[name="monitor-transport"]');
+        const selectTransport = (mode) => {
+            $$('[data-monitor-transport-panel]').forEach((panel) => {
+                panel.hidden = panel.dataset.monitorTransportPanel !== mode;
+            });
+        };
+        transportRadios.forEach((radio) => {
+            radio.addEventListener('change', () => {
+                if (radio.checked) selectTransport(radio.value);
+            });
+        });
+        $('.js-monitor-use-mqtt')?.addEventListener('click', () => {
+            const radio = document.getElementById('monitor-transport-mqtt');
+            if (!radio) return;
+            radio.checked = true;
+            radio.dispatchEvent(new Event('change'));
+        });
+        selectTransport(transportRadios.find((radio) => radio.checked)?.value || 'ws');
         const presetName = document.getElementById('mon-mqtt-preset').value;
-        updateMqttPresetNote('monitor', presetName);
+        updateMonitorMqttPresetNote(presetName);
         applyMqttPresetFieldLocks('monitor', MQTT_PRESETS[presetName].monitor);
         $('.js-mon-connect').addEventListener('click', () => {
             if (monitorConnectionPending()) {
@@ -3757,13 +4020,24 @@
         return document.getElementById(id).value;
     }
 
-    /**
-     * Builds and writes a control command, reporting the outcome as
-     * configure_change. `buildCommand` runs even in demo mode so the
-     * library's validation gives the same feedback with or without a
-     * device; nothing is written and nothing is tracked in demo, because
-     * no device is involved.
-     */
+    const utf8Length = (value) => new TextEncoder().encode(String(value)).byteLength;
+
+    function directConfigSnapshot(config) {
+        const wifi = config.wifi || {};
+        const mqtt = config.mqtt || {};
+        return {
+            device_label: config.device_label || '',
+            wifi_ssid: wifi.ssid || '',
+            wifi_bssid: wifi.bssid || '',
+            wifi_channel: wifi.channel || 0,
+            wifi_band_policy: wifi.band_policy || '',
+            wifi_apply_state: wifi.apply_state || '',
+            mqtt_host: mqtt.host || '',
+            mqtt_port: mqtt.port || 0,
+            topic_prefix: mqtt.topic_prefix || ''
+        };
+    }
+
     function finishConfigVerification(result, errorType) {
         if (!pendingConfigVerification) return;
         clearTimeout(pendingConfigVerification.timer);
@@ -3778,14 +4052,20 @@
 
     function requestConfigVerification() {
         const pending = pendingConfigVerification;
-        if (!pending || !bleClient) {
+        if (!pending) return;
+        if (directClient && conn.mode === 'ws' && conn.status === 'connecting') {
+            pending.timer = setTimeout(requestConfigVerification, CONFIG_VERIFICATION_RETRY_MS);
+            return;
+        }
+        if (!directClient?.connected) {
             finishConfigVerification('unconfirmed', 'VerificationUnavailable');
             return;
         }
         pending.attempts += 1;
-        bleClient.requestSysinfo().catch(() => {
-            finishConfigVerification('unconfirmed', 'VerificationRequestFailed');
-        });
+        directClient.request('config').then((config) => {
+            applyDirectConfig(config);
+            evaluateConfigVerification(directConfigSnapshot(config));
+        }).catch(() => finishConfigVerification('unconfirmed', 'VerificationRequestFailed'));
         pending.timer = setTimeout(() => {
             if (pendingConfigVerification !== pending) return;
             if (pending.attempts >= CONFIG_VERIFICATION_MAX_ATTEMPTS) {
@@ -3818,34 +4098,24 @@
         }
     }
 
-    async function cfgApply(action, successMessage, buildCommand, verify) {
-        let command;
-        try {
-            command = buildCommand();
-        } catch (error) {
-            if (error && error.name === 'ESPectreValidationError') {
-                cfgValidationFailed(action, error.message);
-                return false;
-            }
-            throw error;
-        }
+    async function cfgApply(action, successMessage, method, params = {}, verify) {
         if (conn.mode === 'demo') {
             toast(successMessage + ' (demo — nothing written)');
             return true;
         }
-        if (!bleClient) {
+        if (!directClient?.connected) {
             toast('ESPectre is not connected.');
             track('configure_change', { action, result: 'failure', error_type: 'NotConnected' });
             return false;
         }
         try {
-            await bleClient.writeControl(command);
+            await directClient.request(method, params);
             toast(successMessage);
             track('configure_change', { action, result: 'accepted' });
             if (verify) beginConfigVerification(action, verify);
             return true;
         } catch (error) {
-            toast('Write failed: ' + (error.message || error));
+            toast('Update failed: ' + (error.message || error));
             track('configure_change', { action, result: 'failure', error_type: errorType(error) });
             return false;
         }
@@ -3856,12 +4126,12 @@
         track('configure_change', { action, result: 'validation_failure' });
     }
 
-    async function cfgRefreshSysinfo() {
-        if (conn.mode === 'ble' && bleClient) {
+    async function cfgRefreshDevice() {
+        if (conn.mode === 'ws' && directClient?.connected) {
             try {
-                await bleClient.requestSysinfo();
+                await refreshDirectDevice();
             } catch (error) {
-                console.warn('Sysinfo request failed:', error);
+                console.warn('Direct device refresh failed:', error);
             }
         }
     }
@@ -3875,17 +4145,32 @@
         }
         const bandPolicy = cfgValue('cfg-wifi-band');
         const bandChanged = wifiBandPolicyAvailable && bandPolicy !== currentWifiBandPolicy;
+        const bssid = cfgValue('cfg-bssid').trim();
+        const channel = Number(cfgValue('cfg-channel') || 0);
+        if (utf8Length(ssid) > 32 || utf8Length(password) > 63) {
+            cfgValidationFailed('set_wifi', 'SSID must be at most 32 bytes, and the password at most 63 bytes.');
+            return;
+        }
+        if (bssid && !/^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$/i.test(bssid)) {
+            cfgValidationFailed('set_wifi', 'BSSID must match aa:bb:cc:dd:ee:ff.');
+            return;
+        }
+        if (!Number.isInteger(channel) || channel < 0 || channel > 177) {
+            cfgValidationFailed('set_wifi', 'Channel must be an integer from 0 to 177.');
+            return;
+        }
         const ok = await cfgApply(
             'set_wifi',
             bandChanged ? 'Wi-Fi saved; restart required to apply the band.' : 'Wi-Fi saved; station reconnecting.',
-            () => window.ESPectreBleClient.buildWifiConfigCommand({
+            'set_wifi_config', {
                 ssid,
                 password,
-                bssid: cfgValue('cfg-bssid').trim(),
-                channel: Number(cfgValue('cfg-channel') || 0),
-                ...(wifiBandPolicyAvailable ? { bandPolicy } : {})
-            }),
+                bssid,
+                channel,
+                ...(wifiBandPolicyAvailable ? { band_policy: bandPolicy } : {})
+            },
             (snapshot) => snapshot.wifi_ssid === ssid
+                && snapshot.wifi_bssid.toLowerCase() === bssid.toLowerCase()
                 && (!wifiBandPolicyAvailable || snapshot.wifi_band_policy === bandPolicy));
         if (ok) {
             document.getElementById('cfg-wifi-pass').value = '';
@@ -3897,14 +4182,38 @@
     }
 
     async function cfgClearWifi() {
-        const ok = await cfgApply(
-            'clear_wifi', 'Wi-Fi credentials cleared.', () => 'CLEAR_WIFI',
-            (snapshot) => !snapshot.wifi_ssid);
-        if (ok) {
-            ['cfg-ssid', 'cfg-wifi-pass', 'cfg-bssid', 'cfg-channel'].forEach((id) => {
-                document.getElementById(id).value = '';
-            });
+        if (conn.mode === 'demo') {
+            toast('Wi-Fi credentials cleared. (demo — nothing written)');
+            return;
         }
+        if (!directClient?.connected) {
+            toast('ESPectre is not connected.');
+            track('configure_change', {
+                action: 'clear_wifi', result: 'failure', error_type: 'NotConnected'
+            });
+            return;
+        }
+        let result = 'accepted';
+        let message = 'Wi-Fi credentials cleared. Provision the device again via Improv Serial.';
+        try {
+            await directClient.request('clear_wifi_config', {}, { timeoutMs: 3000 });
+        } catch (error) {
+            if (error?.code !== 'timeout' && error?.code !== 'closed') {
+                toast('Update failed: ' + (error.message || error));
+                track('configure_change', {
+                    action: 'clear_wifi', result: 'failure', error_type: errorType(error)
+                });
+                return;
+            }
+            result = 'unconfirmed';
+            message = 'Wi-Fi clear sent. The device disconnected as expected; provision it again via Improv Serial.';
+        }
+        ['cfg-ssid', 'cfg-wifi-pass', 'cfg-bssid', 'cfg-channel'].forEach((id) => {
+            document.getElementById(id).value = '';
+        });
+        track('configure_change', { action: 'clear_wifi', result });
+        toast(message);
+        teardownConnection('wifi_cleared');
     }
 
     async function cfgSaveMqtt() {
@@ -3925,14 +4234,19 @@
             return;
         }
         const port = Number(cfgValue('cfg-mqtt-port'));
+        const topicPrefix = cfgValue('cfg-topic-prefix').trim().replace(/\/+$/, '');
+        if (!Number.isInteger(port) || port < 1 || port > 65535 || !topicPrefix || /[+#\0]/.test(topicPrefix)) {
+            cfgValidationFailed('set_mqtt', 'Use a port from 1 to 65535 and a topic prefix without MQTT wildcards.');
+            return;
+        }
         const ok = await cfgApply('set_mqtt', 'MQTT settings saved.',
-            () => window.ESPectreBleClient.buildMqttConfigCommand({
+            'set_mqtt_config', {
                 host,
                 port,
                 username,
                 password,
-                topicPrefix: cfgValue('cfg-topic-prefix').trim().replace(/\/+$/, '') || undefined
-            }),
+                topic_prefix: topicPrefix
+            },
             (snapshot) => snapshot.mqtt_host === host && Number(snapshot.mqtt_port) === port);
         if (ok) document.getElementById('cfg-mqtt-pass').value = '';
     }
@@ -3943,22 +4257,17 @@
 
     async function cfgClearMqtt() {
         const ok = await cfgApply(
-            'clear_mqtt', 'MQTT settings cleared.', () => 'CLEAR_MQTT_CONFIG',
+            'clear_mqtt', 'MQTT settings cleared.', 'clear_mqtt_config', {},
             (snapshot) => !snapshot.mqtt_host);
         if (ok) applyConfigureMqttDefaults();
     }
 
     async function cfgSaveDeviceLabel(label) {
+        if (typeof label !== 'string' || /[\r\n\0]/.test(label) || utf8Length(label) > 64) {
+            cfgValidationFailed('set_device', 'Device name must be one line and at most 64 UTF-8 bytes.');
+            return false;
+        }
         if (conn.mode === 'mqtt') {
-            try {
-                window.ESPectreBleClient.buildDeviceLabelCommand(label);
-            } catch (error) {
-                if (error && error.name === 'ESPectreValidationError') {
-                    cfgValidationFailed('set_device', error.message);
-                    return false;
-                }
-                throw error;
-            }
             try {
                 await monitorPublishCommand(
                     { command: 'set_device_label', device_label: label },
@@ -3968,15 +4277,15 @@
                 track('configure_change', { action: 'set_device', result: 'accepted' });
                 return true;
             } catch (error) {
-                toast('Write failed: ' + (error.message || error));
+                toast('Update failed: ' + (error.message || error));
                 track('configure_change', {
                     action: 'set_device', result: 'failure', error_type: errorType(error)
                 });
                 return false;
             }
         }
-        return cfgApply('set_device', 'Device name saved.',
-            () => window.ESPectreBleClient.buildDeviceLabelCommand(label),
+        return cfgApply('set_device', 'Device name saved.', 'set_device_label',
+            { device_label: label },
             (snapshot) => (snapshot.device_label || '') === label);
     }
 
@@ -4115,7 +4424,9 @@
     function syncOtaUpdateButton() {
         const button = $('.js-ota-start');
         if (!button) return;
-        button.disabled = conn.mode !== 'mqtt' || !monitorIsMqttLive()
+        const otaTransportReady = conn.mode === 'ws' && directClient?.connected
+            || conn.mode === 'mqtt' && monitorIsMqttLive();
+        button.disabled = !otaTransportReady
             || otaActionPending || otaBusy || !otaUpdateAvailable;
         button.textContent = otaBusy ? 'Update in progress…' : 'Update device';
     }
@@ -4149,8 +4460,7 @@
         $$('.js-firmware-update-copy').forEach((el) => { el.textContent = copy; });
         $$('.js-firmware-update-notice').forEach((el) => {
             el.dataset.otaStatus = status;
-            el.hidden = Boolean(flash.usbDialog) || Boolean(bleClient)
-                || conn.mode === 'ble' || otaSupported === false;
+            el.hidden = Boolean(flash.usbDialog) || otaSupported === false;
         });
     }
 
@@ -4213,6 +4523,7 @@
     }
 
     function currentOtaCheckTransport() {
+        if (conn.mode === 'ws' && directClient?.connected) return 'ws';
         return conn.mode === 'mqtt' && monitorIsMqttLive() ? 'mqtt' : '';
     }
 
@@ -4225,7 +4536,7 @@
         otaState = 'checking';
         otaMessage = '';
         syncFirmwareUpdateNotice();
-        if (!manual) otaCheckTransport = 'mqtt';
+        if (!manual) otaCheckTransport = transport;
         monitorPublishCommand(otaCommandFields('ota_check'), {
             pendingMessage: '',
             statusFn: () => {}
@@ -4269,7 +4580,7 @@
     }
 
     async function cfgOtaStart() {
-        if (conn.mode !== 'mqtt' || !monitorIsMqttLive()) return;
+        if (!currentOtaCheckTransport()) return;
         otaActionPending = true;
         syncOtaUpdateButton();
         const description = $('.js-ota-modal') && $('.js-ota-modal').querySelector('.modal-description');
@@ -4291,12 +4602,10 @@
 
     function configureInit() {
         const presetName = document.getElementById('cfg-mqtt-preset').value;
-        updateMqttPresetNote('configure', presetName);
         applyMqttPresetFieldLocks('configure', MQTT_PRESETS[presetName].configure);
+        applyConfigureMqttCredentialPolicy(presetName);
         $('.js-wifi-save').addEventListener('click', cfgSaveWifi);
         $('.js-wifi-clear').addEventListener('click', cfgClearWifi);
-        const startBle = $('.js-cfg-start-ble');
-        if (startBle) startBle.addEventListener('click', monitorStartBle);
         $('.js-mqtt-save').addEventListener('click', cfgSaveMqtt);
         $('.js-mqtt-clear').addEventListener('click', cfgClearMqtt);
         document.getElementById('cfg-mqtt-preset').addEventListener('change', (event) => {
@@ -4332,6 +4641,7 @@
         document.addEventListener('keydown', (event) => {
             if (event.key !== 'Escape') return;
             if (!$('.js-matter-modal').hidden) matterClose();
+            else if (!$('.js-direct-share-modal').hidden) closeDirectShare();
             else if (!$('.js-ota-modal').hidden) otaClose();
         });
     }
@@ -5416,12 +5726,22 @@
         scrollyInit();
 
         renderBrowserSupport();
+        renderDirectBrowserGuidance();
+        renderStoredDirectEndpoints();
+        consumeDirectHandoff();
 
-        $$('.js-connect-ble').forEach((btn) => btn.addEventListener('click', connectBle));
+        $$('.js-connect-direct').forEach((btn) => btn.addEventListener('click', () => connectDirect()));
+        $$('.js-direct-share').forEach((btn) => btn.addEventListener('click', shareDirectEndpoint));
+        $$('.js-direct-forget').forEach((btn) => btn.addEventListener('click', forgetDirectEndpoint));
+        $$('.js-direct-share-close').forEach((btn) => btn.addEventListener('click', () => closeDirectShare()));
+        $('.js-direct-share-copy').addEventListener('click', copyDirectShareLink);
+        $('.js-direct-share-modal').addEventListener('click', (event) => {
+            if (event.target === event.currentTarget) closeDirectShare();
+        });
         $$('.js-start-detection').forEach((btn) => btn.addEventListener('click', () => startDetection()));
         $('.js-header-connect').addEventListener('click', () => {
             if (route === 'configure') {
-                connectBle();
+                connectDirect();
                 return;
             }
             rememberLiveDestination();
@@ -5460,7 +5780,7 @@
         if (window.trackRouteView) window.trackRouteView(route, { sendPageView: false });
         if (conn.readyState) markToolReady(conn.readyState);
         if (monitor.readyState) markMonitorReady(monitor.readyState);
-        if (conn.mode === 'ble' && bleClient) cfgRefreshSysinfo();
+        if (conn.mode === 'ws' && directClient) cfgRefreshDevice();
         if (route === 'flash') flashRefresh();
     });
     window.addEventListener('pagehide', (event) => {

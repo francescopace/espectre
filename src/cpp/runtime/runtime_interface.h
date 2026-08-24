@@ -187,7 +187,7 @@ class IEspectreRuntime {
    * traffic. The current Wi-Fi association is preserved so arming again can
    * restart capture without waiting for another IP event. Matter uses this to
    * stay quiet until commissioning completes; Native uses it to pause sensing
-   * while BLE setup owns the radio.
+   * while a frontend intentionally suspends sensing.
    */
   virtual void set_services_armed(bool armed) = 0;
   /** Enable or suppress the high-rate `on_live_telemetry()` stream. */

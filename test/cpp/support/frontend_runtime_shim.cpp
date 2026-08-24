@@ -10,9 +10,17 @@
 #include "frontend_runtime_shim.h"
 
 #include "esp_idf_runtime.h"
+#include "espectre_protocol.h"
 #include "runtime_config_utils.h"
 
 namespace espectre {
+
+uint64_t derive_runtime_device_id() { return 0x0123456789ABCDEFULL; }
+
+std::string derive_runtime_device_id_string() {
+  return format_espectre_device_id(derive_runtime_device_id());
+}
+
 namespace frontend_runtime_shim {
 
 State state{};

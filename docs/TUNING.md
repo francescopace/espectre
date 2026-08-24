@@ -52,7 +52,7 @@ Start with threshold. If needed, then adjust window size or filters.
 
 ### Threshold
 
-The threshold is selected automatically at startup. Lightweight adapts it from the observed quiet room, and may still lower it after a long quiet stretch if that opening was noisier than the rest of the session. High Accuracy uses the value validated with the exported model. Where a frontend exposes writable threshold control, both remain adjustable for the current session, and those surfaces follow detector-driven drops as well as operator writes. Recalibration recomputes the quiet-room threshold for Lightweight; for High Accuracy, it immediately restores the trained default without collecting a quiet-room window. Matter currently exposes no writable sensing controls. Native MQTT, Micro MQTT, and ESPHome now expose the same threshold, motion-hit debounce, and recalibration control family; Micro keeps every runtime write session-only. Native BLE is setup and recovery only and does not accept those writes.
+The threshold is selected automatically at startup. Lightweight adapts it from the observed quiet room, and may still lower it after a long quiet stretch if that opening was noisier than the rest of the session. High Accuracy uses the value validated with the exported model. Where a frontend exposes writable threshold control, both remain adjustable for the current session, and those surfaces follow detector-driven drops as well as operator writes. Recalibration recomputes the quiet-room threshold for Lightweight; for High Accuracy, it immediately restores the trained default without collecting a quiet-room window. Matter currently exposes no writable sensing controls. Native Direct and MQTT, Micro MQTT, and ESPHome expose the same threshold, motion-hit debounce, and recalibration control family; Micro keeps every runtime write session-only.
 
 Both detectors expose a `0.0-1.0` probability threshold.
 
@@ -146,13 +146,13 @@ espectre:
 The detector processes every admitted CSI packet into its sliding window, but the published motion state updates only on a coarser cadence:
 
 1. every `evaluation_interval_ms` of packet arrival time, the runtime evaluates the detector and gets a raw `IDLE` or `MOTION` reading; there is no packet-count fallback, so live input and supported replay datasets must provide advancing timestamps
-2. Native MQTT, Micro MQTT, and ESPHome publish canonical telemetry and Movement Score from that evaluation once `ready_to_publish` is true
+2. Native Direct and MQTT, Micro MQTT, and ESPHome publish canonical telemetry and Movement Score from that evaluation once `ready_to_publish` is true
 3. that raw reading must repeat for `motion_on_hits` consecutive evaluations before the published state becomes `MOTION`
 4. leaving motion requires `motion_off_hits` consecutive `IDLE` evaluations
 
 These hits are consecutive evaluation ticks, not detector windows (`segmentation_window_size_ms`). One opposing reading resets the pending count.
 
-ESPHome, Native MQTT, and Micro MQTT all expose these runtime motion-hit settings. Native and ESPHome persist accepted updates; Micro applies them only for the current session. Native BLE does not accept motion-hit writes.
+ESPHome, Native Direct and MQTT, and Micro MQTT all expose these runtime motion-hit settings. Native and ESPHome persist accepted updates; Micro applies them only for the current session.
 
 With the default `evaluation_interval_ms = 250`:
 
@@ -295,7 +295,7 @@ If your AP changes channel often:
 
 `lightweight` can recompute its threshold without changing firmware. For `high_accuracy`, the same control restores the trained default immediately and does not start a quiet-room calibration window.
 
-Use the recalibration control when your frontend exposes one. ESPHome provides a calibration entity, Native exposes the shared control through MQTT and Home Assistant Discovery, and Micro MQTT exposes the same `recalibrate` action plus the Home Assistant switch. Matter currently exposes no writable sensing controls. Native BLE does not accept recalibration.
+Use the recalibration control when your frontend exposes one. ESPHome provides a calibration entity, Native exposes the shared control through Direct, MQTT, and Home Assistant Discovery, and Micro MQTT exposes the same `recalibrate` action plus the Home Assistant switch. Matter currently exposes no writable sensing controls.
 
 When recalibrating:
 

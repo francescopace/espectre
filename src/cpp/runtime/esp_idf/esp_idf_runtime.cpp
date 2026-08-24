@@ -65,7 +65,7 @@ EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
   snapshot_.threshold = config_.segmentation_threshold;
   snapshot_.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
   // The sensing runtime owns a detector, so it can retune and recalibrate it,
-  // and it drives the live-telemetry callback the BLE surface consumes.
+  // and it drives the live-telemetry callback used by transport adapters.
   capabilities_.supports_runtime_threshold_updates = true;
   capabilities_.supports_runtime_motion_hits_updates = true;
   capabilities_.supports_manual_recalibration = true;

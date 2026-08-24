@@ -36,7 +36,6 @@ def _protocol_mqtt_commands(
     supports_runtime_detector=False,
     supports_manual_recalibration=False,
     supports_traffic_control=False,
-    supports_ble=False,
     supports_ota=False,
 ):
     """Return the MQTT command names advertised by this frontend."""
@@ -58,8 +57,6 @@ def _protocol_mqtt_commands(
     if supports_traffic_control:
         commands.append("set_csi_traffic_mode")
         commands.append("set_traffic_generator_mode")
-    if supports_ble:
-        commands.append("set_ble")
     if supports_ota:
         commands.extend(["ota_status", "ota_check", "ota_start"])
     return commands
@@ -138,7 +135,6 @@ def build_info_payload(
         "supports_manual_recalibration": callable(recalibrate_callback),
         "supports_traffic_control": bool(traffic_control_supported),
         "supports_ota": False,
-        "supports_ble": False,
         "network": {
             "channel": {"primary": channel_primary},
         },

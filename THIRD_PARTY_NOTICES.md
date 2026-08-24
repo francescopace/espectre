@@ -8,7 +8,9 @@ ESPectre firmware can be built with the following frameworks and components. The
 
 | Component | Role | License used by ESPectre | Commercial firmware |
 | --- | --- | --- | --- |
-| ESP-IDF | ESP32 framework, Wi-Fi, BLE/NimBLE, networking, TLS, MQTT, OTA, and RTOS integration | Apache-2.0 with bundled permissive third-party components | Compatible; preserve the build-specific notices |
+| ESP-IDF | ESP32 framework, Wi-Fi, networking, TLS, MQTT, OTA, RTOS integration, and the BLE/NimBLE stack used by Matter | Apache-2.0 with bundled permissive third-party components | Compatible; preserve the build-specific notices |
+| ESP-IDF mDNS component | Native and Streamer DNS-SD advertisement | Apache-2.0 | Compatible; preserve the build-specific notices |
+| Improv Wi-Fi SDK for C++ | Native Improv Serial framing and parsing | Apache-2.0 | Compatible; the Native component manifest pins the exact source revision |
 | esp-matter and Matter SDK | Matter frontend | Apache-2.0 | Compatible; preserve `NOTICE`, and do not imply Matter certification or trademark rights |
 | ESPHome C++ runtime | ESPHome frontend | GPL-3.0-only | Not included in the commercial track; ESPHome firmware is GPLv3-only |
 | ESPHome Python tooling | ESPHome code generation and build tooling | MIT | Build-time only |

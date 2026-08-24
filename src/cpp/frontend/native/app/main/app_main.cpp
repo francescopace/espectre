@@ -12,22 +12,23 @@
 
 #include <esp_err.h>
 #include <esp_log.h>
+#include <esp_system.h>
 #include <esp_timer.h>
 #include <driver/gpio.h>
 
-#if CONFIG_BT_ENABLED
-#include "ble_bindings_nimble.h"
-#else
-#include "ble_bindings_noop.h"
-#endif
 #include "native_frontend.h"
-#include "ble_recovery_button_service.h"
+#include "recovery_button_service.h"
 #include "device_config_store.h"
+#include "direct_websocket_protocol.h"
+#include "direct_websocket_service_esp_idf.h"
 #include "nvs_helpers.h"
 #include "device_identity.h"
 #include "espectre_banner.h"
+#include "espectre_protocol.h"
 #include "firmware_version.h"
 #include "frontend_bootstrap_helpers.h"
+#include "improv_serial_service.h"
+#include "mdns_discovery_service.h"
 #include "ota_service_https.h"
 #include "mqtt_transport_esp_idf.h"
 #include "runtime_motion_hits_store.h"
@@ -51,9 +52,36 @@ constexpr espectre::OtaReleaseChannel kOtaReleaseChannel = espectre::OtaReleaseC
 constexpr int kWifiConnectMaxRetry = 8;
 
 espectre::NativeFrontend *g_frontend = nullptr;
-espectre::BleRecoveryButtonService *g_ble_recovery_button = nullptr;
+espectre::RecoveryButtonService *g_recovery_button = nullptr;
+espectre::ImprovSerialService *g_improv_serial = nullptr;
+espectre::MdnsDiscoveryService *g_mdns_discovery = nullptr;
+bool g_restart_after_wifi_apply = false;
 espectre::StandaloneWifiService g_wifi_manager;
 espectre::WifiProvisioningService g_wifi_provisioning(&g_wifi_manager);
+
+espectre::MdnsTxtRecords native_mdns_txt(const espectre::EspectreDeviceConfig &config) {
+  return {
+      {"device_id", espectre::format_espectre_device_id(config.device_id)},
+      {"name", config.device_label},
+      {"frontend", "native"},
+      {"txtvers", "1"},
+      {"protovers", "1"},
+      {"path", espectre::ESPECTRE_DIRECT_WEBSOCKET_ENDPOINT},
+      {"firmware", espectre::espectre_firmware_version()},
+      {"chip", CONFIG_IDF_TARGET},
+      {"tls", "0"},
+      {"capabilities", "config,monitor,ota"},
+  };
+}
+
+std::string improv_device_url() {
+  espectre::StandaloneWifiInfo wifi_info;
+  if (!g_wifi_manager.get_info(&wifi_info) || !wifi_info.connected || wifi_info.ip_address[0] == '\0') {
+    return {};
+  }
+  return std::string("https://espectre.dev/?transport=ws&endpoint=ws%3A%2F%2F") + wifi_info.ip_address +
+         "%3A80%2Fespectre%2Fv1%2Fws#configure";
+}
 
 void sync_frontend_wifi_info() {
   if (g_frontend == nullptr) {
@@ -66,6 +94,8 @@ void sync_frontend_wifi_info() {
   info.channel = wifi_config.channel;
   info.has_saved_config = wifi_config.has_saved_config;
   info.band_policy = wifi_config.band_policy;
+  info.apply_state = espectre::wifi_provisioning_apply_state_name(g_wifi_provisioning.apply_state());
+  info.apply_message = g_wifi_provisioning.apply_message();
   g_frontend->set_wifi_provisioning_info(info);
 
   espectre::EspectreDeviceInfo device_info;
@@ -80,6 +110,13 @@ void sync_frontend_wifi_info() {
     device_info.network.channel = wifi_info.channel;
   }
   g_frontend->set_device_info(device_info);
+  if (g_mdns_discovery != nullptr) {
+    if (wifi_info.connected) {
+      g_mdns_discovery->on_wifi_connected();
+    } else {
+      g_mdns_discovery->on_wifi_disconnected();
+    }
+  }
 }
 
 espectre::RuntimeConfig make_runtime_config() {
@@ -110,21 +147,29 @@ espectre::EspectreDeviceConfig make_device_config() {
                                                             espectre::derive_runtime_device_id(),
                                                         },
                                                         TAG,
-                                                        "Using ESPectre Protocol config provisioned over BLE",
-                                                        "Failed to load BLE-provisioned device config");
+                                                        "Using stored ESPectre Protocol device config",
+                                                        "Failed to load stored device config");
 }
 
 void espectre_loop_task(void *arg) {
   (void) arg;
   while (true) {
     g_wifi_manager.loop();
+    g_wifi_provisioning.loop();
+    if (g_restart_after_wifi_apply) {
+      ESP_LOGI(TAG, "Restarting after verified Wi-Fi configuration change");
+      esp_restart();
+    }
+    if (g_improv_serial != nullptr) {
+      g_improv_serial->loop();
+    }
     if (g_frontend != nullptr) {
       g_frontend->loop();
     }
-#if CONFIG_ESPECTRE_BLE_RECOVERY_BUTTON_ENABLED
-    if (g_ble_recovery_button != nullptr) {
-      const bool pressed = gpio_get_level(static_cast<gpio_num_t>(CONFIG_ESPECTRE_BLE_RECOVERY_BUTTON_GPIO)) == 0;
-      g_ble_recovery_button->update(pressed, static_cast<uint32_t>(esp_timer_get_time() / 1000));
+#if CONFIG_ESPECTRE_RECOVERY_BUTTON_ENABLED
+    if (g_recovery_button != nullptr) {
+      const bool pressed = gpio_get_level(static_cast<gpio_num_t>(CONFIG_ESPECTRE_RECOVERY_BUTTON_GPIO)) == 0;
+      g_recovery_button->update(pressed, static_cast<uint32_t>(esp_timer_get_time() / 1000));
     }
 #endif
     vTaskDelay(pdMS_TO_TICKS(10));
@@ -147,7 +192,7 @@ bool init_wifi_station() {
                                                     sync_frontend_wifi_info,
                                                     espectre::make_runtime_sensing_config_from_kconfig().wifi_band_policy},
       TAG,
-      "Using Wi-Fi credentials provisioned over BLE");
+      "Using stored Wi-Fi credentials");
   if (setup_err != ESP_OK) {
     ESP_LOGW(TAG, "Failed to initialize Wi-Fi provisioning service: %s", esp_err_to_name(setup_err));
     return false;
@@ -170,15 +215,21 @@ bool handle_device_config_change(const espectre::EspectreDeviceConfig &config, b
   }
 
   const esp_err_t err = espectre::save_stored_device_config(config);
+  if (err == ESP_OK && g_mdns_discovery != nullptr) {
+    (void) g_mdns_discovery->update_txt(native_mdns_txt(config));
+  }
   if (message != nullptr) {
     *message = err == ESP_OK ? "device config saved" : esp_err_to_name(err);
   }
   return err == ESP_OK;
 }
 
-void request_ble_recovery() {
-  if (g_frontend != nullptr) {
-    g_frontend->request_ble_recovery();
+void request_wifi_recovery() {
+  std::string message;
+  if (g_wifi_provisioning.handle_command("CLEAR_WIFI", &message)) {
+    ESP_LOGW(TAG, "Physical recovery cleared saved Wi-Fi configuration; use Improv Serial to provision again");
+  } else {
+    ESP_LOGE(TAG, "Physical Wi-Fi recovery failed: %s", message.c_str());
   }
 }
 
@@ -194,16 +245,28 @@ extern "C" void app_main() {
     return;
   }
 
-#if CONFIG_BT_ENABLED
-  static espectre::NimbleBleBindings bindings;
-#else
-  static espectre::NoopBleBindings bindings;
-#endif
   static espectre::EspIdfMqttTransport mqtt_transport;
+  static espectre::EspIdfDirectWebSocketService direct_service;
+  static espectre::MdnsDiscoveryService mdns_discovery;
   static espectre::HttpsOtaService ota_service("native", CONFIG_IDF_TARGET, kOtaReleaseChannel);
-  static espectre::NativeFrontend frontend(&bindings, &mqtt_transport, &ota_service);
+  static espectre::NativeFrontend frontend(&mqtt_transport, &ota_service, &direct_service);
+  const espectre::EspectreDeviceConfig device_config = make_device_config();
+  const std::string device_id = espectre::format_espectre_device_id(device_config.device_id);
+  const std::string mdns_name = device_config.device_label.empty() ? "ESPectre " + device_id : device_config.device_label;
+  if (!mdns_discovery.setup(espectre::MdnsDiscoveryServiceConfig{
+          "espectre-" + device_id,
+          mdns_name,
+          "_espectre",
+          "_tcp",
+          80U,
+          native_mdns_txt(device_config),
+      })) {
+    ESP_LOGE(TAG, "Failed to initialize Native mDNS discovery");
+    return;
+  }
+  g_mdns_discovery = &mdns_discovery;
   frontend.set_runtime_config(make_runtime_config());
-  frontend.set_device_config(make_device_config());
+  frontend.set_device_config(device_config);
   g_frontend = &frontend;
   sync_frontend_wifi_info();
   frontend.set_provisioning_command_callback(handle_wifi_provisioning_command);
@@ -212,22 +275,50 @@ extern "C" void app_main() {
     ESP_LOGE(TAG, "Failed to initialize ESPectre native frontend");
     return;
   }
+  g_wifi_provisioning.set_reconfigure_callbacks(
+      []() {
+        if (g_frontend != nullptr) {
+          g_frontend->prepare_for_wifi_reconfigure();
+        }
+      },
+      []() {
+        if (g_frontend != nullptr) {
+          g_frontend->resume_after_wifi_reconfigure();
+        }
+      });
+  g_wifi_provisioning.set_apply_completed_callback([]() { g_restart_after_wifi_apply = true; });
 
-#if CONFIG_ESPECTRE_BLE_RECOVERY_BUTTON_ENABLED
+  static espectre::ImprovSerialService improv_serial(&g_wifi_provisioning, &g_wifi_manager);
+  const std::string improv_device_name = device_config.device_label.empty()
+                                             ? espectre::espectre_device_name(device_config.device_id, CONFIG_IDF_TARGET)
+                                             : device_config.device_label;
+  if (!improv_serial.setup(espectre::ImprovSerialServiceConfig{
+          "ESPectre Native",
+          espectre::espectre_firmware_version(),
+          CONFIG_IDF_TARGET,
+          improv_device_name,
+          improv_device_url,
+      })) {
+    ESP_LOGE(TAG, "Failed to initialize Improv Serial");
+    return;
+  }
+  g_improv_serial = &improv_serial;
+
+#if CONFIG_ESPECTRE_RECOVERY_BUTTON_ENABLED
   gpio_config_t recovery_button_config{};
-  recovery_button_config.pin_bit_mask = 1ULL << CONFIG_ESPECTRE_BLE_RECOVERY_BUTTON_GPIO;
+  recovery_button_config.pin_bit_mask = 1ULL << CONFIG_ESPECTRE_RECOVERY_BUTTON_GPIO;
   recovery_button_config.mode = GPIO_MODE_INPUT;
   recovery_button_config.pull_up_en = GPIO_PULLUP_ENABLE;
   recovery_button_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
   recovery_button_config.intr_type = GPIO_INTR_DISABLE;
   ESP_ERROR_CHECK(gpio_config(&recovery_button_config));
-  static espectre::BleRecoveryButtonService recovery_button(
-      CONFIG_ESPECTRE_BLE_RECOVERY_BUTTON_HOLD_MS, request_ble_recovery);
-  g_ble_recovery_button = &recovery_button;
+  static espectre::RecoveryButtonService recovery_button(
+      CONFIG_ESPECTRE_RECOVERY_BUTTON_HOLD_MS, request_wifi_recovery);
+  g_recovery_button = &recovery_button;
   ESP_LOGI(TAG,
-           "Hold BOOT on GPIO%d for %d ms to start BLE recovery",
-           CONFIG_ESPECTRE_BLE_RECOVERY_BUTTON_GPIO,
-           CONFIG_ESPECTRE_BLE_RECOVERY_BUTTON_HOLD_MS);
+           "Hold BOOT on GPIO%d for %d ms to clear Wi-Fi and return to Improv Serial setup",
+           CONFIG_ESPECTRE_RECOVERY_BUTTON_GPIO,
+           CONFIG_ESPECTRE_RECOVERY_BUTTON_HOLD_MS);
 #endif
 
   ESP_ERROR_CHECK(g_wifi_manager.start());

@@ -245,8 +245,8 @@ bool StreamEspIdfRuntime::init_wifi_station_() {
   if (!discovery_service_.setup(StreamerDiscoveryServiceConfig{
           config_.device_id,
           CONFIG_IDF_TARGET,
+          80U,
           config_.csi_traffic_udp_port,
-          config_.collector_port,
       })) {
     notify_fault_("Failed to configure streamer discovery service");
     wifi_manager_.shutdown();

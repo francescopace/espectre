@@ -21,12 +21,12 @@
  * @brief Wire types and payload builders for the ESPectre Protocol.
  *
  * The protocol is the contract between a device and whatever consumes it:
- * MQTT topics, JSON payloads, BLE control commands, and the OTA status model.
+ * MQTT topics, Direct WebSocket messages, JSON payloads, and the OTA status model.
  * It is specified in `docs/ESPECTRE_PROTOCOL.md`; this header is the C++ view
  * of that specification.
  *
  * Use it whenever your integration should stay interoperable with the shipped
- * clients — the CLI, Home Assistant discovery, and the web BLE client all
+ * clients — the CLI, Home Assistant discovery, and the web portal all
  * speak it. The builders take a `RuntimeSnapshot` and return a serialized
  * payload, so your transport only moves bytes and never formats them.
  *
@@ -63,7 +63,7 @@ inline constexpr const char *ESPECTRE_DEFAULT_DEVICE_LABEL = "";
  * Device identity and broker settings.
  *
  * Frontends persist this so a device keeps its identity and connection across
- * reboots and BLE reprovisioning.
+ * reboots and reprovisioning.
  */
 struct EspectreDeviceConfig {
   /** Stable device identity. Zero means use the runtime-generated value. */
@@ -99,7 +99,7 @@ struct EspectreNetworkInfo {
  */
 struct EspectreDeviceInfo {
   /** Frontend name, for example `"native"`, `"matter"`, or your own. */
-  std::string frontend{"ble"};
+  std::string frontend{"unknown"};
   /** Application version, normally `espectre_firmware_version()`. */
   std::string firmware_version{"unknown"};
   /** Chip target, normally `CONFIG_IDF_TARGET`. */
@@ -116,8 +116,6 @@ struct EspectreDeviceInfo {
   bool supports_manual_recalibration{false};
   bool supports_traffic_control{false};
   bool supports_ota{false};
-  /** MQTT `set_ble` is honored. Native setup/recovery uses this; other frontends leave it false. */
-  bool supports_ble{false};
   /**
    * CSI traffic ownership mode: `"internal"`, `"external"`, or `"disabled"`.
    *
@@ -179,9 +177,26 @@ struct EspectreCommand {
   bool has_traffic_generator_mode{false};
   std::string detector;
   bool has_detector{false};
-  /** BLE radio request for Native `set_ble`: `"on"` or `"off"`. */
-  std::string ble;
-  bool has_ble{false};
+  std::string wifi_ssid;
+  std::string wifi_password;
+  std::string wifi_bssid;
+  std::string wifi_band_policy;
+  uint8_t wifi_channel{0U};
+  bool has_wifi_ssid{false};
+  bool has_wifi_password{false};
+  bool has_wifi_bssid{false};
+  bool has_wifi_band_policy{false};
+  bool has_wifi_channel{false};
+  std::string mqtt_host;
+  std::string mqtt_username;
+  std::string mqtt_password;
+  std::string mqtt_topic_prefix;
+  uint16_t mqtt_port{0U};
+  bool has_mqtt_host{false};
+  bool has_mqtt_username{false};
+  bool has_mqtt_password{false};
+  bool has_mqtt_topic_prefix{false};
+  bool has_mqtt_port{false};
   /**
    * OTA release channel for `ota_check` and `ota_start`: `"release"`, `"preview"`,
    * or `"develop"`. Empty with `has_ota_channel` false means the firmware default.
@@ -249,7 +264,7 @@ bool parse_espectre_device_id(const std::string &value, uint64_t *device_id);
  */
 [[deprecated("use the runtime-generated device identity")]] uint64_t espectre_device_id_from_mac(
     const uint8_t *mac, size_t mac_len);
-/** Conventional advertised name, so devices stay identifiable in a BLE scan. */
+/** Conventional device name derived from the immutable device identifier. */
 std::string espectre_device_name(uint64_t device_id, const char *chip = nullptr);
 /** The id actually in use. Frontend startup replaces the zero sentinel. */
 uint64_t espectre_effective_device_id_u64(const EspectreDeviceConfig &config);
@@ -355,6 +370,17 @@ std::string espectre_ota_status_payload(const EspectreDeviceConfig &config,
  */
 bool parse_espectre_command(const std::string &payload, EspectreCommand *command, std::string *error);
 /**
+ * Parse a transport-neutral command name plus a JSON parameter object.
+ *
+ * Direct WebSocket uses the request envelope id and method as the first two
+ * arguments. MQTT uses `parse_espectre_command()` for its flat payload.
+ */
+bool parse_espectre_command_request(const std::string &command_id,
+                                    const std::string &command_name,
+                                    const std::string &params_json,
+                                    EspectreCommand *command,
+                                    std::string *error);
+/**
  * Whether `channel` is a published OTA channel name.
  *
  * Accepted values are `release`, `preview`, and `develop`. Empty is not
@@ -372,7 +398,7 @@ bool espectre_ota_channel_accepted(const std::string &channel);
  */
 std::string espectre_ota_manifest_url(const char *frontend, const char *chip, const std::string &channel);
 /**
- * Parse a `SET_DEVICE_CONFIG:` command from the BLE control characteristic.
+ * Parse a legacy ASCII `SET_DEVICE_CONFIG:` command.
  *
  * Carries one `key=value` pair, applied in place. A rejected command writes
  * nothing.

@@ -51,7 +51,6 @@ _SHELL_ALIASES = {
     "os": "ota_status",
     "oc": "ota_check",
     "ou": "ota_start",
-    "ble": "set_ble",
 }
 
 _LOCAL_UTILITIES = {
@@ -114,7 +113,7 @@ def _mqtt_command_payload(command: str, args: list[str]) -> tuple[Dict[str, Any]
 
     Named ``field=value`` tokens after the command are copied through. A single
     positional after a ``set_*`` command is stored under the suffix
-    (``set_ble on`` -> ``ble=on``). A single positional after ``ota_check`` or
+    (``set_threshold 0.4`` -> ``threshold=0.4``). A single positional after ``ota_check`` or
     ``ota_start`` is stored as ``channel``. The command name itself is never a
     ``key=value`` token.
     """
@@ -903,7 +902,7 @@ class EspectreMQTTShell:
                 label = "|".join([name, *aliases])
                 lines.append(f"  <ansigreen>{label}</ansigreen>")
             lines.append("")
-            lines.append("Write values after the command name: <ansigreen>ble on</ansigreen>, <ansigreen>st 0.35</ansigreen>, <ansigreen>ota_check preview</ansigreen>, <ansigreen>set_motion_hits motion_on_hits=4 motion_off_hits=3</ansigreen>.")
+            lines.append("Write values after the command name: <ansigreen>st 0.35</ansigreen>, <ansigreen>ota_check preview</ansigreen>, <ansigreen>set_detector lightweight</ansigreen>, <ansigreen>set_motion_hits motion_on_hits=4 motion_off_hits=3</ansigreen>.")
         else:
             lines.append("")
             lines.append("Device command names appear after the device answers MQTT <ansigreen>commands</ansigreen>.")

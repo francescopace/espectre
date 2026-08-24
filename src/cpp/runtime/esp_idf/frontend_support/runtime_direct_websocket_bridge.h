@@ -1,0 +1,69 @@
+/*
+ * ESPectre - Runtime Direct WebSocket Bridge
+ *
+ * Shared Direct WebSocket control surface for firmware frontends.
+ *
+ * Author: Francesco Pace <francesco.pace@gmail.com>
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Commercial licensing available under separate agreement; see LICENSING.md.
+ */
+#pragma once
+
+#include <cstdint>
+#include <functional>
+#include <string>
+
+#include "direct_websocket_service.h"
+#include "runtime_frontend_controller.h"
+
+namespace espectre {
+
+struct RuntimeDirectWebSocketBridgeConfig {
+  std::string frontend;
+  std::string device_name;
+  std::string firmware_version;
+  std::string chip;
+  uint64_t device_id{0U};
+  uint16_t port{80U};
+  bool raw_csi{false};
+  bool allow_missing_origin{false};
+};
+
+/**
+ * Exposes the common runtime controls over the versioned Direct WebSocket.
+ *
+ * Frontends retain ownership of their runtime and transport. The optional
+ * callback lets an adapter republish frontend-native entities after a Direct
+ * mutation, for example ESPHome number and select entities.
+ */
+class RuntimeDirectWebSocketBridge {
+ public:
+  using ConfigChangedCallback = std::function<void()>;
+
+  bool setup(IDirectWebSocketService *service,
+             RuntimeFrontendController *runtime,
+             const RuntimeDirectWebSocketBridgeConfig &config,
+             ConfigChangedCallback config_changed = {});
+  void loop();
+  void shutdown();
+  bool running() const;
+  size_t client_count() const;
+  bool publish_event(const char *event_name, const std::string &data_json, bool replaceable_telemetry = false);
+
+ private:
+  std::string handle_request_(const DirectWebSocketRequest &request);
+  std::string capabilities_payload_() const;
+  std::string info_payload_() const;
+  std::string status_payload_() const;
+  std::string config_payload_() const;
+  std::string diagnostics_payload_() const;
+  std::string mutation_result_(const DirectWebSocketRequest &request, bool accepted, const char *message);
+  void notify_config_changed_();
+
+  IDirectWebSocketService *service_{nullptr};
+  RuntimeFrontendController *runtime_{nullptr};
+  RuntimeDirectWebSocketBridgeConfig config_{};
+  ConfigChangedCallback config_changed_{};
+};
+
+}  // namespace espectre

@@ -17,6 +17,7 @@
 #include "espectre_log.h"
 #include "protocol_json.h"
 #include "runtime_config_utils.h"
+#include "runtime_time.h"
 #include "wifi_band_helpers.h"
 
 namespace espectre {
@@ -107,9 +108,39 @@ bool assign_wifi_config_field(const std::string &field,
 
 }  // namespace
 
+const char *wifi_provisioning_apply_state_name(WifiProvisioningApplyState state) {
+  switch (state) {
+    case WifiProvisioningApplyState::VERIFYING:
+      return "verifying";
+    case WifiProvisioningApplyState::VERIFYING_WITHOUT_BSSID:
+      return "verifying_without_bssid";
+    case WifiProvisioningApplyState::ROLLING_BACK:
+      return "rolling_back";
+    case WifiProvisioningApplyState::APPLIED:
+      return "applied";
+    case WifiProvisioningApplyState::ROLLED_BACK:
+      return "rolled_back";
+    case WifiProvisioningApplyState::RECOVERY_REQUIRED:
+      return "recovery_required";
+    case WifiProvisioningApplyState::IDLE:
+    default:
+      return "idle";
+  }
+}
+
 WifiProvisioningService::WifiProvisioningService(StandaloneWifiService *wifi_manager) : wifi_manager_(wifi_manager) {}
 
 void WifiProvisioningService::set_change_callback(ChangeCallback callback) { change_callback_ = std::move(callback); }
+
+void WifiProvisioningService::set_reconfigure_callbacks(ChangeCallback prepare_callback,
+                                                        ChangeCallback resume_callback) {
+  prepare_reconfigure_callback_ = std::move(prepare_callback);
+  resume_reconfigure_callback_ = std::move(resume_callback);
+}
+
+void WifiProvisioningService::set_apply_completed_callback(ChangeCallback callback) {
+  apply_completed_callback_ = std::move(callback);
+}
 
 esp_err_t WifiProvisioningService::load_or_set_defaults(const WifiProvisioningDefaults &defaults) {
   defaults_ = defaults;
@@ -150,6 +181,12 @@ esp_err_t WifiProvisioningService::load_or_set_defaults(const WifiProvisioningDe
       }
     }
   }
+  last_good_config_ = wifi_config_;
+  candidate_config_ = StoredWifiConfig{};
+  apply_state_ = WifiProvisioningApplyState::IDLE;
+  apply_message_.clear();
+  candidate_apply_pending_ = false;
+  apply_started_ms_ = 0U;
   refresh_cached_strings_();
   notify_changed_();
   return ESP_OK;
@@ -175,10 +212,15 @@ esp_err_t WifiProvisioningService::setup_station(const WifiProvisioningDefaults 
   wifi_config.manage_csi_lifecycle = defaults_.manage_csi_lifecycle;
   wifi_config.band_policy = wifi_config_.band_policy;
   auto on_connected = [this, connected_cb]() {
+    const bool transaction_pending = this->apply_pending();
+    this->handle_connected_();
     if (connected_cb) {
       connected_cb();
     }
-    this->notify_changed_();
+    this->resume_reconfigure_();
+    if (!transaction_pending) {
+      this->notify_changed_();
+    }
   };
   auto on_disconnected = [this, disconnected_cb]() {
     if (disconnected_cb) {
@@ -199,6 +241,10 @@ bool WifiProvisioningService::handle_command(const std::string &command, std::st
   constexpr const char *kBatchPrefix = "SET_WIFI_CONFIG:";
 
   if (command.rfind(kBatchPrefix, 0) == 0) {
+    if (apply_pending()) {
+      set_message("Wi-Fi configuration change already in progress");
+      return false;
+    }
     std::vector<std::pair<std::string, std::string>> pairs;
     std::string error;
     if (!parse_urlencoded_key_value_pairs(command.substr(std::strlen(kBatchPrefix)), &pairs, &error)) {
@@ -206,7 +252,6 @@ bool WifiProvisioningService::handle_command(const std::string &command, std::st
       return false;
     }
     StoredWifiConfig updated = wifi_config_;
-    const WifiBandPolicy previous_band_policy = wifi_config_.band_policy;
     bool has_ssid = false;
     for (const auto &pair : pairs) {
       if (!assign_wifi_config_field(pair.first, pair.second, &updated, &error)) {
@@ -226,23 +271,19 @@ bool WifiProvisioningService::handle_command(const std::string &command, std::st
                    wifi_channel_supported_description(updated.band_policy)).c_str());
       return false;
     }
-    updated.has_saved_config = true;
-    const esp_err_t err = save_stored_wifi_config(updated);
-    if (err != ESP_OK) {
-      set_message(esp_err_to_name(err));
+    if (updated.band_policy != wifi_config_.band_policy) {
+      set_message("live Wi-Fi band changes require local reprovisioning");
       return false;
     }
-    wifi_config_ = std::move(updated);
-    refresh_cached_strings_();
-    notify_changed_();
-    if (wifi_config_.band_policy != previous_band_policy) {
-      set_message("Wi-Fi config saved; restart required to apply the band policy");
-      return true;
-    }
-    return apply_live(message);
+    updated.has_saved_config = true;
+    return begin_candidate_apply_(std::move(updated), message);
   }
 
   if (command == "CLEAR_WIFI") {
+    if (apply_pending()) {
+      set_message("Wi-Fi configuration change already in progress");
+      return false;
+    }
     const esp_err_t err = clear_stored_wifi_config();
     if (err != ESP_OK) {
       set_message(esp_err_to_name(err));
@@ -251,6 +292,9 @@ bool WifiProvisioningService::handle_command(const std::string &command, std::st
     const WifiBandPolicy previous_band_policy = wifi_config_.band_policy;
     wifi_config_ = StoredWifiConfig{};
     wifi_config_.band_policy = defaults_.band_policy;
+    candidate_config_ = StoredWifiConfig{};
+    last_good_config_ = wifi_config_;
+    set_apply_state_(WifiProvisioningApplyState::IDLE, "Wi-Fi configuration cleared");
     refresh_cached_strings_();
     notify_changed_();
     if (wifi_config_.band_policy != previous_band_policy) {
@@ -273,6 +317,10 @@ bool WifiProvisioningService::handle_command(const std::string &command, std::st
 }
 
 bool WifiProvisioningService::apply_live(std::string *message) {
+  return apply_config_live_(wifi_config_, message);
+}
+
+bool WifiProvisioningService::apply_config_live_(const StoredWifiConfig &config, std::string *message) {
   if (wifi_manager_ == nullptr) {
     if (message != nullptr) {
       *message = "Wi-Fi manager is not configured";
@@ -280,22 +328,181 @@ bool WifiProvisioningService::apply_live(std::string *message) {
     return false;
   }
 
-  refresh_cached_strings_();
+  wifi_ssid_ = config.ssid;
+  wifi_password_ = config.password;
+  wifi_bssid_ = config.bssid;
   StandaloneWifiConfig wifi_config;
   wifi_config.ssid = wifi_ssid_.c_str();
   wifi_config.password = wifi_password_.c_str();
   wifi_config.bssid = wifi_bssid_.c_str();
-  wifi_config.channel = wifi_config_.channel;
+  wifi_config.channel = config.channel;
   wifi_config.max_retry = defaults_.max_retry;
   wifi_config.manage_csi_lifecycle = defaults_.manage_csi_lifecycle;
-  wifi_config.band_policy = wifi_config_.band_policy;
+  wifi_config.band_policy = config.band_policy;
 
+  if (!reconfigure_active_) {
+    reconfigure_active_ = true;
+    if (prepare_reconfigure_callback_) {
+      prepare_reconfigure_callback_();
+    }
+  }
   const esp_err_t err = wifi_manager_->update_station_config(wifi_config);
+  if (err != ESP_OK) {
+    resume_reconfigure_();
+  }
   notify_changed_();
   if (message != nullptr) {
     *message = err == ESP_OK ? "Wi-Fi config applied" : esp_err_to_name(err);
   }
   return err == ESP_OK;
+}
+
+bool WifiProvisioningService::begin_candidate_apply_(StoredWifiConfig candidate, std::string *message) {
+  if (apply_pending()) {
+    if (message != nullptr) {
+      *message = "Wi-Fi configuration change already in progress";
+    }
+    return false;
+  }
+  last_good_config_ = wifi_config_;
+  candidate_config_ = std::move(candidate);
+  candidate_apply_pending_ = true;
+  apply_started_ms_ = 0U;
+  set_apply_state_(WifiProvisioningApplyState::VERIFYING,
+                   "Wi-Fi candidate accepted; reconnect after address verification");
+  if (message != nullptr) {
+    *message = apply_message_;
+  }
+  return true;
+}
+
+bool WifiProvisioningService::begin_serial_provisioning(const std::string &ssid,
+                                                        const std::string &password,
+                                                        std::string *message) {
+  StoredWifiConfig candidate = wifi_config_;
+  std::string validation_error;
+  if (!assign_wifi_config_field("ssid", ssid, &candidate, &validation_error) ||
+      !assign_wifi_config_field("password", password, &candidate, &validation_error)) {
+    if (message != nullptr) {
+      *message = validation_error;
+    }
+    return false;
+  }
+  candidate.bssid.clear();
+  candidate.channel = WIFI_CHANNEL_AUTO;
+  candidate.has_saved_config = true;
+  return begin_candidate_apply_(std::move(candidate), message);
+}
+
+void WifiProvisioningService::handle_connected_() {
+  if (candidate_apply_pending_) {
+    return;
+  }
+  if (apply_state_ == WifiProvisioningApplyState::VERIFYING ||
+      apply_state_ == WifiProvisioningApplyState::VERIFYING_WITHOUT_BSSID) {
+    const esp_err_t save_err = save_stored_wifi_config(candidate_config_);
+    if (save_err != ESP_OK) {
+      begin_rollback_(esp_err_to_name(save_err));
+      return;
+    }
+    wifi_config_ = candidate_config_;
+    refresh_cached_strings_();
+    set_apply_state_(WifiProvisioningApplyState::APPLIED,
+                     "Wi-Fi candidate verified and saved");
+    if (apply_completed_callback_) {
+      apply_completed_callback_();
+    }
+    return;
+  }
+  if (apply_state_ == WifiProvisioningApplyState::ROLLING_BACK) {
+    wifi_config_ = last_good_config_;
+    refresh_cached_strings_();
+    set_apply_state_(WifiProvisioningApplyState::ROLLED_BACK,
+                     "Wi-Fi candidate failed; last-known-good configuration restored");
+    if (apply_completed_callback_) {
+      apply_completed_callback_();
+    }
+  }
+}
+
+void WifiProvisioningService::loop() {
+  if (!apply_pending()) {
+    return;
+  }
+  if (candidate_apply_pending_) {
+    candidate_apply_pending_ = false;
+    apply_started_ms_ = monotonic_now_ms();
+    std::string apply_error;
+    if (!apply_config_live_(candidate_config_, &apply_error)) {
+      begin_rollback_(apply_error.c_str());
+    }
+    return;
+  }
+  const uint32_t elapsed_ms = monotonic_now_ms() - apply_started_ms_;
+  if (elapsed_ms < defaults_.candidate_timeout_ms) {
+    return;
+  }
+
+  if (apply_state_ == WifiProvisioningApplyState::VERIFYING && !candidate_config_.bssid.empty()) {
+    candidate_config_.bssid.clear();
+    candidate_config_.channel = WIFI_CHANNEL_AUTO;
+    apply_started_ms_ = monotonic_now_ms();
+    set_apply_state_(WifiProvisioningApplyState::VERIFYING_WITHOUT_BSSID,
+                     "Pinned BSSID unavailable; verifying the same SSID without a radio lock");
+    std::string apply_error;
+    if (!apply_config_live_(candidate_config_, &apply_error)) {
+      begin_rollback_(apply_error.c_str());
+    }
+    return;
+  }
+
+  if (apply_state_ == WifiProvisioningApplyState::VERIFYING ||
+      apply_state_ == WifiProvisioningApplyState::VERIFYING_WITHOUT_BSSID) {
+    begin_rollback_("candidate association or address acquisition timed out");
+    return;
+  }
+
+  set_apply_state_(WifiProvisioningApplyState::RECOVERY_REQUIRED,
+                   "last-known-good Wi-Fi rollback timed out; use Improv Serial recovery");
+}
+
+void WifiProvisioningService::begin_rollback_(const char *reason) {
+  candidate_apply_pending_ = false;
+  apply_started_ms_ = monotonic_now_ms();
+  std::string rollback_message = "Wi-Fi candidate failed";
+  if (reason != nullptr && reason[0] != '\0') {
+    rollback_message += ": ";
+    rollback_message += reason;
+  }
+  rollback_message += "; restoring last-known-good configuration";
+  set_apply_state_(WifiProvisioningApplyState::ROLLING_BACK, rollback_message.c_str());
+  std::string apply_error;
+  if (!apply_config_live_(last_good_config_, &apply_error)) {
+    set_apply_state_(WifiProvisioningApplyState::RECOVERY_REQUIRED,
+                     "last-known-good Wi-Fi rollback could not be applied; use Improv Serial recovery");
+  }
+}
+
+void WifiProvisioningService::set_apply_state_(WifiProvisioningApplyState state, const char *message) {
+  apply_state_ = state;
+  apply_message_ = message != nullptr ? message : "";
+  notify_changed_();
+}
+
+bool WifiProvisioningService::apply_pending() const {
+  return apply_state_ == WifiProvisioningApplyState::VERIFYING ||
+         apply_state_ == WifiProvisioningApplyState::VERIFYING_WITHOUT_BSSID ||
+         apply_state_ == WifiProvisioningApplyState::ROLLING_BACK;
+}
+
+void WifiProvisioningService::resume_reconfigure_() {
+  if (!reconfigure_active_) {
+    return;
+  }
+  reconfigure_active_ = false;
+  if (resume_reconfigure_callback_) {
+    resume_reconfigure_callback_();
+  }
 }
 
 void WifiProvisioningService::refresh_cached_strings_() {

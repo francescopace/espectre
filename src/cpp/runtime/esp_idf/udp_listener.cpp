@@ -169,7 +169,7 @@ void UDPListener::loop() {
   
   // Drain a bounded burst of pending packets (non-blocking). A slightly larger
   // per-loop budget helps slower chips keep up with 100 pps collector
-  // traffic when the main loop is busy with Wi-Fi, BLE, or telemetry work.
+  // traffic when the main loop is busy with Wi-Fi or telemetry work.
   for (uint16_t drained = 0; drained < UDP_LISTENER_MAX_PACKETS_PER_LOOP; drained++) {
     socklen_t addr_len = sizeof(src_addr);
     ssize_t len = recvfrom(sock_, buf, sizeof(buf), 0, 

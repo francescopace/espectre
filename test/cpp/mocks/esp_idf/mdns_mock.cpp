@@ -9,6 +9,8 @@
  */
 #include "mdns.h"
 
+#include <string.h>
+
 mdns_mock_state_t g_mdns_mock{};
 
 void mdns_mock_reset(void) {
@@ -29,13 +31,17 @@ esp_err_t mdns_init(void) {
 }
 
 esp_err_t mdns_hostname_set(const char *hostname) {
-  (void)hostname;
+  if (hostname != nullptr) {
+    strncpy(g_mdns_mock.hostname, hostname, sizeof(g_mdns_mock.hostname) - 1U);
+  }
   g_mdns_mock.hostname_set_call_count++;
   return g_mdns_mock.hostname_set_result;
 }
 
 esp_err_t mdns_instance_name_set(const char *instance_name) {
-  (void)instance_name;
+  if (instance_name != nullptr) {
+    strncpy(g_mdns_mock.instance_name, instance_name, sizeof(g_mdns_mock.instance_name) - 1U);
+  }
   g_mdns_mock.instance_name_set_call_count++;
   return g_mdns_mock.instance_name_set_result;
 }
@@ -47,10 +53,16 @@ esp_err_t mdns_service_add(
     uint16_t port,
     const mdns_txt_item_t *txt,
     size_t num_items) {
-  (void)instance_name;
-  (void)service_type;
-  (void)proto;
-  (void)port;
+  if (instance_name != nullptr) {
+    strncpy(g_mdns_mock.instance_name, instance_name, sizeof(g_mdns_mock.instance_name) - 1U);
+  }
+  if (service_type != nullptr) {
+    strncpy(g_mdns_mock.service_type, service_type, sizeof(g_mdns_mock.service_type) - 1U);
+  }
+  if (proto != nullptr) {
+    strncpy(g_mdns_mock.service_proto, proto, sizeof(g_mdns_mock.service_proto) - 1U);
+  }
+  g_mdns_mock.service_port = port;
   (void)txt;
   (void)num_items;
   g_mdns_mock.service_add_call_count++;
@@ -59,10 +71,17 @@ esp_err_t mdns_service_add(
 
 esp_err_t mdns_service_txt_set(
     const char *service_type, const char *proto, const mdns_txt_item_t *txt, size_t num_items) {
-  (void)service_type;
-  (void)proto;
-  (void)txt;
-  (void)num_items;
+  if (service_type != nullptr) {
+    strncpy(g_mdns_mock.service_type, service_type, sizeof(g_mdns_mock.service_type) - 1U);
+  }
+  if (proto != nullptr) {
+    strncpy(g_mdns_mock.service_proto, proto, sizeof(g_mdns_mock.service_proto) - 1U);
+  }
+  g_mdns_mock.txt_count = num_items < 12U ? num_items : 12U;
+  for (size_t index = 0U; index < g_mdns_mock.txt_count; ++index) {
+    strncpy(g_mdns_mock.txt_keys[index], txt[index].key, sizeof(g_mdns_mock.txt_keys[index]) - 1U);
+    strncpy(g_mdns_mock.txt_values[index], txt[index].value, sizeof(g_mdns_mock.txt_values[index]) - 1U);
+  }
   g_mdns_mock.service_txt_set_call_count++;
   return g_mdns_mock.service_txt_set_result;
 }

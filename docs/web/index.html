@@ -23,14 +23,14 @@
 <meta name="twitter:image" content="https://espectre.dev/assets/images/brand/espectre-og.jpg">
 <link rel="icon" type="image/svg+xml" href="/assets/images/brand/espectre-logo.svg?v=5c234009f6c5">
 <link rel="alternate icon" type="image/png" href="/assets/images/brand/favicon.png">
-<link rel="stylesheet" href="/assets/css/styles.css?v=cf6241302dcb">
-<script src="/assets/js/espectre-ble.js?v=2938e094cf0e" defer></script>
+<link rel="stylesheet" href="/assets/css/styles.css?v=9e6a9be05287">
+<script src="/assets/js/espectre-direct.js?v=9ec909d2e97e" defer></script>
 <script src="/assets/js/espectre-mqtt.js?v=2cce16edbd1b" defer></script>
-<script src="/assets/js/browser-support.js?v=33452b392605" defer></script>
+<script src="/assets/js/browser-support.js?v=1203c01f338e" defer></script>
 <script src="/assets/js/route-registry.js?v=d387a8d54a1b" defer></script>
 <script src="/assets/js/navigation.js?v=88d37c28b5a6" defer></script>
-<script src="/assets/js/analytics.js?v=f864f32127a2" defer></script>
-<script src="/assets/js/app.js?v=bde58fcf386d" defer></script>
+<script src="/assets/js/analytics.js?v=07ab6b403403" defer></script>
+<script src="/assets/js/app.js?v=b3e4799ce272" defer></script>
 </head>
 <body>
 
@@ -69,7 +69,7 @@
         <span class="dot dot-ok pulse"></span>
         <span class="js-device-name js-connection-device-name">ESPectre</span>
         <span class="demo-tag js-demo-tag" hidden>DEMO</span>
-        <span class="demo-tag js-setup-tag js-transport-tag" hidden>BLE</span>
+        <span class="demo-tag js-setup-tag js-transport-tag" hidden>WS</span>
         <span class="mini-meter js-live-energy" hidden><span class="js-energy-fill"></span></span>
         <span class="caret">▾</span>
       </button>
@@ -153,9 +153,9 @@
             <span class="dot dot-ok"></span>
             <span class="js-release-text"></span>
           </a>
-          <div class="hero-eyebrow">On-device Wi-Fi sensing</div>
-          <h1>Sense motion with<br>the Wi-Fi already there.</h1>
-          <p class="hero-sub">ESPectre measures how the Wi-Fi channel changes as people move through a room. Processing runs locally on one supported ESP32. <br>No cameras, microphones, or cloud processing.</p>
+          <div class="hero-eyebrow">Wi-Fi motion sensing</div>
+          <h1>Sense motion with the Wi-Fi already there.</h1>
+          <p class="hero-sub">When people move, they change the Wi-Fi signal. ESPectre reads those changes and reports motion. You just need an ESP32 and the router you already own.</p>
           <div class="hero-actions">
             <a href="#flash" class="hero-cta hero-cta-primary">Flash from browser</a>
             <a href="/sdk/" class="hero-cta hero-cta-secondary">Explore the SDK</a>
@@ -168,7 +168,7 @@
         </div>
 
         <article class="scrolly-caption js-scrolly-caption" data-scene="1" aria-hidden="true" inert>
-          <div class="scrolly-kicker">Motion, not media</div>
+          <div class="scrolly-kicker">Privacy first</div>
           <h2>Motion without<br>images or audio.</h2>
           <p>ESPectre derives motion from changes in the Wi-Fi channel. It does not collect images or audio, which makes the sensing boundary easier to explain in shared spaces such as schools, gyms, offices, public venues, and places of worship. <a href="/guides/detection/" class="scene-roadmap-link">See how it works →</a></p>
           <div class="scene-ui scene-ui-school">
@@ -180,8 +180,8 @@
 
         <article class="scrolly-caption js-scrolly-caption" data-scene="2" aria-hidden="true" inert>
           <div class="scrolly-kicker">Everyday automation</div>
-          <h2>Turn motion into<br>everyday automation.</h2>
-          <p>Motion and quiet periods can drive lights, heating, and cooling through your existing automations.</p>
+          <h2>Turn motion into automation.</h2>
+          <p>Motion can turn lights, heating, and cooling on when a room is in use. <br>Quiet periods can turn them down so empty rooms stop spending energy.</p>
           <div class="scene-ui scene-ui-motion">
             <span class="scene-ui-dot"></span>
             <span><small>Living room</small><strong>Motion detected</strong></span>
@@ -191,8 +191,8 @@
 
         <article class="scrolly-caption js-scrolly-caption" data-scene="3" aria-hidden="true" inert>
           <div class="scrolly-kicker">Security automation</div>
-          <h2>Catch motion<br>where it shouldn’t be.</h2>
-          <p>ESPectre reports local motion. Combine that event with an armed or expected-empty state to sound an alarm, send an SMS, or notify whoever needs to respond.</p>
+          <h2>Alarm on unexpected motion.</h2>
+          <p>When the house is armed or should be empty, unexpected motion can sound an alarm or send a message through your existing automations.</p>
           <div class="scene-ui scene-ui-industrial">
             <span class="scene-ui-dot"></span>
             <span><small>Home · Armed</small><strong>Unexpected motion detected</strong></span>
@@ -203,11 +203,12 @@
         <article class="scrolly-caption js-scrolly-caption" data-scene="4" aria-hidden="true" inert>
           <div class="scrolly-kicker">Matter · Limited validation</div>
           <h2>Share motion<br>through Matter.</h2>
-          <p>Expose local motion through Matter’s standard occupancy sensor surface and use it with the ecosystems your home already understands.</p>
+          <p>Expose motion through Matter’s standard occupancy sensor and use it with Home Assistant, Google Home, Apple Home, or Alexa.</p>
           <div class="scene-integrations">
-            <span>Matter</span>
-            <span>Occupancy sensor</span>
-            <span>Controller-dependent</span>
+            <span>Home Assistant</span>
+            <span>Google Home</span>
+            <span>Apple Home</span>
+            <span>Alexa</span>
           </div>
           <div class="scene-ui scene-ui-integration">
             <span class="scene-ui-dot"></span>
@@ -218,8 +219,8 @@
 
         <article class="scrolly-caption js-scrolly-caption" data-scene="5" aria-hidden="true" inert>
           <div class="scrolly-kicker">Built to embed</div>
-          <h2>Add local motion sensing<br>to your product.</h2>
-          <p>ESPectre’s shared C++ core adds local motion sensing to ESP32 products without cameras or dedicated radar hardware. OEMs can choose Lightweight Detection when CPU and working memory are tight, or High-Accuracy Detection when detection quality is the priority.</p>
+          <h2>Add motion sensing to your product.</h2>
+          <p>ESPectre’s C++ SDK adds local motion sensing to ESP32 products without cameras or dedicated radar hardware. OEMs can choose Lightweight Detection when CPU and working memory are tight, or High-Accuracy Detection when detection quality is the priority. <a href="/sdk/" class="scene-roadmap-link">Explore the SDK →</a></p>
           <div class="scene-ui scene-ui-embedded">
             <span class="scene-ui-dot"></span>
             <span><small>Custom firmware</small><strong>ESPectre runtime active</strong></span>
@@ -259,13 +260,13 @@
           <a href="#configure" class="home-tool-card">
             <span class="home-card-label">CONFIGURE</span>
             <h3>Set up your sensor.</h3>
-            <p>Save Wi-Fi, MQTT, and the device name over nearby Bluetooth.</p>
+            <p>Configure the device over its local Direct WebSocket.</p>
             <span class="home-card-action">Open Configure →</span>
           </a>
           <a href="#monitor" class="home-tool-card">
             <span class="home-card-label">MONITOR</span>
             <h3>Watch motion live.</h3>
-            <p>Connect over MQTT to inspect motion, tune detection, and view diagnostics.</p>
+            <p>Use Direct WebSocket or MQTT to inspect motion, tune detection, and view diagnostics.</p>
             <span class="home-card-action">Open Monitor →</span>
           </a>
         </div>
@@ -320,8 +321,8 @@
         <img src="/assets/images/tools/configure-card.avif" alt="ESP32 board connected wirelessly to a configuration panel" width="800" height="344">
       </div>
       <div class="tool-card-body">
-        <div class="tool-head"><h2>Configure</h2><span class="chip js-ble-chip">BLE</span></div>
-        <p>Set Wi-Fi, MQTT, and the device name over Bluetooth.</p>
+        <div class="tool-head"><h2>Configure</h2><span class="chip js-direct-chip">WS</span></div>
+        <p>Set Wi-Fi, optional MQTT, and the device name over Direct WebSocket.</p>
         <span class="tool-open">Open →</span>
       </div>
     </a>
@@ -330,7 +331,7 @@
         <img src="/assets/images/tools/monitor-card.avif" alt="ESP32 board beside a laptop showing live motion sensing diagnostics" width="800" height="344">
       </div>
       <div class="tool-card-body">
-        <div class="tool-head"><h2>Monitor</h2><span class="chip">MQTT</span></div>
+        <div class="tool-head"><h2>Monitor</h2><span class="chip">WS · MQTT</span></div>
         <p>Watch live sensing, tune detection, and inspect diagnostics over the broker.</p>
         <span class="tool-open">Open →</span>
       </div>
@@ -431,16 +432,24 @@
 <main class="js-page page-narrow page-tool" data-page="configure" hidden>
   <div class="breadcrumb"><a href="#tools">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Configure</span></div>
   <h1 class="page-title">Configure</h1>
-  <p class="page-sub">For first setup or recovery, connect over Bluetooth to set Wi-Fi, MQTT, and the device name, then start sensing in Monitor.</p>
-  <p class="support-notice js-ble-support" role="status" hidden></p>
+  <p class="page-sub">Provision Wi-Fi through the USB flasher, then connect to the local device to set the BSSID, optional MQTT, and the device name.</p>
 
   <div class="js-configure-onboarding">
-    <section class="device-connect-card empty-state" data-transport="ble">
-      <h2>Connect with Bluetooth</h2>
-      <p>Use a nearby connection to set Wi-Fi, MQTT, and the device name.</p>
+    <section class="device-connect-card empty-state" data-transport="ws">
+      <h2>Connect with Direct WebSocket</h2>
+      <p>Enter the device IP address or its <code>espectre-&lt;device-id&gt;.local</code> name.</p>
+      <div class="fields">
+        <div class="field"><label for="cfg-direct-endpoint">Device endpoint</label><input type="text" id="cfg-direct-endpoint" class="mono-input" list="direct-remembered-endpoints" placeholder="espectre-a1b2c3d4.local" autocomplete="off" spellcheck="false"></div>
+      </div>
+      <p class="tool-note js-direct-browser-note" role="status">Your browser may ask for Local network access. Allow it for this site. If a <code>.local</code> name does not resolve, use the device IP address.</p>
+      <div class="direct-connection-help js-cfg-direct-help" role="alert" hidden>
+        <strong>Could not connect to the device</strong>
+        <p class="js-direct-help-copy"></p>
+        <p><a href="/security/#local-access-title">Browser and local-network help</a> · <a href="#monitor">Use MQTT Monitor instead</a></p>
+      </div>
       <aside class="device-recovery-hint">
-        <strong>Device not appearing nearby?</strong>
-        <p>Hold the <strong>BOOT</strong> button for 3 seconds to activate Bluetooth setup.</p>
+        <strong>Device is not on the network?</strong>
+        <p>Connect USB and use the flasher's standard Improv Serial step. Hold the <strong>BOOT</strong> button for 3 seconds to clear saved Wi-Fi and reopen serial provisioning.</p>
         <details>
           <summary>Which of the two buttons is BOOT?</summary>
           <div class="boot-button-guide">
@@ -453,9 +462,10 @@
         </details>
       </aside>
       <div class="device-connect-card-actions">
-        <button class="btn-primary js-connect-ble"><span class="js-connect-label">Connect nearby device</span></button>
+        <button class="btn-primary js-connect-direct"><span class="js-connect-label">Connect device</span></button>
+        <button type="button" class="btn-ghost js-direct-share">Share</button>
+        <button type="button" class="btn-ghost js-direct-forget">Forget</button>
       </div>
-      <div class="empty-alt"><a href="#monitor" class="link-btn">or connect over MQTT if already configured</a></div>
     </section>
   </div>
 
@@ -528,7 +538,6 @@
             </div>
             <div class="field"><label for="cfg-mqtt-port">Port</label><input type="number" id="cfg-mqtt-port" value="1883" placeholder="1883"></div>
           </div>
-          <p class="tool-note mqtt-preset-note js-cfg-mqtt-preset-note" aria-live="polite">Enter the MQTT credentials created for ESPectre.</p>
           <div class="field-row">
             <div class="field"><label for="cfg-mqtt-user">Username</label><input type="text" id="cfg-mqtt-user" placeholder="MQTT username" autocomplete="off"></div>
             <div class="field"><label for="cfg-mqtt-pass">Password</label><input type="password" id="cfg-mqtt-pass" placeholder="MQTT password" autocomplete="off" spellcheck="false"></div>
@@ -550,9 +559,33 @@
 <main class="js-page page-narrow page-tool" data-page="monitor" hidden>
   <div class="breadcrumb"><a href="#tools">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Monitor</span></div>
   <h1 class="page-title">Monitor</h1>
-  <p class="page-sub">For an already configured device, connect over MQTT to watch live motion, tune detection, and inspect diagnostics.<br>Leave Device ID empty to discover devices on the broker.</p>
+  <p class="page-sub">Use Direct WebSocket for one device on this LAN, or choose MQTT for Home Assistant, automation, remote access, and multiple devices.</p>
   <div class="js-monitor-onboarding">
-    <section class="device-connect-card empty-state" data-transport="mqtt">
+    <fieldset class="transport-choice" aria-label="Monitor connection method">
+      <label for="monitor-transport-ws"><input type="radio" id="monitor-transport-ws" name="monitor-transport" value="ws" checked> Direct WebSocket <small>recommended</small></label>
+      <label for="monitor-transport-mqtt"><input type="radio" id="monitor-transport-mqtt" name="monitor-transport" value="mqtt"> MQTT <small>advanced</small></label>
+    </fieldset>
+    <section class="device-connect-card empty-state" data-monitor-transport-panel="ws" data-transport="ws">
+      <h2>Connect directly</h2>
+      <p>Broker-free monitoring for one Native device on the same LAN.</p>
+      <div class="fields">
+        <div class="field"><label for="mon-direct-endpoint">Device endpoint</label><input type="text" id="mon-direct-endpoint" class="mono-input" list="direct-remembered-endpoints" placeholder="192.168.1.42 or espectre-a1b2c3d4.local" autocomplete="off" spellcheck="false"></div>
+      </div>
+      <p class="tool-note js-direct-browser-note" role="status">Allow Local network access if prompted. If a <code>.local</code> name does not resolve, use the device IP address.</p>
+      <div class="direct-connection-help js-mon-direct-help" role="alert" hidden>
+        <strong>Could not connect to the device</strong>
+        <p class="js-direct-help-copy"></p>
+        <p><a href="/security/#local-access-title">Browser and local-network help</a> · <button type="button" class="link-btn js-monitor-use-mqtt">Use MQTT instead</button></p>
+      </div>
+      <div class="panel-actions">
+        <button class="btn-primary btn-sm js-connect-direct">Connect device</button>
+        <button type="button" class="btn-ghost btn-sm js-direct-share">Share</button>
+        <button type="button" class="btn-ghost btn-sm js-direct-forget">Forget</button>
+      </div>
+      <div class="tool-note js-mon-direct-status" role="status" hidden></div>
+      <div class="empty-alt"><button class="link-btn js-demo">or try the demo</button></div>
+    </section>
+    <section class="device-connect-card empty-state" data-monitor-transport-panel="mqtt" data-transport="mqtt" hidden>
       <h2>Connect with MQTT</h2>
       <p>Use the broker to open live sensing, controls, and diagnostics.</p>
       <div class="fields">
@@ -792,7 +825,7 @@
 
 <!-- ============================== SDK ============================== -->
 <main class="js-page page-narrow" data-page="sdk" hidden>
-  <div class="js-static-content" data-content-url="content/sdk.html?v=4e543842a874" data-static-url="/sdk/">
+  <div class="js-static-content" data-content-url="content/sdk.html?v=7ed2754775ea" data-static-url="/sdk/">
     <p class="guide-loading">Loading SDK…</p>
   </div>
 </main>
@@ -813,7 +846,7 @@
 
 <!-- ============================== Privacy ============================== -->
 <main class="js-page page-narrow" data-page="privacy" hidden>
-  <div class="js-static-content" data-content-url="content/privacy.html?v=4431c1063df4" data-static-url="/privacy/">
+  <div class="js-static-content" data-content-url="content/privacy.html?v=a1f3d4d3e9f2" data-static-url="/privacy/">
     <p class="guide-loading">Loading privacy notice…</p>
   </div>
 </main>
@@ -827,7 +860,7 @@
 
 <!-- ============================== Terms ============================== -->
 <main class="js-page page-narrow" data-page="terms" hidden>
-  <div class="js-static-content" data-content-url="content/terms.html?v=02d9b2d4bcb8" data-static-url="/terms/">
+  <div class="js-static-content" data-content-url="content/terms.html?v=14ab33bbcc1d" data-static-url="/terms/">
     <p class="guide-loading">Loading terms of use…</p>
   </div>
 </main>
@@ -841,7 +874,7 @@
 
 <!-- ============================== Security ============================== -->
 <main class="js-page page-narrow" data-page="security" hidden>
-  <div class="js-static-content" data-content-url="content/security.html?v=d99e126f4b77" data-static-url="/security/">
+  <div class="js-static-content" data-content-url="content/security.html?v=a6eac14e65f8" data-static-url="/security/">
     <p class="guide-loading">Loading security information…</p>
   </div>
 </main>
@@ -856,7 +889,7 @@
 <!-- ============================== Guide: Hardware ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-hardware" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Hardware</span></div>
-  <div class="js-static-content" data-content-url="content/guides/hardware.html?v=6271b2bf5adf" data-static-url="/guides/hardware/">
+  <div class="js-static-content" data-content-url="content/guides/hardware.html?v=84920fa1c1f8" data-static-url="/guides/hardware/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -864,7 +897,7 @@
 <!-- ============================== Guide: Setup ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-setup" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Flash &amp; Wi-Fi setup</span></div>
-  <div class="js-static-content" data-content-url="content/guides/setup.html?v=bd20dae9e1c1" data-static-url="/guides/setup/">
+  <div class="js-static-content" data-content-url="content/guides/setup.html?v=9edf8ac31aab" data-static-url="/guides/setup/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -936,7 +969,7 @@
 <!-- ============================== SDK: Examples ============================== -->
 <main class="js-page page-narrow page-article" data-page="sdk-examples" hidden>
   <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">Examples</span></div>
-  <div class="js-static-content" data-content-url="content/sdk/examples.html?v=7f75f55e5784" data-static-url="/sdk/examples/">
+  <div class="js-static-content" data-content-url="content/sdk/examples.html?v=75a74f15bc30" data-static-url="/sdk/examples/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -944,10 +977,12 @@
 <!-- ============================== SDK: Architecture ============================== -->
 <main class="js-page page-narrow page-article" data-page="sdk-architecture" hidden>
   <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">Architecture</span></div>
-  <div class="js-static-content" data-content-url="content/sdk/architecture.html?v=e39cc770e9d7" data-static-url="/sdk/architecture/">
+  <div class="js-static-content" data-content-url="content/sdk/architecture.html?v=0b88a79a3ab0" data-static-url="/sdk/architecture/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
+
+<datalist id="direct-remembered-endpoints"></datalist>
 
 <footer class="site-footer">
   <div class="site-footer-inner">
@@ -986,6 +1021,27 @@
     </div>
     <div class="modal-actions matter-modal-actions">
       <button type="button" class="btn-ghost js-matter-close">Close</button>
+    </div>
+  </section>
+</div>
+
+<div class="modal-backdrop js-direct-share-modal" hidden>
+  <section class="modal-card matter-modal-card" role="dialog" aria-modal="true" aria-labelledby="direct-share-title" aria-describedby="direct-share-description" tabindex="-1">
+    <div class="modal-head">
+      <div>
+        <span class="modal-kicker">Local device link</span>
+        <h2 id="direct-share-title">Connect from another browser</h2>
+      </div>
+      <button type="button" class="modal-close js-direct-share-close" aria-label="Close device share dialog">×</button>
+    </div>
+    <p class="modal-description" id="direct-share-description">Scan this QR code while connected to the same trusted LAN. The link contains only the local endpoint, never credentials.</p>
+    <div class="matter-result">
+      <div class="matter-qr js-direct-share-canvas" role="img" aria-label="Direct WebSocket connection QR code"></div>
+      <dl class="matter-codes"><div><dt>Share link</dt><dd><code class="js-direct-share-link"></code></dd></div></dl>
+    </div>
+    <div class="modal-actions matter-modal-actions">
+      <button type="button" class="btn-ghost js-direct-share-copy">Copy link</button>
+      <button type="button" class="btn-primary js-direct-share-close">Done</button>
     </div>
   </section>
 </div>

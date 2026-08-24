@@ -1,3 +1,8 @@
 dependencies:
   idf:
     version: ">=5.5.0"
+  improv:
+    git: https://github.com/improv-wifi/sdk-cpp.git
+    version: 17898613a1c17062ca5af295ceb639b16b4930bf
+  espressif/mdns:
+    version: "^1.9.0"

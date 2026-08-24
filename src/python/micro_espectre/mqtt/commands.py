@@ -170,7 +170,6 @@ class MQTTCommands:
                 supports_runtime_detector=False,
                 supports_manual_recalibration=callable(self.recalibrate_callback),
                 supports_traffic_control=self.traffic_control_supported,
-                supports_ble=False,
                 supports_ota=False,
             ),
         }

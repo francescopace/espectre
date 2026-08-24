@@ -41,7 +41,7 @@ struct RuntimeCapabilities {
    * The runtime drives `IRuntimeListener::on_live_telemetry()` at all.
    *
    * Native uses that callback for MQTT sensing telemetry and Home Assistant
-   * Movement Score. It does not forward live sensing onto BLE.
+   * Movement Score. Transport adapters decide how to forward live sensing.
    */
   bool supports_live_telemetry{false};
   /** The runtime reports the extended diagnostics block used by stats payloads. */

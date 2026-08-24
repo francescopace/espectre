@@ -1,7 +1,7 @@
 /*
- * ESPectre - Native BLE Recovery Button Service
+ * ESPectre - Native Recovery Button Service
  *
- * Detects a non-blocking long press and requests Native BLE setup mode.
+ * Detects a non-blocking long press and requests local Wi-Fi recovery.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -14,11 +14,11 @@
 
 namespace espectre {
 
-class BleRecoveryButtonService {
+class RecoveryButtonService {
  public:
   using RecoveryCallback = std::function<void()>;
 
-  explicit BleRecoveryButtonService(uint32_t hold_ms, RecoveryCallback callback);
+  explicit RecoveryButtonService(uint32_t hold_ms, RecoveryCallback callback);
 
   void update(bool pressed, uint32_t now_ms);
 

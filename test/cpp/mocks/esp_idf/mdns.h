@@ -47,6 +47,14 @@ typedef struct {
   int free_call_count;
   int netif_action_call_count;
   int last_netif_action;
+  char hostname[64];
+  char instance_name[96];
+  char service_type[48];
+  char service_proto[16];
+  uint16_t service_port;
+  size_t txt_count;
+  char txt_keys[12][32];
+  char txt_values[12][128];
 } mdns_mock_state_t;
 
 extern mdns_mock_state_t g_mdns_mock;

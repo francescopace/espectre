@@ -39,6 +39,7 @@ struct State {
   std::vector<Subscription> subscriptions;
   IMqttTransport::CommandCallback command_callback;
   IMqttTransport::ConnectionCallback connection_callback;
+  MqttTransportDiagnostics diagnostics;
 };
 
 extern State state;
@@ -56,6 +57,7 @@ class MockMqttTransport : public IMqttTransport {
   bool subscribe(const std::string &topic, MessageCallback callback) override;
   void set_command_callback(CommandCallback callback) override;
   void set_connection_callback(ConnectionCallback callback) override;
+  MqttTransportDiagnostics diagnostics() const override;
 
   void emit_command(const std::string &payload);
   void emit_message(const std::string &topic, const std::string &payload);

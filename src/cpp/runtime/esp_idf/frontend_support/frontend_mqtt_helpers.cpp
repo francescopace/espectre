@@ -1,8 +1,8 @@
 /*
  * ESPectre - Frontend MQTT Helpers
  *
- * Sets up frontend MQTT transport and handles shared command and status
- * payloads.
+ * Sets up frontend MQTT transport and maps MQTT payloads to the shared
+ * frontend command dispatcher.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -97,213 +97,33 @@ FrontendMqttCommandResult handle_frontend_mqtt_command(const std::string &payloa
                                                        FrontendMqttRecalibrateCallback recalibrate_callback,
                                                        FrontendMqttOtaStatusCallback ota_status_callback,
                                                        FrontendMqttCommandsCallback commands_callback) {
-  FrontendMqttCommandResult result;
-  result.handled = true;
-  if (!parse_espectre_command(payload, &result.command, &result.message)) {
+  EspectreCommand command;
+  std::string message;
+  if (!parse_espectre_command(payload, &command, &message)) {
+    FrontendMqttCommandResult result;
+    result.handled = true;
+    result.command = std::move(command);
     if (result.command.command.empty()) {
       result.command.command = "unknown";
     }
-    result.accepted = false;
+    result.message = std::move(message);
     return result;
   }
-
-  if (result.command.command == "info") {
-    if (!capabilities.supports_info || !info_callback) {
-      result.accepted = false;
-      result.message = "unsupported command";
-      return result;
-    }
-    info_callback();
-    result.accepted = true;
-    result.message = "info published";
-    return result;
-  }
-
-  if (result.command.command == "commands") {
-    if (!commands_callback) {
-      result.accepted = false;
-      result.message = "unsupported command";
-      return result;
-    }
-    commands_callback();
-    result.accepted = true;
-    result.message = "commands published";
-    return result;
-  }
-
-  if (result.command.command == "stats") {
-    if (!capabilities.supports_stats || !stats_callback) {
-      result.accepted = false;
-      result.message = "unsupported command";
-      return result;
-    }
-    stats_callback();
-    result.accepted = true;
-    result.message = "stats published";
-    return result;
-  }
-
-  if (result.command.command == "set_device_label") {
-    if (!capabilities.supports_device_config || !device_label_callback) {
-      result.accepted = false;
-      result.message = "unsupported command";
-      return result;
-    }
-    if (!result.command.has_device_label) {
-      result.accepted = false;
-      result.message = "invalid device label (accepted: a single-line string)";
-      return result;
-    }
-    result.accepted = device_label_callback(result.command.device_label, &result.message);
-    if (result.message.empty()) {
-      result.message = result.accepted ? "device label updated" : "device label rejected";
-    }
-    return result;
-  }
-
-  if (result.command.command == "set_threshold") {
-    if (!capabilities.supports_threshold || !threshold_callback) {
-      result.accepted = false;
-      result.message = "unsupported command";
-      return result;
-    }
-    if (!result.command.has_threshold || !validate_runtime_threshold(result.command.threshold)) {
-      result.accepted = false;
-      result.message = "invalid threshold (accepted: 0.0-1.0)";
-      return result;
-    }
-    result.accepted = threshold_callback(result.command.threshold, &result.message);
-    if (result.message.empty()) {
-      result.message = result.accepted ? "threshold updated" : "threshold rejected";
-    }
-    return result;
-  }
-
-  if (result.command.command == "set_motion_hits") {
-    if (!capabilities.supports_motion_hits || !motion_hits_callback) {
-      result.accepted = false;
-      result.message = "unsupported command";
-      return result;
-    }
-    if (!result.command.has_motion_hits ||
-        result.command.motion_on_hits < RUNTIME_MOTION_HITS_MIN ||
-        result.command.motion_on_hits > RUNTIME_MOTION_HITS_MAX ||
-        result.command.motion_off_hits < RUNTIME_MOTION_HITS_MIN ||
-        result.command.motion_off_hits > RUNTIME_MOTION_HITS_MAX) {
-      result.accepted = false;
-      result.message = "invalid motion hits (accepted: motion_on_hits and motion_off_hits in 1-20)";
-      return result;
-    }
-    result.accepted =
-        motion_hits_callback(result.command.motion_on_hits, result.command.motion_off_hits, &result.message);
-    if (result.message.empty()) {
-      result.message = result.accepted ? "motion hits updated" : "motion hits rejected";
-    }
-    return result;
-  }
-
-  if (result.command.command == "set_csi_traffic_mode") {
-    if (!capabilities.supports_traffic_control || !csi_traffic_mode_callback) {
-      result.accepted = false;
-      result.message = "unsupported command";
-      return result;
-    }
-    if (!result.command.has_csi_traffic_mode) {
-      result.accepted = false;
-      result.message = "invalid csi traffic mode (accepted: internal, external, and disabled)";
-      return result;
-    }
-    result.accepted =
-        csi_traffic_mode_callback(parse_csi_traffic_mode(result.command.csi_traffic_mode.c_str()), &result.message);
-    if (result.message.empty()) {
-      result.message = result.accepted ? "csi traffic mode updated" : "csi traffic mode rejected";
-    }
-    return result;
-  }
-
-  if (result.command.command == "set_traffic_generator_mode") {
-    if (!capabilities.supports_traffic_control || !traffic_generator_mode_callback) {
-      result.accepted = false;
-      result.message = "unsupported command";
-      return result;
-    }
-    if (!result.command.has_traffic_generator_mode) {
-      result.accepted = false;
-      result.message = "invalid traffic generator mode (accepted: ping and dns)";
-      return result;
-    }
-    result.accepted = traffic_generator_mode_callback(parse_traffic_mode(result.command.traffic_generator_mode.c_str()),
-                                                      &result.message);
-    if (result.message.empty()) {
-      result.message = result.accepted ? "traffic generator mode updated" : "traffic generator mode rejected";
-    }
-    return result;
-  }
-
-  if (result.command.command == "set_detector") {
-    if (!capabilities.supports_detector || !detector_callback) {
-      result.accepted = false;
-      result.message = "unsupported command";
-      return result;
-    }
-    if (!result.command.has_detector) {
-      result.accepted = false;
-      result.message = "invalid detector (accepted: lightweight and high_accuracy)";
-      return result;
-    }
-    result.accepted = detector_callback(parse_detection_algorithm(result.command.detector.c_str()), &result.message);
-    if (result.message.empty()) {
-      result.message = result.accepted ? "detector updated" : "detector rejected";
-    }
-    return result;
-  }
-
-  if (result.command.command == "recalibrate") {
-    if (!capabilities.supports_recalibrate || !recalibrate_callback) {
-      result.accepted = false;
-      result.message = "unsupported command";
-      return result;
-    }
-    result.accepted = recalibrate_callback(&result.message);
-    if (result.message.empty()) {
-      result.message = result.accepted ? "recalibration started" : "recalibration rejected";
-    }
-    return result;
-  }
-
-  if (result.command.command == "ota_status" || result.command.command == "ota_check" || result.command.command == "ota_start") {
-    if (!capabilities.supports_ota || ota_service == nullptr) {
-      result.accepted = false;
-      result.message = "ota unavailable";
-      return result;
-    }
-
-    const std::string normalized_current_version =
-        (current_version == nullptr || current_version[0] == '\0') ? "unknown" : current_version;
-
-    if (result.command.command == "ota_status") {
-      if (ota_status_callback) {
-        ota_status_callback(ota_service->status());
-      }
-      result.accepted = true;
-      result.message = "ota status published";
-      return result;
-    }
-
-    if (result.command.command == "ota_check") {
-      result.accepted = ota_service->start_check(normalized_current_version, result.command.ota_channel);
-      result.message = result.accepted ? "ota check started" : "ota check rejected";
-      return result;
-    }
-
-    result.accepted = ota_service->start_update(normalized_current_version, result.command.ota_channel);
-    result.message = result.accepted ? "ota update started" : "ota update rejected";
-    return result;
-  }
-
-  result.accepted = false;
-  result.message = "unsupported command";
-  return result;
+  return handle_frontend_command(command,
+                                 ota_service,
+                                 current_version,
+                                 capabilities,
+                                 std::move(info_callback),
+                                 std::move(stats_callback),
+                                 std::move(device_label_callback),
+                                 std::move(threshold_callback),
+                                 std::move(motion_hits_callback),
+                                 std::move(csi_traffic_mode_callback),
+                                 std::move(traffic_generator_mode_callback),
+                                 std::move(detector_callback),
+                                 std::move(recalibrate_callback),
+                                 std::move(ota_status_callback),
+                                 std::move(commands_callback));
 }
 
 }  // namespace espectre

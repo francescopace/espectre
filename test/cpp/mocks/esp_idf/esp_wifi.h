@@ -288,6 +288,7 @@ typedef struct {
   int connect_call_count;
   int disconnect_call_count;
   int set_config_call_count;
+  int get_ap_info_call_count;
   wifi_config_t last_config;
   esp_err_t get_mac_result;
   uint8_t mac[6];
@@ -542,6 +543,7 @@ static inline esp_err_t esp_wifi_get_channel(uint8_t *primary,
 }
 
 static inline esp_err_t esp_wifi_sta_get_ap_info(wifi_ap_record_t *ap_info) {
+  g_esp_wifi_mock.get_ap_info_call_count++;
   if (ap_info) {
     ap_info->rssi = -55;
     ap_info->primary = 6;

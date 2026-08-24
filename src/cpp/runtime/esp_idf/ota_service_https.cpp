@@ -20,6 +20,7 @@
 #include "esp_https_ota.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "ota_version.h"
 #include "protocol_json.h"
 
 namespace espectre {
@@ -258,7 +259,13 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
     result.channel = channel;
     result.manifest_url = manifest_url;
     result.image_url = manifest.image_url;
-    result.update_available = manifest.version != current_version && !manifest.version.empty();
+    const OtaVersionComparison comparison = compare_ota_versions(manifest.version, current_version);
+    if (comparison == OtaVersionComparison::UNORDERED) {
+      set_error_status_("unrecognized or divergent firmware version", current_version, manifest.version,
+                        manifest_url, manifest.image_url, channel);
+      return;
+    }
+    result.update_available = comparison == OtaVersionComparison::NEWER;
     result.busy = false;
     result.state = result.update_available ? EspectreOtaState::UPDATE_AVAILABLE : EspectreOtaState::UP_TO_DATE;
     result.message = result.update_available ? "update available" : "already up to date";
@@ -270,6 +277,26 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
 
   const std::string &image_url = manifest.image_url;
   const std::string &target_version = manifest.version;
+  const OtaVersionComparison comparison = compare_ota_versions(target_version, current_version);
+  if (comparison == OtaVersionComparison::UNORDERED) {
+    set_error_status_("unrecognized or divergent firmware version", current_version, target_version,
+                      manifest_url, image_url, channel);
+    return;
+  }
+  if (comparison != OtaVersionComparison::NEWER) {
+    EspectreOtaStatus result;
+    result.state = EspectreOtaState::UP_TO_DATE;
+    result.current_version = current_version;
+    result.target_version = target_version;
+    result.channel = channel;
+    result.manifest_url = manifest_url;
+    result.image_url = image_url;
+    result.update_available = false;
+    result.busy = false;
+    result.message = comparison == OtaVersionComparison::SAME ? "already up to date" : "target is not newer";
+    update_status_(result);
+    return;
+  }
   if (image_url.empty()) {
     set_error_status_("missing image_url", current_version, target_version, manifest_url, image_url, channel);
     return;
@@ -291,7 +318,7 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
   downloading.channel = channel;
   downloading.manifest_url = manifest_url;
   downloading.image_url = image_url;
-  downloading.update_available = !target_version.empty() && target_version != current_version;
+  downloading.update_available = true;
   downloading.message = "starting https ota";
   update_status_(downloading);
   ESP_LOGI(TAG, "downloading %s", image_url.c_str());

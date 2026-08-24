@@ -23,8 +23,12 @@ from detect_git_version import detect_git_version
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WEB_ROOT = REPO_ROOT / "docs" / "web"
-EXPECTED_CHIPS = {"esp32", "esp32c3", "esp32c5", "esp32c6", "esp32s3"}
 EXPECTED_FRONTENDS = {"esphome", "matter", "native"}
+EXPECTED_CHIPS_BY_FRONTEND = {
+    "esphome": {"esp32", "esp32s2", "esp32s3", "esp32c3", "esp32c5", "esp32c6"},
+    "matter": {"esp32", "esp32s3", "esp32c3", "esp32c5", "esp32c6"},
+    "native": {"esp32", "esp32s2", "esp32s3", "esp32c3", "esp32c5", "esp32c6"},
+}
 SITEMAP_NAMESPACE = "http://www.sitemaps.org/schemas/sitemap/0.9"
 SITE_HOST = "espectre.dev"
 SPA_ROUTE_NAME_RE = re.compile(r"\{\s*name:\s*'([^']+)'")
@@ -202,7 +206,11 @@ def verify_firmware_channel(channel: str) -> None:
                 raise ValueError(f"Invalid firmware artifact filename: {filename!r}")
             require_file(f"artifacts/firmware/{channel}/{filename}")
 
-    expected = {(frontend, chip) for frontend in EXPECTED_FRONTENDS for chip in EXPECTED_CHIPS}
+    expected = {
+        (frontend, chip)
+        for frontend, chips in EXPECTED_CHIPS_BY_FRONTEND.items()
+        for chip in chips
+    }
     if seen != expected:
         raise ValueError(
             f"Invalid {channel} website firmware matrix: "
@@ -248,7 +256,7 @@ def verify(args: argparse.Namespace) -> None:
         "404.html",
         "assets/js/app.js",
         "assets/js/route-registry.js",
-        "assets/js/espectre-ble.js",
+        "assets/js/espectre-direct.js",
         "assets/js/espectre-mqtt.js",
         "assets/css/styles.css",
         "vendor/qrcodejs-1.0.0/qrcode.min.js",

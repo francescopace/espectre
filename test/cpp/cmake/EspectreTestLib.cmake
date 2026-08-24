@@ -15,10 +15,28 @@ if(NOT ARDUINOJSON_INCLUDE_DIR)
     set(ARDUINOJSON_INCLUDE_DIR "${arduinojson_SOURCE_DIR}")
 endif()
 
+FetchContent_Declare(
+    ImprovWifiSdk
+    GIT_REPOSITORY https://github.com/improv-wifi/sdk-cpp.git
+    GIT_TAG 17898613a1c17062ca5af295ceb639b16b4930bf
+    GIT_SHALLOW FALSE
+)
+FetchContent_MakeAvailable(ImprovWifiSdk)
+
+add_library(improv_wifi_testlib STATIC
+    "${improvwifisdk_SOURCE_DIR}/src/improv.cpp"
+)
+target_include_directories(improv_wifi_testlib
+    PUBLIC
+        "${improvwifisdk_SOURCE_DIR}/src"
+)
+
 add_library(espectre_test_framework STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/support/test_harness.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf/esp_event_mock.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf/esp_http_server_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf/mdns_mock.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf/mqtt_client_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf/esp_netif_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf/nvs_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/mocks/esp_idf/esp_wifi_mock.cpp"
@@ -57,8 +75,10 @@ target_link_libraries(espectre_core_testlib
 
 add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/firmware_version.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/ota_version.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/periodic_sensing_status_logger.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/espectre_protocol.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/direct_websocket_protocol.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/protocol_json.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_config_utils.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_diagnostics.cpp"
@@ -78,6 +98,7 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_debug_telemetry.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stream_runtime_factory.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stream_esp_idf_runtime.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/mdns_discovery_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/streamer_discovery_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/sta_socket_helpers.cpp"
@@ -92,11 +113,31 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_mqtt_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_sysinfo_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/device_config_store.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/improv_serial_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/wifi_provisioning_service.cpp"
 )
 target_link_libraries(espectre_runtime_testlib
     PUBLIC
         espectre_core_testlib
+        espectre_test_mocks
+        improv_wifi_testlib
+)
+
+add_library(espectre_direct_service_testlib STATIC
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/direct_websocket_service_esp_idf.cpp"
+)
+
+add_library(espectre_mqtt_transport_testlib STATIC
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/mqtt_transport_esp_idf.cpp"
+)
+target_link_libraries(espectre_mqtt_transport_testlib
+    PUBLIC
+        espectre_runtime_testlib
+        espectre_test_mocks
+)
+target_link_libraries(espectre_direct_service_testlib
+    PUBLIC
+        espectre_runtime_testlib
         espectre_test_mocks
 )
 target_compile_definitions(espectre_runtime_testlib
@@ -124,6 +165,8 @@ target_compile_definitions(espectre_runtime_dual_band_testlib
 
 add_library(espectre_frontend_esphome_testlib STATIC
     ${ESPECTRE_FRONTEND_ESPHOME_SOURCES}
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/direct_websocket_service_esp_idf.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/runtime_direct_websocket_bridge.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/support/frontend_runtime_shim.cpp"
 )
 target_link_libraries(espectre_frontend_esphome_testlib
@@ -138,6 +181,8 @@ target_include_directories(espectre_frontend_esphome_testlib
 
 add_library(espectre_frontend_matter_testlib STATIC
     ${ESPECTRE_FRONTEND_MATTER_SOURCES}
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/runtime_direct_websocket_bridge.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/support/direct_websocket_service_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/support/matter_bindings_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/support/frontend_runtime_shim.cpp"
 )
@@ -153,7 +198,7 @@ target_include_directories(espectre_frontend_matter_testlib
 
 add_library(espectre_frontend_native_testlib STATIC
     ${ESPECTRE_FRONTEND_NATIVE_SOURCES}
-    "${CMAKE_CURRENT_SOURCE_DIR}/support/ble_bindings_mock.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/support/direct_websocket_service_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/support/mqtt_transport_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/support/ota_service_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/support/frontend_runtime_shim.cpp"
@@ -174,6 +219,7 @@ foreach(target_name
         espectre_core_testlib
         espectre_runtime_testlib
         espectre_runtime_dual_band_testlib
+        espectre_mqtt_transport_testlib
         espectre_frontend_esphome_testlib
         espectre_frontend_native_testlib
         espectre_frontend_matter_testlib)

@@ -118,26 +118,28 @@ def test_build_firmware_compliance_collects_actual_component_licenses(tmp_path):
 def test_repository_license_policy_covers_first_party_code_and_release_artifacts():
     licensing = (REPO_ROOT / "LICENSING.md").read_text(encoding="utf-8")
     notices = (REPO_ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
-    ble_client = (REPO_ROOT / "docs" / "web" / "assets" / "js" / "espectre-ble.js").read_text(
+    direct_client = (REPO_ROOT / "docs" / "web" / "assets" / "js" / "espectre-direct.js").read_text(
         encoding="utf-8"
     )
     mqtt_client = (REPO_ROOT / "docs" / "web" / "assets" / "js" / "espectre-mqtt.js").read_text(
         encoding="utf-8"
     )
-    ble_tests = (REPO_ROOT / "test" / "web" / "test_espectre_ble.mjs").read_text(encoding="utf-8")
+    direct_tests = (REPO_ROOT / "test" / "web" / "test_espectre_direct.mjs").read_text(encoding="utf-8")
     ci_workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     release_workflow = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     snapshot_workflow = (REPO_ROOT / ".github" / "workflows" / "snapshot.yml").read_text(encoding="utf-8")
 
-    assert GPL_SPDX_HEADER in ble_client
-    assert COMMERCIAL_LICENSE_NOTICE in ble_client
+    assert GPL_SPDX_HEADER in direct_client
+    assert COMMERCIAL_LICENSE_NOTICE in direct_client
     assert GPL_SPDX_HEADER in mqtt_client
     assert COMMERCIAL_LICENSE_NOTICE in mqtt_client
-    assert GPL_SPDX_HEADER in ble_tests
-    assert COMMERCIAL_LICENSE_NOTICE in ble_tests
+    assert GPL_SPDX_HEADER in direct_tests
+    assert COMMERCIAL_LICENSE_NOTICE in direct_tests
     assert "ESPHome C++ runtime" in licensing
     assert "test/cpp/support/LICENSE.cnpy" in licensing
     assert "build-specific SPDX SBOMs" in notices
+    assert "ESP-IDF mDNS component" in notices
+    assert "Improv Wi-Fi SDK for C++" in notices
     for workflow in (release_workflow, snapshot_workflow):
         assert re.search(r"(?m)^\s+firmware/\*\.bin$", workflow)
         assert re.search(r"(?m)^\s+firmware/firmware-compliance-\*\.zip$", workflow)
@@ -269,6 +271,29 @@ def test_firmware_manifest_links_available_compliance_artifacts(tmp_path):
     )
 
 
+def test_firmware_manifest_rejects_matter_esp32_s2(tmp_path):
+    manifest_script = REPO_ROOT / ".github" / "scripts" / "build_firmware_manifest.py"
+    spec = importlib.util.spec_from_file_location("build_firmware_manifest_s2_test", manifest_script)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    (tmp_path / "espectre-matter-preview-esp32s2.bin").write_bytes(b"firmware")
+    with pytest.raises(ValueError, match="Unsupported matter chip"):
+        module.build_manifest(
+            argparse.Namespace(
+                firmware_dir=str(tmp_path),
+                output=str(tmp_path / "manifest.json"),
+                channel="preview",
+                version="preview",
+                release_tag="preview",
+                commit="abcdef",
+                url_prefix=None,
+            )
+        )
+
+
 def test_complete_firmware_matrix_requires_every_compliance_companion(tmp_path):
     manifest_script = REPO_ROOT / ".github" / "scripts" / "build_firmware_manifest.py"
     spec = importlib.util.spec_from_file_location("build_firmware_manifest_matrix_test", manifest_script)
@@ -278,12 +303,18 @@ def test_complete_firmware_matrix_requires_every_compliance_companion(tmp_path):
     spec.loader.exec_module(module)
 
     firmware_names = []
-    for chip in module.CHIP_METADATA:
+    for chip in module.FRONTEND_CHIPS["esphome"]:
         firmware_names.extend(
             (
                 f"espectre-esphome-preview-{chip}.bin",
                 f"espectre-esphome-preview-{chip}-ota.bin",
-                f"espectre-matter-preview-{chip}.bin",
+            )
+        )
+    for chip in module.FRONTEND_CHIPS["matter"]:
+        firmware_names.append(f"espectre-matter-preview-{chip}.bin")
+    for chip in module.FRONTEND_CHIPS["native"]:
+        firmware_names.extend(
+            (
                 f"espectre-native-preview-{chip}.bin",
                 f"espectre-native-preview-{chip}-ota.bin",
             )
@@ -366,6 +397,8 @@ def test_source_files_have_consistent_license_headers():
     missing = []
     for relative_path in sorted(relative_paths):
         path = REPO_ROOT / relative_path
+        if not path.is_file():
+            continue
         header = "\n".join(path.read_text(encoding="utf-8", errors="ignore").splitlines()[:45])
         exception = license_exceptions.get(relative_path)
         if exception is not None:

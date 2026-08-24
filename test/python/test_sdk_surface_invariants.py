@@ -138,9 +138,8 @@ def test_forward_declarations_are_defined_somewhere_reachable(header: Path) -> N
 def test_facade_headers_are_all_in_the_generated_reference() -> None:
     """Everything the facade exposes has to appear in the API reference.
 
-    The relation is a subset, not equality: the Doxyfile deliberately documents
-    a few headers the facade does not include, such as `ble_protocol.h`, whose
-    types are referenced from the surface.
+    The relation is a subset, not equality: the Doxyfile may deliberately document
+    headers that the facade does not include directly.
     """
     missing = sorted(facade_reachable_header_names() - doxygen_input_headers())
     assert not missing, (

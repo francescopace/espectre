@@ -1517,7 +1517,6 @@ class TestMQTTCommands:
         assert payload['supports_runtime_threshold'] is True
         assert payload['supports_runtime_detector'] is False
         assert payload['supports_ota'] is False
-        assert payload['supports_ble'] is False
         assert payload['csi_traffic_mode'] == 'internal'
         assert payload['traffic_mode'] == 'ping'
         assert payload['csi_target_pps'] == 100

@@ -27,7 +27,7 @@ Contributions are accepted so they can be distributed under both licensing track
 
 ## Third-party components
 
-- The production `core`, `runtime`, Native, Matter, and Streamer firmware paths use components available under permissive terms, including Apache-2.0, MIT, BSD, ISC, zlib, CC0, and Unlicense terms. Major dependencies include ESP-IDF, esp-matter, Matter SDK, NimBLE, lwIP, mbedTLS, and FreeRTOS.
+- The production `core`, `runtime`, Native, Matter, and Streamer firmware paths use components available under permissive terms, including Apache-2.0, MIT, BSD, ISC, zlib, CC0, and Unlicense terms. Major dependencies include ESP-IDF, esp-matter, Matter SDK, lwIP, mbedTLS, and FreeRTOS. The Matter frontend also uses ESP-IDF's NimBLE stack for commissioning; the shared runtime, Native, and Streamer paths do not.
 - The ESPHome frontend combines with the GPL-3.0-only ESPHome C++ runtime at build time, so that firmware frontend is available under GPLv3 only. The ESPHome Python build tooling is MIT-licensed.
 - Host-side build, flashing, CLI, test, and research environments include separately installed GPL, LGPL, MPL, and EPL/EDL packages. They are not linked into the commercial firmware SDK. LGPL and MPL components retain their own redistribution obligations if a downstream product packages them, and `paho-mqtt` is consumed under its permissive Eclipse Distribution License option where GPL compatibility is required.
 - `test/cpp/support/cnpy.*` is third-party MIT-licensed test support; its complete notice is stored in `test/cpp/support/LICENSE.cnpy`.

@@ -34,6 +34,7 @@ typedef uint32_t UBaseType_t;
 
 #define portMAX_DELAY 0xFFFFFFFF
 #define portTICK_PERIOD_MS (1000 / CONFIG_FREERTOS_HZ)
+#define pdMS_TO_TICKS(ms) ((TickType_t)((ms) / portTICK_PERIOD_MS))
 
 // Task priorities
 #define tskIDLE_PRIORITY 0

@@ -7,6 +7,7 @@ set(espectre_native_sources
     ${ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES}
     ${ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES}
     ${ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES}
+    ${ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES}
     ${ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES}
 )
 
@@ -15,10 +16,10 @@ set(espectre_native_requires
     esp_event
     esp_netif
     esp_timer
-    bt
     mqtt
     app_update
     esp_http_client
+    esp_http_server
     esp_https_ota
     esp-tls
     mbedtls
@@ -27,12 +28,10 @@ set(espectre_native_requires
     driver
     freertos
     heap
+    improv
+    mdns
     log
 )
-
-if(CONFIG_BT_ENABLED)
-    list(APPEND espectre_native_sources ${ESPECTRE_RUNTIME_ESP_IDF_BLE_SOURCES})
-endif()
 
 idf_component_register(
     SRCS

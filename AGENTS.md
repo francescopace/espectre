@@ -80,9 +80,15 @@ boundaries.
 - Prefer assertions on state, return values, events, and side effects. Assert
 output text only when it is a documented user-facing or machine-consumed
 interface, and test stable semantics rather than incidental wording.
+- Do not snapshot marketing copy, headlines, captions, button labels, helper
+text, or other incidental website wording. Website and HTML tests must assert
+stable structure or behavior through selectors, attributes, routes, IDs,
+protocol values, and documented machine-consumed strings such as emails, CLI
+commands, and option values. Copy may change without a product regression.
 - Keep the Python and `C++` coverage uploads and gates active.
 - Run tests that bind local UDP sockets outside the network sandbox. Treat
-`PermissionError` or `EPERM` during socket setup as a sandbox restriction,not evidence that the test should use a different address.
+`PermissionError` or `EPERM` during socket setup as a sandbox restriction,
+not evidence that the test should use a different address.
 
 - Extend the existing test owner for the changed contract. Do not create a new regression test module when an owning suite exists.
 - Do not duplicate production constants, feature registries, schemas, or performance targets in tests. Prefer parametrizing the owner suite from the canonical source.

@@ -279,6 +279,13 @@ def test_sdk_snapshot_stamps_git_describe_identity(tmp_path: Path) -> None:
         frontend_manifest = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
         assert 'version: ">=5.5.0"' in frontend_manifest
 
+    native_manifest = (
+        REPO_ROOT / "src" / "cpp" / "frontend" / "native" / "espectre" / "idf_component.yml"
+    ).read_text(encoding="utf-8")
+    assert "https://github.com/improv-wifi/sdk-cpp.git" in native_manifest
+    assert "version: 17898613a1c17062ca5af295ceb639b16b4930bf" in native_manifest
+    assert 'espressif/mdns:\n    version: "^1.9.0"' in native_manifest
+
 
 def test_generate_sdk_api_stamps_a_working_copy_without_mutating_the_repo(
     monkeypatch: pytest.MonkeyPatch,
@@ -501,12 +508,6 @@ def test_pages_verifier_requires_api_reference_to_show_sdk_version(
         verifier.verify_sdk_api_version()
 
 
-def test_website_asset_hashes_match_file_contents() -> None:
-    stamper = load_script("web_asset_versions")
-    assert stamper.HASH_LENGTH == 12
-    assert stamper.check_current() == []
-
-
 def test_pages_verifier_rejects_missing_spa_routes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -639,7 +640,7 @@ def test_pages_verifier_enforces_exact_artifact_contracts(
     frontends = {}
     for frontend in sorted(verifier.EXPECTED_FRONTENDS):
         artifacts = []
-        for chip in sorted(verifier.EXPECTED_CHIPS):
+        for chip in sorted(verifier.EXPECTED_CHIPS_BY_FRONTEND[frontend]):
             filename = f"espectre-{frontend}-{chip}.bin"
             (firmware_dir / filename).write_bytes(b"firmware")
             artifacts.append({"build_type": "factory", "chip": chip, "filename": filename})
@@ -750,6 +751,9 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     ):
         source = (SCRIPTS_DIR / script_name).read_text(encoding="utf-8")
         assert IDF_DOCKER_IMAGE in source
+        assert 'BUILD_DIR="build-container-${' in source
+        assert 'detect_git_version.py' in source
+        assert '-e ESPECTRE_GIT_VERSION="${ESPECTRE_GIT_VERSION}"' in source
         assert ".espectre-requirements-\\${REQUIREMENTS_HASH}" in source
         assert "--backend local" in source
 
