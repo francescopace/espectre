@@ -20,7 +20,7 @@ const routeRegistrySource = readFileSync(
 const testExports = `
 globalThis.__analyticsTest = {
     analyticsAllowedHere, disableAnalytics, enableAnalytics, getRouteTitle, getSiteSection,
-    routePath, sendRoutePageView, sendStaticPageView, trackEvent, trackRouteView,
+    initializeConsentControls, routePath, sendRoutePageView, sendStaticPageView, trackEvent, trackRouteView,
     enabled: () => analyticsEnabled
 };`;
 
@@ -31,6 +31,7 @@ function analyticsContext({
     const appendedScripts = [];
     const listeners = new Map();
     const storage = new Map();
+    const consentBanner = { hidden: true };
     const document = {
         cookie: '',
         title: 'Test page | ESPectre',
@@ -40,7 +41,7 @@ function analyticsContext({
         },
         head: { appendChild: (node) => appendedScripts.push(node) },
         createElement: (tagName) => ({ tagName, addEventListener() {} }),
-        querySelector: () => null,
+        querySelector: (selector) => selector === '.js-consent-banner' ? consentBanner : null,
         querySelectorAll: () => [],
         addEventListener: (name, callback) => listeners.set(name, callback),
         dispatchEvent: (event) => listeners.get(event.type)?.(event)
@@ -65,10 +66,33 @@ function analyticsContext({
     });
     context.globalThis = context;
     vm.runInContext(routeRegistrySource + analyticsSource + testExports, context);
-    return { api: context.__analyticsTest, window, appendedScripts, listeners };
+    return {
+        api: context.__analyticsTest,
+        sitePolicy: context.window.ESPectreSite,
+        window,
+        appendedScripts,
+        consentBanner,
+        listeners
+    };
 }
 
 describe('analytics privacy boundary', () => {
+    it('uses one site policy for production, validation, and loopback hosts', () => {
+        const { sitePolicy } = analyticsContext();
+        const locationFor = (hostname, protocol = 'https:') => ({ hostname, protocol });
+
+        assert.equal(sitePolicy.analyticsAllowed(locationFor('espectre.dev')), true);
+        assert.equal(sitePolicy.analyticsAllowed(locationFor('test.espectre.dev')), true);
+        assert.equal(sitePolicy.analyticsAllowed(locationFor('localhost', 'http:')), true);
+        assert.equal(sitePolicy.analyticsAllowed(locationFor('example.test')), false);
+        assert.equal(sitePolicy.analyticsDebug(locationFor('espectre.dev')), false);
+        assert.equal(sitePolicy.analyticsDebug(locationFor('test.espectre.dev')), true);
+        assert.equal(sitePolicy.directOriginKind(locationFor('espectre.dev')), 'production');
+        assert.equal(sitePolicy.directOriginKind(locationFor('test.espectre.dev')), 'validation');
+        assert.equal(sitePolicy.directOriginKind(locationFor('localhost', 'http:')), 'loopback');
+        assert.equal(sitePolicy.directOriginKind(locationFor('localhost')), 'other');
+    });
+
     it('does not enable or load GA outside production', () => {
         const { api, appendedScripts, window } = analyticsContext({ hostname: 'example.test' });
         api.enableAnalytics();
@@ -77,12 +101,24 @@ describe('analytics privacy boundary', () => {
         assert.equal(window.dataLayer, undefined);
     });
 
-    it('always enables debug collection on localhost after consent', () => {
-        const enabled = analyticsContext({ hostname: 'localhost' });
-        enabled.api.enableAnalytics({ sendPageView: false });
-        assert.equal(enabled.api.enabled(), true);
-        const config = enabled.window.dataLayer.find((entry) => entry[0] === 'config');
-        assert.equal(config[2].debug_mode, true);
+    it('enables debug collection on the hosted test site and loopback after consent', () => {
+        for (const hostname of ['test.espectre.dev', 'localhost']) {
+            const enabled = analyticsContext({ hostname });
+            enabled.api.enableAnalytics({ sendPageView: false });
+            assert.equal(enabled.api.enabled(), true);
+            const config = enabled.window.dataLayer.find((entry) => entry[0] === 'config');
+            assert.equal(config[2].debug_mode, true);
+        }
+    });
+
+    it('shows consent on the hosted test site without loading GA before a choice', () => {
+        const { api, appendedScripts, consentBanner, window } = analyticsContext({
+            hostname: 'test.espectre.dev'
+        });
+        api.initializeConsentControls();
+        assert.equal(consentBanner.hidden, false);
+        assert.equal(appendedScripts.length, 0);
+        assert.equal(window.dataLayer, undefined);
     });
 
     it('uses denied-by-default consent and disables advertising signals', () => {

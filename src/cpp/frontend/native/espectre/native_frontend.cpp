@@ -887,12 +887,7 @@ void NativeFrontend::refresh_direct_service_() {
     return;
   }
 
-  DirectWebSocketServiceConfig config;
-  config.allowed_origins = {
-      "https://espectre.dev",
-      "https://www.espectre.dev",
-      "https://test.espectre.dev",
-  };
+  DirectWebSocketServiceConfig config = DirectWebSocketServiceConfig::for_first_party_portals();
 #if defined(CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED) && CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED
   config.allow_http_loopback_origins = true;
 #endif

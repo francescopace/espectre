@@ -210,7 +210,7 @@ Both surfaces build the same sources; they differ only in how you select the opt
 | `ESPECTRE_SDK_ENABLE_OTA` | `ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES` | `HttpsOtaService` |
 | `ESPECTRE_SDK_ENABLE_STREAM_RUNTIME` | `ESPECTRE_RUNTIME_STREAMER_FRONTEND_SUPPORT_SOURCES` | The `RuntimeProfile::STREAM` backend |
 
-Each group is off by default, so a minimal integration does not pay for transports it never calls. Implementing `IMqttTransport`, `IDirectWebSocketService`, or `IOtaService` yourself needs no group at all: the interfaces are header-only. The Native reference app adds `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES` explicitly because Direct WebSocket and mDNS are frontend-owned deployment choices rather than a general SDK default.
+Each group is off by default, so a minimal integration does not pay for transports it never calls. Implementing `IMqttTransport`, `IDirectWebSocketService`, or `IOtaService` yourself needs no group at all: the interfaces are header-only. `DirectWebSocketServiceConfig` keeps its generic Origin allowlist empty; `for_first_party_portals()` explicitly selects the official production and validation portals. The Native reference app adds `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES` explicitly because Direct WebSocket and mDNS are frontend-owned deployment choices rather than a general SDK default.
 
 ## Published SDK channels
 

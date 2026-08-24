@@ -15,6 +15,8 @@
 
     const routeRegistry = window.ESPectreRoutes;
     if (!routeRegistry) throw new Error('ESPectre route registry is unavailable');
+    const sitePolicy = window.ESPectreSite;
+    if (!sitePolicy) throw new Error('ESPectre site policy is unavailable');
     const browserSupport = window.ESPectreBrowserSupport && window.ESPectreBrowserSupport.current;
     if (!browserSupport) throw new Error('ESPectre browser capability policy is unavailable');
     const MqttProtocolClient = window.ESPectreMqttClient;
@@ -33,7 +35,6 @@
         : 'monitor';
     const activeToolName = () => toolNameForRoute(route);
     const LEGACY_TOOL_ROUTES = Object.freeze({ mqtt: 'monitor', device: 'configure' });
-    const LOCAL_DEVELOPMENT_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
     const MQTT_PRESETS = Object.freeze({
         home_assistant: Object.freeze({
             configure: Object.freeze({
@@ -139,7 +140,7 @@
             return browserDependencyPromises.get(localSrc);
         }
         const promise = loadScriptOnce(localSrc, options).catch((error) => {
-            if (!LOCAL_DEVELOPMENT_HOSTS.has(location.hostname)) throw error;
+            if (!sitePolicy.isLoopbackHostname(location.hostname)) throw error;
             console.warn(`Local dependency unavailable; using development CDN fallback: ${developmentCdnSrc}`);
             return loadScriptOnce(developmentCdnSrc, options);
         });
@@ -992,12 +993,7 @@
     }
 
     function directPageOriginKind() {
-        if (location.origin === 'https://espectre.dev'
-            || location.origin === 'https://www.espectre.dev') return 'production';
-        if (location.protocol === 'http:' && LOCAL_DEVELOPMENT_HOSTS.has(location.hostname)) {
-            return 'loopback';
-        }
-        return 'other';
+        return sitePolicy.directOriginKind(location);
     }
 
     function directBrowserGuidance() {

@@ -1,8 +1,8 @@
 /*
- * ESPectre - Shared website route registry
+ * ESPectre - Shared website registry
  *
  * This is the single source of truth for SPA route membership, navigation
- * groups, page titles, and canonical static paths.
+ * groups, page titles, canonical static paths, and deployment host roles.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -11,6 +11,33 @@
 
 (function () {
     'use strict';
+
+    const productionHosts = new Set(['espectre.dev', 'www.espectre.dev']);
+    const validationHosts = new Set(['test.espectre.dev']);
+    const loopbackHosts = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+    function siteKind(locationLike) {
+        const hostname = locationLike?.hostname || '';
+        if (productionHosts.has(hostname)) return 'production';
+        if (validationHosts.has(hostname)) return 'validation';
+        if (loopbackHosts.has(hostname)) return 'loopback';
+        return 'other';
+    }
+
+    function analyticsAllowed(locationLike) {
+        return siteKind(locationLike) !== 'other';
+    }
+
+    function analyticsDebug(locationLike) {
+        return ['validation', 'loopback'].includes(siteKind(locationLike));
+    }
+
+    function directOriginKind(locationLike) {
+        const kind = siteKind(locationLike);
+        if (locationLike?.protocol === 'https:' && ['production', 'validation'].includes(kind)) return kind;
+        if (locationLike?.protocol === 'http:' && kind === 'loopback') return kind;
+        return 'other';
+    }
 
     const definitions = [
         { name: 'home', title: 'ESPectre — Wi-Fi motion sensing' },
@@ -97,5 +124,12 @@
         has: (name) => byName.has(name),
         routeForPath: (path) => byStaticPath.get(path) || '',
         title: (name) => byName.get(name)?.title || ''
+    });
+    window.ESPectreSite = Object.freeze({
+        analyticsAllowed,
+        analyticsDebug,
+        directOriginKind,
+        isLoopbackHostname: (hostname) => loopbackHosts.has(hostname),
+        kind: siteKind
     });
 }());

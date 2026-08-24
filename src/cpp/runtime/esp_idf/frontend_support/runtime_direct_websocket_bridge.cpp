@@ -53,13 +53,8 @@ bool RuntimeDirectWebSocketBridge::setup(IDirectWebSocketService *service,
   config_ = config;
   config_changed_ = std::move(config_changed);
 
-  DirectWebSocketServiceConfig service_config;
+  DirectWebSocketServiceConfig service_config = DirectWebSocketServiceConfig::for_first_party_portals();
   service_config.port = config.port;
-  service_config.allowed_origins = {
-      "https://espectre.dev",
-      "https://www.espectre.dev",
-      "https://test.espectre.dev",
-  };
   service_config.allow_missing_origin = config.allow_missing_origin;
 #if defined(CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED) && CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED
   service_config.allow_http_loopback_origins = true;

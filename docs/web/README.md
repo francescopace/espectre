@@ -10,17 +10,6 @@ python -m http.server 8090 --directory docs/web
 
 Then open `http://localhost:8090`. A Native development build with `CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED=y` accepts HTTP loopback Origins on any port when the host is exactly `localhost`, `127.0.0.1`, or `[::1]`; published firmware leaves this exception disabled. Flash, Improv Serial, and the Matter QR reader need a Chromium-based browser. Configure and Direct Monitor connect to Native through local WebSocket; MQTT Monitor, Game, and Theremin use MQTT over WebSockets. The hosted Direct workflow supports Chrome 147 or later on desktop through WebSocket Local Network Access; Chrome 151 on macOS passed the hosted HTTPS validation path against a physical ESP32-C3. Firefox and Safari block the hosted HTTPS-to-`ws://` path; Edge and mobile Chrome remain unclaimed until their physical browser runs are recorded. A local HTTP preview does not prove hosted-portal compatibility.
 
-## Run the hosted test site
-
-On the project maintainer's macOS host, Homebrew Caddy serves this working tree's `docs/web` directory at `https://test.espectre.dev`. Install the versioned configuration and start the system service with:
-
-```bash
-sudo ln -sf /Users/fpace/git/espectre/docs/web/Caddyfile.test /opt/homebrew/etc/Caddyfile
-sudo brew services start caddy
-```
-
-Caddy obtains and renews the public certificate automatically while Home Assistant keeps the DNS-only `A` record for `test.espectre.dev` aligned with this host's public IPv4 address and TCP port 443 remains reachable. Reload a changed configuration with `sudo brew services restart caddy`, inspect the service with `sudo brew services list`, and stop it with `sudo brew services stop caddy`. The service exposes the current working tree immediately, so use it only for deliberate hosted-browser validation, and do not place secrets or unreviewed generated artifacts under `docs/web`.
-
 First-party CSS, JS, and SPA content fragments use a 12-character SHA-256 prefix as `?v=`. After editing those files, restamp `index.html` and `404.html`:
 
 ```bash
@@ -58,11 +47,11 @@ npm --prefix docs/web run stage:vendor
 
 ## Analytics and consent
 
-`assets/js/analytics.js` enables GA4 on `espectre.dev` and on loopback hosts only after explicit consent. Local previews always set GA4 `debug_mode`, so their events remain identifiable as developer traffic and available in DebugView. The site stores the choice under `espectre.analytics.consent.v1`, disables advertising storage and Google Signals, and exposes Cookie settings in the SPA, generated static, SDK, and 404 footers. The public policy is owned by `content/privacy.html`.
+`assets/js/analytics.js` enables GA4 on production and allowlisted debug hosts only after explicit consent. Debug traffic sets GA4 `debug_mode`, so its events remain identifiable as developer traffic and available in DebugView. The site stores the choice under `espectre.analytics.consent.v1`, disables advertising storage and Google Signals, and exposes Cookie settings in the SPA, generated static, SDK, and 404 footers. The public policy is owned by `content/privacy.html`.
 
 Guide and SDK analytics are convention-based: same-origin `/guides/<slug>/` and `/sdk/<slug>/` links report their registered route name as `guide_name` and `document_name`, while otherwise unmapped `guide-<slug>` and `sdk-<slug>` SPA routes receive human-readable page titles automatically. Route-registry metadata preserves established titles, historical parameter values, the SDK root, and artifact names; `analytics.js` contains no path maps. Tool analytics remain explicit because each tool owns distinct capabilities, events, and funnels.
 
-`assets/js/route-registry.js` is the single source of truth for SPA route membership, navigation groups, page titles, canonical static paths, analytics content groups, and content-event names. Register a new SPA page there once; `app.js` uses it for routing and active navigation, while `analytics.js` uses the same metadata. The registry is also loaded by generated static pages, and structural tests require it to match every `main[data-page]` and `data-static-url` entry in `index.html`.
+`assets/js/route-registry.js` is the single source of truth for deployment host roles, SPA route membership, navigation groups, page titles, canonical static paths, analytics content groups, and content-event names. `app.js` and `analytics.js` consume the same production, validation, and loopback classification. Register a new SPA page there once; the registry is also loaded by generated static pages, and structural tests require it to match every `main[data-page]` and `data-static-url` entry in `index.html`.
 
 The event contract is intentionally low-cardinality and excludes Wi-Fi SSIDs and passwords, broker addresses and credentials, device identifiers, local device endpoints, Matter pairing codes, raw CSI, and MQTT payloads.
 

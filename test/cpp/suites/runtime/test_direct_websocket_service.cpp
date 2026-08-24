@@ -18,7 +18,12 @@ using namespace espectre;
 namespace {
 
 DirectWebSocketServiceConfig config() {
-  return {{"https://espectre.dev"}, 80U, 2U, 2U, 2U, false, true};
+  DirectWebSocketServiceConfig config = DirectWebSocketServiceConfig::for_first_party_portals();
+  config.max_clients = 2U;
+  config.outbound_queue_depth = 2U;
+  config.max_mutations_per_minute = 2U;
+  config.allow_http_loopback_origins = true;
+  return config;
 }
 
 httpd_req_t request_for(EspIdfDirectWebSocketService &service, int fd = 7) {
@@ -35,6 +40,7 @@ void test_setup_validates_configuration_and_registers_versioned_endpoint() {
   httpd_mock_reset();
   EspIdfDirectWebSocketService service;
   DirectWebSocketServiceConfig invalid_config;
+  TEST_ASSERT_TRUE(invalid_config.allowed_origins.empty());
   invalid_config.max_clients = 0U;
   TEST_ASSERT_FALSE(service.setup(invalid_config, [](const auto &) { return std::string{}; }, {}));
   TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));

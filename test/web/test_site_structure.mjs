@@ -79,7 +79,8 @@ describe('website security and asset policy', () => {
         assert.match(app, /\/vendor\/esp-web-tools-10\.4\.0\/install-button\.js/);
         assert.match(app, /\/vendor\/mqtt-5\.3\.0\/mqtt\.min\.js/);
         assert.match(app, /\/vendor\/qrcodejs-1\.0\.0\/qrcode\.min\.js/);
-        assert.match(app, /LOCAL_DEVELOPMENT_HOSTS = new Set\(\['localhost', '127\.0\.0\.1', '\[::1\]'\]\)/);
+        assert.match(app, /sitePolicy\.isLoopbackHostname\(location\.hostname\)/);
+        assert.doesNotMatch(app, /new Set\(\['localhost', '127\.0\.0\.1', '\[::1\]'\]\)/);
     });
 
     it('keeps first-party cache-busting hashes in lockstep with file contents', () => {

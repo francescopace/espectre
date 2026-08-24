@@ -1261,14 +1261,14 @@ void test_native_frontend_direct_service_follows_station_address_lifecycle(void)
   TEST_ASSERT_EQUAL(2, static_cast<int>(direct_websocket_service_mock::state.last_config.max_clients));
   TEST_ASSERT_EQUAL(8, static_cast<int>(direct_websocket_service_mock::state.last_config.outbound_queue_depth));
   TEST_ASSERT_FALSE(direct_websocket_service_mock::state.last_config.allow_missing_origin);
-  TEST_ASSERT_TRUE(std::find(direct_websocket_service_mock::state.last_config.allowed_origins.begin(),
-                             direct_websocket_service_mock::state.last_config.allowed_origins.end(),
-                             "https://espectre.dev") !=
-                   direct_websocket_service_mock::state.last_config.allowed_origins.end());
-  TEST_ASSERT_TRUE(std::find(direct_websocket_service_mock::state.last_config.allowed_origins.begin(),
-                             direct_websocket_service_mock::state.last_config.allowed_origins.end(),
-                             "https://test.espectre.dev") !=
-                   direct_websocket_service_mock::state.last_config.allowed_origins.end());
+  const auto expected_origins = DirectWebSocketServiceConfig::for_first_party_portals().allowed_origins;
+  TEST_ASSERT_EQUAL(expected_origins.size(),
+                    direct_websocket_service_mock::state.last_config.allowed_origins.size());
+  for (const auto &origin : expected_origins) {
+    TEST_ASSERT_TRUE(std::find(direct_websocket_service_mock::state.last_config.allowed_origins.begin(),
+                               direct_websocket_service_mock::state.last_config.allowed_origins.end(),
+                               origin) != direct_websocket_service_mock::state.last_config.allowed_origins.end());
+  }
 
   direct.emit_client_count(1U);
   TEST_ASSERT_EQUAL(1, static_cast<int>(frontend.direct_client_count()));

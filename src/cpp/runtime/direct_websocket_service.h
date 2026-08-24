@@ -20,6 +20,17 @@
 namespace espectre {
 
 struct DirectWebSocketServiceConfig {
+  /** Configuration for ESPectre's production and validation portals. */
+  static DirectWebSocketServiceConfig for_first_party_portals() {
+    DirectWebSocketServiceConfig config;
+    config.allowed_origins = {
+        "https://espectre.dev",
+        "https://www.espectre.dev",
+        "https://test.espectre.dev",
+    };
+    return config;
+  }
+
   std::vector<std::string> allowed_origins;
   uint16_t port{80U};
   size_t max_clients{2U};
