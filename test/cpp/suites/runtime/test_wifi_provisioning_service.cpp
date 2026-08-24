@@ -319,7 +319,7 @@ void test_improv_serial_reports_info_and_completes_verified_provisioning(void) {
       "3.0.0-test",
       "esp32c3",
       "ESPectre test device",
-      []() { return "https://espectre.dev/?transport=ws&endpoint=ws%3A%2F%2F192.168.1.42#configure"; },
+      []() { return "https://espectre.dev/tools/configure/?target=192.168.1.42"; },
   }));
 
   std::vector<CapturedImprovFrame> frames = parse_improv_frames(output);
@@ -372,8 +372,7 @@ void test_improv_serial_reports_info_and_completes_verified_provisioning(void) {
   TEST_ASSERT_EQUAL_UINT8(improv::STATE_PROVISIONED, frames[0].payload[0]);
   const std::vector<std::string> result = parse_improv_rpc_strings(frames[1], improv::WIFI_SETTINGS);
   TEST_ASSERT_EQUAL(1U, result.size());
-  TEST_ASSERT_EQUAL_STRING(
-      "https://espectre.dev/?transport=ws&endpoint=ws%3A%2F%2F192.168.1.42#configure", result[0].c_str());
+  TEST_ASSERT_EQUAL_STRING("https://espectre.dev/tools/configure/?target=192.168.1.42", result[0].c_str());
   TEST_ASSERT_EQUAL_STRING(ssid.c_str(), wifi_provisioning.config().ssid.c_str());
 }
 

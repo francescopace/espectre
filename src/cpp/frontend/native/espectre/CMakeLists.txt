@@ -2,6 +2,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/../../../espectre_sources.cmake")
 
 set(espectre_native_sources
     ${ESPECTRE_FRONTEND_NATIVE_SOURCES}
+    ${ESPECTRE_FRONTEND_NATIVE_ESP_IDF_SOURCES}
     ${ESPECTRE_CORE_SOURCES}
     ${ESPECTRE_RUNTIME_ESP_IDF_SOURCES}
     ${ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES}
@@ -42,3 +43,7 @@ idf_component_register(
     REQUIRES
         ${espectre_native_requires}
 )
+
+idf_component_get_property(espectre_mdns_dir espressif__mdns COMPONENT_DIR)
+target_include_directories(${COMPONENT_LIB} PRIVATE "${espectre_mdns_dir}/private_include")
+target_link_options(${COMPONENT_LIB} INTERFACE "LINKER:--wrap=mdns_priv_if_write")

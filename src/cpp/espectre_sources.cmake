@@ -17,6 +17,7 @@ set(ESPECTRE_RUNTIME_COMMON_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/firmware_version.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/ota_version.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/direct_websocket_protocol.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/peer_discovery.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/protocol_json.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_config_utils.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_diagnostics.cpp"
@@ -91,6 +92,7 @@ set(ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES
 set(ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/direct_websocket_service_esp_idf.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/mdns_discovery_service.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/peer_discovery_service_esp_idf.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/runtime_direct_websocket_bridge.cpp"
 )
 
@@ -112,6 +114,10 @@ set(ESPECTRE_FRONTEND_MATTER_SOURCES
 set(ESPECTRE_FRONTEND_NATIVE_SOURCES
     "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/recovery_button_service.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_frontend.cpp"
+)
+
+set(ESPECTRE_FRONTEND_NATIVE_ESP_IDF_SOURCES
+    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_shared_mdns_alias.cpp"
 )
 
 set(ESPECTRE_FRONTEND_STREAMER_SOURCES

@@ -8,6 +8,7 @@
 #include "test_harness.h"
 
 #include <string>
+#include <vector>
 
 #include "direct_websocket_service_esp_idf.h"
 #include "esp_http_server.h"
@@ -120,6 +121,105 @@ void test_dispatches_valid_request_and_sends_correlated_response_asynchronously(
   TEST_ASSERT_EQUAL_STRING("capabilities", dispatched_method.c_str());
   TEST_ASSERT_EQUAL(1, g_httpd_mock.send_calls);
   TEST_ASSERT_TRUE(std::string(g_httpd_mock.sent_payloads[0]).find("\"id\":\"req-1\"") != std::string::npos);
+}
+
+void test_deferred_response_targets_only_the_originating_live_connection() {
+  httpd_mock_reset();
+  EspIdfDirectWebSocketService service;
+  uint64_t token = 0U;
+  std::string request_id;
+  TEST_ASSERT_TRUE(service.setup_deferred(
+      config(),
+      [&token, &request_id](uint64_t connection_token, const DirectWebSocketRequest &request) {
+        token = connection_token;
+        request_id = request.id;
+        return IDirectWebSocketService::DeferredRequestResult{true, {}};
+      },
+      {}));
+  const int clients[] = {7, 8};
+  httpd_mock_set_clients(clients, 2U);
+  service.loop();
+  httpd_req_t request = request_for(service, 7);
+  httpd_mock_set_incoming(
+      "{\"v\":1,\"type\":\"request\",\"id\":\"peers-1\",\"method\":\"discover_peers\",\"params\":{}}",
+      HTTPD_WS_TYPE_TEXT,
+      true,
+      false);
+  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uri.handler(&request));
+  service.loop();
+  TEST_ASSERT_TRUE(token != 0U);
+  TEST_ASSERT_EQUAL_STRING("peers-1", request_id.c_str());
+  TEST_ASSERT_EQUAL(0, g_httpd_mock.send_calls);
+
+  TEST_ASSERT_TRUE(service.complete_deferred_response(
+      token, direct_websocket_success_response(request_id, "{\"devices\":[]}")));
+  service.loop();
+  TEST_ASSERT_EQUAL(1, g_httpd_mock.send_calls);
+  TEST_ASSERT_EQUAL(7, g_httpd_mock.sent_fds[0]);
+
+  httpd_mock_set_clients(&clients[1], 1U);
+  service.loop();
+  TEST_ASSERT_FALSE(service.complete_deferred_response(
+      token, direct_websocket_success_response(request_id, "{\"devices\":[]}")));
+}
+
+void test_deferred_responses_keep_per_client_queue_budgets_and_cannot_be_replaced_by_telemetry() {
+  httpd_mock_reset();
+  EspIdfDirectWebSocketService service;
+  DirectWebSocketServiceConfig bounded = config();
+  bounded.outbound_queue_depth = 1U;
+  std::vector<uint64_t> tokens;
+  TEST_ASSERT_TRUE(service.setup_deferred(
+      bounded,
+      [&tokens](uint64_t connection_token, const DirectWebSocketRequest &) {
+        tokens.push_back(connection_token);
+        return IDirectWebSocketService::DeferredRequestResult{true, {}};
+      },
+      {}));
+  const int clients[] = {7, 8};
+  httpd_mock_set_clients(clients, 2U);
+  service.loop();
+
+  httpd_req_t first = request_for(service, 7);
+  httpd_mock_set_incoming(
+      "{\"v\":1,\"type\":\"request\",\"id\":\"peer-a\",\"method\":\"discover_peers\",\"params\":{}}",
+      HTTPD_WS_TYPE_TEXT,
+      true,
+      false);
+  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uri.handler(&first));
+  service.loop();
+  httpd_req_t second = request_for(service, 8);
+  httpd_mock_set_incoming(
+      "{\"v\":1,\"type\":\"request\",\"id\":\"peer-b\",\"method\":\"discover_peers\",\"params\":{}}",
+      HTTPD_WS_TYPE_TEXT,
+      true,
+      false);
+  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uri.handler(&second));
+  service.loop();
+  TEST_ASSERT_EQUAL(2U, tokens.size());
+  TEST_ASSERT_TRUE(tokens[0] != tokens[1]);
+
+  TEST_ASSERT_FALSE(service.complete_deferred_response(tokens[0], {}));
+  TEST_ASSERT_FALSE(service.complete_deferred_response(
+      tokens[0], std::string(ESPECTRE_DIRECT_MAX_FRAME_SIZE + 1U, 'x')));
+  TEST_ASSERT_TRUE(service.complete_deferred_response(
+      tokens[0], direct_websocket_success_response("peer-a", "{\"devices\":[]}")));
+  TEST_ASSERT_FALSE(service.complete_deferred_response(
+      tokens[0], direct_websocket_success_response("peer-a-extra", "{}")));
+  TEST_ASSERT_TRUE(service.complete_deferred_response(
+      tokens[1], direct_websocket_success_response("peer-b", "{\"devices\":[]}")));
+  TEST_ASSERT_FALSE(service.publish_event("telemetry", "{\"movement\":0.9}", true));
+
+  service.loop();
+  TEST_ASSERT_EQUAL(2, g_httpd_mock.send_calls);
+  TEST_ASSERT_EQUAL(7, g_httpd_mock.sent_fds[0]);
+  TEST_ASSERT_EQUAL(8, g_httpd_mock.sent_fds[1]);
+  TEST_ASSERT_TRUE(std::string(g_httpd_mock.sent_payloads[0]).find("\"id\":\"peer-a\"") !=
+                   std::string::npos);
+  TEST_ASSERT_TRUE(std::string(g_httpd_mock.sent_payloads[1]).find("\"id\":\"peer-b\"") !=
+                   std::string::npos);
+  TEST_ASSERT_TRUE(std::string(g_httpd_mock.sent_payloads[0]).find("telemetry") == std::string::npos);
+  TEST_ASSERT_TRUE(std::string(g_httpd_mock.sent_payloads[1]).find("telemetry") == std::string::npos);
 }
 
 void test_first_request_notifies_client_count_before_loop_sync() {
@@ -309,6 +409,8 @@ int main() {
   RUN_TEST(test_setup_validates_configuration_and_registers_versioned_endpoint);
   RUN_TEST(test_handshake_enforces_subprotocol_origin_and_client_limit);
   RUN_TEST(test_dispatches_valid_request_and_sends_correlated_response_asynchronously);
+  RUN_TEST(test_deferred_response_targets_only_the_originating_live_connection);
+  RUN_TEST(test_deferred_responses_keep_per_client_queue_budgets_and_cannot_be_replaced_by_telemetry);
   RUN_TEST(test_first_request_notifies_client_count_before_loop_sync);
   RUN_TEST(test_rejects_bad_frames_and_rate_limits_mutations);
   RUN_TEST(test_read_requests_do_not_consume_the_mutation_budget);

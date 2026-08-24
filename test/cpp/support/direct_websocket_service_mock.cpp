@@ -22,9 +22,32 @@ bool MockDirectWebSocketService::setup(const DirectWebSocketServiceConfig &confi
   state.setup_calls += 1;
   state.last_config = config;
   state.request_handler = std::move(request_handler);
+  state.deferred_request_handler = {};
   state.client_count_callback = std::move(client_count_callback);
   state.running = state.setup_result;
   return state.setup_result;
+}
+
+bool MockDirectWebSocketService::setup_deferred(const DirectWebSocketServiceConfig &config,
+                                                DeferredRequestHandler request_handler,
+                                                ClientCountCallback client_count_callback) {
+  state.setup_calls += 1;
+  state.last_config = config;
+  state.request_handler = {};
+  state.deferred_request_handler = std::move(request_handler);
+  state.client_count_callback = std::move(client_count_callback);
+  state.running = state.setup_result;
+  return state.setup_result;
+}
+
+bool MockDirectWebSocketService::complete_deferred_response(uint64_t connection_token,
+                                                            std::string response) {
+  if (!state.running || state.client_count == 0U) {
+    return false;
+  }
+  state.last_completed_token = connection_token;
+  state.last_deferred_response = std::move(response);
+  return true;
 }
 
 void MockDirectWebSocketService::loop() {}
@@ -53,6 +76,14 @@ DirectWebSocketServiceDiagnostics MockDirectWebSocketService::diagnostics() cons
 
 std::string MockDirectWebSocketService::emit_request(const DirectWebSocketRequest &request) {
   return state.request_handler ? state.request_handler(request) : std::string{};
+}
+
+IDirectWebSocketService::DeferredRequestResult MockDirectWebSocketService::emit_deferred_request(
+    uint64_t connection_token,
+    const DirectWebSocketRequest &request) {
+  return state.deferred_request_handler
+             ? state.deferred_request_handler(connection_token, request)
+             : IDirectWebSocketService::DeferredRequestResult{};
 }
 
 void MockDirectWebSocketService::emit_client_count(size_t client_count) {

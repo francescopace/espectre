@@ -58,6 +58,12 @@ struct DirectWebSocketServiceDiagnostics {
 class IDirectWebSocketService {
  public:
   using RequestHandler = std::function<std::string(const DirectWebSocketRequest &request)>;
+  struct DeferredRequestResult {
+    bool deferred{false};
+    std::string response;
+  };
+  using DeferredRequestHandler =
+      std::function<DeferredRequestResult(uint64_t connection_token, const DirectWebSocketRequest &request)>;
   using ClientCountCallback = std::function<void(size_t client_count)>;
 
   virtual ~IDirectWebSocketService() = default;
@@ -66,6 +72,27 @@ class IDirectWebSocketService {
   virtual bool setup(const DirectWebSocketServiceConfig &config,
                      RequestHandler request_handler,
                      ClientCountCallback client_count_callback) = 0;
+  /**
+   * Configure a handler that may complete a request later.
+   *
+   * The default preserves source compatibility for external transports that
+   * implement only synchronous Direct requests. A successful deferred handler
+   * must eventually call complete_deferred_response() with the opaque token.
+   */
+  virtual bool setup_deferred(const DirectWebSocketServiceConfig &config,
+                              DeferredRequestHandler request_handler,
+                              ClientCountCallback client_count_callback) {
+    (void) config;
+    (void) request_handler;
+    (void) client_count_callback;
+    return false;
+  }
+  /** Queue a deferred response only if the originating connection is live. */
+  virtual bool complete_deferred_response(uint64_t connection_token, std::string response) {
+    (void) connection_token;
+    (void) response;
+    return false;
+  }
   /** Pump deferred receive, dispatch, and send work from the frontend task. */
   virtual void loop() = 0;
   /** Stop accepting clients, close sockets, and release queued messages. */

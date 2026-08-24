@@ -29,6 +29,10 @@ class EspIdfDirectWebSocketService final : public IDirectWebSocketService {
   bool setup(const DirectWebSocketServiceConfig &config,
              RequestHandler request_handler,
              ClientCountCallback client_count_callback) override;
+  bool setup_deferred(const DirectWebSocketServiceConfig &config,
+                      DeferredRequestHandler request_handler,
+                      ClientCountCallback client_count_callback) override;
+  bool complete_deferred_response(uint64_t connection_token, std::string response) override;
   void loop() override;
   void shutdown() override;
   bool running() const override;
@@ -47,6 +51,7 @@ class EspIdfDirectWebSocketService final : public IDirectWebSocketService {
 
   struct ClientState {
     int fd{-1};
+    uint64_t connection_token{0U};
     uint64_t mutation_window_started_us{0U};
     uint16_t mutation_count{0U};
     uint8_t consecutive_send_failures{0U};
@@ -55,7 +60,7 @@ class EspIdfDirectWebSocketService final : public IDirectWebSocketService {
   };
 
   struct PendingRequest {
-    int fd{-1};
+    uint64_t connection_token{0U};
     DirectWebSocketRequest request;
   };
 
@@ -67,6 +72,7 @@ class EspIdfDirectWebSocketService final : public IDirectWebSocketService {
   bool validate_handshake_(httpd_req_t *request);
   bool header_token_present_(httpd_req_t *request, const char *header, const char *token) const;
   ClientState *find_client_locked_(int fd);
+  ClientState *find_client_token_locked_(uint64_t connection_token);
   ClientState *ensure_client_locked_(int fd);
   bool mutation_allowed_locked_(ClientState *client, const std::string &method, uint64_t now_us);
   bool enqueue_locked_(ClientState *client, OutboundMessage message);
@@ -80,10 +86,12 @@ class EspIdfDirectWebSocketService final : public IDirectWebSocketService {
   httpd_handle_t server_{nullptr};
   DirectWebSocketServiceConfig config_{};
   RequestHandler request_handler_{};
+  DeferredRequestHandler deferred_request_handler_{};
   ClientCountCallback client_count_callback_{};
   std::vector<ClientState> clients_;
   std::deque<PendingRequest> inbound_;
   DirectWebSocketServiceDiagnostics diagnostics_{};
+  uint64_t next_connection_token_{1U};
 };
 
 }  // namespace espectre

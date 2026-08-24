@@ -8,7 +8,7 @@ The normal browser workflow is:
 
 1. Open [Flash](https://espectre.dev/flash) in a supported Chromium browser and install the Native image for the detected chip.
 2. Complete the standard Improv Serial prompt to provision Wi-Fi over USB.
-3. Open Configure with the returned device URL, or enter the device IP or `espectre-<device_id>.local` hostname manually.
+3. Open Configure with the returned device URL, or enter the private IP, device name, full 16-character device ID, or last 6 ID characters.
 4. Use Direct WebSocket to inspect status, reconcile or pin the associated BSSID, edit the device label, and add optional MQTT settings.
 5. Open Monitor and select Direct WebSocket for broker-free sensing, or MQTT for Home Assistant, automation, remote brokers, and multiple devices.
 
@@ -41,13 +41,13 @@ Direct mode provides:
 
 The endpoint never returns stored Wi-Fi or MQTT passwords. It caps frame size, mutation rate, queued messages, and concurrent clients. Telemetry may replace an older queued telemetry sample, while command results and state transitions are preserved. Each Direct client has one asynchronous send in flight. MQTT uses its own 16-message frontend queue and bounded ESP-IDF outbox. Runtime callbacks only stage numeric sensing state; serialization and transport work run after detector evaluation returns.
 
-The device advertises `_espectre._tcp` through mDNS with a stable `espectre-<device_id>.local` hostname. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) owns the SRV and TXT record contract. Run `./espectre devices --frontend native` from the repository to enumerate advertised Native endpoints on an mDNS-visible LAN. Browsers cannot enumerate DNS-SD directly, so Configure and Monitor always accept a manual IP address or `.local` hostname. Successful non-secret endpoints can be remembered or shared through a credential-free QR link.
+The device advertises `_espectre._tcp` through mDNS with a stable `espectre-<device_id>.local` hostname. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) owns the SRV and TXT record contract. Run `./espectre devices --frontend native` from the repository to enumerate advertised Native endpoints on an mDNS-visible LAN. Configure and Monitor present only private IP, device-ID, and device-name inputs: the portal maps a full ID to the unique hostname internally, while a name or 6-character suffix uses automatic discovery. One match connects directly, and multiple matches require explicit selection. Successful non-secret device references can be remembered or shared through a credential-free QR link.
 
 Hosted HTTPS access to a local cleartext WebSocket depends on browser policy. The portal path supports Chrome 147 or later on desktop through Local Network Access; Chrome 151 on macOS passed the hosted HTTPS validation path against a physical ESP32-C3. Firefox and Safari block the hosted HTTPS-to-`ws://` workflow under their mixed-content policy; Edge and mobile Chrome remain unclaimed until their physical browser runs are recorded. If the hosted path is unavailable, serve the portal locally as described in [`docs/web/README.md`](../../../../docs/web/README.md).
 
 ## Wi-Fi Provisioning and Recovery
 
-Standard Improv Serial remains available through the primary serial console. It owns initial Wi-Fi provisioning and returns the post-connect device URL. Custom BSSID, device-label, MQTT, sensing, and OTA operations belong to Direct WebSocket.
+Standard Improv Serial remains available through the primary serial console. It owns initial Wi-Fi provisioning and returns `https://espectre.dev/tools/configure/?target=<device-ip>`; Configure uses the target to prefill its Direct connection field. The same parameter also accepts a device name or ID when a browser link is shared. Custom BSSID, device-label, MQTT, sensing, and OTA operations belong to Direct WebSocket.
 
 Remote Wi-Fi changes are staged. Native attempts the candidate network, commits it only after association and address acquisition, and rolls back to the last-known-good settings when the attempt fails or times out. After a successful commit or rollback, Native reboots once so the ESP32-C3 radio returns with a fresh CSI capture session; Direct and MQTT clients should reconnect after the device address becomes reachable again. If an optional BSSID is unavailable, the provisioning policy can retry the same SSID without the pin instead of permanently stranding the device.
 
@@ -65,6 +65,14 @@ Frontend-owned defaults in [`Kconfig.projbuild`](espectre/Kconfig.projbuild) are
 | `ESPECTRE_RECOVERY_BUTTON_*` | Physical recovery GPIO and hold policy |
 
 ESP32-C5 can use `5g` or `auto`; the other supported Native targets use `2g`. Sensing remains HT20.
+
+## Automatic Discovery
+
+Native publishes the shared IPv4 bootstrap alias `espectre-devices.local` and exposes the capability-gated Direct method `discover_peers`. Configure and Monitor use these details internally to contact one eligible Native responder, request a bounded fresh `_espectre._tcp.local.` browse, and then connect to the selected Native, Streamer, ESPHome, or Matter endpoint at its advertised port. The selected device's exact Direct capability handshake controls which web configuration and runtime actions are shown; the frontend label and coarse DNS-SD capabilities are not authorization or UI feature gates. The alias is never retained as device identity, and private IP, full ID, unique short ID, remembered device, Improv, QR, and share-link paths remain available.
+
+The bootstrap responder uses Native Direct on port 80 and IPv4 only; discovered endpoints retain their own advertised port, including ESPHome on port 6054. Shared alias answers use a 10-second TTL, the browser bounds the bootstrap connection to 10 seconds, and the responder bounds each peer query to 3 seconds. A result contains at most eight devices and two addresses per device; concurrent requests are rejected. Firmware accepts only canonical Native, Streamer, ESPHome, and Matter records with validated on-link IPv4 endpoints and returns no credentials, configuration secrets, telemetry, CSI, or broker details.
+
+Automatic discovery requires working local multicast and client reachability. Multicast filtering, wireless client isolation, resolver restrictions, or the absence of a reachable Native bootstrap responder cause the portal to return to manual entry. Hosted Chrome 151 on macOS validated the complete automatic-discovery journey and responder failover; other browser and platform combinations remain subject to the support boundary described above.
 
 ## Optional MQTT and Home Assistant
 
@@ -123,7 +131,7 @@ Reconnect over Improv Serial and provision the network again. If a BSSID pin is 
 
 ### The device address changed or a saved endpoint is stale
 
-Try `espectre-<device_id>.local`, then check the router lease table for the current address. Use the portal's forget action to remove a stale remembered endpoint before entering the current IP address or `.local` hostname. If the browser reports an Origin, mixed-content, or local-network permission error, use a claimed browser, grant access only for the ESPectre portal, and confirm that the device is still on the same trusted LAN.
+Enter the full device ID or use Auto-discovery, then check the router lease table for the current address. Use the portal's forget action to remove a stale remembered device before entering the current private IP or ID. If the browser reports an Origin, mixed-content, or local-network permission error, use a claimed browser, grant access only for the ESPectre portal, and confirm that the device is still on the same trusted LAN.
 
 ### OTA failed or an older release is required
 

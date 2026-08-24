@@ -33,7 +33,10 @@ struct State {
   DirectWebSocketServiceDiagnostics diagnostics;
   std::vector<PublishedEvent> published_events;
   IDirectWebSocketService::RequestHandler request_handler;
+  IDirectWebSocketService::DeferredRequestHandler deferred_request_handler;
   IDirectWebSocketService::ClientCountCallback client_count_callback;
+  uint64_t last_completed_token{0U};
+  std::string last_deferred_response;
 };
 
 extern State state;
@@ -45,6 +48,10 @@ class MockDirectWebSocketService : public IDirectWebSocketService {
   bool setup(const DirectWebSocketServiceConfig &config,
              RequestHandler request_handler,
              ClientCountCallback client_count_callback) override;
+  bool setup_deferred(const DirectWebSocketServiceConfig &config,
+                      DeferredRequestHandler request_handler,
+                      ClientCountCallback client_count_callback) override;
+  bool complete_deferred_response(uint64_t connection_token, std::string response) override;
   void loop() override;
   void shutdown() override;
   bool running() const override;
@@ -55,6 +62,8 @@ class MockDirectWebSocketService : public IDirectWebSocketService {
   DirectWebSocketServiceDiagnostics diagnostics() const override;
 
   std::string emit_request(const DirectWebSocketRequest &request);
+  DeferredRequestResult emit_deferred_request(uint64_t connection_token,
+                                              const DirectWebSocketRequest &request);
   void emit_client_count(size_t client_count);
 };
 

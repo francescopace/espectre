@@ -79,7 +79,7 @@ add_espectre_test(test_wifi_lifecycle_dual_band
 
 add_espectre_test(test_mdns_discovery_service
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_mdns_discovery_service.cpp"
-    LIBRARIES espectre_runtime_testlib
+    LIBRARIES espectre_runtime_testlib espectre_native_mdns_alias_testlib
 )
 
 add_espectre_test(test_direct_websocket_service

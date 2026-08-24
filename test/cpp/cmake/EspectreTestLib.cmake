@@ -79,6 +79,7 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/periodic_sensing_status_logger.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/espectre_protocol.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/direct_websocket_protocol.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/peer_discovery.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/protocol_json.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_config_utils.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_diagnostics.cpp"
@@ -100,6 +101,7 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stream_runtime_factory.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stream_esp_idf_runtime.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/mdns_discovery_service.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/peer_discovery_service_esp_idf.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/streamer_discovery_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/sta_socket_helpers.cpp"
@@ -126,6 +128,18 @@ target_link_libraries(espectre_runtime_testlib
 
 add_library(espectre_direct_service_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/direct_websocket_service_esp_idf.cpp"
+)
+
+add_library(espectre_native_mdns_alias_testlib STATIC
+    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_shared_mdns_alias.cpp"
+)
+target_link_libraries(espectre_native_mdns_alias_testlib
+    PUBLIC
+        espectre_test_mocks
+)
+target_include_directories(espectre_native_mdns_alias_testlib
+    PUBLIC
+        "${ESPECTRE_CPP_ROOT}/frontend/native/espectre"
 )
 
 add_library(espectre_mqtt_transport_testlib STATIC

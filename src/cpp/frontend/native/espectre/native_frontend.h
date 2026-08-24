@@ -20,6 +20,7 @@
 #include "frontend_ha_mqtt_helpers.h"
 #include "mqtt_transport.h"
 #include "ota_service.h"
+#include "peer_discovery.h"
 #include "runtime_diagnostics.h"
 #include "runtime_events.h"
 #include "runtime_frontend_controller.h"
@@ -48,6 +49,7 @@ class NativeFrontend : public IRuntimeListener {
   void set_runtime_config(const RuntimeConfig &config);
   void set_device_config(const EspectreDeviceConfig &config);
   void set_device_info(const EspectreDeviceInfo &info);
+  void set_peer_discovery_service(IPeerDiscoveryService *service);
   void set_wifi_provisioning_info(const WifiProvisioningInfo &info);
   void set_provisioning_command_callback(ProvisioningCommandCallback callback);
   void set_device_config_change_callback(DeviceConfigChangeCallback callback);
@@ -80,6 +82,9 @@ class NativeFrontend : public IRuntimeListener {
   void handle_mqtt_command_(const std::string &payload);
   FrontendCommandResult dispatch_command_(const EspectreCommand &command, bool allow_local_config);
   std::string handle_direct_request_(const DirectWebSocketRequest &request);
+  IDirectWebSocketService::DeferredRequestResult handle_deferred_direct_request_(
+      uint64_t connection_token,
+      const DirectWebSocketRequest &request);
   std::string direct_capabilities_payload_() const;
   std::string direct_status_payload_() const;
   std::string direct_config_payload_() const;
@@ -139,6 +144,7 @@ class NativeFrontend : public IRuntimeListener {
   IMqttTransport *mqtt_transport_{nullptr};
   IOtaService *ota_service_{nullptr};
   IDirectWebSocketService *direct_service_{nullptr};
+  IPeerDiscoveryService *peer_discovery_{nullptr};
   ProvisioningCommandCallback provisioning_command_callback_{};
   DeviceConfigChangeCallback device_config_change_callback_{};
   RuntimeFrontendController runtime_;
@@ -160,6 +166,7 @@ class NativeFrontend : public IRuntimeListener {
   size_t direct_client_count_{0U};
   bool ota_frontend_quiesced_{false};
   bool wifi_reconfigure_quiesced_{false};
+  bool peer_discovery_enabled_{false};
   float last_loop_time_ms_{0.0f};
 };
 

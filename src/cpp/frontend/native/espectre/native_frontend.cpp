@@ -139,6 +139,17 @@ void NativeFrontend::set_device_config(const EspectreDeviceConfig &config) {
 
 void NativeFrontend::set_device_info(const EspectreDeviceInfo &info) {
   device_info_ = info;
+  if (peer_discovery_ != nullptr) {
+    peer_discovery_->set_wifi_ready(!device_info_.network.ip_address.empty());
+  }
+  refresh_direct_service_();
+}
+
+void NativeFrontend::set_peer_discovery_service(IPeerDiscoveryService *service) {
+  peer_discovery_ = service;
+  if (peer_discovery_ != nullptr) {
+    peer_discovery_->set_wifi_ready(!device_info_.network.ip_address.empty());
+  }
   refresh_direct_service_();
 }
 
@@ -215,6 +226,9 @@ void NativeFrontend::loop() {
   if (direct_service_ != nullptr && direct_service_->running()) {
     direct_service_->loop();
   }
+  if (peer_discovery_ != nullptr) {
+    peer_discovery_->loop();
+  }
   if (ota_service_ != nullptr) {
     ota_service_->loop();
   }
@@ -230,6 +244,9 @@ void NativeFrontend::shutdown() {
   pending_ha_discovery_index_ = 0U;
   pending_ha_state_ = false;
   stop_direct_service_();
+  if (peer_discovery_ != nullptr) {
+    peer_discovery_->shutdown();
+  }
   update_live_telemetry_enabled_();
   publish_mqtt_status_(false);
   runtime_.shutdown();
@@ -580,6 +597,45 @@ std::string NativeFrontend::handle_direct_request_(const DirectWebSocketRequest 
   return direct_websocket_success_response(request.id, response);
 }
 
+IDirectWebSocketService::DeferredRequestResult NativeFrontend::handle_deferred_direct_request_(
+    uint64_t connection_token,
+    const DirectWebSocketRequest &request) {
+  if (request.method != ESPECTRE_PEER_DISCOVERY_METHOD) {
+    return {false, handle_direct_request_(request)};
+  }
+  if (!peer_discovery_enabled_ || peer_discovery_ == nullptr) {
+    return {false,
+            direct_websocket_error_response(
+                request.id, "unsupported_capability", "peer discovery is unavailable")};
+  }
+  std::vector<JsonObjectField> params;
+  if (!parse_json_object_fields(request.params, &params) || !params.empty()) {
+    return {false,
+            direct_websocket_error_response(
+                request.id, "invalid_params", "discover_peers does not accept parameters")};
+  }
+  if (peer_discovery_->active()) {
+    return {false,
+            direct_websocket_error_response(
+                request.id, "conflict", "a peer discovery request is already active")};
+  }
+  const bool started = peer_discovery_->start(
+      [this, connection_token, request_id = request.id](PeerDiscoverySnapshot snapshot) {
+        if (this->direct_service_ == nullptr) {
+          return;
+        }
+        const std::string result = peer_discovery_snapshot_json(snapshot);
+        (void) this->direct_service_->complete_deferred_response(
+            connection_token, direct_websocket_success_response(request_id, result));
+      });
+  if (!started) {
+    return {false,
+            direct_websocket_error_response(
+                request.id, "unavailable", "peer discovery could not be started")};
+  }
+  return {true, {}};
+}
+
 std::string NativeFrontend::direct_capabilities_payload_() const {
   const RuntimeCapabilities &runtime_capabilities = runtime_.capabilities();
   std::string out{"{"};
@@ -605,6 +661,9 @@ std::string NativeFrontend::direct_capabilities_payload_() const {
   }
   if (ota_service_ != nullptr) {
     out += ",\"ota_status\",\"ota_check\",\"ota_start\"";
+  }
+  if (peer_discovery_enabled_) {
+    out += ",\"discover_peers\"";
   }
   out += "],\"events\":[\"capabilities\",\"info\",\"status\",\"telemetry\",\"diagnostics\",\"config\",\"ota_status\",\"command_result\",\"fault\"]";
   out += ",\"home_assistant_discovery\":\"mqtt_only\",\"raw_csi\":false}";
@@ -879,18 +938,33 @@ void NativeFrontend::refresh_direct_service_() {
   if (direct_service_->running()) {
     return;
   }
+  peer_discovery_enabled_ = false;
 
   DirectWebSocketServiceConfig config = DirectWebSocketServiceConfig::for_first_party_portals();
 #if defined(CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED) && CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED
   config.allow_http_loopback_origins = true;
 #endif
-  if (!direct_service_->setup(
-          config,
-          [this](const DirectWebSocketRequest &request) { return this->handle_direct_request_(request); },
-          [this](size_t client_count) {
-            this->direct_client_count_ = client_count;
-            this->update_live_telemetry_enabled_();
-          })) {
+  const auto client_count_changed = [this](size_t client_count) {
+    this->direct_client_count_ = client_count;
+    this->update_live_telemetry_enabled_();
+  };
+  bool setup = false;
+  if (peer_discovery_ != nullptr) {
+    setup = direct_service_->setup_deferred(
+        config,
+        [this](uint64_t token, const DirectWebSocketRequest &request) {
+          return this->handle_deferred_direct_request_(token, request);
+        },
+        client_count_changed);
+    peer_discovery_enabled_ = setup;
+  }
+  if (!setup) {
+    setup = direct_service_->setup(
+        config,
+        [this](const DirectWebSocketRequest &request) { return this->handle_direct_request_(request); },
+        client_count_changed);
+  }
+  if (!setup) {
     ESP_LOGE(TAG, "Direct WebSocket service setup failed");
   }
 }
@@ -900,6 +974,7 @@ void NativeFrontend::stop_direct_service_() {
     direct_service_->shutdown();
   }
   direct_client_count_ = 0U;
+  peer_discovery_enabled_ = false;
 }
 
 void NativeFrontend::publish_direct_event_(const char *event_name,

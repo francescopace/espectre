@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import IntEnum
+import ipaddress
 import json
 import time
 from typing import Callable, Protocol, Sequence
@@ -315,15 +316,16 @@ def direct_endpoint_from_device_url(device_url: str) -> str:
     parsed = urlsplit(device_url)
     if parsed.scheme not in {"http", "https", "ws", "wss"} or not parsed.hostname:
         raise ValueError("Improv returned an invalid device URL")
-    endpoint_values = parse_qs(parsed.query, strict_parsing=False).get("endpoint", [])
-    if endpoint_values:
-        if len(endpoint_values) != 1:
-            raise ValueError("Improv returned multiple Direct endpoints")
-        direct = urlsplit(endpoint_values[0])
-        if direct.scheme not in {"ws", "wss"} or not direct.hostname:
-            raise ValueError("Improv returned an invalid Direct endpoint")
-        path = direct.path or DIRECT_PATH
-        return urlunsplit((direct.scheme, direct.netloc, path, "", ""))
+    target_values = parse_qs(parsed.query, strict_parsing=False).get("target", [])
+    if target_values:
+        if len(target_values) != 1:
+            raise ValueError("Improv returned multiple device targets")
+        try:
+            address = ipaddress.ip_address(target_values[0])
+        except ValueError as error:
+            raise ValueError("Improv returned an invalid device target") from error
+        host = f"[{address}]" if address.version == 6 else str(address)
+        return urlunsplit(("ws", host, DIRECT_PATH, "", ""))
     if parsed.scheme in {"ws", "wss"}:
         return urlunsplit((parsed.scheme, parsed.netloc, parsed.path or DIRECT_PATH, "", ""))
     scheme = "wss" if parsed.scheme == "https" else "ws"

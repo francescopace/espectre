@@ -167,13 +167,10 @@ def test_improv_client_ignores_current_state_url_before_device_info():
     assert serial.closed
 
 
-def test_improv_portal_url_preserves_encoded_direct_endpoint():
-    device_url = (
-        "https://espectre.dev/?transport=ws&"
-        "endpoint=ws%3A%2F%2F192.0.2.10%3A80%2Fespectre%2Fv1%2Fws%23configure"
-    )
-
-    assert direct_endpoint_from_device_url(device_url) == "ws://192.0.2.10:80/espectre/v1/ws"
+def test_improv_portal_url_builds_direct_endpoint_from_device_ip():
+    assert direct_endpoint_from_device_url(
+        "https://espectre.dev/tools/configure/?target=192.0.2.10"
+    ) == "ws://192.0.2.10/espectre/v1/ws"
     assert direct_endpoint_from_device_url("ws://192.0.2.10/custom") == "ws://192.0.2.10/custom"
 
 

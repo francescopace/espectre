@@ -38,7 +38,8 @@ constexpr uint8_t kMaxConsecutiveSendFailures = 3U;
 
 bool read_only_method(const std::string &method) {
   return method == "capabilities" || method == "info" || method == "commands" || method == "status" ||
-         method == "config" || method == "diagnostics" || method == "stats" || method == "ota_status";
+         method == "config" || method == "diagnostics" || method == "stats" || method == "ota_status" ||
+         method == "discover_peers";
 }
 
 bool valid_loopback_port_suffix(const std::string &suffix) {
@@ -104,6 +105,7 @@ bool EspIdfDirectWebSocketService::setup(const DirectWebSocketServiceConfig &con
   shutdown();
   config_ = config;
   request_handler_ = std::move(request_handler);
+  deferred_request_handler_ = {};
   client_count_callback_ = std::move(client_count_callback);
 
   httpd_config_t http_config = HTTPD_DEFAULT_CONFIG();
@@ -137,6 +139,36 @@ bool EspIdfDirectWebSocketService::setup(const DirectWebSocketServiceConfig &con
   return true;
 }
 
+bool EspIdfDirectWebSocketService::setup_deferred(const DirectWebSocketServiceConfig &config,
+                                                  DeferredRequestHandler request_handler,
+                                                  ClientCountCallback client_count_callback) {
+  if (!request_handler) {
+    return false;
+  }
+  const bool started = setup(config, [](const DirectWebSocketRequest &) { return std::string{}; },
+                             std::move(client_count_callback));
+  if (started) {
+    request_handler_ = {};
+    deferred_request_handler_ = std::move(request_handler);
+  }
+  return started;
+}
+
+bool EspIdfDirectWebSocketService::complete_deferred_response(uint64_t connection_token,
+                                                              std::string response) {
+  if (response.empty() || response.size() > ESPECTRE_DIRECT_MAX_FRAME_SIZE || !lock_()) {
+    return false;
+  }
+  ClientState *client = find_client_token_locked_(connection_token);
+  const bool queued = client != nullptr &&
+                      enqueue_locked_(client, OutboundMessage{std::move(response), {}, false});
+  if (!queued && client != nullptr) {
+    diagnostics_.send_failures += 1U;
+  }
+  unlock_();
+  return queued;
+}
+
 void EspIdfDirectWebSocketService::loop() {
   if (server_ == nullptr) {
     return;
@@ -153,10 +185,25 @@ void EspIdfDirectWebSocketService::loop() {
     }
     unlock_();
   }
-  if (have_request && request_handler_) {
-    std::string response = request_handler_(pending.request);
+  if (have_request && (request_handler_ || deferred_request_handler_)) {
+    bool deferred = false;
+    std::string response;
+    if (deferred_request_handler_) {
+      DeferredRequestResult result = deferred_request_handler_(pending.connection_token, pending.request);
+      deferred = result.deferred;
+      response = std::move(result.response);
+    } else {
+      response = request_handler_(pending.request);
+    }
+    if (deferred) {
+      send_queued_();
+      return;
+    }
+    if (response.empty()) {
+      response = direct_websocket_error_response(pending.request.id, "internal_error", "empty Direct response");
+    }
     if (lock_()) {
-      ClientState *client = find_client_locked_(pending.fd);
+      ClientState *client = find_client_token_locked_(pending.connection_token);
       if (client != nullptr && !enqueue_locked_(client, OutboundMessage{std::move(response), {}, false})) {
         diagnostics_.send_failures += 1U;
       }
@@ -178,6 +225,8 @@ void EspIdfDirectWebSocketService::shutdown() {
     diagnostics_.queued_messages = 0U;
     unlock_();
   }
+  request_handler_ = {};
+  deferred_request_handler_ = {};
   notify_client_count_(0U);
 }
 
@@ -331,7 +380,7 @@ esp_err_t EspIdfDirectWebSocketService::handle_websocket_(httpd_req_t *request) 
     const uint64_t now_us = static_cast<uint64_t>(esp_timer_get_time());
     const bool mutation_allowed = mutation_allowed_locked_(client, direct_request.method, now_us);
     if (client != nullptr && mutation_allowed && inbound_.size() < config_.outbound_queue_depth) {
-      inbound_.push_back(PendingRequest{fd, std::move(direct_request)});
+      inbound_.push_back(PendingRequest{client->connection_token, std::move(direct_request)});
       queued = true;
     } else if (client != nullptr) {
       diagnostics_.rate_limited_requests += 1U;
@@ -443,6 +492,14 @@ EspIdfDirectWebSocketService::ClientState *EspIdfDirectWebSocketService::find_cl
   return it == clients_.end() ? nullptr : &*it;
 }
 
+EspIdfDirectWebSocketService::ClientState *
+EspIdfDirectWebSocketService::find_client_token_locked_(uint64_t connection_token) {
+  const auto it = std::find_if(clients_.begin(), clients_.end(), [connection_token](const ClientState &client) {
+    return client.connection_token == connection_token;
+  });
+  return it == clients_.end() ? nullptr : &*it;
+}
+
 EspIdfDirectWebSocketService::ClientState *EspIdfDirectWebSocketService::ensure_client_locked_(int fd) {
   ClientState *client = find_client_locked_(fd);
   if (client != nullptr) {
@@ -453,6 +510,10 @@ EspIdfDirectWebSocketService::ClientState *EspIdfDirectWebSocketService::ensure_
   }
   clients_.push_back(ClientState{});
   clients_.back().fd = fd;
+  clients_.back().connection_token = next_connection_token_++;
+  if (next_connection_token_ == 0U) {
+    next_connection_token_ = 1U;
+  }
   diagnostics_.accepted_connections += 1U;
   return &clients_.back();
 }

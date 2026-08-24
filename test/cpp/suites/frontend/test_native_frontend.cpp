@@ -31,6 +31,39 @@ using espectre::ota_service_mock::MockOtaService;
 
 namespace {
 
+class MockPeerDiscoveryService final : public IPeerDiscoveryService {
+ public:
+  void set_wifi_ready(bool ready) override { wifi_ready = ready; }
+  bool ready() const override { return wifi_ready && !query_active; }
+  bool active() const override { return query_active; }
+  bool start(Completion next_completion) override {
+    start_calls += 1;
+    if (!start_result || !ready() || !next_completion) return false;
+    completion = std::move(next_completion);
+    query_active = true;
+    return true;
+  }
+  void loop() override {}
+  void shutdown() override {
+    shutdown_calls += 1;
+    query_active = false;
+    completion = {};
+  }
+  void finish(PeerDiscoverySnapshot snapshot) {
+    query_active = false;
+    Completion current = std::move(completion);
+    completion = {};
+    if (current) current(std::move(snapshot));
+  }
+
+  bool wifi_ready{false};
+  bool query_active{false};
+  bool start_result{true};
+  size_t start_calls{0U};
+  size_t shutdown_calls{0U};
+  Completion completion{};
+};
+
 RuntimeSnapshot make_ready_snapshot() {
   RuntimeSnapshot snapshot{};
   snapshot.ready_to_publish = true;
@@ -1324,6 +1357,82 @@ void test_native_frontend_direct_requests_share_command_dispatch_and_return_corr
   TEST_ASSERT_TRUE(invalid_response.find("invalid_params") != std::string::npos);
 }
 
+void test_native_frontend_peer_discovery_is_capability_gated_correlated_and_bounded(void) {
+  MockDirectWebSocketService direct;
+  MockPeerDiscoveryService peers;
+  NativeFrontend frontend(nullptr, nullptr, &direct);
+  frontend.set_peer_discovery_service(&peers);
+  EspectreDeviceInfo info;
+  info.frontend = "native";
+  info.network.ip_address = "192.168.1.42";
+  frontend.set_device_info(info);
+  TEST_ASSERT_TRUE(frontend.setup());
+  direct.emit_client_count(1U);
+
+  auto capabilities = direct.emit_deferred_request(
+      77U, DirectWebSocketRequest{"caps", "capabilities", "{}"});
+  TEST_ASSERT_FALSE(capabilities.deferred);
+  TEST_ASSERT_TRUE(capabilities.response.find("\"discover_peers\"") != std::string::npos);
+
+  auto request = direct.emit_deferred_request(
+      77U, DirectWebSocketRequest{"peers-1", "discover_peers", "{}"});
+  TEST_ASSERT_TRUE(request.deferred);
+  TEST_ASSERT_TRUE(peers.active());
+  auto invalid = direct.emit_deferred_request(
+      77U, DirectWebSocketRequest{"peers-invalid", "discover_peers", "{\"unexpected\":true}"});
+  TEST_ASSERT_FALSE(invalid.deferred);
+  TEST_ASSERT_TRUE(invalid.response.find("\"code\":\"invalid_params\"") != std::string::npos);
+  auto conflict = direct.emit_deferred_request(
+      88U, DirectWebSocketRequest{"peers-2", "discover_peers", "{}"});
+  TEST_ASSERT_FALSE(conflict.deferred);
+  TEST_ASSERT_TRUE(conflict.response.find("\"code\":\"conflict\"") != std::string::npos);
+
+  PeerDiscoverySnapshot snapshot;
+  snapshot.elapsed_ms = 42U;
+  snapshot.timed_out = true;
+  peers.finish(snapshot);
+  TEST_ASSERT_EQUAL(77U, direct_websocket_service_mock::state.last_completed_token);
+  TEST_ASSERT_TRUE(direct_websocket_service_mock::state.last_deferred_response.find(
+                       "\"id\":\"peers-1\"") != std::string::npos);
+  TEST_ASSERT_TRUE(direct_websocket_service_mock::state.last_deferred_response.find(
+                       "\"elapsed_ms\":42") != std::string::npos);
+  TEST_ASSERT_TRUE(direct_websocket_service_mock::state.last_deferred_response.find(
+                       "\"status\":\"timeout\"") != std::string::npos);
+
+  peers.start_result = false;
+  auto unavailable = direct.emit_deferred_request(
+      77U, DirectWebSocketRequest{"peers-unavailable", "discover_peers", "{}"});
+  TEST_ASSERT_FALSE(unavailable.deferred);
+  TEST_ASSERT_TRUE(unavailable.response.find("\"code\":\"unavailable\"") != std::string::npos);
+}
+
+void test_native_frontend_peer_discovery_drops_completion_after_wifi_loss_and_shutdown(void) {
+  MockDirectWebSocketService direct;
+  MockPeerDiscoveryService peers;
+  NativeFrontend frontend(nullptr, nullptr, &direct);
+  frontend.set_peer_discovery_service(&peers);
+  EspectreDeviceInfo info;
+  info.frontend = "native";
+  info.network.ip_address = "192.168.1.42";
+  frontend.set_device_info(info);
+  TEST_ASSERT_TRUE(frontend.setup());
+  direct.emit_client_count(1U);
+
+  auto request = direct.emit_deferred_request(
+      99U, DirectWebSocketRequest{"peers-wifi-loss", "discover_peers", "{}"});
+  TEST_ASSERT_TRUE(request.deferred);
+  TEST_ASSERT_TRUE(peers.active());
+  info.network.ip_address.clear();
+  frontend.set_device_info(info);
+  TEST_ASSERT_FALSE(direct_websocket_service_mock::state.running);
+  TEST_ASSERT_FALSE(peers.wifi_ready);
+  peers.finish(PeerDiscoverySnapshot{});
+  TEST_ASSERT_EQUAL(0U, direct_websocket_service_mock::state.last_completed_token);
+
+  frontend.shutdown();
+  TEST_ASSERT_EQUAL(1U, peers.shutdown_calls);
+}
+
 void test_native_frontend_direct_telemetry_uses_replaceable_event_queue(void) {
   frontend_runtime_shim::state.snapshot = make_ready_snapshot();
   MockDirectWebSocketService direct;
@@ -1616,6 +1725,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_recovery_button_requires_one_complete_long_press);
   RUN_TEST(test_native_frontend_direct_service_follows_station_address_lifecycle);
   RUN_TEST(test_native_frontend_direct_requests_share_command_dispatch_and_return_correlated_results);
+  RUN_TEST(test_native_frontend_peer_discovery_is_capability_gated_correlated_and_bounded);
+  RUN_TEST(test_native_frontend_peer_discovery_drops_completion_after_wifi_loss_and_shutdown);
   RUN_TEST(test_native_frontend_direct_telemetry_uses_replaceable_event_queue);
   RUN_TEST(test_native_frontend_direct_updates_bssid_and_mqtt_without_returning_secrets);
   RUN_TEST(test_native_frontend_direct_exposes_portal_reads_without_secrets);

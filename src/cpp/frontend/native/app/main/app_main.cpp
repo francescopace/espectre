@@ -12,11 +12,13 @@
 
 #include <esp_err.h>
 #include <esp_log.h>
+#include <esp_netif.h>
 #include <esp_system.h>
 #include <esp_timer.h>
 #include <driver/gpio.h>
 
 #include "native_frontend.h"
+#include "native_shared_mdns_alias.h"
 #include "recovery_button_service.h"
 #include "device_config_store.h"
 #include "direct_websocket_protocol.h"
@@ -30,6 +32,7 @@
 #include "improv_serial_service.h"
 #include "mdns_discovery_service.h"
 #include "ota_service_https.h"
+#include "peer_discovery_service_esp_idf.h"
 #include "mqtt_transport_esp_idf.h"
 #include "runtime_motion_hits_store.h"
 #include "runtime_sensing_kconfig.h"
@@ -55,9 +58,14 @@ espectre::NativeFrontend *g_frontend = nullptr;
 espectre::RecoveryButtonService *g_recovery_button = nullptr;
 espectre::ImprovSerialService *g_improv_serial = nullptr;
 espectre::MdnsDiscoveryService *g_mdns_discovery = nullptr;
+espectre::NativeSharedMdnsAlias *g_shared_mdns_alias = nullptr;
 bool g_restart_after_wifi_apply = false;
 espectre::StandaloneWifiService g_wifi_manager;
 espectre::WifiProvisioningService g_wifi_provisioning(&g_wifi_manager);
+
+const char *native_capabilities() {
+  return "config,monitor,ota,peer_discovery";
+}
 
 espectre::MdnsTxtRecords native_mdns_txt(const espectre::EspectreDeviceConfig &config) {
   return {
@@ -70,8 +78,29 @@ espectre::MdnsTxtRecords native_mdns_txt(const espectre::EspectreDeviceConfig &c
       {"firmware", espectre::espectre_firmware_version()},
       {"chip", CONFIG_IDF_TARGET},
       {"tls", "0"},
-      {"capabilities", "config,monitor,ota"},
+      {"capabilities", native_capabilities()},
   };
+}
+
+espectre::PeerDiscoveryCandidate native_peer_candidate(
+    const espectre::EspectreDeviceConfig &config,
+    const std::string &instance_name) {
+  const std::string device_id = espectre::format_espectre_device_id(config.device_id);
+  espectre::PeerDiscoveryCandidate candidate;
+  candidate.instance = instance_name;
+  candidate.hostname = "espectre-" + device_id;
+  candidate.device_id = device_id;
+  candidate.name = instance_name;
+  candidate.frontend = "native";
+  candidate.txt_version = "1";
+  candidate.protocol_version = "1";
+  candidate.path = espectre::ESPECTRE_DIRECT_WEBSOCKET_ENDPOINT;
+  candidate.firmware = espectre::espectre_firmware_version();
+  candidate.chip = CONFIG_IDF_TARGET;
+  candidate.tls = "0";
+  candidate.capabilities = native_capabilities();
+  candidate.port = 80U;
+  return candidate;
 }
 
 std::string improv_device_url() {
@@ -79,8 +108,7 @@ std::string improv_device_url() {
   if (!g_wifi_manager.get_info(&wifi_info) || !wifi_info.connected || wifi_info.ip_address[0] == '\0') {
     return {};
   }
-  return std::string("https://espectre.dev/?transport=ws&endpoint=ws%3A%2F%2F") + wifi_info.ip_address +
-         "%3A80%2Fespectre%2Fv1%2Fws#configure";
+  return std::string("https://espectre.dev/tools/configure/?target=") + wifi_info.ip_address;
 }
 
 void sync_frontend_wifi_info() {
@@ -113,8 +141,21 @@ void sync_frontend_wifi_info() {
   if (g_mdns_discovery != nullptr) {
     if (wifi_info.connected) {
       g_mdns_discovery->on_wifi_connected();
+      if (g_shared_mdns_alias != nullptr) {
+        esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+        esp_netif_ip_info_t ip_info{};
+        if (netif != nullptr && esp_netif_get_ip_info(netif, &ip_info) == ESP_OK) {
+          if (!g_shared_mdns_alias->published()) {
+            (void) g_shared_mdns_alias->setup("espectre-devices");
+          }
+          (void) g_shared_mdns_alias->update(ip_info.ip.addr);
+        }
+      }
     } else {
       g_mdns_discovery->on_wifi_disconnected();
+      if (g_shared_mdns_alias != nullptr) {
+        g_shared_mdns_alias->shutdown();
+      }
     }
   }
 }
@@ -248,6 +289,8 @@ extern "C" void app_main() {
   static espectre::EspIdfMqttTransport mqtt_transport;
   static espectre::EspIdfDirectWebSocketService direct_service;
   static espectre::MdnsDiscoveryService mdns_discovery;
+  static espectre::NativeSharedMdnsAlias shared_mdns_alias;
+  static espectre::EspIdfPeerDiscoveryService peer_discovery;
   static espectre::HttpsOtaService ota_service("native", CONFIG_IDF_TARGET, kOtaReleaseChannel);
   static espectre::NativeFrontend frontend(&mqtt_transport, &ota_service, &direct_service);
   const espectre::EspectreDeviceConfig device_config = make_device_config();
@@ -265,6 +308,13 @@ extern "C" void app_main() {
     return;
   }
   g_mdns_discovery = &mdns_discovery;
+  if (!shared_mdns_alias.setup("espectre-devices")) {
+    ESP_LOGE(TAG, "Failed to initialize shared mDNS bootstrap alias");
+    return;
+  }
+  g_shared_mdns_alias = &shared_mdns_alias;
+  peer_discovery.set_local_candidate(native_peer_candidate(device_config, mdns_name));
+  frontend.set_peer_discovery_service(&peer_discovery);
   frontend.set_runtime_config(make_runtime_config());
   frontend.set_device_config(device_config);
   g_frontend = &frontend;
@@ -277,6 +327,11 @@ extern "C" void app_main() {
   }
   g_wifi_provisioning.set_reconfigure_callbacks(
       []() {
+        // Send the shared-record goodbye while the station interface is still
+        // usable. The later disconnect callback is too late for mDNS to write.
+        if (g_shared_mdns_alias != nullptr) {
+          g_shared_mdns_alias->shutdown();
+        }
         if (g_frontend != nullptr) {
           g_frontend->prepare_for_wifi_reconfigure();
         }

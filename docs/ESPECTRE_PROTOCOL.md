@@ -65,6 +65,46 @@ Services are enabled only while the station interface has a usable IPv4 address.
 
 DNS-SD enumeration is not a browser guarantee. Configure and Monitor therefore continue to accept manual Native IP or `.local` entry, remembered endpoints, and credential-free QR or share links without an extension.
 
+#### Peer-assisted browser discovery
+
+Native publishes the shared IPv4 A-record name `espectre-devices.local` on port `80`, path `/espectre/v1/ws`, and subprotocol `espectre.v1`, using the same exact Origin policy as its unique Direct endpoint. Shared alias answers use a 10-second RR TTL; this bounds stale cache lifetime after abrupt loss without the continuous remove-and-add churn observed with a one-second TTL. A clean removal uses the distinct TTL-zero goodbye semantics. The record exists only while the station interface has an IPv4 address. Streamer, ESPHome, Matter, and Micro-ESPectre do not publish the alias, but canonical Streamer, ESPHome, and Matter records are accepted discovery results and retain their advertised Direct port. IPv6 remains outside the supported peer-assisted discovery boundary.
+
+After the normal capability handshake, an eligible responder advertises the read-only `discover_peers` method. The request accepts only an empty object. It runs one asynchronous PTR browse for `_espectre._tcp.local.` with a fixed 3,000 ms query window; a second request while that operation is active receives `conflict`, and a start failure receives `unavailable`. The operation is associated with the requesting connection's opaque token and request ID. A disconnect prevents later delivery but does not create a waiter or persistent peer inventory. Existing synchronous Direct transports remain source-compatible because deferred request support is optional.
+
+The production boundary is IPv4-only and includes the requesting Native device even when the Espressif query API omits its own advertisement. Results are deduplicated by the canonical 16-character lowercase hexadecimal `device_id`. Records for the same identity and endpoint merge and sort their addresses; conflicting endpoints reject that identity. Identities sort lexicographically. Returned IPv4 addresses must be unicast and on-link under the active station netmask; unspecified, network, broadcast, loopback, multicast, and off-link addresses are rejected. Discovery TXT capabilities are presentation hints only. After selecting an endpoint, a client must perform the normal Direct `capabilities` handshake and use the returned method catalog to expose or suppress configuration, sensing, tuning, traffic-control, and OTA operations.
+
+The fixed limits are eight accepted devices, two IPv4 addresses per device, eight unique capability tokens, 32 characters per capability token, 128 characters for the capability list, 63 characters each for service instance, hostname, and display name, 48 characters for firmware, 16 characters for frontend and chip, and 3,584 bytes for the result object. `path` must equal `/espectre/v1/ws`; `txtvers`, `protovers`, and `tls` must equal `1`, `1`, and `0`, respectively. Frontend must be `native`, `streamer`, `esphome`, or `matter`, and the SRV port must be non-zero. Invalid records increment `rejected_results`; device, address, or serialization limits set `truncated` and retain deterministic leading results.
+
+```json
+{
+  "schema_version": 1,
+  "elapsed_ms": 3019,
+  "status": "complete",
+  "truncated": false,
+  "rejected_results": 0,
+  "devices": [
+    {
+      "device_id": "0123456789abcdef",
+      "instance": "ESPectre 0123456789abcdef",
+      "hostname": "espectre-0123456789abcdef",
+      "name": "ESPectre 0123456789abcdef",
+      "frontend": "native",
+      "txt_version": 1,
+      "protocol_version": 1,
+      "path": "/espectre/v1/ws",
+      "firmware": "3.0.0-rc1",
+      "chip": "esp32c3",
+      "tls": false,
+      "port": 80,
+      "capabilities": ["config", "monitor", "ota", "peer_discovery"],
+      "addresses": ["192.168.1.29"]
+    }
+  ]
+}
+```
+
+The portal validates the complete result again before rendering or constructing an endpoint, remembers only the selected unique address, and never stores the shared alias or peer list. Alias resolution, handshake, query, and selection failures return to the existing manual and remembered endpoint paths within the client timeout.
+
 ### Direct WebSocket v1
 
 This section defines the Native local transport. The durable direction is recorded in `docs/adr/2026-08-23-replace-native-ble-with-direct-websocket.md`.
@@ -91,7 +131,7 @@ A rejected request uses the same correlation identifier when it was valid:
 {"v":1,"type":"response","id":"req-42","ok":false,"error":{"code":"invalid_request","message":"threshold must be between 0.0 and 1.0"}}
 ```
 
-Stable v1 error codes are `invalid_request`, `unsupported_version`, `unsupported_method`, `unsupported_capability`, `not_ready`, `conflict`, `rate_limited`, `apply_failed`, and `internal_error`. Human-readable `message` text is diagnostic and may change without a protocol-version bump. An envelope that cannot yield a valid request identifier may be answered with an empty `id` before the server closes the connection.
+Stable v1 error codes are `invalid_request`, `invalid_params`, `unsupported_version`, `unsupported_method`, `unsupported_capability`, `not_ready`, `unavailable`, `conflict`, `rate_limited`, `apply_failed`, and `internal_error`. Human-readable `message` text is diagnostic and may change without a protocol-version bump. An envelope that cannot yield a valid request identifier may be answered with an empty `id` before the server closes the connection.
 
 Unsolicited state uses an event envelope:
 
@@ -111,6 +151,7 @@ Direct v1 methods are grouped by capability:
 | Sensing | `start_sensing`, `stop_sensing`, `set_threshold`, `set_motion_hits`, `set_detector`, `recalibrate` | Available only when advertised. `start_sensing` does not require MQTT. |
 | CSI traffic | `set_csi_traffic_mode`, `set_traffic_generator_mode` | Available only when the runtime advertises traffic control. |
 | OTA | `ota_status`, `ota_check`, `ota_start` | Uses the same channel and no-override policy as MQTT OTA commands. |
+| Peer discovery | `discover_peers` | Advertised by Native through its bounded peer-assisted discovery service and deferred transport. |
 
 The additive `diagnostics` result is the production performance boundary for every C++ frontend. Memory values use KiB, timing values use microseconds unless the field ends in `_ms`, rates use packets per second, and `runtime_load_percent` is runtime-loop wall time divided by the complete aggregation window. The shared runtime owns one bounded 10-second window and keeps its latest complete snapshot available between window boundaries; no build option or periodic debug logger changes whether these fields are collected.
 
