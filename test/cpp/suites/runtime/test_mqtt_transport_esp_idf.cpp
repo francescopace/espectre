@@ -82,7 +82,7 @@ void test_command_results_overtake_replaceable_snapshots() {
   TEST_ASSERT_EQUAL(1U, transport.diagnostics().queued_publishes);
 }
 
-void test_replaceable_publishes_wait_for_an_empty_outbox() {
+void test_replaceable_publishes_use_available_outbox_capacity() {
   mqtt_client_mock_reset();
   EspIdfMqttTransport transport;
   TEST_ASSERT_TRUE(transport.setup(config()));
@@ -91,14 +91,15 @@ void test_replaceable_publishes_wait_for_an_empty_outbox() {
   g_mqtt_client_mock.outbox_size = 1;
   TEST_ASSERT_TRUE(transport.publish_suffix("telemetry", "{\"sequence\":1}", false));
   transport.loop();
-  TEST_ASSERT_EQUAL(0, g_mqtt_client_mock.enqueue_calls);
-  TEST_ASSERT_EQUAL(1U, transport.diagnostics().queued_publishes);
+  TEST_ASSERT_EQUAL(1, g_mqtt_client_mock.enqueue_calls);
+  TEST_ASSERT_TRUE(std::string(g_mqtt_client_mock.enqueued_topics[0]).find("telemetry") !=
+                   std::string::npos);
+  TEST_ASSERT_EQUAL(0U, transport.diagnostics().queued_publishes);
 
-  TEST_ASSERT_TRUE(transport.publish_suffix("commands/accepted", "{\"id\":\"cmd-1\"}", false));
+  g_mqtt_client_mock.outbox_size = 2048;
+  TEST_ASSERT_TRUE(transport.publish_suffix("telemetry", "{\"sequence\":2}", false));
   transport.loop();
   TEST_ASSERT_EQUAL(1, g_mqtt_client_mock.enqueue_calls);
-  TEST_ASSERT_TRUE(std::string(g_mqtt_client_mock.enqueued_topics[0]).find("commands/accepted") !=
-                   std::string::npos);
   TEST_ASSERT_EQUAL(1U, transport.diagnostics().queued_publishes);
 }
 
@@ -153,7 +154,7 @@ int main() {
   RUN_TEST(test_setup_bounds_the_esp_mqtt_outbox);
   RUN_TEST(test_publish_is_deferred_and_latest_snapshot_replaces_stale_data);
   RUN_TEST(test_command_results_overtake_replaceable_snapshots);
-  RUN_TEST(test_replaceable_publishes_wait_for_an_empty_outbox);
+  RUN_TEST(test_replaceable_publishes_use_available_outbox_capacity);
   RUN_TEST(test_queue_rejects_overflow_without_discarding_critical_messages);
   RUN_TEST(test_full_outbox_retries_without_growing_the_frontend_queue);
   RUN_TEST(test_reconnects_are_observable);

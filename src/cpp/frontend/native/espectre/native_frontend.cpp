@@ -329,18 +329,18 @@ void NativeFrontend::drain_pending_runtime_events_() {
     motion_state_pending_ = false;
     publish_ha_motion_(snapshot.motion_state);
     const uint32_t now = now_ms_();
-    publish_direct_event_("telemetry",
-                          espectre_telemetry_payload(device_config_, snapshot, now, now / 1000U, "native"),
-                          true);
+    const std::string payload =
+        espectre_telemetry_payload(device_config_, snapshot, now, now / 1000U, "native");
+    fan_out_payload_(nullptr, "telemetry", payload, false, true);
   }
   if (live_telemetry_pending_) {
     const RuntimeSnapshot snapshot = pending_live_telemetry_;
     live_telemetry_pending_ = false;
     const uint32_t now = now_ms_();
-    publish_mqtt_telemetry_(snapshot, now);
-    publish_direct_event_("telemetry",
-                          espectre_telemetry_payload(device_config_, snapshot, now, now / 1000U, "native"),
-                          true);
+    const char *frontend = device_info_.frontend.empty() ? "native" : device_info_.frontend.c_str();
+    const std::string payload =
+        espectre_telemetry_payload(device_config_, snapshot, now, now / 1000U, frontend);
+    fan_out_payload_("telemetry", "telemetry", payload, false, true);
     publish_ha_movement_(snapshot.movement_metric);
   }
 }
@@ -986,6 +986,20 @@ void NativeFrontend::publish_direct_event_(const char *event_name,
   (void) direct_service_->publish_event(event_name, data_json, replaceable_telemetry);
 }
 
+void NativeFrontend::fan_out_payload_(const char *mqtt_suffix,
+                                      const char *direct_event_name,
+                                      const std::string &payload,
+                                      bool mqtt_retain,
+                                      bool replaceable_telemetry) {
+  if (mqtt_suffix != nullptr) {
+    (void) publish_frontend_mqtt_message(
+        mqtt_transport_, device_config_, mqtt_suffix, payload, mqtt_retain);
+  }
+  if (direct_event_name != nullptr) {
+    publish_direct_event_(direct_event_name, payload, replaceable_telemetry);
+  }
+}
+
 void NativeFrontend::setup_mqtt_() {
   const bool was_connected = mqtt_connected_;
   mqtt_connected_ = false;
@@ -1280,8 +1294,8 @@ void NativeFrontend::publish_ota_status_(const EspectreOtaStatus &status) {
       !device_info_.firmware_version.empty()) {
     normalized.current_version = device_info_.firmware_version;
   }
-  publish_mqtt_ota_status_(normalized);
-  publish_direct_event_("ota_status", espectre_ota_status_payload(device_config_, normalized, now_ms_()));
+  const std::string payload = espectre_ota_status_payload(device_config_, normalized, now_ms_());
+  fan_out_payload_("ota/state", "ota_status", payload);
 }
 
 void NativeFrontend::sample_diagnostics_(uint32_t now_ms) {

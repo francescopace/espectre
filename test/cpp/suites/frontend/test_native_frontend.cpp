@@ -1433,10 +1433,15 @@ void test_native_frontend_peer_discovery_drops_completion_after_wifi_loss_and_sh
   TEST_ASSERT_EQUAL(1U, peers.shutdown_calls);
 }
 
-void test_native_frontend_direct_telemetry_uses_replaceable_event_queue(void) {
+void test_native_frontend_serializes_telemetry_once_for_active_transports(void) {
   frontend_runtime_shim::state.snapshot = make_ready_snapshot();
+  MockMqttTransport mqtt;
   MockDirectWebSocketService direct;
-  NativeFrontend frontend(nullptr, nullptr, &direct);
+  NativeFrontend frontend(&mqtt, nullptr, &direct);
+  EspectreDeviceConfig config;
+  config.device_id = 0x0000111122223333ULL;
+  config.mqtt_host = "localhost";
+  frontend.set_device_config(config);
   NativeFrontend::WifiProvisioningInfo wifi;
   wifi.ssid = "Lab";
   frontend.set_wifi_provisioning_info(wifi);
@@ -1444,7 +1449,9 @@ void test_native_frontend_direct_telemetry_uses_replaceable_event_queue(void) {
   info.network.ip_address = "192.168.1.42";
   frontend.set_device_info(info);
   TEST_ASSERT_TRUE(frontend.setup());
+  mqtt.emit_connection(true);
   direct.emit_client_count(1U);
+  mqtt_transport_mock::state.publishes.clear();
 
   frontend.on_live_telemetry(2.5f, 1.25f);
   TEST_ASSERT_EQUAL(0, static_cast<int>(direct_websocket_service_mock::state.published_events.size()));
@@ -1454,6 +1461,10 @@ void test_native_frontend_direct_telemetry_uses_replaceable_event_queue(void) {
   TEST_ASSERT_EQUAL_STRING("telemetry", event.event_name.c_str());
   TEST_ASSERT_TRUE(event.replaceable_telemetry);
   TEST_ASSERT_TRUE(event.data_json.find("\"movement_score\":2.5") != std::string::npos);
+  const int mqtt_index = mqtt_publish_index("espectre/v1/devices/0000111122223333/telemetry");
+  TEST_ASSERT_TRUE(mqtt_index >= 0);
+  TEST_ASSERT_EQUAL_STRING(
+      event.data_json.c_str(), mqtt_transport_mock::state.publishes[static_cast<size_t>(mqtt_index)].payload.c_str());
 }
 
 void test_native_frontend_direct_updates_bssid_and_mqtt_without_returning_secrets(void) {
@@ -1727,7 +1738,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_direct_requests_share_command_dispatch_and_return_correlated_results);
   RUN_TEST(test_native_frontend_peer_discovery_is_capability_gated_correlated_and_bounded);
   RUN_TEST(test_native_frontend_peer_discovery_drops_completion_after_wifi_loss_and_shutdown);
-  RUN_TEST(test_native_frontend_direct_telemetry_uses_replaceable_event_queue);
+  RUN_TEST(test_native_frontend_serializes_telemetry_once_for_active_transports);
   RUN_TEST(test_native_frontend_direct_updates_bssid_and_mqtt_without_returning_secrets);
   RUN_TEST(test_native_frontend_direct_exposes_portal_reads_without_secrets);
   RUN_TEST(test_native_frontend_direct_start_and_stop_sensing_are_correlated);

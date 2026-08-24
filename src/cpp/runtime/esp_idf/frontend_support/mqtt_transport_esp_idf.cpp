@@ -399,11 +399,9 @@ void EspIdfMqttTransport::drain_publish_queue_() {
     return;
   }
   PendingPublish &pending = pending_publishes_.front();
-  if (pending.replaceable) {
-    const int outbox_size = esp_mqtt_client_get_outbox_size(client_);
-    if (outbox_size > 0) {
-      return;
-    }
+  if (pending.replaceable &&
+      esp_mqtt_client_get_outbox_size(client_) >= static_cast<int>(kReplaceableOutboxHighWaterBytes)) {
+    return;
   }
   const int id = esp_mqtt_client_enqueue(
       client_, pending.topic.c_str(), pending.payload.c_str(), 0, 0, pending.retain ? 1 : 0, true);

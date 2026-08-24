@@ -82,6 +82,7 @@ class EspIdfMqttTransport : public IMqttTransport {
   static constexpr size_t kPendingMessageCapacity = 4U;
   static constexpr size_t kPendingPublishCapacity = 16U;
   static constexpr uint64_t kMqttOutboxLimitBytes = 8192U;
+  static constexpr size_t kReplaceableOutboxHighWaterBytes = 2048U;
   PendingEvent<bool> connection_event_{};
   std::array<PendingMessage, kPendingMessageCapacity> message_slots_{};
   PendingQueue<uint8_t, kPendingMessageCapacity> free_message_slots_{};

@@ -110,6 +110,11 @@ class NativeFrontend : public IRuntimeListener {
   void publish_direct_event_(const char *event_name,
                              const std::string &data_json,
                              bool replaceable_telemetry = false);
+  void fan_out_payload_(const char *mqtt_suffix,
+                        const char *direct_event_name,
+                        const std::string &payload,
+                        bool mqtt_retain = false,
+                        bool replaceable_telemetry = false);
   void setup_mqtt_();
   void setup_ha_mqtt_();
   void publish_ha_discovery_();
