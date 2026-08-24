@@ -36,6 +36,12 @@ SPA_PAGE_ROUTE_RE = re.compile(r'<main\b[^>]*\bdata-page="([^"]+)"')
 SPA_STATIC_PATH_RE = re.compile(r"staticPath:\s*'(/[^']+)'")
 EXPECTED_SITEMAP_PATHS = {
     "/",
+    "/tools/",
+    "/tools/flash/",
+    "/tools/configure/",
+    "/tools/monitor/",
+    "/tools/theremin/",
+    "/tools/game/",
     "/guides/",
     "/guides/hardware/",
     "/guides/setup/",

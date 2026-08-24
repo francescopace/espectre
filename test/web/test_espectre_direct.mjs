@@ -9,6 +9,7 @@
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { peerDiscoveryScenarios } from './fixtures/peer_discovery_fixture.mjs';
 
 globalThis.window = globalThis.window ?? {};
 createRequire(import.meta.url)('../../docs/web/assets/js/espectre-direct.js');
@@ -81,6 +82,86 @@ describe('Direct endpoint policy', () => {
         assert.throws(() => Client.normalizeEndpoint('ws://192.168.1.2/?token=x'), DirectError);
         assert.throws(() => Client.normalizeEndpoint('ws://192.168.1.2/admin'), DirectError);
     });
+
+    it('constructs bracketed local IPv6 endpoints', () => {
+        assert.equal(
+            Client.normalizeEndpoint('ws://[fd12:3456:789a::42]:6054/espectre/v1/ws'),
+            'ws://[fd12:3456:789a::42]:6054/espectre/v1/ws'
+        );
+    });
+});
+
+describe('Peer discovery schema', () => {
+    it('validates bounded local peers and constructs unique endpoints', () => {
+        const result = Client.validatePeerDiscoveryResult({
+            schema_version: 1, elapsed_ms: 3000, status: 'complete', truncated: false,
+            rejected_results: 2,
+            devices: [{
+                device_id: '0123456789abcdef', instance: 'Kitchen sensor',
+                hostname: 'espectre-0123456789abcdef', name: 'Kitchen', frontend: 'native',
+                txt_version: 1, protocol_version: 1, path: '/espectre/v1/ws',
+                firmware: '3.0.0-rc1', chip: 'esp32c3', tls: false, port: 80,
+                capabilities: ['config', 'monitor', 'peer_discovery'],
+                addresses: ['192.168.1.42']
+            }]
+        });
+        assert.deepEqual(result.devices[0].endpoints, [
+            'ws://192.168.1.42/espectre/v1/ws'
+        ]);
+    });
+
+    it('rejects off-LAN addresses, duplicate identities, and oversized results', () => {
+        const peer = {
+            device_id: '0123456789abcdef', instance: 'Kitchen sensor',
+            hostname: 'espectre-0123456789abcdef', name: '', frontend: 'native',
+            txt_version: 1, protocol_version: 1, path: '/espectre/v1/ws',
+            firmware: '3.0.0', chip: 'esp32c3', tls: false, port: 80,
+            capabilities: ['monitor'], addresses: ['8.8.8.8']
+        };
+        const envelope = {
+            schema_version: 1, elapsed_ms: 1, status: 'complete', truncated: false,
+            rejected_results: 0, devices: [peer]
+        };
+        assert.throws(() => Client.validatePeerDiscoveryResult(envelope), DirectError);
+        assert.throws(() => Client.validatePeerDiscoveryResult({
+            ...envelope,
+            devices: [
+                { ...peer, addresses: ['192.168.1.2'] },
+                { ...peer, addresses: ['192.168.1.3'] }
+            ]
+        }), DirectError);
+        assert.throws(() => Client.validatePeerDiscoveryResult({
+            ...envelope, devices: Array.from({ length: 9 }, () => peer)
+        }), DirectError);
+    });
+
+    it('accepts the deterministic mixed-address, partial, truncated, and timeout fixtures', () => {
+        const multiFrontend = Client.validatePeerDiscoveryResult(peerDiscoveryScenarios.multiFrontend);
+        assert.deepEqual(multiFrontend.devices.map((device) => [device.frontend, device.endpoints[0]]), [
+            ['native', 'ws://192.168.1.42/espectre/v1/ws'],
+            ['streamer', 'ws://192.168.1.43/espectre/v1/ws'],
+            ['esphome', 'ws://192.168.1.44:6054/espectre/v1/ws'],
+            ['matter', 'ws://192.168.1.45/espectre/v1/ws']
+        ]);
+        const mixed = Client.validatePeerDiscoveryResult(peerDiscoveryScenarios.mixedAddresses);
+        assert.deepEqual(mixed.devices.map((device) => device.endpoints[0]), [
+            'ws://192.168.1.42/espectre/v1/ws',
+            'ws://[fd12:3456:789a::42]:6054/espectre/v1/ws'
+        ]);
+        assert.equal(Client.validatePeerDiscoveryResult(peerDiscoveryScenarios.partial).rejected_results, 3);
+        assert.equal(Client.validatePeerDiscoveryResult(peerDiscoveryScenarios.truncated).truncated, true);
+        assert.equal(Client.validatePeerDiscoveryResult(peerDiscoveryScenarios.timeout).status, 'timeout');
+    });
+
+    it('rejects every hostile deterministic peer fixture', () => {
+        for (const name of ['duplicateIdentity', 'malformed', 'oversized', 'nonLocal', 'malformedAddress']) {
+            assert.throws(
+                () => Client.validatePeerDiscoveryResult(peerDiscoveryScenarios[name]),
+                (error) => error.code === 'invalid_peer_result',
+                name
+            );
+        }
+    });
 });
 
 describe('Direct request lifecycle', () => {
@@ -143,6 +224,88 @@ describe('Direct request lifecycle', () => {
             result: { message: 'threshold updated' }
         });
         assert.equal((await command).message, 'threshold updated');
+    });
+
+    it('requests peer discovery only after capability negotiation', async () => {
+        globalThis.WebSocket = FakeWebSocket;
+        const client = new Client('espectre-devices.local');
+        const connected = client.connect();
+        const socket = FakeWebSocket.instances[0];
+        socket.open();
+        await connected;
+        await assert.rejects(client.discoverPeers(), (error) => error.code === 'unsupported_capability');
+
+        const handshake = client.handshake({ requestId: 'cap-peers' });
+        socket.receive({
+            v: 1, type: 'response', id: 'cap-peers', ok: true,
+            result: { subprotocol: 'espectre.v1', methods: ['discover_peers'] }
+        });
+        await handshake;
+        const discovery = client.discoverPeers({ requestId: 'peers-1' });
+        assert.equal(socket.sent.at(-1).method, 'discover_peers');
+        socket.receive({
+            v: 1, type: 'response', id: 'peers-1', ok: true,
+            result: {
+                schema_version: 1, elapsed_ms: 42, status: 'complete', truncated: false,
+                rejected_results: 0, devices: []
+            }
+        });
+        assert.deepEqual((await discovery).devices, []);
+    });
+
+    it('handles delayed discovery, timeout, and responder disconnect deterministically', async () => {
+        globalThis.WebSocket = FakeWebSocket;
+
+        const delayedClient = new Client('espectre-devices.local');
+        const delayedConnection = delayedClient.connect();
+        const delayedSocket = FakeWebSocket.instances.at(-1);
+        delayedSocket.open();
+        await delayedConnection;
+        const delayedHandshake = delayedClient.handshake({ requestId: 'caps-delayed' });
+        delayedSocket.receive({
+            v: 1, type: 'response', id: 'caps-delayed', ok: true,
+            result: { subprotocol: 'espectre.v1', methods: ['discover_peers'] }
+        });
+        await delayedHandshake;
+        const delayed = delayedClient.discoverPeers({ requestId: 'peers-delayed', timeoutMs: 50 });
+        setTimeout(() => delayedSocket.receive({
+            v: 1, type: 'response', id: 'peers-delayed', ok: true,
+            result: peerDiscoveryScenarios.partial
+        }), 2);
+        assert.equal((await delayed).devices.length, 1);
+        delayedClient.close();
+
+        const timeoutClient = new Client('espectre-devices.local');
+        const timeoutConnection = timeoutClient.connect();
+        const timeoutSocket = FakeWebSocket.instances.at(-1);
+        timeoutSocket.open();
+        await timeoutConnection;
+        const timeoutHandshake = timeoutClient.handshake({ requestId: 'caps-timeout' });
+        timeoutSocket.receive({
+            v: 1, type: 'response', id: 'caps-timeout', ok: true,
+            result: { subprotocol: 'espectre.v1', methods: ['discover_peers'] }
+        });
+        await timeoutHandshake;
+        await assert.rejects(
+            timeoutClient.discoverPeers({ requestId: 'peers-timeout', timeoutMs: 1 }),
+            (error) => error.code === 'timeout'
+        );
+        timeoutClient.close();
+
+        const disconnectedClient = new Client('espectre-devices.local');
+        const disconnectedConnection = disconnectedClient.connect();
+        const disconnectedSocket = FakeWebSocket.instances.at(-1);
+        disconnectedSocket.open();
+        await disconnectedConnection;
+        const disconnectedHandshake = disconnectedClient.handshake({ requestId: 'caps-disconnect' });
+        disconnectedSocket.receive({
+            v: 1, type: 'response', id: 'caps-disconnect', ok: true,
+            result: { subprotocol: 'espectre.v1', methods: ['discover_peers'] }
+        });
+        await disconnectedHandshake;
+        const pending = disconnectedClient.discoverPeers({ requestId: 'peers-disconnect' });
+        disconnectedSocket.close(1006, 'responder lost');
+        await assert.rejects(pending, (error) => error.code === 'closed');
     });
 
     it('blocks mutations before compatibility is established', async () => {

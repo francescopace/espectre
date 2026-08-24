@@ -20,6 +20,7 @@ const browserSupportSource = read('docs/web/assets/js/browser-support.js');
 const routeRegistry = read('docs/web/assets/js/route-registry.js');
 const styles = read('docs/web/assets/css/styles.css');
 const security = read('docs/web/content/security.html');
+const toolsContent = read('docs/web/content/tools.html');
 const GPL_HTML_HEADER = `<!--
   SPDX-License-Identifier: GPL-3.0-only
   Commercial licensing available under separate agreement; see LICENSING.md.
@@ -134,7 +135,7 @@ describe('website analytics contracts', () => {
         assert.match(app, /\.\.\.connectionParams\(\)/);
     });
 
-    it('tracks abandonment and only reports valid download targets', () => {
+    it('tracks abandonment and keeps SDK download metadata explicit', () => {
         const gameAbandonEvent = app.match(/track\('game_abandon', \{[\s\S]*?\n        \}\);/)?.[0] || '';
         const gameOverEvent = app.match(/track\('game_over', \{[\s\S]*?\n        \}\);/)?.[0] || '';
         assert.match(gameAbandonEvent, /score: game\.score/);
@@ -147,7 +148,6 @@ describe('website analytics contracts', () => {
         assert.match(app, /reportGameAbandon\('restart'\)/);
         assert.match(app, /reportGameAbandon\('route_change'\)/);
         assert.match(app, /reportGameAbandon\('page_exit'\)/);
-        assert.match(app, /if \(!link \|\| !flash\.downloadReady\) return;/);
         const sdkBuilder = read('.github/scripts/stage_web_sdk.py');
         assert.match(sdkBuilder, /data-sdk-channel=/);
         assert.match(sdkBuilder, /data-sdk-format=/);
@@ -158,6 +158,35 @@ describe('website analytics contracts', () => {
         assert.doesNotMatch(
             analyticsCalls,
             /ssid|bssid|password|mqtt_host|mqtt_username|topic_prefix|device_id|payload/
+        );
+    });
+
+    it('keeps peer discovery failures distinct, accessible, cancellable, and privacy bounded', () => {
+        for (const state of [
+            'Local network access is blocked',
+            'does not support Auto-discovery',
+            'Auto-discovery timed out',
+            'disconnected during Auto-discovery',
+            'incompatible responder',
+            'invalid discovery result',
+            'could not reach a responder'
+        ]) {
+            assert.match(app, new RegExp(state));
+        }
+        assert.match(index, /class="direct-discovery js-direct-discovery" role="status" aria-live="polite"/);
+        assert.match(app, /function cancelDirectDiscovery[\s\S]*?directDiscoveryClient = null;[\s\S]*?client\?\.close\(\)/);
+        assert.match(app, /function discoveredPeerFrontendLabel[\s\S]*?esphome: 'ESPHome'/);
+        assert.match(app, /function discoveredPeerChipLabel[\s\S]*?replace\(\/\^ESP32/);
+        assert.match(app, /heading\.className = 'direct-discovery-device-heading'/);
+        assert.match(app, /metadata\.className = 'direct-discovery-device-meta'/);
+        assert.match(app, /\['Frontend', frontend\][\s\S]*?\['Hardware', chip\][\s\S]*?\['Device ID', shortId, 'mono'\]/);
+        assert.match(styles, /\.direct-discovery-device-meta \{[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
+        const discoveryEvents = [...app.matchAll(/track\('local_discovery',[\s\S]*?\}\);/g)]
+            .map((match) => match[0]).join('\n');
+        assert.match(discoveryEvents, /device_count/);
+        assert.doesNotMatch(
+            discoveryEvents,
+            /device_id|address|hostname|endpoint|firmware|capabilities|payload/
         );
     });
 });
@@ -179,6 +208,13 @@ describe('website accessibility and navigation', () => {
             .map((match) => match[1])
             .sort();
         assert.deepEqual(registeredStaticPaths, pageStaticPaths);
+        assert.match(index, /data-page="tools"[\s\S]*data-content-url="content\/tools\.html\?v=[0-9a-f]{12}" data-static-url="\/tools\/"/);
+        assert.doesNotMatch(index.match(/data-page="tools"[\s\S]*?<\/main>/)?.[0] || '', /class="tools-grid"/);
+        assert.match(toolsContent, /class="tools-grid"/);
+        for (const tool of ['flash', 'configure', 'monitor', 'theremin', 'game']) {
+            assert.match(toolsContent, new RegExp(`href="/tools/${tool}/"`));
+        }
+        assert.match(app, /if \(route === 'tools'\) renderConnection\(\)/);
         assert.doesNotMatch(app, /const (?:NAV_GROUPS|ROUTES|STATIC_PAGE_ROUTES)\b/);
         assert.doesNotMatch(read('docs/web/assets/js/analytics.js'), /_OVERRIDES|_BY_PATH/);
         assert.match(read('.github/scripts/build_static_pages.py'), /route-registry\.js\?v=\{route_registry_version\}" defer>/);
@@ -193,7 +229,7 @@ describe('website accessibility and navigation', () => {
         }
         assert.match(index, /href="\/guides\/" class="nav-link" data-route-link="guides"/);
         assert.match(index, /href="\/sdk\/" class="nav-link" data-route-link="sdk"/);
-        assert.match(index, /href="#tools" class="nav-link" data-route-link="tools"/);
+        assert.match(index, /href="\/tools\/" class="nav-link" data-route-link="tools"/);
         for (const source of [
             index,
             read('docs/web/404.html'),
@@ -270,7 +306,7 @@ describe('website accessibility and navigation', () => {
     it('provides skip navigation, tool page titles, and route focus management', () => {
         assert.match(index, /<a class="skip-link" href="#main-content"/);
         assert.match(index, /data-page="home" id="main-content" tabindex="-1"/);
-        for (const page of ['configure', 'monitor', 'theremin', 'game']) {
+        for (const page of ['tool-configure', 'tool-monitor', 'tool-theremin', 'tool-game']) {
             assert.match(index, new RegExp(`data-page="${page}"[\\s\\S]*?<h1 class="page-title">`));
         }
         assert.match(app, /link\.setAttribute\('aria-current', 'page'\)/);
@@ -304,6 +340,38 @@ describe('website accessibility and navigation', () => {
 });
 
 describe('website UX contracts', () => {
+    it('keeps shared button typography and action hierarchy consistent', () => {
+        assert.match(
+            styles,
+            /:is\(\.btn-primary, \.btn-secondary, \.btn-ghost, \.btn-danger, \.btn-danger-ghost\) \{[\s\S]*?font: inherit;[\s\S]*?font-weight: 600;/
+        );
+        assert.match(styles, /\.btn-secondary \{ border-color: var\(--border\); background: var\(--surface\); color: var\(--dim\); \}/);
+        assert.match(styles, /\.btn-ghost \{ border-color: transparent; background: transparent; color: var\(--dim\); \}/);
+        assert.match(styles, /\.btn-secondary:hover,\s*\.btn-ghost:hover \{ color: var\(--text\); \}/);
+        assert.doesNotMatch(styles, /\.btn-secondary:hover[^}]*border-color/);
+        assert.match(styles, /\.btn-ghost:hover \{ background: var\(--surface2\); \}/);
+        assert.match(styles, /\.btn-primary:hover,\s*\.hero-cta-primary:hover \{ filter: brightness\(1\.08\); \}/);
+        assert.match(index, /class="btn-secondary btn-sm js-device-edit-connectivity">Edit connectivity<\/button>/);
+        assert.match(index, /class="btn-secondary btn-sm js-sense-recalibrate">Recalibrate<\/button>/);
+        assert.match(index, /class="panel-actions wifi-panel-actions">[\s\S]*?class="btn-primary btn-sm js-wifi-save">Save Wi-Fi<\/button>[\s\S]*?class="btn-danger-ghost btn-sm js-wifi-clear">Remove Wi-Fi<\/button>/);
+        assert.match(styles, /\.wifi-panel-actions \{ flex-wrap: nowrap; \}/);
+        const contactContent = read('docs/web/content/contact.html');
+        assert.doesNotMatch(contactContent, /docs-path-recommended/);
+        assert.equal((contactContent.match(/class="btn-primary"/g) || []).length, 1);
+        assert.equal((contactContent.match(/class="btn-secondary"/g) || []).length, 2);
+
+        for (const path of [
+            'docs/web/index.html',
+            'docs/web/404.html',
+            '.github/scripts/build_static_pages.py',
+            '.github/scripts/stage_web_sdk.py',
+        ]) {
+            const source = read(path);
+            assert.match(source, /class="btn-secondary btn-sm js-consent-reject"/);
+            assert.match(source, /class="btn-secondary btn-sm js-consent-accept"/);
+        }
+    });
+
     it('formats security guidance with project-native components', () => {
         assert.match(security, /class="security-guidelines">\s*<ul>/);
         assert.match(styles, /\.security-guidelines ul \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
@@ -340,9 +408,9 @@ describe('website UX contracts', () => {
         const actionHub = index.match(/<section class="home-action-hub"[\s\S]*?<\/section>/)?.[0] || '';
         assert.match(actionHub, /<header class="home-action-head">\s*<h2 class="page-title" id="home-action-title">/);
         assert.match(actionHub, /class="home-action-group">\s*<span class="home-kicker">[\s\S]*?<div class="home-tool-grid"/);
-        assert.match(actionHub, /href="#flash" class="home-tool-card home-tool-card-primary"/);
-        assert.match(actionHub, /href="#configure" class="home-tool-card"/);
-        assert.match(actionHub, /href="#monitor" class="home-tool-card"/);
+        assert.match(actionHub, /href="\/tools\/flash\/" class="home-tool-card home-tool-card-primary"/);
+        assert.match(actionHub, /href="\/tools\/configure\/" class="home-tool-card"/);
+        assert.match(actionHub, /href="\/tools\/monitor\/" class="home-tool-card"/);
         assert.match(actionHub, /class="home-action-group">[\s\S]*?<aside class="home-license-cta"/);
         assert.match(actionHub, /class="home-action-group">[\s\S]*?<div class="home-resource-strip"/);
         const licenseCard = actionHub.match(/<aside class="home-license-cta"[\s\S]*?<\/aside>/)?.[0] || '';
@@ -351,7 +419,7 @@ describe('website UX contracts', () => {
         const resourceHrefs = [...actionHub.matchAll(/class="home-resource-links">[\s\S]*?<\/div>/g)][0]?.[0]
             .match(/href="([^"]+)"/g)?.map((entry) => entry.slice(6, -1)) || [];
         assert.deepEqual(resourceHrefs, [
-            '#tools',
+            '/tools/',
             '/guides/',
             '/media/',
             '/sdk/',
@@ -372,12 +440,12 @@ describe('website UX contracts', () => {
     it('labels research and preview concepts without presenting simulated evidence', () => {
         assert.doesNotMatch(index, /13\.2 <em>cycles\/min<\/em>/);
         assert.doesNotMatch(index, /ESP-IDF 5\.1\+/);
-        const roadmapCards = [...index.matchAll(/<a href="\/roadmap\/"[\s\S]*?<\/a>/g)]
+        const roadmapCards = [...toolsContent.matchAll(/<a href="\/roadmap\/"[\s\S]*?<\/a>/g)]
             .map((match) => match[0])
             .filter((card) => card.includes('<h2>'));
         assert.ok(roadmapCards.length >= 3);
         for (const card of roadmapCards) {
-            assert.match(card, /class="chip">ROADMAP/);
+            assert.match(card, /class="chip">RESEARCH · ROADMAP/);
             assert.doesNotMatch(card, /js-direct-chip/);
         }
     });
@@ -432,7 +500,6 @@ describe('website UX contracts', () => {
         assert.match(app, /installTrigger\.disabled = !browserSupport\.flash/);
         assert.match(app, /button\.disabled = directConnecting/);
         assert.match(app, /if \(browserSupport\.flash\) \{\s*loadBrowserDependency/);
-        assert.match(index, /class="link-btn js-demo"/);
         assert.match(styles, /\.link-btn \{[\s\S]*?color: var\(--accent\);[\s\S]*?text-decoration: none;/);
         assert.match(styles, /\.link-btn:visited \{ color: var\(--accent\); \}/);
         assert.match(styles, /\.link-btn:hover \{ color: var\(--accent\); text-decoration: underline; \}/);
@@ -845,14 +912,27 @@ describe('website UX contracts', () => {
         assert.doesNotMatch(placementGuide, /id="placement-wall"|id="placement-rooms"/);
     });
 
+    it('keeps Flash guidance and actions aligned with the selected frontend', () => {
+        const flashPage = index.match(/data-page="tool-flash"[\s\S]*?<\/main>/)?.[0] || '';
+        const firmwarePanel = flashPage.match(/<section class="panel">\s*<h2>Firmware<\/h2>[\s\S]*?<\/section>/)?.[0] || '';
+        const installPanel = flashPage.match(/<section class="panel">\s*<h2>Install<\/h2>[\s\S]*?<\/section>/)?.[0] || '';
+        const setupGuide = read('docs/web/content/guides/setup.html');
+
+        assert.match(firmwarePanel, /After flashing, follow the <a href="\/guides\/setup\/">setup guide<\/a> for provisioning and next steps\./);
+        assert.doesNotMatch(firmwarePanel, /github\.com\/francescopace\/espectre\/releases/);
+        assert.match(installPanel, /<button slot="activate" class="btn-primary btn-sm">[\s\S]*?<\/button>[\s\S]*class="btn-secondary btn-sm js-matter-read" hidden>[\s\S]*?<\/button>[\s\S]*class="btn-secondary btn-sm" href="https:\/\/github\.com\/francescopace\/espectre\/releases"/);
+        assert.match(app, /matterReadButton\.hidden = frontendKey !== 'matter'/);
+        assert.doesNotMatch(app, /flashNextLink|flashSetNextStep|js-flash-next/);
+        assert.doesNotMatch(styles, /\.flash-downloads/);
+        assert.match(setupGuide, /<em>Read QR from device<\/em>/);
+    });
+
     it('loads generated firmware and SDK output from the shared artifacts tree', () => {
         assert.match(app, /\/artifacts\/firmware\//);
         assert.doesNotMatch(app, /\/flash\/firmware\//);
         assert.match(index, /id="flash-channel"/);
         assert.doesNotMatch(index, /id="flash-chip"/);
-        assert.match(index, /js-flash-requirement/);
-        assert.match(index, /js-flash-chip-downloads/);
-        assert.match(index, /js-flash-next/);
+        assert.doesNotMatch(index, /Download by chip|js-flash-chip-downloads/);
         assert.doesNotMatch(index, /js-flash-download/);
         assert.doesNotMatch(index, /js-matter-panel/);
         assert.match(index, /<option value="release"/);
@@ -868,12 +948,8 @@ describe('website UX contracts', () => {
         assert.ok((app.match(/if \(requestId !== flash\.refreshRequest\) return;/g) || []).length >= 2);
         assert.match(app, /FLASH_CHIP_UNSUPPORTED_RE/);
         assert.match(app, /report\('unsupported'\)/);
-        assert.match(app, /function flashRenderDownloads/);
-        assert.match(app, /function flashSetNextStep/);
-        assert.match(app, /function flashNextActionLink[\s\S]*document\.createElement\('a'\)/);
-        assert.match(app, /flashNextActionLink\([^,]+, 'js-matter-read'\)/);
-        assert.doesNotMatch(app, /function flashNextAction\(/);
-        assert.match(app, /action\.getAttribute\('aria-disabled'\) === 'true'/);
+        assert.doesNotMatch(app, /flashRenderDownloads|firmware_download|downloadReady/);
+        assert.match(app, /function flashSetFrontendActions/);
         assert.match(index, /class="modal-backdrop js-matter-modal" hidden>[\s\S]*class="modal-card matter-modal-card" role="dialog" aria-modal="true"/);
         assert.match(index, /id="matter-modal-title"/);
         assert.match(index, /class="matter-result js-matter-result" hidden>/);
@@ -978,16 +1054,28 @@ describe('website UX contracts', () => {
     });
 
     it('maps Direct capabilities, runtime controls, and dual-band Wi-Fi safely', () => {
-        const configure = index.match(/data-page="configure"[\s\S]*?<\/main>/)?.[0] || '';
-        const mqtt = index.match(/data-page="monitor"[\s\S]*?<\/main>/)?.[0] || '';
+        const configure = index.match(/data-page="tool-configure"[\s\S]*?<\/main>/)?.[0] || '';
+        const mqtt = index.match(/data-page="tool-monitor"[\s\S]*?<\/main>/)?.[0] || '';
         const onboarding = configure.match(/class="js-configure-onboarding"[\s\S]*?<div class="js-configure-workspace"/)?.[0] || '';
+        const directTemplate = index.match(/<template id="direct-connect-template">[\s\S]*?<\/template>/)?.[0] || '';
         const configureBanner = configure.match(/class="device-banner-actions"[\s\S]*?<\/div>/)?.[0] || '';
         const mqttBanner = mqtt.match(/class="device-banner-actions"[\s\S]*?<\/div>/)?.[0] || '';
         assert.doesNotMatch(onboarding, /class="empty-alt"/);
         assert.match(index, /data-capability="supports_wifi_provisioning"/);
+        assert.match(app, /conn\.connectivityConfigSupported = methods\.has\('set_wifi_config'\) \|\| methods\.has\('set_mqtt_config'\)/);
+        assert.match(app, /DIRECT_FULL_DEVICE_ID\.test\(input\)[\s\S]*?DirectProtocolClient\.normalizeEndpoint\(`espectre-\$\{input\}\.local`\)[\s\S]*?deviceId: input[\s\S]*?discoveryFallback: true/);
+        assert.match(app, /if \(target\.discoveryFallback\)[\s\S]*?resolveDiscoveredTarget\(\{[\s\S]*?deviceId: target\.deviceId[\s\S]*?search: target\.deviceId/);
+        assert.match(app, /target\.deviceId\s*\? peer\.device_id === target\.deviceId/);
+        assert.match(app, /supports_runtime_threshold: methods\.has\('set_threshold'\)/);
+        assert.match(app, /supports_runtime_motion_hits: methods\.has\('set_motion_hits'\)/);
+        assert.match(app, /supports_runtime_detector: methods\.has\('set_detector'\)/);
+        assert.match(app, /supports_manual_recalibration: methods\.has\('recalibrate'\)/);
+        assert.match(app, /edit\.hidden = conn\.mode === 'ws' && !conn\.connectivityConfigSupported/);
+        assert.match(app, /data\.device_label \|\| data\.device_name \|\| data\.name/);
         assert.match(app, /if \(!Object\.prototype\.hasOwnProperty\.call\(snapshot, capability\)\) return;/);
         assert.match(app, /if \(!capabilities\.some\(\(key\) => Object\.prototype\.hasOwnProperty\.call\(snapshot, key\)\)\) return;/);
-        assert.match(index, /class="field-row wifi-credentials-row">\s*<div class="field"><label for="cfg-ssid"[\s\S]*?<label for="cfg-wifi-pass"/);
+        assert.doesNotMatch(index, /wifi-credentials-row/);
+        assert.match(index, /class="fields">\s*<div class="field"><label for="cfg-ssid"[\s\S]*?<div class="field"><label for="cfg-wifi-pass"/);
         assert.match(index, /class="field-row field-row-2-1">\s*<div class="field"><label for="cfg-wifi-band"[\s\S]*?<label for="cfg-channel"/);
         assert.match(index, /id="cfg-wifi-band" disabled/);
         assert.match(app, /snapshot\.supports_wifi_5ghz/);
@@ -1010,7 +1098,7 @@ describe('website UX contracts', () => {
         assert.match(app, /conn\.deviceLabel \|\| conn\.generatedName \|\| conn\.deviceId/);
         assert.match(app, /identity\.textContent = formatDeviceIdentityLine\(\s*conn\.chip,\s*conn\.deviceId,\s*conn\.firmwareVersion/);
         assert.match(app, /const chip = snapshot\.chip \? String\(snapshot\.chip\)\.toUpperCase\(\) : conn\.chip/);
-        assert.match(app, /const firmware = snapshot\.firmware_version \|\| snapshot\.version \|\| conn\.firmwareVersion/);
+        assert.match(app, /const firmware = snapshot\.firmware_version \|\| snapshot\.firmware \|\| snapshot\.version \|\| conn\.firmwareVersion/);
         assert.match(app, /const mqttCanEdit = conn\.mode === 'mqtt'[\s\S]*?monitor\.commands\.has\('set_device_label'\)/);
         assert.match(app, /function startConfigureDeviceNameEdit/);
         assert.match(app, /function saveConfigureDeviceNameOnBlur/);
@@ -1055,11 +1143,11 @@ describe('website UX contracts', () => {
         assert.match(app, /result: 'cancelled'/);
         assert.match(app, /monitor\.switchingTransport = false;[\s\S]*setStatus\('connected'\)/);
         assert.match(app, /await monitorConnect\(\)/);
-        assert.match(app, /targetRoute = view === 'connectivity' \? 'configure' : 'monitor'/);
+        assert.match(app, /targetRoute = view === 'connectivity' \? 'tool-configure' : 'tool-monitor'/);
         assert.match(app, /location\.hash = '#' \+ targetRoute/);
-        assert.doesNotMatch(app, /ble: 'configure'/);
-        assert.match(app, /mqtt: 'monitor'/);
-        assert.match(app, /device: 'configure'/);
+        assert.doesNotMatch(app, /ble: 'tool-configure'/);
+        assert.match(app, /mqtt: 'tool-monitor'/);
+        assert.match(app, /device: 'tool-configure'/);
         assert.match(app, /const directSetup = connected && conn\.mode === 'ws'/);
         assert.match(app, /const directConnecting = conn\.status === 'connecting'/);
         assert.match(app, /const mqttConnectionPending = monitorConnectionPending\(\)/);
@@ -1082,7 +1170,7 @@ describe('website UX contracts', () => {
         assert.match(app, /function resetGameThreshold/);
         assert.match(app, /gameThresholdOverride = GAME_THRESHOLD_DEFAULT/);
         assert.doesNotMatch(app, /gameThresholdOverride = conn\.threshold/);
-        assert.match(app, /if \(target === 'game' && previousRoute !== 'game'\) resetGameThreshold\(\)/);
+        assert.match(app, /if \(target === 'tool-game' && previousRoute !== 'tool-game'\) resetGameThreshold\(\)/);
         assert.match(app, /gameThresholdOverride = threshold/);
         assert.match(app, /js-game-fullscreen-threshold/);
         assert.match(app, /const applyFullscreenPointerThreshold = \(event\) =>/);
@@ -1090,7 +1178,7 @@ describe('website UX contracts', () => {
         assert.doesNotMatch(app, /textContent = 'Restart';\s*resetGameThreshold\(\)/);
         assert.match(app, /getElementById\('game-threshold'\)/);
         assert.match(index, /id="game-threshold"/);
-        assert.doesNotMatch(index, /data-page="game"[\s\S]*data-mqtt-command="set_threshold"/);
+        assert.doesNotMatch(index, /data-page="tool-game"[\s\S]*data-mqtt-command="set_threshold"/);
         assert.doesNotMatch(app, /gameSlider\.addEventListener\('change', \(\) => commitThreshold/);
         assert.match(index, /<div class="game-screen">[\s\S]*<div class="game-status"[\s\S]*js-game-score[\s\S]*js-game-best[\s\S]*js-game-fullscreen/);
         assert.equal((index.match(/class="js-game-score"/g) || []).length, 1);
@@ -1119,8 +1207,25 @@ describe('website UX contracts', () => {
         assert.match(index, /class="js-monitor-onboarding"/);
         assert.match(index, /data-transport="ws"/);
         assert.match(index, /data-monitor-transport-panel="mqtt" data-transport="mqtt"/);
-        assert.ok(onboarding.indexOf('device-recovery-hint') < onboarding.indexOf('js-connect-direct'));
-        assert.match(onboarding, /EN \/ RST[\s\S]*BOOT \/ FLASH/);
+        assert.match(toolsContent, /<h2>Game<\/h2><span class="chip">WS · MQTT<\/span>/);
+        assert.match(toolsContent, /<h2>Theremin<\/h2><span class="chip">WS · MQTT<\/span>/);
+        assert.equal((index.match(/<espectre-direct-connect /g) || []).length, 2);
+        assert.match(configure, /<espectre-direct-connect data-surface="configure" data-transport="ws"><\/espectre-direct-connect>/);
+        assert.match(mqtt, /<espectre-direct-connect data-surface="monitor" data-monitor-transport-panel="ws" data-transport="ws"><\/espectre-direct-connect>/);
+        assert.match(mqtt, /id="monitor-transport-ws"[\s\S]*id="monitor-transport-mqtt"[\s\S]*id="monitor-transport-demo"/);
+        assert.match(mqtt, /data-monitor-transport-panel="demo" data-transport="demo" hidden/);
+        assert.match(styles, /\.transport-choice \{[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
+        assert.ok(directTemplate.indexOf('js-direct-discover') < directTemplate.indexOf('js-direct-endpoint'));
+        assert.ok(directTemplate.indexOf('js-direct-endpoint') < directTemplate.indexOf('js-connect-direct'));
+        assert.match(directTemplate, /Find your ESPectre[\s\S]*Find devices[\s\S]*or connect manually/);
+        assert.match(directTemplate, /class="direct-connect-recovery"[\s\S]*?<a href="\/tools\/flash\/">/);
+        assert.match(directTemplate, /class="device-connect-card connection-card direct-connect-card empty-state"/);
+        assert.match(app, /class DirectConnectElement extends HTMLElement/);
+        assert.match(app, /customElements\.define\('espectre-direct-connect', DirectConnectElement\)/);
+        assert.match(app, /inputId = surface === 'monitor' \? 'mon-direct-endpoint' : 'cfg-direct-endpoint'/);
+        assert.doesNotMatch(onboarding, /device-recovery-hint/);
+        assert.doesNotMatch(onboarding, /<details>|Which of the two buttons is BOOT\?|EN \/ RST/);
+        assert.doesNotMatch(styles, /boot-button-guide|boot-button-pair|boot-key/);
         assert.match(configureBanner, /js-start-detection/);
         assert.match(mqttBanner, /js-device-edit-connectivity/);
         assert.match(app, /function connectDirect/);
@@ -1129,16 +1234,22 @@ describe('website UX contracts', () => {
         assert.match(app, /function directBrowserGuidance\(\)/);
         assert.match(app, /browserSupport\.hostedDirect === 'unclaimed'/);
         assert.match(app, /function renderDirectBrowserGuidance\(\)/);
+        assert.match(app, /note\.hidden = !message/);
         assert.match(app, /renderDirectBrowserGuidance\(\);/);
         assert.match(app, /permissionState === 'denied'/);
         assert.match(app, /browserSupport\.hostedDirect === 'unsupported'/);
         assert.match(app, /Close other ESPectre Configure or Monitor tabs/);
         assert.match(app, /function setDirectConnectionHelp\(message = ''\)/);
         assert.match(app, /await localNetworkAccessState\(\)/);
-        assert.equal((index.match(/class="direct-connection-help js-(?:cfg|mon)-direct-help" role="alert" hidden/g) || []).length, 2);
-        assert.equal((index.match(/class="tool-note js-direct-browser-note" role="status"/g) || []).length, 2);
+        assert.match(directTemplate, /class="direct-connection-help js-direct-help" role="alert" hidden/);
+        assert.match(directTemplate, /class="tool-note direct-connection-status js-direct-status" role="status" aria-live="polite" hidden/);
+        assert.match(app, /help\.classList\.add\(surface === 'monitor' \? 'js-mon-direct-help' : 'js-cfg-direct-help'\)/);
+        assert.match(app, /function setDirectConnectionStatus\(message = ''\)/);
+        assert.match(app, /function resolveDiscoveredTarget[\s\S]*?setDirectConnectionHelp\(\);[\s\S]*?setDirectConnectionStatus\([\s\S]*?finally \{\s*setDirectConnectionStatus\(\);/);
+        assert.equal((index.match(/class="tool-note js-direct-browser-note" role="status"/g) || []).length, 1);
         assert.match(index, /Browser and local-network help/);
-        assert.match(security, /portal does not scan the LAN or enumerate DNS-SD services/);
+        assert.match(security, /contacts only <code>espectre-devices\.local<\/code>/);
+        assert.match(security, /does not scan address ranges, keep a peer inventory/);
         assert.match(security, /two Direct client slots/);
         assert.match(app, /error\.code \|\| error\.name/);
         assert.match(app, /await client\.handshake\(\)/);
@@ -1148,15 +1259,22 @@ describe('website UX contracts', () => {
         assert.match(app, /if \(pendingConfigVerification\) requestConfigVerification\(\)/);
         assert.match(index, /list="direct-remembered-endpoints"/);
         assert.match(index, /id="direct-remembered-endpoints"/);
-        assert.match(index, /js-direct-share[\s\S]*js-direct-forget/);
-        assert.match(index, /class="modal-backdrop js-direct-share-modal"/);
+        assert.doesNotMatch(index, /js-direct-share|js-direct-forget|direct-connect-tools|data-direct-monitor-tools/);
+        assert.doesNotMatch(directTemplate, /js-demo/);
+        assert.doesNotMatch(styles, /direct-connect-tools/);
         assert.match(app, /DIRECT_ENDPOINT_STORAGE_KEY = 'espectre\.direct\.endpoints\.v1'/);
         assert.match(app, /function rememberDirectEndpoint\(endpoint\)/);
-        assert.match(app, /function forgetDirectEndpoint\(\)/);
-        assert.match(app, /function directShareUrl\(endpoint\)/);
+        assert.doesNotMatch(app, /forgetDirectEndpoint|directShareUrl|shareDirectEndpoint|copyDirectShareLink|closeDirectShare/);
         assert.match(app, /function consumeDirectHandoff\(\)/);
-        assert.match(app, /params\.get\('transport'\) !== 'ws'/);
-        assert.match(app, /DirectProtocolClient\.normalizeEndpoint\(params\.get\('endpoint'\)\)/);
+        assert.match(app, /const directTarget = params\.get\('target'\) \|\| ''/);
+        assert.match(app, /parseDirectTarget\(directTarget\)/);
+        assert.doesNotMatch(app, /legacyEndpoint|params\.get\('(?:endpoint|ip|device|transport)'\)/);
+        assert.match(app, /const DIRECT_FULL_DEVICE_ID = \/\^\[0-9a-f\]\{16\}\$\//);
+        assert.match(app, /const DIRECT_SHORT_DEVICE_ID = \/\^\[0-9a-f\]\{6\}\$\//);
+        assert.match(app, /if \(matches\.length > 1\)/);
+        assert.match(app, /button\.dataset\.deviceId = peer\.device_id/);
+        assert.match(app, /DIRECT_DISCOVERY_CONNECT_TIMEOUT_MS = 10000/);
+        assert.doesNotMatch(directTemplate, /ws:\/\/|\.local/);
         assert.match(app, /await client\.request\('start_sensing'\)/);
         assert.doesNotMatch(app, /set_ble|STOP_BLE/);
         assert.match(index, /class="modal-card" role="dialog" aria-modal="true"/);
@@ -1172,7 +1290,14 @@ describe('website UX contracts', () => {
         assert.match(app, /if \(element\.shadowRoot\) text \+= ' ' \+ flashDialogText\(element\.shadowRoot\)/);
         assert.match(app, /const observedRoots = new WeakSet\(\)/);
         assert.match(app, /observeRoot\(dialog\.shadowRoot\);[\s\S]*flashDialogText\(dialog\.shadowRoot\)/);
-        assert.match(app, /headline\.textContent\.trim\(\) === 'Visit Device'[\s\S]*'Configure Device'/);
+        assert.match(app, /label !== 'Visit Device' && label !== 'Configure Device'[\s\S]*label === 'Visit Device'[\s\S]*headline\.textContent = 'Configure Device'/);
+        assert.match(routeRegistry, /name: 'tool-configure'.*staticPath: '\/tools\/configure\/'/);
+        assert.match(index, /data-page="tool-configure" data-static-url="\/tools\/configure\/"/);
+        assert.match(app, /const configureUrl = new URL\('\/tools\/configure\/', location\.origin\)[\s\S]*configureUrl\.search = returnedUrl\.search/);
+        assert.doesNotMatch(app, /configureUrl\.hash = '#configure'/);
+        const staticPageBuilder = read('.github/scripts/build_static_pages.py');
+        assert.match(staticPageBuilder, /destination\.search = location\.search;[\s\S]*destination\.hash = '#tool-\{tool_slug\}';[\s\S]*location\.replace\(destination\)/);
+        assert.match(app, /if \(item\.href !== destination\) item\.href = destination[\s\S]*if \(item\.target !== '_self'\) item\.target = '_self'/);
         const installDialog = read('docs/web/vendor/esp-web-tools-10.4.0/install-dialog-im156JnI.js');
         assert.equal(
             installDialog.match(/this\._manifest\.name==="ESPectre Native"\?"Configure Device":"Visit Device"/g)?.length,
@@ -1204,10 +1329,14 @@ describe('website UX contracts', () => {
         assert.match(app, /if \(!manual && transport && otaCheckTransport === transport\) return;/);
         assert.match(app, /if \(!otaDefaultChannel \|\| otaBusy\) return;/);
         assert.match(app, /maybeStartSilentOtaCheck\(\);/);
+        const demoConnection = app.match(/function connectDemo\(\)[\s\S]*?function demoTrackMouse/)?.[0] || '';
+        assert.match(demoConnection, /otaSupported = false;[\s\S]*?syncFirmwareUpdateNotice\(\)/);
+        assert.match(demoConnection, /supports_ota: 'false'/);
+        assert.doesNotMatch(demoConnection, /'ota_status'|'ota_check'|ota_state:|ota_update_available:/);
         assert.doesNotMatch(app, /Bluetooth|Web Bluetooth/);
         assert.match(app, /otaSupported = monitor\.commands\.has\('ota_check'\) && monitor\.commands\.has\('ota_start'\)/);
         assert.match(app, /otaTransportReady = conn\.mode === 'ws'/);
-        assert.match(app, /el\.hidden = Boolean\(flash\.usbDialog\) \|\| otaSupported === false/);
+        assert.match(app, /el\.hidden = conn\.mode === 'demo' \|\| Boolean\(flash\.usbDialog\) \|\| otaSupported === false/);
         assert.match(app, /if \(!currentOtaCheckTransport\(\)\) return;/);
         assert.match(app, /monitorPublishCommand\(otaCommandFields\('ota_start'\)/);
         assert.match(app, /OTA_TRACKING_TIMEOUT_MS/);
@@ -1222,7 +1351,7 @@ describe('website UX contracts', () => {
         assert.match(app, /\$\$\('\.js-firmware-update-notice'\)\.forEach\(\(button\) => \{/);
         assert.match(app, /button\.addEventListener\('click', \(event\) => otaOpen\(event\.currentTarget\)\)/);
         assert.match(app, /status = 'error'/);
-        assert.match(app, /function otaOpen\(returnFocus\)/);
+        assert.match(app, /function otaOpen\(returnFocus\) \{\s*if \(conn\.mode === 'demo'\) return;/);
         assert.match(index, /id="ota-channel"/);
         assert.match(index, /<option value="release" selected/);
         assert.match(app, /function selectedOtaChannel/);
@@ -1231,15 +1360,15 @@ describe('website UX contracts', () => {
         assert.match(app, /otaChannelChanged = true/);
         assert.match(app, /return channel \? \{ command, channel \} : \{ command \}/);
         assert.match(app, /if \(conn\.mode === 'demo'\) return;/);
-        assert.match(index, /<h2 class="panel-title-status">Wi-Fi <span class="dot dot-idle js-wifi-status-dot"/);
-        assert.match(index, /<h2 class="panel-title-status">MQTT <span class="dot dot-idle js-mqtt-status-dot"/);
-        assert.match(app, /setConnectionDot\('\.js-wifi-status-dot', snapshot\.wifi_connected\)/);
-        assert.match(app, /setConnectionDot\('\.js-mqtt-status-dot', snapshot\.mqtt_connected\)/);
+        assert.match(index, /class="config-status js-wifi-status" role="status"[\s\S]*?js-wifi-status-text/);
+        assert.match(index, /class="config-status js-mqtt-status" role="status"[\s\S]*?js-mqtt-status-text/);
+        assert.match(app, /setConfigurationStatus\('wifi', snapshot\.wifi_connected, snapshot\.wifi_configured\)/);
+        assert.match(app, /setConfigurationStatus\('mqtt', snapshot\.mqtt_connected, snapshot\.mqtt_configured\)/);
         assert.match(styles, /\.dot-error \{ background: var\(--danger\); \}/);
     });
 
     it('keeps MQTT diagnostics collapsed below Live and hides demo when live', () => {
-        const mqttPage = index.match(/data-page="monitor"[\s\S]*?<\/main>/)?.[0] || '';
+        const mqttPage = index.match(/data-page="tool-monitor"[\s\S]*?<\/main>/)?.[0] || '';
         const broker = mqttPage.match(/<section class="device-connect-card[^"]*"[^>]*data-transport="mqtt"[^>]*>[\s\S]*?<\/section>/)?.[0] || '';
         const diagnostics = mqttPage.match(/<details class="device-live-diagnostics">[\s\S]*?<\/details>/)?.[0] || '';
         assert.match(broker, /<div class="fields">/);
@@ -1311,8 +1440,8 @@ describe('website UX contracts', () => {
         assert.match(index, /id="cfg-mqtt-port"[^>]*value="1883"/);
         assert.doesNotMatch(index, /id="cfg-mqtt-user"[^>]*value=/);
         assert.doesNotMatch(index, /id="cfg-mqtt-pass"[^>]*value=/);
-        assert.match(index, /id="cfg-mqtt-user"[^>]*placeholder="MQTT username"/);
-        assert.match(index, /id="cfg-mqtt-pass"[^>]*placeholder="MQTT password"/);
+        assert.match(index, /id="cfg-mqtt-user"[^>]*placeholder="Keep saved username"/);
+        assert.match(index, /id="cfg-mqtt-pass"[^>]*placeholder="Keep saved password"/);
         assert.doesNotMatch(index, /js-cfg-mqtt-preset-note|Enter the MQTT credentials created for ESPectre\./);
         assert.match(index, /id="cfg-topic-prefix"[^>]*value="espectre\/v1\/devices"/);
         assert.match(index, /id="mon-mqtt-preset"[\s\S]*?value="home_assistant" selected[\s\S]*?value="lan_broker"[\s\S]*?value="emqx_cloud"[\s\S]*?value="hivemq_cloud"[\s\S]*?value="flespi"[\s\S]*?value="cloud_broker"/);
@@ -1326,13 +1455,23 @@ describe('website UX contracts', () => {
         assert.match(index, /class="field js-mon-device-picker"/);
         assert.match(index, /id="mon-path"[^>]*value="\/mqtt"/);
         assert.match(index, /id="mon-tls"/);
-        const mqttPage = index.match(/data-page="monitor"[\s\S]*?<\/main>/)?.[0] || '';
+        const mqttPage = index.match(/data-page="tool-monitor"[\s\S]*?<\/main>/)?.[0] || '';
         const onboardingHtml = mqttPage.match(/class="js-monitor-onboarding"[\s\S]*?<div class="js-monitor-workspace"/)?.[0] || '';
         const broker = mqttPage.match(/<section class="device-connect-card[^"]*"[^>]*data-transport="mqtt"[^>]*>[\s\S]*?<\/section>/)?.[0] || '';
+        const demo = mqttPage.match(/<section class="device-connect-card[^"]*"[^>]*data-transport="demo"[^>]*>[\s\S]*?<\/section>/)?.[0] || '';
         assert.match(onboardingHtml, /<div class="fields">/);
+        assert.doesNotMatch(broker, /js-demo/);
+        assert.match(broker, /class="device-connect-card connection-card mqtt-connect-card empty-state"/);
+        assert.match(broker, /class="connection-card-eyebrow"/);
         assert.match(broker, /id="mon-host"[\s\S]*id="mon-user"[\s\S]*id="mon-port"[\s\S]*id="mon-topic-prefix"[\s\S]*id="mon-device"[\s\S]*js-mon-connect/);
+        assert.match(broker, /<details class="config-advanced mqtt-connect-advanced">[\s\S]*?<\/details>[\s\S]*?<button class="btn-primary js-mon-connect">/);
         assert.match(broker, /id="mon-path"/);
         assert.match(broker, /id="mon-tls"/);
+        assert.match(styles, /\.connection-card \{ width: min\(100%, 540px\);/);
+        assert.match(styles, /\.connection-card > \.btn-primary \{ width: 100%; margin-top: 18px; \}/);
+        assert.match(demo, /class="device-connect-card connection-card demo-connect-card empty-state"/);
+        assert.match(demo, /class="demo-connect-list"[\s\S]*class="btn-primary js-demo"/);
+        assert.match(styles, /\.demo-connect-summary \{[\s\S]*?background: var\(--surface2\);/);
         assert.match(mqttProtocol, /static baseTopic/);
         assert.match(app, /function applyConfigureMqttDefaults/);
         assert.match(app, /const MQTT_PRESETS = Object\.freeze/);
@@ -1348,9 +1487,9 @@ describe('website UX contracts', () => {
         assert.match(app, /function applyMonitorMqttPreset/);
         assert.match(app, /function applyMqttPresetFieldLocks/);
         assert.match(app, /function applyConfigureMqttCredentialPolicy/);
-        assert.match(app, /username\.placeholder = isFlespi \? 'Token' : 'MQTT username'/);
-        assert.match(app, /password\.placeholder = isFlespi \? 'No password' : 'MQTT password'/);
-        assert.match(app, /password\.disabled = isFlespi/);
+        assert.match(app, /username\.placeholder = isFlespi \? 'Enter a new token' : 'Keep saved username'/);
+        assert.match(app, /password\.placeholder = isFlespi \? 'Flespi does not use one' : 'Keep saved password'/);
+        assert.match(app, /password\.disabled = clear \|\| isFlespi/);
         assert.match(app, /if \(isFlespi\) password\.value = ''/);
         assert.match(app, /locked: Object\.freeze\(\['port'\]\)/);
         assert.match(app, /locked: Object\.freeze\(\['port', 'path', 'tls'\]\)/);
@@ -1373,33 +1512,74 @@ describe('website UX contracts', () => {
         assert.match(index, /class="conn-pill conn-disconnected js-header-connect"/);
         assert.match(
             app,
-            /\$\('\.js-header-connect'\)\.addEventListener\('click', \(\) => \{[\s\S]*?location\.hash = '#configure';/
+            /\$\('\.js-header-connect'\)\.addEventListener\('click', \(\) => \{\s*if \(route === 'tool-configure'\) \{\s*directEndpointInput\(\)\?\.focus\(\);\s*return;\s*\}[\s\S]*?location\.hash = '#tool-configure';/
         );
         assert.match(index, /js-has-live/);
         assert.doesNotMatch(app, /getElementById\('mon-port'\)\.value = .*cfg-mqtt-port/);
         assert.match(app, /input_mode: connectionInputMode\(\)/);
     });
 
+    it('preserves write-only credentials and confirms destructive configuration removal', () => {
+        assert.match(index, /id="cfg-wifi-pass"[^>]*placeholder="Keep current password"/);
+        assert.match(index, /id="cfg-wifi-pass-clear"[\s\S]*Use an open network with no password/);
+        assert.match(index, /id="cfg-mqtt-credentials-clear"[\s\S]*Connect without a username or password/);
+        assert.match(index, /class="config-advanced"[\s\S]*Advanced network settings/);
+        assert.match(index, /class="config-advanced"[\s\S]*Advanced MQTT settings/);
+        assert.match(styles, /\[data-page="tool-configure"\] \.field-row \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+        assert.match(app, /const wifiParams = \{[\s\S]*?if \(password \|\| removePassword\) wifiParams\.password = removePassword \? '' : password/);
+        assert.match(app, /function syncConfigureWifiPasswordMode\(\) \{[\s\S]*?password\.disabled = clear;[\s\S]*?password\.placeholder = clear \? 'No password' : 'Keep current password';[\s\S]*?if \(clear\) password\.value = '';/);
+        assert.match(app, /function syncConfigureMqttCredentialMode\(\) \{[\s\S]*?username\.disabled = clear;[\s\S]*?password\.disabled = clear \|\| isFlespi;[\s\S]*?username\.placeholder = clear \? 'No username'[\s\S]*?password\.placeholder = clear \? 'No password'[\s\S]*?username\.value = '';[\s\S]*?password\.value = '';/);
+        assert.match(app, /const mqttParams = \{ host, port, topic_prefix: topicPrefix \};[\s\S]*?if \(username \|\| clearCredentials\)[\s\S]*?if \(password \|\| clearCredentials\)/);
+        assert.doesNotMatch(app, /'set_wifi_config', \{\s*ssid,\s*password,/);
+        assert.doesNotMatch(app, /'set_mqtt_config', \{[\s\S]*?username,\s*password,/);
+        assert.match(index, /class="modal-backdrop js-config-clear-modal" hidden/);
+        assert.match(index, /class="btn-danger js-config-clear-confirm"/);
+        assert.match(app, /function openConfigClearDialog\(kind, returnFocus\)/);
+        assert.match(app, /if \(!await openConfigClearDialog\('wifi', document\.activeElement\)\) return/);
+        assert.match(app, /if \(!await openConfigClearDialog\('mqtt', document\.activeElement\)\) return/);
+        assert.match(app, /The device will disconnect immediately/);
+        assert.match(app, /closeConfigClearDialog\(true\)/);
+    });
+
     it('keeps Game and Theremin demo sessions on the current tool', () => {
-        assert.match(index, /data-page="theremin"[\s\S]*?class="link-btn js-demo"/);
-        assert.match(index, /data-page="game"[\s\S]*?class="link-btn js-demo"/);
+        assert.equal((index.match(/class="btn-secondary js-demo"/g) || []).length, 2);
+        assert.match(index, /data-page="tool-theremin"[\s\S]*?class="[^"]*live-connect-actions[^"]*"[\s\S]*?class="btn-secondary js-demo"/);
+        assert.match(index, /data-page="tool-game"[\s\S]*?class="[^"]*live-connect-actions[^"]*"[\s\S]*?class="btn-secondary js-demo"/);
         assert.match(app, /function connectDemo\(\)[\s\S]*?rememberLiveDestination\(\)/);
         assert.match(app, /function connectDemo\(\)[\s\S]*?completeLiveConnectionNavigation\(\)/);
+        assert.match(app, /const selectedMode = \['ws', 'mqtt', 'demo'\]\.includes\(mode\) \? mode : 'ws'/);
+        assert.doesNotMatch(app, /if \(radio\.value === 'demo'\) connectDemo\(\)/);
+        assert.match(app, /if \(previousMode === 'demo'\) selectMonitorTransport\('ws'\)/);
+    });
+
+    it('offers WebSocket and MQTT entry points from Game and Theremin', () => {
+        for (const page of ['tool-theremin', 'tool-game']) {
+            const experience = index.match(new RegExp(`data-page="${page}"[\\s\\S]*?<\\/main>`))?.[0] || '';
+            assert.match(experience, /data-live-transport="ws"/);
+            assert.match(experience, /data-live-transport="mqtt"/);
+            const actions = experience.match(/class="[^"]*live-connect-actions[^"]*"[\s\S]*?<\/div>/)?.[0] || '';
+            assert.equal((actions.match(/class="btn-secondary/g) || []).length, 3);
+            assert.doesNotMatch(actions, /class="btn-primary/);
+        }
+        assert.match(app, /async function startDetection\(preferredTransport = ''\)/);
+        assert.match(app, /selectMonitorTransport\(preferredTransport\);[\s\S]*?location\.hash = '#tool-monitor'/);
+        assert.match(app, /startDetection\(btn\.dataset\.liveTransport \|\| ''\)/);
     });
 
     it('returns live connection flows to their requesting experience', () => {
-        assert.match(app, /const LIVE_EXPERIENCE_ROUTES = new Set\(\['game', 'theremin'\]\)/);
+        assert.match(app, /const LIVE_EXPERIENCE_ROUTES = new Set\(\['tool-game', 'tool-theremin'\]\)/);
         assert.match(app, /function rememberLiveDestination/);
         assert.match(app, /function completeLiveConnectionNavigation/);
         assert.match(app, /const destination = pendingLiveDestination;[\s\S]*?pendingLiveDestination = ''/);
-        assert.match(app, /function startDetection\(\) \{\s*rememberLiveDestination\(\)/);
+        assert.match(app, /function startDetection\(preferredTransport = ''\) \{\s*rememberLiveDestination\(\)/);
+        assert.match(app, /if \(pendingLiveDestination\) completeLiveConnectionNavigation\(\)/);
         assert.match(app, /function bindMqttToConnection\(\)[\s\S]*?completeLiveConnectionNavigation\(\)/);
-        assert.match(app, /monitor\.entryPoint = connectionIntentRoute\(\)/);
-        assert.match(app, /target !== 'monitor' && target !== 'configure'/);
-        assert.match(app, /if \(pendingLiveDestination \|\| route === 'monitor' \|\| route === 'configure'\)/);
+        assert.match(app, /monitor\.entryPoint = toolNameForRoute\(connectionIntentRoute\(\)\)/);
+        assert.match(app, /target !== 'tool-monitor' && target !== 'tool-configure'/);
+        assert.match(app, /if \(pendingLiveDestination \|\| route === 'tool-monitor' \|\| route === 'tool-configure'\)/);
         assert.match(
             app,
-            /\$\('\.js-header-connect'\)\.addEventListener\('click',[\s\S]*?rememberLiveDestination\(\);[\s\S]*?location\.hash = '#configure'/
+            /\$\('\.js-header-connect'\)\.addEventListener\('click',[\s\S]*?rememberLiveDestination\(\);[\s\S]*?location\.hash = '#tool-configure'/
         );
     });
 

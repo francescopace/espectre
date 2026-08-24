@@ -36,6 +36,19 @@ SITE_ORIGIN = "https://espectre.dev"
 
 PAGES = (
     {
+        "source": "content/tools.html",
+        "output": "tools",
+        "title": "Browser tools | ESPectre",
+        "description": (
+            "Flash ESPectre firmware, configure a local device, monitor sensing, "
+            "and explore interactive motion experiences from the browser."
+        ),
+        "active_nav": "tools",
+        "content_group": "tools",
+        "main_class": "page-narrow",
+        "og_type": "website",
+    },
+    {
         "source": "content/guides.html",
         "output": "guides",
         "title": "Guides | ESPectre",
@@ -346,7 +359,7 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
     </button>
     <nav class="main-nav" id="main-navigation" aria-label="Main">
       <a href="/" class="nav-link">Home</a>
-      <a href="/#tools" class="nav-link">Tools</a>
+      <a href="/tools/" class="nav-link{tools_active}"{tools_current}>Tools</a>
       <a href="/guides/" class="nav-link{guides_active}"{guides_current}>Guides</a>
       <a href="/media/" class="nav-link{media_active}"{media_current}>Media</a>
       <a href="/sdk/" class="nav-link{sdk_active}"{sdk_current}>SDK</a>
@@ -386,11 +399,44 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
     <a href="/privacy/">Read the privacy notice</a>
   </div>
   <div class="consent-actions">
-    <button class="btn-ghost js-consent-reject" type="button">Reject</button>
-    <button class="btn-primary btn-sm js-consent-accept" type="button">Accept analytics</button>
+    <button class="btn-secondary btn-sm js-consent-reject" type="button">Reject</button>
+    <button class="btn-secondary btn-sm js-consent-accept" type="button">Accept analytics</button>
   </div>
 </aside>
 
+</body>
+</html>
+"""
+
+TOOL_ENTRIES = (
+    ("flash", "Flash firmware"),
+    ("configure", "Configure"),
+    ("monitor", "Monitor"),
+    ("theremin", "Motion theremin"),
+    ("game", "Motion game"),
+)
+
+TOOL_ENTRY_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{tool_title} | ESPectre</title>
+<link rel="canonical" href="https://espectre.dev/tools/{tool_slug}/">
+<script>
+(() => {
+    const destination = new URL('/', location.origin);
+    destination.search = location.search;
+    destination.hash = '#tool-{tool_slug}';
+    location.replace(destination);
+})();
+</script>
+</head>
+<body>
+<p>Opening <a id="tool-link" href="/#tool-{tool_slug}">ESPectre {tool_title}</a>…</p>
+<script>
+document.getElementById('tool-link').href = `/${location.search}#tool-{tool_slug}`;
+</script>
 </body>
 </html>
 """
@@ -434,10 +480,12 @@ def build() -> None:
             logo_version=logo_version,
             og_type=spec.get("og_type", "article"),
             breadcrumb=breadcrumb(spec),
+            tools_active=" active" if spec["active_nav"] == "tools" else "",
             guides_active=" active" if spec["active_nav"] == "guides" else "",
             sdk_active=" active" if spec["active_nav"] == "sdk" else "",
             media_active=" active" if spec["active_nav"] == "media" else "",
             roadmap_active=" active" if spec["active_nav"] == "roadmap" else "",
+            tools_current=' aria-current="page"' if spec["active_nav"] == "tools" else "",
             guides_current=' aria-current="page"' if spec["active_nav"] == "guides" else "",
             sdk_current=' aria-current="page"' if spec["active_nav"] == "sdk" else "",
             media_current=' aria-current="page"' if spec["active_nav"] == "media" else "",
@@ -450,6 +498,15 @@ def build() -> None:
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "index.html").write_text(page)
         print(f"wrote {spec['output']}/index.html")
+
+    for tool_slug, tool_title in TOOL_ENTRIES:
+        tool_dir = WEB_ROOT / "tools" / tool_slug
+        tool_dir.mkdir(parents=True, exist_ok=True)
+        tool_page = TOOL_ENTRY_TEMPLATE.replace("{tool_slug}", tool_slug).replace(
+            "{tool_title}", tool_title
+        )
+        (tool_dir / "index.html").write_text(tool_page)
+        print(f"wrote tools/{tool_slug}/index.html")
 
 
 if __name__ == "__main__":

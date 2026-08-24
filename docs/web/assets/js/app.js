@@ -1,9 +1,9 @@
 /*
  * ESPectre - Website app shell
  *
- * Hash routing and a persistent session shared by every page. Configure and
- * Monitor use the local Direct WebSocket transport, while Monitor can also
- * use MQTT over WebSockets for integrations and multi-device deployments.
+ * Hash routing and a persistent session shared by every page. Configure uses
+ * the local Direct WebSocket transport, while Monitor, Game, and Theremin can
+ * use Direct WebSocket or MQTT over WebSockets.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -31,10 +31,10 @@
     const track = (name, params) => window.trackEvent ? window.trackEvent(name, params) : false;
     const errorType = (error) => (error && (error.code || error.name)) || 'Error';
     const toolNameForRoute = (routeName) => routeRegistry.groupOf(routeName) === 'tools'
-        ? routeName
+        ? (routeRegistry.get(routeName)?.analyticsName || routeName)
         : 'monitor';
     const activeToolName = () => toolNameForRoute(route);
-    const LEGACY_TOOL_ROUTES = Object.freeze({ mqtt: 'monitor', device: 'configure' });
+    const LEGACY_TOOL_ROUTES = Object.freeze({ mqtt: 'tool-monitor', device: 'tool-configure' });
     const MQTT_PRESETS = Object.freeze({
         home_assistant: Object.freeze({
             configure: Object.freeze({
@@ -161,6 +161,50 @@
     const DIRECT_RECONNECT_DELAYS_MS = Object.freeze([500, 1500, 3000]);
     const DIRECT_ENDPOINT_STORAGE_KEY = 'espectre.direct.endpoints.v1';
     const DIRECT_ENDPOINT_LIMIT = 8;
+    const DIRECT_FULL_DEVICE_ID = /^[0-9a-f]{16}$/;
+    const DIRECT_SHORT_DEVICE_ID = /^[0-9a-f]{6}$/;
+    const DIRECT_CANONICAL_HOSTNAME = /^espectre-([0-9a-f]{16})\.local$/;
+    const DIRECT_DISCOVERY_ENDPOINT = 'ws://espectre-devices.local/espectre/v1/ws';
+    const DIRECT_DISCOVERY_CONNECT_TIMEOUT_MS = 10000;
+
+    class DirectConnectElement extends HTMLElement {
+        connectedCallback() {
+            if (this.dataset.rendered === 'true') return;
+            const template = document.getElementById('direct-connect-template');
+            if (!template) throw new Error('Direct connection template is unavailable');
+            const surface = this.dataset.surface === 'monitor' ? 'monitor' : 'configure';
+            const fragment = template.content.cloneNode(true);
+            const inputId = surface === 'monitor' ? 'mon-direct-endpoint' : 'cfg-direct-endpoint';
+            const input = fragment.querySelector('.js-direct-endpoint');
+            const label = fragment.querySelector('.js-direct-endpoint-label');
+            input.id = inputId;
+            label.htmlFor = inputId;
+
+            const help = fragment.querySelector('.js-direct-help');
+            help.classList.add(surface === 'monitor' ? 'js-mon-direct-help' : 'js-cfg-direct-help');
+            const alternate = fragment.querySelector('.js-direct-alternate');
+            alternate.append(' · ');
+            if (surface === 'monitor') {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'link-btn js-monitor-use-mqtt';
+                button.textContent = 'Use MQTT instead';
+                alternate.append(button);
+            } else {
+                const link = document.createElement('a');
+                link.href = '#tool-monitor';
+                link.textContent = 'Use MQTT Monitor instead';
+                alternate.append(link);
+            }
+
+            this.replaceChildren(fragment);
+            this.dataset.rendered = 'true';
+        }
+    }
+
+    if (!customElements.get('espectre-direct-connect')) {
+        customElements.define('espectre-direct-connect', DirectConnectElement);
+    }
 
     const conn = {
         mode: null,             // 'ws' | 'mqtt' | 'demo'
@@ -176,6 +220,7 @@
         generatedName: '',
         deviceLabel: '',
         deviceConfigSupported: false,
+        connectivityConfigSupported: false,
         chip: '',
         firmwareVersion: '',
         endpoint: '',
@@ -190,14 +235,17 @@
     };
 
     let directClient = null;
+    let directDiscoveryClient = null;
+    let directDiscoveryGeneration = 0;
     let directReconnectTimer = 0;
     let directReconnectAttempt = 0;
-    let directShareReturnFocus = null;
+    let configClearReturnFocus = null;
+    let configClearResolve = null;
     let demoTimer = null;
     let demoInputEnergy = 0;
     const demoPointer = { x: null, y: null, t: 0 };
     let route = 'home';
-    const LIVE_EXPERIENCE_ROUTES = new Set(['game', 'theremin']);
+    const LIVE_EXPERIENCE_ROUTES = new Set(['tool-game', 'tool-theremin']);
     let pendingLiveDestination = '';
     const deviceNameEditorState = {
         configure: { editing: false, savePending: false },
@@ -286,7 +334,7 @@
             if (route !== destination) location.hash = '#' + destination;
             return;
         }
-        if (route === 'monitor' || route === 'configure') {
+        if (route === 'tool-monitor' || route === 'tool-configure') {
             setDeviceView('live', { focus: true });
         }
     }
@@ -294,7 +342,7 @@
     function rememberConnectionOrigin() {
         const origin = connectionIntentRoute();
         conn.toolName = toolNameForRoute(origin);
-        conn.entryPoint = origin;
+        conn.entryPoint = toolNameForRoute(origin);
         conn.startedAt = Date.now();
         conn.readyState = '';
         conn.readyAt = 0;
@@ -304,7 +352,7 @@
     function connectionParams() {
         return {
             tool_name: conn.toolName || activeToolName(),
-            entry_point: conn.entryPoint || route
+            entry_point: conn.entryPoint || activeToolName()
         };
     }
 
@@ -326,8 +374,8 @@
     }
 
     function setDeviceView(view, { focus = false } = {}) {
-        const targetRoute = view === 'connectivity' ? 'configure' : 'monitor';
-        activeDeviceView = targetRoute === 'configure' ? 'connectivity' : 'live';
+        const targetRoute = view === 'connectivity' ? 'tool-configure' : 'tool-monitor';
+        activeDeviceView = targetRoute === 'tool-configure' ? 'connectivity' : 'live';
         if (route !== targetRoute) {
             location.hash = '#' + targetRoute;
             return;
@@ -339,7 +387,7 @@
             if (!targetPanel.hasAttribute('tabindex')) targetPanel.setAttribute('tabindex', '-1');
             targetPanel.focus({ preventScroll: true });
         }
-        if (targetRoute === 'monitor') {
+        if (targetRoute === 'tool-monitor') {
             monitorResizeChart();
         }
         syncDiagnosticsPolling();
@@ -459,17 +507,17 @@
     function applyDeviceIdentity(data) {
         if (!data || typeof data !== 'object') return;
         if (data.device_id) adoptDeviceId(data.device_id);
-        if (data.device_name) conn.generatedName = data.device_name;
+        if (data.device_name || data.name) conn.generatedName = data.device_name || data.name;
         if (data.device_label !== undefined) conn.deviceLabel = data.device_label;
         if (data.supports_device_config !== undefined) {
             conn.deviceConfigSupported = sysinfoBoolean(data.supports_device_config);
         }
-        if (data.device_label || data.device_name) {
-            conn.deviceName = data.device_label || data.device_name;
+        if (data.device_label || data.device_name || data.name) {
+            conn.deviceName = data.device_label || data.device_name || data.name;
         }
         if (data.chip) conn.chip = String(data.chip).toUpperCase();
-        if (data.firmware_version || data.version) {
-            conn.firmwareVersion = data.firmware_version || data.version;
+        if (data.firmware_version || data.firmware || data.version) {
+            conn.firmwareVersion = data.firmware_version || data.firmware || data.version;
         }
     }
 
@@ -701,7 +749,7 @@
         if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) return;
         gameThresholdOverride = threshold;
         paintGameThresholdControl();
-        if (route === 'game') {
+        if (route === 'tool-game') {
             gameSetFlight(gameSensingActive());
             gameStartPreview();
         }
@@ -787,15 +835,76 @@
     /* --------------------------------------------------------- Direct mode */
 
     function directEndpointInput() {
-        const id = route === 'monitor' ? 'mon-direct-endpoint' : 'cfg-direct-endpoint';
+        const id = route === 'tool-monitor' ? 'mon-direct-endpoint' : 'cfg-direct-endpoint';
         return document.getElementById(id);
     }
 
-    function syncDirectEndpointInputs(endpoint) {
+    function syncDirectEndpointInputs(target) {
         ['cfg-direct-endpoint', 'mon-direct-endpoint'].forEach((id) => {
             const input = document.getElementById(id);
-            if (input && endpoint) input.value = endpoint;
+            if (input && target) input.value = target;
         });
+    }
+
+    function privateIpv4Address(value) {
+        const octets = value.split('.');
+        if (octets.length !== 4 || octets.some((octet) => !/^(0|[1-9][0-9]{0,2})$/.test(octet))) {
+            return false;
+        }
+        const values = octets.map(Number);
+        if (values.some((octet) => octet > 255)) return false;
+        return values[0] === 10
+            || (values[0] === 172 && values[1] >= 16 && values[1] <= 31)
+            || (values[0] === 192 && values[1] === 168);
+    }
+
+    function directTargetForEndpoint(endpoint) {
+        const url = new URL(DirectProtocolClient.normalizeEndpoint(endpoint));
+        const canonical = url.hostname.toLowerCase().match(DIRECT_CANONICAL_HOSTNAME);
+        if (canonical) return canonical[1];
+        if (privateIpv4Address(url.hostname)) return url.hostname;
+        if (url.hostname.includes(':')) return url.hostname;
+        return url.hostname;
+    }
+
+    function parseDirectTarget(value) {
+        const input = String(value || '').trim().toLowerCase();
+        if (!input) throw new Error('Enter a private IP address or device ID.');
+        if (DIRECT_FULL_DEVICE_ID.test(input)) {
+            return {
+                display: input,
+                endpoint: DirectProtocolClient.normalizeEndpoint(`espectre-${input}.local`),
+                deviceId: input,
+                shortId: '',
+                discoveryFallback: true
+            };
+        }
+        if (DIRECT_SHORT_DEVICE_ID.test(input)) {
+            return { display: input, endpoint: '', deviceId: '', search: input, shortId: input };
+        }
+        if (privateIpv4Address(input)) {
+            return {
+                display: input,
+                endpoint: DirectProtocolClient.normalizeEndpoint(input),
+                deviceId: '',
+                shortId: ''
+            };
+        }
+        try {
+            const endpoint = DirectProtocolClient.normalizeEndpoint(input);
+            return {
+                display: directTargetForEndpoint(endpoint), endpoint, deviceId: '', shortId: ''
+            };
+        } catch (_error) {
+            if (/^[a-z][a-z0-9+.-]*:\/\//i.test(input)
+                || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(input)) {
+                throw new Error('Use a private device IP address on the current LAN.');
+            }
+            if (input.length <= 63 && [...input].every((character) => character >= ' ')) {
+                return { display: input, endpoint: '', deviceId: '', search: input, shortId: '' };
+            }
+            throw new Error('Enter a private IP address, device ID, or device name.');
+        }
     }
 
     function storedDirectEndpoints() {
@@ -824,7 +933,7 @@
         if (!list) return;
         list.replaceChildren(...storedDirectEndpoints().map((endpoint) => {
             const option = document.createElement('option');
-            option.value = endpoint;
+            option.value = directTargetForEndpoint(endpoint);
             return option;
         }));
     }
@@ -834,92 +943,19 @@
         writeStoredDirectEndpoints([endpoint, ...endpoints]);
     }
 
-    function forgetDirectEndpoint() {
-        const input = directEndpointInput();
-        let endpoint = input?.value || conn.endpoint;
-        try { endpoint = DirectProtocolClient.normalizeEndpoint(endpoint); } catch (_error) { endpoint = ''; }
-        if (!endpoint) {
-            toast('Enter a remembered device endpoint to forget.');
-            return;
-        }
-        writeStoredDirectEndpoints(storedDirectEndpoints().filter((value) => value !== endpoint));
-        if (input?.value === endpoint) input.value = '';
-        toast('Remembered endpoint removed.');
-    }
-
-    function directShareUrl(endpoint) {
-        const url = new URL('https://espectre.dev/');
-        url.searchParams.set('transport', 'ws');
-        url.searchParams.set('endpoint', endpoint);
-        url.hash = 'monitor';
-        return url.toString();
-    }
-
-    function closeDirectShare({ restoreFocus = true } = {}) {
-        const modal = $('.js-direct-share-modal');
-        if (!modal || modal.hidden) return;
-        modal.hidden = true;
-        syncModalOpenState();
-        if (restoreFocus && directShareReturnFocus?.isConnected) directShareReturnFocus.focus();
-        directShareReturnFocus = null;
-    }
-
-    async function shareDirectEndpoint(event) {
-        const input = directEndpointInput();
-        let endpoint;
-        try {
-            endpoint = DirectProtocolClient.normalizeEndpoint(input?.value || conn.endpoint || '');
-        } catch (error) {
-            toast(error.message);
-            return;
-        }
-        try {
-            await loadBrowserDependency(
-                '/vendor/qrcodejs-1.0.0/qrcode.min.js',
-                'https://unpkg.com/qrcodejs@1.0.0/qrcode.min.js'
-            );
-        } catch (_error) {
-            toast('The QR renderer could not be loaded.');
-            return;
-        }
-        const link = directShareUrl(endpoint);
-        const canvas = $('.js-direct-share-canvas');
-        canvas.replaceChildren();
-        new window.QRCode(canvas, {
-            text: link, width: 220, height: 220,
-            colorDark: '#000000', colorLight: '#ffffff',
-            correctLevel: window.QRCode.CorrectLevel.M
-        });
-        $('.js-direct-share-link').textContent = link;
-        directShareReturnFocus = event?.currentTarget || document.activeElement;
-        const modal = $('.js-direct-share-modal');
-        modal.hidden = false;
-        syncModalOpenState();
-        modal.querySelector('.modal-card').focus();
-    }
-
-    async function copyDirectShareLink() {
-        const link = $('.js-direct-share-link').textContent;
-        try {
-            await navigator.clipboard.writeText(link);
-            toast('Connection link copied.');
-        } catch (_error) {
-            toast('Copy was blocked. Select the link manually.');
-        }
-    }
-
     function consumeDirectHandoff() {
         const params = new URLSearchParams(location.search);
-        if (params.get('transport') !== 'ws' || !params.get('endpoint')) return;
+        const directTarget = params.get('target') || '';
+        if (!directTarget) return;
         try {
-            const endpoint = DirectProtocolClient.normalizeEndpoint(params.get('endpoint'));
-            syncDirectEndpointInputs(endpoint);
+            const target = parseDirectTarget(directTarget);
+            syncDirectEndpointInputs(target.display);
             const radio = document.getElementById('monitor-transport-ws');
             if (radio) radio.checked = true;
             history.replaceState(null, '', location.pathname + location.hash);
         } catch (_error) {
             history.replaceState(null, '', location.pathname + location.hash);
-            toast('The device handoff contained an invalid local endpoint.');
+            toast('The device handoff contained an invalid local device.');
         }
     }
 
@@ -927,10 +963,17 @@
         const methods = new Set(capabilities.methods || []);
         monitor.commands = methods;
         monitor.commandCatalogReady = true;
+        conn.connectivityConfigSupported = methods.has('set_wifi_config') || methods.has('set_mqtt_config');
         return {
             supports_wifi_provisioning: methods.has('set_wifi_config'),
             supports_mqtt_config: methods.has('set_mqtt_config'),
             supports_device_config: methods.has('set_device_label'),
+            supports_runtime_threshold: methods.has('set_threshold'),
+            supports_runtime_motion_hits: methods.has('set_motion_hits'),
+            supports_runtime_detector: methods.has('set_detector'),
+            supports_manual_recalibration: methods.has('recalibrate'),
+            supports_traffic_control: methods.has('set_csi_traffic_mode')
+                && methods.has('set_traffic_generator_mode'),
             supports_ota: methods.has('ota_status')
         };
     }
@@ -940,15 +983,18 @@
         const mqtt = config.mqtt || {};
         applySysinfo({
             device_label: config.device_label,
+            wifi_configured: wifi.configured,
             wifi_ssid: wifi.ssid,
             wifi_bssid: wifi.bssid,
             wifi_channel: wifi.channel,
             wifi_band_policy: wifi.band_policy,
             wifi_apply_state: wifi.apply_state,
             wifi_apply_message: wifi.apply_message,
+            mqtt_configured: mqtt.configured,
             mqtt_host: mqtt.host,
             mqtt_port: mqtt.port,
-            mqtt_topic_prefix: mqtt.topic_prefix
+            mqtt_topic_prefix: mqtt.topic_prefix,
+            mqtt_username_configured: mqtt.username_configured
         });
     }
 
@@ -998,7 +1044,7 @@
 
     function directBrowserGuidance() {
         if (location.protocol !== 'https:') {
-            return 'Local development mode: the firmware must explicitly allow HTTP loopback Origins. Development builds accept localhost on any port; if a .local name does not resolve, use the device IP address.';
+            return 'Local development mode: the firmware must explicitly allow HTTP loopback Origins. Development builds accept localhost on any port.';
         }
         if (browserSupport.hostedDirect === 'unsupported') {
             return 'This browser blocks hosted Direct WebSocket. Use supported desktop Chrome, or choose MQTT Monitor.';
@@ -1006,12 +1052,14 @@
         if (browserSupport.hostedDirect === 'unclaimed') {
             return 'Hosted Direct is not validated in this browser. Use targeted desktop Chrome, or choose MQTT Monitor.';
         }
-        return 'Chrome may ask for Local network access. Allow it only for this site and the LAN you intend to manage.';
+        return '';
     }
 
     function renderDirectBrowserGuidance() {
         $$('.js-direct-browser-note').forEach((note) => {
-            note.textContent = directBrowserGuidance();
+            const message = directBrowserGuidance();
+            note.textContent = message;
+            note.hidden = !message;
         });
     }
 
@@ -1023,7 +1071,7 @@
         const hostedCleartext = location.protocol === 'https:' && url?.protocol === 'ws:';
         if (code === 'timeout') {
             return localName
-                ? 'The device did not answer in time. Confirm it is online and on this LAN; if the .local name does not resolve, enter its router-assigned IP address.'
+                ? 'The device did not answer in time. Confirm it is online and on this LAN, then retry Auto-discovery or enter its current IP address.'
                 : 'The device did not answer in time. Confirm it is online, on this LAN, and that the IP address is current.';
         }
         if (code === 'subprotocol_mismatch' || code === 'unsupported_version'
@@ -1047,7 +1095,7 @@
                 return 'The browser is waiting for Local network access. Retry, allow the permission prompt for this site, and keep the device on the same LAN.';
             }
             const addressHelp = localName
-                ? 'If the .local name does not resolve, enter the device IP address. '
+                ? 'Retry Auto-discovery or enter the device IP address. '
                 : 'Confirm the device IP address. ';
             return `The browser could not open the local Direct connection. ${addressHelp}Close other ESPectre Configure or Monitor tabs, allow Local network access when prompted, and retry. The device may be offline or at its two-client limit.`;
         }
@@ -1055,12 +1103,209 @@
     }
 
     function setDirectConnectionHelp(message = '') {
-        const selector = route === 'monitor' ? '.js-mon-direct-help' : '.js-cfg-direct-help';
+        const selector = route === 'tool-monitor' ? '.js-mon-direct-help' : '.js-cfg-direct-help';
         const help = $(selector);
         if (!help) return;
         const copy = help.querySelector('.js-direct-help-copy');
         if (copy) copy.textContent = message;
         help.hidden = !message;
+    }
+
+    function setDirectConnectionStatus(message = '') {
+        const status = directEndpointInput()?.closest('.device-connect-card')?.querySelector('.js-direct-status');
+        if (!status) return;
+        status.textContent = message;
+        status.hidden = !message;
+    }
+
+    function directDiscoveryPanel(button) {
+        return button?.closest('.device-connect-card')?.querySelector('.js-direct-discovery') || null;
+    }
+
+    function cancelDirectDiscovery({ clear = false } = {}) {
+        directDiscoveryGeneration += 1;
+        const client = directDiscoveryClient;
+        directDiscoveryClient = null;
+        client?.close();
+        $$('.js-direct-discover').forEach((button) => {
+            button.disabled = false;
+            button.setAttribute('aria-disabled', 'false');
+        });
+        if (clear) {
+            $$('.js-direct-discovery').forEach((panel) => {
+                panel.hidden = true;
+                panel.replaceChildren();
+            });
+        }
+    }
+
+    function discoveredPeerFrontendLabel(frontend) {
+        const value = String(frontend || '');
+        const labels = { native: 'Native', esphome: 'ESPHome', matter: 'Matter', streamer: 'Streamer' };
+        return labels[value.toLowerCase()] || value;
+    }
+
+    function discoveredPeerChipLabel(chip) {
+        return String(chip || '').toUpperCase().replace(/^ESP32([A-Z]\d)$/, 'ESP32-$1');
+    }
+
+    function renderDiscoveredPeers(panel, result, { selectionRequired = false } = {}) {
+        panel.replaceChildren();
+        const summary = document.createElement('p');
+        summary.className = 'direct-discovery-summary';
+        summary.textContent = selectionRequired
+            ? `${result.devices.length} matching devices found. Select one to connect.`
+            : result.devices.length
+            ? `${result.devices.length} local device${result.devices.length === 1 ? '' : 's'} found${result.truncated ? ' (partial result)' : ''}.`
+            : 'No compatible devices answered. You can still enter a private IP address or device ID.';
+        panel.appendChild(summary);
+        if (!result.devices.length) return;
+        const list = document.createElement('ul');
+        list.className = 'direct-discovery-list';
+        for (const peer of result.devices) {
+            const item = document.createElement('li');
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'btn-ghost direct-discovery-device';
+            button.dataset.endpoint = peer.endpoints[0];
+            button.dataset.deviceId = peer.device_id;
+            const displayName = peer.name || `ESPectre ${peer.device_id.slice(-6)}`;
+            const frontend = discoveredPeerFrontendLabel(peer.frontend);
+            const chip = discoveredPeerChipLabel(peer.chip);
+            const shortId = peer.device_id.slice(-6);
+            button.setAttribute('aria-label', `Connect to ${displayName}, ${frontend}, ${chip}, device ID ${shortId}`);
+            const heading = document.createElement('span');
+            heading.className = 'direct-discovery-device-heading';
+            const name = document.createElement('strong');
+            name.className = 'direct-discovery-device-name';
+            name.textContent = displayName;
+            const action = document.createElement('span');
+            action.className = 'direct-discovery-device-action';
+            action.setAttribute('aria-hidden', 'true');
+            action.textContent = 'Connect →';
+            heading.append(name, action);
+            const metadata = document.createElement('span');
+            metadata.className = 'direct-discovery-device-meta';
+            for (const [label, value, valueClass = ''] of [
+                ['Frontend', frontend],
+                ['Hardware', chip],
+                ['Device ID', shortId, 'mono']
+            ]) {
+                const field = document.createElement('span');
+                field.className = 'direct-discovery-device-field';
+                const fieldLabel = document.createElement('span');
+                fieldLabel.className = 'direct-discovery-device-label';
+                fieldLabel.textContent = label;
+                const fieldValue = document.createElement('span');
+                fieldValue.className = `direct-discovery-device-value ${valueClass}`.trim();
+                fieldValue.textContent = value;
+                field.append(fieldLabel, fieldValue);
+                metadata.appendChild(field);
+            }
+            button.append(heading, metadata);
+            item.appendChild(button);
+            list.appendChild(item);
+        }
+        panel.appendChild(list);
+    }
+
+    function directDiscoveryFailureMessage(error, permissionState) {
+        if (permissionState === 'denied') {
+            return 'Local network access is blocked for this site. Allow it in the browser site settings, then retry.';
+        }
+        if (error?.code === 'unsupported_capability') {
+            return 'The responder does not support Auto-discovery. Enter a private IP address or device ID.';
+        }
+        if (error?.code === 'timeout') {
+            if (error.discoveryStage === 'connect') {
+                return 'Auto-discovery could not reach a local responder in time. Retry after the network cache refreshes, or enter a private IP address or full device ID.';
+            }
+            if (error.discoveryStage === 'handshake') {
+                return 'A local responder connected but did not complete discovery negotiation in time. Retry, or enter a private IP address or full device ID.';
+            }
+            return 'Auto-discovery timed out. Multicast may be filtered or isolated on this network; enter a private IP address or full device ID.';
+        }
+        if (error?.code === 'closed') {
+            return 'The responder disconnected during Auto-discovery. Retry, or enter a private IP address or full device ID.';
+        }
+        if (error?.code === 'subprotocol_mismatch' || error?.code === 'invalid_capabilities') {
+            return 'Auto-discovery reached an incompatible responder. Update that device, or enter another private IP address or full device ID.';
+        }
+        if (error?.code === 'invalid_peer_result' || error?.code === 'frame_too_large') {
+            return 'The responder returned an invalid discovery result, so no device was used. Enter a trusted private IP address or full device ID.';
+        }
+        if (error?.code === 'connection_failed') {
+            return 'Auto-discovery could not reach a responder. A device may be offline, or multicast DNS may be isolated; enter a private IP address or full device ID.';
+        }
+        return 'Auto-discovery is unavailable on this network. Enter a private IP address or full device ID.';
+    }
+
+    async function queryLocalPeers(onProgress = () => {}) {
+        const client = makeDirectClient(DIRECT_DISCOVERY_ENDPOINT);
+        directDiscoveryClient = client;
+        try {
+            onProgress('Connecting to a local responder…');
+            try {
+                await client.connect({ timeoutMs: DIRECT_DISCOVERY_CONNECT_TIMEOUT_MS });
+            } catch (error) {
+                error.discoveryStage = 'connect';
+                throw error;
+            }
+            onProgress('Checking discovery support…');
+            try {
+                await client.handshake({ timeoutMs: 5000 });
+            } catch (error) {
+                error.discoveryStage = 'handshake';
+                throw error;
+            }
+            onProgress('Looking for compatible ESPectre devices…');
+            try {
+                return await client.discoverPeers();
+            } catch (error) {
+                error.discoveryStage = 'query';
+                throw error;
+            }
+        } finally {
+            if (directDiscoveryClient === client) directDiscoveryClient = null;
+            client.close();
+        }
+    }
+
+    async function discoverLocalPeers(button) {
+        cancelDirectDiscovery({ clear: true });
+        const panel = directDiscoveryPanel(button);
+        if (!panel) return;
+        const generation = directDiscoveryGeneration;
+        panel.hidden = false;
+        panel.textContent = 'Starting Auto-discovery…';
+        button.disabled = true;
+        button.setAttribute('aria-disabled', 'true');
+        track('local_discovery', { tool_name: activeToolName(), result: 'attempt' });
+        try {
+            const result = await queryLocalPeers((message) => {
+                if (generation === directDiscoveryGeneration) panel.textContent = message;
+            });
+            if (generation !== directDiscoveryGeneration) return;
+            setDirectConnectionHelp();
+            renderDiscoveredPeers(panel, result);
+            track('local_discovery', {
+                tool_name: activeToolName(), result: result.devices.length ? 'success' : 'empty',
+                device_count: result.devices.length, truncated: result.truncated
+            });
+        } catch (error) {
+            if (generation !== directDiscoveryGeneration) return;
+            const permissionState = await localNetworkAccessState();
+            if (generation !== directDiscoveryGeneration) return;
+            panel.textContent = directDiscoveryFailureMessage(error, permissionState);
+            track('local_discovery', {
+                tool_name: activeToolName(), result: 'failure', error_type: errorType(error)
+            });
+        } finally {
+            if (generation === directDiscoveryGeneration) {
+                button.disabled = false;
+                button.setAttribute('aria-disabled', 'false');
+            }
+        }
     }
 
     async function localNetworkAccessState() {
@@ -1121,13 +1366,74 @@
         if (otaStatus) applyOtaStatus(otaStatus);
     }
 
-    async function connectDirect({ endpoint, openView } = {}) {
+    async function resolveDiscoveredTarget(target, input) {
+        const description = target.deviceId
+            ? `device ID ${target.deviceId}`
+            : target.shortId ? `device ID …${target.shortId}` : `device name “${target.search}”`;
+        setDirectConnectionHelp();
+        setDirectConnectionStatus(`Looking for ${description} on this LAN.`);
+        track('local_discovery', { tool_name: activeToolName(), result: 'attempt' });
+        let result;
+        try {
+            result = await queryLocalPeers();
+        } catch (error) {
+            const permissionState = await localNetworkAccessState();
+            throw new Error(directDiscoveryFailureMessage(error, permissionState));
+        } finally {
+            setDirectConnectionStatus();
+        }
+        const query = target.search.toLowerCase();
+        const matches = result.devices.filter((peer) => target.deviceId
+            ? peer.device_id === target.deviceId
+            : target.shortId ? peer.device_id.endsWith(target.shortId)
+                : [peer.name, peer.instance].some((value) => String(value || '').toLowerCase().includes(query)));
+        track('local_discovery', {
+            tool_name: activeToolName(), result: matches.length === 1 ? 'success' : (matches.length ? 'multiple' : 'empty'),
+            device_count: result.devices.length, truncated: result.truncated
+        });
+        if (matches.length === 0) {
+            throw new Error(`No matching ${description} was found. Retry Auto-discovery, enter the full ID, or use its private IP address.`);
+        }
+        if (matches.length > 1) {
+            const panel = directDiscoveryPanel(input);
+            if (panel) {
+                panel.hidden = false;
+                renderDiscoveredPeers(panel, { ...result, devices: matches }, { selectionRequired: true });
+            }
+            setDirectConnectionHelp();
+            return null;
+        }
+        const peer = matches[0];
+        return { display: peer.device_id, endpoint: peer.endpoints[0], deviceId: peer.device_id };
+    }
+
+    async function connectDirect({ endpoint, deviceId, openView } = {}) {
+        cancelDirectDiscovery();
         if (directClient || (conn.status !== 'disconnected' && conn.mode !== 'mqtt')) return;
         const input = directEndpointInput();
-        const requestedEndpoint = endpoint || input?.value || '';
+        let target;
+        try {
+            if (endpoint) {
+                const normalizedEndpoint = DirectProtocolClient.normalizeEndpoint(endpoint);
+                target = {
+                    display: deviceId || directTargetForEndpoint(normalizedEndpoint),
+                    endpoint: normalizedEndpoint,
+                    deviceId: deviceId || ''
+                };
+            } else {
+                target = parseDirectTarget(input?.value || '');
+                if (target.search) target = await resolveDiscoveredTarget(target, input);
+                if (!target) return;
+            }
+        } catch (error) {
+            setDirectConnectionHelp(error.message);
+            toast(error.message);
+            input?.setAttribute('aria-invalid', 'true');
+            return;
+        }
         let normalizedEndpoint;
         try {
-            normalizedEndpoint = DirectProtocolClient.normalizeEndpoint(requestedEndpoint);
+            normalizedEndpoint = DirectProtocolClient.normalizeEndpoint(target.endpoint);
         } catch (error) {
             toast(error.message);
             input?.setAttribute('aria-invalid', 'true');
@@ -1152,30 +1458,51 @@
             conn.endpoint = normalizedEndpoint;
             conn.deviceBannerSub = normalizedEndpoint;
             conn.connectedAt = Date.now();
-            syncDirectEndpointInputs(normalizedEndpoint);
+            syncDirectEndpointInputs(target.display);
             rememberDirectEndpoint(normalizedEndpoint);
             await refreshDirectDevice();
-            if ((openView || (route === 'monitor' ? 'live' : 'connectivity')) === 'live') {
+            if ((openView || (route === 'tool-monitor' ? 'live' : 'connectivity')) === 'live') {
                 await client.request('start_sensing');
             }
             setStatus('connected');
             setDirectConnectionHelp();
-            setDeviceView(openView || (route === 'monitor' ? 'live' : 'connectivity'));
+            setDeviceView(openView || (route === 'tool-monitor' || !conn.connectivityConfigSupported
+                ? 'live' : 'connectivity'));
             track('tool_connection', {
                 ...connectionParams(), transport: 'direct_websocket', result: 'success'
             });
             markToolReady('info');
+            if (pendingLiveDestination) completeLiveConnectionNavigation();
         } catch (error) {
             directClient?.close();
             directClient = null;
             setStatus('disconnected');
+            if (target.discoveryFallback) {
+                try {
+                    const discoveredTarget = await resolveDiscoveredTarget({
+                        deviceId: target.deviceId,
+                        search: target.deviceId,
+                        shortId: ''
+                    }, input);
+                    if (discoveredTarget) {
+                        return connectDirect({
+                            endpoint: discoveredTarget.endpoint,
+                            deviceId: discoveredTarget.deviceId,
+                            openView
+                        });
+                    }
+                    return;
+                } catch (fallbackError) {
+                    error = fallbackError;
+                }
+            }
             track('tool_connection', {
                 ...connectionParams(), transport: 'direct_websocket', result: 'failure',
                 error_type: errorType(error)
             });
-            const message = directConnectionErrorMessage(
-                error, normalizedEndpoint, await localNetworkAccessState()
-            );
+            const message = error?.code
+                ? directConnectionErrorMessage(error, normalizedEndpoint, await localNetworkAccessState())
+                : error.message;
             setDirectConnectionHelp(message);
             toast(message);
         }
@@ -1213,12 +1540,36 @@
         const username = document.getElementById('cfg-mqtt-user');
         const password = document.getElementById('cfg-mqtt-pass');
         const isFlespi = presetName === 'flespi';
-        username.placeholder = isFlespi ? 'Token' : 'MQTT username';
-        password.placeholder = isFlespi ? 'No password' : 'MQTT password';
-        password.disabled = isFlespi;
+        username.placeholder = isFlespi ? 'Enter a new token' : 'Keep saved username';
+        password.placeholder = isFlespi ? 'Flespi does not use one' : 'Keep saved password';
         password.toggleAttribute('data-preset-locked', isFlespi);
         password.title = isFlespi ? 'Flespi does not use a password' : '';
+        password.disabled = isFlespi;
         if (isFlespi) password.value = '';
+        syncConfigureMqttCredentialMode();
+    }
+
+    function syncConfigureWifiPasswordMode() {
+        const clear = document.getElementById('cfg-wifi-pass-clear').checked;
+        const password = document.getElementById('cfg-wifi-pass');
+        password.disabled = clear;
+        password.placeholder = clear ? 'No password' : 'Keep current password';
+        if (clear) password.value = '';
+    }
+
+    function syncConfigureMqttCredentialMode() {
+        const clear = document.getElementById('cfg-mqtt-credentials-clear').checked;
+        const username = document.getElementById('cfg-mqtt-user');
+        const password = document.getElementById('cfg-mqtt-pass');
+        const isFlespi = document.getElementById('cfg-mqtt-preset').value === 'flespi';
+        username.disabled = clear;
+        password.disabled = clear || isFlespi;
+        username.placeholder = clear ? 'No username' : isFlespi ? 'Enter a new token' : 'Keep saved username';
+        password.placeholder = clear ? 'No password' : isFlespi ? 'Flespi does not use one' : 'Keep saved password';
+        if (clear) {
+            username.value = '';
+            password.value = '';
+        }
     }
 
     function applyMqttPresetFieldLocks(target, preset) {
@@ -1276,7 +1627,9 @@
         if (clearCredentials) {
             document.getElementById('cfg-mqtt-user').value = '';
             document.getElementById('cfg-mqtt-pass').value = '';
+            document.getElementById('cfg-mqtt-credentials-clear').checked = false;
         }
+        syncConfigureMqttCredentialMode();
     }
 
     function applyMonitorMqttPreset(presetName, { clearCredentials = true } = {}) {
@@ -1347,7 +1700,7 @@
         toast('Sensing is live.');
     }
 
-    async function startDetection() {
+    async function startDetection(preferredTransport = '') {
         rememberLiveDestination();
         if (conn.mode === 'demo') {
             completeLiveConnectionNavigation();
@@ -1364,6 +1717,11 @@
             }
             return;
         }
+        if (preferredTransport === 'ws' || preferredTransport === 'mqtt') {
+            selectMonitorTransport(preferredTransport);
+            location.hash = '#tool-monitor';
+            return;
+        }
         applyConfigureMqttToMonitor();
         const nextDevice = document.getElementById('mon-device').value.trim();
         if (conn.mode === 'mqtt' && monitorIsMqttLive()
@@ -1374,7 +1732,7 @@
         const host = document.getElementById('mon-host').value.trim();
         if (!host) {
             toast('Save MQTT settings before starting sensing.');
-            location.hash = '#monitor';
+            location.hash = '#tool-monitor';
             return;
         }
         if (nextDevice) {
@@ -1384,8 +1742,8 @@
             }
             monitor.switchingTransport = true;
             setDeviceView('live');
-        } else if (route !== 'monitor') {
-            location.hash = '#monitor';
+        } else if (route !== 'tool-monitor') {
+            location.hash = '#tool-monitor';
         }
         await monitorConnect();
     }
@@ -1399,7 +1757,7 @@
         applyWifiBandOptions(snapshot);
         const chip = snapshot.chip ? String(snapshot.chip).toUpperCase() : conn.chip;
         const proto = snapshot.proto_version || snapshot.espectre_protocol_version || '';
-        const firmware = snapshot.firmware_version || snapshot.version || conn.firmwareVersion;
+        const firmware = snapshot.firmware_version || snapshot.firmware || snapshot.version || conn.firmwareVersion;
         const deviceIdentity = formatDeviceIdentityLine(chip, snapshot.device_id || conn.deviceId, firmware) || '—';
         conn.chip = chip;
         conn.firmwareVersion = firmware;
@@ -1414,14 +1772,31 @@
                 else el.textContent = value;
             }
         };
-        const setConnectionDot = (dotSelector, value) => {
-            if (value === undefined) return;
-            const connected = sysinfoBoolean(value);
-            const dot = $(dotSelector);
-            dot.classList.toggle('dot-idle', false);
-            dot.classList.toggle('dot-ok', connected);
-            dot.classList.toggle('dot-error', !connected);
-            dot.title = connected ? 'Connected' : 'Disconnected';
+        const setConfigurationStatus = (surface, connectedValue, configuredValue) => {
+            const status = $(`.js-${surface}-status`);
+            const dot = $(`.js-${surface}-status-dot`);
+            const text = $(`.js-${surface}-status-text`);
+            if (!status || !dot || !text) return;
+            let state;
+            let label;
+            if (configuredValue !== undefined && !sysinfoBoolean(configuredValue)) {
+                state = 'not-configured';
+                label = 'Not configured';
+            } else if (connectedValue !== undefined) {
+                const connected = sysinfoBoolean(connectedValue);
+                state = connected ? 'connected' : 'disconnected';
+                label = connected ? 'Connected' : 'Disconnected';
+            } else if (configuredValue !== undefined && text.textContent === 'Checking…') {
+                state = 'configured';
+                label = 'Configured';
+            } else {
+                return;
+            }
+            status.dataset.state = state;
+            text.textContent = label;
+            dot.classList.toggle('dot-idle', state === 'not-configured' || state === 'configured');
+            dot.classList.toggle('dot-ok', state === 'connected');
+            dot.classList.toggle('dot-error', state === 'disconnected');
         };
         set('cfg-ssid', snapshot.wifi_ssid);
         set('cfg-bssid', snapshot.wifi_bssid);
@@ -1442,8 +1817,8 @@
         applySensingSnapshot(snapshot);
         syncFirmwareUpdateNotice();
         evaluateConfigVerification(snapshot);
-        setConnectionDot('.js-wifi-status-dot', snapshot.wifi_connected);
-        setConnectionDot('.js-mqtt-status-dot', snapshot.mqtt_connected);
+        setConfigurationStatus('wifi', snapshot.wifi_connected, snapshot.wifi_configured);
+        setConfigurationStatus('mqtt', snapshot.mqtt_connected, snapshot.mqtt_configured);
 
         // Real hardware only: demo values would pollute the adoption report.
         if (conn.mode === 'ws' && snapshot.frontend && snapshot.chip) {
@@ -1473,6 +1848,8 @@
         setStatus('connecting');
         setTimeout(() => {
             conn.mode = 'demo';
+            otaSupported = false;
+            syncFirmwareUpdateNotice();
             conn.deviceName = 'Demo Device';
             conn.deviceBannerSub = '—';
             conn.threshold = 0.5;
@@ -1483,7 +1860,7 @@
             monitor.commands = new Set([
                 'set_threshold', 'set_motion_hits', 'set_detector', 'recalibrate',
                 'set_csi_traffic_mode', 'set_traffic_generator_mode', 'stats',
-                'ota_status', 'ota_check', 'set_device_label'
+                'set_device_label'
             ]);
             monitor.commandCatalogReady = true;
             applySysinfo({
@@ -1495,7 +1872,7 @@
                 supports_mqtt_config: 'true',
                 supports_device_config: 'true',
                 supports_extended_diagnostics: 'true',
-                supports_ota: 'true',
+                supports_ota: 'false',
                 supports_wifi_5ghz: 'true',
                 detector: 'lightweight',
                 threshold: '0.500000',
@@ -1520,13 +1897,7 @@
                 device_id: '3cf79180d3a0aca4',
                 device_name: 'Demo Device',
                 device_label: 'Demo Device',
-                motion_hits: '4/3',
-                ota_state: 'up_to_date',
-                ota_busy: 'false',
-                ota_update_available: 'false',
-                ota_current_version: '3.0.0-dev',
-                ota_target_version: '',
-                ota_message: ''
+                motion_hits: '4/3'
             });
             completeLiveConnectionNavigation();
             monitorResetChart();
@@ -1534,9 +1905,9 @@
             const demoTickSec = evaluationIntervalMs() / 1000;
             demoTimer = setInterval(() => {
                 t += demoTickSec;
-                const gameDemoActive = route === 'game' && game.phase !== 'idle' && game.phase !== 'done';
+                const gameDemoActive = route === 'tool-game' && game.phase !== 'idle' && game.phase !== 'done';
                 const idle = 0.035 + Math.sin(t * 0.8) * 0.01 + Math.sin(t * 1.9) * 0.004;
-                const gameManualFlight = route === 'game' && game.manualFlight ? 1 : 0;
+                const gameManualFlight = route === 'tool-game' && game.manualFlight ? 1 : 0;
                 const target = Math.min(1, idle + Math.max(demoInputEnergy, gameManualFlight) * 0.95);
                 const smoothingTau = gameDemoActive ? 0.29 : 0.49;
                 const smoothing = 1 - Math.exp(-demoTickSec / smoothingTau);
@@ -1582,6 +1953,7 @@
     /* ----------------------------------------------------- shared teardown */
 
     function disconnect() {
+        cancelDirectDiscovery({ clear: true });
         cancelDirectReconnect();
         const client = directClient;
         directClient = null;
@@ -1633,6 +2005,7 @@
     }
 
     function teardownConnection(reason = 'route_change') {
+        cancelDirectDiscovery({ clear: true });
         cancelDirectReconnect();
         monitor.switchingTransport = false;
         if (otaTracking) finishOtaTracking('unconfirmed', 'ClientDisconnected');
@@ -1673,6 +2046,7 @@
         conn.generatedName = '';
         conn.deviceLabel = '';
         conn.deviceConfigSupported = false;
+        conn.connectivityConfigSupported = false;
         conn.chip = '';
         conn.firmwareVersion = '';
         conn.endpoint = '';
@@ -1703,6 +2077,7 @@
         gameReset();
         thereminStop();
         otaClose(false);
+        if (previousMode === 'demo') selectMonitorTransport('ws');
         setStatus('disconnected');
     }
 
@@ -1753,6 +2128,12 @@
             installButton.classList.toggle('is-disabled', !browserSupport.flash);
             installButton.toggleAttribute('inert', !browserSupport.flash);
         }
+        const matterReadButton = $('.js-matter-read');
+        if (matterReadButton) {
+            matterReadButton.disabled = !browserSupport.flash;
+            matterReadButton.setAttribute('aria-disabled', String(!browserSupport.flash));
+            matterReadButton.title = browserSupport.flash ? '' : flashUnsupportedMessage();
+        }
     }
 
     function renderConnection() {
@@ -1791,7 +2172,7 @@
         const monitorWorkspace = $('.js-monitor-workspace');
         const connectivitySetup = $('.js-connectivity-setup');
         const edit = $('.js-device-edit-connectivity');
-        const startSensing = document.querySelector('[data-page="configure"] .js-start-detection');
+        const startSensing = document.querySelector('[data-page="tool-configure"] .js-start-detection');
         if (configureOnboarding) configureOnboarding.hidden = directSetup || conn.mode === 'demo';
         if (configureWorkspace) configureWorkspace.hidden = !(directSetup || conn.mode === 'demo');
         if (monitorOnboarding) monitorOnboarding.hidden = mqttSession;
@@ -1799,7 +2180,7 @@
         if (connectivitySetup) connectivitySetup.hidden = !(directSetup || conn.mode === 'demo');
         if (startSensing) startSensing.disabled = monitor.switchingTransport;
         if (edit) {
-            edit.hidden = false;
+            edit.hidden = conn.mode === 'ws' && !conn.connectivityConfigSupported;
             edit.disabled = false;
             edit.textContent = mqttConnectionPending ? 'Cancel connection' : 'Edit connectivity';
         }
@@ -1832,7 +2213,7 @@
         renderBrowserSupport();
         renderTelemetry();
         syncDemoToast();
-        if (live && route === 'game' && !game.ctx) requestAnimationFrame(gameResizeCanvas);
+        if (live && route === 'tool-game' && !game.ctx) requestAnimationFrame(gameResizeCanvas);
     }
 
     function renderTelemetry() {
@@ -1891,9 +2272,9 @@
             ? window.getRouteTitle(route)
             : 'ESPectre — Wi-Fi motion sensing';
         window.scrollTo(0, 0);
-        if (route !== 'theremin') thereminStop();
-        if (route === 'monitor') monitorResizeChart();
-        if (route === 'game') {
+        if (route !== 'tool-theremin') thereminStop();
+        if (route === 'tool-monitor') monitorResizeChart();
+        if (route === 'tool-game') {
             requestAnimationFrame(() => {
                 gameResizeCanvas();
                 gameSetFlight(gameSensingActive());
@@ -1904,7 +2285,7 @@
             ? loadStaticContent(routeAtStart)
             : Promise.resolve();
         if (route === 'home') updateReleaseBadge();
-        if (route === 'flash') {
+        if (route === 'tool-flash') {
             if (browserSupport.flash) {
                 loadBrowserDependency(
                     '/vendor/esp-web-tools-10.4.0/install-button.js',
@@ -1932,16 +2313,17 @@
         const remapped = LEGACY_TOOL_ROUTES[next] || next;
         const target = routeRegistry.has(remapped) ? remapped : 'home';
         if (!force && target === route) return;
+        cancelDirectDiscovery({ clear: true });
         const previousRoute = route;
         if (pendingLiveDestination) {
             if (LIVE_EXPERIENCE_ROUTES.has(target)) pendingLiveDestination = target;
-            else if (target !== 'monitor' && target !== 'configure') pendingLiveDestination = '';
+            else if (target !== 'tool-monitor' && target !== 'tool-configure') pendingLiveDestination = '';
         }
-        if (previousRoute === 'game' && target !== 'game') {
+        if (previousRoute === 'tool-game' && target !== 'tool-game') {
             gameExitFullscreen();
             reportGameAbandon('route_change');
         }
-        if (target === 'game' && previousRoute !== 'game') resetGameThreshold();
+        if (target === 'tool-game' && previousRoute !== 'tool-game') resetGameThreshold();
         route = target;
         dropdownOpen = false;
         applyRoute({ focus });
@@ -1974,6 +2356,7 @@
             }
             container.innerHTML = staticContentCache.get(contentUrl);
             container.dataset.loaded = 'true';
+            if (route === 'tools') renderConnection();
             if (window.initPageTocs) window.initPageTocs(container);
             if (window.initSdkDownloadVersions) window.initSdkDownloadVersions(container);
             if (window.initPublishedReleaseTags) window.initPublishedReleaseTags(container);
@@ -2165,13 +2548,13 @@
     const flash = {
         manifests: {}, installUrl: null, badgeChecked: false,
         installerObserver: null, watchedDialogs: new WeakSet(), catalogReports: new Set(),
-        downloadReady: false, detectedChip: '', supportedChipLabels: [], modalReturnFocus: null,
+        detectedChip: '', supportedChipLabels: [], modalReturnFocus: null,
         refreshRequest: 0, targetVersion: '', usbDialog: null, usbPortInfo: null,
         usbReleaseTimer: null
     };
 
     /*
-     * Presentation order for the Flash selectors and published-chip list.
+     * Presentation order for the Flash selectors and installer manifest.
      * Anything not listed keeps its manifest order and lands after the listed
      * entries, so a new frontend or chip still shows up without touching this code.
      */
@@ -2291,58 +2674,6 @@
         return detected + ' Published firmware is available for ' + list + '.';
     }
 
-    function flashCreateDownloadLink(label, href, chip) {
-        const link = document.createElement('a');
-        link.className = 'btn-ghost btn-sm';
-        link.href = href;
-        link.textContent = label;
-        if (chip) {
-            link.dataset.chip = chip;
-            return link;
-        }
-        link.target = '_blank';
-        link.rel = 'noopener';
-        return link;
-    }
-
-    function flashRenderDownloads(artifacts) {
-        const container = $('.js-flash-chip-downloads');
-        container.replaceChildren();
-        if (!artifacts.length) {
-            container.append(flashCreateDownloadLink(
-                'Browse GitHub releases',
-                'https://github.com/francescopace/espectre/releases'
-            ));
-            flash.downloadReady = false;
-            return;
-        }
-        for (const artifact of artifacts) {
-            const link = flashCreateDownloadLink(
-                artifact.chip_label,
-                flashResolveUrl(artifact.url),
-                artifact.chip
-            );
-            if (artifact.filename) link.setAttribute('download', artifact.filename);
-            container.append(link);
-        }
-        flash.downloadReady = true;
-    }
-
-    function flashNextLink(href, label) {
-        const link = document.createElement('a');
-        link.href = href;
-        link.textContent = label;
-        return link;
-    }
-
-    function flashNextActionLink(label, className) {
-        const link = document.createElement('a');
-        link.href = '#flash';
-        link.className = className;
-        link.textContent = label;
-        return link;
-    }
-
     function flashHideMatterQr() {
         const status = $('.js-matter-status');
         const result = $('.js-matter-result');
@@ -2354,48 +2685,10 @@
         if (result) result.hidden = true;
     }
 
-    function flashSetNextStep(frontendKey) {
-        const note = $('.js-flash-next');
+    function flashSetFrontendActions(frontendKey) {
+        const matterReadButton = $('.js-matter-read');
+        matterReadButton.hidden = frontendKey !== 'matter';
         if (frontendKey !== 'matter') flashHideMatterQr();
-        if (frontendKey === 'native') {
-            note.replaceChildren(
-                'After flashing Native, open ',
-                flashNextLink('#configure', 'Configure'),
-                ' to provision connectivity, then ',
-                flashNextLink('#monitor', 'Monitor'),
-                '.'
-            );
-            note.hidden = false;
-            return;
-        }
-        if (frontendKey === 'esphome') {
-            note.replaceChildren(
-                'After flashing ESPHome, there are several ways to configure Wi-Fi. See the ',
-                flashNextLink('/guides/setup/', 'setup guide'),
-                '.'
-            );
-            note.hidden = false;
-            return;
-        }
-        if (frontendKey === 'matter') {
-            const readQr = flashNextActionLink('Read the onboarding QR over USB', 'js-matter-read');
-            if (!browserSupport.flash) {
-                readQr.setAttribute('aria-disabled', 'true');
-                readQr.title = flashUnsupportedMessage();
-            }
-            note.replaceChildren(
-                'After flashing Matter, commission the device with a Matter controller.',
-                document.createElement('br'),
-                readQr,
-                ' or see the ',
-                flashNextLink('/guides/setup/', 'setup guide'),
-                '.'
-            );
-            note.hidden = false;
-            return;
-        }
-        note.replaceChildren();
-        note.hidden = true;
     }
 
     async function flashRefresh() {
@@ -2405,7 +2698,6 @@
         const installButton = $('.js-flash-install');
         const requestId = ++flash.refreshRequest;
         const selectedChannel = channelSel.value;
-        flash.downloadReady = false;
         flash.targetVersion = '';
 
         try {
@@ -2448,8 +2740,7 @@
             }
             installButton.removeAttribute('manifest');
             if (!artifacts.length) {
-                flashRenderDownloads([]);
-                flashSetNextStep(frontendSel.value);
+                flashSetFrontendActions(frontendSel.value);
                 summary.textContent = 'No matching firmware was found for the selected combination.';
                 flashStatus('Change the selection or use the manual download.', 'is-error');
                 return;
@@ -2478,8 +2769,7 @@
             channel.className = 'mono-sub';
             channel.textContent = '(' + manifest.channel + ')';
             summary.append(title, document.createElement('br'), detail, channel);
-            flashRenderDownloads(artifacts);
-            flashSetNextStep(frontendSel.value);
+            flashSetFrontendActions(frontendSel.value);
 
             if (!browserSupport.flash) {
                 flashStatus(flashUnsupportedMessage(), 'is-error');
@@ -2494,8 +2784,7 @@
                 flash.installUrl = null;
             }
             installButton.removeAttribute('manifest');
-            flashRenderDownloads([]);
-            flashSetNextStep('');
+            flashSetFrontendActions('');
             summary.textContent = 'Firmware metadata is currently unavailable.';
             flashStatus(error.message, 'is-error');
             const failureKey = selectedChannel + ':failure';
@@ -2567,7 +2856,10 @@
             return;
         }
         let port;
-        if (trigger) trigger.setAttribute('aria-disabled', 'true');
+        if (trigger) {
+            trigger.disabled = true;
+            trigger.setAttribute('aria-disabled', 'true');
+        }
         result.hidden = true;
         status.hidden = false;
         status.textContent = 'Choose the ESPectre serial port, then wait for the device to restart.';
@@ -2599,7 +2891,10 @@
             if (port && (port.readable || port.writable)) {
                 await port.close().catch(() => {});
             }
-            if (trigger) trigger.setAttribute('aria-disabled', 'false');
+            if (trigger) {
+                trigger.disabled = !browserSupport.flash;
+                trigger.setAttribute('aria-disabled', String(!browserSupport.flash));
+            }
         }
     }
 
@@ -2706,7 +3001,21 @@
         const customizeNativeDeviceLink = () => {
             if (document.getElementById('flash-frontend').value !== 'native' || !dialog.shadowRoot) return;
             dialog.shadowRoot.querySelectorAll('[slot="headline"]').forEach((headline) => {
-                if (headline.textContent.trim() === 'Visit Device') headline.textContent = 'Configure Device';
+                const label = headline.textContent.trim();
+                if (label !== 'Visit Device' && label !== 'Configure Device') return;
+                if (label === 'Visit Device') headline.textContent = 'Configure Device';
+                const item = headline.closest('ew-list-item');
+                if (!item || !item.href) return;
+                try {
+                    const returnedUrl = new URL(item.href, location.href);
+                    const configureUrl = new URL('/tools/configure/', location.origin);
+                    configureUrl.search = returnedUrl.search;
+                    const destination = configureUrl.toString();
+                    if (item.href !== destination) item.href = destination;
+                    if (item.target !== '_self') item.target = '_self';
+                } catch (_error) {
+                    // Leave malformed device URLs untouched so ESP Web Tools can report them.
+                }
             });
         };
         const inspect = () => {
@@ -2801,22 +3110,7 @@
             flashStatus('Select the serial port. The installer detects the chip and chooses the matching firmware.');
             track('firmware_installer_open', flashParams());
         });
-        $('.js-flash-chip-downloads').addEventListener('click', (event) => {
-            const link = event.target.closest('a[data-chip]');
-            if (!link || !flash.downloadReady) return;
-            track('firmware_download', {
-                ...flashParams(),
-                chip: link.dataset.chip,
-                result: 'started'
-            });
-        });
-        $('.js-flash-next').addEventListener('click', (event) => {
-            const action = event.target.closest('.js-matter-read');
-            if (!action) return;
-            event.preventDefault();
-            if (action.getAttribute('aria-disabled') === 'true') return;
-            matterReadQr();
-        });
+        $('.js-matter-read').addEventListener('click', matterReadQr);
         $$('.js-matter-close').forEach((button) => {
             button.addEventListener('click', () => matterClose());
         });
@@ -3513,7 +3807,7 @@
             conn.mode = 'mqtt';
             conn.endpoint = monitor.brokerUrl;
             monitor.switchingTransport = false;
-            if (pendingLiveDestination || route === 'monitor' || route === 'configure') {
+            if (pendingLiveDestination || route === 'tool-monitor' || route === 'tool-configure') {
                 setDeviceView('live');
             }
             setStatus('connecting');
@@ -3537,7 +3831,7 @@
         if (!connection) {
             monitor.switchingTransport = false;
             track('tool_connection', {
-                tool_name: 'monitor', entry_point: connectionIntentRoute(),
+                tool_name: 'monitor', entry_point: toolNameForRoute(connectionIntentRoute()),
                 transport: 'mqtt_websocket', result: 'validation_failure'
             });
             if (conn.status === 'connecting' && !directClient) setStatus('disconnected');
@@ -3552,7 +3846,7 @@
             monitorStatus('The local MQTT client could not be loaded.');
             monitor.switchingTransport = false;
             track('tool_connection', {
-                tool_name: 'monitor', entry_point: connectionIntentRoute(),
+                tool_name: 'monitor', entry_point: toolNameForRoute(connectionIntentRoute()),
                 transport: 'mqtt_websocket', result: 'dependency_failure',
                 error_type: errorType(error)
             });
@@ -3584,7 +3878,7 @@
         monitor.boundDeviceId = device || '';
         monitor.handoffReady = false;
         monitor.startedAt = Date.now();
-        monitor.entryPoint = connectionIntentRoute();
+        monitor.entryPoint = toolNameForRoute(connectionIntentRoute());
         monitor.readyState = '';
         monitor.readyAt = 0;
         monitor.readyTracked = false;
@@ -3593,7 +3887,7 @@
         toast('Connecting to the broker…');
         // The URL is not tracked: it would carry the user's broker address.
         track('tool_connection', {
-            tool_name: 'monitor', entry_point: connectionIntentRoute(),
+            tool_name: 'monitor', entry_point: toolNameForRoute(connectionIntentRoute()),
             transport: 'mqtt_websocket', result: 'attempt'
         });
         const client = window.mqtt.connect(url, {
@@ -3701,7 +3995,7 @@
     function diagnosticsPanelOpen() {
         const panel = $('.device-live-diagnostics');
         const workspace = $('.js-monitor-workspace');
-        return !!(panel && panel.open && route === 'monitor' && workspace && !workspace.hidden);
+        return !!(panel && panel.open && route === 'tool-monitor' && workspace && !workspace.hidden);
     }
 
     function stopDiagnosticsPolling() {
@@ -3830,25 +4124,27 @@
         }
     }
 
+    function selectMonitorTransport(mode) {
+        const selectedMode = ['ws', 'mqtt', 'demo'].includes(mode) ? mode : 'ws';
+        const radio = document.getElementById(`monitor-transport-${selectedMode}`);
+        if (radio) radio.checked = true;
+        $$('[data-monitor-transport-panel]').forEach((panel) => {
+            panel.hidden = panel.dataset.monitorTransportPanel !== selectedMode;
+        });
+    }
+
     function monitorInit() {
         const transportRadios = $$('input[name="monitor-transport"]');
-        const selectTransport = (mode) => {
-            $$('[data-monitor-transport-panel]').forEach((panel) => {
-                panel.hidden = panel.dataset.monitorTransportPanel !== mode;
-            });
-        };
         transportRadios.forEach((radio) => {
             radio.addEventListener('change', () => {
-                if (radio.checked) selectTransport(radio.value);
+                if (!radio.checked) return;
+                selectMonitorTransport(radio.value);
             });
         });
         $('.js-monitor-use-mqtt')?.addEventListener('click', () => {
-            const radio = document.getElementById('monitor-transport-mqtt');
-            if (!radio) return;
-            radio.checked = true;
-            radio.dispatchEvent(new Event('change'));
+            selectMonitorTransport('mqtt');
         });
-        selectTransport(transportRadios.find((radio) => radio.checked)?.value || 'ws');
+        selectMonitorTransport(transportRadios.find((radio) => radio.checked)?.value || 'ws');
         const presetName = document.getElementById('mon-mqtt-preset').value;
         updateMonitorMqttPresetNote(presetName);
         applyMqttPresetFieldLocks('monitor', MQTT_PRESETS[presetName].monitor);
@@ -4135,6 +4431,7 @@
     async function cfgSaveWifi() {
         const ssid = cfgValue('cfg-ssid').trim();
         const password = cfgValue('cfg-wifi-pass');
+        const removePassword = document.getElementById('cfg-wifi-pass-clear').checked;
         if (!ssid) {
             cfgValidationFailed('set_wifi', 'Wi-Fi needs an SSID.');
             return;
@@ -4155,21 +4452,24 @@
             cfgValidationFailed('set_wifi', 'Channel must be an integer from 0 to 177.');
             return;
         }
+        const wifiParams = {
+            ssid,
+            bssid,
+            channel,
+            ...(wifiBandPolicyAvailable ? { band_policy: bandPolicy } : {})
+        };
+        if (password || removePassword) wifiParams.password = removePassword ? '' : password;
         const ok = await cfgApply(
             'set_wifi',
             bandChanged ? 'Wi-Fi saved; restart required to apply the band.' : 'Wi-Fi saved; station reconnecting.',
-            'set_wifi_config', {
-                ssid,
-                password,
-                bssid,
-                channel,
-                ...(wifiBandPolicyAvailable ? { band_policy: bandPolicy } : {})
-            },
+            'set_wifi_config', wifiParams,
             (snapshot) => snapshot.wifi_ssid === ssid
                 && snapshot.wifi_bssid.toLowerCase() === bssid.toLowerCase()
                 && (!wifiBandPolicyAvailable || snapshot.wifi_band_policy === bandPolicy));
         if (ok) {
             document.getElementById('cfg-wifi-pass').value = '';
+            document.getElementById('cfg-wifi-pass-clear').checked = false;
+            syncConfigureWifiPasswordMode();
             if (bandChanged) {
                 currentWifiBandPolicy = bandPolicy;
                 $('.js-wifi-restart-note').hidden = false;
@@ -4177,16 +4477,63 @@
         }
     }
 
+    const CONFIG_CLEAR_DIALOGS = Object.freeze({
+        wifi: Object.freeze({
+            kicker: 'Wi-Fi recovery',
+            title: 'Remove Wi-Fi configuration?',
+            description: 'This removes the saved SSID, password, BSSID, channel, and band policy.',
+            warning: 'The device will disconnect immediately. To use it again, connect over USB and repeat Wi-Fi provisioning.',
+            confirm: 'Remove Wi-Fi'
+        }),
+        mqtt: Object.freeze({
+            kicker: 'MQTT integration',
+            title: 'Remove MQTT configuration?',
+            description: 'This removes the broker host, port, username, password, and topic prefix.',
+            warning: 'Wi-Fi stays connected, but MQTT monitoring and Home Assistant discovery will stop.',
+            confirm: 'Remove MQTT'
+        })
+    });
+
+    function closeConfigClearDialog(confirmed = false) {
+        const modal = $('.js-config-clear-modal');
+        if (!modal || modal.hidden) return;
+        modal.hidden = true;
+        syncModalOpenState();
+        if (configClearReturnFocus && configClearReturnFocus.isConnected) configClearReturnFocus.focus();
+        configClearReturnFocus = null;
+        const resolve = configClearResolve;
+        configClearResolve = null;
+        if (resolve) resolve(confirmed);
+    }
+
+    function openConfigClearDialog(kind, returnFocus) {
+        const copy = CONFIG_CLEAR_DIALOGS[kind];
+        if (!copy) return Promise.resolve(false);
+        if (configClearResolve) closeConfigClearDialog(false);
+        const modal = $('.js-config-clear-modal');
+        $('.js-config-clear-kicker').textContent = copy.kicker;
+        $('.js-config-clear-title').textContent = copy.title;
+        $('.js-config-clear-description').textContent = copy.description;
+        $('.js-config-clear-warning').textContent = copy.warning;
+        $('.js-config-clear-confirm').textContent = copy.confirm;
+        configClearReturnFocus = returnFocus || document.activeElement;
+        modal.hidden = false;
+        syncModalOpenState();
+        $('.js-config-clear-confirm').focus();
+        return new Promise((resolve) => { configClearResolve = resolve; });
+    }
+
     async function cfgClearWifi() {
-        if (conn.mode === 'demo') {
-            toast('Wi-Fi credentials cleared. (demo — nothing written)');
-            return;
-        }
-        if (!directClient?.connected) {
+        if (conn.mode !== 'demo' && !directClient?.connected) {
             toast('ESPectre is not connected.');
             track('configure_change', {
                 action: 'clear_wifi', result: 'failure', error_type: 'NotConnected'
             });
+            return;
+        }
+        if (!await openConfigClearDialog('wifi', document.activeElement)) return;
+        if (conn.mode === 'demo') {
+            toast('Wi-Fi credentials cleared. (demo — nothing written)');
             return;
         }
         let result = 'accepted';
@@ -4221,6 +4568,7 @@
             : enteredHost;
         const username = cfgValue('cfg-mqtt-user').trim();
         const password = cfgValue('cfg-mqtt-pass');
+        const clearCredentials = document.getElementById('cfg-mqtt-credentials-clear').checked;
         if (!host || !cfgValue('cfg-mqtt-port')) {
             cfgValidationFailed('set_mqtt', 'MQTT needs a host and port.');
             return;
@@ -4235,16 +4583,18 @@
             cfgValidationFailed('set_mqtt', 'Use a port from 1 to 65535 and a topic prefix without MQTT wildcards.');
             return;
         }
+        const mqttParams = { host, port, topic_prefix: topicPrefix };
+        if (username || clearCredentials) mqttParams.username = clearCredentials ? '' : username;
+        if (password || clearCredentials) mqttParams.password = clearCredentials ? '' : password;
         const ok = await cfgApply('set_mqtt', 'MQTT settings saved.',
-            'set_mqtt_config', {
-                host,
-                port,
-                username,
-                password,
-                topic_prefix: topicPrefix
-            },
+            'set_mqtt_config', mqttParams,
             (snapshot) => snapshot.mqtt_host === host && Number(snapshot.mqtt_port) === port);
-        if (ok) document.getElementById('cfg-mqtt-pass').value = '';
+        if (ok) {
+            document.getElementById('cfg-mqtt-user').value = '';
+            document.getElementById('cfg-mqtt-pass').value = '';
+            document.getElementById('cfg-mqtt-credentials-clear').checked = false;
+            syncConfigureMqttCredentialMode();
+        }
     }
 
     function applyConfigureMqttDefaults() {
@@ -4252,6 +4602,14 @@
     }
 
     async function cfgClearMqtt() {
+        if (conn.mode !== 'demo' && !directClient?.connected) {
+            toast('ESPectre is not connected.');
+            track('configure_change', {
+                action: 'clear_mqtt', result: 'failure', error_type: 'NotConnected'
+            });
+            return;
+        }
+        if (!await openConfigClearDialog('mqtt', document.activeElement)) return;
         const ok = await cfgApply(
             'clear_mqtt', 'MQTT settings cleared.', 'clear_mqtt_config', {},
             (snapshot) => !snapshot.mqtt_host);
@@ -4456,7 +4814,7 @@
         $$('.js-firmware-update-copy').forEach((el) => { el.textContent = copy; });
         $$('.js-firmware-update-notice').forEach((el) => {
             el.dataset.otaStatus = status;
-            el.hidden = Boolean(flash.usbDialog) || otaSupported === false;
+            el.hidden = conn.mode === 'demo' || Boolean(flash.usbDialog) || otaSupported === false;
         });
     }
 
@@ -4557,6 +4915,7 @@
     }
 
     function otaOpen(returnFocus) {
+        if (conn.mode === 'demo') return;
         const modal = $('.js-ota-modal');
         otaModalReturnFocus = returnFocus || document.activeElement;
         modal.hidden = false;
@@ -4604,8 +4963,17 @@
         $('.js-wifi-clear').addEventListener('click', cfgClearWifi);
         $('.js-mqtt-save').addEventListener('click', cfgSaveMqtt);
         $('.js-mqtt-clear').addEventListener('click', cfgClearMqtt);
+        document.getElementById('cfg-wifi-pass-clear').addEventListener('change', syncConfigureWifiPasswordMode);
+        document.getElementById('cfg-mqtt-credentials-clear').addEventListener('change', syncConfigureMqttCredentialMode);
         document.getElementById('cfg-mqtt-preset').addEventListener('change', (event) => {
             applyConfigureMqttPreset(event.currentTarget.value);
+        });
+        $$('.js-config-clear-cancel').forEach((button) => {
+            button.addEventListener('click', () => closeConfigClearDialog(false));
+        });
+        $('.js-config-clear-confirm').addEventListener('click', () => closeConfigClearDialog(true));
+        $('.js-config-clear-modal').addEventListener('click', (event) => {
+            if (event.target === event.currentTarget) closeConfigClearDialog(false);
         });
         $('.js-configure-name-trigger').addEventListener('click', startConfigureDeviceNameEdit);
         const nameInput = $('.js-configure-name-input');
@@ -4637,7 +5005,7 @@
         document.addEventListener('keydown', (event) => {
             if (event.key !== 'Escape') return;
             if (!$('.js-matter-modal').hidden) matterClose();
-            else if (!$('.js-direct-share-modal').hidden) closeDirectShare();
+            else if (!$('.js-config-clear-modal').hidden) closeConfigClearDialog(false);
             else if (!$('.js-ota-modal').hidden) otaClose();
         });
     }
@@ -5170,7 +5538,7 @@
     }
 
     function gamePreviewFrame(now) {
-        const previewing = route === 'game' && conn.mode
+        const previewing = route === 'tool-game' && conn.mode
             && (game.phase === 'idle' || game.phase === 'ready');
         if (!previewing) {
             game.previewRaf = null;
@@ -5186,7 +5554,7 @@
     }
 
     function gameStartPreview() {
-        if (game.previewRaf || route !== 'game' || !conn.mode
+        if (game.previewRaf || route !== 'tool-game' || !conn.mode
                 || (game.phase !== 'idle' && game.phase !== 'ready')) return;
         game.previewLastFrameAt = performance.now();
         game.previewRaf = requestAnimationFrame(gamePreviewFrame);
@@ -5274,7 +5642,7 @@
     }
 
     function gameOnTelemetry() {
-        if (route !== 'game') return;
+        if (route !== 'tool-game') return;
         gameSetFlight(gameSensingActive());
         gameStartPreview();
     }
@@ -5697,12 +6065,12 @@
         canvas.addEventListener('pointerup', (event) => gameDemoFlight(false, event));
         canvas.addEventListener('pointercancel', (event) => gameDemoFlight(false, event));
         document.addEventListener('keydown', (event) => {
-            if (route !== 'game' || (event.key !== ' ' && event.key !== 'ArrowUp')) return;
+            if (route !== 'tool-game' || (event.key !== ' ' && event.key !== 'ArrowUp')) return;
             if (document.activeElement !== canvas) return;
             gameDemoFlight(true, event);
         });
         document.addEventListener('keyup', (event) => {
-            if (route !== 'game' || (event.key !== ' ' && event.key !== 'ArrowUp')) return;
+            if (route !== 'tool-game' || (event.key !== ' ' && event.key !== 'ArrowUp')) return;
             if (document.activeElement !== canvas) return;
             gameDemoFlight(false, event);
         });
@@ -5727,21 +6095,24 @@
         consumeDirectHandoff();
 
         $$('.js-connect-direct').forEach((btn) => btn.addEventListener('click', () => connectDirect()));
-        $$('.js-direct-share').forEach((btn) => btn.addEventListener('click', shareDirectEndpoint));
-        $$('.js-direct-forget').forEach((btn) => btn.addEventListener('click', forgetDirectEndpoint));
-        $$('.js-direct-share-close').forEach((btn) => btn.addEventListener('click', () => closeDirectShare()));
-        $('.js-direct-share-copy').addEventListener('click', copyDirectShareLink);
-        $('.js-direct-share-modal').addEventListener('click', (event) => {
-            if (event.target === event.currentTarget) closeDirectShare();
-        });
-        $$('.js-start-detection').forEach((btn) => btn.addEventListener('click', () => startDetection()));
+        $$('.js-direct-discover').forEach((btn) => btn.addEventListener('click', () => discoverLocalPeers(btn)));
+        $$('.js-direct-discovery').forEach((panel) => panel.addEventListener('click', (event) => {
+            const button = event.target.closest('.direct-discovery-device');
+            if (!button?.dataset.endpoint) return;
+            const input = button.closest('.device-connect-card')?.querySelector('input[list="direct-remembered-endpoints"]');
+            if (input) input.value = button.dataset.deviceId;
+            connectDirect({ endpoint: button.dataset.endpoint, deviceId: button.dataset.deviceId });
+        }));
+        $$('.js-start-detection').forEach((btn) => btn.addEventListener('click', () => {
+            startDetection(btn.dataset.liveTransport || '');
+        }));
         $('.js-header-connect').addEventListener('click', () => {
-            if (route === 'configure') {
-                connectDirect();
+            if (route === 'tool-configure') {
+                directEndpointInput()?.focus();
                 return;
             }
             rememberLiveDestination();
-            location.hash = '#configure';
+            location.hash = '#tool-configure';
         });
         $$('.js-demo').forEach((btn) => btn.addEventListener('click', connectDemo));
         $('.js-disconnect').addEventListener('click', disconnect);
@@ -5777,7 +6148,7 @@
         if (conn.readyState) markToolReady(conn.readyState);
         if (monitor.readyState) markMonitorReady(monitor.readyState);
         if (conn.mode === 'ws' && directClient) cfgRefreshDevice();
-        if (route === 'flash') flashRefresh();
+        if (route === 'tool-flash') flashRefresh();
     });
     window.addEventListener('pagehide', (event) => {
         if (event.persisted) return;

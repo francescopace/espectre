@@ -126,7 +126,7 @@ def render_page(manifest: dict, channel: str) -> str:
     </button>
     <nav class="main-nav" id="main-navigation" aria-label="Main">
       <a href="/" class="nav-link">Home</a>
-      <a href="/#tools" class="nav-link">Tools</a>
+      <a href="/tools/" class="nav-link">Tools</a>
       <a href="/guides/" class="nav-link">Guides</a>
       <a href="/media/" class="nav-link">Media</a>
       <a href="/sdk/" class="nav-link active" aria-current="page">SDK</a>
@@ -195,8 +195,8 @@ def render_page(manifest: dict, channel: str) -> str:
     <a href="/privacy/">Read the privacy notice</a>
   </div>
   <div class="consent-actions">
-    <button class="btn-ghost js-consent-reject" type="button">Reject</button>
-    <button class="btn-primary btn-sm js-consent-accept" type="button">Accept analytics</button>
+    <button class="btn-secondary btn-sm js-consent-reject" type="button">Reject</button>
+    <button class="btn-secondary btn-sm js-consent-accept" type="button">Accept analytics</button>
   </div>
 </aside>
 </body>

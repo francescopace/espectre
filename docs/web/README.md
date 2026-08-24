@@ -8,7 +8,7 @@ Static single-page app published at `espectre.dev` through GitHub Pages.
 python -m http.server 8090 --directory docs/web
 ```
 
-Then open `http://localhost:8090`. A Native development build with `CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED=y` accepts HTTP loopback Origins on any port when the host is exactly `localhost`, `127.0.0.1`, or `[::1]`; published firmware leaves this exception disabled. Flash, Improv Serial, and the Matter QR reader need a Chromium-based browser. Configure and Direct Monitor connect to Native through local WebSocket; MQTT Monitor, Game, and Theremin use MQTT over WebSockets. The hosted Direct workflow supports Chrome 147 or later on desktop through WebSocket Local Network Access; Chrome 151 on macOS passed the hosted HTTPS validation path against a physical ESP32-C3. Firefox and Safari block the hosted HTTPS-to-`ws://` path; Edge and mobile Chrome remain unclaimed until their physical browser runs are recorded. A local HTTP preview does not prove hosted-portal compatibility.
+Then open `http://localhost:8090`. A Native development build with `CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED=y` accepts HTTP loopback Origins on any port when the host is exactly `localhost`, `127.0.0.1`, or `[::1]`; published firmware leaves this exception disabled. Flash, Improv Serial, and the Matter QR reader need a Chromium-based browser. Configure connects to Native through a local Direct WebSocket. Monitor, Game, and Theremin support both Direct WebSocket and MQTT over WebSockets. The hosted Direct workflow supports Chrome 147 or later on desktop through WebSocket Local Network Access; Chrome 151 on macOS passed the hosted HTTPS validation path against a physical ESP32-C3. Firefox and Safari block the hosted HTTPS-to-`ws://` path; Edge and mobile Chrome remain unclaimed until their physical browser runs are recorded. A local HTTP preview does not prove hosted-portal compatibility.
 
 First-party CSS, JS, and SPA content fragments use a 12-character SHA-256 prefix as `?v=`. After editing those files, restamp `index.html` and `404.html`:
 
@@ -33,7 +33,7 @@ Edit shared fragments under `content/`, including `content/guides.html`, `conten
 Security-sensitive browser tools use pinned, same-origin copies under the generated `vendor/` directory in production:
 
 - ESP Web Tools 10.4.0 for serial firmware installation;
-- MQTT.js 5.3.0 for Monitor’s live MQTT-over-WebSocket session; and
+- MQTT.js 5.3.0 for the live MQTT-over-WebSocket session shared by Monitor, Game, and Theremin; and
 - QRCode.js 1.0.0 for Matter pairing codes.
 
 Install and stage the pinned packages locally with:
@@ -51,6 +51,8 @@ npm --prefix docs/web run stage:vendor
 
 Guide and SDK analytics are convention-based: same-origin `/guides/<slug>/` and `/sdk/<slug>/` links report their registered route name as `guide_name` and `document_name`, while otherwise unmapped `guide-<slug>` and `sdk-<slug>` SPA routes receive human-readable page titles automatically. Route-registry metadata preserves established titles, historical parameter values, the SDK root, and artifact names; `analytics.js` contains no path maps. Tool analytics remain explicit because each tool owns distinct capabilities, events, and funnels.
 
+`content/tools.html` owns the shared Tools catalog rendered by both the `/tools/` static page and the `#tools` SPA route. Interactive entry points use `/tools/<name>/` publicly and `#tool-<name>` inside the persistent app shell; `build_static_pages.py` generates the entry pages that preserve query parameters before handing off to the corresponding SPA route.
+
 `assets/js/route-registry.js` is the single source of truth for deployment host roles, SPA route membership, navigation groups, page titles, canonical static paths, analytics content groups, and content-event names. `app.js` and `analytics.js` consume the same production, validation, and loopback classification. Register a new SPA page there once; the registry is also loaded by generated static pages, and structural tests require it to match every `main[data-page]` and `data-static-url` entry in `index.html`.
 
 The event contract is intentionally low-cardinality and excludes Wi-Fi SSIDs and passwords, broker addresses and credentials, device identifiers, local device endpoints, Matter pairing codes, raw CSI, and MQTT payloads.
@@ -59,7 +61,7 @@ The event contract is intentionally low-cardinality and excludes Wi-Fi SSIDs and
 |---|---|---|
 | Navigation | `page_view` (`page_path`, `page_title`, `content_group`), `select_tool`, `select_guide`, `select_documentation`, `sdk_download`, `click_contact`, `click_security` | Content, SDK downloads, contact actions, and entry-point performance |
 | Browser support | `tool_capability` (`tool_name`, `capability`, `result`) | Separate unsupported browsers from product failures |
-| Firmware | `firmware_catalog`, `firmware_selection`, `firmware_install_start`, `firmware_install_result`, `firmware_download` | Measure catalog availability and the complete install funnel |
+| Firmware | `firmware_catalog`, `firmware_selection`, `firmware_install_start`, `firmware_install_result` | Measure catalog availability and the browser install funnel |
 | Device tools | `tool_connection`, `tool_ready`, `tool_disconnect`, `tool_demo_start`, `device_profile` | Separate transport connection from the first valid data, measure duration, and report supported platform adoption |
 | Configuration | `configure_change`, `ota_update_result`, `matter_qr_read` | Distinguish an accepted Direct setup write from a verified device state and the final OTA state |
 | Experiences | `theremin_configuration`, `game_start`, `game_over` (`score`, `orbs`, `distance`), `game_abandon` (`score`, `distance`, `reason`) | Optional tool engagement, completion, and abandonment |
@@ -76,7 +78,7 @@ The committed `.github/scripts/sitemap.template.xml` is the canonical URL invent
 
 ## Browser protocol clients
 
-`assets/js/espectre-direct.js` implements Direct WebSocket envelopes, request correlation, and reconnect behavior for Configure and Monitor, while `assets/js/espectre-mqtt.js` implements the MQTT protocol layer. Both are dependency-free first-party components released under the same GPLv3 and commercial licensing policy as the rest of ESPectre.
+`assets/js/espectre-direct.js` implements Direct WebSocket envelopes, request correlation, and reconnect behavior for Configure and the live tools, while `assets/js/espectre-mqtt.js` implements the MQTT protocol layer shared by Monitor, Game, and Theremin. Both are dependency-free first-party components released under the same GPLv3 and commercial licensing policy as the rest of ESPectre.
 
 The wire contract, supported commands, topic families, and capability boundaries are documented in `docs/ESPECTRE_PROTOCOL.md`. Keep protocol behavior in these clients instead of duplicating it in `app.js`; broker connection policy remains an application concern.
 

@@ -18,6 +18,9 @@
     const ENDPOINT_PATH = '/espectre/v1/ws';
     const MAX_FRAME_BYTES = 4096;
     const DEFAULT_TIMEOUT_MS = 8000;
+    const PEER_DISCOVERY_TIMEOUT_MS = 5000;
+    const PEER_DISCOVERY_MAX_DEVICES = 8;
+    const PEER_DISCOVERY_MAX_ADDRESSES = 2;
     const EVENTS = Object.freeze(['open', 'close', 'event', 'protocol-error']);
     const MUTATING_METHODS = Object.freeze(new Set([
         'clear_mqtt_config', 'clear_wifi_config', 'ota_start', 'recalibrate',
@@ -45,6 +48,28 @@
             return true;
         }
         return false;
+    }
+
+    function isLocalPeerAddress(address) {
+        if (typeof address !== 'string' || !address || address.includes('%')) return false;
+        if (address.includes('.')) {
+            const octets = address.split('.');
+            if (octets.length !== 4 || octets.some((octet) => !/^(0|[1-9][0-9]{0,2})$/.test(octet))) {
+                return false;
+            }
+            const values = octets.map(Number);
+            if (values.some((value) => value > 255)) return false;
+            return values[0] === 10
+                || (values[0] === 172 && values[1] >= 16 && values[1] <= 31)
+                || (values[0] === 192 && values[1] === 168);
+        }
+        if (!address.includes(':') || address === '::1') return false;
+        try {
+            new URL(`http://[${address}]/`);
+        } catch (_error) {
+            return false;
+        }
+        return /^fe[89ab][0-9a-f]:/i.test(address) || /^f[cd][0-9a-f]{2}:/i.test(address);
     }
 
     function normalizeEndpoint(value) {
@@ -93,6 +118,57 @@
         return data;
     }
 
+    function validText(value, maximum, { empty = false, token = false } = {}) {
+        if (typeof value !== 'string' || (!empty && !value) || value.length > maximum) return false;
+        if (![...value].every((character) => character >= ' ' && character <= '~')) return false;
+        return !token || /^[A-Za-z0-9_-]+$/.test(value);
+    }
+
+    function validatePeerDiscoveryResult(result) {
+        if (!result || typeof result !== 'object' || Array.isArray(result)
+            || result.schema_version !== 1
+            || !Number.isInteger(result.elapsed_ms) || result.elapsed_ms < 0 || result.elapsed_ms > 10000
+            || !['complete', 'timeout'].includes(result.status)
+            || typeof result.truncated !== 'boolean'
+            || !Number.isInteger(result.rejected_results) || result.rejected_results < 0
+            || !Array.isArray(result.devices) || result.devices.length > PEER_DISCOVERY_MAX_DEVICES) {
+            throw new ESPectreDirectError('Device returned an invalid peer discovery result.', 'invalid_peer_result');
+        }
+        const identities = new Set();
+        const devices = result.devices.map((peer) => {
+            const capabilities = peer?.capabilities;
+            const addresses = peer?.addresses;
+            const valid = peer && typeof peer === 'object' && !Array.isArray(peer)
+                && /^[0-9a-f]{16}$/.test(peer.device_id)
+                && validText(peer.instance, 63)
+                && validText(peer.hostname, 63, { token: true })
+                && validText(peer.name, 63, { empty: true })
+                && ['native', 'streamer', 'esphome', 'matter'].includes(peer.frontend)
+                && peer.txt_version === 1 && peer.protocol_version === 1
+                && peer.path === ENDPOINT_PATH
+                && validText(peer.firmware, 48)
+                && validText(peer.chip, 16, { token: true })
+                && peer.tls === false
+                && Number.isInteger(peer.port) && peer.port > 0 && peer.port <= 65535
+                && Array.isArray(capabilities) && capabilities.length > 0 && capabilities.length <= 8
+                && capabilities.every((capability) => validText(capability, 32, { token: true }))
+                && new Set(capabilities).size === capabilities.length
+                && Array.isArray(addresses) && addresses.length > 0
+                && addresses.length <= PEER_DISCOVERY_MAX_ADDRESSES
+                && addresses.every(isLocalPeerAddress);
+            if (!valid || identities.has(peer?.device_id)) {
+                throw new ESPectreDirectError('Device returned an invalid or duplicate peer.', 'invalid_peer_result');
+            }
+            identities.add(peer.device_id);
+            const endpoints = addresses.map((address) => {
+                const host = address.includes(':') ? `[${address}]` : address;
+                return normalizeEndpoint(`${peer.tls ? 'wss' : 'ws'}://${host}:${peer.port}${peer.path}`);
+            });
+            return Object.freeze({ ...peer, capabilities: [...capabilities], addresses: [...addresses], endpoints });
+        });
+        return Object.freeze({ ...result, devices });
+    }
+
     function frameText(value) {
         if (typeof value === 'string') return value;
         if (value instanceof ArrayBuffer) return new TextDecoder().decode(new Uint8Array(value));
@@ -110,6 +186,7 @@
         static get MAX_FRAME_BYTES() { return MAX_FRAME_BYTES; }
         static get EVENTS() { return EVENTS; }
         static normalizeEndpoint(value) { return normalizeEndpoint(value); }
+        static validatePeerDiscoveryResult(value) { return validatePeerDiscoveryResult(value); }
 
         #endpoint;
         #socket = null;
@@ -244,6 +321,17 @@
                     reject(error);
                 }
             });
+        }
+
+        async discoverPeers(options = {}) {
+            if (!this.#compatible || !this.#capabilities?.methods?.includes('discover_peers')) {
+                throw new ESPectreDirectError('This responder does not support peer discovery.', 'unsupported_capability');
+            }
+            const result = await this.request('discover_peers', {}, {
+                timeoutMs: PEER_DISCOVERY_TIMEOUT_MS,
+                ...options
+            });
+            return validatePeerDiscoveryResult(result);
         }
 
         #ingest(value) {

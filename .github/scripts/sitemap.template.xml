@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://espectre.dev/</loc></url>
+  <url><loc>https://espectre.dev/tools/</loc></url>
+  <url><loc>https://espectre.dev/tools/flash/</loc></url>
+  <url><loc>https://espectre.dev/tools/configure/</loc></url>
+  <url><loc>https://espectre.dev/tools/monitor/</loc></url>
+  <url><loc>https://espectre.dev/tools/theremin/</loc></url>
+  <url><loc>https://espectre.dev/tools/game/</loc></url>
   <url><loc>https://espectre.dev/guides/</loc></url>
   <url><loc>https://espectre.dev/sdk/</loc></url>
   <url><loc>https://espectre.dev/sdk/detectors/</loc></url>

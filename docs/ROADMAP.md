@@ -4,7 +4,7 @@
 
 | Milestone | Timing | Commitment | Product outcome |
 | --- | --- | --- | --- |
-| **v3.0.0-rc1** | 24 August 2026 | Planned | Remove first-party BLE, add Direct WebSocket, freeze the v3 contract, and validate release artifacts |
+| **v3.0.0-rc1** | End of August 2026 | Planned | Remove first-party BLE, add Direct WebSocket, freeze the v3 contract, and validate release artifacts |
 | **v3.0.0-rc2** | After `rc1` findings | Planned | Resolve targeted findings without widening the frozen v3 baseline |
 | **v3.0.0** | After `rc2` validation | Planned | Ship the stable shared sensing platform and supported firmware frontends |
 | **v3.1.0** | After v3.0.x triage | Planned | Expand Matter support and validate it across more controllers |
@@ -27,12 +27,8 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 **Release tasks**:
 
-- [ ] Complete the Native BLE-to-Direct WebSocket cutover and every blocking release gate in [2026-08-23-native-ble-to-local-websocket-migration.md](review/2026-08-23-native-ble-to-local-websocket-migration.md)
-- [ ] Benchmark for all chip
+- [ ] Benchmark for all chips
 - [ ] Review code, docs, site, ga4
-- [ ] Validate and, if accepted, implement peer-assisted mDNS/Direct discovery through [2026-08-24-peer-assisted-local-discovery.md](review/2026-08-24-peer-assisted-local-discovery.md)
-- [ ] ws support on every frontend
-- [ ] streamer via ws / merge with native
 
 **Exit criteria**:
 

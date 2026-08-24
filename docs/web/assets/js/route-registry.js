@@ -41,12 +41,12 @@
 
     const definitions = [
         { name: 'home', title: 'ESPectre — Wi-Fi motion sensing' },
-        { name: 'tools', title: 'Browser tools | ESPectre' },
-        { name: 'flash', group: 'tools', title: 'Flash firmware | ESPectre' },
-        { name: 'configure', group: 'tools', title: 'Configure | ESPectre' },
-        { name: 'monitor', group: 'tools', title: 'Monitor | ESPectre' },
-        { name: 'theremin', group: 'tools', title: 'Motion theremin | ESPectre' },
-        { name: 'game', group: 'tools', title: 'Motion game | ESPectre' },
+        { name: 'tools', title: 'Browser tools | ESPectre', staticPath: '/tools/' },
+        { name: 'tool-flash', group: 'tools', title: 'Flash firmware | ESPectre', staticPath: '/tools/flash/', analyticsName: 'flash' },
+        { name: 'tool-configure', group: 'tools', title: 'Configure | ESPectre', staticPath: '/tools/configure/', analyticsName: 'configure' },
+        { name: 'tool-monitor', group: 'tools', title: 'Monitor | ESPectre', staticPath: '/tools/monitor/', analyticsName: 'monitor' },
+        { name: 'tool-theremin', group: 'tools', title: 'Motion theremin | ESPectre', staticPath: '/tools/theremin/', analyticsName: 'theremin' },
+        { name: 'tool-game', group: 'tools', title: 'Motion game | ESPectre', staticPath: '/tools/game/', analyticsName: 'game' },
         { name: 'guides', title: 'Guides | ESPectre', staticPath: '/guides/', analyticsName: 'overview' },
         { name: 'guide-hardware', group: 'guides', title: 'Choosing an ESP32 board | ESPectre', staticPath: '/guides/hardware/' },
         { name: 'guide-setup', group: 'guides', title: 'Flash & Wi-Fi setup | ESPectre', staticPath: '/guides/setup/' },
@@ -88,7 +88,7 @@
     function contentGroup(name) {
         const definition = byName.get(name);
         if (!definition) return 'other';
-        if (definition.group === 'tools') return definition.name;
+        if (definition.group === 'tools') return definition.analyticsName || definition.name;
         if (definition.name === 'tools') return 'tools';
         if (definition.group === 'guides' || definition.group === 'sdk') return 'documentation';
         if (definition.name === 'guides' || definition.name === 'sdk' || definition.name === 'roadmap') {

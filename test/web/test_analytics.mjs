@@ -179,15 +179,15 @@ describe('analytics privacy boundary', () => {
 
 describe('analytics route metadata', () => {
     it('uses stable route titles and content groups', () => {
-        const { api, window } = analyticsContext({ hash: '#configure' });
-        assert.equal(api.getRouteTitle('configure'), 'Configure | ESPectre');
-        assert.equal(api.getRouteTitle('monitor'), 'Monitor | ESPectre');
+        const { api, window } = analyticsContext({ hash: '#tool-configure' });
+        assert.equal(api.getRouteTitle('tool-configure'), 'Configure | ESPectre');
+        assert.equal(api.getRouteTitle('tool-monitor'), 'Monitor | ESPectre');
         assert.equal(api.getRouteTitle('guide-detectors'), 'Detection profiles | ESPectre');
         assert.equal(api.getRouteTitle('guide-new-topic'), 'New topic | ESPectre');
         assert.equal(api.getRouteTitle('sdk-new-reference'), 'New reference | ESPectre');
         assert.equal(api.getRouteTitle('privacy'), 'Website privacy and analytics | ESPectre');
-        assert.equal(api.getSiteSection('configure'), 'configure');
-        assert.equal(api.getSiteSection('monitor'), 'monitor');
+        assert.equal(api.getSiteSection('tool-configure'), 'configure');
+        assert.equal(api.getSiteSection('tool-monitor'), 'monitor');
         assert.equal(api.getSiteSection('guide-setup'), 'documentation');
         assert.equal(api.getSiteSection('sdk-api'), 'documentation');
         assert.equal(api.getSiteSection('sdk-detectors'), 'documentation');
@@ -203,7 +203,7 @@ describe('analytics route metadata', () => {
         assert.equal(window.ESPectreRoutes.documentNameForPath('/guides/detection/'), '');
         assert.equal(api.getSiteSection('privacy'), 'privacy');
         assert.equal(api.routePath('home'), '/');
-        assert.equal(api.routePath('flash'), '/#flash');
+        assert.equal(api.routePath('tool-flash'), '/tools/flash/');
     });
 
     it('reports canonical static paths without query parameters', () => {
@@ -219,14 +219,14 @@ describe('analytics route metadata', () => {
     });
 
     it('updates the Google tag configuration before a virtual page view', () => {
-        const { api, window } = analyticsContext({ hash: '#monitor' });
+        const { api, window } = analyticsContext({ hash: '#tool-monitor' });
         api.enableAnalytics({ sendPageView: false });
-        api.sendRoutePageView('monitor');
+        api.sendRoutePageView('tool-monitor');
         const update = window.dataLayer.at(-2);
         const pageView = window.dataLayer.at(-1);
         assert.equal(update[0], 'config');
         assert.equal(update[2].update, true);
-        assert.equal(update[2].page_location, 'https://espectre.dev/#monitor');
+        assert.equal(update[2].page_location, 'https://espectre.dev/tools/monitor/');
         assert.equal(update[2].page_title, 'Monitor | ESPectre');
         assert.equal(update[2].content_group, 'monitor');
         assert.equal(pageView[1], 'page_view');
@@ -234,13 +234,13 @@ describe('analytics route metadata', () => {
 
     it('reports a tool capability after late consent without another page view', () => {
         const { api, window } = analyticsContext({
-            hash: '#flash', navigatorValues: { serial: {} }
+            hash: '#tool-flash', navigatorValues: { serial: {} }
         });
         api.enableAnalytics();
         const before = window.dataLayer.filter(
             (entry) => entry[0] === 'event' && entry[1] === 'page_view'
         ).length;
-        api.trackRouteView('flash', { sendPageView: false });
+        api.trackRouteView('tool-flash', { sendPageView: false });
         const capability = window.dataLayer.at(-1);
         assert.equal(capability[1], 'tool_capability');
         assert.equal(capability[2].result, 'available');
@@ -252,7 +252,7 @@ describe('analytics route metadata', () => {
 });
 
 describe('analytics automatic events', () => {
-    it('tracks contact links added after analytics initialization', () => {
+    it('tracks contact and public tool links added after analytics initialization', () => {
         const { api, listeners, window } = analyticsContext();
         api.enableAnalytics({ sendPageView: false });
         listeners.get('DOMContentLoaded')();
@@ -262,6 +262,7 @@ describe('analytics automatic events', () => {
             target: {
                 closest: () => ({
                     href,
+                    dataset: {},
                     getAttribute: () => href,
                     querySelector: () => null,
                     textContent: href
@@ -273,5 +274,8 @@ describe('analytics automatic events', () => {
         assert.equal(window.dataLayer.at(-1)[1], 'click_contact');
         dispatchLink('mailto:security@espectre.dev');
         assert.equal(window.dataLayer.at(-1)[1], 'click_security');
+        dispatchLink('https://espectre.dev/tools/configure/');
+        assert.equal(window.dataLayer.at(-1)[1], 'select_tool');
+        assert.equal(window.dataLayer.at(-1)[2].tool_name, 'configure');
     });
 });

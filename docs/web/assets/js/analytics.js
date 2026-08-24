@@ -18,7 +18,7 @@ const IS_STATIC_PAGE = document.documentElement.hasAttribute('data-static-page')
 const STATIC_PAGE_SECTION = document.documentElement.dataset.siteSection || 'documentation';
 
 const CAPABILITY_BY_ROUTE = {
-    flash: ['web_serial', 'serial']
+    'tool-flash': ['web_serial', 'serial']
 };
 
 const reportedCapabilities = new Set();
@@ -47,7 +47,8 @@ function getSiteSection(route = currentRoute()) {
 }
 
 function routePath(route) {
-    return route === 'home' ? '/' : `/#${route}`;
+    return window.ESPectreRoutes?.get(route)?.staticPath
+        || (route === 'home' ? '/' : `/#${route}`);
 }
 
 function analyticsAllowedHere() {
@@ -310,9 +311,12 @@ function initializeAutoTracking() {
             return;
         }
 
-        const route = url.origin === window.location.origin ? url.hash.replace(/^#/, '') : '';
+        const route = url.origin === window.location.origin
+            ? (window.ESPectreRoutes?.routeForPath(url.pathname) || url.hash.replace(/^#/, ''))
+            : '';
         if (window.ESPectreRoutes?.groupOf(route) === 'tools') {
-            trackEvent('select_tool', { tool_name: route, link_text: linkText(link) });
+            const toolName = window.ESPectreRoutes.get(route)?.analyticsName || route;
+            trackEvent('select_tool', { tool_name: toolName, link_text: linkText(link) });
         } else if (route === 'guides') {
             trackEvent('select_guide', { guide_name: 'overview', link_text: linkText(link) });
         } else if (route === 'sdk' || route.startsWith('sdk-')) {

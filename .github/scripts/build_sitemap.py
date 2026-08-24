@@ -27,6 +27,12 @@ DOXYFILE = Path("src/cpp/Doxyfile")
 
 ROUTE_SOURCES = {
     "/": (Path("docs/web/index.html"),),
+    "/tools/": (Path("docs/web/content/tools.html"), STATIC_PAGE_BUILDER),
+    "/tools/flash/": (Path("docs/web/assets/js/app.js"), Path("docs/web/index.html"), STATIC_PAGE_BUILDER),
+    "/tools/configure/": (Path("docs/web/assets/js/app.js"), Path("docs/web/index.html"), STATIC_PAGE_BUILDER),
+    "/tools/monitor/": (Path("docs/web/assets/js/app.js"), Path("docs/web/index.html"), STATIC_PAGE_BUILDER),
+    "/tools/theremin/": (Path("docs/web/assets/js/app.js"), Path("docs/web/index.html"), STATIC_PAGE_BUILDER),
+    "/tools/game/": (Path("docs/web/assets/js/app.js"), Path("docs/web/index.html"), STATIC_PAGE_BUILDER),
     "/guides/": (Path("docs/web/content/guides.html"), STATIC_PAGE_BUILDER),
     "/guides/hardware/": (Path("docs/web/content/guides/hardware.html"), STATIC_PAGE_BUILDER),
     "/guides/setup/": (Path("docs/web/content/guides/setup.html"), STATIC_PAGE_BUILDER),
