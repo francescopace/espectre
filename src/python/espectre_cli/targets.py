@@ -38,6 +38,10 @@ ESPHOME_CONFIGS = {
         "dev": ESPHOME_EXAMPLES_DIR / "espectre-s3-dev.yaml",
         "release": ESPHOME_EXAMPLES_DIR / "espectre-s3.yaml",
     },
+    "s2": {
+        "dev": ESPHOME_EXAMPLES_DIR / "espectre-s2-dev.yaml",
+        "release": ESPHOME_EXAMPLES_DIR / "espectre-s2.yaml",
+    },
 }
 
 IDF_FRONTENDS = {
@@ -49,6 +53,7 @@ IDF_FRONTENDS = {
             "c5": "esp32c5",
             "c6": "esp32c6",
             "s3": "esp32s3",
+            "s2": "esp32s2",
         },
     },
     "matter": {
@@ -69,6 +74,7 @@ IDF_FRONTENDS = {
             "c5": "esp32c5",
             "c6": "esp32c6",
             "s3": "esp32s3",
+            "s2": "esp32s2",
         },
     },
 }

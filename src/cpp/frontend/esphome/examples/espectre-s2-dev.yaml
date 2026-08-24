@@ -1,0 +1,72 @@
+# ESPectre - ESP32-S2 Dev (local components)
+# Usage: esphome run src/cpp/frontend/esphome/examples/espectre-s2-dev.yaml
+
+esphome:
+  name: espectre
+  friendly_name: ESPectre
+  min_version: 2026.7.0
+  project:
+    name: francescopace.espectre
+    version: dev
+
+esp32:
+  variant: ESP32S2
+  framework:
+    type: esp-idf
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [ espectre ]
+
+espectre:
+  id: espectre_csi
+  debug_telemetry: true
+  csi_target_pps: 100
+  csi_traffic_mode: internal
+  csi_traffic_multicast_group: "239.255.0.1"
+  traffic_generator_mode: ping
+  detection_algorithm: lightweight
+  segmentation_window_size_ms: 1000
+  hampel_enabled: true
+  hampel_window: 7
+  hampel_threshold: 5.0
+  lowpass_enabled: false
+  lowpass_cutoff: 11.0
+
+wifi:
+  networks:
+    - ssid: !secret wifi_ssid
+      password: !secret wifi_password
+      #bssid: !secret wifi_bssid
+
+logger:
+  level: DEBUG
+  logs:
+    sensor: INFO
+    binary_sensor: INFO
+
+api:
+
+ota:
+  - platform: esphome
+
+debug:
+  update_interval: 5s
+
+sensor:
+  - platform: debug
+    free:
+      name: "Free Heap"
+    block:
+      name: "Max Free Block"
+    loop_time:
+      name: "Loop Time"
+
+text_sensor:
+  - platform: debug
+    device:
+      name: "Device Info"
+    reset_reason:
+      name: "Reset Reason"

@@ -1,0 +1,61 @@
+# ESPectre - ESP32-S2 Configuration
+# WiFi CSI-based motion detection with Home Assistant integration
+#
+# ESP32-S2 has no Bluetooth radio. Provision it through Improv Serial over
+# USB, or through the fallback access point.
+
+substitutions:
+  git_ref: main # branch, tag, or commit
+  # Device Builder: pin git_ref to a numeric release tag. A branch name is not a firmware version, and the GitHub clone has no git tags.
+  project_version: ${git_ref} # firmware identity; first-party CI sets git describe
+  detection_algorithm: lightweight # lightweight (default) or high_accuracy
+
+esphome:
+  name: espectre
+  friendly_name: ESPectre
+  min_version: 2026.7.0
+  # Uncomment the next line if you have multiple ESPectre devices (adds MAC suffix to name)
+  # name_add_mac_suffix: true
+  project:
+    name: francescopace.espectre
+    version: ${project_version}
+
+esp32:
+  variant: ESP32S2
+  framework:
+    type: esp-idf
+
+# Load ESPectre component from GitHub
+external_components:
+  - source:
+      type: git
+      url: https://github.com/francescopace/espectre
+      ref: ${git_ref}
+      path: src/cpp/frontend/esphome/components
+    components: [ espectre ]
+    refresh: always
+
+espectre:
+  id: espectre_csi
+  detection_algorithm: ${detection_algorithm}
+  csi_target_pps: 100
+  csi_traffic_mode: internal
+
+dashboard_import:
+  package_import_url: github://francescopace/espectre/src/cpp/frontend/esphome/examples/espectre-s2.yaml@${git_ref}
+
+wifi:
+  ap:
+    ssid: "ESPectre Fallback"
+
+captive_portal:
+
+# ESP32-S2 supports standard Improv provisioning through the serial port.
+improv_serial:
+
+logger:
+
+api:
+
+ota:
+  - platform: esphome

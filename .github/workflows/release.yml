@@ -74,6 +74,8 @@ jobs:
             config: src/cpp/frontend/esphome/examples/espectre-esp32.yaml
           - chip: ESP32-S3
             config: src/cpp/frontend/esphome/examples/espectre-s3.yaml
+          - chip: ESP32-S2
+            config: src/cpp/frontend/esphome/examples/espectre-s2.yaml
           - chip: ESP32-C3
             config: src/cpp/frontend/esphome/examples/espectre-c3.yaml
           - chip: ESP32-C5
@@ -205,6 +207,8 @@ jobs:
             target: esp32c6
           - chip: ESP32-S3
             target: esp32s3
+          - chip: ESP32-S2
+            target: esp32s2
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
