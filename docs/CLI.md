@@ -182,6 +182,28 @@ Examples:
 
 The command uses the repository `zeroconf` dependency and requires the host and device to share an mDNS-visible network. Each invocation starts a new PTR browse; there is no discovery cache. The timeout is an upper bound rather than an unconditional delay: after the first complete record, discovery returns when no record has been added, changed, or removed for 350 ms. If no device responds, it waits for the full timeout. VLAN boundaries, client isolation, and multicast filtering may hide otherwise reachable devices; explicit IP addresses, Native `.local` names, remembered endpoints, and Improv Serial remain the deterministic fallbacks.
 
+### `provision`
+
+`provision` uses the shared Improv Serial v1 client to configure a clean Native device over USB. The Wi-Fi password is read from `ESPECTRE_WIFI_PASSWORD` by default, or from the variable named by `--password-env`; when the variable is unset, the CLI prompts without echoing the password. The command validates framing, checksums, state transitions, correlated RPC results, UTF-8 strings, and the returned device URL.
+
+```bash
+ESPECTRE_WIFI_PASSWORD='secret' ./espectre provision --port /dev/cu.usbmodemXXXX --ssid MyNetwork
+```
+
+The password is never accepted as a command-line value, printed, or included in the returned endpoint. `--timeout` bounds the complete state, device-info, and Wi-Fi provisioning exchange.
+
+### `direct`
+
+`direct` sends one correlated Direct v1 request through the same bounded WebSocket client used by the firmware benchmark. Supply `--endpoint` with an HTTP(S) device URL or WS(S) endpoint, or use `--frontend` to discover a device. When discovery returns multiple records, the CLI prompts for an explicit selection.
+
+```bash
+./espectre direct status --frontend native
+./espectre direct diagnostics --endpoint http://espectre-0123456789abcdef.local
+./espectre direct set_detector --frontend esphome --params '{"detector":"high_accuracy"}'
+```
+
+The client sends the exact allowed `https://test.espectre.dev` Origin by default, negotiates `espectre.v1`, limits text frames to 4,096 bytes, validates response and event envelopes, and closes cleanly. Use `--origin` only for another exact Origin already allowed by the firmware; the CLI does not weaken device Origin policy.
+
 ### `collect`
 
 `collect` is the unified host-side CSI collection entry point. One runtime path supports three modes:

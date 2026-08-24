@@ -112,6 +112,24 @@ Direct v1 methods are grouped by capability:
 | CSI traffic | `set_csi_traffic_mode`, `set_traffic_generator_mode` | Available only when the runtime advertises traffic control. |
 | OTA | `ota_status`, `ota_check`, `ota_start` | Uses the same channel and no-override policy as MQTT OTA commands. |
 
+The additive `diagnostics` result is the production performance boundary for every C++ frontend. Memory values use KiB, timing values use microseconds unless the field ends in `_ms`, rates use packets per second, and `runtime_load_percent` is runtime-loop wall time divided by the complete aggregation window. The shared runtime owns one bounded 10-second window and keeps its latest complete snapshot available between window boundaries; no build option or periodic debug logger changes whether these fields are collected.
+
+| Field | Meaning |
+| --- | --- |
+| `timestamp_ms`, `uptime` | Monotonic device time in milliseconds and whole seconds |
+| `free_memory_kb`, `minimum_free_memory_kb`, `largest_free_memory_kb` | Current heap, cumulative low-water heap, and current largest free block |
+| `cpu_frequency_mhz` | Resolved firmware CPU frequency |
+| `performance_window_ready`, `performance_window_ms` | Whether a complete window is available and its measured duration; duration is `null` before the first complete window |
+| `runtime_load_percent` | Runtime-loop wall-time load over the complete window, or `null` before that window exists |
+| `loop_samples`, `loop_avg_us`, `loop_max_us` | Runtime loop sample count, average duration, and maximum duration for the complete window |
+| `detection_timing_supported` | Whether the selected runtime evaluates a detector; false for Streamer |
+| `detection_samples`, `detection_sum_us`, `detection_avg_us`, `detection_min_us`, `detection_max_us` | Detector evaluation aggregates for the complete window, or `null` when unsupported or not ready |
+| `csi_admitted_pps`, `csi_occupancy` | Native sampled detector-input rate and occupancy ratio; shared-bridge frontends expose the cumulative totals and slot counts from which a client derives the same values |
+| `task_stack_high_water_bytes` | Native frontend-task stack headroom; omitted by frontends that do not own an equivalent task measurement |
+| `direct` | Client and queue budgets plus accepted, rejected, malformed, oversized, rate-limited, dropped-telemetry, send-failure, and slow-client-disconnect counters |
+
+Unsupported values are `null` or are omitted only where the owning frontend does not expose that optional measurement. Clients must not synthesize zero for a missing measurement. Direct transport counters are cumulative, so a health window compares its first and last samples.
+
 Native accepts at most two Direct clients. Both clients may read, receive events, and issue mutations. Mutations enter one serialized dispatcher in receive order; the last accepted mutation becomes current state, and every requester receives its own correlated result. State transitions are broadcast after the mutation commits. This is an explicit multi-writer policy, not a lease hidden in the portal.
 
 Each Direct client has a fixed-capacity outbound queue and at most one asynchronous send in flight. Telemetry coalesces to the newest value, while command responses and state transitions are never overwritten by telemetry. A client that repeatedly fails to drain is closed. MQTT has a separate 16-message frontend queue and an 8 KiB ESP-IDF outbox; only canonical telemetry is replaceable, and command results and state transitions retain their order. An outbox-full result leaves the oldest queued message in place for a later retry. Runtime callbacks copy the latest numeric sensing snapshot into frontend-owned storage; JSON serialization and transport enqueueing happen after detector evaluation returns, and socket I/O remains owned by the transport tasks.

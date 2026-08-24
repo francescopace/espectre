@@ -12,7 +12,6 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 import argparse
-import asyncio
 import csv
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -43,34 +42,34 @@ from src.python.espectre_cli.common import FIRMWARE_CACHE_DIR, detect_chip_type,
 from src.python.espectre_cli.idf import resolve_idf_build_dir_name
 from src.python.espectre_cli.micro import deployment_files
 from src.python.espectre_cli.micro_firmware import PROJECT_FIRMWARE_NAMES
-from src.python.espectre_cli.mqtt_shell import send_mqtt_command_and_wait
+from src.python.espectre_cli.device_discovery import DeviceDiscoveryError, DiscoveredDevice, discover_devices
 from src.python.espectre_cli.targets import ESPHOME_CONFIGS, ESPHOME_EXAMPLES_DIR, IDF_FRONTENDS
 from src.python.micro_espectre.temporal_csi_sampler import (
     MINIMUM_COVERAGE_DENOMINATOR,
     MINIMUM_COVERAGE_NUMERATOR,
+)
+from src.python.espectre_cli.device_transport import (
+    DEFAULT_DIRECT_ORIGIN,
+    DirectClient,
+    DirectEvent,
+    ImprovProvisioningResult,
+    ImprovSerialClient,
+    direct_endpoint_from_device_url,
 )
 
 
 BENCHMARK_LOCAL_ENV_PATH = SCRIPT_DIR / "benchmark_firmware.local.env"
 BENCHMARK_LOCAL_ENV = dotenv_values(BENCHMARK_LOCAL_ENV_PATH) if BENCHMARK_LOCAL_ENV_PATH.is_file() else {}
 BENCHMARK_ARTIFACT_ROOT = REPO_ROOT / "data" / "untracked" / "firmware_benchmarks"
-BENCHMARK_ARTIFACT_SCHEMA_VERSION = 1
+BENCHMARK_ARTIFACT_SCHEMA_VERSION = 2
 MONITOR_DURATION_SECONDS = 60
 WIFI_CONNECT_WAIT_SECONDS = 60
 STREAMER_COLLECT_DURATION_SECONDS = 60
 STREAMER_IP_WAIT_SECONDS = 45
-NATIVE_MQTT_READY_TIMEOUT_SECONDS = 45
-ESPHOME_API_READY_TIMEOUT_SECONDS = 45
-ESPHOME_API_PORT = 6053
-ESPHOME_MDNS_HOST = "espectre.local"
-ESPHOME_DETECTOR_SELECT_OBJECT_ID = "detection_profile"
-ESPHOME_DETECTOR_SELECT_NAME = "Detection Profile"
-ESPHOME_CSI_TRAFFIC_SELECT_OBJECT_ID = "csi_traffic_ownership"
-ESPHOME_CSI_TRAFFIC_SELECT_NAME = "CSI Traffic Ownership"
-ESPHOME_TRAFFIC_GENERATOR_SELECT_OBJECT_ID = "csi_traffic_source"
-ESPHOME_TRAFFIC_GENERATOR_SELECT_NAME = "CSI Traffic Source"
-ESPHOME_AP_FALLBACK_IPS = frozenset({"192.168.4.1"})
-ESPRESSIF_USB_VENDOR_ID = 0x303A
+DIRECT_DISCOVERY_TIMEOUT_SECONDS = 45
+DIRECT_SAMPLE_INTERVAL_SECONDS = 1.0
+DIRECT_STABLE_SAMPLE_COUNT = 5
+DIRECT_ORIGIN = DEFAULT_DIRECT_ORIGIN
 MINIMUM_OCCUPANCY_PERCENT = 100.0 * MINIMUM_COVERAGE_NUMERATOR / MINIMUM_COVERAGE_DENOMINATOR
 STARTUP_GRACE_SECONDS = 10
 STATUS_SAMPLE_INTERVAL_SECONDS = 1
@@ -166,11 +165,7 @@ MATTER_BOOT_MARKER = "ESPectre Matter firmware started on endpoint"
 MATTER_STARTUP_STATE_RE = re.compile(r"ESPectre Matter CSI services:\s*(?P<state>[^\r\n]+)")
 MATTER_VALID_STARTUP_STATES = {"armed", "waiting for commissioning"}
 STREAMER_IP_RE = re.compile(r"Wi-Fi connected: ip=(?P<ip>\d+\.\d+\.\d+\.\d+)")
-ESPHOME_IP_RE = re.compile(r"\bIP Address:\s*(?P<ip>\d+\.\d+\.\d+\.\d+)\b")
-IPV4_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
 STREAMER_STATE_RE = re.compile(r"\[STATE\]\s+\S+\s+->\s+(?P<state>\S+)\s+\(")
-FLASH_MAC_ADDRESS_RE = re.compile(r"\bMAC:\s*(?P<mac>(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2})\b")
-WIFI_STA_MAC_RE = re.compile(r"\bwifi:mode\s*:\s*sta\s*\((?P<mac>(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2})\)")
 STREAMER_TELEMETRY_RE = re.compile(
     r"csi_ap=(?P<csi_ap>\d+(?:\.\d+)?)"
     r"(?:\s+csi_filt=(?P<csi_filt>\d+(?:\.\d+)?))?"
@@ -216,6 +211,7 @@ class CommandResult:
 @dataclass
 class BuildMetrics:
     firmware_size_bytes: int | None = None
+    firmware_sha256: str | None = None
     deployed_source_bytes: int | None = None
     partition_used_bytes: int | None = None
     partition_total_bytes: int | None = None
@@ -300,6 +296,9 @@ class BenchmarkResult:
     collect: CommandResult | None = None
     build_metrics: BuildMetrics = field(default_factory=BuildMetrics)
     runtime_metrics: RuntimeMetrics = field(default_factory=RuntimeMetrics)
+    direct_samples: list[dict[str, object]] = field(default_factory=list)
+    direct_events: list[dict[str, object]] = field(default_factory=list)
+    transport_evidence: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -424,67 +423,6 @@ def quote_yaml_string(value: str) -> str:
     return f'"{escaped}"'
 
 
-def format_benchmark_device_id_from_mac(mac_text: str) -> str:
-    octets = [part.strip() for part in mac_text.split(":")]
-    if len(octets) != 6 or any(len(part) != 2 for part in octets):
-        raise ValueError(f"invalid MAC address: {mac_text}")
-    mac = bytes(int(octet, 16) for octet in octets)
-    digest = hashlib.sha256(b"espectre-device-id-v1" + mac).digest()
-    return digest[:8].hex()
-
-
-def detect_benchmark_mqtt_device_id_from_text(text: str) -> str | None:
-    match = WIFI_STA_MAC_RE.search(text)
-    if match is None:
-        match = FLASH_MAC_ADDRESS_RE.search(text)
-    if match is None:
-        return None
-    return format_benchmark_device_id_from_mac(match.group("mac"))
-
-
-def detect_esphome_api_host_from_text(text: str) -> str | None:
-    """Return the last STA IPv4 logged by ESPHome, skipping the fallback AP address."""
-    for match in reversed(list(ESPHOME_IP_RE.finditer(text))):
-        ip = match.group("ip")
-        if ip not in ESPHOME_AP_FALLBACK_IPS:
-            return ip
-    return None
-
-
-def esphome_api_hosts(source_text: str | None) -> list[str]:
-    hosts: list[str] = []
-    ip = detect_esphome_api_host_from_text(source_text or "")
-    if ip is not None:
-        hosts.append(ip)
-    if ESPHOME_MDNS_HOST not in hosts:
-        hosts.append(ESPHOME_MDNS_HOST)
-    return hosts
-
-
-def find_esphome_select(
-    entities: Sequence[object],
-    *,
-    object_id: str,
-    name: str,
-) -> object | None:
-    from aioesphomeapi.model import SelectInfo
-
-    for entity in entities:
-        if not isinstance(entity, SelectInfo):
-            continue
-        if entity.object_id == object_id or entity.name == name:
-            return entity
-    return None
-
-
-def find_esphome_detector_select(entities: Sequence[object]) -> object | None:
-    return find_esphome_select(
-        entities,
-        object_id=ESPHOME_DETECTOR_SELECT_OBJECT_ID,
-        name=ESPHOME_DETECTOR_SELECT_NAME,
-    )
-
-
 def english_join(items: Sequence[str]) -> str:
     if not items:
         return ""
@@ -499,21 +437,6 @@ def runtime_case_labels() -> tuple[str, ...]:
     return tuple(case.label for case in CASES if case.benchmark_mode == "runtime")
 
 
-def benchmark_mqtt_namespace(device_id_source_text: str | None) -> argparse.Namespace | None:
-    broker = benchmark_setting("ESPECTRE_BENCHMARK_MQTT_HOST")
-    device_id = detect_benchmark_mqtt_device_id_from_text(device_id_source_text or "")
-    if not broker or not device_id:
-        return None
-    return argparse.Namespace(
-        broker=broker,
-        port=benchmark_setting_int("ESPECTRE_BENCHMARK_MQTT_PORT", 1883),
-        topic_prefix=benchmark_setting("ESPECTRE_BENCHMARK_MQTT_TOPIC_PREFIX", "espectre/v1/devices"),
-        device_id=device_id,
-        username=benchmark_setting("ESPECTRE_BENCHMARK_MQTT_USERNAME", ""),
-        password=benchmark_setting("ESPECTRE_BENCHMARK_MQTT_PASSWORD", ""),
-    )
-
-
 def require_benchmark_setting(name: str) -> str:
     value = benchmark_setting(name)
     if value is None or value == "":
@@ -524,14 +447,16 @@ def require_benchmark_setting(name: str) -> str:
     return value
 
 
-def require_benchmark_prerequisites() -> None:
-    require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID")
-    require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD")
-    require_benchmark_setting("ESPECTRE_BENCHMARK_MQTT_HOST")
+def require_benchmark_prerequisites(cases: Sequence[BenchmarkCase]) -> None:
+    if any(case.frontend != "matter" for case in cases):
+        require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID")
+        require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD")
+    if any(case.frontend == "micro" for case in cases):
+        require_benchmark_setting("ESPECTRE_BENCHMARK_MQTT_HOST")
 
 
 def append_benchmark_frontend_defaults(frontend: str, override_lines: list[str]) -> None:
-    if frontend in {"native", "streamer"}:
+    if frontend == "streamer":
         ssid = require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID")
         password = require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD")
         bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "")
@@ -546,138 +471,19 @@ def append_benchmark_frontend_defaults(frontend: str, override_lines: list[str])
         )
 
     if frontend == "native":
-        mqtt_host = require_benchmark_setting("ESPECTRE_BENCHMARK_MQTT_HOST")
         override_lines.extend(
             [
-                "CONFIG_ESPECTRE_MQTT_ENABLED=y",
-                f"CONFIG_ESPECTRE_MQTT_HOST={quote_kconfig_string(mqtt_host)}",
-                f"CONFIG_ESPECTRE_MQTT_PORT={benchmark_setting_int('ESPECTRE_BENCHMARK_MQTT_PORT', 1883)}",
-                f"CONFIG_ESPECTRE_MQTT_USERNAME={quote_kconfig_string(benchmark_setting('ESPECTRE_BENCHMARK_MQTT_USERNAME', ''))}",
-                f"CONFIG_ESPECTRE_MQTT_PASSWORD={quote_kconfig_string(benchmark_setting('ESPECTRE_BENCHMARK_MQTT_PASSWORD', ''))}",
-                f"CONFIG_ESPECTRE_TOPIC_PREFIX={quote_kconfig_string(benchmark_setting('ESPECTRE_BENCHMARK_MQTT_TOPIC_PREFIX', 'espectre/v1/devices'))}",
+                'CONFIG_ESPECTRE_WIFI_SSID=""',
+                'CONFIG_ESPECTRE_WIFI_PASSWORD=""',
+                'CONFIG_ESPECTRE_WIFI_BSSID=""',
+                "CONFIG_ESPECTRE_WIFI_CHANNEL=0",
+                'CONFIG_ESPECTRE_DEVICE_LABEL=""',
+                "# CONFIG_ESPECTRE_MQTT_ENABLED is not set",
+                'CONFIG_ESPECTRE_MQTT_HOST=""',
+                'CONFIG_ESPECTRE_MQTT_USERNAME=""',
+                'CONFIG_ESPECTRE_MQTT_PASSWORD=""',
             ]
         )
-
-
-def set_native_detector_via_mqtt(detector: str, device_id_source_text: str | None) -> None:
-    mqtt_args = benchmark_mqtt_namespace(device_id_source_text)
-    if mqtt_args is None:
-        raise RuntimeError(
-            "native runtime detector switching requires ESPECTRE_BENCHMARK_MQTT_HOST "
-            "and a device id derived from the current native runtime logs"
-        )
-
-    deadline = time.monotonic() + NATIVE_MQTT_READY_TIMEOUT_SECONDS
-    timeout_seconds = BENCHMARK_CONTROL_TIMEOUT_SECONDS
-    last_error: Exception | None = None
-    while time.monotonic() < deadline:
-        attempt_timeout = min(timeout_seconds, max(1.0, deadline - time.monotonic()))
-        try:
-            response = send_mqtt_command_and_wait(
-                mqtt_args,
-                {"command": "set_detector", "detector": detector},
-                timeout_s=attempt_timeout,
-            )
-            if not response.get("accepted"):
-                raise RuntimeError(f"detector change to {detector} was rejected: {response}")
-            time.sleep(1.0)
-            return
-        except (OSError, RuntimeError, ValueError) as exc:
-            last_error = exc
-            time.sleep(2.0)
-    raise RuntimeError(f"failed to switch native detector to {detector} over MQTT: {last_error}")
-
-
-async def _set_esphome_runtime_profile_via_api(
-    host: str,
-    detector: str,
-    timeout_seconds: float,
-) -> None:
-    from aioesphomeapi import APIClient
-    from aioesphomeapi.model import SelectState
-
-    client = APIClient(
-        host,
-        ESPHOME_API_PORT,
-        password=None,
-        client_info="espectre-benchmark",
-        addresses=[host] if IPV4_RE.fullmatch(host) else None,
-    )
-    await client.connect(login=True)
-    try:
-        _info, entities, _services = await client.device_info_and_list_entities()
-        requested = (
-            (
-                ESPHOME_TRAFFIC_GENERATOR_SELECT_OBJECT_ID,
-                ESPHOME_TRAFFIC_GENERATOR_SELECT_NAME,
-                "ping",
-            ),
-            (
-                ESPHOME_CSI_TRAFFIC_SELECT_OBJECT_ID,
-                ESPHOME_CSI_TRAFFIC_SELECT_NAME,
-                "internal",
-            ),
-            (
-                ESPHOME_DETECTOR_SELECT_OBJECT_ID,
-                ESPHOME_DETECTOR_SELECT_NAME,
-                detector,
-            ),
-        )
-        pending: dict[int, str] = {}
-        selected: list[object] = []
-        for object_id, name, value in requested:
-            entity = find_esphome_select(entities, object_id=object_id, name=name)
-            if entity is None:
-                raise RuntimeError(f"ESPHome {name} select was not found on {host}")
-            options = getattr(entity, "options", [])
-            if value not in options:
-                raise RuntimeError(f"ESPHome {name} does not offer {value}: {options}")
-            pending[entity.key] = value
-            selected.append(entity)
-        done = asyncio.Event()
-
-        def on_state(state: object) -> None:
-            if not isinstance(state, SelectState):
-                return
-            expected = pending.get(state.key)
-            if expected is not None and state.state == expected:
-                pending.pop(state.key, None)
-            if not pending:
-                done.set()
-
-        client.subscribe_states(on_state)
-        for entity, (_object_id, _name, value) in zip(selected, requested):
-            client.select_command(entity.key, value)
-        await asyncio.wait_for(done.wait(), timeout=timeout_seconds)
-        await asyncio.sleep(1.0)
-    finally:
-        await client.disconnect()
-
-
-def set_esphome_runtime_profile_via_api(detector: str, source_text: str | None) -> None:
-    from aioesphomeapi.core import APIConnectionError
-
-    hosts = esphome_api_hosts(source_text)
-    deadline = time.monotonic() + ESPHOME_API_READY_TIMEOUT_SECONDS
-    timeout_seconds = BENCHMARK_CONTROL_TIMEOUT_SECONDS
-    last_error: Exception | None = None
-    while time.monotonic() < deadline:
-        attempt_timeout = min(timeout_seconds, max(1.0, deadline - time.monotonic()))
-        for host in hosts:
-            try:
-                asyncio.run(_set_esphome_runtime_profile_via_api(host, detector, attempt_timeout))
-                return
-            except (OSError, RuntimeError, ValueError, TimeoutError, APIConnectionError) as exc:
-                last_error = exc
-        time.sleep(2.0)
-    raise RuntimeError(
-        f"failed to prepare ESPHome runtime profile with detector {detector} over the native API: {last_error}"
-    )
-
-
-def set_esphome_detector_via_api(detector: str, source_text: str | None) -> None:
-    """Compatibility wrapper for callers that prepare the complete benchmark profile."""
-    set_esphome_runtime_profile_via_api(detector, source_text)
 
 
 def clone_prebuilt_result(case: BenchmarkCase, source: BenchmarkResult) -> BenchmarkResult:
@@ -817,6 +623,11 @@ def parse_build_metrics(output: str, firmware_path: Path | None = None) -> Build
 
     if firmware_path is not None and firmware_path.is_file():
         metrics.firmware_size_bytes = firmware_path.stat().st_size
+        digest = hashlib.sha256()
+        with firmware_path.open("rb") as firmware:
+            for chunk in iter(lambda: firmware.read(1024 * 1024), b""):
+                digest.update(chunk)
+        metrics.firmware_sha256 = digest.hexdigest()
 
     return metrics
 
@@ -900,11 +711,11 @@ def _append_common_monitor_reasons(
     if expected_telemetry_samples is not None:
         if len(telemetry) < expected_telemetry_samples:
             reasons.append(
-                f"only {len(telemetry)} of {expected_telemetry_samples} expected shared debug telemetry "
+                f"only {len(telemetry)} of {expected_telemetry_samples} expected Micro debug telemetry "
                 "samples were logged"
             )
     elif len(telemetry) < MIN_TELEMETRY_SAMPLES:
-        reasons.append(f"only {len(telemetry)} shared debug telemetry samples were logged")
+        reasons.append(f"only {len(telemetry)} Micro debug telemetry samples were logged")
     settled_heap = list(heap_telemetry) if heap_telemetry is not None else list(telemetry)
     if len(settled_heap) >= 2:
         heap_free_first = settled_heap[0].get(heap_key)
@@ -1618,80 +1429,6 @@ def apply_esphome_benchmark_wifi(content: str) -> str:
     return "\n".join(updated_lines) + ("\n" if content.endswith("\n") else "")
 
 
-def _serial_port_infos() -> tuple[object, ...]:
-    try:
-        from serial.tools import list_ports
-    except ImportError:
-        return ()
-    return tuple(list_ports.comports())
-
-
-def esphome_benchmark_logger_hardware_uart(port: str) -> str | None:
-    """Route ESPHome logs to the selected external bridge when one is used."""
-    for info in _serial_port_infos():
-        device = getattr(info, "device", None)
-        if not isinstance(device, str) or device.casefold() != port.casefold():
-            continue
-        vendor_id = getattr(info, "vid", None)
-        if vendor_id is None or vendor_id == ESPRESSIF_USB_VENDOR_ID:
-            return None
-        return "UART0"
-    return None
-
-
-def apply_esphome_benchmark_logger(
-    content: str,
-    *,
-    hardware_uart: str | None = None,
-) -> str:
-    lines = content.splitlines()
-    logger_index = next((index for index, line in enumerate(lines) if re.match(r"^\s*logger:\s*$", line)), None)
-    if logger_index is None:
-        insert_at = next(
-            (index for index, line in enumerate(lines) if re.match(r"^\s*(?:api|ota):\s*$", line)),
-            None,
-        )
-        if insert_at is None:
-            insert_at = next((index for index, line in enumerate(lines) if re.match(r"^\s*wifi:\s*$", line)), len(lines))
-        inserted_lines = [
-            *lines[:insert_at],
-            "logger:",
-            "  level: DEBUG",
-            *([f"  hardware_uart: {hardware_uart}"] if hardware_uart is not None else []),
-            *lines[insert_at:],
-        ]
-        return "\n".join(inserted_lines) + ("\n" if content.endswith("\n") else "")
-
-    logger_indent = re.match(r"^(\s*)logger:\s*$", lines[logger_index]).group(1)
-    field_indent = f"{logger_indent}  "
-    logger_end = len(lines)
-    for index in range(logger_index + 1, len(lines)):
-        stripped = lines[index].strip()
-        current_indent = len(lines[index]) - len(lines[index].lstrip(" "))
-        if stripped and current_indent <= len(logger_indent):
-            logger_end = index
-            break
-
-    preserved_lines: list[str] = []
-    for line in lines[logger_index + 1 : logger_end]:
-        if re.match(rf"^{re.escape(field_indent)}level:\s*", line):
-            continue
-        if hardware_uart is not None and re.match(rf"^{re.escape(field_indent)}hardware_uart:\s*", line):
-            continue
-        preserved_lines.append(line)
-
-    replacement_lines = [
-        lines[logger_index],
-        f"{field_indent}level: DEBUG",
-        *([f"{field_indent}hardware_uart: {hardware_uart}"] if hardware_uart is not None else []),
-        *preserved_lines,
-    ]
-
-    return "\n".join([*lines[:logger_index], *replacement_lines, *lines[logger_end:]]) + (
-        "\n" if content.endswith("\n") else ""
-    )
-
-
 def render_micro_benchmark_config() -> str:
     """Copy laboratory env keys and force debug telemetry; leave remaining Micro defaults."""
     values: list[tuple[str, object]] = [
@@ -1737,6 +1474,7 @@ def micro_deployed_source_size(config_path: Path) -> int:
 
 @contextmanager
 def esphome_case_config(chip: str, detector: str, port: str | None = None) -> Iterator[Path]:
+    del port
     source_path = Path(ESPHOME_CONFIGS[chip]["dev"])
     content = source_path.read_text(encoding="utf-8")
     updated, replacements = re.subn(
@@ -1748,26 +1486,7 @@ def esphome_case_config(chip: str, detector: str, port: str | None = None) -> It
     )
     if replacements != 1:
         raise RuntimeError(f"could not set detector in {source_path}")
-    updated, telemetry_replacements = re.subn(
-        r"^(?P<indent>\s*)debug_telemetry:\s*(?:true|false)(\s*(?:#.*)?)$",
-        r"\g<indent>debug_telemetry: true\2",
-        updated,
-        count=1,
-        flags=re.MULTILINE,
-    )
-    if telemetry_replacements != 1:
-        updated, telemetry_insertions = re.subn(
-            r"^(?P<indent>\s*)detection_algorithm:\s*[^\r\n]+$",
-            r"\g<0>\n\g<indent>debug_telemetry: true",
-            updated,
-            count=1,
-            flags=re.MULTILINE,
-        )
-        if telemetry_insertions != 1:
-            raise RuntimeError(f"could not enable debug telemetry in {source_path}")
     updated = apply_esphome_benchmark_wifi(updated)
-    hardware_uart = esphome_benchmark_logger_hardware_uart(port) if port is not None else None
-    updated = apply_esphome_benchmark_logger(updated, hardware_uart=hardware_uart)
 
     temporary_path = source_path.parent / f".espectre-benchmark-{chip}-{detector}.yaml"
     if temporary_path.exists():
@@ -1792,8 +1511,7 @@ def idf_case_environment(frontend: str, chip: str, detector: str) -> Iterator[di
     override_lines = [
         "# Generated temporary firmware benchmark overrides.",
         "CONFIG_LOG_DEFAULT_LEVEL_INFO=y",
-        "CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y",
-        "CONFIG_ESPECTRE_DEBUG_TELEMETRY=y",
+        "CONFIG_LOG_MAXIMUM_LEVEL_INFO=y",
     ]
     append_benchmark_frontend_defaults(frontend, override_lines)
     if frontend == "native":
@@ -1814,16 +1532,21 @@ def idf_case_environment(frontend: str, chip: str, detector: str) -> Iterator[di
     override_lines.append("")
     override = "\n".join(override_lines)
     temporary_path = app_dir / f".espectre-benchmark-{chip}-{detector}.defaults"
-    if temporary_path.exists():
-        raise RuntimeError(f"temporary benchmark defaults already exist: {temporary_path}")
+    temporary_sdkconfig = app_dir / f".espectre-benchmark-{chip}-{detector}.sdkconfig"
+    temporary_sdkconfig_old = temporary_sdkconfig.with_name(f"{temporary_sdkconfig.name}.old")
+    if temporary_path.exists() or temporary_sdkconfig.exists():
+        raise RuntimeError(f"temporary benchmark configuration already exists for {frontend} {chip} {detector}")
     try:
         temporary_path.write_text(override, encoding="utf-8")
         defaults.append(temporary_path)
         env = os.environ.copy()
         env["SDKCONFIG_DEFAULTS"] = ";".join(str(path.resolve()) for path in defaults)
+        env["ESPECTRE_IDF_SDKCONFIG"] = str(temporary_sdkconfig.resolve())
         yield env
     finally:
         temporary_path.unlink(missing_ok=True)
+        temporary_sdkconfig.unlink(missing_ok=True)
+        temporary_sdkconfig_old.unlink(missing_ok=True)
 
 
 def _commands_for_case(
@@ -1849,7 +1572,7 @@ def _commands_for_case(
             [launcher, "esphome", "flash", "--config", config_value, "--device", port],
             monitor_command,
         )
-    build_command = [launcher, case.frontend, "build", "--chip", chip]
+    build_command = [launcher, case.frontend, "build", "--chip", chip, "--backend", "local"]
     if clean:
         build_command.append("--clean")
     return (
@@ -1908,6 +1631,29 @@ def case_context(
             yield env, None
 
 
+def validate_native_benchmark_sdkconfig(path: Path) -> None:
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RuntimeError(f"could not inspect resolved Native benchmark configuration: {exc}") from exc
+    required_empty = (
+        "CONFIG_ESPECTRE_WIFI_SSID",
+        "CONFIG_ESPECTRE_WIFI_PASSWORD",
+        "CONFIG_ESPECTRE_WIFI_BSSID",
+        "CONFIG_ESPECTRE_DEVICE_LABEL",
+        "CONFIG_ESPECTRE_MQTT_HOST",
+        "CONFIG_ESPECTRE_MQTT_USERNAME",
+        "CONFIG_ESPECTRE_MQTT_PASSWORD",
+    )
+    for name in required_empty:
+        if f'{name}=""' not in content:
+            raise RuntimeError(f"resolved Native benchmark configuration does not keep {name} empty")
+    if "CONFIG_ESPECTRE_MQTT_ENABLED=y" in content:
+        raise RuntimeError("resolved Native benchmark configuration enables MQTT")
+    if "CONFIG_ESPECTRE_DEBUG_TELEMETRY" in content:
+        raise RuntimeError("removed C++ debug telemetry symbol reappeared in the resolved configuration")
+
+
 def build_case(
     case: BenchmarkCase,
     chip: str,
@@ -1916,27 +1662,52 @@ def build_case(
     clean: bool,
     output_prefix: str = "",
 ) -> BenchmarkResult:
-    result = BenchmarkResult(case=case)
     try:
         with case_context(case, chip, port, clean=clean) as (env, config):
-            build_command, _flash_command, _monitor_command = _commands_for_case(
+            return _build_case_in_context(
                 case,
                 chip,
                 port,
-                config,
                 clean=clean,
+                env=env,
+                config=config,
+                output_prefix=output_prefix,
             )
-            result.build = run_command(build_command, env=env, output_prefix=output_prefix)
-            result.build_metrics = parse_build_metrics(
-                result.build.output,
-                _latest_firmware_artifact(case.frontend, chip),
-            )
-            if result.build.returncode != 0:
-                result.status = "FAIL"
-                result.reasons.append(f"build exited with status {result.build.returncode}")
     except (OSError, RuntimeError) as exc:
+        result = BenchmarkResult(case=case)
         result.status = "FAIL"
         result.reasons.append(str(exc))
+    return result
+
+
+def _build_case_in_context(
+    case: BenchmarkCase,
+    chip: str,
+    port: str,
+    *,
+    clean: bool,
+    env: dict[str, str] | None,
+    config: Path | None,
+    output_prefix: str = "",
+) -> BenchmarkResult:
+    result = BenchmarkResult(case=case)
+    build_command, _flash_command, _monitor_command = _commands_for_case(
+        case,
+        chip,
+        port,
+        config,
+        clean=clean,
+    )
+    result.build = run_command(build_command, env=env, output_prefix=output_prefix)
+    result.build_metrics = parse_build_metrics(
+        result.build.output,
+        _latest_firmware_artifact(case.frontend, chip),
+    )
+    if case.frontend == "native" and result.build.returncode == 0 and env is not None:
+        validate_native_benchmark_sdkconfig(Path(env["ESPECTRE_IDF_SDKCONFIG"]))
+    if result.build.returncode != 0:
+        result.status = "FAIL"
+        result.reasons.append(f"build exited with status {result.build.returncode}")
     return result
 
 
@@ -1999,6 +1770,714 @@ def _finalize_background_command(
         reached_timeout=False,
         line_elapsed_seconds=line_elapsed_seconds,
     )
+
+
+def _numeric(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+def _integer(value: object) -> int | None:
+    number = _numeric(value)
+    return int(number) if number is not None else None
+
+
+def _counter_rate(current: int | None, previous: int | None, elapsed_ms: int | None) -> float | None:
+    if current is None or previous is None or elapsed_ms is None or elapsed_ms <= 0:
+        return None
+    delta = current - previous if current >= previous else (1 << 64) - previous + current
+    return delta * 1000.0 / elapsed_ms
+
+
+def normalize_direct_diagnostics(
+    payload: dict[str, object],
+    *,
+    host_elapsed_seconds: float,
+    previous: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Return privacy-safe numeric evidence with one shape for all C++ frontends."""
+    timestamp_ms = _integer(payload.get("timestamp_ms"))
+    previous_timestamp_ms = _integer(previous.get("timestamp_ms")) if previous is not None else None
+    elapsed_ms = (
+        timestamp_ms - previous_timestamp_ms
+        if timestamp_ms is not None and previous_timestamp_ms is not None and timestamp_ms >= previous_timestamp_ms
+        else None
+    )
+    admitted_pps = _numeric(payload.get("csi_admitted_pps"))
+    if admitted_pps is None:
+        admitted_pps = _counter_rate(
+            _integer(payload.get("csi_admitted_total")),
+            _integer(previous.get("csi_admitted_total")) if previous is not None else None,
+            elapsed_ms,
+        )
+    occupancy = _numeric(payload.get("csi_occupancy"))
+    if occupancy is not None:
+        occupancy *= 100.0
+    else:
+        occupied = _numeric(payload.get("csi_occupancy_slots"))
+        window = _numeric(payload.get("csi_window_slots"))
+        occupancy = 100.0 * occupied / window if occupied is not None and window and window > 0 else None
+    direct = payload.get("direct") if isinstance(payload.get("direct"), dict) else {}
+    assert isinstance(direct, dict)
+    return {
+        "host_elapsed_seconds": round(host_elapsed_seconds, 6),
+        "timestamp_ms": timestamp_ms,
+        "uptime": _integer(payload.get("uptime")),
+        "csi_admitted_pps": admitted_pps,
+        "csi_occupancy_percent": occupancy,
+        "free_memory_kb": _numeric(payload.get("free_memory_kb")),
+        "minimum_free_memory_kb": _numeric(payload.get("minimum_free_memory_kb")),
+        "largest_free_memory_kb": _numeric(payload.get("largest_free_memory_kb")),
+        "task_stack_high_water_bytes": _integer(payload.get("task_stack_high_water_bytes")),
+        "cpu_frequency_mhz": _integer(payload.get("cpu_frequency_mhz")),
+        "performance_window_ready": payload.get("performance_window_ready") is True,
+        "runtime_load_percent": _numeric(payload.get("runtime_load_percent")),
+        "loop_avg_us": _integer(payload.get("loop_avg_us")),
+        "loop_max_us": _integer(payload.get("loop_max_us")),
+        "detection_timing_supported": payload.get("detection_timing_supported") is True,
+        "detection_samples": _integer(payload.get("detection_samples")),
+        "detection_sum_us": _integer(payload.get("detection_sum_us")),
+        "detection_avg_us": _integer(payload.get("detection_avg_us")),
+        "detection_min_us": _integer(payload.get("detection_min_us")),
+        "detection_max_us": _integer(payload.get("detection_max_us")),
+        "direct_rejected_connections": _integer(direct.get("rejected_connections")),
+        "direct_send_failures": _integer(direct.get("send_failures")),
+        "direct_slow_client_disconnects": _integer(direct.get("slow_client_disconnects")),
+        "direct_dropped_telemetry_events": _integer(direct.get("dropped_telemetry_events")),
+    }
+
+
+def normalize_direct_events(events: Sequence[DirectEvent], *, from_index: int) -> list[dict[str, object]]:
+    normalized: list[dict[str, object]] = []
+    for event in events[from_index:]:
+        if event.name not in {"telemetry", "status", "config", "fault"}:
+            continue
+        data = event.data
+        normalized.append(
+            {
+                "host_elapsed_seconds": round(event.host_elapsed_seconds, 6),
+                "event": event.name,
+                "motion": data.get("motion") if isinstance(data.get("motion"), bool) else None,
+                "motion_state": data.get("motion_state") if isinstance(data.get("motion_state"), str) else None,
+                "detector": data.get("detector") if isinstance(data.get("detector"), str) else None,
+                "timestamp_ms": _integer(data.get("timestamp_ms")),
+                "uptime": _integer(data.get("uptime")) or (
+                    _integer(data.get("health", {}).get("uptime_s"))
+                    if isinstance(data.get("health"), dict)
+                    else None
+                ),
+            }
+        )
+    return normalized
+
+
+def analyze_direct_evidence(
+    samples: Sequence[dict[str, object]],
+    events: Sequence[dict[str, object]],
+    *,
+    duration_seconds: int,
+    require_telemetry: bool,
+    require_detection_timing: bool,
+) -> tuple[RuntimeMetrics, list[str]]:
+    metrics = RuntimeMetrics()
+    reasons: list[str] = []
+    metrics.status_samples = len(samples)
+    metrics.status_expected_samples = max(1, int(duration_seconds / DIRECT_SAMPLE_INTERVAL_SECONDS))
+    metrics.telemetry_samples = sum(event.get("event") == "telemetry" for event in events)
+    metrics.telemetry_expected_samples = MIN_TELEMETRY_SAMPLES if require_telemetry else 0
+    timestamps = [value for sample in samples if (value := _integer(sample.get("timestamp_ms"))) is not None]
+    uptimes = [value for sample in samples if (value := _integer(sample.get("uptime"))) is not None]
+    if timestamps:
+        metrics.status_first_timestamp_ms = timestamps[0]
+        metrics.status_last_timestamp_ms = timestamps[-1]
+    host_times = [float(sample["host_elapsed_seconds"]) for sample in samples]
+    if len(host_times) > 1:
+        gaps = [(right - left) * 1000.0 for left, right in zip(host_times, host_times[1:])]
+        metrics.status_interval_mean_ms = statistics.fmean(gaps)
+        metrics.status_interval_max_ms = int(max(gaps))
+        max_gap_ms = max_runtime_status_gap_ms()
+        metrics.status_gap_count = sum(gap > max_gap_ms for gap in gaps)
+        if metrics.status_gap_count:
+            reasons.append(f"Direct diagnostics gap reached {max(gaps) / 1000.0:.2f}s")
+    if len(samples) < max(1, metrics.status_expected_samples - RUNTIME_STATUS_BOUNDARY_TOLERANCE_SAMPLES):
+        reasons.append(
+            f"only {len(samples)}/{metrics.status_expected_samples} expected Direct diagnostics samples were received"
+        )
+    if require_telemetry and metrics.telemetry_samples < MIN_TELEMETRY_SAMPLES:
+        reasons.append(f"only {metrics.telemetry_samples}/{MIN_TELEMETRY_SAMPLES} Direct telemetry events were received")
+    if any(right < left for left, right in zip(uptimes, uptimes[1:])):
+        metrics.device_reboots = 1
+        reasons.append("Direct uptime regressed during the scored window")
+
+    pps = [value for sample in samples if (value := _numeric(sample.get("csi_admitted_pps"))) is not None]
+    metrics.packet_rate_samples = len(pps)
+    if pps:
+        metrics.pps_mean = statistics.fmean(pps)
+        metrics.pps_min = int(min(pps))
+        metrics.pps_max = int(max(pps))
+        metrics.pps_stddev = statistics.pstdev(pps) if len(pps) > 1 else 0.0
+        if metrics.pps_mean <= 0:
+            reasons.append("Direct diagnostics reported no admitted CSI packets")
+    elif require_telemetry:
+        reasons.append("Direct diagnostics did not report CSI packet rate")
+
+    occupancy = [
+        value for sample in samples if (value := _numeric(sample.get("csi_occupancy_percent"))) is not None
+    ]
+    metrics.occupancy_samples = len(occupancy)
+    if occupancy:
+        metrics.occupancy_mean = statistics.fmean(occupancy)
+        metrics.occupancy_min = int(min(occupancy))
+        metrics.occupancy_max = int(max(occupancy))
+        _append_occupancy_reasons(
+            metrics,
+            reasons,
+            missing_reason="Direct CSI occupancy was not reported",
+            low_reason_prefix="Direct mean CSI occupancy",
+        )
+    elif require_telemetry:
+        reasons.append("Direct CSI occupancy was not reported")
+
+    heap = [value for sample in samples if (value := _numeric(sample.get("free_memory_kb"))) is not None]
+    settled_heap = [
+        value
+        for sample in samples
+        if float(sample["host_elapsed_seconds"]) >= STARTUP_GRACE_SECONDS
+        and (value := _numeric(sample.get("free_memory_kb"))) is not None
+    ]
+    if heap:
+        metrics.heap_free_last = int(heap[-1] * 1024.0)
+    if settled_heap:
+        metrics.heap_free_settled_first = int(settled_heap[0] * 1024.0)
+        metrics.heap_free_settled_last = int(settled_heap[-1] * 1024.0)
+        metrics.heap_free_settled_delta = metrics.heap_free_settled_last - metrics.heap_free_settled_first
+        if metrics.heap_free_settled_first:
+            metrics.heap_free_settled_delta_percent = (
+                100.0 * metrics.heap_free_settled_delta / metrics.heap_free_settled_first
+            )
+            if metrics.heap_free_settled_delta_percent < -5.0:
+                reasons.append("free heap declined by more than 5% after startup settled")
+    minimum_heap = [
+        value for sample in samples if (value := _numeric(sample.get("minimum_free_memory_kb"))) is not None
+    ]
+    largest_heap = [
+        value for sample in samples if (value := _numeric(sample.get("largest_free_memory_kb"))) is not None
+    ]
+    metrics.heap_min = int(minimum_heap[-1] * 1024.0) if minimum_heap else None
+    metrics.heap_largest_last = int(largest_heap[-1] * 1024.0) if largest_heap else None
+
+    performance_samples: list[dict[str, object]] = []
+    previous_signature: tuple[object, ...] | None = None
+    for sample in samples:
+        if sample.get("performance_window_ready") is not True:
+            continue
+        signature = (
+            sample.get("runtime_load_percent"),
+            sample.get("loop_avg_us"),
+            sample.get("loop_max_us"),
+            sample.get("detection_samples"),
+            sample.get("detection_sum_us"),
+        )
+        if signature != previous_signature:
+            performance_samples.append(sample)
+            previous_signature = signature
+    loads = [value for sample in performance_samples if (value := _numeric(sample.get("runtime_load_percent"))) is not None]
+    loop_averages = [value for sample in performance_samples if (value := _numeric(sample.get("loop_avg_us"))) is not None]
+    loop_maxima = [value for sample in performance_samples if (value := _integer(sample.get("loop_max_us"))) is not None]
+    metrics.runtime_load_mean = statistics.fmean(loads) if loads else None
+    metrics.loop_avg_us_mean = statistics.fmean(loop_averages) if loop_averages else None
+    metrics.loop_max_us_max = max(loop_maxima) if loop_maxima else None
+    detection_windows = [sample for sample in performance_samples if sample.get("detection_timing_supported") is True]
+    detection_counts = [value for sample in detection_windows if (value := _integer(sample.get("detection_samples"))) is not None]
+    detection_averages = [value for sample in detection_windows if (value := _numeric(sample.get("detection_avg_us"))) is not None]
+    detection_minima = [value for sample in detection_windows if (value := _integer(sample.get("detection_min_us"))) is not None]
+    detection_maxima = [value for sample in detection_windows if (value := _integer(sample.get("detection_max_us"))) is not None]
+    metrics.detection_samples = sum(detection_counts)
+    metrics.detection_avg_us_mean = statistics.fmean(detection_averages) if detection_averages else None
+    metrics.detection_min_us = min(detection_minima) if detection_minima else None
+    metrics.detection_max_us = max(detection_maxima) if detection_maxima else None
+    if require_detection_timing and metrics.detection_samples <= 0:
+        reasons.append("Direct diagnostics did not report detector timing")
+
+    stack_values = [
+        value for sample in samples if (value := _integer(sample.get("task_stack_high_water_bytes"))) is not None
+    ]
+    if stack_values and min(stack_values) <= 0:
+        reasons.append("Direct diagnostics reported an empty task stack high-water mark")
+    for key, label in (
+        ("direct_rejected_connections", "rejected connection"),
+        ("direct_send_failures", "send failure"),
+        ("direct_slow_client_disconnects", "slow-client disconnect"),
+    ):
+        values = [value for sample in samples if (value := _integer(sample.get(key))) is not None]
+        if len(values) > 1 and values[-1] > values[0]:
+            reasons.append(f"Direct transport recorded a {label} during the scored window")
+    return metrics, reasons
+
+
+def discover_direct_device(frontend: str, *, timeout_seconds: float = DIRECT_DISCOVERY_TIMEOUT_SECONDS) -> DiscoveredDevice:
+    deadline = time.monotonic() + timeout_seconds
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            records = discover_devices(frontend=frontend, timeout_s=min(2.5, max(0.2, deadline - time.monotonic())))
+        except DeviceDiscoveryError as exc:
+            last_error = exc
+            time.sleep(1.0)
+            continue
+        if len(records) == 1:
+            return records[0]
+        if len(records) > 1:
+            raise RuntimeError(f"discovered multiple {FRONTEND_LABELS[frontend]} devices; target is ambiguous")
+        time.sleep(1.0)
+    detail = f": {last_error}" if last_error is not None else ""
+    raise RuntimeError(f"timed out discovering {FRONTEND_LABELS[frontend]} Direct endpoint{detail}")
+
+
+def direct_handshake(client: DirectClient, *, frontend: str, chip: str) -> dict[str, dict[str, object]]:
+    responses = {method: client.request(method) for method in ("capabilities", "info", "status", "config", "diagnostics")}
+    capabilities = responses["capabilities"]
+    methods = capabilities.get("methods")
+    if capabilities.get("subprotocol") != "espectre.v1" or not isinstance(methods, list):
+        raise RuntimeError("Direct capabilities response is incompatible")
+    info = responses["info"]
+    if info.get("frontend") != frontend:
+        raise RuntimeError(f"Direct endpoint frontend mismatch: {info.get('frontend')!r}")
+    reported_chip = str(info.get("chip", "")).lower().replace("esp32-", "").replace("esp32", "esp32")
+    if chip and chip not in reported_chip:
+        raise RuntimeError(f"Direct endpoint chip mismatch: {info.get('chip')!r}")
+    return responses
+
+
+def prepare_direct_runtime(client: DirectClient, case: BenchmarkCase, *, chip: str) -> dict[str, dict[str, object]]:
+    handshake = direct_handshake(client, frontend=case.frontend, chip=chip)
+    methods = set(handshake["capabilities"].get("methods", []))
+    if case.benchmark_mode == "runtime":
+        required = {
+            "set_detector",
+            "set_csi_traffic_mode",
+            "set_traffic_generator_mode",
+            "start_sensing",
+            "stop_sensing",
+            "diagnostics",
+        }
+        missing = sorted(required - methods)
+        if missing:
+            raise RuntimeError(f"Direct endpoint lacks required methods: {', '.join(missing)}")
+        client.request("set_csi_traffic_mode", {"csi_traffic_mode": "internal"})
+        client.request("set_traffic_generator_mode", {"traffic_generator_mode": "ping"})
+        client.request("set_detector", {"detector": case.detector})
+    if "start_sensing" in methods:
+        client.request("start_sensing")
+    confirmation = {method: client.request(method) for method in ("info", "status", "config")}
+    status = confirmation["status"]
+    if status.get("sensing_enabled") is not True:
+        raise RuntimeError("Direct status did not confirm sensing enabled")
+    if case.benchmark_mode == "runtime":
+        info = confirmation["info"]
+        detection = info.get("detection") if isinstance(info.get("detection"), dict) else {}
+        config = confirmation["config"]
+        detector = config.get("detector") or (detection.get("algorithm") if isinstance(detection, dict) else None)
+        if detector != case.detector:
+            raise RuntimeError(f"Direct endpoint did not confirm detector {case.detector}")
+        if config.get("csi_traffic_mode") not in {None, "internal"}:
+            raise RuntimeError("Direct endpoint did not confirm internal CSI traffic")
+        if config.get("traffic_generator_mode") not in {None, "ping"}:
+            raise RuntimeError("Direct endpoint did not confirm ping traffic generation")
+    return {**handshake, **confirmation}
+
+
+def capture_direct_window(
+    client: DirectClient,
+    *,
+    duration_seconds: int,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    samples: list[dict[str, object]] = []
+    previous_raw: dict[str, object] | None = None
+    events_start = len(client.events)
+    started = time.monotonic()
+    deadline = started + duration_seconds
+    next_sample = started
+    while time.monotonic() < deadline:
+        now = time.monotonic()
+        if now < next_sample:
+            time.sleep(min(next_sample - now, 0.05))
+            continue
+        raw = client.request("diagnostics")
+        samples.append(
+            normalize_direct_diagnostics(
+                raw,
+                host_elapsed_seconds=time.monotonic() - started,
+                previous=previous_raw,
+            )
+        )
+        previous_raw = raw
+        next_sample += DIRECT_SAMPLE_INTERVAL_SECONDS
+    return samples, normalize_direct_events(client.events, from_index=events_start)
+
+
+def wait_for_direct_runtime_ready(
+    client: DirectClient,
+    *,
+    timeout_seconds: float = STATUS_STABLE_WAIT_SECONDS,
+    require_publish_ready: bool = True,
+) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    stable_samples = 0
+    previous: dict[str, object] | None = None
+    while time.monotonic() < deadline:
+        status = client.request("status")
+        diagnostics = client.request("diagnostics")
+        sample = normalize_direct_diagnostics(diagnostics, host_elapsed_seconds=0.0, previous=previous)
+        previous = diagnostics
+        admitted_pps = _numeric(sample.get("csi_admitted_pps")) or 0.0
+        publish_ready = status.get("ready_to_publish") is True or not require_publish_ready
+        if status.get("sensing_enabled") is True and publish_ready and admitted_pps > 0:
+            stable_samples += 1
+            if stable_samples >= DIRECT_STABLE_SAMPLE_COUNT:
+                return
+        else:
+            stable_samples = 0
+        time.sleep(DIRECT_SAMPLE_INTERVAL_SECONDS)
+    raise RuntimeError(
+        f"Direct runtime did not produce {DIRECT_STABLE_SAMPLE_COUNT} consecutive ready CSI samples"
+    )
+
+
+def _connect_direct_with_retry(
+    endpoint: str,
+    *,
+    frontend: str,
+    timeout_seconds: float = DIRECT_DISCOVERY_TIMEOUT_SECONDS,
+) -> DirectClient:
+    deadline = time.monotonic() + timeout_seconds
+    candidate = endpoint
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            return DirectClient(candidate, origin=DIRECT_ORIGIN, timeout=BENCHMARK_CONTROL_TIMEOUT_SECONDS)
+        except (OSError, RuntimeError, TimeoutError) as exc:
+            last_error = exc
+            time.sleep(1.0)
+            try:
+                candidate = discover_direct_device(frontend, timeout_seconds=min(3.0, max(0.2, deadline - time.monotonic()))).endpoint
+            except RuntimeError:
+                pass
+    raise RuntimeError(f"timed out connecting to {FRONTEND_LABELS[frontend]} Direct endpoint: {last_error}")
+
+
+def _flash_prebuilt_cpp_case(
+    case: BenchmarkCase,
+    chip: str,
+    port: str,
+    result: BenchmarkResult,
+) -> bool:
+    with case_context(case, chip, port, clean=False) as (env, config):
+        return _flash_prebuilt_cpp_case_in_context(
+            case,
+            chip,
+            port,
+            result,
+            env=env,
+            config=config,
+        )
+
+
+def _flash_prebuilt_cpp_case_in_context(
+    case: BenchmarkCase,
+    chip: str,
+    port: str,
+    result: BenchmarkResult,
+    *,
+    env: dict[str, str] | None,
+    config: Path | None,
+) -> bool:
+    _build_command, flash_command, _monitor_command = _commands_for_case(
+        case,
+        chip,
+        port,
+        config,
+        clean=False,
+    )
+    pre_flash_command = _pre_flash_command_for_case(case, port)
+    if pre_flash_command is not None:
+        nvs_reset = run_command(pre_flash_command, env=env)
+        if nvs_reset.returncode != 0:
+            result.flash = nvs_reset
+            result.reasons.append(f"NVS erase exited with status {nvs_reset.returncode}")
+            result.status = "FAIL"
+            return False
+    result.flash = run_command(flash_command, env=env)
+    if result.flash.returncode != 0:
+        result.reasons.append(f"flash exited with status {result.flash.returncode}")
+        result.status = "FAIL"
+        return False
+    return True
+
+
+def _clone_direct_result(case: BenchmarkCase, source: BenchmarkResult) -> BenchmarkResult:
+    cloned = clone_prebuilt_result(case, source)
+    cloned.flash = source.flash
+    return cloned
+
+
+def run_cpp_build_flash_case(case: BenchmarkCase, chip: str, port: str) -> BenchmarkResult:
+    """Build and flash one C++ smoke case without opening a scored transport."""
+    print(f"\n{'=' * 72}\n{case.label}\n{'=' * 72}", flush=True)
+    try:
+        with case_context(case, chip, port, clean=True) as (env, config):
+            result = _build_case_in_context(
+                case,
+                chip,
+                port,
+                clean=True,
+                env=env,
+                config=config,
+            )
+            if result.build is None or result.build.returncode != 0:
+                return result
+            if not _flash_prebuilt_cpp_case_in_context(
+                case,
+                chip,
+                port,
+                result,
+                env=env,
+                config=config,
+            ):
+                return result
+    except (OSError, RuntimeError) as exc:
+        return BenchmarkResult(case=case, status="FAIL", reasons=[str(exc)])
+    result.status = "PASS"
+    result.transport_evidence = {"transport": "flash-only"}
+    return result
+
+
+def _apply_native_radio_pin(client: DirectClient) -> bool:
+    bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "") or ""
+    channel = benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)
+    if not bssid and channel <= 0:
+        return False
+    params: dict[str, object] = {}
+    if bssid:
+        params["bssid"] = bssid
+    if channel > 0:
+        params["channel"] = channel
+    client.request("set_wifi_config", params)
+    return True
+
+
+def _verify_native_baseline(handshake: dict[str, dict[str, object]]) -> None:
+    status = handshake["status"]
+    config = handshake["config"]
+    mqtt = config.get("mqtt") if isinstance(config.get("mqtt"), dict) else {}
+    if status.get("wifi_connected") is not True:
+        raise RuntimeError("Native Direct status did not confirm Wi-Fi connectivity")
+    if status.get("mqtt_configured") is not False or status.get("mqtt_connected") is not False:
+        raise RuntimeError("Native benchmark endpoint unexpectedly reports MQTT configured or connected")
+    if isinstance(mqtt, dict) and mqtt.get("configured") is not False:
+        raise RuntimeError("Native benchmark configuration unexpectedly contains MQTT settings")
+
+
+def _verify_native_radio_pin(client: DirectClient) -> None:
+    requested_bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "") or ""
+    requested_channel = benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)
+    deadline = time.monotonic() + WIFI_CONNECT_WAIT_SECONDS
+    while time.monotonic() < deadline:
+        config = client.request("config")
+        wifi = config.get("wifi") if isinstance(config.get("wifi"), dict) else {}
+        if not isinstance(wifi, dict):
+            time.sleep(1.0)
+            continue
+        bssid_matches = not requested_bssid or str(wifi.get("bssid", "")).casefold() == requested_bssid.casefold()
+        channel_matches = requested_channel <= 0 or _integer(wifi.get("channel")) == requested_channel
+        # Applying a radio pin restarts Native. The new provisioning-service
+        # instance reports an idle transaction while retaining the committed
+        # values, so those persisted values are the post-reboot contract.
+        if wifi.get("configured") is True and bssid_matches and channel_matches:
+            return
+        if wifi.get("apply_state") in {"rolled_back", "recovery_required"}:
+            raise RuntimeError(f"Native rejected staged Wi-Fi configuration: {wifi.get('apply_message', '')}")
+        time.sleep(1.0)
+    raise RuntimeError("Native committed Wi-Fi configuration did not match the benchmark request")
+
+
+def run_direct_frontend_cases(
+    selected_cases: Sequence[BenchmarkCase],
+    chip: str,
+    port: str,
+) -> list[BenchmarkResult]:
+    if not selected_cases:
+        return []
+    frontend = selected_cases[0].frontend
+    bootstrap_case = (
+        BenchmarkCase(frontend, "lightweight")
+        if frontend in {"native", "esphome"}
+        else selected_cases[0]
+    )
+    try:
+        with case_context(bootstrap_case, chip, port, clean=True) as (env, config):
+            bootstrap = _build_case_in_context(
+                bootstrap_case,
+                chip,
+                port,
+                clean=True,
+                env=env,
+                config=config,
+            )
+            if bootstrap.build is not None and bootstrap.build.returncode == 0:
+                _flash_prebuilt_cpp_case_in_context(
+                    bootstrap_case,
+                    chip,
+                    port,
+                    bootstrap,
+                    env=env,
+                    config=config,
+                )
+    except (OSError, RuntimeError) as exc:
+        bootstrap = BenchmarkResult(case=bootstrap_case, status="FAIL", reasons=[str(exc)])
+    if bootstrap.build is None or bootstrap.build.returncode != 0:
+        return [
+            BenchmarkResult(
+                case=case,
+                status="FAIL",
+                reasons=[f"{bootstrap_case.label} bootstrap build failed"],
+                build=bootstrap.build,
+                build_metrics=bootstrap.build_metrics,
+            )
+            for case in selected_cases
+        ]
+    if bootstrap.flash is None or bootstrap.flash.returncode != 0:
+        return [
+            BenchmarkResult(
+                case=case,
+                status="FAIL",
+                reasons=list(bootstrap.reasons),
+                build=bootstrap.build,
+                flash=bootstrap.flash,
+                build_metrics=bootstrap.build_metrics,
+            )
+            for case in selected_cases
+        ]
+
+    endpoint: str
+    provisioning: ImprovProvisioningResult | None = None
+    if frontend == "native":
+        with ImprovSerialClient(port) as improv:
+            provisioning = improv.provision(
+                require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID"),
+                require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD"),
+                timeout=WIFI_CONNECT_WAIT_SECONDS,
+            )
+        endpoint = direct_endpoint_from_device_url(provisioning.endpoint)
+    else:
+        endpoint = discover_direct_device(frontend).endpoint
+
+    client = _connect_direct_with_retry(endpoint, frontend=frontend)
+    try:
+        baseline = direct_handshake(client, frontend=frontend, chip=chip)
+        if frontend == "native":
+            _verify_native_baseline(baseline)
+            if _apply_native_radio_pin(client):
+                client.close()
+                endpoint = discover_direct_device("native").endpoint
+                client = _connect_direct_with_retry(endpoint, frontend="native")
+                baseline = direct_handshake(client, frontend="native", chip=chip)
+                _verify_native_baseline(baseline)
+                _verify_native_radio_pin(client)
+
+        results: list[BenchmarkResult] = []
+        for case in selected_cases:
+            result = _clone_direct_result(case, bootstrap)
+            try:
+                prepare_direct_runtime(client, case, chip=chip)
+                collect_future = None
+                executor: ThreadPoolExecutor | None = None
+                if frontend == "streamer":
+                    target = discover_direct_device("streamer").ip_address
+                    collect_command = [
+                        str(REPO_ROOT / "espectre"),
+                        "collect",
+                        "--duration",
+                        str(MONITOR_DURATION_SECONDS + STATUS_STABLE_WAIT_SECONDS),
+                        "--fixed",
+                        "--target",
+                        target,
+                        "--detector",
+                        "lightweight,high_accuracy",
+                    ]
+                    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="streamer-collect")
+                    collect_future = executor.submit(run_command, collect_command)
+                try:
+                    wait_for_direct_runtime_ready(
+                        client,
+                        require_publish_ready=frontend != "streamer",
+                    )
+                    result.direct_samples, result.direct_events = capture_direct_window(
+                        client,
+                        duration_seconds=MONITOR_DURATION_SECONDS,
+                    )
+                    if collect_future is not None:
+                        result.collect = collect_future.result()
+                finally:
+                    if executor is not None:
+                        executor.shutdown(wait=True, cancel_futures=True)
+                result.runtime_metrics, result.reasons = analyze_direct_evidence(
+                    result.direct_samples,
+                    result.direct_events,
+                    duration_seconds=MONITOR_DURATION_SECONDS,
+                    require_telemetry=frontend != "streamer",
+                    require_detection_timing=frontend != "streamer",
+                )
+                result.runtime_metrics.verified_detector = case.detector if case.benchmark_mode == "runtime" else None
+                if result.collect is not None:
+                    if result.collect.returncode != 0:
+                        result.reasons.append(f"collect exited with status {result.collect.returncode}")
+                    collect_metrics = _parse_collect_output(result.collect.output)
+                    result.runtime_metrics.collect_devices_observed = collect_metrics.collect_devices_observed
+                    result.runtime_metrics.collect_packets_seen = collect_metrics.collect_packets_seen
+                    result.runtime_metrics.occupancy_samples = collect_metrics.occupancy_samples
+                    result.runtime_metrics.occupancy_mean = collect_metrics.occupancy_mean
+                    result.runtime_metrics.occupancy_min = collect_metrics.occupancy_min
+                    result.runtime_metrics.occupancy_max = collect_metrics.occupancy_max
+                    result.runtime_metrics.dominant_motion_state = collect_metrics.dominant_motion_state
+                    result.runtime_metrics.dominant_state_share_percent = collect_metrics.dominant_state_share_percent
+                    result.runtime_metrics.secondary_status_samples = collect_metrics.secondary_status_samples
+                    result.runtime_metrics.secondary_dominant_motion_state = collect_metrics.secondary_dominant_motion_state
+                    result.runtime_metrics.secondary_dominant_state_share_percent = (
+                        collect_metrics.secondary_dominant_state_share_percent
+                    )
+                    if collect_metrics.collect_packets_seen <= 0:
+                        result.reasons.append("host collect did not receive Streamer packets")
+                result.transport_evidence = {
+                    "transport": "direct",
+                    "origin": DIRECT_ORIGIN,
+                    "subprotocol": "espectre.v1",
+                    "improv_states": list(provisioning.states) if provisioning is not None else [],
+                }
+                result.status = "PASS" if not result.reasons else "FAIL"
+            except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
+                result.status = "FAIL"
+                result.reasons.append(str(exc))
+            results.append(result)
+        try:
+            client.request("stop_sensing")
+        except (OSError, RuntimeError, TimeoutError):
+            pass
+        return results
+    finally:
+        client.close()
+
+
+def run_direct_frontend_cases_safely(
+    selected_cases: Sequence[BenchmarkCase],
+    chip: str,
+    port: str,
+) -> list[BenchmarkResult]:
+    try:
+        return run_direct_frontend_cases(selected_cases, chip, port)
+    except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
+        return [BenchmarkResult(case=case, status="FAIL", reasons=[str(exc)]) for case in selected_cases]
 
 
 def run_streamer_case(
@@ -2473,13 +2952,15 @@ def _write_artifact_json(path: Path, value: object) -> None:
     _write_artifact_text(path, json.dumps(value, indent=2, sort_keys=True) + "\n")
 
 
-def _command_metadata(command_result: CommandResult) -> dict[str, object]:
-    return {
-        "command": command_result.command,
+def _command_metadata(command_result: CommandResult, *, include_command: bool = True) -> dict[str, object]:
+    metadata: dict[str, object] = {
         "duration_seconds": command_result.duration_seconds,
         "reached_timeout": command_result.reached_timeout,
         "returncode": command_result.returncode,
     }
+    if include_command:
+        metadata["command"] = command_result.command
+    return metadata
 
 
 def _write_command_artifacts(
@@ -2530,14 +3011,21 @@ def write_benchmark_artifacts(
             command_result = getattr(result, phase)
             if command_result is None:
                 continue
-            _write_command_artifacts(case_dir, phase, command_result)
-            commands[phase] = _command_metadata(command_result)
+            if result.case.frontend == "micro":
+                _write_command_artifacts(case_dir, phase, command_result)
+            commands[phase] = _command_metadata(
+                command_result,
+                include_command=result.case.frontend == "micro",
+            )
         analysis = {
             "build_metrics": asdict(result.build_metrics),
             "case": asdict(result.case),
+            "direct_events": result.direct_events,
+            "direct_samples": result.direct_samples,
             "reasons": result.reasons,
             "runtime_metrics": asdict(result.runtime_metrics),
             "status": result.status,
+            "transport": result.transport_evidence,
         }
         _write_artifact_json(case_dir / "analysis.json", analysis)
         manifest_cases.append(
@@ -2667,11 +3155,12 @@ def render_report(
         if runtime.verified_detector is not None:
             detail_rows.append(f"| Verified detector | {runtime.verified_detector} |")
 
-        if result.case.benchmark_mode == "runtime" and runtime.status_samples > 0:
+        if runtime.status_samples > 0 and result.case.benchmark_mode in {"runtime", "smoke"}:
             samples_value = str(runtime.status_samples)
             if runtime.status_expected_samples > 0:
                 samples_value = f"{runtime.status_samples}/{runtime.status_expected_samples} expected"
-            detail_rows.append(f"| Status samples | {samples_value} |")
+            sample_label = "Status samples" if result.case.frontend == "micro" else "Direct diagnostics samples"
+            detail_rows.append(f"| {sample_label} | {samples_value} |")
             if runtime.status_interval_mean_ms is not None:
                 max_gap_seconds = (
                     runtime.status_interval_max_ms / 1000.0 if runtime.status_interval_max_ms is not None else None
@@ -2681,7 +3170,8 @@ def render_report(
                     f"{format_number(max_gap_seconds, ' s')} max gap |"
                 )
             detail_rows.append(f"| Status gaps over tolerance | {runtime.status_gap_count} |")
-            detail_rows.append(f"| Serial framing anomalies | {runtime.serial_framing_anomalies} |")
+            if result.case.frontend == "micro":
+                detail_rows.append(f"| Serial framing anomalies | {runtime.serial_framing_anomalies} |")
             detail_rows.append(f"| Device uptime restarts | {runtime.device_reboots} |")
             if runtime.packet_rate_samples > 0:
                 detail_rows.append(f"| Packet-rate samples | {runtime.packet_rate_samples} |")
@@ -2754,7 +3244,7 @@ def render_report(
         if runtime.loop_max_us_max is not None:
             detail_rows.append(f"| Loop maximum | {format_number(runtime.loop_max_us_max, ' us')} |")
 
-        if result.case.benchmark_mode == "runtime" and result.monitor:
+        if result.case.benchmark_mode == "runtime" and (result.monitor or result.direct_samples):
             detail_rows.append(f"| Detection samples | {runtime.detection_samples} |")
             if runtime.detection_avg_us_mean is not None:
                 detail_rows.append(f"| Detection average | {format_number(runtime.detection_avg_us_mean, ' us')} |")
@@ -2819,24 +3309,22 @@ def render_report(
             "## Pass Criteria",
             "",
             "- all required builds, flashes, and Micro-ESPectre deployments complete successfully",
-            f"- {english_join(runtime_case_labels())} runtime benchmarks log shared debug telemetry "
-            "throughout the runtime window",
-            f"- non-runtime benchmarks log at least {MIN_TELEMETRY_SAMPLES} shared debug telemetry samples",
+            "- Native, ESPHome, and Streamer negotiate Direct v1, keep one correlated WebSocket session open, and sample production diagnostics throughout each scored window",
+            "- Native starts with empty network and MQTT build defaults, erases NVS, provisions through Improv Serial, and remains MQTT-unconfigured",
+            f"- Micro-ESPectre alone logs at least {MIN_TELEMETRY_SAMPLES} debug telemetry samples",
             "- free heap does not decline by more than 5% after startup has settled",
             "- the device uptime does not restart during a scored runtime window",
-            f"- {english_join(runtime_case_labels())} runtime benchmarks log detector status "
-            "once per second after the first detector status line",
-            f"- {english_join(runtime_case_labels())} runtime benchmarks log CSI occupancy "
-            "on detector status lines",
+            "- Direct diagnostics cadence stays within the runtime gap tolerance, and production telemetry events remain live on sensing frontends",
             f"- {english_join(runtime_case_labels())} mean CSI occupancy stays at or above "
             f"the {MINIMUM_OCCUPANCY_PERCENT:.0f}% admitted-slot detector-ready floor",
             f"- {english_join(runtime_case_labels())} detector timing is present",
-            "- Matter smoke benchmarks log a boot marker and the commissioning startup state",
-            "- Streamer benchmarks log the device IP and reach STREAMING",
+            "- Direct send failures, slow-client disconnects, and unexpected rejected connections do not increase during a scored C++ window",
+            "- Matter smoke benchmarks stop after a successful build and flash, without commissioning, network discovery, Direct, or scored serial monitoring",
+            "- Streamer benchmarks use Direct for status and health while raw records remain on the bounded collector transport",
             f"- Streamer host collect logs at least {MIN_STREAMER_COLLECT_SAMPLES} Lightweight and High Accuracy samples",
             f"- Streamer host collect mean CSI occupancy stays at or above the {MINIMUM_OCCUPANCY_PERCENT:.0f}% "
             "admitted-slot detector-ready floor",
-            "- no fatal firmware log is observed",
+            "- Micro-ESPectre serial output contains no fatal firmware log",
             "",
         ]
     )
@@ -2967,6 +3455,10 @@ def parse_report_results(text: str) -> list[BenchmarkResult]:
             runtime.verified_detector = metric("Verified detector")
         if "Status samples" in metric_rows:
             runtime.status_samples, runtime.status_expected_samples = parse_report_count(metric("Status samples"))
+        elif "Direct diagnostics samples" in metric_rows:
+            runtime.status_samples, runtime.status_expected_samples = parse_report_count(
+                metric("Direct diagnostics samples")
+            )
         if "Status cadence" in metric_rows:
             match = REPORT_STATUS_CADENCE_RE.fullmatch(metric("Status cadence"))
             if match is None:
@@ -3271,64 +3763,11 @@ def main() -> int:
         return destination
 
     try:
-        require_benchmark_prerequisites()
+        require_benchmark_prerequisites(selected_cases)
 
-        native_lightweight_case = BenchmarkCase("native", "lightweight")
-        native_high_accuracy_case = BenchmarkCase("native", "high_accuracy")
-        if native_lightweight_case in selected_cases:
-            lightweight_result, _unused = run_case(
-                native_lightweight_case,
-                args.chip,
-                port,
-                clean=True,
-                overlap_build=None,
-            )
-            results.append(lightweight_result)
-            write_current_report()
-
-            if native_high_accuracy_case in selected_cases:
-                high_accuracy_result = run_switched_high_accuracy_case(
-                    native_high_accuracy_case,
-                    port,
-                    lightweight_result=lightweight_result,
-                    before_monitor=lambda: set_native_detector_via_mqtt(
-                        "high_accuracy",
-                        lightweight_result.monitor.output if lightweight_result.monitor is not None else "",
-                    ),
-                )
-                results.append(high_accuracy_result)
-                write_current_report()
-        elif native_high_accuracy_case in selected_cases:
-            bootstrap_case = BenchmarkCase("native", "lightweight")
-            bootstrap_result, _unused = run_case(
-                bootstrap_case,
-                args.chip,
-                port,
-                clean=True,
-                overlap_build=None,
-            )
-            if bootstrap_result.build is None or bootstrap_result.build.returncode != 0:
-                results.append(BenchmarkResult(case=native_high_accuracy_case, status="FAIL", reasons=["Native Lightweight bootstrap build failed"]))
-                destination = write_current_report()
-                print(f"\nWrote {destination}")
-                print("Overall result: FAIL")
-                return 1
-            if bootstrap_result.flash is None or bootstrap_result.flash.returncode != 0:
-                results.append(BenchmarkResult(case=native_high_accuracy_case, status="FAIL", reasons=["Native Lightweight bootstrap flash failed"]))
-                destination = write_current_report()
-                print(f"\nWrote {destination}")
-                print("Overall result: FAIL")
-                return 1
-            high_accuracy_result = run_switched_high_accuracy_case(
-                native_high_accuracy_case,
-                port,
-                lightweight_result=bootstrap_result,
-                before_monitor=lambda: set_native_detector_via_mqtt(
-                    "high_accuracy",
-                    bootstrap_result.monitor.output if bootstrap_result.monitor is not None else "",
-                ),
-            )
-            results.append(high_accuracy_result)
+        native_cases = tuple(case for case in selected_cases if case.frontend == "native")
+        if native_cases:
+            results.extend(run_direct_frontend_cases_safely(native_cases, args.chip, port))
             write_current_report()
 
         micro_cases = tuple(case for case in selected_cases if case.frontend == "micro")
@@ -3345,91 +3784,16 @@ def main() -> int:
                 shared_micro_flash = micro_result.flash
             write_current_report()
 
-        esphome_lightweight_case = BenchmarkCase("esphome", "lightweight")
-        esphome_high_accuracy_case = BenchmarkCase("esphome", "high_accuracy")
-        if esphome_lightweight_case in selected_cases:
-            esphome_result, _unused = run_case(
-                esphome_lightweight_case,
-                args.chip,
-                port,
-                clean=True,
-                before_monitor=lambda: set_esphome_runtime_profile_via_api(
-                    "lightweight",
-                    None,
-                ),
-            )
-            results.append(esphome_result)
+        matter_cases = tuple(case for case in selected_cases if case.frontend == "matter")
+        for matter_case in matter_cases:
+            results.append(run_cpp_build_flash_case(matter_case, args.chip, port))
             write_current_report()
 
-            if esphome_high_accuracy_case in selected_cases:
-                high_accuracy_result = run_switched_high_accuracy_case(
-                    esphome_high_accuracy_case,
-                    port,
-                    lightweight_result=esphome_result,
-                    before_monitor=lambda: set_esphome_runtime_profile_via_api(
-                        "high_accuracy",
-                        esphome_result.monitor.output if esphome_result.monitor is not None else "",
-                    ),
-                )
-                results.append(high_accuracy_result)
+        for direct_frontend in ("esphome", "streamer"):
+            frontend_cases = tuple(case for case in selected_cases if case.frontend == direct_frontend)
+            if frontend_cases:
+                results.extend(run_direct_frontend_cases_safely(frontend_cases, args.chip, port))
                 write_current_report()
-        elif esphome_high_accuracy_case in selected_cases:
-            bootstrap_case = BenchmarkCase("esphome", "lightweight")
-            bootstrap_result, _unused = run_case(
-                bootstrap_case,
-                args.chip,
-                port,
-                clean=True,
-                before_monitor=lambda: set_esphome_runtime_profile_via_api(
-                    "lightweight",
-                    None,
-                ),
-            )
-            if bootstrap_result.build is None or bootstrap_result.build.returncode != 0:
-                results.append(BenchmarkResult(case=esphome_high_accuracy_case, status="FAIL", reasons=["ESPHome Lightweight bootstrap build failed"]))
-                destination = write_current_report()
-                print(f"\nWrote {destination}")
-                print("Overall result: FAIL")
-                return 1
-            if bootstrap_result.flash is None or bootstrap_result.flash.returncode != 0:
-                results.append(BenchmarkResult(case=esphome_high_accuracy_case, status="FAIL", reasons=["ESPHome Lightweight bootstrap flash failed"]))
-                destination = write_current_report()
-                print(f"\nWrote {destination}")
-                print("Overall result: FAIL")
-                return 1
-            high_accuracy_result = run_switched_high_accuracy_case(
-                esphome_high_accuracy_case,
-                port,
-                lightweight_result=bootstrap_result,
-                before_monitor=lambda: set_esphome_runtime_profile_via_api(
-                    "high_accuracy",
-                    bootstrap_result.monitor.output if bootstrap_result.monitor is not None else "",
-                ),
-            )
-            results.append(high_accuracy_result)
-            write_current_report()
-
-        matter_case = BenchmarkCase("matter", "default", benchmark_mode="smoke")
-        if matter_case in selected_cases:
-            matter_result, _unused = run_case(
-                matter_case,
-                args.chip,
-                port,
-                clean=True,
-            )
-            results.append(matter_result)
-            write_current_report()
-
-        streamer_case = BenchmarkCase("streamer", "collect", benchmark_mode="stream")
-        if streamer_case in selected_cases:
-            streamer_result = run_streamer_case(
-                streamer_case,
-                args.chip,
-                port,
-                clean=True,
-            )
-            results.append(streamer_result)
-            write_current_report()
     except KeyboardInterrupt:
         print("\nBenchmark interrupted; writing the partial report.", file=sys.stderr)
         write_current_report()

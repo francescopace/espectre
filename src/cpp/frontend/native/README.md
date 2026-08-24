@@ -72,7 +72,7 @@ MQTT is disabled until configured. Wi-Fi alone is sufficient for Native to start
 
 When configured, MQTT runs concurrently with Direct WebSocket and provides the canonical ESPectre MQTT topic surface, Home Assistant MQTT Discovery, retained availability, and integration with broker-based clients. Monitor connects to the broker through MQTT over WebSockets, so the broker must expose a browser-compatible `ws://` or `wss://` listener.
 
-The Native `stats` request returns base uptime, current and minimum heap, frontend-task stack high-water, and loop fields plus cached traffic, CSI, Wi-Fi, Direct, and MQTT diagnostics. Transport diagnostics include fixed client, queue, and MQTT outbox budgets alongside current occupancy and cumulative drops. The cache is refreshed by the existing sensing status update; diagnostics do not add a separate sampling timer.
+The Native `diagnostics` request returns uptime, current, minimum, and largest-block heap, CPU frequency, frontend-task stack high-water, bounded loop-load and detector-timing windows, and cached traffic, CSI, Wi-Fi, Direct, and MQTT diagnostics. Transport diagnostics include fixed client, queue, and MQTT outbox budgets alongside current occupancy and cumulative drops, send failures, and slow-client disconnects. Performance aggregation is unconditional production runtime state; it does not require a build option or periodic debug logger.
 
 Home Assistant discovery is enabled in the published defaults and can be disabled with `CONFIG_ESPECTRE_HA_DISCOVERY_ENABLED`. It publishes the same primary sensing and tuning entities used by the ESPHome frontend:
 

@@ -169,7 +169,7 @@ latest_ = sampler_.sample(runtime_.diagnostics(), now_ms);
 
 `RuntimeDiagnosticsSample::csi_admitted_pps` is the detector input rate after temporal admission. `csi_accepted_pps` is the identity-accepted supply. Compare admitted PPS with `RuntimeConfig::csi_target_pps` together with `csi_occupancy_ratio`, same-slot excess, missing-slot, stale, and out-of-order rates when a deployment underperforms. Occupancy is diagnostic telemetry and does not change the device send rate. MQTT `stats` publishes the same occupancy as `csi_occupancy`; the SDK field name remains `csi_occupancy_ratio`.
 
-The shipped ESP-IDF runtime always collects these counters. Native and ESPHome refresh their cache from the same sensing update that feeds the periodic status log, then expose the cache only on an explicit `stats` request or a `Refresh Diagnostics` button press. `CONFIG_ESPECTRE_DEBUG_TELEMETRY` controls additional timing and load logs, not availability of these counters.
+The shipped ESP-IDF runtime always collects these counters and bounded performance windows. `RuntimeDiagnosticsSnapshot` also reports heap, CPU frequency, loop load and timing, and detector timing when the runtime supports detection. Native and ESPHome refresh their rate cache from the same sensing update that feeds their normal status surfaces; Direct `diagnostics` returns the production snapshot without enabling a build option or periodic debug logger. Matter uses the same shared bridge, and Streamer reports detector timing as unsupported.
 
 ### Versioning
 

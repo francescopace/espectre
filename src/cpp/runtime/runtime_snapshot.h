@@ -60,6 +60,38 @@ struct RuntimeDiagnosticsSnapshot {
   uint32_t csi_occupancy_slots{0U};
   /** Total slots in the configured detector window. */
   uint32_t csi_window_slots{0U};
+  /** Current free heap in bytes. Zero when unavailable. */
+  uint32_t free_memory_bytes{0U};
+  /** Minimum free heap observed since boot, in bytes. Zero when unavailable. */
+  uint32_t minimum_free_memory_bytes{0U};
+  /** Largest currently allocatable heap block, in bytes. Zero when unavailable. */
+  uint32_t largest_free_memory_block_bytes{0U};
+  /** Resolved CPU frequency in MHz. Zero when unavailable. */
+  uint32_t cpu_frequency_mhz{0U};
+  /** True after the first complete performance aggregation window. */
+  bool performance_window_ready{false};
+  /** Duration of the latest complete performance window, in microseconds. */
+  uint32_t performance_window_duration_us{0U};
+  /** Share of the window spent inside the ESPectre runtime loop. */
+  float runtime_load_percent{0.0f};
+  /** Runtime loop iterations measured in the latest complete window. */
+  uint32_t loop_samples{0U};
+  /** Mean runtime loop duration in the latest complete window. */
+  uint32_t loop_average_us{0U};
+  /** Maximum runtime loop duration in the latest complete window. */
+  uint32_t loop_maximum_us{0U};
+  /** Whether this runtime executes a detector and reports its timing. */
+  bool detection_timing_supported{false};
+  /** Detector evaluations measured in the latest complete window. */
+  uint32_t detection_samples{0U};
+  /** Total detector evaluation time in the latest complete window. */
+  uint64_t detection_sum_us{0U};
+  /** Mean detector evaluation time in the latest complete window. */
+  uint32_t detection_average_us{0U};
+  /** Minimum detector evaluation time in the latest complete window. */
+  uint32_t detection_minimum_us{0U};
+  /** Maximum detector evaluation time in the latest complete window. */
+  uint32_t detection_maximum_us{0U};
 };
 
 /**

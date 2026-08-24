@@ -22,7 +22,6 @@ external_components:
 
 espectre:
   id: espectre_csi
-  debug_telemetry: true
   csi_target_pps: 100
   csi_traffic_mode: internal
   csi_traffic_multicast_group: "239.255.0.1"

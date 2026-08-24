@@ -38,7 +38,7 @@ set(ESPECTRE_RUNTIME_STREAMER_FRONTEND_SUPPORT_SOURCES
 )
 
 set(ESPECTRE_RUNTIME_ESP_IDF_PLATFORM_SOURCES
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/debug_telemetry_log_helpers.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_log_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/device_identity.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_capture_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_stream_transport.cpp"
@@ -46,12 +46,13 @@ set(ESPECTRE_RUNTIME_ESP_IDF_PLATFORM_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_payload_normalizer.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_platform_config.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/esp_idf_runtime.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/esp_idf_runtime_base.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/nvs_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_frontend_controller.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_detector_store.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_motion_hits_store.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_traffic_mode_store.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_debug_telemetry.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_performance_diagnostics.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_sensing_kconfig.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stream_runtime_factory.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_service.cpp"

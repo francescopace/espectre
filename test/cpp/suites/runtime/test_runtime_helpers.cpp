@@ -16,12 +16,15 @@
 #include "runtime_config_utils.h"
 #include "mqtt_payload_assembler.h"
 #include "runtime_diagnostics.h"
+#include "runtime_performance_diagnostics.h"
 #include "runtime_time.h"
 #include "wifi_csi_interface.h"
 
 #include <algorithm>
 #include <string>
 #include <vector>
+
+#include "esp_timer.h"
 
 #define private public
 #include "csi_stream_transport.h"
@@ -510,6 +513,53 @@ void test_runtime_diagnostics_sampler_derives_five_second_rates(void) {
     TEST_ASSERT_EQUAL_INT8(-55, sample.wifi_rssi_dbm);
 }
 
+void test_runtime_performance_diagnostics_publish_complete_windows(void) {
+    esp_timer_mock::reset(1, 0);
+    RuntimePerformanceDiagnostics diagnostics;
+    diagnostics.reset();
+    diagnostics.update_if_due();
+    diagnostics.record_loop_duration(100U);
+    diagnostics.record_loop_duration(300U);
+    diagnostics.record_detection_timing(900U, 3U, 200U, 400U);
+
+    esp_timer_mock::advance(10000000);
+    diagnostics.update_if_due();
+    const RuntimePerformanceDiagnosticsSnapshot snapshot = diagnostics.snapshot();
+
+    TEST_ASSERT_TRUE(snapshot.window_ready);
+    TEST_ASSERT_EQUAL(10000000U, snapshot.window_duration_us);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.004f, snapshot.runtime_load_percent);
+    TEST_ASSERT_EQUAL(2U, snapshot.loop_samples);
+    TEST_ASSERT_EQUAL(200U, snapshot.loop_average_us);
+    TEST_ASSERT_EQUAL(300U, snapshot.loop_maximum_us);
+    TEST_ASSERT_EQUAL(3U, snapshot.detection_samples);
+    TEST_ASSERT_EQUAL(900U, snapshot.detection_sum_us);
+    TEST_ASSERT_EQUAL(300U, snapshot.detection_average_us);
+    TEST_ASSERT_EQUAL(200U, snapshot.detection_minimum_us);
+    TEST_ASSERT_EQUAL(400U, snapshot.detection_maximum_us);
+}
+
+void test_runtime_performance_diagnostics_json_marks_unready_and_unsupported_values(void) {
+    RuntimeDiagnosticsSnapshot diagnostics;
+    diagnostics.free_memory_bytes = 4096U;
+    diagnostics.minimum_free_memory_bytes = 2048U;
+    diagnostics.largest_free_memory_block_bytes = 1024U;
+    diagnostics.cpu_frequency_mhz = 160U;
+
+    std::string json{"{\"existing\":1"};
+    append_runtime_performance_diagnostics_json(&json, diagnostics);
+    json += "}";
+
+    TEST_ASSERT_TRUE(json.find("\"free_memory_kb\":4") != std::string::npos);
+    TEST_ASSERT_TRUE(json.find("\"minimum_free_memory_kb\":2") != std::string::npos);
+    TEST_ASSERT_TRUE(json.find("\"largest_free_memory_kb\":1") != std::string::npos);
+    TEST_ASSERT_TRUE(json.find("\"cpu_frequency_mhz\":160") != std::string::npos);
+    TEST_ASSERT_TRUE(json.find("\"performance_window_ready\":false") != std::string::npos);
+    TEST_ASSERT_TRUE(json.find("\"runtime_load_percent\":null") != std::string::npos);
+    TEST_ASSERT_TRUE(json.find("\"detection_timing_supported\":false") != std::string::npos);
+    TEST_ASSERT_TRUE(json.find("\"detection_samples\":null") != std::string::npos);
+}
+
 void test_mqtt_payload_assembler_accepts_complete_and_fragmented_payloads(void) {
     MqttPayloadAssembler assembler;
 
@@ -550,6 +600,8 @@ int process(void) {
     RUN_TEST(test_runtime_config_validator_covers_the_public_schema);
     RUN_TEST(test_runtime_diagnostics_emit_expected_key_value_pairs);
     RUN_TEST(test_runtime_diagnostics_sampler_derives_five_second_rates);
+    RUN_TEST(test_runtime_performance_diagnostics_publish_complete_windows);
+    RUN_TEST(test_runtime_performance_diagnostics_json_marks_unready_and_unsupported_values);
     RUN_TEST(test_mqtt_payload_assembler_accepts_complete_and_fragmented_payloads);
     RUN_TEST(test_mqtt_payload_assembler_rejects_invalid_fragments);
     return UNITY_END();

@@ -124,7 +124,7 @@ bool StreamEspIdfRuntime::setup() {
   }
 
   setup_complete_ = true;
-  debug_telemetry_.reset();
+  performance_diagnostics_.reset();
   ESP_LOGI(TAG,
            "Stream runtime ready: collector_source=udp_pacing stream_port=%u traffic_rx_port=%u",
            static_cast<unsigned>(config_.collector_port),
@@ -145,7 +145,7 @@ void StreamEspIdfRuntime::shutdown() {
 }
 
 void StreamEspIdfRuntime::loop() {
-  RuntimeDebugLoopScope debug_scope(debug_telemetry_, TAG);
+  RuntimePerformanceLoopScope performance_scope(performance_diagnostics_);
   if (!setup_complete_) {
     return;
   }
@@ -203,6 +203,17 @@ void StreamEspIdfRuntime::set_services_armed(bool armed) {
 }
 
 void StreamEspIdfRuntime::set_live_telemetry_enabled(bool enabled) { live_telemetry_enabled_ = enabled; }
+
+RuntimeDiagnosticsSnapshot StreamEspIdfRuntime::get_diagnostics() const {
+  RuntimeDiagnosticsSnapshot diagnostics = EspIdfRuntimeBase::get_diagnostics();
+  diagnostics.traffic_packets_total = csi_traffic_service_.get_pacing_total();
+  diagnostics.csi_callbacks_total =
+      static_cast<uint64_t>(capture_service_.valid_packets()) + capture_service_.filtered_packets();
+  diagnostics.csi_accepted_total = capture_service_.valid_packets();
+  diagnostics.csi_admitted_total = capture_service_.valid_packets();
+  diagnostics.csi_filtered_total = capture_service_.filtered_packets();
+  return diagnostics;
+}
 
 bool StreamEspIdfRuntime::set_threshold_runtime(float threshold) {
   (void)threshold;

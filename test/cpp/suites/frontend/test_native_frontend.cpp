@@ -1405,6 +1405,21 @@ void test_native_frontend_direct_updates_bssid_and_mqtt_without_returning_secret
 
 void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
   frontend_runtime_shim::state.snapshot = make_ready_snapshot();
+  frontend_runtime_shim::state.diagnostics.minimum_free_memory_bytes = 2048U;
+  frontend_runtime_shim::state.diagnostics.largest_free_memory_block_bytes = 1024U;
+  frontend_runtime_shim::state.diagnostics.cpu_frequency_mhz = 160U;
+  frontend_runtime_shim::state.diagnostics.performance_window_ready = true;
+  frontend_runtime_shim::state.diagnostics.performance_window_duration_us = 10000000U;
+  frontend_runtime_shim::state.diagnostics.runtime_load_percent = 7.5f;
+  frontend_runtime_shim::state.diagnostics.loop_samples = 100U;
+  frontend_runtime_shim::state.diagnostics.loop_average_us = 75U;
+  frontend_runtime_shim::state.diagnostics.loop_maximum_us = 250U;
+  frontend_runtime_shim::state.diagnostics.detection_timing_supported = true;
+  frontend_runtime_shim::state.diagnostics.detection_samples = 40U;
+  frontend_runtime_shim::state.diagnostics.detection_sum_us = 4000U;
+  frontend_runtime_shim::state.diagnostics.detection_average_us = 100U;
+  frontend_runtime_shim::state.diagnostics.detection_minimum_us = 80U;
+  frontend_runtime_shim::state.diagnostics.detection_maximum_us = 140U;
   MockMqttTransport mqtt;
   MockDirectWebSocketService direct;
   direct_websocket_service_mock::state.diagnostics.accepted_connections = 4U;
@@ -1468,6 +1483,12 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
       direct.emit_request(DirectWebSocketRequest{"read-diag", "diagnostics", "{}"});
   TEST_ASSERT_TRUE(diagnostics.find("\"clients\":1") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"minimum_free_memory_kb\":") != std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"largest_free_memory_kb\":1") != std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"cpu_frequency_mhz\":160") != std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"runtime_load_percent\":7.5") != std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"loop_avg_us\":75") != std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"detection_samples\":40") != std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"detection_max_us\":140") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"task_stack_high_water_bytes\":") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"client_limit\":2") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"queue_capacity\":8") != std::string::npos);

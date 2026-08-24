@@ -62,6 +62,7 @@ void EspIdfRuntime::update_live_telemetry_callback_() {
 
 EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
     : EspIdfRuntimeBase(config, RUNTIME_TAG, "Unknown runtime fault") {
+  detection_timing_supported_ = true;
   snapshot_.threshold = config_.segmentation_threshold;
   snapshot_.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
   // The sensing runtime owns a detector, so it can retune and recalibrate it,
@@ -160,7 +161,7 @@ bool EspIdfRuntime::setup() {
   wifi_ready_ = false;
   wifi_ip_info_ = {};
   setup_complete_ = true;
-  debug_telemetry_.reset();
+  performance_diagnostics_.reset();
   return true;
 }
 
@@ -175,7 +176,7 @@ void EspIdfRuntime::shutdown() {
 }
 
 void EspIdfRuntime::loop() {
-  RuntimeDebugLoopScope debug_scope(debug_telemetry_, RUNTIME_TAG);
+  RuntimePerformanceLoopScope performance_scope(performance_diagnostics_);
   if (wifi_lifecycle_.process_pending_events() != ESP_OK) {
     notify_fault_("Wi-Fi lifecycle init failed");
   }
@@ -187,16 +188,16 @@ void EspIdfRuntime::loop() {
   csi_pipeline_.publish_if_due(monotonic_now_ms());
   DetectionTimingStats detection_timing;
   if (csi_pipeline_.take_detection_timing(&detection_timing)) {
-    debug_telemetry_.record_detection_timing(detection_timing.duration_sum_us,
-                                             detection_timing.samples,
-                                             detection_timing.minimum_us,
-                                             detection_timing.maximum_us);
+    performance_diagnostics_.record_detection_timing(detection_timing.duration_sum_us,
+                                                      detection_timing.samples,
+                                                      detection_timing.minimum_us,
+                                                      detection_timing.maximum_us);
   }
   csi_traffic_service_.loop();
 }
 
 RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {
-  RuntimeDiagnosticsSnapshot diagnostics;
+  RuntimeDiagnosticsSnapshot diagnostics = EspIdfRuntimeBase::get_diagnostics();
   wifi_ap_record_t ap_info{};
   if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
     diagnostics.wifi_rssi_dbm = ap_info.rssi;

@@ -2,7 +2,7 @@
 
 # ESPHome build workflow
 esphome==2026.7.4
-aioesphomeapi==45.7.0   # required by ESPHome 2026.7.4; used for ESPHome detector switching
+aioesphomeapi==45.7.0   # required by ESPHome 2026.7.4
 esptool==5.3.1          # aligned with ESPHome 2026.7.4
 mpremote==1.28.0        # CLI wrapper coverage in Python tests
 mpy-cross-v6.3==1.1.1   # MicroPython 1.23+ bytecode compiler used by micro deploy
@@ -17,6 +17,7 @@ python-dotenv==1.2.2    # environment variables support
 PyYAML==6.0.3           # YAML parsing
 prompt_toolkit==3.0.53  # interactive CLI support
 zeroconf==0.150.0       # required by ESPHome 2026.7.4; used for host device discovery
+websockets==17.0.1      # BSD-3-Clause; Direct WebSocket benchmark transport
 
 # Test dependencies
 numpy==2.4.6            # latest verified NumPy compatible with shap/numba on Python 3.14

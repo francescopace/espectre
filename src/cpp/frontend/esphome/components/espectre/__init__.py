@@ -71,7 +71,6 @@ CONF_TRAFFIC_GENERATOR_MODE = "traffic_generator_mode"
 
 # Detection algorithm
 CONF_DETECTION_ALGORITHM = "detection_algorithm"
-CONF_DEBUG_TELEMETRY = "debug_telemetry"
 
 # Sensors - defined directly in component
 CONF_MOVEMENT_SENSOR = "movement_sensor"
@@ -300,8 +299,6 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Optional(CONF_DETECTION_ALGORITHM, default=DETECTION_ALGORITHM_DEFAULT): cv.one_of(
         "lightweight", "high_accuracy", lower=True
     ),
-    # Internal benchmark switch for shared runtime debug telemetry.
-    cv.Optional(CONF_DEBUG_TELEMETRY, default=False): cv.boolean,
     cv.Optional(CONF_EVALUATION_INTERVAL_MS, default=EVALUATION_INTERVAL_MS_DEFAULT): cv.int_range(
         min=EVALUATION_INTERVAL_MS_MIN, max=EVALUATION_INTERVAL_MS_MAX
     ),
@@ -516,8 +513,6 @@ async def to_code(config):
     # Undo the previous global DEBUG maximum so Wi-Fi/lwIP debug stays
     # compiled out. Detection status uses LOG_LOCAL_LEVEL in the SDK component.
     add_idf_sdkconfig_option("CONFIG_LOG_MAXIMUM_EQUALS_DEFAULT", True)
-    if config[CONF_DEBUG_TELEMETRY]:
-        cg.add_build_flag("-DCONFIG_ESPECTRE_DEBUG_TELEMETRY=1")
     # Note: CONFIG_FREERTOS_HZ=1000 is already set by ESPHome
     
     # Threshold is selected automatically at startup and remains adjustable

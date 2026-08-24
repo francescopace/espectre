@@ -26,7 +26,7 @@
 #include <setup_payload/OnboardingCodesUtil.h>
 
 #include "espectre_banner.h"
-#include "debug_telemetry_log_helpers.h"
+#include "runtime_log_helpers.h"
 #include "device_identity.h"
 #include "direct_websocket_protocol.h"
 #include "direct_websocket_service_esp_idf.h"
@@ -52,6 +52,8 @@ namespace {
 espectre::MatterEspBindings g_bindings;
 espectre::MatterCommissioningDataProvider g_commissioning_data;
 espectre::MatterFrontend *g_frontend = nullptr;
+espectre::MdnsDiscoveryService *g_mdns_discovery = nullptr;
+espectre::MdnsDiscoveryServiceConfig g_mdns_config;
 uint16_t g_motion_endpoint_id = 0;
 
 espectre::RuntimeConfig build_runtime_config() {
@@ -82,7 +84,7 @@ bool has_commissioned_fabric() {
 }
 
 void configure_log_levels() {
-  espectre::configure_debug_telemetry_log_levels();
+  espectre::configure_runtime_log_levels();
   // CHIP logs are reduced at build time; mute esp-matter attribute chatter at runtime.
   esp_log_level_set("esp_matter_attribute", ESP_LOG_WARN);
 }
@@ -146,6 +148,15 @@ void sync_post_start_state_on_chip_thread(intptr_t arg) {
 
 void app_event_cb(const ChipDeviceEvent *event, intptr_t arg) {
   switch (event->Type) {
+    case chip::DeviceLayer::DeviceEventType::kDnssdInitialized:
+      if (g_mdns_discovery != nullptr && !g_mdns_discovery->initialized()) {
+        if (g_mdns_discovery->setup(g_mdns_config)) {
+          ESP_LOGI(TAG, "ESPectre Direct discovery registered with Matter mDNS");
+        } else {
+          ESP_LOGE(TAG, "Failed to register ESPectre Direct discovery with Matter mDNS");
+        }
+      }
+      break;
     case chip::DeviceLayer::DeviceEventType::kCommissioningComplete:
       ESP_LOGI(TAG, "Commissioning complete");
       if (g_frontend != nullptr) {
@@ -240,6 +251,17 @@ extern "C" void app_main() {
   frontend.set_runtime_config(runtime_config);
   frontend.set_runtime_services_armed(false);
   g_frontend = &frontend;
+  const std::string device_id = espectre::format_espectre_device_id(runtime_config.device_id);
+  g_mdns_discovery = &mdns_discovery;
+  g_mdns_config = espectre::MdnsDiscoveryServiceConfig{
+      "",
+      std::string(CONFIG_ESPECTRE_MATTER_NODE_LABEL) + " " + device_id,
+      "_espectre",
+      "_tcp",
+      80U,
+      matter_mdns_txt(runtime_config.device_id),
+      espectre::MdnsResponderMode::USE_EXISTING_RESPONDER,
+  };
   esp_err_t err = esp_event_loop_create_default();
   if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
     ESP_LOGE(TAG, "Failed to create default event loop (%d)", err);
@@ -254,19 +276,6 @@ extern "C" void app_main() {
 
   if (!frontend.setup()) {
     ESP_LOGE(TAG, "Failed to initialize ESPectre Matter frontend");
-    return;
-  }
-  const std::string device_id = espectre::format_espectre_device_id(runtime_config.device_id);
-  if (!mdns_discovery.setup(espectre::MdnsDiscoveryServiceConfig{
-          "",
-          std::string(CONFIG_ESPECTRE_MATTER_NODE_LABEL) + " " + device_id,
-          "_espectre",
-          "_tcp",
-          80U,
-          matter_mdns_txt(runtime_config.device_id),
-          espectre::MdnsResponderMode::USE_EXISTING_RESPONDER,
-      })) {
-    ESP_LOGE(TAG, "Failed to initialize Matter ESPectre mDNS discovery");
     return;
   }
 

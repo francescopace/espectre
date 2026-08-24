@@ -663,6 +663,37 @@ def test_run_idf_command_build_uses_env_defaults_and_custom_build_dir(monkeypatc
     ]
 
 
+def test_run_idf_command_build_uses_isolated_sdkconfig(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    isolated_sdkconfig = app_dir / ".benchmark.sdkconfig"
+    calls: list[tuple[list[str], Path]] = []
+
+    monkeypatch.setenv("ESPECTRE_IDF_SDKCONFIG", str(isolated_sdkconfig))
+    monkeypatch.setattr(idf, "resolve_idf_target", lambda *_args: (app_dir, "esp32c3"))
+    monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
+    monkeypatch.setattr(
+        idf,
+        "resolve_idf_environment",
+        lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"),
+    )
+    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append((cmd, Path(cwd))))
+
+    idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=True))
+
+    sdkconfig_arg = f"-DSDKCONFIG={isolated_sdkconfig.resolve()}"
+    assert calls == [
+        (
+            ["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults", sdkconfig_arg, "set-target", "esp32c3"],
+            app_dir,
+        ),
+        (
+            ["idf.py", "-B", "build-esp32c3", "-DSDKCONFIG_DEFAULTS=sdkconfig.defaults", sdkconfig_arg, "build"],
+            app_dir,
+        ),
+    ]
+
+
 def test_run_idf_command_build_clean_all_removes_all_builds_and_shared_artifacts(monkeypatch, tmp_path: Path) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
@@ -746,6 +777,38 @@ def test_run_idf_command_flash_uses_custom_build_dir_when_present(monkeypatch, t
     idf.run_idf_command("matter", argparse.Namespace(idf_command="flash", port=None))
 
     assert calls == [["idf.py", "-B", "build-esp32c3", "-p", "/dev/cu.auto", "flash"]]
+
+
+def test_run_idf_command_flash_reclaims_stale_temporary_sdkconfig_cache(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    build_dir = app_dir / "build-esp32c3"
+    build_dir.mkdir(parents=True)
+    temporary_sdkconfig = app_dir / ".espectre-benchmark-c3-default.sdkconfig"
+    (build_dir / "CMakeCache.txt").write_text(
+        f"SDKCONFIG:UNINITIALIZED={temporary_sdkconfig}\n",
+        encoding="utf-8",
+    )
+    calls: list[list[str]] = []
+
+    monkeypatch.setenv("ESPECTRE_IDF_BUILD_DIR", "build-esp32c3")
+    monkeypatch.setitem(idf.IDF_FRONTENDS, "matter", {"app_dir": app_dir, "targets": {"c3": "esp32c3"}})
+    monkeypatch.setattr(idf, "get_serial_port", lambda port: port or "/dev/cu.auto")
+    monkeypatch.setattr(idf, "detect_chip_type", lambda _port: "c3")
+    monkeypatch.setattr(idf, "resolve_idf_environment", lambda: idf.ResolvedIdfEnvironment(mode="path", source="PATH", idf_path_entry="/usr/bin/idf.py"))
+    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append(cmd))
+    monkeypatch.setattr(idf, "read_matter_onboarding", lambda port: True)
+
+    idf.run_idf_command("matter", argparse.Namespace(idf_command="flash", port=None))
+
+    assert calls == [[
+        "idf.py",
+        "-B",
+        "build-esp32c3",
+        f"-DSDKCONFIG={(app_dir / 'sdkconfig').resolve()}",
+        "-p",
+        "/dev/cu.auto",
+        "flash",
+    ]]
 
 
 def test_run_idf_command_flash_uses_target_specific_build_dir_from_sdkconfig(monkeypatch, tmp_path: Path) -> None:

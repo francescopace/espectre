@@ -33,7 +33,6 @@ external_components:
 # All parameters shown with defaults
 espectre:
   id: espectre_csi
-  debug_telemetry: true
   # Traffic Generator
   csi_target_pps: 100           # Positive temporal sensing and managed-traffic target
   csi_traffic_mode: internal    # internal, external, or disabled

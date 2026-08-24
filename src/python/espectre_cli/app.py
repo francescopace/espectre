@@ -17,6 +17,7 @@ from pathlib import Path
 from .about import print_about, print_version
 from .common import MICRO_CHIP_CHOICES, add_mqtt_connection_args, build_mqtt_namespace, cli_command, serial_port_example
 from .device_discovery import DISCOVERY_TIMEOUT_S, SUPPORTED_DISCOVERY_FRONTENDS, run_devices_command
+from .device_control import DEFAULT_DIRECT_ORIGIN, run_direct_request_command, run_improv_provision_command
 from .esphome import run_esphome_command
 from .host import collect_csi_data
 from .idf import run_idf_command, run_idf_doctor
@@ -137,6 +138,60 @@ def _add_devices_parser(subparsers) -> None:
         help="Print machine-readable JSON instead of the human-readable list",
     )
     devices_parser.set_defaults(handler=run_devices_command)
+
+
+def _add_provision_parser(subparsers) -> None:
+    provision_parser = subparsers.add_parser(
+        "provision",
+        help="Provision a clean Native device through standard Improv Serial",
+    )
+    provision_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
+    provision_parser.add_argument("--ssid", required=True, help="Wi-Fi network name")
+    provision_parser.add_argument(
+        "--password-env",
+        default="ESPECTRE_WIFI_PASSWORD",
+        help="Environment variable containing the Wi-Fi password; prompt when unset",
+    )
+    provision_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=60.0,
+        help="Maximum provisioning time in seconds (default: 60)",
+    )
+    provision_parser.set_defaults(handler=run_improv_provision_command)
+
+
+def _add_direct_parser(subparsers) -> None:
+    direct_parser = subparsers.add_parser(
+        "direct",
+        help="Send one correlated request through the Direct WebSocket protocol",
+    )
+    direct_parser.add_argument("method", help="Direct method, such as status or diagnostics")
+    direct_parser.add_argument(
+        "--params",
+        default="{}",
+        help="Method parameters as a JSON object (default: {})",
+    )
+    target = direct_parser.add_mutually_exclusive_group()
+    target.add_argument("--endpoint", help="Device HTTP(S) URL or Direct WS(S) endpoint")
+    target.add_argument(
+        "--frontend",
+        choices=SUPPORTED_DISCOVERY_FRONTENDS,
+        help="Discover a device from one frontend via mDNS",
+    )
+    direct_parser.add_argument(
+        "--origin",
+        default=DEFAULT_DIRECT_ORIGIN,
+        help=f"Exact allowed Origin header (default: {DEFAULT_DIRECT_ORIGIN})",
+    )
+    direct_parser.add_argument("--timeout", type=float, default=8.0, help="Request timeout in seconds (default: 8)")
+    direct_parser.add_argument(
+        "--discovery-timeout",
+        type=float,
+        default=DISCOVERY_TIMEOUT_S,
+        help=f"mDNS browse duration when no endpoint is supplied (default: {DISCOVERY_TIMEOUT_S})",
+    )
+    direct_parser.set_defaults(handler=run_direct_request_command)
 
 
 def _add_mqtt_parser(subparsers, *, name: str = "mqtt", help_text: str | None = "Start the interactive MQTT shell"):
@@ -305,6 +360,8 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {cli_command('mqtt')}",
             f"  {cli_command('devices')}",
             f"  {cli_command('devices', '--frontend', 'native')}",
+            f"  {cli_command('provision', '--ssid', 'MyNetwork')}",
+            f"  {cli_command('direct', 'status', '--frontend', 'native')}",
             f"  {cli_command('collect', '--list-devices')}",
             f"  {cli_command('collect', '--target', '192.168.1.50')}",
             f"  {cli_command('collect', '--label', 'wave', '--duration', '45', '--target', '192.168.1.50')}",
@@ -332,6 +389,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="namespace", help="Available namespaces")
     _add_micro_namespace(subparsers)
     _add_devices_parser(subparsers)
+    _add_provision_parser(subparsers)
+    _add_direct_parser(subparsers)
     _add_collect_parser(subparsers)
     _add_mqtt_parser(subparsers)
     _add_monitor_parser(subparsers)

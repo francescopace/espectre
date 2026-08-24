@@ -12,6 +12,7 @@
 #include "counter_helpers.h"
 
 #include <cstdio>
+#include <string>
 
 #include "runtime_config_utils.h"
 
@@ -25,7 +26,83 @@ float packets_per_second(uint64_t delta, uint32_t elapsed_ms) {
              : 0.0f;
 }
 
+void append_json_key(std::string *out, const char *key) {
+  *out += ",\"";
+  *out += key;
+  *out += "\":";
+}
+
+void append_json_uint(std::string *out, const char *key, uint64_t value) {
+  append_json_key(out, key);
+  *out += std::to_string(value);
+}
+
+void append_json_float(std::string *out, const char *key, float value) {
+  char text[32];
+  std::snprintf(text, sizeof(text), "%.6g", static_cast<double>(value));
+  append_json_key(out, key);
+  *out += text;
+}
+
+void append_json_bool(std::string *out, const char *key, bool value) {
+  append_json_key(out, key);
+  *out += value ? "true" : "false";
+}
+
+void append_json_null(std::string *out, const char *key) {
+  append_json_key(out, key);
+  *out += "null";
+}
+
 }  // namespace
+
+void append_runtime_performance_diagnostics_json(std::string *out,
+                                                 const RuntimeDiagnosticsSnapshot &diagnostics,
+                                                 bool include_current_memory) {
+  if (out == nullptr) {
+    return;
+  }
+  if (include_current_memory) {
+    append_json_float(out, "free_memory_kb", static_cast<float>(diagnostics.free_memory_bytes) / 1024.0f);
+  }
+  append_json_float(out,
+                    "minimum_free_memory_kb",
+                    static_cast<float>(diagnostics.minimum_free_memory_bytes) / 1024.0f);
+  append_json_float(out,
+                    "largest_free_memory_kb",
+                    static_cast<float>(diagnostics.largest_free_memory_block_bytes) / 1024.0f);
+  append_json_uint(out, "cpu_frequency_mhz", diagnostics.cpu_frequency_mhz);
+  append_json_bool(out, "performance_window_ready", diagnostics.performance_window_ready);
+  if (diagnostics.performance_window_ready) {
+    append_json_float(out,
+                      "performance_window_ms",
+                      static_cast<float>(diagnostics.performance_window_duration_us) / 1000.0f);
+    append_json_float(out, "runtime_load_percent", diagnostics.runtime_load_percent);
+    append_json_uint(out, "loop_samples", diagnostics.loop_samples);
+    append_json_uint(out, "loop_avg_us", diagnostics.loop_average_us);
+    append_json_uint(out, "loop_max_us", diagnostics.loop_maximum_us);
+  } else {
+    append_json_null(out, "performance_window_ms");
+    append_json_null(out, "runtime_load_percent");
+    append_json_null(out, "loop_samples");
+    append_json_null(out, "loop_avg_us");
+    append_json_null(out, "loop_max_us");
+  }
+  append_json_bool(out, "detection_timing_supported", diagnostics.detection_timing_supported);
+  if (diagnostics.performance_window_ready && diagnostics.detection_timing_supported) {
+    append_json_uint(out, "detection_samples", diagnostics.detection_samples);
+    append_json_uint(out, "detection_sum_us", diagnostics.detection_sum_us);
+    append_json_uint(out, "detection_avg_us", diagnostics.detection_average_us);
+    append_json_uint(out, "detection_min_us", diagnostics.detection_minimum_us);
+    append_json_uint(out, "detection_max_us", diagnostics.detection_maximum_us);
+  } else {
+    append_json_null(out, "detection_samples");
+    append_json_null(out, "detection_sum_us");
+    append_json_null(out, "detection_avg_us");
+    append_json_null(out, "detection_min_us");
+    append_json_null(out, "detection_max_us");
+  }
+}
 
 void RuntimeDiagnosticsSampler::reset(const RuntimeDiagnosticsSnapshot &snapshot, uint32_t now_ms) {
   previous_ = snapshot;

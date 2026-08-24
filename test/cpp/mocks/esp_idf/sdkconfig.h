@@ -40,12 +40,4 @@
 #define CONFIG_LOG_DEFAULT_LEVEL 3
 #define CONFIG_LOG_MAXIMUM_LEVEL 5
 
-// Debug telemetry. Enabled on host so the tests exercise the instrumented
-// paths, which is also what the ESPHome frontend compiles: its codegen adds
-// -DCONFIG_ESPECTRE_DEBUG_TELEMETRY=1. The detection-timing reads in
-// CsiPipeline are guarded by this macro, and an undefined macro in #if is
-// silently 0, so leaving it out here would compile the feature away and take
-// its coverage with it.
-#define CONFIG_ESPECTRE_DEBUG_TELEMETRY 1
-
 #endif // SDKCONFIG_H

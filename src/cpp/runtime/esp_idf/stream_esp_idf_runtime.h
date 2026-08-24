@@ -19,7 +19,6 @@
 #include "csi_traffic_service.h"
 #include "esp_idf_runtime_base.h"
 #include "runtime_interface.h"
-#include "runtime_debug_telemetry.h"
 #include "standalone_wifi_service.h"
 #include "streamer_discovery_service.h"
 
@@ -28,6 +27,8 @@ namespace espectre {
 class StreamEspIdfRuntime : public EspIdfRuntimeBase {
  public:
   explicit StreamEspIdfRuntime(const RuntimeConfig &config);
+
+  RuntimeDiagnosticsSnapshot get_diagnostics() const override;
 
   bool setup() override;
   void shutdown() override;

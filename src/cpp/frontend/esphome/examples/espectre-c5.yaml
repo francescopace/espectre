@@ -14,8 +14,8 @@
 #
 # Provisioning:
 # - Via BLE: Use the ESPHome app or Home Assistant companion app
+# - Via USB: Use ESPHome web tools (https://web.esphome.io)
 # - Via WiFi: Connect to "ESPectre Fallback" AP and configure
-# Note: USB provisioning (improv_serial) not yet supported on ESP32-C5
 
 substitutions:
   git_ref: main # branch, tag, or commit
@@ -72,7 +72,8 @@ captive_portal:
 esp32_improv:
   authorizer: none
 
-# Note: improv_serial is not yet supported on ESP32-C5
+# Improv provisioning via USB
+improv_serial:
 
 # Logging
 logger:

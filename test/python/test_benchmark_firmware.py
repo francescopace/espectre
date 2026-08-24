@@ -12,6 +12,20 @@ from types import SimpleNamespace
 import pytest
 
 from tools import benchmark_firmware as bench
+from src.python.espectre_cli.device_transport import (
+    DIRECT_SUBPROTOCOL,
+    DirectClient,
+    DirectProtocolError,
+    ImprovCommand,
+    ImprovFrameParser,
+    ImprovPacketType,
+    ImprovProtocolError,
+    ImprovSerialClient,
+    direct_endpoint_from_device_url,
+    encode_improv_frame,
+    encode_improv_rpc,
+    parse_improv_rpc_response,
+)
 from src.python.micro_espectre.runtime_diagnostics import RuntimeDebugTelemetry
 
 
@@ -19,6 +33,252 @@ IDF_SIZE_LOG = """
 Bootloader binary size 0x51e0 bytes. 0x2ae20 bytes (89%) free.
 espectre-native.bin binary size 0x15a8c0 bytes. Smallest app partition is 0x1e0000 bytes. 0x85640 bytes (27%) free.
 """
+
+
+class _FakeWebSocket:
+    subprotocol = DIRECT_SUBPROTOCOL
+
+    def __init__(self, responses: list[object]):
+        self.responses = responses
+        self.sent: list[str] = []
+        self.closed = False
+
+    def send(self, message: str) -> None:
+        self.sent.append(message)
+
+    def recv(self, timeout: float | None = None) -> object:
+        del timeout
+        if not self.responses:
+            raise TimeoutError
+        return self.responses.pop(0)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _improv_rpc_response(command: ImprovCommand, values: list[str]) -> bytes:
+    encoded = [value.encode() for value in values]
+    data = bytes((int(command), sum(len(value) + 1 for value in encoded))) + b"".join(
+        bytes((len(value),)) + value for value in encoded
+    )
+    return encode_improv_frame(ImprovPacketType.RPC_RESPONSE, data)
+
+
+def test_improv_parser_recovers_fragmented_frames_from_console_noise():
+    encoded = encode_improv_frame(ImprovPacketType.CURRENT_STATE, b"\x04")
+    parser = ImprovFrameParser()
+
+    assert parser.feed(b"I (12) boot log\nIM") == []
+    assert parser.feed(b"PRO" + encoded[5:8]) == []
+    frames = parser.feed(encoded[8:] + b"trailing log")
+
+    assert frames[0].packet_type == ImprovPacketType.CURRENT_STATE
+    assert frames[0].data == b"\x04"
+
+
+def test_improv_parser_rejects_bad_checksum():
+    encoded = bytearray(encode_improv_rpc(ImprovCommand.GET_DEVICE_INFO))
+    encoded[-1] ^= 0xFF
+
+    with pytest.raises(ImprovProtocolError, match="checksum"):
+        ImprovFrameParser().feed(bytes(encoded))
+
+
+def test_improv_rpc_response_validates_lengths_and_utf8():
+    frame = ImprovFrameParser().feed(
+        _improv_rpc_response(ImprovCommand.WIFI_SETTINGS, ["http://192.0.2.10"])
+    )[0]
+
+    command, values = parse_improv_rpc_response(frame.data)
+
+    assert command == ImprovCommand.WIFI_SETTINGS
+    assert values == ("http://192.0.2.10",)
+    with pytest.raises(ImprovProtocolError, match="length"):
+        parse_improv_rpc_response(b"\x01\x01\x01x")
+
+
+def test_improv_client_handles_multiple_frames_in_one_serial_read():
+    class FakeSerial:
+        def __init__(self, **_kwargs):
+            self.writes: list[bytes] = []
+            self.closed = False
+            device_info = _improv_rpc_response(ImprovCommand.GET_DEVICE_INFO, ["ESPectre", "1", "c3", "Native"])
+            provisioned_url = _improv_rpc_response(ImprovCommand.WIFI_SETTINGS, ["http://192.0.2.10"])
+            self.reads = [
+                b"boot log\n"
+                + encode_improv_frame(ImprovPacketType.CURRENT_STATE, b"\x02")
+                + device_info
+                + encode_improv_frame(ImprovPacketType.CURRENT_STATE, b"\x03")
+                + encode_improv_frame(ImprovPacketType.CURRENT_STATE, b"\x04")
+                + provisioned_url
+            ]
+
+        def read(self, _size: int = 1) -> bytes:
+            return self.reads.pop(0) if self.reads else b""
+
+        def write(self, data: bytes) -> int:
+            self.writes.append(data)
+            return len(data)
+
+        def close(self) -> None:
+            self.closed = True
+
+    serial = FakeSerial()
+    with ImprovSerialClient("/dev/fake", serial_factory=lambda **_kwargs: serial) as client:
+        result = client.provision("Lab", "secret", timeout=1.0)
+
+    assert result.endpoint == "http://192.0.2.10"
+    assert result.states == ("authorized", "provisioning", "provisioned")
+    assert result.device_info == ("ESPectre", "1", "c3", "Native")
+    assert len(serial.writes) == 3
+    assert serial.closed
+
+
+def test_improv_client_ignores_current_state_url_before_device_info():
+    class FakeSerial:
+        def __init__(self, **_kwargs):
+            self.writes: list[bytes] = []
+            self.closed = False
+            self.reads = [
+                encode_improv_frame(ImprovPacketType.CURRENT_STATE, b"\x04")
+                + _improv_rpc_response(ImprovCommand.GET_CURRENT_STATE, ["http://192.0.2.10"])
+                + _improv_rpc_response(ImprovCommand.GET_DEVICE_INFO, ["ESPectre", "1", "c3", "Native"])
+                + encode_improv_frame(ImprovPacketType.CURRENT_STATE, b"\x03")
+                + encode_improv_frame(ImprovPacketType.CURRENT_STATE, b"\x04")
+                + _improv_rpc_response(ImprovCommand.WIFI_SETTINGS, ["http://192.0.2.10"])
+            ]
+
+        def read(self, _size: int = 1) -> bytes:
+            return self.reads.pop(0) if self.reads else b""
+
+        def write(self, data: bytes) -> int:
+            self.writes.append(data)
+            return len(data)
+
+        def close(self) -> None:
+            self.closed = True
+
+    serial = FakeSerial()
+    with ImprovSerialClient("/dev/fake", serial_factory=lambda **_kwargs: serial) as client:
+        result = client.provision("Lab", "secret", timeout=1.0)
+
+    assert result.endpoint == "http://192.0.2.10"
+    assert result.device_info == ("ESPectre", "1", "c3", "Native")
+    assert serial.closed
+
+
+def test_improv_portal_url_preserves_encoded_direct_endpoint():
+    device_url = (
+        "https://espectre.dev/?transport=ws&"
+        "endpoint=ws%3A%2F%2F192.0.2.10%3A80%2Fespectre%2Fv1%2Fws%23configure"
+    )
+
+    assert direct_endpoint_from_device_url(device_url) == "ws://192.0.2.10:80/espectre/v1/ws"
+    assert direct_endpoint_from_device_url("ws://192.0.2.10/custom") == "ws://192.0.2.10/custom"
+
+
+def test_direct_client_correlates_response_while_collecting_events():
+    socket = _FakeWebSocket(
+        [
+            json.dumps({"v": 1, "type": "event", "event": "telemetry", "data": {"motion": False}}),
+            json.dumps({"v": 1, "type": "response", "id": "benchmark-1", "ok": True, "result": {"uptime": 7}}),
+        ]
+    )
+    connect_args: dict[str, object] = {}
+
+    def connect(endpoint: str, **kwargs: object) -> _FakeWebSocket:
+        connect_args.update(endpoint=endpoint, **kwargs)
+        return socket
+
+    with DirectClient("ws://192.0.2.10/espectre/v1/ws", connect_factory=connect) as client:
+        result = client.request("diagnostics")
+
+        assert result == {"uptime": 7}
+        assert client.events[0].name == "telemetry"
+    request = json.loads(socket.sent[0])
+    assert request == {
+        "v": 1,
+        "type": "request",
+        "id": "benchmark-1",
+        "method": "diagnostics",
+        "params": {},
+    }
+    assert connect_args["origin"] == "https://test.espectre.dev"
+    assert connect_args["subprotocols"] == [DIRECT_SUBPROTOCOL]
+    assert connect_args["ping_interval"] is None
+    assert socket.closed
+
+
+def test_direct_client_rejects_unknown_response_identifier():
+    socket = _FakeWebSocket(
+        [json.dumps({"v": 1, "type": "response", "id": "wrong", "ok": True, "result": {}})]
+    )
+
+    with DirectClient("ws://192.0.2.10/espectre/v1/ws", connect_factory=lambda *_args, **_kwargs: socket) as client:
+        with pytest.raises(DirectProtocolError, match="unknown response identifier"):
+            client.request("status")
+
+
+def test_direct_diagnostics_normalization_derives_shared_rates_and_occupancy():
+    previous = {
+        "timestamp_ms": 1_000,
+        "csi_admitted_total": 100,
+        "csi_occupancy_slots": 70,
+        "csi_window_slots": 100,
+    }
+    current = {
+        "timestamp_ms": 2_000,
+        "uptime": 2,
+        "csi_admitted_total": 184,
+        "csi_occupancy_slots": 84,
+        "csi_window_slots": 100,
+        "free_memory_kb": 120.0,
+        "direct": {"send_failures": 0, "slow_client_disconnects": 0},
+    }
+
+    normalized = bench.normalize_direct_diagnostics(current, host_elapsed_seconds=1.0, previous=previous)
+
+    assert normalized["csi_admitted_pps"] == 84.0
+    assert normalized["csi_occupancy_percent"] == 84.0
+    assert normalized["free_memory_kb"] == 120.0
+    assert normalized["direct_send_failures"] == 0
+
+
+def test_direct_evidence_fails_when_transport_health_counters_increase():
+    samples = [
+        {
+            "host_elapsed_seconds": 0.0,
+            "timestamp_ms": 1_000,
+            "uptime": 1,
+            "csi_admitted_pps": 84.0,
+            "csi_occupancy_percent": 84.0,
+            "free_memory_kb": 120.0,
+            "direct_rejected_connections": 0,
+            "direct_send_failures": 0,
+            "direct_slow_client_disconnects": 0,
+        },
+        {
+            "host_elapsed_seconds": 1.0,
+            "timestamp_ms": 2_000,
+            "uptime": 2,
+            "csi_admitted_pps": 84.0,
+            "csi_occupancy_percent": 84.0,
+            "free_memory_kb": 120.0,
+            "direct_rejected_connections": 0,
+            "direct_send_failures": 1,
+            "direct_slow_client_disconnects": 0,
+        },
+    ]
+
+    _metrics, reasons = bench.analyze_direct_evidence(
+        samples,
+        [],
+        duration_seconds=2,
+        require_telemetry=False,
+        require_detection_timing=False,
+    )
+
+    assert "Direct transport recorded a send failure during the scored window" in reasons
 
 
 def _status_line(timestamp_ms: int, state: str = "IDLE") -> str:
@@ -187,7 +447,7 @@ def test_runtime_expected_counts_use_status_span_not_boot_time():
     assert metrics.telemetry_expected_samples == 6
     assert "free heap declined by more than 5% after startup settled" not in reasons
     assert not any("expected detector status" in reason for reason in reasons)
-    assert not any("expected shared debug telemetry" in reason for reason in reasons)
+    assert not any("expected Micro debug telemetry" in reason for reason in reasons)
 
 
 def test_runtime_status_count_uses_observed_clock_drift():
@@ -330,10 +590,6 @@ Result: **PASS**
     assert "no failed or missing selected cases" in capsys.readouterr().out
 
 
-def test_benchmark_device_id_matches_firmware_sha256_pseudonym():
-    assert bench.format_benchmark_device_id_from_mac("7C:2C:67:42:BB:AC") == "3cf79180d3a0aca4"
-
-
 def test_micro_benchmark_config_overrides_lab_wifi_and_debug_telemetry(monkeypatch):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
@@ -349,6 +605,16 @@ def test_micro_benchmark_config_overrides_lab_wifi_and_debug_telemetry(monkeypat
     assert "MQTT_ENABLED" not in content
     assert "MQTT_HA_DISCOVERY_ENABLED" not in content
     assert "MQTT_CLIENT_ID" not in content
+
+
+def test_matter_flash_only_benchmark_has_no_network_prerequisite(monkeypatch):
+    monkeypatch.setattr(bench, "BENCHMARK_LOCAL_ENV", {})
+    monkeypatch.delenv("ESPECTRE_BENCHMARK_WIFI_SSID", raising=False)
+    monkeypatch.delenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", raising=False)
+
+    bench.require_benchmark_prerequisites(
+        [bench.BenchmarkCase("matter", "default", benchmark_mode="smoke")]
+    )
 
 
 def test_micro_benchmark_config_reads_shared_local_env_not_developer_config(monkeypatch):
@@ -426,6 +692,95 @@ def test_micro_debug_telemetry_uses_shared_benchmark_keys():
     assert "heap_free_post_gc=124000 gc_pause_us=4500" in payload
 
 
+def test_native_radio_pin_accepts_committed_values_after_reboot(monkeypatch):
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_BSSID", "AA:BB:CC:DD:EE:FF")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_CHANNEL", "6")
+
+    class FakeClient:
+        def request(self, method: str):
+            assert method == "config"
+            return {
+                "wifi": {
+                    "configured": True,
+                    "apply_state": "idle",
+                    "bssid": "aa:bb:cc:dd:ee:ff",
+                    "channel": 6,
+                }
+            }
+
+    bench._verify_native_radio_pin(FakeClient())
+
+
+def test_streamer_readiness_does_not_require_detector_publish_state(monkeypatch):
+    class FakeClient:
+        def __init__(self):
+            self.diagnostics_count = 0
+
+        def request(self, method: str):
+            if method == "status":
+                return {"sensing_enabled": True, "ready_to_publish": False}
+            assert method == "diagnostics"
+            self.diagnostics_count += 1
+            return {
+                "timestamp_ms": self.diagnostics_count * 1_000,
+                "csi_admitted_total": self.diagnostics_count * 80,
+            }
+
+    monkeypatch.setattr(bench, "DIRECT_STABLE_SAMPLE_COUNT", 2)
+    monkeypatch.setattr(bench, "DIRECT_SAMPLE_INTERVAL_SECONDS", 0.0)
+
+    bench.wait_for_direct_runtime_ready(
+        FakeClient(),
+        timeout_seconds=1.0,
+        require_publish_ready=False,
+    )
+
+
+def test_cpp_flash_only_runner_reuses_one_build_context(monkeypatch):
+    context_env = {"SDKCONFIG_DEFAULTS": "/tmp/benchmark.defaults"}
+    context_config = object()
+    entered = 0
+    observed: list[tuple[object, object]] = []
+
+    class FakeContext:
+        def __enter__(self):
+            nonlocal entered
+            entered += 1
+            return context_env, context_config
+
+        def __exit__(self, *_args):
+            return False
+
+    def fake_build(case, _chip, _port, *, env, config, **_kwargs):
+        observed.append((env, config))
+        return bench.BenchmarkResult(
+            case=case,
+            build=bench.CommandResult(["build"], 0, 1.0, ""),
+        )
+
+    def fake_flash(_case, _chip, _port, result, *, env, config):
+        observed.append((env, config))
+        result.flash = bench.CommandResult(["flash"], 0, 1.0, "")
+        return True
+
+    monkeypatch.setattr(bench, "case_context", lambda *_args, **_kwargs: FakeContext())
+    monkeypatch.setattr(bench, "_build_case_in_context", fake_build)
+    monkeypatch.setattr(bench, "_flash_prebuilt_cpp_case_in_context", fake_flash)
+
+    result = bench.run_cpp_build_flash_case(
+        bench.BenchmarkCase("matter", "default", benchmark_mode="smoke"),
+        "c3",
+        "/dev/cu.usbmodem1",
+    )
+
+    assert entered == 1
+    assert observed == [(context_env, context_config), (context_env, context_config)]
+    assert result.status == "PASS"
+    assert result.transport_evidence == {"transport": "flash-only"}
+
+
+
+
 @pytest.mark.parametrize("chip", ["c3", "esp32"])
 def test_run_micro_case_uses_production_cli_workflow(monkeypatch, chip):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
@@ -467,119 +822,7 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, chip):
     assert "--frozen" not in commands[0]
 
 
-def test_detect_esphome_api_host_prefers_sta_over_ap():
-    text = (
-        "[C][wifi:984]: Setting up AP:\n"
-        "  IP Address: 192.168.4.1\n"
-        "[C][wifi:1259]:   IP Address: 192.168.1.50\n"
-    )
-
-    assert bench.detect_esphome_api_host_from_text(text) == "192.168.1.50"
-
-
-def test_detect_esphome_api_host_uses_last_sta_address():
-    text = "IP Address: 192.168.1.10\nIP Address: 192.168.1.20\n"
-
-    assert bench.detect_esphome_api_host_from_text(text) == "192.168.1.20"
-
-
-def test_esphome_api_hosts_fall_back_to_mdns():
-    assert bench.esphome_api_hosts("") == [bench.ESPHOME_MDNS_HOST]
-    assert bench.esphome_api_hosts("IP Address: 192.168.1.50\n") == [
-        "192.168.1.50",
-        bench.ESPHOME_MDNS_HOST,
-    ]
-
-
-def test_find_esphome_detector_select_matches_object_id():
-    from aioesphomeapi.model import SelectInfo
-
-    entities = [
-        SelectInfo(object_id="csi_traffic_ownership", key=2, name="CSI Traffic Ownership", options=["internal"]),
-        SelectInfo(
-            object_id="detection_profile",
-            key=7,
-            name="Detection Profile",
-            options=["lightweight", "high_accuracy"],
-        ),
-    ]
-
-    select = bench.find_esphome_detector_select(entities)
-
-    assert select is not None
-    assert select.key == 7
-    assert select.object_id == "detection_profile"
-
-
-def test_esphome_benchmark_logger_keeps_default_uart():
-    source = (
-        "logger:\n"
-        "  level: INFO\n"
-        "  logs:\n"
-        "    sensor: INFO\n"
-        "api:\n"
-    )
-
-    updated = bench.apply_esphome_benchmark_logger(source)
-
-    assert "level: DEBUG" in updated
-    assert "hardware_uart:" not in updated
-    assert "logs:\n    sensor: INFO" in updated
-
-
-def test_esphome_benchmark_logger_does_not_override_explicit_uart0():
-    source = (
-        "logger:\n"
-        "  level: INFO\n"
-        "  hardware_uart: UART0\n"
-        "api:\n"
-    )
-
-    updated = bench.apply_esphome_benchmark_logger(source)
-
-    assert "level: DEBUG" in updated
-    assert "hardware_uart: UART0" in updated
-
-
-def test_esphome_benchmark_logger_routes_external_bridge_to_uart0(monkeypatch):
-    monkeypatch.setattr(
-        bench,
-        "_serial_port_infos",
-        lambda: (
-            SimpleNamespace(
-                device="/dev/cu.usbmodem5ABA0020571",
-                vid=0x1A86,
-            ),
-        ),
-    )
-
-    hardware_uart = bench.esphome_benchmark_logger_hardware_uart("/dev/cu.usbmodem5ABA0020571")
-    updated = bench.apply_esphome_benchmark_logger(
-        "logger:\n  level: INFO\n  hardware_uart: USB_SERIAL_JTAG\napi:\n",
-        hardware_uart=hardware_uart,
-    )
-
-    assert hardware_uart == "UART0"
-    assert "hardware_uart: UART0" in updated
-    assert "hardware_uart: USB_SERIAL_JTAG" not in updated
-
-
-def test_esphome_benchmark_logger_keeps_native_espressif_usb(monkeypatch):
-    monkeypatch.setattr(
-        bench,
-        "_serial_port_infos",
-        lambda: (
-            SimpleNamespace(
-                device="/dev/cu.usbmodem123101",
-                vid=bench.ESPRESSIF_USB_VENDOR_ID,
-            ),
-        ),
-    )
-
-    assert bench.esphome_benchmark_logger_hardware_uart("/dev/cu.usbmodem123101") is None
-
-
-def test_esphome_case_config_routes_logger_for_selected_bridge(tmp_path, monkeypatch):
+def test_esphome_case_config_keeps_production_logger_configuration(tmp_path, monkeypatch):
     source_path = tmp_path / "espectre-s3-dev.yaml"
     source_path.write_text(
         """espectre:
@@ -597,17 +840,12 @@ api:
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
     monkeypatch.setattr(bench, "ESPHOME_CONFIGS", {"s3": {"dev": str(source_path)}})
-    monkeypatch.setattr(
-        bench,
-        "_serial_port_infos",
-        lambda: (SimpleNamespace(device="/dev/cu.bridge", vid=0x1A86),),
-    )
-
     with bench.esphome_case_config("s3", "lightweight", "/dev/cu.bridge") as config_path:
         content = config_path.read_text(encoding="utf-8")
 
-    assert "hardware_uart: UART0" in content
-    assert "level: DEBUG" in content
+    assert "hardware_uart:" not in content
+    assert "level: INFO" in content
+    assert "debug_telemetry" not in content
     assert not config_path.exists()
 
 
@@ -766,7 +1004,8 @@ def test_report_round_trip_preserves_reboot_and_settled_heap_diagnostics():
 
     assert parsed.device_reboots == 1
     assert parsed.status_gap_count == 2
-    assert parsed.serial_framing_anomalies == 3
+    assert parsed.serial_framing_anomalies == 0
+    assert "Serial framing anomalies" not in rendered
     assert parsed.status_interval_mean_ms == 1_050.0
     assert parsed.heap_free_settled_first == 150_000
     assert parsed.heap_free_settled_delta == -10_000
@@ -782,7 +1021,7 @@ def test_report_round_trip_preserves_reboot_and_settled_heap_diagnostics():
 
 def test_artifacts_preserve_timed_raw_lines_and_redact_lab_values(tmp_path, monkeypatch):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "super-secret-password")
-    case = bench.BenchmarkCase("native", "lightweight")
+    case = bench.BenchmarkCase("micro", "lightweight")
     result = bench.BenchmarkResult(case=case, status="PASS")
     result.monitor = bench.CommandResult(
         ["monitor"],
@@ -801,7 +1040,7 @@ def test_artifacts_preserve_timed_raw_lines_and_redact_lab_values(tmp_path, monk
         results=[result],
     )
 
-    case_dir = tmp_path / "native-lightweight"
+    case_dir = tmp_path / "micro-lightweight"
     raw_log = (case_dir / "monitor.log").read_text(encoding="utf-8")
     events = [json.loads(line) for line in (case_dir / "monitor.jsonl").read_text().splitlines()]
     manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
@@ -812,6 +1051,40 @@ def test_artifacts_preserve_timed_raw_lines_and_redact_lab_values(tmp_path, monk
     assert not events[0]["scored"]
     assert events[1]["scored"]
     assert manifest["schema_version"] == bench.BENCHMARK_ARTIFACT_SCHEMA_VERSION
+
+
+def test_cpp_artifacts_store_only_normalized_direct_evidence(tmp_path):
+    case = bench.BenchmarkCase("native", "lightweight")
+    result = bench.BenchmarkResult(case=case, status="PASS")
+    result.flash = bench.CommandResult(
+        ["espectre", "native", "flash", "--port", "/dev/cu.usb", "--target", "192.168.1.50"],
+        0,
+        2.0,
+        "MAC: AA:BB:CC:DD:EE:FF connected to 192.168.1.50\n",
+    )
+    result.direct_samples = [{"host_elapsed_seconds": 1.0, "uptime": 7, "free_memory_kb": 120.0}]
+    result.transport_evidence = {
+        "transport": "direct",
+        "origin": "https://test.espectre.dev",
+        "subprotocol": "espectre.v1",
+    }
+
+    bench.write_benchmark_artifacts(
+        tmp_path,
+        chip="c3",
+        port="/dev/cu.usb",
+        started_at=datetime.fromisoformat("2026-08-22T12:00:00+02:00"),
+        results=[result],
+    )
+
+    case_dir = tmp_path / "native-lightweight"
+    serialized = (case_dir / "analysis.json").read_text(encoding="utf-8")
+    manifest = (tmp_path / "manifest.json").read_text(encoding="utf-8")
+    assert not (case_dir / "flash.log").exists()
+    assert not (case_dir / "flash.jsonl").exists()
+    assert "192.168.1.50" not in serialized + manifest
+    assert "AA:BB:CC:DD:EE:FF" not in serialized + manifest
+    assert '"transport": "direct"' in serialized
 
 
 @pytest.mark.parametrize(

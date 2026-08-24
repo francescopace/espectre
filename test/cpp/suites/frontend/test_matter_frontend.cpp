@@ -139,6 +139,14 @@ void test_matter_frontend_exposes_runtime_tuning_over_direct_websocket(void) {
   RuntimeConfig config;
   config.device_id = 0x0123456789abcdefULL;
   config.runtime_detector_selection_enabled = true;
+  frontend_runtime_shim::state.diagnostics.free_memory_bytes = 4096U;
+  frontend_runtime_shim::state.diagnostics.minimum_free_memory_bytes = 2048U;
+  frontend_runtime_shim::state.diagnostics.largest_free_memory_block_bytes = 1024U;
+  frontend_runtime_shim::state.diagnostics.cpu_frequency_mhz = 160U;
+  frontend_runtime_shim::state.diagnostics.performance_window_ready = true;
+  frontend_runtime_shim::state.diagnostics.runtime_load_percent = 12.5f;
+  frontend_runtime_shim::state.diagnostics.detection_timing_supported = true;
+  frontend_runtime_shim::state.diagnostics.detection_samples = 4U;
 
   MockMatterBindings bindings;
   MockDirectWebSocketService direct;
@@ -158,6 +166,9 @@ void test_matter_frontend_exposes_runtime_tuning_over_direct_websocket(void) {
 
   const std::string diagnostics = direct.emit_request(DirectWebSocketRequest{"diagnostics-1", "diagnostics", "{}"});
   TEST_ASSERT_TRUE(diagnostics.find("\"traffic_packets_total\":0") != std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"free_memory_kb\":4") != std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"runtime_load_percent\":12.5") != std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"detection_samples\":4") != std::string::npos);
 
   const std::string detector = direct.emit_request(
       DirectWebSocketRequest{"detector-1", "set_detector", "{\"detector\":\"high_accuracy\"}"});

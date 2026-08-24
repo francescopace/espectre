@@ -147,13 +147,15 @@ Frontends should use this surface instead of reaching directly into low-level Wi
 
 Runtime detector selection is capability-gated. ESPHome and Native enable the shared ESP-IDF detector store, which persists `lightweight` or `high_accuracy` in NVS and restores it at boot. Matter enables runtime detector selection through Direct WebSocket because its standard clusters do not expose detector configuration. Streamer remains detector-free.
 
-### Shared Runtime Debug Telemetry
+### Runtime Performance Diagnostics
 
-ESP-IDF runtime implementations reuse `RuntimeDebugTelemetry` for one `[telemetry]` log line approximately every 10 seconds at `DEBUG` level. Micro-ESPectre emits the same machine-readable timing keys when its default-off `DEBUG_TELEMETRY` benchmark switch is enabled. ESP-IDF reports current, minimum, and largest-block heap values plus configured CPU frequency; MicroPython reports current and sampled-minimum free heap. Both report runtime-loop load and timing plus sampled detector evaluation timing.
+C++ runtime implementations use `RuntimePerformanceDiagnostics` to aggregate runtime-loop load and timing plus sampled detector evaluation timing in bounded 10-second windows. `RuntimeDiagnosticsSnapshot` combines the latest complete window with current, minimum, and largest-block heap values and configured CPU frequency. Native, ESPHome, Matter, and Streamer expose these production fields through Direct `diagnostics`; collection is unconditional and does not emit a periodic debug log. Unsupported detector timing is explicit on Streamer.
+
+Micro-ESPectre remains separate because it does not expose Direct WebSocket. Its default-off `DEBUG_TELEMETRY` benchmark switch emits machine-readable serial timing, heap, garbage-collection, and packet-processing fields when enabled.
 
 `runtime_load` measures wall time spent inside the ESPectre runtime loop, not whole-system CPU utilization. Wi-Fi callbacks only normalize and enqueue CSI; detector processing, inference, state transitions, and frontend callback delivery run in the owning loop task. MQTT, Direct WebSocket, and OTA stacks may still perform transport work on private tasks, but their application events are drained by the frontend loop. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. For High Accuracy, it covers ML feature extraction, inference, and state update.
 
-This debug log is an implementation diagnostic, not part of ESPectre Protocol. Streamer also retains its separate live transport telemetry for pacing, CSI, and uplink health during collection.
+The C++ field names and units are part of the additive Direct diagnostics contract in [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#direct-websocket). Streamer also retains its separate live transport telemetry for pacing, CSI, and uplink health during collection.
 
 ## ESPectre Protocol In The Architecture
 

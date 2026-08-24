@@ -1,9 +1,9 @@
 #pragma once
 
 /*
- * ESPectre - Debug Telemetry Log Helpers
+ * ESPectre - Runtime Log Helpers
  *
- * Applies runtime log filtering for shared status and debug telemetry.
+ * Applies runtime log filtering for shared production status messages.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -12,6 +12,6 @@
 
 namespace espectre {
 
-void configure_debug_telemetry_log_levels();
+void configure_runtime_log_levels();
 
 }  // namespace espectre

@@ -22,7 +22,6 @@
 #include "periodic_sensing_status_logger.h"
 #include "runtime_diagnostics.h"
 #include "runtime_interface.h"
-#include "runtime_debug_telemetry.h"
 #include "csi_traffic_service.h"
 #include "threshold.h"
 #include "wifi_lifecycle.h"

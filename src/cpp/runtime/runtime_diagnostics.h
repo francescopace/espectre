@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <string>
 
 #include "runtime_interface.h"
 #include "runtime_snapshot.h"
@@ -100,6 +101,17 @@ class RuntimeDiagnosticsSampler {
   uint32_t previous_ms_{0U};
   bool baseline_ready_{false};
 };
+
+/**
+ * Append shared platform and performance fields to an existing JSON object.
+ *
+ * The object must already contain at least one field. Metrics from an
+ * incomplete aggregation window are emitted as `null`; unsupported detector
+ * timing is identified separately by `detection_timing_supported`.
+ */
+void append_runtime_performance_diagnostics_json(std::string *out,
+                                                 const RuntimeDiagnosticsSnapshot &diagnostics,
+                                                 bool include_current_memory = true);
 
 using runtime_diagnostic_visitor_t = std::function<void(const char *key, const char *value)>;
 

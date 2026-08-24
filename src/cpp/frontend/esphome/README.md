@@ -87,7 +87,7 @@ Diagnostic entities are always available in production builds. ESPectre refreshe
 
 Comparing the three main rates localizes failures: traffic without callbacks points at capture/radio state, callbacks without accepted packets points at validation or identity filtering, and accepted packets without stable detector output points above the capture layer.
 
-The optional `debug_telemetry: true` setting is separate: it enables periodic runtime DEBUG logs with heap, load, and timing metrics, but it is not required for these diagnostic entities or their sampling.
+Runtime performance, heap, load, and detector timing are collected as production diagnostics and are available through Direct WebSocket without a build-time switch or periodic debug logs.
 
 ### Detection Profile Selection
 

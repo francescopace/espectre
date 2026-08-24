@@ -15,8 +15,8 @@
 #include <string>
 
 #include "espectre_log.h"
-#include "runtime_debug_telemetry.h"
 #include "runtime_interface.h"
+#include "runtime_performance_diagnostics.h"
 
 namespace espectre {
 
@@ -31,7 +31,7 @@ class EspIdfRuntimeBase : public IEspectreRuntime {
       : config_(config), fault_tag_(fault_tag), unknown_fault_message_(unknown_fault_message) {}
 
   RuntimeSnapshot get_snapshot() const override { return snapshot_; }
-  RuntimeDiagnosticsSnapshot get_diagnostics() const override { return {}; }
+  RuntimeDiagnosticsSnapshot get_diagnostics() const override;
   RuntimeCapabilities get_capabilities() const override { return capabilities_; }
   void set_listener(IRuntimeListener *listener) override { listener_ = listener; }
 
@@ -48,7 +48,8 @@ class EspIdfRuntimeBase : public IEspectreRuntime {
   RuntimeSnapshot snapshot_{};
   RuntimeCapabilities capabilities_{};
   IRuntimeListener *listener_{nullptr};
-  RuntimeDebugTelemetry debug_telemetry_;
+  RuntimePerformanceDiagnostics performance_diagnostics_;
+  bool detection_timing_supported_{false};
 
   bool setup_complete_{false};
   bool services_armed_{true};

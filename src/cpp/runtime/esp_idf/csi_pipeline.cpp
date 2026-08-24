@@ -320,12 +320,7 @@ void CsiPipeline::process_admitted_candidate_() {
   packets_processed_.fetch_add(1U, std::memory_order_relaxed);
 
   if (cadence_due) {
-    // The two clock reads exist only to feed the ~10 s [telemetry] DEBUG line,
-    // so they compile out with it rather than costing two timer reads per
-    // evaluation in a release build.
-#if CONFIG_ESPECTRE_DEBUG_TELEMETRY
     const int64_t start_us = esp_timer_get_time();
-#endif
     // Update detector state on the internal cadence.
     MotionState previous_state = effective_motion_state_;
     detector_->update_state();
@@ -334,10 +329,8 @@ void CsiPipeline::process_admitted_candidate_() {
     request_motion_state_callback_(previous_state, current_state);
     cadence_.after_evaluation();
 
-#if CONFIG_ESPECTRE_DEBUG_TELEMETRY
     const int64_t elapsed_us = esp_timer_get_time() - start_us;
     detection_timing_.record(static_cast<uint32_t>(elapsed_us));
-#endif
 
     // Emit live telemetry on each detector evaluation tick.
     if (live_telemetry_callback_) {

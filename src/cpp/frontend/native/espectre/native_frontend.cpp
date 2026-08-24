@@ -110,14 +110,6 @@ float current_free_memory_kb() {
 #endif
 }
 
-float minimum_free_memory_kb() {
-#ifdef ESPECTRE_HAVE_ESP_HEAP_CAPS
-  return static_cast<float>(heap_caps_get_minimum_free_size(MALLOC_CAP_DEFAULT)) / 1024.0f;
-#else
-  return 0.0f;
-#endif
-}
-
 uint32_t current_task_stack_high_water_bytes() {
 #if defined(ESP_PLATFORM) && INCLUDE_uxTaskGetStackHighWaterMark
   return static_cast<uint32_t>(uxTaskGetStackHighWaterMark(nullptr));
@@ -663,6 +655,7 @@ std::string NativeFrontend::direct_config_payload_() const {
 
 std::string NativeFrontend::direct_diagnostics_payload_() const {
   const uint32_t now = now_ms_();
+  const RuntimeDiagnosticsSnapshot runtime_diagnostics = runtime_.diagnostics();
   std::string out = espectre_stats_payload(device_config_,
                                            runtime_.snapshot(),
                                            now,
@@ -677,7 +670,7 @@ std::string NativeFrontend::direct_diagnostics_payload_() const {
       direct_service_ != nullptr ? direct_service_->diagnostics() : DirectWebSocketServiceDiagnostics{};
   const MqttTransportDiagnostics mqtt =
       mqtt_transport_ != nullptr ? mqtt_transport_->diagnostics() : MqttTransportDiagnostics{};
-  out += ",\"minimum_free_memory_kb\":" + std::to_string(minimum_free_memory_kb());
+  append_runtime_performance_diagnostics_json(&out, runtime_diagnostics, false);
   out += ",\"task_stack_high_water_bytes\":" + std::to_string(current_task_stack_high_water_bytes());
   out += ",\"direct\":{\"clients\":" + std::to_string(direct_client_count_);
   out += ",\"client_limit\":" + std::to_string(direct.client_limit);

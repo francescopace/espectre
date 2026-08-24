@@ -20,7 +20,7 @@
 #include "esphome/core/defines.h"
 #include "esphome/core/hal.h"
 
-#include "debug_telemetry_log_helpers.h"
+#include "runtime_log_helpers.h"
 #include "device_identity.h"
 #include "direct_websocket_protocol.h"
 #include "espectre_banner.h"
@@ -45,7 +45,7 @@ constexpr uint32_t kMdnsRetryIntervalMs = 5000U;
 
 void ESpectreComponent::setup() {
   ESP_LOGI(TAG, "Initializing ESPectre component...");
-  espectre::configure_debug_telemetry_log_levels();
+  espectre::configure_runtime_log_levels();
   this->runtime_.config().device_id = espectre::derive_runtime_device_id();
 
   this->runtime_.set_live_telemetry_enabled(this->sensor_publisher_.has_movement_sensor());

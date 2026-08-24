@@ -397,6 +397,30 @@ def test_devices_parser_supports_frontend_timeout_and_json() -> None:
     assert parser.parse_args(["devices", "--frontend", "matter"]).frontend == "matter"
 
 
+def test_device_control_parsers_expose_shared_improv_and_direct_clients() -> None:
+    parser = build_parser()
+
+    provision = parser.parse_args(
+        ["provision", "--port", "/dev/cu.usbmodem1", "--ssid", "Lab", "--password-env", "LAB_PASSWORD"]
+    )
+    direct = parser.parse_args(
+        [
+            "direct",
+            "set_detector",
+            "--frontend",
+            "native",
+            "--params",
+            '{"detector":"high_accuracy"}',
+        ]
+    )
+
+    assert provision.namespace == "provision"
+    assert provision.password_env == "LAB_PASSWORD"
+    assert direct.namespace == "direct"
+    assert direct.method == "set_detector"
+    assert direct.frontend == "native"
+
+
 def test_device_listener_normalizes_canonical_frontend_records() -> None:
     class FakeServiceInfo:
         def __init__(self, *, address: str, port: int, properties: dict[bytes, bytes]):

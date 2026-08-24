@@ -13,6 +13,8 @@
 #include "espectre_protocol.h"
 #include "protocol_json.h"
 #include "runtime_config_utils.h"
+#include "runtime_diagnostics.h"
+#include "runtime_time.h"
 
 namespace espectre {
 
@@ -214,8 +216,11 @@ std::string RuntimeDirectWebSocketBridge::config_payload_() const {
 
 std::string RuntimeDirectWebSocketBridge::diagnostics_payload_() const {
   const RuntimeDiagnosticsSnapshot diagnostics = runtime_->diagnostics();
+  const uint32_t now_ms = monotonic_now_ms();
   std::string out{"{"};
-  append_uint(&out, "traffic_packets_total", diagnostics.traffic_packets_total, true);
+  append_uint(&out, "timestamp_ms", now_ms, true);
+  append_uint(&out, "uptime", now_ms / 1000U);
+  append_uint(&out, "traffic_packets_total", diagnostics.traffic_packets_total);
   append_uint(&out, "csi_callbacks_total", diagnostics.csi_callbacks_total);
   append_uint(&out, "csi_accepted_total", diagnostics.csi_accepted_total);
   append_uint(&out, "csi_admitted_total", diagnostics.csi_admitted_total);
@@ -228,11 +233,26 @@ std::string RuntimeDirectWebSocketBridge::diagnostics_payload_() const {
   append_uint(&out, "csi_window_slots", diagnostics.csi_window_slots);
   out += ",\"wifi_rssi_dbm\":" + std::to_string(static_cast<int>(diagnostics.wifi_rssi_dbm));
   append_uint(&out, "wifi_channel", diagnostics.wifi_channel);
+  append_runtime_performance_diagnostics_json(&out, diagnostics);
   if (service_ != nullptr) {
     const DirectWebSocketServiceDiagnostics direct = service_->diagnostics();
     append_uint(&out, "direct_clients", service_->client_count());
     append_uint(&out, "direct_rejected_connections", direct.rejected_connections);
     append_uint(&out, "direct_dropped_telemetry_events", direct.dropped_telemetry_events);
+    out += ",\"direct\":{";
+    append_uint(&out, "clients", service_->client_count(), true);
+    append_uint(&out, "client_limit", direct.client_limit);
+    append_uint(&out, "queue_capacity", direct.queue_capacity);
+    append_uint(&out, "queued_messages", direct.queued_messages);
+    append_uint(&out, "accepted_connections", direct.accepted_connections);
+    append_uint(&out, "rejected_connections", direct.rejected_connections);
+    append_uint(&out, "malformed_frames", direct.malformed_frames);
+    append_uint(&out, "oversized_frames", direct.oversized_frames);
+    append_uint(&out, "rate_limited_requests", direct.rate_limited_requests);
+    append_uint(&out, "dropped_telemetry_events", direct.dropped_telemetry_events);
+    append_uint(&out, "send_failures", direct.send_failures);
+    append_uint(&out, "slow_client_disconnects", direct.slow_client_disconnects);
+    out += "}";
   }
   out += "}";
   return out;

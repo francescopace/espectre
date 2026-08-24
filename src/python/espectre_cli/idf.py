@@ -108,9 +108,9 @@ def build_idf_base_command(build_dir_name: str | None) -> list[str]:
     return command
 
 
-def sdkconfig_matches_target(app_path: Path, idf_target: str) -> bool:
+def sdkconfig_matches_target(app_path: Path, idf_target: str, sdkconfig_path: Path | None = None) -> bool:
     """Return whether the generated sdkconfig already selects the requested target."""
-    sdkconfig = app_path / "sdkconfig"
+    sdkconfig = sdkconfig_path or app_path / "sdkconfig"
     if not sdkconfig.is_file():
         return False
     try:
@@ -118,6 +118,23 @@ def sdkconfig_matches_target(app_path: Path, idf_target: str) -> bool:
     except OSError:
         return False
     return f'CONFIG_IDF_TARGET="{idf_target}"' in content
+
+
+def cached_sdkconfig_path(app_path: Path, build_dir_name: str | None) -> Path | None:
+    """Return the sdkconfig path retained by one CMake build cache, if any."""
+    cache_path = app_path / (build_dir_name or "build") / "CMakeCache.txt"
+    try:
+        lines = cache_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        if line.startswith("SDKCONFIG:") and "=" in line:
+            value = line.split("=", 1)[1]
+            if not value:
+                return None
+            path = Path(value)
+            return path.resolve() if path.is_absolute() else (app_path / path).resolve()
+    return None
 
 
 def resolve_configured_idf_target(app_path: Path) -> str | None:
@@ -549,7 +566,11 @@ def run_idf_command(frontend: str, args) -> None:
 
     sdkconfig_defaults = resolve_sdkconfig_defaults(app_path, idf_target)
     defaults_arg = f"-DSDKCONFIG_DEFAULTS={sdkconfig_defaults}"
+    custom_sdkconfig = os.environ.get("ESPECTRE_IDF_SDKCONFIG")
+    sdkconfig_path = Path(custom_sdkconfig).resolve() if custom_sdkconfig else None
     cmake_args = [defaults_arg]
+    if sdkconfig_path is not None:
+        cmake_args.append(f"-DSDKCONFIG={sdkconfig_path}")
     if frontend == "native" and args.idf_command == "build":
         ota_channel = getattr(args, "ota_channel", None)
         if ota_channel:
@@ -560,8 +581,11 @@ def run_idf_command(frontend: str, args) -> None:
     flash_port = None
     if args.idf_command == "build":
         base_command = build_idf_base_command(build_dir_name)
+        cached_sdkconfig = cached_sdkconfig_path(app_path, build_dir_name)
+        if sdkconfig_path is None and cached_sdkconfig not in {None, (app_path / "sdkconfig").resolve()}:
+            cmake_args.append(f"-DSDKCONFIG={(app_path / 'sdkconfig').resolve()}")
         commands = []
-        if clean_requested or not sdkconfig_matches_target(app_path, idf_target):
+        if clean_requested or not sdkconfig_matches_target(app_path, idf_target, sdkconfig_path):
             commands.append([*base_command, *cmake_args, "set-target", idf_target])
         commands.append([*base_command, *cmake_args, "build"])
     elif args.idf_command == "flash":
@@ -569,7 +593,10 @@ def run_idf_command(frontend: str, args) -> None:
         flash_port = port
         build_dir_name = resolve_flash_idf_build_dir_name(frontend, app_path, port)
         base_command = build_idf_base_command(build_dir_name)
-        commands = [[*base_command, "-p", port, "flash"]]
+        cached_sdkconfig = cached_sdkconfig_path(app_path, build_dir_name)
+        if sdkconfig_path is None and cached_sdkconfig not in {None, (app_path / "sdkconfig").resolve()}:
+            cmake_args.append(f"-DSDKCONFIG={(app_path / 'sdkconfig').resolve()}")
+        commands = [[*base_command, *cmake_args[1:], "-p", port, "flash"]]
 
     if args.idf_command == "build" and build_backend == "docker":
         for command in commands:

@@ -34,7 +34,7 @@
 #include "runtime_motion_hits_store.h"
 #include "runtime_sensing_kconfig.h"
 #include "standalone_wifi_service.h"
-#include "debug_telemetry_log_helpers.h"
+#include "runtime_log_helpers.h"
 #include "wifi_provisioning_service.h"
 
 static const char *TAG = "espectre.native.app";
@@ -236,7 +236,7 @@ void request_wifi_recovery() {
 }  // namespace
 
 extern "C" void app_main() {
-  espectre::configure_debug_telemetry_log_levels();
+  espectre::configure_runtime_log_levels();
   ESP_ERROR_CHECK(espectre::nvs_init_with_erase_fallback());
 
   espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });
