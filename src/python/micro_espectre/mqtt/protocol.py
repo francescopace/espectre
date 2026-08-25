@@ -60,7 +60,7 @@ def command_registry(
     if supports_manual_recalibration:
         commands.append({"name": "recalibrate", "kind": "action", "access": "control", "params": empty})
     if supports_traffic_control:
-        commands.append({"name": "set_csi_traffic_mode", "kind": "mutation", "access": "control", "params": {"type": "object", "properties": {"csi_traffic_mode": {"type": "string", "enum": ["internal", "external", "disabled"]}}, "required": ["csi_traffic_mode"], "additionalProperties": False}})
+        commands.append({"name": "set_csi_traffic_mode", "kind": "mutation", "access": "control", "params": {"type": "object", "properties": {"csi_traffic_mode": {"type": "string", "enum": ["internal", "external"]}}, "required": ["csi_traffic_mode"], "additionalProperties": False}})
         commands.append({"name": "set_traffic_generator_mode", "kind": "mutation", "access": "control", "params": {"type": "object", "properties": {"traffic_generator_mode": {"type": "string", "enum": ["ping", "dns"]}}, "required": ["traffic_generator_mode"], "additionalProperties": False}})
     if supports_ota:
         ota_params = {"type": "object", "properties": {"channel": {"type": "string", "enum": ["release", "preview", "develop"]}}, "required": [], "additionalProperties": False}

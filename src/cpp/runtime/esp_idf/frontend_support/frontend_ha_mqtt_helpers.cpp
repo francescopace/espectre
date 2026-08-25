@@ -312,8 +312,6 @@ std::string build_csi_traffic_mode_discovery_payload(const FrontendHaMqttSetting
   append_json_string(&out, "internal");
   out.push_back(',');
   append_json_string(&out, "external");
-  out.push_back(',');
-  append_json_string(&out, "disabled");
   out.push_back(']');
   append_json_pair(&out, "entity_category", "config");
   append_json_pair(&out, "icon", "mdi:wifi-cog");

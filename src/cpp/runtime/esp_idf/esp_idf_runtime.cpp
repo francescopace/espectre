@@ -27,6 +27,7 @@
 #include "runtime_motion_hits_store.h"
 #include "runtime_traffic_mode_store.h"
 #include "runtime_time.h"
+#include "lwip/inet.h"
 
 namespace espectre {
 
@@ -74,11 +75,8 @@ EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
   capabilities_.supports_extended_diagnostics = true;
   capabilities_.supports_traffic_control = true;
   capabilities_.supports_runtime_detector_selection = config_.runtime_detector_selection_enabled;
-#if CONFIG_IDF_TARGET_ESP32C3
-  // The implementation is compiled for every Native target. C3 is the first
-  // hardware-qualified target and therefore the only one that advertises it.
+  // Raw CSI uses the same ESP-IDF capture boundary on every supported chip.
   capabilities_.supports_raw_csi = true;
-#endif
 }
 
 bool EspIdfRuntime::setup() {
@@ -115,15 +113,6 @@ bool EspIdfRuntime::setup() {
     ESP_LOGW(RUNTIME_TAG, "Failed to load persisted CSI traffic mode: %s", esp_err_to_name(csi_traffic_err));
   } else if (has_saved_csi_traffic_mode) {
     config_.csi_traffic_mode = saved_csi_traffic_mode;
-  }
-  const CsiTrafficMode normalized_csi_traffic_mode = normalize_sensing_csi_traffic_mode(config_.csi_traffic_mode);
-  if (normalized_csi_traffic_mode != config_.csi_traffic_mode) {
-    ESP_LOGW(RUNTIME_TAG, "CSI traffic mode pacing is Streamer-only; using external");
-    config_.csi_traffic_mode = normalized_csi_traffic_mode;
-    const esp_err_t persist_err = save_runtime_csi_traffic_mode(normalized_csi_traffic_mode);
-    if (persist_err != ESP_OK) {
-      ESP_LOGW(RUNTIME_TAG, "Failed to persist CSI traffic mode: %s", esp_err_to_name(persist_err));
-    }
   }
 
   bool has_saved_generator_mode = false;
@@ -214,8 +203,10 @@ RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {
     diagnostics.wifi_rssi_dbm = ap_info.rssi;
     diagnostics.wifi_channel = ap_info.primary;
   }
-  diagnostics.traffic_packets_total = csi_traffic_service_.get_pacing_total();
+  diagnostics.traffic_packets_total = csi_traffic_service_.get_traffic_packets_total();
   diagnostics.csi_callbacks_total = csi_pipeline_.capture_callback_invocations_total();
+  diagnostics.csi_classified_total = csi_pipeline_.traffic_classified_packets_total();
+  diagnostics.csi_provenance_rejected_total = csi_pipeline_.traffic_rejected_packets_total();
   diagnostics.csi_accepted_total = csi_pipeline_.accepted_packets_total();
   diagnostics.csi_admitted_total = csi_pipeline_.detector_admitted_packets_total();
   diagnostics.csi_filtered_total = csi_pipeline_.capture_filtered_packets_total();
@@ -339,9 +330,7 @@ bool EspIdfRuntime::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
     restore_traffic_runtime_config_(previous_config);
     return false;
   }
-  if (mode != CsiTrafficMode::DISABLED) {
-    (void) trigger_recalibration();
-  }
+  (void) trigger_recalibration();
   ESP_LOGI(RUNTIME_TAG, "CSI traffic mode updated to %s", csi_traffic_mode_name(mode));
   return true;
 }
@@ -455,28 +444,12 @@ bool EspIdfRuntime::start_raw_collection(raw_csi_packet_callback_t callback, voi
   operation_state_.store(RuntimeOperationState::RAW_COLLECTION, std::memory_order_release);
   raw_collection_was_armed_ = services_armed_;
   cancel_calibration_(true);
-  csi_traffic_service_.stop();
-  CsiTrafficServiceConfig raw_traffic_config = to_csi_traffic_config(config_);
-  raw_traffic_config.mode = CsiTrafficMode::EXTERNAL;
-  csi_traffic_service_.init(raw_traffic_config);
-#if defined(ESP_PLATFORM)
-  if (!csi_traffic_service_.start(wifi_ip_info_.gw.addr)) {
-    csi_traffic_service_.init(to_csi_traffic_config(config_));
-    operation_state_.store(RuntimeOperationState::SENSING, std::memory_order_release);
-    notify_fault_("Failed to start raw CSI traffic listener");
-    if (raw_collection_was_armed_) start_sensing_services_(wifi_ip_info_);
-    raw_collection_was_armed_ = false;
-    return false;
-  }
-#endif
   snapshot_.ready_to_publish = false;
   snapshot_.motion_state = MotionState::IDLE;
   csi_pipeline_.set_motion_state_callback({});
   csi_pipeline_.set_live_telemetry_callback({});
   performance_diagnostics_.reset();
   if (!csi_pipeline_.start_raw_capture(callback, context)) {
-    csi_traffic_service_.stop();
-    csi_traffic_service_.init(to_csi_traffic_config(config_));
     operation_state_.store(RuntimeOperationState::SENSING, std::memory_order_release);
     (void) csi_pipeline_.disable();
     update_live_telemetry_callback_();
@@ -490,8 +463,6 @@ bool EspIdfRuntime::start_raw_collection(raw_csi_packet_callback_t callback, voi
     const esp_err_t err = csi_pipeline_.enable({});
     if (err != ESP_OK) {
       csi_pipeline_.stop_raw_capture();
-      csi_traffic_service_.stop();
-      csi_traffic_service_.init(to_csi_traffic_config(config_));
       update_live_telemetry_callback_();
       operation_state_.store(RuntimeOperationState::SENSING, std::memory_order_release);
       (void) csi_pipeline_.disable();
@@ -515,10 +486,8 @@ bool EspIdfRuntime::stop_raw_collection(RawCsiStopReason reason) {
 
   operation_state_.store(RuntimeOperationState::SENSING, std::memory_order_release);
   csi_pipeline_.stop_raw_capture();
-  csi_pipeline_.set_local_identity(0U, nullptr);
+  csi_pipeline_.set_traffic_filter({});
   (void) csi_pipeline_.disable();
-  csi_traffic_service_.stop();
-  csi_traffic_service_.init(to_csi_traffic_config(config_));
   cancel_calibration_(false);
   snapshot_.ready_to_publish = false;
   snapshot_.motion_state = MotionState::IDLE;
@@ -697,7 +666,7 @@ void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) 
 
 void EspIdfRuntime::stop_sensing_services_() {
   cancel_calibration_(false);
-  csi_pipeline_.set_local_identity(0U, nullptr);
+  csi_pipeline_.set_traffic_filter({});
   csi_pipeline_.disable();
   csi_traffic_service_.stop();
   snapshot_.ready_to_publish = false;
@@ -727,7 +696,7 @@ void EspIdfRuntime::on_csi_channel_changed_(uint8_t previous_channel, uint8_t cu
 
   const esp_netif_ip_info_t ip_info = wifi_ip_info_;
   cancel_calibration_(false);
-  csi_pipeline_.set_local_identity(0U, nullptr);
+  csi_pipeline_.set_traffic_filter({});
   const esp_err_t disable_err = csi_pipeline_.disable();
   csi_traffic_service_.stop();
   snapshot_.ready_to_publish = false;
@@ -921,12 +890,21 @@ void EspIdfRuntime::reset_periodic_status_logger_() {
 }
 
 void EspIdfRuntime::refresh_csi_local_identity_(uint32_t local_ip_addr) {
+  CsiFrameFilterConfig filter;
+  filter.traffic_mode = config_.csi_traffic_mode;
+  filter.internal_mode = config_.traffic_generator_mode;
+  filter.local_ip_addr = local_ip_addr;
+  filter.gateway_ip_addr = wifi_ip_info_.gw.addr;
+  filter.multicast_ip_addr = config_.csi_traffic_multicast_group.empty()
+                                 ? 0U
+                                 : inet_addr(config_.csi_traffic_multicast_group.c_str());
+  filter.external_udp_port = config_.csi_traffic_udp_port;
+  filter.internal_icmp_identifier = csi_traffic_service_.internal_icmp_identifier();
   uint8_t mac[6] = {0U, 0U, 0U, 0U, 0U, 0U};
-  if (esp_wifi_get_mac(WIFI_IF_STA, mac) != ESP_OK) {
-    csi_pipeline_.set_local_identity(local_ip_addr, nullptr);
-    return;
+  if (esp_wifi_get_mac(WIFI_IF_STA, mac) == ESP_OK) {
+    std::memcpy(filter.local_mac_addr, mac, sizeof(filter.local_mac_addr));
   }
-  csi_pipeline_.set_local_identity(local_ip_addr, mac);
+  csi_pipeline_.set_traffic_filter(filter);
 }
 
 }  // namespace espectre

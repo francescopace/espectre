@@ -1,5 +1,5 @@
 /*
- * ESPectre - Native mDNS Bootstrap Responder
+ * ESPectre - Shared mDNS Bootstrap Responder
  *
  * This extension observes bootstrap mDNS questions before the Espressif responder
  * filters unregistered hostnames. Matching one-shot bootstrap questions are
@@ -10,7 +10,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
-#include "native_mdns_bootstrap_responder.h"
+#include "mdns_bootstrap_responder.h"
 
 #include <algorithm>
 #include <array>
@@ -47,7 +47,7 @@ constexpr int64_t RESPONSE_DELAY_STEP_US = 25000;
 constexpr uint32_t MDNS_MULTICAST_IPV4 =
     static_cast<uint32_t>(224U) | (static_cast<uint32_t>(251U) << 24U);
 
-std::atomic<espectre::NativeMdnsBootstrapResponder *> g_bootstrap_responder{nullptr};
+std::atomic<espectre::MdnsBootstrapResponder *> g_bootstrap_responder{nullptr};
 
 uint16_t read_u16(const uint8_t *data) {
   return static_cast<uint16_t>((static_cast<uint16_t>(data[0]) << 8U) | data[1]);
@@ -79,7 +79,7 @@ bool equal_ascii_case_insensitive(const char *actual, size_t length, const char 
 
 bool valid_bootstrap_label(const char *label, size_t length) {
   constexpr size_t prefix_length = sizeof(BOOTSTRAP_PREFIX) - 1U;
-  if (length != prefix_length + espectre::NativeMdnsBootstrapResponder::NONCE_HEX_LENGTH ||
+  if (length != prefix_length + espectre::MdnsBootstrapResponder::NONCE_HEX_LENGTH ||
       !equal_ascii_case_insensitive(label, prefix_length, BOOTSTRAP_PREFIX)) {
     return false;
   }
@@ -171,7 +171,7 @@ size_t append_nsec_record(const ParsedQuestion &question,
   write_u16(destination + offset, DNS_TYPE_NSEC);
   write_u16(destination + offset + 2U, DNS_CLASS_IN);
   write_u32(destination + offset + 4U,
-            espectre::NativeMdnsBootstrapResponder::RESPONSE_TTL_SECONDS);
+            espectre::MdnsBootstrapResponder::RESPONSE_TTL_SECONDS);
   const size_t length_offset = offset + 8U;
   const size_t rdata_offset = offset + 10U;
   offset = append_name(
@@ -213,7 +213,7 @@ size_t build_response(const ParsedQuestion &question,
     write_u16(destination + offset, DNS_TYPE_A);
     write_u16(destination + offset + 2U, DNS_CLASS_IN);
     write_u32(destination + offset + 4U,
-              espectre::NativeMdnsBootstrapResponder::RESPONSE_TTL_SECONDS);
+              espectre::MdnsBootstrapResponder::RESPONSE_TTL_SECONDS);
     write_u16(destination + offset + 8U, 4U);
     std::memcpy(destination + offset + 10U, &ipv4_address, sizeof(ipv4_address));
     offset += 14U;
@@ -228,7 +228,7 @@ extern "C" void __real_mdns_priv_receive_action(mdns_action_t *action,
 
 extern "C" void __wrap_mdns_priv_receive_action(mdns_action_t *action,
                                                   mdns_action_subtype_t type) {
-  espectre::NativeMdnsBootstrapResponder *responder = g_bootstrap_responder.load();
+  espectre::MdnsBootstrapResponder *responder = g_bootstrap_responder.load();
   if (responder != nullptr && action != nullptr && type == ACTION_RUN &&
       action->type == ACTION_RX_HANDLE && action->data.rx_handle.packet != nullptr) {
     mdns_rx_packet_t *packet = action->data.rx_handle.packet;
@@ -246,7 +246,7 @@ extern "C" void __wrap_mdns_priv_receive_action(mdns_action_t *action,
 
 namespace espectre {
 
-NativeMdnsBootstrapResponder::~NativeMdnsBootstrapResponder() {
+MdnsBootstrapResponder::~MdnsBootstrapResponder() {
   shutdown();
   if (mutex_ != nullptr) {
     vSemaphoreDelete(static_cast<SemaphoreHandle_t>(mutex_));
@@ -254,7 +254,7 @@ NativeMdnsBootstrapResponder::~NativeMdnsBootstrapResponder() {
   }
 }
 
-bool NativeMdnsBootstrapResponder::setup() {
+bool MdnsBootstrapResponder::setup() {
   shutdown();
   if (mutex_ == nullptr) {
     mutex_ = xSemaphoreCreateMutex();
@@ -263,7 +263,7 @@ bool NativeMdnsBootstrapResponder::setup() {
       return false;
     }
   }
-  NativeMdnsBootstrapResponder *owner = nullptr;
+  MdnsBootstrapResponder *owner = nullptr;
   if (!g_bootstrap_responder.compare_exchange_strong(owner, this) && owner != this) {
     ESP_LOGE(TAG, "Another bootstrap responder is already active");
     return false;
@@ -272,8 +272,8 @@ bool NativeMdnsBootstrapResponder::setup() {
   return true;
 }
 
-bool NativeMdnsBootstrapResponder::update(uint32_t ipv4_address) {
-  if (!configured_ || mutex_ == nullptr || ipv4_address == 0U) return false;
+bool MdnsBootstrapResponder::update(uint32_t ipv4_address) {
+  if (!configured_ || mutex_ == nullptr) return false;
   xSemaphoreTake(static_cast<SemaphoreHandle_t>(mutex_), portMAX_DELAY);
   if (ipv4_address_.load() != ipv4_address) {
     clear_pending_();
@@ -284,7 +284,7 @@ bool NativeMdnsBootstrapResponder::update(uint32_t ipv4_address) {
   return true;
 }
 
-void NativeMdnsBootstrapResponder::ingest_query(const uint8_t *packet,
+void MdnsBootstrapResponder::ingest_query(const uint8_t *packet,
                                                  size_t length,
                                                  size_t interface,
                                                  uint32_t source_ipv4,
@@ -383,7 +383,7 @@ void NativeMdnsBootstrapResponder::ingest_query(const uint8_t *packet,
   xSemaphoreGive(static_cast<SemaphoreHandle_t>(mutex_));
 }
 
-void NativeMdnsBootstrapResponder::loop() {
+void MdnsBootstrapResponder::loop() {
   if (mutex_ == nullptr) return;
   const int64_t now_us = esp_timer_get_time();
   xSemaphoreTake(static_cast<SemaphoreHandle_t>(mutex_), portMAX_DELAY);
@@ -408,7 +408,7 @@ void NativeMdnsBootstrapResponder::loop() {
   xSemaphoreGive(static_cast<SemaphoreHandle_t>(mutex_));
 }
 
-void NativeMdnsBootstrapResponder::shutdown() {
+void MdnsBootstrapResponder::shutdown() {
   if (mutex_ != nullptr) {
     xSemaphoreTake(static_cast<SemaphoreHandle_t>(mutex_), portMAX_DELAY);
     clear_pending_();
@@ -420,11 +420,11 @@ void NativeMdnsBootstrapResponder::shutdown() {
     configured_ = false;
     ipv4_address_ = 0U;
   }
-  NativeMdnsBootstrapResponder *owner = this;
+  MdnsBootstrapResponder *owner = this;
   (void) g_bootstrap_responder.compare_exchange_strong(owner, nullptr);
 }
 
-void NativeMdnsBootstrapResponder::clear_pending_() {
+void MdnsBootstrapResponder::clear_pending_() {
   for (auto &response : pending_) response = {};
 }
 

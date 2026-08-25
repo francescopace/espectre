@@ -87,8 +87,8 @@ bool valid_candidate(const PeerDiscoveryCandidate &candidate) {
   return printable_text(candidate.instance, kMaxInstanceLength) && token(candidate.hostname, kMaxHostnameLength) &&
          device_id(candidate.device_id) && printable_text(candidate.name, kMaxNameLength, true) &&
          token(candidate.frontend, kMaxFrontendLength) &&
-         (candidate.frontend == "native" || candidate.frontend == "streamer" ||
-          candidate.frontend == "esphome" || candidate.frontend == "matter") &&
+         (candidate.frontend == "native" || candidate.frontend == "esphome" ||
+          candidate.frontend == "matter") &&
          candidate.txt_version == ESPECTRE_DIRECT_DISCOVERY_TXT_VERSION &&
          candidate.protocol_version == "1" &&
          candidate.transport == ESPECTRE_DIRECT_HTTP_TRANSPORT &&

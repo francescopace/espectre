@@ -18,7 +18,7 @@
 #include <driver/gpio.h>
 
 #include "native_frontend.h"
-#include "native_mdns_bootstrap_responder.h"
+#include "mdns_bootstrap_responder.h"
 #include "recovery_button_service.h"
 #include "device_config_store.h"
 #include "direct_http_protocol.h"
@@ -58,13 +58,13 @@ espectre::NativeFrontend *g_frontend = nullptr;
 espectre::RecoveryButtonService *g_recovery_button = nullptr;
 espectre::ImprovSerialService *g_improv_serial = nullptr;
 espectre::MdnsDiscoveryService *g_mdns_discovery = nullptr;
-espectre::NativeMdnsBootstrapResponder *g_mdns_bootstrap_responder = nullptr;
+espectre::MdnsBootstrapResponder *g_mdns_bootstrap_responder = nullptr;
 bool g_restart_after_wifi_apply = false;
 espectre::StandaloneWifiService g_wifi_manager;
 espectre::WifiProvisioningService g_wifi_provisioning(&g_wifi_manager);
 
 const char *native_capabilities() {
-  return "config,monitor,ota,peer_discovery";
+  return "config,monitor,ota,peer_discovery,raw_csi";
 }
 
 espectre::MdnsTxtRecords native_mdns_txt(const espectre::EspectreDeviceConfig &config) {
@@ -101,7 +101,7 @@ espectre::PeerDiscoveryCandidate native_peer_candidate(
   candidate.firmware = espectre::espectre_firmware_version();
   candidate.chip = CONFIG_IDF_TARGET;
   candidate.capabilities = native_capabilities();
-  candidate.port = 80U;
+  candidate.port = espectre::ESPECTRE_DIRECT_HTTP_PORT;
   return candidate;
 }
 
@@ -303,7 +303,7 @@ extern "C" void app_main() {
   static espectre::EspIdfMqttTransport mqtt_transport;
   static espectre::EspIdfDirectHttpService direct_service;
   static espectre::MdnsDiscoveryService mdns_discovery;
-  static espectre::NativeMdnsBootstrapResponder mdns_bootstrap_responder;
+  static espectre::MdnsBootstrapResponder mdns_bootstrap_responder;
   static espectre::EspIdfPeerDiscoveryService peer_discovery;
   static espectre::HttpsOtaService ota_service("native", CONFIG_IDF_TARGET, kOtaReleaseChannel);
   static espectre::NativeFrontend frontend(&mqtt_transport, &ota_service, &direct_service);
@@ -315,7 +315,7 @@ extern "C" void app_main() {
           mdns_name,
           "_espectre",
           "_tcp",
-          80U,
+          espectre::ESPECTRE_DIRECT_HTTP_PORT,
           native_mdns_txt(device_config),
       })) {
     ESP_LOGE(TAG, "Failed to initialize Native mDNS discovery");

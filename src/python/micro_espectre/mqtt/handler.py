@@ -180,9 +180,7 @@ class MQTTHandler:
         """Apply one session-only traffic ownership and generator update."""
         csi_mode = str(csi_traffic_mode).lower()
         generator_mode = str(traffic_generator_mode).lower()
-        if csi_mode == "pacing":
-            return False
-        if csi_mode not in ("internal", "external", "disabled"):
+        if csi_mode not in ("internal", "external"):
             return False
         if generator_mode not in ("ping", "dns"):
             return False

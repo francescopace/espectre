@@ -42,6 +42,10 @@ struct RuntimeDiagnosticsSnapshot {
   uint64_t traffic_packets_total{0U};
   /** Raw invocations of the ESP-IDF CSI callback. */
   uint64_t csi_callbacks_total{0U};
+  /** CSI callbacks classified as traffic produced by the configured generator. */
+  uint64_t csi_classified_total{0U};
+  /** CSI callbacks rejected because their packet provenance did not match. */
+  uint64_t csi_provenance_rejected_total{0U};
   /** CSI packets accepted by capture validation, before temporal admission. */
   uint64_t csi_accepted_total{0U};
   /** CSI packets admitted to the detector's temporal grid. */
@@ -150,8 +154,7 @@ struct RuntimeSnapshot {
   /** Threshold startup calibration settled on. Zero before it completes. */
   float startup_threshold{0.0f};
   /**
-   * Active detector label: `"lightweight"`, `"high_accuracy"`, or `"stream"` under
-   * `RuntimeProfile::STREAM`.
+   * Active detector label: `"lightweight"` or `"high_accuracy"`.
    *
    * Always a static string literal, so it stays valid for the process, but the
    * pointer changes when the detector changes. `parse_detection_algorithm()`

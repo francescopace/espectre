@@ -91,34 +91,16 @@ RuntimeConfigError validate_runtime_config(const RuntimeConfig &config) {
                                                   config.csi_traffic_mode)) {
     return RuntimeConfigError::CSI_TRAFFIC_MODE;
   }
-  if (config.csi_traffic_mode == CsiTrafficMode::EXTERNAL ||
-      config.csi_traffic_mode == CsiTrafficMode::PACING) {
+  if (config.csi_traffic_mode == CsiTrafficMode::EXTERNAL) {
     if (config.csi_traffic_udp_port < RUNTIME_NETWORK_PORT_MIN) {
       return RuntimeConfigError::CSI_TRAFFIC_UDP_PORT;
     }
     if (!multicast_group_valid(config.csi_traffic_multicast_group)) {
       return RuntimeConfigError::CSI_TRAFFIC_MULTICAST_GROUP;
     }
-    if (config.csi_traffic_expected_payload.size() > RUNTIME_CSI_TRAFFIC_EXPECTED_PAYLOAD_MAX) {
-      return RuntimeConfigError::CSI_TRAFFIC_EXPECTED_PAYLOAD;
-    }
   }
 
-  if (config.runtime_profile == RuntimeProfile::STREAM) {
-    if (config.collector_port < RUNTIME_NETWORK_PORT_MIN) {
-      return RuntimeConfigError::STREAM_COLLECTOR_PORT;
-    }
-    if (!validate_runtime_uint32(config.stream_log_interval_ms,
-                                 RUNTIME_STREAM_LOG_INTERVAL_MS_MIN,
-                                 RUNTIME_STREAM_LOG_INTERVAL_MS_MAX)) {
-      return RuntimeConfigError::STREAM_LOG_INTERVAL_MS;
-    }
-    if (!validate_runtime_uint8(config.stream_tx_batch_records,
-                                RUNTIME_STREAM_TX_BATCH_RECORDS_MIN,
-                                RUNTIME_STREAM_TX_BATCH_RECORDS_MAX)) {
-      return RuntimeConfigError::STREAM_TX_BATCH_RECORDS;
-    }
-  } else {
+  {
     if (!runtime_detection_algorithm_valid(config.detection_algorithm)) {
       return RuntimeConfigError::DETECTION_ALGORITHM;
     }
@@ -178,10 +160,6 @@ const char *runtime_config_error_message(RuntimeConfigError error) {
     case RuntimeConfigError::CSI_TRAFFIC_MODE: return "invalid CSI traffic mode for runtime profile";
     case RuntimeConfigError::CSI_TRAFFIC_UDP_PORT: return "invalid CSI traffic UDP port";
     case RuntimeConfigError::CSI_TRAFFIC_MULTICAST_GROUP: return "invalid CSI multicast group";
-    case RuntimeConfigError::CSI_TRAFFIC_EXPECTED_PAYLOAD: return "CSI expected payload is too long";
-    case RuntimeConfigError::STREAM_COLLECTOR_PORT: return "invalid stream collector port";
-    case RuntimeConfigError::STREAM_LOG_INTERVAL_MS: return "invalid stream log interval";
-    case RuntimeConfigError::STREAM_TX_BATCH_RECORDS: return "invalid stream batch size";
     case RuntimeConfigError::PUBLISH_INTERVAL_MS: return "invalid publish interval";
     case RuntimeConfigError::EVALUATION_INTERVAL_MS: return "invalid evaluation interval";
     case RuntimeConfigError::MOTION_HITS: return "invalid motion hit counts";
@@ -193,7 +171,8 @@ const char *runtime_config_error_message(RuntimeConfigError error) {
 }
 
 const char *runtime_profile_name(RuntimeProfile profile) {
-  return profile == RuntimeProfile::STREAM ? "stream" : "sensing";
+  (void) profile;
+  return "sensing";
 }
 
 const char *wifi_band_policy_name(WifiBandPolicy policy) {
@@ -217,10 +196,6 @@ const char *csi_traffic_mode_name(CsiTrafficMode mode) {
   switch (mode) {
     case CsiTrafficMode::EXTERNAL:
       return RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME;
-    case CsiTrafficMode::PACING:
-      return RUNTIME_CSI_TRAFFIC_MODE_PACING_NAME;
-    case CsiTrafficMode::DISABLED:
-      return RUNTIME_CSI_TRAFFIC_MODE_DISABLED_NAME;
     case CsiTrafficMode::INTERNAL:
     default:
       return RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME;
@@ -228,12 +203,11 @@ const char *csi_traffic_mode_name(CsiTrafficMode mode) {
 }
 
 bool csi_traffic_mode_is_sensing_control(CsiTrafficMode mode) {
-  return mode == CsiTrafficMode::INTERNAL || mode == CsiTrafficMode::EXTERNAL ||
-         mode == CsiTrafficMode::DISABLED;
+  return mode == CsiTrafficMode::INTERNAL || mode == CsiTrafficMode::EXTERNAL;
 }
 
 CsiTrafficMode normalize_sensing_csi_traffic_mode(CsiTrafficMode mode) {
-  return mode == CsiTrafficMode::PACING ? CsiTrafficMode::EXTERNAL : mode;
+  return runtime_csi_traffic_mode_valid(mode) ? mode : CsiTrafficMode::INTERNAL;
 }
 
 const char *detection_algorithm_name(DetectionAlgorithm algorithm) {
@@ -263,12 +237,6 @@ RuntimeTrafficMode parse_traffic_mode(const char *mode) {
 CsiTrafficMode parse_csi_traffic_mode(const char *mode) {
   if (mode != nullptr && std::strcmp(mode, RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME) == 0) {
     return CsiTrafficMode::EXTERNAL;
-  }
-  if (mode != nullptr && std::strcmp(mode, RUNTIME_CSI_TRAFFIC_MODE_PACING_NAME) == 0) {
-    return CsiTrafficMode::PACING;
-  }
-  if (mode != nullptr && std::strcmp(mode, RUNTIME_CSI_TRAFFIC_MODE_DISABLED_NAME) == 0) {
-    return CsiTrafficMode::DISABLED;
   }
   return CsiTrafficMode::INTERNAL;
 }

@@ -64,6 +64,9 @@ class IPeerDiscoveryService {
   using Completion = std::function<void(PeerDiscoverySnapshot snapshot)>;
 
   virtual ~IPeerDiscoveryService() = default;
+  virtual void set_local_candidate(PeerDiscoveryCandidate candidate) {
+    (void) candidate;
+  }
   virtual void set_wifi_ready(bool ready) = 0;
   virtual bool ready() const = 0;
   virtual bool active() const = 0;

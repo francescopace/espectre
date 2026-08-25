@@ -10,6 +10,7 @@
 #include <esp_err.h>
 #include <esp_event.h>
 #include <esp_log.h>
+#include <esp_netif.h>
 #include <freertos/FreeRTOS.h>
 #include <sdkconfig.h>
 
@@ -36,6 +37,7 @@
 #include "matter_commissioning_data.h"
 #include "matter_frontend.h"
 #include "mdns_discovery_service.h"
+#include "mdns_bootstrap_responder.h"
 #include "nvs_helpers.h"
 #include "runtime_config_utils.h"
 #include "runtime_sensing_kconfig.h"
@@ -53,6 +55,7 @@ espectre::MatterEspBindings g_bindings;
 espectre::MatterCommissioningDataProvider g_commissioning_data;
 espectre::MatterFrontend *g_frontend = nullptr;
 espectre::MdnsDiscoveryService *g_mdns_discovery = nullptr;
+espectre::MdnsBootstrapResponder *g_mdns_bootstrap_responder = nullptr;
 espectre::MdnsDiscoveryServiceConfig g_mdns_config;
 uint16_t g_motion_endpoint_id = 0;
 
@@ -63,10 +66,11 @@ espectre::RuntimeConfig build_runtime_config() {
   return config;
 }
 
-espectre::MdnsTxtRecords matter_mdns_txt(uint64_t device_id) {
+espectre::MdnsTxtRecords matter_mdns_txt(uint64_t device_id,
+                                         const std::string &device_label = CONFIG_ESPECTRE_MATTER_NODE_LABEL) {
   return {
       {"device_id", espectre::format_espectre_device_id(device_id)},
-      {"name", CONFIG_ESPECTRE_MATTER_NODE_LABEL},
+      {"name", device_label},
       {"frontend", "matter"},
       {"txtvers", espectre::ESPECTRE_DIRECT_DISCOVERY_TXT_VERSION},
       {"protovers", "1"},
@@ -75,7 +79,7 @@ espectre::MdnsTxtRecords matter_mdns_txt(uint64_t device_id) {
       {"events", espectre::ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT},
       {"firmware", espectre::espectre_firmware_version()},
       {"chip", CONFIG_IDF_TARGET},
-      {"capabilities", "config,monitor"},
+      {"capabilities", "config,monitor,raw_csi"},
   };
 }
 
@@ -187,12 +191,20 @@ esp_err_t app_identification_cb(identification::callback_type_t type, uint16_t e
 
 esp_err_t app_attribute_update_cb(attribute::callback_type_t type, uint16_t endpoint_id, uint32_t cluster_id,
                                   uint32_t attribute_id, esp_matter_attr_val_t *val, void *priv_data) {
-  (void) type;
-  (void) endpoint_id;
-  (void) cluster_id;
-  (void) attribute_id;
-  (void) val;
   (void) priv_data;
+  if (type == attribute::POST_UPDATE && endpoint_id == 0 &&
+      cluster_id == BasicInformation::Id &&
+      attribute_id == BasicInformation::Attributes::NodeLabel::Id && val != nullptr &&
+      val->type == ESP_MATTER_VAL_TYPE_CHAR_STRING) {
+    const std::string label(reinterpret_cast<const char *>(val->val.a.b), val->val.a.s);
+    if (g_frontend != nullptr) g_frontend->sync_device_label();
+    for (auto &record : g_mdns_config.txt_records) {
+      if (record.first == "name") record.second = label;
+    }
+    if (g_mdns_discovery != nullptr && g_mdns_discovery->initialized()) {
+      (void) g_mdns_discovery->update_txt(g_mdns_config.txt_records);
+    }
+  }
   return ESP_OK;
 }
 
@@ -201,6 +213,15 @@ void espectre_loop_task(void *arg) {
   while (true) {
     if (g_frontend != nullptr) {
       g_frontend->loop();
+    }
+    if (g_mdns_bootstrap_responder != nullptr) {
+      esp_netif_ip_info_t ip_info{};
+      esp_netif_t *station = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+      (void) g_mdns_bootstrap_responder->update(
+          station != nullptr && esp_netif_get_ip_info(station, &ip_info) == ESP_OK
+              ? ip_info.ip.addr
+              : 0U);
+      g_mdns_bootstrap_responder->loop();
     }
     vTaskDelay(pdMS_TO_TICKS(10));
   }
@@ -247,6 +268,7 @@ extern "C" void app_main() {
 
   static espectre::EspIdfDirectHttpService direct_service;
   static espectre::MdnsDiscoveryService mdns_discovery;
+  static espectre::MdnsBootstrapResponder mdns_bootstrap_responder;
   static espectre::MatterFrontend frontend(&g_bindings, g_motion_endpoint_id, &direct_service);
   const espectre::RuntimeConfig runtime_config = build_runtime_config();
   frontend.set_runtime_config(runtime_config);
@@ -254,12 +276,17 @@ extern "C" void app_main() {
   g_frontend = &frontend;
   const std::string device_id = espectre::format_espectre_device_id(runtime_config.device_id);
   g_mdns_discovery = &mdns_discovery;
+  if (!mdns_bootstrap_responder.setup()) {
+    ESP_LOGE(TAG, "Failed to initialize the mDNS bootstrap responder");
+    return;
+  }
+  g_mdns_bootstrap_responder = &mdns_bootstrap_responder;
   g_mdns_config = espectre::MdnsDiscoveryServiceConfig{
       "",
       std::string(CONFIG_ESPECTRE_MATTER_NODE_LABEL) + " " + device_id,
       "_espectre",
       "_tcp",
-      80U,
+      espectre::ESPECTRE_DIRECT_HTTP_PORT,
       matter_mdns_txt(runtime_config.device_id),
       espectre::MdnsResponderMode::USE_EXISTING_RESPONDER,
   };

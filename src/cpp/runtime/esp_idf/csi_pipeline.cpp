@@ -31,6 +31,8 @@ void CsiPipeline::init(BaseDetector* detector,
   capture_service_.set_packet_callback(&CsiPipeline::capture_packet_callback_, this);
   capture_service_.set_channel_change_callback(&CsiPipeline::capture_channel_change_callback_, this);
   accepted_packets_total_.store(0U, std::memory_order_relaxed);
+  traffic_classified_packets_total_.store(0U, std::memory_order_relaxed);
+  traffic_rejected_packets_total_.store(0U, std::memory_order_relaxed);
   pending_frames_.clear();
   pending_frame_drops_.store(0U, std::memory_order_relaxed);
   sampler_.reset();
@@ -168,14 +170,10 @@ void CsiPipeline::publish_if_due(uint32_t now_ms) {
   packet_callback_(heartbeat_motion_state_.load(std::memory_order_relaxed), packets_received);
 }
 
-void CsiPipeline::set_local_identity(uint32_t local_ip_addr, const uint8_t *local_mac_addr) {
-  std::lock_guard<detail::PendingEventLock> lock(local_identity_lock_);
-  local_ip_addr_ = local_ip_addr;
-  if (local_mac_addr == nullptr) {
-    local_mac_addr_.fill(0U);
-  } else {
-    std::copy_n(local_mac_addr, local_mac_addr_.size(), local_mac_addr_.begin());
-  }
+void CsiPipeline::set_traffic_filter(const CsiFrameFilterConfig &config) {
+  std::lock_guard<detail::PendingEventLock> lock(traffic_filter_lock_);
+  traffic_filter_ = config;
+  traffic_filter_configured_ = true;
 }
 
 MotionState CsiPipeline::update_effective_motion_state_(MotionState detector_state) {
@@ -378,15 +376,19 @@ void CsiPipeline::capture_packet_callback_(void *context,
     return;
   }
 
-  uint32_t local_ip_addr = 0U;
-  std::array<uint8_t, 6U> local_mac_addr{};
+  CsiFrameFilterConfig traffic_filter;
+  bool traffic_filter_configured = false;
   {
-    std::lock_guard<detail::PendingEventLock> lock(pipeline->local_identity_lock_);
-    local_ip_addr = pipeline->local_ip_addr_;
-    local_mac_addr = pipeline->local_mac_addr_;
+    std::lock_guard<detail::PendingEventLock> lock(pipeline->traffic_filter_lock_);
+    traffic_filter = pipeline->traffic_filter_;
+    traffic_filter_configured = pipeline->traffic_filter_configured_;
   }
-  if (!csi_frame_matches_local_identity(data, local_ip_addr, local_mac_addr.data())) {
-    return;
+  if (traffic_filter_configured) {
+    if (!csi_frame_matches_traffic(data, traffic_filter)) {
+      pipeline->traffic_rejected_packets_total_.fetch_add(1U, std::memory_order_relaxed);
+      return;
+    }
+    pipeline->traffic_classified_packets_total_.fetch_add(1U, std::memory_order_relaxed);
   }
 
   raw_csi_packet_callback_t raw_callback =
@@ -397,20 +399,20 @@ void CsiPipeline::capture_packet_callback_(void *context,
     packet.csi_len = static_cast<uint16_t>(normalized.len);
     packet.captured_at_us = static_cast<uint64_t>(esp_timer_get_time());
     packet.wifi_rx_ts_us = data->rx_ctrl.timestamp;
-    packet.stream_flags = STREAM_FLAG_CSI_FRESH;
+    packet.record_flags = RAW_CSI_FLAG_FRESH;
     if (data->first_word_invalid) {
-      packet.stream_flags |= STREAM_FLAG_FIRST_WORD_INVALID;
+      packet.record_flags |= RAW_CSI_FLAG_FIRST_WORD_INVALID;
     }
     if (data->rx_ctrl.timestamp != 0U) {
-      packet.stream_flags |= STREAM_FLAG_WIFI_RX_TS_VALID;
+      packet.record_flags |= RAW_CSI_FLAG_WIFI_RX_TS_VALID;
     }
     packet.channel = data->rx_ctrl.channel;
     packet.rssi_dbm = data->rx_ctrl.rssi;
     packet.noise_floor_dbm = static_cast<int8_t>(data->rx_ctrl.noise_floor);
     // CsiCaptureService admits only the production HT20 format.
-    packet.phy_mode = StreamPhyMode::HT;
-    packet.ltf_type = StreamLtfType::HT_LTF;
-    packet.channel_width = StreamChannelWidth::MHZ_20;
+    packet.phy_mode = RawCsiPhyMode::HT;
+    packet.ltf_type = RawCsiLtfType::HT_LTF;
+    packet.channel_width = RawCsiChannelWidth::MHZ_20;
     (void) raw_callback(
         pipeline->raw_packet_context_.load(std::memory_order_acquire), packet);
     return;

@@ -85,7 +85,6 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_diagnostics.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/runtime_time.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_capture_service.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_stream_transport.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_pipeline.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_payload_normalizer.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_platform_config.cpp"
@@ -98,15 +97,13 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_motion_hits_store.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_traffic_mode_store.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_performance_diagnostics.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stream_runtime_factory.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stream_esp_idf_runtime.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/mdns_discovery_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/peer_discovery_service_esp_idf.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/streamer_discovery_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/sta_socket_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_frame_identity.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_traffic_service.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/direct_wifi_snapshot_esp_idf.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/udp_listener.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_lifecycle.cpp"
@@ -115,6 +112,7 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_ha_mqtt_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_mqtt_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_sysinfo_helpers.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/raw_csi_session_controller.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/device_config_store.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/improv_serial_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/wifi_provisioning_service.cpp"
@@ -131,7 +129,7 @@ add_library(espectre_direct_service_testlib STATIC
 )
 
 add_library(espectre_native_mdns_bootstrap_testlib STATIC
-    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_mdns_bootstrap_responder.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/mdns_bootstrap_responder.cpp"
 )
 target_link_libraries(espectre_native_mdns_bootstrap_testlib
     PUBLIC
@@ -139,7 +137,7 @@ target_link_libraries(espectre_native_mdns_bootstrap_testlib
 )
 target_include_directories(espectre_native_mdns_bootstrap_testlib
     PUBLIC
-        "${ESPECTRE_CPP_ROOT}/frontend/native/espectre"
+        "${ESPECTRE_CPP_ROOT}/runtime/esp_idf"
 )
 
 add_library(espectre_mqtt_transport_testlib STATIC
@@ -157,7 +155,6 @@ target_link_libraries(espectre_direct_service_testlib
 )
 target_compile_definitions(espectre_runtime_testlib
     PUBLIC
-        ESPECTRE_ENABLE_STREAM_RUNTIME=1
         CONFIG_ESPECTRE_HA_DISCOVERY_ENABLED=1
 )
 
@@ -187,6 +184,7 @@ add_library(espectre_frontend_esphome_testlib STATIC
 target_link_libraries(espectre_frontend_esphome_testlib
     PUBLIC
         espectre_runtime_testlib
+        espectre_native_mdns_bootstrap_testlib
         espectre_test_mocks
 )
 target_include_directories(espectre_frontend_esphome_testlib

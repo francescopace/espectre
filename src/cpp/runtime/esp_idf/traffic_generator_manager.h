@@ -84,6 +84,7 @@ class TrafficGeneratorManager {
   uint32_t current_rate_pps() const { return current_rate_pps_.load(std::memory_order_relaxed); }
   uint32_t send_success_count() const { return send_success_count_.load(std::memory_order_relaxed); }
   uint32_t send_error_count() const { return send_error_count_.load(std::memory_order_relaxed); }
+  uint16_t icmp_identifier() const { return icmp_identifier_; }
 
  private:
   static void traffic_task_(void *arg);
@@ -94,6 +95,7 @@ class TrafficGeneratorManager {
   uint32_t gateway_addr_{0U};
   uint32_t target_pps_{0U};
   TrafficGeneratorMode mode_{TrafficGeneratorMode::PING};
+  uint16_t icmp_identifier_{0U};
   std::atomic<uint32_t> current_rate_pps_{0U};
   std::atomic<bool> running_{false};
   std::atomic<bool> paused_{false};

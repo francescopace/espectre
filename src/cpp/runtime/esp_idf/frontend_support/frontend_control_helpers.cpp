@@ -133,40 +133,51 @@ FrontendCommandResult FrontendCommandEngine::execute(
     result.message = message != nullptr ? message : "";
     return result;
   };
+  const auto supports = [&capabilities](EspectreDirectMethod method) {
+    return capabilities.supports(method);
+  };
 
   if (context.origin == FrontendCommandOrigin::MQTT &&
       (command.command == "wifi_access_points" || command.command == "scan_wifi_access_points" ||
-       command.command == "set_wifi_bssid" || command.command == "clear_wifi_config" ||
+       command.command == "set_wifi_bssid" || command.command == "clear_wifi_bssid" ||
+       command.command == "clear_wifi_config" ||
        command.command == "set_mqtt_config" || command.command == "clear_mqtt_config" ||
        command.command == "discover_peers" || command.command == "start_raw_stream" ||
        command.command == "stop_raw_stream")) {
     return reject("forbidden", "command is local to Direct HTTP");
   }
 
-  if (command.command == "capabilities") return accept_read("capabilities returned");
+  if (command.command == "capabilities") {
+    return supports(EspectreDirectMethod::CAPABILITIES) ? accept_read("capabilities returned")
+                                                        : reject("unsupported", "unsupported command");
+  }
   if (command.command == "info") {
-    return capabilities.supports_info ? accept_read("info returned")
-                                      : reject("unsupported", "unsupported command");
+    return supports(EspectreDirectMethod::INFO) ? accept_read("info returned")
+                                                : reject("unsupported", "unsupported command");
   }
   if (command.command == "status") {
-    return capabilities.supports_status ? accept_read("status returned")
-                                        : reject("unsupported", "unsupported command");
+    return supports(EspectreDirectMethod::STATUS) ? accept_read("status returned")
+                                                  : reject("unsupported", "unsupported command");
   }
   if (command.command == "config") {
-    return capabilities.supports_config ? accept_read("config returned")
-                                        : reject("unsupported", "unsupported command");
+    return supports(EspectreDirectMethod::CONFIG) ? accept_read("config returned")
+                                                  : reject("unsupported", "unsupported command");
   }
   if (command.command == "diagnostics") {
-    return capabilities.supports_diagnostics ? accept_read("diagnostics returned")
-                                             : reject("unsupported", "unsupported command");
+    return supports(EspectreDirectMethod::DIAGNOSTICS) ? accept_read("diagnostics returned")
+                                                       : reject("unsupported", "unsupported command");
   }
   if (command.command == "wifi_access_points") {
-    return capabilities.supports_wifi_bssid ? accept_read("Wi-Fi access points returned")
-                                            : reject("unsupported", "unsupported command");
+    return supports(EspectreDirectMethod::WIFI_ACCESS_POINTS)
+               ? accept_read("Wi-Fi access points returned")
+               : reject("unsupported", "unsupported command");
   }
 
   if (command.command == "start_raw_stream" || command.command == "stop_raw_stream") {
-    if (!capabilities.supports_raw_csi || !raw_stream_callback ||
+    const EspectreDirectMethod method = command.command == "start_raw_stream"
+                                            ? EspectreDirectMethod::START_RAW_STREAM
+                                            : EspectreDirectMethod::STOP_RAW_STREAM;
+    if (!supports(method) || !raw_stream_callback ||
         context.origin != FrontendCommandOrigin::DIRECT ||
         (command.command == "stop_raw_stream" && context.authorization.empty())) {
       return reject("unsupported", "raw CSI collection is unavailable");
@@ -189,14 +200,17 @@ FrontendCommandResult FrontendCommandEngine::execute(
   }
 
   if (command.command == "set_device_label") {
-    if (!capabilities.supports_device_config || !device_label_callback || !command.has_device_label) {
-      return !capabilities.supports_device_config || !device_label_callback
+    if (!supports(EspectreDirectMethod::SET_DEVICE_LABEL) || !device_label_callback ||
+        !command.has_device_label) {
+      return !supports(EspectreDirectMethod::SET_DEVICE_LABEL) || !device_label_callback
                  ? reject("unsupported", "unsupported command")
                  : reject("invalid_params", "invalid device label (accepted: a single-line string)");
     }
     result.accepted = device_label_callback(command.device_label, &result.message);
     result.code = result.accepted ? "ok" : "unavailable";
-    if (result.accepted) result.changes = FrontendCommandChange::INFO;
+    if (result.accepted) {
+      result.changes = FrontendCommandChange::INFO | FrontendCommandChange::CONFIG;
+    }
     if (result.message.empty()) {
       result.message = result.accepted ? "device label updated" : "device label rejected";
     }
@@ -204,8 +218,12 @@ FrontendCommandResult FrontendCommandEngine::execute(
   }
 
   if (command.command == "scan_wifi_access_points" || command.command == "set_wifi_bssid" ||
-      command.command == "clear_wifi_config") {
-    if (!capabilities.supports_wifi_bssid || !wifi_bssid_callback) {
+      command.command == "clear_wifi_bssid" || command.command == "clear_wifi_config") {
+    EspectreDirectMethod method = EspectreDirectMethod::SCAN_WIFI_ACCESS_POINTS;
+    if (command.command == "set_wifi_bssid") method = EspectreDirectMethod::SET_WIFI_BSSID;
+    if (command.command == "clear_wifi_bssid") method = EspectreDirectMethod::CLEAR_WIFI_BSSID;
+    if (command.command == "clear_wifi_config") method = EspectreDirectMethod::CLEAR_WIFI_CONFIG;
+    if (!supports(method) || !wifi_bssid_callback) {
       return reject("unsupported", "unsupported command");
     }
     result.accepted = wifi_bssid_callback(command, &result.message);
@@ -219,14 +237,19 @@ FrontendCommandResult FrontendCommandEngine::execute(
                                   ? "Wi-Fi access point scan started"
                                   : command.command == "clear_wifi_config"
                                       ? "Wi-Fi configuration cleared"
-                                      : "Wi-Fi BSSID accepted")
+                                      : command.command == "clear_wifi_bssid"
+                                          ? "Wi-Fi BSSID pin cleared"
+                                          : "Wi-Fi BSSID accepted")
                            : "Wi-Fi access point request rejected";
     }
     return result;
   }
 
   if (command.command == "set_mqtt_config" || command.command == "clear_mqtt_config") {
-    if (!capabilities.supports_mqtt_config || !mqtt_config_callback) {
+    const EspectreDirectMethod method = command.command == "set_mqtt_config"
+                                            ? EspectreDirectMethod::SET_MQTT_CONFIG
+                                            : EspectreDirectMethod::CLEAR_MQTT_CONFIG;
+    if (!supports(method) || !mqtt_config_callback) {
       return reject("unsupported", "unsupported command");
     }
     result.accepted = mqtt_config_callback(command, command.command == "clear_mqtt_config", &result.message);
@@ -239,7 +262,7 @@ FrontendCommandResult FrontendCommandEngine::execute(
   }
 
   if (command.command == "set_sensing") {
-    if (!capabilities.supports_sensing_control || !sensing_control_callback) {
+    if (!supports(EspectreDirectMethod::SET_SENSING) || !sensing_control_callback) {
       return reject("unsupported", "unsupported command");
     }
     if (!command.has_sensing_enabled) {
@@ -257,7 +280,7 @@ FrontendCommandResult FrontendCommandEngine::execute(
   }
 
   if (command.command == "set_threshold") {
-    if (!capabilities.supports_threshold || !threshold_callback) {
+    if (!supports(EspectreDirectMethod::SET_THRESHOLD) || !threshold_callback) {
       return reject("unsupported", "unsupported command");
     }
     if (!command.has_threshold || !validate_runtime_threshold(command.threshold)) {
@@ -273,7 +296,7 @@ FrontendCommandResult FrontendCommandEngine::execute(
   }
 
   if (command.command == "set_motion_hits") {
-    if (!capabilities.supports_motion_hits || !motion_hits_callback) {
+    if (!supports(EspectreDirectMethod::SET_MOTION_HITS) || !motion_hits_callback) {
       return reject("unsupported", "unsupported command");
     }
     if (!command.has_motion_hits || command.motion_on_hits < RUNTIME_MOTION_HITS_MIN ||
@@ -291,11 +314,11 @@ FrontendCommandResult FrontendCommandEngine::execute(
   }
 
   if (command.command == "set_csi_traffic_mode") {
-    if (!capabilities.supports_traffic_control || !csi_traffic_mode_callback) {
+    if (!supports(EspectreDirectMethod::SET_CSI_TRAFFIC_MODE) || !csi_traffic_mode_callback) {
       return reject("unsupported", "unsupported command");
     }
     if (!command.has_csi_traffic_mode) {
-      return reject("invalid_params", "invalid csi traffic mode (accepted: internal, external, and disabled)");
+      return reject("invalid_params", "invalid csi traffic mode (accepted: internal and external)");
     }
     result.accepted = csi_traffic_mode_callback(parse_csi_traffic_mode(command.csi_traffic_mode.c_str()), &result.message);
     result.code = result.accepted ? "ok" : "unavailable";
@@ -307,7 +330,7 @@ FrontendCommandResult FrontendCommandEngine::execute(
   }
 
   if (command.command == "set_traffic_generator_mode") {
-    if (!capabilities.supports_traffic_control || !traffic_generator_mode_callback) {
+    if (!supports(EspectreDirectMethod::SET_TRAFFIC_GENERATOR_MODE) || !traffic_generator_mode_callback) {
       return reject("unsupported", "unsupported command");
     }
     if (!command.has_traffic_generator_mode) {
@@ -324,7 +347,7 @@ FrontendCommandResult FrontendCommandEngine::execute(
   }
 
   if (command.command == "set_detector") {
-    if (!capabilities.supports_detector || !detector_callback) {
+    if (!supports(EspectreDirectMethod::SET_DETECTOR) || !detector_callback) {
       return reject("unsupported", "unsupported command");
     }
     if (!command.has_detector) {
@@ -340,7 +363,7 @@ FrontendCommandResult FrontendCommandEngine::execute(
   }
 
   if (command.command == "recalibrate") {
-    if (!capabilities.supports_recalibrate || !recalibrate_callback) {
+    if (!supports(EspectreDirectMethod::RECALIBRATE) || !recalibrate_callback) {
       return reject("unsupported", "unsupported command");
     }
     result.accepted = recalibrate_callback(&result.message);
@@ -353,7 +376,13 @@ FrontendCommandResult FrontendCommandEngine::execute(
   }
 
   if (command.command == "ota_status" || command.command == "ota_check" || command.command == "ota_start") {
-    if (!capabilities.supports_ota || ota_service == nullptr) {
+    EspectreDirectMethod method = EspectreDirectMethod::OTA_STATUS;
+    if (command.command == "ota_check") method = EspectreDirectMethod::OTA_CHECK;
+    if (command.command == "ota_start") method = EspectreDirectMethod::OTA_START;
+    if (!supports(method)) {
+      return reject("unsupported", "unsupported command");
+    }
+    if (ota_service == nullptr) {
       return reject("unavailable", "ota unavailable");
     }
     const std::string normalized_current_version =

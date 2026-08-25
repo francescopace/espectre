@@ -347,9 +347,9 @@ class MQTTCommands:
         command_id = cmd_obj.get('command_id', '')
         command = cmd_obj.get('command', 'set_csi_traffic_mode')
         mode = str(cmd_obj.get('csi_traffic_mode', '')).strip().lower()
-        if mode not in ("internal", "external", "disabled"):
+        if mode not in ("internal", "external"):
             self.send_response(
-                "ERROR: Invalid CSI traffic mode (accepted: internal, external, and disabled)",
+                "ERROR: Invalid CSI traffic mode (accepted: internal and external)",
                 accepted=False,
                 command_id=command_id,
                 command=command,

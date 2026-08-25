@@ -257,6 +257,7 @@ void TrafficGeneratorManager::init(uint32_t target_pps, TrafficGeneratorMode mod
   sock_ = -1;
   gateway_addr_ = 0U;
   mode_ = mode;
+  icmp_identifier_ = static_cast<uint16_t>(reinterpret_cast<uintptr_t>(this));
   target_pps_ = target_pps;
   current_rate_pps_.store(target_pps, std::memory_order_relaxed);
   running_.store(false, std::memory_order_relaxed);
@@ -281,7 +282,7 @@ bool TrafficGeneratorManager::start(uint32_t gateway_addr) {
   gateway_addr_ = gateway_addr;
 
   DnsTrafficProtocol dns_protocol;
-  IcmpTrafficProtocol icmp_protocol(static_cast<uint16_t>(reinterpret_cast<uintptr_t>(this)));
+  IcmpTrafficProtocol icmp_protocol(icmp_identifier_);
   const TrafficProtocol &protocol = mode_ == TrafficGeneratorMode::PING
                                         ? static_cast<const TrafficProtocol &>(icmp_protocol)
                                         : static_cast<const TrafficProtocol &>(dns_protocol);
@@ -368,7 +369,7 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
   }
 
   DnsTrafficProtocol dns_protocol;
-  IcmpTrafficProtocol icmp_protocol(static_cast<uint16_t>(reinterpret_cast<uintptr_t>(manager)));
+  IcmpTrafficProtocol icmp_protocol(manager->icmp_identifier_);
   TrafficProtocol *protocol = manager->mode_ == TrafficGeneratorMode::PING
                                   ? static_cast<TrafficProtocol *>(&icmp_protocol)
                                   : static_cast<TrafficProtocol *>(&dns_protocol);

@@ -128,6 +128,12 @@ RuntimeDiagnosticsSample RuntimeDiagnosticsSampler::sample(const RuntimeDiagnost
       counter_delta(snapshot.traffic_packets_total, previous_.traffic_packets_total), elapsed_ms);
   result.csi_callback_pps = packets_per_second(
       counter_delta(snapshot.csi_callbacks_total, previous_.csi_callbacks_total), elapsed_ms);
+  result.csi_classified_pps = packets_per_second(
+      counter_delta(snapshot.csi_classified_total, previous_.csi_classified_total), elapsed_ms);
+  result.csi_provenance_rejected_pps = packets_per_second(
+      counter_delta(snapshot.csi_provenance_rejected_total,
+                    previous_.csi_provenance_rejected_total),
+      elapsed_ms);
   result.csi_accepted_pps = packets_per_second(
       counter_delta(snapshot.csi_accepted_total, previous_.csi_accepted_total), elapsed_ms);
   result.csi_admitted_pps = packets_per_second(

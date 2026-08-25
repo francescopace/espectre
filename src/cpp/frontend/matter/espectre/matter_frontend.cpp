@@ -10,6 +10,7 @@
 #include "matter_frontend.h"
 
 #include "device_identity.h"
+#include "direct_http_protocol.h"
 #include "espectre_log.h"
 #include "firmware_version.h"
 #include "matter_surface.h"
@@ -59,9 +60,22 @@ bool MatterFrontend::setup() {
               espectre_firmware_version(),
               CONFIG_IDF_TARGET,
               device_id,
-              80U,
+              ESPECTRE_DIRECT_HTTP_PORT,
+              true,
               false,
-              false,
+              [this]() {
+                std::string label;
+                return bindings_->get_node_label(&label) ? label : fallback_device_label_;
+              },
+              [this](const std::string &label, std::string *message) {
+                const bool accepted = bindings_->set_node_label(label);
+                if (message != nullptr) {
+                  *message = accepted ? "Matter NodeLabel updated" : "Matter NodeLabel update rejected";
+                }
+                return accepted;
+              },
+              {},
+              &peer_discovery_,
           })) {
     ESP_LOGE(TAG, "Matter Direct HTTP setup failed");
     runtime_.shutdown();
@@ -70,6 +84,11 @@ bool MatterFrontend::setup() {
 
   ESP_LOGI(TAG, "Matter frontend initialized on endpoint %u", endpoint_id_);
   return true;
+}
+
+void MatterFrontend::sync_device_label() {
+  (void) direct_bridge_.publish_changes(
+      FrontendCommandChange::INFO | FrontendCommandChange::CONFIG);
 }
 
 void MatterFrontend::shutdown() {

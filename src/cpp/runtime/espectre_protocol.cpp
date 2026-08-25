@@ -80,14 +80,7 @@ void append_command_descriptor(std::string *out,
 }
 
 void append_capability_commands(std::string *out,
-                                const EspectreDeviceInfo &info,
-                                bool supports_status,
-                                bool supports_config,
-                                bool supports_sensing_control,
-                                bool supports_wifi_bssid,
-                                bool supports_mqtt_config,
-                                bool supports_peer_discovery,
-                                bool supports_raw_csi) {
+                                const EspectreCapabilityProfile &capabilities) {
   if (out == nullptr) {
     return;
   }
@@ -101,71 +94,73 @@ void append_capability_commands(std::string *out,
                        const char *result = nullptr) {
     append_command_descriptor(out, &first, enabled, name, kind, access, properties, required, result);
   };
-  add(true, "capabilities", "query", "read", "", "", "capabilities");
-  add(info.supports_info, "info", "query", "read", "", "", "info");
-  add(supports_status, "status", "query", "read", "", "", "status");
-  add(supports_config, "config", "query", "read", "", "", "config");
-  add(info.supports_diagnostics, "diagnostics", "query", "read", "", "", "diagnostics");
-  add(supports_sensing_control,
+  using Method = EspectreDirectMethod;
+  add(capabilities.supports(Method::CAPABILITIES), "capabilities", "query", "read", "", "", "capabilities");
+  add(capabilities.supports(Method::INFO), "info", "query", "read", "", "", "info");
+  add(capabilities.supports(Method::STATUS), "status", "query", "read", "", "", "status");
+  add(capabilities.supports(Method::CONFIG), "config", "query", "read", "", "", "config");
+  add(capabilities.supports(Method::DIAGNOSTICS), "diagnostics", "query", "read", "", "", "diagnostics");
+  add(capabilities.supports(Method::SET_SENSING),
       "set_sensing",
       "mutation",
       "control",
       "\"enabled\":{\"type\":\"boolean\"}",
       "\"enabled\"");
-  add(info.supports_device_config,
+  add(capabilities.supports(Method::SET_DEVICE_LABEL),
       "set_device_label",
       "mutation",
       "device_admin",
-      "\"device_label\":{\"type\":\"string\"}",
+      "\"device_label\":{\"type\":\"string\",\"maxLength\":32}",
       "\"device_label\"");
-  add(info.supports_runtime_threshold,
+  add(capabilities.supports(Method::SET_THRESHOLD),
       "set_threshold",
       "mutation",
       "control",
       "\"threshold\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1}",
       "\"threshold\"");
-  add(info.supports_runtime_motion_hits,
+  add(capabilities.supports(Method::SET_MOTION_HITS),
       "set_motion_hits",
       "mutation",
       "control",
       "\"motion_on_hits\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":20},"
       "\"motion_off_hits\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":20}",
       "\"motion_on_hits\",\"motion_off_hits\"");
-  add(info.supports_runtime_detector,
+  add(capabilities.supports(Method::SET_DETECTOR),
       "set_detector",
       "mutation",
       "control",
       "\"detector\":{\"type\":\"string\",\"enum\":[\"lightweight\",\"high_accuracy\"]}",
       "\"detector\"");
-  add(info.supports_manual_recalibration, "recalibrate", "action", "control");
-  add(supports_raw_csi,
-      "start_raw_stream",
-      "action",
-      "control",
-      "\"target_pps\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":500}");
-  add(supports_raw_csi, "stop_raw_stream", "action", "control");
-  add(info.supports_traffic_control,
+  add(capabilities.supports(Method::RECALIBRATE), "recalibrate", "action", "control");
+  add(capabilities.supports(Method::START_RAW_STREAM), "start_raw_stream", "action", "control");
+  add(capabilities.supports(Method::STOP_RAW_STREAM), "stop_raw_stream", "action", "control");
+  add(capabilities.supports(Method::SET_CSI_TRAFFIC_MODE),
       "set_csi_traffic_mode",
       "mutation",
       "control",
-      "\"csi_traffic_mode\":{\"type\":\"string\",\"enum\":[\"internal\",\"external\",\"disabled\"]}",
+      "\"csi_traffic_mode\":{\"type\":\"string\",\"enum\":[\"internal\",\"external\"]}",
       "\"csi_traffic_mode\"");
-  add(info.supports_traffic_control,
+  add(capabilities.supports(Method::SET_TRAFFIC_GENERATOR_MODE),
       "set_traffic_generator_mode",
       "mutation",
       "control",
       "\"traffic_generator_mode\":{\"type\":\"string\",\"enum\":[\"ping\",\"dns\"]}",
       "\"traffic_generator_mode\"");
-  add(supports_wifi_bssid, "wifi_access_points", "query", "network_admin", "", "", "wifi_access_points");
-  add(supports_wifi_bssid, "scan_wifi_access_points", "action", "network_admin");
-  add(supports_wifi_bssid,
+  add(capabilities.supports(Method::WIFI_ACCESS_POINTS),
+      "wifi_access_points", "query", "network_admin", "", "", "wifi_access_points");
+  add(capabilities.supports(Method::SCAN_WIFI_ACCESS_POINTS),
+      "scan_wifi_access_points", "action", "network_admin");
+  add(capabilities.supports(Method::SET_WIFI_BSSID),
       "set_wifi_bssid",
       "mutation",
       "network_admin",
       "\"bssid\":{\"type\":\"string\"}",
       "\"bssid\"");
-  add(supports_wifi_bssid, "clear_wifi_config", "mutation", "network_admin");
-  add(supports_mqtt_config,
+  add(capabilities.supports(Method::CLEAR_WIFI_BSSID),
+      "clear_wifi_bssid", "mutation", "network_admin");
+  add(capabilities.supports(Method::CLEAR_WIFI_CONFIG),
+      "clear_wifi_config", "mutation", "network_admin");
+  add(capabilities.supports(Method::SET_MQTT_CONFIG),
       "set_mqtt_config",
       "mutation",
       "network_admin",
@@ -173,19 +168,22 @@ void append_capability_commands(std::string *out,
       "\"username\":{\"type\":\"string\"},\"password\":{\"type\":\"string\"},"
       "\"topic_prefix\":{\"type\":\"string\"}",
       "\"host\"");
-  add(supports_mqtt_config, "clear_mqtt_config", "mutation", "network_admin");
-  add(info.supports_ota, "ota_status", "query", "firmware_update", "", "", "ota_status");
-  add(info.supports_ota,
+  add(capabilities.supports(Method::CLEAR_MQTT_CONFIG),
+      "clear_mqtt_config", "mutation", "network_admin");
+  add(capabilities.supports(Method::OTA_STATUS),
+      "ota_status", "query", "firmware_update", "", "", "ota_status");
+  add(capabilities.supports(Method::OTA_CHECK),
       "ota_check",
       "action",
       "firmware_update",
       "\"channel\":{\"type\":\"string\",\"enum\":[\"release\",\"preview\",\"develop\"]}");
-  add(info.supports_ota,
+  add(capabilities.supports(Method::OTA_START),
       "ota_start",
       "action",
       "firmware_update",
       "\"channel\":{\"type\":\"string\",\"enum\":[\"release\",\"preview\",\"develop\"]}");
-  add(supports_peer_discovery, "discover_peers", "query", "discovery", "", "", "peers");
+  add(capabilities.supports(Method::DISCOVER_PEERS),
+      "discover_peers", "query", "discovery", "", "", "peers");
 }
 
 bool parse_float_value(const std::string &value, float *out) {
@@ -362,7 +360,7 @@ bool parse_command_fields(const std::string &command_id,
     if (parsed.command == "set_detector") return name == "detector";
     if (parsed.command == "set_csi_traffic_mode") return name == "csi_traffic_mode";
     if (parsed.command == "set_traffic_generator_mode") return name == "traffic_generator_mode";
-    if (parsed.command == "start_raw_stream") return name == "target_pps";
+    if (parsed.command == "start_raw_stream") return false;
     if (parsed.command == "set_wifi_bssid") return name == "bssid";
     if (parsed.command == "set_mqtt_config") {
       return name == "host" || name == "port" || name == "username" || name == "password" ||
@@ -383,6 +381,7 @@ bool parse_command_fields(const std::string &command_id,
     parsed.has_sensing_enabled = true;
   } else if (parsed.command == "set_device_label") {
     if (!string_field("device_label", &parsed.device_label) ||
+        parsed.device_label.size() > ESPECTRE_DEVICE_LABEL_MAX_LENGTH ||
         parsed.device_label.find_first_of("\r\n\0", 0U, 3U) != std::string::npos) {
       return reject("invalid device label (accepted: a single-line string)");
     }
@@ -406,9 +405,8 @@ bool parse_command_fields(const std::string &command_id,
   } else if (parsed.command == "set_csi_traffic_mode") {
     if (!string_field("csi_traffic_mode", &parsed.csi_traffic_mode) ||
         (parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME &&
-         parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME &&
-         parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_DISABLED_NAME)) {
-      return reject("invalid csi traffic mode (accepted: internal, external, and disabled)");
+         parsed.csi_traffic_mode != RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME)) {
+      return reject("invalid csi traffic mode (accepted: internal and external)");
     }
     parsed.has_csi_traffic_mode = true;
   } else if (parsed.command == "set_traffic_generator_mode") {
@@ -426,18 +424,11 @@ bool parse_command_fields(const std::string &command_id,
     }
     parsed.has_detector = true;
   } else if (parsed.command == "start_raw_stream") {
-    if (find_json_object_field(fields, "target_pps") != nullptr) {
-      std::string target_pps_token;
-      if (!number_field("target_pps", &target_pps_token) ||
-          !parse_uint16_value(target_pps_token, &parsed.raw_target_pps) ||
-          parsed.raw_target_pps == 0U || parsed.raw_target_pps > 500U) {
-        return reject("invalid raw target pps (accepted: 1-500)");
-      }
-      parsed.has_raw_target_pps = true;
-    }
+    // Raw transport forwards every classified CSI frame and accepts no rate.
   } else if (parsed.command == "set_wifi_bssid") {
-    if (!string_field("bssid", &parsed.wifi_bssid) || !bssid_string_accepted(parsed.wifi_bssid)) {
-      return reject("invalid BSSID (accepted: empty or six hexadecimal octets)");
+    if (!string_field("bssid", &parsed.wifi_bssid) || parsed.wifi_bssid.empty() ||
+        !bssid_string_accepted(parsed.wifi_bssid)) {
+      return reject("invalid BSSID (accepted: six hexadecimal octets)");
     }
     parsed.has_wifi_bssid = true;
   } else if (parsed.command == "clear_wifi_config") {
@@ -662,13 +653,7 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
 
 std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
                                           const EspectreDeviceInfo &info,
-                                          bool supports_status,
-                                          bool supports_config,
-                                          bool supports_sensing_control,
-                                          bool supports_wifi_bssid,
-                                          bool supports_mqtt_config,
-                                          bool supports_peer_discovery,
-                                          bool supports_raw_csi) {
+                                          const EspectreCapabilityProfile &capabilities) {
   const std::string device_id = espectre_effective_device_id(config);
   std::string out;
   out.reserve(3072U + device_id.size());
@@ -676,34 +661,92 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
   append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
   append_json_pair(&out, "device_id", device_id.c_str());
   out += ",\"commands\":[";
-  append_capability_commands(&out,
-                             info,
-                             supports_status,
-                             supports_config,
-                             supports_sensing_control,
-                             supports_wifi_bssid,
-                             supports_mqtt_config,
-                             supports_peer_discovery,
-                             supports_raw_csi);
+  append_capability_commands(&out, capabilities);
   out += "],\"events\":[\"telemetry\",\"status\",\"info\",\"config\"";
-  if (info.supports_ota) out += ",\"ota_status\"";
-  out += ",\"fault\"],"
-         "\"config_sections\":[\"runtime\"";
-  if (info.supports_device_config) out += ",\"device\"";
-  if (supports_wifi_bssid) out += ",\"wifi\"";
-  if (supports_mqtt_config) out += ",\"mqtt\"";
+  if (capabilities.supports(EspectreDirectMethod::OTA_STATUS)) out += ",\"ota_status\"";
+  out += ",\"fault\"],\"config_sections\":[";
+  bool first_section = true;
+  const auto append_section = [&out, &first_section, &capabilities](EspectreConfigSection section,
+                                                                    const char *name) {
+    if (!capabilities.has(section)) return;
+    if (!first_section) out += ',';
+    out += '\"';
+    out += name;
+    out += '\"';
+    first_section = false;
+  };
+  append_section(EspectreConfigSection::RUNTIME, "runtime");
+  append_section(EspectreConfigSection::DEVICE, "device");
+  append_section(EspectreConfigSection::WIFI, "wifi");
+  append_section(EspectreConfigSection::MQTT, "mqtt");
+  const bool supports_raw_csi =
+      capabilities.supports(EspectreDirectMethod::START_RAW_STREAM) &&
+      capabilities.supports(EspectreDirectMethod::STOP_RAW_STREAM);
   out += "],\"features\":{\"raw_csi\":";
   out += supports_raw_csi ? "true" : "false";
   out += "}";
   if (supports_raw_csi) {
     out += ",\"raw_csi\":{\"endpoint\":\"/espectre/v1/csi\","
-           "\"transport\":\"http\",\"protocol_version\":1,"
-           "\"record_version\":8,\"frame_prefix_bytes\":76,"
-           "\"target_pps\":{\"minimum\":1,\"maximum\":500},"
-           "\"bind_timeout_ms\":5000,\"heartbeat_ms\":1000}";
+           "\"transport\":\"http\",\"protocol_version\":2,"
+           "\"record_version\":8,\"frame_prefix_bytes\":60,"
+           "\"queue_depth\":16,\"batch_records\":4,\"bind_timeout_ms\":5000,"
+           "\"traffic_udp_port\":";
+    out += std::to_string(info.csi_traffic_udp_port == 0U ? RUNTIME_CSI_TRAFFIC_UDP_PORT_DEFAULT
+                                                          : info.csi_traffic_udp_port);
+    out += ",\"traffic_multicast_group\":";
+    append_json_string(&out, info.csi_traffic_multicast_group.c_str());
+    out += ",\"traffic_marker\":";
+    append_json_string(&out, RUNTIME_CSI_TRAFFIC_MARKER_UTF8);
+    out += "}";
   }
   out += "}";
   return out;
+}
+
+std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
+                                          const EspectreDeviceInfo &info,
+                                          bool supports_status,
+                                          bool supports_config,
+                                          bool supports_sensing_control,
+                                          bool supports_wifi_bssid,
+                                          bool supports_mqtt_config,
+                                          bool supports_peer_discovery,
+                                          bool supports_raw_csi) {
+  EspectreCapabilityProfile capabilities;
+  using Method = EspectreDirectMethod;
+  capabilities.set(Method::CAPABILITIES);
+  capabilities.set(Method::INFO, info.supports_info);
+  capabilities.set(Method::STATUS, supports_status);
+  capabilities.set(Method::CONFIG, supports_config);
+  capabilities.set(Method::DIAGNOSTICS, info.supports_diagnostics);
+  capabilities.set(Method::SET_SENSING, supports_sensing_control);
+  capabilities.set(Method::SET_DEVICE_LABEL, info.supports_device_config);
+  capabilities.set(Method::SET_THRESHOLD, info.supports_runtime_threshold);
+  capabilities.set(Method::SET_MOTION_HITS, info.supports_runtime_motion_hits);
+  capabilities.set(Method::SET_DETECTOR, info.supports_runtime_detector);
+  capabilities.set(Method::RECALIBRATE, info.supports_manual_recalibration);
+  capabilities.set(Method::SET_CSI_TRAFFIC_MODE, info.supports_traffic_control);
+  capabilities.set(Method::SET_TRAFFIC_GENERATOR_MODE, info.supports_traffic_control);
+  capabilities.set(Method::WIFI_ACCESS_POINTS, supports_wifi_bssid);
+  capabilities.set(Method::SCAN_WIFI_ACCESS_POINTS, supports_wifi_bssid);
+  capabilities.set(Method::SET_WIFI_BSSID, supports_wifi_bssid);
+  capabilities.set(Method::CLEAR_WIFI_BSSID, supports_wifi_bssid);
+  capabilities.set(Method::CLEAR_WIFI_CONFIG, supports_wifi_bssid);
+  capabilities.set(Method::SET_MQTT_CONFIG, supports_mqtt_config);
+  capabilities.set(Method::CLEAR_MQTT_CONFIG, supports_mqtt_config);
+  capabilities.set(Method::OTA_STATUS, info.supports_ota);
+  capabilities.set(Method::OTA_CHECK, info.supports_ota);
+  capabilities.set(Method::OTA_START, info.supports_ota);
+  capabilities.set(Method::DISCOVER_PEERS, supports_peer_discovery);
+  capabilities.set(Method::START_RAW_STREAM, supports_raw_csi);
+  capabilities.set(Method::STOP_RAW_STREAM, supports_raw_csi);
+  // The compatibility overload historically reported the runtime section even
+  // when callers hid the config command.
+  capabilities.set(EspectreConfigSection::RUNTIME);
+  capabilities.set(EspectreConfigSection::DEVICE, info.supports_device_config);
+  capabilities.set(EspectreConfigSection::WIFI, supports_wifi_bssid);
+  capabilities.set(EspectreConfigSection::MQTT, supports_mqtt_config);
+  return espectre_capabilities_payload(config, info, capabilities);
 }
 
 std::string espectre_telemetry_payload(const EspectreDeviceConfig &config,

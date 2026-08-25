@@ -286,7 +286,7 @@ CONFIG_SCHEMA = cv.Schema({
         min=CSI_TARGET_PPS_MIN, max=CSI_TARGET_PPS_MAX
     ),
     cv.Optional(CONF_CSI_TRAFFIC_MODE, default=CSI_TRAFFIC_MODE_DEFAULT): cv.one_of(
-        "internal", "external", "disabled", lower=True
+        "internal", "external", lower=True
     ),
     cv.Optional(CONF_CSI_TRAFFIC_MULTICAST_GROUP, default=CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT): validate_csi_traffic_multicast_group,
     
@@ -507,7 +507,7 @@ async def to_code(config):
     add_idf_sdkconfig_option("CONFIG_PM_ENABLE", False)
     add_idf_sdkconfig_option("CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE", False)
     
-    # Use the same high-rate Wi-Fi and lwIP baseline as the Streamer frontend.
+    # Use the shared high-rate Wi-Fi and lwIP baseline required by raw HTTP.
     # RX AMPDU remains disabled because sensing consumes individual CSI frames;
     # TX aggregation and larger queues prevent the managed traffic source from
     # becoming the cadence bottleneck.
@@ -624,7 +624,7 @@ async def to_code(config):
 
     csi_traffic_mode = await select.new_select(
         config[CONF_CSI_TRAFFIC_MODE_SELECT],
-        options=["internal", "external", "disabled"],
+        options=["internal", "external"],
     )
     cg.add(csi_traffic_mode.set_parent(var))
     cg.add(csi_traffic_mode.set_csi_traffic_mode(True))

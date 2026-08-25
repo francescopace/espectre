@@ -18,6 +18,12 @@
 
 #include <esp_log.h>
 #include <esp_timer.h>
+#include <lwip/sockets.h>
+#if defined(ESP_PLATFORM)
+#include <lwip/tcp.h>
+#else
+#include <netinet/tcp.h>
+#endif
 
 namespace espectre {
 
@@ -27,7 +33,6 @@ namespace {
 constexpr size_t kHeaderBufferSize = 256U;
 constexpr uint64_t kMutationWindowUs = 60ULL * 1000ULL * 1000ULL;
 constexpr uint64_t kEventHeartbeatUs = 10ULL * 1000ULL * 1000ULL;
-constexpr uint64_t kRawHeartbeatUs = 1ULL * 1000ULL * 1000ULL;
 constexpr uint64_t kRawBindTimeoutUs = 5ULL * 1000ULL * 1000ULL;
 constexpr uint8_t kMaxConsecutiveSendFailures = 3U;
 constexpr const char *kHttp400 = "400 Bad Request";
@@ -41,8 +46,6 @@ constexpr const char *kHttp503 = "503 Service Unavailable";
 constexpr TickType_t kWorkerShutdownPollTicks = pdMS_TO_TICKS(1U);
 constexpr uint32_t kWorkerShutdownTimeoutMs = 1500U;
 #endif
-constexpr size_t kRawFrameMaximumSize =
-    sizeof(RawCsiHttpFramePrefixV1) + sizeof(CsiStreamHeaderV8) + STREAM_MAX_CSI_LEN_BYTES;
 
 bool read_only_method(const std::string &method) {
   return method == "capabilities" || method == "info" || method == "status" ||
@@ -113,7 +116,10 @@ esp_err_t send_http_error(httpd_req_t *request, const char *status, const char *
 
 }  // namespace
 
-EspIdfDirectHttpService::EspIdfDirectHttpService() { mutex_ = xSemaphoreCreateMutex(); }
+EspIdfDirectHttpService::EspIdfDirectHttpService() {
+  mutex_ = xSemaphoreCreateMutex();
+  raw_send_mutex_ = xSemaphoreCreateMutex();
+}
 
 EspIdfDirectHttpService::~EspIdfDirectHttpService() {
   shutdown();
@@ -121,12 +127,16 @@ EspIdfDirectHttpService::~EspIdfDirectHttpService() {
     vSemaphoreDelete(mutex_);
     mutex_ = nullptr;
   }
+  if (raw_send_mutex_ != nullptr) {
+    vSemaphoreDelete(raw_send_mutex_);
+    raw_send_mutex_ = nullptr;
+  }
 }
 
 bool EspIdfDirectHttpService::setup(const DirectHttpServiceConfig &config,
                                     RequestHandler request_handler,
                                     ClientCountCallback client_count_callback) {
-  if (mutex_ == nullptr || !request_handler ||
+  if (mutex_ == nullptr || raw_send_mutex_ == nullptr || !request_handler ||
       (config.allowed_origins.empty() && !config.allow_missing_origin) ||
       config.max_event_clients == 0U ||
       config.max_event_clients > 2U || config.max_pending_requests == 0U ||
@@ -192,6 +202,18 @@ bool EspIdfDirectHttpService::setup(const DirectHttpServiceConfig &config,
     httpd_stop(server_);
     server_ = nullptr;
     ESP_LOGE(TAG, "Failed to start Direct HTTP streaming worker");
+    return false;
+  }
+  raw_worker_running_.store(true, std::memory_order_release);
+  if (xTaskCreate(&raw_worker_entry_, "espectre_raw", 4096U, this,
+                  tskIDLE_PRIORITY + 3U, &raw_worker_task_) != pdPASS) {
+    raw_worker_running_.store(false, std::memory_order_release);
+    worker_running_.store(false, std::memory_order_release);
+    vTaskDelete(worker_task_);
+    worker_task_ = nullptr;
+    httpd_stop(server_);
+    server_ = nullptr;
+    ESP_LOGE(TAG, "Failed to start Direct raw CSI worker");
     return false;
   }
 #endif
@@ -280,10 +302,15 @@ void EspIdfDirectHttpService::loop() {
 
 void EspIdfDirectHttpService::shutdown() {
   worker_running_.store(false, std::memory_order_release);
+  raw_worker_running_.store(false, std::memory_order_release);
+#if defined(ESP_PLATFORM)
+  if (raw_worker_task_ != nullptr) xTaskNotifyGive(raw_worker_task_);
+#endif
   (void) stop_raw_session(RawCsiStopReason::SHUTDOWN);
 #if defined(ESP_PLATFORM)
   uint32_t waited_ms = 0U;
-  while (worker_task_ != nullptr && waited_ms < kWorkerShutdownTimeoutMs) {
+  while ((worker_task_ != nullptr || raw_worker_task_ != nullptr) &&
+         waited_ms < kWorkerShutdownTimeoutMs) {
     vTaskDelay(kWorkerShutdownPollTicks);
     waited_ms += 1U;
   }
@@ -292,6 +319,12 @@ void EspIdfDirectHttpService::shutdown() {
              static_cast<unsigned>(kWorkerShutdownTimeoutMs));
     vTaskDelete(worker_task_);
     worker_task_ = nullptr;
+  }
+  if (raw_worker_task_ != nullptr) {
+    ESP_LOGW(TAG, "Direct raw worker did not stop within %u ms",
+             static_cast<unsigned>(kWorkerShutdownTimeoutMs));
+    vTaskDelete(raw_worker_task_);
+    raw_worker_task_ = nullptr;
   }
 #endif
 
@@ -364,8 +397,7 @@ DirectHttpServiceDiagnostics EspIdfDirectHttpService::diagnostics() const {
 bool EspIdfDirectHttpService::start_raw_session(
     const RawCsiSessionConfig &config,
     RawSessionStoppedCallback stopped_callback) {
-  if (server_ == nullptr || config.target_pps == 0U || config.target_pps > 500U ||
-      !session_id_present(config.session_id) || !lock_()) {
+  if (server_ == nullptr || !session_id_present(config.session_id) || !lock_()) {
     return false;
   }
   if (raw_session_active_.load(std::memory_order_acquire)) {
@@ -376,11 +408,10 @@ bool EspIdfDirectHttpService::start_raw_session(
   raw_session_.config = config;
   raw_session_.stopped_callback = std::move(stopped_callback);
   raw_session_.opened_at_us = static_cast<uint64_t>(esp_timer_get_time());
-  raw_sample_consumed_generation_.store(raw_sample_generation_.load(std::memory_order_acquire),
-                                        std::memory_order_release);
-  raw_no_sample_total_.store(0U, std::memory_order_relaxed);
-  raw_replaced_sample_total_.store(0U, std::memory_order_relaxed);
-  raw_dropped_sample_total_.store(0U, std::memory_order_relaxed);
+  raw_sample_head_.store(0U, std::memory_order_relaxed);
+  raw_sample_tail_.store(0U, std::memory_order_relaxed);
+  raw_offer_sequence_.store(0U, std::memory_order_relaxed);
+  raw_drop_total_.store(0U, std::memory_order_relaxed);
   raw_send_backpressure_total_.store(0U, std::memory_order_relaxed);
   raw_fresh_record_total_.store(0U, std::memory_order_relaxed);
   raw_session_active_.store(true, std::memory_order_release);
@@ -389,18 +420,29 @@ bool EspIdfDirectHttpService::start_raw_session(
 }
 
 bool EspIdfDirectHttpService::stop_raw_session(RawCsiStopReason reason) {
+  bool expected_active = true;
+  if (!raw_session_active_.compare_exchange_strong(
+          expected_active, false, std::memory_order_acq_rel)) return false;
+  while (raw_producer_active_.load(std::memory_order_acquire) != 0U) {
+    vTaskDelay(1U);
+  }
+  if (xSemaphoreTake(raw_send_mutex_, portMAX_DELAY) != pdTRUE) return false;
   RawSessionStoppedCallback stopped_callback;
   httpd_req_t *request = nullptr;
-  if (!lock_()) return false;
-  if (!raw_session_active_.load(std::memory_order_acquire)) {
-    unlock_();
+  if (xSemaphoreTake(mutex_, portMAX_DELAY) != pdTRUE) {
+    xSemaphoreGive(raw_send_mutex_);
     return false;
   }
-  raw_session_active_.store(false, std::memory_order_release);
+  const uint64_t head = raw_sample_head_.load(std::memory_order_acquire);
+  const uint64_t tail = raw_sample_tail_.load(std::memory_order_acquire);
+  if (tail > head) {
+    raw_drop_total_.fetch_add(tail - head, std::memory_order_relaxed);
+  }
   request = raw_session_.request;
   stopped_callback = std::move(raw_session_.stopped_callback);
   reset_raw_session_locked_();
   unlock_();
+  xSemaphoreGive(raw_send_mutex_);
   if (request != nullptr) {
     (void) httpd_resp_send_chunk(request, nullptr, 0U);
     (void) httpd_req_async_handler_complete(request);
@@ -411,35 +453,47 @@ bool EspIdfDirectHttpService::stop_raw_session(RawCsiStopReason reason) {
 
 bool EspIdfDirectHttpService::offer_raw_packet(const RawCsiPacketView &packet) {
   if (!raw_session_active_.load(std::memory_order_acquire)) return false;
-  if (packet.csi == nullptr || packet.csi_len == 0U ||
-      packet.csi_len > STREAM_MAX_CSI_LEN_BYTES || (packet.csi_len & 1U) != 0U) {
-    raw_dropped_sample_total_.fetch_add(1U, std::memory_order_relaxed);
+  raw_producer_active_.fetch_add(1U, std::memory_order_acq_rel);
+  if (!raw_session_active_.load(std::memory_order_acquire)) {
+    raw_producer_active_.fetch_sub(1U, std::memory_order_release);
     return false;
   }
-  const uint64_t generation = raw_sample_generation_.fetch_add(1U, std::memory_order_acq_rel) + 1U;
-  RawSampleSlot &slot = raw_samples_[generation % raw_samples_.size()];
-  const uint64_t consumed = raw_sample_consumed_generation_.load(std::memory_order_acquire);
-  portENTER_CRITICAL(&raw_samples_lock_);
-  if (slot.generation > consumed) raw_replaced_sample_total_.fetch_add(1U, std::memory_order_relaxed);
-  slot.generation = generation;
+  const uint64_t sequence = raw_offer_sequence_.fetch_add(1U, std::memory_order_relaxed) + 1U;
+  if (packet.csi == nullptr || packet.csi_len == 0U ||
+      packet.csi_len > RAW_CSI_MAX_PAYLOAD_BYTES || (packet.csi_len & 1U) != 0U) {
+    raw_drop_total_.fetch_add(1U, std::memory_order_relaxed);
+    raw_producer_active_.fetch_sub(1U, std::memory_order_release);
+    return false;
+  }
+  const uint64_t tail = raw_sample_tail_.load(std::memory_order_relaxed);
+  const uint64_t head = raw_sample_head_.load(std::memory_order_acquire);
+  if (tail - head >= raw_samples_.size()) {
+    raw_drop_total_.fetch_add(1U, std::memory_order_relaxed);
+    raw_producer_active_.fetch_sub(1U, std::memory_order_release);
+    return false;
+  }
+  RawSampleSlot &slot = raw_samples_[tail % raw_samples_.size()];
   slot.metadata = packet;
   std::memcpy(slot.csi.data(), packet.csi, packet.csi_len);
   slot.metadata.csi = slot.csi.data();
-  portEXIT_CRITICAL(&raw_samples_lock_);
+  slot.stream_sequence = sequence;
+  raw_sample_tail_.store(tail + 1U, std::memory_order_release);
+  raw_producer_active_.fetch_sub(1U, std::memory_order_release);
+#if defined(ESP_PLATFORM)
+  if (raw_worker_task_ != nullptr) xTaskNotifyGive(raw_worker_task_);
+#endif
   return true;
 }
 
 RawCsiSessionDiagnostics EspIdfDirectHttpService::raw_diagnostics() const {
   RawCsiSessionDiagnostics snapshot;
   snapshot.active = raw_session_active_.load(std::memory_order_acquire);
-  snapshot.no_sample_total = raw_no_sample_total_.load(std::memory_order_relaxed);
-  snapshot.replaced_sample_total = raw_replaced_sample_total_.load(std::memory_order_relaxed);
-  snapshot.dropped_sample_total = raw_dropped_sample_total_.load(std::memory_order_relaxed);
+  snapshot.raw_drop_total = raw_drop_total_.load(std::memory_order_relaxed);
   snapshot.raw_send_backpressure_total = raw_send_backpressure_total_.load(std::memory_order_relaxed);
   snapshot.fresh_record_total = raw_fresh_record_total_.load(std::memory_order_relaxed);
   if (lock_()) {
     snapshot.binary_bound = raw_session_.binary_bound;
-    snapshot.stream_sequence = raw_session_.stream_sequence;
+    snapshot.stream_sequence = raw_offer_sequence_.load(std::memory_order_relaxed);
     unlock_();
   }
   return snapshot;
@@ -473,6 +527,22 @@ void EspIdfDirectHttpService::worker_entry_(void *context) {
   }
   if (service != nullptr) service->worker_task_ = nullptr;
   vTaskDelete(nullptr);
+}
+
+void EspIdfDirectHttpService::raw_worker_entry_(void *context) {
+#if defined(ESP_PLATFORM)
+  auto *service = static_cast<EspIdfDirectHttpService *>(context);
+  while (service != nullptr && service->raw_worker_running_.load(std::memory_order_acquire)) {
+    (void) ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    while (service->raw_worker_running_.load(std::memory_order_acquire) &&
+           service->service_raw_stream_()) {
+    }
+  }
+  if (service != nullptr) service->raw_worker_task_ = nullptr;
+  vTaskDelete(nullptr);
+#else
+  (void) context;
+#endif
 }
 
 esp_err_t EspIdfDirectHttpService::handle_request_(httpd_req_t *request) {
@@ -646,10 +716,26 @@ esp_err_t EspIdfDirectHttpService::handle_raw_(httpd_req_t *request) {
   raw_session_.fd = httpd_req_to_sockfd(async_request);
   raw_session_.binary_bound = true;
   raw_session_.last_send_us = now_us;
-  raw_session_.next_send_us = now_us;
   raw_session_.origin = std::move(origin);
   set_response_headers_(async_request, raw_session_.origin);
+  const int keepalive = 1;
+  (void) setsockopt(raw_session_.fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+#if defined(TCP_KEEPIDLE)
+  const int keepidle = 10;
+  (void) setsockopt(raw_session_.fd, IPPROTO_TCP, TCP_KEEPIDLE, &keepidle, sizeof(keepidle));
+#endif
+#if defined(TCP_KEEPINTVL)
+  const int keepinterval = 5;
+  (void) setsockopt(raw_session_.fd, IPPROTO_TCP, TCP_KEEPINTVL, &keepinterval, sizeof(keepinterval));
+#endif
+#if defined(TCP_KEEPCNT)
+  const int keepcount = 3;
+  (void) setsockopt(raw_session_.fd, IPPROTO_TCP, TCP_KEEPCNT, &keepcount, sizeof(keepcount));
+#endif
   unlock_();
+#if defined(ESP_PLATFORM)
+  if (raw_worker_task_ != nullptr) xTaskNotifyGive(raw_worker_task_);
+#endif
   return ESP_OK;
 }
 
@@ -844,80 +930,55 @@ void EspIdfDirectHttpService::service_event_streams_() {
   if (previous_count != current_count) notify_client_count_(current_count);
 }
 
-void EspIdfDirectHttpService::service_raw_stream_() {
+bool EspIdfDirectHttpService::service_raw_stream_() {
+  if (xSemaphoreTake(raw_send_mutex_, portMAX_DELAY) != pdTRUE) return false;
   RawCsiSessionConfig config;
   httpd_req_t *request = nullptr;
-  uint64_t now_us = static_cast<uint64_t>(esp_timer_get_time());
-  if (!lock_()) return;
+  if (!lock_()) {
+    xSemaphoreGive(raw_send_mutex_);
+    return false;
+  }
   if (!raw_session_active_.load(std::memory_order_acquire) || !raw_session_.binary_bound ||
-      raw_session_.request == nullptr || now_us < raw_session_.next_send_us) {
+      raw_session_.request == nullptr) {
     unlock_();
-    return;
+    xSemaphoreGive(raw_send_mutex_);
+    return false;
   }
   config = raw_session_.config;
   request = raw_session_.request;
-  const uint64_t interval_us = std::max<uint64_t>(1U, 1000000ULL / config.target_pps);
-  // Preserve the absolute pacing grid. Scheduling the next record from the
-  // actual worker wake-up accumulates loop and send overhead on every frame
-  // (about 7-8% at 100 pps on C3). Skip elapsed slots instead of sending a
-  // catch-up burst, but do not let ordinary worker jitter reduce the cadence.
-  uint64_t next_send_us = raw_session_.next_send_us + interval_us;
-  if (next_send_us <= now_us) {
-    const uint64_t skipped_intervals = ((now_us - next_send_us) / interval_us) + 1U;
-    next_send_us += skipped_intervals * interval_us;
-  }
-  raw_session_.next_send_us = next_send_us;
   unlock_();
 
+  size_t length = 0U;
+  size_t records = 0U;
+  uint64_t last_sequence = 0U;
   RawSampleSlot sample;
-  const uint64_t consumed = raw_sample_consumed_generation_.load(std::memory_order_acquire);
-  const bool fresh = copy_latest_raw_sample_(consumed, config.max_sample_age_us, now_us, &sample);
-  if (fresh) {
-    raw_sample_consumed_generation_.store(sample.generation, std::memory_order_release);
-  } else {
-    raw_no_sample_total_.fetch_add(1U, std::memory_order_relaxed);
-    if (lock_()) {
-      const bool heartbeat_due = now_us - raw_session_.last_send_us >= kRawHeartbeatUs;
-      unlock_();
-      if (!heartbeat_due) return;
-    }
-  }
+  while (records < kRawBatchRecords && pop_raw_sample_(&sample)) {
+    const uint64_t sequence = sample.stream_sequence;
+    last_sequence = sequence;
+    const uint64_t fresh_total =
+        raw_fresh_record_total_.load(std::memory_order_relaxed) + records + 1U;
+    RawCsiHttpFramePrefixV2 prefix{};
+    prefix.magic = ESPECTRE_RAW_CSI_RESPONSE_MAGIC;
+    prefix.version = ESPECTRE_RAW_CSI_PROTOCOL_VERSION;
+    prefix.record_version = ESPECTRE_RAW_CSI_RECORD_VERSION;
+    prefix.header_len = sizeof(prefix);
+    std::memcpy(prefix.session_id, config.session_id, sizeof(prefix.session_id));
+    prefix.stream_sequence = sequence;
+    prefix.record_len = static_cast<uint16_t>(sizeof(RawCsiRecordHeaderV8) + sample.metadata.csi_len);
+    prefix.flags = 0U;
+    prefix.fresh_record_total = fresh_total;
+    prefix.raw_drop_total = raw_drop_total_.load(std::memory_order_relaxed);
+    prefix.raw_send_backpressure_total = raw_send_backpressure_total_.load(std::memory_order_relaxed);
+    std::memcpy(raw_send_buffer_.data() + length, &prefix, sizeof(prefix));
+    length += sizeof(prefix);
 
-  uint64_t sequence = 0U;
-  if (lock_()) {
-    sequence = ++raw_session_.stream_sequence;
-    unlock_();
-  }
-  const uint64_t fresh_total = fresh
-      ? raw_fresh_record_total_.fetch_add(1U, std::memory_order_relaxed) + 1U
-      : raw_fresh_record_total_.load(std::memory_order_relaxed);
-  std::array<uint8_t, kRawFrameMaximumSize> bytes{};
-  RawCsiHttpFramePrefixV1 prefix{};
-  prefix.magic = ESPECTRE_RAW_CSI_RESPONSE_MAGIC;
-  prefix.version = ESPECTRE_RAW_CSI_PROTOCOL_VERSION;
-  prefix.status = static_cast<uint8_t>(fresh ? RawCsiResponseStatus::FRESH : RawCsiResponseStatus::NO_SAMPLE);
-  prefix.header_len = sizeof(prefix);
-  std::memcpy(prefix.session_id, config.session_id, sizeof(prefix.session_id));
-  prefix.stream_sequence = sequence;
-  prefix.record_len = fresh
-      ? static_cast<uint16_t>(sizeof(CsiStreamHeaderV8) + sample.metadata.csi_len)
-      : 0U;
-  prefix.error_code = static_cast<uint16_t>(RawCsiErrorCode::NONE);
-  prefix.fresh_record_total = fresh_total;
-  prefix.no_sample_total = raw_no_sample_total_.load(std::memory_order_relaxed);
-  prefix.replaced_sample_total = raw_replaced_sample_total_.load(std::memory_order_relaxed);
-  prefix.dropped_sample_total = raw_dropped_sample_total_.load(std::memory_order_relaxed);
-  prefix.raw_send_backpressure_total = raw_send_backpressure_total_.load(std::memory_order_relaxed);
-  std::memcpy(bytes.data(), &prefix, sizeof(prefix));
-  size_t length = sizeof(prefix);
-  if (fresh) {
-    CsiStreamHeaderV8 header{};
-    header.magic = STREAM_MAGIC;
-    header.version = STREAM_VERSION_V8;
+    RawCsiRecordHeaderV8 header{};
+    header.magic = RAW_CSI_RECORD_MAGIC;
+    header.version = RAW_CSI_RECORD_VERSION_V8;
     header.header_len = sizeof(header);
     header.chip = static_cast<uint8_t>(config.chip);
-    header.flags = sample.metadata.stream_flags;
-    header.seq_num = static_cast<uint32_t>(std::min<uint64_t>(fresh_total, UINT32_MAX));
+    header.flags = sample.metadata.record_flags;
+    header.seq_num = static_cast<uint32_t>(std::min<uint64_t>(sequence, UINT32_MAX));
     header.num_subcarriers = static_cast<uint16_t>(sample.metadata.csi_len / 2U);
     header.csi_len_bytes = sample.metadata.csi_len;
     header.device_id = config.device_id;
@@ -929,27 +990,40 @@ void EspIdfDirectHttpService::service_raw_stream_() {
     header.noise_floor_dbm = sample.metadata.noise_floor_dbm;
     header.transport_backpressure_total = prefix.raw_send_backpressure_total;
     header.fresh_record_total = static_cast<uint32_t>(std::min<uint64_t>(fresh_total, UINT32_MAX));
-    header.request_accepted_total = header.fresh_record_total;
+    header.request_accepted_total =
+        static_cast<uint32_t>(std::min<uint64_t>(sequence, UINT32_MAX));
     header.phy_mode = static_cast<uint8_t>(sample.metadata.phy_mode);
     header.ltf_type = static_cast<uint8_t>(sample.metadata.ltf_type);
     header.channel_width = static_cast<uint8_t>(sample.metadata.channel_width);
-    std::memcpy(bytes.data() + length, &header, sizeof(header));
+    std::memcpy(raw_send_buffer_.data() + length, &header, sizeof(header));
     length += sizeof(header);
-    std::memcpy(bytes.data() + length, sample.csi.data(), sample.metadata.csi_len);
+    std::memcpy(raw_send_buffer_.data() + length, sample.csi.data(), sample.metadata.csi_len);
     length += sample.metadata.csi_len;
+    records += 1U;
   }
+  if (records == 0U) {
+    xSemaphoreGive(raw_send_mutex_);
+    return false;
+  }
+
   const esp_err_t result = httpd_resp_send_chunk(request,
-                                                  reinterpret_cast<const char *>(bytes.data()),
+                                                  reinterpret_cast<const char *>(raw_send_buffer_.data()),
                                                   length);
   if (result != ESP_OK) {
     raw_send_backpressure_total_.fetch_add(1U, std::memory_order_relaxed);
+    raw_drop_total_.fetch_add(records, std::memory_order_relaxed);
+    xSemaphoreGive(raw_send_mutex_);
     (void) stop_raw_session(RawCsiStopReason::SLOW_CLIENT);
-    return;
+    return false;
   }
+  raw_fresh_record_total_.fetch_add(records, std::memory_order_relaxed);
   if (lock_()) {
-    raw_session_.last_send_us = now_us;
+    raw_session_.last_send_us = static_cast<uint64_t>(esp_timer_get_time());
+    raw_session_.stream_sequence = last_sequence;
     unlock_();
   }
+  xSemaphoreGive(raw_send_mutex_);
+  return true;
 }
 
 void EspIdfDirectHttpService::service_raw_timeouts_() {
@@ -967,39 +1041,29 @@ void EspIdfDirectHttpService::service_raw_timeouts_() {
 void EspIdfDirectHttpService::worker_loop_() {
   if (server_ == nullptr) return;
   service_event_streams_();
-  service_raw_stream_();
+#if !defined(ESP_PLATFORM)
+  (void) service_raw_stream_();
+#endif
 }
 
-bool EspIdfDirectHttpService::copy_latest_raw_sample_(
-    uint64_t minimum_generation,
-    uint64_t maximum_age_us,
-    uint64_t now_us,
-    RawSampleSlot *sample) const {
+bool EspIdfDirectHttpService::pop_raw_sample_(RawSampleSlot *sample) {
   if (sample == nullptr) return false;
-  bool found = false;
-  portENTER_CRITICAL(&raw_samples_lock_);
-  for (const RawSampleSlot &slot : raw_samples_) {
-    const RawCsiPacketView metadata = slot.metadata;
-    if (slot.generation <= minimum_generation || metadata.csi_len == 0U ||
-        metadata.csi_len > STREAM_MAX_CSI_LEN_BYTES || metadata.captured_at_us > now_us ||
-        now_us - metadata.captured_at_us > maximum_age_us ||
-        (found && slot.generation <= sample->generation)) {
-      continue;
-    }
-    sample->generation = slot.generation;
-    sample->metadata = metadata;
-    std::memcpy(sample->csi.data(), slot.csi.data(), metadata.csi_len);
-    sample->metadata.csi = sample->csi.data();
-    found = true;
-  }
-  portEXIT_CRITICAL(&raw_samples_lock_);
-  return found;
+  const uint64_t head = raw_sample_head_.load(std::memory_order_relaxed);
+  const uint64_t tail = raw_sample_tail_.load(std::memory_order_acquire);
+  if (head == tail) return false;
+  const RawSampleSlot &slot = raw_samples_[head % raw_samples_.size()];
+  sample->metadata = slot.metadata;
+  std::memcpy(sample->csi.data(), slot.csi.data(), slot.metadata.csi_len);
+  sample->metadata.csi = sample->csi.data();
+  sample->stream_sequence = slot.stream_sequence;
+  raw_sample_head_.store(head + 1U, std::memory_order_release);
+  return true;
 }
 
 void EspIdfDirectHttpService::reset_raw_session_locked_() {
   raw_session_ = {};
-  raw_sample_consumed_generation_.store(raw_sample_generation_.load(std::memory_order_acquire),
-                                        std::memory_order_release);
+  raw_sample_head_.store(0U, std::memory_order_relaxed);
+  raw_sample_tail_.store(0U, std::memory_order_relaxed);
 }
 
 void EspIdfDirectHttpService::notify_client_count_(size_t count) {

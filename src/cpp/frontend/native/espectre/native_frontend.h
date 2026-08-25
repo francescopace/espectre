@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 #include "direct_http_service.h"
+#include "raw_csi_session_controller.h"
 #include "frontend_control_helpers.h"
 #include "frontend_ha_mqtt_helpers.h"
 #include "mqtt_transport.h"
@@ -101,11 +102,13 @@ class NativeFrontend : public IRuntimeListener {
   IDirectHttpService::DeferredRequestResult handle_deferred_direct_request_(
       uint64_t connection_token,
       const DirectRequest &request);
+  EspectreCapabilityProfile command_capability_profile_(bool allow_local_config) const;
   std::string direct_capabilities_payload_() const;
   std::string direct_status_payload_(bool online) const;
   std::string direct_config_payload_(bool include_local = true) const;
   std::string direct_wifi_access_points_payload_() const;
   std::string direct_diagnostics_payload_() const;
+  void refresh_peer_candidate_();
   bool handle_threshold_write_(float threshold);
   bool handle_motion_hits_write_(uint8_t motion_on_hits, uint8_t motion_off_hits);
   bool handle_csi_traffic_mode_write_(CsiTrafficMode mode);
@@ -117,7 +120,6 @@ class NativeFrontend : public IRuntimeListener {
                                   std::string *code,
                                   std::string *message,
                                   std::string *data_json);
-  void handle_raw_session_stopped_(RawCsiStopReason reason);
   bool wifi_configured_() const;
   void handle_ha_birth_message_(const std::string &topic, const std::string &payload);
   void handle_ha_threshold_command_(const std::string &payload);
@@ -204,7 +206,7 @@ class NativeFrontend : public IRuntimeListener {
   bool calibration_started_{false};
   float calibration_start_threshold_{0.0f};
   float last_loop_time_ms_{0.0f};
-  std::string raw_session_authorization_;
+  RawCsiSessionController raw_session_controller_{};
 };
 
 }  // namespace espectre

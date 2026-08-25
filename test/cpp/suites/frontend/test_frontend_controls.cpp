@@ -24,6 +24,8 @@
 #undef private
 
 #include "esphome/core/hal.h"
+#include "direct_http_protocol.h"
+#include "esp_http_server.h"
 #include "frontend_runtime_shim.h"
 
 using namespace esphome::espectre_component;
@@ -81,6 +83,7 @@ class DiagnosticsButtonProbe : public ESpectreDiagnosticsButton {
 
 void setUp(void) {
   frontend_runtime_shim::reset();
+  httpd_mock_reset();
   esphome::reset_mock_millis();
 }
 
@@ -117,6 +120,78 @@ void test_espectre_component_loop_and_destructor_forward_to_runtime(void) {
   }
 
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.shutdown_called);
+}
+
+void test_espectre_component_raw_session_uses_shared_controller_and_recovers(void) {
+  frontend_runtime_shim::state.capabilities.supports_raw_csi = true;
+  ESpectreComponentProbe component;
+  component.runtime_.config().device_id = 0x112233445566ULL;
+  component.setup();
+  TEST_ASSERT_FALSE(component.is_failed());
+  TEST_ASSERT_EQUAL(espectre::ESPECTRE_DIRECT_HTTP_PORT, g_httpd_mock.last_config.server_port);
+
+  const std::string capabilities = component.direct_bridge_.handle_request_(
+      DirectRequest{"raw-capabilities", "capabilities", "{}"});
+  TEST_ASSERT_TRUE(capabilities.find("\"raw_csi\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"start_raw_stream\"") != std::string::npos);
+
+  const std::string started = component.direct_bridge_.handle_request_(
+      DirectRequest{"raw-start", "start_raw_stream", "{}"});
+  TEST_ASSERT_TRUE(started.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(component.direct_service_.raw_diagnostics().active);
+  TEST_ASSERT_EQUAL(RuntimeOperationState::RAW_COLLECTION,
+                    component.runtime_.operation_state());
+
+  TEST_ASSERT_TRUE(component.direct_service_.stop_raw_session(
+      RawCsiStopReason::CHANNEL_CHANGED));
+  TEST_ASSERT_FALSE(component.direct_service_.raw_diagnostics().active);
+  TEST_ASSERT_EQUAL(RuntimeOperationState::SENSING,
+                    component.runtime_.operation_state());
+}
+
+void test_esphome_direct_exposes_common_wifi_and_label_capabilities(void) {
+  ESpectreComponentProbe component;
+  component.runtime_.config().device_id = 0x112233445566ULL;
+  component.setup();
+  TEST_ASSERT_FALSE(component.is_failed());
+
+  const std::string capabilities = component.direct_bridge_.handle_request_(
+      DirectRequest{"capabilities", "capabilities", "{}"});
+  TEST_ASSERT_TRUE(capabilities.find("\"config_sections\":[\"runtime\",\"device\",\"wifi\"]") !=
+                   std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"set_device_label\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"wifi_access_points\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"scan_wifi_access_points\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"set_wifi_bssid\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"clear_wifi_bssid\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"discover_peers\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"clear_wifi_config\"") == std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"set_mqtt_config\"") == std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"ota_start\"") == std::string::npos);
+
+  const std::string scan = component.direct_bridge_.handle_request_(
+      DirectRequest{"scan", "scan_wifi_access_points", "{}"});
+  const std::string pin = component.direct_bridge_.handle_request_(
+      DirectRequest{"pin", "set_wifi_bssid", "{\"bssid\":\"E6:FA:C4:20:19:DE\"}"});
+  const std::string unpin = component.direct_bridge_.handle_request_(
+      DirectRequest{"unpin", "clear_wifi_bssid", "{}"});
+  const std::string credential_reset = component.direct_bridge_.handle_request_(
+      DirectRequest{"reset", "clear_wifi_config", "{}"});
+  TEST_ASSERT_TRUE(scan.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(pin.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(unpin.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(credential_reset.find("\"code\":\"unsupported\"") != std::string::npos);
+
+  const std::string label = component.direct_bridge_.handle_request_(
+      DirectRequest{"label", "set_device_label", "{\"device_label\":\"Kitchen ESPHome\"}"});
+  TEST_ASSERT_TRUE(label.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_EQUAL_STRING("Kitchen ESPHome", component.device_name_().c_str());
+  const std::string info = component.direct_bridge_.handle_request_(
+      DirectRequest{"info", "info", "{}"});
+  const std::string config = component.direct_bridge_.handle_request_(
+      DirectRequest{"config", "config", "{}"});
+  TEST_ASSERT_TRUE(info.find("\"device_label\":\"Kitchen ESPHome\"") != std::string::npos);
+  TEST_ASSERT_TRUE(config.find("\"device_label\":\"Kitchen ESPHome\"") != std::string::npos);
 }
 
 void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {
@@ -471,6 +546,8 @@ int process(void) {
   RUN_TEST(test_espectre_component_setup_uses_mock_runtime_snapshot);
   RUN_TEST(test_espectre_component_setup_marks_failed_when_runtime_setup_fails);
   RUN_TEST(test_espectre_component_loop_and_destructor_forward_to_runtime);
+  RUN_TEST(test_espectre_component_raw_session_uses_shared_controller_and_recovers);
+  RUN_TEST(test_esphome_direct_exposes_common_wifi_and_label_capabilities);
   RUN_TEST(test_espectre_component_publishes_cached_csi_diagnostics_on_demand);
   RUN_TEST(test_espectre_component_configuration_setters_update_runtime_config);
   RUN_TEST(test_threshold_number_behaviors_cover_parent_and_no_parent_paths);

@@ -18,6 +18,7 @@
 
 #include "base_detector.h"
 #include "csi_capture_service.h"
+#include "csi_frame_identity.h"
 #include "evaluation_cadence.h"
 #include "esp_attr.h"
 #include "esp_err.h"
@@ -228,6 +229,12 @@ class CsiPipeline {
   uint64_t capture_filtered_packets_total() const {
     return capture_service_.filtered_packets();
   }
+  uint64_t traffic_classified_packets_total() const {
+    return traffic_classified_packets_total_.load(std::memory_order_relaxed);
+  }
+  uint64_t traffic_rejected_packets_total() const {
+    return traffic_rejected_packets_total_.load(std::memory_order_relaxed);
+  }
   /** RSSI of the most recently accepted CSI packet. */
   int8_t last_rssi_dbm() const { return last_rssi_dbm_; }
   /** Channel the most recently accepted CSI packet arrived on. */
@@ -259,7 +266,7 @@ class CsiPipeline {
    * Clear detector buffer (for calibration reset)
    */
   void clear_detector_buffer();
-  void set_local_identity(uint32_t local_ip_addr, const uint8_t *local_mac_addr);
+  void set_traffic_filter(const CsiFrameFilterConfig &config);
   bool take_detection_timing(DetectionTimingStats *stats);
   
  private:
@@ -314,6 +321,8 @@ class CsiPipeline {
   std::atomic<uint32_t> packets_processed_{0U};
   std::atomic<MotionState> heartbeat_motion_state_{MotionState::IDLE};
   std::atomic<uint64_t> accepted_packets_total_{0U};
+  std::atomic<uint64_t> traffic_classified_packets_total_{0U};
+  std::atomic<uint64_t> traffic_rejected_packets_total_{0U};
   int8_t last_rssi_dbm_{INT8_MIN};
   uint8_t last_channel_{0};
   uint8_t motion_on_hits_{RUNTIME_MOTION_ON_HITS_DEFAULT};
@@ -321,9 +330,9 @@ class CsiPipeline {
   uint8_t pending_state_hits_{0};
   MotionState effective_motion_state_{MotionState::IDLE};
   MotionState pending_motion_state_{MotionState::IDLE};
-  detail::PendingEventLock local_identity_lock_{};
-  uint32_t local_ip_addr_{0U};
-  std::array<uint8_t, 6U> local_mac_addr_{};
+  detail::PendingEventLock traffic_filter_lock_{};
+  CsiFrameFilterConfig traffic_filter_{};
+  bool traffic_filter_configured_{false};
 
   static constexpr size_t kPendingCsiFrameCapacity = 8U;
   PendingQueue<PendingCsiFrame, kPendingCsiFrameCapacity> pending_frames_;

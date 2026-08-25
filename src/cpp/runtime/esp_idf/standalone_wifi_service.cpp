@@ -157,7 +157,7 @@ esp_err_t StandaloneWifiService::setup(const StandaloneWifiConfig &config,
     return err;
   }
 
-  // Keep the CSI bootstrap closer to the historical streamer path: initialize
+  // Keep the CSI bootstrap deterministic: initialize
   // the internal Wi-Fi CSI structures before the station starts associating.
   err = esp_wifi_set_promiscuous(false);
   if (err != ESP_OK) {

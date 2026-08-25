@@ -13,6 +13,7 @@
 
 #include "direct_http_service.h"
 #include "matter_bindings.h"
+#include "peer_discovery_service_esp_idf.h"
 #include "runtime_events.h"
 #include "runtime_direct_http_bridge.h"
 #include "runtime_frontend_controller.h"
@@ -38,6 +39,7 @@ class MatterFrontend : public IRuntimeListener {
   const RuntimeSnapshot &snapshot() const { return runtime_.snapshot(); }
   const RuntimeCapabilities &capabilities() const { return runtime_.capabilities(); }
   bool is_setup_complete() const { return runtime_.is_setup_complete(); }
+  void sync_device_label();
 
  protected:
   void on_motion_state_changed(const RuntimeSnapshot &snapshot) override;
@@ -55,6 +57,8 @@ class MatterFrontend : public IRuntimeListener {
   RuntimeFrontendController runtime_;
   IDirectHttpService *direct_service_{nullptr};
   RuntimeDirectHttpBridge direct_bridge_;
+  EspIdfPeerDiscoveryService peer_discovery_;
+  std::string fallback_device_label_{"ESPectre Matter"};
 };
 
 }  // namespace espectre

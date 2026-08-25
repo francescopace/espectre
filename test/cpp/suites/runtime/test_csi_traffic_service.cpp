@@ -1,7 +1,7 @@
 /*
  * ESPectre - CSI Traffic Service Unit Tests
  *
- * Exercises pacing-mode packet filtering and sender tracking for CSI
+ * Exercises external-mode marker filtering and sender tracking for CSI
  * traffic service.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
@@ -10,7 +10,6 @@
  */
 #include "test_harness.h"
 
-#include <array>
 #include <cstdint>
 #include <unistd.h>
 
@@ -65,23 +64,23 @@ void setUp(void) {}
 
 void tearDown(void) {}
 
-void test_csi_traffic_service_pacing_mode_filters_payload_and_tracks_sender(void) {
+void test_csi_traffic_service_external_mode_filters_marker_and_tracks_sender(void) {
   CsiTrafficService service;
   CsiTrafficServiceConfig config;
-  config.mode = CsiTrafficMode::PACING;
+  config.mode = CsiTrafficMode::EXTERNAL;
   config.udp_port = allocate_udp_port();
-  config.expected_payload = "ESPE";
   service.init(config);
 
   TEST_ASSERT_TRUE(service.start());
 
-  static constexpr std::array<uint8_t, 4> kExpectedPayload{{'E', 'S', 'P', 'E'}};
-  static constexpr std::array<uint8_t, 4> kUnexpectedPayload{{'N', 'O', 'P', 'E'}};
-  send_udp_datagram(config.udp_port, kUnexpectedPayload.data(), kUnexpectedPayload.size());
+  static constexpr uint8_t kUnexpectedPayload[] = {'N', 'O', 'P', 'E'};
+  send_udp_datagram(config.udp_port, kUnexpectedPayload, sizeof(kUnexpectedPayload));
   drain_service(service, 1U);
   TEST_ASSERT_EQUAL(0U, service.get_packets_received());
 
-  send_udp_datagram(config.udp_port, kExpectedPayload.data(), kExpectedPayload.size());
+  send_udp_datagram(config.udp_port,
+                    RUNTIME_CSI_TRAFFIC_MARKER_BYTES,
+                    RUNTIME_CSI_TRAFFIC_MARKER_LENGTH);
   drain_service(service, 1U);
   TEST_ASSERT_EQUAL(1U, service.get_packets_received());
 
@@ -95,10 +94,10 @@ void test_csi_traffic_service_pacing_mode_filters_payload_and_tracks_sender(void
 void test_csi_traffic_projection_keeps_mode_separate_from_positive_target(void) {
   RuntimeConfig runtime_config;
   runtime_config.csi_target_pps = 94U;
-  runtime_config.csi_traffic_mode = CsiTrafficMode::DISABLED;
+  runtime_config.csi_traffic_mode = CsiTrafficMode::INTERNAL;
 
   CsiTrafficServiceConfig service_config = to_csi_traffic_config(runtime_config);
-  TEST_ASSERT_EQUAL(static_cast<int>(CsiTrafficMode::DISABLED),
+  TEST_ASSERT_EQUAL(static_cast<int>(CsiTrafficMode::INTERNAL),
                     static_cast<int>(service_config.mode));
   TEST_ASSERT_EQUAL(94U, service_config.rate_pps);
 
@@ -120,7 +119,7 @@ void test_csi_traffic_projection_keeps_mode_separate_from_positive_target(void) 
 
 int process(void) {
   UNITY_BEGIN();
-  RUN_TEST(test_csi_traffic_service_pacing_mode_filters_payload_and_tracks_sender);
+  RUN_TEST(test_csi_traffic_service_external_mode_filters_marker_and_tracks_sender);
   RUN_TEST(test_csi_traffic_projection_keeps_mode_separate_from_positive_target);
   return UNITY_END();
 }

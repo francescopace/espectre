@@ -160,10 +160,6 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
                                "CONFIG_ESPECTRE_CSI_TARGET_PPS");
 #if CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_EXTERNAL
   config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
-#elif CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_PACING
-  config.csi_traffic_mode = CsiTrafficMode::PACING;
-#elif CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_DISABLED
-  config.csi_traffic_mode = CsiTrafficMode::DISABLED;
 #else
   config.csi_traffic_mode = CsiTrafficMode::INTERNAL;
 #endif

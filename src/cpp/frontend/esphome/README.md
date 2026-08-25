@@ -26,9 +26,9 @@ After flashing, configure Wi-Fi with one of these provisioning paths:
 
 Once Wi-Fi is configured, the device is discovered automatically by Home Assistant through ESPHome.
 
-ESPHome continues to advertise its native API as `_esphomelib._tcp.local.`. ESPectre also publishes the canonical `_espectre._tcp.local.` record for its Direct HTTP endpoint on port `6054`. Run `./espectre devices --frontend esphome` to list that first-party record with the standard ESPectre `device_id`; the CLI does not inspect or depend on ESPHome's upstream TXT schema. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) owns the shared record contract.
+ESPHome continues to advertise its native API as `_esphomelib._tcp.local.`. ESPectre also publishes the canonical `_espectre._tcp.local.` record for its Direct HTTP endpoint on the shared port `62587`. Run `./espectre devices --frontend esphome` to list that first-party record with the standard ESPectre `device_id`; the CLI does not inspect or depend on ESPHome's upstream TXT schema. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) owns the shared record contract.
 
-Direct HTTP exposes the same runtime threshold, motion-hit counts, detector selection, recalibration, CSI traffic ownership, and traffic-generator controls as the ESPHome entities when the runtime advertises them. A successful Direct mutation republishes the affected number or select state, so Home Assistant and Direct clients observe one current runtime configuration. Wi-Fi provisioning, OTA, and ESPHome API encryption remain owned by ESPHome rather than this Direct surface.
+Direct HTTP exposes the same runtime threshold, motion-hit counts, detector selection, recalibration, CSI traffic ownership, and traffic-generator controls as the ESPHome entities when the runtime advertises them. It also exposes the current Wi-Fi association, access-point scans, BSSID pinning and pin removal, an editable persisted ESPectre label, peer discovery, and raw CSI. A successful Direct mutation republishes the affected number or select state, so Home Assistant and Direct clients observe one current runtime configuration. Wi-Fi credentials, OTA, and ESPHome API encryption remain owned by ESPHome rather than this Direct surface; changing the ESPectre label does not alter the ESPHome hostname, adopted YAML, or entity IDs.
 
 The `release`, `preview`, and `develop` channels publish one full-flash image and one OTA image per supported chip, with `lightweight` as the initial detector. Both `lightweight` and `high_accuracy` are available in the image and can be selected through the persisted runtime detector entity. After adoption, ESPHome Device Builder can compile and install updates wirelessly from the device YAML; `detection_algorithm` sets the initial detector for a fresh configuration rather than limiting which detector the firmware supports.
 
@@ -73,7 +73,7 @@ These options are applied from YAML during firmware configuration. Runtime contr
 | Sensing | `sensing_switch` | Writable runtime sensing lifecycle |
 | Recalibration | `recalibrate_button` | Writable runtime recalibration action |
 | Calibration state | `calibration_active_sensor` | Read-only runtime calibration state |
-| CSI traffic ownership | `csi_traffic_mode_select` | Writable, persisted `internal` / `external` / `disabled` selection |
+| CSI traffic ownership | `csi_traffic_mode_select` | Writable, persisted `internal` / `external` selection |
 | Traffic generator | `traffic_generator_mode_select` | Writable, persisted `ping` / `dns` selection |
 
 ### Diagnostic Telemetry
@@ -82,7 +82,7 @@ Diagnostic entities are always available in production builds. ESPectre refreshe
 
 | Entity | Meaning |
 |--------|---------|
-| `Traffic TX Rate` | Successful internal traffic-generator or external pacing packets per second |
+| `Traffic TX Rate` | Successful internal generator or observed external marker packets per second |
 | `CSI Callback Rate` | Raw ESP-IDF CSI callbacks per second |
 | `CSI Accepted Rate` | CSI packets per second accepted by the sensing pipeline |
 | `CSI Filtered Rate` | CSI packets per second rejected by capture validation |
@@ -143,7 +143,7 @@ espectre:
 | `motion_on_hits_number` | number | `Motion On Hits` | Runtime motion-on debounce count (1–20) |
 | `motion_off_hits_number` | number | `Motion Off Hits` | Runtime motion-off debounce count (1–20) |
 | `detector_select` | select | `Detection Profile` | Runtime `lightweight` / `high_accuracy` selection |
-| `csi_traffic_mode_select` | select | `CSI Traffic Ownership` | Runtime `internal` / `external` / `disabled` selection |
+| `csi_traffic_mode_select` | select | `CSI Traffic Ownership` | Runtime `internal` / `external` selection |
 | `traffic_generator_mode_select` | select | `CSI Traffic Source` | Runtime `ping` / `dns` selection |
 | `sensing_switch` | switch | `Sensing Enabled` | Enables or pauses sensing through the common command engine |
 | `recalibrate_button` | button | `Recalibrate` | Starts runtime recalibration |
@@ -269,7 +269,7 @@ espectre:
   traffic_generator_mode: ping
 ```
 
-`csi_target_pps` defines the temporal detector grid and the managed-traffic target. `csi_traffic_mode` independently selects `internal`, `external`, or `disabled`; a rate of zero is invalid. Internal traffic uses a fixed DNS or ICMP send rate at that target. Occupancy does not change the send rate; if occupancy stays below 70%, repair the traffic path or lower `csi_target_pps` explicitly.
+`csi_target_pps` defines the temporal detector grid and the internal managed-traffic target. `csi_traffic_mode` independently selects `internal` or `external`; a rate of zero is invalid. Internal traffic uses a fixed DNS or ICMP send rate at that target. Occupancy does not change the send rate; if occupancy stays below 70%, repair the traffic path or lower `csi_target_pps` explicitly.
 
 Available modes:
 
@@ -293,7 +293,7 @@ espectre:
 
 In that mode the runtime opens a UDP listener on port `5555` and joins multicast group `239.255.0.1` by default. Drive it with unicast UDP to each device IP, or with one datagram to `239.255.0.1`. Use [`espectre_traffic_generator.py`](../../../../tools/espectre_traffic_generator.py) and set `TARGETS` to a device IP, a list of addresses, or `['239.255.0.1']`. Set `csi_traffic_multicast_group: ""` to disable the join. Subnet and limited broadcast (`x.x.x.255`, `255.255.255.255`) do not produce reliable CSI: access points typically send those frames at legacy rates, which the HT20 capture contract drops.
 
-For Streamer collection, use `./espectre collect` with a unicast IP or the same multicast group on port `9999`, as documented in the Streamer [`README.md`](../streamer/README.md).
+For raw collection, use `./espectre collect` with this device's IP, hostname, Direct endpoint, or device ID. ESPHome exposes Direct and raw HTTP on the shared port `62587`; the collector persistently selects external mode and drives the port-`5555` marker source.
 
 For rate recommendations, airtime tradeoffs, and placement guidance, see [`TUNING.md`](../../../../docs/TUNING.md).
 
@@ -351,7 +351,7 @@ The ESPHome examples use ESPHome 2026.7's native ESP-IDF backend. The external c
 
 ### Automatic SDK Configuration
 
-The frontend automatically sets the ESP-IDF options required by the runtime, including CSI enablement, disabled Wi-Fi power save, TX AMPDU, the Streamer high-rate Wi-Fi buffer profile, lwIP IRAM optimization, and enlarged TCP/IP and UDP mailboxes. RX AMPDU remains disabled so sensing receives individual CSI frames. ESPHome keeps the ESP-IDF default log level at ERROR so Wi-Fi and lwIP stay quiet; the shared SDK compiles INFO/DEBUG only in its own sources and restores the `espectre` and `espectre.runtime` tags at runtime so the periodic `IDLE | csi:` status lines reach USB serial. The supplied examples do not enable Bluetooth. In most cases you do not need to set these options manually.
+The frontend automatically sets the ESP-IDF options required by the runtime, including CSI enablement, disabled Wi-Fi power save, TX AMPDU, the shared high-rate Wi-Fi buffer profile, lwIP IRAM optimization, and enlarged TCP/IP and UDP mailboxes. RX AMPDU remains disabled so sensing receives individual CSI frames. ESPHome keeps the ESP-IDF default log level at ERROR so Wi-Fi and lwIP stay quiet; the shared SDK compiles INFO/DEBUG only in its own sources and restores the `espectre` and `espectre.runtime` tags at runtime so the periodic `IDLE | csi:` status lines reach USB serial. The supplied examples do not enable Bluetooth. In most cases you do not need to set these options manually.
 
 For board-specific tweaks, you can still add `sdkconfig_options` in YAML:
 

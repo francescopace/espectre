@@ -14,7 +14,10 @@
 #include <string>
 
 #include "direct_http_service.h"
+#include "direct_wifi_snapshot_esp_idf.h"
 #include "frontend_control_helpers.h"
+#include "peer_discovery.h"
+#include "raw_csi_session_controller.h"
 #include "runtime_frontend_controller.h"
 
 namespace espectre {
@@ -25,9 +28,13 @@ struct RuntimeDirectHttpBridgeConfig {
   std::string firmware_version;
   std::string chip;
   uint64_t device_id{0U};
-  uint16_t port{80U};
+  uint16_t port{ESPECTRE_DIRECT_HTTP_PORT};
   bool raw_csi{false};
   bool allow_missing_origin{false};
+  std::function<std::string()> device_label_getter;
+  FrontendDeviceLabelCallback device_label_setter;
+  std::function<DirectWifiSnapshot()> wifi_snapshot_getter;
+  IPeerDiscoveryService *peer_discovery{nullptr};
 };
 
 /**
@@ -54,12 +61,25 @@ class RuntimeDirectHttpBridge {
   bool publish_changes(FrontendCommandChange changes);
 
  private:
+  IDirectHttpService::DeferredRequestResult handle_deferred_request_(uint64_t request_token,
+                                                                     const DirectRequest &request);
   std::string handle_request_(const DirectRequest &request);
+  EspectreCapabilityProfile capability_profile_() const;
+  std::string device_label_() const;
+  DirectWifiSnapshot wifi_snapshot_() const;
   std::string capabilities_payload_() const;
   std::string info_payload_() const;
   std::string status_payload_() const;
   std::string config_payload_() const;
   std::string diagnostics_payload_() const;
+  std::string wifi_access_points_payload_() const;
+  bool handle_wifi_control_(const EspectreCommand &command, std::string *message);
+  bool handle_raw_stream_(const EspectreCommand &command,
+                          const FrontendCommandContext &context,
+                          std::string *code,
+                          std::string *message,
+                          std::string *data_json);
+  void refresh_peer_candidate_();
   void notify_config_changed_();
 
   IDirectHttpService *service_{nullptr};
@@ -67,6 +87,8 @@ class RuntimeDirectHttpBridge {
   FrontendCommandEngine command_engine_{};
   RuntimeDirectHttpBridgeConfig config_{};
   ConfigChangedCallback config_changed_{};
+  RawCsiSessionController raw_session_controller_{};
+  bool deferred_requests_enabled_{false};
 };
 
 }  // namespace espectre

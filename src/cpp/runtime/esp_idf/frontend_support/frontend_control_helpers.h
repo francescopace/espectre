@@ -51,24 +51,7 @@ using FrontendRawStreamCallback = std::function<bool(const EspectreCommand &comm
                                                       std::string *message,
                                                       std::string *data_json)>;
 
-struct FrontendCommandCapabilities {
-  bool supports_info{true};
-  bool supports_status{true};
-  bool supports_config{false};
-  bool supports_diagnostics{false};
-  bool supports_device_config{false};
-  bool supports_wifi_bssid{false};
-  bool supports_mqtt_config{false};
-  bool supports_sensing_control{false};
-  bool supports_threshold{false};
-  bool supports_motion_hits{false};
-  bool supports_traffic_control{false};
-  bool supports_detector{false};
-  bool supports_recalibrate{false};
-  bool supports_ota{false};
-  bool supports_peer_discovery{false};
-  bool supports_raw_csi{false};
-};
+using FrontendCommandCapabilities = EspectreCapabilityProfile;
 
 enum class FrontendCommandChange : uint8_t {
   NONE = 0U,

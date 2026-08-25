@@ -27,7 +27,6 @@
 #include "esp_timer.h"
 
 #define private public
-#include "csi_stream_transport.h"
 #undef private
 
 using namespace espectre;
@@ -245,89 +244,6 @@ void test_csi_capture_service_tracks_format_drop_reasons(void) {
     TEST_ASSERT_EQUAL(3U, service.filtered_packets());
 }
 
-void test_csi_stream_transport_serializes_v7_phy_metadata(void) {
-    CsiStreamTransport transport;
-    transport.configure(0x1122334455667788ULL, 5001U, 1000U, 1U);
-    transport.reset_session();
-
-    std::array<int8_t, HT20_CSI_LEN> csi{};
-    csi[0] = 17;
-    wifi_csi_info_t csi_info{};
-    csi_info.buf = csi.data();
-    csi_info.len = HT20_CSI_LEN;
-    csi_info.rx_ctrl.channel = 8U;
-    const NormalizedCSIPayload normalized{csi.data(), csi.size(), NormalizedCSIPayloadTag::NONE};
-    std::array<uint8_t, sizeof(CsiStreamHeaderV7) + HT20_CSI_LEN> record{};
-
-    csi_info.rx_ctrl.sig_mode = 1U;
-    csi_info.rx_ctrl.cwb = 0U;
-    transport.handle_csi_packet(&csi_info, normalized, true);
-    transport.latest_csi_.captured_at_us = monotonic_now_us();
-    size_t record_len = transport.build_stream_packet_(record.data(), record.size());
-    const auto *header = reinterpret_cast<const CsiStreamHeaderV7 *>(record.data());
-
-    TEST_ASSERT_EQUAL(sizeof(record), record_len);
-    TEST_ASSERT_EQUAL(STREAM_VERSION, header->version);
-    TEST_ASSERT_EQUAL(sizeof(CsiStreamHeaderV7), header->header_len);
-    TEST_ASSERT_EQUAL(static_cast<uint8_t>(StreamPhyMode::HT), header->phy_mode);
-    TEST_ASSERT_EQUAL(static_cast<uint8_t>(StreamLtfType::HT_LTF), header->ltf_type);
-    TEST_ASSERT_EQUAL(static_cast<uint8_t>(StreamChannelWidth::MHZ_20), header->channel_width);
-    TEST_ASSERT_EQUAL_INT8(17, static_cast<int8_t>(record[sizeof(CsiStreamHeaderV7)]));
-}
-
-void test_csi_stream_transport_prefers_latest_fresh_sample(void) {
-    CsiStreamTransport transport;
-    transport.configure(0x1122334455667788ULL, 5001U, 1000U, 1U);
-    transport.reset_session();
-
-    std::array<int8_t, HT20_CSI_LEN> csi_a{};
-    std::array<int8_t, HT20_CSI_LEN> csi_b{};
-    csi_a[0] = 11;
-    csi_b[0] = 22;
-
-    wifi_csi_info_t csi_info{};
-    csi_info.len = HT20_CSI_LEN;
-    const NormalizedCSIPayload normalized_a{csi_a.data(), csi_a.size(), NormalizedCSIPayloadTag::NONE};
-    const NormalizedCSIPayload normalized_b{csi_b.data(), csi_b.size(), NormalizedCSIPayloadTag::NONE};
-
-    csi_info.buf = csi_a.data();
-    transport.handle_csi_packet(&csi_info, normalized_a, true);
-    csi_info.buf = csi_b.data();
-    transport.handle_csi_packet(&csi_info, normalized_b, true);
-    transport.latest_csi_.captured_at_us = monotonic_now_us();
-
-    std::array<uint8_t, sizeof(CsiStreamHeaderV7) + HT20_CSI_LEN> record{};
-    const size_t record_len = transport.build_stream_packet_(record.data(), record.size());
-
-    TEST_ASSERT_EQUAL(sizeof(record), record_len);
-    TEST_ASSERT_EQUAL_INT8(22, static_cast<int8_t>(record[sizeof(CsiStreamHeaderV7)]));
-    TEST_ASSERT_EQUAL(2U, transport.latest_csi_sent_total_);
-}
-
-void test_csi_stream_transport_drops_stale_latest_sample(void) {
-    CsiStreamTransport transport;
-    transport.configure(0x1122334455667788ULL, 5001U, 1000U, 1U);
-    transport.reset_session();
-
-    std::array<int8_t, HT20_CSI_LEN> csi{};
-    csi[0] = 33;
-    wifi_csi_info_t csi_info{};
-    csi_info.buf = csi.data();
-    csi_info.len = HT20_CSI_LEN;
-    const NormalizedCSIPayload normalized{csi.data(), csi.size(), NormalizedCSIPayloadTag::NONE};
-
-    transport.handle_csi_packet(&csi_info, normalized, true);
-    TEST_ASSERT_TRUE(transport.latest_csi_.valid);
-    transport.latest_csi_.captured_at_us = 0U;
-
-    std::array<uint8_t, sizeof(CsiStreamHeaderV7) + HT20_CSI_LEN> record{};
-    const size_t record_len = transport.build_stream_packet_(record.data(), record.size());
-
-    TEST_ASSERT_EQUAL(0U, record_len);
-    TEST_ASSERT_EQUAL(1U, transport.latest_csi_sent_total_);
-    TEST_ASSERT_EQUAL(1ULL, transport.stream_repeat_total_.load(std::memory_order_relaxed));
-}
-
 void test_runtime_config_utils_validate_and_name_values(void) {
     TEST_ASSERT_TRUE(validate_runtime_threshold(0.0f));
     TEST_ASSERT_TRUE(validate_runtime_threshold(1.0f));
@@ -337,8 +253,6 @@ void test_runtime_config_utils_validate_and_name_values(void) {
     TEST_ASSERT_EQUAL_STRING("dns", traffic_mode_name(RuntimeTrafficMode::DNS));
     TEST_ASSERT_EQUAL_STRING("internal", csi_traffic_mode_name(CsiTrafficMode::INTERNAL));
     TEST_ASSERT_EQUAL_STRING("external", csi_traffic_mode_name(CsiTrafficMode::EXTERNAL));
-    TEST_ASSERT_EQUAL_STRING("pacing", csi_traffic_mode_name(CsiTrafficMode::PACING));
-    TEST_ASSERT_EQUAL_STRING("disabled", csi_traffic_mode_name(CsiTrafficMode::DISABLED));
     TEST_ASSERT_EQUAL_STRING("high_accuracy", detection_algorithm_name(DetectionAlgorithm::HIGH_ACCURACY));
     TEST_ASSERT_EQUAL_STRING("lightweight", detection_algorithm_name(DetectionAlgorithm::LIGHTWEIGHT));
     TEST_ASSERT_EQUAL_STRING("fixed", subcarrier_source_name(RuntimeSubcarrierSource::FIXED_DEFAULT));
@@ -346,14 +260,12 @@ void test_runtime_config_utils_validate_and_name_values(void) {
     TEST_ASSERT_TRUE(parse_traffic_mode("dns") == RuntimeTrafficMode::DNS);
     TEST_ASSERT_TRUE(parse_csi_traffic_mode("internal") == CsiTrafficMode::INTERNAL);
     TEST_ASSERT_TRUE(parse_csi_traffic_mode("external") == CsiTrafficMode::EXTERNAL);
-    TEST_ASSERT_TRUE(parse_csi_traffic_mode("pacing") == CsiTrafficMode::PACING);
-    TEST_ASSERT_TRUE(parse_csi_traffic_mode("disabled") == CsiTrafficMode::DISABLED);
+    TEST_ASSERT_TRUE(parse_csi_traffic_mode("pacing") == CsiTrafficMode::INTERNAL);
+    TEST_ASSERT_TRUE(parse_csi_traffic_mode("disabled") == CsiTrafficMode::INTERNAL);
     TEST_ASSERT_TRUE(parse_csi_traffic_mode("unsupported") == CsiTrafficMode::INTERNAL);
     TEST_ASSERT_TRUE(csi_traffic_mode_is_sensing_control(CsiTrafficMode::INTERNAL));
     TEST_ASSERT_TRUE(csi_traffic_mode_is_sensing_control(CsiTrafficMode::EXTERNAL));
-    TEST_ASSERT_TRUE(csi_traffic_mode_is_sensing_control(CsiTrafficMode::DISABLED));
-    TEST_ASSERT_FALSE(csi_traffic_mode_is_sensing_control(CsiTrafficMode::PACING));
-    TEST_ASSERT_TRUE(normalize_sensing_csi_traffic_mode(CsiTrafficMode::PACING) == CsiTrafficMode::EXTERNAL);
+    TEST_ASSERT_TRUE(csi_traffic_mode_is_sensing_control(CsiTrafficMode::EXTERNAL));
     TEST_ASSERT_TRUE(normalize_sensing_csi_traffic_mode(CsiTrafficMode::INTERNAL) == CsiTrafficMode::INTERNAL);
     TEST_ASSERT_TRUE(parse_detection_algorithm("high_accuracy") == DetectionAlgorithm::HIGH_ACCURACY);
     TEST_ASSERT_TRUE(parse_detection_algorithm("lightweight") == DetectionAlgorithm::LIGHTWEIGHT);
@@ -391,10 +303,8 @@ void test_runtime_config_validator_covers_the_public_schema(void) {
     config.traffic_generator_mode = static_cast<RuntimeTrafficMode>(0x7f);
     TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::TRAFFIC_GENERATOR_MODE);
     config = RuntimeConfig{};
-    config.csi_traffic_mode = CsiTrafficMode::PACING;
+    config.csi_traffic_mode = static_cast<CsiTrafficMode>(0x7f);
     TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::CSI_TRAFFIC_MODE);
-    config.runtime_profile = RuntimeProfile::STREAM;
-    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::NONE);
     config = RuntimeConfig{};
     config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
     config.csi_traffic_udp_port = 0U;
@@ -403,22 +313,6 @@ void test_runtime_config_validator_covers_the_public_schema(void) {
     config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
     config.csi_traffic_multicast_group = "192.168.1.2";
     TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::CSI_TRAFFIC_MULTICAST_GROUP);
-    config = RuntimeConfig{};
-    config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
-    config.csi_traffic_expected_payload.assign(RUNTIME_CSI_TRAFFIC_EXPECTED_PAYLOAD_MAX + 1U, 'x');
-    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::CSI_TRAFFIC_EXPECTED_PAYLOAD);
-    config = RuntimeConfig{};
-    config.runtime_profile = RuntimeProfile::STREAM;
-    config.stream_tx_batch_records = 0U;
-    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::STREAM_TX_BATCH_RECORDS);
-    config = RuntimeConfig{};
-    config.runtime_profile = RuntimeProfile::STREAM;
-    config.collector_port = 0U;
-    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::STREAM_COLLECTOR_PORT);
-    config = RuntimeConfig{};
-    config.runtime_profile = RuntimeProfile::STREAM;
-    config.stream_log_interval_ms = 0U;
-    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::STREAM_LOG_INTERVAL_MS);
     config = RuntimeConfig{};
     config.publish_interval_ms = 0U;
     TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::PUBLISH_INTERVAL_MS);
@@ -593,9 +487,6 @@ int process(void) {
     RUN_TEST(test_csi_capture_service_defers_channel_change_and_resets_session_baseline);
     RUN_TEST(test_csi_format_classifier_rejects_ht40_before_normalization);
     RUN_TEST(test_csi_capture_service_tracks_format_drop_reasons);
-    RUN_TEST(test_csi_stream_transport_serializes_v7_phy_metadata);
-    RUN_TEST(test_csi_stream_transport_prefers_latest_fresh_sample);
-    RUN_TEST(test_csi_stream_transport_drops_stale_latest_sample);
     RUN_TEST(test_runtime_config_utils_validate_and_name_values);
     RUN_TEST(test_runtime_config_validator_covers_the_public_schema);
     RUN_TEST(test_runtime_diagnostics_emit_expected_key_value_pairs);

@@ -35,7 +35,7 @@ espectre:
   id: espectre_csi
   # Traffic Generator
   csi_target_pps: 100           # Positive temporal sensing and managed-traffic target
-  csi_traffic_mode: internal    # internal, external, or disabled
+  csi_traffic_mode: internal    # internal or external
   csi_traffic_multicast_group: "239.255.0.1"  # joined in external; "" disables
   traffic_generator_mode: ping   # ping (default) or dns
   # Detection Algorithm

@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "nvs.h"
+#include "espectre_log.h"
 #include "runtime_config_utils.h"
 
 namespace espectre {
@@ -17,6 +18,7 @@ namespace {
 constexpr const char *kNamespace = "espectre";
 constexpr const char *kCsiTrafficModeKey = "csi_traffic";
 constexpr const char *kTrafficGeneratorModeKey = "traffic_gen";
+constexpr const char *kTag = "espectre.traffic";
 
 esp_err_t load_string_key(const char *key, char *value, size_t value_size, bool *has_saved_value) {
   if (key == nullptr || value == nullptr || value_size == 0U || has_saved_value == nullptr) {
@@ -71,6 +73,11 @@ esp_err_t load_runtime_csi_traffic_mode(CsiTrafficMode *mode, bool *has_saved_va
   esp_err_t err = load_string_key(kCsiTrafficModeKey, value, sizeof(value), has_saved_value);
   if (err != ESP_OK || !*has_saved_value) {
     return err;
+  }
+  if (std::strcmp(value, "pacing") == 0 || std::strcmp(value, "disabled") == 0) {
+    ESP_LOGW(kTag, "Migrating removed CSI traffic mode '%s' to internal", value);
+    *mode = CsiTrafficMode::INTERNAL;
+    return save_string_key(kCsiTrafficModeKey, RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME);
   }
   *mode = parse_csi_traffic_mode(value);
   if (!runtime_csi_traffic_mode_valid(*mode) || std::strcmp(value, csi_traffic_mode_name(*mode)) != 0) {

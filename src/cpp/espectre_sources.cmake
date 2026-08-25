@@ -32,17 +32,10 @@ set(ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_sysinfo_helpers.cpp"
 )
 
-set(ESPECTRE_RUNTIME_STREAMER_FRONTEND_SUPPORT_SOURCES
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/mdns_discovery_service.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/streamer_discovery_service.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stream_esp_idf_runtime.cpp"
-)
-
 set(ESPECTRE_RUNTIME_ESP_IDF_PLATFORM_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_log_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/device_identity.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_capture_service.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_stream_transport.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_pipeline.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_payload_normalizer.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_platform_config.cpp"
@@ -55,7 +48,6 @@ set(ESPECTRE_RUNTIME_ESP_IDF_PLATFORM_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_traffic_mode_store.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_performance_diagnostics.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_sensing_kconfig.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/stream_runtime_factory.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/sta_socket_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_frame_identity.cpp"
@@ -68,11 +60,6 @@ set(ESPECTRE_RUNTIME_ESP_IDF_PLATFORM_SOURCES
 set(ESPECTRE_RUNTIME_ESP_IDF_SOURCES
     ${ESPECTRE_RUNTIME_COMMON_SOURCES}
     ${ESPECTRE_RUNTIME_ESP_IDF_PLATFORM_SOURCES}
-)
-
-set(ESPECTRE_RUNTIME_STREAMER_SOURCES
-    ${ESPECTRE_RUNTIME_ESP_IDF_SOURCES}
-    ${ESPECTRE_RUNTIME_STREAMER_FRONTEND_SUPPORT_SOURCES}
 )
 
 set(ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES
@@ -90,9 +77,12 @@ set(ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES
 )
 
 set(ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/direct_wifi_snapshot_esp_idf.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/direct_http_service_esp_idf.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/mdns_bootstrap_responder.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/mdns_discovery_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/peer_discovery_service_esp_idf.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/raw_csi_session_controller.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/runtime_direct_http_bridge.cpp"
 )
 
@@ -117,13 +107,7 @@ set(ESPECTRE_FRONTEND_NATIVE_SOURCES
     "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_frontend.cpp"
 )
 
-set(ESPECTRE_FRONTEND_NATIVE_ESP_IDF_SOURCES
-    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_mdns_bootstrap_responder.cpp"
-)
-
-set(ESPECTRE_FRONTEND_STREAMER_SOURCES
-    "${ESPECTRE_CPP_ROOT}/frontend/streamer/espectre/streamer_frontend.cpp"
-)
+set(ESPECTRE_FRONTEND_NATIVE_ESP_IDF_SOURCES)
 
 # SDK root. Exposes the `espectre_sdk.h` facade and lets integrators use
 # layer-prefixed includes such as "runtime/runtime_interface.h" instead of the

@@ -10,12 +10,15 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 
 namespace espectre {
 
 struct EspectreCommand;
 
+/** ESPectre service port: low 16 bits of U+1F47B GHOST (0xF47B). */
+inline constexpr uint16_t ESPECTRE_DIRECT_HTTP_PORT = 0xF47BU;  // 62587
 inline constexpr const char *ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT = "/espectre/v1/request";
 inline constexpr const char *ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT = "/espectre/v1/events";
 inline constexpr const char *ESPECTRE_DIRECT_HTTP_TRANSPORT = "http";

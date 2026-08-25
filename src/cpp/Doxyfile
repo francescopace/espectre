@@ -36,7 +36,7 @@ GENERATE_TREEVIEW      = YES
 INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/espectre_core_sdk.h \
                          src/cpp/runtime/espectre_sdk_version.h \
-                         src/cpp/runtime/csi_stream_protocol.h \
+                         src/cpp/runtime/csi_raw_record.h \
                          src/cpp/runtime/runtime_interface.h \
                          src/cpp/runtime/raw_csi.h \
                          src/cpp/runtime/runtime_events.h \
@@ -109,7 +109,6 @@ QUIET                  = YES
 
 # Host builds and ESP-IDF builds see different declarations; document the
 # ESP-IDF view, which is the one integrators ship.
-PREDEFINED             = ESP_PLATFORM=1 \
-                         ESPECTRE_ENABLE_STREAM_RUNTIME=1
+PREDEFINED             = ESP_PLATFORM=1
 MACRO_EXPANSION        = YES
 EXPAND_ONLY_PREDEF     = YES

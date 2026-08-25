@@ -27,5 +27,16 @@ void MockMatterBindings::report_fault(const char *message) {
   }
 }
 
+bool MockMatterBindings::get_node_label(std::string *label) {
+  if (label == nullptr) return false;
+  *label = state.node_label;
+  return true;
+}
+
+bool MockMatterBindings::set_node_label(const std::string &label) {
+  state.node_label = label;
+  return true;
+}
+
 }  // namespace matter_bindings_mock
 }  // namespace espectre

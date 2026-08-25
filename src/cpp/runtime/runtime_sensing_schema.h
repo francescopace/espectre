@@ -46,13 +46,6 @@ enum class DetectionAlgorithm {
 enum class RuntimeProfile {
   /** Detect motion on-device and report state. The normal profile. */
   SENSING,
-  /**
-   * Ship raw CSI to a host collector instead of detecting.
-   *
-   * For dataset collection and offline analysis. Requires a build with the
-   * stream runtime compiled in; `setup()` fails otherwise.
-   */
-  STREAM,
 };
 
 /** Which packet the internal generator sends to solicit CSI from the AP. */
@@ -69,8 +62,6 @@ constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_DEFAULT_NAME = "ping"
 
 constexpr const char *const RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME = "internal";
 constexpr const char *const RUNTIME_CSI_TRAFFIC_MODE_EXTERNAL_NAME = "external";
-constexpr const char *const RUNTIME_CSI_TRAFFIC_MODE_PACING_NAME = "pacing";
-constexpr const char *const RUNTIME_CSI_TRAFFIC_MODE_DISABLED_NAME = "disabled";
 constexpr const char *const RUNTIME_CSI_TRAFFIC_MODE_DEFAULT_NAME = "internal";
 
 constexpr const char *const RUNTIME_DETECTION_ALGORITHM_LIGHTWEIGHT_NAME = "lightweight";
@@ -117,19 +108,17 @@ constexpr float RUNTIME_HAMPEL_THRESHOLD_MIN = 1.0f;
 constexpr float RUNTIME_HAMPEL_THRESHOLD_MAX = 10.0f;
 constexpr float RUNTIME_HAMPEL_THRESHOLD_DEFAULT = 5.0f;
 
-constexpr uint16_t RUNTIME_STREAM_COLLECTOR_PORT_DEFAULT = 5001;
 constexpr uint16_t RUNTIME_NETWORK_PORT_MIN = 1U;
 constexpr uint16_t RUNTIME_NETWORK_PORT_MAX = UINT16_MAX;
-constexpr uint32_t RUNTIME_STREAM_LOG_INTERVAL_MS_MIN = 100U;
-constexpr uint32_t RUNTIME_STREAM_LOG_INTERVAL_MS_MAX = 60000U;
-constexpr uint32_t RUNTIME_STREAM_LOG_INTERVAL_MS_DEFAULT = 1000;
-constexpr uint8_t RUNTIME_STREAM_TX_BATCH_RECORDS_MIN = 1U;
-constexpr uint8_t RUNTIME_STREAM_TX_BATCH_RECORDS_MAX = 7U;
-constexpr uint8_t RUNTIME_STREAM_TX_BATCH_RECORDS_DEFAULT = 4;
 
 constexpr uint16_t RUNTIME_CSI_TRAFFIC_UDP_PORT_DEFAULT = 5555;
 constexpr const char *const RUNTIME_CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT = "239.255.0.1";
+constexpr uint8_t RUNTIME_CSI_TRAFFIC_MARKER_BYTES[] = {0x2EU};
+constexpr size_t RUNTIME_CSI_TRAFFIC_MARKER_LENGTH = 1U;
+constexpr const char *const RUNTIME_CSI_TRAFFIC_MARKER_UTF8 = ".";
 constexpr size_t RUNTIME_CSI_TRAFFIC_EXPECTED_PAYLOAD_MAX = 16U;
+static_assert(sizeof(RUNTIME_CSI_TRAFFIC_MARKER_BYTES) == RUNTIME_CSI_TRAFFIC_MARKER_LENGTH,
+              "CSI traffic marker length must match its canonical wire bytes");
 
 constexpr float runtime_threshold_max(DetectionAlgorithm algorithm) {
   return algorithm == DetectionAlgorithm::LIGHTWEIGHT ? LIGHTWEIGHT_MAX_THRESHOLD
@@ -142,7 +131,7 @@ constexpr bool runtime_detection_algorithm_valid(DetectionAlgorithm algorithm) {
 }
 
 constexpr bool runtime_profile_valid(RuntimeProfile profile) {
-  return profile == RuntimeProfile::SENSING || profile == RuntimeProfile::STREAM;
+  return profile == RuntimeProfile::SENSING;
 }
 
 constexpr bool runtime_traffic_mode_valid(RuntimeTrafficMode mode) {
@@ -150,8 +139,7 @@ constexpr bool runtime_traffic_mode_valid(RuntimeTrafficMode mode) {
 }
 
 constexpr bool runtime_csi_traffic_mode_valid(CsiTrafficMode mode) {
-  return mode == CsiTrafficMode::INTERNAL || mode == CsiTrafficMode::EXTERNAL ||
-         mode == CsiTrafficMode::PACING || mode == CsiTrafficMode::DISABLED;
+  return mode == CsiTrafficMode::INTERNAL || mode == CsiTrafficMode::EXTERNAL;
 }
 
 constexpr bool runtime_csi_traffic_mode_valid_for_profile(RuntimeProfile profile,
@@ -159,7 +147,7 @@ constexpr bool runtime_csi_traffic_mode_valid_for_profile(RuntimeProfile profile
   if (!runtime_profile_valid(profile) || !runtime_csi_traffic_mode_valid(mode)) {
     return false;
   }
-  return profile == RuntimeProfile::STREAM || mode != CsiTrafficMode::PACING;
+  return profile == RuntimeProfile::SENSING;
 }
 
 constexpr float runtime_default_threshold(DetectionAlgorithm algorithm) {

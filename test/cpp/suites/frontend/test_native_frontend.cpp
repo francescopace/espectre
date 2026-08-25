@@ -1113,7 +1113,7 @@ void test_native_frontend_mqtt_rejects_direct_local_commands_with_forbidden(void
   mqtt_transport_mock::state.publishes.clear();
 
   mqtt.emit_command(
-      "{\"command_id\":\"wifi-local\",\"command\":\"set_wifi_bssid\",\"bssid\":\"\"}");
+      "{\"command_id\":\"wifi-local\",\"command\":\"set_wifi_bssid\",\"bssid\":\"E6:FA:C4:20:19:DE\"}");
 
   TEST_ASSERT_EQUAL(1, static_cast<int>(mqtt_transport_mock::state.publishes.size()));
   const auto &result = mqtt_transport_mock::state.publishes[0];
@@ -1599,6 +1599,11 @@ void test_native_frontend_direct_updates_bssid_and_mqtt_without_returning_secret
   TEST_ASSERT_EQUAL(1, scan_calls);
   TEST_ASSERT_TRUE(scan_response.find("\"ok\":true") != std::string::npos);
 
+  const std::string clear_bssid_response = direct.emit_request(
+      DirectRequest{"wifi-bssid-clear", "clear_wifi_bssid", "{}"});
+  TEST_ASSERT_EQUAL_STRING("SET_WIFI_BSSID:bssid=", provisioning_command.c_str());
+  TEST_ASSERT_TRUE(clear_bssid_response.find("\"ok\":true") != std::string::npos);
+
   const std::string removed_command = direct.emit_request(
       DirectRequest{"wifi-removed", "clear_wifi_config", "{}"});
   TEST_ASSERT_EQUAL_STRING("CLEAR_WIFI", provisioning_command.c_str());
@@ -1680,7 +1685,10 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
   TEST_ASSERT_TRUE(capabilities.find("\"name\":\"set_sensing\"") != std::string::npos);
   TEST_ASSERT_TRUE(capabilities.find("\"raw_csi\":false") != std::string::npos);
   TEST_ASSERT_TRUE(capabilities.find("\"access\":\"network_admin\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"wifi_access_points\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"scan_wifi_access_points\"") != std::string::npos);
   TEST_ASSERT_TRUE(capabilities.find("\"name\":\"set_wifi_bssid\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"clear_wifi_bssid\"") != std::string::npos);
   TEST_ASSERT_TRUE(capabilities.find("\"name\":\"clear_wifi_config\"") != std::string::npos);
   TEST_ASSERT_TRUE(capabilities.find("set_wifi_config") == std::string::npos);
 
@@ -1699,10 +1707,12 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
   TEST_ASSERT_TRUE(visible_config.find("private-user") == std::string::npos);
   TEST_ASSERT_TRUE(visible_config.find("private-password") == std::string::npos);
   TEST_ASSERT_TRUE(visible_config.find("\"password\"") == std::string::npos);
+  TEST_ASSERT_TRUE(visible_config.find("\"connected\":true") != std::string::npos);
   TEST_ASSERT_TRUE(visible_config.find("\"ssid\":\"Lab\"") != std::string::npos);
   TEST_ASSERT_TRUE(visible_config.find("\"band\":\"5g\"") != std::string::npos);
+  TEST_ASSERT_TRUE(visible_config.find("\"channel\":36") != std::string::npos);
+  TEST_ASSERT_TRUE(visible_config.find("\"rssi_dbm\":null") != std::string::npos);
   TEST_ASSERT_TRUE(visible_config.find("\"band_policy\"") == std::string::npos);
-  TEST_ASSERT_TRUE(visible_config.find("\"channel\"") == std::string::npos);
 
   const std::string access_points =
       direct.emit_request(DirectRequest{"read-wifi-aps", "wifi_access_points", "{}"});
@@ -1792,7 +1802,7 @@ void test_native_frontend_direct_raw_session_enforces_owner_and_keeps_mqtt_quiet
   const auto started = direct.emit_deferred_request(
       77U,
       DirectRequest{
-          "raw-start", "start_raw_stream", "{\"target_pps\":100}"});
+          "raw-start", "start_raw_stream", "{}"});
   TEST_ASSERT_TRUE(started.response.find("\"ok\":true") != std::string::npos);
   TEST_ASSERT_TRUE(started.response.find("\"session_id\"") != std::string::npos);
   TEST_ASSERT_TRUE(direct_http_service_mock::state.raw_session_active);

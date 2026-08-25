@@ -16,6 +16,7 @@
 #undef private
 
 #include "direct_http_service_mock.h"
+#include "direct_http_protocol.h"
 #include "frontend_runtime_shim.h"
 #include "matter_bindings_mock.h"
 #include "matter_surface.h"
@@ -155,7 +156,7 @@ void test_matter_frontend_exposes_runtime_tuning_over_direct_http(void) {
 
   TEST_ASSERT_TRUE(frontend.setup());
   TEST_ASSERT_EQUAL(1, direct_http_service_mock::state.setup_calls);
-  TEST_ASSERT_EQUAL(80U, direct_http_service_mock::state.last_config.port);
+  TEST_ASSERT_EQUAL(ESPECTRE_DIRECT_HTTP_PORT, direct_http_service_mock::state.last_config.port);
 
   const std::string info = direct.emit_request(DirectRequest{"info-1", "info", "{}"});
   TEST_ASSERT_TRUE(info.find("\"frontend\":\"matter\"") != std::string::npos);
@@ -178,6 +179,75 @@ void test_matter_frontend_exposes_runtime_tuning_over_direct_http(void) {
                     static_cast<int>(frontend_runtime_shim::state.last_detector));
 }
 
+void test_matter_frontend_raw_session_uses_shared_controller_and_recovers(void) {
+  frontend_runtime_shim::state.capabilities.supports_raw_csi = true;
+  RuntimeConfig config;
+  config.device_id = 0x0123456789abcdefULL;
+  MockMatterBindings bindings;
+  MockDirectHttpService direct;
+  MatterFrontend frontend(&bindings, 10, &direct);
+  frontend.set_runtime_config(config);
+  TEST_ASSERT_TRUE(frontend.setup());
+
+  const std::string started = direct.emit_request(
+      DirectRequest{"raw-start", "start_raw_stream", "{}"});
+  TEST_ASSERT_TRUE(started.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(direct_http_service_mock::state.raw_session_active);
+  TEST_ASSERT_EQUAL(RuntimeOperationState::RAW_COLLECTION,
+                    frontend.runtime_.operation_state());
+
+  TEST_ASSERT_TRUE(direct.stop_raw_session(RawCsiStopReason::WIFI_LOST));
+  TEST_ASSERT_FALSE(direct_http_service_mock::state.raw_session_active);
+  TEST_ASSERT_EQUAL(RuntimeOperationState::SENSING,
+                    frontend.runtime_.operation_state());
+}
+
+void test_matter_direct_exposes_common_wifi_and_node_label_capabilities(void) {
+  RuntimeConfig config;
+  config.device_id = 0x0123456789abcdefULL;
+  MockMatterBindings bindings;
+  MockDirectHttpService direct;
+  MatterFrontend frontend(&bindings, 11, &direct);
+  frontend.set_runtime_config(config);
+  TEST_ASSERT_TRUE(frontend.setup());
+
+  const std::string capabilities = direct.emit_request(
+      DirectRequest{"capabilities", "capabilities", "{}"});
+  TEST_ASSERT_TRUE(capabilities.find("\"config_sections\":[\"runtime\",\"device\",\"wifi\"]") !=
+                   std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"set_device_label\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"wifi_access_points\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"scan_wifi_access_points\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"set_wifi_bssid\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"clear_wifi_bssid\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"discover_peers\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"clear_wifi_config\"") == std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"set_mqtt_config\"") == std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"ota_start\"") == std::string::npos);
+
+  const std::string scan = direct.emit_request(
+      DirectRequest{"scan", "scan_wifi_access_points", "{}"});
+  const std::string pin = direct.emit_request(
+      DirectRequest{"pin", "set_wifi_bssid", "{\"bssid\":\"E6:FA:C4:20:19:DE\"}"});
+  const std::string unpin = direct.emit_request(
+      DirectRequest{"unpin", "clear_wifi_bssid", "{}"});
+  const std::string credential_reset = direct.emit_request(
+      DirectRequest{"reset", "clear_wifi_config", "{}"});
+  TEST_ASSERT_TRUE(scan.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(pin.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(unpin.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(credential_reset.find("\"code\":\"unsupported\"") != std::string::npos);
+
+  const std::string label = direct.emit_request(
+      DirectRequest{"label", "set_device_label", "{\"device_label\":\"Kitchen Matter\"}"});
+  TEST_ASSERT_TRUE(label.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_EQUAL_STRING("Kitchen Matter", matter_bindings_mock::state.node_label.c_str());
+  const std::string info = direct.emit_request(DirectRequest{"info", "info", "{}"});
+  const std::string visible_config = direct.emit_request(DirectRequest{"config", "config", "{}"});
+  TEST_ASSERT_TRUE(info.find("\"device_label\":\"Kitchen Matter\"") != std::string::npos);
+  TEST_ASSERT_TRUE(visible_config.find("\"device_label\":\"Kitchen Matter\"") != std::string::npos);
+}
+
 void test_matter_surface_mapping_helpers(void) {
   RuntimeSnapshot snapshot = make_ready_snapshot(true);
 
@@ -196,6 +266,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_matter_frontend_threshold_and_calibration_callbacks_update_runtime_snapshot);
   RUN_TEST(test_matter_frontend_runtime_fault_is_reported);
   RUN_TEST(test_matter_frontend_exposes_runtime_tuning_over_direct_http);
+  RUN_TEST(test_matter_frontend_raw_session_uses_shared_controller_and_recovers);
+  RUN_TEST(test_matter_direct_exposes_common_wifi_and_node_label_capabilities);
   RUN_TEST(test_matter_surface_mapping_helpers);
   return UNITY_END();
 }

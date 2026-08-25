@@ -12,7 +12,6 @@
 #include "espectre_log.h"
 #include "esp_idf_runtime.h"
 #include "runtime_config_utils.h"
-#include "stream_runtime_factory.h"
 
 namespace espectre {
 
@@ -48,20 +47,7 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
   }
 
   listener_ = listener;
-  switch (config_.runtime_profile) {
-    case RuntimeProfile::STREAM:
-      runtime_ = make_stream_runtime(config_);
-      if (!runtime_) {
-        ESP_LOGE(TAG, "Stream runtime requested but not enabled in this build");
-        listener_ = nullptr;
-        return false;
-      }
-      break;
-    case RuntimeProfile::SENSING:
-    default:
-      runtime_.reset(new EspIdfRuntime(config_));
-      break;
-  }
+  runtime_.reset(new EspIdfRuntime(config_));
   runtime_->set_listener(this);
   runtime_->set_services_armed(services_armed_);
   runtime_->set_live_telemetry_enabled(live_telemetry_enabled_);

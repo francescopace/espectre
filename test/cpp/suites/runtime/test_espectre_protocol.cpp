@@ -197,7 +197,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   config.device_label = "Kitchen \"node\"\nA";
 
   EspectreDeviceInfo info;
-  info.frontend = "streamer";
+  info.frontend = "matter";
   info.firmware_version = "2026.7";
   info.chip = "esp32c6";
   info.detector = "lightweight";
@@ -223,7 +223,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(payload.find("\"device_id\":\"0000000000000001\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"device_name\":\"ESPectre C6 000001\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"device_label\":\"Kitchen \\\"node\\\"\\nA\"") != std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"frontend\":\"streamer\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"frontend\":\"matter\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"firmware_version\":\"2026.7\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"chip\":\"esp32c6\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"supports_") == std::string::npos);
@@ -239,9 +239,14 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(payload.find("\"evaluation_interval_ms\":250") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"publish_interval_ms\":1000") != std::string::npos);
 
-  const std::string catalog = espectre_capabilities_payload(config, info, true, true, true, true, true, true);
+  const std::string catalog =
+      espectre_capabilities_payload(config, info, true, true, true, true, true, true, true);
   TEST_ASSERT_TRUE(catalog.find("\"device_id\":\"0000000000000001\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"capabilities\"") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"traffic_udp_port\":5555") != std::string::npos);
+  const std::string marker_property =
+      std::string("\"traffic_marker\":\"") + RUNTIME_CSI_TRAFFIC_MARKER_UTF8 + "\"";
+  TEST_ASSERT_TRUE(catalog.find(marker_property) != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"diagnostics\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"set_sensing\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"required\":[\"enabled\"]") != std::string::npos);
@@ -442,11 +447,11 @@ void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(v
 
   TEST_ASSERT_FALSE(parse_espectre_command(
       "{\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"bogus\"}", &command, &error));
-  TEST_ASSERT_EQUAL_STRING("invalid csi traffic mode (accepted: internal, external, and disabled)", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("invalid csi traffic mode (accepted: internal and external)", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_command(
       "{\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"pacing\"}", &command, &error));
-  TEST_ASSERT_EQUAL_STRING("invalid csi traffic mode (accepted: internal, external, and disabled)", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("invalid csi traffic mode (accepted: internal and external)", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_command(
       "{\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"udp\"}", &command, &error));
@@ -695,6 +700,11 @@ void test_direct_http_configuration_commands_validate_write_only_fields(void) {
       &command, &error));
   TEST_ASSERT_FALSE(parse_espectre_command_request(
       "wifi-band", "set_wifi_bssid", "{\"bssid\":\"\",\"band_policy\":\"auto\"}",
+      &command, &error));
+  TEST_ASSERT_TRUE(parse_espectre_command_request(
+      "clear-bssid", "clear_wifi_bssid", "{}", &command, &error));
+  TEST_ASSERT_FALSE(parse_espectre_command_request(
+      "clear-bssid-bad", "clear_wifi_bssid", "{\"bssid\":\"E6:FA:C4:20:19:DE\"}",
       &command, &error));
   TEST_ASSERT_TRUE(parse_espectre_command_request(
       "clear-wifi", "clear_wifi_config", "{}", &command, &error));

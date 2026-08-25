@@ -1,5 +1,5 @@
 /*
- * ESPectre - Native mDNS Bootstrap Responder
+ * ESPectre - Shared mDNS Bootstrap Responder
  *
  * Stateless IPv4 responses for one-shot browser bootstrap hostnames.
  *
@@ -16,12 +16,12 @@
 
 namespace espectre {
 
-class NativeMdnsBootstrapResponder {
+class MdnsBootstrapResponder {
  public:
   static constexpr size_t NONCE_HEX_LENGTH = 24U;
   static constexpr uint32_t RESPONSE_TTL_SECONDS = 10U;
 
-  ~NativeMdnsBootstrapResponder();
+  ~MdnsBootstrapResponder();
 
   bool setup();
   bool update(uint32_t ipv4_address);

@@ -11,6 +11,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 namespace espectre {
 
@@ -20,6 +21,16 @@ class IMatterBindings {
 
   virtual void publish_motion(uint16_t endpoint_id, bool motion_detected) = 0;
   virtual void report_fault(const char *message) = 0;
+  /** Read the persisted Basic Information NodeLabel. */
+  virtual bool get_node_label(std::string *label) {
+    (void) label;
+    return false;
+  }
+  /** Update the persisted Basic Information NodeLabel. */
+  virtual bool set_node_label(const std::string &label) {
+    (void) label;
+    return false;
+  }
 };
 
 }  // namespace espectre

@@ -33,7 +33,7 @@ struct DirectHttpServiceConfig {
   }
 
   std::vector<std::string> allowed_origins;
-  uint16_t port{80U};
+  uint16_t port{ESPECTRE_DIRECT_HTTP_PORT};
   size_t max_event_clients{2U};
   size_t max_pending_requests{4U};
   size_t outbound_queue_depth{8U};

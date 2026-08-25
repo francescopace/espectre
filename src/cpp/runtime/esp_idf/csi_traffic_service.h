@@ -1,7 +1,7 @@
 /*
  * ESPectre - CSI Traffic Service
  *
- * Owns CSI pacing traffic generation and external UDP pacing listeners.
+ * Owns internal CSI traffic generation and the external UDP listener.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -25,7 +25,6 @@ struct CsiTrafficServiceConfig {
   TrafficGeneratorMode traffic_mode{TrafficGeneratorMode::PING};
   uint16_t udp_port{5555U};
   std::string multicast_group;
-  std::string expected_payload;
 };
 
 TrafficGeneratorMode to_traffic_generator_mode(RuntimeTrafficMode mode);
@@ -35,8 +34,7 @@ TrafficGeneratorMode to_traffic_generator_mode(RuntimeTrafficMode mode);
  *
  * Traffic source ownership comes exclusively from `csi_traffic_mode`; the
  * positive `csi_target_pps` value never enables or disables the service.
- * External and pacing modes join `csi_traffic_multicast_group` when it is
- * non-empty; internal and disabled modes do not start the UDP listener.
+ * External mode joins `csi_traffic_multicast_group` when it is non-empty.
  */
 CsiTrafficServiceConfig to_csi_traffic_config(const RuntimeConfig &config);
 
@@ -51,7 +49,8 @@ class CsiTrafficService {
   bool is_running() const;
   bool get_last_sender(sockaddr_in *out_addr) const;
   uint64_t get_packets_received() const;
-  uint64_t get_pacing_total() const;
+  uint64_t get_traffic_packets_total() const;
+  uint16_t internal_icmp_identifier() const { return traffic_generator_.icmp_identifier(); }
 
  private:
   CsiTrafficMode mode_{CsiTrafficMode::INTERNAL};

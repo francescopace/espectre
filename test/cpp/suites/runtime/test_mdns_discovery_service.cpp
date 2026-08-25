@@ -18,10 +18,9 @@
 #include "mdns.h"
 #include "mdns_private.h"
 #include "mdns_discovery_service.h"
-#include "native_mdns_bootstrap_responder.h"
+#include "mdns_bootstrap_responder.h"
 #include "peer_discovery.h"
 #include "peer_discovery_service_esp_idf.h"
-#include "streamer_discovery_service.h"
 
 using namespace espectre;
 
@@ -118,19 +117,6 @@ void test_attaches_without_mutating_existing_responder_identity() {
   TEST_ASSERT_EQUAL_INT(0, g_mdns_mock.free_call_count);
 }
 
-void test_streamer_advertises_canonical_direct_service() {
-  reset_mocks();
-  StreamerDiscoveryService service;
-  TEST_ASSERT_TRUE(service.setup(StreamerDiscoveryServiceConfig{0x1234U, "esp32c3", 80U, 5501U}));
-  TEST_ASSERT_EQUAL_STRING("_espectre", g_mdns_mock.service_type);
-  TEST_ASSERT_EQUAL_STRING("_tcp", g_mdns_mock.service_proto);
-  TEST_ASSERT_EQUAL(80U, g_mdns_mock.service_port);
-  TEST_ASSERT_EQUAL_STRING("device_id", g_mdns_mock.txt_keys[0]);
-  TEST_ASSERT_EQUAL_STRING("0000000000001234", g_mdns_mock.txt_values[0]);
-  TEST_ASSERT_EQUAL_STRING("frontend", g_mdns_mock.txt_keys[2]);
-  TEST_ASSERT_EQUAL_STRING("streamer", g_mdns_mock.txt_values[2]);
-}
-
 constexpr char BOOTSTRAP_HOST[] =
     "espectre-devices-0123456789abcdef01234567";
 constexpr uint16_t DNS_TYPE_NSEC = 47U;
@@ -222,7 +208,7 @@ void assert_bootstrap_nsec(const uint8_t *packet,
   TEST_ASSERT_TRUE(fields + 10U <= length);
   TEST_ASSERT_EQUAL(DNS_TYPE_NSEC, packet_u16(packet + fields));
   TEST_ASSERT_EQUAL(1U, packet_u16(packet + fields + 2U));
-  TEST_ASSERT_EQUAL(NativeMdnsBootstrapResponder::RESPONSE_TTL_SECONDS,
+  TEST_ASSERT_EQUAL(MdnsBootstrapResponder::RESPONSE_TTL_SECONDS,
                     packet_u32(packet + fields + 4U));
   const size_t rdata_length = packet_u16(packet + fields + 8U);
   const size_t rdata = fields + 10U;
@@ -256,7 +242,7 @@ void assert_bootstrap_answer(const char *expected_host,
   TEST_ASSERT_TRUE(fields + 14U <= length);
   TEST_ASSERT_EQUAL(MDNS_TYPE_A, packet_u16(packet + fields));
   TEST_ASSERT_EQUAL(1U, packet_u16(packet + fields + 2U));
-  TEST_ASSERT_EQUAL(NativeMdnsBootstrapResponder::RESPONSE_TTL_SECONDS,
+  TEST_ASSERT_EQUAL(MdnsBootstrapResponder::RESPONSE_TTL_SECONDS,
                     packet_u32(packet + fields + 4U));
   TEST_ASSERT_EQUAL(4U, packet_u16(packet + fields + 8U));
   uint32_t address = 0U;
@@ -280,7 +266,7 @@ void assert_bootstrap_negative_aaaa(const char *expected_host) {
 void test_bootstrap_answers_multicast_a_after_bounded_delay() {
   reset_mocks();
   esp_timer_mock::reset(100000, 0);
-  NativeMdnsBootstrapResponder responder;
+  MdnsBootstrapResponder responder;
   TEST_ASSERT_TRUE(responder.setup());
   const uint32_t address = ipv4(192U, 168U, 1U, 42U);
   TEST_ASSERT_TRUE(responder.update(address));
@@ -305,7 +291,7 @@ void test_bootstrap_answers_multicast_a_after_bounded_delay() {
 void test_bootstrap_handles_qu_and_legacy_unicast() {
   reset_mocks();
   esp_timer_mock::reset(100000, 0);
-  NativeMdnsBootstrapResponder responder;
+  MdnsBootstrapResponder responder;
   TEST_ASSERT_TRUE(responder.setup());
   const uint32_t address = ipv4(10U, 0U, 0U, 7U);
   const uint32_t source = ipv4(10U, 0U, 0U, 2U);
@@ -331,7 +317,7 @@ void test_bootstrap_handles_qu_and_legacy_unicast() {
 void test_bootstrap_answers_chrome_a_with_compressed_aaaa_question() {
   reset_mocks();
   esp_timer_mock::reset(100000, 0);
-  NativeMdnsBootstrapResponder responder;
+  MdnsBootstrapResponder responder;
   TEST_ASSERT_TRUE(responder.setup());
   const uint32_t address = ipv4(192U, 168U, 1U, 42U);
   const uint32_t source = ipv4(192U, 168U, 1U, 22U);
@@ -349,7 +335,7 @@ void test_bootstrap_answers_chrome_a_with_compressed_aaaa_question() {
 void test_bootstrap_negates_aaaa_without_advertising_ipv6() {
   reset_mocks();
   esp_timer_mock::reset(100000, 0);
-  NativeMdnsBootstrapResponder responder;
+  MdnsBootstrapResponder responder;
   TEST_ASSERT_TRUE(responder.setup());
   const uint32_t source = ipv4(192U, 168U, 1U, 22U);
   TEST_ASSERT_TRUE(responder.update(ipv4(192U, 168U, 1U, 42U)));
@@ -367,7 +353,7 @@ void test_bootstrap_negates_aaaa_without_advertising_ipv6() {
 void test_bootstrap_rejects_static_invalid_and_unsupported_queries() {
   reset_mocks();
   esp_timer_mock::reset(100000, 0);
-  NativeMdnsBootstrapResponder responder;
+  MdnsBootstrapResponder responder;
   TEST_ASSERT_TRUE(responder.setup());
   TEST_ASSERT_TRUE(responder.update(ipv4(192U, 168U, 1U, 42U)));
   const char *invalid_hosts[] = {
@@ -401,7 +387,7 @@ void test_bootstrap_rejects_static_invalid_and_unsupported_queries() {
 void test_bootstrap_requires_ipv4_and_cancels_pending_responses() {
   reset_mocks();
   esp_timer_mock::reset(100000, 0);
-  NativeMdnsBootstrapResponder responder;
+  MdnsBootstrapResponder responder;
   TEST_ASSERT_TRUE(responder.setup());
   const std::vector<uint8_t> query = bootstrap_query();
   responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
@@ -421,7 +407,7 @@ void test_bootstrap_requires_ipv4_and_cancels_pending_responses() {
 void test_bootstrap_bounds_pending_pool_and_global_rate() {
   reset_mocks();
   esp_timer_mock::reset(100000, 0);
-  NativeMdnsBootstrapResponder responder;
+  MdnsBootstrapResponder responder;
   TEST_ASSERT_TRUE(responder.setup());
   TEST_ASSERT_TRUE(responder.update(ipv4(192U, 168U, 1U, 42U)));
   const std::vector<uint8_t> query = bootstrap_query();
@@ -454,7 +440,7 @@ void test_bootstrap_bounds_pending_pool_and_global_rate() {
 void test_bootstrap_wrapper_always_forwards_to_espressif() {
   reset_mocks();
   esp_timer_mock::reset(100000, 0);
-  NativeMdnsBootstrapResponder responder;
+  MdnsBootstrapResponder responder;
   TEST_ASSERT_TRUE(responder.setup());
   TEST_ASSERT_TRUE(responder.update(ipv4(192U, 168U, 1U, 42U)));
   std::vector<uint8_t> query = bootstrap_query();
@@ -732,7 +718,6 @@ int main() {
   RUN_TEST(test_follows_wifi_lifecycle_and_updates_txt_atomically);
   RUN_TEST(test_does_not_free_mdns_owned_by_another_component);
   RUN_TEST(test_attaches_without_mutating_existing_responder_identity);
-  RUN_TEST(test_streamer_advertises_canonical_direct_service);
   RUN_TEST(test_bootstrap_answers_multicast_a_after_bounded_delay);
   RUN_TEST(test_bootstrap_handles_qu_and_legacy_unicast);
   RUN_TEST(test_bootstrap_answers_chrome_a_with_compressed_aaaa_question);

@@ -66,6 +66,7 @@ void test_setup_registers_http_post_sse_raw_and_preflight() {
   TEST_ASSERT_EQUAL(HTTP_OPTIONS, g_httpd_mock.registered_uris[3].method);
   TEST_ASSERT_EQUAL(7U, g_httpd_mock.last_config.max_open_sockets);
   TEST_ASSERT_EQUAL(8U, g_httpd_mock.last_config.max_uri_handlers);
+  TEST_ASSERT_EQUAL(ESPECTRE_DIRECT_HTTP_PORT, g_httpd_mock.last_config.server_port);
   TEST_ASSERT_EQUAL(1U, g_httpd_mock.last_config.recv_wait_timeout);
   TEST_ASSERT_EQUAL(1U, g_httpd_mock.last_config.send_wait_timeout);
   service.shutdown();
@@ -229,16 +230,14 @@ void test_deferred_post_completes_only_once() {
   TEST_ASSERT_EQUAL(1, g_httpd_mock.send_calls);
 }
 
-void test_raw_get_requires_bearer_and_emits_paced_v8_frame() {
+void test_raw_get_requires_bearer_and_emits_v2_frame() {
   httpd_mock_reset();
   esp_timer_mock::reset(100000U, 0U);
   EspIdfDirectHttpService service;
   TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
   RawCsiSessionConfig session{};
   session.device_id = 0x112233445566ULL;
-  session.chip = StreamChipType::C3;
-  session.target_pps = 100U;
-  session.max_sample_age_us = 20000U;
+  session.chip = RawCsiChipType::C3;
   for (size_t index = 0U; index < sizeof(session.session_id); ++index) {
     session.session_id[index] = static_cast<uint8_t>(index);
   }
@@ -261,44 +260,44 @@ void test_raw_get_requires_bearer_and_emits_paced_v8_frame() {
   packet.csi = csi;
   packet.csi_len = sizeof(csi);
   packet.captured_at_us = 100000U;
-  packet.stream_flags = STREAM_FLAG_CSI_FRESH;
+  packet.record_flags = RAW_CSI_FLAG_FRESH;
   packet.channel = 6U;
   packet.rssi_dbm = -45;
   packet.noise_floor_dbm = -96;
-  packet.phy_mode = StreamPhyMode::HT;
-  packet.ltf_type = StreamLtfType::HT_LTF;
-  packet.channel_width = StreamChannelWidth::MHZ_20;
+  packet.phy_mode = RawCsiPhyMode::HT;
+  packet.ltf_type = RawCsiLtfType::HT_LTF;
+  packet.channel_width = RawCsiChannelWidth::MHZ_20;
   TEST_ASSERT_TRUE(service.offer_raw_packet(packet));
   service.loop();
   TEST_ASSERT_EQUAL(2, g_httpd_mock.send_calls);
   TEST_ASSERT_EQUAL(9, g_httpd_mock.sent_fds[1]);
-  TEST_ASSERT_EQUAL(sizeof(RawCsiHttpFramePrefixV1) + sizeof(CsiStreamHeaderV8) + sizeof(csi),
+  TEST_ASSERT_EQUAL(sizeof(RawCsiHttpFramePrefixV2) + sizeof(RawCsiRecordHeaderV8) + sizeof(csi),
                     g_httpd_mock.sent_lengths[1]);
-  const auto *prefix = reinterpret_cast<const RawCsiHttpFramePrefixV1 *>(
+  const auto *prefix = reinterpret_cast<const RawCsiHttpFramePrefixV2 *>(
       g_httpd_mock.sent_payloads[1]);
   TEST_ASSERT_EQUAL(ESPECTRE_RAW_CSI_RESPONSE_MAGIC, prefix->magic);
-  TEST_ASSERT_EQUAL(static_cast<uint8_t>(RawCsiResponseStatus::FRESH), prefix->status);
+  TEST_ASSERT_EQUAL(ESPECTRE_RAW_CSI_PROTOCOL_VERSION, prefix->version);
+  TEST_ASSERT_EQUAL(RAW_CSI_RECORD_VERSION_V8, prefix->record_version);
+  TEST_ASSERT_EQUAL(0U, prefix->flags);
   TEST_ASSERT_EQUAL(1U, prefix->stream_sequence);
-  TEST_ASSERT_EQUAL(sizeof(CsiStreamHeaderV8) + sizeof(csi), prefix->record_len);
-  const auto *header = reinterpret_cast<const CsiStreamHeaderV8 *>(
-      g_httpd_mock.sent_payloads[1] + sizeof(RawCsiHttpFramePrefixV1));
-  TEST_ASSERT_EQUAL(STREAM_VERSION_V8, header->version);
+  TEST_ASSERT_EQUAL(sizeof(RawCsiRecordHeaderV8) + sizeof(csi), prefix->record_len);
+  const auto *header = reinterpret_cast<const RawCsiRecordHeaderV8 *>(
+      g_httpd_mock.sent_payloads[1] + sizeof(RawCsiHttpFramePrefixV2));
+  TEST_ASSERT_EQUAL(RAW_CSI_RECORD_VERSION_V8, header->version);
   TEST_ASSERT_EQUAL(100000U, header->device_ticks_us);
   TEST_ASSERT_EQUAL(1U, header->fresh_record_total);
   TEST_ASSERT_TRUE(service.stop_raw_session(RawCsiStopReason::REQUESTED));
   TEST_ASSERT_FALSE(service.raw_diagnostics().active);
 }
 
-void test_raw_pacing_uses_absolute_deadlines_without_accumulating_worker_jitter() {
+void test_raw_batches_up_to_four_records_without_pacing() {
   httpd_mock_reset();
   esp_timer_mock::reset(100000U, 0U);
   EspIdfDirectHttpService service;
   TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
   RawCsiSessionConfig session{};
   session.device_id = 0x112233445566ULL;
-  session.chip = StreamChipType::C3;
-  session.target_pps = 100U;
-  session.max_sample_age_us = 20000U;
+  session.chip = RawCsiChipType::C3;
   session.session_id[0] = 1U;
   TEST_ASSERT_TRUE(service.start_raw_session(session, {}));
 
@@ -312,23 +311,149 @@ void test_raw_pacing_uses_absolute_deadlines_without_accumulating_worker_jitter(
   packet.csi = csi;
   packet.csi_len = sizeof(csi);
   packet.captured_at_us = 100000U;
-  TEST_ASSERT_TRUE(service.offer_raw_packet(packet));
+  for (uint64_t index = 0U; index < 4U; ++index) {
+    packet.captured_at_us = 100000U + index;
+    TEST_ASSERT_TRUE(service.offer_raw_packet(packet));
+  }
   service.loop();
   TEST_ASSERT_EQUAL(1, g_httpd_mock.send_calls);
+  const size_t frame_size = sizeof(RawCsiHttpFramePrefixV2) + sizeof(RawCsiRecordHeaderV8) + sizeof(csi);
+  TEST_ASSERT_EQUAL(4U * frame_size, g_httpd_mock.sent_lengths[0]);
+}
 
-  esp_timer_mock::advance(11000U);
-  packet.captured_at_us = 111000U;
+void test_raw_ring_drops_new_record_and_accounts_every_offer() {
+  httpd_mock_reset();
+  esp_timer_mock::reset(100000U, 0U);
+  EspIdfDirectHttpService service;
+  TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
+  RawCsiSessionConfig session{};
+  session.session_id[0] = 2U;
+  TEST_ASSERT_TRUE(service.start_raw_session(session, {}));
+
+  httpd_mock_set_header("Origin", "https://espectre.dev");
+  httpd_mock_set_header("Authorization", "Bearer 02000000000000000000000000000000");
+  httpd_req_t raw_request = request_for(2U, 9);
+  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[2].handler(&raw_request));
+
+  const int8_t csi[] = {1, -2, 3, -4};
+  RawCsiPacketView packet{};
+  packet.csi = csi;
+  packet.csi_len = sizeof(csi);
+  for (size_t index = 0U; index < 16U; ++index) {
+    packet.captured_at_us = 100000U + index;
+    TEST_ASSERT_TRUE(service.offer_raw_packet(packet));
+  }
+  TEST_ASSERT_FALSE(service.offer_raw_packet(packet));
+
+  for (size_t batch = 0U; batch < 4U; ++batch) {
+    service.loop();
+  }
+  packet.captured_at_us = 200000U;
   TEST_ASSERT_TRUE(service.offer_raw_packet(packet));
   service.loop();
-  TEST_ASSERT_EQUAL(2, g_httpd_mock.send_calls);
+  const RawCsiSessionDiagnostics diagnostics = service.raw_diagnostics();
+  TEST_ASSERT_EQUAL(17U, diagnostics.fresh_record_total);
+  TEST_ASSERT_EQUAL(1U, diagnostics.raw_drop_total);
+  TEST_ASSERT_EQUAL(diagnostics.stream_sequence,
+                    diagnostics.fresh_record_total + diagnostics.raw_drop_total);
+  const auto *prefix = reinterpret_cast<const RawCsiHttpFramePrefixV2 *>(
+      g_httpd_mock.sent_payloads[4]);
+  TEST_ASSERT_EQUAL(18U, prefix->stream_sequence);
+}
 
-  // The next absolute deadline remains 120000 us. The old now+interval
-  // implementation drifted to 121000 us and missed this worker iteration.
-  esp_timer_mock::advance(9000U);
-  packet.captured_at_us = 120000U;
-  TEST_ASSERT_TRUE(service.offer_raw_packet(packet));
+void test_raw_bind_timeout_restores_session_after_five_seconds() {
+  httpd_mock_reset();
+  esp_timer_mock::reset(100000U, 0U);
+  EspIdfDirectHttpService service;
+  RawCsiStopReason stopped_reason = RawCsiStopReason::INTERNAL_ERROR;
+  TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
+  RawCsiSessionConfig session{};
+  session.session_id[0] = 4U;
+  TEST_ASSERT_TRUE(service.start_raw_session(
+      session, [&stopped_reason](RawCsiStopReason reason) { stopped_reason = reason; }));
+
+  esp_timer_mock::advance(4999999U);
   service.loop();
-  TEST_ASSERT_EQUAL(3, g_httpd_mock.send_calls);
+  TEST_ASSERT_TRUE(service.raw_diagnostics().active);
+  esp_timer_mock::advance(1U);
+  service.loop();
+  TEST_ASSERT_FALSE(service.raw_diagnostics().active);
+  TEST_ASSERT_EQUAL(static_cast<uint8_t>(RawCsiStopReason::BIND_TIMEOUT),
+                    static_cast<uint8_t>(stopped_reason));
+}
+
+void test_raw_send_failure_accounts_batch_and_stops_slow_client() {
+  httpd_mock_reset();
+  esp_timer_mock::reset(100000U, 0U);
+  EspIdfDirectHttpService service;
+  RawCsiStopReason stopped_reason = RawCsiStopReason::INTERNAL_ERROR;
+  TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
+  RawCsiSessionConfig session{};
+  session.session_id[0] = 3U;
+  TEST_ASSERT_TRUE(service.start_raw_session(
+      session, [&stopped_reason](RawCsiStopReason reason) { stopped_reason = reason; }));
+  httpd_mock_set_header("Origin", "https://espectre.dev");
+  httpd_mock_set_header("Authorization", "Bearer 03000000000000000000000000000000");
+  httpd_req_t raw_request = request_for(2U, 9);
+  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[2].handler(&raw_request));
+
+  const int8_t csi[] = {1, -2, 3, -4};
+  RawCsiPacketView packet{};
+  packet.csi = csi;
+  packet.csi_len = sizeof(csi);
+  TEST_ASSERT_TRUE(service.offer_raw_packet(packet));
+  g_httpd_mock.send_result = ESP_FAIL;
+  service.loop();
+  const RawCsiSessionDiagnostics diagnostics = service.raw_diagnostics();
+  TEST_ASSERT_FALSE(diagnostics.active);
+  TEST_ASSERT_EQUAL(0U, diagnostics.fresh_record_total);
+  TEST_ASSERT_EQUAL(1U, diagnostics.raw_drop_total);
+  TEST_ASSERT_EQUAL(1U, diagnostics.raw_send_backpressure_total);
+  TEST_ASSERT_EQUAL(diagnostics.stream_sequence,
+                    diagnostics.fresh_record_total + diagnostics.raw_drop_total);
+  TEST_ASSERT_EQUAL(static_cast<uint8_t>(RawCsiStopReason::SLOW_CLIENT),
+                    static_cast<uint8_t>(stopped_reason));
+}
+
+void test_raw_stop_accounts_records_accepted_but_not_sent() {
+  httpd_mock_reset();
+  EspIdfDirectHttpService service;
+  TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
+  RawCsiSessionConfig session{};
+  session.session_id[0] = 5U;
+  TEST_ASSERT_TRUE(service.start_raw_session(session, {}));
+  const int8_t csi[] = {1, -2, 3, -4};
+  RawCsiPacketView packet{};
+  packet.csi = csi;
+  packet.csi_len = sizeof(csi);
+  TEST_ASSERT_TRUE(service.offer_raw_packet(packet));
+  TEST_ASSERT_TRUE(service.offer_raw_packet(packet));
+  TEST_ASSERT_TRUE(service.offer_raw_packet(packet));
+  TEST_ASSERT_TRUE(service.stop_raw_session(RawCsiStopReason::REQUESTED));
+  const RawCsiSessionDiagnostics diagnostics = service.raw_diagnostics();
+  TEST_ASSERT_EQUAL(0U, diagnostics.fresh_record_total);
+  TEST_ASSERT_EQUAL(3U, diagnostics.raw_drop_total);
+  TEST_ASSERT_EQUAL(3U, diagnostics.stream_sequence);
+  TEST_ASSERT_EQUAL(diagnostics.stream_sequence,
+                    diagnostics.fresh_record_total + diagnostics.raw_drop_total);
+}
+
+void test_raw_assigns_sequence_before_rejecting_an_invalid_offer() {
+  httpd_mock_reset();
+  EspIdfDirectHttpService service;
+  TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
+  RawCsiSessionConfig session{};
+  session.session_id[0] = 6U;
+  TEST_ASSERT_TRUE(service.start_raw_session(session, {}));
+
+  RawCsiPacketView invalid{};
+  TEST_ASSERT_FALSE(service.offer_raw_packet(invalid));
+  const RawCsiSessionDiagnostics diagnostics = service.raw_diagnostics();
+  TEST_ASSERT_EQUAL(1U, diagnostics.stream_sequence);
+  TEST_ASSERT_EQUAL(0U, diagnostics.fresh_record_total);
+  TEST_ASSERT_EQUAL(1U, diagnostics.raw_drop_total);
+  TEST_ASSERT_EQUAL(diagnostics.stream_sequence,
+                    diagnostics.fresh_record_total + diagnostics.raw_drop_total);
 }
 
 }  // namespace
@@ -341,7 +466,12 @@ int main() {
   RUN_TEST(test_post_distinguishes_queue_saturation_from_mutation_rate_limit);
   RUN_TEST(test_sse_limits_clients_frames_events_coalesces_and_heartbeats);
   RUN_TEST(test_deferred_post_completes_only_once);
-  RUN_TEST(test_raw_get_requires_bearer_and_emits_paced_v8_frame);
-  RUN_TEST(test_raw_pacing_uses_absolute_deadlines_without_accumulating_worker_jitter);
+  RUN_TEST(test_raw_get_requires_bearer_and_emits_v2_frame);
+  RUN_TEST(test_raw_batches_up_to_four_records_without_pacing);
+  RUN_TEST(test_raw_ring_drops_new_record_and_accounts_every_offer);
+  RUN_TEST(test_raw_bind_timeout_restores_session_after_five_seconds);
+  RUN_TEST(test_raw_send_failure_accounts_batch_and_stops_slow_client);
+  RUN_TEST(test_raw_stop_accounts_records_accepted_but_not_sent);
+  RUN_TEST(test_raw_assigns_sequence_before_rejecting_an_invalid_offer);
   return espectre::test::end_suite();
 }

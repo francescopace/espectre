@@ -26,15 +26,6 @@ enum class CsiTrafficMode {
   INTERNAL,
   /** Another device supplies the traffic; the runtime only listens. */
   EXTERNAL,
-  /** External traffic, with the runtime pacing the sender to hold the rate. */
-  PACING,
-  /**
-   * No traffic management at all.
-   *
-   * Only sensible when ambient traffic already sustains the packet rate the
-   * detector needs; otherwise the detector starves.
-   */
-  DISABLED,
 };
 
 }  // namespace espectre

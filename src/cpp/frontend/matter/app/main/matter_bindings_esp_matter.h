@@ -11,6 +11,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 #include "matter_bindings.h"
 
@@ -20,6 +21,8 @@ class MatterEspBindings : public IMatterBindings {
  public:
   void publish_motion(uint16_t endpoint_id, bool motion_detected) override;
   void report_fault(const char *message) override;
+  bool get_node_label(std::string *label) override;
+  bool set_node_label(const std::string &label) override;
 };
 
 }  // namespace espectre

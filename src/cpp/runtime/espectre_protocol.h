@@ -10,6 +10,7 @@
  */
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -37,6 +38,66 @@
  */
 
 namespace espectre {
+
+/** Matter Basic Information NodeLabel limit, shared by all Direct frontends. */
+inline constexpr size_t ESPECTRE_DEVICE_LABEL_MAX_LENGTH = 32U;
+
+enum class EspectreDirectMethod : uint8_t {
+  CAPABILITIES = 0,
+  INFO,
+  STATUS,
+  CONFIG,
+  DIAGNOSTICS,
+  SET_SENSING,
+  SET_DEVICE_LABEL,
+  SET_THRESHOLD,
+  SET_MOTION_HITS,
+  SET_DETECTOR,
+  RECALIBRATE,
+  START_RAW_STREAM,
+  STOP_RAW_STREAM,
+  SET_CSI_TRAFFIC_MODE,
+  SET_TRAFFIC_GENERATOR_MODE,
+  WIFI_ACCESS_POINTS,
+  SCAN_WIFI_ACCESS_POINTS,
+  SET_WIFI_BSSID,
+  CLEAR_WIFI_BSSID,
+  CLEAR_WIFI_CONFIG,
+  SET_MQTT_CONFIG,
+  CLEAR_MQTT_CONFIG,
+  OTA_STATUS,
+  OTA_CHECK,
+  OTA_START,
+  DISCOVER_PEERS,
+  COUNT,
+};
+
+enum class EspectreConfigSection : uint8_t {
+  RUNTIME = 0,
+  DEVICE,
+  WIFI,
+  MQTT,
+  COUNT,
+};
+
+/** Exact Direct command and readable-configuration surface advertised by a frontend. */
+struct EspectreCapabilityProfile {
+  std::array<bool, static_cast<size_t>(EspectreDirectMethod::COUNT)> methods{};
+  std::array<bool, static_cast<size_t>(EspectreConfigSection::COUNT)> config_sections{};
+
+  bool supports(EspectreDirectMethod method) const {
+    return methods[static_cast<size_t>(method)];
+  }
+  void set(EspectreDirectMethod method, bool enabled = true) {
+    methods[static_cast<size_t>(method)] = enabled;
+  }
+  bool has(EspectreConfigSection section) const {
+    return config_sections[static_cast<size_t>(section)];
+  }
+  void set(EspectreConfigSection section, bool enabled = true) {
+    config_sections[static_cast<size_t>(section)] = enabled;
+  }
+};
 
 struct RuntimeDiagnosticsSample;
 
@@ -115,10 +176,9 @@ struct EspectreDeviceInfo {
   bool supports_traffic_control{false};
   bool supports_ota{false};
   /**
-   * CSI traffic ownership mode: `"internal"`, `"external"`, or `"disabled"`.
+   * CSI traffic ownership mode: `"internal"` or `"external"`.
    *
    * Omitted from `info` when empty. Sensing MQTT frontends that own traffic control fill it.
-   * `"pacing"` is Streamer collector mode only and is not a sensing MQTT value.
    */
   std::string csi_traffic_mode;
   /**
@@ -133,6 +193,10 @@ struct EspectreDeviceInfo {
    * Omitted from `info` when zero.
    */
   uint32_t csi_target_pps{0U};
+  /** UDP destination port used by the external CSI traffic generator. */
+  uint16_t csi_traffic_udp_port{0U};
+  /** IPv4 multicast group used by external CSI traffic, or empty for unicast-only operation. */
+  std::string csi_traffic_multicast_group;
   /**
    * Detector evaluation cadence, in milliseconds.
    *
@@ -178,9 +242,6 @@ struct EspectreCommand {
   bool has_traffic_generator_mode{false};
   std::string detector;
   bool has_detector{false};
-  /** Requested raw collection cadence for `start_raw_stream`. */
-  uint16_t raw_target_pps{100U};
-  bool has_raw_target_pps{false};
   std::string wifi_bssid;
   bool has_wifi_bssid{false};
   std::string mqtt_host;
@@ -308,6 +369,14 @@ std::string espectre_status_payload(const EspectreDeviceConfig &config, bool onl
 std::string espectre_info_payload(const EspectreDeviceConfig &config, const EspectreDeviceInfo &info);
 /**
  * Filtered command, event, feature, and configuration catalog.
+ */
+std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
+                                          const EspectreDeviceInfo &info,
+                                          const EspectreCapabilityProfile &capabilities);
+/**
+ * Compatibility overload for existing SDK consumers. New code should pass an
+ * `EspectreCapabilityProfile` so readable sections and individual commands are
+ * represented independently.
  */
 std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
                                           const EspectreDeviceInfo &info,

@@ -80,9 +80,9 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   };
 
   struct RawSampleSlot {
-    uint64_t generation{0U};
     RawCsiPacketView metadata{};
-    std::array<int8_t, STREAM_MAX_CSI_LEN_BYTES> csi{};
+    std::array<int8_t, RAW_CSI_MAX_PAYLOAD_BYTES> csi{};
+    uint64_t stream_sequence{0U};
   };
 
   struct RawSessionState {
@@ -93,7 +93,6 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
     bool binary_bound{false};
     uint64_t opened_at_us{0U};
     uint64_t last_send_us{0U};
-    uint64_t next_send_us{0U};
     uint64_t stream_sequence{0U};
     std::string origin;
   };
@@ -103,6 +102,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   static esp_err_t raw_handler_(httpd_req_t *request);
   static esp_err_t options_handler_(httpd_req_t *request);
   static void worker_entry_(void *context);
+  static void raw_worker_entry_(void *context);
 
   esp_err_t handle_request_(httpd_req_t *request);
   esp_err_t handle_events_(httpd_req_t *request);
@@ -121,19 +121,17 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   PendingRequest *find_deferred_locked_(uint64_t token);
   bool finish_request_(PendingRequest request, const std::string &response);
   void service_event_streams_();
-  void service_raw_stream_();
+  bool service_raw_stream_();
   void service_raw_timeouts_();
   void worker_loop_();
-  bool copy_latest_raw_sample_(uint64_t minimum_generation,
-                               uint64_t maximum_age_us,
-                               uint64_t now_us,
-                               RawSampleSlot *sample) const;
+  bool pop_raw_sample_(RawSampleSlot *sample);
   void reset_raw_session_locked_();
   void notify_client_count_(size_t count);
   bool lock_() const;
   void unlock_() const;
 
   mutable SemaphoreHandle_t mutex_{nullptr};
+  SemaphoreHandle_t raw_send_mutex_{nullptr};
   httpd_handle_t server_{nullptr};
   DirectHttpServiceConfig config_{};
   RequestHandler request_handler_{};
@@ -149,16 +147,22 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   uint16_t mutation_count_{0U};
   std::atomic<bool> worker_running_{false};
   TaskHandle_t worker_task_{nullptr};
+  std::atomic<bool> raw_worker_running_{false};
+  [[maybe_unused]] TaskHandle_t raw_worker_task_{nullptr};
 
+  static constexpr size_t kRawQueueDepth = 16U;
+  static constexpr size_t kRawBatchRecords = 4U;
+  static constexpr size_t kRawEncodedFrameMaximumSize =
+      sizeof(RawCsiHttpFramePrefixV2) + sizeof(RawCsiRecordHeaderV8) + RAW_CSI_MAX_PAYLOAD_BYTES;
   std::atomic<bool> raw_session_active_{false};
-  std::atomic<uint64_t> raw_sample_generation_{0U};
-  std::atomic<uint64_t> raw_sample_consumed_generation_{0U};
-  mutable portMUX_TYPE raw_samples_lock_ = portMUX_INITIALIZER_UNLOCKED;
-  std::array<RawSampleSlot, 2U> raw_samples_{};
+  std::atomic<uint32_t> raw_producer_active_{0U};
+  std::array<RawSampleSlot, kRawQueueDepth> raw_samples_{};
+  std::atomic<uint64_t> raw_sample_head_{0U};
+  std::atomic<uint64_t> raw_sample_tail_{0U};
+  std::atomic<uint64_t> raw_offer_sequence_{0U};
+  std::array<uint8_t, kRawBatchRecords * kRawEncodedFrameMaximumSize> raw_send_buffer_{};
   RawSessionState raw_session_{};
-  std::atomic<uint64_t> raw_no_sample_total_{0U};
-  std::atomic<uint64_t> raw_replaced_sample_total_{0U};
-  std::atomic<uint64_t> raw_dropped_sample_total_{0U};
+  std::atomic<uint64_t> raw_drop_total_{0U};
   std::atomic<uint64_t> raw_send_backpressure_total_{0U};
   std::atomic<uint64_t> raw_fresh_record_total_{0U};
 };

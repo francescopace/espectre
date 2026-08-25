@@ -26,6 +26,7 @@ struct MotionPublish {
 struct State {
   std::vector<MotionPublish> motion_events;
   std::vector<std::string> faults;
+  std::string node_label{"ESPectre Matter"};
 };
 
 extern State state;
@@ -36,6 +37,8 @@ class MockMatterBindings : public IMatterBindings {
  public:
   void publish_motion(uint16_t endpoint_id, bool motion_detected) override;
   void report_fault(const char *message) override;
+  bool get_node_label(std::string *label) override;
+  bool set_node_label(const std::string &label) override;
 };
 
 }  // namespace matter_bindings_mock

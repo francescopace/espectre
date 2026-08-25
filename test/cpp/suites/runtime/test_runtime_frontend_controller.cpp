@@ -210,14 +210,13 @@ void test_runtime_frontend_controller_traffic_runtime_updates_config(void) {
   TEST_ASSERT_TRUE(controller.set_traffic_generator_mode_runtime(RuntimeTrafficMode::DNS));
   TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
 
-  TEST_ASSERT_FALSE(controller.set_csi_traffic_mode_runtime(CsiTrafficMode::PACING));
   TEST_ASSERT_FALSE(controller.set_csi_traffic_mode_runtime(static_cast<CsiTrafficMode>(0x7f)));
   TEST_ASSERT_FALSE(controller.set_traffic_generator_mode_runtime(static_cast<RuntimeTrafficMode>(0x7f)));
 
   TEST_ASSERT_TRUE(controller.setup(&listener));
-  TEST_ASSERT_TRUE(controller.set_csi_traffic_mode_runtime(CsiTrafficMode::DISABLED));
+  TEST_ASSERT_TRUE(controller.set_csi_traffic_mode_runtime(CsiTrafficMode::INTERNAL));
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficMode::DISABLED);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficMode::INTERNAL);
 
   TEST_ASSERT_TRUE(controller.set_traffic_generator_mode_runtime(RuntimeTrafficMode::PING));
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
@@ -318,25 +317,6 @@ void test_runtime_frontend_controller_switches_detector_and_resets_threshold(voi
   TEST_ASSERT_EQUAL_FLOAT(LIGHTWEIGHT_DEFAULT_THRESHOLD, controller.snapshot().threshold);
 }
 
-void test_runtime_frontend_controller_can_select_stream_runtime_profile(void) {
-  RuntimeFrontendController controller;
-  DummyRuntimeListener listener;
-  RuntimeConfig config;
-  config.runtime_profile = RuntimeProfile::STREAM;
-  config.csi_traffic_mode = CsiTrafficMode::DISABLED;
-  config.device_id = 0x1234U;
-
-  frontend_runtime_shim::reset();
-  controller.set_config(config);
-
-  TEST_ASSERT_TRUE(controller.setup(&listener));
-  TEST_ASSERT_TRUE(controller.is_setup_complete());
-  TEST_ASSERT_NULL(frontend_runtime_shim::state.last_listener);
-
-  controller.shutdown();
-  TEST_ASSERT_FALSE(controller.is_setup_complete());
-}
-
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_runtime_frontend_controller_preserves_pre_setup_config_and_snapshot);
@@ -353,7 +333,6 @@ int process(void) {
   RUN_TEST(test_runtime_frontend_controller_caches_and_forwards_listener_events);
   RUN_TEST(test_runtime_frontend_controller_defers_shutdown_requested_by_listener);
   RUN_TEST(test_runtime_frontend_controller_switches_detector_and_resets_threshold);
-  RUN_TEST(test_runtime_frontend_controller_can_select_stream_runtime_profile);
   return UNITY_END();
 }
 

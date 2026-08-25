@@ -21,6 +21,7 @@
 #include "esphome/components/switch/switch.h"
 
 #include <algorithm>
+#include <array>
 #include <string>
 #include <vector>
 
@@ -28,6 +29,8 @@
 #include "direct_http_service_esp_idf.h"
 #include "frontend_control_helpers.h"
 #include "mdns_discovery_service.h"
+#include "mdns_bootstrap_responder.h"
+#include "peer_discovery_service_esp_idf.h"
 #include "runtime_config_utils.h"
 #include "runtime_direct_http_bridge.h"
 #include "runtime_diagnostics.h"
@@ -159,12 +162,22 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void sync_direct_config_();
   void setup_mdns_discovery_();
   std::string device_name_() const;
+  MdnsTxtRecords mdns_txt_records_() const;
+  bool set_device_name_(const std::string &device_name, std::string *message);
 
   RuntimeFrontendController runtime_;
   FrontendCommandEngine command_engine_;
   EspIdfDirectHttpService direct_service_;
   RuntimeDirectHttpBridge direct_bridge_;
   MdnsDiscoveryService mdns_discovery_;
+  MdnsBootstrapResponder mdns_bootstrap_responder_;
+  EspIdfPeerDiscoveryService peer_discovery_;
+  struct StoredDeviceLabel {
+    uint8_t version{1U};
+    std::array<char, ESPECTRE_DEVICE_LABEL_MAX_LENGTH + 1U> value{};
+  };
+  ESPPreferenceObject device_label_preference_;
+  std::string device_label_override_;
 
   SensorPublisher sensor_publisher_;
 

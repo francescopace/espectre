@@ -19,7 +19,7 @@ class EspIdfPeerDiscoveryService final : public IPeerDiscoveryService {
  public:
   ~EspIdfPeerDiscoveryService() override;
 
-  void set_local_candidate(PeerDiscoveryCandidate candidate);
+  void set_local_candidate(PeerDiscoveryCandidate candidate) override;
   void set_wifi_ready(bool ready) override;
   bool ready() const override;
   bool active() const override;

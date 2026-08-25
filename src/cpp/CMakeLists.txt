@@ -55,11 +55,6 @@ if(CONFIG_ESPECTRE_SDK_ENABLE_DIRECT)
     list(APPEND espectre_sdk_requires mdns esp_http_server)
 endif()
 
-if(CONFIG_ESPECTRE_SDK_ENABLE_STREAM_RUNTIME)
-    list(APPEND espectre_sdk_sources ${ESPECTRE_RUNTIME_STREAMER_FRONTEND_SUPPORT_SOURCES})
-    list(APPEND espectre_sdk_requires mdns)
-endif()
-
 list(REMOVE_DUPLICATES espectre_sdk_sources)
 list(REMOVE_DUPLICATES espectre_sdk_requires)
 
@@ -72,6 +67,12 @@ idf_component_register(
     REQUIRES
         ${espectre_sdk_requires}
 )
+
+if(CONFIG_ESPECTRE_SDK_ENABLE_DIRECT)
+    idf_component_get_property(espectre_mdns_dir espressif__mdns COMPONENT_DIR)
+    target_include_directories(${COMPONENT_LIB} PRIVATE "${espectre_mdns_dir}/private_include")
+    target_link_options(${COMPONENT_LIB} INTERFACE "LINKER:--wrap=mdns_priv_receive_action")
+endif()
 
 # ESPHome keeps CONFIG_LOG_DEFAULT_LEVEL at ERROR so Wi-Fi and lwIP debug stay
 # compiled out. Compile INFO/DEBUG only in this component (4 == ESP_LOG_DEBUG)
@@ -88,10 +89,4 @@ if(ESPECTRE_GIT_VERSION AND NOT ESPECTRE_GIT_VERSION_STAMPED)
             ESPECTRE_SDK_VERSION_MINOR=${ESPECTRE_SDK_VERSION_MINOR}
             ESPECTRE_SDK_VERSION_PATCH=${ESPECTRE_SDK_VERSION_PATCH}
     )
-endif()
-
-if(CONFIG_ESPECTRE_SDK_ENABLE_STREAM_RUNTIME)
-    # make_stream_runtime() returns nullptr unless the profile is compiled in,
-    # so the option has to reach the sources as well as the source list.
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE ESPECTRE_ENABLE_STREAM_RUNTIME=1)
 endif()

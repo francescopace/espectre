@@ -369,7 +369,7 @@ class HomeAssistantMqttAdapter:
                 "object_id": self._object_id("csi_traffic_ownership"),
                 "state_topic": self._topic("csi_traffic_mode/state"),
                 "command_topic": self._topic("csi_traffic_mode/set"),
-                "options": ["internal", "external", "disabled"],
+                "options": ["internal", "external"],
                 "entity_category": "config",
                 "icon": "mdi:wifi-cog",
             }
@@ -653,7 +653,7 @@ class HomeAssistantMqttAdapter:
             payload = payload.decode("utf-8", "ignore")
         value = str(payload).strip().lower()
         if csi_traffic_mode:
-            if value not in ("internal", "external", "disabled"):
+            if value not in ("internal", "external"):
                 return False
             csi_mode = value
             generator_mode = self._last_traffic_generator_mode

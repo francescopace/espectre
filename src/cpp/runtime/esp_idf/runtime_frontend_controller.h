@@ -21,10 +21,8 @@ namespace espectre {
 /**
  * The recommended entry point for firmware embedding ESPectre.
  *
- * It owns the runtime backend, picks the right one from
- * `RuntimeConfig::runtime_profile`, caches the latest snapshot and the
- * discovered capabilities, and validates control calls before they reach the
- * backend. The shipped Native and Matter frontends are thin wrappers over it.
+ * It owns the sensing runtime, caches the latest snapshot and discovered
+ * capabilities, and validates control calls before they reach the backend.
  *
  * @code
  * class ProductFrontend : public espectre::IRuntimeListener {
@@ -120,10 +118,9 @@ class RuntimeFrontendController : private IRuntimeListener {
    *
    * @param listener Event sink, or `nullptr` for none. Not owned; it must
    *        outlive the controller.
-   * @return false when the backend cannot start, for example a
-   *         `RuntimeProfile::STREAM` config in a build without the stream
-   *         runtime. On failure the backend is dropped and the controller
-   *         stays un-setup, so it is safe to fix the config and retry.
+   * @return false when the backend cannot start. On failure the backend is
+   *         dropped and the controller stays un-setup, so it is safe to fix
+   *         the config and retry.
    */
   bool setup(IRuntimeListener *listener);
   /**

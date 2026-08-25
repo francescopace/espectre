@@ -1,7 +1,7 @@
 /*
  * ESPectre - UDP Listener
  *
- * Non-blocking UDP listener used for pacing traffic and collector
+ * Non-blocking UDP listener used for external CSI traffic
  * discovery.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>

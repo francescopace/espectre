@@ -43,12 +43,4 @@ config ESPECTRE_SDK_ENABLE_DIRECT
         Adds the local Direct HTTP transport, the shared runtime bridge,
         and the canonical _espectre._tcp discovery service.
 
-config ESPECTRE_SDK_ENABLE_STREAM_RUNTIME
-    bool "Build the CSI stream runtime"
-    default n
-    help
-        Adds the RuntimeProfile::STREAM backend, which ships raw CSI to a host
-        collector instead of detecting on-device. Intended for dataset
-        collection. Without it, a STREAM profile fails at setup().
-
 endmenu

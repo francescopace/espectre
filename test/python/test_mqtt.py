@@ -1091,9 +1091,9 @@ class TestMQTTHandler:
         }
         assert published["test/espectre/devices/test-device/commands/result"]
         config_payload = json.loads(published["test/espectre/devices/test-device/config"])
-        assert config_payload["runtime"]["csi_traffic_mode"] == "disabled"
+        assert config_payload["runtime"]["csi_traffic_mode"] == "internal"
         assert config_payload["runtime"]["traffic_generator_mode"] == "dns"
-        assert published["test/espectre/devices/test-device/ha/csi_traffic_mode/state"] == "disabled"
+        assert published["test/espectre/devices/test-device/ha/csi_traffic_mode/state"] == "internal"
         assert published["test/espectre/devices/test-device/ha/traffic_generator_mode/state"] == "dns"
 
         mock_mqtt_client_instance.publish.reset_mock()

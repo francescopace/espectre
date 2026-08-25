@@ -34,6 +34,10 @@ struct RuntimeDiagnosticsSample {
   float traffic_tx_pps{0.0f};
   /** Raw CSI callbacks per second, before any capture-level validation. */
   float csi_callback_pps{0.0f};
+  /** CSI packets per second classified as configured generator traffic. */
+  float csi_classified_pps{0.0f};
+  /** CSI packets per second rejected by the generator provenance filter. */
+  float csi_provenance_rejected_pps{0.0f};
   /** CSI packets per second accepted by capture validation. */
   float csi_accepted_pps{0.0f};
   /** CSI packets per second admitted to the detector's temporal grid. */

@@ -22,7 +22,7 @@ namespace espectre {
  * Return true when RX control metadata matches the HT20 sensing contract.
  *
  * Aligns with host-side `is_ht20_phy` (`phy_mode=ht`, `channel_width=20`) and
- * streamer PHY extraction for HT/20 MHz frames.
+ * raw CSI PHY extraction for HT/20 MHz frames.
  */
 inline bool csi_rx_is_ht20_sensing(const wifi_pkt_rx_ctrl_t &rx_ctrl) {
 #if CONFIG_SOC_WIFI_HE_SUPPORT

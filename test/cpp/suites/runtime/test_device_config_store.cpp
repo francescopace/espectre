@@ -78,10 +78,16 @@ void test_runtime_traffic_mode_store_round_trips_and_validates_values(void) {
   TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, load_runtime_csi_traffic_mode(nullptr, &has_saved_value));
   TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, save_runtime_csi_traffic_mode(static_cast<CsiTrafficMode>(99)));
 
-  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_csi_traffic_mode(CsiTrafficMode::PACING));
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_csi_traffic_mode(CsiTrafficMode::EXTERNAL));
   TEST_ASSERT_EQUAL(ESP_OK, load_runtime_csi_traffic_mode(&csi_mode, &has_saved_value));
   TEST_ASSERT_TRUE(has_saved_value);
-  TEST_ASSERT_TRUE(csi_mode == CsiTrafficMode::PACING);
+  TEST_ASSERT_TRUE(csi_mode == CsiTrafficMode::EXTERNAL);
+
+  nvs_mock_put_str("csi_traffic", "pacing");
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_csi_traffic_mode(&csi_mode, &has_saved_value));
+  TEST_ASSERT_TRUE(csi_mode == CsiTrafficMode::INTERNAL);
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_csi_traffic_mode(&csi_mode, &has_saved_value));
+  TEST_ASSERT_TRUE(csi_mode == CsiTrafficMode::INTERNAL);
 
   has_saved_value = true;
   TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_mode(&generator_mode, &has_saved_value));

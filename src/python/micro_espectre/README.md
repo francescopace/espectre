@@ -124,7 +124,7 @@ MOTION_ON_HITS = 4
 MOTION_OFF_HITS = 3
 ```
 
-`CSI_TARGET_PPS` defines both the requested temporal detector grid and the internal generator target. Every supported chip uses the shared 100 pps default and the same 70% valid-slot floor as the ESP-IDF frontends. MQTT telemetry and commands are enabled by default through the native ESP-IDF transport; set `MQTT_ENABLED = False` in `config_local.py` to disable them. Home Assistant discovery follows `MQTT_HA_DISCOVERY_ENABLED` without chip-specific overrides. `TRAFFIC_GENERATOR_ENABLED` selects traffic ownership independently; the target is always positive. Session MQTT `external` and `disabled` stop the local generator. Micro-ESPectre does not open a UDP listener, so it does not join multicast group `239.255.0.1`; ESP-IDF sensing frontends do. The production `TemporalCsiSampler` retains the packet nearest each slot center, enforces a half-slot minimum spacing derived from the configured target, preserves missing slots, and is imported unchanged by CPython collection, replay, training, and validation workflows. The live loop uses two fixed CSI payload buffers so the previous slot can be emitted while the current candidate is retained without hot-path allocation.
+`CSI_TARGET_PPS` defines both the requested temporal detector grid and the internal generator target. Every supported chip uses the shared 100 pps default and the same 70% valid-slot floor as the ESP-IDF frontends. MQTT telemetry and commands are enabled by default through the native ESP-IDF transport; set `MQTT_ENABLED = False` in `config_local.py` to disable them. Home Assistant discovery follows `MQTT_HA_DISCOVERY_ENABLED` without chip-specific overrides. `TRAFFIC_GENERATOR_ENABLED` selects traffic ownership independently; the target is always positive. Session MQTT `external` stops the local generator. Micro-ESPectre does not open a UDP listener, so it does not join multicast group `239.255.0.1`; ESP-IDF sensing frontends do. The production `TemporalCsiSampler` retains the packet nearest each slot center, enforces a half-slot minimum spacing derived from the configured target, preserves missing slots, and is imported unchanged by CPython collection, replay, training, and validation workflows. The live loop uses two fixed CSI payload buffers so the previous slot can be emitted while the current candidate is retained without hot-path allocation.
 
 Lightweight selects its threshold automatically during startup calibration; keep the room quiet immediately after boot. A later quiet stretch can still lower that threshold, and the HA number plus Monitor follow the live value. High Accuracy uses its trained default threshold. Both thresholds remain adjustable at runtime. For the practical startup workflow, see [TUNING.md](../../../docs/TUNING.md). For the calibration formulas and detector theory, see [ALGORITHMS.md](../../../docs/ALGORITHMS.md).
 
@@ -151,7 +151,7 @@ Micro-ESPectre publishes ESPectre Protocol telemetry with `frontend: "micro"`. T
 
 For protocol identity fields:
 
-- `device_id` uses the same station-MAC SHA-256 pseudonym as Native, Matter, and Streamer
+- `device_id` uses the same station-MAC SHA-256 pseudonym as Native and Matter
 - `device_name` is derived automatically from chip and `device_id`
 - `device_label` is optional and can be supplied through `MQTT_DEVICE_LABEL`
 
@@ -167,7 +167,7 @@ Use:
 ./espectre mqtt
 ```
 
-for interactive MQTT inspection and runtime commands. Micro-ESPectre retains canonical `status`, `info`, `config`, and `capabilities` payloads. A `diagnostics` query returns the cached CSI and Wi-Fi sample only in correlated `commands/result.data`; it does not publish a diagnostics topic. Micro-ESPectre accepts session-only `set_threshold`, `set_motion_hits`, `recalibrate`, `set_csi_traffic_mode`, and `set_traffic_generator_mode` commands. Its capability schema omits detector switching, OTA, device administration, and `set_sensing` because this runtime does not yet have a safe sensing pause. The independent MicroPython registry is checked against the C++ schema by the host capabilities probe. Traffic ownership accepts `internal`, `external`, and `disabled`. For repository CLI behavior, including MQTT shell discovery and selection flow, use [CLI.md](../../../docs/CLI.md). Runtime changes made over MQTT are session-only unless the device code explicitly persists them.
+for interactive MQTT inspection and runtime commands. Micro-ESPectre retains canonical `status`, `info`, `config`, and `capabilities` payloads. A `diagnostics` query returns the cached CSI and Wi-Fi sample only in correlated `commands/result.data`; it does not publish a diagnostics topic. Micro-ESPectre accepts session-only `set_threshold`, `set_motion_hits`, `recalibrate`, `set_csi_traffic_mode`, and `set_traffic_generator_mode` commands. Its capability schema omits detector switching, OTA, device administration, and `set_sensing` because this runtime does not yet have a safe sensing pause. The independent MicroPython registry is checked against the C++ schema by the host capabilities probe. Traffic ownership accepts `internal` and `external`. For repository CLI behavior, including MQTT shell discovery and selection flow, use [CLI.md](../../../docs/CLI.md). Runtime changes made over MQTT are session-only unless the device code explicitly persists them.
 
 ### Home Assistant MQTT Discovery
 
@@ -194,7 +194,7 @@ HA sensing cadences match ESPHome and Native MQTT so the same Home Assistant das
 | Threshold | `ha/threshold/state` and `ha/threshold/set` | On change (operator write, calibration, or Lightweight settled-level recovery), plus connect/birth snapshot; writable 0.0–1.0 number |
 | Motion On Hits | `ha/motion_on_hits/state` and `ha/motion_on_hits/set` | On change, plus connect/birth snapshot; writable 1–20 number |
 | Motion Off Hits | `ha/motion_off_hits/state` and `ha/motion_off_hits/set` | On change, plus connect/birth snapshot; writable 1–20 number |
-| CSI Traffic Ownership | `ha/csi_traffic_mode/state` and `ha/csi_traffic_mode/set` | On change, plus connect/birth snapshot; writable `internal`, `external`, or `disabled` select |
+| CSI Traffic Ownership | `ha/csi_traffic_mode/state` and `ha/csi_traffic_mode/set` | On change, plus connect/birth snapshot; writable `internal` or `external` select |
 | CSI Traffic Source | `ha/traffic_generator_mode/state` and `ha/traffic_generator_mode/set` | On change, plus connect/birth snapshot; writable `ping` / `dns` select |
 | Trigger Calibration | `ha/calibrate/state` and `ha/calibrate/set` | ON while recalibrating; ON starts startup recalibration, OFF is ignored while a session is running |
 | Traffic TX Rate, CSI rates, occupancy, Wi-Fi channel, Wi-Fi RSSI | `ha/traffic_tx_rate/state`, `ha/csi_callback_rate/state`, `ha/csi_accepted_rate/state`, `ha/csi_admitted_rate/state`, `ha/csi_filtered_rate/state`, `ha/csi_missing_rate/state`, `ha/csi_excess_rate/state`, `ha/csi_stale_rate/state`, `ha/csi_out_of_order_rate/state`, `ha/csi_occupancy/state`, `ha/wifi_channel/state`, `ha/wifi_rssi/state` | On demand after Refresh Diagnostics; diagnostic category |
