@@ -439,49 +439,6 @@ jobs:
             output/espectre-native-develop*
           retention-days: 7
 
-  build-streamer:
-    name: Build Streamer ${{ matrix.chip }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - chip: ESP32
-            target: esp32
-          - chip: ESP32-C3
-            target: esp32c3
-          - chip: ESP32-C5
-            target: esp32c5
-          - chip: ESP32-C6
-            target: esp32c6
-          - chip: ESP32-S3
-            target: esp32s3
-          - chip: ESP32-S2
-            target: esp32s2
-
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-
-      # The cached home contains target-independent Python and component dependencies.
-      - name: Cache streamer toolchain
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: .github/.cache/streamer-home
-          key: streamer-${{ runner.os }}-idf-v5.5-deps-v2-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            streamer-${{ runner.os }}-idf-v5.5-deps-v2-
-
-      - name: Build streamer firmware
-        run: |
-          mkdir -p output
-          bash .github/scripts/build_streamer_firmware.sh
-        env:
-          STREAMER_TARGET: ${{ matrix.target }}
-          STREAMER_OUTPUT: ${{ github.workspace }}/output/espectre-streamer-ci-${{ matrix.target }}.bin
-
   build-sdk:
     name: Build SDK Package
     runs-on: ubuntu-24.04

@@ -272,7 +272,6 @@ def test_sdk_snapshot_stamps_git_describe_identity(tmp_path: Path) -> None:
     assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*2\.8\.0-237-g7439944\s*$", bundled_doxyfile)
     for relative_path in (
         "src/cpp/frontend/native/espectre/idf_component.yml",
-        "src/cpp/frontend/streamer/espectre/idf_component.yml",
         "src/cpp/frontend/matter/espectre/idf_component.yml",
         "src/cpp/frontend/matter/app/main/idf_component.yml",
     ):
@@ -747,7 +746,6 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     for script_name in (
         "build_matter_firmware.sh",
         "build_native_firmware.sh",
-        "build_streamer_firmware.sh",
     ):
         source = (SCRIPTS_DIR / script_name).read_text(encoding="utf-8")
         assert IDF_DOCKER_IMAGE in source

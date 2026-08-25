@@ -39,7 +39,7 @@ class Package:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build compliance companions for one firmware image.")
-    parser.add_argument("--frontend", choices=("esphome", "matter", "native", "streamer"), required=True)
+    parser.add_argument("--frontend", choices=("esphome", "matter", "native"), required=True)
     parser.add_argument("--project-description", required=True)
     parser.add_argument("--firmware", required=True)
     parser.add_argument("--output-dir", required=True)

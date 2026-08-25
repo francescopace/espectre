@@ -555,71 +555,6 @@ def test_resume_expected_cases_include_existing_and_requested_cases():
     assert expected == (native_lightweight, micro_lightweight)
 
 
-def test_raw_migration_gate_accepts_five_paired_v7_v8_runs():
-    runs = []
-    for pair in range(1, 6):
-        runs.append(
-            bench.RawMigrationRun(
-                pair=pair,
-                transport="udp",
-                record_version=7,
-                duration_seconds=60.0,
-                accepted_requests=6000,
-                fresh_records=5940,
-            )
-        )
-        runs.append(
-            bench.RawMigrationRun(
-                pair=pair,
-                transport="http",
-                record_version=8,
-                duration_seconds=60.0,
-                accepted_requests=6000,
-                fresh_records=5880,
-                control_latencies_ms=[20.0] * 98 + [80.0, 200.0],
-            )
-        )
-
-    assert bench.raw_migration_gate_reasons(runs) == []
-
-
-def test_raw_migration_gate_reports_throughput_control_and_relative_yield_failures():
-    runs = []
-    for pair in range(1, 6):
-        runs.append(
-            bench.RawMigrationRun(
-                pair=pair,
-                transport="udp",
-                record_version=7,
-                duration_seconds=60.0,
-                accepted_requests=6000,
-                fresh_records=6000,
-            )
-        )
-        runs.append(
-            bench.RawMigrationRun(
-                pair=pair,
-                transport="http",
-                record_version=8,
-                duration_seconds=60.0,
-                accepted_requests=6000,
-                fresh_records=5400,
-                control_latencies_ms=[120.0] * 100,
-                raw_state_valid=False,
-                detection_samples_max=1,
-            )
-        )
-
-    reasons = bench.raw_migration_gate_reasons(runs)
-
-    assert any("fresh yield" in reason for reason in reasons)
-    assert any("fresh rate" in reason for reason in reasons)
-    assert any("control p95" in reason for reason in reasons)
-    assert any("yield delta" in reason for reason in reasons)
-    assert any("invalid runtime state" in reason for reason in reasons)
-    assert any("detector samples" in reason for reason in reasons)
-
-
 def test_resume_with_no_failed_or_missing_cases_does_not_access_hardware(
     tmp_path,
     monkeypatch,
@@ -773,31 +708,6 @@ def test_native_radio_pin_accepts_committed_values_after_reboot(monkeypatch):
             }
 
     bench._verify_native_radio_pin(FakeClient())
-
-
-def test_streamer_readiness_does_not_require_detector_publish_state(monkeypatch):
-    class FakeClient:
-        def __init__(self):
-            self.diagnostics_count = 0
-
-        def request(self, method: str):
-            if method == "status":
-                return {"sensing_enabled": True, "ready_to_publish": False}
-            assert method == "diagnostics"
-            self.diagnostics_count += 1
-            return {
-                "timestamp_ms": self.diagnostics_count * 1_000,
-                "csi_admitted_total": self.diagnostics_count * 80,
-            }
-
-    monkeypatch.setattr(bench, "DIRECT_STABLE_SAMPLE_COUNT", 2)
-    monkeypatch.setattr(bench, "DIRECT_SAMPLE_INTERVAL_SECONDS", 0.0)
-
-    bench.wait_for_direct_runtime_ready(
-        FakeClient(),
-        timeout_seconds=1.0,
-        require_publish_ready=False,
-    )
 
 
 def test_cpp_flash_only_runner_reuses_one_build_context(monkeypatch):

@@ -65,8 +65,6 @@ BENCHMARK_ARTIFACT_ROOT = REPO_ROOT / "data" / "untracked" / "firmware_benchmark
 BENCHMARK_ARTIFACT_SCHEMA_VERSION = 2
 MONITOR_DURATION_SECONDS = 60
 WIFI_CONNECT_WAIT_SECONDS = 60
-STREAMER_COLLECT_DURATION_SECONDS = 60
-STREAMER_IP_WAIT_SECONDS = 45
 DIRECT_DISCOVERY_TIMEOUT_SECONDS = 45
 DIRECT_SAMPLE_INTERVAL_SECONDS = 1.0
 DIRECT_STABLE_SAMPLE_COUNT = 5
@@ -79,14 +77,9 @@ MIN_TELEMETRY_SAMPLES = 5
 IDF_APP_BIN_NAMES = {
     "native": "espectre-native.bin",
     "matter": "espectre-matter.bin",
-    "streamer": "espectre-streamer.bin",
 }
 IDF_IGNORED_BIN_NAMES = {"bootloader.bin", "partition-table.bin", "ota_data_initial.bin"}
 MICRO_SOURCE_DIR = REPO_ROOT / "src/python/micro_espectre"
-MIN_STREAMER_COLLECT_SAMPLES = 60
-RAW_MIGRATION_PAIR_COUNT = 5
-RAW_MIGRATION_TARGET_PPS = 100
-RAW_MIGRATION_MIN_DURATION_SECONDS = 60
 MOTION_WARMUP_SAMPLES = 3
 STABLE_STATUS_WARMUP_SAMPLES = 5
 STATUS_STABLE_WAIT_SECONDS = 30
@@ -108,7 +101,6 @@ FRONTEND_LABELS = {
     "matter": "Matter",
     "micro": "Micro-ESPectre",
     "native": "Native",
-    "streamer": "Streamer",
 }
 DETECTOR_LABELS = {
     "lightweight": "Lightweight",
@@ -169,20 +161,6 @@ FATAL_PATTERNS = (
 MATTER_BOOT_MARKER = "ESPectre Matter firmware started on endpoint"
 MATTER_STARTUP_STATE_RE = re.compile(r"ESPectre Matter CSI services:\s*(?P<state>[^\r\n]+)")
 MATTER_VALID_STARTUP_STATES = {"armed", "waiting for commissioning"}
-STREAMER_IP_RE = re.compile(r"Wi-Fi connected: ip=(?P<ip>\d+\.\d+\.\d+\.\d+)")
-STREAMER_STATE_RE = re.compile(r"\[STATE\]\s+\S+\s+->\s+(?P<state>\S+)\s+\(")
-STREAMER_TELEMETRY_RE = re.compile(
-    r"csi_ap=(?P<csi_ap>\d+(?:\.\d+)?)"
-    r"(?:\s+csi_filt=(?P<csi_filt>\d+(?:\.\d+)?))?"
-    r"(?:\s+valid=(?P<valid>\d+))?"
-    r"(?:\s+bad_sc=(?P<bad_sc>\d+))?"
-    r"\s+udp_rx=(?P<udp_rx>\d+(?:\.\d+)?)"
-    r"\s+udp_tx=(?P<udp_tx>\d+(?:\.\d+)?)"
-    r"\s+fresh=(?P<fresh>\d+(?:\.\d+)?)"
-    r"(?:\s+tx_err=(?P<tx_err_rate>\d+(?:\.\d+)?)/(?P<tx_err_total>\d+))?"
-    r"(?:\s+tx_bp=(?P<tx_bp_rate>\d+(?:\.\d+)?)/(?P<tx_bp_total>\d+))?"
-    r"\s+age_ms=(?P<age_ms>\d+)"
-)
 COLLECT_DETAIL_RE = re.compile(
     r"ip=(?P<ip>\S+)\s+chip=(?P<chip>\S+)"
     r"(?:\s+\[(?P<detector>[^\]]+)\])?\s+\|\s+\[.*?\]\s+\|\s+mvmt:(?P<motion_metric>-?[0-9.]+)"
@@ -306,32 +284,6 @@ class BenchmarkResult:
     transport_evidence: dict[str, object] = field(default_factory=dict)
 
 
-@dataclass
-class RawMigrationRun:
-    pair: int
-    transport: str
-    record_version: int
-    duration_seconds: float
-    accepted_requests: int
-    fresh_records: int
-    no_sample_total: int = 0
-    replaced_sample_total: int = 0
-    dropped_sample_total: int = 0
-    backpressure_total: int = 0
-    control_latencies_ms: list[float] = field(default_factory=list)
-    firmware_identity: str = ""
-    raw_state_valid: bool = True
-    detection_samples_max: int = 0
-
-    @property
-    def fresh_yield_percent(self) -> float:
-        return 100.0 * self.fresh_records / max(self.accepted_requests, 1)
-
-    @property
-    def fresh_pps(self) -> float:
-        return self.fresh_records / max(self.duration_seconds, 0.001)
-
-
 @dataclass(frozen=True)
 class RuntimeStatusSample:
     state: str
@@ -356,7 +308,6 @@ CASES = tuple(
         BenchmarkCase("esphome", "lightweight"),
         BenchmarkCase("esphome", "high_accuracy"),
         BenchmarkCase("matter", "default", benchmark_mode="smoke"),
-        BenchmarkCase("streamer", "collect", benchmark_mode="stream"),
     ]
 )
 
@@ -487,20 +438,6 @@ def require_benchmark_prerequisites(cases: Sequence[BenchmarkCase]) -> None:
 
 
 def append_benchmark_frontend_defaults(frontend: str, override_lines: list[str]) -> None:
-    if frontend == "streamer":
-        ssid = require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID")
-        password = require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD")
-        bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "")
-        channel = benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)
-        override_lines.extend(
-            [
-                f"CONFIG_ESPECTRE_WIFI_SSID={quote_kconfig_string(ssid)}",
-                f"CONFIG_ESPECTRE_WIFI_PASSWORD={quote_kconfig_string(password)}",
-                f"CONFIG_ESPECTRE_WIFI_BSSID={quote_kconfig_string(bssid)}",
-                f"CONFIG_ESPECTRE_WIFI_CHANNEL={channel}",
-            ]
-        )
-
     if frontend == "native":
         override_lines.extend(
             [
@@ -990,19 +927,6 @@ def _expected_runtime_telemetry_samples(
     return 1 + (remaining_ms // (TELEMETRY_SAMPLE_INTERVAL_SECONDS * 1000))
 
 
-def _parse_streamer_telemetry_samples(text: str) -> list[dict[str, float]]:
-    samples: list[dict[str, float]] = []
-    for match in STREAMER_TELEMETRY_RE.finditer(strip_ansi(text)):
-        sample: dict[str, float] = {}
-        for key, value in match.groupdict().items():
-            if value is None:
-                continue
-            sample[key] = float(value)
-        if sample:
-            samples.append(sample)
-    return samples
-
-
 def _parse_collect_output(text: str) -> RuntimeMetrics:
     metrics = RuntimeMetrics()
     detector_states: dict[str, list[str]] = {}
@@ -1056,7 +980,6 @@ def _parse_collect_output(text: str) -> RuntimeMetrics:
     _apply_state_series(metrics, primary_states)
     _apply_state_series(metrics, secondary_states, secondary=True)
     return metrics
-
 
 def analyze_monitor_output(
     output: str,
@@ -1325,30 +1248,6 @@ def analyze_monitor_output(
             reasons.append("Matter startup state was not logged")
         elif metrics.startup_state.lower() not in MATTER_VALID_STARTUP_STATES:
             reasons.append(f"unexpected Matter startup state: {metrics.startup_state}")
-        _append_common_monitor_reasons(metrics, telemetry, reasons, require_detection_timing=False)
-    elif benchmark_mode == "stream":
-        state_matches = list(STREAMER_STATE_RE.finditer(text))
-        ip_match = STREAMER_IP_RE.search(text)
-        stream_samples = _parse_streamer_telemetry_samples(text)
-        metrics.startup_state = state_matches[-1].group("state") if state_matches else None
-        metrics.device_ip = ip_match.group("ip") if ip_match else None
-        metrics.stream_telemetry_samples = len(stream_samples)
-        stream_csi_ap = _collect_values(stream_samples, "csi_ap")
-        stream_udp_rx = _collect_values(stream_samples, "udp_rx")
-        stream_udp_tx = _collect_values(stream_samples, "udp_tx")
-        stream_fresh = _collect_values(stream_samples, "fresh")
-        stream_tx_bp_totals = _collect_values(stream_samples, "tx_bp_total")
-        metrics.stream_csi_ap_mean = statistics.fmean(stream_csi_ap) if stream_csi_ap else None
-        metrics.stream_udp_rx_mean = statistics.fmean(stream_udp_rx) if stream_udp_rx else None
-        metrics.stream_udp_tx_mean = statistics.fmean(stream_udp_tx) if stream_udp_tx else None
-        metrics.stream_fresh_mean = statistics.fmean(stream_fresh) if stream_fresh else None
-        metrics.stream_tx_backpressure_total = int(max(stream_tx_bp_totals)) if stream_tx_bp_totals else 0
-        if metrics.device_ip is None:
-            reasons.append("streamer Wi-Fi IP was not logged")
-        if metrics.startup_state is None:
-            reasons.append("streamer workflow state was not logged")
-        elif metrics.startup_state != "STREAMING":
-            reasons.append(f"streamer did not reach STREAMING state (last state: {metrics.startup_state})")
         _append_common_monitor_reasons(metrics, telemetry, reasons, require_detection_timing=False)
     else:
         raise ValueError(f"unsupported benchmark mode: {benchmark_mode}")
@@ -2426,45 +2325,17 @@ def run_direct_frontend_cases(
             result = _clone_direct_result(case, bootstrap)
             try:
                 prepare_direct_runtime(client, case, chip=chip)
-                collect_future = None
-                executor: ThreadPoolExecutor | None = None
-                if frontend == "streamer":
-                    target = discover_direct_device("streamer").ip_address
-                    collect_command = [
-                        str(REPO_ROOT / "espectre"),
-                        "collect",
-                        "--transport",
-                        "udp",
-                        "--duration",
-                        str(MONITOR_DURATION_SECONDS + STATUS_STABLE_WAIT_SECONDS),
-                        "--fixed",
-                        "--target",
-                        target,
-                        "--detector",
-                        "lightweight,high_accuracy",
-                    ]
-                    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="streamer-collect")
-                    collect_future = executor.submit(run_command, collect_command)
-                try:
-                    wait_for_direct_runtime_ready(
-                        client,
-                        require_publish_ready=frontend != "streamer",
-                    )
-                    result.direct_samples, result.direct_events = capture_direct_window(
-                        client,
-                        duration_seconds=MONITOR_DURATION_SECONDS,
-                    )
-                    if collect_future is not None:
-                        result.collect = collect_future.result()
-                finally:
-                    if executor is not None:
-                        executor.shutdown(wait=True, cancel_futures=True)
+                wait_for_direct_runtime_ready(client, require_publish_ready=True)
+                result.direct_samples, result.direct_events = capture_direct_window(
+                    client,
+                    duration_seconds=MONITOR_DURATION_SECONDS,
+                )
                 result.runtime_metrics, result.reasons = analyze_direct_evidence(
                     result.direct_samples,
                     result.direct_events,
                     duration_seconds=MONITOR_DURATION_SECONDS,
-                    require_telemetry=frontend != "streamer",
-                    require_detection_timing=frontend != "streamer",
+                    require_telemetry=True,
+                    require_detection_timing=True,
                 )
                 result.runtime_metrics.verified_detector = case.detector if case.benchmark_mode == "runtime" else None
                 if result.collect is not None:
@@ -2484,8 +2355,6 @@ def run_direct_frontend_cases(
                     result.runtime_metrics.secondary_dominant_state_share_percent = (
                         collect_metrics.secondary_dominant_state_share_percent
                     )
-                    if collect_metrics.collect_packets_seen <= 0:
-                        result.reasons.append("host collect did not receive Streamer packets")
                 result.transport_evidence = {
                     "transport": "http",
                     "origin": DIRECT_ORIGIN,
@@ -2516,170 +2385,6 @@ def run_direct_frontend_cases_safely(
         return run_direct_frontend_cases(selected_cases, chip, port)
     except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
         return [BenchmarkResult(case=case, status="FAIL", reasons=[str(exc)]) for case in selected_cases]
-
-
-def run_streamer_case(
-    case: BenchmarkCase,
-    chip: str,
-    port: str,
-    *,
-    clean: bool,
-) -> BenchmarkResult:
-    print(f"\n{'=' * 72}\n{case.label}\n{'=' * 72}", flush=True)
-    result = build_case(case, chip, port, clean=clean)
-    if result.build is None or result.build.returncode != 0:
-        return result
-
-    launcher = str(REPO_ROOT / "espectre")
-    try:
-        with case_context(case, chip, port, clean=clean) as (env, config):
-            _build_command, flash_command, monitor_command = _commands_for_case(
-                case,
-                chip,
-                port,
-                config,
-                clean=clean,
-            )
-            pre_flash_command = _pre_flash_command_for_case(case, port)
-            if pre_flash_command is not None:
-                nvs_reset = run_command(pre_flash_command, env=env)
-                if nvs_reset.returncode != 0:
-                    result.flash = nvs_reset
-                    result.status = "FAIL"
-                    result.reasons.append(f"NVS erase exited with status {nvs_reset.returncode}")
-                    return result
-            result.flash = run_command(flash_command, env=env)
-            if result.flash.returncode != 0:
-                result.status = "FAIL"
-                result.reasons.append(f"flash exited with status {result.flash.returncode}")
-                return result
-
-            device_ip_event = threading.Event()
-            device_ip_holder = {"value": None}
-
-            def _capture_device_ip(line: str) -> None:
-                match = STREAMER_IP_RE.search(strip_ansi(line))
-                if match is not None:
-                    device_ip_holder["value"] = match.group("ip")
-                    device_ip_event.set()
-
-            (
-                monitor_process,
-                monitor_output,
-                monitor_line_elapsed_seconds,
-                relay_thread,
-                monitor_started,
-            ) = _run_background_command(
-                monitor_command,
-                env=env,
-                output_prefix="[stream] ",
-                line_callback=_capture_device_ip,
-            )
-            try:
-                if not device_ip_event.wait(timeout=STREAMER_IP_WAIT_SECONDS):
-                    _terminate_process(monitor_process)
-                    monitor_process.wait(timeout=5)
-                    result.monitor = _finalize_background_command(
-                        monitor_process,
-                        monitor_output,
-                        monitor_line_elapsed_seconds,
-                        relay_thread,
-                        monitor_started,
-                        monitor_command,
-                    )
-                    result.runtime_metrics, analysis_reasons = analyze_monitor_output(
-                        result.monitor.output,
-                        benchmark_mode=case.benchmark_mode,
-                        line_elapsed_seconds=result.monitor.line_elapsed_seconds,
-                    )
-                    result.reasons.extend(analysis_reasons)
-                    result.reasons.append("timed out waiting for streamer Wi-Fi IP")
-                    result.status = "FAIL"
-                    return result
-
-                device_ip = device_ip_holder["value"]
-                collect_command = [
-                    launcher,
-                    "collect",
-                    "--transport",
-                    "udp",
-                    "--duration",
-                    str(STREAMER_COLLECT_DURATION_SECONDS),
-                    "--fixed",
-                    "--target",
-                    str(device_ip),
-                    "--detector",
-                    "lightweight,high_accuracy",
-                ]
-                result.collect = run_command(collect_command)
-            finally:
-                if monitor_process.poll() is None:
-                    _terminate_process(monitor_process)
-                    monitor_process.wait(timeout=5)
-                result.monitor = _finalize_background_command(
-                    monitor_process,
-                    monitor_output,
-                    monitor_line_elapsed_seconds,
-                    relay_thread,
-                    monitor_started,
-                    monitor_command,
-                )
-
-            if result.collect is None or result.collect.returncode != 0:
-                result.status = "FAIL"
-                result.reasons.append(
-                    f"collect exited with status {result.collect.returncode if result.collect else 'N/A'}"
-                )
-                return result
-
-            result.runtime_metrics, analysis_reasons = analyze_monitor_output(
-                result.monitor.output,
-                benchmark_mode=case.benchmark_mode,
-                line_elapsed_seconds=result.monitor.line_elapsed_seconds,
-            )
-            collect_metrics = _parse_collect_output(result.collect.output)
-            if result.runtime_metrics.device_ip is None:
-                result.runtime_metrics.device_ip = device_ip
-            result.runtime_metrics.collect_devices_observed = collect_metrics.collect_devices_observed
-            result.runtime_metrics.collect_packets_seen = collect_metrics.collect_packets_seen
-            result.runtime_metrics.pps_mean = collect_metrics.pps_mean
-            result.runtime_metrics.pps_min = collect_metrics.pps_min
-            result.runtime_metrics.pps_max = collect_metrics.pps_max
-            result.runtime_metrics.pps_stddev = collect_metrics.pps_stddev
-            result.runtime_metrics.occupancy_samples = collect_metrics.occupancy_samples
-            result.runtime_metrics.occupancy_mean = collect_metrics.occupancy_mean
-            result.runtime_metrics.occupancy_min = collect_metrics.occupancy_min
-            result.runtime_metrics.occupancy_max = collect_metrics.occupancy_max
-            result.runtime_metrics.status_samples = collect_metrics.status_samples
-            result.runtime_metrics.dominant_motion_state = collect_metrics.dominant_motion_state
-            result.runtime_metrics.dominant_state_share_percent = collect_metrics.dominant_state_share_percent
-            result.runtime_metrics.secondary_status_samples = collect_metrics.secondary_status_samples
-            result.runtime_metrics.secondary_dominant_motion_state = collect_metrics.secondary_dominant_motion_state
-            result.runtime_metrics.secondary_dominant_state_share_percent = (
-                collect_metrics.secondary_dominant_state_share_percent
-            )
-            result.reasons.extend(analysis_reasons)
-            if result.runtime_metrics.collect_devices_observed < 1:
-                result.reasons.append("host collect did not observe any streamer device")
-            if result.runtime_metrics.status_samples < MIN_STREAMER_COLLECT_SAMPLES:
-                result.reasons.append(
-                    f"only {result.runtime_metrics.status_samples} Lightweight host collect samples were logged"
-                )
-            if result.runtime_metrics.secondary_status_samples < MIN_STREAMER_COLLECT_SAMPLES:
-                result.reasons.append(
-                    f"only {result.runtime_metrics.secondary_status_samples} High Accuracy host collect samples were logged"
-                )
-            _append_occupancy_reasons(
-                result.runtime_metrics,
-                result.reasons,
-                missing_reason="host collect CSI occupancy was not logged",
-                low_reason_prefix="host collect mean CSI occupancy",
-            )
-            result.status = "PASS" if not result.reasons else "FAIL"
-    except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
-        result.status = "FAIL"
-        result.reasons.append(str(exc))
-    return result
 
 
 def run_case(
@@ -3349,7 +3054,7 @@ def render_report(
             "## Pass Criteria",
             "",
             "- all required builds, flashes, and Micro-ESPectre deployments complete successfully",
-            "- Native, ESPHome, and Streamer negotiate Direct v1, keep one correlated WebSocket session open, and sample production diagnostics throughout each scored window",
+            "- Native and ESPHome negotiate Direct v1, keep one correlated HTTP session open, and sample production diagnostics throughout each scored window",
             "- Native starts with empty network and MQTT build defaults, erases NVS, provisions through Improv Serial, and remains MQTT-unconfigured",
             f"- Micro-ESPectre alone logs at least {MIN_TELEMETRY_SAMPLES} debug telemetry samples",
             "- free heap does not decline by more than 5% after startup has settled",
@@ -3360,10 +3065,6 @@ def render_report(
             f"- {english_join(runtime_case_labels())} detector timing is present",
             "- Direct send failures, slow-client disconnects, and unexpected rejected connections do not increase during a scored C++ window",
             "- Matter smoke benchmarks stop after a successful build and flash, without commissioning, network discovery, Direct, or scored serial monitoring",
-            "- Streamer benchmarks use Direct for status and health while raw records remain on the bounded collector transport",
-            f"- Streamer host collect logs at least {MIN_STREAMER_COLLECT_SAMPLES} Lightweight and High Accuracy samples",
-            f"- Streamer host collect mean CSI occupancy stays at or above the {MINIMUM_OCCUPANCY_PERCENT:.0f}% "
-            "admitted-slot detector-ready floor",
             "- Micro-ESPectre serial output contains no fatal firmware log",
             "",
         ]
@@ -3691,281 +3392,6 @@ def write_report(
     return destination
 
 
-def _nearest_rank(values: Sequence[float], percentile: float) -> float | None:
-    if not values:
-        return None
-    ordered = sorted(float(value) for value in values)
-    index = max(0, min(len(ordered) - 1, math.ceil(percentile * len(ordered) / 100.0) - 1))
-    return ordered[index]
-
-
-def raw_migration_gate_reasons(runs: Sequence[RawMigrationRun]) -> list[str]:
-    """Evaluate transport and control gates from five alternating pairs."""
-    reasons: list[str] = []
-    udp_runs = [run for run in runs if run.transport == "udp"]
-    http_runs = [run for run in runs if run.transport == "http"]
-    if len(udp_runs) != RAW_MIGRATION_PAIR_COUNT or len(http_runs) != RAW_MIGRATION_PAIR_COUNT:
-        reasons.append(
-            f"expected {RAW_MIGRATION_PAIR_COUNT} UDP/HTTP pairs, got "
-            f"{len(udp_runs)} UDP and {len(http_runs)} HTTP runs"
-        )
-        return reasons
-    for run in http_runs:
-        if run.record_version != 8:
-            reasons.append(f"pair {run.pair} HTTP record version is {run.record_version}, expected 8")
-        if run.fresh_yield_percent < 95.0:
-            reasons.append(f"pair {run.pair} HTTP fresh yield is {run.fresh_yield_percent:.2f}%")
-        if run.fresh_pps < 95.0:
-            reasons.append(f"pair {run.pair} HTTP fresh rate is {run.fresh_pps:.2f} pps")
-        if not run.raw_state_valid:
-            reasons.append(f"pair {run.pair} exposed an invalid runtime state during HTTP raw collection")
-        if run.detection_samples_max > 0:
-            reasons.append(
-                f"pair {run.pair} executed {run.detection_samples_max} detector samples during HTTP raw collection"
-            )
-        p95 = _nearest_rank(run.control_latencies_ms, 95.0)
-        p99 = _nearest_rank(run.control_latencies_ms, 99.0)
-        maximum = max(run.control_latencies_ms) if run.control_latencies_ms else None
-        if p95 is None:
-            reasons.append(f"pair {run.pair} has no HTTP control latency samples")
-        else:
-            if p95 > 100.0:
-                reasons.append(f"pair {run.pair} HTTP control p95 is {p95:.2f} ms")
-            if p99 is not None and p99 > 250.0:
-                reasons.append(f"pair {run.pair} HTTP control p99 is {p99:.2f} ms")
-            if maximum is not None and maximum > 1000.0:
-                reasons.append(f"pair {run.pair} HTTP control maximum is {maximum:.2f} ms")
-    yield_delta = statistics.median(run.fresh_yield_percent for run in http_runs) - statistics.median(
-        run.fresh_yield_percent for run in udp_runs
-    )
-    if yield_delta < -2.0:
-        reasons.append(f"median HTTP yield delta versus Streamer is {yield_delta:.2f} percentage points")
-    return reasons
-
-
-def _capture_udp_migration_run(
-    pair: int,
-    target: DiscoveredDevice,
-    duration_seconds: int,
-) -> RawMigrationRun:
-    from tools.lib.csi_io import CSIReceiver, UdpPacingSender, get_default_bind_host
-
-    bind_host = get_default_bind_host()
-    receiver = CSIReceiver(port=5001, buffer_size=8000, bind_host=bind_host, derive_complex=False)
-    sender = UdpPacingSender(
-        target_host=target.ip_address,
-        target_port=target.target_port,
-        source_host=bind_host,
-        interval_s=1.0 / RAW_MIGRATION_TARGET_PPS,
-    )
-    started = time.monotonic()
-    try:
-        sender.start()
-        receiver.run(timeout=duration_seconds, quiet=True)
-    finally:
-        sender.stop()
-        receiver.stop()
-    _elapsed = time.monotonic() - started
-    last_packet = receiver.buffer[-1] if receiver.buffer else None
-    return RawMigrationRun(
-        pair=pair,
-        transport="udp",
-        record_version=int(last_packet.record_version) if last_packet is not None else 0,
-        duration_seconds=float(duration_seconds),
-        accepted_requests=sender.sent_packets,
-        fresh_records=receiver.packet_count,
-        backpressure_total=int(last_packet.transport_backpressure_total or 0) if last_packet is not None else 0,
-        firmware_identity=str(last_packet.firmware_identity or "") if last_packet is not None else "",
-    )
-
-
-def _capture_http_migration_run(
-    pair: int,
-    target: DiscoveredDevice,
-    duration_seconds: int,
-) -> RawMigrationRun:
-    from tools.lib.csi_io import DirectRawCSIReceiver
-
-    receiver = DirectRawCSIReceiver(
-        target.ip_address,
-        target_pps=RAW_MIGRATION_TARGET_PPS,
-        buffer_size=8000,
-        derive_complex=False,
-        timeout=BENCHMARK_CONTROL_TIMEOUT_SECONDS,
-    )
-    receiver._open()
-    control = DirectClient(target.endpoint, origin=DIRECT_ORIGIN, timeout=BENCHMARK_CONTROL_TIMEOUT_SECONDS)
-    worker_error: list[BaseException] = []
-
-    def receive() -> None:
-        try:
-            receiver.run(timeout=duration_seconds, quiet=True)
-        except BaseException as exc:  # preserve the transport failure for the benchmark owner
-            worker_error.append(exc)
-
-    started = time.monotonic()
-    worker = threading.Thread(target=receive, name=f"raw-migration-{pair}", daemon=True)
-    worker.start()
-    latencies: list[float] = []
-    raw_state_valid = True
-    detection_samples_max = 0
-    try:
-        deadline = started + duration_seconds
-        query_index = 0
-        while worker.is_alive() and time.monotonic() < deadline:
-            request_started = time.perf_counter()
-            method = "status" if query_index % 2 == 0 else "diagnostics"
-            sample = control.request(method)
-            latencies.append((time.perf_counter() - request_started) * 1000.0)
-            if method == "status":
-                raw_session = sample.get("raw_session")
-                raw_state_valid = raw_state_valid and (
-                    sample.get("operation_state") == "raw_collection"
-                    and sample.get("calibrating") is False
-                    and sample.get("ready_to_publish") is False
-                    and isinstance(raw_session, dict)
-                    and raw_session.get("active") is True
-                    and raw_session.get("binary_bound") is True
-                )
-            else:
-                detection_samples = sample.get("detection_samples")
-                if isinstance(detection_samples, int):
-                    detection_samples_max = max(detection_samples_max, detection_samples)
-            query_index += 1
-            time.sleep(DIRECT_SAMPLE_INTERVAL_SECONDS)
-        worker.join(timeout=BENCHMARK_CONTROL_TIMEOUT_SECONDS)
-        if worker.is_alive():
-            raise TimeoutError("Direct raw receiver did not stop after the migration window")
-        if worker_error:
-            raise RuntimeError(f"Direct raw receiver failed: {worker_error[0]}")
-    finally:
-        receiver.stop()
-        control.close()
-        worker.join(timeout=1.0)
-    _elapsed = time.monotonic() - started
-    last_packet = receiver.buffer[-1] if receiver.buffer else None
-    return RawMigrationRun(
-        pair=pair,
-        transport="http",
-        record_version=int(last_packet.record_version) if last_packet is not None else 0,
-        duration_seconds=float(duration_seconds),
-        accepted_requests=RAW_MIGRATION_TARGET_PPS * duration_seconds,
-        fresh_records=receiver.packet_count,
-        no_sample_total=receiver.no_sample_total,
-        replaced_sample_total=receiver.replaced_sample_total,
-        dropped_sample_total=receiver.raw_dropped_sample_total,
-        backpressure_total=receiver.raw_send_backpressure_total,
-        control_latencies_ms=latencies,
-        firmware_identity=str(last_packet.firmware_identity or "") if last_packet is not None else "",
-        raw_state_valid=raw_state_valid,
-        detection_samples_max=detection_samples_max,
-    )
-
-
-def _flash_migration_build(
-    case: BenchmarkCase,
-    chip: str,
-    port: str,
-    build: BenchmarkResult,
-) -> None:
-    with case_context(case, chip, port, clean=False) as (env, config):
-        if not _flash_prebuilt_cpp_case_in_context(
-            case,
-            chip,
-            port,
-            build,
-            env=env,
-            config=config,
-        ):
-            raise RuntimeError(f"{case.frontend} flash failed during raw migration benchmark")
-
-
-def run_raw_migration_benchmark(
-    chip: str,
-    port: str,
-    duration_seconds: int,
-    artifact_dir: Path,
-) -> int:
-    """Alternate five Streamer V7 and Native V8 runs on one physical chip."""
-    if duration_seconds < RAW_MIGRATION_MIN_DURATION_SECONDS:
-        raise ValueError(
-            f"raw migration windows must be at least {RAW_MIGRATION_MIN_DURATION_SECONDS} seconds"
-        )
-    streamer_case = BenchmarkCase("streamer", "collect", benchmark_mode="stream")
-    native_case = BenchmarkCase("native", "lightweight")
-    require_benchmark_prerequisites((streamer_case, native_case))
-    streamer_build = build_case(streamer_case, chip, port, clean=True)
-    native_build = build_case(native_case, chip, port, clean=True)
-    for result in (streamer_build, native_build):
-        if result.build is None or result.build.returncode != 0:
-            raise RuntimeError(f"{result.case.frontend} build failed before raw migration benchmark")
-
-    runs: list[RawMigrationRun] = []
-    for pair in range(1, RAW_MIGRATION_PAIR_COUNT + 1):
-        print(f"\nRaw CSI migration pair {pair}/{RAW_MIGRATION_PAIR_COUNT}: Streamer V7", flush=True)
-        _flash_migration_build(streamer_case, chip, port, streamer_build)
-        streamer = discover_direct_device("streamer")
-        runs.append(_capture_udp_migration_run(pair, streamer, duration_seconds))
-
-        print(f"Raw CSI migration pair {pair}/{RAW_MIGRATION_PAIR_COUNT}: Native V8", flush=True)
-        _flash_migration_build(native_case, chip, port, native_build)
-        with ImprovSerialClient(port) as improv:
-            provisioning = improv.provision(
-                require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID"),
-                require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD"),
-                timeout=WIFI_CONNECT_WAIT_SECONDS,
-            )
-        endpoint = direct_endpoint_from_device_url(provisioning.endpoint)
-        native_control = _connect_direct_with_retry(endpoint, frontend="native")
-        try:
-            baseline = direct_handshake(native_control, frontend="native", chip=chip)
-            _verify_native_baseline(baseline)
-            if _apply_native_radio_pin(native_control):
-                native_control.close()
-                endpoint = discover_direct_device("native").endpoint
-                native_control = _connect_direct_with_retry(endpoint, frontend="native")
-                baseline = direct_handshake(native_control, frontend="native", chip=chip)
-                _verify_native_baseline(baseline)
-                _verify_native_radio_pin(native_control)
-        finally:
-            native_control.close()
-        native = discover_direct_device("native")
-        if native.endpoint != endpoint:
-            raise RuntimeError(
-                f"Native provisioning endpoint {endpoint} does not match discovered endpoint {native.endpoint}"
-            )
-        runs.append(_capture_http_migration_run(pair, native, duration_seconds))
-
-    reasons = raw_migration_gate_reasons(runs)
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-    report = {
-        "schema_version": 2,
-        "chip": chip,
-        "pair_count": RAW_MIGRATION_PAIR_COUNT,
-        "target_pps": RAW_MIGRATION_TARGET_PPS,
-        "duration_seconds": duration_seconds,
-        "status": "PASS" if not reasons else "FAIL",
-        "reasons": reasons,
-        "runs": [
-            {
-                **asdict(run),
-                "fresh_yield_percent": run.fresh_yield_percent,
-                "fresh_pps": run.fresh_pps,
-                "control_p95_ms": _nearest_rank(run.control_latencies_ms, 95.0),
-                "control_p99_ms": _nearest_rank(run.control_latencies_ms, 99.0),
-                "control_max_ms": max(run.control_latencies_ms, default=None),
-            }
-            for run in runs
-        ],
-    }
-    destination = artifact_dir / "raw-csi-migration.json"
-    destination.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(f"Wrote {destination}")
-    for reason in reasons:
-        print(f"FAIL: {reason}", file=sys.stderr)
-    return 0 if not reasons else 1
-
-
 def main() -> int:
     global MONITOR_DURATION_SECONDS
 
@@ -3973,19 +3399,19 @@ def main() -> int:
         description=(
             "Build, flash, and benchmark Native Lightweight/High Accuracy, "
             "Micro-ESPectre Lightweight, ESPHome Lightweight/High Accuracy, "
-            "Matter smoke, and Streamer host collect for one chip."
+            "and Matter smoke for one chip."
         ),
     )
     parser.add_argument("--chip", required=True, choices=SUPPORTED_CHIPS, help="Connected ESP32 target")
     parser.add_argument(
         "--frontend",
-        choices=("esphome", "micro", "native", "matter", "streamer"),
+        choices=("esphome", "micro", "native", "matter"),
         help="Run only cases for one frontend",
     )
     parser.add_argument(
         "--detector",
-        choices=("lightweight", "high_accuracy", "default", "collect"),
-        help="Run only cases for one detector or the streamer collect workflow",
+        choices=("lightweight", "high_accuracy", "default"),
+        help="Run only cases for one detector",
     )
     report_mode = parser.add_mutually_exclusive_group()
     report_mode.add_argument(
@@ -4010,39 +3436,8 @@ def main() -> int:
         metavar="SECONDS",
         help="Score each monitor window for this many seconds (default: 60)",
     )
-    parser.add_argument(
-        "--migration-raw-csi",
-        action="store_true",
-        help="Alternate five fixed-100-pps Streamer V7 and Native V8 hardware runs",
-    )
     args = parser.parse_args()
     MONITOR_DURATION_SECONDS = args.duration
-
-    if args.migration_raw_csi:
-        if args.frontend or args.detector or args.update or args.resume:
-            parser.error("--migration-raw-csi cannot be combined with case or report filters")
-        if args.duration < RAW_MIGRATION_MIN_DURATION_SECONDS:
-            parser.error(
-                f"--migration-raw-csi requires --duration >= {RAW_MIGRATION_MIN_DURATION_SECONDS}"
-            )
-        port = get_serial_port(None)
-        detected_chip = detect_chip_type(port)
-        if detected_chip is not None and detected_chip != args.chip:
-            parser.error(
-                f"connected device is {CHIP_LABELS.get(detected_chip, detected_chip)}, "
-                f"but --chip selects {CHIP_LABELS[args.chip]}"
-            )
-        started_at = datetime.now().astimezone()
-        artifact_dir = (
-            args.artifacts_dir.resolve()
-            if args.artifacts_dir is not None
-            else benchmark_artifact_dir(started_at, args.chip) / "raw-csi-migration"
-        )
-        try:
-            return run_raw_migration_benchmark(args.chip, port, args.duration, artifact_dir)
-        except (OSError, RuntimeError, ValueError) as exc:
-            print(f"Raw CSI migration benchmark failed: {exc}", file=sys.stderr)
-            return 1
 
     requested_cases = select_cases(args.frontend, args.detector)
     if not requested_cases:
@@ -4135,7 +3530,7 @@ def main() -> int:
             results.append(run_cpp_build_flash_case(matter_case, args.chip, port))
             write_current_report()
 
-        for direct_frontend in ("esphome", "streamer"):
+        for direct_frontend in ("esphome",):
             frontend_cases = tuple(case for case in selected_cases if case.frontend == direct_frontend)
             if frontend_cases:
                 results.extend(run_direct_frontend_cases_safely(frontend_cases, args.chip, port))
