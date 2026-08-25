@@ -54,10 +54,6 @@ def stage_vendor() -> None:
     copy_file(NODE_MODULES / "esp-web-tools" / "LICENSE", esp_destination / "LICENSE")
     customize_esp_web_tools(esp_destination)
 
-    mqtt_destination = VENDOR_ROOT / "mqtt-5.3.0"
-    copy_file(NODE_MODULES / "mqtt" / "dist" / "mqtt.min.js", mqtt_destination / "mqtt.min.js")
-    copy_file(NODE_MODULES / "mqtt" / "LICENSE.md", mqtt_destination / "LICENSE.md")
-
     qrcode_destination = VENDOR_ROOT / "qrcodejs-1.0.0"
     copy_file(NODE_MODULES / "qrcodejs" / "qrcode.min.js", qrcode_destination / "qrcode.min.js")
     copy_file(NODE_MODULES / "qrcodejs" / "LICENSE", qrcode_destination / "LICENSE")

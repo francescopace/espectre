@@ -1,9 +1,9 @@
 /*
- * ESPectre Direct WebSocket Client
+ * ESPectre Direct HTTP Client
  *
- * Dependency-free client for the versioned local Native endpoint. It owns
- * endpoint validation, the WebSocket subprotocol, request correlation,
- * envelope validation, and device events; UI policy remains with callers.
+ * Dependency-free client for the versioned local HTTP API. It owns endpoint
+ * validation, correlated POST requests, incremental SSE parsing, and device
+ * events; UI policy remains with callers.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -14,12 +14,13 @@
     'use strict';
 
     const ENVELOPE_VERSION = 1;
-    const SUBPROTOCOL = 'espectre.v1';
-    const ENDPOINT_PATH = '/espectre/v1/ws';
-    const MAX_REQUEST_FRAME_BYTES = 4096;
-    const MAX_RESPONSE_FRAME_BYTES = 8192;
+    const REQUEST_PATH = '/espectre/v1/request';
+    const EVENTS_PATH = '/espectre/v1/events';
+    const RAW_PATH = '/espectre/v1/csi';
+    const MAX_REQUEST_BYTES = 4096;
+    const MAX_RESPONSE_BYTES = 8192;
     const DEFAULT_TIMEOUT_MS = 8000;
-    const PEER_DISCOVERY_TIMEOUT_MS = 5000;
+    const PEER_DISCOVERY_TIMEOUT_MS = 10000;
     const PEER_DISCOVERY_MAX_DEVICES = 8;
     const PEER_DISCOVERY_MAX_ADDRESSES = 2;
     const DISCOVERY_NONCE_BYTES = 12;
@@ -29,7 +30,8 @@
         'clear_mqtt_config', 'clear_wifi_config', 'ota_start', 'recalibrate',
         'set_csi_traffic_mode', 'set_detector', 'set_device_label',
         'set_motion_hits', 'set_mqtt_config', 'set_threshold',
-        'set_traffic_generator_mode', 'set_wifi_config', 'set_sensing'
+        'set_traffic_generator_mode', 'set_wifi_config', 'set_sensing',
+        'start_raw_stream', 'stop_raw_stream'
     ]));
 
     class ESPectreDirectError extends Error {
@@ -46,19 +48,14 @@
         if (/^10\./.test(host) || /^192\.168\./.test(host)) return true;
         const ipv4 = host.match(/^172\.(\d{1,3})\./);
         if (ipv4 && Number(ipv4[1]) >= 16 && Number(ipv4[1]) <= 31) return true;
-        if (host === '::1' || /^fe[89ab][0-9a-f]:/i.test(host) || /^f[cd][0-9a-f]{2}:/i.test(host)) {
-            return true;
-        }
-        return false;
+        return host === '::1' || /^fe[89ab][0-9a-f]:/i.test(host) || /^f[cd][0-9a-f]{2}:/i.test(host);
     }
 
     function isLocalPeerAddress(address) {
         if (typeof address !== 'string' || !address || address.includes('%')) return false;
         if (address.includes('.')) {
             const octets = address.split('.');
-            if (octets.length !== 4 || octets.some((octet) => !/^(0|[1-9][0-9]{0,2})$/.test(octet))) {
-                return false;
-            }
+            if (octets.length !== 4 || octets.some((octet) => !/^(0|[1-9][0-9]{0,2})$/.test(octet))) return false;
             const values = octets.map(Number);
             if (values.some((value) => value > 255)) return false;
             return values[0] === 10
@@ -66,30 +63,22 @@
                 || (values[0] === 192 && values[1] === 168);
         }
         if (!address.includes(':') || address === '::1') return false;
-        try {
-            new URL(`http://[${address}]/`);
-        } catch (_error) {
-            return false;
-        }
+        try { new URL(`http://[${address}]/`); } catch (_error) { return false; }
         return /^fe[89ab][0-9a-f]:/i.test(address) || /^f[cd][0-9a-f]{2}:/i.test(address);
     }
 
     function normalizeEndpoint(value) {
         if (typeof value !== 'string' || !value.trim()) {
-            throw new ESPectreDirectError('Enter a device IP address, .local hostname, or WebSocket URL.', 'invalid_endpoint');
+            throw new ESPectreDirectError('Enter a device IP address, .local hostname, or HTTP URL.', 'invalid_endpoint');
         }
         const input = value.trim();
         const explicitScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(input);
         let url;
-        try {
-            url = new URL(explicitScheme ? input : `ws://${input}`);
-        } catch (_error) {
+        try { url = new URL(explicitScheme ? input : `http://${input}`); } catch (_error) {
             throw new ESPectreDirectError('The device endpoint is not a valid URL.', 'invalid_endpoint');
         }
-        if (url.protocol === 'http:') url.protocol = 'ws:';
-        if (url.protocol === 'https:') url.protocol = 'wss:';
-        if (!['ws:', 'wss:'].includes(url.protocol)) {
-            throw new ESPectreDirectError('The device endpoint must use ws:// or wss://.', 'invalid_scheme');
+        if (!['http:', 'https:'].includes(url.protocol)) {
+            throw new ESPectreDirectError('The device endpoint must use http:// or https://.', 'invalid_scheme');
         }
         if (url.username || url.password || url.search || url.hash) {
             throw new ESPectreDirectError('The device endpoint cannot contain credentials, a query, or a fragment.', 'invalid_endpoint');
@@ -97,19 +86,22 @@
         if (!isLocalHostname(url.hostname)) {
             throw new ESPectreDirectError('Use a private IP address, localhost, or a .local device name.', 'non_local_endpoint');
         }
-        if (url.pathname !== '/' && url.pathname !== ENDPOINT_PATH) {
-            throw new ESPectreDirectError(`The Direct endpoint path must be ${ENDPOINT_PATH}.`, 'invalid_path');
+        if (url.pathname !== '/' && url.pathname !== REQUEST_PATH) {
+            throw new ESPectreDirectError(`The Direct endpoint path must be ${REQUEST_PATH}.`, 'invalid_path');
         }
-        url.pathname = ENDPOINT_PATH;
+        url.pathname = REQUEST_PATH;
+        return url.toString();
+    }
+
+    function endpointWithPath(endpoint, path) {
+        const url = new URL(endpoint);
+        url.pathname = path;
         return url.toString();
     }
 
     function createDiscoveryEndpoint(randomSource = globalThis.crypto) {
         if (!randomSource || typeof randomSource.getRandomValues !== 'function') {
-            throw new ESPectreDirectError(
-                'Web Crypto is required for local Auto-discovery.',
-                'unsupported_crypto'
-            );
+            throw new ESPectreDirectError('Web Crypto is required for local Auto-discovery.', 'unsupported_crypto');
         }
         const bytes = new Uint8Array(DISCOVERY_NONCE_BYTES);
         randomSource.getRandomValues(bytes);
@@ -117,15 +109,43 @@
         return normalizeEndpoint(`${DISCOVERY_HOST_PREFIX}${nonce}.local`);
     }
 
+    async function localNetworkAccessState() {
+        const detectState = window.ESPectreBrowserSupport?.localNetworkAccessState;
+        return typeof detectState === 'function'
+            ? detectState(globalThis.navigator) : 'unavailable';
+    }
+
+    async function localFetch(url, options) {
+        if (await localNetworkAccessState() === 'denied') {
+            throw new ESPectreDirectError(
+                'Local network access is blocked for this site.',
+                'local_network_denied'
+            );
+        }
+        try {
+            return await globalThis.fetch(url, {
+                ...options,
+                cache: 'no-store',
+                targetAddressSpace: 'local'
+            });
+        } catch (error) {
+            if (!options.signal?.aborted && await localNetworkAccessState() === 'denied') {
+                throw new ESPectreDirectError(
+                    'Local network access is blocked for this site.',
+                    'local_network_denied'
+                );
+            }
+            throw error;
+        }
+    }
+
     function parseObject(text) {
         let data;
-        try {
-            data = JSON.parse(text);
-        } catch (_error) {
-            throw new ESPectreDirectError('Direct frame must be valid JSON.', 'invalid_json');
+        try { data = JSON.parse(text); } catch (_error) {
+            throw new ESPectreDirectError('Direct payload must be valid JSON.', 'invalid_json');
         }
         if (!data || typeof data !== 'object' || Array.isArray(data)) {
-            throw new ESPectreDirectError('Direct frame must be a JSON object.', 'invalid_envelope');
+            throw new ESPectreDirectError('Direct payload must be a JSON object.', 'invalid_envelope');
         }
         if (data.v !== ENVELOPE_VERSION) {
             throw new ESPectreDirectError(`Unsupported Direct envelope version ${String(data.v)}.`, 'unsupported_version');
@@ -141,7 +161,7 @@
 
     function validatePeerDiscoveryResult(result) {
         if (!result || typeof result !== 'object' || Array.isArray(result)
-            || result.schema_version !== 1
+            || result.schema_version !== 2
             || !Number.isInteger(result.elapsed_ms) || result.elapsed_ms < 0 || result.elapsed_ms > 10000
             || !['complete', 'timeout'].includes(result.status)
             || typeof result.truncated !== 'boolean'
@@ -159,11 +179,11 @@
                 && validText(peer.hostname, 63, { token: true })
                 && validText(peer.name, 63, { empty: true })
                 && ['native', 'streamer', 'esphome', 'matter'].includes(peer.frontend)
-                && peer.txt_version === 1 && peer.protocol_version === 1
-                && peer.path === ENDPOINT_PATH
+                && peer.txt_version === 2 && peer.protocol_version === 1
+                && peer.transport === 'http'
+                && peer.path === REQUEST_PATH && peer.events === EVENTS_PATH
                 && validText(peer.firmware, 48)
                 && validText(peer.chip, 16, { token: true })
-                && peer.tls === false
                 && Number.isInteger(peer.port) && peer.port > 0 && peer.port <= 65535
                 && Array.isArray(capabilities) && capabilities.length > 0 && capabilities.length <= 8
                 && capabilities.every((capability) => validText(capability, 32, { token: true }))
@@ -177,50 +197,45 @@
             identities.add(peer.device_id);
             const endpoints = addresses.map((address) => {
                 const host = address.includes(':') ? `[${address}]` : address;
-                return normalizeEndpoint(`${peer.tls ? 'wss' : 'ws'}://${host}:${peer.port}${peer.path}`);
+                return normalizeEndpoint(`http://${host}:${peer.port}${peer.path}`);
             });
             return Object.freeze({ ...peer, capabilities: [...capabilities], addresses: [...addresses], endpoints });
         });
         return Object.freeze({ ...result, devices });
     }
 
-    function frameText(value) {
-        if (typeof value === 'string') return value;
-        if (value instanceof ArrayBuffer) return new TextDecoder().decode(new Uint8Array(value));
-        if (ArrayBuffer.isView(value)) {
-            return new TextDecoder().decode(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
-        }
-        throw new ESPectreDirectError('Direct frames must be text.', 'invalid_frame_type');
-    }
-
     class ESPectreDirectClient {
-        static get VERSION() { return '1.0.0'; }
+        static get VERSION() { return '2.0.0'; }
         static get ENVELOPE_VERSION() { return ENVELOPE_VERSION; }
-        static get SUBPROTOCOL() { return SUBPROTOCOL; }
-        static get ENDPOINT_PATH() { return ENDPOINT_PATH; }
-        static get MAX_FRAME_BYTES() { return MAX_REQUEST_FRAME_BYTES; }
-        static get MAX_REQUEST_FRAME_BYTES() { return MAX_REQUEST_FRAME_BYTES; }
-        static get MAX_RESPONSE_FRAME_BYTES() { return MAX_RESPONSE_FRAME_BYTES; }
+        static get ENDPOINT_PATH() { return REQUEST_PATH; }
+        static get EVENTS_PATH() { return EVENTS_PATH; }
+        static get RAW_PATH() { return RAW_PATH; }
+        static get MAX_FRAME_BYTES() { return MAX_REQUEST_BYTES; }
+        static get MAX_REQUEST_FRAME_BYTES() { return MAX_REQUEST_BYTES; }
+        static get MAX_RESPONSE_FRAME_BYTES() { return MAX_RESPONSE_BYTES; }
         static get EVENTS() { return EVENTS; }
         static normalizeEndpoint(value) { return normalizeEndpoint(value); }
         static createDiscoveryEndpoint(randomSource) { return createDiscoveryEndpoint(randomSource); }
         static validatePeerDiscoveryResult(value) { return validatePeerDiscoveryResult(value); }
 
         #endpoint;
-        #socket = null;
         #listeners = new Map();
-        #pending = new Map();
         #sequence = 0;
         #compatible = false;
         #capabilities = null;
+        #connected = false;
         #closing = false;
+        #eventController = null;
+        #requestControllers = new Set();
+        #rawSessionId = '';
 
-        constructor(endpoint) {
-            this.#endpoint = normalizeEndpoint(endpoint);
-        }
+        constructor(endpoint) { this.#endpoint = normalizeEndpoint(endpoint); }
 
         get endpoint() { return this.#endpoint; }
-        get connected() { return this.#socket?.readyState === 1; }
+        get eventsEndpoint() { return endpointWithPath(this.#endpoint, EVENTS_PATH); }
+        get rawEndpoint() { return endpointWithPath(this.#endpoint, RAW_PATH); }
+        get rawSessionId() { return this.#rawSessionId; }
+        get connected() { return this.#connected; }
         get compatible() { return this.#compatible; }
         get capabilities() { return this.#capabilities; }
 
@@ -240,52 +255,94 @@
             }
         }
 
-        connect({ timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
-            if (this.#socket) return Promise.reject(new ESPectreDirectError('Direct client is already active.'));
-            const Socket = globalThis.WebSocket || window.WebSocket;
-            if (typeof Socket !== 'function') {
-                return Promise.reject(new ESPectreDirectError('WebSocket is not available in this browser.', 'unsupported'));
+        async connect({ timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+            if (this.#eventController) throw new ESPectreDirectError('Direct client is already active.');
+            if (typeof globalThis.fetch !== 'function') {
+                throw new ESPectreDirectError('Streaming fetch is not available in this browser.', 'unsupported');
             }
             this.#closing = false;
-            return new Promise((resolve, reject) => {
-                const socket = new Socket(this.#endpoint, SUBPROTOCOL);
-                this.#socket = socket;
-                socket.binaryType = 'arraybuffer';
-                const timeout = setTimeout(() => {
-                    if (this.#socket !== socket || socket.readyState === 1) return;
-                    this.#closing = true;
-                    socket.close(1000, 'connection timeout');
-                    this.#socket = null;
-                    reject(new ESPectreDirectError('Timed out connecting to the local device.', 'timeout'));
-                }, timeoutMs);
-                socket.addEventListener('open', () => {
-                    clearTimeout(timeout);
-                    if (socket.protocol !== SUBPROTOCOL) {
-                        this.#closing = true;
-                        socket.close(1002, 'subprotocol required');
-                        this.#socket = null;
-                        reject(new ESPectreDirectError('Device did not negotiate espectre.v1.', 'subprotocol_mismatch'));
-                        return;
-                    }
-                    this.#emit('open');
-                    resolve();
-                }, { once: true });
-                socket.addEventListener('message', (event) => this.#ingest(event.data));
-                socket.addEventListener('error', () => {
-                    if (socket.readyState !== 1) {
-                        clearTimeout(timeout);
-                        reject(new ESPectreDirectError('Direct WebSocket connection failed.', 'connection_failed'));
-                    }
+            const controller = new AbortController();
+            this.#eventController = controller;
+            const timer = setTimeout(() => controller.abort('connection timeout'), timeoutMs);
+            let response;
+            try {
+                response = await localFetch(this.eventsEndpoint, {
+                    method: 'GET',
+                    headers: { Accept: 'text/event-stream' },
+                    signal: controller.signal
                 });
-                socket.addEventListener('close', (event) => {
-                    clearTimeout(timeout);
-                    if (this.#socket === socket) this.#socket = null;
-                    this.#compatible = false;
-                    this.#capabilities = null;
-                    this.#rejectAll('Direct WebSocket closed.', 'closed');
-                    this.#emit('close', { code: event.code, reason: event.reason, expected: this.#closing });
-                });
-            });
+            } catch (error) {
+                if (this.#eventController === controller) this.#eventController = null;
+                if (error instanceof ESPectreDirectError) throw error;
+                throw new ESPectreDirectError(
+                    controller.signal.aborted ? 'Timed out connecting to the local device.' : `Direct HTTP connection failed: ${error.message}`,
+                    controller.signal.aborted ? 'timeout' : 'connection_failed'
+                );
+            } finally {
+                clearTimeout(timer);
+            }
+            if (!response.ok || !response.body || typeof response.body.getReader !== 'function') {
+                this.#eventController = null;
+                controller.abort();
+                throw new ESPectreDirectError(`Direct event stream returned HTTP ${response.status}.`, 'connection_failed');
+            }
+            this.#connected = true;
+            this.#emit('open');
+            this.#pumpEvents(response.body.getReader(), controller);
+        }
+
+        async #pumpEvents(reader, controller) {
+            const decoder = new TextDecoder();
+            let buffer = '';
+            try {
+                while (!controller.signal.aborted) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    let boundary;
+                    while ((boundary = buffer.match(/\r?\n\r?\n/))) {
+                        const block = buffer.slice(0, boundary.index);
+                        buffer = buffer.slice(boundary.index + boundary[0].length);
+                        this.#ingestSseBlock(block);
+                    }
+                }
+            } catch (error) {
+                if (!controller.signal.aborted) this.#emit('protocol-error', error);
+            } finally {
+                try { reader.releaseLock(); } catch (_error) { /* already released */ }
+                if (this.#eventController !== controller) return;
+                this.#eventController = null;
+                const expected = this.#closing || controller.signal.aborted;
+                this.#connected = false;
+                this.#compatible = false;
+                this.#capabilities = null;
+                this.#emit('close', { code: 0, reason: expected ? 'client closed' : 'event stream ended', expected });
+            }
+        }
+
+        #ingestSseBlock(block) {
+            if (!block || block.startsWith(':')) return;
+            let eventName = '';
+            const dataLines = [];
+            for (const line of block.split(/\r?\n/)) {
+                if (line.startsWith('event:')) eventName = line.slice(6).trim();
+                else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
+            }
+            if (!eventName || !dataLines.length) return;
+            try {
+                const text = dataLines.join('\n');
+                if (new TextEncoder().encode(text).byteLength > MAX_RESPONSE_BYTES) {
+                    throw new ESPectreDirectError('Direct event exceeds the 8192-byte limit.', 'frame_too_large');
+                }
+                const envelope = parseObject(text);
+                if (envelope.type !== 'event' || envelope.event !== eventName
+                    || !envelope.data || typeof envelope.data !== 'object' || Array.isArray(envelope.data)) {
+                    throw new ESPectreDirectError('Direct SSE envelope is invalid.', 'invalid_envelope');
+                }
+                this.#emit('event', eventName, envelope.data);
+            } catch (error) {
+                this.#emit('protocol-error', error);
+            }
         }
 
         async handshake(options = {}) {
@@ -301,117 +358,108 @@
             return result;
         }
 
-        request(method, params = {}, {
+        async request(method, params = {}, options = {}) {
+            if (!this.connected) throw new ESPectreDirectError('Direct HTTP is not connected.', 'not_connected');
+            return this.#sendRequest(method, params, options);
+        }
+
+        async #sendRequest(method, params = {}, {
             timeoutMs = DEFAULT_TIMEOUT_MS,
             requestId,
             allowBeforeHandshake = false
         } = {}) {
-            if (!this.connected) return Promise.reject(new ESPectreDirectError('Direct WebSocket is not connected.', 'not_connected'));
             if (typeof method !== 'string' || !/^[A-Za-z0-9_.-]{1,64}$/.test(method)) {
-                return Promise.reject(new ESPectreDirectError('Direct method is invalid.', 'invalid_method'));
+                throw new ESPectreDirectError('Direct method is invalid.', 'invalid_method');
             }
             if (!params || typeof params !== 'object' || Array.isArray(params)) {
-                return Promise.reject(new ESPectreDirectError('Direct params must be an object.', 'invalid_params'));
+                throw new ESPectreDirectError('Direct params must be an object.', 'invalid_params');
             }
             if (!allowBeforeHandshake && MUTATING_METHODS.has(method) && !this.#compatible) {
-                return Promise.reject(new ESPectreDirectError('Complete the Direct capability handshake before changing the device.', 'handshake_required'));
+                throw new ESPectreDirectError('Complete the Direct capability handshake before changing the device.', 'handshake_required');
             }
             const id = requestId || `web-${Date.now().toString(36)}-${(++this.#sequence).toString(36)}`;
-            if (!/^[A-Za-z0-9_.:-]{1,64}$/.test(id) || this.#pending.has(id)) {
-                return Promise.reject(new ESPectreDirectError('Direct request id is invalid or already pending.', 'invalid_request_id'));
+            if (!/^[A-Za-z0-9_.:-]{1,64}$/.test(id)) {
+                throw new ESPectreDirectError('Direct request id is invalid.', 'invalid_request_id');
             }
             const payload = JSON.stringify({ v: ENVELOPE_VERSION, type: 'request', id, method, params });
-            if (new TextEncoder().encode(payload).byteLength > MAX_REQUEST_FRAME_BYTES) {
-                return Promise.reject(new ESPectreDirectError('Direct request exceeds the 4096-byte frame limit.', 'frame_too_large'));
+            if (new TextEncoder().encode(payload).byteLength > MAX_REQUEST_BYTES) {
+                throw new ESPectreDirectError('Direct request exceeds the 4096-byte limit.', 'frame_too_large');
             }
-            return new Promise((resolve, reject) => {
-                const timer = setTimeout(() => {
-                    this.#pending.delete(id);
-                    reject(new ESPectreDirectError(`Direct request ${method} timed out.`, 'timeout'));
-                }, timeoutMs);
-                this.#pending.set(id, { method, resolve, reject, timer });
-                try {
-                    this.#socket.send(payload);
-                } catch (error) {
-                    clearTimeout(timer);
-                    this.#pending.delete(id);
-                    reject(error);
-                }
-            });
-        }
-
-        async discoverPeers(options = {}) {
-            if (!this.#compatible || !this.#capabilities?.commands?.some((item) => item.name === 'discover_peers')) {
-                throw new ESPectreDirectError('This responder does not support peer discovery.', 'unsupported_capability');
+            const controller = new AbortController();
+            this.#requestControllers.add(controller);
+            const timer = setTimeout(() => controller.abort('request timeout'), timeoutMs);
+            const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
+            if (method === 'stop_raw_stream' && this.#rawSessionId) {
+                headers.Authorization = `Bearer ${this.#rawSessionId}`;
             }
-            const result = await this.request('discover_peers', {}, {
-                timeoutMs: PEER_DISCOVERY_TIMEOUT_MS,
-                ...options
-            });
-            return validatePeerDiscoveryResult(result);
-        }
-
-        #ingest(value) {
-            let text;
-            let envelope;
+            let response;
             try {
-                text = frameText(value);
-                if (new TextEncoder().encode(text).byteLength > MAX_RESPONSE_FRAME_BYTES) {
-                    throw new ESPectreDirectError('Direct response exceeds the 8192-byte frame limit.', 'frame_too_large');
-                }
-                envelope = parseObject(text);
+                response = await localFetch(this.#endpoint, {
+                    method: 'POST',
+                    headers,
+                    body: payload,
+                    signal: controller.signal
+                });
             } catch (error) {
-                this.#emit('protocol-error', error);
-                return;
+                if (error instanceof ESPectreDirectError) throw error;
+                throw new ESPectreDirectError(
+                    controller.signal.aborted ? `Direct request ${method} timed out.` : `Direct HTTP request failed: ${error.message}`,
+                    controller.signal.aborted ? 'timeout' : 'connection_failed'
+                );
+            } finally {
+                clearTimeout(timer);
+                this.#requestControllers.delete(controller);
             }
-            if (envelope.type === 'event') {
-                if (typeof envelope.event !== 'string' || !envelope.data || typeof envelope.data !== 'object' || Array.isArray(envelope.data)) {
-                    this.#emit('protocol-error', new ESPectreDirectError('Direct event envelope is invalid.', 'invalid_envelope'));
-                    return;
-                }
-                this.#emit('event', envelope.event, envelope.data);
-                return;
+            if (!response.ok) {
+                const detail = (await response.text()).slice(0, 256).trim();
+                throw new ESPectreDirectError(detail || `Direct HTTP returned ${response.status}.`, `http_${response.status}`);
             }
-            if (envelope.type !== 'response' || typeof envelope.id !== 'string' || typeof envelope.ok !== 'boolean') {
-                this.#emit('protocol-error', new ESPectreDirectError('Direct response envelope is invalid.', 'invalid_envelope'));
-                return;
+            const text = await response.text();
+            if (new TextEncoder().encode(text).byteLength > MAX_RESPONSE_BYTES) {
+                throw new ESPectreDirectError('Direct response exceeds the 8192-byte limit.', 'frame_too_large');
             }
-            const pending = this.#pending.get(envelope.id);
-            if (!pending) {
-                this.#emit('protocol-error', new ESPectreDirectError('Direct response has no matching request.', 'unknown_request'));
-                return;
+            const envelope = parseObject(text);
+            if (envelope.type !== 'response' || envelope.id !== id || typeof envelope.ok !== 'boolean') {
+                throw new ESPectreDirectError('Direct response envelope is invalid.', 'invalid_envelope');
             }
-            clearTimeout(pending.timer);
-            this.#pending.delete(envelope.id);
-            if (envelope.ok) {
-                if (!envelope.result || typeof envelope.result !== 'object' || Array.isArray(envelope.result)) {
-                    pending.reject(new ESPectreDirectError('Direct success result must be an object.', 'invalid_envelope'));
-                    return;
-                }
-                pending.resolve(envelope.result.data ?? envelope.result);
-                return;
+            if (!envelope.ok) {
+                const code = typeof envelope.error?.code === 'string' ? envelope.error.code : 'device_error';
+                const message = typeof envelope.error?.message === 'string' ? envelope.error.message : 'Device rejected the request.';
+                throw new ESPectreDirectError(message, code);
             }
-            const code = typeof envelope.error?.code === 'string' ? envelope.error.code : 'device_error';
-            const message = typeof envelope.error?.message === 'string' ? envelope.error.message : 'Device rejected the request.';
-            pending.reject(new ESPectreDirectError(message, code));
+            if (!envelope.result || typeof envelope.result !== 'object' || Array.isArray(envelope.result)) {
+                throw new ESPectreDirectError('Direct success result must be an object.', 'invalid_envelope');
+            }
+            const result = envelope.result.data ?? envelope.result;
+            if (!result || typeof result !== 'object' || Array.isArray(result)) {
+                throw new ESPectreDirectError('Direct response data must be an object.', 'invalid_envelope');
+            }
+            if (method === 'start_raw_stream' && /^[0-9a-f]{32}$/.test(result.session_id)) {
+                this.#rawSessionId = result.session_id;
+            } else if (method === 'stop_raw_stream') {
+                this.#rawSessionId = '';
+            }
+            return result;
         }
 
-        #rejectAll(message, code) {
-            for (const pending of this.#pending.values()) {
-                clearTimeout(pending.timer);
-                pending.reject(new ESPectreDirectError(message, code));
-            }
-            this.#pending.clear();
+        async discoverPeersBootstrap(options = {}) {
+            return validatePeerDiscoveryResult(await this.#sendRequest('discover_peers', {}, {
+                timeoutMs: PEER_DISCOVERY_TIMEOUT_MS,
+                allowBeforeHandshake: true,
+                ...options
+            }));
         }
 
-        close(code = 1000, reason = 'client closed') {
+        close(_code = 0, _reason = 'client closed') {
             this.#closing = true;
-            const socket = this.#socket;
-            this.#socket = null;
+            this.#connected = false;
             this.#compatible = false;
             this.#capabilities = null;
-            this.#rejectAll('Direct client closed.', 'closed');
-            if (socket && socket.readyState < 2) socket.close(code, reason);
+            this.#rawSessionId = '';
+            this.#eventController?.abort('client closed');
+            this.#eventController = null;
+            for (const controller of this.#requestControllers) controller.abort('client closed');
+            this.#requestControllers.clear();
         }
     }
 

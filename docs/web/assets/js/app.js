@@ -2,8 +2,8 @@
  * ESPectre - Website app shell
  *
  * Hash routing and a persistent session shared by every page. Configure uses
- * the local Direct WebSocket transport, while Monitor, Game, and Theremin can
- * use Direct WebSocket or MQTT over WebSockets.
+ * the local Direct HTTP transport. Relay is reserved for a future remote
+ * connection mode and is not implemented yet.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -19,10 +19,8 @@
     if (!sitePolicy) throw new Error('ESPectre site policy is unavailable');
     const browserSupport = window.ESPectreBrowserSupport && window.ESPectreBrowserSupport.current;
     if (!browserSupport) throw new Error('ESPectre browser capability policy is unavailable');
-    const MqttProtocolClient = window.ESPectreMqttClient;
-    if (!MqttProtocolClient) throw new Error('ESPectre MQTT protocol client is unavailable');
     const DirectProtocolClient = window.ESPectreDirectClient;
-    if (!DirectProtocolClient) throw new Error('ESPectre Direct WebSocket client is unavailable');
+    if (!DirectProtocolClient) throw new Error('ESPectre Direct HTTP client is unavailable');
 
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -34,24 +32,16 @@
         ? (routeRegistry.get(routeName)?.analyticsName || routeName)
         : 'monitor';
     const activeToolName = () => toolNameForRoute(route);
-    const LEGACY_TOOL_ROUTES = Object.freeze({ mqtt: 'tool-monitor', device: 'tool-configure' });
+    const LEGACY_TOOL_ROUTES = Object.freeze({ device: 'tool-configure' });
     const MQTT_PRESETS = Object.freeze({
         home_assistant: Object.freeze({
             configure: Object.freeze({
                 host: 'homeassistant.local', port: '1883', hostPlaceholder: 'homeassistant.local'
-            }),
-            monitor: Object.freeze({
-                host: 'homeassistant.local', port: '9001', path: '/mqtt', tls: false,
-                hostPlaceholder: 'homeassistant.local'
             })
         }),
         lan_broker: Object.freeze({
             configure: Object.freeze({
                 host: '', port: '1883', hostPlaceholder: 'broker.local or 192.168.1.20'
-            }),
-            monitor: Object.freeze({
-                host: 'localhost', port: '9001', path: '/mqtt', tls: false,
-                hostPlaceholder: 'localhost or broker.local'
             })
         }),
         emqx_cloud: Object.freeze({
@@ -59,11 +49,6 @@
                 host: 'deployment-id.ala.region.emqxsl.com', port: '8883',
                 hostPlaceholder: 'deployment-id.ala.region.emqxsl.com',
                 locked: Object.freeze(['port'])
-            }),
-            monitor: Object.freeze({
-                host: 'deployment-id.ala.region.emqxsl.com', port: '8084', path: '/mqtt', tls: true,
-                hostPlaceholder: 'deployment-id.ala.region.emqxsl.com',
-                locked: Object.freeze(['port', 'path', 'tls'])
             })
         }),
         hivemq_cloud: Object.freeze({
@@ -71,31 +56,17 @@
                 host: 'cluster-id.s1.region.hivemq.cloud', port: '8883',
                 hostPlaceholder: 'cluster-id.s1.region.hivemq.cloud',
                 locked: Object.freeze(['port'])
-            }),
-            monitor: Object.freeze({
-                host: 'cluster-id.s1.region.hivemq.cloud', port: '8884', path: '/mqtt', tls: true,
-                hostPlaceholder: 'cluster-id.s1.region.hivemq.cloud',
-                locked: Object.freeze(['port', 'path', 'tls'])
             })
         }),
         flespi: Object.freeze({
             configure: Object.freeze({
                 host: 'mqtt.flespi.io', port: '8883', hostPlaceholder: 'mqtt.flespi.io',
                 locked: Object.freeze(['host', 'port'])
-            }),
-            monitor: Object.freeze({
-                host: 'mqtt.flespi.io', port: '443', path: '/mqtt', tls: true,
-                hostPlaceholder: 'mqtt.flespi.io',
-                locked: Object.freeze(['host', 'port', 'path', 'tls'])
             })
         }),
         cloud_broker: Object.freeze({
             configure: Object.freeze({
                 host: 'cluster.example.com', port: '', hostPlaceholder: 'cluster.example.com'
-            }),
-            monitor: Object.freeze({
-                host: 'cluster.example.com', port: '', path: '/mqtt', tls: true,
-                hostPlaceholder: 'cluster.example.com'
             })
         })
     });
@@ -164,7 +135,6 @@
     const DIRECT_FULL_DEVICE_ID = /^[0-9a-f]{16}$/;
     const DIRECT_SHORT_DEVICE_ID = /^[0-9a-f]{6}$/;
     const DIRECT_CANONICAL_HOSTNAME = /^espectre-([0-9a-f]{16})\.local$/;
-    const DIRECT_DISCOVERY_CONNECT_TIMEOUT_MS = 10000;
 
     class DirectConnectElement extends HTMLElement {
         connectedCallback() {
@@ -181,21 +151,6 @@
 
             const help = fragment.querySelector('.js-direct-help');
             help.classList.add(surface === 'monitor' ? 'js-mon-direct-help' : 'js-cfg-direct-help');
-            const alternate = fragment.querySelector('.js-direct-alternate');
-            alternate.append(' · ');
-            if (surface === 'monitor') {
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.className = 'link-btn js-monitor-use-mqtt';
-                button.textContent = 'Use MQTT instead';
-                alternate.append(button);
-            } else {
-                const link = document.createElement('a');
-                link.href = '#tool-monitor';
-                link.textContent = 'Use MQTT Monitor instead';
-                alternate.append(link);
-            }
-
             this.replaceChildren(fragment);
             this.dataset.rendered = 'true';
         }
@@ -206,7 +161,7 @@
     }
 
     const conn = {
-        mode: null,             // 'ws' | 'mqtt' | 'demo'
+        mode: null,             // 'direct' | 'demo'
         status: 'disconnected', // disconnected | connecting | connected
         movement: 0,
         threshold: 0.5,
@@ -246,6 +201,7 @@
     let route = 'home';
     const LIVE_EXPERIENCE_ROUTES = new Set(['tool-game', 'tool-theremin']);
     let pendingLiveDestination = '';
+    let pendingDirectDestination = '';
     const deviceNameEditorState = {
         configure: { editing: false, savePending: false },
         monitor: { editing: false, savePending: false }
@@ -319,7 +275,7 @@
     }
 
     function connectionIntentRoute() {
-        return pendingLiveDestination || route;
+        return pendingDirectDestination || pendingLiveDestination || route;
     }
 
     function rememberLiveDestination(routeName = route) {
@@ -335,6 +291,14 @@
         }
         if (route === 'tool-monitor' || route === 'tool-configure') {
             setDeviceView('live', { focus: true });
+        }
+    }
+
+    function completeDirectConnectionNavigation() {
+        const destination = pendingDirectDestination;
+        pendingDirectDestination = '';
+        if (destination && routeRegistry.has(destination) && route !== destination) {
+            location.hash = '#' + destination;
         }
     }
 
@@ -356,20 +320,18 @@
     }
 
     function connectionTransport() {
-        if (conn.mode === 'ws') return 'direct_websocket';
-        if (conn.mode === 'mqtt') return 'mqtt_websocket';
+        if (conn.mode === 'direct') return 'direct_http';
         if (conn.mode === 'demo') return 'simulation';
-        return 'direct_websocket';
+        return 'direct_http';
     }
 
     function connectionInputMode() {
         if (conn.mode === 'demo') return 'demo';
-        if (conn.mode === 'mqtt') return 'mqtt';
-        return 'ws';
+        return 'direct';
     }
 
     function hasLiveDetection() {
-        return conn.status === 'connected' && ['demo', 'mqtt', 'ws'].includes(conn.mode);
+        return conn.status === 'connected' && ['demo', 'direct'].includes(conn.mode);
     }
 
     function setDeviceView(view, { focus = false } = {}) {
@@ -471,14 +433,14 @@
 
     function syncSensingControls() {
         const detector = document.getElementById('sense-detector')?.value;
-        $$('[data-mqtt-command]').forEach((panel) => {
+        $$('[data-device-command]').forEach((panel) => {
             const supported = conn.mode === 'demo'
                 || !monitor.commandCatalogReady
-                || monitor.commands.has(panel.dataset.mqttCommand);
-            const lightweightOnly = panel.dataset.mqttCommand === 'recalibrate' && detector !== 'lightweight';
+                || monitor.commands.has(panel.dataset.deviceCommand);
+            const lightweightOnly = panel.dataset.deviceCommand === 'recalibrate' && detector !== 'lightweight';
             panel.hidden = !supported || lightweightOnly;
             panel.querySelectorAll('button, input, select').forEach((control) => {
-                const calibrating = panel.dataset.mqttCommand === 'recalibrate' && monitor.calibrating;
+                const calibrating = panel.dataset.deviceCommand === 'recalibrate' && monitor.calibrating;
                 control.disabled = !supported || lightweightOnly || calibrating
                     || (conn.mode !== 'demo' && !hasLiveDetection());
             });
@@ -554,10 +516,8 @@
 
         const displayName = conn.deviceLabel || conn.generatedName || conn.deviceId
             || conn.deviceName || 'ESPectre';
-        const mqttCanEdit = conn.mode === 'mqtt' && monitorIsMqttLive()
-            && (!monitor.commandCatalogReady || monitor.commands.has('set_device_label'));
         const canEdit = conn.status === 'connected'
-            && (conn.mode === 'ws' || conn.mode === 'demo' || mqttCanEdit)
+            && (conn.mode === 'direct' || conn.mode === 'demo')
             && conn.deviceConfigSupported;
         display.textContent = displayName;
         trigger.disabled = !canEdit || state.savePending;
@@ -680,22 +640,14 @@
         const next = String(deviceId || '').trim();
         if (!next) return;
         const previous = String(conn.deviceId || '').trim();
-        const previousBound = String(monitor.boundDeviceId || '').trim();
         conn.deviceId = next;
-        const monitorDevice = document.getElementById('mon-device');
-        if (monitorDevice && monitorDevice.value.trim() !== next) {
-            monitorDevice.value = next;
-        }
-        const switched = (previous && previous !== next) || (previousBound && previousBound !== next);
+        const switched = previous && previous !== next;
         if (!switched) return;
         monitor.handoffReady = false;
         resetSensingCadence();
         resetMonitorLiveView();
         resetOtaChannelSelection();
         otaCheckTransport = '';
-        if (monitorIsMqttLive() && previousBound && previousBound !== next) {
-            monitorStopAll('device_changed');
-        }
     }
 
     function markToolReady(readiness) {
@@ -950,7 +902,7 @@
         try {
             const target = parseDirectTarget(directTarget);
             syncDirectEndpointInputs(target.display);
-            const radio = document.getElementById('monitor-transport-ws');
+            const radio = document.getElementById('monitor-transport-direct');
             if (radio) radio.checked = true;
             history.replaceState(null, '', location.pathname + location.hash);
         } catch (_error) {
@@ -1043,7 +995,7 @@
         client.on('event', ingestDirectEvent);
         client.on('protocol-error', (error) => console.warn('Ignored invalid Direct frame:', error.message));
         client.on('close', ({ expected }) => {
-            if (expected || conn.mode !== 'ws') return;
+            if (expected || conn.mode !== 'direct') return;
             scheduleDirectReconnect(client);
         });
         return client;
@@ -1057,13 +1009,13 @@
         if (location.protocol !== 'https:') {
             return 'Local development mode: the firmware must explicitly allow HTTP loopback Origins. Development builds accept localhost on any port.';
         }
-        if (browserSupport.hostedDirect === 'unsupported') {
-            return 'This browser blocks hosted Direct WebSocket. Use supported desktop Chrome, or choose MQTT Monitor.';
+        if (browserSupport.hostedDirect === 'targeted'
+            && ['windows', 'linux'].includes(browserSupport.operatingSystem)) {
+            const platform = browserSupport.operatingSystem === 'windows' ? 'Windows' : 'Linux';
+            return `Direct is supported on ${platform} desktop Chrome. Automatic discovery depends on the operating system's mDNS configuration; if it fails, connect using the device's current private IP address.`;
         }
-        if (browserSupport.hostedDirect === 'unclaimed') {
-            return 'Hosted Direct is not validated in this browser. Use targeted desktop Chrome, or choose MQTT Monitor.';
-        }
-        return '';
+        if (browserSupport.hostedDirect === 'targeted') return '';
+        return 'Direct compatibility is not guaranteed in this browser. Use Chrome 151 or later on macOS, Windows, or native Linux, and connect by private IP where available.';
     }
 
     function renderDirectBrowserGuidance() {
@@ -1079,7 +1031,10 @@
         let url;
         try { url = new URL(endpoint); } catch (_error) { url = null; }
         const localName = Boolean(url?.hostname.endsWith('.local'));
-        const hostedCleartext = location.protocol === 'https:' && url?.protocol === 'ws:';
+        const hostedCleartext = location.protocol === 'https:' && url?.protocol === 'http:';
+        if (code === 'local_network_denied' || permissionState === 'denied') {
+            return 'Local network access is blocked for this site. Open the browser site settings, allow Local network access, and retry. If it is already allowed there, also allow Chrome in the operating system Local Network privacy settings.';
+        }
         if (code === 'timeout') {
             return localName
                 ? 'The device did not answer in time. Confirm it is online and on this LAN, then retry Auto-discovery or enter its current IP address.'
@@ -1096,11 +1051,8 @@
             if (directPageOriginKind() === 'loopback') {
                 return 'A local HTTP portal does not require a Local network access prompt. Confirm that this is a development firmware with loopback Origins enabled, reflash if it predates any-port localhost support, close other ESPectre tabs, and retry.';
             }
-            if (permissionState === 'denied') {
-                return 'Local network access is blocked for this site. Open the browser site settings, allow Local network access, and retry.';
-            }
             if (hostedCleartext && browserSupport.hostedDirect === 'unsupported') {
-                return 'This browser blocks a hosted HTTPS page from opening the device cleartext WebSocket. Use supported desktop Chrome, or use MQTT Monitor as the manual fallback.';
+                return 'This browser blocks a hosted HTTPS page from opening the device cleartext HTTP. Open this portal in supported desktop Chrome.';
             }
             if (hostedCleartext && permissionState === 'prompt') {
                 return 'The browser is waiting for Local network access. Retry, allow the permission prompt for this site, and keep the device on the same LAN.';
@@ -1110,7 +1062,7 @@
                 : 'Confirm the device IP address. ';
             return `The browser could not open the local Direct connection. ${addressHelp}Close other ESPectre Configure or Monitor tabs, allow Local network access when prompted, and retry. The device may be offline or at its two-client limit.`;
         }
-        return error?.message || 'Direct WebSocket connection failed.';
+        return error?.message || 'Direct HTTP connection failed.';
     }
 
     function setDirectConnectionHelp(message = '') {
@@ -1244,60 +1196,37 @@
     }
 
     function directDiscoveryFailureMessage(error, permissionState) {
-        if (permissionState === 'denied') {
-            return 'Local network access is blocked for this site. Allow it in the browser site settings, then retry.';
+        if (error?.code === 'local_network_denied' || permissionState === 'denied') {
+            return 'Local network access is blocked for this site. Allow it in the browser site settings, then retry. If it is already allowed there, also allow Chrome in the operating system Local Network privacy settings.';
         }
         if (error?.code === 'unsupported_crypto') {
-            return 'Auto-discovery requires Web Crypto, which is unavailable in this browser. Enter a private IP address or full device ID.';
+            return 'Auto-discovery requires Web Crypto, which is unavailable in this browser. Enter the device\'s current private IP address.';
         }
         if (error?.code === 'unsupported_capability') {
-            return 'The responder does not support Auto-discovery. Enter a private IP address or device ID.';
+            return 'The responder does not support Auto-discovery. Enter the device\'s current private IP address.';
         }
         if (error?.code === 'timeout') {
-            if (error.discoveryStage === 'connect') {
-                return 'Auto-discovery could not reach a local responder in time. Check that a current Native device is online, or enter a private IP address or full device ID.';
-            }
-            if (error.discoveryStage === 'handshake') {
-                return 'A local responder connected but did not complete discovery negotiation in time. Retry, or enter a private IP address or full device ID.';
-            }
-            return 'Auto-discovery timed out. Multicast may be filtered or isolated on this network; enter a private IP address or full device ID.';
+            return 'Auto-discovery timed out. mDNS may be disabled, or multicast may be filtered or isolated. Enter the current private IP address from the Improv link or router lease table.';
         }
-        if (error?.code === 'closed') {
-            return 'The responder disconnected during Auto-discovery. Retry, or enter a private IP address or full device ID.';
-        }
-        if (error?.code === 'subprotocol_mismatch' || error?.code === 'invalid_capabilities') {
-            return 'Auto-discovery reached an incompatible responder. Update that device, or enter another private IP address or full device ID.';
+        if (error?.code === 'invalid_envelope' || error?.code === 'unsupported_version') {
+            return 'Auto-discovery reached an incompatible responder. Update that device, or enter the target device\'s current private IP address.';
         }
         if (error?.code === 'invalid_peer_result' || error?.code === 'frame_too_large') {
-            return 'The responder returned an invalid discovery result, so no device was used. Enter a trusted private IP address or full device ID.';
+            return 'The responder returned an invalid discovery result, so no device was used. Enter the target device\'s trusted private IP address.';
         }
         if (error?.code === 'connection_failed') {
-            return 'Auto-discovery could not reach a responder. A device may be offline, or multicast DNS may be isolated; enter a private IP address or full device ID.';
+            return 'Auto-discovery could not reach a responder. Multicast may be isolated, or mDNS may be disabled. Enter the current private IP address from the Improv link or router lease table.';
         }
-        return 'Auto-discovery is unavailable on this network. Enter a private IP address or full device ID.';
+        return 'Auto-discovery is unavailable on this network. Enter the device\'s current private IP address; device IDs and names still depend on mDNS.';
     }
 
     async function queryLocalPeers(onProgress = () => {}) {
         const client = makeDirectClient(DirectProtocolClient.createDiscoveryEndpoint());
         directDiscoveryClient = client;
         try {
-            onProgress('Connecting to a local responder…');
-            try {
-                await client.connect({ timeoutMs: DIRECT_DISCOVERY_CONNECT_TIMEOUT_MS });
-            } catch (error) {
-                error.discoveryStage = 'connect';
-                throw error;
-            }
-            onProgress('Checking discovery support…');
-            try {
-                await client.handshake({ timeoutMs: 5000 });
-            } catch (error) {
-                error.discoveryStage = 'handshake';
-                throw error;
-            }
             onProgress('Looking for compatible ESPectre devices…');
             try {
-                return await client.discoverPeers();
+                return await client.discoverPeersBootstrap();
             } catch (error) {
                 error.discoveryStage = 'query';
                 throw error;
@@ -1358,32 +1287,41 @@
     }
 
     function scheduleDirectReconnect(client) {
-        if (directClient !== client || conn.mode !== 'ws' || directReconnectTimer) return;
+        if (directClient !== client || conn.mode !== 'direct' || directReconnectTimer) return;
         if (directReconnectAttempt >= DIRECT_RECONNECT_DELAYS_MS.length) {
             directClient = null;
             teardownConnection('reconnect_failed');
-            toast('Direct WebSocket disconnected. Enter the device address to reconnect.');
+            toast('Direct HTTP disconnected. Enter the device address to reconnect.');
             return;
         }
         const delay = DIRECT_RECONNECT_DELAYS_MS[directReconnectAttempt++];
         setStatus('connecting');
         directReconnectTimer = setTimeout(async () => {
             directReconnectTimer = 0;
-            if (directClient !== client || conn.mode !== 'ws') return;
+            if (directClient !== client || conn.mode !== 'direct') return;
             try {
                 await client.connect({ timeoutMs: 5000 });
                 await client.handshake({ timeoutMs: 5000 });
-                if (directClient !== client || conn.mode !== 'ws') {
+                if (directClient !== client || conn.mode !== 'direct') {
                     client.close();
                     return;
                 }
                 await refreshDirectDevice();
                 directReconnectAttempt = 0;
                 setStatus('connected');
-                toast('Direct WebSocket reconnected.');
+                toast('Direct HTTP reconnected.');
                 if (pendingConfigVerification) requestConfigVerification();
-            } catch (_error) {
+            } catch (error) {
                 client.close();
+                const permissionState = await localNetworkAccessState();
+                if (error?.code === 'local_network_denied' || permissionState === 'denied') {
+                    directClient = null;
+                    teardownConnection('local_network_denied');
+                    const message = directConnectionErrorMessage(error, client.endpoint, permissionState);
+                    setDirectConnectionHelp(message);
+                    toast(message);
+                    return;
+                }
                 scheduleDirectReconnect(client);
             }
         }, delay);
@@ -1392,12 +1330,13 @@
     async function refreshDirectDevice() {
         if (!directClient?.connected) return;
         const supportsOta = directClient.capabilities?.commands?.some((item) => item.name === 'ota_status');
-        const [info, status, config, otaStatus] = await Promise.all([
-            directClient.request('info'),
-            directClient.request('status'),
-            directClient.request('config'),
-            supportsOta ? directClient.request('ota_status') : Promise.resolve(null)
-        ]);
+        // Keep local-network requests serial. Chrome may still be resolving its
+        // Local Network Access grant when the Direct stream and handshake have
+        // just completed, and rejects a concurrent fan-out before CORS runs.
+        const info = await directClient.request('info');
+        const status = await directClient.request('status');
+        const config = await directClient.request('config');
+        const otaStatus = supportsOta ? await directClient.request('ota_status') : null;
         applySysinfo({ ...directCapabilitiesSnapshot(directClient.capabilities), ...info, ...status });
         applyDirectConfig(config);
         if (otaStatus) applyOtaStatus(otaStatus);
@@ -1429,7 +1368,7 @@
             device_count: result.devices.length, truncated: result.truncated
         });
         if (matches.length === 0) {
-            throw new Error(`No matching ${description} was found. Retry Auto-discovery, enter the full ID, or use its private IP address.`);
+            throw new Error(`No matching ${description} was found. Retry Auto-discovery, or use the device's current private IP address.`);
         }
         if (matches.length > 1) {
             const panel = directDiscoveryPanel(input);
@@ -1446,7 +1385,7 @@
 
     async function connectDirect({ endpoint, deviceId, openView } = {}) {
         cancelDirectDiscovery();
-        if (directClient || (conn.status !== 'disconnected' && conn.mode !== 'mqtt')) return;
+        if (directClient || conn.status !== 'disconnected') return;
         const input = directEndpointInput();
         let target;
         try {
@@ -1478,10 +1417,9 @@
         }
         input?.removeAttribute('aria-invalid');
         setDirectConnectionHelp();
-        if (monitorIsMqttLive()) monitorStopAll('transport_switch');
         rememberConnectionOrigin();
         track('tool_connection', {
-            ...connectionParams(), transport: 'direct_websocket', result: 'attempt'
+            ...connectionParams(), transport: 'direct_http', result: 'attempt'
         });
         setStatus('connecting');
         try {
@@ -1491,7 +1429,7 @@
             await client.connect();
             await client.handshake();
             if (directClient !== client) return;
-            conn.mode = 'ws';
+            conn.mode = 'direct';
             conn.endpoint = normalizedEndpoint;
             conn.deviceBannerSub = normalizedEndpoint;
             conn.connectedAt = Date.now();
@@ -1506,10 +1444,11 @@
             setDeviceView(openView || (route === 'tool-monitor' || !conn.connectivityConfigSupported
                 ? 'live' : 'connectivity'));
             track('tool_connection', {
-                ...connectionParams(), transport: 'direct_websocket', result: 'success'
+                ...connectionParams(), transport: 'direct_http', result: 'success'
             });
             markToolReady('info');
-            if (pendingLiveDestination) completeLiveConnectionNavigation();
+            if (pendingDirectDestination) completeDirectConnectionNavigation();
+            else if (pendingLiveDestination) completeLiveConnectionNavigation();
         } catch (error) {
             directClient?.close();
             directClient = null;
@@ -1534,7 +1473,7 @@
                 }
             }
             track('tool_connection', {
-                ...connectionParams(), transport: 'direct_websocket', result: 'failure',
+                ...connectionParams(), transport: 'direct_http', result: 'failure',
                 error_type: errorType(error)
             });
             const message = error?.code
@@ -1543,34 +1482,6 @@
             setDirectConnectionHelp(message);
             toast(message);
         }
-    }
-
-    function monitorMqttPresetNote(presetName) {
-        if (presetName === 'home_assistant') {
-            return location.protocol === 'https:'
-                ? 'Port 9001; HTTPS requires trusted WSS.'
-                : 'Home Assistant WebSockets use port 9001.';
-        }
-        if (presetName === 'lan_broker') {
-            return location.protocol === 'https:'
-                ? 'Defaults to localhost; HTTPS requires trusted WSS.'
-                : 'Defaults to localhost; replace it for another LAN host.';
-        }
-        if (presetName === 'emqx_cloud') {
-            return 'WSS uses port 8084 and path /mqtt.';
-        }
-        if (presetName === 'hivemq_cloud') {
-            return 'WSS uses port 8884 and path /mqtt.';
-        }
-        if (presetName === 'flespi') {
-            return 'Use your Flespi token as username; no password.';
-        }
-        return 'Enter your broker WSS settings and credentials.';
-    }
-
-    function updateMonitorMqttPresetNote(presetName) {
-        const note = $('.js-mon-mqtt-preset-note');
-        if (note) note.textContent = monitorMqttPresetNote(presetName);
     }
 
     function applyConfigureMqttCredentialPolicy(presetName) {
@@ -1609,17 +1520,14 @@
         }
     }
 
-    function applyMqttPresetFieldLocks(target, preset) {
-        const fields = target === 'configure'
-            ? { host: 'cfg-mqtt-host', port: 'cfg-mqtt-port' }
-            : { host: 'mon-host', port: 'mon-port', path: 'mon-path', tls: 'mon-tls' };
+    function applyMqttPresetFieldLocks(_target, preset) {
+        const fields = { host: 'cfg-mqtt-host', port: 'cfg-mqtt-port' };
         const locked = new Set(preset.locked || []);
         Object.entries(fields).forEach(([name, id]) => {
             const input = document.getElementById(id);
             if (!input) return;
             const isLocked = locked.has(name);
-            if (input.type === 'checkbox') input.disabled = isLocked;
-            else input.readOnly = isLocked;
+            input.readOnly = isLocked;
             input.toggleAttribute('data-preset-locked', isLocked);
             input.title = isLocked ? 'Set by the selected broker preset' : '';
         });
@@ -1669,124 +1577,34 @@
         syncConfigureMqttCredentialMode();
     }
 
-    function applyMonitorMqttPreset(presetName, { clearCredentials = true } = {}) {
-        const select = document.getElementById('mon-mqtt-preset');
-        const resolvedName = MQTT_PRESETS[presetName] ? presetName : 'cloud_broker';
-        const preset = MQTT_PRESETS[resolvedName];
-        select.value = resolvedName;
-        document.getElementById('mon-host').value = preset.monitor.host;
-        document.getElementById('mon-host').placeholder = preset.monitor.hostPlaceholder;
-        document.getElementById('mon-port').value = preset.monitor.port;
-        document.getElementById('mon-path').value = preset.monitor.path;
-        document.getElementById('mon-tls').checked = preset.monitor.tls;
-        document.getElementById('mon-topic-prefix').value = MQTT_FORM_DEFAULTS.topicPrefix;
-        applyMqttPresetFieldLocks('monitor', preset.monitor);
-        if (clearCredentials) {
-            document.getElementById('mon-user').value = '';
-            document.getElementById('mon-pass').value = '';
-        }
-        updateMonitorMqttPresetNote(select.value);
-    }
-
-    function applyConfigureMqttToMonitor() {
-        const host = document.getElementById('cfg-mqtt-host');
-        const user = document.getElementById('cfg-mqtt-user');
-        const pass = document.getElementById('cfg-mqtt-pass');
-        const prefix = document.getElementById('cfg-topic-prefix');
-        const presetName = document.getElementById('cfg-mqtt-preset').value;
-        const monHost = document.getElementById('mon-host');
-        const monUser = document.getElementById('mon-user');
-        const monPass = document.getElementById('mon-pass');
-        const monPrefix = document.getElementById('mon-topic-prefix');
-        const monDevice = document.getElementById('mon-device');
-        if (MQTT_PRESETS[presetName]) {
-            applyMonitorMqttPreset(presetName, { clearCredentials: false });
-            if (host && browserBrokerHost(host.value)) {
-                monHost.value = browserBrokerHost(host.value);
-            }
-        } else if (host && host.value.trim()) {
-            applyMonitorMqttPreset('cloud_broker', { clearCredentials: false });
-            monHost.value = browserBrokerHost(host.value);
-        }
-        monUser.value = user ? user.value.trim() : '';
-        monPass.value = pass ? pass.value : '';
-        if (prefix && prefix.value.trim()) {
-            monPrefix.value = prefix.value.trim().replace(/\/+$/, '');
-        }
-        const deviceId = conn.deviceId.trim();
-        if (deviceId && deviceId !== '—') monDevice.value = deviceId;
-        // Presets map device TCP settings to browser WebSocket defaults where a stable mapping exists.
-        // Provider presets supply stable ports and paths; account-specific hostnames are copied without the MQTT scheme.
-    }
-
-    function bindMqttToConnection() {
-        if (conn.mode === 'demo') return;
-        const device = document.getElementById('mon-device').value.trim();
-        if (conn.status !== 'connected') {
-            if (!conn.startedAt) rememberConnectionOrigin();
-            conn.deviceName = conn.deviceName || device || 'ESPectre';
-            if (!conn.deviceBannerSub || conn.deviceBannerSub === '—') {
-                conn.deviceBannerSub = 'MQTT live';
-            }
-            conn.connectedAt = Date.now();
-        }
-        conn.mode = 'mqtt';
-        monitor.switchingTransport = false;
-        setStatus('connected');
-        completeLiveConnectionNavigation();
-        toast('Sensing is live.');
-    }
-
     async function startDetection(preferredTransport = '') {
         rememberLiveDestination();
         if (conn.mode === 'demo') {
             completeLiveConnectionNavigation();
             return;
         }
-        if (conn.mode === 'ws' && directClient?.connected) {
+        if (conn.mode === 'direct' && directClient?.connected) {
             try {
                 await directClient.request('set_sensing', { enabled: true });
                 setDeviceView('live');
                 completeLiveConnectionNavigation();
-                toast('Sensing is live over Direct WebSocket.');
+                toast('Sensing is live over Direct HTTP.');
             } catch (error) {
                 toast(error.message);
             }
             return;
         }
-        if (preferredTransport === 'ws' || preferredTransport === 'mqtt') {
-            selectMonitorTransport(preferredTransport);
+        if (preferredTransport === 'direct') {
+            selectMonitorTransport('direct');
             location.hash = '#tool-monitor';
             return;
         }
-        applyConfigureMqttToMonitor();
-        const nextDevice = document.getElementById('mon-device').value.trim();
-        if (conn.mode === 'mqtt' && monitorIsMqttLive()
-                && (!nextDevice || nextDevice === monitor.boundDeviceId)) {
-            completeLiveConnectionNavigation();
-            return;
-        }
-        const host = document.getElementById('mon-host').value.trim();
-        if (!host) {
-            toast('Save MQTT settings before starting sensing.');
-            location.hash = '#tool-monitor';
-            return;
-        }
-        if (nextDevice) {
-            if (conn.status === 'disconnected') {
-                rememberConnectionOrigin();
-                setStatus('connecting');
-            }
-            monitor.switchingTransport = true;
-            setDeviceView('live');
-        } else if (route !== 'tool-monitor') {
-            location.hash = '#tool-monitor';
-        }
-        await monitorConnect();
+        selectMonitorTransport('direct');
+        location.hash = '#tool-monitor';
     }
 
     function applySysinfo(snapshot) {
-        if (conn.mode === 'ws' && conn.toolName === 'configure'
+        if (conn.mode === 'direct' && conn.toolName === 'configure'
                 && (snapshot.frontend || snapshot.chip || snapshot.proto_version)) {
             markToolReady('info');
         }
@@ -1798,7 +1616,7 @@
         const deviceIdentity = formatDeviceIdentityLine(chip, snapshot.device_id || conn.deviceId, firmware) || '—';
         conn.chip = chip;
         conn.firmwareVersion = firmware;
-        conn.deviceBannerSub = conn.mode === 'ws'
+        conn.deviceBannerSub = conn.mode === 'direct'
             ? deviceIdentity
             : [deviceIdentity, conn.endpoint].filter((value) => value && value !== '—').join(' · ') || '—';
 
@@ -1858,7 +1676,7 @@
         setConfigurationStatus('mqtt', snapshot.mqtt_connected, snapshot.mqtt_configured);
 
         // Real hardware only: demo values would pollute the adoption report.
-        if (conn.mode === 'ws' && snapshot.frontend && snapshot.chip) {
+        if (conn.mode === 'direct' && snapshot.frontend && snapshot.chip) {
             const profile = snapshot.frontend + ':' + snapshot.chip;
             if (profile !== lastTrackedProfile) {
                 const reported = track('device_profile', {
@@ -1992,39 +1810,16 @@
     function disconnect() {
         cancelDirectDiscovery({ clear: true });
         cancelDirectReconnect();
+        void rawCsiStop();
         const client = directClient;
         directClient = null;
         client?.close();
         teardownConnection('user');
     }
 
-    function stopMqttTransport() {
-        const client = monitor.client;
-        const protocol = monitor.protocol;
-        monitor.client = null;
-        monitor.protocol = null;
-        monitor.closing = true;
-        if (protocol) protocol.close();
-        if (client) client.end(true);
-        monitor.closing = false;
+    function resetMonitorSession() {
         monitor.commands.clear();
         monitor.commandCatalogReady = false;
-        monitor.handoffReady = false;
-        monitor.boundDeviceId = '';
-        if (monitor.discoveryTimer) {
-            clearTimeout(monitor.discoveryTimer);
-            monitor.discoveryTimer = 0;
-        }
-        if (monitor.connectionTimer) {
-            clearTimeout(monitor.connectionTimer);
-            monitor.connectionTimer = 0;
-        }
-        monitor.discoveryActive = false;
-        monitor.discoveredDevices = {};
-        monitor.discoveryPrefix = '';
-        monitor.discoveryTopics = [];
-        monitor.brokerUrl = '';
-        resetMonitorDevicePicker();
         setCalibrationBusy(false);
         stopDiagnosticsPolling();
         resetMonitorLiveView();
@@ -2037,13 +1832,13 @@
         monitor.readyState = '';
         monitor.readyAt = 0;
         monitor.readyTracked = false;
-        syncMonitorDemoButton();
         renderConnection();
     }
 
     function teardownConnection(reason = 'route_change') {
         cancelDirectDiscovery({ clear: true });
         cancelDirectReconnect();
+        void rawCsiStop();
         monitor.switchingTransport = false;
         if (otaTracking) finishOtaTracking('unconfirmed', 'ClientDisconnected');
         if (pendingConfigVerification) {
@@ -2057,10 +1852,8 @@
         if (previousMode) {
             track('tool_disconnect', {
                 ...connectionParams(),
-                transport: previousMode === 'mqtt' ? 'mqtt_websocket'
-                    : previousMode === 'demo' ? 'simulation' : 'direct_websocket',
-                input_mode: previousMode === 'demo' ? 'demo'
-                    : previousMode === 'mqtt' ? 'mqtt' : 'ws',
+                transport: previousMode === 'demo' ? 'simulation' : 'direct_http',
+                input_mode: previousMode === 'demo' ? 'demo' : 'direct',
                 reason,
                 duration_seconds: durationSeconds
             });
@@ -2073,7 +1866,7 @@
         demoPointer.x = null;
         demoPointer.y = null;
         demoPointer.t = 0;
-        stopMqttTransport();
+        resetMonitorSession();
         conn.mode = null;
         conn.movement = 0;
         conn.motion = false;
@@ -2100,6 +1893,7 @@
             state.savePending = false;
         });
         pendingLiveDestination = '';
+        pendingDirectDestination = '';
         lastTrackedProfile = null;
         otaUpdateAvailable = false;
         otaBusy = false;
@@ -2114,7 +1908,7 @@
         gameReset();
         thereminStop();
         otaClose(false);
-        if (previousMode === 'demo') selectMonitorTransport('ws');
+        if (previousMode === 'demo') selectMonitorTransport('direct');
         setStatus('disconnected');
     }
 
@@ -2180,9 +1974,7 @@
         const displayedConnecting = !usbConnected && conn.status === 'connecting';
         const displayedMode = usbConnected ? 'usb' : conn.mode;
         const live = hasLiveDetection();
-        const directSetup = connected && conn.mode === 'ws';
-        const mqttConnectionPending = monitorConnectionPending();
-        const mqttSession = live || (monitor.handoffReady && monitorIsMqttLive());
+        const directSetup = connected && conn.mode === 'direct';
 
         $('.js-conn-disconnected').hidden = displayedConnected || displayedConnecting;
         $('.js-conn-connecting').hidden = !displayedConnecting;
@@ -2192,7 +1984,7 @@
         $('.js-demo-tag').hidden = displayedMode !== 'demo';
         const transportTag = $('.js-transport-tag');
         if (transportTag) {
-            const transportLabels = { ws: 'WS', usb: 'USB', mqtt: 'MQTT' };
+            const transportLabels = { direct: 'HTTP', usb: 'USB' };
             transportTag.textContent = transportLabels[displayedMode] || '';
             transportTag.hidden = !displayedConnected || !transportLabels[displayedMode];
         }
@@ -2212,14 +2004,14 @@
         const startSensing = document.querySelector('[data-page="tool-configure"] .js-start-detection');
         if (configureOnboarding) configureOnboarding.hidden = directSetup || conn.mode === 'demo';
         if (configureWorkspace) configureWorkspace.hidden = !(directSetup || conn.mode === 'demo');
-        if (monitorOnboarding) monitorOnboarding.hidden = mqttSession;
-        if (monitorWorkspace) monitorWorkspace.hidden = !mqttSession;
+        if (monitorOnboarding) monitorOnboarding.hidden = live;
+        if (monitorWorkspace) monitorWorkspace.hidden = !live;
         if (connectivitySetup) connectivitySetup.hidden = !(directSetup || conn.mode === 'demo');
         if (startSensing) startSensing.disabled = monitor.switchingTransport;
         if (edit) {
-            edit.hidden = conn.mode === 'ws' && !conn.connectivityConfigSupported;
+            edit.hidden = conn.mode === 'direct' && !conn.connectivityConfigSupported;
             edit.disabled = false;
-            edit.textContent = mqttConnectionPending ? 'Cancel connection' : 'Edit connectivity';
+            edit.textContent = 'Edit connectivity';
         }
 
         $$('.js-device-name').forEach((el) => { el.textContent = conn.deviceName || 'ESPectre'; });
@@ -2240,11 +2032,10 @@
         const disconnectButton = $('.js-disconnect');
         if (disconnectButton) disconnectButton.hidden = usbConnected;
         $$('.js-direct-chip').forEach((chip) => {
-            chip.classList.toggle('ready', connected && conn.mode === 'ws');
-            chip.textContent = connected && conn.mode === 'ws' ? 'WS · READY' : 'WS';
+            chip.classList.toggle('ready', connected && conn.mode === 'direct');
+            chip.textContent = connected && conn.mode === 'direct' ? 'HTTP · READY' : 'HTTP';
         });
 
-        syncMonitorDemoButton();
         syncSensingControls();
         syncDiagnosticsPolling();
         renderBrowserSupport();
@@ -2311,6 +2102,7 @@
         window.scrollTo(0, 0);
         if (route !== 'tool-theremin') thereminStop();
         if (route === 'tool-monitor') monitorResizeChart();
+        if (route === 'tool-raw-csi') rawCsiUseDirectConnection();
         if (route === 'tool-game') {
             requestAnimationFrame(() => {
                 gameResizeCanvas();
@@ -2338,7 +2130,7 @@
             });
         }
         // The router owns navigation, so it reports it.
-        if (window.trackRouteView) window.trackRouteView(route);
+        if (window.trackRouteView && route !== 'tool-raw-csi') window.trackRouteView(route);
     }
 
     /**
@@ -2350,11 +2142,23 @@
         const remapped = LEGACY_TOOL_ROUTES[next] || next;
         const target = routeRegistry.has(remapped) ? remapped : 'home';
         if (!force && target === route) return;
+        if (target === 'tool-raw-csi' && !rawCsiDirectReady()) {
+            pendingDirectDestination = 'tool-raw-csi';
+            if (location.hash !== '#tool-configure') location.hash = '#tool-configure';
+            return;
+        }
         cancelDirectDiscovery({ clear: true });
         const previousRoute = route;
+        if (previousRoute === 'tool-raw-csi' && target !== 'tool-raw-csi') {
+            void rawCsiStop();
+        }
         if (pendingLiveDestination) {
             if (LIVE_EXPERIENCE_ROUTES.has(target)) pendingLiveDestination = target;
             else if (target !== 'tool-monitor' && target !== 'tool-configure') pendingLiveDestination = '';
+        }
+        if (pendingDirectDestination
+                && target !== pendingDirectDestination && target !== 'tool-configure') {
+            pendingDirectDestination = '';
         }
         if (previousRoute === 'tool-game' && target !== 'tool-game') {
             gameExitFullscreen();
@@ -3163,8 +2967,6 @@
     const MONITOR_CALIBRATION_FALLBACK_MS = 45 * 1000;
     const MONITOR_CALIBRATION_SAFETY_MS = 90 * 1000;
     const MONITOR_DEMO_CALIBRATION_MS = 2500;
-    const MONITOR_DISCOVERY_TIMEOUT_MS = 2000;
-    const MONITOR_CONNECTION_TIMEOUT_MS = 10000;
 
     function monitorChartMaxPoints() {
         return Math.max(2, Math.ceil(MONITOR_CHART_WINDOW_MS / evaluationIntervalMs()) + 2);
@@ -3174,13 +2976,7 @@
         return Math.max(16, Math.min(100, Math.floor(evaluationIntervalMs() / 2)));
     }
 
-    function monitorTelemetryStaleMs() {
-        return Math.max(publishIntervalMs(), evaluationIntervalMs() * 6);
-    }
-
     const monitor = {
-        client: null,
-        protocol: null,
         demoTimer: null,
         demoT: 0,
         demoMove: 0.05,
@@ -3194,24 +2990,14 @@
         readyState: '',
         readyAt: 0,
         readyTracked: false,
-        closing: false,
         commands: new Set(),
         commandCatalogReady: false,
-        handoffReady: false,
         switchingTransport: false,
         diagTimer: null,
         diagIntervalMs: 0,
         diagRequestPending: false,
         calibrating: false,
-        calibrationTimer: null,
-        boundDeviceId: '',
-        discoveryActive: false,
-        discoveredDevices: {},
-        discoveryPrefix: '',
-        discoveryTopics: [],
-        discoveryTimer: 0,
-        connectionTimer: 0,
-        brokerUrl: ''
+        calibrationTimer: null
     };
 
     function monitorStatus(message) {
@@ -3226,204 +3012,6 @@
         if (!el) return;
         el.hidden = !message;
         el.textContent = message || '';
-    }
-
-    function clearMonitorFieldError(input) {
-        input.classList.remove('is-invalid');
-        input.removeAttribute('aria-invalid');
-        input.setCustomValidity('');
-    }
-
-    function markMonitorFieldError(input, message) {
-        clearMonitorFieldError(input);
-        // Force a reflow so repeated submissions restart the brief error flash.
-        void input.offsetWidth;
-        input.classList.add('is-invalid');
-        input.setAttribute('aria-invalid', 'true');
-        input.setCustomValidity(message);
-    }
-
-    function validateMonitorConnection() {
-        const hostInput = document.getElementById('mon-host');
-        const portInput = document.getElementById('mon-port');
-        const prefixInput = document.getElementById('mon-topic-prefix');
-        const deviceInput = document.getElementById('mon-device');
-        const pathInput = document.getElementById('mon-path');
-        const host = hostInput.value.trim();
-        const port = portInput.value.trim();
-        const prefix = prefixInput.value.trim().replace(/\/+$/, '');
-        const device = deviceInput.value.trim().replace(/^\/+|\/+$/g, '');
-        const path = pathInput.value.trim();
-        const portNumber = Number(port);
-        const deviceValid = !device || (!device.includes('/') && !/[+#]/.test(device));
-        const prefixValid = !!prefix && !prefix.startsWith('/') && !/[+#\0]/.test(prefix);
-        const fields = [
-            [hostInput, !!host && !/\s|:\/\/|\//.test(host), 'Enter a valid broker host.'],
-            [portInput, !!port && Number.isInteger(portNumber)
-                && portNumber >= 1 && portNumber <= 65535, 'Enter a port from 1 to 65535.'],
-            [prefixInput, prefixValid, 'Enter a topic prefix without a leading slash or MQTT wildcards.'],
-            [deviceInput, deviceValid, 'Enter a device ID without / or wildcards.'],
-            [pathInput, path.startsWith('/') && !/\s/.test(path), 'Enter a path starting with /.']
-        ];
-        const invalidFields = fields.filter(([, valid]) => !valid);
-        fields.forEach(([input, valid, message]) => {
-            if (valid) clearMonitorFieldError(input);
-            else markMonitorFieldError(input, message);
-        });
-        if (invalidFields.length) {
-            monitorStatus('');
-            invalidFields[0][0].focus({ preventScroll: true });
-            return null;
-        }
-        return {
-            host,
-            port,
-            path,
-            tls: document.getElementById('mon-tls').checked,
-            prefix,
-            device
-        };
-    }
-
-    function monitorIsMqttLive() {
-        return monitor.inputMode === 'mqtt' && !!monitor.client;
-    }
-
-    function monitorConnectionPending() {
-        return monitor.switchingTransport || Boolean(
-            monitor.client
-            && (!monitor.connectedAt || monitor.discoveryActive || conn.status === 'connecting')
-        );
-    }
-
-    function applyMqttLiveTelemetry(movement, threshold, motionState) {
-        if (!monitor.handoffReady) return;
-        if (monitorIsMqttLive() && conn.mode !== 'demo'
-                && (conn.mode !== 'mqtt' || conn.status !== 'connected')) {
-            bindMqttToConnection();
-        }
-        markMonitorReady('telemetry');
-        monitorFeed(movement, threshold, motionState);
-        monitorResizeChart();
-        applyLiveTelemetry(movement, threshold, motionState);
-    }
-
-    function ingestMqttMessage({ suffix, text, data }) {
-        if (monitor.boundDeviceId && conn.deviceId && monitor.boundDeviceId !== conn.deviceId) return;
-        switch (suffix) {
-            case 'capabilities':
-                if (!data || !Array.isArray(data.commands)) return;
-                monitor.commands = new Set(data.commands.map((item) => item?.name).filter(Boolean));
-                monitor.commandCatalogReady = true;
-                otaSupported = monitor.commands.has('ota_check') && monitor.commands.has('ota_start');
-                renderConfigureDeviceNameEditor();
-                renderMonitorDeviceNameEditor();
-                syncSensingControls();
-                syncOtaUpdateButton();
-                syncFirmwareUpdateNotice();
-                return;
-            case 'info':
-                applyDeviceInfo(data);
-                return;
-            case 'config':
-                if (!data || typeof data !== 'object') return;
-                applyDirectConfig(data);
-                return;
-            case 'status': {
-                const online = data.online === true;
-                applyRuntimeStatus(data);
-                handleOtaDeviceAvailability(online);
-                if (!online && !otaAwaitingReconnect && otaState !== 'reboot_scheduled') {
-                    toast('The broker is connected, but the device is offline.');
-                    monitorStatus('Device offline. Waiting for it to reconnect…');
-                }
-                return;
-            }
-            case 'ota_status':
-                applyOtaStatus(data);
-                return;
-            case 'commands/result':
-                if (data?.command === 'capabilities' && data.accepted && data.data) {
-                    ingestMqttMessage({ suffix: 'capabilities', text: JSON.stringify(data.data), data: data.data });
-                }
-                return;
-            case 'telemetry': {
-                if (!data || typeof data !== 'object') return;
-                const movement = Number(data.movement_score ?? data.movement);
-                const threshold = Number(data.threshold);
-                if (!Number.isFinite(movement) || !Number.isFinite(threshold)) return;
-                monitor.lastTelemetryAt = Date.now();
-                applyMqttLiveTelemetry(
-                    movement,
-                    threshold,
-                    data.motion_state || data.state
-                );
-                return;
-            }
-            case 'ha/movement/state': {
-                if (monitorHasFreshTelemetry()) return;
-                const movement = Number(text);
-                if (!Number.isFinite(movement)) return;
-                applyMqttLiveTelemetry(movement, conn.threshold, conn.motion ? 'motion' : 'idle');
-                return;
-            }
-            case 'ha/threshold/state':
-                applyRemoteThreshold(Number(text));
-                renderTelemetry();
-                return;
-            case 'ha/motion/state': {
-                if (monitorHasFreshTelemetry()) return;
-                const motion = text === 'ON' || text === '1' || text === 'motion';
-                applyMqttLiveTelemetry(conn.movement, conn.threshold, motion ? 'motion' : 'idle');
-                return;
-            }
-            case 'ha/detector/state':
-                document.getElementById('sense-detector').value = text;
-                if (text !== 'lightweight') setCalibrationBusy(false);
-                else syncSensingControls();
-                return;
-            case 'ha/calibrate/state': {
-                const calibrating = text === 'ON' || text === '1';
-                setCalibrationBusy(calibrating);
-                if (calibrating) scheduleCalibrationIdle(MONITOR_CALIBRATION_SAFETY_MS);
-                return;
-            }
-            case 'ha/motion_on_hits/state':
-                document.getElementById('sense-motion-on').value = text;
-                return;
-            case 'ha/motion_off_hits/state':
-                document.getElementById('sense-motion-off').value = text;
-                return;
-            case 'ha/csi_traffic_mode/state':
-                applyCsiTrafficModeSelect(text);
-                return;
-            case 'ha/traffic_generator_mode/state':
-                document.getElementById('sense-generator-mode').value = text;
-                return;
-            default:
-                return;
-        }
-    }
-
-    function syncMonitorDemoButton() {
-        const demo = $('.js-mon-demo');
-        const connect = $('.js-mon-connect');
-        const device = document.getElementById('mon-device')?.value.trim() || '';
-        const mqttLive = monitorIsMqttLive();
-        const mqttConnected = mqttLive && conn.status === 'connected';
-        const connectionPending = monitorConnectionPending();
-        if (demo) demo.hidden = mqttLive;
-        if (connect) {
-            connect.disabled = mqttConnected;
-            connect.textContent = mqttConnected ? 'Connected'
-                : connectionPending ? 'Cancel connection'
-                : device ? 'Connect device' : 'Find devices';
-        }
-    }
-
-    function monitorHasFreshTelemetry() {
-        return monitor.lastTelemetryAt > 0
-            && (Date.now() - monitor.lastTelemetryAt) < monitorTelemetryStaleMs();
     }
 
     function monitorResetChart() {
@@ -3599,7 +3187,7 @@
         monitor.readyTracked = track('tool_ready', {
             tool_name: 'monitor',
             entry_point: monitor.entryPoint || 'monitor',
-            transport: monitor.inputMode === 'mqtt' ? 'mqtt_websocket' : 'simulation',
+            transport: 'simulation',
             input_mode: monitor.inputMode,
             readiness,
             latency_ms: Math.max(0, monitor.readyAt - (monitor.startedAt || monitor.connectedAt))
@@ -3611,383 +3199,13 @@
             track('tool_disconnect', {
                 tool_name: 'monitor',
                 entry_point: monitor.entryPoint || 'monitor',
-                transport: monitor.inputMode === 'mqtt' ? 'mqtt_websocket' : 'simulation',
+                transport: 'simulation',
                 input_mode: monitor.inputMode,
                 reason,
                 duration_seconds: Math.max(0, Math.round((Date.now() - monitor.connectedAt) / 1000))
             });
         }
-        stopMqttTransport();
-    }
-
-    function resetMonitorDevicePicker() {
-        const picker = $('.js-mon-device-picker');
-        const choice = document.getElementById('mon-device-choice');
-        if (picker) picker.hidden = true;
-        if (!choice) return;
-        choice.replaceChildren();
-    }
-
-    function recordDiscoveredMqttDevice(topic, payload) {
-        const prefix = monitor.discoveryPrefix;
-        if (!prefix) return;
-        let message;
-        try {
-            message = MqttProtocolClient.parseDiscoveryMessage(prefix, topic, payload);
-        } catch (error) {
-            return;
-        }
-        if (!message) return;
-        const { data, deviceId: topicId, suffix } = message;
-        const device = monitor.discoveredDevices[topicId] || {
-            topic_id: topicId,
-            device_id: topicId
-        };
-        if (data.device_id) device.device_id = String(data.device_id);
-        if (suffix === 'info') {
-            ['device_name', 'device_label', 'frontend', 'chip'].forEach((key) => {
-                if (data[key]) device[key] = data[key];
-            });
-        } else if (suffix === 'status' && 'online' in data) {
-            device.online = data.online === true;
-        }
-        monitor.discoveredDevices[topicId] = device;
-    }
-
-    function populateMonitorDevicePicker(devices) {
-        const picker = $('.js-mon-device-picker');
-        const choice = document.getElementById('mon-device-choice');
-        if (!choice) return;
-        choice.replaceChildren();
-        const summary = document.createElement('p');
-        summary.className = 'direct-discovery-summary';
-        summary.textContent = `${devices.length} online MQTT devices found. Select one to connect.`;
-        const list = document.createElement('ul');
-        list.className = 'direct-discovery-list';
-        devices.forEach((device) => {
-            const deviceId = device.topic_id || device.device_id;
-            const chip = discoveredPeerChipLabel(device.chip);
-            const frontend = discoveredPeerFrontendLabel(device.frontend);
-            const label = device.device_label || device.device_name
-                || `ESPectre ${device.device_id.slice(-6)}`;
-            const option = createDiscoveryDeviceButton({
-                deviceId,
-                displayDeviceId: device.device_id,
-                displayName: label,
-                frontend,
-                chip,
-                className: 'mqtt-discovery-device',
-                ariaLabel: `Connect to ${label}, ${frontend || 'unknown frontend'}, ${chip || 'unknown hardware'}, device ID ${device.device_id}`
-            });
-            const item = document.createElement('li');
-            item.appendChild(option);
-            list.appendChild(item);
-        });
-        choice.append(summary, list);
-        if (picker) picker.hidden = false;
-        choice.querySelector('.mqtt-discovery-device')?.focus({ preventScroll: true });
-    }
-
-    function monitorUnsubscribeDiscovery(client) {
-        if (!client || typeof client.unsubscribe !== 'function' || !monitor.discoveryTopics.length) {
-            monitor.discoveryTopics = [];
-            return;
-        }
-        client.unsubscribe(monitor.discoveryTopics);
-        monitor.discoveryTopics = [];
-    }
-
-    function monitorSelectDevice(deviceId) {
-        const client = monitor.client;
-        const prefix = document.getElementById('mon-topic-prefix').value.trim().replace(/\/+$/, '');
-        const device = String(deviceId || '').trim().replace(/^\/+|\/+$/g, '');
-        const deviceInput = document.getElementById('mon-device');
-        if (!client || !prefix || !device) return;
-        if (device.includes('/') || /[+#]/.test(device)) {
-            if (deviceInput) markMonitorFieldError(deviceInput, 'Enter a device ID without / or wildcards.');
-            return;
-        }
-        if (deviceInput) {
-            deviceInput.value = device;
-            clearMonitorFieldError(deviceInput);
-        }
-        resetMonitorDevicePicker();
-        monitor.discoveryActive = false;
-        if (monitor.discoveryTimer) {
-            clearTimeout(monitor.discoveryTimer);
-            monitor.discoveryTimer = 0;
-        }
-        monitorUnsubscribeDiscovery(client);
-        syncMonitorDemoButton();
-        if (conn.status === 'disconnected') {
-            rememberConnectionOrigin();
-            setStatus('connecting');
-        }
-        monitorBindSelectedDevice(client, prefix, device);
-    }
-
-    function monitorShowDeviceSelection() {
-        if (conn.mode !== 'ws' && conn.status === 'connecting') {
-            setStatus('disconnected');
-            return;
-        }
-        renderConnection();
-    }
-
-    function monitorFinishDiscovery(client) {
-        monitor.discoveryActive = false;
-        monitorUnsubscribeDiscovery(client);
-        syncMonitorDemoButton();
-        const devices = Object.values(monitor.discoveredDevices)
-            .filter((device) => device.online === true)
-            .sort((a, b) => a.device_id.localeCompare(b.device_id));
-        if (devices.length === 1) {
-            monitorStatus('Selected device: ' + devices[0].device_id);
-            monitorSelectDevice(devices[0].topic_id || devices[0].device_id);
-            return;
-        }
-        if (devices.length > 1) {
-            populateMonitorDevicePicker(devices);
-            monitorStatus('Select a device, or enter a device ID.');
-            monitorShowDeviceSelection();
-            return;
-        }
-        const deviceInput = document.getElementById('mon-device');
-        monitorStatus('No online devices discovered. Enter a device ID.');
-        if (deviceInput) {
-            markMonitorFieldError(deviceInput, 'Enter a device ID.');
-            deviceInput.focus({ preventScroll: true });
-        }
-        monitorShowDeviceSelection();
-    }
-
-    function monitorStartDiscovery(client, prefix) {
-        resetMonitorDevicePicker();
-        monitorUnsubscribeDiscovery(client);
-        monitor.discoveryActive = true;
-        monitor.discoveredDevices = {};
-        monitor.discoveryPrefix = prefix;
-        monitor.protocol.setTopicPrefix(prefix);
-        monitor.protocol.setDevice('');
-        monitor.discoveryTopics = MqttProtocolClient.discoveryTopics(prefix);
-        monitorStatus('Scanning MQTT for devices…');
-        toast('Scanning MQTT for devices…');
-        syncMonitorDemoButton();
-        client.subscribe(monitor.discoveryTopics, (error) => {
-            if (monitor.client !== client) return;
-            if (error) {
-                monitor.discoveryActive = false;
-                monitor.discoveryTopics = [];
-                monitorStatus('Subscribe failed: ' + error.message);
-                syncMonitorDemoButton();
-                track('tool_connection', {
-                    tool_name: 'monitor',
-                    entry_point: monitor.entryPoint,
-                    transport: 'mqtt_websocket',
-                    result: 'subscription_failure',
-                    error_type: errorType(error)
-                });
-                return;
-            }
-            if (monitor.discoveryTimer) clearTimeout(monitor.discoveryTimer);
-            monitor.discoveryTimer = setTimeout(() => {
-                monitor.discoveryTimer = 0;
-                if (monitor.client !== client || !monitor.discoveryActive) return;
-                monitorFinishDiscovery(client);
-            }, MONITOR_DISCOVERY_TIMEOUT_MS);
-        });
-    }
-
-    function monitorBindSelectedDevice(client, prefix, device) {
-        monitor.protocol.setTopicPrefix(prefix);
-        monitor.protocol.setDevice(device);
-        const subscriptionTopic = monitor.protocol.subscriptionTopic;
-        monitor.boundDeviceId = device;
-        monitor.inputMode = 'mqtt';
-        client.subscribe(subscriptionTopic, async (error) => {
-            if (monitor.client !== client) return;
-            monitorStatus(error
-                ? 'Subscribe failed: ' + error.message
-                : 'Broker connected. Waiting for device telemetry…');
-            track('tool_connection', {
-                tool_name: 'monitor',
-                entry_point: monitor.entryPoint,
-                transport: 'mqtt_websocket',
-                result: error ? 'subscription_failure' : 'success',
-                ...(error ? { error_type: errorType(error) } : {})
-            });
-            if (error) {
-                monitor.switchingTransport = false;
-                monitorStopAll('subscription_failure');
-                if (conn.status === 'connecting' && conn.mode !== 'ws') setStatus('disconnected');
-                return;
-            }
-            syncMonitorDemoButton();
-            monitorResizeChart();
-            if (monitor.client !== client) return;
-            monitor.handoffReady = true;
-            conn.mode = 'mqtt';
-            conn.endpoint = monitor.brokerUrl;
-            monitor.switchingTransport = false;
-            if (pendingLiveDestination || route === 'tool-monitor' || route === 'tool-configure') {
-                setDeviceView('live');
-            }
-            setStatus('connecting');
-            monitorPublishCommand({ command: 'commands' }, {
-                pendingMessage: 'Reading device capabilities…',
-                statusFn: monitorStatus
-            }).catch(() => {});
-            monitorPublishCommand({ command: 'info' }, {
-                pendingMessage: 'Reading device information…',
-                statusFn: monitorStatus
-            }).catch(() => {});
-            monitorPublishCommand({ command: 'ota_status' }, {
-                pendingMessage: 'Reading firmware status…',
-                statusFn: () => {}
-            }).catch(() => {});
-        });
-    }
-
-    async function monitorConnect() {
-        const connection = validateMonitorConnection();
-        if (!connection) {
-            monitor.switchingTransport = false;
-            track('tool_connection', {
-                tool_name: 'monitor', entry_point: toolNameForRoute(connectionIntentRoute()),
-                transport: 'mqtt_websocket', result: 'validation_failure'
-            });
-            if (conn.status === 'connecting' && !directClient) setStatus('disconnected');
-            return;
-        }
-        try {
-            await loadBrowserDependency(
-                '/vendor/mqtt-5.3.0/mqtt.min.js',
-                'https://unpkg.com/mqtt@5.3.0/dist/mqtt.min.js'
-            );
-        } catch (error) {
-            monitorStatus('The local MQTT client could not be loaded.');
-            monitor.switchingTransport = false;
-            track('tool_connection', {
-                tool_name: 'monitor', entry_point: toolNameForRoute(connectionIntentRoute()),
-                transport: 'mqtt_websocket', result: 'dependency_failure',
-                error_type: errorType(error)
-            });
-            if (conn.status === 'connecting' && !directClient) setStatus('disconnected');
-            return;
-        }
-        const { host, port, path, tls, prefix, device } = connection;
-        const url = (tls ? 'wss://' : 'ws://') + host + ':' + port + path;
-        if (monitor.client && monitor.brokerUrl === url && !monitorIsMqttLive()) {
-            if (device) {
-                monitorSelectDevice(device);
-                return;
-            }
-            if (!monitor.discoveryActive) monitorStartDiscovery(monitor.client, prefix);
-            return;
-        }
-        if (conn.status === 'disconnected') {
-            rememberConnectionOrigin();
-            setStatus('connecting');
-        }
-        if (directClient) {
-            const client = directClient;
-            directClient = null;
-            client.close();
-        }
-        monitorStopAll('replaced');
-        monitor.closing = false;
-        resetMonitorLiveView();
-        monitor.boundDeviceId = device || '';
-        monitor.handoffReady = false;
-        monitor.startedAt = Date.now();
-        monitor.entryPoint = toolNameForRoute(connectionIntentRoute());
-        monitor.readyState = '';
-        monitor.readyAt = 0;
-        monitor.readyTracked = false;
-        monitor.brokerUrl = url;
-        monitorStatus('Connecting to ' + url + ' …');
-        toast('Connecting to the broker…');
-        // The URL is not tracked: it would carry the user's broker address.
-        track('tool_connection', {
-            tool_name: 'monitor', entry_point: toolNameForRoute(connectionIntentRoute()),
-            transport: 'mqtt_websocket', result: 'attempt'
-        });
-        const client = window.mqtt.connect(url, {
-            username: document.getElementById('mon-user').value || undefined,
-            password: document.getElementById('mon-pass').value || undefined,
-            clientId: 'espectre-mockup-' + Math.random().toString(16).slice(2, 8),
-            connectTimeout: 8000,
-            reconnectPeriod: 0,
-            protocolVersion: 4
-        });
-        monitor.client = client;
-        monitor.protocol = new MqttProtocolClient(client, { topicPrefix: prefix });
-        renderConnection();
-        monitor.connectionTimer = setTimeout(() => {
-            if (monitor.client !== client || monitor.connectedAt) return;
-            monitorStatus('Connection failed: broker WebSocket timed out.');
-            monitor.switchingTransport = false;
-            track('tool_connection', {
-                tool_name: 'monitor',
-                entry_point: monitor.entryPoint,
-                transport: 'mqtt_websocket',
-                result: 'failure',
-                error_type: 'ConnectionTimeout'
-            });
-            monitorStopAll('connection_timeout');
-            if (conn.status === 'connecting') setStatus('disconnected');
-        }, MONITOR_CONNECTION_TIMEOUT_MS);
-        monitor.protocol.on('message', ingestMqttMessage);
-        monitor.protocol.on('protocol-error', (error) => {
-            console.warn('Ignored malformed ESPectre MQTT payload:', error.message);
-        });
-        client.on('connect', () => {
-            if (monitor.client !== client) return;
-            clearTimeout(monitor.connectionTimer);
-            monitor.connectionTimer = 0;
-            monitor.connectedAt = Date.now();
-            if (device) {
-                monitorBindSelectedDevice(client, prefix, device);
-                return;
-            }
-            monitorStartDiscovery(client, prefix);
-        });
-        client.on('message', (topic, payload) => {
-            if (monitor.client !== client) return;
-            if (monitor.discoveryActive) {
-                recordDiscoveredMqttDevice(topic, payload);
-                return;
-            }
-            monitor.protocol.ingest(topic, payload);
-        });
-        client.on('error', (error) => {
-            if (monitor.client !== client) return;
-            monitorStatus('Connection failed: ' + error.message);
-            monitor.switchingTransport = false;
-            track('tool_connection', {
-                tool_name: 'monitor',
-                entry_point: monitor.entryPoint,
-                transport: 'mqtt_websocket',
-                result: 'failure',
-                error_type: errorType(error)
-            });
-            monitorStopAll('error');
-            if (conn.mode === 'mqtt') {
-                teardownConnection('error');
-            } else if (conn.status === 'connecting' && !directClient) {
-                setStatus('disconnected');
-            }
-        });
-        client.on('close', () => {
-            if (monitor.client !== client || monitor.closing) return;
-            if (conn.mode !== 'mqtt') {
-                monitorStatus('Disconnected from broker.');
-                monitorStopAll('unexpected');
-                return;
-            }
-            monitorStatus('Disconnected from broker.');
-            teardownConnection('unexpected');
-        });
+        resetMonitorSession();
     }
 
     function monitorPublishCommand(fields, {
@@ -3995,23 +3213,18 @@
         statusFn = monitorStatus,
         timeoutMs = 8000
     } = {}) {
-        if (conn.mode === 'ws' && directClient?.connected) {
+        if (conn.mode === 'direct' && directClient?.connected) {
             const { command, ...params } = fields;
             statusFn(pendingMessage);
             return directClient.request(command, params, { timeoutMs });
         }
-        if (!monitorIsMqttLive() || !monitor.protocol?.baseTopic) {
-            const error = new Error('Connect through Direct WebSocket or MQTT before changing the device.');
-            statusFn(error.message);
-            return Promise.reject(error);
-        }
-        statusFn(pendingMessage);
-        return monitor.protocol.publishCommand(fields, { timeoutMs });
+        const error = new Error('Connect through Direct HTTP before changing the device.');
+        statusFn(error.message);
+        return Promise.reject(error);
     }
 
     function diagnosticsRequestPending() {
-        if (conn.mode === 'ws') return monitor.diagRequestPending;
-        return monitor.protocol?.hasPendingCommand('diagnostics') || false;
+        return conn.mode === 'direct' && monitor.diagRequestPending;
     }
 
     function diagnosticsPanelOpen() {
@@ -4029,7 +3242,7 @@
 
     function syncDiagnosticsPolling() {
         const canPoll = diagnosticsPanelOpen()
-            && (conn.mode === 'demo' || conn.mode === 'ws' || monitorIsMqttLive());
+            && (conn.mode === 'demo' || conn.mode === 'direct');
         if (!canPoll) {
             stopDiagnosticsPolling();
             return;
@@ -4061,7 +3274,7 @@
             return;
         }
         if (diagnosticsRequestPending()) return;
-        const direct = conn.mode === 'ws';
+        const direct = conn.mode === 'direct';
         if (direct && !directClient?.connected) return;
         try {
             if (direct) monitor.diagRequestPending = true;
@@ -4087,28 +3300,7 @@
         renderConnection();
     }
 
-    function monitorCancelConnection() {
-        monitor.switchingTransport = false;
-        track('tool_connection', {
-            tool_name: 'monitor',
-            entry_point: monitor.entryPoint,
-            transport: 'mqtt_websocket',
-            result: 'cancelled'
-        });
-        monitorStopAll('cancelled');
-        monitorStatus('Connection cancelled.');
-        if (conn.mode === 'ws') setDeviceView('connectivity');
-        else {
-            setStatus('disconnected');
-            renderConnection();
-        }
-    }
-
     function monitorEditOrCancel() {
-        if (monitorConnectionPending()) {
-            monitorCancelConnection();
-            return;
-        }
         monitorOpenConnectivity();
     }
 
@@ -4148,7 +3340,7 @@
     }
 
     function selectMonitorTransport(mode) {
-        const selectedMode = ['ws', 'mqtt', 'demo'].includes(mode) ? mode : 'ws';
+        const selectedMode = ['direct', 'demo', 'relay'].includes(mode) ? mode : 'direct';
         const radio = document.getElementById(`monitor-transport-${selectedMode}`);
         if (radio) radio.checked = true;
         $$('[data-monitor-transport-panel]').forEach((panel) => {
@@ -4164,38 +3356,7 @@
                 selectMonitorTransport(radio.value);
             });
         });
-        $('.js-monitor-use-mqtt')?.addEventListener('click', () => {
-            selectMonitorTransport('mqtt');
-        });
-        selectMonitorTransport(transportRadios.find((radio) => radio.checked)?.value || 'ws');
-        const presetName = document.getElementById('mon-mqtt-preset').value;
-        updateMonitorMqttPresetNote(presetName);
-        applyMqttPresetFieldLocks('monitor', MQTT_PRESETS[presetName].monitor);
-        $('.js-mon-connect').addEventListener('click', () => {
-            if (monitorConnectionPending()) {
-                monitorCancelConnection();
-                return;
-            }
-            monitorConnect();
-        });
-        document.getElementById('mon-mqtt-preset').addEventListener('change', (event) => {
-            applyMonitorMqttPreset(event.currentTarget.value);
-        });
-        ['mon-host', 'mon-port', 'mon-topic-prefix', 'mon-device', 'mon-path'].forEach((id) => {
-            const input = document.getElementById(id);
-            input.addEventListener('input', () => {
-                clearMonitorFieldError(input);
-                if (id === 'mon-device') syncMonitorDemoButton();
-            });
-        });
-        const deviceChoice = document.getElementById('mon-device-choice');
-        if (deviceChoice) {
-            deviceChoice.addEventListener('click', (event) => {
-                const selected = event.target.closest('.mqtt-discovery-device');
-                if (!selected || !deviceChoice.contains(selected)) return;
-                monitorSelectDevice(selected.dataset.deviceId);
-            });
-        }
+        selectMonitorTransport(transportRadios.find((radio) => radio.checked)?.value || 'direct');
         const diagnostics = $('.device-live-diagnostics');
         if (diagnostics) {
             diagnostics.addEventListener('toggle', syncDiagnosticsPolling);
@@ -4372,7 +3533,7 @@
     function requestConfigVerification() {
         const pending = pendingConfigVerification;
         if (!pending) return;
-        if (directClient && conn.mode === 'ws' && conn.status === 'connecting') {
+        if (directClient && conn.mode === 'direct' && conn.status === 'connecting') {
             pending.timer = setTimeout(requestConfigVerification, CONFIG_VERIFICATION_RETRY_MS);
             return;
         }
@@ -4446,7 +3607,7 @@
     }
 
     async function cfgRefreshDevice() {
-        if (conn.mode === 'ws' && directClient?.connected) {
+        if (conn.mode === 'direct' && directClient?.connected) {
             try {
                 await refreshDirectDevice();
             } catch (error) {
@@ -4648,23 +3809,6 @@
             cfgValidationFailed('set_device', 'Device name must be one line and at most 64 UTF-8 bytes.');
             return false;
         }
-        if (conn.mode === 'mqtt') {
-            try {
-                await monitorPublishCommand(
-                    { command: 'set_device_label', device_label: label },
-                    { pendingMessage: 'Updating device name…', statusFn: () => {} }
-                );
-                toast('Device name saved.');
-                track('configure_change', { action: 'set_device', result: 'accepted' });
-                return true;
-            } catch (error) {
-                toast('Update failed: ' + (error.message || error));
-                track('configure_change', {
-                    action: 'set_device', result: 'failure', error_type: errorType(error)
-                });
-                return false;
-            }
-        }
         return cfgApply('set_device', 'Device name saved.', 'set_device_label',
             { device_label: label },
             (snapshot) => (snapshot.device_label || '') === label);
@@ -4805,8 +3949,7 @@
     function syncOtaUpdateButton() {
         const button = $('.js-ota-start');
         if (!button) return;
-        const otaTransportReady = conn.mode === 'ws' && directClient?.connected
-            || conn.mode === 'mqtt' && monitorIsMqttLive();
+        const otaTransportReady = conn.mode === 'direct' && directClient?.connected;
         button.disabled = !otaTransportReady
             || otaActionPending || otaBusy || !otaUpdateAvailable;
         button.textContent = otaBusy ? 'Update in progress…' : 'Update device';
@@ -4904,8 +4047,8 @@
     }
 
     function currentOtaCheckTransport() {
-        if (conn.mode === 'ws' && directClient?.connected) return 'ws';
-        return conn.mode === 'mqtt' && monitorIsMqttLive() ? 'mqtt' : '';
+        if (conn.mode === 'direct' && directClient?.connected) return 'direct';
+        return '';
     }
 
     function runOtaCheck({ manual = false } = {}) {
@@ -6080,6 +5223,909 @@
         gameStartPreview();
     }
 
+    /* =========================================================== raw CSI */
+
+    const RAW_HTTP_MAGIC = 0x52505345;
+    const RAW_HTTP_PREFIX_BYTES = 76;
+    const RAW_HTTP_MAX_BUFFER_BYTES = 64 * 1024;
+    const RAW_CSI_V8_HEADER_BYTES = 64;
+    const RAW_CSI_VISUAL_HISTORY = 720;
+    const RAW_CSI_PHASE_HISTORY = 72;
+    const RAW_CSI_IQ_WINDOW_US = 1000000;
+    const RAW_CSI_VISUAL_STEP_US = 10000;
+    const RAW_CSI_CHANNEL_GHOST_GAIN = 5;
+    const RAW_CSI_PHASE_TRAIL_GAIN = 5;
+    const RAW_CSI_SELECTED_SUBCARRIERS = Object.freeze([4, 8, 13, 18, 23, 28, 36, 41, 46, 51, 56, 60]);
+    const RAW_CSI_LIVE_SUBCARRIERS = Object.freeze(
+        Array.from({ length: 57 }, (_unused, index) => index + 4).filter((index) => index !== 32));
+    const RAW_CSI_VISUALIZATIONS = Object.freeze({
+        'channel-heatmap': Object.freeze({
+            title: 'Channel heatmap',
+            description: 'Brightness shows normalized amplitude; cyan and coral reveal movement around the slow baseline.',
+            badge: 'LIVE',
+            ariaLabel: 'Combined CSI amplitude and motion heatmap over time'
+        }),
+        'rf-waterfall': Object.freeze({
+            title: 'RF waterfall',
+            description: 'Recent channel profiles recede through time while movement disturbs the surface.',
+            badge: 'LIVE',
+            ariaLabel: 'Perspective waterfall of recent CSI channel profiles'
+        }),
+        'channel-ghost': Object.freeze({
+            title: 'Channel ghost',
+            description: 'The current channel departs from its slow baseline with 5× visual gain; color preserves the deviation sign.',
+            badge: 'LIVE',
+            ariaLabel: 'Current normalized CSI channel profile compared with its baseline'
+        }),
+        'iq-constellation': Object.freeze({
+            title: 'I/Q constellation',
+            description: 'Recent raw Espressif I/Q samples from the 12 production subcarriers over a one-second window.',
+            badge: 'LIVE',
+            ariaLabel: 'Recent raw CSI I and Q constellation samples by subcarrier'
+        }),
+        'phase-trails': Object.freeze({
+            title: 'Sanitized phase trails',
+            description: 'Experimental relative I/Q phase with 5× trail spread after common packet rotation and linear phase ramp are removed.',
+            badge: 'EXPERIMENTAL',
+            ariaLabel: 'Experimental sanitized CSI phase constellation trails'
+        })
+    });
+    const rawCsi = {
+        sessionClient: null,
+        controller: null,
+        running: false,
+        buffer: new Uint8Array(0),
+        sessionBytes: null,
+        visualization: 'channel-heatmap',
+        profiles: [],
+        deltas: [],
+        timestampsUs: [],
+        phaseHistory: [],
+        iqHistory: [],
+        iqTimestampsUs: [],
+        packetArrivalTimes: [],
+        baseline: null,
+        latestProfile: null,
+        latestDelta: null,
+        lastCaptureTicksUs: 0,
+        lastVisualTicksUs: 0,
+        renderFrame: 0,
+        resizeObserver: null
+    };
+
+    function rawCsiStatus(message, error = false) {
+        const status = $('.js-raw-csi-status');
+        if (!status) return;
+        status.textContent = message;
+        status.hidden = !message;
+        status.classList.toggle('is-error', error);
+    }
+
+    function rawCsiDirectReady() {
+        return conn.mode === 'direct' && conn.status === 'connected' && Boolean(directClient?.connected);
+    }
+
+    function rawCsiSetAvailable(available) {
+        const unavailable = $('.js-raw-csi-unavailable');
+        const workspace = $('.js-raw-csi-workspace');
+        if (unavailable) unavailable.hidden = available;
+        if (workspace) workspace.hidden = !available;
+    }
+
+    function rawCsiUseDirectConnection() {
+        if (!rawCsiDirectReady()) return false;
+        const available = directClient.capabilities?.features?.raw_csi === true;
+        rawCsiSetAvailable(available);
+        if (available) rawCsiStatus('Connected. Start the ephemeral stream when ready.');
+        return available;
+    }
+
+    function rawCsiSetRunning(running) {
+        rawCsi.running = running;
+        const start = $('.js-raw-csi-start');
+        const stop = $('.js-raw-csi-stop');
+        const pps = $('#raw-csi-target-pps');
+        if (start) start.disabled = running;
+        if (stop) stop.disabled = !running;
+        if (pps) pps.disabled = running;
+    }
+
+    function rawCsiHexBytes(value) {
+        if (!/^[0-9a-f]{32}$/.test(value)) throw new Error('Device returned an invalid raw session ID.');
+        const bytes = new Uint8Array(16);
+        for (let index = 0; index < bytes.length; index += 1) {
+            bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+        }
+        return bytes;
+    }
+
+    function rawCsiBytesEqual(left, right) {
+        return left?.length === right?.length && left.every((value, index) => value === right[index]);
+    }
+
+    function rawCsiCounter(selector, value) {
+        const element = $(selector);
+        if (element) element.textContent = typeof value === 'bigint'
+            ? value.toLocaleString('en-US') : Number(value).toLocaleString('en-US');
+    }
+
+    function rawCsiUpdatePacketRate(received) {
+        const now = performance.now();
+        if (received) rawCsi.packetArrivalTimes.push(now);
+        const cutoff = now - 1000;
+        while (rawCsi.packetArrivalTimes[0] <= cutoff) rawCsi.packetArrivalTimes.shift();
+        rawCsiCounter('.js-raw-pps', rawCsi.packetArrivalTimes.length);
+    }
+
+    function rawCsiPushBounded(collection, value, limit) {
+        collection.push(value);
+        if (collection.length > limit) collection.shift();
+    }
+
+    function rawCsiLiveSubcarriers(length) {
+        if (length === 64) return RAW_CSI_LIVE_SUBCARRIERS;
+        return Array.from({ length }, (_unused, index) => index);
+    }
+
+    function rawCsiResetVisualization() {
+        rawCsi.profiles.length = 0;
+        rawCsi.deltas.length = 0;
+        rawCsi.timestampsUs.length = 0;
+        rawCsi.phaseHistory.length = 0;
+        rawCsi.iqHistory.length = 0;
+        rawCsi.iqTimestampsUs.length = 0;
+        rawCsi.packetArrivalTimes.length = 0;
+        rawCsiCounter('.js-raw-pps', 0);
+        rawCsi.baseline = null;
+        rawCsi.latestProfile = null;
+        rawCsi.latestDelta = null;
+        rawCsi.lastCaptureTicksUs = 0;
+        rawCsi.lastVisualTicksUs = 0;
+        rawCsiScheduleRender();
+    }
+
+    function rawCsiNormalizeProfile(amplitudes) {
+        const profile = new Float32Array(amplitudes.length);
+        const liveSubcarriers = rawCsiLiveSubcarriers(amplitudes.length);
+        let sum = 0;
+        let count = 0;
+        liveSubcarriers.forEach((index) => {
+            if (amplitudes[index] <= 0) return;
+            sum += amplitudes[index];
+            count += 1;
+        });
+        const mean = count ? sum / count : 1;
+        liveSubcarriers.forEach((index) => {
+            profile[index] = amplitudes[index] / Math.max(mean, 1e-6);
+        });
+        return profile;
+    }
+
+    function rawCsiUpdateBaseline(profile, captureTicksUs) {
+        if (!rawCsi.baseline || rawCsi.baseline.length !== profile.length) {
+            rawCsi.baseline = profile.slice();
+            rawCsi.lastCaptureTicksUs = captureTicksUs;
+            return new Float32Array(profile.length);
+        }
+        const elapsedUs = rawCsi.lastCaptureTicksUs > 0 && captureTicksUs > rawCsi.lastCaptureTicksUs
+            ? captureTicksUs - rawCsi.lastCaptureTicksUs : RAW_CSI_VISUAL_STEP_US;
+        const alpha = Math.max(0.0002, Math.min(0.25, 1 - Math.exp(-elapsedUs / 5000000)));
+        const delta = new Float32Array(profile.length);
+        const liveSubcarriers = rawCsiLiveSubcarriers(profile.length);
+        liveSubcarriers.forEach((index) => {
+            const baseline = rawCsi.baseline[index];
+            delta[index] = Math.log((profile[index] + 0.05) / (baseline + 0.05));
+            rawCsi.baseline[index] = baseline + alpha * (profile[index] - baseline);
+        });
+        rawCsi.lastCaptureTicksUs = captureTicksUs;
+        return delta;
+    }
+
+    function rawCsiSanitizedPhase(iValues, qValues, profile) {
+        if (profile.length !== 64) return null;
+        const residualReal = new Float32Array(profile.length - 1);
+        const residualImag = new Float32Array(profile.length - 1);
+        let commonReal = 0;
+        let commonImag = 0;
+        for (let left = 4; left < 60; left += 1) {
+            if (left === 31 || left === 32) continue;
+            const right = left + 1;
+            const real = iValues[left] * iValues[right] + qValues[left] * qValues[right];
+            const imag = qValues[left] * iValues[right] - iValues[left] * qValues[right];
+            const magnitude = Math.hypot(real, imag);
+            if (magnitude <= 1e-6) continue;
+            residualReal[left] = real / magnitude;
+            residualImag[left] = imag / magnitude;
+            commonReal += residualReal[left];
+            commonImag += residualImag[left];
+        }
+        const commonMagnitude = Math.hypot(commonReal, commonImag);
+        if (commonMagnitude <= 1e-6) return null;
+        const commonUnitReal = commonReal / commonMagnitude;
+        const commonUnitImag = commonImag / commonMagnitude;
+        const result = new Float32Array(RAW_CSI_SELECTED_SUBCARRIERS.length * 2);
+        RAW_CSI_SELECTED_SUBCARRIERS.forEach((subcarrier, index) => {
+            const left = subcarrier === 60 ? 59 : subcarrier;
+            const real = residualReal[left];
+            const imag = residualImag[left];
+            const sanitizedReal = real * commonUnitReal + imag * commonUnitImag;
+            const sanitizedImag = imag * commonUnitReal - real * commonUnitImag;
+            const radius = 0.32 + 0.68 * Math.min(1, profile[subcarrier] / 2);
+            result[index * 2] = sanitizedReal * radius;
+            result[index * 2 + 1] = sanitizedImag * radius;
+        });
+        return result;
+    }
+
+    function rawCsiIngestVisualFrame(amplitudes, iValues, qValues, captureTicksUs) {
+        const profile = rawCsiNormalizeProfile(amplitudes);
+        const delta = rawCsiUpdateBaseline(profile, captureTicksUs);
+        rawCsi.latestProfile = profile;
+        rawCsi.latestDelta = delta;
+        if (rawCsi.lastVisualTicksUs > 0
+                && captureTicksUs - rawCsi.lastVisualTicksUs < RAW_CSI_VISUAL_STEP_US) {
+            rawCsiScheduleRender();
+            return;
+        }
+        rawCsiPushBounded(rawCsi.profiles, profile, RAW_CSI_VISUAL_HISTORY);
+        rawCsiPushBounded(rawCsi.deltas, delta, RAW_CSI_VISUAL_HISTORY);
+        rawCsiPushBounded(rawCsi.timestampsUs, captureTicksUs, RAW_CSI_VISUAL_HISTORY);
+        const sanitizedPhase = rawCsiSanitizedPhase(iValues, qValues, profile);
+        if (sanitizedPhase) {
+            rawCsiPushBounded(rawCsi.phaseHistory, sanitizedPhase, RAW_CSI_PHASE_HISTORY);
+        }
+        const iq = new Float32Array(iValues.length * 2);
+        iValues.forEach((value, index) => {
+            iq[index * 2] = value;
+            iq[index * 2 + 1] = qValues[index];
+        });
+        rawCsi.iqHistory.push(iq);
+        rawCsi.iqTimestampsUs.push(captureTicksUs);
+        while (rawCsi.iqHistory.length > 1
+                && captureTicksUs - rawCsi.iqTimestampsUs[0] > RAW_CSI_IQ_WINDOW_US) {
+            rawCsi.iqHistory.shift();
+            rawCsi.iqTimestampsUs.shift();
+        }
+        rawCsi.lastVisualTicksUs = captureTicksUs;
+        rawCsiScheduleRender();
+    }
+
+    function rawCsiCanvasContext() {
+        const canvas = $('.js-raw-visualization');
+        const context = canvas?.getContext('2d');
+        return canvas && context ? { canvas, context } : null;
+    }
+
+    function rawCsiResizeVisualization() {
+        const canvas = $('.js-raw-visualization');
+        const stage = canvas?.closest('.raw-csi-visualization-stage');
+        const width = Math.round(stage?.clientWidth || 0);
+        if (!canvas || width < 100) return;
+        const height = window.matchMedia('(max-width: 620px)').matches
+            ? 260 : Math.min(420, Math.round(width * 420 / 960));
+        if (canvas.width === width && canvas.height === height) return;
+        canvas.width = width;
+        canvas.height = height;
+        canvas.style.height = `${height}px`;
+        rawCsiScheduleRender();
+    }
+
+    function rawCsiClearCanvas(context, canvas) {
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = '#05070d';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function rawCsiDrawEmpty(context, canvas, message = 'Start the stream to reveal the channel.') {
+        rawCsiClearCanvas(context, canvas);
+        context.fillStyle = 'rgba(255, 255, 255, .48)';
+        context.font = '500 15px "JetBrains Mono", monospace';
+        context.textAlign = 'center';
+        context.textBaseline = 'middle';
+        context.fillText(message, canvas.width / 2, canvas.height / 2);
+    }
+
+    function rawCsiMotionColor(value, alpha = 1) {
+        const intensity = Math.min(1, Math.abs(value));
+        const base = [12, 10, 31];
+        const target = value < 0 ? [54, 215, 255] : [255, 91, 118];
+        const channels = base.map((channel, index) => Math.round(
+            channel + (target[index] - channel) * intensity));
+        return `rgba(${channels[0]}, ${channels[1]}, ${channels[2]}, ${alpha})`;
+    }
+
+    function rawCsiChannelColor(amplitude, delta) {
+        const level = Math.max(0, Math.min(1, amplitude / 2.2));
+        const motion = Math.sqrt(Math.min(1, Math.abs(delta) / 0.32));
+        const base = [Math.round(8 + level * 46), Math.round(8 + level * 34), Math.round(24 + level * 126)];
+        const target = delta < 0 ? [42, 220, 255] : [255, 74, 105];
+        const channels = base.map((channel, index) => Math.round(
+            channel + (target[index] - channel) * motion));
+        return `rgb(${channels[0]}, ${channels[1]}, ${channels[2]})`;
+    }
+
+    function rawCsiDrawHeatmap(context, canvas) {
+        if (!rawCsi.profiles.length) {
+            rawCsiDrawEmpty(context, canvas);
+            return;
+        }
+        rawCsiClearCanvas(context, canvas);
+        const left = 58;
+        const top = 24;
+        const width = canvas.width - left - 22;
+        const height = canvas.height - top - 48;
+        context.fillStyle = '#09091c';
+        context.fillRect(left, top, width, height);
+        const columnWidth = width / RAW_CSI_VISUAL_HISTORY;
+        const startX = left + width - rawCsi.profiles.length * columnWidth;
+        rawCsi.profiles.forEach((profile, profileIndex) => {
+            const x0 = Math.floor(startX + profileIndex * columnWidth);
+            const x1 = Math.ceil(startX + (profileIndex + 1) * columnWidth);
+            profile.forEach((value, subcarrier) => {
+                context.fillStyle = rawCsiChannelColor(
+                    value, rawCsi.deltas[profileIndex]?.[subcarrier] || 0);
+                const y0 = Math.floor(top + subcarrier * height / profile.length);
+                const y1 = Math.ceil(top + (subcarrier + 1) * height / profile.length);
+                context.fillRect(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0));
+            });
+        });
+        context.strokeStyle = 'rgba(255, 255, 255, .15)';
+        context.strokeRect(left + 0.5, top + 0.5, width - 1, height - 1);
+        context.fillStyle = 'rgba(255, 255, 255, .55)';
+        context.font = '12px "JetBrains Mono", monospace';
+        context.textAlign = 'right';
+        context.textBaseline = 'middle';
+        context.fillText('−32', left - 10, top + 4);
+        context.fillText('0', left - 10, top + height / 2);
+        context.fillText('+31', left - 10, top + height - 4);
+        context.textAlign = 'left';
+        context.textBaseline = 'alphabetic';
+        context.fillText('SUBCARRIER', left, canvas.height - 14);
+        context.textAlign = 'right';
+        context.fillText('RECENT TIME →', left + width, canvas.height - 14);
+        RAW_CSI_SELECTED_SUBCARRIERS.forEach((subcarrier) => {
+            const y = top + (subcarrier + 0.5) * height / rawCsi.profiles[0].length;
+            context.fillStyle = 'rgba(255, 255, 255, .72)';
+            context.fillRect(left - 4, y - 1, 4, 2);
+        });
+    }
+
+    function rawCsiDrawWaterfall(context, canvas) {
+        if (!rawCsi.profiles.length) {
+            rawCsiDrawEmpty(context, canvas);
+            return;
+        }
+        rawCsiClearCanvas(context, canvas);
+        const profiles = rawCsi.profiles.slice(-48);
+        const deltas = rawCsi.deltas.slice(-profiles.length);
+        const centerX = canvas.width / 2;
+        const backY = 54;
+        const frontY = canvas.height - 58;
+        const maximumSpan = canvas.width - 110;
+        context.strokeStyle = 'rgba(111, 91, 220, .16)';
+        context.lineWidth = 1;
+        for (let line = 0; line <= 8; line += 1) {
+            const x = centerX - maximumSpan / 2 + line * maximumSpan / 8;
+            context.beginPath();
+            context.moveTo(centerX + (x - centerX) * 0.62, backY);
+            context.lineTo(x, frontY);
+            context.stroke();
+        }
+        profiles.forEach((profile, profileIndex) => {
+            const depth = profiles.length === 1 ? 1 : profileIndex / (profiles.length - 1);
+            const yBase = backY + depth * (frontY - backY);
+            const span = maximumSpan * (0.62 + depth * 0.38);
+            const xStart = centerX - span / 2;
+            let energy = 0;
+            RAW_CSI_LIVE_SUBCARRIERS.forEach((subcarrier) => {
+                energy += Math.abs(deltas[profileIndex][subcarrier]);
+            });
+            energy /= RAW_CSI_LIVE_SUBCARRIERS.length;
+            const active = Math.sqrt(Math.min(1, energy / 0.08));
+            const alpha = 0.16 + depth * 0.7;
+            const red = Math.round(112 + active * 143);
+            const green = Math.round(68 + active * 10);
+            const blue = Math.round(255 - active * 155);
+            context.strokeStyle = `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+            context.lineWidth = profileIndex === profiles.length - 1 ? 2.8 : 1 + active * 0.55;
+            context.shadowColor = profileIndex === profiles.length - 1
+                ? `rgba(${red}, ${green}, ${blue}, .9)` : 'transparent';
+            context.shadowBlur = profileIndex === profiles.length - 1 ? 14 : 0;
+            [[4, 31], [33, 60]].forEach(([start, end]) => {
+                context.beginPath();
+                for (let subcarrier = start; subcarrier <= end; subcarrier += 1) {
+                    const frequencyPosition = (subcarrier - 4) / 56;
+                    const x = xStart + frequencyPosition * span;
+                    const y = yBase - (Math.max(0, Math.min(2.4, profile[subcarrier])) - 1) * 31;
+                    if (subcarrier === start) context.moveTo(x, y);
+                    else context.lineTo(x, y);
+                }
+                context.stroke();
+            });
+        });
+        context.shadowBlur = 0;
+        context.fillStyle = 'rgba(255, 255, 255, .55)';
+        context.font = '12px "JetBrains Mono", monospace';
+        context.textAlign = 'left';
+        context.fillText('PAST', centerX - maximumSpan * 0.31, backY - 18);
+        context.fillText('NOW', centerX - maximumSpan / 2, frontY + 28);
+        context.textAlign = 'right';
+        context.fillText('SUBCARRIER →', centerX + maximumSpan / 2, frontY + 28);
+        context.textAlign = 'center';
+        context.fillStyle = 'rgba(255, 255, 255, .48)';
+        context.fillText('QUIET VIOLET  ·  MOTION CORAL', centerX, canvas.height - 14);
+        RAW_CSI_SELECTED_SUBCARRIERS.forEach((subcarrier) => {
+            const x = centerX - maximumSpan / 2 + (subcarrier - 4) * maximumSpan / 56;
+            context.fillStyle = 'rgba(255, 255, 255, .7)';
+            context.fillRect(x - 1, frontY + 5, 2, 5);
+        });
+    }
+
+    function rawCsiDrawChannelGhost(context, canvas) {
+        if (!rawCsi.latestProfile || !rawCsi.baseline) {
+            rawCsiDrawEmpty(context, canvas);
+            return;
+        }
+        rawCsiClearCanvas(context, canvas);
+        const left = 62;
+        const right = canvas.width - 28;
+        const top = 38;
+        const bottom = canvas.height - 58;
+        const middle = (top + bottom) / 2;
+        const profileScale = Math.min(108, (bottom - top) * 0.36);
+        const yForValue = (value) => middle
+            - (Math.max(0, Math.min(2.4, value)) - 1) * profileScale;
+        const amplifiedValue = (subcarrier) => rawCsi.baseline[subcarrier]
+            + (rawCsi.latestProfile[subcarrier] - rawCsi.baseline[subcarrier])
+                * RAW_CSI_CHANNEL_GHOST_GAIN;
+        context.strokeStyle = 'rgba(122, 105, 210, .18)';
+        context.lineWidth = 1;
+        [0.5, 1, 1.5, 2].forEach((value) => {
+            const y = yForValue(value);
+            context.beginPath();
+            context.moveTo(left, y);
+            context.lineTo(right, y);
+            context.stroke();
+        });
+        [[4, 31], [33, 60]].forEach(([start, end]) => {
+            for (let subcarrier = start; subcarrier < end; subcarrier += 1) {
+                const next = subcarrier + 1;
+                const x0 = left + (subcarrier - 4) * (right - left) / 56;
+                const x1 = left + (next - 4) * (right - left) / 56;
+                const current0 = yForValue(amplifiedValue(subcarrier));
+                const current1 = yForValue(amplifiedValue(next));
+                const baseline0 = yForValue(rawCsi.baseline[subcarrier]);
+                const baseline1 = yForValue(rawCsi.baseline[next]);
+                const delta = ((rawCsi.latestDelta[subcarrier] || 0) + (rawCsi.latestDelta[next] || 0)) / 2;
+                context.fillStyle = rawCsiMotionColor(delta / 0.22, 0.58);
+                context.beginPath();
+                context.moveTo(x0, baseline0);
+                context.lineTo(x1, baseline1);
+                context.lineTo(x1, current1);
+                context.lineTo(x0, current0);
+                context.closePath();
+                context.fill();
+            }
+            context.setLineDash([7, 7]);
+            context.strokeStyle = 'rgba(255, 255, 255, .4)';
+            context.lineWidth = 1.4;
+            context.beginPath();
+            for (let subcarrier = start; subcarrier <= end; subcarrier += 1) {
+                const x = left + (subcarrier - 4) * (right - left) / 56;
+                const y = yForValue(rawCsi.baseline[subcarrier]);
+                if (subcarrier === start) context.moveTo(x, y);
+                else context.lineTo(x, y);
+            }
+            context.stroke();
+            context.setLineDash([]);
+            context.strokeStyle = '#8f7aff';
+            context.lineWidth = 2.4;
+            context.shadowColor = 'rgba(107, 196, 255, .55)';
+            context.shadowBlur = 10;
+            context.beginPath();
+            for (let subcarrier = start; subcarrier <= end; subcarrier += 1) {
+                const x = left + (subcarrier - 4) * (right - left) / 56;
+                const y = yForValue(amplifiedValue(subcarrier));
+                if (subcarrier === start) context.moveTo(x, y);
+                else context.lineTo(x, y);
+            }
+            context.stroke();
+        });
+        context.shadowBlur = 0;
+        RAW_CSI_SELECTED_SUBCARRIERS.forEach((subcarrier) => {
+            const x = left + (subcarrier - 4) * (right - left) / 56;
+            const y = yForValue(amplifiedValue(subcarrier));
+            context.fillStyle = '#d9d2ff';
+            context.beginPath();
+            context.arc(x, y, 3, 0, 2 * Math.PI);
+            context.fill();
+        });
+        context.fillStyle = 'rgba(255, 255, 255, .55)';
+        context.font = '12px "JetBrains Mono", monospace';
+        context.textAlign = 'left';
+        context.fillText('— CURRENT', left, canvas.height - 18);
+        context.fillStyle = 'rgba(255, 255, 255, .4)';
+        context.fillText('┄ BASELINE', left + 118, canvas.height - 18);
+        context.textAlign = 'right';
+        context.fillStyle = 'rgba(255, 255, 255, .55)';
+        context.fillText('5× DEVIATION', right, top - 12);
+        context.fillText('SUBCARRIER →', right, canvas.height - 18);
+    }
+
+    function rawCsiDrawIqConstellation(context, canvas) {
+        if (!rawCsi.iqHistory.length) {
+            rawCsiDrawEmpty(context, canvas);
+            return;
+        }
+        rawCsiClearCanvas(context, canvas);
+        const latest = rawCsi.iqHistory[rawCsi.iqHistory.length - 1];
+        const subcarrierCount = latest.length / 2;
+        const selectedSubcarriers = RAW_CSI_SELECTED_SUBCARRIERS
+            .filter((subcarrier) => subcarrier < subcarrierCount);
+        const absoluteValues = [];
+        rawCsi.iqHistory.forEach((sample) => {
+            selectedSubcarriers.forEach((subcarrier) => {
+                absoluteValues.push(
+                    Math.abs(sample[subcarrier * 2]), Math.abs(sample[subcarrier * 2 + 1]));
+            });
+        });
+        absoluteValues.sort((left, right) => left - right);
+        const percentileIndex = Math.min(absoluteValues.length - 1,
+            Math.floor(absoluteValues.length * 0.98));
+        const extent = Math.max(12, Math.min(128,
+            (absoluteValues[percentileIndex] || 0) * 1.12));
+        const panelSize = Math.min(canvas.height - 58, canvas.width - 30);
+        const top = (canvas.height - panelSize) / 2;
+        const centerX = canvas.width / 2;
+        const centerY = top + panelSize / 2;
+        const halfSpan = panelSize / 2;
+        const pointPosition = (sample, subcarrier) => ({
+            x: Math.max(-1, Math.min(1, sample[subcarrier * 2] / extent)) * halfSpan,
+            y: Math.max(-1, Math.min(1, sample[subcarrier * 2 + 1] / extent)) * halfSpan
+        });
+        const left = centerX - halfSpan;
+        context.fillStyle = '#09091c';
+        context.fillRect(left, top, panelSize, panelSize);
+        context.strokeStyle = 'rgba(121, 105, 219, .2)';
+        context.lineWidth = 1;
+        [0.25, 0.5, 0.75].forEach((fraction) => {
+            const offset = fraction * panelSize;
+            context.beginPath();
+            context.moveTo(left + offset, top);
+            context.lineTo(left + offset, top + panelSize);
+            context.moveTo(left, top + offset);
+            context.lineTo(left + panelSize, top + offset);
+            context.stroke();
+        });
+        context.strokeStyle = 'rgba(255, 255, 255, .25)';
+        context.strokeRect(left + 0.5, top + 0.5, panelSize - 1, panelSize - 1);
+        selectedSubcarriers.forEach((subcarrier, subcarrierIndex) => {
+            const hue = 188 + subcarrierIndex * 12;
+            rawCsi.iqHistory.forEach((sample, historyIndex) => {
+                const depth = (historyIndex + 1) / rawCsi.iqHistory.length;
+                const point = pointPosition(sample, subcarrier);
+                context.fillStyle = `hsla(${hue}, 94%, 68%, ${0.05 + depth * depth * 0.36})`;
+                context.fillRect(centerX + point.x - 1.2, centerY - point.y - 1.2, 2.4, 2.4);
+            });
+            const point = pointPosition(latest, subcarrier);
+            context.fillStyle = `hsl(${hue} 94% 72%)`;
+            context.shadowColor = `hsl(${hue} 94% 62%)`;
+            context.shadowBlur = 8;
+            context.beginPath();
+            context.arc(centerX + point.x, centerY - point.y, 3.8, 0, 2 * Math.PI);
+            context.fill();
+        });
+        context.shadowBlur = 0;
+        context.fillStyle = 'rgba(255, 255, 255, .58)';
+        context.font = '12px "JetBrains Mono", monospace';
+        context.textAlign = 'center';
+        context.fillText('12 PRODUCTION SUBCARRIERS · 1 SECOND', centerX, top - 10);
+        context.textAlign = 'right';
+        context.fillText('I →', left + panelSize, top + panelSize + 18);
+        context.textAlign = 'left';
+        context.fillText('Q ↑', left + 6, top + 16);
+        context.fillStyle = 'rgba(255, 255, 255, .38)';
+        context.fillText(`±${Math.ceil(extent)}`, left + 6, top + panelSize - 8);
+        if (canvas.width >= 620) {
+            selectedSubcarriers.forEach((subcarrier, index) => {
+                const leftSide = index < selectedSubcarriers.length / 2;
+                const row = index % (selectedSubcarriers.length / 2);
+                const x = leftSide ? left - 118 : left + panelSize + 54;
+                const y = top + 48 + row * Math.min(48, (panelSize - 72) / 5);
+                const hue = 188 + index * 12;
+                context.fillStyle = `hsl(${hue} 94% 70%)`;
+                context.beginPath();
+                context.arc(x, y - 4, 4, 0, 2 * Math.PI);
+                context.fill();
+                context.fillStyle = 'rgba(255, 255, 255, .48)';
+                context.font = '11px "JetBrains Mono", monospace';
+                context.textAlign = 'left';
+                context.fillText(`SC ${subcarrier}`, x + 10, y);
+            });
+        }
+    }
+
+    function rawCsiDrawPhaseTrails(context, canvas) {
+        if (!rawCsi.phaseHistory.length) {
+            rawCsiDrawEmpty(context, canvas);
+            return;
+        }
+        rawCsiClearCanvas(context, canvas);
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2 - 5;
+        const radius = Math.min(canvas.width, canvas.height) * 0.36;
+        context.strokeStyle = 'rgba(121, 105, 219, .22)';
+        context.lineWidth = 1;
+        [0.33, 0.66, 1].forEach((scale) => {
+            context.beginPath();
+            context.arc(centerX, centerY, radius * scale, 0, 2 * Math.PI);
+            context.stroke();
+        });
+        context.beginPath();
+        context.moveTo(centerX - radius, centerY);
+        context.lineTo(centerX + radius, centerY);
+        context.moveTo(centerX, centerY - radius);
+        context.lineTo(centerX, centerY + radius);
+        context.stroke();
+        const centroids = RAW_CSI_SELECTED_SUBCARRIERS.map((_subcarrier, subcarrierIndex) => {
+            let centroidReal = 0;
+            let centroidImag = 0;
+            rawCsi.phaseHistory.forEach((sample) => {
+                centroidReal += sample[subcarrierIndex * 2];
+                centroidImag += sample[subcarrierIndex * 2 + 1];
+            });
+            return {
+                real: centroidReal / rawCsi.phaseHistory.length,
+                imag: centroidImag / rawCsi.phaseHistory.length
+            };
+        });
+        const amplifiedPoint = (subcarrierIndex, phase) => {
+            const centroid = centroids[subcarrierIndex];
+            let real = centroid.real
+                + (phase[subcarrierIndex * 2] - centroid.real) * RAW_CSI_PHASE_TRAIL_GAIN;
+            let imag = centroid.imag
+                + (phase[subcarrierIndex * 2 + 1] - centroid.imag) * RAW_CSI_PHASE_TRAIL_GAIN;
+            const magnitude = Math.hypot(real, imag);
+            if (magnitude > 1.08) {
+                real *= 1.08 / magnitude;
+                imag *= 1.08 / magnitude;
+            }
+            return { real, imag };
+        };
+        RAW_CSI_SELECTED_SUBCARRIERS.forEach((subcarrier, subcarrierIndex) => {
+            const hue = 188 + subcarrierIndex * 12;
+            context.beginPath();
+            rawCsi.phaseHistory.forEach((phase, historyIndex) => {
+                const point = amplifiedPoint(subcarrierIndex, phase);
+                const x = centerX + point.real * radius;
+                const y = centerY - point.imag * radius;
+                if (historyIndex === 0) context.moveTo(x, y);
+                else context.lineTo(x, y);
+            });
+            context.strokeStyle = `hsla(${hue}, 92%, 68%, .62)`;
+            context.lineWidth = 1.8;
+            context.stroke();
+            const latest = rawCsi.phaseHistory[rawCsi.phaseHistory.length - 1];
+            const latestPoint = amplifiedPoint(subcarrierIndex, latest);
+            const x = centerX + latestPoint.real * radius;
+            const y = centerY - latestPoint.imag * radius;
+            context.fillStyle = `hsl(${hue} 94% 70%)`;
+            context.shadowColor = `hsl(${hue} 94% 60%)`;
+            context.shadowBlur = 12;
+            context.beginPath();
+            context.arc(x, y, 5, 0, 2 * Math.PI);
+            context.fill();
+        });
+        context.shadowBlur = 0;
+        context.fillStyle = 'rgba(255, 255, 255, .5)';
+        context.font = '12px "JetBrains Mono", monospace';
+        context.textAlign = 'left';
+        context.fillText('5× TRAIL SPREAD', 12, 20);
+        context.textAlign = 'right';
+        context.fillText('RELATIVE I', Math.min(canvas.width - 8, centerX + radius + 62), centerY + 4);
+        context.textAlign = 'center';
+        context.fillText('RELATIVE Q', centerX, centerY - radius - 18);
+        context.fillText('CFO/STO-REDUCED PHASE · NOT POSITION', centerX, canvas.height - 16);
+    }
+
+    function rawCsiRender() {
+        rawCsi.renderFrame = 0;
+        const surface = rawCsiCanvasContext();
+        if (!surface) return;
+        const { canvas, context } = surface;
+        if (rawCsi.visualization === 'channel-heatmap') rawCsiDrawHeatmap(context, canvas);
+        else if (rawCsi.visualization === 'rf-waterfall') rawCsiDrawWaterfall(context, canvas);
+        else if (rawCsi.visualization === 'channel-ghost') rawCsiDrawChannelGhost(context, canvas);
+        else if (rawCsi.visualization === 'iq-constellation') rawCsiDrawIqConstellation(context, canvas);
+        else if (rawCsi.visualization === 'phase-trails') rawCsiDrawPhaseTrails(context, canvas);
+    }
+
+    function rawCsiScheduleRender() {
+        if (rawCsi.renderFrame) return;
+        rawCsi.renderFrame = requestAnimationFrame(rawCsiRender);
+    }
+
+    function rawCsiSelectVisualization(value) {
+        const visualization = RAW_CSI_VISUALIZATIONS[value]
+            ? value : 'channel-heatmap';
+        const metadata = RAW_CSI_VISUALIZATIONS[visualization];
+        rawCsi.visualization = visualization;
+        const select = $('.js-raw-visualization-select');
+        const title = $('.js-raw-visualization-title');
+        const description = $('.js-raw-visualization-description');
+        const badge = $('.js-raw-visualization-badge');
+        const canvas = $('.js-raw-visualization');
+        if (select) select.value = visualization;
+        if (title) title.textContent = metadata.title;
+        if (description) description.textContent = metadata.description;
+        if (badge) badge.textContent = metadata.badge;
+        if (canvas) canvas.setAttribute('aria-label', metadata.ariaLabel);
+        rawCsiScheduleRender();
+    }
+
+    function rawCsiConsumeRecord(record) {
+        if (!record.byteLength) return;
+        if (record.byteLength < RAW_CSI_V8_HEADER_BYTES) {
+            throw new Error('Device sent an unsupported CSI record.');
+        }
+        const view = new DataView(record.buffer, record.byteOffset, record.byteLength);
+        const headerLength = view.getUint8(3);
+        const subcarriers = view.getUint16(10, true);
+        const csiLength = view.getUint16(12, true);
+        if (view.getUint16(0, true) !== 0x4353 || view.getUint8(2) !== 8
+            || headerLength !== RAW_CSI_V8_HEADER_BYTES || csiLength !== subcarriers * 2
+            || headerLength + csiLength > record.byteLength) {
+            throw new Error('Device sent a malformed CSI V8 record.');
+        }
+        const amplitudes = new Float32Array(subcarriers);
+        const iValues = new Float32Array(subcarriers);
+        const qValues = new Float32Array(subcarriers);
+        for (let index = 0, offset = headerLength;
+            offset < headerLength + csiLength; index += 1, offset += 2) {
+            // Espressif CSI stores each complex sample as [imaginary, real].
+            qValues[index] = view.getInt8(offset);
+            iValues[index] = view.getInt8(offset + 1);
+            amplitudes[index] = Math.hypot(iValues[index], qValues[index]);
+        }
+        rawCsiCounter('.js-raw-rssi', view.getInt8(43));
+        rawCsiCounter('.js-raw-channel', view.getUint8(42));
+        const capturedTicksUs = Number(view.getBigUint64(22, true))
+            || rawCsi.lastCaptureTicksUs + RAW_CSI_VISUAL_STEP_US;
+        rawCsiIngestVisualFrame(amplitudes, iValues, qValues, capturedTicksUs);
+    }
+
+    function rawCsiConsumeFrame(frame) {
+        const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
+        if (view.getUint32(0, true) !== RAW_HTTP_MAGIC || view.getUint8(4) !== 1
+            || view.getUint16(6, true) !== RAW_HTTP_PREFIX_BYTES
+            || !rawCsiBytesEqual(frame.subarray(8, 24), rawCsi.sessionBytes)) {
+            throw new Error('Device sent an invalid raw HTTP frame prefix.');
+        }
+        const status = view.getUint8(5);
+        const recordLength = view.getUint16(32, true);
+        const errorCode = view.getUint16(34, true);
+        if (frame.byteLength !== RAW_HTTP_PREFIX_BYTES + recordLength
+                || status > 2 || (status !== 0 && recordLength !== 0)) {
+            throw new Error('Device sent an invalid raw HTTP frame.');
+        }
+        rawCsiCounter('.js-raw-fresh', view.getBigUint64(36, true));
+        rawCsiCounter('.js-raw-no-sample', view.getBigUint64(44, true));
+        rawCsiCounter('.js-raw-replaced', view.getBigUint64(52, true));
+        rawCsiCounter('.js-raw-dropped', view.getBigUint64(60, true));
+        rawCsiCounter('.js-raw-backpressure', view.getBigUint64(68, true));
+        if (status === 2) throw new Error(`Device reported raw stream error ${errorCode}.`);
+        if (status === 0) {
+            rawCsiConsumeRecord(
+                frame.subarray(RAW_HTTP_PREFIX_BYTES, RAW_HTTP_PREFIX_BYTES + recordLength));
+            rawCsiUpdatePacketRate(true);
+        } else {
+            rawCsiUpdatePacketRate(false);
+        }
+    }
+
+    function rawCsiAppend(chunk) {
+        if (!(chunk instanceof Uint8Array) || rawCsi.buffer.length + chunk.length > RAW_HTTP_MAX_BUFFER_BYTES) {
+            throw new Error('Raw HTTP stream exceeded its bounded parser buffer.');
+        }
+        const combined = new Uint8Array(rawCsi.buffer.length + chunk.length);
+        combined.set(rawCsi.buffer);
+        combined.set(chunk, rawCsi.buffer.length);
+        rawCsi.buffer = combined;
+        while (rawCsi.buffer.length >= RAW_HTTP_PREFIX_BYTES) {
+            const view = new DataView(rawCsi.buffer.buffer, rawCsi.buffer.byteOffset, rawCsi.buffer.byteLength);
+            if (view.getUint32(0, true) !== RAW_HTTP_MAGIC || view.getUint16(6, true) !== RAW_HTTP_PREFIX_BYTES) {
+                throw new Error('Raw HTTP stream lost frame alignment.');
+            }
+            const frameLength = RAW_HTTP_PREFIX_BYTES + view.getUint16(32, true);
+            if (rawCsi.buffer.length < frameLength) return;
+            rawCsiConsumeFrame(rawCsi.buffer.subarray(0, frameLength));
+            rawCsi.buffer = rawCsi.buffer.slice(frameLength);
+        }
+    }
+
+    async function rawCsiStop() {
+        const client = rawCsi.sessionClient;
+        rawCsi.sessionClient = null;
+        rawCsi.controller?.abort('raw stream stopped');
+        rawCsi.controller = null;
+        rawCsiSetRunning(false);
+        rawCsi.buffer = new Uint8Array(0);
+        rawCsi.sessionBytes = null;
+        rawCsi.packetArrivalTimes.length = 0;
+        rawCsiCounter('.js-raw-pps', 0);
+        if (client?.rawSessionId && client.connected) {
+            try { await client.request('stop_raw_stream', {}, { timeoutMs: 3000 }); } catch (_error) { /* abort also releases the device session */ }
+        }
+    }
+
+    async function rawCsiStart() {
+        const client = directClient;
+        if (!rawCsiDirectReady() || client.capabilities?.features?.raw_csi !== true || rawCsi.running) return;
+        const targetPps = Number($('#raw-csi-target-pps')?.value);
+        if (!Number.isInteger(targetPps) || targetPps < 1 || targetPps > 500) {
+            rawCsiStatus('Target PPS must be an integer from 1 to 500.', true);
+            return;
+        }
+        rawCsiSetRunning(true);
+        rawCsi.sessionClient = client;
+        rawCsiStatus('Starting raw CSI stream…');
+        try {
+            const session = await client.request('start_raw_stream', { target_pps: targetPps });
+            rawCsi.sessionBytes = rawCsiHexBytes(session.session_id);
+            rawCsi.buffer = new Uint8Array(0);
+            rawCsiResetVisualization();
+            const controller = new AbortController();
+            rawCsi.controller = controller;
+            const response = await fetch(client.rawEndpoint, {
+                method: 'GET',
+                headers: {
+                    Accept: 'application/octet-stream',
+                    Authorization: `Bearer ${session.session_id}`
+                },
+                cache: 'no-store',
+                signal: controller.signal,
+                targetAddressSpace: 'local'
+            });
+            if (!response.ok || !response.body) throw new Error(`Raw stream returned HTTP ${response.status}.`);
+            rawCsiStatus(`Streaming at ${targetPps} target packets/s.`);
+            const reader = response.body.getReader();
+            while (!controller.signal.aborted) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                rawCsiAppend(value);
+            }
+            if (!controller.signal.aborted) throw new Error('Raw stream ended unexpectedly.');
+        } catch (error) {
+            if (!rawCsi.controller?.signal.aborted) rawCsiStatus(error.message, true);
+        } finally {
+            if (rawCsi.running) await rawCsiStop();
+        }
+    }
+
+    function rawCsiChooseDevice() {
+        disconnect();
+        pendingDirectDestination = 'tool-raw-csi';
+        location.hash = '#tool-configure';
+    }
+
+    function rawCsiInit() {
+        $('.js-raw-csi-choose-device')?.addEventListener('click', rawCsiChooseDevice);
+        $('.js-raw-csi-start')?.addEventListener('click', rawCsiStart);
+        $('.js-raw-csi-stop')?.addEventListener('click', () => rawCsiStop());
+        $('.js-raw-visualization-select')?.addEventListener('change', (event) => {
+            rawCsiSelectVisualization(event.target.value);
+        });
+        const stage = $('.raw-csi-visualization-stage');
+        if (stage && typeof ResizeObserver !== 'undefined') {
+            rawCsi.resizeObserver = new ResizeObserver(rawCsiResizeVisualization);
+            rawCsi.resizeObserver.observe(stage);
+        } else {
+            window.addEventListener('resize', rawCsiResizeVisualization);
+        }
+        rawCsiSelectVisualization(rawCsi.visualization);
+        rawCsiResizeVisualization();
+    }
+
     function gameInit() {
         const canvas = $('.js-game-canvas');
         $('.js-game-start').addEventListener('click', gameStart);
@@ -6159,6 +6205,7 @@
         monitorInit();
         thereminInit();
         gameInit();
+        rawCsiInit();
 
         document.addEventListener('click', interceptCanonicalLinks);
         $('.skip-link').addEventListener('click', (event) => {
@@ -6171,14 +6218,17 @@
     }
 
     document.addEventListener('espectre:analytics-enabled', () => {
-        if (window.trackRouteView) window.trackRouteView(route, { sendPageView: false });
+        if (window.trackRouteView && route !== 'tool-raw-csi') {
+            window.trackRouteView(route, { sendPageView: false });
+        }
         if (conn.readyState) markToolReady(conn.readyState);
         if (monitor.readyState) markMonitorReady(monitor.readyState);
-        if (conn.mode === 'ws' && directClient) cfgRefreshDevice();
+        if (conn.mode === 'direct' && directClient) cfgRefreshDevice();
         if (route === 'tool-flash') flashRefresh();
     });
     window.addEventListener('pagehide', (event) => {
         if (event.persisted) return;
+        void rawCsiStop();
         reportGameAbandon('page_exit');
         if (conn.mode) teardownConnection('page_exit');
         else monitorStopAll('page_exit');

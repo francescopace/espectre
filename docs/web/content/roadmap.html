@@ -38,7 +38,7 @@
     </div>
     <dl class="roadmap-foundation-grid">
       <div><dt>Shared architecture</dt><dd>The sensing core and shared runtime intended for the stable v3 baseline.</dd></div>
-      <div><dt>Runtime contracts</dt><dd>Runtime behavior, Direct WebSocket, and protocol services frozen as one platform contract.</dd></div>
+      <div><dt>Runtime contracts</dt><dd>Runtime behavior and protocol services frozen as one platform contract.</dd></div>
       <div><dt>Supported frontends</dt><dd>ESPHome, Native, Matter, and Streamer included in the candidate scope.</dd></div>
       <div><dt>Release surfaces</dt><dd>Release artifacts and the embeddable SDK included in whole-platform validation.</dd></div>
     </dl>
@@ -81,11 +81,12 @@
             <span class="roadmap-status status-planned">Next major · v4.0.0</span>
           </div>
           <h3>Let nearby nodes cooperate as one sensing system.</h3>
-          <p>The planned v4 platform combines local node coordination with an optional web layer. Nodes keep sensing without a managed service and exchange only the minimum derived state required by the supported coordination contract.</p>
+          <p>The planned v4 platform combines local node coordination with an optional, self-hostable WebSocket relay. Devices connect outward through authenticated WSS, browsers use WSS to the same service, and local Direct HTTP remains the independent default.</p>
           <ul class="roadmap-chapter-points">
             <li>Discover peers, coordinate traffic, and degrade cleanly when a node disappears.</li>
             <li>Claim and manage rooms and devices, view live and historical state, and configure alerts.</li>
-            <li>Choose local, self-hosted, or managed deployment without exporting raw CSI.</li>
+            <li>Choose local, self-hosted, or managed <code>relay.espectre.dev</code> deployment without exporting raw CSI.</li>
+            <li>Gate relay launch on pairing, per-device credentials, revocation, tenant isolation, bounded queues, heartbeat, reconnect, rate limits, and a reviewed threat model.</li>
           </ul>
         </div>
       </article>

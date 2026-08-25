@@ -412,6 +412,7 @@ TOOL_ENTRIES = (
     ("flash", "Flash firmware"),
     ("configure", "Configure"),
     ("monitor", "Monitor"),
+    ("raw-csi", "Raw CSI"),
     ("theremin", "Motion theremin"),
     ("game", "Motion game"),
 )

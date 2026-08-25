@@ -23,14 +23,13 @@
 <meta name="twitter:image" content="https://espectre.dev/assets/images/brand/espectre-og.jpg">
 <link rel="icon" type="image/svg+xml" href="/assets/images/brand/espectre-logo.svg?v=5c234009f6c5">
 <link rel="alternate icon" type="image/png" href="/assets/images/brand/favicon.png">
-<link rel="stylesheet" href="/assets/css/styles.css?v=f948ce1ddff6">
-<script src="/assets/js/espectre-direct.js?v=3dc1bb932216" defer></script>
-<script src="/assets/js/espectre-mqtt.js?v=1dff4af20dee" defer></script>
-<script src="/assets/js/browser-support.js?v=1203c01f338e" defer></script>
-<script src="/assets/js/route-registry.js?v=092c36a3dd6a" defer></script>
+<link rel="stylesheet" href="/assets/css/styles.css?v=c2badda5131c">
+<script src="/assets/js/espectre-direct.js?v=38226072d41c" defer></script>
+<script src="/assets/js/browser-support.js?v=ac4ba70c7f17" defer></script>
+<script src="/assets/js/route-registry.js?v=2cdc0eba3521" defer></script>
 <script src="/assets/js/navigation.js?v=88d37c28b5a6" defer></script>
 <script src="/assets/js/analytics.js?v=a16db4b82883" defer></script>
-<script src="/assets/js/app.js?v=28e83bc55604" defer></script>
+<script src="/assets/js/app.js?v=5287933547b2" defer></script>
 </head>
 <body>
 
@@ -260,13 +259,13 @@
           <a href="/tools/configure/" class="home-tool-card">
             <span class="home-card-label">CONFIGURE</span>
             <h3>Set up your sensor.</h3>
-            <p>Configure the device over its local Direct WebSocket.</p>
+            <p>Configure the device over its local Direct HTTP API.</p>
             <span class="home-card-action">Open Configure →</span>
           </a>
           <a href="/tools/monitor/" class="home-tool-card">
             <span class="home-card-label">MONITOR</span>
             <h3>Watch motion live.</h3>
-            <p>Use Direct WebSocket or MQTT to inspect motion, tune detection, and view diagnostics.</p>
+            <p>Use local HTTP to inspect motion, tune detection, and view diagnostics.</p>
             <span class="home-card-action">Open Monitor →</span>
           </a>
         </div>
@@ -303,7 +302,7 @@
 
 <!-- ============================== Tools ============================== -->
 <main class="js-page page-narrow" data-page="tools" hidden>
-  <div class="js-static-content" data-content-url="content/tools.html?v=5d1d9289b279" data-static-url="/tools/">
+  <div class="js-static-content" data-content-url="content/tools.html?v=819fb2988fb7" data-static-url="/tools/">
     <p class="guide-loading">Loading tools…</p>
   </div>
 </main>
@@ -351,7 +350,7 @@
   <p class="page-sub">Connect to a Native device on this LAN to manage its identity, Wi-Fi, and optional MQTT integration.</p>
 
   <div class="js-configure-onboarding">
-    <espectre-direct-connect data-surface="configure" data-transport="ws"></espectre-direct-connect>
+    <espectre-direct-connect data-surface="configure" data-transport="direct"></espectre-direct-connect>
   </div>
 
   <div class="js-configure-workspace" hidden>
@@ -463,72 +462,18 @@
 <main class="js-page page-narrow page-tool" data-page="tool-monitor" data-static-url="/tools/monitor/" hidden>
   <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Monitor</span></div>
   <h1 class="page-title">Monitor</h1>
-  <p class="page-sub">Monitor one device directly via WebSocket, connect through MQTT, or explore with simulated data.</p>
+  <p class="page-sub">Monitor one device through local HTTP, or explore with simulated data.</p>
   <div class="js-monitor-onboarding">
     <fieldset class="transport-choice" aria-label="Monitor connection method">
-      <label for="monitor-transport-ws"><input type="radio" id="monitor-transport-ws" name="monitor-transport" value="ws" checked> Direct WebSocket <small>recommended</small></label>
-      <label for="monitor-transport-mqtt"><input type="radio" id="monitor-transport-mqtt" name="monitor-transport" value="mqtt"> MQTT <small>advanced</small></label>
+      <label for="monitor-transport-direct"><input type="radio" id="monitor-transport-direct" name="monitor-transport" value="direct" checked> Direct HTTP <small>recommended</small></label>
       <label for="monitor-transport-demo"><input type="radio" id="monitor-transport-demo" name="monitor-transport" value="demo"> Demo <small>simulation</small></label>
+      <label for="monitor-transport-relay"><input type="radio" id="monitor-transport-relay" name="monitor-transport" value="relay"> Relay <small>coming soon</small></label>
     </fieldset>
-    <espectre-direct-connect data-surface="monitor" data-monitor-transport-panel="ws" data-transport="ws"></espectre-direct-connect>
-    <section class="device-connect-card connection-card mqtt-connect-card empty-state" data-monitor-transport-panel="mqtt" data-transport="mqtt" hidden>
-      <span class="connection-card-eyebrow">Broker connection</span>
-      <h2>Connect with MQTT</h2>
-      <p>Use the broker to open live sensing, controls, and diagnostics.</p>
-      <div class="fields">
-        <div class="field">
-          <label for="mon-host">Host</label>
-          <div class="broker-host-control">
-            <select id="mon-mqtt-preset" aria-label="Broker preset" title="Broker preset">
-              <option value="home_assistant" selected>Home Assistant</option>
-              <option value="lan_broker">Local broker (LAN)</option>
-              <option value="emqx_cloud">EMQX Cloud</option>
-              <option value="hivemq_cloud">HiveMQ Cloud</option>
-              <option value="flespi">Flespi</option>
-              <option value="cloud_broker">Custom broker</option>
-            </select>
-            <input type="text" id="mon-host" class="mono-input" value="homeassistant.local" placeholder="homeassistant.local" autocomplete="off" spellcheck="false" aria-describedby="mon-mqtt-preset-note">
-          </div>
-        </div>
-        <p class="tool-note mqtt-preset-note js-mon-mqtt-preset-note" id="mon-mqtt-preset-note" aria-live="polite">Port 9001; HTTPS requires trusted WSS.</p>
-        <div class="field-row">
-          <div class="field"><label for="mon-user">Username</label><input type="text" id="mon-user" placeholder="MQTT username" autocomplete="off"></div>
-          <div class="field"><label for="mon-pass">Password</label><input type="password" id="mon-pass" placeholder="MQTT password" autocomplete="off" spellcheck="false"></div>
-        </div>
-        <details class="config-advanced mqtt-connect-advanced">
-          <summary>Advanced connection settings</summary>
-          <div class="config-advanced-body fields">
-            <div class="field-row">
-              <div class="field">
-                <label for="mon-port">WebSocket port</label>
-                <div class="field-port-tls">
-                  <input type="number" id="mon-port" value="9001" placeholder="9001">
-                  <label class="check" for="mon-tls"><input type="checkbox" id="mon-tls"> TLS</label>
-                </div>
-              </div>
-              <div class="field"><label for="mon-path">WebSocket path</label><input type="text" id="mon-path" class="mono-input" value="/mqtt" autocomplete="off" spellcheck="false"></div>
-            </div>
-            <div class="field"><label for="mon-topic-prefix">Topic prefix</label><input type="text" id="mon-topic-prefix" class="mono-input" value="espectre/v1/devices" placeholder="espectre/v1/devices" autocomplete="off" spellcheck="false"></div>
-          </div>
-        </details>
-        <div class="field">
-          <label for="mon-device">Device ID <span class="opt">(optional)</span></label>
-          <div class="mqtt-device-control">
-            <input type="text" id="mon-device" class="mono-input" placeholder="3cf79180d3a0aca4" autocomplete="off" spellcheck="false" aria-describedby="mon-device-help">
-            <button type="button" class="btn-primary btn-sm js-mon-connect">Find devices</button>
-          </div>
-          <small class="field-help" id="mon-device-help">Leave blank to discover devices through this broker, or enter an ID to connect directly.</small>
-        </div>
-        <div class="direct-discovery js-mon-device-picker" role="status" aria-live="polite" hidden>
-          <div id="mon-device-choice"></div>
-        </div>
-      </div>
-      <div class="tool-note js-mon-status" role="status" hidden></div>
-    </section>
+    <espectre-direct-connect data-surface="monitor" data-monitor-transport-panel="direct" data-transport="direct"></espectre-direct-connect>
     <section class="device-connect-card connection-card demo-connect-card empty-state" data-monitor-transport-panel="demo" data-transport="demo" hidden>
       <span class="connection-card-eyebrow">Simulation</span>
       <h2>Explore without a device</h2>
-      <p>Preview the live Monitor without a device or an MQTT broker.</p>
+      <p>Preview the live Monitor without a device.</p>
       <div class="demo-connect-summary">
         <ul class="demo-connect-list">
           <li>Move the pointer to generate simulated motion.</li>
@@ -537,6 +482,19 @@
         </ul>
       </div>
       <button type="button" class="btn-primary js-demo">Start demo</button>
+    </section>
+    <section class="device-connect-card connection-card relay-connect-card empty-state" data-monitor-transport-panel="relay" data-transport="relay" hidden>
+      <span class="connection-card-eyebrow">Remote connection</span>
+      <h2>Connect through Relay</h2>
+      <p>Reach an ESPectre device beyond the local network without exposing it directly.</p>
+      <div class="demo-connect-summary">
+        <ul class="demo-connect-list">
+          <li>Encrypted, device-initiated connections.</li>
+          <li>Remote live sensing, controls, and diagnostics.</li>
+          <li>No inbound port forwarding.</li>
+        </ul>
+      </div>
+      <button type="button" class="btn-primary" disabled>Coming soon</button>
     </section>
   </div>
 
@@ -582,27 +540,27 @@
             <h2>Sensing controls</h2>
             <p>Changes are sent to the device immediately.</p>
             <div class="live-controls-grid">
-              <div class="field" data-mqtt-command="set_threshold">
+              <div class="field" data-device-command="set_threshold">
                 <label for="sense-threshold">Detection threshold</label>
                 <input type="number" id="sense-threshold" min="0" max="1" step="0.01" value="0.5">
               </div>
-              <div class="field" data-mqtt-command="set_detector">
+              <div class="field" data-device-command="set_detector">
                 <label for="sense-detector">Detection profile</label>
                 <select id="sense-detector"><option value="lightweight">Lightweight</option><option value="high_accuracy">High Accuracy</option></select>
               </div>
-              <div class="live-control-wide live-calibration" data-mqtt-command="recalibrate">
+              <div class="live-control-wide live-calibration" data-device-command="recalibrate">
                 <div><strong>Lightweight Calibration</strong><p>Keep the room quiet while the detector establishes a new baseline.</p></div>
                 <button class="btn-secondary btn-sm js-sense-recalibrate">Recalibrate</button>
               </div>
-              <div class="field-row live-control-wide" data-mqtt-command="set_motion_hits">
+              <div class="field-row live-control-wide" data-device-command="set_motion_hits">
                 <div class="field"><label for="sense-motion-on">Motion on hits</label><input type="number" id="sense-motion-on" min="1" max="20" value="3"></div>
                 <div class="field"><label for="sense-motion-off">Motion off hits</label><input type="number" id="sense-motion-off" min="1" max="20" value="3"></div>
               </div>
-              <div class="field" data-mqtt-command="set_csi_traffic_mode">
+              <div class="field" data-device-command="set_csi_traffic_mode">
                 <label for="sense-csi-mode">CSI traffic ownership</label>
                 <select id="sense-csi-mode"><option value="internal">Internal</option><option value="external">External</option><option value="disabled">Disabled</option></select>
               </div>
-              <div class="field" data-mqtt-command="set_traffic_generator_mode">
+              <div class="field" data-device-command="set_traffic_generator_mode">
                 <label for="sense-generator-mode">Internal generator</label>
                 <select id="sense-generator-mode"><option value="ping">Ping</option><option value="dns">DNS</option></select>
               </div>
@@ -629,19 +587,86 @@
   </div>
 </main>
 
+<!-- ============================== Raw CSI ============================== -->
+<main class="js-page page-narrow page-tool" data-page="tool-raw-csi" data-static-url="/tools/raw-csi/" hidden>
+  <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Raw CSI</span></div>
+  <h1 class="page-title">Raw CSI</h1>
+  <p class="page-sub">Inspect Native ESP32-C3 CSI V8 records over a local binary HTTP stream. Raw samples stay in this browser and are never uploaded or included in analytics.</p>
+
+  <section class="device-connect-card connection-card empty-state js-raw-csi-unavailable" hidden>
+    <span class="connection-card-eyebrow">Native firmware · C3 only</span>
+    <h2>Raw CSI is unavailable on this device</h2>
+    <p>The active Direct HTTP device does not advertise the capability-gated Native C3 raw stream.</p>
+    <div class="panel-actions">
+      <button type="button" class="btn-primary js-raw-csi-choose-device">Choose another device</button>
+    </div>
+  </section>
+
+  <div class="js-raw-csi-workspace" hidden>
+    <section class="panel raw-csi-controls">
+      <div class="field-row">
+        <div class="field">
+          <label for="raw-csi-target-pps">Target packets per second</label>
+          <input type="number" id="raw-csi-target-pps" min="1" max="500" step="1" value="100">
+        </div>
+        <div class="panel-actions">
+          <button type="button" class="btn-primary js-raw-csi-start">Start stream</button>
+          <button type="button" class="btn-secondary js-raw-csi-stop" disabled>Stop</button>
+        </div>
+      </div>
+      <p class="tool-note js-raw-csi-status" role="status" aria-live="polite">Connected. Start the ephemeral stream when ready.</p>
+    </section>
+
+    <div class="diag-grid raw-csi-stats">
+      <div class="stat"><div class="stat-label">Packets/s</div><div class="stat-value js-raw-pps">0</div></div>
+      <div class="stat"><div class="stat-label">Fresh</div><div class="stat-value js-raw-fresh">0</div></div>
+      <div class="stat"><div class="stat-label">No sample</div><div class="stat-value js-raw-no-sample">0</div></div>
+      <div class="stat"><div class="stat-label">Replaced</div><div class="stat-value js-raw-replaced">0</div></div>
+      <div class="stat"><div class="stat-label">Dropped</div><div class="stat-value js-raw-dropped">0</div></div>
+      <div class="stat"><div class="stat-label">Backpressure</div><div class="stat-value js-raw-backpressure">0</div></div>
+      <div class="stat"><div class="stat-label">RSSI</div><div class="stat-value js-raw-rssi">—</div></div>
+      <div class="stat"><div class="stat-label">Channel</div><div class="stat-value js-raw-channel">—</div></div>
+    </div>
+
+    <section class="panel raw-csi-visualizer">
+      <div class="raw-csi-visualizer-head">
+        <div>
+          <div class="raw-csi-visualizer-title">
+            <h2 class="js-raw-visualization-title">Channel heatmap</h2>
+            <span class="chip js-raw-visualization-badge">LIVE</span>
+          </div>
+          <p class="tool-note raw-csi-visualization-description js-raw-visualization-description">Brightness shows normalized amplitude; cyan and coral reveal movement around the slow baseline.</p>
+        </div>
+        <div class="field raw-csi-visualization-picker">
+          <label for="raw-csi-visualization">Visualization</label>
+          <select id="raw-csi-visualization" class="js-raw-visualization-select">
+            <option value="channel-heatmap">Channel heatmap</option>
+            <option value="rf-waterfall">RF waterfall</option>
+            <option value="channel-ghost">Channel ghost</option>
+            <option value="iq-constellation">I/Q constellation</option>
+            <option value="phase-trails">Sanitized phase trails</option>
+          </select>
+        </div>
+      </div>
+      <div class="raw-csi-visualization-stage">
+        <canvas class="js-raw-visualization" width="960" height="420" aria-label="Combined CSI amplitude and motion heatmap over time"></canvas>
+      </div>
+    </section>
+  </div>
+</main>
+
 <!-- ============================== Theremin ============================== -->
 <main class="js-page page-narrow page-tool" data-page="tool-theremin" data-static-url="/tools/theremin/" hidden>
   <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Theremin</span></div>
   <h1 class="page-title">Motion theremin</h1>
-  <p class="page-sub">Turn live motion energy from Direct WebSocket or MQTT into sound, or explore the interaction in demo mode.</p>
+  <p class="page-sub">Turn live motion energy from Direct HTTP into sound, or explore the interaction in demo mode.</p>
 
   <div class="empty-state js-needs-live">
     <svg width="44" height="44" viewBox="0 0 32 32" aria-hidden="true" class="empty-ghost"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="none" stroke="var(--dim)" stroke-width="1.6"/><circle cx="12.2" cy="13.5" r="1.7" fill="var(--dim)"/><circle cx="19.8" cy="13.5" r="1.7" fill="var(--dim)"/></svg>
     <h2>No device connected</h2>
-    <p>The theremin turns live motion energy into sound. Choose a Monitor transport, or run the demo.</p>
+    <p>The theremin turns live motion energy into sound. Connect over Direct HTTP, or run the demo.</p>
     <div class="panel-actions live-connect-actions" role="group" aria-label="Theremin connection method">
-      <button type="button" class="btn-secondary js-start-detection" data-live-transport="ws">WebSocket</button>
-      <button type="button" class="btn-secondary js-start-detection" data-live-transport="mqtt">MQTT</button>
+      <button type="button" class="btn-secondary js-start-detection" data-live-transport="direct">Direct HTTP</button>
       <button type="button" class="btn-secondary js-demo">Demo</button>
     </div>
   </div>
@@ -680,8 +705,7 @@
     <h2>No device connected</h2>
     <p>Your body is the controller: movement makes the Spectre fly, and quiet brings it back down. Choose a Monitor transport, or run the demo.</p>
     <div class="panel-actions live-connect-actions" role="group" aria-label="Game connection method">
-      <button type="button" class="btn-secondary js-start-detection" data-live-transport="ws">WebSocket</button>
-      <button type="button" class="btn-secondary js-start-detection" data-live-transport="mqtt">MQTT</button>
+      <button type="button" class="btn-secondary js-start-detection" data-live-transport="direct">Direct HTTP</button>
       <button type="button" class="btn-secondary js-demo">Demo</button>
     </div>
   </div>
@@ -736,7 +760,7 @@
 
 <!-- ============================== SDK ============================== -->
 <main class="js-page page-narrow" data-page="sdk" hidden>
-  <div class="js-static-content" data-content-url="content/sdk.html?v=7ed2754775ea" data-static-url="/sdk/">
+  <div class="js-static-content" data-content-url="content/sdk.html?v=7d04a699d1bc" data-static-url="/sdk/">
     <p class="guide-loading">Loading SDK…</p>
   </div>
 </main>
@@ -750,7 +774,7 @@
 
 <!-- ============================== Roadmap ============================== -->
 <main class="js-page page-narrow" data-page="roadmap" hidden>
-  <div class="js-static-content" data-content-url="content/roadmap.html?v=b49cdd544148" data-static-url="/roadmap/">
+  <div class="js-static-content" data-content-url="content/roadmap.html?v=a95a4aa67691" data-static-url="/roadmap/">
     <p class="guide-loading">Loading roadmap…</p>
   </div>
 </main>
@@ -785,7 +809,7 @@
 
 <!-- ============================== Security ============================== -->
 <main class="js-page page-narrow" data-page="security" hidden>
-  <div class="js-static-content" data-content-url="content/security.html?v=c1b4fbb4b5a8" data-static-url="/security/">
+  <div class="js-static-content" data-content-url="content/security.html?v=9a964ce79b23" data-static-url="/security/">
     <p class="guide-loading">Loading security information…</p>
   </div>
 </main>
@@ -808,7 +832,7 @@
 <!-- ============================== Guide: Setup ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-setup" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Flash &amp; Wi-Fi setup</span></div>
-  <div class="js-static-content" data-content-url="content/guides/setup.html?v=3e8f54c30b8c" data-static-url="/guides/setup/">
+  <div class="js-static-content" data-content-url="content/guides/setup.html?v=c9e490dbdebe" data-static-url="/guides/setup/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -880,7 +904,7 @@
 <!-- ============================== SDK: Examples ============================== -->
 <main class="js-page page-narrow page-article" data-page="sdk-examples" hidden>
   <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">Examples</span></div>
-  <div class="js-static-content" data-content-url="content/sdk/examples.html?v=75a74f15bc30" data-static-url="/sdk/examples/">
+  <div class="js-static-content" data-content-url="content/sdk/examples.html?v=4b38da4b2d9b" data-static-url="/sdk/examples/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -888,7 +912,7 @@
 <!-- ============================== SDK: Architecture ============================== -->
 <main class="js-page page-narrow page-article" data-page="sdk-architecture" hidden>
   <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">Architecture</span></div>
-  <div class="js-static-content" data-content-url="content/sdk/architecture.html?v=0b88a79a3ab0" data-static-url="/sdk/architecture/">
+  <div class="js-static-content" data-content-url="content/sdk/architecture.html?v=8c5ae8f69fc6" data-static-url="/sdk/architecture/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -896,23 +920,24 @@
 <datalist id="direct-remembered-endpoints"></datalist>
 
 <template id="direct-connect-template">
-  <section class="device-connect-card connection-card direct-connect-card empty-state" data-transport="ws">
+  <section class="device-connect-card connection-card direct-connect-card empty-state" data-transport="direct">
     <span class="connection-card-eyebrow">Local connection</span>
     <h2>Find your ESPectre</h2>
-    <p>Discover compatible devices on this LAN. <br>Chrome may ask for Local network access.</p>
+    <p>Auto-discovery requires working mDNS and at least one ESPectre device on this LAN. Chrome may ask for Local network access.</p>
     <p class="tool-note js-direct-browser-note" role="status">Your browser may ask for Local network access. Allow it only for this site and the LAN you intend to manage.</p>
     <button type="button" class="btn-primary js-direct-discover">Find devices</button>
     <div class="direct-discovery js-direct-discovery" role="status" aria-live="polite" hidden></div>
     <div class="direct-connection-help js-direct-help" role="alert" hidden>
       <strong>Could not connect to the device</strong>
       <p class="js-direct-help-copy"></p>
-      <p><a href="/security/#local-access-title">Browser and local-network help</a><span class="js-direct-alternate"></span></p>
+      <p><a href="/security/#local-access-title">Browser and local-network help</a></p>
     </div>
     <div class="direct-connect-divider"><span>or connect manually</span></div>
     <div class="direct-connect-manual">
       <div class="field"><label for="direct-endpoint" class="js-direct-endpoint-label">Device IP, ID, or name</label><input type="text" id="direct-endpoint" class="mono-input js-direct-endpoint" list="direct-remembered-endpoints" placeholder="192.168.1.42, abcdef, or Kitchen" autocomplete="off" spellcheck="false"></div>
       <button class="btn-secondary btn-sm js-connect-direct"><span class="js-connect-label">Connect</span></button>
     </div>
+    <p class="tool-note">If mDNS is unavailable, use the private IP address of the ESPectre device. <a href="/guides/setup/#setup-native-discovery">See the browser and operating-system support matrix.</a></p>
     <p class="tool-note direct-connection-status js-direct-status" role="status" aria-live="polite" hidden></p>
     <p class="direct-connect-recovery">Not on the network yet? Complete Wi-Fi setup over <a href="/tools/flash/">USB</a>.</p>
   </section>

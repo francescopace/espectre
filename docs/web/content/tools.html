@@ -11,7 +11,7 @@
     </div>
     <div class="tool-card-body">
       <div class="tool-head"><h2>Flash</h2><span class="chip js-flash-chip">WEB SERIAL</span></div>
-      <p>Install ESPectre firmware over USB from a supported desktop browser.</p>
+      <p>Install ESPectre firmware, then provision Wi-Fi over USB with Improv Serial.</p>
       <span class="tool-open">Open →</span>
     </div>
   </a>
@@ -20,8 +20,8 @@
       <img src="/assets/images/tools/configure-card.avif" alt="ESP32 board connected wirelessly to a configuration panel" width="800" height="344">
     </div>
     <div class="tool-card-body">
-      <div class="tool-head"><h2>Configure</h2><span class="chip js-direct-chip">WS</span></div>
-      <p>Set Wi-Fi, optional MQTT, and the device name over Direct WebSocket.</p>
+      <div class="tool-head"><h2>Configure</h2><span class="chip js-direct-chip">HTTP</span></div>
+      <p>Manage advanced Wi-Fi, MQTT, and device settings over HTTP, including locking Wi-Fi to an access point BSSID, which Improv Serial cannot do.</p>
       <span class="tool-open">Open →</span>
     </div>
   </a>
@@ -30,8 +30,18 @@
       <img src="/assets/images/tools/monitor-card.avif" alt="ESP32 board beside a laptop showing live motion sensing diagnostics" width="800" height="344">
     </div>
     <div class="tool-card-body">
-      <div class="tool-head"><h2>Monitor</h2><span class="chip">WS · MQTT</span></div>
-      <p>Watch live sensing, tune detection, and inspect diagnostics over the broker.</p>
+      <div class="tool-head"><h2>Monitor</h2><span class="chip">HTTP</span></div>
+      <p>Watch live sensing, tune detection, and inspect diagnostics over Direct HTTP.</p>
+      <span class="tool-open">Open →</span>
+    </div>
+  </a>
+  <a href="/tools/raw-csi/" class="tool-card tool-card-link">
+    <div class="tool-card-media">
+      <img src="/assets/images/tools/raw-csi-card.avif" alt="ESP32-C3 beside a laptop displaying a luminous Raw CSI waterfall" width="800" height="344" loading="lazy">
+    </div>
+    <div class="tool-card-body">
+      <div class="tool-head"><h2>Raw CSI</h2><span class="chip">HTTP</span></div>
+      <p>Switch among six live CSI views in the browser without uploading or storing raw data.</p>
       <span class="tool-open">Open →</span>
     </div>
   </a>
@@ -40,7 +50,7 @@
       <img src="/assets/images/tools/game-card.avif" alt="ESPectre ghosts navigating an arcade maze controlled by an ESP32 board" width="800" height="344" loading="lazy">
     </div>
     <div class="tool-card-body">
-      <div class="tool-head"><h2>Game</h2><span class="chip">WS · MQTT</span></div>
+      <div class="tool-head"><h2>Game</h2><span class="chip">HTTP</span></div>
       <p>An endless runner where movement makes the Spectre fly.</p>
       <span class="tool-open">Open →</span>
     </div>
@@ -50,7 +60,7 @@
       <img src="/assets/images/tools/theremin-card.avif" alt="ESP32 board turning Wi-Fi motion into an audio waveform" width="800" height="344" loading="lazy">
     </div>
     <div class="tool-card-body">
-      <div class="tool-head"><h2>Theremin</h2><span class="chip">WS · MQTT</span></div>
+      <div class="tool-head"><h2>Theremin</h2><span class="chip">HTTP</span></div>
       <p>Turn live movement into sound with a motion-controlled instrument.</p>
       <span class="tool-open">Open →</span>
     </div>
@@ -60,28 +70,18 @@
       <img src="/assets/images/tools/presence-detection-card.avif" alt="ESP32 board exploring stationary presence sensing in a quiet room" width="800" height="344" loading="lazy">
     </div>
     <div class="tool-card-body">
-      <div class="tool-head"><h2>Presence detection</h2><span class="chip">RESEARCH · ROADMAP</span></div>
+      <div class="tool-head"><h2>Presence detection</h2><span class="chip">RESEARCH</span></div>
       <p>Explore whether micro-motion can distinguish an occupied quiet room from an empty one.</p>
       <span class="tool-open">On the roadmap →</span>
     </div>
   </a>
   <a href="/roadmap/" class="tool-card tool-card-link">
     <div class="tool-card-media">
-      <img src="/assets/images/tools/breathing-research-card.avif" alt="ESP32 board sensing a subtle waveform across a resting torso silhouette" width="800" height="344" loading="lazy">
+      <img src="/assets/images/tools/gesture-detection-card.avif" alt="ESP32 board sensing a brief hand gesture through Wi-Fi signal changes" width="800" height="344" loading="lazy">
     </div>
     <div class="tool-card-body">
-      <div class="tool-head"><h2>Breathing detection</h2><span class="chip">RESEARCH · ROADMAP</span></div>
-      <p>Explore whether breathing-related micro-motion can become a reliable local sensing signal.</p>
-      <span class="tool-open">On the roadmap →</span>
-    </div>
-  </a>
-  <a href="/roadmap/" class="tool-card tool-card-link">
-    <div class="tool-card-media">
-      <img src="/assets/images/tools/gesture-detection-card.avif" alt="ESP32 board exploring brief gesture recognition from Wi-Fi sensing" width="800" height="344" loading="lazy">
-    </div>
-    <div class="tool-card-body">
-      <div class="tool-head"><h2>Gesture detection</h2><span class="chip">RESEARCH · ROADMAP</span></div>
-      <p>Explore whether high-rate sensing can recognize brief gestures reliably.</p>
+      <div class="tool-head"><h2>Breathing and gestures</h2><span class="chip">RESEARCH</span></div>
+      <p>Explore breathing-related micro-motion and brief gesture recognition as future local sensing capabilities.</p>
       <span class="tool-open">On the roadmap →</span>
     </div>
   </a>

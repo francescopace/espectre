@@ -8,7 +8,7 @@ Static single-page app published at `espectre.dev` through GitHub Pages.
 python -m http.server 8090 --directory docs/web
 ```
 
-Then open `http://localhost:8090`. A Native development build with `CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED=y` accepts HTTP loopback Origins on any port when the host is exactly `localhost`, `127.0.0.1`, or `[::1]`; published firmware leaves this exception disabled. Flash, Improv Serial, and the Matter QR reader need a Chromium-based browser. Configure connects to Native through a local Direct WebSocket. Monitor, Game, and Theremin support both Direct WebSocket and MQTT over WebSockets. The hosted Direct workflow supports Chrome 147 or later on desktop through WebSocket Local Network Access; Chrome 151 on macOS passed the hosted HTTPS validation path against a physical ESP32-C3. Firefox and Safari block the hosted HTTPS-to-`ws://` path; Edge and mobile Chrome remain unclaimed until their physical browser runs are recorded. A local HTTP preview does not prove hosted-portal compatibility.
+Then open `http://localhost:8090`. A Native development build with `CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED=y` accepts HTTP loopback Origins on any port when the host is exactly `localhost`, `127.0.0.1`, or `[::1]`; published firmware leaves this exception disabled. Flash, Improv Serial, and the Matter QR reader need a Chromium-based browser. Configure connects through HTTP POST, while Monitor, Game, and Theremin receive Direct events through SSE over streaming `fetch`. The hosted Direct workflow supports Chrome 151 or later on macOS, Windows, and native Linux with Local Network Access; compatibility with other browsers is not guaranteed. A local HTTP preview does not prove hosted-portal compatibility.
 
 First-party CSS, JS, and SPA content fragments use a 12-character SHA-256 prefix as `?v=`. After editing those files, restamp `index.html` and `404.html`:
 
@@ -33,7 +33,6 @@ Edit shared fragments under `content/`, including `content/guides.html`, `conten
 Security-sensitive browser tools use pinned, same-origin copies under the generated `vendor/` directory in production:
 
 - ESP Web Tools 10.4.0 for serial firmware installation;
-- MQTT.js 5.3.0 for the live MQTT-over-WebSocket session shared by Monitor, Game, and Theremin; and
 - QRCode.js 1.0.0 for Matter pairing codes.
 
 Install and stage the pinned packages locally with:
@@ -78,15 +77,15 @@ The committed `.github/scripts/sitemap.template.xml` is the canonical URL invent
 
 ## Browser protocol clients
 
-`assets/js/espectre-direct.js` implements Direct WebSocket envelopes, request correlation, and reconnect behavior for Configure and the live tools, while `assets/js/espectre-mqtt.js` implements the MQTT protocol layer shared by Monitor, Game, and Theremin. Both are dependency-free first-party components released under the same GPLv3 and commercial licensing policy as the rest of ESPectre.
+`assets/js/espectre-direct.js` implements Direct HTTP POST, incremental SSE parsing, request correlation, abort, and reconnect primitives for Configure and the live tools. The client is a dependency-free first-party component released under the same GPLv3 and commercial licensing policy as the rest of ESPectre. Relay is presented as a future remote connection mode but is not implemented.
 
-The wire contract, supported commands, topic families, and capability boundaries are documented in `docs/ESPECTRE_PROTOCOL.md`. Keep protocol behavior in these clients instead of duplicating it in `app.js`; broker connection policy remains an application concern.
+The wire contract, supported commands, and capability boundaries are documented in `docs/ESPECTRE_PROTOCOL.md`. Keep protocol behavior in the client instead of duplicating it in `app.js`.
 
-`assets/js/browser-support.js` owns the declared browser matrix and queries the Local Network Access permission state when the browser exposes it. Direct failures stay visible in Configure and Monitor and give separate recovery guidance for a denied or pending permission, a hosted mixed-content restriction, an unsupported page Origin, `.local` resolution, an address timeout, a protocol mismatch, and occupied Direct client slots. The browser WebSocket API deliberately hides handshake response details, so an otherwise unclassified failure presents a safe checklist instead of claiming a cause. Direct support does not add a third-party script, relax a global security header, scan the LAN, or imply browser-side mDNS enumeration.
+`assets/js/browser-support.js` owns the declared browser matrix and queries the Local Network Access permission state when the browser exposes it. Direct failures stay visible in Configure and Monitor and give separate recovery guidance for a denied or pending permission, an unsupported page Origin, `.local` resolution, an address timeout, a protocol mismatch, and occupied SSE subscriber slots. Direct support does not add a third-party script, relax a global security header, scan the LAN, or imply browser-side mDNS enumeration.
 
 ### Tests
 
-The hardware-independent Direct WebSocket and MQTT surfaces, website analytics, and structural contracts are covered by unit tests:
+The hardware-independent Direct HTTP surface, website analytics, and structural contracts are covered by unit tests:
 
 ```bash
 node --test 'test/web/*.mjs'

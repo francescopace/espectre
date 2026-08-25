@@ -28,7 +28,13 @@
                 : browser === 'chrome' ? /(?:Chrome|CriOS)\/(\d+)/i
                     : browser === 'safari' ? /Version\/(\d+)/i : null);
         const browserMajor = versionMatch ? Number(versionMatch[1]) : 0;
-        const hostedDirect = !mobile && browser === 'chrome' && browserMajor >= 147
+        const operatingSystem = ios ? 'ios'
+            : android ? 'android'
+                : /mac/i.test(platform) ? 'macos'
+                    : /win/i.test(platform) ? 'windows'
+                        : /linux/i.test(platform) ? 'linux' : 'other';
+        const hostedDirect = !mobile && browser === 'chrome' && browserMajor >= 151
+            && ['macos', 'windows', 'linux'].includes(operatingSystem)
             ? 'targeted'
             : ['firefox', 'safari'].includes(browser) ? 'unsupported' : 'unclaimed';
 
@@ -39,6 +45,7 @@
             serial,
             browser,
             browserMajor,
+            operatingSystem,
             hostedDirect,
             // ESPectre supports browser flashing only on desktop Chrome or Edge.
             flash: serial && !mobile
@@ -48,13 +55,17 @@
     async function localNetworkAccessState(navigatorLike) {
         const permissions = (navigatorLike || {}).permissions;
         if (!permissions || typeof permissions.query !== 'function') return 'unavailable';
-        try {
-            const result = await permissions.query({ name: 'local-network-access' });
-            return ['granted', 'prompt', 'denied'].includes(result && result.state)
-                ? result.state : 'unavailable';
-        } catch (_error) {
-            return 'unavailable';
+        for (const name of ['local-network', 'local-network-access']) {
+            try {
+                const result = await permissions.query({ name });
+                if (['granted', 'prompt', 'denied'].includes(result && result.state)) {
+                    return result.state;
+                }
+            } catch (_error) {
+                // Chromium versions before the split support only the legacy alias.
+            }
         }
+        return 'unavailable';
     }
 
     root.ESPectreBrowserSupport = Object.freeze({

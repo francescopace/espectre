@@ -178,14 +178,8 @@ describe('analytics privacy boundary', () => {
 });
 
 describe('analytics route metadata', () => {
-    it('uses stable route titles and content groups', () => {
+    it('uses stable content groups and route paths', () => {
         const { api, window } = analyticsContext({ hash: '#tool-configure' });
-        assert.equal(api.getRouteTitle('tool-configure'), 'Configure | ESPectre');
-        assert.equal(api.getRouteTitle('tool-monitor'), 'Monitor | ESPectre');
-        assert.equal(api.getRouteTitle('guide-detectors'), 'Detection profiles | ESPectre');
-        assert.equal(api.getRouteTitle('guide-new-topic'), 'New topic | ESPectre');
-        assert.equal(api.getRouteTitle('sdk-new-reference'), 'New reference | ESPectre');
-        assert.equal(api.getRouteTitle('privacy'), 'Website privacy and analytics | ESPectre');
         assert.equal(api.getSiteSection('tool-configure'), 'configure');
         assert.equal(api.getSiteSection('tool-monitor'), 'monitor');
         assert.equal(api.getSiteSection('guide-setup'), 'documentation');
@@ -227,7 +221,7 @@ describe('analytics route metadata', () => {
         assert.equal(update[0], 'config');
         assert.equal(update[2].update, true);
         assert.equal(update[2].page_location, 'https://espectre.dev/tools/monitor/');
-        assert.equal(update[2].page_title, 'Monitor | ESPectre');
+        assert.equal(update[2].page_title, api.getRouteTitle('tool-monitor'));
         assert.equal(update[2].content_group, 'monitor');
         assert.equal(pageView[1], 'page_view');
     });

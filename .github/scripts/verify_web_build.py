@@ -40,6 +40,7 @@ EXPECTED_SITEMAP_PATHS = {
     "/tools/flash/",
     "/tools/configure/",
     "/tools/monitor/",
+    "/tools/raw-csi/",
     "/tools/theremin/",
     "/tools/game/",
     "/guides/",
@@ -263,11 +264,9 @@ def verify(args: argparse.Namespace) -> None:
         "assets/js/app.js",
         "assets/js/route-registry.js",
         "assets/js/espectre-direct.js",
-        "assets/js/espectre-mqtt.js",
         "assets/css/styles.css",
         "vendor/qrcodejs-1.0.0/qrcode.min.js",
         "vendor/esp-web-tools-10.4.0/install-button.js",
-        "vendor/mqtt-5.3.0/mqtt.min.js",
         "artifacts/sdk/api/index.html",
     ):
         require_file(path)

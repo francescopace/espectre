@@ -45,6 +45,7 @@
         { name: 'tool-flash', group: 'tools', title: 'Flash firmware | ESPectre', staticPath: '/tools/flash/', analyticsName: 'flash' },
         { name: 'tool-configure', group: 'tools', title: 'Configure | ESPectre', staticPath: '/tools/configure/', analyticsName: 'configure' },
         { name: 'tool-monitor', group: 'tools', title: 'Monitor | ESPectre', staticPath: '/tools/monitor/', analyticsName: 'monitor' },
+        { name: 'tool-raw-csi', group: 'tools', title: 'Raw CSI | ESPectre', staticPath: '/tools/raw-csi/', analyticsName: 'raw-csi' },
         { name: 'tool-theremin', group: 'tools', title: 'Motion theremin | ESPectre', staticPath: '/tools/theremin/', analyticsName: 'theremin' },
         { name: 'tool-game', group: 'tools', title: 'Motion game | ESPectre', staticPath: '/tools/game/', analyticsName: 'game' },
         { name: 'guides', title: 'Guides | ESPectre', staticPath: '/guides/', analyticsName: 'overview' },

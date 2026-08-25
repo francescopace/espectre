@@ -7,7 +7,6 @@
   },
   "dependencies": {
     "esp-web-tools": "10.4.0",
-    "mqtt": "5.3.0",
     "qrcodejs": "1.0.0"
   }
 }
