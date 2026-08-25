@@ -43,9 +43,16 @@ typedef enum {
   WIFI_EVENT_STA_STOP,
   WIFI_EVENT_STA_CONNECTED,
   WIFI_EVENT_STA_DISCONNECTED,
+  WIFI_EVENT_SCAN_DONE,
   WIFI_EVENT_AP_START,
   WIFI_EVENT_AP_STOP,
 } wifi_event_t;
+
+typedef struct {
+  uint8_t status;
+  uint8_t number;
+  uint8_t scan_id;
+} wifi_event_sta_scan_done_t;
 
 // IP events
 #define IP_EVENT "IP_EVENT"

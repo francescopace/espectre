@@ -77,11 +77,11 @@ The committed `.github/scripts/sitemap.template.xml` is the canonical URL invent
 
 ## Browser protocol clients
 
-`assets/js/espectre-direct.js` implements Direct HTTP POST, incremental SSE parsing, request correlation, abort, and reconnect primitives for Configure and the live tools. The client is a dependency-free first-party component released under the same GPLv3 and commercial licensing policy as the rest of ESPectre. Relay is presented as a future remote connection mode but is not implemented.
+`assets/js/espectre-direct.js` implements Direct HTTP POST, incremental SSE parsing, request correlation, abort, and reconnect primitives for Configure and the live tools. Configure, Monitor, Raw CSI, Game, and Theremin reuse one connection picker with Local connection, Demo, and the future Remote connection in that order. The client is a dependency-free first-party component released under the same GPLv3 and commercial licensing policy as the rest of ESPectre. Relay backs the Remote connection placeholder but is not implemented.
 
 The wire contract, supported commands, and capability boundaries are documented in `docs/ESPECTRE_PROTOCOL.md`. Keep protocol behavior in the client instead of duplicating it in `app.js`.
 
-`assets/js/browser-support.js` owns the declared browser matrix and queries the Local Network Access permission state when the browser exposes it. Direct failures stay visible in Configure and Monitor and give separate recovery guidance for a denied or pending permission, an unsupported page Origin, `.local` resolution, an address timeout, a protocol mismatch, and occupied SSE subscriber slots. Direct support does not add a third-party script, relax a global security header, scan the LAN, or imply browser-side mDNS enumeration.
+`assets/js/browser-support.js` owns the declared browser matrix and queries the Local Network Access permission state when the browser exposes it. Direct failures stay visible in the active tool's shared connection picker and give separate recovery guidance for a denied or pending permission, an unsupported page Origin, `.local` resolution, an address timeout, a protocol mismatch, and occupied SSE subscriber slots. Direct support does not add a third-party script, relax a global security header, scan the LAN, or imply browser-side mDNS enumeration.
 
 ### Tests
 

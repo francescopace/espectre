@@ -246,6 +246,12 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"set_sensing\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"required\":[\"enabled\"]") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"access\":\"network_admin\"") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"name\":\"wifi_access_points\"") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"name\":\"scan_wifi_access_points\"") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"name\":\"set_wifi_bssid\"") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"name\":\"clear_wifi_config\"") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("set_wifi_config") == std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("band_policy") == std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"discover_peers\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"commands\"") == std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"stats\"") == std::string::npos);
@@ -664,15 +670,12 @@ void test_direct_http_configuration_commands_validate_write_only_fields(void) {
 
   TEST_ASSERT_TRUE(parse_espectre_command_request(
       "wifi-1",
-      "set_wifi_config",
-      "{\"bssid\":\"E6:FA:C4:20:19:DE\",\"channel\":6}",
+      "set_wifi_bssid",
+      "{\"bssid\":\"E6:FA:C4:20:19:DE\"}",
       &command,
       &error));
   TEST_ASSERT_TRUE(command.has_wifi_bssid);
   TEST_ASSERT_EQUAL_STRING("E6:FA:C4:20:19:DE", command.wifi_bssid.c_str());
-  TEST_ASSERT_TRUE(command.has_wifi_channel);
-  TEST_ASSERT_EQUAL_UINT8(6U, command.wifi_channel);
-  TEST_ASSERT_FALSE(command.has_wifi_password);
 
   TEST_ASSERT_TRUE(parse_espectre_command_request(
       "mqtt-1",
@@ -686,16 +689,25 @@ void test_direct_http_configuration_commands_validate_write_only_fields(void) {
   TEST_ASSERT_TRUE(command.has_mqtt_password);
 
   TEST_ASSERT_FALSE(parse_espectre_command_request(
-      "wifi-bad", "set_wifi_config", "{\"bssid\":\"not-a-bssid\"}", &command, &error));
+      "wifi-bad", "set_wifi_bssid", "{\"bssid\":\"not-a-bssid\"}", &command, &error));
+  TEST_ASSERT_FALSE(parse_espectre_command_request(
+      "wifi-credentials", "set_wifi_bssid", "{\"ssid\":\"Lab\",\"password\":\"secret\"}",
+      &command, &error));
+  TEST_ASSERT_FALSE(parse_espectre_command_request(
+      "wifi-band", "set_wifi_bssid", "{\"bssid\":\"\",\"band_policy\":\"auto\"}",
+      &command, &error));
+  TEST_ASSERT_TRUE(parse_espectre_command_request(
+      "clear-wifi", "clear_wifi_config", "{}", &command, &error));
+  TEST_ASSERT_FALSE(parse_espectre_command_request(
+      "clear-wifi-bad", "clear_wifi_config", "{\"ssid\":\"Lab\"}", &command, &error));
   TEST_ASSERT_FALSE(parse_espectre_command_request(
       "mqtt-bad", "set_mqtt_config", "{\"host\":\"homeassistant.local\",\"port\":0}", &command, &error));
-  TEST_ASSERT_TRUE(parse_espectre_command_request("clear-1", "clear_wifi_config", "{}", &command, &error));
   TEST_ASSERT_TRUE(parse_espectre_command_request("clear-2", "clear_mqtt_config", "{}", &command, &error));
 }
 
 void test_direct_http_read_and_sensing_methods_map_to_shared_commands(void) {
   const char *methods[] = {
-      "capabilities", "info", "status", "config", "diagnostics", "ota_status"};
+      "capabilities", "info", "status", "config", "diagnostics", "ota_status", "wifi_access_points"};
   for (const char *method : methods) {
     EspectreCommand command;
     std::string error;

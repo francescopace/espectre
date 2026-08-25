@@ -52,12 +52,16 @@ class WifiProvisioningService {
   void set_change_callback(ChangeCallback callback);
   void set_reconfigure_callbacks(ChangeCallback prepare_callback,
                                  ChangeCallback resume_callback);
+  void set_scan_callbacks(ChangeCallback prepare_callback,
+                          ChangeCallback resume_callback);
   void set_apply_completed_callback(ChangeCallback callback);
   esp_err_t load_or_set_defaults(const WifiProvisioningDefaults &defaults);
   esp_err_t setup_station(const WifiProvisioningDefaults &defaults,
                           standalone_wifi_callback_t connected_cb = {},
                           standalone_wifi_callback_t disconnected_cb = {});
   bool handle_command(const std::string &command, std::string *message);
+  /** Start an asynchronous scan; results are limited to the provisioned SSID. */
+  bool request_access_point_scan(std::string *message);
   /** Stage credentials received through the standard Improv Serial RPC. */
   bool begin_serial_provisioning(const std::string &ssid,
                                  const std::string &password,
@@ -72,6 +76,9 @@ class WifiProvisioningService {
   WifiProvisioningApplyState apply_state() const { return apply_state_; }
   const std::string &apply_message() const { return apply_message_; }
   bool apply_pending() const;
+  bool scan_pending() const { return scan_active_; }
+  const std::vector<StandaloneWifiAccessPoint> &access_points() const { return access_points_; }
+  const std::string &scan_message() const { return scan_message_; }
 
  private:
   bool apply_config_live_(const StoredWifiConfig &config, std::string *message);
@@ -87,6 +94,8 @@ class WifiProvisioningService {
   ChangeCallback change_callback_;
   ChangeCallback prepare_reconfigure_callback_;
   ChangeCallback resume_reconfigure_callback_;
+  ChangeCallback prepare_scan_callback_;
+  ChangeCallback resume_scan_callback_;
   ChangeCallback apply_completed_callback_;
   StoredWifiConfig wifi_config_;
   StoredWifiConfig last_good_config_;
@@ -96,10 +105,13 @@ class WifiProvisioningService {
   std::string wifi_ssid_;
   std::string wifi_password_;
   std::string wifi_bssid_;
+  std::vector<StandaloneWifiAccessPoint> access_points_;
+  std::string scan_message_;
   WifiProvisioningApplyState apply_state_{WifiProvisioningApplyState::IDLE};
   std::string apply_message_;
   bool candidate_apply_pending_{false};
   bool reconfigure_active_{false};
+  bool scan_active_{false};
   uint32_t apply_started_ms_{0U};
 };
 

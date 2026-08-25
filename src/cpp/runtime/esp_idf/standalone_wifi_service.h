@@ -13,6 +13,8 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <string>
+#include <vector>
 
 #include "esp_err.h"
 #include "esp_event.h"
@@ -22,6 +24,16 @@
 namespace espectre {
 
 using standalone_wifi_callback_t = std::function<void()>;
+
+struct StandaloneWifiAccessPoint {
+  std::string ssid;
+  std::string bssid;
+  int8_t rssi_dbm{0};
+  uint8_t channel{0U};
+};
+
+using standalone_wifi_scan_callback_t =
+    std::function<void(esp_err_t, const std::vector<StandaloneWifiAccessPoint> &)>;
 
 struct StandaloneWifiConfig {
   const char *ssid{""};
@@ -47,6 +59,8 @@ class StandaloneWifiService {
                   standalone_wifi_callback_t disconnected_cb = {});
   esp_err_t start();
   esp_err_t update_station_config(const StandaloneWifiConfig &config);
+  /** Start one asynchronous station scan and report its bounded snapshot from loop(). */
+  esp_err_t request_scan(standalone_wifi_scan_callback_t callback);
   void loop();
   bool get_info(StandaloneWifiInfo *info) const;
   void shutdown();
@@ -57,11 +71,13 @@ class StandaloneWifiService {
     STOPPED,
     DISCONNECTED,
     GOT_IP,
+    SCAN_DONE,
   };
 
   struct PendingWifiEvent {
     PendingWifiEventType type{PendingWifiEventType::STARTED};
     uint8_t disconnect_reason{0U};
+    uint8_t scan_status{0U};
     esp_netif_ip_info_t ip_info{};
   };
 
@@ -74,6 +90,7 @@ class StandaloneWifiService {
   void handle_wifi_disconnected_(uint8_t reason);
   void handle_lifecycle_connected_();
   void handle_lifecycle_disconnected_();
+  void handle_scan_done_(uint8_t status);
   void maybe_run_deferred_connect_fallback_();
   void clear_cached_ip_info_();
 
@@ -81,6 +98,7 @@ class StandaloneWifiService {
   WiFiLifecycleManager wifi_lifecycle_;
   standalone_wifi_callback_t connected_cb_;
   standalone_wifi_callback_t disconnected_cb_;
+  standalone_wifi_scan_callback_t scan_callback_;
   esp_event_handler_instance_t wifi_event_instance_{nullptr};
   esp_event_handler_instance_t ip_event_instance_{nullptr};
   bool setup_complete_{false};
@@ -88,6 +106,7 @@ class StandaloneWifiService {
   bool defer_connect_once_after_start_{false};
   bool deferred_connect_fallback_pending_{false};
   bool wifi_started_{false};
+  bool scan_pending_{false};
   uint64_t deferred_connect_fallback_deadline_us_{0U};
   int wifi_retry_count_{0};
   esp_netif_ip_info_t cached_ip_info_{};

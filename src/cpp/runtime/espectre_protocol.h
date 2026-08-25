@@ -181,16 +181,8 @@ struct EspectreCommand {
   /** Requested raw collection cadence for `start_raw_stream`. */
   uint16_t raw_target_pps{100U};
   bool has_raw_target_pps{false};
-  std::string wifi_ssid;
-  std::string wifi_password;
   std::string wifi_bssid;
-  std::string wifi_band_policy;
-  uint8_t wifi_channel{0U};
-  bool has_wifi_ssid{false};
-  bool has_wifi_password{false};
   bool has_wifi_bssid{false};
-  bool has_wifi_band_policy{false};
-  bool has_wifi_channel{false};
   std::string mqtt_host;
   std::string mqtt_username;
   std::string mqtt_password;
@@ -322,7 +314,7 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
                                           bool supports_status = true,
                                           bool supports_config = false,
                                           bool supports_sensing_control = false,
-                                          bool supports_wifi_config = false,
+                                          bool supports_wifi_bssid = false,
                                           bool supports_mqtt_config = false,
                                           bool supports_peer_discovery = false,
                                           bool supports_raw_csi = false);

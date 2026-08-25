@@ -9,6 +9,7 @@
  */
 #include "wifi_provisioning_service.h"
 
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <utility>
@@ -57,13 +58,27 @@ bool assign_wifi_config_field(const std::string &field,
     return true;
   }
   if (field == "bssid") {
-    if (!value.empty() && value.size() != 17) {
+    if (!value.empty() && value.size() != 17U) {
       if (error != nullptr) {
         *error = "BSSID must be empty or 17 chars";
       }
       return false;
     }
-    config->bssid = value;
+    std::string normalized = value;
+    for (size_t index = 0U; index < normalized.size(); ++index) {
+      if (index % 3U == 2U) {
+        if (normalized[index] != ':') {
+          if (error != nullptr) *error = "BSSID must contain six hexadecimal octets";
+          return false;
+        }
+      } else if (!std::isxdigit(static_cast<unsigned char>(normalized[index]))) {
+        if (error != nullptr) *error = "BSSID must contain six hexadecimal octets";
+        return false;
+      } else {
+        normalized[index] = static_cast<char>(std::toupper(static_cast<unsigned char>(normalized[index])));
+      }
+    }
+    config->bssid = std::move(normalized);
     return true;
   }
   if (field == "channel") {
@@ -136,6 +151,12 @@ void WifiProvisioningService::set_reconfigure_callbacks(ChangeCallback prepare_c
                                                         ChangeCallback resume_callback) {
   prepare_reconfigure_callback_ = std::move(prepare_callback);
   resume_reconfigure_callback_ = std::move(resume_callback);
+}
+
+void WifiProvisioningService::set_scan_callbacks(ChangeCallback prepare_callback,
+                                                 ChangeCallback resume_callback) {
+  prepare_scan_callback_ = std::move(prepare_callback);
+  resume_scan_callback_ = std::move(resume_callback);
 }
 
 void WifiProvisioningService::set_apply_completed_callback(ChangeCallback callback) {
@@ -238,42 +259,38 @@ bool WifiProvisioningService::handle_command(const std::string &command, std::st
     }
   };
 
-  constexpr const char *kBatchPrefix = "SET_WIFI_CONFIG:";
+  constexpr const char *kBssidPrefix = "SET_WIFI_BSSID:";
 
-  if (command.rfind(kBatchPrefix, 0) == 0) {
-    if (apply_pending()) {
+  if (command.rfind(kBssidPrefix, 0) == 0) {
+    if (apply_pending() || scan_active_) {
       set_message("Wi-Fi configuration change already in progress");
       return false;
     }
     std::vector<std::pair<std::string, std::string>> pairs;
     std::string error;
-    if (!parse_urlencoded_key_value_pairs(command.substr(std::strlen(kBatchPrefix)), &pairs, &error)) {
+    if (!parse_urlencoded_key_value_pairs(command.substr(std::strlen(kBssidPrefix)), &pairs, &error)) {
       set_message(error.c_str());
       return false;
     }
+    if (pairs.size() != 1U || pairs.front().first != "bssid") {
+      set_message("set Wi-Fi BSSID requires exactly one bssid field");
+      return false;
+    }
     StoredWifiConfig updated = wifi_config_;
-    bool has_ssid = false;
-    for (const auto &pair : pairs) {
-      if (!assign_wifi_config_field(pair.first, pair.second, &updated, &error)) {
-        set_message(error.c_str());
-        return false;
+    if (!assign_wifi_config_field("bssid", pairs.front().second, &updated, &error)) {
+      set_message(error.c_str());
+      return false;
+    }
+    if (updated.ssid.empty()) {
+      set_message("provision Wi-Fi over Improv Serial before selecting a BSSID");
+      return false;
+    }
+    updated.channel = WIFI_CHANNEL_AUTO;
+    for (const StandaloneWifiAccessPoint &access_point : access_points_) {
+      if (!updated.bssid.empty() && access_point.bssid == updated.bssid) {
+        updated.channel = access_point.channel;
+        break;
       }
-      if (pair.first == "ssid") {
-        has_ssid = true;
-      }
-    }
-    if (!has_ssid || updated.ssid.empty()) {
-      set_message("SSID must be 1..32 bytes");
-      return false;
-    }
-    if (!wifi_channel_matches_band_policy(updated.channel, updated.band_policy)) {
-      set_message((std::string("channel must be ") +
-                   wifi_channel_supported_description(updated.band_policy)).c_str());
-      return false;
-    }
-    if (updated.band_policy != wifi_config_.band_policy) {
-      set_message("live Wi-Fi band changes require local reprovisioning");
-      return false;
     }
     updated.has_saved_config = true;
     return begin_candidate_apply_(std::move(updated), message);
@@ -314,6 +331,56 @@ bool WifiProvisioningService::handle_command(const std::string &command, std::st
 
   set_message("unknown provisioning command");
   return false;
+}
+
+bool WifiProvisioningService::request_access_point_scan(std::string *message) {
+  if (wifi_manager_ == nullptr) {
+    if (message != nullptr) *message = "Wi-Fi manager is not configured";
+    return false;
+  }
+  if (wifi_config_.ssid.empty()) {
+    if (message != nullptr) *message = "provision Wi-Fi over Improv Serial before scanning";
+    return false;
+  }
+  if (apply_pending() || scan_active_) {
+    if (message != nullptr) *message = "Wi-Fi operation already in progress";
+    return false;
+  }
+
+  scan_active_ = true;
+  scan_message_ = "Wi-Fi access point scan in progress";
+  access_points_.clear();
+  if (prepare_scan_callback_) prepare_scan_callback_();
+  notify_changed_();
+  const esp_err_t err = wifi_manager_->request_scan(
+      [this](esp_err_t result, const std::vector<StandaloneWifiAccessPoint> &scanned) {
+        access_points_.clear();
+        if (result == ESP_OK) {
+          for (const StandaloneWifiAccessPoint &access_point : scanned) {
+            if (access_point.ssid == wifi_config_.ssid) {
+              access_points_.push_back(access_point);
+            }
+          }
+          scan_message_ = access_points_.empty()
+                              ? "No access points found for the provisioned Wi-Fi network"
+                              : "Wi-Fi access point scan complete";
+        } else {
+          scan_message_ = esp_err_to_name(result);
+        }
+        scan_active_ = false;
+        if (resume_scan_callback_) resume_scan_callback_();
+        notify_changed_();
+      });
+  if (err != ESP_OK) {
+    scan_active_ = false;
+    scan_message_ = esp_err_to_name(err);
+    if (resume_scan_callback_) resume_scan_callback_();
+    notify_changed_();
+    if (message != nullptr) *message = scan_message_;
+    return false;
+  }
+  if (message != nullptr) *message = scan_message_;
+  return true;
 }
 
 bool WifiProvisioningService::apply_live(std::string *message) {

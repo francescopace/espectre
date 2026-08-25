@@ -234,6 +234,7 @@ typedef enum {
 typedef void (*wifi_csi_cb_t)(void *ctx, wifi_csi_info_t *data);
 
 typedef struct {
+  uint8_t ssid[33];
   int8_t rssi;
   uint8_t primary;
   uint8_t bssid[6];
@@ -289,6 +290,13 @@ typedef struct {
   int disconnect_call_count;
   int set_config_call_count;
   int get_ap_info_call_count;
+  esp_err_t scan_start_result;
+  int scan_start_call_count;
+  bool last_scan_block;
+  esp_err_t scan_get_ap_num_result;
+  esp_err_t scan_get_ap_records_result;
+  uint16_t scan_ap_count;
+  wifi_ap_record_t scan_ap_records[32];
   wifi_config_t last_config;
   esp_err_t get_mac_result;
   uint8_t mac[6];
@@ -356,6 +364,30 @@ static inline esp_err_t esp_wifi_connect(void) {
 static inline esp_err_t esp_wifi_disconnect(void) {
   g_esp_wifi_mock.disconnect_call_count++;
   return ESP_OK;
+}
+
+static inline esp_err_t esp_wifi_scan_start(const void *config, bool block) {
+  (void)config;
+  g_esp_wifi_mock.scan_start_call_count++;
+  g_esp_wifi_mock.last_scan_block = block;
+  return g_esp_wifi_mock.scan_start_result;
+}
+
+static inline esp_err_t esp_wifi_scan_get_ap_num(uint16_t *number) {
+  if (number != nullptr) {
+    *number = g_esp_wifi_mock.scan_ap_count;
+  }
+  return g_esp_wifi_mock.scan_get_ap_num_result;
+}
+
+static inline esp_err_t esp_wifi_scan_get_ap_records(uint16_t *number,
+                                                     wifi_ap_record_t *records) {
+  if (number != nullptr && records != nullptr && g_esp_wifi_mock.scan_get_ap_records_result == ESP_OK) {
+    const uint16_t count = *number < g_esp_wifi_mock.scan_ap_count ? *number : g_esp_wifi_mock.scan_ap_count;
+    memcpy(records, g_esp_wifi_mock.scan_ap_records, count * sizeof(wifi_ap_record_t));
+    *number = count;
+  }
+  return g_esp_wifi_mock.scan_get_ap_records_result;
 }
 
 static inline esp_err_t esp_wifi_set_config(wifi_interface_t ifx, wifi_config_t *config) {

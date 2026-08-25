@@ -183,29 +183,18 @@ void test_wifi_provisioning_records_load_error_and_falls_back_to_defaults(void) 
   TEST_ASSERT_EQUAL_STRING("DefaultSSID", service.config().ssid.c_str());
 }
 
-void test_wifi_provisioning_commands_validate_and_persist_config(void) {
+void test_wifi_provisioning_bssid_command_validates_and_persists_selection(void) {
   StandaloneWifiService manager;
   WifiProvisioningService service(&manager);
   std::string message;
   TEST_ASSERT_EQUAL(ESP_OK, service.setup_station(make_defaults()));
 
-  TEST_ASSERT_FALSE(service.handle_command("SET_WIFI_CONFIG:ssid=&password=secret&channel=9", &message));
-  TEST_ASSERT_EQUAL_STRING("SSID must be 1..32 bytes", message.c_str());
-  TEST_ASSERT_FALSE(service.handle_command("SET_WIFI_CONFIG:ssid=Lab&password=secret&channel=15", &message));
-  TEST_ASSERT_EQUAL_STRING("channel must be 0..14", message.c_str());
-  // A 2.4 GHz-only radio must reject a 5 GHz channel it cannot tune, rather
-  // than accept a lock that would silently prevent association.
-  TEST_ASSERT_FALSE(service.handle_command("SET_WIFI_CONFIG:ssid=Lab&password=secret&channel=36", &message));
-  TEST_ASSERT_EQUAL_STRING("channel must be 0..14", message.c_str());
-  TEST_ASSERT_FALSE(
-      service.handle_command("SET_WIFI_CONFIG:ssid=Lab&password=secret&band_policy=5g&channel=36", &message));
-  TEST_ASSERT_EQUAL_STRING("5 GHz Wi-Fi is not supported by this device", message.c_str());
-  TEST_ASSERT_FALSE(
-      service.handle_command("SET_WIFI_CONFIG:ssid=Lab&password=secret&band_policy=wide&channel=0", &message));
-  TEST_ASSERT_EQUAL_STRING("band_policy must be 2g, 5g, or auto", message.c_str());
+  TEST_ASSERT_FALSE(service.handle_command("SET_WIFI_BSSID:ssid=Lab", &message));
+  TEST_ASSERT_EQUAL_STRING("set Wi-Fi BSSID requires exactly one bssid field", message.c_str());
+  TEST_ASSERT_FALSE(service.handle_command("SET_WIFI_BSSID:bssid=not-a-bssid", &message));
+  TEST_ASSERT_EQUAL_STRING("BSSID must be empty or 17 chars", message.c_str());
 
-  TEST_ASSERT_TRUE(
-      service.handle_command("SET_WIFI_CONFIG:ssid=Lab&password=secret&bssid=aa%3Abb%3Acc%3Add%3Aee%3Aff&channel=9&band_policy=2g", &message));
+  TEST_ASSERT_TRUE(service.handle_command("SET_WIFI_BSSID:bssid=aa%3Abb%3Acc%3Add%3Aee%3Aff", &message));
   TEST_ASSERT_TRUE(service.apply_pending());
   TEST_ASSERT_TRUE(service.apply_state() == WifiProvisioningApplyState::VERIFYING);
   service.loop();
@@ -221,34 +210,36 @@ void test_wifi_provisioning_commands_validate_and_persist_config(void) {
   WifiProvisioningService reloaded(nullptr);
   TEST_ASSERT_EQUAL(ESP_OK, reloaded.load_or_set_defaults(make_defaults()));
   TEST_ASSERT_TRUE(reloaded.config().has_saved_config);
-  TEST_ASSERT_EQUAL_STRING("Lab", reloaded.config().ssid.c_str());
-  TEST_ASSERT_EQUAL_STRING("secret", reloaded.config().password.c_str());
-  TEST_ASSERT_EQUAL_STRING("aa:bb:cc:dd:ee:ff", reloaded.config().bssid.c_str());
-  TEST_ASSERT_EQUAL_UINT8(9, reloaded.config().channel);
+  TEST_ASSERT_EQUAL_STRING("DefaultSSID", reloaded.config().ssid.c_str());
+  TEST_ASSERT_EQUAL_STRING("default-secret", reloaded.config().password.c_str());
+  TEST_ASSERT_EQUAL_STRING("AA:BB:CC:DD:EE:FF", reloaded.config().bssid.c_str());
+  TEST_ASSERT_EQUAL_UINT8(0U, reloaded.config().channel);
   TEST_ASSERT_TRUE(reloaded.config().has_saved_band_policy);
   TEST_ASSERT_TRUE(reloaded.config().band_policy == WifiBandPolicy::BAND_2G);
 }
 
-void test_wifi_provisioning_apply_updates_wifi_manager_live(void) {
+void test_wifi_provisioning_bssid_selection_updates_wifi_manager_live(void) {
   StandaloneWifiService manager;
   WifiProvisioningService service(&manager);
   std::string message;
 
   TEST_ASSERT_EQUAL(ESP_OK, service.setup_station(make_defaults()));
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_config_call_count);
-  TEST_ASSERT_TRUE(service.handle_command("SET_WIFI_CONFIG:ssid=Applied&password=applied-secret&channel=3", &message));
+  TEST_ASSERT_TRUE(service.handle_command("SET_WIFI_BSSID:bssid=AA%3ABB%3ACC%3ADD%3AEE%3AFF", &message));
 
   TEST_ASSERT_EQUAL_STRING("Wi-Fi candidate accepted; reconnect after address verification", message.c_str());
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_config_call_count);
   service.loop();
   TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.set_config_call_count);
-  TEST_ASSERT_EQUAL_STRING("Applied", reinterpret_cast<const char *>(g_esp_wifi_mock.last_config.sta.ssid));
-  TEST_ASSERT_EQUAL_STRING("applied-secret", reinterpret_cast<const char *>(g_esp_wifi_mock.last_config.sta.password));
-  TEST_ASSERT_EQUAL_UINT8(3, g_esp_wifi_mock.last_config.sta.channel);
+  TEST_ASSERT_EQUAL_STRING("DefaultSSID", reinterpret_cast<const char *>(g_esp_wifi_mock.last_config.sta.ssid));
+  TEST_ASSERT_EQUAL_STRING("default-secret", reinterpret_cast<const char *>(g_esp_wifi_mock.last_config.sta.password));
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.last_config.sta.bssid_set);
+  TEST_ASSERT_EQUAL_UINT8(0U, g_esp_wifi_mock.last_config.sta.channel);
   TEST_ASSERT_EQUAL_STRING("DefaultSSID", service.config().ssid.c_str());
 
   emit_got_ip(&manager);
-  TEST_ASSERT_EQUAL_STRING("Applied", service.config().ssid.c_str());
+  TEST_ASSERT_EQUAL_STRING("DefaultSSID", service.config().ssid.c_str());
+  TEST_ASSERT_EQUAL_STRING("AA:BB:CC:DD:EE:FF", service.config().bssid.c_str());
   TEST_ASSERT_TRUE(service.apply_state() == WifiProvisioningApplyState::APPLIED);
 }
 
@@ -285,7 +276,7 @@ void test_wifi_provisioning_rejects_overlapping_direct_and_improv_candidates(voi
   TEST_ASSERT_EQUAL(ESP_OK, service.setup_station(make_defaults()));
   TEST_ASSERT_TRUE(service.begin_serial_provisioning("First", "first-secret", &message));
   service.loop();
-  TEST_ASSERT_FALSE(service.handle_command("SET_WIFI_CONFIG:ssid=Second&password=second-secret", &message));
+  TEST_ASSERT_FALSE(service.handle_command("SET_WIFI_BSSID:bssid=AA%3ABB%3ACC%3ADD%3AEE%3AFF", &message));
   TEST_ASSERT_EQUAL_STRING("Wi-Fi configuration change already in progress", message.c_str());
   TEST_ASSERT_EQUAL_STRING("First", reinterpret_cast<const char *>(g_esp_wifi_mock.last_config.sta.ssid));
 }
@@ -404,7 +395,7 @@ void test_improv_serial_flushes_partial_writes_without_blocking(void) {
   TEST_ASSERT_EQUAL_UINT8(improv::TYPE_CURRENT_STATE, frames[1].type);
 }
 
-void test_wifi_provisioning_batch_command_persists_and_applies_config(void) {
+void test_wifi_provisioning_bssid_command_preserves_credentials(void) {
   StandaloneWifiService manager;
   WifiProvisioningService service(&manager);
   std::string message;
@@ -416,9 +407,7 @@ void test_wifi_provisioning_batch_command_persists_and_applies_config(void) {
   service.set_apply_completed_callback([&apply_completed_calls]() { ++apply_completed_calls; });
 
   TEST_ASSERT_EQUAL(ESP_OK, service.setup_station(make_defaults()));
-  TEST_ASSERT_TRUE(service.handle_command(
-      "SET_WIFI_CONFIG:ssid=Lab%20Net&password=top%20secret&bssid=aa%3Abb%3Acc%3Add%3Aee%3Aff&channel=9",
-      &message));
+  TEST_ASSERT_TRUE(service.handle_command("SET_WIFI_BSSID:bssid=aa%3Abb%3Acc%3Add%3Aee%3Aff", &message));
 
   TEST_ASSERT_EQUAL_STRING("Wi-Fi candidate accepted; reconnect after address verification", message.c_str());
   TEST_ASSERT_TRUE(service.apply_pending());
@@ -430,13 +419,59 @@ void test_wifi_provisioning_batch_command_persists_and_applies_config(void) {
   TEST_ASSERT_EQUAL(1, resume_calls);
   TEST_ASSERT_EQUAL(1, apply_completed_calls);
   TEST_ASSERT_TRUE(service.config().has_saved_config);
-  TEST_ASSERT_EQUAL_STRING("Lab Net", service.config().ssid.c_str());
-  TEST_ASSERT_EQUAL_STRING("top secret", service.config().password.c_str());
-  TEST_ASSERT_EQUAL_STRING("aa:bb:cc:dd:ee:ff", service.config().bssid.c_str());
-  TEST_ASSERT_EQUAL_UINT8(9, service.config().channel);
-  TEST_ASSERT_EQUAL_STRING("Lab Net", reinterpret_cast<const char *>(g_esp_wifi_mock.last_config.sta.ssid));
-  TEST_ASSERT_EQUAL_STRING("top secret", reinterpret_cast<const char *>(g_esp_wifi_mock.last_config.sta.password));
-  TEST_ASSERT_EQUAL_UINT8(9, g_esp_wifi_mock.last_config.sta.channel);
+  TEST_ASSERT_EQUAL_STRING("DefaultSSID", service.config().ssid.c_str());
+  TEST_ASSERT_EQUAL_STRING("default-secret", service.config().password.c_str());
+  TEST_ASSERT_EQUAL_STRING("AA:BB:CC:DD:EE:FF", service.config().bssid.c_str());
+  TEST_ASSERT_EQUAL_UINT8(0U, service.config().channel);
+  TEST_ASSERT_EQUAL_STRING("DefaultSSID", reinterpret_cast<const char *>(g_esp_wifi_mock.last_config.sta.ssid));
+  TEST_ASSERT_EQUAL_STRING("default-secret", reinterpret_cast<const char *>(g_esp_wifi_mock.last_config.sta.password));
+  TEST_ASSERT_EQUAL_UINT8(0U, g_esp_wifi_mock.last_config.sta.channel);
+}
+
+void test_wifi_provisioning_scan_filters_provisioned_ssid_and_tracks_lifecycle(void) {
+  StandaloneWifiService manager;
+  WifiProvisioningService service(&manager);
+  int prepare_calls = 0;
+  int resume_calls = 0;
+  service.set_scan_callbacks([&prepare_calls]() { ++prepare_calls; },
+                             [&resume_calls]() { ++resume_calls; });
+  TEST_ASSERT_EQUAL(ESP_OK, service.setup_station(make_defaults()));
+  TEST_ASSERT_EQUAL(ESP_OK, manager.start());
+
+  g_esp_wifi_mock.scan_ap_count = 3U;
+  std::memcpy(g_esp_wifi_mock.scan_ap_records[0].ssid, "DefaultSSID", 12U);
+  g_esp_wifi_mock.scan_ap_records[0].rssi = -67;
+  g_esp_wifi_mock.scan_ap_records[0].primary = 11U;
+  const uint8_t weak_bssid[6] = {0xA2, 0x11, 0x7C, 0x09, 0x88, 0x31};
+  std::memcpy(g_esp_wifi_mock.scan_ap_records[0].bssid, weak_bssid, sizeof(weak_bssid));
+  std::memcpy(g_esp_wifi_mock.scan_ap_records[1].ssid, "OtherSSID", 10U);
+  g_esp_wifi_mock.scan_ap_records[1].rssi = -20;
+  g_esp_wifi_mock.scan_ap_records[1].primary = 1U;
+  std::memcpy(g_esp_wifi_mock.scan_ap_records[2].ssid, "DefaultSSID", 12U);
+  g_esp_wifi_mock.scan_ap_records[2].rssi = -43;
+  g_esp_wifi_mock.scan_ap_records[2].primary = 6U;
+  const uint8_t strong_bssid[6] = {0xE6, 0xFA, 0xC4, 0x20, 0x19, 0xDE};
+  std::memcpy(g_esp_wifi_mock.scan_ap_records[2].bssid, strong_bssid, sizeof(strong_bssid));
+
+  std::string message;
+  TEST_ASSERT_TRUE(service.request_access_point_scan(&message));
+  TEST_ASSERT_TRUE(service.scan_pending());
+  TEST_ASSERT_EQUAL(1, prepare_calls);
+  TEST_ASSERT_EQUAL(0, resume_calls);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_start_call_count);
+  TEST_ASSERT_FALSE(g_esp_wifi_mock.last_scan_block);
+
+  wifi_event_sta_scan_done_t scan_done{};
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &scan_done);
+  manager.loop();
+
+  TEST_ASSERT_FALSE(service.scan_pending());
+  TEST_ASSERT_EQUAL(1, resume_calls);
+  TEST_ASSERT_EQUAL(2U, service.access_points().size());
+  TEST_ASSERT_EQUAL_STRING("E6:FA:C4:20:19:DE", service.access_points()[0].bssid.c_str());
+  TEST_ASSERT_EQUAL_INT8(-43, service.access_points()[0].rssi_dbm);
+  TEST_ASSERT_EQUAL_UINT8(6U, service.access_points()[0].channel);
+  TEST_ASSERT_EQUAL_STRING("A2:11:7C:09:88:31", service.access_points()[1].bssid.c_str());
 }
 
 void test_wifi_provisioning_clear_command_erases_and_disconnects(void) {
@@ -489,9 +524,7 @@ void test_wifi_provisioning_falls_back_from_bssid_then_rolls_back_to_last_good(v
   std::string message;
   TEST_ASSERT_EQUAL(ESP_OK, service.setup_station(defaults));
 
-  TEST_ASSERT_TRUE(service.handle_command(
-      "SET_WIFI_CONFIG:ssid=Candidate&password=bad&bssid=aa%3Abb%3Acc%3Add%3Aee%3Aff&channel=9",
-      &message));
+  TEST_ASSERT_TRUE(service.handle_command("SET_WIFI_BSSID:bssid=aa%3Abb%3Acc%3Add%3Aee%3Aff", &message));
   TEST_ASSERT_TRUE(service.apply_state() == WifiProvisioningApplyState::VERIFYING);
   service.loop();
 
@@ -527,7 +560,7 @@ void test_wifi_provisioning_reboot_during_apply_keeps_last_good(void) {
   std::string message;
   TEST_ASSERT_EQUAL(ESP_OK, service.setup_station(make_defaults()));
   TEST_ASSERT_TRUE(service.handle_command(
-      "SET_WIFI_CONFIG:ssid=Unverified&password=unverified&bssid=&channel=0", &message));
+      "SET_WIFI_BSSID:bssid=AA%3ABB%3ACC%3ADD%3AEE%3AFF", &message));
 
   WifiProvisioningService after_reboot(nullptr);
   TEST_ASSERT_EQUAL(ESP_OK, after_reboot.load_or_set_defaults(make_defaults()));
@@ -541,13 +574,14 @@ int process(void) {
   RUN_TEST(test_wifi_provisioning_loads_saved_config);
   RUN_TEST(test_wifi_provisioning_normalizes_an_incompatible_stored_channel);
   RUN_TEST(test_wifi_provisioning_records_load_error_and_falls_back_to_defaults);
-  RUN_TEST(test_wifi_provisioning_commands_validate_and_persist_config);
-  RUN_TEST(test_wifi_provisioning_apply_updates_wifi_manager_live);
+  RUN_TEST(test_wifi_provisioning_bssid_command_validates_and_persists_selection);
+  RUN_TEST(test_wifi_provisioning_bssid_selection_updates_wifi_manager_live);
   RUN_TEST(test_wifi_provisioning_stages_standard_improv_credentials_without_radio_lock);
   RUN_TEST(test_wifi_provisioning_rejects_overlapping_direct_and_improv_candidates);
   RUN_TEST(test_improv_serial_reports_info_and_completes_verified_provisioning);
   RUN_TEST(test_improv_serial_flushes_partial_writes_without_blocking);
-  RUN_TEST(test_wifi_provisioning_batch_command_persists_and_applies_config);
+  RUN_TEST(test_wifi_provisioning_bssid_command_preserves_credentials);
+  RUN_TEST(test_wifi_provisioning_scan_filters_provisioned_ssid_and_tracks_lifecycle);
   RUN_TEST(test_wifi_provisioning_clear_command_erases_and_disconnects);
   RUN_TEST(test_wifi_provisioning_falls_back_from_bssid_then_rolls_back_to_last_good);
   RUN_TEST(test_wifi_provisioning_reboot_during_apply_keeps_last_good);

@@ -141,16 +141,13 @@
             if (this.dataset.rendered === 'true') return;
             const template = document.getElementById('direct-connect-template');
             if (!template) throw new Error('Direct connection template is unavailable');
-            const surface = this.dataset.surface === 'monitor' ? 'monitor' : 'configure';
+            const surface = this.dataset.surface || 'configure';
             const fragment = template.content.cloneNode(true);
-            const inputId = surface === 'monitor' ? 'mon-direct-endpoint' : 'cfg-direct-endpoint';
+            const inputId = `${surface}-direct-endpoint`;
             const input = fragment.querySelector('.js-direct-endpoint');
             const label = fragment.querySelector('.js-direct-endpoint-label');
             input.id = inputId;
             label.htmlFor = inputId;
-
-            const help = fragment.querySelector('.js-direct-help');
-            help.classList.add(surface === 'monitor' ? 'js-mon-direct-help' : 'js-cfg-direct-help');
             this.replaceChildren(fragment);
             this.dataset.rendered = 'true';
         }
@@ -158,6 +155,52 @@
 
     if (!customElements.get('espectre-direct-connect')) {
         customElements.define('espectre-direct-connect', DirectConnectElement);
+    }
+
+    class ConnectionPickerElement extends HTMLElement {
+        connectedCallback() {
+            if (this.dataset.rendered === 'true') return;
+            const template = document.getElementById('connection-picker-template');
+            if (!template) throw new Error('Connection picker template is unavailable');
+            const surface = this.dataset.surface || 'monitor';
+            const fragment = template.content.cloneNode(true);
+            const fieldset = fragment.querySelector('.transport-choice');
+            fieldset.setAttribute('aria-label', `${surface.replace('-', ' ')} connection method`);
+            fragment.querySelectorAll('input[data-connection-mode]').forEach((radio) => {
+                const mode = radio.dataset.connectionMode;
+                const id = `${surface}-transport-${mode}`;
+                radio.id = id;
+                radio.name = `${surface}-transport`;
+                fragment.querySelector(`label[data-connection-label="${mode}"]`).htmlFor = id;
+            });
+            fragment.querySelectorAll('[data-connection-panel]').forEach((panel) => {
+                panel.dataset.connectionSurface = surface;
+            });
+            const direct = fragment.querySelector('espectre-direct-connect');
+            direct.dataset.surface = surface;
+            if (this.dataset.openView) direct.dataset.openView = this.dataset.openView;
+            this.replaceChildren(fragment);
+            this.querySelectorAll('input[data-connection-mode]').forEach((radio) => {
+                radio.addEventListener('change', () => {
+                    if (radio.checked) this.select(radio.value);
+                });
+            });
+            this.dataset.rendered = 'true';
+            this.select('direct');
+        }
+
+        select(mode) {
+            const selectedMode = ['direct', 'demo', 'relay'].includes(mode) ? mode : 'direct';
+            const radio = this.querySelector(`input[data-connection-mode="${selectedMode}"]`);
+            if (radio) radio.checked = true;
+            this.querySelectorAll('[data-connection-panel]').forEach((panel) => {
+                panel.hidden = panel.dataset.connectionPanel !== selectedMode;
+            });
+        }
+    }
+
+    if (!customElements.get('espectre-connection-picker')) {
+        customElements.define('espectre-connection-picker', ConnectionPickerElement);
     }
 
     const conn = {
@@ -201,14 +244,12 @@
     let route = 'home';
     const LIVE_EXPERIENCE_ROUTES = new Set(['tool-game', 'tool-theremin']);
     let pendingLiveDestination = '';
-    let pendingDirectDestination = '';
     const deviceNameEditorState = {
         configure: { editing: false, savePending: false },
         monitor: { editing: false, savePending: false }
     };
     let lastTrackedProfile = null;
-    let wifiBandPolicyAvailable = false;
-    let currentWifiBandPolicy = '2g';
+    let currentWifiBssid = '';
     let otaUpdateAvailable = false;
     let otaBusy = false;
     let otaState = '';
@@ -242,24 +283,6 @@
         });
     }
 
-    function applyWifiBandOptions(snapshot) {
-        const select = document.getElementById('cfg-wifi-band');
-        if (!select) return;
-        const supports5ghz = sysinfoBoolean(snapshot.supports_wifi_5ghz);
-        const selected = snapshot.wifi_band_policy || '2g';
-        select.replaceChildren(new Option('2.4 GHz', '2g'));
-        if (supports5ghz) {
-            select.add(new Option('5 GHz', '5g'));
-            select.add(new Option('Automatic (2.4/5 GHz)', 'auto'));
-        }
-        select.disabled = select.options.length === 1;
-        currentWifiBandPolicy = [...select.options].some((option) => option.value === selected)
-            ? selected
-            : '2g';
-        select.value = currentWifiBandPolicy;
-        wifiBandPolicyAvailable = snapshot.wifi_band_policy !== undefined;
-    }
-
     /*
      * Both detection profiles emit a probability on an absolute 0..1 scale, so
      * the display maps the value directly. Scaling against the threshold
@@ -275,7 +298,7 @@
     }
 
     function connectionIntentRoute() {
-        return pendingDirectDestination || pendingLiveDestination || route;
+        return pendingLiveDestination || route;
     }
 
     function rememberLiveDestination(routeName = route) {
@@ -291,14 +314,6 @@
         }
         if (route === 'tool-monitor' || route === 'tool-configure') {
             setDeviceView('live', { focus: true });
-        }
-    }
-
-    function completeDirectConnectionNavigation() {
-        const destination = pendingDirectDestination;
-        pendingDirectDestination = '';
-        if (destination && routeRegistry.has(destination) && route !== destination) {
-            location.hash = '#' + destination;
         }
     }
 
@@ -787,13 +802,12 @@
     /* --------------------------------------------------------- Direct mode */
 
     function directEndpointInput() {
-        const id = route === 'tool-monitor' ? 'mon-direct-endpoint' : 'cfg-direct-endpoint';
-        return document.getElementById(id);
+        return document.querySelector(`[data-page="${route}"] .js-direct-endpoint`)
+            || document.querySelector('.js-direct-endpoint');
     }
 
     function syncDirectEndpointInputs(target) {
-        ['cfg-direct-endpoint', 'mon-direct-endpoint'].forEach((id) => {
-            const input = document.getElementById(id);
+        $$('.js-direct-endpoint').forEach((input) => {
             if (input && target) input.value = target;
         });
     }
@@ -915,9 +929,11 @@
         const methods = new Set((capabilities.commands || []).map((item) => item?.name).filter(Boolean));
         monitor.commands = methods;
         monitor.commandCatalogReady = true;
-        conn.connectivityConfigSupported = methods.has('set_wifi_config') || methods.has('set_mqtt_config');
+        conn.connectivityConfigSupported = methods.has('set_wifi_bssid') || methods.has('set_mqtt_config');
         return {
-            supports_wifi_provisioning: methods.has('set_wifi_config'),
+            supports_wifi_bssid: methods.has('set_wifi_bssid')
+                && methods.has('scan_wifi_access_points') && methods.has('wifi_access_points'),
+            supports_wifi_clear: methods.has('clear_wifi_config'),
             supports_mqtt_config: methods.has('set_mqtt_config'),
             supports_device_config: methods.has('set_device_label'),
             supports_runtime_threshold: methods.has('set_threshold'),
@@ -939,9 +955,8 @@
             device_label: config.device_label ?? device.device_label,
             wifi_configured: wifi.configured,
             wifi_ssid: wifi.ssid,
+            wifi_band: wifi.band,
             wifi_bssid: wifi.bssid,
-            wifi_channel: wifi.channel,
-            wifi_band_policy: wifi.band_policy,
             wifi_apply_state: wifi.apply_state,
             wifi_apply_message: wifi.apply_message,
             mqtt_configured: mqtt.configured,
@@ -1060,14 +1075,13 @@
             const addressHelp = localName
                 ? 'Retry Auto-discovery or enter the device IP address. '
                 : 'Confirm the device IP address. ';
-            return `The browser could not open the local Direct connection. ${addressHelp}Close other ESPectre Configure or Monitor tabs, allow Local network access when prompted, and retry. The device may be offline or at its two-client limit.`;
+            return `The browser could not open the local Direct connection. ${addressHelp}Close other ESPectre tabs, allow Local network access when prompted, and retry. The device may be offline or at its two-client limit.`;
         }
         return error?.message || 'Direct HTTP connection failed.';
     }
 
     function setDirectConnectionHelp(message = '') {
-        const selector = route === 'tool-monitor' ? '.js-mon-direct-help' : '.js-cfg-direct-help';
-        const help = $(selector);
+        const help = directEndpointInput()?.closest('.device-connect-card')?.querySelector('.js-direct-help');
         if (!help) return;
         const copy = help.querySelector('.js-direct-help-copy');
         if (copy) copy.textContent = message;
@@ -1336,8 +1350,16 @@
         const info = await directClient.request('info');
         const status = await directClient.request('status');
         const config = await directClient.request('config');
+        const diagnostics = activeToolName() === 'configure'
+            ? await directClient.request('diagnostics')
+            : null;
         const otaStatus = supportsOta ? await directClient.request('ota_status') : null;
-        applySysinfo({ ...directCapabilitiesSnapshot(directClient.capabilities), ...info, ...status });
+        applySysinfo({
+            ...directCapabilitiesSnapshot(directClient.capabilities),
+            ...info,
+            ...status,
+            ...(diagnostics || {})
+        });
         applyDirectConfig(config);
         if (otaStatus) applyOtaStatus(otaStatus);
     }
@@ -1441,14 +1463,21 @@
             }
             setStatus('connected');
             setDirectConnectionHelp();
-            setDeviceView(openView || (route === 'tool-monitor' || !conn.connectivityConfigSupported
-                ? 'live' : 'connectivity'));
+            if (route === 'tool-raw-csi') {
+                rawCsiUseConnection();
+            } else if (!LIVE_EXPERIENCE_ROUTES.has(route)) {
+                const view = openView || (route === 'tool-monitor' || !conn.connectivityConfigSupported
+                    ? 'live' : 'connectivity');
+                setDeviceView(view);
+                if (view === 'connectivity' && monitor.commands.has('scan_wifi_access_points')) {
+                    void cfgRefreshWifiAccessPoints();
+                }
+            }
             track('tool_connection', {
                 ...connectionParams(), transport: 'direct_http', result: 'success'
             });
             markToolReady('info');
-            if (pendingDirectDestination) completeDirectConnectionNavigation();
-            else if (pendingLiveDestination) completeLiveConnectionNavigation();
+            if (pendingLiveDestination) completeLiveConnectionNavigation();
         } catch (error) {
             directClient?.close();
             directClient = null;
@@ -1495,14 +1524,6 @@
         password.disabled = isFlespi;
         if (isFlespi) password.value = '';
         syncConfigureMqttCredentialMode();
-    }
-
-    function syncConfigureWifiPasswordMode() {
-        const clear = document.getElementById('cfg-wifi-pass-clear').checked;
-        const password = document.getElementById('cfg-wifi-pass');
-        password.disabled = clear;
-        password.placeholder = clear ? 'No password' : 'Keep current password';
-        if (clear) password.value = '';
     }
 
     function syncConfigureMqttCredentialMode() {
@@ -1609,7 +1630,6 @@
             markToolReady('info');
         }
         applyConfigureCapabilities(snapshot);
-        applyWifiBandOptions(snapshot);
         const chip = snapshot.chip ? String(snapshot.chip).toUpperCase() : conn.chip;
         const proto = snapshot.proto_version || snapshot.espectre_protocol_version || '';
         const firmware = snapshot.firmware_version || snapshot.firmware || snapshot.version || conn.firmwareVersion;
@@ -1653,9 +1673,23 @@
             dot.classList.toggle('dot-ok', state === 'connected');
             dot.classList.toggle('dot-error', state === 'disconnected');
         };
-        set('cfg-ssid', snapshot.wifi_ssid);
-        set('cfg-bssid', snapshot.wifi_bssid);
-        set('cfg-channel', snapshot.wifi_channel);
+        if (snapshot.wifi_ssid !== undefined) set('cfg-ssid', snapshot.wifi_ssid || '');
+        if (snapshot.wifi_band !== undefined) {
+            set('cfg-wifi-band', snapshot.wifi_band === '2g' ? '2.4 GHz'
+                : snapshot.wifi_band === '5g' ? '5 GHz' : 'Unknown');
+        }
+        if (snapshot.wifi_channel !== undefined) {
+            set('cfg-channel', Number(snapshot.wifi_channel) > 0 ? snapshot.wifi_channel : 'Unknown');
+        }
+        if (snapshot.wifi_bssid !== undefined) {
+            currentWifiBssid = String(snapshot.wifi_bssid || '').toUpperCase();
+            const bssid = document.getElementById('cfg-bssid');
+            if (bssid && ![...bssid.options].some((option) => option.value === currentWifiBssid)
+                    && currentWifiBssid) {
+                bssid.add(new Option(`${currentWifiBssid} · pinned`, currentWifiBssid));
+            }
+            if (bssid) bssid.value = currentWifiBssid;
+        }
         if (snapshot.mqtt_host) {
             set('cfg-mqtt-host', snapshot.mqtt_host);
             set('cfg-mqtt-port', snapshot.mqtt_port);
@@ -1695,9 +1729,9 @@
 
     /* ----------------------------------------------------------- demo mode */
 
-    function connectDemo() {
+    function connectDemo(openView = '') {
         if (conn.status !== 'disconnected') return;
-        rememberLiveDestination();
+        if (openView === 'live') rememberLiveDestination();
         rememberConnectionOrigin();
         track('tool_demo_start', connectionParams());
         setStatus('connecting');
@@ -1723,12 +1757,12 @@
                 frontend: 'native',
                 proto_version: '1.0',
                 firmware_version: '3.0.0-dev',
-                supports_wifi_provisioning: 'true',
+                supports_wifi_bssid: 'true',
+                supports_wifi_clear: 'true',
                 supports_mqtt_config: 'true',
                 supports_device_config: 'true',
                 supports_extended_diagnostics: 'true',
                 supports_ota: 'false',
-                supports_wifi_5ghz: 'true',
                 detector: 'lightweight',
                 threshold: '0.500000',
                 window: '100',
@@ -1742,9 +1776,12 @@
                 publish_interval_ms: '1000',
                 evaluation_interval_ms: '250',
                 wifi_connected: 'true',
-                wifi_band_policy: '2g',
                 mqtt_connected: 'true',
-                wifi_ssid: 'HomeNet-5G',
+                wifi_configured: 'true',
+                wifi_ssid: 'HomeNet',
+                wifi_band: '5g',
+                wifi_channel: '10',
+                wifi_bssid: '',
                 mqtt_host: 'homeassistant.local',
                 mqtt_port: '1883',
                 mqtt_username: 'mqtt',
@@ -1754,7 +1791,7 @@
                 device_label: 'Demo Device',
                 motion_hits: '4/3'
             });
-            completeLiveConnectionNavigation();
+            if (openView === 'live') completeLiveConnectionNavigation();
             monitorResetChart();
             let t = 0;
             const demoTickSec = evaluationIntervalMs() / 1000;
@@ -1893,7 +1930,6 @@
             state.savePending = false;
         });
         pendingLiveDestination = '';
-        pendingDirectDestination = '';
         lastTrackedProfile = null;
         otaUpdateAvailable = false;
         otaBusy = false;
@@ -1908,7 +1944,9 @@
         gameReset();
         thereminStop();
         otaClose(false);
-        if (previousMode === 'demo') selectMonitorTransport('direct');
+        if (previousMode === 'demo') {
+            $$('espectre-connection-picker').forEach((picker) => picker.select('direct'));
+        }
         setStatus('disconnected');
     }
 
@@ -2006,6 +2044,7 @@
         if (configureWorkspace) configureWorkspace.hidden = !(directSetup || conn.mode === 'demo');
         if (monitorOnboarding) monitorOnboarding.hidden = live;
         if (monitorWorkspace) monitorWorkspace.hidden = !live;
+        rawCsiUseConnection();
         if (connectivitySetup) connectivitySetup.hidden = !(directSetup || conn.mode === 'demo');
         if (startSensing) startSensing.disabled = monitor.switchingTransport;
         if (edit) {
@@ -2102,7 +2141,7 @@
         window.scrollTo(0, 0);
         if (route !== 'tool-theremin') thereminStop();
         if (route === 'tool-monitor') monitorResizeChart();
-        if (route === 'tool-raw-csi') rawCsiUseDirectConnection();
+        if (route === 'tool-raw-csi') rawCsiUseConnection();
         if (route === 'tool-game') {
             requestAnimationFrame(() => {
                 gameResizeCanvas();
@@ -2142,11 +2181,6 @@
         const remapped = LEGACY_TOOL_ROUTES[next] || next;
         const target = routeRegistry.has(remapped) ? remapped : 'home';
         if (!force && target === route) return;
-        if (target === 'tool-raw-csi' && !rawCsiDirectReady()) {
-            pendingDirectDestination = 'tool-raw-csi';
-            if (location.hash !== '#tool-configure') location.hash = '#tool-configure';
-            return;
-        }
         cancelDirectDiscovery({ clear: true });
         const previousRoute = route;
         if (previousRoute === 'tool-raw-csi' && target !== 'tool-raw-csi') {
@@ -2155,10 +2189,6 @@
         if (pendingLiveDestination) {
             if (LIVE_EXPERIENCE_ROUTES.has(target)) pendingLiveDestination = target;
             else if (target !== 'tool-monitor' && target !== 'tool-configure') pendingLiveDestination = '';
-        }
-        if (pendingDirectDestination
-                && target !== pendingDirectDestination && target !== 'tool-configure') {
-            pendingDirectDestination = '';
         }
         if (previousRoute === 'tool-game' && target !== 'tool-game') {
             gameExitFullscreen();
@@ -3340,23 +3370,10 @@
     }
 
     function selectMonitorTransport(mode) {
-        const selectedMode = ['direct', 'demo', 'relay'].includes(mode) ? mode : 'direct';
-        const radio = document.getElementById(`monitor-transport-${selectedMode}`);
-        if (radio) radio.checked = true;
-        $$('[data-monitor-transport-panel]').forEach((panel) => {
-            panel.hidden = panel.dataset.monitorTransportPanel !== selectedMode;
-        });
+        document.querySelector('espectre-connection-picker[data-surface="monitor"]')?.select(mode);
     }
 
     function monitorInit() {
-        const transportRadios = $$('input[name="monitor-transport"]');
-        transportRadios.forEach((radio) => {
-            radio.addEventListener('change', () => {
-                if (!radio.checked) return;
-                selectMonitorTransport(radio.value);
-            });
-        });
-        selectMonitorTransport(transportRadios.find((radio) => radio.checked)?.value || 'direct');
         const diagnostics = $('.device-live-diagnostics');
         if (diagnostics) {
             diagnostics.addEventListener('toggle', syncDiagnosticsPolling);
@@ -3508,9 +3525,8 @@
         return {
             device_label: config.device_label ?? device.device_label ?? '',
             wifi_ssid: wifi.ssid || '',
+            wifi_band: wifi.band || '',
             wifi_bssid: wifi.bssid || '',
-            wifi_channel: wifi.channel || 0,
-            wifi_band_policy: wifi.band_policy || '',
             wifi_apply_state: wifi.apply_state || '',
             mqtt_host: mqtt.host || '',
             mqtt_port: mqtt.port || 0,
@@ -3616,62 +3632,80 @@
         }
     }
 
-    async function cfgSaveWifi() {
-        const ssid = cfgValue('cfg-ssid').trim();
-        const password = cfgValue('cfg-wifi-pass');
-        const removePassword = document.getElementById('cfg-wifi-pass-clear').checked;
-        if (!ssid) {
-            cfgValidationFailed('set_wifi', 'Wi-Fi needs an SSID.');
+    function renderWifiAccessPoints(snapshot = {}) {
+        const select = document.getElementById('cfg-bssid');
+        const status = $('.js-wifi-scan-status');
+        const scanButton = $('.js-wifi-scan');
+        if (!select || !status || !scanButton) return;
+        const accessPoints = Array.isArray(snapshot.access_points) ? snapshot.access_points : [];
+        const options = [new Option('Automatic (strongest available)', '')];
+        accessPoints.forEach((accessPoint) => {
+            const bssid = String(accessPoint?.bssid || '').toUpperCase();
+            const rssi = Number(accessPoint?.rssi_dbm);
+            if (!/^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$/.test(bssid)
+                    || !Number.isInteger(rssi)) return;
+            options.push(new Option(`${bssid} · ${rssi} dBm`, bssid));
+        });
+        if (currentWifiBssid && !options.some((option) => option.value === currentWifiBssid)) {
+            options.push(new Option(`${currentWifiBssid} · pinned`, currentWifiBssid));
+        }
+        select.replaceChildren(...options);
+        select.value = currentWifiBssid;
+        const scanning = snapshot.scanning === true;
+        select.disabled = scanning;
+        scanButton.disabled = scanning;
+        status.textContent = snapshot.message
+            || (accessPoints.length ? `${accessPoints.length} access point${accessPoints.length === 1 ? '' : 's'} found.`
+                : 'No matching access points found. Automatic selection remains available.');
+    }
+
+    async function cfgRefreshWifiAccessPoints() {
+        if (conn.mode === 'demo') {
+            renderWifiAccessPoints({
+                scanning: false,
+                message: '2 access points found. (demo)',
+                access_points: [
+                    { bssid: 'E6:FA:C4:20:19:DE', channel: 6, rssi_dbm: -43 },
+                    { bssid: 'A2:11:7C:09:88:31', channel: 11, rssi_dbm: -67 }
+                ]
+            });
             return;
         }
-        const bandPolicy = cfgValue('cfg-wifi-band');
-        const bandChanged = wifiBandPolicyAvailable && bandPolicy !== currentWifiBandPolicy;
-        const bssid = cfgValue('cfg-bssid').trim();
-        const channel = Number(cfgValue('cfg-channel') || 0);
-        if (utf8Length(ssid) > 32 || utf8Length(password) > 63) {
-            cfgValidationFailed('set_wifi', 'SSID must be at most 32 bytes, and the password at most 63 bytes.');
-            return;
-        }
-        if (bssid && !/^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$/i.test(bssid)) {
-            cfgValidationFailed('set_wifi', 'BSSID must match aa:bb:cc:dd:ee:ff.');
-            return;
-        }
-        if (!Number.isInteger(channel) || channel < 0 || channel > 177) {
-            cfgValidationFailed('set_wifi', 'Channel must be an integer from 0 to 177.');
-            return;
-        }
-        const wifiParams = {
-            ssid,
-            bssid,
-            channel,
-            ...(wifiBandPolicyAvailable ? { band_policy: bandPolicy } : {})
-        };
-        if (password || removePassword) wifiParams.password = removePassword ? '' : password;
-        const ok = await cfgApply(
-            'set_wifi',
-            bandChanged ? 'Wi-Fi saved; restart required to apply the band.' : 'Wi-Fi saved; station reconnecting.',
-            'set_wifi_config', wifiParams,
-            (snapshot) => snapshot.wifi_ssid === ssid
-                && snapshot.wifi_bssid.toLowerCase() === bssid.toLowerCase()
-                && (!wifiBandPolicyAvailable || snapshot.wifi_band_policy === bandPolicy));
-        if (ok) {
-            document.getElementById('cfg-wifi-pass').value = '';
-            document.getElementById('cfg-wifi-pass-clear').checked = false;
-            syncConfigureWifiPasswordMode();
-            if (bandChanged) {
-                currentWifiBandPolicy = bandPolicy;
-                $('.js-wifi-restart-note').hidden = false;
+        if (!directClient?.connected || !monitor.commands.has('scan_wifi_access_points')) return;
+        renderWifiAccessPoints({ scanning: true, message: 'Scanning access points…' });
+        try {
+            await directClient.request('scan_wifi_access_points');
+            for (let attempt = 0; attempt < 20; attempt += 1) {
+                await new Promise((resolve) => setTimeout(resolve, 350));
+                const snapshot = await directClient.request('wifi_access_points');
+                renderWifiAccessPoints(snapshot);
+                if (!snapshot.scanning) return;
             }
+            renderWifiAccessPoints({ scanning: false, message: 'Access point scan timed out. Try again.' });
+        } catch (error) {
+            renderWifiAccessPoints({
+                scanning: false,
+                message: 'Access point scan failed: ' + (error.message || error)
+            });
         }
+    }
+
+    async function cfgSaveWifi() {
+        const bssid = cfgValue('cfg-bssid').trim().toUpperCase();
+        await cfgApply(
+            'set_wifi_bssid',
+            bssid ? 'Access point saved; station reconnecting.' : 'Automatic access-point selection saved; station reconnecting.',
+            'set_wifi_bssid', { bssid },
+            (snapshot) => String(snapshot.wifi_bssid || '').toUpperCase() === bssid);
     }
 
     const CONFIG_CLEAR_DIALOGS = Object.freeze({
         wifi: Object.freeze({
-            kicker: 'Wi-Fi recovery',
-            title: 'Remove Wi-Fi configuration?',
-            description: 'This removes the saved SSID, password, BSSID, channel, and band policy.',
-            warning: 'The device will disconnect immediately. To use it again, connect over USB and repeat Wi-Fi provisioning.',
-            confirm: 'Remove Wi-Fi'
+            kicker: 'Primary connection',
+            title: 'Reset Wi-Fi configuration?',
+            description: 'This removes the provisioned Wi-Fi network and password from the device.',
+            warning: 'The device will disconnect. Provision it again over Improv Serial to restore network access.',
+            confirm: 'Reset Wi-Fi'
         }),
         mqtt: Object.freeze({
             kicker: 'MQTT integration',
@@ -3721,11 +3755,11 @@
         }
         if (!await openConfigClearDialog('wifi', document.activeElement)) return;
         if (conn.mode === 'demo') {
-            toast('Wi-Fi credentials cleared. (demo — nothing written)');
+            toast('Wi-Fi configuration removed. (demo — nothing written)');
             return;
         }
         let result = 'accepted';
-        let message = 'Wi-Fi credentials cleared. Provision the device again via Improv Serial.';
+        let message = 'Wi-Fi configuration removed. Provision the device again via Improv Serial.';
         try {
             await directClient.request('clear_wifi_config', {}, { timeoutMs: 3000 });
         } catch (error) {
@@ -3737,9 +3771,9 @@
                 return;
             }
             result = 'unconfirmed';
-            message = 'Wi-Fi clear sent. The device disconnected as expected; provision it again via Improv Serial.';
+            message = 'Wi-Fi removal sent. The device disconnected as expected; provision it again via Improv Serial.';
         }
-        ['cfg-ssid', 'cfg-wifi-pass', 'cfg-bssid', 'cfg-channel'].forEach((id) => {
+        ['cfg-ssid', 'cfg-wifi-band', 'cfg-channel', 'cfg-bssid'].forEach((id) => {
             document.getElementById(id).value = '';
         });
         track('configure_change', { action: 'clear_wifi', result });
@@ -4130,10 +4164,10 @@
         applyMqttPresetFieldLocks('configure', MQTT_PRESETS[presetName].configure);
         applyConfigureMqttCredentialPolicy(presetName);
         $('.js-wifi-save').addEventListener('click', cfgSaveWifi);
+        $('.js-wifi-scan').addEventListener('click', cfgRefreshWifiAccessPoints);
         $('.js-wifi-clear').addEventListener('click', cfgClearWifi);
         $('.js-mqtt-save').addEventListener('click', cfgSaveMqtt);
         $('.js-mqtt-clear').addEventListener('click', cfgClearMqtt);
-        document.getElementById('cfg-wifi-pass-clear').addEventListener('change', syncConfigureWifiPasswordMode);
         document.getElementById('cfg-mqtt-credentials-clear').addEventListener('change', syncConfigureMqttCredentialMode);
         document.getElementById('cfg-mqtt-preset').addEventListener('change', (event) => {
             applyConfigureMqttPreset(event.currentTarget.value);
@@ -5273,6 +5307,8 @@
     const rawCsi = {
         sessionClient: null,
         controller: null,
+        demoTimer: null,
+        demoFresh: 0,
         running: false,
         buffer: new Uint8Array(0),
         sessionBytes: null,
@@ -5312,8 +5348,20 @@
         if (workspace) workspace.hidden = !available;
     }
 
-    function rawCsiUseDirectConnection() {
-        if (!rawCsiDirectReady()) return false;
+    function rawCsiUseConnection() {
+        const onboarding = $('.js-raw-csi-onboarding');
+        if (conn.status !== 'connected' || !['direct', 'demo'].includes(conn.mode)) {
+            if (onboarding) onboarding.hidden = false;
+            $('.js-raw-csi-unavailable').hidden = true;
+            $('.js-raw-csi-workspace').hidden = true;
+            return false;
+        }
+        if (onboarding) onboarding.hidden = true;
+        if (conn.mode === 'demo') {
+            rawCsiSetAvailable(true);
+            rawCsiStatus('Demo connected. Start the simulated CSI stream when ready.');
+            return true;
+        }
         const available = directClient.capabilities?.features?.raw_csi === true;
         rawCsiSetAvailable(available);
         if (available) rawCsiStatus('Connected. Start the ephemeral stream when ready.');
@@ -6043,9 +6091,49 @@
         }
     }
 
+    function rawCsiDemoFrame(targetPps, intervalMs, startedAtMs) {
+        const elapsedSec = (performance.now() - startedAtMs) / 1000;
+        const amplitudes = new Float32Array(64);
+        const iValues = new Float32Array(64);
+        const qValues = new Float32Array(64);
+        const motion = 0.08 + conn.movement * 0.92;
+        for (let index = 0; index < amplitudes.length; index += 1) {
+            const channelShape = 34 + 8 * Math.sin(index * 0.31) + 5 * Math.cos(index * 0.13);
+            const disturbance = motion * 18 * Math.sin(elapsedSec * 5.2 + index * 0.19);
+            const amplitude = Math.max(4, channelShape + disturbance);
+            const phase = index * 0.23 + elapsedSec * (0.7 + motion * 1.8);
+            iValues[index] = Math.cos(phase) * amplitude;
+            qValues[index] = Math.sin(phase) * amplitude;
+            amplitudes[index] = amplitude;
+        }
+        rawCsiIngestVisualFrame(amplitudes, iValues, qValues, Math.round(performance.now() * 1000));
+        rawCsi.demoFresh += Math.max(1, Math.round(targetPps * intervalMs / 1000));
+        rawCsiCounter('.js-raw-pps', targetPps);
+        rawCsiCounter('.js-raw-fresh', rawCsi.demoFresh);
+        rawCsiCounter('.js-raw-rssi', Math.round(-50 + motion * 7));
+        rawCsiCounter('.js-raw-channel', 6);
+    }
+
+    function rawCsiStartDemo(targetPps) {
+        const intervalMs = Math.max(10, Math.round(1000 / targetPps));
+        const startedAtMs = performance.now();
+        rawCsi.demoFresh = 0;
+        rawCsiResetVisualization();
+        ['.js-raw-fresh', '.js-raw-no-sample', '.js-raw-replaced',
+            '.js-raw-dropped', '.js-raw-backpressure'].forEach((selector) => rawCsiCounter(selector, 0));
+        rawCsiSetRunning(true);
+        rawCsiStatus(`Streaming simulated CSI at ${targetPps} target packets/s.`);
+        rawCsiDemoFrame(targetPps, intervalMs, startedAtMs);
+        rawCsi.demoTimer = setInterval(
+            () => rawCsiDemoFrame(targetPps, intervalMs, startedAtMs), intervalMs);
+    }
+
     async function rawCsiStop() {
         const client = rawCsi.sessionClient;
         rawCsi.sessionClient = null;
+        clearInterval(rawCsi.demoTimer);
+        rawCsi.demoTimer = null;
+        rawCsi.demoFresh = 0;
         rawCsi.controller?.abort('raw stream stopped');
         rawCsi.controller = null;
         rawCsiSetRunning(false);
@@ -6060,12 +6148,17 @@
 
     async function rawCsiStart() {
         const client = directClient;
-        if (!rawCsiDirectReady() || client.capabilities?.features?.raw_csi !== true || rawCsi.running) return;
+        if (rawCsi.running || conn.status !== 'connected') return;
         const targetPps = Number($('#raw-csi-target-pps')?.value);
         if (!Number.isInteger(targetPps) || targetPps < 1 || targetPps > 500) {
             rawCsiStatus('Target PPS must be an integer from 1 to 500.', true);
             return;
         }
+        if (conn.mode === 'demo') {
+            rawCsiStartDemo(targetPps);
+            return;
+        }
+        if (!rawCsiDirectReady() || client.capabilities?.features?.raw_csi !== true) return;
         rawCsiSetRunning(true);
         rawCsi.sessionClient = client;
         rawCsiStatus('Starting raw CSI stream…');
@@ -6104,8 +6197,7 @@
 
     function rawCsiChooseDevice() {
         disconnect();
-        pendingDirectDestination = 'tool-raw-csi';
-        location.hash = '#tool-configure';
+        directEndpointInput()?.focus();
     }
 
     function rawCsiInit() {
@@ -6167,27 +6259,36 @@
         renderStoredDirectEndpoints();
         consumeDirectHandoff();
 
-        $$('.js-connect-direct').forEach((btn) => btn.addEventListener('click', () => connectDirect()));
+        $$('.js-connect-direct').forEach((btn) => btn.addEventListener('click', () => connectDirect({
+            openView: btn.closest('espectre-direct-connect')?.dataset.openView
+        })));
         $$('.js-direct-discover').forEach((btn) => btn.addEventListener('click', () => discoverLocalPeers(btn)));
         $$('.js-direct-discovery').forEach((panel) => panel.addEventListener('click', (event) => {
             const button = event.target.closest('.direct-discovery-device');
             if (!button?.dataset.endpoint) return;
             const input = button.closest('.device-connect-card')?.querySelector('input[list="direct-remembered-endpoints"]');
             if (input) input.value = button.dataset.deviceId;
-            connectDirect({ endpoint: button.dataset.endpoint, deviceId: button.dataset.deviceId });
+            connectDirect({
+                endpoint: button.dataset.endpoint,
+                deviceId: button.dataset.deviceId,
+                openView: button.closest('espectre-direct-connect')?.dataset.openView
+            });
         }));
         $$('.js-start-detection').forEach((btn) => btn.addEventListener('click', () => {
             startDetection(btn.dataset.liveTransport || '');
         }));
         $('.js-header-connect').addEventListener('click', () => {
-            if (route === 'tool-configure') {
-                directEndpointInput()?.focus();
+            selectMonitorTransport('direct');
+            if (route === 'tool-monitor') {
+                document.getElementById('monitor-direct-endpoint')?.focus();
                 return;
             }
-            rememberLiveDestination();
-            location.hash = '#tool-configure';
+            pendingLiveDestination = '';
+            location.hash = '#tool-monitor';
         });
-        $$('.js-demo').forEach((btn) => btn.addEventListener('click', connectDemo));
+        $$('.js-demo').forEach((btn) => btn.addEventListener('click', () => {
+            connectDemo(btn.closest('espectre-connection-picker')?.dataset.openView || '');
+        }));
         $('.js-disconnect').addEventListener('click', disconnect);
         $('.js-dropdown-toggle').addEventListener('click', (event) => {
             event.stopPropagation();

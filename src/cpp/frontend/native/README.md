@@ -49,9 +49,13 @@ Hosted HTTPS access to local cleartext HTTP depends on browser Private Network A
 
 ## Wi-Fi Provisioning and Recovery
 
-Standard Improv Serial remains available through the primary serial console. It owns initial Wi-Fi provisioning and returns `https://espectre.dev/tools/configure/?target=<device-ip>`; Configure uses the target to prefill its Direct connection field. The same parameter also accepts a device name or ID when a browser link is shared. Custom BSSID, device-label, MQTT, sensing, and OTA operations belong to Direct HTTP.
+Standard Improv Serial remains available through the primary serial console. It owns the Wi-Fi SSID and password and returns `https://espectre.dev/tools/configure/?target=<device-ip>`; Configure uses the target to prefill its Direct connection field. The same parameter also accepts a device name or ID when a browser link is shared. BSSID selection, Wi-Fi removal, device-label, MQTT, sensing, and OTA operations belong to Direct HTTP. Direct reports the current SSID and active band as read-only values but does not expose the Wi-Fi password or band selection.
 
-Remote Wi-Fi changes are staged. Native attempts the candidate network, commits it only after association and address acquisition, and rolls back to the last-known-good settings when the attempt fails or times out. After a successful commit or rollback, Native reboots once so the ESP32-C3 radio returns with a fresh CSI capture session; Direct and MQTT clients should reconnect after the device address becomes reachable again. If an optional BSSID is unavailable, the provisioning policy can retry the same SSID without the pin instead of permanently stranding the device.
+Configure can scan asynchronously for access points that advertise the provisioned SSID. The station remains associated and Direct HTTP stays active during the scan, but off-channel radio work can briefly pause sensing and network traffic. Each protocol result contains the BSSID, channel, and RSSI; Configure displays the BSSID and signal strength, while retaining the channel only as an internal association hint. Choosing automatic selection clears both the BSSID pin and hint.
+
+The Direct `clear_wifi_config` action removes the provisioned SSID and password, disconnects the station, and returns the device to Improv Serial provisioning. Configure asks for confirmation before sending it because the active Direct session normally closes before a response can be observed.
+
+BSSID changes are staged. Native attempts the selected access point, commits it only after association and address acquisition, and rolls back to the last-known-good settings when the attempt fails or times out. After a successful commit or rollback, Native reboots once so the ESP32-C3 radio returns with a fresh CSI capture session; Direct and MQTT clients should reconnect after the device address becomes reachable again. If an optional BSSID is unavailable, the provisioning policy can retry the same SSID without the pin instead of permanently stranding the device.
 
 Holding BOOT for `ESPECTRE_RECOVERY_BUTTON_HOLD_MS` clears saved Wi-Fi configuration and returns the device to Improv Serial provisioning. The default hold is 3 seconds. The default active-low GPIO is GPIO0 on ESP32, ESP32-S2, and ESP32-S3, GPIO9 on ESP32-C3 and ESP32-C6, and GPIO28 on ESP32-C5. Override or disable the input for boards that route BOOT differently.
 
@@ -103,7 +107,7 @@ Canonical topics under `espectre/v1/devices/{device_id}/...` remain available to
 
 Lightweight Detection uses less CPU and memory and learns a room-specific threshold from usable quiet-room coverage. High Accuracy uses the bundled model and skips threshold calibration, but still waits for CSI readiness and feature-window warmup. The selected profile persists across reboot and can be changed through Direct, MQTT, or Home Assistant.
 
-`CONFIG_ESPECTRE_CSI_TARGET_PPS` sets the positive cadence target. `CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_*` selects internal, external, or unmanaged traffic. External mode opens UDP port `5555` and joins `CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP`, `239.255.0.1` by default. Use [`espectre_traffic_generator.py`](../../../../tools/espectre_traffic_generator.py) with device IPs or the multicast address.
+`CONFIG_ESPECTRE_CSI_TARGET_PPS` sets the positive cadence target. `CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_*` selects internal, external, or unmanaged traffic. External mode opens UDP port `5555` and joins `CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP`, `239.255.0.1` by default. Use [`espectre_traffic_generator.py`](../../../../tools/espectre_traffic_generator.py) with device IPs or the multicast address. A Direct raw CSI session opens the same listener temporarily regardless of the persisted sensing mode, so an independent host generator can supply capture traffic while the HTTP worker keeps its own `target_pps`; ending the session restores the configured sensing mode.
 
 ## OTA
 

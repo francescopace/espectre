@@ -40,8 +40,8 @@ using FrontendCsiTrafficModeCallback = std::function<bool(CsiTrafficMode mode, s
 using FrontendTrafficGeneratorModeCallback = std::function<bool(RuntimeTrafficMode mode, std::string *message)>;
 using FrontendDetectorCallback = std::function<bool(DetectionAlgorithm algorithm, std::string *message)>;
 using FrontendRecalibrateCallback = std::function<bool(std::string *message)>;
-using FrontendWifiConfigCallback =
-    std::function<bool(const EspectreCommand &command, bool clear, std::string *message)>;
+using FrontendWifiBssidCallback =
+    std::function<bool(const EspectreCommand &command, std::string *message)>;
 using FrontendMqttConfigCallback =
     std::function<bool(const EspectreCommand &command, bool clear, std::string *message)>;
 using FrontendSensingControlCallback = std::function<bool(bool enabled, std::string *message)>;
@@ -57,7 +57,7 @@ struct FrontendCommandCapabilities {
   bool supports_config{false};
   bool supports_diagnostics{false};
   bool supports_device_config{false};
-  bool supports_wifi_config{false};
+  bool supports_wifi_bssid{false};
   bool supports_mqtt_config{false};
   bool supports_sensing_control{false};
   bool supports_threshold{false};
@@ -127,7 +127,7 @@ class FrontendCommandEngine {
                                 FrontendTrafficGeneratorModeCallback traffic_generator_mode_callback = {},
                                 FrontendDetectorCallback detector_callback = {},
                                 FrontendRecalibrateCallback recalibrate_callback = {},
-                                FrontendWifiConfigCallback wifi_config_callback = {},
+                                FrontendWifiBssidCallback wifi_bssid_callback = {},
                                 FrontendMqttConfigCallback mqtt_config_callback = {},
                                 FrontendSensingControlCallback sensing_control_callback = {},
                                 FrontendRawStreamCallback raw_stream_callback = {}) const;

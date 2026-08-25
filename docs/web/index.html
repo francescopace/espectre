@@ -23,13 +23,13 @@
 <meta name="twitter:image" content="https://espectre.dev/assets/images/brand/espectre-og.jpg">
 <link rel="icon" type="image/svg+xml" href="/assets/images/brand/espectre-logo.svg?v=5c234009f6c5">
 <link rel="alternate icon" type="image/png" href="/assets/images/brand/favicon.png">
-<link rel="stylesheet" href="/assets/css/styles.css?v=c2badda5131c">
-<script src="/assets/js/espectre-direct.js?v=38226072d41c" defer></script>
+<link rel="stylesheet" href="/assets/css/styles.css?v=f95113391aeb">
+<script src="/assets/js/espectre-direct.js?v=69be4998c210" defer></script>
 <script src="/assets/js/browser-support.js?v=ac4ba70c7f17" defer></script>
 <script src="/assets/js/route-registry.js?v=2cdc0eba3521" defer></script>
 <script src="/assets/js/navigation.js?v=88d37c28b5a6" defer></script>
 <script src="/assets/js/analytics.js?v=a16db4b82883" defer></script>
-<script src="/assets/js/app.js?v=5287933547b2" defer></script>
+<script src="/assets/js/app.js?v=74f323d081ec" defer></script>
 </head>
 <body>
 
@@ -302,7 +302,7 @@
 
 <!-- ============================== Tools ============================== -->
 <main class="js-page page-narrow" data-page="tools" hidden>
-  <div class="js-static-content" data-content-url="content/tools.html?v=819fb2988fb7" data-static-url="/tools/">
+  <div class="js-static-content" data-content-url="content/tools.html?v=55d56224a580" data-static-url="/tools/">
     <p class="guide-loading">Loading tools…</p>
   </div>
 </main>
@@ -347,10 +347,10 @@
 <main class="js-page page-narrow page-tool" data-page="tool-configure" data-static-url="/tools/configure/" hidden>
   <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Configure</span></div>
   <h1 class="page-title">Configure</h1>
-  <p class="page-sub">Connect to a Native device on this LAN to manage its identity, Wi-Fi, and optional MQTT integration.</p>
+  <p class="page-sub">Connect to a Native device on this LAN to manage its identity, access-point selection, and optional MQTT integration.</p>
 
   <div class="js-configure-onboarding">
-    <espectre-direct-connect data-surface="configure" data-transport="direct"></espectre-direct-connect>
+    <espectre-connection-picker data-surface="configure"></espectre-connection-picker>
   </div>
 
   <div class="js-configure-workspace" hidden>
@@ -382,32 +382,24 @@
 
     <section class="device-view" data-device-view="connectivity">
       <div class="config-grid connectivity-grid js-connectivity-setup" hidden>
-      <section class="panel" data-capability="supports_wifi_provisioning">
+      <section class="panel" data-capability="supports_wifi_bssid">
         <div class="panel-heading">
           <div><span class="panel-eyebrow">Primary connection</span><h2>Wi-Fi</h2></div>
           <span class="config-status js-wifi-status" role="status"><span class="dot dot-idle js-wifi-status-dot" aria-hidden="true"></span><span class="js-wifi-status-text">Checking…</span></span>
         </div>
-        <p class="panel-intro">Configure the station network.</p>
+        <p class="panel-intro">Optionally lock the provisioned Wi-Fi network to one access point. Use Improv Serial over USB to change the network or its password.</p>
         <div class="fields">
-          <div class="field"><label for="cfg-ssid">SSID</label><input type="text" id="cfg-ssid" placeholder="HomeNet-5G" autocomplete="off"></div>
-          <div class="field"><label for="cfg-wifi-pass">New password <span class="opt">(optional)</span></label><input type="password" id="cfg-wifi-pass" placeholder="Keep current password" autocomplete="new-password" spellcheck="false" aria-describedby="cfg-wifi-pass-help"><small class="field-help" id="cfg-wifi-pass-help">Leave blank to keep the saved password.</small></div>
-          <label class="check credential-clear-control" for="cfg-wifi-pass-clear"><input type="checkbox" id="cfg-wifi-pass-clear"> Use an open network with no password</label>
-          <details class="config-advanced">
-            <summary>Advanced network settings</summary>
-            <div class="config-advanced-body fields">
-              <div class="field-row field-row-2-1">
-                <div class="field"><label for="cfg-wifi-band">Band</label><select id="cfg-wifi-band" disabled><option value="2g">2.4 GHz</option></select></div>
-                <div class="field"><label for="cfg-channel">Channel</label><input type="number" id="cfg-channel" placeholder="auto"></div>
-              </div>
-              <div class="field"><label for="cfg-bssid">BSSID <span class="opt">(optional)</span></label><input type="text" id="cfg-bssid" class="mono-input" placeholder="aa:bb:cc:dd:ee:ff" autocomplete="off" spellcheck="false"></div>
-            </div>
-          </details>
+          <div class="field"><label for="cfg-ssid">Current SSID</label><input type="text" id="cfg-ssid" readonly></div>
+          <div class="field-row">
+            <div class="field"><label for="cfg-wifi-band">Current band</label><input type="text" id="cfg-wifi-band" readonly></div>
+            <div class="field"><label for="cfg-channel">Current channel</label><input type="text" id="cfg-channel" readonly></div>
+          </div>
+          <div class="field"><label for="cfg-bssid">Access point (BSSID)</label><div class="wifi-bssid-control"><select id="cfg-bssid" aria-describedby="cfg-bssid-help"><option value="">Automatic (strongest available)</option></select><button type="button" class="wifi-refresh-button js-wifi-scan" aria-label="Refresh access points" title="Refresh access points"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg></button></div></div>
         </div>
         <div class="panel-actions wifi-panel-actions">
-          <button class="btn-primary btn-sm js-wifi-save">Save Wi-Fi</button>
-          <button class="btn-danger-ghost btn-sm js-wifi-clear">Remove Wi-Fi</button>
+          <button class="btn-primary btn-sm js-wifi-save">Save Access Point</button>
+          <button class="btn-danger-ghost btn-sm js-wifi-clear" data-capability="supports_wifi_clear" hidden>Reset Wi-Fi</button>
         </div>
-        <p class="tool-note js-wifi-restart-note" hidden>Changing the band is saved immediately and takes effect after restarting the device.</p>
       </section>
 
       <section class="panel" data-capability="supports_mqtt_config">
@@ -462,40 +454,9 @@
 <main class="js-page page-narrow page-tool" data-page="tool-monitor" data-static-url="/tools/monitor/" hidden>
   <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Monitor</span></div>
   <h1 class="page-title">Monitor</h1>
-  <p class="page-sub">Monitor one device through local HTTP, or explore with simulated data.</p>
+  <p class="page-sub">Monitor one device through HTTP, or explore with simulated data.</p>
   <div class="js-monitor-onboarding">
-    <fieldset class="transport-choice" aria-label="Monitor connection method">
-      <label for="monitor-transport-direct"><input type="radio" id="monitor-transport-direct" name="monitor-transport" value="direct" checked> Direct HTTP <small>recommended</small></label>
-      <label for="monitor-transport-demo"><input type="radio" id="monitor-transport-demo" name="monitor-transport" value="demo"> Demo <small>simulation</small></label>
-      <label for="monitor-transport-relay"><input type="radio" id="monitor-transport-relay" name="monitor-transport" value="relay"> Relay <small>coming soon</small></label>
-    </fieldset>
-    <espectre-direct-connect data-surface="monitor" data-monitor-transport-panel="direct" data-transport="direct"></espectre-direct-connect>
-    <section class="device-connect-card connection-card demo-connect-card empty-state" data-monitor-transport-panel="demo" data-transport="demo" hidden>
-      <span class="connection-card-eyebrow">Simulation</span>
-      <h2>Explore without a device</h2>
-      <p>Preview the live Monitor without a device.</p>
-      <div class="demo-connect-summary">
-        <ul class="demo-connect-list">
-          <li>Move the pointer to generate simulated motion.</li>
-          <li>Try sensing controls, calibration, and diagnostics.</li>
-          <li>All simulated values stay in this browser.</li>
-        </ul>
-      </div>
-      <button type="button" class="btn-primary js-demo">Start demo</button>
-    </section>
-    <section class="device-connect-card connection-card relay-connect-card empty-state" data-monitor-transport-panel="relay" data-transport="relay" hidden>
-      <span class="connection-card-eyebrow">Remote connection</span>
-      <h2>Connect through Relay</h2>
-      <p>Reach an ESPectre device beyond the local network without exposing it directly.</p>
-      <div class="demo-connect-summary">
-        <ul class="demo-connect-list">
-          <li>Encrypted, device-initiated connections.</li>
-          <li>Remote live sensing, controls, and diagnostics.</li>
-          <li>No inbound port forwarding.</li>
-        </ul>
-      </div>
-      <button type="button" class="btn-primary" disabled>Coming soon</button>
-    </section>
+    <espectre-connection-picker data-surface="monitor" data-open-view="live"></espectre-connection-picker>
   </div>
 
   <div class="js-monitor-workspace" hidden>
@@ -591,7 +552,11 @@
 <main class="js-page page-narrow page-tool" data-page="tool-raw-csi" data-static-url="/tools/raw-csi/" hidden>
   <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Raw CSI</span></div>
   <h1 class="page-title">Raw CSI</h1>
-  <p class="page-sub">Inspect Native ESP32-C3 CSI V8 records over a local binary HTTP stream. Raw samples stay in this browser and are never uploaded or included in analytics.</p>
+  <p class="page-sub">Inspect Native ESP32-C3 CSI V8 records over a local binary HTTP stream, or explore synthetic samples in Demo mode. Raw samples stay in this browser and are never uploaded or included in analytics.</p>
+
+  <div class="js-raw-csi-onboarding">
+    <espectre-connection-picker data-surface="raw-csi"></espectre-connection-picker>
+  </div>
 
   <section class="device-connect-card connection-card empty-state js-raw-csi-unavailable" hidden>
     <span class="connection-card-eyebrow">Native firmware · C3 only</span>
@@ -661,15 +626,7 @@
   <h1 class="page-title">Motion theremin</h1>
   <p class="page-sub">Turn live motion energy from Direct HTTP into sound, or explore the interaction in demo mode.</p>
 
-  <div class="empty-state js-needs-live">
-    <svg width="44" height="44" viewBox="0 0 32 32" aria-hidden="true" class="empty-ghost"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="none" stroke="var(--dim)" stroke-width="1.6"/><circle cx="12.2" cy="13.5" r="1.7" fill="var(--dim)"/><circle cx="19.8" cy="13.5" r="1.7" fill="var(--dim)"/></svg>
-    <h2>No device connected</h2>
-    <p>The theremin turns live motion energy into sound. Connect over Direct HTTP, or run the demo.</p>
-    <div class="panel-actions live-connect-actions" role="group" aria-label="Theremin connection method">
-      <button type="button" class="btn-secondary js-start-detection" data-live-transport="direct">Direct HTTP</button>
-      <button type="button" class="btn-secondary js-demo">Demo</button>
-    </div>
-  </div>
+  <espectre-connection-picker class="js-needs-live" data-surface="theremin" data-open-view="live"></espectre-connection-picker>
 
   <div class="js-has-live" hidden>
     <div class="theremin-stage panel">
@@ -700,15 +657,7 @@
   <h1 class="page-title">Run with the Spectre</h1>
   <p class="page-sub">Move to fly, stay quiet to descend, and steer the Spectre through the course.</p>
 
-  <div class="empty-state js-needs-live">
-    <svg width="44" height="44" viewBox="0 0 32 32" aria-hidden="true" class="empty-ghost"><path d="M16 3c-6.6 0-11 4.9-11 11.5V27l3.7-2.4 3.6 2.4 3.7-2.4 3.7 2.4 3.6-2.4L27 27V14.5C27 7.9 22.6 3 16 3z" fill="none" stroke="var(--dim)" stroke-width="1.6"/><circle cx="12.2" cy="13.5" r="1.7" fill="var(--dim)"/><circle cx="19.8" cy="13.5" r="1.7" fill="var(--dim)"/></svg>
-    <h2>No device connected</h2>
-    <p>Your body is the controller: movement makes the Spectre fly, and quiet brings it back down. Choose a Monitor transport, or run the demo.</p>
-    <div class="panel-actions live-connect-actions" role="group" aria-label="Game connection method">
-      <button type="button" class="btn-secondary js-start-detection" data-live-transport="direct">Direct HTTP</button>
-      <button type="button" class="btn-secondary js-demo">Demo</button>
-    </div>
-  </div>
+  <espectre-connection-picker class="js-needs-live" data-surface="game" data-open-view="live"></espectre-connection-picker>
 
   <div class="js-has-live" hidden>
     <div class="game-stage panel">
@@ -824,7 +773,7 @@
 <!-- ============================== Guide: Hardware ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-hardware" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Hardware</span></div>
-  <div class="js-static-content" data-content-url="content/guides/hardware.html?v=1b692fe67a9b" data-static-url="/guides/hardware/">
+  <div class="js-static-content" data-content-url="content/guides/hardware.html?v=a77adab39f98" data-static-url="/guides/hardware/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -832,7 +781,7 @@
 <!-- ============================== Guide: Setup ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-setup" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Flash &amp; Wi-Fi setup</span></div>
-  <div class="js-static-content" data-content-url="content/guides/setup.html?v=c9e490dbdebe" data-static-url="/guides/setup/">
+  <div class="js-static-content" data-content-url="content/guides/setup.html?v=0c629c3512c6" data-static-url="/guides/setup/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -918,6 +867,41 @@
 </main>
 
 <datalist id="direct-remembered-endpoints"></datalist>
+
+<template id="connection-picker-template">
+  <fieldset class="transport-choice">
+    <label for="connection-picker-direct" data-connection-label="direct"><input type="radio" id="connection-picker-direct" name="connection-picker" data-connection-mode="direct" value="direct" checked> Local connection <small>recommended</small></label>
+    <label for="connection-picker-demo" data-connection-label="demo"><input type="radio" id="connection-picker-demo" name="connection-picker" data-connection-mode="demo" value="demo"> Demo <small>simulation</small></label>
+    <label for="connection-picker-relay" data-connection-label="relay"><input type="radio" id="connection-picker-relay" name="connection-picker" data-connection-mode="relay" value="relay"> Remote connection <small>coming soon</small></label>
+  </fieldset>
+  <espectre-direct-connect data-connection-panel="direct" data-transport="direct"></espectre-direct-connect>
+  <section class="device-connect-card connection-card demo-connect-card empty-state" data-connection-panel="demo" data-transport="demo" hidden>
+    <span class="connection-card-eyebrow">Simulation</span>
+    <h2>Explore without a device</h2>
+    <p>Preview ESPectre browser tools without a device.</p>
+    <div class="demo-connect-summary">
+      <ul class="demo-connect-list">
+        <li>Move the pointer to generate simulated motion.</li>
+        <li>Try sensing controls, visualizations, and diagnostics.</li>
+        <li>All simulated values stay in this browser.</li>
+      </ul>
+    </div>
+    <button type="button" class="btn-primary js-demo">Start demo</button>
+  </section>
+  <section class="device-connect-card connection-card relay-connect-card empty-state" data-connection-panel="relay" data-transport="relay" hidden>
+    <span class="connection-card-eyebrow">Remote connection</span>
+    <h2>Connect through Relay</h2>
+    <p>Reach an ESPectre device beyond the local network without exposing it directly.</p>
+    <div class="demo-connect-summary">
+      <ul class="demo-connect-list">
+        <li>Encrypted, device-initiated connections.</li>
+        <li>Remote live sensing, controls, and diagnostics.</li>
+        <li>No inbound port forwarding.</li>
+      </ul>
+    </div>
+    <button type="button" class="btn-primary" disabled>Coming soon</button>
+  </section>
+</template>
 
 <template id="direct-connect-template">
   <section class="device-connect-card connection-card direct-connect-card empty-state" data-transport="direct">

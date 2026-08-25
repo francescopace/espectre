@@ -188,6 +188,10 @@ void NativeFrontend::set_provisioning_command_callback(ProvisioningCommandCallba
   provisioning_command_callback_ = std::move(callback);
 }
 
+void NativeFrontend::set_wifi_scan_callback(WifiScanCallback callback) {
+  wifi_scan_callback_ = std::move(callback);
+}
+
 void NativeFrontend::set_device_config_change_callback(DeviceConfigChangeCallback callback) {
   device_config_change_callback_ = std::move(callback);
 }
@@ -432,7 +436,8 @@ FrontendCommandResult NativeFrontend::dispatch_command_(const EspectreCommand &c
                                                          std::string authorization) {
   const bool read_during_raw = command.command == "capabilities" || command.command == "info" ||
                                command.command == "status" || command.command == "config" ||
-                               command.command == "diagnostics" || command.command == "ota_status";
+                               command.command == "diagnostics" || command.command == "ota_status" ||
+                               command.command == "wifi_access_points";
   if (runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION &&
       !read_during_raw && command.command != "stop_raw_stream") {
     FrontendCommandResult busy;
@@ -486,6 +491,9 @@ FrontendCommandResult NativeFrontend::dispatch_command_(const EspectreCommand &c
           return this->direct_status_payload_(!this->device_info_.network.ip_address.empty());
         }
         if (read.command == "config") return this->direct_config_payload_(allow_local_config);
+        if (read.command == "wifi_access_points" && allow_local_config) {
+          return this->direct_wifi_access_points_payload_();
+        }
         if (read.command == "diagnostics") return this->direct_diagnostics_payload_();
         if (read.command == "ota_status" && this->ota_service_ != nullptr) {
           return espectre_ota_status_payload(this->device_config_, this->current_ota_status_(), this->now_ms_());
@@ -551,42 +559,29 @@ FrontendCommandResult NativeFrontend::dispatch_command_(const EspectreCommand &c
         }
         return accepted;
       },
-      [this](const EspectreCommand &wifi_command, bool clear, std::string *message) {
-        if (!this->provisioning_command_callback_) {
-          if (message != nullptr) {
-            *message = "Wi-Fi provisioning is unavailable";
+      [this](const EspectreCommand &wifi_command, std::string *message) {
+        if (wifi_command.command == "scan_wifi_access_points") {
+          if (!this->wifi_scan_callback_) {
+            if (message != nullptr) *message = "Wi-Fi scanning is unavailable";
+            return false;
           }
-          return false;
+          return this->wifi_scan_callback_(message);
         }
-        if (clear) {
+        if (wifi_command.command == "clear_wifi_config") {
+          if (!this->provisioning_command_callback_) {
+            if (message != nullptr) *message = "Wi-Fi configuration removal is unavailable";
+            return false;
+          }
           return this->provisioning_command_callback_("CLEAR_WIFI", message);
         }
-        const std::string ssid = wifi_command.has_wifi_ssid ? wifi_command.wifi_ssid : this->wifi_info_.ssid;
-        if (ssid.empty()) {
+        if (!this->provisioning_command_callback_ || !wifi_command.has_wifi_bssid) {
           if (message != nullptr) {
-            *message = "SSID is required when no Wi-Fi configuration exists";
+            *message = "Wi-Fi BSSID selection is unavailable";
           }
           return false;
         }
-        std::string encoded = "SET_WIFI_CONFIG:ssid=" + encode_urlencoded_component(ssid);
-        const auto append_field = [&encoded](const char *name, const std::string &value) {
-          encoded += "&";
-          encoded += name;
-          encoded += "=";
-          encoded += encode_urlencoded_component(value);
-        };
-        if (wifi_command.has_wifi_password) {
-          append_field("password", wifi_command.wifi_password);
-        }
-        if (wifi_command.has_wifi_bssid) {
-          append_field("bssid", wifi_command.wifi_bssid);
-        }
-        if (wifi_command.has_wifi_channel) {
-          append_field("channel", std::to_string(wifi_command.wifi_channel));
-        }
-        if (wifi_command.has_wifi_band_policy) {
-          append_field("band_policy", wifi_command.wifi_band_policy);
-        }
+        const std::string encoded =
+            "SET_WIFI_BSSID:bssid=" + encode_urlencoded_component(wifi_command.wifi_bssid);
         return this->provisioning_command_callback_(encoded, message);
       },
       [this](const EspectreCommand &mqtt_command, bool clear, std::string *message) {
@@ -797,9 +792,13 @@ std::string NativeFrontend::direct_config_payload_(bool include_local) const {
   out += "},\"wifi\":{\"configured\":";
   out += wifi_configured_() ? "true" : "false";
   append_json_pair(&out, "ssid", wifi_info_.ssid.c_str());
+  const uint8_t active_channel = device_info_.network.channel;
+  const char *active_band = "";
+  if (active_channel > 0U) {
+    active_band = active_channel <= WIFI_CHANNEL_2G_MAX ? "2g" : "5g";
+  }
+  append_json_pair(&out, "band", active_band);
   append_json_pair(&out, "bssid", wifi_info_.bssid.c_str());
-  out += ",\"channel\":" + std::to_string(static_cast<unsigned>(wifi_info_.channel));
-  append_json_pair(&out, "band_policy", wifi_band_policy_name(wifi_info_.band_policy));
   append_json_pair(&out, "apply_state", wifi_info_.apply_state.c_str());
   append_json_pair(&out, "apply_message", wifi_info_.apply_message.c_str());
   out += "},\"mqtt\":{\"configured\":";
@@ -810,6 +809,25 @@ std::string NativeFrontend::direct_config_payload_(bool include_local) const {
   out += device_config_.mqtt_username.empty() ? "false" : "true";
   append_json_pair(&out, "topic_prefix", device_config_.topic_prefix.c_str());
   out += "}}";
+  return out;
+}
+
+std::string NativeFrontend::direct_wifi_access_points_payload_() const {
+  std::string out{"{\"scanning\":"};
+  out += wifi_info_.scan_pending ? "true" : "false";
+  append_json_pair(&out, "message", wifi_info_.scan_message.c_str());
+  out += ",\"access_points\":[";
+  bool first = true;
+  for (const WifiProvisioningInfo::AccessPoint &access_point : wifi_info_.access_points) {
+    if (!first) out += ",";
+    first = false;
+    out += "{";
+    append_json_pair(&out, "bssid", access_point.bssid.c_str(), true);
+    out += ",\"rssi_dbm\":" + std::to_string(static_cast<int>(access_point.rssi_dbm));
+    out += ",\"channel\":" + std::to_string(static_cast<unsigned>(access_point.channel));
+    out += "}";
+  }
+  out += "]}";
   return out;
 }
 

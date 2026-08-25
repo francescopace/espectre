@@ -126,6 +126,15 @@ void sync_frontend_wifi_info() {
   info.band_policy = wifi_config.band_policy;
   info.apply_state = espectre::wifi_provisioning_apply_state_name(g_wifi_provisioning.apply_state());
   info.apply_message = g_wifi_provisioning.apply_message();
+  info.scan_pending = g_wifi_provisioning.scan_pending();
+  info.scan_message = g_wifi_provisioning.scan_message();
+  for (const espectre::StandaloneWifiAccessPoint &access_point : g_wifi_provisioning.access_points()) {
+    info.access_points.push_back(espectre::NativeFrontend::WifiProvisioningInfo::AccessPoint{
+        access_point.bssid,
+        access_point.rssi_dbm,
+        access_point.channel,
+    });
+  }
   g_frontend->set_wifi_provisioning_info(info);
 
   espectre::EspectreDeviceInfo device_info;
@@ -325,6 +334,8 @@ extern "C" void app_main() {
   g_frontend = &frontend;
   sync_frontend_wifi_info();
   frontend.set_provisioning_command_callback(handle_wifi_provisioning_command);
+  frontend.set_wifi_scan_callback(
+      [](std::string *message) { return g_wifi_provisioning.request_access_point_scan(message); });
   frontend.set_device_config_change_callback(handle_device_config_change);
   if (!frontend.setup()) {
     ESP_LOGE(TAG, "Failed to initialize ESPectre native frontend");
@@ -344,6 +355,13 @@ extern "C" void app_main() {
         if (g_frontend != nullptr) {
           g_frontend->resume_after_wifi_reconfigure();
         }
+      });
+  g_wifi_provisioning.set_scan_callbacks(
+      []() {
+        if (g_frontend != nullptr) g_frontend->prepare_for_wifi_reconfigure();
+      },
+      []() {
+        if (g_frontend != nullptr) g_frontend->resume_after_wifi_reconfigure();
       });
   g_wifi_provisioning.set_apply_completed_callback([]() { g_restart_after_wifi_apply = true; });
 

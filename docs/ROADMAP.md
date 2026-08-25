@@ -27,10 +27,9 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 **Release tasks**:
 
-- [ ] Update HA Dashboard and screenshot per calibration
-- [ ] fetch bssid from device
-- [ ] Benchmark for all chips
-- [ ] Review code, docs, site, ga4
+- [ ] Update the Home Assistant dashboard example and recapture its guide screenshot against the current entities
+- [ ] Re-run the on-device firmware benchmark on every supported chip and refresh the published performance reports
+- [ ] Review the candidate firmware, documentation, website, and GA4 instrumentation before publication
 
 **Exit criteria**:
 
@@ -193,7 +192,7 @@ This file owns product outcomes, release gates, and sequencing. Mutable details 
 - [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md) and [ARCHITECTURE.md](ARCHITECTURE.md) for stable system contracts
 - [CHANGELOG.md](CHANGELOG.md) for shipped behavior
 
-Last update: **August 23, 2026**
+Last update: **August 25, 2026**
 
 For discussion and proposed changes:
 

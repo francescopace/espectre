@@ -84,7 +84,7 @@ void append_capability_commands(std::string *out,
                                 bool supports_status,
                                 bool supports_config,
                                 bool supports_sensing_control,
-                                bool supports_wifi_config,
+                                bool supports_wifi_bssid,
                                 bool supports_mqtt_config,
                                 bool supports_peer_discovery,
                                 bool supports_raw_csi) {
@@ -156,14 +156,15 @@ void append_capability_commands(std::string *out,
       "control",
       "\"traffic_generator_mode\":{\"type\":\"string\",\"enum\":[\"ping\",\"dns\"]}",
       "\"traffic_generator_mode\"");
-  add(supports_wifi_config,
-      "set_wifi_config",
+  add(supports_wifi_bssid, "wifi_access_points", "query", "network_admin", "", "", "wifi_access_points");
+  add(supports_wifi_bssid, "scan_wifi_access_points", "action", "network_admin");
+  add(supports_wifi_bssid,
+      "set_wifi_bssid",
       "mutation",
       "network_admin",
-      "\"ssid\":{\"type\":\"string\"},\"password\":{\"type\":\"string\"},"
-      "\"bssid\":{\"type\":\"string\"},\"channel\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":255},"
-      "\"band_policy\":{\"type\":\"string\",\"enum\":[\"2g\",\"5g\",\"auto\"]}");
-  add(supports_wifi_config, "clear_wifi_config", "mutation", "network_admin");
+      "\"bssid\":{\"type\":\"string\"}",
+      "\"bssid\"");
+  add(supports_wifi_bssid, "clear_wifi_config", "mutation", "network_admin");
   add(supports_mqtt_config,
       "set_mqtt_config",
       "mutation",
@@ -362,10 +363,7 @@ bool parse_command_fields(const std::string &command_id,
     if (parsed.command == "set_csi_traffic_mode") return name == "csi_traffic_mode";
     if (parsed.command == "set_traffic_generator_mode") return name == "traffic_generator_mode";
     if (parsed.command == "start_raw_stream") return name == "target_pps";
-    if (parsed.command == "set_wifi_config") {
-      return name == "ssid" || name == "password" || name == "bssid" || name == "channel" ||
-             name == "band_policy";
-    }
+    if (parsed.command == "set_wifi_bssid") return name == "bssid";
     if (parsed.command == "set_mqtt_config") {
       return name == "host" || name == "port" || name == "username" || name == "password" ||
              name == "topic_prefix";
@@ -437,45 +435,11 @@ bool parse_command_fields(const std::string &command_id,
       }
       parsed.has_raw_target_pps = true;
     }
-  } else if (parsed.command == "set_wifi_config") {
-    if (find_json_object_field(fields, "ssid") != nullptr) {
-      if (!string_field("ssid", &parsed.wifi_ssid) || parsed.wifi_ssid.empty() ||
-          !single_line_string(parsed.wifi_ssid, 32U)) {
-        return reject("invalid SSID (accepted: 1..32 bytes)");
-      }
-      parsed.has_wifi_ssid = true;
+  } else if (parsed.command == "set_wifi_bssid") {
+    if (!string_field("bssid", &parsed.wifi_bssid) || !bssid_string_accepted(parsed.wifi_bssid)) {
+      return reject("invalid BSSID (accepted: empty or six hexadecimal octets)");
     }
-    if (find_json_object_field(fields, "password") != nullptr) {
-      if (!string_field("password", &parsed.wifi_password) || !single_line_string(parsed.wifi_password, 63U)) {
-        return reject("invalid Wi-Fi password (accepted: 0..63 bytes)");
-      }
-      parsed.has_wifi_password = true;
-    }
-    if (find_json_object_field(fields, "bssid") != nullptr) {
-      if (!string_field("bssid", &parsed.wifi_bssid) || !bssid_string_accepted(parsed.wifi_bssid)) {
-        return reject("invalid BSSID (accepted: empty or six hexadecimal octets)");
-      }
-      parsed.has_wifi_bssid = true;
-    }
-    if (find_json_object_field(fields, "channel") != nullptr) {
-      std::string channel_token;
-      if (!number_field("channel", &channel_token) || !parse_uint8_value(channel_token, &parsed.wifi_channel)) {
-        return reject("invalid Wi-Fi channel");
-      }
-      parsed.has_wifi_channel = true;
-    }
-    if (find_json_object_field(fields, "band_policy") != nullptr) {
-      if (!string_field("band_policy", &parsed.wifi_band_policy) ||
-          (parsed.wifi_band_policy != "2g" && parsed.wifi_band_policy != "5g" &&
-           parsed.wifi_band_policy != "auto")) {
-        return reject("invalid Wi-Fi band policy (accepted: 2g, 5g, and auto)");
-      }
-      parsed.has_wifi_band_policy = true;
-    }
-    if (!parsed.has_wifi_ssid && !parsed.has_wifi_password && !parsed.has_wifi_bssid && !parsed.has_wifi_channel &&
-        !parsed.has_wifi_band_policy) {
-      return reject("set_wifi_config requires at least one field");
-    }
+    parsed.has_wifi_bssid = true;
   } else if (parsed.command == "clear_wifi_config") {
     // No additional payload required.
   } else if (parsed.command == "set_mqtt_config") {
@@ -701,7 +665,7 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
                                           bool supports_status,
                                           bool supports_config,
                                           bool supports_sensing_control,
-                                          bool supports_wifi_config,
+                                          bool supports_wifi_bssid,
                                           bool supports_mqtt_config,
                                           bool supports_peer_discovery,
                                           bool supports_raw_csi) {
@@ -717,7 +681,7 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
                              supports_status,
                              supports_config,
                              supports_sensing_control,
-                             supports_wifi_config,
+                             supports_wifi_bssid,
                              supports_mqtt_config,
                              supports_peer_discovery,
                              supports_raw_csi);
@@ -726,7 +690,7 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
   out += ",\"fault\"],"
          "\"config_sections\":[\"runtime\"";
   if (info.supports_device_config) out += ",\"device\"";
-  if (supports_wifi_config) out += ",\"wifi\"";
+  if (supports_wifi_bssid) out += ",\"wifi\"";
   if (supports_mqtt_config) out += ",\"mqtt\"";
   out += "],\"features\":{\"raw_csi\":";
   out += supports_raw_csi ? "true" : "false";

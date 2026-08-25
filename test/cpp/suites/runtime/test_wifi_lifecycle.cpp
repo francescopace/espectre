@@ -433,6 +433,53 @@ void test_standalone_wifi_service_update_station_config_rejects_invalid_bssid(vo
   TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, service.update_station_config(config));
 }
 
+void test_standalone_wifi_service_reports_asynchronous_scan_snapshot(void) {
+  StandaloneWifiService service;
+  StandaloneWifiConfig config;
+  config.ssid = "TestSSID";
+  std::vector<StandaloneWifiAccessPoint> observed;
+  esp_err_t observed_result = ESP_FAIL;
+
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, service.request_scan({}));
+  TEST_ASSERT_EQUAL(ESP_OK, service.setup(config));
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, service.request_scan({}));
+  TEST_ASSERT_EQUAL(ESP_OK, service.start());
+
+  g_esp_wifi_mock.scan_ap_count = 2U;
+  std::memcpy(g_esp_wifi_mock.scan_ap_records[0].ssid, "TestSSID", 9U);
+  g_esp_wifi_mock.scan_ap_records[0].rssi = -70;
+  g_esp_wifi_mock.scan_ap_records[0].primary = 11U;
+  const uint8_t weak[6] = {0x10, 0x20, 0x30, 0x40, 0x50, 0x60};
+  std::memcpy(g_esp_wifi_mock.scan_ap_records[0].bssid, weak, sizeof(weak));
+  std::memcpy(g_esp_wifi_mock.scan_ap_records[1].ssid, "TestSSID", 9U);
+  g_esp_wifi_mock.scan_ap_records[1].rssi = -40;
+  g_esp_wifi_mock.scan_ap_records[1].primary = 6U;
+  const uint8_t strong[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
+  std::memcpy(g_esp_wifi_mock.scan_ap_records[1].bssid, strong, sizeof(strong));
+
+  TEST_ASSERT_EQUAL(ESP_OK, service.request_scan(
+      [&observed_result, &observed](esp_err_t result,
+                                    const std::vector<StandaloneWifiAccessPoint> &access_points) {
+        observed_result = result;
+        observed = access_points;
+      }));
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, service.request_scan({}));
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_start_call_count);
+  TEST_ASSERT_FALSE(g_esp_wifi_mock.last_scan_block);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.disconnect_call_count);
+
+  wifi_event_sta_scan_done_t event{};
+  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_SCAN_DONE, &event);
+  TEST_ASSERT_TRUE(observed.empty());
+  service.loop();
+
+  TEST_ASSERT_EQUAL(ESP_OK, observed_result);
+  TEST_ASSERT_EQUAL(2U, observed.size());
+  TEST_ASSERT_EQUAL_STRING("AA:BB:CC:DD:EE:FF", observed[0].bssid.c_str());
+  TEST_ASSERT_EQUAL_INT8(-40, observed[0].rssi_dbm);
+  TEST_ASSERT_EQUAL_UINT8(6U, observed[0].channel);
+}
+
 void test_standalone_wifi_service_apply_started_policy_and_reconnect_logic(void) {
   WiFiLifecycleManager lifecycle;
   g_esp_wifi_mock.bandwidth = WIFI_BW_HT40;
@@ -499,6 +546,7 @@ int process(void) {
   RUN_TEST(test_standalone_wifi_service_get_info_uses_cached_ip_from_got_ip_event);
   RUN_TEST(test_standalone_wifi_service_update_station_config_handles_setup_and_reconnect_paths);
   RUN_TEST(test_standalone_wifi_service_update_station_config_rejects_invalid_bssid);
+  RUN_TEST(test_standalone_wifi_service_reports_asynchronous_scan_snapshot);
   RUN_TEST(test_standalone_wifi_service_apply_started_policy_and_reconnect_logic);
   return UNITY_END();
 }

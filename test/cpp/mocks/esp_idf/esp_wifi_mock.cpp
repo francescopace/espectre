@@ -25,6 +25,9 @@ void esp_wifi_mock_reset(void) {
   g_esp_wifi_mock.ps_type = WIFI_PS_NONE;
   g_esp_wifi_mock.last_set_ps_type = WIFI_PS_NONE;
   g_esp_wifi_mock.get_mac_result = ESP_OK;
+  g_esp_wifi_mock.scan_start_result = ESP_OK;
+  g_esp_wifi_mock.scan_get_ap_num_result = ESP_OK;
+  g_esp_wifi_mock.scan_get_ap_records_result = ESP_OK;
   g_esp_wifi_mock.mac[0] = 0x7C;
   g_esp_wifi_mock.mac[1] = 0x2C;
   g_esp_wifi_mock.mac[2] = 0x67;

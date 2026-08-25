@@ -1018,10 +1018,8 @@ a.hero-badge:hover {
   padding: 48px 36px;
   box-shadow: var(--shadow);
 }
-.empty-ghost { opacity: .35; margin-bottom: 16px; }
 .empty-state h2 { font-size: 22px; margin: 0 0 8px; }
 .empty-state p { margin: 0 0 24px; font-size: 14px; color: var(--dim); text-wrap: pretty; }
-.live-connect-actions { justify-content: center; margin-top: 0; }
 .device-connect-card {
   display: flex;
   flex-direction: column;
@@ -1029,6 +1027,7 @@ a.hero-badge:hover {
 }
 .device-connect-card-actions { margin-top: auto; }
 .device-connect-card-actions button, .device-connect-card .panel-actions button { width: 100%; }
+espectre-connection-picker:not([hidden]),
 espectre-direct-connect:not([hidden]) { display: contents; }
 .connection-card { width: min(100%, 572px); max-width: 572px; box-sizing: border-box; text-align: left; }
 .connection-card > h2,
@@ -1810,6 +1809,39 @@ body.modal-open { overflow: hidden; }
 }
 .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .field select.mono-input { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; }
+.wifi-bssid-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40px;
+}
+.wifi-bssid-control select {
+  min-width: 0;
+  border-radius: 9px 0 0 9px;
+}
+.wifi-refresh-button {
+  display: grid;
+  place-items: center;
+  min-width: 40px;
+  min-height: 39px;
+  margin-left: -1px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 0 9px 9px 0;
+  background: var(--surface2);
+  color: var(--dim);
+  cursor: pointer;
+}
+.wifi-refresh-button:hover { border-color: var(--border-hi); color: var(--text); }
+.wifi-refresh-button:focus-visible { position: relative; z-index: 1; }
+.wifi-refresh-button:disabled { opacity: .5; cursor: wait; }
+.wifi-refresh-button svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
 .broker-host-control {
   display: grid;
   grid-template-columns: 170px minmax(0, 1fr);

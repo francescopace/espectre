@@ -10,9 +10,11 @@
  */
 #include "standalone_wifi_service.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <utility>
 
 #include "espectre_log.h"
 #include "esp_netif.h"
@@ -28,6 +30,7 @@ namespace {
 
 static const char *const TAG = "StandaloneWiFi";
 constexpr uint64_t DEFERRED_CONNECT_FALLBACK_DELAY_US = 1500000ULL;
+constexpr uint16_t MAX_SCAN_ACCESS_POINTS = 32U;
 
 bool parse_bssid(const char *text, uint8_t out[6]) {
   if (text == nullptr || out == nullptr || text[0] == '\0') {
@@ -47,6 +50,20 @@ bool parse_bssid(const char *text, uint8_t out[6]) {
 }
 
 bool has_text(const char *text) { return text != nullptr && text[0] != '\0'; }
+
+std::string format_bssid(const uint8_t bssid[6]) {
+  char formatted[18]{};
+  std::snprintf(formatted,
+                sizeof(formatted),
+                "%02X:%02X:%02X:%02X:%02X:%02X",
+                bssid[0],
+                bssid[1],
+                bssid[2],
+                bssid[3],
+                bssid[4],
+                bssid[5]);
+  return formatted;
+}
 
 void format_ip_address(const esp_ip4_addr_t &ip, char *out, size_t out_size) {
   if (out == nullptr || out_size == 0U) {
@@ -329,12 +346,32 @@ void StandaloneWifiService::loop() {
           connected_cb_();
         }
         break;
+      case PendingWifiEventType::SCAN_DONE:
+        handle_scan_done_(event.scan_status);
+        break;
     }
   }
   maybe_run_deferred_connect_fallback_();
   if (config_.manage_csi_lifecycle) {
     (void)wifi_lifecycle_.process_pending_events();
   }
+}
+
+esp_err_t StandaloneWifiService::request_scan(standalone_wifi_scan_callback_t callback) {
+  if (!setup_complete_ || !wifi_started_) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  if (scan_pending_) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  scan_callback_ = std::move(callback);
+  scan_pending_ = true;
+  const esp_err_t err = esp_wifi_scan_start(nullptr, false);
+  if (err != ESP_OK) {
+    scan_pending_ = false;
+    scan_callback_ = {};
+  }
+  return err;
 }
 
 esp_err_t StandaloneWifiService::update_station_config(const StandaloneWifiConfig &config) {
@@ -416,6 +453,8 @@ void StandaloneWifiService::shutdown() {
     wifi_lifecycle_.unregister_handlers();
   }
   setup_complete_ = false;
+  scan_pending_ = false;
+  scan_callback_ = {};
   pending_events_.clear();
   wifi_connect_requested_ = false;
   defer_connect_once_after_start_ = false;
@@ -494,6 +533,49 @@ void StandaloneWifiService::handle_lifecycle_disconnected_() {
   }
 }
 
+void StandaloneWifiService::handle_scan_done_(uint8_t status) {
+  if (!scan_pending_) {
+    return;
+  }
+
+  std::vector<StandaloneWifiAccessPoint> access_points;
+  esp_err_t result = status == 0U ? ESP_OK : ESP_FAIL;
+  uint16_t count = 0U;
+  if (result == ESP_OK) {
+    result = esp_wifi_scan_get_ap_num(&count);
+  }
+  count = std::min(count, MAX_SCAN_ACCESS_POINTS);
+  if (result == ESP_OK && count > 0U) {
+    std::vector<wifi_ap_record_t> records(count);
+    result = esp_wifi_scan_get_ap_records(&count, records.data());
+    if (result == ESP_OK) {
+      access_points.reserve(count);
+      for (uint16_t index = 0U; index < count; ++index) {
+        const wifi_ap_record_t &record = records[index];
+        access_points.push_back(StandaloneWifiAccessPoint{
+            reinterpret_cast<const char *>(record.ssid),
+            format_bssid(record.bssid),
+            record.rssi,
+            record.primary,
+        });
+      }
+      std::sort(access_points.begin(),
+                access_points.end(),
+                [](const StandaloneWifiAccessPoint &left, const StandaloneWifiAccessPoint &right) {
+                  if (left.rssi_dbm != right.rssi_dbm) return left.rssi_dbm > right.rssi_dbm;
+                  return left.bssid < right.bssid;
+                });
+    }
+  }
+
+  scan_pending_ = false;
+  standalone_wifi_scan_callback_t callback = std::move(scan_callback_);
+  scan_callback_ = {};
+  if (callback) {
+    callback(result, access_points);
+  }
+}
+
 void StandaloneWifiService::maybe_run_deferred_connect_fallback_() {
   if (!deferred_connect_fallback_pending_ || !wifi_started_ || !has_text(config_.ssid)) {
     return;
@@ -538,6 +620,10 @@ void StandaloneWifiService::wifi_event_handler_(void *arg, esp_event_base_t even
       pending.type = PendingWifiEventType::DISCONNECTED;
       const auto *event = static_cast<const wifi_event_sta_disconnected_t *>(event_data);
       pending.disconnect_reason = event != nullptr ? event->reason : 0U;
+    } else if (event_id == WIFI_EVENT_SCAN_DONE) {
+      pending.type = PendingWifiEventType::SCAN_DONE;
+      const auto *event = static_cast<const wifi_event_sta_scan_done_t *>(event_data);
+      pending.scan_status = event != nullptr ? event->status : 0U;
     } else {
       return;
     }

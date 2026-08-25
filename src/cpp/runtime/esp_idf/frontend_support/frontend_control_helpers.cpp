@@ -104,7 +104,7 @@ FrontendCommandResult FrontendCommandEngine::execute(
     FrontendTrafficGeneratorModeCallback traffic_generator_mode_callback,
     FrontendDetectorCallback detector_callback,
     FrontendRecalibrateCallback recalibrate_callback,
-    FrontendWifiConfigCallback wifi_config_callback,
+    FrontendWifiBssidCallback wifi_bssid_callback,
     FrontendMqttConfigCallback mqtt_config_callback,
     FrontendSensingControlCallback sensing_control_callback,
     FrontendRawStreamCallback raw_stream_callback) const {
@@ -135,7 +135,8 @@ FrontendCommandResult FrontendCommandEngine::execute(
   };
 
   if (context.origin == FrontendCommandOrigin::MQTT &&
-      (command.command == "set_wifi_config" || command.command == "clear_wifi_config" ||
+      (command.command == "wifi_access_points" || command.command == "scan_wifi_access_points" ||
+       command.command == "set_wifi_bssid" || command.command == "clear_wifi_config" ||
        command.command == "set_mqtt_config" || command.command == "clear_mqtt_config" ||
        command.command == "discover_peers" || command.command == "start_raw_stream" ||
        command.command == "stop_raw_stream")) {
@@ -158,6 +159,10 @@ FrontendCommandResult FrontendCommandEngine::execute(
   if (command.command == "diagnostics") {
     return capabilities.supports_diagnostics ? accept_read("diagnostics returned")
                                              : reject("unsupported", "unsupported command");
+  }
+  if (command.command == "wifi_access_points") {
+    return capabilities.supports_wifi_bssid ? accept_read("Wi-Fi access points returned")
+                                            : reject("unsupported", "unsupported command");
   }
 
   if (command.command == "start_raw_stream" || command.command == "stop_raw_stream") {
@@ -198,15 +203,24 @@ FrontendCommandResult FrontendCommandEngine::execute(
     return result;
   }
 
-  if (command.command == "set_wifi_config" || command.command == "clear_wifi_config") {
-    if (!capabilities.supports_wifi_config || !wifi_config_callback) {
+  if (command.command == "scan_wifi_access_points" || command.command == "set_wifi_bssid" ||
+      command.command == "clear_wifi_config") {
+    if (!capabilities.supports_wifi_bssid || !wifi_bssid_callback) {
       return reject("unsupported", "unsupported command");
     }
-    result.accepted = wifi_config_callback(command, command.command == "clear_wifi_config", &result.message);
+    result.accepted = wifi_bssid_callback(command, &result.message);
     result.code = result.accepted ? "ok" : "unavailable";
-    if (result.accepted) result.changes = FrontendCommandChange::CONFIG;
+    if (result.accepted && command.command != "scan_wifi_access_points") {
+      result.changes = FrontendCommandChange::CONFIG;
+    }
     if (result.message.empty()) {
-      result.message = result.accepted ? "Wi-Fi configuration accepted" : "Wi-Fi configuration rejected";
+      result.message = result.accepted
+                           ? (command.command == "scan_wifi_access_points"
+                                  ? "Wi-Fi access point scan started"
+                                  : command.command == "clear_wifi_config"
+                                      ? "Wi-Fi configuration cleared"
+                                      : "Wi-Fi BSSID accepted")
+                           : "Wi-Fi access point request rejected";
     }
     return result;
   }

@@ -30,6 +30,12 @@ namespace espectre {
 class NativeFrontend : public IRuntimeListener {
  public:
   struct WifiProvisioningInfo {
+    struct AccessPoint {
+      std::string bssid;
+      int8_t rssi_dbm{0};
+      uint8_t channel{0U};
+    };
+
     std::string ssid;
     std::string bssid;
     uint8_t channel{0U};
@@ -37,9 +43,13 @@ class NativeFrontend : public IRuntimeListener {
     WifiBandPolicy band_policy{WifiBandPolicy::BAND_2G};
     std::string apply_state{"idle"};
     std::string apply_message;
+    bool scan_pending{false};
+    std::string scan_message;
+    std::vector<AccessPoint> access_points;
   };
 
   using ProvisioningCommandCallback = std::function<bool(const std::string &command, std::string *message)>;
+  using WifiScanCallback = std::function<bool(std::string *message)>;
   using DeviceConfigChangeCallback = std::function<bool(const EspectreDeviceConfig &config, bool clear, std::string *message)>;
 
   explicit NativeFrontend(IMqttTransport *mqtt_transport = nullptr,
@@ -52,6 +62,7 @@ class NativeFrontend : public IRuntimeListener {
   void set_peer_discovery_service(IPeerDiscoveryService *service);
   void set_wifi_provisioning_info(const WifiProvisioningInfo &info);
   void set_provisioning_command_callback(ProvisioningCommandCallback callback);
+  void set_wifi_scan_callback(WifiScanCallback callback);
   void set_device_config_change_callback(DeviceConfigChangeCallback callback);
   void prepare_for_wifi_reconfigure();
   void resume_after_wifi_reconfigure();
@@ -93,6 +104,7 @@ class NativeFrontend : public IRuntimeListener {
   std::string direct_capabilities_payload_() const;
   std::string direct_status_payload_(bool online) const;
   std::string direct_config_payload_(bool include_local = true) const;
+  std::string direct_wifi_access_points_payload_() const;
   std::string direct_diagnostics_payload_() const;
   bool handle_threshold_write_(float threshold);
   bool handle_motion_hits_write_(uint8_t motion_on_hits, uint8_t motion_off_hits);
@@ -164,6 +176,7 @@ class NativeFrontend : public IRuntimeListener {
   IDirectHttpService *direct_service_{nullptr};
   IPeerDiscoveryService *peer_discovery_{nullptr};
   ProvisioningCommandCallback provisioning_command_callback_{};
+  WifiScanCallback wifi_scan_callback_{};
   DeviceConfigChangeCallback device_config_change_callback_{};
   RuntimeFrontendController runtime_;
   FrontendCommandEngine command_engine_;

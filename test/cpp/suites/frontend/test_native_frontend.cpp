@@ -1113,7 +1113,7 @@ void test_native_frontend_mqtt_rejects_direct_local_commands_with_forbidden(void
   mqtt_transport_mock::state.publishes.clear();
 
   mqtt.emit_command(
-      "{\"command_id\":\"wifi-local\",\"command\":\"set_wifi_config\",\"ssid\":\"Lab\"}");
+      "{\"command_id\":\"wifi-local\",\"command\":\"set_wifi_bssid\",\"bssid\":\"\"}");
 
   TEST_ASSERT_EQUAL(1, static_cast<int>(mqtt_transport_mock::state.publishes.size()));
   const auto &result = mqtt_transport_mock::state.publishes[0];
@@ -1569,6 +1569,12 @@ void test_native_frontend_direct_updates_bssid_and_mqtt_without_returning_secret
         }
         return true;
       });
+  int scan_calls = 0;
+  frontend.set_wifi_scan_callback([&scan_calls](std::string *message) {
+    ++scan_calls;
+    if (message != nullptr) *message = "scan started";
+    return true;
+  });
   EspectreDeviceConfig persisted;
   frontend.set_device_config_change_callback(
       [&persisted](const EspectreDeviceConfig &updated, bool clear, std::string *message) {
@@ -1582,16 +1588,21 @@ void test_native_frontend_direct_updates_bssid_and_mqtt_without_returning_secret
   TEST_ASSERT_TRUE(frontend.setup());
 
   const std::string wifi_response = direct.emit_request(
-      DirectRequest{"wifi-1", "set_wifi_config", "{\"bssid\":\"E6:FA:C4:20:19:DE\"}"});
+      DirectRequest{"wifi-1", "set_wifi_bssid", "{\"bssid\":\"E6:FA:C4:20:19:DE\"}"});
   TEST_ASSERT_EQUAL_STRING(
-      "SET_WIFI_CONFIG:ssid=Ohana&bssid=E6%3AFA%3AC4%3A20%3A19%3ADE", provisioning_command.c_str());
+      "SET_WIFI_BSSID:bssid=E6%3AFA%3AC4%3A20%3A19%3ADE", provisioning_command.c_str());
   TEST_ASSERT_TRUE(wifi_response.find("\"ok\":true") != std::string::npos);
   TEST_ASSERT_TRUE(wifi_response.find("password") == std::string::npos);
 
-  const std::string clear_wifi_response = direct.emit_request(
-      DirectRequest{"wifi-clear", "clear_wifi_config", "{}"});
+  const std::string scan_response = direct.emit_request(
+      DirectRequest{"wifi-scan", "scan_wifi_access_points", "{}"});
+  TEST_ASSERT_EQUAL(1, scan_calls);
+  TEST_ASSERT_TRUE(scan_response.find("\"ok\":true") != std::string::npos);
+
+  const std::string removed_command = direct.emit_request(
+      DirectRequest{"wifi-removed", "clear_wifi_config", "{}"});
   TEST_ASSERT_EQUAL_STRING("CLEAR_WIFI", provisioning_command.c_str());
-  TEST_ASSERT_TRUE(clear_wifi_response.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(removed_command.find("\"ok\":true") != std::string::npos);
 
   const std::string mqtt_response = direct.emit_request(DirectRequest{
       "mqtt-1",
@@ -1652,10 +1663,14 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
   wifi.has_saved_config = true;
   wifi.apply_state = "rolled_back";
   wifi.apply_message = "last-known-good configuration restored";
+  wifi.scan_message = "Wi-Fi access point scan complete";
+  wifi.access_points.push_back(
+      NativeFrontend::WifiProvisioningInfo::AccessPoint{"AA:BB:CC:DD:EE:FF", -43, 6U});
   frontend.set_wifi_provisioning_info(wifi);
   EspectreDeviceInfo info;
   info.frontend = "native";
   info.network.ip_address = "192.168.1.42";
+  info.network.channel = 36U;
   frontend.set_device_info(info);
   TEST_ASSERT_TRUE(frontend.setup());
   direct.emit_client_count(1U);
@@ -1665,6 +1680,9 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
   TEST_ASSERT_TRUE(capabilities.find("\"name\":\"set_sensing\"") != std::string::npos);
   TEST_ASSERT_TRUE(capabilities.find("\"raw_csi\":false") != std::string::npos);
   TEST_ASSERT_TRUE(capabilities.find("\"access\":\"network_admin\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"set_wifi_bssid\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("\"name\":\"clear_wifi_config\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.find("set_wifi_config") == std::string::npos);
 
   const std::string status = direct.emit_request(DirectRequest{"read-status", "status", "{}"});
   TEST_ASSERT_TRUE(status.find("\"wifi_connected\":true") != std::string::npos);
@@ -1681,6 +1699,16 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
   TEST_ASSERT_TRUE(visible_config.find("private-user") == std::string::npos);
   TEST_ASSERT_TRUE(visible_config.find("private-password") == std::string::npos);
   TEST_ASSERT_TRUE(visible_config.find("\"password\"") == std::string::npos);
+  TEST_ASSERT_TRUE(visible_config.find("\"ssid\":\"Lab\"") != std::string::npos);
+  TEST_ASSERT_TRUE(visible_config.find("\"band\":\"5g\"") != std::string::npos);
+  TEST_ASSERT_TRUE(visible_config.find("\"band_policy\"") == std::string::npos);
+  TEST_ASSERT_TRUE(visible_config.find("\"channel\"") == std::string::npos);
+
+  const std::string access_points =
+      direct.emit_request(DirectRequest{"read-wifi-aps", "wifi_access_points", "{}"});
+  TEST_ASSERT_TRUE(access_points.find("AA:BB:CC:DD:EE:FF") != std::string::npos);
+  TEST_ASSERT_TRUE(access_points.find("\"rssi_dbm\":-43") != std::string::npos);
+  TEST_ASSERT_TRUE(access_points.find("\"channel\":6") != std::string::npos);
 
   const std::string diagnostics =
       direct.emit_request(DirectRequest{"read-diag", "diagnostics", "{}"});

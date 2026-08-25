@@ -27,10 +27,10 @@
     const DISCOVERY_HOST_PREFIX = 'espectre-devices-';
     const EVENTS = Object.freeze(['open', 'close', 'event', 'protocol-error']);
     const MUTATING_METHODS = Object.freeze(new Set([
-        'clear_mqtt_config', 'clear_wifi_config', 'ota_start', 'recalibrate',
+        'clear_mqtt_config', 'clear_wifi_config', 'ota_start', 'recalibrate', 'scan_wifi_access_points',
         'set_csi_traffic_mode', 'set_detector', 'set_device_label',
         'set_motion_hits', 'set_mqtt_config', 'set_threshold',
-        'set_traffic_generator_mode', 'set_wifi_config', 'set_sensing',
+        'set_traffic_generator_mode', 'set_wifi_bssid', 'set_sensing',
         'start_raw_stream', 'stop_raw_stream'
     ]));
 
