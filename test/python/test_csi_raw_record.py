@@ -8,6 +8,7 @@ Unit tests for the transport-neutral CSI raw record parser and dataset writer.
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
+import copy
 import io
 import socket
 import time
@@ -374,7 +375,9 @@ def test_direct_raw_receiver_negotiates_v8_and_feeds_shared_packet_parser():
     receiver._consume_raw_frames()
     receiver._raw_buffer.extend(receiver._read_raw_chunk())
     receiver._consume_raw_frames()
+    detached_packet = copy.copy(observed[0])
     receiver.stop()
+    receiver.apply_final_raw_diagnostics(detached_packet)
 
     assert len(observed) == 1
     assert observed[0].record_version == RAW_CSI_RECORD_VERSION_V8
@@ -385,6 +388,10 @@ def test_direct_raw_receiver_negotiates_v8_and_feeds_shared_packet_parser():
     assert observed[0].fresh_record_total == 1
     assert observed[0].raw_drop_total == 2
     assert observed[0].raw_send_backpressure_total == 3
+    assert detached_packet.raw_final_stream_sequence == 3
+    assert detached_packet.fresh_record_total == 1
+    assert detached_packet.raw_drop_total == 2
+    assert detached_packet.raw_send_backpressure_total == 3
     assert raw.request_args[0:2] == ("GET", "/espectre/v1/csi")
     assert raw.request_args[2]["Authorization"] == f"Bearer {session_id.hex()}"
     assert raw.socket_timeouts == [None]
@@ -531,9 +538,9 @@ def test_external_traffic_generator_configures_low_latency_multicast(monkeypatch
     assert (socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1) in sock.options
 
 
-def test_external_traffic_generator_uses_canonical_single_byte_marker():
-    assert espectre_traffic_generator.ExternalTrafficGenerator.TRAFFIC_MARKER == "."
-    assert espectre_traffic_generator.ExternalTrafficGenerator.PAYLOAD == b"."
+def test_external_traffic_generator_uses_canonical_ghost_marker():
+    assert espectre_traffic_generator.ExternalTrafficGenerator.TRAFFIC_MARKER == "👻"
+    assert espectre_traffic_generator.ExternalTrafficGenerator.PAYLOAD == bytes.fromhex("f09f91bb")
 
 
 def test_external_traffic_generator_rates_each_target_and_stops_safely(monkeypatch):
@@ -578,7 +585,7 @@ def test_external_traffic_generator_rates_each_target_and_stops_safely(monkeypat
     assert generator.sent_by_target == {"127.0.0.1": 2, "127.0.0.2": 2}
     assert generator.errors_by_target == {"127.0.0.1": 0, "127.0.0.2": 0}
     assert sockets[0].bound == ("127.0.0.3", 0)
-    assert all(payload == b"." for payload, _destination in sockets[0].sent)
+    assert all(payload == bytes.fromhex("f09f91bb") for payload, _destination in sockets[0].sent)
     assert sockets[0].closed
 
 

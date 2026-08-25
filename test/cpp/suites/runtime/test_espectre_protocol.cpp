@@ -245,7 +245,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"capabilities\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"traffic_udp_port\":5555") != std::string::npos);
   const std::string marker_property =
-      std::string("\"traffic_marker\":\"") + RUNTIME_CSI_TRAFFIC_MARKER_UTF8 + "\"";
+      std::string("\"marker\":\"") + RUNTIME_CSI_TRAFFIC_MARKER_UTF8 + "\"";
   TEST_ASSERT_TRUE(catalog.find(marker_property) != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"diagnostics\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"set_sensing\"") != std::string::npos);

@@ -95,6 +95,10 @@ void RuntimeFrontendController::shutdown() {
 }
 
 void RuntimeFrontendController::set_services_armed(bool armed) {
+  if (runtime_ && runtime_->operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    ESP_LOGW(TAG, "Rejected sensing mutation during raw collection");
+    return;
+  }
   services_armed_ = armed;
   if (runtime_) {
     runtime_->set_services_armed(armed);

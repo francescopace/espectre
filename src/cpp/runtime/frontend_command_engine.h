@@ -1,5 +1,5 @@
 /*
- * ESPectre - Frontend Control Helpers
+ * ESPectre - Frontend Command Engine
  *
  * Parses frontend control commands that update stored device
  * configuration.
@@ -94,6 +94,8 @@ DeviceConfigCommandResult handle_device_config_command(const std::string &comman
                                                        const EspectreDeviceConfig &current_config,
                                                        DeviceConfigClearHandler clear_handler,
                                                        DeviceConfigUpdateHandler update_handler);
+
+bool frontend_command_allowed_during_raw_collection(const std::string &command);
 
 class FrontendCommandEngine {
  public:

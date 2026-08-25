@@ -107,7 +107,7 @@ Canonical topics under `espectre/v1/devices/{device_id}/...` remain available to
 
 Lightweight Detection uses less CPU and memory and learns a room-specific threshold from usable quiet-room coverage. High Accuracy uses the bundled model and skips threshold calibration, but still waits for CSI readiness and feature-window warmup. The selected profile persists across reboot and can be changed through Direct, MQTT, or Home Assistant.
 
-`CONFIG_ESPECTRE_CSI_TARGET_PPS` sets the sensing cadence target. `CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_*` selects internal or external traffic. External mode opens UDP port `5555`, joins `CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP`, `239.255.0.1` by default, and accepts only the exact one-byte marker `b'.'` (`0x2E`). Use [`espectre_traffic_generator.py`](../../../../tools/espectre_traffic_generator.py) standalone or through `./espectre collect`. A raw session uses the already configured traffic mode and does not change its rate.
+`CONFIG_ESPECTRE_CSI_TARGET_PPS` sets the sensing cadence target. `CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_*` selects internal or external traffic. External mode opens UDP port `5555`, joins `CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP`, `239.255.0.1` by default, and accepts only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`). Use [`espectre_traffic_generator.py`](../../../../tools/espectre_traffic_generator.py) standalone or through `./espectre collect`. A raw session uses the already configured traffic mode and does not change its rate.
 
 ## OTA
 

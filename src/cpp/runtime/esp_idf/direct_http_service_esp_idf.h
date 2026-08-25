@@ -28,6 +28,7 @@ using portMUX_TYPE = int;
 #endif
 
 #include "direct_http_service.h"
+#include "pending_event.h"
 
 namespace espectre {
 
@@ -91,6 +92,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
     httpd_req_t *request{nullptr};
     int fd{-1};
     bool binary_bound{false};
+    uint64_t generation{0U};
     uint64_t opened_at_us{0U};
     uint64_t last_send_us{0U};
     uint64_t stream_sequence{0U};
@@ -123,6 +125,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   void service_event_streams_();
   bool service_raw_stream_();
   void service_raw_timeouts_();
+  void dispatch_pending_callbacks_();
   void worker_loop_();
   bool pop_raw_sample_(RawSampleSlot *sample);
   void reset_raw_session_locked_();
@@ -137,6 +140,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   RequestHandler request_handler_{};
   DeferredRequestHandler deferred_request_handler_{};
   ClientCountCallback client_count_callback_{};
+  PendingEvent<size_t> pending_client_count_event_{};
   std::vector<EventClient> event_clients_;
   size_t pending_event_connections_{0U};
   std::deque<PendingRequest> inbound_;
@@ -145,6 +149,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   uint64_t next_request_token_{1U};
   uint64_t mutation_window_started_us_{0U};
   uint16_t mutation_count_{0U};
+  uint64_t next_raw_session_generation_{1U};
   std::atomic<bool> worker_running_{false};
   TaskHandle_t worker_task_{nullptr};
   std::atomic<bool> raw_worker_running_{false};
@@ -162,6 +167,8 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   std::atomic<uint64_t> raw_offer_sequence_{0U};
   std::array<uint8_t, kRawBatchRecords * kRawEncodedFrameMaximumSize> raw_send_buffer_{};
   RawSessionState raw_session_{};
+  RawSessionStoppedCallback pending_raw_stopped_callback_{};
+  RawCsiStopReason pending_raw_stop_reason_{RawCsiStopReason::INTERNAL_ERROR};
   std::atomic<uint64_t> raw_drop_total_{0U};
   std::atomic<uint64_t> raw_send_backpressure_total_{0U};
   std::atomic<uint64_t> raw_fresh_record_total_{0U};

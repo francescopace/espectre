@@ -12,6 +12,7 @@
 // Mock ESPHome Application for host tests
 
 #include "component.h"
+#include <string>
 #include <vector>
 
 namespace esphome {
@@ -24,6 +25,7 @@ public:
     void loop() {}
     
     uint32_t get_loop_component_start_time() const { return 0; }
+    std::string get_name() const { return "espectre"; }
     
     static App& get_instance() {
         static App instance;

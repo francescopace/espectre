@@ -779,6 +779,8 @@ class DirectRawCSIReceiver(CSIReceiver):
         self._fresh_record_total = 0
         self.raw_drop_total = 0
         self.raw_send_backpressure_total = 0
+        self.raw_final_stream_sequence = 0
+        self.raw_final_fresh_record_total = 0
         self.effective_socket_rcvbuf_bytes = None
 
     @property
@@ -799,6 +801,8 @@ class DirectRawCSIReceiver(CSIReceiver):
         self._fresh_record_total = 0
         self.raw_drop_total = 0
         self.raw_send_backpressure_total = 0
+        self.raw_final_stream_sequence = 0
+        self.raw_final_fresh_record_total = 0
         from src.python.espectre_cli.device_transport import DirectClient
 
         factory = self._control_client_factory or DirectClient
@@ -966,6 +970,8 @@ class DirectRawCSIReceiver(CSIReceiver):
             del self._raw_buffer[:frame_length]
             self._stream_sequence = int(stream_sequence)
             self._fresh_record_total = int(fresh_total)
+            self.raw_final_stream_sequence = self._stream_sequence
+            self.raw_final_fresh_record_total = self._fresh_record_total
             self.raw_drop_total = int(raw_drop_total)
             self.raw_send_backpressure_total = int(backpressure_total)
             packet, next_offset = parse_csi_record(
@@ -1001,14 +1007,21 @@ class DirectRawCSIReceiver(CSIReceiver):
         self.raw_send_backpressure_total = int(
             raw.get("send_backpressure_total", self.raw_send_backpressure_total)
         )
+        self.raw_final_fresh_record_total = int(
+            raw.get("fresh_record_total", self._fresh_record_total)
+        )
+        self.raw_final_stream_sequence = int(
+            raw.get("stream_sequence", self._stream_sequence)
+        )
         if self.buffer:
-            packet = self.buffer[-1]
-            packet.raw_drop_total = self.raw_drop_total
-            packet.raw_send_backpressure_total = self.raw_send_backpressure_total
-            if "fresh_record_total" in raw:
-                packet.fresh_record_total = int(raw["fresh_record_total"])
-            if "stream_sequence" in raw:
-                packet.raw_final_stream_sequence = int(raw["stream_sequence"])
+            self.apply_final_raw_diagnostics(self.buffer[-1])
+
+    def apply_final_raw_diagnostics(self, packet: CSIPacket) -> None:
+        """Copy the drained session counters to a packet retained by a caller."""
+        packet.raw_drop_total = self.raw_drop_total
+        packet.raw_send_backpressure_total = self.raw_send_backpressure_total
+        packet.fresh_record_total = self.raw_final_fresh_record_total
+        packet.raw_final_stream_sequence = self.raw_final_stream_sequence
 
     def _read_raw_chunk(self) -> bytes:
         if self._raw_response is None:

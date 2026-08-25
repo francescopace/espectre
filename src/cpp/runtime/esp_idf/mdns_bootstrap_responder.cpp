@@ -21,6 +21,7 @@
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <freertos/task.h>
 #include <mdns.h>
 
 #include "mdns_networking.h"
@@ -48,6 +49,7 @@ constexpr uint32_t MDNS_MULTICAST_IPV4 =
     static_cast<uint32_t>(224U) | (static_cast<uint32_t>(251U) << 24U);
 
 std::atomic<espectre::MdnsBootstrapResponder *> g_bootstrap_responder{nullptr};
+std::atomic<uint32_t> g_bootstrap_callbacks_in_flight{0U};
 
 uint16_t read_u16(const uint8_t *data) {
   return static_cast<uint16_t>((static_cast<uint16_t>(data[0]) << 8U) | data[1]);
@@ -228,7 +230,9 @@ extern "C" void __real_mdns_priv_receive_action(mdns_action_t *action,
 
 extern "C" void __wrap_mdns_priv_receive_action(mdns_action_t *action,
                                                   mdns_action_subtype_t type) {
-  espectre::MdnsBootstrapResponder *responder = g_bootstrap_responder.load();
+  g_bootstrap_callbacks_in_flight.fetch_add(1U, std::memory_order_acquire);
+  espectre::MdnsBootstrapResponder *responder =
+      g_bootstrap_responder.load(std::memory_order_acquire);
   if (responder != nullptr && action != nullptr && type == ACTION_RUN &&
       action->type == ACTION_RX_HANDLE && action->data.rx_handle.packet != nullptr) {
     mdns_rx_packet_t *packet = action->data.rx_handle.packet;
@@ -241,6 +245,7 @@ extern "C" void __wrap_mdns_priv_receive_action(mdns_action_t *action,
           packet->src_port);
     }
   }
+  g_bootstrap_callbacks_in_flight.fetch_sub(1U, std::memory_order_release);
   __real_mdns_priv_receive_action(action, type);
 }
 
@@ -409,6 +414,15 @@ void MdnsBootstrapResponder::loop() {
 }
 
 void MdnsBootstrapResponder::shutdown() {
+  MdnsBootstrapResponder *owner = this;
+  const bool was_published = g_bootstrap_responder.compare_exchange_strong(
+      owner, nullptr, std::memory_order_acq_rel);
+  if (was_published) {
+    while (g_bootstrap_callbacks_in_flight.load(std::memory_order_acquire) != 0U) {
+      vTaskDelay(1U);
+    }
+  }
+
   if (mutex_ != nullptr) {
     xSemaphoreTake(static_cast<SemaphoreHandle_t>(mutex_), portMAX_DELAY);
     clear_pending_();
@@ -420,8 +434,6 @@ void MdnsBootstrapResponder::shutdown() {
     configured_ = false;
     ipv4_address_ = 0U;
   }
-  MdnsBootstrapResponder *owner = this;
-  (void) g_bootstrap_responder.compare_exchange_strong(owner, nullptr);
 }
 
 void MdnsBootstrapResponder::clear_pending_() {

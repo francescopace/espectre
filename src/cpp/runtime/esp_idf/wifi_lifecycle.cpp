@@ -430,8 +430,7 @@ void WiFiLifecycleManager::unregister_handlers() {
     disconnected_instance_ = nullptr;
   }
 
-  connected_event_.clear();
-  disconnected_event_.clear();
+  pending_events_.clear();
   started_policy_err_.store(ESP_ERR_INVALID_STATE, std::memory_order_relaxed);
   started_policy_applied_.store(false, std::memory_order_relaxed);
   started_policy_attempted_.store(false, std::memory_order_relaxed);
@@ -440,22 +439,23 @@ void WiFiLifecycleManager::unregister_handlers() {
 }
 
 esp_err_t WiFiLifecycleManager::process_pending_events() {
-  if (disconnected_event_.take()) {
-    ready_ = false;
-    if (disconnected_callback_) {
-      disconnected_callback_();
+  PendingWifiEvent event;
+  while (pending_events_.take(event)) {
+    if (event.type == PendingWifiEventType::DISCONNECTED) {
+      ready_ = false;
+      if (disconnected_callback_) {
+        disconnected_callback_();
+      }
+      continue;
     }
-  }
 
-  esp_netif_ip_info_t ip_info{};
-  if (connected_event_.take(ip_info)) {
     ESP_LOGD(WIFI_LIFECYCLE_TAG, "Wi-Fi connected event received");
     const esp_err_t err = init();
     if (err != ESP_OK) {
       return err;
     }
     if (connected_callback_) {
-      connected_callback_(ip_info);
+      connected_callback_(event.ip_info);
     }
   }
   return ESP_OK;
@@ -500,7 +500,10 @@ void WiFiLifecycleManager::ip_event_handler_(void* arg, esp_event_base_t event_b
 
   if (manager != nullptr && event_id == IP_EVENT_STA_GOT_IP && event_data != nullptr) {
     const auto *event = static_cast<const ip_event_got_ip_t *>(event_data);
-    manager->connected_event_.post(event->ip_info);
+    if (!manager->pending_events_.post_overwrite_oldest(
+            PendingWifiEvent{PendingWifiEventType::CONNECTED, event->ip_info})) {
+      ESP_LOGW(WIFI_LIFECYCLE_TAG, "Wi-Fi event queue overflowed; oldest transition discarded");
+    }
   }
 }
 
@@ -525,7 +528,10 @@ void WiFiLifecycleManager::wifi_event_handler_(void* arg, esp_event_base_t event
       }
     }
   } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
-    manager->disconnected_event_.post();
+    if (!manager->pending_events_.post_overwrite_oldest(
+            PendingWifiEvent{PendingWifiEventType::DISCONNECTED, {}})) {
+      ESP_LOGW(WIFI_LIFECYCLE_TAG, "Wi-Fi event queue overflowed; oldest transition discarded");
+    }
   }
 }
 

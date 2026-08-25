@@ -79,6 +79,8 @@ typedef struct {
   int response_error_calls;
   int async_begin_calls;
   int async_complete_calls;
+  void (*async_begin_callback)(void *context);
+  void *async_begin_callback_context;
   char response_status[48];
   char response_message[192];
   char response_type[96];

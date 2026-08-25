@@ -1,5 +1,5 @@
 /*
- * ESPectre - Frontend Control Helpers
+ * ESPectre - Frontend Command Engine
  *
  * Parses frontend control commands that update stored device
  * configuration.
@@ -8,9 +8,15 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
-#include "frontend_control_helpers.h"
+#include "frontend_command_engine.h"
 
 namespace espectre {
+
+bool frontend_command_allowed_during_raw_collection(const std::string &command) {
+  return command == "capabilities" || command == "info" || command == "status" ||
+         command == "config" || command == "diagnostics" || command == "ota_status" ||
+         command == "wifi_access_points" || command == "stop_raw_stream";
+}
 
 DeviceConfigCommandResult handle_device_config_command(const std::string &command,
                                                        const EspectreDeviceConfig &current_config,

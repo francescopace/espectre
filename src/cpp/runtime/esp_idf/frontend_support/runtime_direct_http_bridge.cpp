@@ -170,6 +170,11 @@ std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &reques
   if (!direct_http_request_to_command(request, &command, &parse_error)) {
     return direct_http_error_response(request.id, "invalid_params", parse_error.c_str());
   }
+  if (runtime_->operation_state() == RuntimeOperationState::RAW_COLLECTION &&
+      !frontend_command_allowed_during_raw_collection(command.command)) {
+    return direct_http_error_response(
+        request.id, "busy_raw_collection", "mutation is unavailable during raw CSI collection");
+  }
   const FrontendCommandCapabilities capabilities = capability_profile_();
   FrontendCommandResult result = command_engine_.execute(
       command,
@@ -199,9 +204,13 @@ std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &reques
         return handle_wifi_control_(wifi, message);
       },
       {},
-      [this](bool enabled, std::string *) {
+      [this](bool enabled, std::string *message) {
         runtime_->set_services_armed(enabled);
-        return true;
+        const bool applied = runtime_->services_armed() == enabled;
+        if (!applied && message != nullptr) {
+          *message = "sensing state could not be changed";
+        }
+        return applied;
       },
       [this](const EspectreCommand &raw,
              const FrontendCommandContext &context,
@@ -559,6 +568,7 @@ void RuntimeDirectHttpBridge::refresh_peer_candidate_() {
   const std::string device_label = device_label_();
   PeerDiscoveryCandidate local;
   local.instance = device_label + " " + device_id;
+  local.hostname = config_.hostname;
   local.device_id = device_id;
   local.name = device_label;
   local.frontend = config_.frontend;

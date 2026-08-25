@@ -695,7 +695,7 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
                                                           : info.csi_traffic_udp_port);
     out += ",\"traffic_multicast_group\":";
     append_json_string(&out, info.csi_traffic_multicast_group.c_str());
-    out += ",\"traffic_marker\":";
+    out += ",\"marker\":";
     append_json_string(&out, RUNTIME_CSI_TRAFFIC_MARKER_UTF8);
     out += "}";
   }

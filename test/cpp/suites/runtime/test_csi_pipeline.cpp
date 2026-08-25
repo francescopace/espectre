@@ -115,9 +115,14 @@ class WiFiCSIMock : public IWiFiCSI {
     return config_error_;
   }
   esp_err_t set_csi_rx_cb(wifi_csi_cb_t cb, void* ctx) override {
+    if (callback_failures_remaining_ > 0U) {
+      --callback_failures_remaining_;
+      return callback_failure_error_;
+    }
+    if (callback_error_ != ESP_OK) return callback_error_;
     callback_ = cb;
     callback_ctx_ = ctx;
-    return callback_error_;
+    return ESP_OK;
   }
   esp_err_t set_csi(bool enable) override {
     if (csi_error_ != ESP_OK) return csi_error_;
@@ -126,11 +131,22 @@ class WiFiCSIMock : public IWiFiCSI {
   }
   bool is_enabled() const { return enabled_; }
   bool has_callback() const { return callback_ != nullptr; }
+  bool callback_has_context() const { return callback_ctx_ != nullptr; }
   
   void set_config_error(esp_err_t err) { config_error_ = err; }
   void set_callback_error(esp_err_t err) { callback_error_ = err; }
+  void fail_next_callback_calls(size_t count, esp_err_t err) {
+    callback_failures_remaining_ = count;
+    callback_failure_error_ = err;
+  }
   void set_csi_error(esp_err_t err) { csi_error_ = err; }
-  void reset_errors() { config_error_ = ESP_OK; callback_error_ = ESP_OK; csi_error_ = ESP_OK; }
+  void reset_errors() {
+    config_error_ = ESP_OK;
+    callback_error_ = ESP_OK;
+    csi_error_ = ESP_OK;
+    callback_failure_error_ = ESP_OK;
+    callback_failures_remaining_ = 0U;
+  }
   
   void trigger_callback(wifi_csi_info_t* data) {
     if (callback_ && callback_ctx_) {
@@ -142,6 +158,8 @@ class WiFiCSIMock : public IWiFiCSI {
   bool enabled_{false};
   esp_err_t config_error_{ESP_OK};
   esp_err_t callback_error_{ESP_OK};
+  esp_err_t callback_failure_error_{ESP_OK};
+  size_t callback_failures_remaining_{0U};
   esp_err_t csi_error_{ESP_OK};
   wifi_csi_cb_t callback_{nullptr};
   void* callback_ctx_{nullptr};
@@ -1000,6 +1018,35 @@ void test_csi_pipeline_disable_error(void) {
     TEST_ASSERT_FALSE(g_wifi_mock.has_callback());
 }
 
+void test_csi_pipeline_disable_retries_callback_unregister_after_stopping_capture(void) {
+    LightweightDetector detector(50, 1.0f);
+    CsiPipeline manager;
+    manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
+
+    TEST_ASSERT_EQUAL(ESP_OK, manager.enable(nullptr));
+    g_wifi_mock.fail_next_callback_calls(1U, ESP_FAIL);
+
+    TEST_ASSERT_EQUAL(ESP_OK, manager.disable());
+    TEST_ASSERT_FALSE(manager.is_enabled());
+    TEST_ASSERT_FALSE(g_wifi_mock.is_enabled());
+    TEST_ASSERT_FALSE(g_wifi_mock.has_callback());
+}
+
+void test_csi_pipeline_disable_replaces_a_callback_that_cannot_be_unregistered(void) {
+    LightweightDetector detector(50, 1.0f);
+    CsiPipeline manager;
+    manager.init(&detector, TEST_PUBLISH_INTERVAL_MS, &g_wifi_mock);
+
+    TEST_ASSERT_EQUAL(ESP_OK, manager.enable(nullptr));
+    g_wifi_mock.fail_next_callback_calls(2U, ESP_FAIL);
+
+    TEST_ASSERT_EQUAL(ESP_OK, manager.disable());
+    TEST_ASSERT_FALSE(manager.is_enabled());
+    TEST_ASSERT_FALSE(g_wifi_mock.is_enabled());
+    TEST_ASSERT_TRUE(g_wifi_mock.has_callback());
+    TEST_ASSERT_FALSE(g_wifi_mock.callback_has_context());
+}
+
 // ============================================================================
 // CALLBACK WRAPPER TESTS
 // ============================================================================
@@ -1336,6 +1383,8 @@ int process(void) {
     RUN_TEST(test_csi_pipeline_enable_callback_error);
     RUN_TEST(test_csi_pipeline_enable_csi_error);
     RUN_TEST(test_csi_pipeline_disable_error);
+    RUN_TEST(test_csi_pipeline_disable_retries_callback_unregister_after_stopping_capture);
+    RUN_TEST(test_csi_pipeline_disable_replaces_a_callback_that_cannot_be_unregistered);
     
     // Callback wrapper tests
     RUN_TEST(test_csi_pipeline_callback_wrapper_triggered);

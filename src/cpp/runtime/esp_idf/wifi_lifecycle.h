@@ -10,12 +10,13 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include "esp_event.h"
 #include "esp_err.h"
 #include "esp_netif.h"
 #include <functional>
 
-#include "pending_event.h"
+#include "pending_queue.h"
 #include "runtime_interface.h"
 
 namespace espectre {
@@ -57,9 +58,8 @@ class WiFiLifecycleManager {
   /**
    * Invoke the registered callbacks for events recorded by the handlers.
    *
-   * Must be called periodically from the runtime loop task. A recorded
-   * disconnect is processed before a recorded connect so a reconnect cycle
-   * tears services down before starting them again.
+   * Must be called periodically from the runtime loop task. Events are
+   * processed in the same order in which the ESP event loop recorded them.
    */
   esp_err_t process_pending_events();
 
@@ -90,9 +90,19 @@ class WiFiLifecycleManager {
   esp_event_handler_instance_t disconnected_instance_{nullptr};
   esp_event_handler_instance_t started_instance_{nullptr};
 
-  // Events recorded on the event loop task, drained by the runtime loop.
-  PendingEvent<esp_netif_ip_info_t> connected_event_;
-  PendingEvent<> disconnected_event_;
+  enum class PendingWifiEventType : uint8_t {
+    CONNECTED,
+    DISCONNECTED,
+  };
+
+  struct PendingWifiEvent {
+    PendingWifiEventType type{PendingWifiEventType::DISCONNECTED};
+    esp_netif_ip_info_t ip_info{};
+  };
+
+  // Wi-Fi transitions are infrequent; this absorbs a short event-loop burst
+  // while preserving the latest state if the owner loop is delayed.
+  PendingQueue<PendingWifiEvent, 8U> pending_events_;
   std::atomic<esp_err_t> started_policy_err_{ESP_ERR_INVALID_STATE};
   std::atomic<bool> started_policy_applied_{false};
   // Distinguishes "STA_START never reached us" from "it did and the policy

@@ -142,9 +142,15 @@ void test_espectre_component_raw_session_uses_shared_controller_and_recovers(voi
   TEST_ASSERT_EQUAL(RuntimeOperationState::RAW_COLLECTION,
                     component.runtime_.operation_state());
 
+  const std::string busy = component.direct_bridge_.handle_request_(
+      DirectRequest{"raw-busy", "set_sensing", "{\"enabled\":false}"});
+  TEST_ASSERT_TRUE(busy.find("\"code\":\"busy_raw_collection\"") != std::string::npos);
+  TEST_ASSERT_TRUE(component.runtime_.services_armed());
+
   TEST_ASSERT_TRUE(component.direct_service_.stop_raw_session(
       RawCsiStopReason::CHANNEL_CHANGED));
   TEST_ASSERT_FALSE(component.direct_service_.raw_diagnostics().active);
+  component.loop();
   TEST_ASSERT_EQUAL(RuntimeOperationState::SENSING,
                     component.runtime_.operation_state());
 }
@@ -154,6 +160,7 @@ void test_esphome_direct_exposes_common_wifi_and_label_capabilities(void) {
   component.runtime_.config().device_id = 0x112233445566ULL;
   component.setup();
   TEST_ASSERT_FALSE(component.is_failed());
+  TEST_ASSERT_EQUAL_STRING("espectre", component.peer_discovery_.local_candidate_.hostname.c_str());
 
   const std::string capabilities = component.direct_bridge_.handle_request_(
       DirectRequest{"capabilities", "capabilities", "{}"});

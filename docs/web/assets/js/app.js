@@ -5415,7 +5415,10 @@
             rawCsiStatus('Demo connected. Start the simulated CSI stream when ready.');
             return true;
         }
-        const available = directClient?.capabilities?.features?.raw_csi === true;
+        const rawCapability = directClient?.capabilities?.raw_csi;
+        const available = directClient?.capabilities?.features?.raw_csi === true
+            && rawCapability?.protocol_version === 2
+            && rawCapability?.marker === '👻';
         rawCsiSetAvailable(available);
         if (externalHint) externalHint.hidden = !available || conn.csiTrafficMode !== 'external';
         if (available) {

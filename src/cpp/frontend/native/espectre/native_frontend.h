@@ -17,7 +17,7 @@
 #include <vector>
 #include "direct_http_service.h"
 #include "raw_csi_session_controller.h"
-#include "frontend_control_helpers.h"
+#include "frontend_command_engine.h"
 #include "frontend_ha_mqtt_helpers.h"
 #include "mqtt_transport.h"
 #include "ota_service.h"

@@ -82,8 +82,8 @@ def configure_socket(sock, targets=None, source_ip=None):
 class ExternalTrafficGenerator:
     """Reusable external ESPectre UDP traffic generator."""
 
-    TRAFFIC_MARKER = '.'
-    PAYLOAD = b'.'
+    TRAFFIC_MARKER = '👻'
+    PAYLOAD = TRAFFIC_MARKER.encode('utf-8')
 
     def __init__(self, targets, port=PORT, rate_pps=RATE, source_ip=None):
         raw_targets = [targets] if isinstance(targets, str) else list(targets)

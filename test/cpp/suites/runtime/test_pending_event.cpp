@@ -11,6 +11,7 @@
 
 #include "base_detector.h"
 #include "pending_event.h"
+#include "pending_queue.h"
 
 using namespace espectre;
 
@@ -77,6 +78,21 @@ void test_pending_event_supports_empty_payload(void) {
   TEST_ASSERT_FALSE(event.take());
 }
 
+void test_pending_queue_overwrite_retains_the_newest_ordered_records(void) {
+  PendingQueue<uint32_t, 2U> queue;
+  uint32_t value = 0U;
+
+  TEST_ASSERT_TRUE(queue.post_overwrite_oldest(1U));
+  TEST_ASSERT_TRUE(queue.post_overwrite_oldest(2U));
+  TEST_ASSERT_FALSE(queue.post_overwrite_oldest(3U));
+  TEST_ASSERT_EQUAL(2U, queue.size());
+  TEST_ASSERT_TRUE(queue.take(value));
+  TEST_ASSERT_EQUAL(2U, value);
+  TEST_ASSERT_TRUE(queue.take(value));
+  TEST_ASSERT_EQUAL(3U, value);
+  TEST_ASSERT_FALSE(queue.take(value));
+}
+
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_pending_event_take_returns_false_when_nothing_posted);
@@ -84,6 +100,7 @@ int process(void) {
   RUN_TEST(test_pending_event_coalesces_to_most_recent_post);
   RUN_TEST(test_pending_event_clear_drops_unconsumed_event);
   RUN_TEST(test_pending_event_supports_empty_payload);
+  RUN_TEST(test_pending_queue_overwrite_retains_the_newest_ordered_records);
   return UNITY_END();
 }
 

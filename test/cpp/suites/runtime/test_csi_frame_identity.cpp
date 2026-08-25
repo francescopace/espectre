@@ -134,15 +134,17 @@ void test_external_accepts_only_canonical_unicast_and_multicast_marker(void) {
   TEST_ASSERT_TRUE(matches(unicast, config));
   TEST_ASSERT_TRUE(matches(multicast, config, kMulticastMac));
 
-  const auto wrong_marker = udp_frame(kLocal, 5555U, {'N', 'O', 'P', 'E'});
-  const auto legacy_marker = udp_frame(kLocal, 5555U, {0xF0U, 0x9FU, 0x91U, 0xBBU});
+  const auto wrong_marker = udp_frame(kLocal, 5555U, {'.'});
+  const auto truncated_marker = udp_frame(kLocal, 5555U, {0xF0U, 0x9FU, 0x91U});
+  const auto malformed_marker = udp_frame(kLocal, 5555U, {0xF0U, 0x28U, 0x8CU, 0xBCU});
   auto marker_with_trailing_byte = canonical_marker();
   marker_with_trailing_byte.push_back('x');
   const auto oversized_marker = udp_frame(kLocal, 5555U, marker_with_trailing_byte);
   const auto wrong_port = udp_frame(kLocal, 5556U);
   const auto wrong_device = udp_frame(kOther, 5555U);
   TEST_ASSERT_FALSE(matches(wrong_marker, config));
-  TEST_ASSERT_FALSE(matches(legacy_marker, config));
+  TEST_ASSERT_FALSE(matches(truncated_marker, config));
+  TEST_ASSERT_FALSE(matches(malformed_marker, config));
   TEST_ASSERT_FALSE(matches(oversized_marker, config));
   TEST_ASSERT_FALSE(matches(wrong_port, config));
   TEST_ASSERT_FALSE(matches(wrong_device, config));

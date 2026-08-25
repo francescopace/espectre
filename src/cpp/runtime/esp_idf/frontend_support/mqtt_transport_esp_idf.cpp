@@ -19,7 +19,7 @@ namespace espectre {
 
 namespace {
 
-static const char *const TAG = "espectre.mqtt";
+[[maybe_unused]] static const char *const TAG = "espectre.mqtt";
 
 bool has_uri_scheme(const std::string &value) {
   return value.find("://") != std::string::npos;

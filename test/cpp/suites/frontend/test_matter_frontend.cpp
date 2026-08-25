@@ -196,6 +196,11 @@ void test_matter_frontend_raw_session_uses_shared_controller_and_recovers(void) 
   TEST_ASSERT_EQUAL(RuntimeOperationState::RAW_COLLECTION,
                     frontend.runtime_.operation_state());
 
+  const std::string busy = direct.emit_request(
+      DirectRequest{"raw-busy", "set_sensing", "{\"enabled\":false}"});
+  TEST_ASSERT_TRUE(busy.find("\"code\":\"busy_raw_collection\"") != std::string::npos);
+  TEST_ASSERT_TRUE(frontend.runtime_.services_armed());
+
   TEST_ASSERT_TRUE(direct.stop_raw_session(RawCsiStopReason::WIFI_LOST));
   TEST_ASSERT_FALSE(direct_http_service_mock::state.raw_session_active);
   TEST_ASSERT_EQUAL(RuntimeOperationState::SENSING,

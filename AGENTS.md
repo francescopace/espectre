@@ -38,6 +38,19 @@ context rather than current behavior.
 
 
 
+## Protocol Rules
+
+- Preserve **one message model, multiple transports**: MQTT, Direct HTTP, and
+future transports carry the same canonical JSON contract and application
+version; transport framing and delivery policy stay outside that model.
+- Treat `docs/ESPECTRE_PROTOCOL.md` and the canonical protocol registry or
+schema as the owners of messages, operations, discovery metadata, and version
+semantics. Do not create transport-specific envelopes, aliases, or constants.
+- Require cross-transport parity for serialized messages, validation, and
+capability schemas; engine-level semantic parity alone is insufficient.
+
+
+
 ## Environment And Commands
 
 - Use the repository virtual environment for direct Python commands when available.

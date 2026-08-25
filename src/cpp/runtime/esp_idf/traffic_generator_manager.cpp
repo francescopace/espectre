@@ -275,6 +275,10 @@ bool TrafficGeneratorManager::start(uint32_t gateway_addr) {
   if (running_.load(std::memory_order_relaxed)) {
     return true;
   }
+  if (!task_exited_.load(std::memory_order_acquire)) {
+    ESP_LOGE(TAG, "Previous traffic generator task is still stopping");
+    return false;
+  }
   if (target_pps_ == 0U || gateway_addr == 0U) {
     ESP_LOGE(TAG, "Gateway IP is unavailable in the connection event");
     return false;
@@ -348,15 +352,24 @@ void TrafficGeneratorManager::resume() {
 }
 
 void TrafficGeneratorManager::stop() {
-  if (!is_running()) {
+  if (!is_running() && task_exited_.load(std::memory_order_acquire)) {
     return;
   }
-  running_.store(false, std::memory_order_relaxed);
-  for (int attempt = 0; attempt < 20 && !task_exited_.load(std::memory_order_relaxed); ++attempt) {
+  running_.store(false, std::memory_order_release);
+  for (int attempt = 0; attempt < 20 && !task_exited_.load(std::memory_order_acquire); ++attempt) {
     vTaskDelay(pdMS_TO_TICKS(100));
   }
-  if (!task_exited_.load(std::memory_order_relaxed)) {
-    ESP_LOGW(TAG, "Traffic generator task did not exit within 2 s");
+  if (!task_exited_.load(std::memory_order_acquire)) {
+    ESP_LOGE(TAG, "Traffic generator task did not exit within 2 s; deleting it");
+    if (task_handle_ != nullptr) {
+      vTaskDelete(task_handle_);
+      task_handle_ = nullptr;
+    }
+    if (sock_ >= 0) {
+      close(sock_);
+      sock_ = -1;
+    }
+    task_exited_.store(true, std::memory_order_release);
   }
   ESP_LOGI(TAG, "Traffic generator stopped");
 }
@@ -497,7 +510,7 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
     manager->sock_ = -1;
   }
   manager->task_handle_ = nullptr;
-  manager->task_exited_.store(true, std::memory_order_relaxed);
+  manager->task_exited_.store(true, std::memory_order_release);
   vTaskDelete(nullptr);
 }
 

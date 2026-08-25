@@ -9,6 +9,8 @@
  */
 #include "test_harness.h"
 
+#include <string>
+
 #include "esp_event.h"
 #include "esp_wifi.h"
 #include "standalone_wifi_service.h"
@@ -149,14 +151,19 @@ void test_wifi_lifecycle_register_handlers_dispatches_and_unregisters(void) {
   WiFiLifecycleManager manager;
   int connected_calls = 0;
   int disconnected_calls = 0;
+  std::string callback_order;
   esp_netif_ip_info_t observed_ip_info{};
 
   TEST_ASSERT_EQUAL(
       ESP_OK, manager.register_handlers([&](const esp_netif_ip_info_t &ip_info) {
                                           connected_calls++;
+                                          callback_order += "connected ";
                                           observed_ip_info = ip_info;
                                         },
-                                        [&disconnected_calls]() { disconnected_calls++; }));
+                                        [&disconnected_calls, &callback_order]() {
+                                          disconnected_calls++;
+                                          callback_order += "disconnected";
+                                        }));
   TEST_ASSERT_EQUAL(3, g_esp_event_mock.register_call_count);
 
   ip_event_got_ip_t event{};
@@ -173,6 +180,7 @@ void test_wifi_lifecycle_register_handlers_dispatches_and_unregisters(void) {
   manager.process_pending_events();
   TEST_ASSERT_EQUAL(1, connected_calls);
   TEST_ASSERT_EQUAL(1, disconnected_calls);
+  TEST_ASSERT_EQUAL_STRING("connected disconnected", callback_order.c_str());
   TEST_ASSERT_EQUAL(event.ip_info.gw.addr, observed_ip_info.gw.addr);
 
   manager.unregister_handlers();

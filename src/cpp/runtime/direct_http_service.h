@@ -96,7 +96,11 @@ class IDirectHttpService {
     (void) response;
     return false;
   }
-  /** Pump deferred receive, dispatch, and send work from the frontend task. */
+  /**
+   * Pump deferred receive, dispatch, send work, and application callbacks from
+   * the frontend task. Request, client-count, and raw-stop callbacks are never
+   * delivered from HTTP server or streaming worker tasks.
+   */
   virtual void loop() = 0;
   /** Stop accepting clients, close sockets, and release queued messages. */
   virtual void shutdown() = 0;
@@ -122,7 +126,12 @@ class IDirectHttpService {
     (void) stopped_callback;
     return false;
   }
-  /** Stop the active raw session and close its binary socket. */
+  /**
+   * Stop the active raw session and close its binary socket.
+   *
+   * The stopped callback is delivered by loop(), or synchronously while
+   * shutdown() completes on the owning frontend task.
+   */
   virtual bool stop_raw_session(RawCsiStopReason reason) {
     (void) reason;
     return false;

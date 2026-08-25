@@ -182,6 +182,11 @@ void EspIdfRuntime::loop() {
     finish_threshold_calibration_(calibration_success);
   }
   csi_pipeline_.loop();
+  // Keep the active traffic source healthy while raw capture bypasses the
+  // sensing sampler. In external mode this drains the non-blocking UDP socket;
+  // otherwise its receive queue fills during long raw sessions and the marker
+  // traffic path cannot recover cleanly.
+  csi_traffic_service_.loop();
   if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
     return;
   }
@@ -193,7 +198,6 @@ void EspIdfRuntime::loop() {
                                                       detection_timing.minimum_us,
                                                       detection_timing.maximum_us);
   }
-  csi_traffic_service_.loop();
 }
 
 RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {

@@ -90,6 +90,7 @@ class CsiCaptureService {
 
  private:
   static void IRAM_ATTR csi_rx_callback_wrapper_(void *ctx, wifi_csi_info_t *data);
+  static void IRAM_ATTR disabled_csi_rx_callback_(void *ctx, wifi_csi_info_t *data);
   esp_err_t configure_platform_specific_();
   bool accept_rx_timestamp_(const wifi_csi_info_t *data);
   void record_format_drop_(CsiFormatReasonCode reason_code);

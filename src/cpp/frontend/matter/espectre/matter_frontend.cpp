@@ -57,6 +57,7 @@ bool MatterFrontend::setup() {
           RuntimeDirectHttpBridgeConfig{
               "matter",
               "ESPectre Matter",
+              "",
               espectre_firmware_version(),
               CONFIG_IDF_TARGET,
               device_id,

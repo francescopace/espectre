@@ -14,7 +14,7 @@
 #include <functional>
 #include <string>
 
-#include "frontend_control_helpers.h"
+#include "frontend_command_engine.h"
 #include "mqtt_transport.h"
 
 namespace espectre {

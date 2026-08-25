@@ -53,6 +53,12 @@ Every publishing frontend uses the following TXT contract. `<device_id>` is the 
 | `chip` | Active ESP-IDF target, such as `esp32c3` | Hardware target |
 | `capabilities` | Comma-separated values | Coarse discovery capabilities; clients still negotiate exact Direct methods after connecting |
 
+#### Version ownership
+
+The DNS-SD wire keys follow RFC 6763. `txtvers` versions only the key/value profile of this TXT record, while `protovers` advertises the application protocol implemented by the discovered service. `protovers` must therefore be serialized from the same canonical version constant exposed as `protocol_version` in ESPectre JSON messages; it is not an independent Direct version. Internal constant names remain descriptive even though the DNS-SD keys stay compact. Binary raw-CSI framing has its own independent version because it is not part of the canonical JSON message model.
+
+No ESPectre DNS-SD profile has been released. The first public baseline is `txtvers=1` and application protocol `1.0`; superseded development values do not consume compatibility versions or require aliases. The current development implementation and surrounding contract examples still show `txtvers=2` and `protovers=1` until firmware, CLI, portal, tests, and this contract migrate atomically before the v3 freeze.
+
 The CLI accepts a record only when it resolves to IPv4, has a valid SRV port and `device_id`, reports a supported `frontend`, declares `txtvers=2`, `protovers=1`, and `transport=http`, and publishes the exact request and event paths above. Unknown TXT keys are ignored so the contract can grow additively. `name`, `firmware`, `chip`, and `capabilities` enrich the normalized result but do not identify the device.
 
 #### Frontend-specific behavior
@@ -164,7 +170,7 @@ Direct v1 methods are grouped by capability:
 
 #### Direct raw CSI v2
 
-Raw CSI is an additive capability of the HTTP service shared by Native, ESPHome, and Matter. Capability negotiation reports `features.raw_csi=true` and a `raw_csi` object containing endpoint `/espectre/v1/csi`, transport `http`, raw protocol version `2`, record version `8`, a 60-byte frame prefix, a 16-record ring, a four-record maximum chunk batch, the external UDP port, and `traffic_marker: "."`.
+Raw CSI is an additive capability of the HTTP service shared by Native, ESPHome, and Matter. Capability negotiation reports `features.raw_csi=true` and a `raw_csi` object containing endpoint `/espectre/v1/csi`, transport `http`, raw protocol version `2`, record version `8`, a 60-byte frame prefix, a 16-record ring, a four-record maximum chunk batch, the external UDP port, and `marker: "👻"`.
 
 `start_raw_stream` accepts an empty object, creates a random 128-bit session ID, and moves the runtime from `sensing` to `raw_collection` without changing `csi_traffic_mode` or the active traffic generator. `GET /espectre/v1/csi` and `stop_raw_stream` require `Authorization: Bearer <session-id>`. Another start receives `busy_raw_collection`, and a stop with the wrong bearer receives `not_raw_session_owner`. Reads remain available during the session. Wi-Fi, OTA, detector, calibration, traffic, and sensing mutations receive `busy_raw_collection`. Stream abort, Wi-Fi loss, channel or BSSID change, the five-second initial bind timeout, reboot, stop, or fault terminates the session, restores sensing, and leaves persisted traffic configuration unchanged. Once bound, inactivity does not cause an application timeout; TCP keepalive owns inactive-connection detection.
 
@@ -530,7 +536,7 @@ Update CSI traffic ownership on frontends that advertise traffic control:
 }
 ```
 
-Accepted values are `internal` and `external`. Native, ESPHome, and Matter persist the accepted value across reboot. Micro-ESPectre keeps the selection session-only. Runtime requests using removed `pacing` or `disabled` values receive `invalid_params`; persisted legacy values migrate once to `internal`. On ESP-IDF sensing frontends, `external` opens the UDP listener on port `5555`, joins multicast group `239.255.0.1` unless `csi_traffic_multicast_group` is empty, and accepts only the exact one-byte marker `b'.'` (`0x2E`) addressed to the device or configured group.
+Accepted values are `internal` and `external`. Native, ESPHome, and Matter persist the accepted value across reboot. Micro-ESPectre keeps the selection session-only. Runtime requests using removed `pacing` or `disabled` values receive `invalid_params`; persisted legacy values migrate once to `internal`. On ESP-IDF sensing frontends, `external` opens the UDP listener on port `5555`, joins multicast group `239.255.0.1` unless `csi_traffic_multicast_group` is empty, and accepts only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`) addressed to the device or configured group. A period payload, truncated or malformed UTF-8, and any payload with additional bytes are rejected fail-closed.
 
 Update the internal traffic generator type on frontends that advertise traffic control:
 

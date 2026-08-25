@@ -96,7 +96,7 @@ struct RawCsiRecordHeaderV7 {
   uint8_t channel_width;
 };
 
-/** Transport-neutral raw CSI record emitted by Native Direct collection. */
+/** Transport-neutral raw CSI record emitted by Direct raw collection. */
 struct RawCsiRecordHeaderV8 {
   uint16_t magic;
   uint8_t version;

@@ -181,6 +181,8 @@ void test_sse_limits_clients_frames_events_coalesces_and_heartbeats() {
   TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[1].handler(&first));
   TEST_ASSERT_EQUAL_STRING("text/event-stream; charset=utf-8", g_httpd_mock.response_type);
   TEST_ASSERT_EQUAL(1U, service.event_client_count());
+  TEST_ASSERT_EQUAL(0U, reported_clients);
+  service.loop();
   TEST_ASSERT_EQUAL(1U, reported_clients);
   TEST_ASSERT_TRUE(sent_payload(0).find("retry: 3000") != std::string::npos);
 
@@ -319,6 +321,37 @@ void test_raw_batches_up_to_four_records_without_pacing() {
   TEST_ASSERT_EQUAL(1, g_httpd_mock.send_calls);
   const size_t frame_size = sizeof(RawCsiHttpFramePrefixV2) + sizeof(RawCsiRecordHeaderV8) + sizeof(csi);
   TEST_ASSERT_EQUAL(4U * frame_size, g_httpd_mock.sent_lengths[0]);
+}
+
+void test_raw_bind_revalidates_session_after_async_handler_creation() {
+  httpd_mock_reset();
+  EspIdfDirectHttpService service;
+  TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
+  RawCsiSessionConfig session{};
+  session.session_id[0] = 7U;
+  RawCsiStopReason stopped_reason = RawCsiStopReason::INTERNAL_ERROR;
+  TEST_ASSERT_TRUE(service.start_raw_session(
+      session, [&stopped_reason](RawCsiStopReason reason) { stopped_reason = reason; }));
+
+  httpd_mock_set_header("Origin", "https://espectre.dev");
+  httpd_mock_set_header("Authorization", "Bearer 07000000000000000000000000000000");
+  g_httpd_mock.async_begin_callback_context = &service;
+  g_httpd_mock.async_begin_callback = [](void *context) {
+    auto *direct = static_cast<EspIdfDirectHttpService *>(context);
+    (void) direct->stop_raw_session(RawCsiStopReason::REQUESTED);
+  };
+
+  httpd_req_t raw_request = request_for(2U, 9);
+  TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[2].handler(&raw_request));
+  TEST_ASSERT_EQUAL_STRING(HTTPD_403_FORBIDDEN, g_httpd_mock.response_status);
+  TEST_ASSERT_FALSE(service.raw_diagnostics().active);
+  TEST_ASSERT_FALSE(service.raw_diagnostics().binary_bound);
+  TEST_ASSERT_EQUAL(1, g_httpd_mock.async_complete_calls);
+  TEST_ASSERT_EQUAL(static_cast<uint8_t>(RawCsiStopReason::INTERNAL_ERROR),
+                    static_cast<uint8_t>(stopped_reason));
+  service.loop();
+  TEST_ASSERT_EQUAL(static_cast<uint8_t>(RawCsiStopReason::REQUESTED),
+                    static_cast<uint8_t>(stopped_reason));
 }
 
 void test_raw_ring_drops_new_record_and_accounts_every_offer() {
@@ -468,6 +501,7 @@ int main() {
   RUN_TEST(test_deferred_post_completes_only_once);
   RUN_TEST(test_raw_get_requires_bearer_and_emits_v2_frame);
   RUN_TEST(test_raw_batches_up_to_four_records_without_pacing);
+  RUN_TEST(test_raw_bind_revalidates_session_after_async_handler_creation);
   RUN_TEST(test_raw_ring_drops_new_record_and_accounts_every_offer);
   RUN_TEST(test_raw_bind_timeout_restores_session_after_five_seconds);
   RUN_TEST(test_raw_send_failure_accounts_batch_and_stops_slow_client);

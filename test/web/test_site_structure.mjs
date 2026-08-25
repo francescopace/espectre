@@ -1538,6 +1538,7 @@ describe('website UX contracts', () => {
         assert.match(rawClient, /new window\.ESPectreRawCsiV2Parser\(session\.session_id\)/);
         assert.match(rawClient, /rawCsi\.parser\.append\(chunk\)\.forEach/);
         assert.match(app, /previousRoute === 'tool-raw-csi'[\s\S]*void rawCsiStop\(\)/);
+        assert.match(app, /rawCapability\?\.protocol_version === 2[\s\S]*rawCapability\?\.marker === '👻'/);
     });
 
     it('shows one selectable Raw CSI visualization at a time', () => {

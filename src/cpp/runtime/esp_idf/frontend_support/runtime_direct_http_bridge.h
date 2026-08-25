@@ -15,7 +15,7 @@
 
 #include "direct_http_service.h"
 #include "direct_wifi_snapshot_esp_idf.h"
-#include "frontend_control_helpers.h"
+#include "frontend_command_engine.h"
 #include "peer_discovery.h"
 #include "raw_csi_session_controller.h"
 #include "runtime_frontend_controller.h"
@@ -25,6 +25,7 @@ namespace espectre {
 struct RuntimeDirectHttpBridgeConfig {
   std::string frontend;
   std::string device_name;
+  std::string hostname;
   std::string firmware_version;
   std::string chip;
   uint64_t device_id{0U};

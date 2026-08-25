@@ -1,8 +1,7 @@
 /*
  * ESPectre - UDP Listener
  *
- * Non-blocking UDP listener used for external CSI traffic
- * discovery.
+ * Non-blocking UDP listener used for external CSI traffic ingress.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only

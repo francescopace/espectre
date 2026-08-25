@@ -45,6 +45,24 @@ class PendingQueue {
     return true;
   }
 
+  /**
+   * Append a record, discarding the oldest record when the queue is full.
+   *
+   * @return true when no record was discarded.
+   */
+  bool post_overwrite_oldest(const T &value) {
+    std::lock_guard<detail::PendingEventLock> lock(lock_);
+    const bool retained_all = count_ != Capacity;
+    if (!retained_all) {
+      read_index_ = next_(read_index_);
+      --count_;
+    }
+    values_[write_index_] = value;
+    write_index_ = next_(write_index_);
+    ++count_;
+    return retained_all;
+  }
+
   bool take(T &value) {
     std::lock_guard<detail::PendingEventLock> lock(lock_);
     if (count_ == 0U) {

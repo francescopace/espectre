@@ -108,6 +108,7 @@ void ESpectreComponent::setup() {
           RuntimeDirectHttpBridgeConfig{
               "esphome",
               this->device_name_(),
+              std::string(App.get_name()),
               espectre_firmware_version(),
               CONFIG_IDF_TARGET,
               this->runtime_.config().device_id,

@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstring>
 
+#include "runtime_sensing_schema.h"
 #include "udp_listener.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
@@ -84,21 +85,29 @@ void test_udp_listener_accepts_any_payload_by_default(void) {
 void test_udp_listener_filters_unexpected_payloads_when_configured(void) {
   UDPListener listener;
   const uint16_t port = allocate_udp_port();
-  static constexpr std::array<uint8_t, 4> kExpectedPayload{{'E', 'S', 'P', 'E'}};
-  static constexpr std::array<uint8_t, 4> kUnexpectedPayload{{'N', 'O', 'P', 'E'}};
+  static constexpr std::array<uint8_t, 1> kPeriodPayload{{'.'}};
+  static constexpr std::array<uint8_t, 3> kTruncatedPayload{{0xF0U, 0x9FU, 0x91U}};
+  static constexpr std::array<uint8_t, 4> kMalformedPayload{{0xF0U, 0x28U, 0x8CU, 0xBCU}};
+  static constexpr std::array<uint8_t, 5> kExtendedPayload{{0xF0U, 0x9FU, 0x91U, 0xBBU, 'x'}};
 
   listener.init(port);
-  listener.set_expected_payload(kExpectedPayload.data(), kExpectedPayload.size());
+  listener.set_expected_payload(RUNTIME_CSI_TRAFFIC_MARKER_BYTES,
+                                RUNTIME_CSI_TRAFFIC_MARKER_LENGTH);
   TEST_ASSERT_TRUE(listener.start());
 
-  send_udp_datagram(port, kUnexpectedPayload.data(), kUnexpectedPayload.size());
+  send_udp_datagram(port, kPeriodPayload.data(), kPeriodPayload.size());
+  send_udp_datagram(port, kTruncatedPayload.data(), kTruncatedPayload.size());
+  send_udp_datagram(port, kMalformedPayload.data(), kMalformedPayload.size());
+  send_udp_datagram(port, kExtendedPayload.data(), kExtendedPayload.size());
   drain_listener(listener, 1U);
 
   sockaddr_in sender{};
   TEST_ASSERT_EQUAL(0U, listener.get_packets_received());
   TEST_ASSERT_FALSE(listener.get_last_sender(&sender));
 
-  send_udp_datagram(port, kExpectedPayload.data(), kExpectedPayload.size());
+  send_udp_datagram(port,
+                    RUNTIME_CSI_TRAFFIC_MARKER_BYTES,
+                    RUNTIME_CSI_TRAFFIC_MARKER_LENGTH);
   drain_listener(listener, 1U);
 
   TEST_ASSERT_EQUAL(1U, listener.get_packets_received());

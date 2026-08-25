@@ -256,6 +256,7 @@ bool EspIdfDirectHttpService::complete_deferred_response(uint64_t request_token,
 
 void EspIdfDirectHttpService::loop() {
   if (server_ == nullptr) return;
+  dispatch_pending_callbacks_();
   service_raw_timeouts_();
 
   PendingRequest pending;
@@ -298,6 +299,7 @@ void EspIdfDirectHttpService::loop() {
 #if !defined(ESP_PLATFORM)
   worker_loop_();
 #endif
+  dispatch_pending_callbacks_();
 }
 
 void EspIdfDirectHttpService::shutdown() {
@@ -353,6 +355,7 @@ void EspIdfDirectHttpService::shutdown() {
   request_handler_ = {};
   deferred_request_handler_ = {};
   notify_client_count_(0U);
+  dispatch_pending_callbacks_();
 }
 
 bool EspIdfDirectHttpService::running() const { return server_ != nullptr; }
@@ -404,9 +407,15 @@ bool EspIdfDirectHttpService::start_raw_session(
     unlock_();
     return false;
   }
+  if (pending_raw_stopped_callback_) {
+    unlock_();
+    return false;
+  }
   raw_session_ = {};
   raw_session_.config = config;
   raw_session_.stopped_callback = std::move(stopped_callback);
+  raw_session_.generation = next_raw_session_generation_++;
+  if (next_raw_session_generation_ == 0U) next_raw_session_generation_ = 1U;
   raw_session_.opened_at_us = static_cast<uint64_t>(esp_timer_get_time());
   raw_sample_head_.store(0U, std::memory_order_relaxed);
   raw_sample_tail_.store(0U, std::memory_order_relaxed);
@@ -427,7 +436,6 @@ bool EspIdfDirectHttpService::stop_raw_session(RawCsiStopReason reason) {
     vTaskDelay(1U);
   }
   if (xSemaphoreTake(raw_send_mutex_, portMAX_DELAY) != pdTRUE) return false;
-  RawSessionStoppedCallback stopped_callback;
   httpd_req_t *request = nullptr;
   if (xSemaphoreTake(mutex_, portMAX_DELAY) != pdTRUE) {
     xSemaphoreGive(raw_send_mutex_);
@@ -439,7 +447,8 @@ bool EspIdfDirectHttpService::stop_raw_session(RawCsiStopReason reason) {
     raw_drop_total_.fetch_add(tail - head, std::memory_order_relaxed);
   }
   request = raw_session_.request;
-  stopped_callback = std::move(raw_session_.stopped_callback);
+  pending_raw_stopped_callback_ = std::move(raw_session_.stopped_callback);
+  pending_raw_stop_reason_ = reason;
   reset_raw_session_locked_();
   unlock_();
   xSemaphoreGive(raw_send_mutex_);
@@ -447,7 +456,6 @@ bool EspIdfDirectHttpService::stop_raw_session(RawCsiStopReason reason) {
     (void) httpd_resp_send_chunk(request, nullptr, 0U);
     (void) httpd_req_async_handler_complete(request);
   }
-  if (stopped_callback) stopped_callback(reason);
   return true;
 }
 
@@ -690,10 +698,12 @@ esp_err_t EspIdfDirectHttpService::handle_raw_(httpd_req_t *request) {
     return ESP_FAIL;
   }
   bool accepted = false;
+  uint64_t session_generation = 0U;
   if (lock_()) {
     accepted = raw_session_active_.load(std::memory_order_acquire) &&
                !raw_session_.binary_bound &&
                bearer == session_id_hex(raw_session_.config.session_id);
+    if (accepted) session_generation = raw_session_.generation;
     unlock_();
   }
   if (!accepted) {
@@ -708,6 +718,17 @@ esp_err_t EspIdfDirectHttpService::handle_raw_(httpd_req_t *request) {
     return ESP_FAIL;
   }
   if (!lock_()) {
+    (void) httpd_req_async_handler_complete(async_request);
+    return ESP_FAIL;
+  }
+  const bool session_still_available =
+      raw_session_active_.load(std::memory_order_acquire) &&
+      !raw_session_.binary_bound &&
+      raw_session_.generation == session_generation &&
+      bearer == session_id_hex(raw_session_.config.session_id);
+  if (!session_still_available) {
+    unlock_();
+    (void) send_error_(async_request, kHttp403, "raw CSI session unavailable", origin);
     (void) httpd_req_async_handler_complete(async_request);
     return ESP_FAIL;
   }
@@ -1038,6 +1059,24 @@ void EspIdfDirectHttpService::service_raw_timeouts_() {
   if (bind_timeout) (void) stop_raw_session(RawCsiStopReason::BIND_TIMEOUT);
 }
 
+void EspIdfDirectHttpService::dispatch_pending_callbacks_() {
+  size_t client_count = 0U;
+  if (pending_client_count_event_.take(client_count) && client_count_callback_) {
+    client_count_callback_(client_count);
+  }
+
+  RawSessionStoppedCallback stopped_callback;
+  RawCsiStopReason stop_reason = RawCsiStopReason::INTERNAL_ERROR;
+  if (lock_()) {
+    stopped_callback = std::move(pending_raw_stopped_callback_);
+    if (stopped_callback) {
+      stop_reason = pending_raw_stop_reason_;
+    }
+    unlock_();
+  }
+  if (stopped_callback) stopped_callback(stop_reason);
+}
+
 void EspIdfDirectHttpService::worker_loop_() {
   if (server_ == nullptr) return;
   service_event_streams_();
@@ -1067,7 +1106,7 @@ void EspIdfDirectHttpService::reset_raw_session_locked_() {
 }
 
 void EspIdfDirectHttpService::notify_client_count_(size_t count) {
-  if (client_count_callback_) client_count_callback_(count);
+  pending_client_count_event_.post(count);
 }
 
 bool EspIdfDirectHttpService::lock_() const {

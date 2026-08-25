@@ -23,7 +23,7 @@
 #include "direct_wifi_snapshot_esp_idf.h"
 #include "esp_timer.h"
 #include "espectre_log.h"
-#include "frontend_control_helpers.h"
+#include "frontend_command_engine.h"
 #include "frontend_mqtt_helpers.h"
 #include "protocol_json.h"
 #include "runtime_time.h"
@@ -415,12 +415,8 @@ FrontendCommandResult NativeFrontend::dispatch_command_(const EspectreCommand &c
                                                          bool allow_local_config,
                                                          uint64_t connection_token,
                                                          std::string authorization) {
-  const bool read_during_raw = command.command == "capabilities" || command.command == "info" ||
-                               command.command == "status" || command.command == "config" ||
-                               command.command == "diagnostics" || command.command == "ota_status" ||
-                               command.command == "wifi_access_points";
   if (runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION &&
-      !read_during_raw && command.command != "stop_raw_stream") {
+      !frontend_command_allowed_during_raw_collection(command.command)) {
     FrontendCommandResult busy;
     busy.handled = true;
     busy.command = command;

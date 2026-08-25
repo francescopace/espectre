@@ -247,7 +247,7 @@ packets = load_npz_as_packets(Path("data/static_presence/sample.npz"))
 - AGC stays active during collection
 - `--pps` controls the external UDP generator and nominal dataset rate; HTTP does not pace or decimate records
 - the collector intentionally leaves the device in `external` mode after it stops
-- the external traffic marker is the exact one-byte payload `b'.'` (`0x2E`) on the capability-advertised UDP endpoint
+- the external traffic marker is the exact four-byte UTF-8 payload `"👻".encode("utf-8")` (`F0 9F 91 BB`) on the capability-advertised UDP endpoint
 - the fixed production sensing contract is HT20 + HT-LTF + 64 subcarriers; unsupported PHY/layout combinations are excluded from the sensing view
 - the current ML runtime and training flow use the eight scale-invariant production features defined in [FEATURES.md](FEATURES.md)
 

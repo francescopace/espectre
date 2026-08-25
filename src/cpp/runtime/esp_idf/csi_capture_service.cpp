@@ -143,28 +143,38 @@ esp_err_t CsiCaptureService::disable() {
   }
 
   const uint32_t attempt = disable_attempts_.fetch_add(1U, std::memory_order_relaxed) + 1U;
-  // Remove the callback first so every return path is safe for destruction,
-  // even when disabling CSI itself reports an error.
-  esp_err_t err = wifi_csi_->set_csi_rx_cb(nullptr, nullptr);
-  if (err != ESP_OK) {
-    last_disable_err_.store(err, std::memory_order_relaxed);
-    ESP_LOGE(TAG, "Failed to unregister CSI callback: %s", esp_err_to_name(err));
-    return err;
+  // Unregister first, but still disable CSI if the driver rejects that call.
+  // Once capture is off, retrying the unregister gives the driver a safe
+  // quiescent point and avoids retaining a callback to an object being torn
+  // down.
+  esp_err_t callback_err = wifi_csi_->set_csi_rx_cb(nullptr, nullptr);
+  const esp_err_t disable_err = wifi_csi_->set_csi(false);
+  if (callback_err != ESP_OK && disable_err == ESP_OK) {
+    callback_err = wifi_csi_->set_csi_rx_cb(nullptr, nullptr);
+    if (callback_err != ESP_OK) {
+      callback_err = wifi_csi_->set_csi_rx_cb(
+          &CsiCaptureService::disabled_csi_rx_callback_, nullptr);
+      if (callback_err == ESP_OK) {
+        ESP_LOGW(TAG, "Replaced retained CSI callback with a disabled trampoline");
+      }
+    }
   }
-
-  err = wifi_csi_->set_csi(false);
-  last_disable_err_.store(err, std::memory_order_relaxed);
-  if (err != ESP_OK) {
-    enabled_ = false;
-    rx_timestamp_tracker_.reset();
-    reset_channel_tracking_();
-    ESP_LOGE(TAG, "Failed to disable CSI after unregistering its callback: %s", esp_err_to_name(err));
-    return err;
+  if (callback_err != ESP_OK) {
+    last_disable_err_.store(callback_err, std::memory_order_relaxed);
+    ESP_LOGE(TAG, "Failed to unregister CSI callback after stopping capture: %s",
+             esp_err_to_name(callback_err));
+    return callback_err;
   }
 
   enabled_ = false;
   rx_timestamp_tracker_.reset();
   reset_channel_tracking_();
+  last_disable_err_.store(disable_err, std::memory_order_relaxed);
+  if (disable_err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to disable CSI after unregistering its callback: %s",
+             esp_err_to_name(disable_err));
+    return disable_err;
+  }
   ESP_LOGI(TAG, "CSI disabled attempt=%" PRIu32 " disable=%s", attempt, esp_err_to_name(last_disable_err()));
   return ESP_OK;
 }
@@ -322,6 +332,12 @@ void IRAM_ATTR CsiCaptureService::csi_rx_callback_wrapper_(void *ctx, wifi_csi_i
     service->callback_invocations_.fetch_add(1U, std::memory_order_relaxed);
     service->process_packet(data);
   }
+}
+
+void IRAM_ATTR CsiCaptureService::disabled_csi_rx_callback_(void *ctx,
+                                                            wifi_csi_info_t *data) {
+  (void) ctx;
+  (void) data;
 }
 
 esp_err_t CsiCaptureService::configure_platform_specific_() {

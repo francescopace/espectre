@@ -172,7 +172,7 @@ def test_prepare_raw_collection_persists_external_before_constructing_data_plane
                     "raw_csi": {
                         "protocol_version": 2,
                         "traffic_udp_port": 6123,
-                        "traffic_marker": ExternalTrafficGenerator.TRAFFIC_MARKER,
+                        "marker": ExternalTrafficGenerator.TRAFFIC_MARKER,
                     }
                 }
             if method == "config":
@@ -235,7 +235,7 @@ def test_prepare_raw_collection_rejects_unconfirmed_persistent_mode() -> None:
                 return {
                     "raw_csi": {
                         "protocol_version": 2,
-                        "traffic_marker": ExternalTrafficGenerator.TRAFFIC_MARKER,
+                        "marker": ExternalTrafficGenerator.TRAFFIC_MARKER,
                     }
                 }
             if method == "config":
@@ -275,6 +275,35 @@ def test_prepare_raw_collection_rejects_raw_v1_without_fallback() -> None:
     )
     with pytest.raises(RuntimeError, match="raw HTTP v2"):
         host._prepare_raw_http_collection(args, FakeControl, object, object)
+
+
+@pytest.mark.parametrize("raw_capability", [
+    {"protocol_version": 2, "marker": "."},
+    {"protocol_version": 2, "traffic_marker": "👻"},
+])
+def test_prepare_raw_collection_rejects_noncanonical_marker(raw_capability) -> None:
+    class FakeControl:
+        def __init__(self, _endpoint):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def request(self, method, _params=None):
+            assert method == "capabilities"
+            return {"raw_csi": raw_capability}
+
+    args = SimpleNamespace(
+        direct_endpoint="http://192.168.1.23/espectre/v1/request",
+        traffic_target="192.168.1.23",
+        source_ip=None,
+        pps=100,
+    )
+    with pytest.raises(RuntimeError, match="canonical external traffic marker"):
+        host._prepare_raw_http_collection(args, FakeControl, object, ExternalTrafficGenerator)
 
 
 def test_start_raw_collection_opens_session_then_starts_traffic_before_http_bind() -> None:

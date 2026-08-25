@@ -1,8 +1,7 @@
 /*
  * ESPectre - UDP Listener
  *
- * Non-blocking UDP listener used for external CSI traffic
- * discovery.
+ * Non-blocking UDP listener used for external CSI traffic ingress.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -73,8 +72,11 @@ bool UDPListener::start() {
   
   // Set socket to non-blocking
   int flags = fcntl(sock_, F_GETFL, 0);
-  if (fcntl(sock_, F_SETFL, flags | O_NONBLOCK) < 0) {
-    ESP_LOGW(UDP_LISTENER_TAG, "Failed to set socket non-blocking");
+  if (flags < 0 || fcntl(sock_, F_SETFL, flags | O_NONBLOCK) < 0) {
+    ESP_LOGE(UDP_LISTENER_TAG, "Failed to set socket non-blocking: errno %d", errno);
+    close(sock_);
+    sock_ = -1;
+    return false;
   }
   
   // Allow reuse of address
@@ -172,7 +174,7 @@ void UDPListener::loop() {
   // traffic when the main loop is busy with Wi-Fi or telemetry work.
   for (uint16_t drained = 0; drained < UDP_LISTENER_MAX_PACKETS_PER_LOOP; drained++) {
     socklen_t addr_len = sizeof(src_addr);
-    ssize_t len = recvfrom(sock_, buf, sizeof(buf), 0, 
+    ssize_t len = recvfrom(sock_, buf, sizeof(buf), MSG_DONTWAIT,
                            (struct sockaddr *)&src_addr, &addr_len);
     if (len < 0) {
       // EAGAIN/EWOULDBLOCK means no more data available

@@ -117,7 +117,7 @@ Runtime traffic controls follow one family across ESPHome, Native MQTT, Micro MQ
 
 Native, ESPHome, and Matter persist accepted traffic-control changes; Micro keeps them session-only. Persisted legacy `pacing` or `disabled` values migrate once to `internal`, while runtime requests using those removed values fail with `invalid_params`.
 
-Host `espectre collect` persistently selects `external` and uses the importable `ExternalTrafficGenerator`; `--pps` controls that UDP source and the nominal dataset cadence, never the HTTP worker. ESPHome, Native, and Matter listen on port `5555`, join the configured multicast group, and accept only the exact one-byte marker `b'.'` (`0x2E`). [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) can use a unicast `TARGETS` list or `239.255.0.1`; do not use LAN broadcast. Raw HTTP forwards classified CSI without pacing or temporal decimation and reports bounded ring drops separately.
+Host `espectre collect` persistently selects `external` and uses the importable `ExternalTrafficGenerator`; `--pps` controls that UDP source and the nominal dataset cadence, never the HTTP worker. ESPHome, Native, and Matter listen on port `5555`, join the configured multicast group, and accept only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`). [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) can use a unicast `TARGETS` list or `239.255.0.1`; do not use LAN broadcast. Raw HTTP forwards classified CSI without pacing or temporal decimation and reports bounded ring drops separately.
 
 Rules of thumb:
 

@@ -1,10 +1,7 @@
 /*
  * ESPectre - ESP-IDF Runtime Base
  *
- * State and fault reporting shared by the ESP-IDF runtime implementations.
- * Both the sensing and the stream runtime carried identical copies of the
- * config/snapshot/capabilities/listener quartet and of notify_fault_(), which
- * left two places to keep in step for every contract change.
+ * State and fault reporting shared by ESP-IDF runtime specializations.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only

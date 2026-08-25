@@ -236,7 +236,7 @@ The collector uses the same event-driven completion as `devices`: once a complet
 
 `--info` is also read-only: it uses `dataset_info.json` as the source of truth and prints one table per `environment`, with label rows and one column per chip.
 
-Live collection negotiates raw HTTP v2, persistently sets `csi_traffic_mode` to `external`, verifies the resulting configuration, opens one bearer-bound binary response stream, and starts `ExternalTrafficGenerator` from `tools/espectre_traffic_generator.py`. The generator sends the exact one-byte UDP marker `b'.'` (`0x2E`) at `--pps`; the device forwards every classified CSI frame without HTTP pacing or temporal decimation. The generator stops before the raw session, and the collector intentionally does not restore the previous traffic mode.
+Live collection negotiates raw HTTP v2, persistently sets `csi_traffic_mode` to `external`, verifies the resulting configuration, opens one bearer-bound binary response stream, and starts `ExternalTrafficGenerator` from `tools/espectre_traffic_generator.py`. The generator sends the exact four-byte UTF-8 UDP marker `"👻".encode("utf-8")` (`F0 9F 91 BB`) at `--pps`; the device forwards every classified CSI frame without HTTP pacing or temporal decimation. The generator stops before the raw session, and the collector intentionally does not restore the previous traffic mode.
 
 Example:
 

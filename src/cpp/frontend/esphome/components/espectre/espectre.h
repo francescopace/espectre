@@ -27,7 +27,7 @@
 
 #include "sensor_publisher.h"
 #include "direct_http_service_esp_idf.h"
-#include "frontend_control_helpers.h"
+#include "frontend_command_engine.h"
 #include "mdns_discovery_service.h"
 #include "mdns_bootstrap_responder.h"
 #include "peer_discovery_service_esp_idf.h"

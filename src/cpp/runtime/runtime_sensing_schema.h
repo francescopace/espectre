@@ -113,12 +113,14 @@ constexpr uint16_t RUNTIME_NETWORK_PORT_MAX = UINT16_MAX;
 
 constexpr uint16_t RUNTIME_CSI_TRAFFIC_UDP_PORT_DEFAULT = 5555;
 constexpr const char *const RUNTIME_CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT = "239.255.0.1";
-constexpr uint8_t RUNTIME_CSI_TRAFFIC_MARKER_BYTES[] = {0x2EU};
-constexpr size_t RUNTIME_CSI_TRAFFIC_MARKER_LENGTH = 1U;
-constexpr const char *const RUNTIME_CSI_TRAFFIC_MARKER_UTF8 = ".";
+constexpr uint8_t RUNTIME_CSI_TRAFFIC_MARKER_BYTES[] = {0xF0U, 0x9FU, 0x91U, 0xBBU};
+constexpr size_t RUNTIME_CSI_TRAFFIC_MARKER_LENGTH = 4U;
+constexpr const char *const RUNTIME_CSI_TRAFFIC_MARKER_UTF8 = "👻";
 constexpr size_t RUNTIME_CSI_TRAFFIC_EXPECTED_PAYLOAD_MAX = 16U;
 static_assert(sizeof(RUNTIME_CSI_TRAFFIC_MARKER_BYTES) == RUNTIME_CSI_TRAFFIC_MARKER_LENGTH,
               "CSI traffic marker length must match its canonical wire bytes");
+static_assert(sizeof("👻") - 1U == RUNTIME_CSI_TRAFFIC_MARKER_LENGTH,
+              "CSI traffic marker UTF-8 text must match its canonical wire bytes");
 
 constexpr float runtime_threshold_max(DetectionAlgorithm algorithm) {
   return algorithm == DetectionAlgorithm::LIGHTWEIGHT ? LIGHTWEIGHT_MAX_THRESHOLD

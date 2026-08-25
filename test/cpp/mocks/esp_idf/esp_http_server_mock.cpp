@@ -180,6 +180,9 @@ esp_err_t httpd_req_async_handler_begin(httpd_req_t *request, httpd_req_t **out)
   copy->async_copy = true;
   *out = copy;
   g_httpd_mock.async_begin_calls++;
+  if (g_httpd_mock.async_begin_callback != nullptr) {
+    g_httpd_mock.async_begin_callback(g_httpd_mock.async_begin_callback_context);
+  }
   return ESP_OK;
 }
 
