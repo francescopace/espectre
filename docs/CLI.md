@@ -20,7 +20,6 @@ Run the CLI from the repository root.
 | `esphome` | Build, flash, validate, or monitor the ESPHome frontend |
 | `native` | Build or flash the native ESP-IDF frontend |
 | `matter` | Build, flash, or read onboarding data from the Matter ESP-IDF frontend |
-| `streamer` | Build or flash the streamer ESP-IDF frontend |
 | `micro` | Flash, deploy, run, and verify the MicroPython workflow |
 | `monitor` | Attach to serial logs with auto-reconnect support |
 | `devices` | Discover advertised ESPectre devices on the local network |
@@ -35,7 +34,7 @@ Run the CLI from the repository root.
 - Use `./espectre --help` for the current top-level command list.
 - Use `./espectre <namespace> --help` for namespace-specific flags.
 - The wrapper prefers repository defaults and shared host autodetection over long manual setup steps.
-- `Native`, `Matter`, and `Streamer` prefer the local ESP-IDF environment detected by the wrapper, including the native toolchain managed by the pinned ESPHome installation, and fall back to Docker for builds when no local installation is available. Use `./espectre doctor` to inspect the local ESP-IDF path.
+- `Native` and `Matter` prefer the local ESP-IDF environment detected by the wrapper, including the native toolchain managed by the pinned ESPHome installation, and fall back to Docker for builds when no local installation is available. Use `./espectre doctor` to inspect the local ESP-IDF path.
 
 ## Frontend Workflow Commands
 
@@ -63,7 +62,7 @@ For `build`, cleanup flags are:
 - `--clean`: run `esphome clean` for the selected config before compiling.
 - `--clean-all`: run `esphome clean-all` for the config root before compiling.
 
-### `native`, `matter`, and `streamer`
+### `native` and `matter`
 
 The three ESP-IDF namespaces expose `build` and `flash`:
 
@@ -108,7 +107,6 @@ Examples:
 ./espectre matter build --chip c6
 ./espectre matter flash --port /dev/cu.usbmodemXXXX
 ./espectre matter qr --port /dev/cu.usbmodemXXXX
-./espectre streamer flash --port /dev/cu.usbmodemXXXX
 ```
 
 ## Device And Host Commands
@@ -161,11 +159,11 @@ Reset on open:
 
 ### `devices`
 
-`devices` performs a fresh host-side browse for `_espectre._tcp.local.` and lists Native, Streamer, ESPHome, and Matter firmware through one first-party record contract. It does not inspect `_esphomelib`, `_matterc`, or other upstream service types. The normalized result includes the frontend, device identity, display name, chip, IP address, and Direct HTTP endpoint. [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) defines the record-level contract.
+`devices` performs a fresh host-side browse for `_espectre._tcp.local.` and lists Native, ESPHome, and Matter firmware through one first-party record contract. It does not inspect `_esphomelib`, `_matterc`, or other upstream service types. The normalized result includes the frontend, device identity, display name, chip, IP address, and Direct HTTP endpoint. [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) defines the record-level contract.
 
 | Flag | Purpose |
 |------|---------|
-| `--frontend native|streamer|esphome|matter` | Limit discovery to one frontend; omit it to browse every supported service |
+| `--frontend native|esphome|matter` | Limit discovery to one frontend; omit it to browse every supported service |
 | `--timeout <seconds>` | Set the maximum one-shot browse duration; the default is 2.5 seconds |
 | `--json` | Emit machine-readable normalized records for scripts and tooling |
 
@@ -174,7 +172,7 @@ Examples:
 ```bash
 ./espectre devices
 ./espectre devices --frontend native
-./espectre devices --frontend streamer --timeout 5
+./espectre devices --frontend matter --timeout 5
 ./espectre devices --frontend esphome
 ./espectre devices --frontend matter
 ./espectre devices --json
@@ -206,7 +204,7 @@ The client sends the exact allowed `https://test.espectre.dev` Origin by default
 
 ### `collect`
 
-`collect` is the unified host-side CSI collection entry point. One runtime path supports three modes:
+`collect` is the HTTP-only host-side CSI collection entry point. One runtime path supports three modes:
 
 - live inspection when `--label` is omitted
 - live recording when `--label` is set
@@ -216,18 +214,17 @@ Common flags:
 
 | Flag | Purpose |
 |------|---------|
-| `--transport udp|http` | Required live transport selection; failure never falls back to the other transport |
-| `--list-devices` | Browse Streamer devices via mDNS, print the resolved targets, and exit |
-| `--target` | UDP accepts one or more unicast IPs or joined multicast group `239.255.0.1`; HTTP requires exactly one unicast Native endpoint |
+| `--target` | Device IP, hostname, full Direct endpoint, or device ID; omit it to discover a raw-capable device |
+| `--frontend` | Optional `native`, `esphome`, or `matter` discovery filter |
+| `--source-ip` | Optional local IPv4 source for hosts with multiple interfaces |
 | `--duration` | Stop after N seconds |
 | `--label` | Dataset label for saved collections; omit for live inspection without saving |
 | `--start-delay` | Wait N seconds before starting collection; requires `--duration` |
-| `--pps` | Collector temporal target and detector slot cadence |
-| `--fixed` | Keep `--pps` as a constant send rate and ignore TX backpressure slowdowns |
+| `--pps` | Intentional external UDP generator rate and nominal dataset rate |
 | `--detector` | Detector used by the ready gate: `lightweight` or `high_accuracy`; a comma-separated list is available only for live comparison |
 | `--ready-stable-seconds` | Seconds below threshold before saved collection starts; set `0` to disable the ready gate |
 
-When `--target` is omitted, `collect` performs one fresh browse for `_espectre._tcp.local.` at startup. UDP keeps only `frontend=streamer` and reads the pacing target from `traffic_port`; HTTP keeps only `frontend=native`, then requires the exact raw capability during its control handshake:
+When `--target` is omitted, `collect` performs one fresh browse for `_espectre._tcp.local.` at startup and keeps raw-capable Native, ESPHome, and Matter records at their advertised Direct port:
 
 - `0` devices: fail explicitly and suggest `--target`
 - `1` device: auto-select it
@@ -235,54 +232,48 @@ When `--target` is omitted, `collect` performs one fresh browse for `_espectre._
 
 The collector uses the same event-driven completion as `devices`: once a complete record arrives, 350 ms without a changed record completes discovery. If no record arrives, the 2.5-second default timeout is consumed in full.
 
-`--target` remains the deterministic bypass. Use a unicast device IP, comma-separated unicast IPs, or the firmware multicast group (`239.255.0.1` by default). Subnet and limited broadcast targets are accepted by the CLI but do not produce a usable CSI stream.
-
-`--list-devices` is a compatibility convenience backed by the shared `devices` discovery layer. It filters to Streamer advertisements, prints the resolved Streamer targets, and exits without starting UDP pacing, the CSI receiver, or dataset capture. Use `./espectre devices` to inspect every frontend or produce JSON.
+`--target` remains the deterministic bypass. The collector resolves an IP, hostname, full Direct endpoint, or full device ID through the same Direct resolver. Native, Matter, and ESPHome use port `62587`; a full manually entered endpoint may specify another explicit port, but the resolver does not probe legacy ports.
 
 `--info` is also read-only: it uses `dataset_info.json` as the source of truth and prints one table per `environment`, with label rows and one column per chip.
 
-Live collection requires `--transport udp|http`. UDP keeps the existing Streamer pacing workflow unchanged. HTTP negotiates Native capabilities with POST, starts one bearer-bound raw session, and incrementally reads the binary response stream paced by the device. HTTP rejects multiple targets before connecting and requires V8; a capability, framing, timeout, or identity failure terminates the command without falling back to UDP. Both transports feed the same V7/V8 parser, temporal sampler, detector, identity checks, validator, and dataset writer.
+Live collection negotiates raw HTTP v2, persistently sets `csi_traffic_mode` to `external`, verifies the resulting configuration, opens one bearer-bound binary response stream, and starts `ExternalTrafficGenerator` from `tools/espectre_traffic_generator.py`. The generator sends the exact one-byte UDP marker `b'.'` (`0x2E`) at `--pps`; the device forwards every classified CSI frame without HTTP pacing or temporal decimation. The generator stops before the raw session, and the collector intentionally does not restore the previous traffic mode.
 
-During the C3-first rollout, use UDP for Streamer on every chip and HTTP only with a Native ESP32-C3 image that advertises `features.raw_csi=true`:
+Example:
 
 ```bash
-./espectre collect --transport udp --target 192.168.1.50 --pps 100 --fixed
-./espectre collect --transport http --target 192.168.1.51 --pps 100
+./espectre collect --target 192.168.1.51 --pps 100
 ```
 
-Saved files and catalog entries record the selected transport, target, effective PPS, raw protocol version, CSI record version, and firmware identity.
+Saved files and catalog entries record `transport=http`, the Direct endpoint, requested and observed PPS, raw protocol version, CSI record version, frontend, chip, firmware, and device ID.
 
-Pacing terms:
+Collection terms:
 
 - **Delivered rate:** CSI records received by the collector, measured in packets per second (`pps`).
 - **Admitted rate:** records that occupy a detector slot after temporal admission.
 - **Excess:** extra same-slot records that do not improve occupancy.
 - **Backpressure:** firmware reports that it cannot transmit records as quickly as they are produced.
-- **Freshness:** the share of pacing packets that produce new CSI rather than stale or missing records.
+- **Queue drop:** a classified record rejected because the fixed 16-record raw ring is full.
 
-The collector keeps ordinary scheduler jitter phase-locked, but restarts from the actual send time when the next deadline would be less than half a period away, avoiding close catch-up pairs. It marks pacing traffic with DSCP 46. The default collect policy backs off on sustained TX backpressure, spaces reductions across three control windows, does not fall below 70% of the requested target, and recovers toward `--pps` when backpressure clears. Occupancy remains telemetry and never changes the send rate. `--pps` stays the detector grid. Use `--fixed` when an experiment requires a constant send rate. Transport thresholds and control-loop behavior are implementation details owned by the Streamer [README.md](../src/cpp/frontend/streamer/README.md).
+The external generator is the sole rate owner. HTTP applies no credit window, adaptive rate, sample replacement, or device-side timer. After drain, the invariant `fresh_record_total + raw_drop_total == classified_frames_offered_to_raw` exposes any hidden loss before the network send.
 
-`--detector` always selects the production detector used for collection readiness. `--pps` is the collector's temporal target: the live detector and derived sensing view admit at most one packet per slot through the production Micro-ESPectre sampler, while Streamer firmware still transports the raw timestamped stream. `lightweight` performs its normal startup calibration before it can become ready. `high_accuracy` does not use startup calibration, but still needs its feature window to fill. Live inspection can compare `lightweight,high_accuracy` in parallel.
+`--detector` selects the production detector used for collection readiness. The derived live sensing view applies the production temporal sampler to raw records using the nominal `--pps`; the saved raw stream remains un-decimated. `lightweight` performs its normal startup calibration before it can become ready. `high_accuracy` does not use startup calibration, but still needs its feature window to fill. Live inspection can compare `lightweight,high_accuracy` in parallel.
 
 When `--label` is set, saved collection waits for the detector to stay below threshold for `--ready-stable-seconds` before packets are recorded. Set `--ready-stable-seconds 0` to bypass that gate explicitly.
 
 After saving each capture, the collector runs the validator's canonical per-file integrity, signal-quality, temporal-occupancy, and stream-continuity checks. Temporal occupancy is measured on complete production detector windows, warns below 85%, and fails below the shared 70% admission floor. The post-collect summary does not use average packet rate as a quality proxy because excess same-slot records do not improve detector occupancy. A failed capture remains saved for diagnosis, but `collect` exits unsuccessfully.
 
-When `--start-delay` is set, `--duration` is required. The collector waits first, then starts the ordinary live pacing and capture flow.
+When `--start-delay` is set, `--duration` is required. The collector waits first, then starts the ordinary generator and capture flow.
 
-For discovery-selected unicast targets, the collector also validates that the first CSI packets carry the same `device_id` announced over mDNS. If the IP was reused by a different Streamer, collection aborts instead of saving mixed data under the wrong identity.
+For discovery-selected targets, the collector also validates that CSI records carry the same `device_id` announced over mDNS. If an address was reused by another device, collection aborts instead of saving mixed data under the wrong identity.
 
 Examples:
 
 ```bash
-./espectre devices --frontend streamer
-./espectre collect --transport udp --target 192.168.1.50
-./espectre collect --transport udp --target 192.168.1.50,192.168.1.51
-./espectre collect --transport udp --target 239.255.0.1
-./espectre collect --transport http --target 192.168.1.50 --pps 120
-./espectre collect --transport udp --target 192.168.1.50 --pps 120 --fixed
-./espectre collect --transport udp --label wave --duration 45 --target 192.168.1.50
-./espectre collect --transport http --label wave --duration 45 --start-delay 15 --target 192.168.1.50
+./espectre devices --frontend native
+./espectre collect --target 192.168.1.50 --pps 120
+./espectre collect --frontend esphome --pps 120
+./espectre collect --label wave --duration 45 --target espectre-0123456789abcdef.local
+./espectre collect --label wave --duration 45 --start-delay 15 --target http://192.168.1.50
 ./espectre collect --info
 ```
 

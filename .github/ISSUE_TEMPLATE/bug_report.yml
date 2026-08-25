@@ -24,7 +24,6 @@ body:
         - ESPHome
         - Matter
         - Native
-        - Streamer
         - Micro-ESPectre
         - Shared core/runtime
         - Docs
@@ -139,7 +138,6 @@ body:
         ESPHome: `.esphome/build/<device-name>/build/firmware.elf` and `<device-name>.map`
         Matter: `src/cpp/frontend/matter/app/build-<target>/espectre-matter.elf` and the corresponding `.map`
         Native: `src/cpp/frontend/native/app/build-<target>/espectre-native.elf` and the corresponding `.map`
-        Streamer: `src/cpp/frontend/streamer/app/build-<target>/espectre-streamer.elf` and the corresponding `.map`
 
         For collector or tooling bugs, also include the exact command you ran and any related host-side logs.
       render: text

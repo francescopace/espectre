@@ -1,8 +1,9 @@
 # ADR: adopt a dedicated c++ streamer frontend for high-rate csi collection
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-07-03
 - Recorded: 2026-07-09 (retrospective)
+- Superseded by: `2026-08-25-unify-raw-csi-collection-over-http.md`
 
 ## Context
 

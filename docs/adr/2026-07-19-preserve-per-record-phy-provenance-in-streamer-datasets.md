@@ -1,7 +1,8 @@
 # ADR: preserve per-record phy provenance in streamer datasets
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-07-19
+- Superseded by: `2026-08-25-unify-raw-csi-collection-over-http.md`
 
 ## Context
 

@@ -23,7 +23,6 @@ body:
         - ESPHome
         - Matter
         - Native
-        - Streamer
         - Micro-ESPectre
         - Shared core
         - Shared runtime

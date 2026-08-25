@@ -2,12 +2,13 @@
 
 - Status: Accepted
 - Date: 2026-08-23
+- Updated: 2026-08-25
 
 ## Context
 
 ESPectre needs a regular supply of HT20/HT-LTF packets so motion detection can cover its fixed temporal grid. Runtime diagnostics repeatedly showed average occupancy around 85% even when a traffic generator reported approximately `100 pps`. Raw callback rate alone could not distinguish missing packets from AP scheduling bursts, device-side send bursts, retransmissions, legacy-PHY delivery, same-slot excess, or processing backlog.
 
-The project supports several traffic paths: internal ICMP ping, internal DNS, external UDP delivered through the AP, and Streamer UDP pacing owned by `espectre collect`. These paths initially differed in protocol, QoS treatment, and missed-deadline behavior. DNS originally used UDP port `53`; the standalone external tool also lacked the pacing and QoS behavior already present in the collector.
+The project supports internal ICMP ping, internal DNS, and external UDP delivered through the AP. These paths initially differed in protocol, QoS treatment, and missed-deadline behavior. DNS originally used UDP port `53`; the standalone external tool also lacked the fixed-phase behavior used by the internal generator.
 
 Motion sensing also requires a precise definition of packet time. The CSI delivered by the Wi-Fi callback is estimated by the PHY from the packet training field at RF reception. Later callback or loop handling does not move that channel observation forward in time. The fixed admission grid must therefore use the Wi-Fi RX timestamp carried with the frame, while software clocks may measure only processing backlog.
 
@@ -67,7 +68,7 @@ The packet's useful sensing instant is reception by the device, when the PHY est
 
 ESP-IDF processing therefore uses `rx_ctrl.timestamp` for temporal slots, gaps, and occupancy. The Wi-Fi timestamp belongs to the MAC clock domain, not the `esp_timer` domain. The runtime records `esp_timer` at callback acceptance, computes callback-to-loop queue age only within that software clock, and translates the elapsed duration into the RX timestamp domain for backlog rejection. Directly comparing the two absolute clocks is invalid and was the reason target guards existed in the earlier implementation.
 
-Packets counted as same-slot excess still contain valid CSI, but they do not add a new temporal position to the fixed sensing grid. Sensing frontends admit the candidate nearest the slot center rather than letting a burst fill a physical-time window. Streamer continues to preserve raw timestamped CSI so research capture does not discard those frames; its live detector and derived sensing view apply the same temporal admission as deployed sensing frontends.
+Packets counted as same-slot excess still contain valid CSI, but they do not add a new temporal position to the fixed sensing grid. Sensing frontends admit the candidate nearest the slot center rather than letting a burst fill a physical-time window. Raw HTTP preserves classified timestamped CSI before temporal admission so research capture does not discard those frames; live detectors and derived sensing views apply the same admission as deployed sensing frontends.
 
 ## Decision
 
@@ -76,14 +77,13 @@ Standardize managed CSI traffic as follows:
 - keep stateless ICMP ping as the universal internal default;
 - keep DNS as an optional runtime mode, but send length-prefixed queries over one persistent, non-blocking TCP connection to gateway port `53`, with `TCP_NODELAY` and reconnect backoff;
 - do not use UDP/53 for managed sensing traffic;
-- request DSCP 46 treatment for internal traffic, Streamer collector pacing, and the standalone external UDP tool, without treating a particular WMM TID or occupancy improvement as guaranteed;
+- request DSCP 46 treatment for internal traffic and the standalone external UDP tool, without treating a particular WMM TID or occupancy improvement as guaranteed;
 - preserve the configured send phase through ordinary scheduler jitter, but restart from the actual send time when the next phase deadline would be less than half a period away, so no generator emits a close catch-up pair;
-- apply that pacing rule in the shared C++ generator, the Micro-ESPectre native generator, `espectre collect`, and `tools/espectre_traffic_generator.py`;
-- retain Streamer as collector-paced rather than adding a device-local ping or DNS generator;
+- apply that fixed-phase rule in the shared C++ generator, the Micro-ESPectre native generator, and `tools/espectre_traffic_generator.py`;
 - limit pacing multicast to the local link and prefer unicast or the joined multicast group over subnet or limited broadcast;
 - keep occupancy diagnostic-only and never make device send rate chase admitted occupancy;
 - place CSI on the detector grid using the device Wi-Fi RX timestamp, with processing time used only for same-domain queue-age measurement; and
-- keep raw Streamer records even when the sensing view classifies additional same-slot records as excess.
+- keep raw HTTP records even when the sensing view classifies additional same-slot records as excess.
 
 Internal DNS/TCP requires a gateway resolver that accepts TCP queries on port `53`. If it does not, operators should use ping or an external paced source rather than silently falling back to UDP/53.
 
@@ -113,11 +113,11 @@ Rejected. External pacing performed well and is useful for controlled experiment
 
 ### Adapt send rate from occupancy
 
-Rejected. Occupancy is capped by the sampler and mixes traffic supply with AP scheduling and slot placement. Earlier bounded C3 and classic ESP32 trials did not outperform fixed cadence. Streamer may still slow on sustained firmware transmit backpressure because that is direct transport feedback rather than an occupancy proxy.
+Rejected. Occupancy is capped by the sampler and mixes traffic supply with AP scheduling and slot placement. Earlier bounded C3 and classic ESP32 trials did not outperform fixed cadence. Raw HTTP reports transport backpressure but never changes the external generator rate.
 
 ### Admit every received CSI packet
 
-Rejected for live sensing. A burst would manufacture a full detector window without covering the corresponding physical time. Valid excess CSI remains available through raw Streamer capture when research needs it.
+Rejected for live sensing. A burst would manufacture a full detector window without covering the corresponding physical time. Valid excess CSI remains available through raw HTTP capture when research needs it.
 
 ### Timestamp by AP transmit time or processing time
 
@@ -129,10 +129,10 @@ Benefits:
 
 - the accepted sources avoid the measured C3 DNS/UDP legacy-PHY failure mode;
 - generator-side scheduler delay no longer creates avoidable catch-up bursts;
-- ping, DNS/TCP, external UDP, and Streamer pacing have explicit and comparable roles;
+- ping, DNS/TCP, and external UDP have explicit and comparable roles;
 - all production paths use the same physical-time interpretation for motion sensing;
 - DNS/TCP avoids the measured UDP/53 failure mode while preserving the AP as the downlink packet source; and
-- raw Streamer capture remains lossless with respect to temporal admission decisions.
+- raw HTTP capture remains lossless with respect to temporal admission decisions, except for explicitly counted bounded-ring drops.
 
 Trade-offs and limits:
 
@@ -153,4 +153,4 @@ Trade-offs and limits:
 - [`../ALGORITHMS.md`](../ALGORITHMS.md)
 - [`../CLI.md`](../CLI.md)
 - [`../ESPECTRE_PROTOCOL.md`](../ESPECTRE_PROTOCOL.md)
-- [`../../src/cpp/frontend/streamer/README.md`](../../src/cpp/frontend/streamer/README.md)
+- [`2026-08-25-unify-raw-csi-collection-over-http.md`](2026-08-25-unify-raw-csi-collection-over-http.md)

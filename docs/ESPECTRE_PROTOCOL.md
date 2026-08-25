@@ -13,36 +13,37 @@ This is an implementation reference for firmware, client, and integration develo
 - Direct HTTP is the common local configuration, control, and monitoring plane for the first-party C++ frontends.
 - MQTT is the operational plane for telemetry, status, commands, dashboards, history, and alerts.
 - Web orchestration profiles add identity, credentials, tenancy, retention, and fleet management; they do not redefine device telemetry.
-- `device_id` is a logical protocol identifier. Native, Matter, Streamer, and Micro-ESPectre derive it once per boot as the first 64 bits of `SHA-256("espectre-device-id-v1" || station_mac_bytes)` and cache the result. This hides the MAC from routine inspection, but the stable pseudonym remains linkable and is not anonymous.
+- `device_id` is a logical protocol identifier. Native, Matter, and Micro-ESPectre derive it once per boot as the first 64 bits of `SHA-256("espectre-device-id-v1" || station_mac_bytes)` and cache the result. This hides the MAC from routine inspection, but the stable pseudonym remains linkable and is not anonymous.
 - Privacy-sensitive values such as SSID, BSSID, local IP address, packet-level radio traces, and serial logs must not be sent to managed services by default.
 
 ## Transports
 
 ### mDNS/DNS-SD Discovery
 
-ESPectre uses mDNS/DNS-SD as local connection bootstrap, not as a message transport. Native, Streamer, ESPHome, and Matter publish the same first-party service type, `_espectre._tcp.local.`, for their Direct HTTP endpoint. The `frontend` TXT field identifies the firmware surface without relying on an upstream discovery schema.
+ESPectre uses mDNS/DNS-SD as local connection bootstrap, not as a message transport. Native, ESPHome, and Matter publish the same first-party service type, `_espectre._tcp.local.`, for their Direct HTTP endpoint. The `frontend` TXT field identifies the firmware surface without relying on an upstream discovery schema.
 
 A browse starts from the service-type PTR record, which lists matching service instances. Each instance then resolves through an SRV record for hostname and port, a TXT record set for metadata, and an address record for the hostname. The current host CLI accepts IPv4 A records; an advertisement that resolves only through AAAA is not included in its results.
 
 | Frontend | Service type | Direct SRV port | Additional frontend transport |
 | --- | --- | --- | --- |
-| Native | `_espectre._tcp.local.` | `80` | Optional MQTT |
-| Streamer | `_espectre._tcp.local.` | `80` | UDP pacing and raw CSI collection |
-| ESPHome | `_espectre._tcp.local.` | `6054` | ESPHome native API |
-| Matter | `_espectre._tcp.local.` | `80` | Matter operational and commissioning services |
+| Native | `_espectre._tcp.local.` | `62587` | Optional MQTT |
+| ESPHome | `_espectre._tcp.local.` | `62587` | ESPHome native API |
+| Matter | `_espectre._tcp.local.` | `62587` | Matter operational and commissioning services |
 | Micro-ESPectre | No service advertisement | — | MQTT endpoints are configured explicitly |
+
+Direct uses TCP port `62587` (`0xF47B`), the low 16 bits of Unicode `U+1F47B` GHOST (`👻`), as the shared ESPectre service port. A manually entered endpoint may still specify another explicit port, but clients do not probe legacy ports automatically.
 
 ESPHome continues to publish `_esphomelib._tcp.local.`, and Matter continues to publish its standard operational and commissioning records. Those upstream services are not inputs to `./espectre devices`; the CLI browses only `_espectre._tcp.local.`. Micro-ESPectre can resolve DNS and mDNS hostnames, but it does not yet publish a Direct endpoint or discovery service.
 
 #### Canonical advertisement
 
-Every publishing frontend uses the following TXT contract. `<device_id>` is the canonical 16-character lowercase hexadecimal ESPectre device ID. The SRV port and `path` locate the Direct HTTP endpoint; frontend-native services and Streamer's UDP ports remain separate.
+Every publishing frontend uses the following TXT contract. `<device_id>` is the canonical 16-character lowercase hexadecimal ESPectre device ID. The SRV port and `path` locate the Direct HTTP endpoint; frontend-native services remain separate.
 
 | TXT key | Published value | Meaning |
 | --- | --- | --- |
 | `device_id` | `<device_id>` | Stable ESPectre protocol identity |
 | `name` | Frontend-owned display name | User-facing display name; Native uses the saved label when present |
-| `frontend` | `native`, `streamer`, `esphome`, or `matter` | Frontend discriminator |
+| `frontend` | `native`, `esphome`, or `matter` | Frontend discriminator |
 | `txtvers` | `2` | TXT schema version |
 | `protovers` | `1` | Direct protocol generation |
 | `transport` | `http` | Local Direct transport |
@@ -51,16 +52,14 @@ Every publishing frontend uses the following TXT contract. `<device_id>` is the 
 | `firmware` | Current firmware build identity | Running firmware version |
 | `chip` | Active ESP-IDF target, such as `esp32c3` | Hardware target |
 | `capabilities` | Comma-separated values | Coarse discovery capabilities; clients still negotiate exact Direct methods after connecting |
-| `traffic_port` | Streamer only | UDP pacing target used by `./espectre collect` |
 
-The CLI accepts a record only when it resolves to IPv4, has a valid SRV port and `device_id`, reports a supported `frontend`, declares `txtvers=2`, `protovers=1`, and `transport=http`, and publishes the exact request and event paths above. A Streamer record also requires a valid `traffic_port`, because collection must not mistake the Direct SRV port for its UDP pacing target. Unknown TXT keys are ignored so the contract can grow additively. `name`, `firmware`, `chip`, and `capabilities` enrich the normalized result but do not identify the device.
+The CLI accepts a record only when it resolves to IPv4, has a valid SRV port and `device_id`, reports a supported `frontend`, declares `txtvers=2`, `protovers=1`, and `transport=http`, and publishes the exact request and event paths above. Unknown TXT keys are ignored so the contract can grow additively. `name`, `firmware`, `chip`, and `capabilities` enrich the normalized result but do not identify the device.
 
 #### Frontend-specific behavior
 
 - Native owns its responder, uses the stable hostname `espectre-<device_id>.local`, and updates the TXT `name` after a saved label change.
-- Streamer advertises Direct on SRV port `80`. `./espectre collect` reads `traffic_port` from TXT and validates the announced `device_id` against the first CSI packets before saving a capture. Raw CSI remains on the Streamer UDP data path and is never carried by Direct HTTP.
-- ESPHome adds `_espectre._tcp` to the responder already owned by ESPHome and advertises Direct on port `6054`. Direct mutations update the shared runtime first, then republish the corresponding ESPHome number and select entities so Home Assistant stays aligned.
-- Matter adds `_espectre._tcp` to the responder already owned by the Matter stack and advertises Direct on port `80`. The service remains available after commissioning and provides detector selection and tuning that the standard Matter occupancy surface does not expose.
+- ESPHome adds `_espectre._tcp` to the responder already owned by ESPHome and advertises Direct on the shared port `62587`. Direct mutations update the shared runtime first, then republish the corresponding ESPHome number and select entities so Home Assistant stays aligned.
+- Matter adds `_espectre._tcp` to the responder already owned by the Matter stack and advertises Direct on the shared port `62587`. The service remains available after commissioning and provides detector selection and tuning that the standard Matter occupancy surface does not expose.
 
 Services are enabled only while the station interface has a usable IPv4 address. A frontend that owns its responder sends a best-effort goodbye on a clean disconnect and reannounces after reconnect or an IP-address change; ESPHome and Matter retain responder lifecycle ownership and ESPectre only adds or removes its own service.
 
@@ -68,15 +67,15 @@ DNS-SD enumeration is not a browser guarantee. Configure and Monitor therefore c
 
 #### Peer-assisted browser discovery
 
-For each Auto-discovery attempt, the portal generates 96 bits with Web Crypto and resolves one lowercase bootstrap hostname in the form `espectre-devices-<24 hexadecimal characters>.local`. Native answers only valid, uncompressed class-IN A or AAAA questions matching that form. An A response repeats the requested owner name, contains the current station IPv4 address, uses a 10-second TTL, clears the cache-flush bit so simultaneous Native responders contribute shared records, and adds an NSEC record whose bitmap declares A but not AAAA. A standalone AAAA question receives only the same NSEC assertion, so dual-stack resolvers can proceed to A without waiting for an IPv6 timeout; the responder never advertises an IPv6 address. The browser then sends `discover_peers` to port `80` at `/espectre/v1/request` with the same exact Origin policy as the unique Direct endpoint and a 10-second client timeout. The responder is stateless: it does not register, retain, announce, or send a goodbye for the nonce hostname. It accepts multicast, QU, and legacy-unicast queries, keeps at most four delayed multicast answers at 25, 50, 75, and 100 ms, and schedules at most eight answers per second. Pending answers are discarded on an IPv4 change, Wi-Fi disconnect, or reconfiguration.
+For each Auto-discovery attempt, the portal generates 96 bits with Web Crypto and resolves one lowercase bootstrap hostname in the form `espectre-devices-<24 hexadecimal characters>.local`. Native, Matter, and ESPHome answer only valid, uncompressed class-IN A or AAAA questions matching that form. An A response repeats the requested owner name, contains the current station IPv4 address, uses a 10-second TTL, clears the cache-flush bit so simultaneous responders contribute shared records, and adds an NSEC record whose bitmap declares A but not AAAA. A standalone AAAA question receives only the same NSEC assertion, so dual-stack resolvers can proceed to A without waiting for an IPv6 timeout; the responder never advertises an IPv6 address. The browser then sends `discover_peers` to port `62587` at `/espectre/v1/request` with the same exact Origin policy as the unique Direct endpoint and a 10-second client timeout. The responder is stateless: it does not register, retain, announce, or send a goodbye for the nonce hostname. It accepts multicast, QU, and legacy-unicast queries, keeps at most four delayed multicast answers at 25, 50, 75, and 100 ms, and schedules at most eight answers per second. Pending answers are discarded on an IPv4 change, Wi-Fi disconnect, or reconfiguration.
 
-The static `espectre-devices.local` alias is intentionally unsupported, and there is no automatic compatibility fallback between portal and firmware versions using different bootstrap contracts. Streamer, ESPHome, Matter, and Micro-ESPectre do not implement the nonce responder, but canonical Streamer, ESPHome, and Matter records remain accepted discovery results and retain their advertised Direct port. IPv6 remains outside the supported peer-assisted discovery boundary; manual private IP, unique hostname, and device-ID entry are unchanged.
+The static `espectre-devices.local` alias is intentionally unsupported, and there is no automatic compatibility fallback between portal and firmware versions using different bootstrap contracts. Micro-ESPectre does not implement the nonce responder because it has no Direct HTTP endpoint. IPv6 remains outside the supported peer-assisted discovery boundary; manual private IP, unique hostname, and device-ID entry are unchanged.
 
 After the normal capability handshake, an eligible responder advertises the read-only `discover_peers` method. The request accepts only an empty object. It runs one asynchronous PTR browse for `_espectre._tcp.local.` with a fixed 3,000 ms query window; a second request while that operation is active receives `conflict`, and a start failure receives `unavailable`. The operation is associated with the requesting connection's opaque token and request ID. A disconnect prevents later delivery but does not create a waiter or persistent peer inventory. Existing synchronous Direct transports remain source-compatible because deferred request support is optional.
 
 The production boundary is IPv4-only and includes the requesting Native device even when the Espressif query API omits its own advertisement. Results are deduplicated by the canonical 16-character lowercase hexadecimal `device_id`. Records for the same identity and endpoint merge and sort their addresses; conflicting endpoints reject that identity. Identities sort lexicographically. Returned IPv4 addresses must be unicast and on-link under the active station netmask; unspecified, network, broadcast, loopback, multicast, and off-link addresses are rejected. Discovery TXT capabilities are presentation hints only. After selecting an endpoint, a client must perform the normal Direct `capabilities` handshake and use the returned method catalog to expose or suppress configuration, sensing, tuning, traffic-control, and OTA operations.
 
-The fixed limits are eight accepted devices, two IPv4 addresses per device, eight unique capability tokens, 32 characters per capability token, 128 characters for the capability list, 63 characters each for service instance, hostname, and display name, 48 characters for firmware, 16 characters for frontend and chip, and 3,584 bytes for the result object. `txtvers`, `protovers`, and `transport` must equal `2`, `1`, and `http`; `path` and `events` must equal `/espectre/v1/request` and `/espectre/v1/events`. Frontend must be `native`, `streamer`, `esphome`, or `matter`, and the SRV port must be non-zero. Invalid records increment `rejected_results`; device, address, or serialization limits set `truncated` and retain deterministic leading results.
+The fixed limits are eight accepted devices, two IPv4 addresses per device, eight unique capability tokens, 32 characters per capability token, 128 characters for the capability list, 63 characters each for service instance, hostname, and display name, 48 characters for firmware, 16 characters for frontend and chip, and 3,584 bytes for the result object. `txtvers`, `protovers`, and `transport` must equal `2`, `1`, and `http`; `path` and `events` must equal `/espectre/v1/request` and `/espectre/v1/events`. Frontend must be `native`, `esphome`, or `matter`, and the SRV port must be non-zero. Invalid records increment `rejected_results`; device, address, or serialization limits set `truncated` and retain deterministic leading results.
 
 ```json
 {
@@ -100,7 +99,7 @@ The fixed limits are eight accepted devices, two IPv4 addresses per device, eigh
       "events": "/espectre/v1/events",
       "firmware": "3.0.0-rc1",
       "chip": "esp32c3",
-      "port": 80,
+      "port": 62587,
       "capabilities": ["config", "monitor", "ota", "peer_discovery"],
       "addresses": ["192.168.1.29"]
     }
@@ -112,11 +111,11 @@ The portal validates the complete result again before rendering or constructing 
 
 ### Direct HTTP v1
 
-This section defines the common local transport used by the C++ frontends. Native owns the complete local profile; Streamer, ESPHome, and Matter use the shared bridge and advertise a filtered command intersection. The durable direction is recorded in `docs/adr/2026-08-25-replace-local-direct-websocket-with-http.md` and `docs/adr/2026-08-24-use-one-command-engine-across-frontends.md`.
+This section defines the common local transport used by the C++ frontends. Native owns the complete local profile; ESPHome and Matter use the shared bridge and advertise a filtered command intersection. The durable direction is recorded in `docs/adr/2026-08-25-replace-local-direct-websocket-with-http.md` and `docs/adr/2026-08-24-use-one-command-engine-across-frontends.md`.
 
-Direct exposes `POST /espectre/v1/request` with `application/json`, `GET /espectre/v1/events` with `text/event-stream`, and, on supported Native C3 builds, `GET /espectre/v1/csi` with `application/octet-stream`. Requests are limited to 4,096 bytes, and correlated JSON responses and SSE event envelopes are limited to 8,192 bytes. The server dispatches commands only from the frontend owner task, uses fixed queues and rate limits, and reports malformed input, unsupported media types, disallowed Origins, oversize input, saturation, and internal failures through an appropriate HTTP status. A syntactically valid Direct request receives a correlated response envelope even when the command is rejected.
+Direct exposes `POST /espectre/v1/request` with `application/json`, `GET /espectre/v1/events` with `text/event-stream`, and, on Native, ESPHome, and Matter, `GET /espectre/v1/csi` with `application/octet-stream`. Requests are limited to 4,096 bytes, and correlated JSON responses and SSE event envelopes are limited to 8,192 bytes. The server dispatches commands only from the frontend owner task, uses fixed queues and rate limits, and reports malformed input, unsupported media types, disallowed Origins, oversize input, saturation, and internal failures through an appropriate HTTP status. A syntactically valid Direct request receives a correlated response envelope even when the command is rejected.
 
-Every Direct response sets `Cache-Control: no-store`. Browser calls use `targetAddressSpace: "local"`, and the server handles CORS preflight and Private Network Access. `Access-Control-Allow-Origin` echoes only an exact configured Origin and is paired with `Vary: Origin`; no wildcard Origin is accepted. ESPHome serves Direct independently on port `6054` and does not depend on the ESPHome web server or native API.
+Every Direct response sets `Cache-Control: no-store`. Browser calls use `targetAddressSpace: "local"`, and the server handles CORS preflight and Private Network Access. `Access-Control-Allow-Origin` echoes only an exact configured Origin and is paired with `Vary: Origin`; no wildcard Origin is accepted. Native, Matter, and ESPHome serve Direct on port `62587`; ESPHome's listener remains independent of its port-80 web server and native API.
 
 Every client request uses this envelope:
 
@@ -152,27 +151,28 @@ Direct v1 methods are grouped by capability:
 
 | Capability | Methods | Behavior |
 | --- | --- | --- |
-| Base reads | `capabilities`, `info`, `status`, `config` | Available to every compatible client. Native Direct `config` may report whether Wi-Fi is configured, its SSID, active band, pinned BSSID, Wi-Fi apply state, MQTT configured state, and non-secret MQTT endpoint fields, but never Wi-Fi or MQTT passwords. |
+| Base reads | `capabilities`, `info`, `status`, `config` | Available to every compatible client. Native, Matter, and ESPHome expose `runtime`, `device`, and read-only `wifi` sections; Native additionally exposes non-secret MQTT configuration. Passwords are never returned. |
 | Diagnostics | `diagnostics` | Returns the latest bounded runtime and transport diagnostics sample. |
-| Device configuration | `set_device_label`, `set_mqtt_config`, `clear_mqtt_config` | Uses the same validation and persistence owner as MQTT or other adapters. MQTT secrets are write-only. |
-| Wi-Fi access-point selection and removal | `wifi_access_points`, `scan_wifi_access_points`, `set_wifi_bssid`, `clear_wifi_config` | Native Direct scans for access points advertising the SSID already provisioned through Improv Serial and returns their BSSID, channel, and RSSI. `set_wifi_bssid` accepts one BSSID or an empty string for automatic selection; Native derives any channel hint from the latest scan, stages the change, and verifies connectivity before replacing the last-known-good configuration. `clear_wifi_config` removes the provisioned SSID and password, disconnects Direct HTTP, and returns the device to Improv Serial provisioning. |
+| Device configuration | `set_device_label` | Native persists its saved device label, Matter maps it to the Basic Information `NodeLabel`, and ESPHome persists an ESPectre-only override without changing its hostname, YAML, or entity IDs. The shared maximum is 32 UTF-8 bytes. |
+| Wi-Fi access-point selection | `wifi_access_points`, `scan_wifi_access_points`, `set_wifi_bssid`, `clear_wifi_bssid` | Native, Matter, and ESPHome return BSSID, channel, and RSSI for scan results. `set_wifi_bssid` pins one BSSID; `clear_wifi_bssid` restores automatic access-point selection without removing the SSID or password. |
+| Native-owned configuration | `clear_wifi_config`, `set_mqtt_config`, `clear_mqtt_config` | Native alone owns removal of provisioned Wi-Fi credentials, MQTT settings, and write-only MQTT secrets. `clear_wifi_config` disconnects Direct HTTP and returns the device to Improv Serial provisioning. |
 | Sensing | `set_sensing`, `set_threshold`, `set_motion_hits`, `set_detector`, `recalibrate` | Available only when advertised. `set_sensing` carries the required Boolean `enabled` parameter and does not require MQTT. |
 | CSI traffic | `set_csi_traffic_mode`, `set_traffic_generator_mode` | Available only when the runtime advertises traffic control. |
 | OTA | `ota_status`, `ota_check`, `ota_start` | Uses the same channel and no-override policy as MQTT OTA commands. |
-| Peer discovery | `discover_peers` | Advertised by Native through its bounded peer-assisted discovery service and deferred transport. |
-| Raw CSI | `start_raw_stream`, `stop_raw_stream` | Advertised only by a Native build whose runtime and Direct transport support an owner-bound binary raw session. |
+| Peer discovery | `discover_peers` | Advertised by Native, Matter, and ESPHome through the shared bounded peer-assisted discovery service and deferred transport. |
+| Raw CSI | `start_raw_stream`, `stop_raw_stream` | Advertised by Native, ESPHome, and Matter when the runtime and Direct transport support an owner-bound binary raw session. |
 
-#### Native Direct raw CSI
+#### Direct raw CSI v2
 
-Native Direct raw CSI is an additive capability of the HTTP service. Capability negotiation reports `features.raw_csi=true` and a `raw_csi` object containing endpoint `/espectre/v1/csi`, transport `http`, raw protocol version `1`, record version `8`, a 76-byte frame prefix, and target PPS range `1–500`. The initial rollout advertises this capability only from ESP32-C3 Native firmware; other chips and frontends report it as unsupported until their hardware gates pass.
+Raw CSI is an additive capability of the HTTP service shared by Native, ESPHome, and Matter. Capability negotiation reports `features.raw_csi=true` and a `raw_csi` object containing endpoint `/espectre/v1/csi`, transport `http`, raw protocol version `2`, record version `8`, a 60-byte frame prefix, a 16-record ring, a four-record maximum chunk batch, the external UDP port, and `traffic_marker: "."`.
 
-`start_raw_stream` accepts only `target_pps`, creates a random 128-bit session ID, and moves the runtime from `sensing` to `raw_collection`. `GET /espectre/v1/csi` and `stop_raw_stream` require `Authorization: Bearer <session-id>`. Another start receives `busy_raw_collection`, and a stop with the wrong bearer receives `not_raw_session_owner`. Reads remain available during the session. Wi-Fi, OTA, detector, calibration, traffic, and sensing mutations receive `busy_raw_collection`. MQTT stays connected but does not publish motion, sensing telemetry, or Home Assistant state until sensing is restored. Stream abort, Wi-Fi loss, channel or BSSID change, timeout, reboot, stop, or fault terminates the session without persisting `raw_collection`.
+`start_raw_stream` accepts an empty object, creates a random 128-bit session ID, and moves the runtime from `sensing` to `raw_collection` without changing `csi_traffic_mode` or the active traffic generator. `GET /espectre/v1/csi` and `stop_raw_stream` require `Authorization: Bearer <session-id>`. Another start receives `busy_raw_collection`, and a stop with the wrong bearer receives `not_raw_session_owner`. Reads remain available during the session. Wi-Fi, OTA, detector, calibration, traffic, and sensing mutations receive `busy_raw_collection`. Stream abort, Wi-Fi loss, channel or BSSID change, the five-second initial bind timeout, reboot, stop, or fault terminates the session, restores sensing, and leaves persisted traffic configuration unchanged. Once bound, inactivity does not cause an application timeout; TCP keepalive owns inactive-connection detection.
 
-The raw endpoint accepts one bearer-bound collector. A dedicated device worker paces output at `target_pps`, selects the freshest unconsumed AP/BSSID candidate whose age does not exceed `clamp(2_000_000 / target_pps, 10_000, 100_000)` microseconds, and retains only bounded state. A missing candidate emits a `no_sample` heartbeat at most once per second. There is no credit message or credit window. While the raw session is active, Native replaces the configured sensing traffic service with a non-persistent external UDP listener on the configured traffic port, `5555` by default. An independent host generator may feed that listener without granting credits or controlling the HTTP worker; stop, abort, or startup failure closes the listener and restores the configured sensing traffic mode.
+The raw endpoint accepts one bearer-bound collector. The CSI callback classifies traffic before the sensing/raw split. In raw mode, every classified frame bypasses `TemporalCsiSampler` and is offered to a preallocated 16-record atomic SPSC ring. The 64-bit stream sequence is assigned before enqueue. A full ring drops the newest record, preserving queued order and creating a visible sequence gap. A task notification wakes the dedicated raw worker, which drains continuously and sends up to four complete records in each HTTP chunk. There is no polling interval, credit message, timer, rate limiter, freshness replacement, or application heartbeat; inactive sessions rely on TCP keepalive.
 
-Each record starts with a packed 76-byte little-endian HTTP prefix containing magic `ESPR`, protocol version, status, prefix length, session ID, stream sequence, record version, record length, and cumulative fresh, no-sample, replacement, drop, and send-backpressure counters. A fresh prefix is followed immediately by one CSI V8 record; a no-sample prefix has no payload. Clients must reconstruct frames across arbitrarily split or aggregated HTTP chunks and reject invalid magic, version, length, session, sequence, status, or record data.
+Each record starts with a packed 60-byte little-endian HTTP prefix containing magic `ESPR`, raw protocol version `2`, CSI record version `8`, prefix length, session ID, stream sequence, record length, zero reserved flags, and cumulative sent-record, raw-drop, and send-backpressure counters. One CSI V8 record follows immediately. Ring overflow, records popped for a failed send, and records still queued when the session closes count toward `raw_drop_total`. After the queue is drained, `fresh_record_total + raw_drop_total == classified_frames_offered_to_raw`. Clients must reconstruct records across arbitrarily split or aggregated HTTP chunks and reject invalid magic, version, length, session, non-monotonic sequence, flags, mismatched V8 sequence, or record data.
 
-Version 8 raw records retain the 64-byte packed header used by Streamer V7. `device_ticks_us` is the capture timestamp, and the final counters are `transport_backpressure_total`, `fresh_record_total`, and `request_accepted_total`. Native Direct emits V8 only. Streamer remains byte-for-byte V7 during the migration, while the host parser accepts both versions for comparison and historical captures.
+Version 8 raw records use a transport-neutral 64-byte packed header. `device_ticks_us` is the capture timestamp, and the final counters are `transport_backpressure_total`, `fresh_record_total`, and `request_accepted_total`. Current HTTP sessions emit V8 only; the host parser retains V7 read compatibility for historical captures.
 
 The additive `diagnostics` result is the production performance boundary for every C++ frontend. Memory values use KiB, timing values use microseconds unless the field ends in `_ms`, rates use packets per second, and `runtime_load_percent` is runtime-loop wall time divided by the complete aggregation window. The shared runtime owns one bounded 10-second window and keeps its latest complete snapshot available between window boundaries; no build option or periodic debug logger changes whether these fields are collected.
 
@@ -184,7 +184,8 @@ The additive `diagnostics` result is the production performance boundary for eve
 | `performance_window_ready`, `performance_window_ms` | Whether a complete window is available and its measured duration; duration is `null` before the first complete window |
 | `runtime_load_percent` | Runtime-loop wall-time load over the complete window, or `null` before that window exists |
 | `loop_samples`, `loop_avg_us`, `loop_max_us` | Runtime loop sample count, average duration, and maximum duration for the complete window |
-| `detection_timing_supported` | Whether the selected runtime evaluates a detector; false for Streamer |
+| `detection_timing_supported` | Whether the selected runtime evaluates a detector |
+| `csi_callbacks_total`, `csi_classified_total`, `csi_provenance_rejected_total` | CSI callback, accepted generator-provenance, and rejected provenance counters |
 | `detection_samples`, `detection_sum_us`, `detection_avg_us`, `detection_min_us`, `detection_max_us` | Detector evaluation aggregates for the complete window, or `null` when unsupported or not ready |
 | `csi_admitted_pps`, `csi_occupancy` | Native sampled detector-input rate and occupancy ratio; shared-bridge frontends expose the cumulative totals and slot counts from which a client derives the same values |
 | `task_stack_high_water_bytes` | Native frontend-task stack headroom; omitted by frontends that do not own an equivalent task measurement |
@@ -198,7 +199,7 @@ Shared MQTT and Direct event payloads are serialized once and fanned out to ever
 
 The server accepts exact portal Origins `https://espectre.dev`, `https://www.espectre.dev`, and `https://test.espectre.dev`. A development-only Kconfig option additionally accepts HTTP Origins on any port only when the host is exactly `localhost`, `127.0.0.1`, or `[::1]`; lookalike hosts, paths, userinfo, invalid ports, and HTTPS loopback Origins remain rejected. Published firmware disables the loopback exception. Requests without an `Origin` header are rejected by default; a non-browser integration requires an explicit build-time policy. The server limits connection count, frame size, mutation rate, and queue depth, binds only after the station interface has a usable address, and stops on address loss.
 
-Native, Streamer, ESPHome, and Matter advertise this endpoint through the [mDNS/DNS-SD discovery contract](#mdnsdns-sd-discovery). Native implements the complete device, Wi-Fi, MQTT, sensing, diagnostics, and OTA surface. The shared bridge used by Streamer, ESPHome, and Matter exposes runtime capabilities, information, status, configuration, diagnostics, sensing controls, detector tuning, and CSI traffic controls when the selected runtime supports them. Clients must use the returned capability catalog instead of assuming that every frontend implements every method.
+Native, ESPHome, and Matter advertise this endpoint through the [mDNS/DNS-SD discovery contract](#mdnsdns-sd-discovery). They share identity, Wi-Fi status, access-point scan and BSSID pinning, runtime controls, diagnostics, peer discovery, and raw CSI. Native additionally owns Wi-Fi credential reset, MQTT, and OTA. Clients must use the returned capability catalog instead of assuming that every frontend implements every method.
 
 Direct v1 is identified by the envelope `v` field and `protovers=1` discovery metadata. Additive object fields and advertised methods may appear during v1 and must be ignored when unknown. Removing or reinterpreting an existing field, changing envelope semantics, or accepting a different required type needs a new Direct protocol version. Home Assistant Discovery remains MQTT-only.
 
@@ -223,8 +224,6 @@ espectre/v1/devices/{device_id}/commands/result
 ```
 
 `status`, `info`, `config`, `capabilities`, and `ota_status` are retained. `telemetry`, `fault`, and `commands/result` are not retained. There is no diagnostics topic: a `diagnostics` query returns its correlated sample in `commands/result.data`. A query never publishes a second side response and never crosses into Direct; accepted mutations publish the relevant retained state events to every active transport. Managed-service MQTT should use TLS and per-device credentials. Local lab MQTT may use a simpler broker/auth model, but should keep the same message shape.
-
-The dependency-free browser protocol layer is [`espectre-mqtt.js`](web/assets/js/espectre-mqtt.js). It is transport-policy agnostic and implements canonical topic construction, retained discovery, protocol-version and JSON-object validation, generic command publication from the retained capability schema, `commands/result` correlation, timeouts, and pending-command cleanup. The website supplies the MQTT.js WebSocket transport and consumes the additive Home Assistant scalar topics separately.
 
 ### Home Assistant MQTT Adapter Profile
 
@@ -531,7 +530,7 @@ Update CSI traffic ownership on frontends that advertise traffic control:
 }
 ```
 
-Accepted values are `internal`, `external`, and `disabled`. Native persists the accepted value across reboot. Micro-ESPectre keeps the selection session-only. `pacing` is Streamer collector mode only and is rejected on sensing MQTT. On ESP-IDF sensing frontends, `external` opens the UDP listener on port `5555` and joins multicast group `239.255.0.1` unless `csi_traffic_multicast_group` is empty.
+Accepted values are `internal` and `external`. Native, ESPHome, and Matter persist the accepted value across reboot. Micro-ESPectre keeps the selection session-only. Runtime requests using removed `pacing` or `disabled` values receive `invalid_params`; persisted legacy values migrate once to `internal`. On ESP-IDF sensing frontends, `external` opens the UDP listener on port `5555`, joins multicast group `239.255.0.1` unless `csi_traffic_multicast_group` is empty, and accepts only the exact one-byte marker `b'.'` (`0x2E`) addressed to the device or configured group.
 
 Update the internal traffic generator type on frontends that advertise traffic control:
 
@@ -544,7 +543,7 @@ Update the internal traffic generator type on frontends that advertise traffic c
 }
 ```
 
-Accepted values are `ping` and `dns`. `ping` selects stateless ICMP echo traffic. `dns` selects length-prefixed DNS queries over one persistent, non-blocking TCP connection to gateway port `53`, so the gateway must accept DNS over TCP. Native persists the accepted value across reboot. The selection is always stored, but only takes effect while `csi_traffic_mode` is `internal`. Streamer does not advertise this command because collector pacing owns its traffic source.
+Accepted values are `ping` and `dns`. `ping` selects stateless ICMP echo traffic. `dns` selects length-prefixed DNS queries over one persistent, non-blocking TCP connection to gateway port `53`, so the gateway must accept DNS over TCP. Native persists the accepted value across reboot. The selection is always stored, but only takes effect while `csi_traffic_mode` is `internal`.
 
 Request an OTA manifest check. Omit `channel` to use the firmware's build-time default, or pass `release`, `preview`, or `develop`:
 
@@ -614,7 +613,7 @@ Every accepted or rejected MQTT request produces exactly one non-retained `comma
 
 ## Deployment Profiles
 
-ESPectre Protocol can be carried by multiple deployment profiles. In the local Native path, [Configure](https://espectre.dev/configure) hands a newly flashed device to standard Improv Serial for initial Wi-Fi provisioning, then uses Direct HTTP for configuration and recovery. [Monitor](https://espectre.dev/monitor) supports Direct HTTP for broker-free local sensing and MQTT over WebSockets for broker-backed monitoring. Direct is a trusted-LAN transport; browser support depends on the browser's mixed-content and local-network access policy.
+ESPectre Protocol can be carried by multiple deployment profiles. In the local Native path, [Configure](https://espectre.dev/configure) hands a newly flashed device to standard Improv Serial for initial Wi-Fi provisioning, then uses Direct HTTP for configuration and recovery. [Monitor](https://espectre.dev/monitor) uses Direct HTTP for broker-free local sensing. Direct is a trusted-LAN transport; browser support depends on the browser's mixed-content and local-network access policy. MQTT remains available to device integrations, Home Assistant, and the host CLI, but is not a browser Monitor transport.
 
 Web orchestration profiles add identity, tenancy, device claim, state mirrors, history, alerts, and OTA around the same protocol. Those system-level concerns belong to [ARCHITECTURE.md](ARCHITECTURE.md), not to this message schema.
 
@@ -628,7 +627,7 @@ Default web-orchestration telemetry should be derived and minimal:
 | `timestamp_ms` | Event or sample time |
 | `online` | Device availability |
 | `firmware_version` | Fleet visibility and update eligibility |
-| `frontend` | `esphome`, `matter`, `native`, `streamer`, `micro`, `custom`, or future frontend label |
+| `frontend` | `esphome`, `matter`, `native`, `micro`, `custom`, or future frontend label |
 | `motion_state` | Motion state |
 | `movement_score` | Derived movement metric |
 | `threshold` | Current runtime threshold |

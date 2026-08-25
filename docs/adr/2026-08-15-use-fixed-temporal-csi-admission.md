@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-15
-- Updated: 2026-08-23
+- Updated: 2026-08-25
 
 ## Context
 
@@ -10,7 +10,7 @@ The deployed detector window was first a fixed packet count. Its default of 100 
 
 The first temporal contract replaced that packet count with `segmentation_window_size_ms` and resolved sample capacity from a short-term measured packet rate. That restored a physical-time public setting, but ordinary delivery jitter could cross the resize dead band, reconstruct the detector, discard its history, and restart Lightweight startup calibration. It also allowed a burst of closely spaced packets to fill a nominal one-second window in milliseconds even though those packets did not provide one second of independent motion evidence.
 
-Motion sensing needs stable physical-time geometry rather than a detector that follows network delivery bursts. The traffic source, the raw receive rate, and the detector sampling cadence are separate concerns. Streamer must also retain raw timestamped CSI for reproducible research while its downstream sensing replays use the same admission behavior as deployed detectors.
+Motion sensing needs stable physical-time geometry rather than a detector that follows network delivery bursts. The traffic source, the raw receive rate, and the detector sampling cadence are separate concerns. Raw collection must retain timestamped CSI for reproducible research while downstream sensing replays use the same admission behavior as deployed detectors.
 
 This record incorporates the millisecond-window lineage. That file is removed rather than marked superseded because this ADR is the cumulative current detector-timing decision.
 
@@ -20,7 +20,7 @@ Keep the public analysis window in milliseconds and admit CSI onto a fixed tempo
 
 - the public setting is `segmentation_window_size_ms`; the default is `1000 ms`, and the supported configuration range is `1000-2000 ms`;
 - `csi_target_pps` is a positive sensing target and defines slot width; it does not enable or disable traffic;
-- `csi_traffic_mode` alone selects internal, external, paced, or disabled traffic ownership;
+- `csi_traffic_mode` selects either internal or external traffic ownership;
 - `window_slots = ceil(csi_target_pps * segmentation_window_size_ms / 1000)`;
 - the minimum valid occupancy is seven tenths of `window_slots`, rounded up, with the ratio defined once in each production language;
 - at most one packet is admitted per slot; the sampler retains the candidate nearest the slot center until a packet reaches a later slot, and counts every other same-slot candidate as excess;
@@ -43,7 +43,7 @@ Python has one MicroPython-compatible production implementation in `src/python/m
 
 Closing a slot is driven by the next packet timestamp, not by the processing-loop wall clock. The live runtime therefore keeps one fixed payload buffer for the current candidate; when a later-slot packet arrives, the previous payload is consumed before the current packet can replace the buffer. MicroPython uses two preallocated payload arrays for the same transition. Finite replay and controlled shutdown may explicitly flush the last buffered candidate.
 
-Streamer firmware continues to transport raw timestamped CSI under collector-owned pacing. The collector's `--pps` value supplies the target for its live detector and derived sensing view without changing raw capture or pacing-credit semantics. Host collect slows only on sustained firmware TX backpressure and recovers toward `--pps`; occupancy remains telemetry and never resizes the collector grid.
+Raw HTTP v2 transports every provenance-classified CSI frame before temporal admission. The collector's `--pps` value controls only its external UDP traffic generator and supplies the target for its live detector and derived sensing view. HTTP applies no pacing or temporal decimation; occupancy remains telemetry and never resizes the collector grid.
 
 ## Decision History
 

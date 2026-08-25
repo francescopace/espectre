@@ -10,7 +10,6 @@ Brief description of the changes in this PR.
 - [ ] ESPHome
 - [ ] Matter
 - [ ] Native
-- [ ] Streamer
 - [ ] Micro-ESPectre / Python tooling
 - [ ] Documentation / GitHub / CI
 
@@ -47,4 +46,3 @@ Closes #
 - [ ] My changes generate no new warnings
 - [ ] My commits include `Signed-off-by` trailers (`git commit -s`)
 - [ ] I have signed the [CLA](../CLA.md): my GitHub login is in `.github/cla-signatures.json` (first PR only; see [CLA.md](../CLA.md) for how to sign)
-

@@ -51,7 +51,7 @@ Before adding product-specific behavior, enforce these runtime constraints:
 | `src/cpp/core/` | Lightweight and High-Accuracy detectors, feature extraction, filters, CSI format | C++17 standard library only |
 | `src/cpp/runtime/` | Runtime contracts, snapshots, events, ESPectre Protocol model, traffic generation | Portable, host-testable |
 | `src/cpp/runtime/esp_idf/` | CSI capture, Wi-Fi lifecycle, sensing pipeline, traffic generation, NVS persistence | ESP-IDF `>= 5.5` |
-| `src/cpp/frontend/` | ESPHome, Native Direct/MQTT, Matter, and Streamer reference integrations | Frontend-specific stacks |
+| `src/cpp/frontend/` | ESPHome, Native Direct/MQTT, and Matter reference integrations | Frontend-specific stacks |
 
 The layering is strict: `core` has no upward or SDK dependencies, and `runtime` contracts stay platform-agnostic, so the sensing logic can be compiled, tested, and simulated on a host machine without ESP-IDF.
 
@@ -109,7 +109,7 @@ After each `update_state()`, re-read `get_threshold()`: Lightweight can lower it
 | `runtime/runtime_config_utils.h` | Validators and name/enum conversion |
 | `runtime/runtime_diagnostics.h` | Capture and link counters, plus the sampler that turns them into rates |
 | `runtime/csi_traffic_types.h` | Runtime traffic-source and generator mode enums used by `RuntimeConfig` |
-| `runtime/csi_stream_protocol.h` | Versioned raw CSI record layouts for transport integrations and historical capture parsing |
+| `runtime/csi_raw_record.h` | Transport-neutral CSI V8 record layout and historical V7 capture parsing |
 | `runtime/raw_csi.h` | Optional raw-collection runtime state, session configuration, diagnostics, and Direct binary framing |
 | `runtime/esp_idf/runtime_frontend_controller.h` | The recommended entry point |
 | `runtime/esp_idf/runtime_sensing_kconfig.h` | Build a config from menuconfig |
@@ -173,7 +173,7 @@ latest_ = sampler_.sample(runtime_.diagnostics(), now_ms);
 
 Transport adapters parse commands into `EspectreCommand`. `set_sensing` uses the typed `sensing_enabled` value only when `has_sensing_enabled` is true, matching the other optional command fields. `FrontendCommandEngine` applies the frontend capability and access policy, returns stable `code`, `message`, and optional query `data`, and identifies the state families changed by an accepted mutation. Embedders should preserve this distinction: query results return only to the requester, while state changes may be fanned out to active transports.
 
-The shipped ESP-IDF runtime always collects these counters and bounded performance windows. `RuntimeDiagnosticsSnapshot` also reports heap, CPU frequency, loop load and timing, and detector timing when the runtime supports detection. Native and ESPHome refresh their rate cache from the same sensing update that feeds their normal status surfaces; Direct `diagnostics` returns the production snapshot without enabling a build option or periodic debug logger. Matter uses the same shared bridge, and Streamer reports detector timing as unsupported.
+The shipped ESP-IDF runtime always collects these counters and bounded performance windows. `RuntimeDiagnosticsSnapshot` also reports heap, CPU frequency, loop load and timing, detector timing, CSI provenance classification, and provenance rejection. Native and ESPHome refresh their rate cache from the same sensing update that feeds their normal status surfaces; Direct `diagnostics` returns the production snapshot without enabling a build option or periodic debug logger. Matter uses the same shared bridge.
 
 ### Versioning
 
@@ -212,7 +212,6 @@ Both surfaces build the same sources; they differ only in how you select the opt
 | `ESPECTRE_SDK_ENABLE_MQTT` | `ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES` | `EspIdfMqttTransport` over `esp-mqtt` |
 | `ESPECTRE_SDK_ENABLE_PROVISIONING` | `ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES` | Device config store and Wi-Fi provisioning |
 | `ESPECTRE_SDK_ENABLE_OTA` | `ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES` | `HttpsOtaService` |
-| `ESPECTRE_SDK_ENABLE_STREAM_RUNTIME` | `ESPECTRE_RUNTIME_STREAMER_FRONTEND_SUPPORT_SOURCES` | The `RuntimeProfile::STREAM` backend |
 
 Each group is off by default, so a minimal integration does not pay for transports it never calls. Implementing `IMqttTransport`, `IDirectHttpService`, or `IOtaService` yourself needs no group at all: the interfaces are header-only. `DirectHttpServiceConfig` keeps its generic Origin allowlist empty; `for_first_party_portals()` explicitly selects the official production and validation portals. The Native reference app adds `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES` explicitly because Direct HTTP and mDNS are frontend-owned deployment choices rather than a general SDK default.
 

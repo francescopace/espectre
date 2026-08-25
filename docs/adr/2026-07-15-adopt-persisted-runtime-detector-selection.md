@@ -6,7 +6,7 @@
 
 ## Context
 
-ESPectre supports Lightweight and High Accuracy, but its frontends have different control contracts. ESPHome and Native expose writable runtime controls, Matter is intentionally read-only, and Streamer transports CSI without running a detector. A frontend-local implementation would duplicate validation, persistence, threshold reset, and calibration behavior.
+ESPectre supports Lightweight and High Accuracy, but its frontends have different control contracts. ESPHome and Native expose writable runtime controls, while Matter is intentionally read-only. A frontend-local implementation would duplicate validation, persistence, threshold reset, and calibration behavior.
 
 ## Decision
 
@@ -17,7 +17,6 @@ Keep detector selection in the shared runtime and expose it through explicit fro
 | ESPHome | Writable `lightweight` or `high_accuracy` | Persist the selected value in the shared ESP-IDF store |
 | Native | Writable `lightweight` or `high_accuracy` | Persist the selected value in the shared ESP-IDF store |
 | Matter | Read-only | Use Lightweight as the frontend-owned fixed default |
-| Streamer | Unsupported | Run no detector |
 
 On a supported runtime switch:
 
@@ -48,7 +47,7 @@ Rejected. It would duplicate lifecycle and validation semantics.
 
 ### Expose the same writable control everywhere
 
-Rejected. Matter's surface is read-only, and Streamer owns no detector.
+Rejected. Matter's surface is read-only.
 
 ## Consequences
 

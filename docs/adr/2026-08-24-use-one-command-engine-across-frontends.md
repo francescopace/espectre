@@ -5,7 +5,7 @@
 
 ## Context
 
-Native MQTT, Native Direct HTTP, the shared Direct bridge, ESPHome entities, Matter controls, Streamer controls, and Micro-ESPectre evolved separate dispatchers. They described similar operations with different names, validation, result shapes, and side effects. In Native, independent outbound transport queues are required for backpressure, but independent command workers and registries are not. The duplicate control paths made it possible for one transport to accept a value another rejected, for queries to leak side responses onto MQTT, and for clients to maintain stale verb allowlists.
+Native MQTT, Native Direct HTTP, the shared Direct bridge, ESPHome entities, Matter controls, and Micro-ESPectre evolved separate dispatchers. They described similar operations with different names, validation, result shapes, and side effects. In Native, independent outbound transport queues are required for backpressure, but independent command workers and registries are not. The duplicate control paths made it possible for one transport to accept a value another rejected, for queries to leak side responses onto MQTT, and for clients to maintain stale verb allowlists.
 
 ## Decision
 
@@ -37,7 +37,7 @@ Rejected for now. A generated registry would add a build-time source dependency 
 
 ## Consequences
 
-- command semantics, errors, and state changes converge across Native, ESPHome, Matter, and Streamer;
+- command semantics, errors, and state changes converge across Native, ESPHome, and Matter;
 - MicroPython advertises only operations it can execute and is checked against the shared schema;
 - MQTT and Direct keep transport-specific envelopes and queues without owning command behavior;
 - ESPHome entity writes and Direct mutations converge on the same authoritative runtime state;

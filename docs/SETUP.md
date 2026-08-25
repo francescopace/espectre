@@ -9,7 +9,6 @@ Choose a frontend first. If it has a published image, [Web Flash](#web-flash-no-
 | `ESPHome` | [Web Flash](#web-flash-no-coding-required), Home Assistant entities, and Direct HTTP runtime tuning | [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md) |
 | `Native` | [Web Flash](#web-flash-no-coding-required), Improv Serial Wi-Fi provisioning, Direct HTTP, and optional MQTT or Home Assistant MQTT Discovery | [`README.md` (native)](../src/cpp/frontend/native/README.md) |
 | `Matter` | [Web Flash](#web-flash-no-coding-required), Matter commissioning, and Direct HTTP detector tuning | [`README.md (matter)`](../src/cpp/frontend/matter/README.md) |
-| `Streamer` | Frontend README for the dedicated UDP CSI stream workflow and Direct HTTP diagnostics | [`README.md`](../src/cpp/frontend/streamer/README.md) |
 | `Micro-ESPectre` | Frontend README for the maintained MicroPython R&D runtime, project firmware, deployment, and MQTT workflow | [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md) |
 
 ## Web Flash (no coding required)
@@ -20,7 +19,7 @@ Go to [espectre.dev/flash](https://espectre.dev/flash/) and select:
 - the firmware channel
 - your target chip
 
-Use `Latest Release` for official firmware, `Release Preview` for the latest build from `main`, or `Development` for the latest build from `develop`. Published ESPHome firmware starts with Lightweight Detection and supports persisted runtime switching to High Accuracy. Published Matter firmware starts with Lightweight; High Accuracy is available in local Matter builds and is selected at build time. Streamer is source-built because it needs build-time Wi-Fi configuration.
+Use `Latest Release` for official firmware, `Release Preview` for the latest build from `main`, or `Development` for the latest build from `develop`. Published ESPHome firmware starts with Lightweight Detection and supports persisted runtime switching to High Accuracy. Published Matter firmware starts with Lightweight; High Accuracy is available in local Matter builds and is selected at build time.
 
 To flash:
 
@@ -48,7 +47,6 @@ Current chip support by frontend:
 | `ESPHome` | `ESP32-S3`, `ESP32-S2`, `ESP32-C6`, `ESP32-C5`, `ESP32-C3`, `ESP32` | Published web-flash images; ESP32-S2 uses serial or fallback-AP provisioning because it has no Bluetooth radio |
 | `Native` | `ESP32`, `ESP32-S3`, `ESP32-S2`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Published web-flash images |
 | `Matter` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Published web-flash images |
-| `Streamer` | `ESP32`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6`, `ESP32-S2`, `ESP32-S3` | Local build workflow |
 | `Micro-ESPectre` | `ESP32`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6`, `ESP32-S3` | Local project-firmware build and filesystem deployment workflow |
 
 Use the frontend README for the workflow and surface details after you choose the firmware path.
@@ -70,13 +68,13 @@ python -m pip install -r requirements.txt
 
 On Windows PowerShell, create the environment with `py -3 -m venv .venv`, activate `.\.venv\Scripts\Activate.ps1`, and run the same install command.
 
-Native, Matter, and Streamer builds prefer an active `IDF_PATH` environment, a standard local ESP-IDF installation, or the pinned ESP-IDF toolchain already managed by ESPHome, and automatically fall back to the pinned ESP-IDF Docker image when none is available. Repository ESPHome commands explicitly select its native `esp-idf` toolchain and never use PlatformIO.
+Native and Matter builds prefer an active `IDF_PATH` environment, a standard local ESP-IDF installation, or the pinned ESP-IDF toolchain already managed by ESPHome, and automatically fall back to the pinned ESP-IDF Docker image when none is available. Repository ESPHome commands explicitly select its native `esp-idf` toolchain and never use PlatformIO.
 
 ```bash
 ./espectre native build --chip c3
 ```
 
-On Windows, use `.\espectre.cmd native build --chip c3`. The same pattern applies to Matter and Streamer.
+On Windows, use `.\espectre.cmd native build --chip c3`. The same pattern applies to Matter.
 
 When the local environment is absent and Docker is running, a cached image is used without prompting. If the image is missing, an interactive build asks before downloading it; non-interactive builds must opt in with `--pull missing`. If Docker is installed but stopped, the CLI asks you to start it and retry. Use `--backend local` or `--backend docker` to require one path, and use `./espectre doctor` to inspect only the local ESP-IDF environment.
 
@@ -122,7 +120,7 @@ Matter generates a unique onboarding identity on first boot and stores it in a d
 
 Normal flashes preserve the QR. Erasing the complete flash generates a new identity on the next boot.
 
-Browser tools such as Flash, Configure, Monitor, and Theremin live on [espectre.dev](https://espectre.dev). Configure and Monitor offer starting presets for Home Assistant with the Mosquitto add-on, a broker on the LAN, EMQX Cloud, HiveMQ Cloud, Flespi, and a custom broker; credentials are never prefilled. The LAN preset defaults to `localhost` in Monitor, where it addresses a broker on the browser computer, but Configure requires that computer's LAN hostname or IP address because `localhost` on the device would refer to the ESP32 itself. When configuration is completed through the browser, Monitor reuses the saved LAN host. Provider presets fill stable MQTT TLS and WSS ports and paths and prefill editable `.emqxsl.com` and `.hivemq.cloud` endpoint templates. Provider-defined ports, paths, TLS choices, and the fixed Flespi hostname are read-only while their preset is selected; account-specific endpoints, credentials, and topic prefixes remain editable. Configure adds the `mqtts://` scheme automatically when saving a secure preset. Browser MQTT always uses `wss://` and therefore requires a broker certificate trusted by the browser; the TLS control in Monitor cannot be disabled. Device-to-broker MQTT remains independently configurable as TCP or TLS. To preview the same site from this repository, serve `docs/web` as described in [docs/web/README.md](web/README.md).
+Browser tools such as Flash, Configure, Monitor, and Theremin live on [espectre.dev](https://espectre.dev). Configure offers starting device-to-broker presets for Home Assistant with the Mosquitto add-on, a broker on the LAN, EMQX Cloud, HiveMQ Cloud, Flespi, and a custom broker; credentials are never prefilled. Provider presets fill stable MQTT TLS ports and prefill editable `.emqxsl.com` and `.hivemq.cloud` endpoint templates. Provider-defined ports and the fixed Flespi hostname are read-only while their preset is selected; account-specific endpoints, credentials, and topic prefixes remain editable. Configure adds the `mqtts://` scheme automatically when saving a secure preset. Monitor uses Direct HTTP rather than MQTT over WebSockets. To preview the same site from this repository, serve `docs/web` as described in [docs/web/README.md](web/README.md).
 
 Configure and Monitor accept a private device IP, device name, full 16-character device ID, or its last 6 characters. A full ID is translated to the device's unique local address internally; a name or short ID runs the same bounded discovery as the **Auto-discovery** button. One match connects directly, while multiple matches are all displayed for an explicit selection. Native uses an internal nonce-scoped IPv4 bootstrap hostname, performs one fresh browse, and displays validated devices without exposing HTTP or mDNS endpoint syntax in the form. Selecting a result never stores the shared bootstrap hostname or a peer inventory. When automatic discovery is unavailable, enter the device IP or full ID, reuse a remembered device, run `./espectre devices`, or consult the router lease table.
 
@@ -140,7 +138,6 @@ Use the frontend READMEs for frontend-specific prerequisites, examples, and chip
 - [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md)
 - [`README.md` (native)](../src/cpp/frontend/native/README.md)
 - [`README.md` (matter)](../src/cpp/frontend/matter/README.md)
-- [`README.md` (streamer)](../src/cpp/frontend/streamer/README.md)
 - [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md)
 
 ## Advanced: SDK Bundles
@@ -170,7 +167,6 @@ The next step depends on the frontend you chose:
 | `ESPHome` | [`README.md`](../src/cpp/frontend/esphome/README.md) | Wi-Fi provisioning, YAML parameters, Home Assistant entities, dashboards, ESPHome-specific troubleshooting |
 | `Native` | [`README.md`](../src/cpp/frontend/native/README.md) | Build/flash workflow, Wi-Fi and MQTT setup, Home Assistant MQTT Discovery, native control surface, and HTTPS OTA flow |
 | `Matter` | [`README.md`](../src/cpp/frontend/matter/README.md) | Commissioning flow, Matter occupancy surface, and local ESP-IDF workflow |
-| `Streamer` | [`README.md`](../src/cpp/frontend/streamer/README.md) | CSI streaming firmware, UDP packet format, build-time Wi-Fi setup, and the frontend's intentionally narrow scope |
 | `Micro-ESPectre` | [`README.md`](../src/python/micro_espectre/README.md) | Project firmware, filesystem deployment, local configuration, and MQTT operation |
 
 ## Reference: Shared Runtime Concepts
@@ -194,7 +190,6 @@ Frontend coverage:
 | `Native` | yes |
 | `Matter` | yes |
 | `Micro-ESPectre` | yes, through its MicroPython configuration surface; runtime MQTT writes are session-only |
-| `Streamer` | no, streamer keeps its own stream/collector runtime profile |
 
 | Option | Type / values | Default | Range / notes |
 |--------|---------------|---------|---------------|
@@ -203,8 +198,8 @@ Frontend coverage:
 | Runtime threshold | probability | detector-specific | Selected automatically at startup; session-adjustable where the frontend exposes a writable control. Matter currently exposes no writable sensing controls |
 | `segmentation_window_size_ms` | int | `1000` | `1000-2000` milliseconds; combined with `csi_target_pps` to define a fixed temporal slot window |
 | `csi_target_pps` | int | `100` | `1-500`; defines detector slot cadence and the managed-traffic target, but never enables or disables traffic |
-| `csi_traffic_mode` | `internal`, `external`, or `disabled` | `internal` | Selects traffic ownership independently from `csi_target_pps`; `disabled` means unmanaged ambient traffic, not disabled sensing. `pacing` is Streamer collector mode only |
-| `csi_traffic_multicast_group` | IPv4 multicast address, or empty | `239.255.0.1` | Joined by the UDP listener in `external` and `pacing`. Empty disables the join. Unicast to the device IP still works |
+| `csi_traffic_mode` | `internal` or `external` | `internal` | Selects the configured traffic source independently from `csi_target_pps`; persisted legacy `pacing` or `disabled` values migrate once to `internal` |
+| `csi_traffic_multicast_group` | IPv4 multicast address, or empty | `239.255.0.1` | Joined by the UDP listener in `external`. Empty disables the join. Unicast to the device IP still works |
 | `traffic_generator_mode` | `ping` or `dns` | `ping` | Shared internal traffic generator mode |
 | `publish_interval_ms` | int | `1000` | `100-60000` milliseconds between periodic status-log and diagnostics samples. Canonical MQTT telemetry and Home Assistant Movement Score follow `evaluation_interval_ms` |
 | `evaluation_interval_ms` | int | `250` | `10-10000` milliseconds between detector evaluations |
@@ -216,7 +211,7 @@ Frontend coverage:
 | `hampel_window` | int | `7` | `3-11` samples |
 | `hampel_threshold` | float | `5.0` | `1.0-10.0` MAD units |
 
-Migration from earlier v3 snapshots: replace `traffic_generator_rate: N` with `csi_target_pps: N` plus `csi_traffic_mode: internal`. Replace the former zero-rate disable sentinel with a positive target plus `csi_traffic_mode: external` when a UDP source supplies traffic, or `disabled` when ambient traffic is intentionally unmanaged.
+Migration from earlier v3 snapshots: replace `traffic_generator_rate: N` with `csi_target_pps: N` plus `csi_traffic_mode: internal`. Persisted `pacing` and `disabled` values are migrated once to `internal`; runtime requests using those removed values fail with `invalid_params`.
 
 See [TUNING.md](TUNING.md) for how evaluation cadence and hit filtering set the expected publish delay (about `1 s` for `IDLE -> MOTION` with the defaults).
 
@@ -233,7 +228,7 @@ ESPectre keeps two production detection profiles because no single choice optimi
 
 At boot, Lightweight adapts its threshold to the room from about 10 seconds of clean, ready CSI coverage after temporal warmup. Missing or burst-concentrated slots extend wall-clock calibration instead of counting as evidence. After that, a long quiet stretch can still lower the live threshold if the opening was noisier than the rest of the session; Home Assistant, ESPHome, and the website Monitor follow that value. High Accuracy uses its trained threshold and skips threshold calibration; it becomes active after CSI capture is ready and the feature window has filled.
 
-ESPHome, Native, Matter, and Micro-ESPectre support both `lightweight` and `high_accuracy`. ESPHome and Native can switch profiles at runtime and persist the selection; the switch resets the threshold to the selected profile's default, and `high_accuracy -> lightweight` starts calibration automatically. Matter selects the profile at build time, exposes no runtime detector control, and uses `lightweight` in published firmware while the frontend remains preview. Micro-ESPectre selects the profile in its deployment configuration and does not expose runtime detector switching. Streamer has no detector.
+ESPHome, Native, Matter, and Micro-ESPectre support both `lightweight` and `high_accuracy`. ESPHome and Native can switch profiles at runtime and persist the selection; the switch resets the threshold to the selected profile's default, and `high_accuracy -> lightweight` starts calibration automatically. Matter selects the profile at build time, exposes no runtime detector control, and uses `lightweight` in published firmware while the frontend remains preview. Micro-ESPectre selects the profile in its deployment configuration and does not expose runtime detector switching.
 
 See:
 
@@ -254,16 +249,15 @@ Raw rate near `csi_target_pps` does not prove that the target is usable: an AP m
 | Native / Matter | `CONFIG_ESPECTRE_CSI_TARGET_PPS` | `csi_traffic_mode`; internal by default | yes | phase-preserving cadence without catch-up bursts; local socket backoff only |
 | ESPHome | `csi_target_pps` | `csi_traffic_mode`; internal by default | yes | phase-preserving cadence without catch-up bursts; local socket backoff only |
 | Micro-ESPectre | `CSI_TARGET_PPS` | factory default from `TRAFFIC_GENERATOR_ENABLED`, with session-only MQTT overrides for `csi_traffic_mode` and `traffic_generator_mode` | yes | phase-preserving cadence without catch-up bursts; local socket backoff only |
-| Streamer firmware | collector `--pps` | collector pacing | no; transports raw timestamped CSI | none on device; host collect owns pacing |
-| Collector detector, replay, training, and validation | recorded `csi_target_pps`, collector `--pps`, or a documented legacy fallback | recorded raw stream | yes, through the production Micro-ESPectre sampler | collect slows only on TX backpressure; occupancy is telemetry |
+| Collector detector, replay, training, and validation | recorded `csi_target_pps`, collector `--pps`, or a documented legacy fallback | recorded raw HTTP stream | yes, through the production Micro-ESPectre sampler | external generator owns rate; HTTP does not pace |
 
-Streamer remains collector-paced and preserves raw CSI. The collector applies the same production temporal admission to its live detector and derived sensing view. Host collect slows only on sustained firmware TX backpressure and recovers toward `--pps`; `--fixed` keeps a constant send rate. Occupancy remains telemetry. Firmware pacing credits and raw capture stay independent from the detector grid.
+Raw HTTP collection is available on Native, ESPHome, and Matter. It preserves every classified CSI frame except explicitly counted fixed-ring drops; only the collector's derived live detector view applies temporal admission.
 
-External UDP traffic can be unicast to each device IP, or sent to multicast group `239.255.0.1`. ESP-IDF frontends join that group automatically in `external` and `pacing` (ESPHome, Native, Matter, and Streamer). Empty `csi_traffic_multicast_group` disables the join. Subnet and limited broadcast (`x.x.x.255`, `255.255.255.255`) do not produce reliable HT20 CSI. ESPHome, Native, and Matter `external` mode listen on port `5555`; use [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) with a unicast `TARGETS` list or `TARGETS = ['239.255.0.1']`. Streamer collection listens on port `9999` and can pace several devices with `./espectre collect --target 239.255.0.1`.
+External UDP traffic can be unicast to each device IP, or sent to multicast group `239.255.0.1`. ESP-IDF frontends join that group automatically in `external`. Empty `csi_traffic_multicast_group` disables the join. Subnet and limited broadcast (`x.x.x.255`, `255.255.255.255`) do not produce reliable HT20 CSI. ESPHome, Native, and Matter listen on port `5555` and accept only the exact one-byte marker `b'.'` (`0x2E`); use [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) standalone or through `./espectre collect`.
 
-Micro-ESPectre keeps its persisted factory default as `TRAFFIC_GENERATOR_ENABLED` plus `TRAFFIC_GENERATOR_MODE`, then exposes session-only MQTT and Home Assistant runtime control over `csi_traffic_mode` and `traffic_generator_mode`. `internal` starts the local generator, and `external` and `disabled` stop it. Micro does not open a UDP listener, so it does not join the multicast group. Sensing MQTT, Home Assistant, ESPHome, and the website do not offer `pacing`; that mode is Streamer collector pacing only.
+Micro-ESPectre keeps its persisted factory default as `TRAFFIC_GENERATOR_ENABLED` plus `TRAFFIC_GENERATOR_MODE`, then exposes session-only MQTT and Home Assistant runtime control over `csi_traffic_mode` and `traffic_generator_mode`. `internal` starts the local generator, and `external` stops it. Micro does not open a UDP listener, so it does not join the multicast group.
 
-Across Native, Matter, ESPHome, and Micro-ESPectre, internal `ping` mode sends ICMP echo requests, while internal `dns` mode sends DNS root queries through a persistent, non-blocking TCP connection to gateway port `53`. DNS mode requires the gateway resolver to accept TCP queries. Streamer does not use either local generator mode; its host collector remains the pacing owner.
+Across Native, Matter, ESPHome, and Micro-ESPectre, internal `ping` mode sends ICMP echo requests, while internal `dns` mode sends DNS root queries through a persistent, non-blocking TCP connection to gateway port `53`. DNS mode requires the gateway resolver to accept TCP queries.
 
 If you are tuning `csi_target_pps`, thresholds, or filters, use [TUNING.md](TUNING.md) for the rationale and the frontend README for the configuration syntax.
 

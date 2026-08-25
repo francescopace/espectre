@@ -6,7 +6,7 @@ A **label** is the observed room state, a **pair** links comparable static-prese
 
 Use:
 
-- [`README.md` (streamer)](../src/cpp/frontend/streamer/README.md) for streamer firmware setup, UDP protocol, Wi-Fi provisioning, and transport tuning
+- [`SETUP.md`](SETUP.md) for Native, ESPHome, and Matter firmware setup and external traffic generation
 - [`ML_TRAINING.md`](ML_TRAINING.md) for training, export, and validation
 - [`ALGORITHMS.md`](ALGORITHMS.md) for detector and feature definitions
 
@@ -32,20 +32,14 @@ Gesture, HAR, and people-counting datasets are possible, but they are not the ma
 The primary collection path is:
 
 ```text
-streamer frontend
-  -> collector-driven UDP traffic
+raw-capable Native, ESPHome, or Matter frontend
+  -> ExternalTrafficGenerator UDP marker
+  -> bearer-bound raw HTTP v2
   -> ./espectre collect
   -> one .npz per device_id
 ```
 
-See the streamer frontend README for:
-
-- build and flash steps
-- local Wi-Fi configuration
-- UDP packet format
-- transport tuning
-
-This guide assumes that the streamer is already running and reachable.
+The collector resolves the Direct endpoint, persistently selects `csi_traffic_mode=external`, verifies the device configuration, opens the raw HTTP stream, and imports the same standard-library-only external generator used by `tools/espectre_traffic_generator.py`. This guide assumes that a raw-capable Native, ESPHome, or Matter device is already running and reachable.
 
 ## Quick Start
 
@@ -77,7 +71,7 @@ Then record labeled data:
 
 `./espectre collect` is the host-side entry point for live inspection and dataset capture in the workflow described above.
 
-For the full command reference, supported modes, options, pacing behavior, and examples, see [`CLI.md#collect`](CLI.md#collect).
+For the full command reference, supported targets, external generator options, and examples, see [`CLI.md#collect`](CLI.md#collect).
 
 Each saved capture emits one `.npz` per `device_id`. Mixed-device files are not part of the supported workflow.
 
@@ -120,9 +114,9 @@ Recommended starting point:
 - one environment at a time
 - varied positions and distances within the same environment
 
-## Stream Metadata
+## Raw Record Metadata
 
-The clean-break streamer protocol keeps only metadata that is still useful for analysis and validation:
+Raw HTTP v2 carries CSI V8 records with metadata useful for analysis and validation:
 
 - `device_ticks_us`
 - `wifi_rx_ts_us`, when available
@@ -147,7 +141,7 @@ Typical filename:
 {label}_{chip}_{num_sc}sc_{device_token}_{timestamp}_{save_index}.npz
 ```
 
-All current ESPectre datasets use HT20 CSI with 64 logical subcarriers. Training and validation loaders therefore label captures without per-record PHY metadata as `ht20`; new streamer captures preserve their explicit PHY and LTF metadata instead.
+All current ESPectre datasets use HT20 CSI with 64 logical subcarriers. Training and validation loaders therefore label captures without per-record PHY metadata as `ht20`; new raw HTTP captures preserve explicit PHY and LTF metadata.
 
 ## Metadata
 
@@ -191,8 +185,21 @@ Common fields:
 | `duration_ms` | `float` | Capture duration |
 | `format_version` | `str` | Dataset format version |
 | `stream_seq_num` | `uint32[N]` | Stream sequence numbers |
+| `raw_stream_sequence` | `uint64[N]` | Canonical raw HTTP v2 sequence numbers, including observable gaps |
 | `device_ticks_us` | `uint64[N]` | Device monotonic timestamps |
 | `device_id` | `uint64` | Stable pseudonymous device identifier |
+| `transport` | `str` | Live transport, currently `http` for new captures |
+| `endpoint`, `transport_target` | `str` | Direct raw endpoint used for collection |
+| `requested_pps` | `float` | Requested external generator rate per target |
+| `observed_pps`, `effective_pps` | `float` | Observed collector receive rate |
+| `raw_protocol_version` | `uint8` | Raw HTTP protocol version, currently `2` |
+| `record_version` | `uint8` | CSI record version, currently `8` for live captures |
+| `frontend` | `str` | Device frontend (`native`, `esphome`, or `matter`) |
+| `firmware_version`, `firmware_identity` | `str` | Firmware provenance reported by Direct `info` |
+| `fresh_record_total`, `raw_fresh_record_total` | `uint64` | Final sent-record counter |
+| `raw_drop_total` | `uint64` | Final count of raw records not transmitted |
+| `send_backpressure_total`, `raw_send_backpressure_total` | `uint64` | Final failed-send backpressure counter |
+| `raw_final_stream_sequence` | `uint64` | Final offered-frame sequence used with the final counters to validate the raw-loss invariant |
 | `wifi_rx_ts_us` | `uint32[N]` | Optional Wi-Fi RX timestamps |
 | `wifi_rx_start_ts_ns` | `uint64[N]` | Optional RX-start estimate |
 | `channel` | `uint8[N]` | Optional per-packet Wi-Fi channel |
@@ -238,6 +245,9 @@ packets = load_npz_as_packets(Path("data/static_presence/sample.npz"))
 ## Collection Notes
 
 - AGC stays active during collection
+- `--pps` controls the external UDP generator and nominal dataset rate; HTTP does not pace or decimate records
+- the collector intentionally leaves the device in `external` mode after it stops
+- the external traffic marker is the exact one-byte payload `b'.'` (`0x2E`) on the capability-advertised UDP endpoint
 - the fixed production sensing contract is HT20 + HT-LTF + 64 subcarriers; unsupported PHY/layout combinations are excluded from the sensing view
 - the current ML runtime and training flow use the eight scale-invariant production features defined in [FEATURES.md](FEATURES.md)
 
@@ -274,5 +284,5 @@ Before opening a PR:
 ## Next Steps
 
 - [`ML_TRAINING.md`](ML_TRAINING.md) for model training, export, and regression checks
-- [`README.md` (streamer)](../src/cpp/frontend/streamer/README.md) for firmware-side streaming details
+- [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#direct-raw-csi-v2) for raw HTTP framing and session ownership
 - [`README.md` (tools)](../tools/README.md) for analysis helpers

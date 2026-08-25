@@ -61,7 +61,7 @@ Rules of thumb:
 - too many false positives: raise the threshold
 - missed movement: lower the threshold
 
-Runtime threshold changes are session-only and are recalculated at boot. ESPHome and Native can switch between `lightweight` and `high_accuracy` at runtime and persist the selection. Matter supports either detector as a build-time choice but exposes no runtime detector control; published Matter firmware uses `lightweight`. Streamer does not run a detector.
+Runtime threshold changes are session-only and are recalculated at boot. ESPHome and Native can switch between `lightweight` and `high_accuracy` at runtime and persist the selection. Matter supports either detector as a build-time choice but exposes no runtime detector control; published Matter firmware uses `lightweight`.
 
 ### Detection Profile
 
@@ -110,14 +110,14 @@ espectre:
 
 Runtime traffic controls follow one family across ESPHome, Native MQTT, Micro MQTT, and the website:
 
-- `csi_traffic_mode`: `internal`, `external`, or `disabled`
+- `csi_traffic_mode`: `internal` or `external`
 - `traffic_generator_mode`: `ping` or `dns`
 
 `ping` sends stateless ICMP echo requests and remains the portable default. `dns` sends length-prefixed DNS root queries over one persistent, non-blocking TCP connection to gateway port `53`, with `TCP_NODELAY`; it reconnects if the gateway closes the stream. DNS mode therefore requires the configured gateway to accept DNS over TCP. Both modes request the same low-latency IP/WMM treatment.
 
-`pacing` is Streamer collector mode only and is not selectable on sensing MQTT, Home Assistant, ESPHome, or the website. Native and ESPHome persist accepted traffic-control changes; Micro keeps them session-only. Leftover persisted `pacing` values load as `external`.
+Native, ESPHome, and Matter persist accepted traffic-control changes; Micro keeps them session-only. Persisted legacy `pacing` or `disabled` values migrate once to `internal`, while runtime requests using those removed values fail with `invalid_params`.
 
-Host `espectre collect` slows only on sustained firmware TX backpressure, then recovers toward `--pps`. Occupancy remains telemetry. `--pps` stays the detector grid; `--fixed` holds a constant send rate for A/B experiments, especially on Streamer where pacing is host-owned and does not require a firmware reflash. Pace Streamer with a unicast IP or the firmware multicast group `239.255.0.1`; do not use LAN broadcast. ESPHome, Native, and Matter `external` mode listen on port `5555` and join the same multicast group, so [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) can use a unicast `TARGETS` list or `239.255.0.1`. Both host senders use the same phase-preserving, anti-catch-up rule as the internal generators, request DSCP 46 low-latency treatment, and limit multicast pacing to the local link.
+Host `espectre collect` persistently selects `external` and uses the importable `ExternalTrafficGenerator`; `--pps` controls that UDP source and the nominal dataset cadence, never the HTTP worker. ESPHome, Native, and Matter listen on port `5555`, join the configured multicast group, and accept only the exact one-byte marker `b'.'` (`0x2E`). [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) can use a unicast `TARGETS` list or `239.255.0.1`; do not use LAN broadcast. Raw HTTP forwards classified CSI without pacing or temporal decimation and reports bounded ring drops separately.
 
 Rules of thumb:
 
@@ -317,7 +317,7 @@ Whatever frontend you use, keep an eye on:
 
 Compare firmware variants with the production compiler optimization for each frontend and enable only debug-level ESPectre telemetry. A compiler `DEBUG` build changes the CPU and memory profile being measured. Record the binary size and free application-partition space from the build summary, then monitor the device for several minutes after startup has settled.
 
-For the repository hardware benchmark, connect one supported board and run `python tools/benchmark_firmware.py --chip <chip>`. It samples Native Lightweight and High Accuracy, Micro-ESPectre Lightweight, ESPHome Lightweight and High Accuracy, Matter's build-time default, and Streamer collection. This is representative benchmark coverage, not a capability matrix: ESPHome, Native, Matter, and Micro-ESPectre support both profiles; ESPHome and Native switch at runtime, Matter selects at build time, and Micro-ESPectre selects at deploy time. See [tools/README.md](../tools/README.md#firmware-benchmark) for prerequisites and report behavior.
+For the repository hardware benchmark, connect one supported board and run `python tools/benchmark_firmware.py --chip <chip>`. It samples Native Lightweight and High Accuracy, Micro-ESPectre Lightweight, ESPHome Lightweight and High Accuracy, and Matter's build-time default. This is representative benchmark coverage, not a capability matrix: ESPHome, Native, Matter, and Micro-ESPectre support both profiles; ESPHome and Native switch at runtime, Matter selects at build time, and Micro-ESPectre selects at deploy time. See [tools/README.md](../tools/README.md#firmware-benchmark) for prerequisites and report behavior.
 
 The shared ESP-IDF runtime emits a `[telemetry]` line approximately every 10 seconds at `DEBUG` level. Check that:
 

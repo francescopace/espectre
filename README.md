@@ -50,13 +50,10 @@ Startup details and the measured trade-offs are documented in [SETUP.md](docs/SE
 | **ESPHome** | Home Assistant users who want the most polished production path | [ESPHome frontend](src/cpp/frontend/esphome/README.md) |
 | **Matter** | Controllers with Matter occupancy-sensor support; validation is still limited | [Matter frontend](src/cpp/frontend/matter/README.md) |
 | **Native Direct/MQTT** | Standalone devices, browser-local sensing, Home Assistant MQTT Discovery, and custom apps | [Native frontend](src/cpp/frontend/native/README.md) |
-| **Streamer** | CSI data capture, dataset collection, live experiments, and ML workflows | [Streamer frontend](src/cpp/frontend/streamer/README.md) |
 | **Micro-ESPectre** | MicroPython prototyping and optional Home Assistant MQTT Discovery | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
 | **SDK** | Custom firmware, smart-device makers, and OEM exploration | [EMBEDDING.md](docs/EMBEDDING.md) |
 
 ![ESPectre Monitor](docs/web/assets/images/guides/mqtt-dashboard.png)
-
-*Monitor on espectre.dev: live movement score, threshold, detection profile, and diagnostics over MQTT.*
 
 ## Responsible Use
 
@@ -68,7 +65,7 @@ ESPectre does not use cameras, microphones, or wearables. It works with derived 
 - **Understand and integrate:** [ARCHITECTURE.md](docs/ARCHITECTURE.md), [EMBEDDING.md](docs/EMBEDDING.md), [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md), and [ALGORITHMS.md](docs/ALGORITHMS.md)
 - **Collect and train:** [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md), [ML_TRAINING.md](docs/ML_TRAINING.md), [FEATURES.md](docs/FEATURES.md), and the generated [performance report](docs/performance/README.md)
 - **Research and direction:** [LITERATURE.md](docs/LITERATURE.md), [ROADMAP.md](docs/ROADMAP.md), the [ADR index](docs/adr/README.md), and [CHANGELOG.md](docs/CHANGELOG.md)
-- **Frontend reference:** [ESPHome](src/cpp/frontend/esphome/README.md), [Native](src/cpp/frontend/native/README.md), [Matter](src/cpp/frontend/matter/README.md), and [Streamer](src/cpp/frontend/streamer/README.md)
+- **Frontend reference:** [ESPHome](src/cpp/frontend/esphome/README.md), [Native](src/cpp/frontend/native/README.md), and [Matter](src/cpp/frontend/matter/README.md)
 - **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md) and [GitHub Discussions](https://github.com/francescopace/espectre/discussions)
 
 ## Related Projects

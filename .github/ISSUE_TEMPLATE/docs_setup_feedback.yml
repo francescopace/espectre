@@ -27,7 +27,6 @@ body:
         - ESPHome
         - Matter
         - Native
-        - Streamer
         - Micro-ESPectre
         - Shared / multiple
         - Not frontend-specific

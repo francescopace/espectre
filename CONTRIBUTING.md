@@ -60,7 +60,7 @@ The production firmware code lives under `src/`:
 
 - `src/cpp/core/` for reusable detectors, temporal CSI admission, and math
 - `src/cpp/runtime/` for the shared runtime contract and `src/cpp/runtime/esp_idf/` for the current ESP-IDF-specific orchestration
-- `src/cpp/frontend/esphome/`, `native/`, `matter/`, and `streamer/` for the published firmware adapters
+- `src/cpp/frontend/esphome/`, `native/`, and `matter/` for the published firmware adapters
 - `src/python/micro_espectre/` for the MicroPython device path
 
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the layering and dependency direction.

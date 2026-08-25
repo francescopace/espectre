@@ -16,24 +16,24 @@ Replace the local Direct WebSocket server and every first-party Direct WebSocket
 
 - `POST /espectre/v1/request` carries correlated JSON requests and responses;
 - `GET /espectre/v1/events` carries versioned event envelopes as SSE with a 10-second heartbeat, fixed queues, at most two subscribers, telemetry coalescing, and slow-client eviction;
-- Native C3 may advertise `GET /espectre/v1/csi`, a bearer-bound binary HTTP stream paced on the device at `target_pps`;
-- Native, Matter, and Streamer listen on port `80`, while ESPHome listens independently on port `6054` and does not depend on ESPHome's port-80 web server or native API;
+- Native, Matter, and ESPHome advertise `GET /espectre/v1/csi`, a bearer-bound binary HTTP stream without device-side pacing;
+- Native, Matter, and ESPHome listen on the shared TCP port `62587` (`0xF47B`, the low 16 bits of `U+1F47B` GHOST), keeping Direct independent of frontend-owned port-80 web servers, captive portals, and native APIs;
 - every response uses `Cache-Control: no-store`, exact Origin allowlisting, CORS, and Private Network Access preflight handling;
 - discovery TXT schema v2 declares `transport=http`, the request path, and the event path; and
 - no local Direct WebSocket endpoint, subprotocol, alias, or automatic compatibility fallback remains.
 
 The ESPectre v1 envelope, command engine, method catalog, and message families do not change. HTTP status reports transport-level parsing, policy, size, rate, and saturation failures. A valid request always receives a correlated response envelope.
 
-Raw CSI start returns a random 128-bit session ID. The binary GET and stop request require the same bearer. A dedicated worker selects the freshest bounded sample at the requested cadence, emits a fresh V8 record or at most one no-sample heartbeat per second, and prefixes output with the 76-byte HTTP framing record. Credits and credit windows are removed. Abort, timeout, stop, network loss, reboot, or fault releases the session and restores the previous runtime state.
+Raw CSI start returns a random 128-bit session ID. The binary GET and stop request require the same bearer. A dedicated worker drains a bounded 16-record ring in batches of up to four, prefixes every CSI V8 record with the 60-byte raw HTTP v2 framing record, and applies no data-plane pacing or decimation. Abort, timeout, stop, network loss, reboot, or fault releases the session and restores the previous runtime state without modifying the configured traffic source.
 
-MQTT remains a separate user-owned integration channel. Browser MQTT is WSS-only and requires a browser-trusted certificate; device-to-broker TCP MQTT configuration is unaffected.
+MQTT remains a separate user-owned device integration and host-CLI channel. The browser Monitor does not expose MQTT over WebSockets; device-to-broker TCP MQTT configuration is unaffected.
 
 ## Consequences
 
 - the hosted portal can use local `fetch()` without the WebSocket mixed-content security downgrade;
 - Configure, Monitor, Game, and Theremin share POST and SSE, while the raw CSI tool and CLI collector share the binary HTTP protocol;
 - firmware keeps bounded queues and owner-task command dispatch without blocking CSI callbacks or runtime loops;
-- older portals and firmware are intentionally incompatible at the Direct boundary, while manual IP, unique hostname, device ID, Improv Serial, MQTT, and Streamer UDP recovery paths remain; and
+- older portals and firmware are intentionally incompatible at the Direct boundary, while manual IP, unique hostname, device ID, Improv Serial, and MQTT recovery paths remain; and
 - a future optional relay must use outbound authenticated WSS from devices and WSS from browsers, remain protocol-documented and self-hostable, and never carry raw CSI. Local Direct HTTP remains the autonomous default.
 
 ## Alternatives considered

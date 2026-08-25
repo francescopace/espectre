@@ -15,8 +15,7 @@ src/cpp/
 └── frontend/
     ├── esphome/
     ├── native/
-    ├── matter/
-    └── streamer/
+    └── matter/
 ```
 
 ```text
@@ -50,7 +49,7 @@ Rule of thumb: code in `core` should stay free of frontend-specific concerns suc
 - runtime snapshots, capabilities, and events
 - common runtime-facing configuration validation
 
-The shared runtime layer owns the frontend-facing contract. The ESP-IDF implementations under `src/cpp/runtime/esp_idf/` include the motion-oriented `EspIdfRuntime` and the transport-oriented `StreamEspIdfRuntime`.
+The shared runtime layer owns the frontend-facing contract. The ESP-IDF implementation under `src/cpp/runtime/esp_idf/` runs sensing and capability-gated raw collection for every maintained C++ frontend.
 
 Shared runtime services also live here, including:
 
@@ -62,7 +61,7 @@ Shared runtime services also live here, including:
 
 ### Shared Wi-Fi and CSI Lifecycle
 
-`WiFiLifecycleManager` owns the CSI-specific ESP-IDF radio policy for every frontend. It applies the protocol and HT20 bandwidth policy synchronously on `WIFI_EVENT_STA_START`, before the first association, then completes the CSI prerequisites when `IP_EVENT_STA_GOT_IP` is drained from the runtime loop. ESPHome, Native, Matter, and Streamer must not apply these radio settings in their frontend code.
+`WiFiLifecycleManager` owns the CSI-specific ESP-IDF radio policy for every frontend. It applies the protocol and HT20 bandwidth policy synchronously on `WIFI_EVENT_STA_START`, before the first association, then completes the CSI prerequisites when `IP_EVENT_STA_GOT_IP` is drained from the runtime loop. ESPHome, Native, and Matter must not apply these radio settings in their frontend code.
 
 The frontend or SDK integrator explicitly selects `2g`, `5g`, or `auto`; `2g` is the validated default, while `5g` and `auto` are available only on dual-band targets. The lifecycle applies that band mode first, then pins an 802.11n protocol ceiling and HT20 bandwidth on the selected band or bands. Fixed-band policies use the single-band ESP-IDF APIs, while AUTO uses the per-band APIs. See [`2026-07-23-adopt-classifier-first-ht20-sensing-contract.md`](adr/2026-07-23-adopt-classifier-first-ht20-sensing-contract.md).
 
@@ -79,7 +78,6 @@ Current frontends:
 - `esphome`: Home Assistant-facing external component, Direct runtime controls, and packaging root
 - `native`: standalone Direct HTTP/MQTT firmware surface
 - `matter`: Matter-facing adapter with a separate Direct tuning plane
-- `streamer`: raw CSI UDP streamer with Direct status and diagnostics
 
 Rule of thumb: frontend-specific schemas, transport bindings, and ecosystem integration belong here, not in `core`.
 
@@ -93,13 +91,15 @@ For the ESPHome workflow, see [`README.md` (esphome)](../src/cpp/frontend/esphom
 
 ### Native
 
-`src/cpp/frontend/native/` exposes the runtime through Improv Serial provisioning, local Direct HTTP, and optional MQTT. It reuses the shared ESP-IDF services for staged Wi-Fi configuration, device configuration, mDNS, transport-independent commands, and OTA. Native also owns the optional Direct raw CSI session: `EspIdfRuntime` transitions between `SENSING` and non-persistent `RAW_COLLECTION`, while the existing Direct server keeps the JSON control clients isolated from one binary collector. Native refreshes the shared diagnostics sample from the existing sensing update that feeds its status log and returns the same cache through correlated Direct or MQTT `diagnostics` queries. Micro-ESPectre uses the same rate-sampler contract on its publish heartbeat. ESPHome uses the same sampler and publishes its diagnostic entity states only after `Refresh Diagnostics` is pressed. These on-demand surfaces do not add a diagnostic timer and remain available in production builds independently of runtime debug logging.
+`src/cpp/frontend/native/` exposes the runtime through Improv Serial provisioning, local Direct HTTP, and optional MQTT. It reuses the shared ESP-IDF services for staged Wi-Fi configuration, device configuration, mDNS, transport-independent commands, and OTA. Native, ESPHome, and Matter expose the same capability-gated raw CSI HTTP session through the shared runtime and Direct service. Native refreshes the shared diagnostics sample from the existing sensing update that feeds its status log and returns the same cache through correlated Direct or MQTT `diagnostics` queries. Micro-ESPectre uses the same rate-sampler contract on its publish heartbeat. ESPHome uses the same sampler and publishes its diagnostic entity states only after `Refresh Diagnostics` is pressed. These on-demand surfaces do not add a diagnostic timer and remain available in production builds independently of runtime debug logging.
 
-`FrontendCommandEngine` is the C++ command owner below the frontend adapters. Native MQTT, Native Direct, the shared Direct bridge, and ESPHome entities all construct the same typed request and receive the same structured result and change set. Matter and Streamer inherit it through the shared bridge. Commands execute serially on the existing frontend task; there is no command worker. Queries return only through the requesting adapter, while accepted mutations publish their status, info, config, or OTA state change to every active adapter. MQTT and each Direct client deliberately keep separate outbound queues because transport backpressure is independent of command semantics. MicroPython mirrors the registry and dispatcher, with a host probe enforcing catalog parity.
+`FrontendCommandEngine` is the C++ command owner below the frontend adapters. Native MQTT, Native Direct, the shared Direct bridge, and ESPHome entities all construct the same typed request and receive the same structured result and change set. Matter inherits it through the shared bridge. Commands execute serially on the existing frontend task; there is no command worker. Queries return only through the requesting adapter, while accepted mutations publish their status, info, config, or OTA state change to every active adapter. MQTT and each Direct client deliberately keep separate outbound queues because transport backpressure is independent of command semantics. MicroPython mirrors the registry and dispatcher, with a host probe enforcing catalog parity.
 
-Raw collection branches inside `CsiPipeline` before queueing, temporal sampling, feature extraction, calibration, and detector evaluation. The Wi-Fi callback only copies the candidate into preallocated slots and updates bounded counters. Entering raw mode saves whether sensing was armed, cancels calibration, stops generated or listener traffic, clears the pipeline, and leaves only capture active. Exiting disables and clears capture, restores the prior configuration, restarts sensing only when it was previously armed, and recalibrates from empty state. Runtime loss and recovery paths terminate the session rather than restoring raw mode.
+`EspectreCapabilityProfile` is the single Direct method and configuration-section catalog consumed by both serialization and command enforcement. Native, Matter, and ESPHome read the same credential-free ESP-IDF station snapshot for `config.wifi`; all three expose asynchronous access-point scans, BSSID pinning, and pin removal, while only Native delegates credential reset to its provisioning owner.
 
-Peer-assisted discovery keeps orchestration out of `core`. `runtime/peer_discovery` owns bounded validation, deterministic deduplication, sorting, and serialization for canonical Native, Streamer, ESPHome, and Matter records; `runtime/esp_idf/peer_discovery_service_esp_idf` owns one asynchronous query through the existing Espressif mDNS responder; and `frontend/native/native_mdns_bootstrap_responder` owns the IPv4 bootstrap response. The Native extension observes incoming Espressif mDNS actions before exact-name filtering, accepts only `espectre-devices-<24 hex>.local` class-IN A or AAAA questions, writes a shared 10-second A answer with an NSEC no-AAAA assertion, and answers standalone AAAA questions with that NSEC assertion through the existing socket before always allowing the original responder to continue. It never advertises an IPv6 bootstrap address. It does not register a hostname, retain a nonce, announce a record, send a goodbye, wrap outbound traffic, or create another socket. Native answers only while its station has a usable IPv4 address and is the validated bootstrap responder because it owns port 80, the common path and subprotocol, its responder lifecycle, and the peer query capability. This responder choice does not restrict discovery results: every accepted canonical frontend is selectable at its own advertised Direct port, and clients negotiate its exact capabilities after connection.
+The CSI callback first classifies packet provenance against the configured traffic mode. Internal ping accepts only the matching gateway ICMP reply, internal DNS accepts only a length-valid gateway DNS-over-TCP response from port 53, and external accepts only the exact one-byte UDP marker `b'.'` (`0x2E`) on the configured unicast or multicast endpoint. Rejected HTTP, SSE, MQTT, fragmented, truncated, or unrelated traffic never reaches sensing or raw collection. Classified sensing frames pass through `TemporalCsiSampler`; classified raw frames bypass temporal sampling and enter a preallocated 16-record SPSC ring. A dedicated task-notified HTTP worker sends up to four ordered records per chunk without a data-plane timer or rate limiter. A full ring drops the newest record and accounts that loss explicitly.
+
+Peer-assisted discovery keeps orchestration out of `core`. `runtime/peer_discovery` owns bounded validation, deterministic deduplication, sorting, and serialization for canonical Native, ESPHome, and Matter records; `runtime/esp_idf/peer_discovery_service_esp_idf` owns one asynchronous query through the existing Espressif mDNS responder; and `runtime/esp_idf/mdns_bootstrap_responder` owns the shared IPv4 bootstrap response. The extension observes incoming Espressif mDNS actions before exact-name filtering, accepts only `espectre-devices-<24 hex>.local` class-IN A or AAAA questions, writes a shared 10-second A answer with an NSEC no-AAAA assertion, and answers standalone AAAA questions with that NSEC assertion through the existing socket before always allowing the original responder to continue. It does not advertise an IPv6 bootstrap address, register a hostname, retain a nonce, announce a record, send a goodbye, wrap outbound traffic, or create another socket. Native, Matter, and ESPHome answer only while their station has a usable IPv4 address; the resolved bootstrap target uses the shared Direct port `62587` and common path, and every responder returns all validated canonical frontends from its peer query.
 
 Direct transports may optionally accept a deferred handler. The ESP-IDF implementation assigns an opaque monotonically increasing token to each live connection, removes inbound work by token rather than file descriptor, and queues a completion only when that token still identifies the originating client. The default interface implementation reports deferred delivery as unsupported, preserving source compatibility for SDK transports that implement only synchronous requests. Native cancels all pending bootstrap answers before a requested Wi-Fi reconfiguration; an ordinary disconnect disables the bootstrap responder, and frontend shutdown releases any bounded query. No nonce or result survives as a hostname registration or peer inventory.
 
@@ -113,12 +113,6 @@ For the native workflow and protocol surface, see:
 `src/cpp/frontend/matter/` maps occupancy into Matter without pulling Matter-specific concerns into the shared detector or runtime layers. Detector configuration is not represented by the standard occupancy clusters, so the frontend also exposes the shared Direct HTTP bridge as its local tuning plane.
 
 For the Matter workflow, see [`README.md` (matter)](../src/cpp/frontend/matter/README.md).
-
-### Streamer
-
-`src/cpp/frontend/streamer/` is a dedicated CSI transport frontend. It uses the same controller/runtime contract and Direct HTTP bridge as the other C++ frontends, but selects `StreamEspIdfRuntime` so raw CSI remains on its collector-paced UDP path and the firmware stays detector-free.
-
-For the streamer workflow, see [`README.md` (streamer)](../src/cpp/frontend/streamer/README.md).
 
 ## Runtime Contract
 
@@ -153,17 +147,17 @@ Normalized runtime events include:
 
 Frontends should use this surface instead of reaching directly into low-level Wi-Fi or CSI pipeline services.
 
-Runtime detector selection is capability-gated. ESPHome and Native enable the shared ESP-IDF detector store, which persists `lightweight` or `high_accuracy` in NVS and restores it at boot. Matter enables runtime detector selection through Direct HTTP because its standard clusters do not expose detector configuration. Streamer remains detector-free.
+Runtime detector selection is capability-gated. ESPHome and Native enable the shared ESP-IDF detector store, which persists `lightweight` or `high_accuracy` in NVS and restores it at boot. Matter enables runtime detector selection through Direct HTTP because its standard clusters do not expose detector configuration.
 
 ### Runtime Performance Diagnostics
 
-C++ runtime implementations use `RuntimePerformanceDiagnostics` to aggregate runtime-loop load and timing plus sampled detector evaluation timing in bounded 10-second windows. `RuntimeDiagnosticsSnapshot` combines the latest complete window with current, minimum, and largest-block heap values and configured CPU frequency. Native, ESPHome, Matter, and Streamer expose these production fields through Direct `diagnostics`; collection is unconditional and does not emit a periodic debug log. Unsupported detector timing is explicit on Streamer.
+C++ runtime implementations use `RuntimePerformanceDiagnostics` to aggregate runtime-loop load and timing plus sampled detector evaluation timing in bounded 10-second windows. `RuntimeDiagnosticsSnapshot` combines the latest complete window with current, minimum, and largest-block heap values and configured CPU frequency. Native, ESPHome, and Matter expose these production fields through Direct `diagnostics`; collection is unconditional and does not emit a periodic debug log.
 
 Micro-ESPectre remains separate because it does not expose Direct HTTP. Its default-off `DEBUG_TELEMETRY` benchmark switch emits machine-readable serial timing, heap, garbage-collection, and packet-processing fields when enabled.
 
 `runtime_load` measures wall time spent inside the ESPectre runtime loop, not whole-system CPU utilization. Wi-Fi callbacks only normalize and enqueue CSI; detector processing, inference, state transitions, and frontend callback delivery run in the owning loop task. MQTT, Direct HTTP, and OTA stacks may still perform transport work on private tasks, but their application events are drained by the frontend loop. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. For High Accuracy, it covers ML feature extraction, inference, and state update.
 
-The C++ field names and units are part of the additive Direct diagnostics contract in [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#direct-http-v1). Streamer also retains its separate live transport telemetry for pacing, CSI, and uplink health during collection.
+The C++ field names and units are part of the additive Direct diagnostics contract in [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#direct-http-v1). Raw diagnostics separately expose `raw_drop_total` and HTTP send backpressure.
 
 ## ESPectre Protocol In The Architecture
 
