@@ -356,7 +356,7 @@ describe('website UX contracts', () => {
         assert.match(index, /class="btn-secondary btn-sm js-sense-recalibrate"/);
         assert.match(index, /class="wifi-bssid-control">[\s\S]*?<select id="cfg-bssid"[\s\S]*?<button type="button" class="wifi-refresh-button js-wifi-scan" aria-label="[^"]+"[^>]*><svg[^>]*aria-hidden="true"/);
         assert.doesNotMatch(index, /class="panel-actions wifi-panel-actions">[\s\S]*?js-wifi-scan/);
-        assert.match(styles, /\.wifi-bssid-control \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) 40px;[\s\S]*?\.wifi-refresh-button \{/);
+        assert.match(styles, /\.wifi-bssid-control \{[\s\S]*?display: flex;[\s\S]*?gap: 8px;[\s\S]*?\.wifi-refresh-button \{[\s\S]*?flex: 0 0 30px;/);
         assert.match(styles, /\.wifi-panel-actions \{ flex-wrap: nowrap; \}/);
         const contactContent = read('docs/web/content/contact.html');
         assert.doesNotMatch(contactContent, /docs-path-recommended/);
@@ -977,7 +977,7 @@ describe('website UX contracts', () => {
         assert.match(setupGuide, /href="\/guides\/home-assistant\/"/);
         assert.match(setupGuide, /\.\/espectre matter qr/);
         assert.match(setupGuide, /\.\/espectre mqtt/);
-        for (const frontend of ['esphome', 'native', 'matter', 'streamer']) {
+        for (const frontend of ['esphome', 'native', 'matter']) {
             assert.match(setupGuide, new RegExp(`\\.\\/espectre ${frontend} build`));
             assert.match(setupGuide, new RegExp(`\\.\\/espectre ${frontend} flash`));
         }
@@ -987,19 +987,17 @@ describe('website UX contracts', () => {
         assert.match(setupGuide, /<code>--config<\/code>/);
         assert.match(setupGuide, /\.\/espectre monitor --reset/);
         assert.match(setupGuide, /\.\/espectre devices --frontend native/);
-        assert.match(setupGuide, /\.\/espectre devices --frontend streamer/);
-        assert.match(setupGuide, /sdkconfig\.wifi/);
         assert.equal((setupGuide.match(/class="code-tabs" data-code-tabs/g) || []).length, 2);
         assert.match(setupGuide, /role="tablist"/);
         const cliTabsSection = setupGuide.slice(setupGuide.indexOf('id="setup-cli"'), setupGuide.indexOf('id="setup-network"'));
-        assert.equal((cliTabsSection.match(/role="tab"/g) || []).length, 4);
-        assert.equal((cliTabsSection.match(/role="tabpanel"/g) || []).length, 4);
+        assert.equal((cliTabsSection.match(/role="tab"/g) || []).length, 3);
+        assert.equal((cliTabsSection.match(/role="tabpanel"/g) || []).length, 3);
         assert.match(setupGuide, /id="setup-native-tab"[^>]*aria-selected="true"[\s\S]*?id="setup-esphome-tab"[^>]*aria-selected="false"/);
         assert.ok(setupGuide.indexOf('data-frontend="native"') < setupGuide.indexOf('data-frontend="esphome"'));
         for (const chip of ['c5', 'c6', 's3', 'esp32']) {
             assert.match(setupGuide, new RegExp(`<code>${chip}<\\/code>`));
         }
-        for (const frontend of ['esphome', 'native', 'matter', 'streamer']) {
+        for (const frontend of ['esphome', 'native', 'matter']) {
             const panel = setupGuide.match(new RegExp(`<div class="code-tab-panel"[^>]*data-frontend="${frontend}"[^>]*>([\\s\\S]*?)<\\/div>`));
             assert.ok(panel, `${frontend} CLI tab exists`);
             assert.match(panel[1], new RegExp(`\\.\\/espectre ${frontend} build --chip c3 --clean`));
@@ -1013,20 +1011,14 @@ describe('website UX contracts', () => {
         assert.match(esphomePanel, /--config path\/to\/espectre\.yaml/);
         assert.match(esphomePanel, /<code>--dev<\/code>/);
         assert.doesNotMatch(esphomePanel, /--device/);
-        const streamerPanel = setupGuide.match(/<div class="code-tab-panel"[^>]*data-frontend="streamer"[^>]*>([\s\S]*?)<\/div>/)[1];
-        assert.match(streamerPanel, /sdkconfig\.wifi/);
-        assert.match(streamerPanel, /\.\/espectre devices --frontend streamer/);
-        assert.match(streamerPanel, /\.\/espectre collect<\/code>/);
-        assert.ok(streamerPanel.indexOf('./espectre monitor --reset') < streamerPanel.indexOf('./espectre devices --frontend streamer'));
-        assert.doesNotMatch(streamerPanel, /--target/);
         const frontendOperations = setupGuide.slice(setupGuide.indexOf('id="setup-network"'));
         assert.doesNotMatch(frontendOperations, /\.\/espectre (?:esphome|native|matter|streamer) build/);
         const networkTabsSection = setupGuide.slice(setupGuide.indexOf('id="setup-network"'), setupGuide.indexOf('id="setup-test"'));
         assert.match(networkTabsSection, /role="tablist"/);
-        assert.equal((networkTabsSection.match(/role="tab"/g) || []).length, 4);
-        assert.equal((networkTabsSection.match(/role="tabpanel"/g) || []).length, 4);
+        assert.equal((networkTabsSection.match(/role="tab"/g) || []).length, 3);
+        assert.equal((networkTabsSection.match(/role="tabpanel"/g) || []).length, 3);
         assert.match(networkTabsSection, /id="setup-network-native-tab"[^>]*aria-selected="true"[\s\S]*?id="setup-network-esphome-tab"[^>]*aria-selected="false"/);
-        for (const frontend of ['native', 'esphome', 'matter', 'streamer']) {
+        for (const frontend of ['native', 'esphome', 'matter']) {
             assert.match(networkTabsSection, new RegExp(`data-network-frontend="${frontend}"`));
         }
         const nativeNetworkPanel = networkTabsSection.match(/<div class="code-tab-panel"[^>]*data-network-frontend="native"[^>]*>([\s\S]*?)<\/div>/)[1];
@@ -1072,8 +1064,12 @@ describe('website UX contracts', () => {
         const mqttBanner = mqtt.match(/class="device-banner-actions"[\s\S]*?<\/div>/)?.[0] || '';
         assert.doesNotMatch(onboarding, /class="empty-alt"/);
         assert.match(index, /data-capability="supports_wifi_bssid"/);
-        assert.match(app, /conn\.connectivityConfigSupported = methods\.has\('set_wifi_bssid'\) \|\| methods\.has\('set_mqtt_config'\)/);
-        assert.match(app, /supports_wifi_bssid: methods\.has\('set_wifi_bssid'\)[\s\S]*?methods\.has\('scan_wifi_access_points'\)[\s\S]*?methods\.has\('wifi_access_points'\)/);
+        assert.match(configure, /data-capability-unavailable="supports_wifi_status"/);
+        assert.match(configure, /data-capability-unavailable="supports_mqtt_config"/);
+        assert.match(configure, /class="device-name-availability js-configure-name-unavailable" hidden/);
+        assert.match(app, /const sections = new Set\(capabilities\.config_sections \|\| \[\]\)/);
+        assert.match(app, /supports_wifi_status: sections\.has\('wifi'\)/);
+        assert.match(app, /supports_wifi_bssid: methods\.has\('set_wifi_bssid'\)[\s\S]*?methods\.has\('clear_wifi_bssid'\)[\s\S]*?methods\.has\('scan_wifi_access_points'\)[\s\S]*?methods\.has\('wifi_access_points'\)/);
         assert.match(app, /supports_wifi_clear: methods\.has\('clear_wifi_config'\)/);
         assert.match(app, /DIRECT_FULL_DEVICE_ID\.test\(input\)[\s\S]*?DirectProtocolClient\.normalizeEndpoint\(`espectre-\$\{input\}\.local`\)[\s\S]*?deviceId: input[\s\S]*?discoveryFallback: true/);
         assert.match(app, /if \(target\.discoveryFallback\)[\s\S]*?resolveDiscoveredTarget\(\{[\s\S]*?deviceId: target\.deviceId[\s\S]*?search: target\.deviceId/);
@@ -1082,9 +1078,10 @@ describe('website UX contracts', () => {
         assert.match(app, /supports_runtime_motion_hits: methods\.has\('set_motion_hits'\)/);
         assert.match(app, /supports_runtime_detector: methods\.has\('set_detector'\)/);
         assert.match(app, /supports_manual_recalibration: methods\.has\('recalibrate'\)/);
-        assert.match(app, /edit\.hidden = conn\.mode === 'direct' && !conn\.connectivityConfigSupported/);
+        assert.match(app, /edit\.hidden = false/);
         assert.match(app, /data\.device_label \|\| data\.device_name \|\| data\.name/);
         assert.match(app, /if \(!Object\.prototype\.hasOwnProperty\.call\(snapshot, capability\)\) return;/);
+        assert.match(app, /\$\$\('\[data-capability-unavailable\]'\)[\s\S]*?element\.hidden = sysinfoBoolean\(snapshot\[capability\]\)/);
         assert.match(app, /if \(!capabilities\.some\(\(key\) => Object\.prototype\.hasOwnProperty\.call\(snapshot, key\)\)\) return;/);
         assert.doesNotMatch(index, /wifi-credentials-row/);
         assert.match(index, /<input type="text" id="cfg-ssid" readonly>/);
@@ -1092,14 +1089,17 @@ describe('website UX contracts', () => {
         assert.match(index, /<div class="field-row">\s*<div class="field">[\s\S]*?id="cfg-wifi-band"[\s\S]*?id="cfg-channel"/);
         assert.match(index, /<input type="text" id="cfg-channel" readonly>/);
         assert.match(index, /<select id="cfg-bssid"[\s\S]*?<option value="">/);
+        assert.match(index, /id="cfg-bssid-help"[^>]*role="status"[^>]*aria-live="polite"/);
         assert.doesNotMatch(index, /id="cfg-wifi-pass"/);
         assert.match(app, /activeToolName\(\) === 'configure'[\s\S]*?directClient\.request\('diagnostics'\)/);
         assert.match(app, /snapshot\.wifi_channel[\s\S]*?set\('cfg-channel'/);
         assert.match(app, /directClient\.request\('scan_wifi_access_points'\)/);
         assert.match(app, /directClient\.request\('wifi_access_points'\)/);
+        assert.match(app, /const method = bssid \? 'set_wifi_bssid' : 'clear_wifi_bssid'/);
         assert.match(app, /new Option\(`\$\{bssid\} · \$\{rssi\} dBm`, bssid\)/);
+        assert.match(app, /if \(!select \|\| !scanButton\) return;/);
         assert.match(index, /class="conn-dropdown-meta"/);
-        assert.match(index, /js-menu-chip[\s\S]*js-menu-device-id[\s\S]*js-menu-firmware/);
+        assert.match(index, /js-menu-frontend[\s\S]*js-menu-chip[\s\S]*js-menu-device-id[\s\S]*js-menu-firmware/);
         assert.match(index, /class="mono-sub device-banner-identity"/);
         assert.match(index, /js-device-banner-sub[\s\S]*js-firmware-update-notice/);
         assert.match(index, /class="device-banner-name-editor js-configure-name-editor"[\s\S]*?js-configure-name-trigger[\s\S]*?js-configure-name-display[\s\S]*?class="device-banner-name-icon"[\s\S]*?aria-hidden="true"[\s\S]*?js-configure-name-input/);
@@ -1112,7 +1112,7 @@ describe('website UX contracts', () => {
         assert.match(app, /function formatDeviceIdentityLine/);
         assert.match(app, /function renderConfigureDeviceNameEditor/);
         assert.match(app, /conn\.deviceLabel \|\| conn\.generatedName \|\| conn\.deviceId/);
-        assert.match(app, /identity\.textContent = formatDeviceIdentityLine\(\s*conn\.chip,\s*conn\.deviceId,\s*conn\.firmwareVersion/);
+        assert.match(app, /identity\.textContent = formatDeviceIdentityLine\(\s*conn\.frontend,\s*conn\.chip,\s*conn\.deviceId,\s*conn\.firmwareVersion/);
         assert.match(app, /const chip = snapshot\.chip \? String\(snapshot\.chip\)\.toUpperCase\(\) : conn\.chip/);
         assert.match(app, /const firmware = snapshot\.firmware_version \|\| snapshot\.firmware \|\| snapshot\.version \|\| conn\.firmwareVersion/);
         assert.match(app, /const canEdit = conn\.status === 'connected'[\s\S]*?conn\.mode === 'direct'[\s\S]*?conn\.mode === 'demo'/);
@@ -1128,10 +1128,13 @@ describe('website UX contracts', () => {
         assert.doesNotMatch(app, /function cfgSaveDeviceLabel\(label\)[\s\S]*?conn\.mode === 'mqtt'/);
         assert.match(styles, /\.device-banner-name-trigger \{[\s\S]*?display: inline-flex;[\s\S]*?cursor: pointer;[\s\S]*?\.device-banner-name-icon[\s\S]*?\.device-banner-name-input/);
         assert.match(app, /conn\.deviceBannerSub = conn\.mode === 'direct'[\s\S]*?\? deviceIdentity/);
+        assert.match(app, /write\('\.js-menu-frontend', formatFrontendLabel\(identity\.frontend\)\)/);
         assert.match(app, /write\('\.js-menu-chip', identity\.chip\)/);
         assert.match(app, /write\('\.js-menu-device-id', identity\.deviceId\)/);
         assert.match(app, /write\('\.js-menu-firmware', identity\.firmwareVersion\)/);
         assert.match(index, /js-transport-tag[^>]*hidden/);
+        assert.match(index, /js-menu-frontend-row/);
+        assert.match(app, /frontendRow\.hidden = usbConnected/);
         assert.match(index, /js-menu-device-id-label/);
         assert.match(index, /js-menu-firmware-label/);
         assert.match(index, /js-usb-port-note[^>]*hidden/);
@@ -1197,7 +1200,7 @@ describe('website UX contracts', () => {
         assert.match(app, /getElementById\('sense-motion-on'\)\.addEventListener\('change'/);
         assert.match(app, /getElementById\('sense-motion-off'\)\.addEventListener\('change'/);
         assert.match(app, /getElementById\('sense-csi-mode'\)\.addEventListener\('change'/);
-        assert.match(index, /<select id="sense-csi-mode">[\s\S]*?<option value="internal"[\s\S]*?<option value="external"[\s\S]*?<option value="disabled"/);
+        assert.match(index, /<select id="sense-csi-mode">[\s\S]*?<option value="internal"[\s\S]*?<option value="external"[\s\S]*?<\/select>/);
         assert.match(app, /getElementById\('sense-generator-mode'\)\.addEventListener\('change'/);
         assert.doesNotMatch(index, /device-connect-kicker/);
         assert.doesNotMatch(styles, /\.device-connect-kicker/);
@@ -1228,6 +1231,8 @@ describe('website UX contracts', () => {
         assert.match(configureBanner, /js-start-detection/);
         assert.match(mqttBanner, /js-device-edit-connectivity/);
         assert.match(app, /function connectDirect/);
+        assert.match(app, /const view = openView \|\| \(route === 'tool-monitor' \? 'live' : 'connectivity'\)/);
+        assert.doesNotMatch(app, /route === 'tool-monitor' \|\| !conn\.connectivityConfigSupported/);
         assert.match(app, /function directConnectionErrorMessage\(error, endpoint, permissionState/);
         assert.match(app, /function directPageOriginKind\(\)/);
         assert.match(app, /function directBrowserGuidance\(\)/);
@@ -1304,7 +1309,8 @@ describe('website UX contracts', () => {
         const staticPageBuilder = read('.github/scripts/build_static_pages.py');
         assert.match(staticPageBuilder, /destination\.search = location\.search;[\s\S]*destination\.hash = '#tool-\{tool_slug\}';[\s\S]*location\.replace\(destination\)/);
         assert.match(app, /if \(item\.href !== destination\) item\.href = destination[\s\S]*if \(item\.target !== '_self'\) item\.target = '_self'/);
-        assert.match(app, /'set_wifi_bssid', \{ bssid \}/);
+        assert.match(app, /const method = bssid \? 'set_wifi_bssid' : 'clear_wifi_bssid'/);
+        assert.match(app, /const params = bssid \? \{ bssid \} : \{\}/);
         assert.match(app, /String\(snapshot\.wifi_bssid \|\| ''\)\.toUpperCase\(\) === bssid/);
         assert.doesNotMatch(app, /set_wifi_config/);
         assert.match(app, /directClient\.request\('clear_wifi_config', \{\}, \{ timeoutMs: 3000 \}\)/);
@@ -1526,14 +1532,11 @@ describe('website UX contracts', () => {
         assert.match(rawClient, /conn\.status !== 'connected' \|\| !\['direct', 'demo'\]\.includes\(conn\.mode\)[\s\S]*onboarding\.hidden = false/);
         assert.match(rawClient, /if \(conn\.mode === 'demo'\) \{[\s\S]*rawCsiSetAvailable\(true\)/);
         assert.match(rawClient, /function rawCsiStartDemo\(targetPps\)/);
-        assert.match(rawClient, /if \(conn\.mode === 'demo'\) \{\s*rawCsiStartDemo\(targetPps\);\s*return;/);
+        assert.match(rawClient, /if \(conn\.mode === 'demo'\) \{\s*rawCsiStartDemo\(100\);\s*return;/);
         assert.match(rawClient, /const client = directClient;[\s\S]*client\.request\('start_raw_stream'/);
         assert.doesNotMatch(rawClient, /makeDirectClient|client\.connect\(|client\.handshake\(|client\.close\(/);
-        assert.match(rawClient, /view\.getUint16\(0, true\) !== 0x4353/);
-        assert.match(rawClient, /const recordLength = view\.getUint16\(32, true\)/);
-        assert.match(rawClient, /const errorCode = view\.getUint16\(34, true\)/);
-        assert.match(rawClient, /RAW_HTTP_PREFIX_BYTES \+ view\.getUint16\(32, true\)/);
-        assert.doesNotMatch(rawClient, /const recordVersion = view\.getUint16\(32, true\)|const recordLength = view\.getUint16\(34, true\)/);
+        assert.match(rawClient, /new window\.ESPectreRawCsiV2Parser\(session\.session_id\)/);
+        assert.match(rawClient, /rawCsi\.parser\.append\(chunk\)\.forEach/);
         assert.match(app, /previousRoute === 'tool-raw-csi'[\s\S]*void rawCsiStop\(\)/);
     });
 

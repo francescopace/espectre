@@ -121,9 +121,6 @@ def test_repository_license_policy_covers_first_party_code_and_release_artifacts
     direct_client = (REPO_ROOT / "docs" / "web" / "assets" / "js" / "espectre-direct.js").read_text(
         encoding="utf-8"
     )
-    mqtt_client = (REPO_ROOT / "docs" / "web" / "assets" / "js" / "espectre-mqtt.js").read_text(
-        encoding="utf-8"
-    )
     direct_tests = (REPO_ROOT / "test" / "web" / "test_espectre_direct.mjs").read_text(encoding="utf-8")
     ci_workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     release_workflow = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
@@ -131,8 +128,6 @@ def test_repository_license_policy_covers_first_party_code_and_release_artifacts
 
     assert GPL_SPDX_HEADER in direct_client
     assert COMMERCIAL_LICENSE_NOTICE in direct_client
-    assert GPL_SPDX_HEADER in mqtt_client
-    assert COMMERCIAL_LICENSE_NOTICE in mqtt_client
     assert GPL_SPDX_HEADER in direct_tests
     assert COMMERCIAL_LICENSE_NOTICE in direct_tests
     assert "ESPHome C++ runtime" in licensing

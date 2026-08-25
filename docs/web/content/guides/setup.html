@@ -27,7 +27,7 @@
         <tr><td>Want a standalone sensor, browser tools, MQTT, or Home Assistant through an existing broker</td><td><strong>Native</strong></td><td>Improv Serial setup, broker-free Direct monitoring, optional MQTT, Home Assistant MQTT Discovery, and browser games</td></tr>
         <tr><td>Want the most complete Home Assistant integration and YAML configuration</td><td><strong>ESPHome</strong></td><td>Auto-discovered device with motion, movement level, threshold slider, and recalibrate button</td></tr>
         <tr><td>Use a controller that supports Matter occupancy sensors</td><td><strong>Matter</strong></td><td>A standard occupancy sensor; controller validation is still limited, so check the <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/matter/README.md" target="_blank" rel="noopener">current validation notes</a></td></tr>
-        <tr><td>Want raw CSI data for research</td><td><strong>Streamer</strong></td><td>Raw capture over UDP; not flashable from the browser, see the <a href="https://github.com/francescopace/espectre/blob/main/docs/SETUP.md" target="_blank" rel="noopener">setup reference</a></td></tr>
+        <tr><td>Want raw CSI data for research</td><td><strong>Native, ESPHome, or Matter</strong></td><td>Raw HTTP v2 capture through the browser tool or <code>./espectre collect</code></td></tr>
       </tbody>
     </table></div>
     <div class="note">Not sure? Pick Native, the default in the flasher: it works on its own, supports Home Assistant through MQTT Discovery, and can use every tool on this website. Pick ESPHome when you want YAML configuration and the full Home Assistant control surface.</div>
@@ -43,19 +43,18 @@
     <div class="note">If the port never appears or the connection fails right away, hold the <strong>BOOT</strong> button on the board while plugging the cable in, then release it and click <em>Connect</em> again. That forces the chip into download mode.</div>
 
     <h3 id="setup-cli" class="subheading">CLI path: build, flash, and monitor</h3>
-    <p>Prepare the repository environment once. Native, Matter, and Streamer prefer a local ESP-IDF installation and can use the pinned Docker build environment when it is absent; flashing still needs local serial tooling. ESPHome manages its own toolchain.</p>
+    <p>Prepare the repository environment once. Native and Matter prefer a local ESP-IDF installation and can use the pinned Docker build environment when it is absent; flashing still needs local serial tooling. ESPHome manages its own toolchain.</p>
     <pre class="code"><code>git clone https://github.com/francescopace/espectre.git
 cd espectre
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt</code></pre>
-    <p>Choose the frontend from Step&nbsp;1. The examples target ESP32-C3; replace <code>c3</code> with <code>c5</code>, <code>c6</code>, <code>s2</code>, <code>s3</code>, or <code>esp32</code> for another supported board. ESP32-S2 is supported by ESPHome, Native, and Streamer, but not Matter. <code>--clean</code> is optional: add it to a build when configuration or toolchain changes require a clean rebuild of that frontend and chip. Flashing resets the board and starts the application, so no frontend needs a separate <code>run</code> command. Flash, QR, and serial-monitor commands select the only connected device automatically or present a selection menu when several devices are available.</p>
+    <p>Choose the frontend from Step&nbsp;1. The examples target ESP32-C3; replace <code>c3</code> with <code>c5</code>, <code>c6</code>, <code>s2</code>, <code>s3</code>, or <code>esp32</code> for another supported board. ESP32-S2 is supported by ESPHome and Native, but not Matter. <code>--clean</code> is optional: add it to a build when configuration or toolchain changes require a clean rebuild of that frontend and chip. Flashing resets the board and starts the application, so no frontend needs a separate <code>run</code> command. Flash, QR, and serial-monitor commands select the only connected device automatically or present a selection menu when several devices are available.</p>
     <div class="code-tabs" data-code-tabs>
       <div class="code-tabs-list" role="tablist" aria-label="Firmware frontend">
         <button type="button" role="tab" id="setup-native-tab" aria-controls="setup-native-panel" aria-selected="true">Native</button>
         <button type="button" role="tab" id="setup-esphome-tab" aria-controls="setup-esphome-panel" aria-selected="false" tabindex="-1">ESPHome</button>
         <button type="button" role="tab" id="setup-matter-tab" aria-controls="setup-matter-panel" aria-selected="false" tabindex="-1">Matter</button>
-        <button type="button" role="tab" id="setup-streamer-tab" aria-controls="setup-streamer-panel" aria-selected="false" tabindex="-1">Streamer</button>
       </div>
       <div class="code-tab-panel" id="setup-native-panel" role="tabpanel" aria-labelledby="setup-native-tab" data-frontend="native">
         <p>Native uses the shared ESP-IDF build environment. Flashing starts the application; the top-level monitor follows its serial output:</p>
@@ -81,25 +80,8 @@ python -m pip install -r requirements.txt</code></pre>
 ./espectre matter qr
 ./espectre monitor --reset</code></pre>
       </div>
-      <div class="code-tab-panel" id="setup-streamer-panel" role="tabpanel" aria-labelledby="setup-streamer-tab" data-frontend="streamer" hidden>
-        <p>Streamer has no browser image or interactive provisioning. Save local Wi-Fi values in the ignored <code>src/cpp/frontend/streamer/app/sdkconfig.wifi</code> before building:</p>
-        <pre class="code"><code>CONFIG_ESPECTRE_WIFI_SSID="YourSSID"
-CONFIG_ESPECTRE_WIFI_PASSWORD="YourPassword"
-CONFIG_ESPECTRE_WIFI_CHANNEL=0
-CONFIG_ESPECTRE_WIFI_BAND_2G=y</code></pre>
-        <p>Then build, flash, and monitor the device:</p>
-        <pre class="code"><code>./espectre streamer build --chip c3 --clean
-./espectre streamer flash
-./espectre monitor --reset</code></pre>
-        <section class="code-tab-subsection" aria-labelledby="setup-streamer-collect">
-          <h4 id="setup-streamer-collect" class="subheading">Collect on your computer</h4>
-          <p>Run <code>./espectre devices --frontend streamer</code> to list advertised Streamer targets without starting a capture. <code>./espectre collect</code> uses the same fresh mDNS browse and reads the UDP pacing port from the selected Streamer record. It selects the only device automatically or presents a menu when it finds several. The collector receives raw CSI over UDP; Direct HTTP carries status and controls, not capture data.</p>
-          <pre class="code"><code>./espectre devices --frontend streamer
-./espectre collect</code></pre>
-        </section>
-      </div>
     </div>
-    <p>Run <code>./espectre devices</code> to inspect Direct HTTP endpoints advertised on the local network. Native, Streamer, ESPHome, and Matter publish the same first-party <code>_espectre._tcp.local.</code> contract, so the command needs one fresh browse and does not interpret upstream ESPHome or Matter records. Use <code>--frontend</code> when you need only one firmware type.</p>
+    <p>Run <code>./espectre devices</code> to inspect Direct HTTP endpoints advertised on the local network. Native, ESPHome, and Matter publish the same first-party <code>_espectre._tcp.local.</code> contract, so the command needs one fresh browse and does not interpret upstream ESPHome or Matter records. Use <code>--frontend</code> when you need only one firmware type.</p>
     <p>On Windows, use <code>espectre.cmd</code> instead of <code>./espectre</code>; the <a href="https://github.com/francescopace/espectre/blob/main/docs/SETUP.md" target="_blank" rel="noopener">setup reference</a> and <a href="https://github.com/francescopace/espectre/blob/main/docs/CLI.md" target="_blank" rel="noopener">CLI reference</a> cover complete prerequisites, explicit device overrides, <code>--clean-all</code>, and backend options.</p>
 
     <h2 id="setup-network">Step 3 — Connect it to your network</h2>
@@ -109,7 +91,6 @@ CONFIG_ESPECTRE_WIFI_BAND_2G=y</code></pre>
         <button type="button" role="tab" id="setup-network-native-tab" aria-controls="setup-network-native-panel" aria-selected="true">Native</button>
         <button type="button" role="tab" id="setup-network-esphome-tab" aria-controls="setup-network-esphome-panel" aria-selected="false" tabindex="-1">ESPHome</button>
         <button type="button" role="tab" id="setup-network-matter-tab" aria-controls="setup-network-matter-panel" aria-selected="false" tabindex="-1">Matter</button>
-        <button type="button" role="tab" id="setup-network-streamer-tab" aria-controls="setup-network-streamer-panel" aria-selected="false" tabindex="-1">Streamer</button>
       </div>
       <div class="code-tab-panel" id="setup-network-native-panel" role="tabpanel" aria-labelledby="setup-network-native-tab" data-network-frontend="native">
         <ol class="steps-list">
@@ -119,7 +100,7 @@ CONFIG_ESPECTRE_WIFI_BAND_2G=y</code></pre>
         </ol>
         <section class="code-tab-subsection" aria-labelledby="setup-native-discovery">
           <h4 id="setup-native-discovery" class="subheading">Automatic discovery and operating-system support</h4>
-          <p>Auto-discovery is an optional convenience, not a requirement for Direct Configure. The browser resolves one random <code>.local</code> name to reach an eligible Native device; that device performs the bounded <code>_espectre._tcp.local.</code> browse and returns compatible Native, Streamer, ESPHome, and Matter endpoints. At least one ESPectre device must therefore be reachable to bootstrap browser discovery, even when the device you ultimately select uses another frontend.</p>
+          <p>Auto-discovery is an optional convenience, not a requirement for Direct Configure. The browser resolves one random <code>.local</code> name to reach an eligible Native device; that device performs the bounded <code>_espectre._tcp.local.</code> browse and returns compatible Native, ESPHome, and Matter endpoints. At least one ESPectre device must therefore be reachable to bootstrap browser discovery, even when the device you ultimately select uses another frontend.</p>
           <section class="table-wrap"><table>
             <thead><tr><th>Browser environment</th><th>Status</th><th>Discovery requirements</th></tr></thead>
             <tbody>
@@ -154,9 +135,6 @@ espectre&gt; recalibrate</code></pre>
           <li><h3>Add the device in your app</h3><p>In a controller that supports Matter occupancy sensors, choose its add-device flow and scan the QR code. The exact UI varies by controller. Keep the phone near the board: commissioning starts over Bluetooth, then the device joins your Wi-Fi.</p></li>
           <li><h3>Place it in a room</h3><p>The device appears as an occupancy sensor. Use it in automations exactly like any other motion sensor.</p></li>
         </ol>
-      </div>
-      <div class="code-tab-panel" id="setup-network-streamer-panel" role="tabpanel" aria-labelledby="setup-network-streamer-tab" data-network-frontend="streamer" hidden>
-        <p><strong>CLI path only:</strong> the Streamer tab in Step&nbsp;2 covers its local Wi-Fi configuration, device build, flash, and serial monitor, followed by the separate collector process on your computer. Streamer does not expose motion entities by itself; it sends raw CSI to the host-side collector over UDP.</p>
       </div>
     </div>
 

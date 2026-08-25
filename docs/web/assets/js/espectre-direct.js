@@ -14,6 +14,8 @@
     'use strict';
 
     const ENVELOPE_VERSION = 1;
+    // Low 16 bits of U+1F47B GHOST (0xF47B), the ESPectre service marker.
+    const DEFAULT_PORT = 62587;
     const REQUEST_PATH = '/espectre/v1/request';
     const EVENTS_PATH = '/espectre/v1/events';
     const RAW_PATH = '/espectre/v1/csi';
@@ -27,7 +29,7 @@
     const DISCOVERY_HOST_PREFIX = 'espectre-devices-';
     const EVENTS = Object.freeze(['open', 'close', 'event', 'protocol-error']);
     const MUTATING_METHODS = Object.freeze(new Set([
-        'clear_mqtt_config', 'clear_wifi_config', 'ota_start', 'recalibrate', 'scan_wifi_access_points',
+        'clear_mqtt_config', 'clear_wifi_bssid', 'clear_wifi_config', 'ota_start', 'recalibrate', 'scan_wifi_access_points',
         'set_csi_traffic_mode', 'set_detector', 'set_device_label',
         'set_motion_hits', 'set_mqtt_config', 'set_threshold',
         'set_traffic_generator_mode', 'set_wifi_bssid', 'set_sensing',
@@ -39,6 +41,127 @@
             super(message);
             this.name = 'ESPectreDirectError';
             this.code = code;
+        }
+    }
+
+    const RAW_HTTP_MAGIC = 0x52505345;
+    const RAW_HTTP_PREFIX_BYTES = 60;
+    const RAW_HTTP_MAX_BUFFER_BYTES = 64 * 1024;
+    const RAW_CSI_V8_HEADER_BYTES = 64;
+    const RAW_CSI_MAX_PAYLOAD_BYTES = 512;
+
+    class ESPectreRawCsiV2Parser {
+        #buffer = new Uint8Array(0);
+        #sessionBytes;
+        #streamSequence = 0n;
+        #freshRecordTotal = 0n;
+        #rawDropTotal = 0n;
+        #sendBackpressureTotal = 0n;
+
+        constructor(sessionId) {
+            if (typeof sessionId === 'string') {
+                if (!/^[0-9a-f]{32}$/.test(sessionId)) {
+                    throw new ESPectreDirectError('Raw CSI session ID must be 32 lowercase hexadecimal characters.', 'invalid_raw_session');
+                }
+                this.#sessionBytes = new Uint8Array(16);
+                for (let index = 0; index < this.#sessionBytes.length; index += 1) {
+                    this.#sessionBytes[index] = Number.parseInt(sessionId.slice(index * 2, index * 2 + 2), 16);
+                }
+            } else if (sessionId instanceof Uint8Array && sessionId.length === 16) {
+                this.#sessionBytes = sessionId.slice();
+            } else {
+                throw new ESPectreDirectError('Raw CSI session ID is invalid.', 'invalid_raw_session');
+            }
+        }
+
+        get streamSequence() { return this.#streamSequence; }
+        get freshRecordTotal() { return this.#freshRecordTotal; }
+        get rawDropTotal() { return this.#rawDropTotal; }
+        get sendBackpressureTotal() { return this.#sendBackpressureTotal; }
+        get bufferedBytes() { return this.#buffer.length; }
+
+        append(chunk) {
+            if (!(chunk instanceof Uint8Array)
+                || this.#buffer.length + chunk.length > RAW_HTTP_MAX_BUFFER_BYTES) {
+                throw new ESPectreDirectError('Raw HTTP stream exceeded its bounded parser buffer.', 'invalid_raw_frame');
+            }
+            const combined = new Uint8Array(this.#buffer.length + chunk.length);
+            combined.set(this.#buffer);
+            combined.set(chunk, this.#buffer.length);
+            this.#buffer = combined;
+            const records = [];
+            while (this.#buffer.length >= RAW_HTTP_PREFIX_BYTES) {
+                const prefix = new DataView(
+                    this.#buffer.buffer, this.#buffer.byteOffset, this.#buffer.byteLength);
+                if (prefix.getUint32(0, true) !== RAW_HTTP_MAGIC
+                    || prefix.getUint8(4) !== 2
+                    || prefix.getUint8(5) !== 8
+                    || prefix.getUint16(6, true) !== RAW_HTTP_PREFIX_BYTES) {
+                    throw new ESPectreDirectError('Raw HTTP stream lost frame alignment.', 'invalid_raw_frame');
+                }
+                const recordLength = prefix.getUint16(32, true);
+                if (recordLength < RAW_CSI_V8_HEADER_BYTES
+                    || recordLength > RAW_CSI_V8_HEADER_BYTES + RAW_CSI_MAX_PAYLOAD_BYTES) {
+                    throw new ESPectreDirectError('Raw HTTP frame has an invalid record length.', 'invalid_raw_frame');
+                }
+                const frameLength = RAW_HTTP_PREFIX_BYTES + recordLength;
+                if (this.#buffer.length < frameLength) break;
+                records.push(this.#consumeFrame(this.#buffer.subarray(0, frameLength)));
+                this.#buffer = this.#buffer.slice(frameLength);
+            }
+            return records;
+        }
+
+        #consumeFrame(frame) {
+            const prefix = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
+            const session = frame.subarray(8, 24);
+            const sessionMatches = session.length === this.#sessionBytes.length
+                && session.every((value, index) => value === this.#sessionBytes[index]);
+            const streamSequence = prefix.getBigUint64(24, true);
+            const flags = prefix.getUint16(34, true);
+            const freshRecordTotal = prefix.getBigUint64(36, true);
+            const rawDropTotal = prefix.getBigUint64(44, true);
+            const sendBackpressureTotal = prefix.getBigUint64(52, true);
+            if (!sessionMatches || flags !== 0 || streamSequence <= this.#streamSequence
+                || freshRecordTotal !== this.#freshRecordTotal + 1n
+                || rawDropTotal < this.#rawDropTotal
+                || sendBackpressureTotal < this.#sendBackpressureTotal) {
+                throw new ESPectreDirectError('Raw HTTP frame counters or session are invalid.', 'invalid_raw_frame');
+            }
+
+            const record = frame.subarray(RAW_HTTP_PREFIX_BYTES);
+            const view = new DataView(record.buffer, record.byteOffset, record.byteLength);
+            const recordFlags = view.getUint8(5);
+            const subcarriers = view.getUint16(10, true);
+            const csiLength = view.getUint16(12, true);
+            const saturatedSequence = streamSequence > 0xFFFFFFFFn
+                ? 0xFFFFFFFF : Number(streamSequence);
+            const saturatedFresh = freshRecordTotal > 0xFFFFFFFFn
+                ? 0xFFFFFFFF : Number(freshRecordTotal);
+            if (view.getUint16(0, true) !== 0x4353
+                || view.getUint8(2) !== 8
+                || view.getUint8(3) !== RAW_CSI_V8_HEADER_BYTES
+                || (recordFlags & 0x08) === 0 || (recordFlags & 0xF0) !== 0
+                || csiLength !== subcarriers * 2
+                || RAW_CSI_V8_HEADER_BYTES + csiLength !== record.byteLength
+                || view.getUint32(6, true) !== saturatedSequence
+                || view.getBigUint64(45, true) !== sendBackpressureTotal
+                || view.getUint32(53, true) !== saturatedFresh
+                || view.getUint32(57, true) !== saturatedSequence) {
+                throw new ESPectreDirectError('Raw HTTP frame contains an invalid CSI V8 record.', 'invalid_raw_record');
+            }
+
+            this.#streamSequence = streamSequence;
+            this.#freshRecordTotal = freshRecordTotal;
+            this.#rawDropTotal = rawDropTotal;
+            this.#sendBackpressureTotal = sendBackpressureTotal;
+            return {
+                record,
+                streamSequence,
+                freshRecordTotal,
+                rawDropTotal,
+                sendBackpressureTotal
+            };
         }
     }
 
@@ -86,6 +209,7 @@
         if (!isLocalHostname(url.hostname)) {
             throw new ESPectreDirectError('Use a private IP address, localhost, or a .local device name.', 'non_local_endpoint');
         }
+        if (!url.port) url.port = String(DEFAULT_PORT);
         if (url.pathname !== '/' && url.pathname !== REQUEST_PATH) {
             throw new ESPectreDirectError(`The Direct endpoint path must be ${REQUEST_PATH}.`, 'invalid_path');
         }
@@ -178,7 +302,7 @@
                 && validText(peer.instance, 63)
                 && validText(peer.hostname, 63, { token: true })
                 && validText(peer.name, 63, { empty: true })
-                && ['native', 'streamer', 'esphome', 'matter'].includes(peer.frontend)
+                && ['native', 'esphome', 'matter'].includes(peer.frontend)
                 && peer.txt_version === 2 && peer.protocol_version === 1
                 && peer.transport === 'http'
                 && peer.path === REQUEST_PATH && peer.events === EVENTS_PATH
@@ -207,6 +331,7 @@
     class ESPectreDirectClient {
         static get VERSION() { return '2.0.0'; }
         static get ENVELOPE_VERSION() { return ENVELOPE_VERSION; }
+        static get DEFAULT_PORT() { return DEFAULT_PORT; }
         static get ENDPOINT_PATH() { return REQUEST_PATH; }
         static get EVENTS_PATH() { return EVENTS_PATH; }
         static get RAW_PATH() { return RAW_PATH; }
@@ -465,4 +590,5 @@
 
     window.ESPectreDirectClient = ESPectreDirectClient;
     window.ESPectreDirectError = ESPectreDirectError;
+    window.ESPectreRawCsiV2Parser = ESPectreRawCsiV2Parser;
 })();

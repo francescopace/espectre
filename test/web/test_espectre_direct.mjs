@@ -9,13 +9,53 @@
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { peerDiscoveryScenarios } from './fixtures/peer_discovery_fixture.mjs';
+import { DIRECT_PORT, peerDiscoveryScenarios } from './fixtures/peer_discovery_fixture.mjs';
 
 globalThis.window = globalThis.window ?? {};
 createRequire(import.meta.url)('../../docs/web/assets/js/espectre-direct.js');
 
 const Client = window.ESPectreDirectClient;
 const DirectError = window.ESPectreDirectError;
+const RawParser = window.ESPectreRawCsiV2Parser;
+
+function rawFrame({
+    sessionId = '00112233445566778899aabbccddeeff',
+    sequence = 1n,
+    fresh = 1n,
+    dropped = 0n,
+    backpressure = 0n,
+    payload = new Uint8Array([1, 2, 3, 4])
+} = {}) {
+    const record = Buffer.alloc(64 + payload.length);
+    record.writeUInt16LE(0x4353, 0);
+    record.writeUInt8(8, 2);
+    record.writeUInt8(64, 3);
+    record.writeUInt8(4, 4);
+    record.writeUInt8(1 << 3, 5);
+    const saturatedSequence = sequence > 0xFFFFFFFFn ? 0xFFFFFFFF : Number(sequence);
+    const saturatedFresh = fresh > 0xFFFFFFFFn ? 0xFFFFFFFF : Number(fresh);
+    record.writeUInt32LE(saturatedSequence, 6);
+    record.writeUInt16LE(payload.length / 2, 10);
+    record.writeUInt16LE(payload.length, 12);
+    record.writeBigUInt64LE(backpressure, 45);
+    record.writeUInt32LE(saturatedFresh, 53);
+    record.writeUInt32LE(saturatedSequence, 57);
+    Buffer.from(payload).copy(record, 64);
+
+    const prefix = Buffer.alloc(60);
+    prefix.writeUInt32LE(0x52505345, 0);
+    prefix.writeUInt8(2, 4);
+    prefix.writeUInt8(8, 5);
+    prefix.writeUInt16LE(60, 6);
+    Buffer.from(sessionId, 'hex').copy(prefix, 8);
+    prefix.writeBigUInt64LE(sequence, 24);
+    prefix.writeUInt16LE(record.length, 32);
+    prefix.writeUInt16LE(0, 34);
+    prefix.writeBigUInt64LE(fresh, 36);
+    prefix.writeBigUInt64LE(dropped, 44);
+    prefix.writeBigUInt64LE(backpressure, 52);
+    return new Uint8Array(Buffer.concat([prefix, record]));
+}
 
 function pendingBody(chunks = []) {
     let index = 0;
@@ -61,10 +101,11 @@ afterEach(() => {
 
 describe('Direct HTTP endpoint policy', () => {
     it('normalizes private IPv4, .local, HTTPS, and local IPv6 endpoints', () => {
-        assert.equal(Client.normalizeEndpoint('192.168.1.42'), 'http://192.168.1.42/espectre/v1/request');
-        assert.equal(Client.normalizeEndpoint('espectre-a1.local'), 'http://espectre-a1.local/espectre/v1/request');
-        assert.equal(Client.normalizeEndpoint('https://espectre-a1.local/espectre/v1/request'), 'https://espectre-a1.local/espectre/v1/request');
-        assert.equal(Client.normalizeEndpoint('http://[fd12:3456:789a::42]:6054/espectre/v1/request'), 'http://[fd12:3456:789a::42]:6054/espectre/v1/request');
+        assert.equal(Client.DEFAULT_PORT, DIRECT_PORT);
+        assert.equal(Client.normalizeEndpoint('192.168.1.42'), `http://192.168.1.42:${DIRECT_PORT}/espectre/v1/request`);
+        assert.equal(Client.normalizeEndpoint('espectre-a1.local'), `http://espectre-a1.local:${DIRECT_PORT}/espectre/v1/request`);
+        assert.equal(Client.normalizeEndpoint('https://espectre-a1.local/espectre/v1/request'), `https://espectre-a1.local:${DIRECT_PORT}/espectre/v1/request`);
+        assert.equal(Client.normalizeEndpoint('http://[fd12:3456:789a::42]:61443/espectre/v1/request'), 'http://[fd12:3456:789a::42]:61443/espectre/v1/request');
     });
 
     it('rejects WebSocket, public, credentialed, queried, and unrelated endpoints', () => {
@@ -78,9 +119,51 @@ describe('Direct HTTP endpoint policy', () => {
     it('creates a distinct lowercase 96-bit bootstrap hostname from injected entropy', () => {
         let invocation = 0;
         const randomSource = { getRandomValues(bytes) { bytes.fill(invocation++); return bytes; } };
-        assert.equal(Client.createDiscoveryEndpoint(randomSource), 'http://espectre-devices-000000000000000000000000.local/espectre/v1/request');
-        assert.equal(Client.createDiscoveryEndpoint(randomSource), 'http://espectre-devices-010101010101010101010101.local/espectre/v1/request');
+        assert.equal(Client.createDiscoveryEndpoint(randomSource), `http://espectre-devices-000000000000000000000000.local:${DIRECT_PORT}/espectre/v1/request`);
+        assert.equal(Client.createDiscoveryEndpoint(randomSource), `http://espectre-devices-010101010101010101010101.local:${DIRECT_PORT}/espectre/v1/request`);
         assert.throws(() => Client.createDiscoveryEndpoint(null), (error) => error.code === 'unsupported_crypto');
+    });
+});
+
+describe('Raw CSI HTTP v2 parser', () => {
+    it('reconstructs split and aggregated frames and exposes v2 counters', () => {
+        const parser = new RawParser('00112233445566778899aabbccddeeff');
+        const first = rawFrame();
+        const second = rawFrame({ sequence: 3n, fresh: 2n, dropped: 1n });
+        assert.deepEqual(parser.append(first.subarray(0, 17)), []);
+        const records = parser.append(new Uint8Array([
+            ...first.subarray(17),
+            ...second
+        ]));
+        assert.equal(records.length, 2);
+        assert.deepEqual(records.map((record) => record.streamSequence), [1n, 3n]);
+        assert.equal(parser.freshRecordTotal, 2n);
+        assert.equal(parser.rawDropTotal, 1n);
+        assert.equal(parser.sendBackpressureTotal, 0n);
+        assert.equal(parser.bufferedBytes, 0);
+    });
+
+    it('fails closed on session, flags, counter, and V8 sequence mismatches', () => {
+        const wrongSession = rawFrame({ sessionId: '10112233445566778899aabbccddeeff' });
+        assert.throws(
+            () => new RawParser('00112233445566778899aabbccddeeff').append(wrongSession),
+            (error) => error.code === 'invalid_raw_frame'
+        );
+
+        const wrongFlags = rawFrame();
+        new DataView(wrongFlags.buffer, wrongFlags.byteOffset).setUint16(34, 1, true);
+        assert.throws(() => new RawParser('00112233445566778899aabbccddeeff').append(wrongFlags));
+
+        const skippedFresh = rawFrame({ fresh: 2n });
+        assert.throws(() => new RawParser('00112233445566778899aabbccddeeff').append(skippedFresh));
+
+        const wrongRecordSequence = rawFrame();
+        new DataView(wrongRecordSequence.buffer, wrongRecordSequence.byteOffset)
+            .setUint32(60 + 6, 2, true);
+        assert.throws(
+            () => new RawParser('00112233445566778899aabbccddeeff').append(wrongRecordSequence),
+            (error) => error.code === 'invalid_raw_record'
+        );
     });
 });
 
@@ -91,7 +174,7 @@ describe('Peer discovery schema v2', () => {
             getRandomValues(bytes) { bytes.fill(0xab); return bytes; }
         }));
         const result = await client.discoverPeersBootstrap();
-        assert.equal(result.devices.length, 4);
+        assert.equal(result.devices.length, 3);
         assert.equal(client.connected, false);
         assert.equal(calls.length, 1);
         assert.equal(calls[0].options.method, 'POST');
@@ -101,9 +184,10 @@ describe('Peer discovery schema v2', () => {
 
     it('accepts HTTP peers and constructs request endpoints', () => {
         const result = Client.validatePeerDiscoveryResult(peerDiscoveryScenarios.multiFrontend);
-        assert.equal(result.devices.length, 4);
-        assert.equal(result.devices[0].endpoints[0], 'http://192.168.1.42/espectre/v1/request');
-        assert.equal(result.devices[2].endpoints[0], 'http://192.168.1.44:6054/espectre/v1/request');
+        assert.equal(result.devices.length, 3);
+        assert.equal(result.devices[0].endpoints[0], `http://192.168.1.42:${DIRECT_PORT}/espectre/v1/request`);
+        const esphome = result.devices.find((device) => device.frontend === 'esphome');
+        assert.equal(esphome.endpoints[0], `http://192.168.1.44:${DIRECT_PORT}/espectre/v1/request`);
     });
 
     it('accepts partial results, and rejects hostile or old-schema peers', () => {
@@ -135,7 +219,7 @@ describe('Direct HTTP request and SSE lifecycle', () => {
         });
         await client.handshake();
         assert.deepEqual(await client.request('info'), { firmware: '4.0.0' });
-        assert.equal(calls[0].url, 'http://192.168.1.42/espectre/v1/events');
+        assert.equal(calls[0].url, `http://192.168.1.42:${DIRECT_PORT}/espectre/v1/events`);
         assert.equal(calls[0].options.targetAddressSpace, 'local');
         assert.equal(calls[0].options.cache, 'no-store');
         assert.equal(calls[1].options.method, 'POST');
@@ -179,9 +263,9 @@ describe('Direct HTTP request and SSE lifecycle', () => {
                 return {};
             }
         });
-        await assert.rejects(client.request('start_raw_stream', { target_pps: 100 }), (error) => error.code === 'handshake_required');
+        await assert.rejects(client.request('start_raw_stream'), (error) => error.code === 'handshake_required');
         await client.handshake();
-        await client.request('start_raw_stream', { target_pps: 100 });
+        await client.request('start_raw_stream');
         assert.equal(client.rawSessionId, sessionId);
         await client.request('stop_raw_stream');
         assert.equal(calls.at(-1).options.headers.Authorization, `Bearer ${sessionId}`);

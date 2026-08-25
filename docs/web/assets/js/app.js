@@ -212,12 +212,13 @@
         evaluationIntervalMs: 0,
         publishIntervalMs: 0,
         csiTargetPps: 0,
+        csiTrafficMode: '',
         deviceName: '',
         deviceId: '',
         generatedName: '',
         deviceLabel: '',
         deviceConfigSupported: false,
-        connectivityConfigSupported: false,
+        frontend: '',
         chip: '',
         firmwareVersion: '',
         endpoint: '',
@@ -275,6 +276,11 @@
             const capability = element.dataset.capability;
             if (!Object.prototype.hasOwnProperty.call(snapshot, capability)) return;
             element.hidden = !sysinfoBoolean(snapshot[capability]);
+        });
+        $$('[data-capability-unavailable]').forEach((element) => {
+            const capability = element.dataset.capabilityUnavailable;
+            if (!Object.prototype.hasOwnProperty.call(snapshot, capability)) return;
+            element.hidden = sysinfoBoolean(snapshot[capability]);
         });
         $$('[data-capability-any]').forEach((element) => {
             const capabilities = element.dataset.capabilityAny.split(/\s+/).filter(Boolean);
@@ -374,7 +380,7 @@
         if (!select || !value) {
             return;
         }
-        const normalized = value === 'pacing' ? 'external' : value;
+        const normalized = value;
         if (Array.from(select.options).some((option) => option.value === normalized)) {
             select.value = normalized;
         }
@@ -403,6 +409,7 @@
             document.getElementById('sense-motion-off').value = snapshot.motion_off_hits;
         }
         if (snapshot.csi_traffic_mode) {
+            conn.csiTrafficMode = snapshot.csi_traffic_mode;
             applyCsiTrafficModeSelect(snapshot.csi_traffic_mode);
         }
         if (snapshot.traffic_mode || snapshot.traffic_generator_mode) {
@@ -484,6 +491,7 @@
     function applyDeviceIdentity(data) {
         if (!data || typeof data !== 'object') return;
         if (data.device_id) adoptDeviceId(data.device_id);
+        if (data.frontend) conn.frontend = String(data.frontend);
         if (data.device_name || data.name) conn.generatedName = data.device_name || data.name;
         if (data.device_label !== undefined) conn.deviceLabel = data.device_label;
         if (data.supports_device_config !== undefined) {
@@ -502,13 +510,21 @@
         const write = (selector, value) => {
             $$(selector).forEach((el) => { el.textContent = value || '—'; });
         };
+        write('.js-menu-frontend', formatFrontendLabel(identity.frontend));
         write('.js-menu-chip', identity.chip);
         write('.js-menu-device-id', identity.deviceId);
         write('.js-menu-firmware', identity.firmwareVersion);
     }
 
-    function formatDeviceIdentityLine(chip, deviceId, firmware) {
+    function formatFrontendLabel(frontend) {
+        const value = String(frontend || '');
+        const labels = { native: 'Native', esphome: 'ESPHome', matter: 'Matter' };
+        return labels[value.toLowerCase()] || value;
+    }
+
+    function formatDeviceIdentityLine(frontend, chip, deviceId, firmware) {
         const parts = [];
+        if (frontend) parts.push('Frontend ' + formatFrontendLabel(frontend));
         if (chip) parts.push('Chip ' + chip);
         if (deviceId) parts.push('Device ID ' + deviceId);
         if (firmware) parts.push('Firmware ' + firmware);
@@ -536,8 +552,10 @@
             && conn.deviceConfigSupported;
         display.textContent = displayName;
         trigger.disabled = !canEdit || state.savePending;
-        trigger.setAttribute('aria-label', conn.deviceLabel ? 'Edit device name' : 'Set device name');
-        trigger.title = canEdit ? 'Click to edit the device name' : '';
+        trigger.setAttribute('aria-label', canEdit
+            ? (conn.deviceLabel ? 'Edit device name' : 'Set device name')
+            : 'Device name (read-only)');
+        trigger.title = canEdit ? 'Click to edit the device name' : 'Managed by the connected firmware';
         trigger.hidden = state.editing;
         input.hidden = !state.editing;
         input.disabled = state.savePending;
@@ -547,6 +565,7 @@
             const identity = $('.js-configure-device-banner-sub');
             if (identity) {
                 identity.textContent = formatDeviceIdentityLine(
+                    conn.frontend,
                     conn.chip,
                     conn.deviceId,
                     conn.firmwareVersion
@@ -557,6 +576,29 @@
 
     function renderConfigureDeviceNameEditor() {
         renderDeviceNameEditor('configure');
+    }
+
+    function renderConfigureAvailability() {
+        const esphome = conn.frontend.toLowerCase() === 'esphome';
+        const matter = conn.frontend.toLowerCase() === 'matter';
+        const nameNote = $('.js-configure-name-unavailable');
+        const wifiNote = $('.js-wifi-unavailable');
+        const mqttNote = $('.js-mqtt-unavailable');
+        if (nameNote) {
+            nameNote.hidden = conn.status !== 'connected' || conn.mode === 'demo'
+                || conn.deviceConfigSupported;
+            nameNote.textContent = 'This firmware exposes its device name as read-only in Direct Configure.';
+        }
+        if (wifiNote) {
+            wifiNote.textContent = esphome || matter
+                ? 'This firmware exposes Wi-Fi status and access-point pinning, but its owner manages network credentials.'
+                : 'This firmware does not expose Wi-Fi details through Direct Configure.';
+        }
+        if (mqttNote) {
+            mqttNote.textContent = esphome
+                ? 'This ESPHome firmware does not expose MQTT configuration through Direct Configure. Use the native ESPHome API, or configure MQTT in the adopted YAML.'
+                : 'This firmware does not expose MQTT configuration through Direct Configure.';
+        }
     }
 
     function renderMonitorDeviceNameEditor() {
@@ -641,6 +683,7 @@
         applyDeviceIdentity(data);
         conn.deviceName = data.device_label || data.device_name || conn.deviceName || 'ESPectre';
         const line = formatDeviceIdentityLine(
+            data.frontend || conn.frontend,
             data.chip && String(data.chip).toUpperCase(),
             data.device_id || conn.deviceId,
             data.firmware_version
@@ -927,11 +970,13 @@
 
     function directCapabilitiesSnapshot(capabilities) {
         const methods = new Set((capabilities.commands || []).map((item) => item?.name).filter(Boolean));
+        const sections = new Set(capabilities.config_sections || []);
         monitor.commands = methods;
         monitor.commandCatalogReady = true;
-        conn.connectivityConfigSupported = methods.has('set_wifi_bssid') || methods.has('set_mqtt_config');
         return {
+            supports_wifi_status: sections.has('wifi'),
             supports_wifi_bssid: methods.has('set_wifi_bssid')
+                && methods.has('clear_wifi_bssid')
                 && methods.has('scan_wifi_access_points') && methods.has('wifi_access_points'),
             supports_wifi_clear: methods.has('clear_wifi_config'),
             supports_mqtt_config: methods.has('set_mqtt_config'),
@@ -954,8 +999,11 @@
         applySysinfo({
             device_label: config.device_label ?? device.device_label,
             wifi_configured: wifi.configured,
+            wifi_connected: wifi.connected,
             wifi_ssid: wifi.ssid,
             wifi_band: wifi.band,
+            wifi_channel: wifi.channel,
+            wifi_rssi_dbm: wifi.rssi_dbm,
             wifi_bssid: wifi.bssid,
             wifi_apply_state: wifi.apply_state,
             wifi_apply_message: wifi.apply_message,
@@ -1116,12 +1164,6 @@
         }
     }
 
-    function discoveredPeerFrontendLabel(frontend) {
-        const value = String(frontend || '');
-        const labels = { native: 'Native', esphome: 'ESPHome', matter: 'Matter', streamer: 'Streamer' };
-        return labels[value.toLowerCase()] || value;
-    }
-
     function discoveredPeerChipLabel(chip) {
         return String(chip || '').toUpperCase().replace(/^ESP32([A-Z]\d)$/, 'ESP32-$1');
     }
@@ -1191,7 +1233,7 @@
         for (const peer of result.devices) {
             const item = document.createElement('li');
             const displayName = peer.name || `ESPectre ${peer.device_id.slice(-6)}`;
-            const frontend = discoveredPeerFrontendLabel(peer.frontend);
+            const frontend = formatFrontendLabel(peer.frontend);
             const chip = discoveredPeerChipLabel(peer.chip);
             const shortId = peer.device_id.slice(-6);
             const button = createDiscoveryDeviceButton({
@@ -1466,8 +1508,7 @@
             if (route === 'tool-raw-csi') {
                 rawCsiUseConnection();
             } else if (!LIVE_EXPERIENCE_ROUTES.has(route)) {
-                const view = openView || (route === 'tool-monitor' || !conn.connectivityConfigSupported
-                    ? 'live' : 'connectivity');
+                const view = openView || (route === 'tool-monitor' ? 'live' : 'connectivity');
                 setDeviceView(view);
                 if (view === 'connectivity' && monitor.commands.has('scan_wifi_access_points')) {
                     void cfgRefreshWifiAccessPoints();
@@ -1630,10 +1671,16 @@
             markToolReady('info');
         }
         applyConfigureCapabilities(snapshot);
+        const frontend = snapshot.frontend || conn.frontend;
         const chip = snapshot.chip ? String(snapshot.chip).toUpperCase() : conn.chip;
         const proto = snapshot.proto_version || snapshot.espectre_protocol_version || '';
         const firmware = snapshot.firmware_version || snapshot.firmware || snapshot.version || conn.firmwareVersion;
-        const deviceIdentity = formatDeviceIdentityLine(chip, snapshot.device_id || conn.deviceId, firmware) || '—';
+        const deviceIdentity = formatDeviceIdentityLine(
+            frontend,
+            chip,
+            snapshot.device_id || conn.deviceId,
+            firmware
+        ) || '—';
         conn.chip = chip;
         conn.firmwareVersion = firmware;
         conn.deviceBannerSub = conn.mode === 'direct'
@@ -1913,7 +1960,7 @@
         conn.generatedName = '';
         conn.deviceLabel = '';
         conn.deviceConfigSupported = false;
-        conn.connectivityConfigSupported = false;
+        conn.frontend = '';
         conn.chip = '';
         conn.firmwareVersion = '';
         conn.endpoint = '';
@@ -2048,7 +2095,7 @@
         if (connectivitySetup) connectivitySetup.hidden = !(directSetup || conn.mode === 'demo');
         if (startSensing) startSensing.disabled = monitor.switchingTransport;
         if (edit) {
-            edit.hidden = conn.mode === 'direct' && !conn.connectivityConfigSupported;
+            edit.hidden = false;
             edit.disabled = false;
             edit.textContent = 'Edit connectivity';
         }
@@ -2061,7 +2108,10 @@
         $$('.js-device-banner-sub').forEach((el) => { el.textContent = conn.deviceBannerSub; });
         renderConfigureDeviceNameEditor();
         renderMonitorDeviceNameEditor();
+        renderConfigureAvailability();
         renderDeviceIdentity(displayedIdentity);
+        const frontendRow = $('.js-menu-frontend-row');
+        if (frontendRow) frontendRow.hidden = usbConnected;
         const deviceIdLabel = $('.js-menu-device-id-label');
         if (deviceIdLabel) deviceIdLabel.textContent = usbConnected ? 'USB VID:PID' : 'Device ID';
         const firmwareLabel = $('.js-menu-firmware-label');
@@ -3636,7 +3686,7 @@
         const select = document.getElementById('cfg-bssid');
         const status = $('.js-wifi-scan-status');
         const scanButton = $('.js-wifi-scan');
-        if (!select || !status || !scanButton) return;
+        if (!select || !scanButton) return;
         const accessPoints = Array.isArray(snapshot.access_points) ? snapshot.access_points : [];
         const options = [new Option('Automatic (strongest available)', '')];
         accessPoints.forEach((accessPoint) => {
@@ -3654,9 +3704,11 @@
         const scanning = snapshot.scanning === true;
         select.disabled = scanning;
         scanButton.disabled = scanning;
-        status.textContent = snapshot.message
-            || (accessPoints.length ? `${accessPoints.length} access point${accessPoints.length === 1 ? '' : 's'} found.`
-                : 'No matching access points found. Automatic selection remains available.');
+        if (status) {
+            status.textContent = snapshot.message
+                || (accessPoints.length ? `${accessPoints.length} access point${accessPoints.length === 1 ? '' : 's'} found.`
+                    : 'No matching access points found. Automatic selection remains available.');
+        }
     }
 
     async function cfgRefreshWifiAccessPoints() {
@@ -3692,10 +3744,12 @@
 
     async function cfgSaveWifi() {
         const bssid = cfgValue('cfg-bssid').trim().toUpperCase();
+        const method = bssid ? 'set_wifi_bssid' : 'clear_wifi_bssid';
+        const params = bssid ? { bssid } : {};
         await cfgApply(
-            'set_wifi_bssid',
+            method,
             bssid ? 'Access point saved; station reconnecting.' : 'Automatic access-point selection saved; station reconnecting.',
-            'set_wifi_bssid', { bssid },
+            method, params,
             (snapshot) => String(snapshot.wifi_bssid || '').toUpperCase() === bssid);
     }
 
@@ -3711,7 +3765,7 @@
             kicker: 'MQTT integration',
             title: 'Remove MQTT configuration?',
             description: 'This removes the broker host, port, username, password, and topic prefix.',
-            warning: 'Wi-Fi stays connected, but MQTT monitoring and Home Assistant discovery will stop.',
+            warning: 'Wi-Fi stays connected, but MQTT automations and Home Assistant discovery will stop.',
             confirm: 'Remove MQTT'
         })
     });
@@ -3839,8 +3893,8 @@
     }
 
     async function cfgSaveDeviceLabel(label) {
-        if (typeof label !== 'string' || /[\r\n\0]/.test(label) || utf8Length(label) > 64) {
-            cfgValidationFailed('set_device', 'Device name must be one line and at most 64 UTF-8 bytes.');
+        if (typeof label !== 'string' || /[\r\n\0]/.test(label) || utf8Length(label) > 32) {
+            cfgValidationFailed('set_device', 'Device name must be one line and at most 32 UTF-8 bytes.');
             return false;
         }
         return cfgApply('set_device', 'Device name saved.', 'set_device_label',
@@ -5259,9 +5313,6 @@
 
     /* =========================================================== raw CSI */
 
-    const RAW_HTTP_MAGIC = 0x52505345;
-    const RAW_HTTP_PREFIX_BYTES = 76;
-    const RAW_HTTP_MAX_BUFFER_BYTES = 64 * 1024;
     const RAW_CSI_V8_HEADER_BYTES = 64;
     const RAW_CSI_VISUAL_HISTORY = 720;
     const RAW_CSI_PHASE_HISTORY = 72;
@@ -5310,8 +5361,7 @@
         demoTimer: null,
         demoFresh: 0,
         running: false,
-        buffer: new Uint8Array(0),
-        sessionBytes: null,
+        parser: null,
         visualization: 'channel-heatmap',
         profiles: [],
         deltas: [],
@@ -5350,7 +5400,9 @@
 
     function rawCsiUseConnection() {
         const onboarding = $('.js-raw-csi-onboarding');
+        const externalHint = $('.js-raw-csi-external-hint');
         if (conn.status !== 'connected' || !['direct', 'demo'].includes(conn.mode)) {
+            if (externalHint) externalHint.hidden = true;
             if (onboarding) onboarding.hidden = false;
             $('.js-raw-csi-unavailable').hidden = true;
             $('.js-raw-csi-workspace').hidden = true;
@@ -5358,13 +5410,19 @@
         }
         if (onboarding) onboarding.hidden = true;
         if (conn.mode === 'demo') {
+            if (externalHint) externalHint.hidden = true;
             rawCsiSetAvailable(true);
             rawCsiStatus('Demo connected. Start the simulated CSI stream when ready.');
             return true;
         }
-        const available = directClient.capabilities?.features?.raw_csi === true;
+        const available = directClient?.capabilities?.features?.raw_csi === true;
         rawCsiSetAvailable(available);
-        if (available) rawCsiStatus('Connected. Start the ephemeral stream when ready.');
+        if (externalHint) externalHint.hidden = !available || conn.csiTrafficMode !== 'external';
+        if (available) {
+            rawCsiStatus(conn.csiTrafficMode === 'external'
+                ? 'Connected in external traffic mode. The stream stays idle until UDP marker traffic reaches the device.'
+                : 'Connected. Start the ephemeral stream when ready.');
+        }
         return available;
     }
 
@@ -5372,23 +5430,8 @@
         rawCsi.running = running;
         const start = $('.js-raw-csi-start');
         const stop = $('.js-raw-csi-stop');
-        const pps = $('#raw-csi-target-pps');
         if (start) start.disabled = running;
         if (stop) stop.disabled = !running;
-        if (pps) pps.disabled = running;
-    }
-
-    function rawCsiHexBytes(value) {
-        if (!/^[0-9a-f]{32}$/.test(value)) throw new Error('Device returned an invalid raw session ID.');
-        const bytes = new Uint8Array(16);
-        for (let index = 0; index < bytes.length; index += 1) {
-            bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
-        }
-        return bytes;
-    }
-
-    function rawCsiBytesEqual(left, right) {
-        return left?.length === right?.length && left.every((value, index) => value === right[index]);
     }
 
     function rawCsiCounter(selector, value) {
@@ -6011,7 +6054,7 @@
         rawCsiScheduleRender();
     }
 
-    function rawCsiConsumeRecord(record) {
+    function rawCsiConsumeRecord(record, streamSequence) {
         if (!record.byteLength) return;
         if (record.byteLength < RAW_CSI_V8_HEADER_BYTES) {
             throw new Error('Device sent an unsupported CSI record.');
@@ -6024,6 +6067,11 @@
             || headerLength !== RAW_CSI_V8_HEADER_BYTES || csiLength !== subcarriers * 2
             || headerLength + csiLength > record.byteLength) {
             throw new Error('Device sent a malformed CSI V8 record.');
+        }
+        const expectedRecordSequence = streamSequence > 0xFFFFFFFFn
+            ? 0xFFFFFFFF : Number(streamSequence);
+        if (view.getUint32(6, true) !== expectedRecordSequence) {
+            throw new Error('Device sent mismatched raw CSI sequence numbers.');
         }
         const amplitudes = new Float32Array(subcarriers);
         const iValues = new Float32Array(subcarriers);
@@ -6042,53 +6090,15 @@
         rawCsiIngestVisualFrame(amplitudes, iValues, qValues, capturedTicksUs);
     }
 
-    function rawCsiConsumeFrame(frame) {
-        const view = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
-        if (view.getUint32(0, true) !== RAW_HTTP_MAGIC || view.getUint8(4) !== 1
-            || view.getUint16(6, true) !== RAW_HTTP_PREFIX_BYTES
-            || !rawCsiBytesEqual(frame.subarray(8, 24), rawCsi.sessionBytes)) {
-            throw new Error('Device sent an invalid raw HTTP frame prefix.');
-        }
-        const status = view.getUint8(5);
-        const recordLength = view.getUint16(32, true);
-        const errorCode = view.getUint16(34, true);
-        if (frame.byteLength !== RAW_HTTP_PREFIX_BYTES + recordLength
-                || status > 2 || (status !== 0 && recordLength !== 0)) {
-            throw new Error('Device sent an invalid raw HTTP frame.');
-        }
-        rawCsiCounter('.js-raw-fresh', view.getBigUint64(36, true));
-        rawCsiCounter('.js-raw-no-sample', view.getBigUint64(44, true));
-        rawCsiCounter('.js-raw-replaced', view.getBigUint64(52, true));
-        rawCsiCounter('.js-raw-dropped', view.getBigUint64(60, true));
-        rawCsiCounter('.js-raw-backpressure', view.getBigUint64(68, true));
-        if (status === 2) throw new Error(`Device reported raw stream error ${errorCode}.`);
-        if (status === 0) {
-            rawCsiConsumeRecord(
-                frame.subarray(RAW_HTTP_PREFIX_BYTES, RAW_HTTP_PREFIX_BYTES + recordLength));
-            rawCsiUpdatePacketRate(true);
-        } else {
-            rawCsiUpdatePacketRate(false);
-        }
-    }
-
     function rawCsiAppend(chunk) {
-        if (!(chunk instanceof Uint8Array) || rawCsi.buffer.length + chunk.length > RAW_HTTP_MAX_BUFFER_BYTES) {
-            throw new Error('Raw HTTP stream exceeded its bounded parser buffer.');
-        }
-        const combined = new Uint8Array(rawCsi.buffer.length + chunk.length);
-        combined.set(rawCsi.buffer);
-        combined.set(chunk, rawCsi.buffer.length);
-        rawCsi.buffer = combined;
-        while (rawCsi.buffer.length >= RAW_HTTP_PREFIX_BYTES) {
-            const view = new DataView(rawCsi.buffer.buffer, rawCsi.buffer.byteOffset, rawCsi.buffer.byteLength);
-            if (view.getUint32(0, true) !== RAW_HTTP_MAGIC || view.getUint16(6, true) !== RAW_HTTP_PREFIX_BYTES) {
-                throw new Error('Raw HTTP stream lost frame alignment.');
-            }
-            const frameLength = RAW_HTTP_PREFIX_BYTES + view.getUint16(32, true);
-            if (rawCsi.buffer.length < frameLength) return;
-            rawCsiConsumeFrame(rawCsi.buffer.subarray(0, frameLength));
-            rawCsi.buffer = rawCsi.buffer.slice(frameLength);
-        }
+        if (!rawCsi.parser) throw new Error('Raw CSI parser is not initialized.');
+        rawCsi.parser.append(chunk).forEach((frame) => {
+            rawCsiCounter('.js-raw-fresh', frame.freshRecordTotal);
+            rawCsiCounter('.js-raw-dropped', frame.rawDropTotal);
+            rawCsiCounter('.js-raw-backpressure', frame.sendBackpressureTotal);
+            rawCsiConsumeRecord(frame.record, frame.streamSequence);
+            rawCsiUpdatePacketRate(true);
+        });
     }
 
     function rawCsiDemoFrame(targetPps, intervalMs, startedAtMs) {
@@ -6119,8 +6129,8 @@
         const startedAtMs = performance.now();
         rawCsi.demoFresh = 0;
         rawCsiResetVisualization();
-        ['.js-raw-fresh', '.js-raw-no-sample', '.js-raw-replaced',
-            '.js-raw-dropped', '.js-raw-backpressure'].forEach((selector) => rawCsiCounter(selector, 0));
+        ['.js-raw-fresh', '.js-raw-dropped', '.js-raw-backpressure']
+            .forEach((selector) => rawCsiCounter(selector, 0));
         rawCsiSetRunning(true);
         rawCsiStatus(`Streaming simulated CSI at ${targetPps} target packets/s.`);
         rawCsiDemoFrame(targetPps, intervalMs, startedAtMs);
@@ -6137,8 +6147,7 @@
         rawCsi.controller?.abort('raw stream stopped');
         rawCsi.controller = null;
         rawCsiSetRunning(false);
-        rawCsi.buffer = new Uint8Array(0);
-        rawCsi.sessionBytes = null;
+        rawCsi.parser = null;
         rawCsi.packetArrivalTimes.length = 0;
         rawCsiCounter('.js-raw-pps', 0);
         if (client?.rawSessionId && client.connected) {
@@ -6149,13 +6158,8 @@
     async function rawCsiStart() {
         const client = directClient;
         if (rawCsi.running || conn.status !== 'connected') return;
-        const targetPps = Number($('#raw-csi-target-pps')?.value);
-        if (!Number.isInteger(targetPps) || targetPps < 1 || targetPps > 500) {
-            rawCsiStatus('Target PPS must be an integer from 1 to 500.', true);
-            return;
-        }
         if (conn.mode === 'demo') {
-            rawCsiStartDemo(targetPps);
+            rawCsiStartDemo(100);
             return;
         }
         if (!rawCsiDirectReady() || client.capabilities?.features?.raw_csi !== true) return;
@@ -6163,9 +6167,8 @@
         rawCsi.sessionClient = client;
         rawCsiStatus('Starting raw CSI stream…');
         try {
-            const session = await client.request('start_raw_stream', { target_pps: targetPps });
-            rawCsi.sessionBytes = rawCsiHexBytes(session.session_id);
-            rawCsi.buffer = new Uint8Array(0);
+            const session = await client.request('start_raw_stream');
+            rawCsi.parser = new window.ESPectreRawCsiV2Parser(session.session_id);
             rawCsiResetVisualization();
             const controller = new AbortController();
             rawCsi.controller = controller;
@@ -6180,7 +6183,7 @@
                 targetAddressSpace: 'local'
             });
             if (!response.ok || !response.body) throw new Error(`Raw stream returned HTTP ${response.status}.`);
-            rawCsiStatus(`Streaming at ${targetPps} target packets/s.`);
+            rawCsiStatus('Streaming every classified CSI frame received from the configured traffic generator.');
             const reader = response.body.getReader();
             while (!controller.signal.aborted) {
                 const { value, done } = await reader.read();

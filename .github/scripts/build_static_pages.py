@@ -197,7 +197,7 @@ PAGES = (
         "output": "sdk/examples",
         "title": "Examples | ESPectre",
         "description": (
-            "Choose among the maintained ESPHome, Native, Matter, and Streamer "
+            "Choose among the maintained ESPHome, Native, and Matter "
             "frontends when embedding ESPectre in a product."
         ),
         "parent_href": "/sdk/",

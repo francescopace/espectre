@@ -1,6 +1,6 @@
 # Analysis And Benchmark Tools
 
-This directory contains host-side Python tools for CSI inspection, dataset validation, detector research, model training, and firmware benchmarking. It is written for contributors who already understand the basic ESPectre workflow; start with [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md) if you need to collect data, or [ALGORITHMS.md](../docs/ALGORITHMS.md) if you need the detector concepts first.
+This directory contains host-side Python tools for CSI inspection, dataset validation, detector research, model training, firmware benchmarking, and local firmware-manifest generation. It is written for contributors who already understand the basic ESPectre workflow; start with [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md) if you need to collect data, or [ALGORITHMS.md](../docs/ALGORITHMS.md) if you need the detector concepts first.
 
 Run commands from the repository root through the project virtual environment. Use `python tools/<tool>.py --help` for the complete and current option reference; this README explains which tool to choose and the safe mainline workflows.
 
@@ -38,6 +38,7 @@ The tools support the original ESP32, ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3
 | `train_ml_model.py` | train, evaluate, and conditionally export the production ML model |
 | `generate_performance_report.py` | regenerate the aggregate detector performance report and run its parity checks |
 | `benchmark_firmware.py` | build, flash, monitor, and report representative live firmware cases |
+| `generate_firmware_manifest.py` | generate the website firmware manifest from locally built factory images |
 | `analyze_seed_dispersion.py` | measure replay-metric variation across training seeds |
 | `compare_reserved_selection.py` | compare one candidate on reserved selection roles with an explicit seed |
 | `benchmark_subcarrier_aggregation.py` | evaluate adjacent-subcarrier aggregation as a host-side experiment |
@@ -139,6 +140,17 @@ The command writes a partial report when a case fails and returns success only w
 Expected sample counts tolerate one sample at the scored-window boundary. Direct cadence uses host-monotonic receive times and device uptime; Micro-ESPectre continues to use its device timestamps. Recovered Micro serial framing anomalies remain visible in the report but do not fail an otherwise continuous runtime window; any real gap over the cadence tolerance still fails the case.
 
 When `--update` or `--resume` preserves cases from an existing report, the report header identifies the updating run, not the provenance of every preserved case. Use that run's structured artifacts for the exact revision, duration, and raw evidence of each case that was actually executed.
+
+## Firmware Manifest
+
+`generate_firmware_manifest.py` writes `docs/web/artifacts/firmware/<channel>/firmware-manifest-<channel>.json` from canonical local Native and Matter `build-<chip>` factory images, plus any available ESPHome `firmware.factory.bin`. It merges ESP-IDF flash layouts with `esptool merge-bin`, keeps previously staged factory images that were not rebuilt, and defaults to the `release` channel used by a local website preview. Official Pages deployments continue to stage published GitHub Release assets through CI; this helper is only for local flashing against firmware already built on the machine.
+
+```bash
+python tools/generate_firmware_manifest.py
+python tools/generate_firmware_manifest.py --chip c3 --chip s3 --chip c5
+python tools/generate_firmware_manifest.py --frontend native --replace
+python tools/generate_firmware_manifest.py --dry-run
+```
 
 ## Research-Only Detector Experiments
 
