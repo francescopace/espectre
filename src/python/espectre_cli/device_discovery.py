@@ -22,7 +22,9 @@ except ImportError:  # pragma: no cover - exercised via CLI integration tests
 
 
 ESPECTRE_SERVICE_TYPE = "_espectre._tcp.local."
-SUPPORTED_DISCOVERY_FRONTENDS = ("native", "streamer", "esphome", "matter")
+# Low 16 bits of U+1F47B GHOST (0xF47B), the ESPectre service marker.
+ESPECTRE_DIRECT_PORT = 62587
+SUPPORTED_DISCOVERY_FRONTENDS = ("native", "esphome", "matter")
 DISCOVERY_TIMEOUT_S = 2.5
 DISCOVERY_QUIET_WINDOW_S = 0.35
 # Collect uses the same fresh PTR browse as the generic devices command.
@@ -54,10 +56,8 @@ class DiscoveredDevice:
 
     @property
     def target_port(self) -> int:
-        """Return the Streamer pacing port, not the Direct HTTP port."""
-        if self.frontend != "streamer":
-            return self.port
-        return _parse_optional_port(dict(self.metadata).get("traffic_port")) or self.port
+        """Return the Direct HTTP port."""
+        return self.port
 
     def as_serializable_dict(self) -> dict[str, object]:
         data = asdict(self)
@@ -138,16 +138,9 @@ def _parse_record(service_type: str, service_name: str, info) -> DiscoveredDevic
 
     device_id, device_id_text = parsed_device_id
     authority = addresses[0] if port == 80 else f"{addresses[0]}:{port}"
-    traffic_port = _parse_optional_port(_decode_txt(info.properties, "traffic_port"))
-    if frontend == "streamer" and traffic_port is None:
-        return None
     capabilities_text = _decode_txt(info.properties, "capabilities") or ""
     capabilities = tuple(value.strip() for value in capabilities_text.split(",") if value.strip())
-    metadata = tuple(
-        (key, str(value))
-        for key, value in (("traffic_port", traffic_port),)
-        if value is not None
-    )
+    metadata = ()
     return DiscoveredDevice(
         service_name=service_name,
         service_type=service_type,

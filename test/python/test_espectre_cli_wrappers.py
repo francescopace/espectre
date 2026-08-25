@@ -190,7 +190,6 @@ def test_resolve_idf_target_returns_app_dir_and_target() -> None:
 def test_esp32_s2_is_supported_without_claiming_matter() -> None:
     assert targets.resolve_esphome_config("s2", False, None).name == "espectre-s2.yaml"
     assert targets.resolve_idf_target("native", "s2")[1] == "esp32s2"
-    assert targets.resolve_idf_target("streamer", "s2")[1] == "esp32s2"
     with pytest.raises(ValueError, match="Unsupported matter target: s2"):
         targets.resolve_idf_target("matter", "s2")
 
@@ -586,7 +585,7 @@ def test_run_idf_command_build_uses_target_specific_defaults_when_present(monkey
     monkeypatch.setattr(idf, "resolve_idf_environment", lambda: env)
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append((cmd, Path(cwd))))
 
-    idf.run_idf_command("streamer", argparse.Namespace(chip="esp32", idf_command="build", port=None, clean=False))
+    idf.run_idf_command("native", argparse.Namespace(chip="esp32", idf_command="build", port=None, clean=False))
 
     assert calls == [
         (
@@ -621,7 +620,7 @@ def test_run_idf_command_build_cleans_generated_artifacts_when_requested(monkeyp
     monkeypatch.setattr(idf, "resolve_idf_environment", lambda: env)
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append((cmd, Path(cwd))))
 
-    idf.run_idf_command("streamer", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=True))
+    idf.run_idf_command("native", argparse.Namespace(chip="c3", idf_command="build", port=None, clean=True))
 
     assert not build_dir.exists()
     assert legacy_build_dir.exists()
@@ -717,7 +716,7 @@ def test_run_idf_command_build_clean_all_removes_all_builds_and_shared_artifacts
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append((cmd, Path(cwd))))
 
     idf.run_idf_command(
-        "streamer",
+        "native",
         argparse.Namespace(chip="c3", idf_command="build", port=None, clean=False, clean_all=True),
     )
 
@@ -869,7 +868,7 @@ def test_run_idf_command_flash_prefers_connected_chip_build_dir(monkeypatch, tmp
 
     monkeypatch.setitem(
         idf.IDF_FRONTENDS,
-        "streamer",
+        "native",
         {"app_dir": app_dir, "targets": {"c6": "esp32c6", "s3": "esp32s3"}},
     )
     monkeypatch.setattr(idf, "get_serial_port", lambda port: port or "/dev/cu.auto")
@@ -882,7 +881,7 @@ def test_run_idf_command_flash_prefers_connected_chip_build_dir(monkeypatch, tmp
     )
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append(cmd))
 
-    idf.run_idf_command("streamer", argparse.Namespace(idf_command="flash", port=None))
+    idf.run_idf_command("native", argparse.Namespace(idf_command="flash", port=None))
 
     assert calls == [["idf.py", "-B", "build-esp32s3", "-p", "/dev/cu.auto", "flash"]]
 
@@ -1079,9 +1078,9 @@ def test_build_parser_accepts_doctor() -> None:
 def test_idf_build_parser_accepts_clean_flag() -> None:
     parser = app.build_parser()
 
-    args = parser.parse_args(["streamer", "build", "--chip", "c6", "--clean"])
+    args = parser.parse_args(["native", "build", "--chip", "c6", "--clean"])
 
-    assert args.namespace == "streamer"
+    assert args.namespace == "native"
     assert args.idf_command == "build"
     assert args.chip == "c6"
     assert args.clean is True
@@ -1170,9 +1169,9 @@ def test_idf_build_parser_defaults_to_automatic_backend() -> None:
 def test_idf_build_parser_accepts_clean_all_flag() -> None:
     parser = app.build_parser()
 
-    args = parser.parse_args(["streamer", "build", "--chip", "c6", "--clean-all"])
+    args = parser.parse_args(["native", "build", "--chip", "c6", "--clean-all"])
 
-    assert args.namespace == "streamer"
+    assert args.namespace == "native"
     assert args.idf_command == "build"
     assert args.chip == "c6"
     assert args.clean_all is True

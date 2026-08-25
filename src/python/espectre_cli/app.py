@@ -77,36 +77,25 @@ def _add_collect_parser(
     )
     collect_parser.add_argument("--info", "-i", action="store_true", help="Show dataset statistics")
     collect_parser.add_argument(
-        "--transport",
-        choices=("udp", "http"),
-        default=None,
-        help="Explicit raw CSI transport; no automatic fallback is performed",
-    )
-    collect_parser.add_argument("--udp-port", type=int, default=5001, help="UDP port for CSI reception (default: 5001)")
-    collect_parser.add_argument("--bind-ip", default=None, help="Local IP/interface for UDP bind (default: auto-detect)")
-    collect_parser.add_argument(
-        "--list-devices",
-        action="store_true",
-        help="Browse Streamer devices via mDNS and exit without collecting",
-    )
-    collect_parser.add_argument(
         "--target",
         "-t",
         dest="target",
-        help="IPv4 unicast IP(s), or the joined multicast group 239.255.0.1; LAN broadcast does not produce CSI",
+        help="Direct IP, hostname, device ID, or full HTTP endpoint; omit to discover a raw-capable device",
     )
-    collect_parser.add_argument("--target-port", dest="target_port", type=int, default=9999, help="UDP port used by the target listener (default: 9999)")
+    collect_parser.add_argument(
+        "--frontend",
+        choices=("native", "esphome", "matter"),
+        help="Limit automatic discovery to one Direct frontend",
+    )
+    collect_parser.add_argument(
+        "--source-ip",
+        help="Optional local IPv4 source address for external UDP traffic",
+    )
     collect_parser.add_argument(
         "--pps",
         type=int,
         default=100,
-        help="Collector temporal target and detector slot cadence (default: 100)",
-    )
-    collect_parser.add_argument(
-        "--fixed",
-        dest="adaptive",
-        action="store_false",
-        help="Keep a constant UDP pacing rate and ignore TX backpressure slowdowns (still reports occupancy)",
+        help="External traffic rate and nominal dataset cadence (default: 100)",
     )
     collect_parser.add_argument(
         "--detector",
@@ -118,7 +107,7 @@ def _add_collect_parser(
     )
     collect_parser.add_argument("--contributor", "-c", help="GitHub username of the contributor")
     collect_parser.add_argument("--description", help="Description for the collected samples")
-    collect_parser.set_defaults(adaptive=True, handler=collect_csi_data)
+    collect_parser.set_defaults(handler=collect_csi_data)
     return collect_parser
 
 
@@ -368,7 +357,6 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {cli_command('devices', '--frontend', 'native')}",
             f"  {cli_command('provision', '--ssid', 'MyNetwork')}",
             f"  {cli_command('direct', 'status', '--frontend', 'native')}",
-            f"  {cli_command('collect', '--list-devices')}",
             f"  {cli_command('collect', '--target', '192.168.1.50')}",
             f"  {cli_command('collect', '--label', 'wave', '--duration', '45', '--target', '192.168.1.50')}",
             f"  {cli_command('collect', '--label', 'wave', '--duration', '45', '--start-delay', '15', '--target', '192.168.1.50')}",
@@ -382,9 +370,6 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {cli_command('esphome', 'monitor', '--chip', 'c3', '--device', serial_port_example())}",
             f"  {cli_command('native', 'build', '--chip', 'c3')}",
             f"  {cli_command('matter', 'build', '--chip', 'c3')}",
-            f"  {cli_command('streamer', 'build', '--chip', 'c3', '--clean')}",
-            f"  {cli_command('streamer', 'build', '--chip', 'c3', '--clean-all')}",
-            f"  {cli_command('streamer', 'flash', '--port', serial_port_example())}",
         ]
     )
     parser = argparse.ArgumentParser(
@@ -406,7 +391,6 @@ def build_parser() -> argparse.ArgumentParser:
     _add_esphome_namespace(subparsers)
     _add_idf_namespace(subparsers, "native")
     _add_idf_namespace(subparsers, "matter")
-    _add_idf_namespace(subparsers, "streamer")
     return parser
 
 

@@ -10,20 +10,21 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 
 from __future__ import annotations
 
-import ipaddress
 import inspect
 import signal
+import socket
 import sys
 import time
+from urllib.parse import urlsplit, urlunsplit
 
 from .common import Fore, Style, cli_command, print_box_banner
 from .device_discovery import (
     COLLECT_DISCOVERY_QUIET_WINDOW_S,
     DeviceDiscoveryError,
     DiscoveredDevice,
+    ESPECTRE_DIRECT_PORT,
     choose_device_interactively,
     discover_devices,
-    print_device_list,
 )
 
 
@@ -33,53 +34,73 @@ def _format_expected_device_id(device_id: int | None) -> str:
     return f"{int(device_id):016x}"
 
 
-def _discover_streamer_devices_or_exit() -> list[DiscoveredDevice]:
+def _discover_collect_devices_or_exit(frontend: str | None = None) -> list[DiscoveredDevice]:
     try:
-        return discover_devices(
-            frontend="streamer",
+        records = discover_devices(
+            frontend=frontend,
             quiet_window_s=COLLECT_DISCOVERY_QUIET_WINDOW_S,
         )
     except DeviceDiscoveryError as exc:
         print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
         raise SystemExit(1)
-
-
-def _list_streamer_devices(args) -> None:
-    if getattr(args, "target", None):
-        print(f"{Fore.RED}❌ --list-devices cannot be combined with --target{Style.RESET_ALL}")
-        raise SystemExit(1)
-    records = _discover_streamer_devices_or_exit()
-    if not records:
-        print()
-        print(f"{Fore.YELLOW}No Streamer devices discovered via mDNS.{Style.RESET_ALL}")
-        return
-    print_device_list(records, heading="Discovered Streamer devices")
+    return [record for record in records if "raw_csi" in record.capabilities]
 
 
 def _resolve_collect_target_via_discovery(args) -> None:
-    if getattr(args, "target", None):
+    target = str(getattr(args, "target", "") or "").strip()
+    frontend = getattr(args, "frontend", None)
+    normalized_id = target.lower().removeprefix("0x")
+    target_is_device_id = len(normalized_id) == 16 and all(char in "0123456789abcdef" for char in normalized_id)
+    if target and not target_is_device_id:
+        endpoint = target if "://" in target else f"http://{target}"
+        parsed = urlsplit(endpoint)
+        if parsed.scheme != "http" or not parsed.hostname:
+            print(f"{Fore.RED}❌ Invalid Direct target: {target}{Style.RESET_ALL}")
+            raise SystemExit(1)
+        try:
+            resolved_ip = socket.gethostbyname(parsed.hostname)
+        except OSError as exc:
+            print(f"{Fore.RED}❌ Cannot resolve Direct target {parsed.hostname}: {exc}{Style.RESET_ALL}")
+            raise SystemExit(1)
+        discovered_match = None
+        if parsed.port is None:
+            try:
+                candidates = discover_devices(
+                    frontend=frontend,
+                    quiet_window_s=COLLECT_DISCOVERY_QUIET_WINDOW_S,
+                )
+            except DeviceDiscoveryError:
+                candidates = []
+            raw_candidates = [
+                record for record in candidates
+                if "raw_csi" in record.capabilities and record.ip_address == resolved_ip
+            ]
+            if len(raw_candidates) == 1:
+                discovered_match = raw_candidates[0]
+        if discovered_match is not None:
+            args.direct_endpoint = discovered_match.endpoint
+            args.traffic_target = discovered_match.ip_address
+            args.expected_discovery_device_id = discovered_match.device_id
+            args.expected_discovery_device_id_text = discovered_match.device_id_text
+            args.target_frontend = discovered_match.frontend
+            return
+        port = parsed.port or ESPECTRE_DIRECT_PORT
+        authority = parsed.hostname if port == 80 else f"{parsed.hostname}:{port}"
+        args.direct_endpoint = urlunsplit(("http", authority, "/espectre/v1/request", "", ""))
+        args.traffic_target = resolved_ip
         args.expected_discovery_device_id = None
+        args.target_frontend = frontend or "unknown"
         return
 
-    transport = str(getattr(args, "transport", "udp") or "udp")
-    frontend = "native" if transport == "http" else "streamer"
-    if frontend == "streamer":
-        records = _discover_streamer_devices_or_exit()
-    else:
-        try:
-            records = discover_devices(
-                frontend=frontend,
-                quiet_window_s=COLLECT_DISCOVERY_QUIET_WINDOW_S,
-            )
-        except DeviceDiscoveryError as exc:
-            print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
-            raise SystemExit(1)
-    frontend_label = "Native" if frontend == "native" else "Streamer"
+    records = _discover_collect_devices_or_exit(frontend)
+    if target_is_device_id:
+        records = [record for record in records if record.device_id_text == normalized_id]
+    frontend_label = frontend.capitalize() if frontend else "raw-capable Direct"
     if not records:
         print(f"{Fore.RED}❌ No {frontend_label} devices discovered via mDNS.{Style.RESET_ALL}")
         print(
-            f"{Fore.YELLOW}Use --target <ip> for deterministic collection, "
-            f"or verify that the {frontend_label} firmware is online on the same LAN.{Style.RESET_ALL}"
+            f"{Fore.YELLOW}Use --target <ip|hostname|device-id|endpoint> for deterministic collection, "
+            f"or verify that the firmware is online on the same LAN.{Style.RESET_ALL}"
         )
         raise SystemExit(1)
 
@@ -101,47 +122,11 @@ def _resolve_collect_target_via_discovery(args) -> None:
         )
 
     args.target = selected.ip_address
-    args.target_port = selected.target_port
+    args.direct_endpoint = selected.endpoint
+    args.traffic_target = selected.ip_address
+    args.target_frontend = selected.frontend
     args.expected_discovery_device_id = selected.device_id
     args.expected_discovery_device_id_text = selected.device_id_text
-
-
-def _parse_targets(targets: str) -> tuple[list[str], str]:
-    """Validate one or more comma-separated IPv4 destinations."""
-    parsed_targets: list[str] = []
-    mode_counts = {"unicast": 0, "broadcast": 0, "multicast": 0}
-    for raw_target in str(targets).split(","):
-        target = raw_target.strip()
-        if not target:
-            continue
-        try:
-            target_ip = ipaddress.ip_address(target)
-        except ValueError as exc:
-            raise ValueError(f"invalid target: {target}") from exc
-        if target_ip.version != 4:
-            raise ValueError(f"target must be an IPv4 address: {target}")
-        normalized_target = str(target_ip)
-        parsed_targets.append(normalized_target)
-        if target_ip.is_multicast:
-            mode_counts["multicast"] += 1
-        elif int(target_ip) == 0xFFFFFFFF or normalized_target.endswith(".255"):
-            mode_counts["broadcast"] += 1
-        else:
-            mode_counts["unicast"] += 1
-
-    if not parsed_targets:
-        raise ValueError("target required. Use --target <ip[,ip,...]>")
-
-    unique_targets = list(dict.fromkeys(parsed_targets))
-    if mode_counts["multicast"]:
-        mode = "multicast"
-    elif mode_counts["broadcast"]:
-        mode = "broadcast"
-    elif len(unique_targets) > 1:
-        mode = "multi-unicast"
-    else:
-        mode = "unicast"
-    return unique_targets, mode
 
 
 def _wait_before_collection(delay_seconds: float) -> None:
@@ -158,6 +143,49 @@ def _wait_before_collection(delay_seconds: float) -> None:
         remaining = max(0.0, remaining - sleep_for)
     print(f"  {Fore.GREEN}  Starting now.{Style.RESET_ALL}")
     print()
+
+
+def _prepare_raw_http_collection(args, direct_client_cls, receiver_cls, generator_cls):
+    """Persist external traffic mode and construct the unpaced HTTP data plane."""
+    direct_endpoint = str(args.direct_endpoint)
+    traffic_target = str(args.traffic_target)
+    requested_pps = float(args.pps)
+    if requested_pps <= 0:
+        raise ValueError(f"external traffic rate must be > 0 pps, got {requested_pps:g}")
+    with direct_client_cls(direct_endpoint) as control:
+        capabilities = control.request("capabilities")
+        raw_capability = capabilities.get("raw_csi", {})
+        if not isinstance(raw_capability, dict) or raw_capability.get("protocol_version") != 2:
+            raise RuntimeError("target does not advertise raw HTTP v2")
+        if raw_capability.get("traffic_marker") != generator_cls.TRAFFIC_MARKER:
+            raise RuntimeError("target does not advertise the canonical external traffic marker")
+        control.request("set_csi_traffic_mode", {"csi_traffic_mode": "external"})
+        device_config = control.request("config")
+    runtime_config = device_config.get("runtime", {}) if isinstance(device_config, dict) else {}
+    if not isinstance(runtime_config, dict) or runtime_config.get("csi_traffic_mode") != "external":
+        raise RuntimeError("device did not persist external CSI traffic mode")
+    traffic_port = int(raw_capability.get("traffic_udp_port", runtime_config.get("csi_traffic_udp_port", 5555)))
+    receiver = receiver_cls(direct_endpoint, buffer_size=4000, derive_complex=False)
+    receiver.requested_pps = requested_pps
+    generator = generator_cls(
+        [traffic_target],
+        port=traffic_port,
+        rate_pps=requested_pps,
+        source_ip=getattr(args, "source_ip", None),
+    )
+    return receiver, generator, traffic_port
+
+
+def _start_raw_http_collection(receiver, traffic_generator) -> None:
+    """Create the raw session, start external traffic, and bind its HTTP stream."""
+    try:
+        receiver.start_session()
+        traffic_generator.start()
+        receiver.bind_stream()
+    except Exception:
+        traffic_generator.stop()
+        receiver.stop()
+        raise
 
 
 def _post_collect_quality_issue_sort_key(result) -> tuple[int, str]:
@@ -238,7 +266,7 @@ def _print_dataset_catalog_stats(stats) -> None:
         print(f"  {Fore.YELLOW}No samples collected yet.{Style.RESET_ALL}")
         print()
         print(f"  {Fore.CYAN}To collect data:{Style.RESET_ALL}")
-        print("    1. Run the streamer firmware on the device")
+        print("    1. Run a raw-capable Native, ESPHome, or Matter firmware on the device")
         print(f"    2. Collect samples: {cli_command('collect', '--label', 'wave', '--duration', '45', '--target', '192.168.1.50')}")
         print()
         return
@@ -313,15 +341,9 @@ def collect_csi_data(args) -> None:
         print(f"{Fore.RED}❌ Ready gate seconds must be >= 0{Style.RESET_ALL}")
         raise SystemExit(1)
     args.ready_stable_seconds = ready_stable_seconds
-    if getattr(args, "list_devices", False):
-        _list_streamer_devices(args)
-        return
     if getattr(args, "info", False):
         _show_dataset_info()
         return
-    if hasattr(args, "transport") and args.transport is None:
-        print(f"{Fore.RED}❌ --transport udp|http is required; no automatic fallback is performed{Style.RESET_ALL}")
-        raise SystemExit(1)
     _resolve_collect_target_via_discovery(args)
     _run_live_collect(args)
 
@@ -330,12 +352,11 @@ def _run_live_collect(args) -> None:
     """Run the host-side live collect pipeline."""
     try:
         from tools.lib.csi_io import (
-            AdaptivePacingController,
             CSICollector,
-            CSIReceiver,
-            UdpPacingSender,
-            get_default_bind_host,
+            DirectRawCSIReceiver,
         )
+        from tools.espectre_traffic_generator import ExternalTrafficGenerator
+        from .device_transport import DirectClient
         from tools.lib.temporal_replay import TemporalReplayController
         import config
         from console_output import format_calibration_status_line, format_detection_publish_line
@@ -367,12 +388,11 @@ def _run_live_collect(args) -> None:
     except ImportError:
         try:
             from tools.lib.csi_io import (
-                AdaptivePacingController,
                 CSICollector,
-                CSIReceiver,
-                UdpPacingSender,
-                get_default_bind_host,
+                DirectRawCSIReceiver,
             )
+            from tools.espectre_traffic_generator import ExternalTrafficGenerator
+            from .device_transport import DirectClient
             from tools.lib.temporal_replay import TemporalReplayController
             import src.config as config
             from src.console_output import format_calibration_status_line, format_detection_publish_line
@@ -442,13 +462,12 @@ def _run_live_collect(args) -> None:
         print(f"{Fore.RED}❌ Target required. Use --target <ip[,ip,...]> or discovery.{Style.RESET_ALL}")
         raise SystemExit(1)
 
-    initial_pacing_pps = float(args.pps)
-    adaptive_enabled = bool(getattr(args, "adaptive", True))
+    requested_pps = float(args.pps)
     configured_window_ms = max(
         1,
         int(getattr(config, "SEGMENTATION_WINDOW_SIZE_MS", 1000)),
     )
-    target_pps = max(1, int(round(initial_pacing_pps)))
+    target_pps = max(1, int(round(requested_pps)))
     initial_nominal_interval_us = nominal_packet_interval_us(target_pps)
     initial_window_packets = temporal_window_slots(target_pps, configured_window_ms)
     initial_minimum_valid_slots = minimum_valid_slots(initial_window_packets)
@@ -529,31 +548,26 @@ def _run_live_collect(args) -> None:
         chip_label = str(device_state.get("chip") or "unknown").upper()
         return f"ip={source_ip} chip={chip_label}"
 
-    def format_pacing_text():
-        if not adaptive_enabled:
-            return ""
-        return f" | pace:{adaptive_pacing.current_pps:.0f}pps({adaptive_pacing.last_action})"
-
     def format_backpressure_text(device_state):
-        total = device_state.get("tx_backpressure_total")
+        total = device_state.get("transport_backpressure_total")
         if total is None:
-            return " | bp:--" + format_pacing_text()
-        recent_delta = int(device_state.get("tx_backpressure_last_delta", 0) or 0)
+            return " | bp:--"
+        recent_delta = int(device_state.get("transport_backpressure_last_delta", 0) or 0)
         if recent_delta > 0:
-            return f" | bp:active(+{recent_delta})" + format_pacing_text()
-        return " | bp:no" + format_pacing_text()
+            return f" | bp:active(+{recent_delta})"
+        return " | bp:no"
 
     def format_transport_text(device_state):
         packet_count = int(device_state.get("packet_count", 0) or 0)
         dropped_count = int(device_state.get("dropped_count", 0) or 0)
         total_expected = max(packet_count + dropped_count, 1)
         drop_rate = (float(dropped_count) / float(total_expected)) * 100.0
-        return f" | {transport}:{int(device_state.get('pps', 0) or 0)} drop:{drop_rate:.1f}%"
+        return f" | http:{int(device_state.get('pps', 0) or 0)} drop:{drop_rate:.1f}%"
 
     def build_device_diagnostics_snapshot(device_state):
         sampler = device_state["temporal_controller"].sampler
         return {
-            "traffic_packets_total": int(device_state.get("pacing_rx_total", 0) or 0),
+            "traffic_packets_total": int(device_state.get("fresh_record_total", 0) or 0),
             "csi_callbacks_total": int(device_state.get("packet_count", 0) or 0),
             "csi_accepted_total": int(device_state.get("packet_count", 0) or 0),
             "csi_admitted_total": int(getattr(sampler, "accepted_packets", 0) or 0),
@@ -756,15 +770,9 @@ def _run_live_collect(args) -> None:
             "pps_window_started_at": None,
             "pps_window_packets": 0,
             "last_publish_at": None,
-            "tx_backpressure_total": None,
-            "tx_backpressure_window_delta": 0,
-            "tx_backpressure_last_delta": 0,
-            "stream_fresh_total": None,
-            "stream_fresh_window_delta": 0,
-            "stream_fresh_last_delta": 0,
-            "pacing_rx_total": None,
-            "pacing_rx_window_delta": 0,
-            "pacing_rx_last_delta": 0,
+            "transport_backpressure_total": None,
+            "transport_backpressure_last_delta": 0,
+            "fresh_record_total": None,
             "nominal_interval_us": initial_nominal_interval_us,
             "window_packets": initial_window_packets,
             "calibration_target_packets": calibration_target_packets,
@@ -807,12 +815,15 @@ def _run_live_collect(args) -> None:
         rssi_dbm = getattr(pkt, "rssi_dbm", None)
         if rssi_dbm is not None:
             device_state["rssi_dbm"] = int(rssi_dbm)
-        adaptive_pacing.observe_device(
-            device_state,
-            getattr(pkt, "tx_backpressure_total", None),
-            getattr(pkt, "stream_fresh_total", None),
-            getattr(pkt, "pacing_rx_total", None),
-        )
+        transport_backpressure = getattr(pkt, "transport_backpressure_total", None)
+        if transport_backpressure is not None:
+            previous = device_state.get("transport_backpressure_total")
+            device_state["transport_backpressure_total"] = int(transport_backpressure)
+            if previous is not None:
+                device_state["transport_backpressure_last_delta"] = max(0, int(transport_backpressure) - int(previous))
+        fresh_record_total = getattr(pkt, "fresh_record_total", None)
+        if fresh_record_total is not None:
+            device_state["fresh_record_total"] = int(fresh_record_total)
         device_state["label"] = format_device_label(device_state)
         return device_state
 
@@ -1178,68 +1189,29 @@ def _run_live_collect(args) -> None:
             inline=state["summary_use_inline"],
         )
 
-    try:
-        targets, target_mode = _parse_targets(args.target)
-    except ValueError as e:
-        print(f"{Fore.RED}❌ {e}{Style.RESET_ALL}")
-        raise SystemExit(1)
-
-    transport = str(getattr(args, "transport", "udp"))
-    if transport == "http" and (target_mode != "unicast" or len(targets) != 1):
-        print(f"{Fore.RED}❌ HTTP raw collection requires exactly one unicast target{Style.RESET_ALL}")
-        raise SystemExit(1)
-    if transport == "http":
-        adaptive_enabled = False
-
-    resolved_bind_ip = args.bind_ip if args.bind_ip else get_default_bind_host()
+    direct_endpoint = str(args.direct_endpoint)
+    traffic_target = str(args.traffic_target)
+    targets = [traffic_target]
     subcarriers = list(config.DEFAULT_SUBCARRIERS)
-    if transport == "http":
-        from tools.lib.csi_io import DirectRawCSIReceiver
-
-        receiver = DirectRawCSIReceiver(
-            targets[0],
-            target_pps=int(args.pps),
-            buffer_size=4000,
-            derive_complex=False,
-        )
-    else:
-        receiver = CSIReceiver(
-            port=args.udp_port,
-            buffer_size=4000,
-            bind_host=resolved_bind_ip,
-            derive_complex=False,
-        )
-    pacing_pps = float(args.pps)
-    if pacing_pps <= 0:
-        print(f"{Fore.RED}❌ pacing rate must be > 0 pps, got {pacing_pps:g}{Style.RESET_ALL}")
+    requested_pps = float(args.pps)
+    try:
+        receiver, traffic_generator, traffic_port = _prepare_raw_http_collection(
+            args, DirectClient, DirectRawCSIReceiver, ExternalTrafficGenerator)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"{Fore.RED}❌ Cannot prepare Direct raw collection: {exc}{Style.RESET_ALL}")
         raise SystemExit(1)
-    pacing_sender = (
-        None
-        if transport == "http"
-        else UdpPacingSender(
-            target_host=targets,
-            target_port=args.target_port,
-            source_host=resolved_bind_ip,
-            interval_s=1.0 / pacing_pps,
-        )
-    )
-    adaptive_pacing = AdaptivePacingController(
-        initial_pps=pacing_pps,
-        enabled=adaptive_enabled and transport == "udp",
-        control_window_s=2.0,
-    )
     capture_writer = None
     if save_enabled:
         capture_writer = CSICollector(
             label=label,
-            port=args.udp_port,
+            port=0,
             contributor=getattr(args, "contributor", None),
             description=getattr(args, "description", None),
-            bind_host=resolved_bind_ip,
-            expected_device_count=len(targets),
+            bind_host="127.0.0.1",
+            expected_device_count=1,
             expected_source_hosts=targets,
             expected_device_id=expected_discovery_device_id,
-            target_pps=int(round(pacing_pps)),
+            target_pps=int(round(requested_pps)),
         )
 
     state = {
@@ -1257,13 +1229,12 @@ def _run_live_collect(args) -> None:
         "calibration_active": bool(calibrated_kinds),
         "device_id_mismatch": None,
     }
-    strict_source_filter = target_mode in {"unicast", "multi-unicast"}
+    strict_source_filter = True
     allowed_source_hosts = set(targets)
 
     def handle_sigint(_signum, _frame):
         state["interrupted"] = True
         state["running"] = False
-        receiver.stop()
 
     def on_packet(pkt):
         if not state["running"]:
@@ -1284,7 +1255,6 @@ def _run_live_collect(args) -> None:
                     "but the stream packet had no device_id metadata"
                 )
                 state["running"] = False
-                receiver.stop()
                 return
             if packet_device_id != int(expected_discovery_device_id):
                 state["device_id_mismatch"] = (
@@ -1293,7 +1263,6 @@ def _run_live_collect(args) -> None:
                     f"but received {_format_expected_device_id(packet_device_id)} from {getattr(pkt, 'source_ip', '?')}"
                 )
                 state["running"] = False
-                receiver.stop()
                 return
 
         state["packet_count"] += 1
@@ -1311,8 +1280,6 @@ def _run_live_collect(args) -> None:
             device_state["last_seq_num"] = int(seq_num)
         device_state["dropped_count"] += timing["missing_seq"]
         update_device_pps(device_state, now)
-        adaptive_pacing.maybe_adjust(state["devices"], now=now, pacing_sender=pacing_sender)
-
         if state["calibration_active"]:
             calibration_render_due = False
             if admitted:
@@ -1405,15 +1372,13 @@ def _run_live_collect(args) -> None:
     print()
     print_box_banner("Live CSI Collection")
     print()
-    target_suffix = f":{args.target_port} ({target_mode})" if transport == "udp" else " (HTTP Direct)"
-    print(f"  {Fore.CYAN}Target:{Style.RESET_ALL}    {', '.join(targets)}{target_suffix}")
+    print(f"  {Fore.CYAN}Target:{Style.RESET_ALL}    {direct_endpoint} (HTTP Direct)")
     if expected_discovery_device_id is not None:
         print(
             f"  {Fore.CYAN}Device ID:{Style.RESET_ALL} "
             f"{_format_expected_device_id(expected_discovery_device_id)} (from mDNS)"
         )
-    if transport == "udp":
-        print(f"  {Fore.CYAN}Bind IP:{Style.RESET_ALL}   {resolved_bind_ip}:{args.udp_port}")
+    print(f"  {Fore.CYAN}Traffic:{Style.RESET_ALL}   {traffic_target}:{traffic_port}")
     if start_delay > 0:
         print(f"  {Fore.CYAN}Start delay:{Style.RESET_ALL} {start_delay:.1f}s")
     print(
@@ -1429,8 +1394,7 @@ def _run_live_collect(args) -> None:
     if calibrated_kinds:
         print(f"  {Fore.CYAN}Threshold:{Style.RESET_ALL} automatic (after startup calibration)")
     print(
-        f"  {Fore.CYAN}Pps:{Style.RESET_ALL}       {pacing_pps:g}pps "
-        f"({'backpressure' if adaptive_enabled else 'fixed'})"
+        f"  {Fore.CYAN}Pps:{Style.RESET_ALL}       {requested_pps:g}pps external"
     )
     print(
         f"  {Fore.CYAN}Window:{Style.RESET_ALL}    {configured_window_ms} ms "
@@ -1454,10 +1418,7 @@ def _run_live_collect(args) -> None:
     else:
         print(f"  {Fore.CYAN}Save:{Style.RESET_ALL}      disabled")
     print()
-    if transport == "udp":
-        print(f"  {Fore.YELLOW}Make sure the ESPectre streamer firmware is listening on the configured target/port{Style.RESET_ALL}")
-    else:
-        print(f"  {Fore.YELLOW}Direct raw collection will stop sensing for this device only{Style.RESET_ALL}")
+    print(f"  {Fore.YELLOW}The external traffic mode is persisted on the device after collection{Style.RESET_ALL}")
     if calibrated_kinds:
         print(f"  {Fore.YELLOW}Please remain still during the startup calibration phase{Style.RESET_ALL}")
     print(f"  {Fore.YELLOW}Press Ctrl+C to stop{Style.RESET_ALL}")
@@ -1465,8 +1426,7 @@ def _run_live_collect(args) -> None:
 
     try:
         _wait_before_collection(start_delay)
-        if pacing_sender is not None:
-            pacing_sender.start()
+        _start_raw_http_collection(receiver, traffic_generator)
         while state["running"]:
             announce_socket_rcvbuf = state.get("socket_rcvbuf_reported") is not True
             run_kwargs = {"timeout": 1.0, "quiet": True}
@@ -1485,8 +1445,7 @@ def _run_live_collect(args) -> None:
         print(f"\n{Fore.RED}❌ Error during live collect: {e}{Style.RESET_ALL}")
         raise SystemExit(1)
     finally:
-        if pacing_sender is not None:
-            pacing_sender.stop()
+        traffic_generator.stop()
         receiver.stop()
         clear_status_block()
         if state["device_id_mismatch"] is not None:

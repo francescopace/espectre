@@ -21,9 +21,9 @@ Configuration:
   Edit TARGETS, PORT, RATE below. Unicast each device IP, or use the joined
   multicast group 239.255.0.1. Do not use x.x.x.255.
 
-Streamer collection should use ./espectre collect, not this script. The
-Streamer default pacing port is 9999, and several streamers can share the
-same multicast group 239.255.0.1.
+The ./espectre collect command imports the same ExternalTrafficGenerator
+class, persistently selects external mode on one raw-capable device, and
+uses --pps as this generator's intentional rate.
 
 Home Assistant integration:
   See src/cpp/frontend/esphome/README.md for external traffic mode.
@@ -40,6 +40,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -55,7 +56,7 @@ SENSING_IP_TOS = 46 << 2
 
 
 def next_send_deadline(previous_deadline, send_started, interval):
-    """Keep ordinary pacing phase without scheduling a catch-up packet."""
+    """Keep the requested send-rate phase without scheduling catch-up traffic."""
     if interval <= 0.0:
         return send_started
     if previous_deadline <= 0.0:
@@ -67,12 +68,124 @@ def next_send_deadline(previous_deadline, send_started, interval):
     return phase_deadline
 
 
-def configure_socket(sock):
-    """Configure low-latency unicast or local-link multicast pacing."""
+def configure_socket(sock, targets=None, source_ip=None):
+    """Configure low-latency unicast or local-link multicast delivery."""
+    targets = TARGETS if targets is None else list(targets)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_TOS, SENSING_IP_TOS)
-    if any(ipaddress.ip_address(target).is_multicast for target in TARGETS):
+    if any(ipaddress.ip_address(target).is_multicast for target in targets):
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
+    if source_ip:
+        sock.bind((source_ip, 0))
+
+
+class ExternalTrafficGenerator:
+    """Reusable external ESPectre UDP traffic generator."""
+
+    TRAFFIC_MARKER = '.'
+    PAYLOAD = b'.'
+
+    def __init__(self, targets, port=PORT, rate_pps=RATE, source_ip=None):
+        raw_targets = [targets] if isinstance(targets, str) else list(targets)
+        self.targets = []
+        for target in raw_targets:
+            address = ipaddress.ip_address(str(target).strip())
+            if address.version != 4:
+                raise ValueError("targets must be IPv4 addresses")
+            self.targets.append(str(address))
+        if not self.targets:
+            raise ValueError("at least one target is required")
+        if not 1 <= int(port) <= 65535:
+            raise ValueError("port must be in the 1-65535 range")
+        if float(rate_pps) <= 0:
+            raise ValueError("rate_pps must be greater than zero")
+        if source_ip is not None:
+            source = ipaddress.ip_address(str(source_ip).strip())
+            if source.version != 4:
+                raise ValueError("source_ip must be IPv4")
+            source_ip = str(source)
+        self.port = int(port)
+        self.rate_pps = float(rate_pps)
+        self.source_ip = source_ip
+        self.sent_packets = 0
+        self.send_errors = 0
+        self.sent_by_target = {target: 0 for target in self.targets}
+        self.errors_by_target = {target: 0 for target in self.targets}
+        self._socket = None
+        self._thread = None
+        self._stop_event = threading.Event()
+        self._lifecycle_lock = threading.RLock()
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, _exc_type, _exc, _traceback):
+        self.stop()
+
+    @property
+    def running(self):
+        with self._lifecycle_lock:
+            return self._thread is not None and self._thread.is_alive()
+
+    def start(self):
+        with self._lifecycle_lock:
+            if self._thread is not None and self._thread.is_alive():
+                return
+            self._stop_event.clear()
+            self._thread = threading.Thread(
+                target=self._run,
+                name="espectre-external-traffic",
+                daemon=True,
+            )
+            self._thread.start()
+
+    def stop(self):
+        with self._lifecycle_lock:
+            self._stop_event.set()
+            thread = self._thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=2.0)
+        with self._lifecycle_lock:
+            if self._thread is thread:
+                self._thread = None
+            if self._socket is not None:
+                self._socket.close()
+                self._socket = None
+
+    def run_forever(self):
+        """Run synchronously until ``stop`` is requested."""
+        self._stop_event.clear()
+        self._run()
+
+    def _run(self):
+        interval = 1.0 / self.rate_pps
+        next_time = 0.0
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        with self._lifecycle_lock:
+            self._socket = sock
+        try:
+            configure_socket(sock, self.targets, self.source_ip)
+            while not self._stop_event.is_set():
+                if next_time > 0.0:
+                    sleep_time = next_time - time.perf_counter()
+                    if sleep_time > 0 and self._stop_event.wait(sleep_time):
+                        break
+                send_started = time.perf_counter()
+                for target in self.targets:
+                    try:
+                        sock.sendto(self.PAYLOAD, (target, self.port))
+                        self.sent_packets += 1
+                        self.sent_by_target[target] += 1
+                    except OSError:
+                        self.send_errors += 1
+                        self.errors_by_target[target] += 1
+                next_time = next_send_deadline(next_time, send_started, interval)
+        finally:
+            sock.close()
+            with self._lifecycle_lock:
+                if self._socket is sock:
+                    self._socket = None
 
 
 def start():
@@ -168,26 +281,11 @@ def run_loop():
     signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
 
-    if RATE <= 0:
-        raise ValueError(f"RATE must be > 0, got {RATE}")
-    interval = 1.0 / RATE
-    next_time = 0.0
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
+    generator = ExternalTrafficGenerator(TARGETS, port=PORT, rate_pps=RATE)
     try:
-        configure_socket(s)
-        while True:
-            if next_time > 0.0:
-                sleep_time = next_time - time.perf_counter()
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-
-            send_started = time.perf_counter()
-            for ip in TARGETS:
-                s.sendto(b'.', (ip, PORT))
-            next_time = next_send_deadline(next_time, send_started, interval)
+        generator.run_forever()
     finally:
-        s.close()
+        generator.stop()
         if os.path.exists(PID_FILE):
             os.remove(PID_FILE)
 

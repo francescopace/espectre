@@ -19,6 +19,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
@@ -103,16 +104,18 @@ except ImportError:
         get_detector_startup_gate,
     )
 
-MAGIC_STREAM = 0x4353
-STREAM_VERSION_V7 = 7
-STREAM_VERSION_V8 = 8
-STREAM_VERSION = STREAM_VERSION_V7
-SUPPORTED_STREAM_VERSIONS = frozenset((STREAM_VERSION_V7, STREAM_VERSION_V8))
+RAW_CSI_RECORD_MAGIC = 0x4353
+RAW_CSI_RECORD_VERSION_V7 = 7
+RAW_CSI_RECORD_VERSION_V8 = 8
+RAW_CSI_RECORD_VERSION = RAW_CSI_RECORD_VERSION_V8
+SUPPORTED_RAW_CSI_RECORD_VERSIONS = frozenset((RAW_CSI_RECORD_VERSION_V7, RAW_CSI_RECORD_VERSION_V8))
 DEFAULT_PORT = 5001
-STREAM_FLAG_FIRST_WORD_INVALID = 1 << 0
-STREAM_FLAG_WIFI_RX_TS_VALID = 1 << 1
-STREAM_FLAG_WIFI_RX_START_TS_NS_VALID = 1 << 2
-STREAM_FLAG_CSI_FRESH = 1 << 3
+RAW_CSI_FLAG_FIRST_WORD_INVALID = 1 << 0
+RAW_CSI_FLAG_WIFI_RX_TS_VALID = 1 << 1
+RAW_CSI_FLAG_WIFI_RX_START_TS_NS_VALID = 1 << 2
+RAW_CSI_FLAG_FRESH = 1 << 3
+# Low 16 bits of U+1F47B GHOST (0xF47B), shared by all Direct frontends.
+DIRECT_HTTP_PORT = 62587
 # Firmware older than the capability-based noise-floor read reported this
 # sentinel on targets it did not cover. It is far below thermal noise for a
 # 20 MHz channel, so it can never be a genuine measurement.
@@ -121,20 +124,15 @@ CSI_HEADER_FORMAT = "<HBBBBIHHQQIQBbbQIIBBB"
 CSI_HEADER_STRUCT = struct.Struct(CSI_HEADER_FORMAT)
 MAX_STREAM_DATAGRAM_BYTES = 2048
 DEFAULT_SOCKET_RCVBUF_BYTES = 1024 * 1024
-DEFAULT_PACING_PORT = 9999
-DEFAULT_PACING_INTERVAL_SECONDS = 5.0
 RAW_CSI_PATH = "/espectre/v1/csi"
-RAW_CSI_PROTOCOL_VERSION = 1
+RAW_CSI_PROTOCOL_VERSION = 2
 RAW_CSI_RESPONSE_MAGIC = 0x52505345
-RAW_CSI_HTTP_FRAME_STRUCT = struct.Struct("<IBBH16sQHHQQQQQ")
-RAW_CSI_STATUS_FRESH = 0
-RAW_CSI_STATUS_NO_SAMPLE = 1
+RAW_CSI_HTTP_FRAME_STRUCT = struct.Struct("<IBBH16sQHHQQQ")
 
 
 def _valid_noise_floor(value: Optional[int]) -> Optional[int]:
     """Return the noise floor, or None when it carries the invalid sentinel."""
     return None if value is None or int(value) == NOISE_FLOOR_INVALID_DBM else int(value)
-DEFAULT_PACING_PAYLOAD = b"ESPE"
 SENSING_IP_TOS = 46 << 2
 
 CHIP_CODES = {
@@ -317,7 +315,7 @@ class CSIPacket:
     seq_num: int
     num_subcarriers: int
     iq_raw: np.ndarray
-    record_version: int = STREAM_VERSION_V7
+    record_version: int = RAW_CSI_RECORD_VERSION
     chip: str = "unknown"
     device_id: Optional[int] = None
     device_ticks_us: Optional[int] = None
@@ -326,9 +324,6 @@ class CSIPacket:
     channel: Optional[int] = None
     rssi_dbm: Optional[int] = None
     noise_floor_dbm: Optional[int] = None
-    tx_backpressure_total: Optional[int] = None
-    stream_fresh_total: Optional[int] = None
-    pacing_rx_total: Optional[int] = None
     transport_backpressure_total: Optional[int] = None
     fresh_record_total: Optional[int] = None
     request_accepted_total: Optional[int] = None
@@ -336,12 +331,19 @@ class CSIPacket:
     transport_target: Optional[str] = None
     effective_pps: Optional[float] = None
     raw_protocol_version: Optional[int] = None
+    raw_stream_sequence: Optional[int] = None
+    raw_final_stream_sequence: Optional[int] = None
+    raw_drop_total: Optional[int] = None
+    raw_send_backpressure_total: Optional[int] = None
+    requested_pps: Optional[float] = None
+    frontend: Optional[str] = None
+    firmware_version: Optional[str] = None
     firmware_identity: Optional[str] = None
     phy_mode: str = "unknown"
     ltf_type: str = "unknown"
     channel_width: str = "unknown"
     # False for older captures where the device could re-send its latest CSI
-    # sample. Current streamer firmware emits only fresh CSI records.
+    # sample. Current raw HTTP firmware emits only fresh CSI records.
     csi_fresh: bool = True
     source_ip: Optional[str] = None
     _iq_complex: Optional[np.ndarray] = None
@@ -409,7 +411,7 @@ def parse_csi_record(
         channel_width_code,
     ) = CSI_HEADER_STRUCT.unpack_from(data, offset)
 
-    if magic != MAGIC_STREAM or version not in SUPPORTED_STREAM_VERSIONS:
+    if magic != RAW_CSI_RECORD_MAGIC or version not in SUPPORTED_RAW_CSI_RECORD_VERSIONS:
         return None, offset
     if header_len < CSI_HEADER_STRUCT.size:
         return None, offset
@@ -441,27 +443,22 @@ def parse_csi_record(
         chip=CHIP_CODES.get(chip_code, "unknown"),
         device_id=device_id or None,
         device_ticks_us=device_ticks_us or None,
-        wifi_rx_ts_us=wifi_rx_ts_us if (flags & STREAM_FLAG_WIFI_RX_TS_VALID) else None,
+        wifi_rx_ts_us=wifi_rx_ts_us if (flags & RAW_CSI_FLAG_WIFI_RX_TS_VALID) else None,
         wifi_rx_start_ts_ns=(
             wifi_rx_start_ts_ns
-            if (flags & STREAM_FLAG_WIFI_RX_START_TS_NS_VALID)
+            if (flags & RAW_CSI_FLAG_WIFI_RX_START_TS_NS_VALID)
             else None
         ),
         channel=int(channel),
         rssi_dbm=int(rssi_dbm),
         noise_floor_dbm=_valid_noise_floor(int(noise_floor_dbm)),
-        # Keep the legacy attribute aliases populated while rollout code still
-        # feeds one detector and dataset pipeline from both transports.
-        tx_backpressure_total=int(transport_counter),
-        stream_fresh_total=int(fresh_counter),
-        pacing_rx_total=int(request_counter),
         transport_backpressure_total=int(transport_counter),
         fresh_record_total=int(fresh_counter),
         request_accepted_total=int(request_counter),
         phy_mode=PHY_MODE_CODES.get(phy_mode_code, "unknown"),
         ltf_type=LTF_TYPE_CODES.get(ltf_type_code, "unknown"),
         channel_width=CHANNEL_WIDTH_CODES.get(channel_width_code, "unknown"),
-        csi_fresh=bool(flags & STREAM_FLAG_CSI_FRESH),
+        csi_fresh=bool(flags & RAW_CSI_FLAG_FRESH),
         _iq_complex=iq_complex,
         _amplitudes=amplitudes,
         _phases=phases,
@@ -512,425 +509,6 @@ class PacketSequenceTracker:
 
     def reset(self) -> None:
         self._trackers.clear()
-
-
-def build_pacing_datagram(*, payload: bytes = DEFAULT_PACING_PAYLOAD) -> bytes:
-    """Build one UDP pacing datagram consumed by the streamer firmware."""
-    if not payload:
-        raise ValueError("payload cannot be empty")
-    return bytes(payload)
-
-
-def next_pacing_send_deadline(
-    previous_deadline: float,
-    send_started: float,
-    interval_s: float,
-) -> float:
-    """Keep ordinary pacing phase without scheduling a catch-up packet."""
-    if interval_s <= 0.0:
-        return send_started
-    if previous_deadline <= 0.0:
-        return send_started + interval_s
-
-    phase_deadline = previous_deadline + interval_s
-    if phase_deadline - send_started < interval_s / 2.0:
-        return send_started + interval_s
-    return phase_deadline
-
-
-class UdpPacingSender:
-    """Background UDP sender that refreshes the collector pacing path periodically."""
-
-    def __init__(
-        self,
-        target_host: str | Iterable[str],
-        target_port: int = DEFAULT_PACING_PORT,
-        source_host: Optional[str] = None,
-        interval_s: float = DEFAULT_PACING_INTERVAL_SECONDS,
-        payload: bytes = DEFAULT_PACING_PAYLOAD,
-    ):
-        if target_port <= 0 or target_port > 65535:
-            raise ValueError(f"invalid target_port: {target_port}")
-        if interval_s <= 0:
-            raise ValueError(f"interval_s must be > 0, got {interval_s}")
-        raw_targets = [target_host] if isinstance(target_host, str) else list(target_host)
-        self.target_hosts: List[str] = []
-        self.target_ips: List[ipaddress.IPv4Address] = []
-        for raw_target in raw_targets:
-            target = str(raw_target).strip()
-            if not target:
-                continue
-            try:
-                target_ip = ipaddress.ip_address(target)
-            except ValueError as exc:
-                raise ValueError(f"invalid target_host: {target}") from exc
-            if target_ip.version != 4:
-                raise ValueError(f"target_host must be an IPv4 address: {target}")
-            self.target_hosts.append(target)
-            self.target_ips.append(target_ip)
-        if not self.target_hosts:
-            raise ValueError("target_host cannot be empty")
-
-        self.target_port = int(target_port)
-        self.source_host = str(source_host).strip() if source_host is not None else ""
-        self.interval_s = float(interval_s)
-        self.payload = build_pacing_datagram(payload=payload)
-        if self.source_host:
-            try:
-                ipaddress.ip_address(self.source_host)
-            except ValueError as exc:
-                raise ValueError(f"invalid source_host: {self.source_host}") from exc
-        self.sent_packets = 0
-        self.sock: Optional[socket.socket] = None
-        self._thread: Optional[threading.Thread] = None
-        self._stop_event = threading.Event()
-        self._interval_lock = threading.Lock()
-
-    def start(self) -> None:
-        if self._thread is not None:
-            return
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_TOS, SENSING_IP_TOS)
-        if any(target_ip.is_multicast for target_ip in self.target_ips):
-            self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
-        if self.source_host:
-            self.sock.bind((self.source_host, 0))
-        self._stop_event.clear()
-        self._thread = threading.Thread(target=self._run, name="espectre-pacing", daemon=True)
-        self._thread.start()
-
-    def stop(self) -> None:
-        self._stop_event.set()
-        if self._thread is not None:
-            self._thread.join(timeout=1.0)
-            self._thread = None
-        if self.sock is not None:
-            self.sock.close()
-            self.sock = None
-
-    def set_rate_pps(self, rate_pps: float) -> None:
-        rate_value = float(rate_pps)
-        if rate_value <= 0:
-            raise ValueError(f"rate_pps must be > 0, got {rate_value}")
-        with self._interval_lock:
-            self.interval_s = 1.0 / rate_value
-
-    def get_rate_pps(self) -> float:
-        with self._interval_lock:
-            return 1.0 / self.interval_s
-
-    def _send_once(self) -> None:
-        try:
-            if self.sock is not None:
-                for target_host in self.target_hosts:
-                    self.sock.sendto(self.payload, (target_host, self.target_port))
-        except OSError:
-            pass
-        self.sent_packets += 1
-
-    def _run(self) -> None:
-        next_send_time = 0.0
-        while not self._stop_event.is_set():
-            if next_send_time > 0.0:
-                sleep_time = next_send_time - time.perf_counter()
-                if sleep_time > 0 and self._stop_event.wait(sleep_time):
-                    break
-            if self._stop_event.is_set():
-                break
-
-            send_started = time.perf_counter()
-            self._send_once()
-            with self._interval_lock:
-                interval_s = self.interval_s
-
-            # Stay phase-locked through ordinary wake-up jitter. If recovery
-            # would put the next packet less than half a period away, restart
-            # from this send instead of producing a close catch-up pair.
-            next_send_time = next_pacing_send_deadline(
-                next_send_time,
-                send_started,
-                interval_s,
-            )
-
-
-class AdaptivePacingController:
-    """Slow collector UDP pacing only on sustained firmware TX backpressure.
-
-    The configured ``--pps`` value stays the detector slot grid and the send
-    target. Occupancy and same-slot excess remain telemetry. When enabled,
-    significant device TX backpressure lowers pacing in spaced multiplicative
-    steps with a floor at 70% of the target, then recovers toward ``--pps``.
-    ``enabled=False`` (``--fixed``) keeps a constant send rate.
-    """
-
-    DEFAULT_RECEIVE_RATIO_EMA_ALPHA = 0.5
-    PACING_FLOOR_RATIO = 0.70
-    REDUCTION_RATIO = 0.85
-    BACKPRESSURE_RATIO = 0.05
-    MIN_BACKPRESSURE_EVENTS = 3
-
-    def __init__(
-        self,
-        *,
-        initial_pps: float,
-        enabled: bool = False,
-        min_pps: Optional[float] = None,
-        additive_step_pps: Optional[float] = None,
-        control_window_s: float = 1.0,
-        receive_ratio_ema_alpha: float = DEFAULT_RECEIVE_RATIO_EMA_ALPHA,
-    ):
-        initial_pps = float(initial_pps)
-        min_pps = max(5.0, min(initial_pps, 10.0)) if min_pps is None else max(0.1, float(min_pps))
-        additive_step_pps = (
-            max(1.0, initial_pps * 0.02) if additive_step_pps is None else max(0.1, float(additive_step_pps))
-        )
-        receive_ratio_ema_alpha = float(receive_ratio_ema_alpha)
-        if not 0.0 < receive_ratio_ema_alpha <= 1.0:
-            raise ValueError(f"receive_ratio_ema_alpha must be in the (0, 1] range, got {receive_ratio_ema_alpha}")
-        self.enabled = bool(enabled)
-        self.current_pps = initial_pps
-        self.target_pps = initial_pps
-        self.max_pps = initial_pps
-        self.min_pps = min_pps
-        self.additive_step_pps = additive_step_pps
-        self.control_window_s = max(0.1, float(control_window_s))
-        self.receive_ratio_ema_alpha = receive_ratio_ema_alpha
-        self.last_control_at: Optional[float] = None
-        self.backpressure_adjust_at: Optional[float] = None
-        self.last_window_backpressure_delta = 0
-        self.last_window_backpressure_source: Optional[str] = None
-        self.last_window_receive_ratio: Optional[float] = None
-        self.smoothed_receive_ratio: Optional[float] = None
-        self.last_window_fresh_ratio: Optional[float] = None
-        self.last_window_receive_pps: Optional[float] = None
-        self.last_window_admitted_pps: Optional[float] = None
-        self.last_window_excess_pps: Optional[float] = None
-        self.last_action = "hold"
-
-    def observe_device(
-        self,
-        device_state: Dict[str, Any],
-        tx_backpressure_total: Optional[int],
-        stream_fresh_total: Optional[int] = None,
-        pacing_rx_total: Optional[int] = None,
-    ) -> None:
-        if tx_backpressure_total is not None:
-            total = int(tx_backpressure_total)
-            previous_total = device_state.get("tx_backpressure_total")
-            if previous_total is not None and total >= previous_total:
-                device_state["tx_backpressure_window_delta"] = int(
-                    device_state.get("tx_backpressure_window_delta", 0) or 0
-                ) + (total - previous_total)
-            device_state["tx_backpressure_total"] = total
-
-        if stream_fresh_total is not None:
-            fresh_total = int(stream_fresh_total)
-            previous_fresh_total = device_state.get("stream_fresh_total")
-            if previous_fresh_total is not None and fresh_total >= previous_fresh_total:
-                device_state["stream_fresh_window_delta"] = int(device_state.get("stream_fresh_window_delta", 0) or 0) + (
-                    fresh_total - previous_fresh_total
-                )
-            device_state["stream_fresh_total"] = fresh_total
-
-        if pacing_rx_total is not None:
-            rx_total = int(pacing_rx_total)
-            previous_rx_total = device_state.get("pacing_rx_total")
-            if previous_rx_total is not None and rx_total >= previous_rx_total:
-                device_state["pacing_rx_window_delta"] = int(device_state.get("pacing_rx_window_delta", 0) or 0) + (
-                    rx_total - previous_rx_total
-                )
-            device_state["pacing_rx_total"] = rx_total
-
-    @staticmethod
-    def _occupancy_totals(device_state: Dict[str, Any]) -> Optional[Tuple[int, int]]:
-        sampler = None
-        temporal_controller = device_state.get("temporal_controller")
-        if temporal_controller is not None:
-            sampler = getattr(temporal_controller, "sampler", None)
-        if sampler is None:
-            detector = device_state.get("detector")
-            if detector is not None:
-                sampler = getattr(detector, "temporal_sampler", None)
-        if sampler is not None:
-            return (
-                int(getattr(sampler, "accepted_packets", 0) or 0),
-                int(getattr(sampler, "excess_packets", 0) or 0),
-            )
-        if "admitted_packets" not in device_state and "excess_packets" not in device_state:
-            return None
-        return (
-            int(device_state.get("admitted_packets", 0) or 0),
-            int(device_state.get("excess_packets", 0) or 0),
-        )
-
-    @staticmethod
-    def _baseline_occupancy(device_state: Dict[str, Any]) -> None:
-        occupancy_totals = AdaptivePacingController._occupancy_totals(device_state)
-        if occupancy_totals is None:
-            device_state.pop("adaptive_prev_admitted_total", None)
-            device_state.pop("adaptive_prev_excess_total", None)
-            return
-        device_state["adaptive_prev_admitted_total"] = occupancy_totals[0]
-        device_state["adaptive_prev_excess_total"] = occupancy_totals[1]
-
-    def _pacing_floor_pps(self) -> float:
-        return max(self.min_pps, self.target_pps * self.PACING_FLOOR_RATIO)
-
-    def _settling(self, now: float) -> bool:
-        settle_time_s = self.control_window_s * 3.0
-        return self.backpressure_adjust_at is not None and now - self.backpressure_adjust_at < settle_time_s
-
-    def _apply_pacing_rate(self, new_pps: float, *, action: str, pacing_sender: Any) -> None:
-        clamped_pps = max(self.min_pps, min(self.max_pps, float(new_pps)))
-        if abs(clamped_pps - self.current_pps) < 1e-9:
-            self.last_action = action
-            return
-        if pacing_sender is None or not hasattr(pacing_sender, "set_rate_pps"):
-            self.last_action = "hold"
-            return
-        pacing_sender.set_rate_pps(clamped_pps)
-        self.current_pps = clamped_pps
-        self.last_action = action
-
-    def maybe_adjust(self, device_states: Dict[Any, Dict[str, Any]], *, now: float, pacing_sender: Any = None) -> None:
-        if self.last_control_at is None:
-            self.last_control_at = now
-            for device_state in device_states.values():
-                device_state["adaptive_prev_packet_total"] = int(device_state.get("packet_count", 0) or 0)
-                self._baseline_occupancy(device_state)
-            return
-        elapsed_window_s = now - self.last_control_at
-        if elapsed_window_s < self.control_window_s:
-            return
-
-        worst_delta = 0
-        tracked_devices = 0
-        occupancy_seen = False
-        worst_sources: List[str] = []
-        target_packets = max(self.target_pps * elapsed_window_s, 1.0)
-        lowest_receive_ratio: Optional[float] = None
-        lowest_fresh_ratio: Optional[float] = None
-        lowest_receive_pps: Optional[float] = None
-        lowest_admitted_pps: Optional[float] = None
-        highest_excess_pps = 0.0
-        for device_state in device_states.values():
-            window_delta = int(device_state.get("tx_backpressure_window_delta", 0) or 0)
-            device_state["tx_backpressure_last_delta"] = window_delta
-            device_state["tx_backpressure_window_delta"] = 0
-
-            packet_total = int(device_state.get("packet_count", 0) or 0)
-            previous_packet_total = device_state.get("adaptive_prev_packet_total")
-            receive_delta = 0
-            if previous_packet_total is not None and packet_total >= int(previous_packet_total):
-                receive_delta = packet_total - int(previous_packet_total)
-            device_state["adaptive_prev_packet_total"] = packet_total
-            device_state["receive_window_last_delta"] = receive_delta
-            receive_pps = receive_delta / elapsed_window_s
-            if lowest_receive_pps is None or receive_pps < lowest_receive_pps:
-                lowest_receive_pps = receive_pps
-
-            occupancy_totals = self._occupancy_totals(device_state)
-            if occupancy_totals is None:
-                device_state.pop("adaptive_prev_admitted_total", None)
-                device_state.pop("adaptive_prev_excess_total", None)
-            else:
-                admitted_total, excess_total = occupancy_totals
-                previous_admitted_total = device_state.get("adaptive_prev_admitted_total")
-                previous_excess_total = device_state.get("adaptive_prev_excess_total")
-                admitted_delta = 0
-                excess_delta = 0
-                if previous_admitted_total is not None and admitted_total >= int(previous_admitted_total):
-                    admitted_delta = admitted_total - int(previous_admitted_total)
-                if previous_excess_total is not None and excess_total >= int(previous_excess_total):
-                    excess_delta = excess_total - int(previous_excess_total)
-                device_state["adaptive_prev_admitted_total"] = admitted_total
-                device_state["adaptive_prev_excess_total"] = excess_total
-                occupancy_seen = True
-                admitted_pps = admitted_delta / elapsed_window_s
-                excess_pps = excess_delta / elapsed_window_s
-                if lowest_admitted_pps is None or admitted_pps < lowest_admitted_pps:
-                    lowest_admitted_pps = admitted_pps
-                if excess_pps > highest_excess_pps:
-                    highest_excess_pps = excess_pps
-
-            fresh_delta = int(device_state.get("stream_fresh_window_delta", 0) or 0)
-            pacing_delta = int(device_state.get("pacing_rx_window_delta", 0) or 0)
-            device_state["stream_fresh_last_delta"] = fresh_delta
-            device_state["pacing_rx_last_delta"] = pacing_delta
-            device_state["stream_fresh_window_delta"] = 0
-            device_state["pacing_rx_window_delta"] = 0
-            tracked_devices += 1
-            if pacing_delta > 0:
-                fresh_ratio = min(1.0, fresh_delta / pacing_delta)
-                if lowest_fresh_ratio is None or fresh_ratio < lowest_fresh_ratio:
-                    lowest_fresh_ratio = fresh_ratio
-            if window_delta > worst_delta:
-                worst_delta = window_delta
-                worst_sources = [str(device_state.get("source_ip") or "?")]
-            elif window_delta > 0 and window_delta == worst_delta:
-                worst_sources.append(str(device_state.get("source_ip") or "?"))
-
-        self.last_control_at = now
-        self.last_window_backpressure_delta = worst_delta
-        self.last_window_backpressure_source = worst_sources[0] if worst_sources else None
-        self.last_window_receive_pps = lowest_receive_pps
-        self.last_window_admitted_pps = lowest_admitted_pps if occupancy_seen else None
-        self.last_window_excess_pps = highest_excess_pps if occupancy_seen else None
-        if tracked_devices > 0:
-            for device_state in device_states.values():
-                receive_delta = int(device_state.get("receive_window_last_delta", 0) or 0)
-                receive_ratio = receive_delta / target_packets
-                if lowest_receive_ratio is None or receive_ratio < lowest_receive_ratio:
-                    lowest_receive_ratio = receive_ratio
-        self.last_window_receive_ratio = lowest_receive_ratio
-        if lowest_receive_ratio is not None:
-            if self.smoothed_receive_ratio is None:
-                self.smoothed_receive_ratio = lowest_receive_ratio
-            else:
-                alpha = self.receive_ratio_ema_alpha
-                self.smoothed_receive_ratio = alpha * lowest_receive_ratio + (1.0 - alpha) * self.smoothed_receive_ratio
-        self.last_window_fresh_ratio = lowest_fresh_ratio
-        if tracked_devices == 0:
-            self.last_action = "hold"
-            return
-        if not self.enabled:
-            self.last_action = "hold"
-            return
-
-        backpressure_threshold = max(
-            self.MIN_BACKPRESSURE_EVENTS,
-            math.ceil(target_packets * self.BACKPRESSURE_RATIO),
-        )
-        significant_backpressure = worst_delta >= backpressure_threshold
-        if significant_backpressure:
-            if self._settling(now):
-                self.last_action = "backpressure_hold"
-                return
-            pacing_floor_pps = self._pacing_floor_pps()
-            if self.current_pps <= pacing_floor_pps:
-                self.last_action = "backpressure_floor"
-                self.backpressure_adjust_at = now
-                return
-            self._apply_pacing_rate(
-                max(pacing_floor_pps, self.current_pps * self.REDUCTION_RATIO),
-                action="slowdown",
-                pacing_sender=pacing_sender,
-            )
-            self.backpressure_adjust_at = now
-            return
-
-        if self.current_pps < self.target_pps:
-            if self._settling(now):
-                self.last_action = "recovery_hold"
-                return
-            self._apply_pacing_rate(
-                min(self.current_pps + self.additive_step_pps, self.target_pps),
-                action="speedup",
-                pacing_sender=pacing_sender,
-            )
-            return
-        self.last_action = "hold"
 
 
 class CSIReceiver:
@@ -1151,13 +729,12 @@ class CSIReceiver:
 
 
 class DirectRawCSIReceiver(CSIReceiver):
-    """Single-device Direct source backed by a paced HTTP binary stream."""
+    """Single-device Direct source backed by an unpaced HTTP binary stream."""
 
     def __init__(
         self,
         target_host: str,
         *,
-        target_pps: int = 100,
         buffer_size: int = 500,
         derive_complex: bool = True,
         origin: str = "https://test.espectre.dev",
@@ -1165,22 +742,26 @@ class DirectRawCSIReceiver(CSIReceiver):
         control_client_factory: Optional[Callable[..., Any]] = None,
         raw_connection_factory: Optional[Callable[..., Any]] = None,
     ) -> None:
-        try:
-            address = ipaddress.ip_address(str(target_host).strip())
-        except ValueError as exc:
-            raise ValueError(f"invalid Direct target: {target_host}") from exc
-        if address.version != 4:
-            raise ValueError("Direct raw collection currently requires one IPv4 target")
-        if not 1 <= int(target_pps) <= 500:
-            raise ValueError("target_pps must be in the 1-500 range")
+        raw_target = str(target_host).strip()
+        if not raw_target:
+            raise ValueError("Direct target cannot be empty")
+        endpoint = raw_target if "://" in raw_target else f"http://{raw_target}"
+        parsed = urllib.parse.urlsplit(endpoint)
+        if parsed.scheme != "http" or not parsed.hostname:
+            raise ValueError(f"invalid Direct target: {target_host}")
         super().__init__(
             port=0,
             buffer_size=buffer_size,
             bind_host="127.0.0.1",
             derive_complex=derive_complex,
         )
-        self.target_host = str(address)
-        self.target_pps = int(target_pps)
+        self.target_host = parsed.hostname
+        self.target_port = int(parsed.port or DIRECT_HTTP_PORT)
+        host_authority = f"[{self.target_host}]" if ":" in self.target_host else self.target_host
+        authority = host_authority if self.target_port == 80 else f"{host_authority}:{self.target_port}"
+        self._control_endpoint = urllib.parse.urlunsplit(
+            ("http", authority, "/espectre/v1/request", "", "")
+        )
         self.origin = origin
         self.timeout = float(timeout)
         self._control_client_factory = control_client_factory
@@ -1191,24 +772,33 @@ class DirectRawCSIReceiver(CSIReceiver):
         self._raw_buffer = bytearray()
         self._session_id = b""
         self._firmware_identity = ""
+        self._frontend = ""
+        self._firmware_version = ""
+        self.requested_pps = None
         self._stream_sequence = 0
-        self.no_sample_total = 0
-        self.replaced_sample_total = 0
-        self.raw_dropped_sample_total = 0
+        self._fresh_record_total = 0
+        self.raw_drop_total = 0
         self.raw_send_backpressure_total = 0
         self.effective_socket_rcvbuf_bytes = None
 
     @property
     def control_endpoint(self) -> str:
-        return f"http://{self.target_host}/espectre/v1/request"
+        return self._control_endpoint
 
     @property
     def raw_endpoint(self) -> str:
-        return f"http://{self.target_host}{RAW_CSI_PATH}"
+        host_authority = f"[{self.target_host}]" if ":" in self.target_host else self.target_host
+        authority = host_authority if self.target_port == 80 else f"{host_authority}:{self.target_port}"
+        return f"http://{authority}{RAW_CSI_PATH}"
 
-    def _open(self) -> None:
+    def _open_session(self) -> None:
         if self._control is not None:
             return
+        self._raw_buffer.clear()
+        self._stream_sequence = 0
+        self._fresh_record_total = 0
+        self.raw_drop_total = 0
+        self.raw_send_backpressure_total = 0
         from src.python.espectre_cli.device_transport import DirectClient
 
         factory = self._control_client_factory or DirectClient
@@ -1225,21 +815,21 @@ class DirectRawCSIReceiver(CSIReceiver):
             or features.get("raw_csi") is not True
             or not isinstance(raw_capability, dict)
             or raw_capability.get("transport") != "http"
-            or raw_capability.get("record_version") != STREAM_VERSION_V8
+            or raw_capability.get("protocol_version") != RAW_CSI_PROTOCOL_VERSION
+            or raw_capability.get("record_version") != RAW_CSI_RECORD_VERSION_V8
             or raw_capability.get("frame_prefix_bytes") != RAW_CSI_HTTP_FRAME_STRUCT.size
         ):
             self._control.close()
             self._control = None
             raise RuntimeError("target does not advertise compatible Direct raw CSI")
         info = self._control.request("info")
+        self._frontend = str(info.get("frontend", ""))
+        self._firmware_version = str(info.get("firmware_version", ""))
         self._firmware_identity = "|".join(
             str(info.get(key, "")) for key in ("device_id", "frontend", "firmware_version", "chip")
         )
 
-        session = self._control.request(
-            "start_raw_stream",
-            {"target_pps": self.target_pps},
-        )
+        session = self._control.request("start_raw_stream")
         session_id = session.get("session_id")
         if not isinstance(session_id, str) or len(session_id) != 32:
             self._best_effort_stop()
@@ -1250,11 +840,16 @@ class DirectRawCSIReceiver(CSIReceiver):
             self._best_effort_stop()
             raise RuntimeError("Direct raw session returned an invalid session id") from exc
 
+    def _bind_stream(self) -> None:
+        if self._raw_response is not None:
+            return
+        self._open_session()
+        session_id = self._session_id.hex()
         connection_factory = self._raw_connection_factory or http.client.HTTPConnection
         try:
             self._raw_connection = connection_factory(
                 self.target_host,
-                80,
+                self.target_port,
                 timeout=self.timeout,
             )
             self._raw_connection.request(
@@ -1279,9 +874,28 @@ class DirectRawCSIReceiver(CSIReceiver):
             self._raw_connection = None
             self._best_effort_stop()
             raise RuntimeError(f"Direct raw HTTP stream returned status {status}")
+        raw_socket = getattr(self._raw_connection, "sock", None)
+        if raw_socket is not None:
+            raw_socket.settimeout(None)
         self.running = True
         self.start_time = time.time()
         self._last_pps_time = self.start_time
+
+    def _open(self) -> None:
+        self._open_session()
+        self._bind_stream()
+
+    def start_session(self) -> None:
+        """Create the bearer-bound raw session without waiting for stream data."""
+        self._open_session()
+
+    def bind_stream(self) -> None:
+        """Bind the HTTP data plane after external traffic has started."""
+        self._bind_stream()
+
+    def start(self) -> None:
+        """Open and bind the Direct raw session."""
+        self._open()
 
     def _best_effort_stop(self) -> None:
         if self._control is not None:
@@ -1293,9 +907,15 @@ class DirectRawCSIReceiver(CSIReceiver):
     def _dispatch_direct_packet(self, packet: CSIPacket) -> None:
         packet.source_ip = self.target_host
         packet.transport = "http"
-        packet.transport_target = self.target_host
-        packet.effective_pps = float(self.pps or self.target_pps)
+        packet.transport_target = self.raw_endpoint
+        packet.effective_pps = float(self.pps)
         packet.raw_protocol_version = RAW_CSI_PROTOCOL_VERSION
+        packet.raw_stream_sequence = self._stream_sequence
+        packet.raw_drop_total = self.raw_drop_total
+        packet.raw_send_backpressure_total = self.raw_send_backpressure_total
+        packet.requested_pps = self.requested_pps
+        packet.frontend = self._frontend
+        packet.firmware_version = self._firmware_version
         packet.firmware_identity = self._firmware_identity
         if not self.accept_packet(packet):
             return
@@ -1314,27 +934,30 @@ class DirectRawCSIReceiver(CSIReceiver):
             (
                 magic,
                 version,
-                status,
+                record_version,
                 header_len,
                 session_id,
                 stream_sequence,
                 record_len,
-                error_code,
+                flags,
                 fresh_total,
-                no_sample_total,
-                replaced_total,
-                dropped_total,
+                raw_drop_total,
                 backpressure_total,
             ) = RAW_CSI_HTTP_FRAME_STRUCT.unpack_from(self._raw_buffer)
             frame_length = int(header_len) + int(record_len)
             if (
                 magic != RAW_CSI_RESPONSE_MAGIC
                 or version != RAW_CSI_PROTOCOL_VERSION
+                or record_version != RAW_CSI_RECORD_VERSION_V8
                 or header_len != RAW_CSI_HTTP_FRAME_STRUCT.size
                 or session_id != self._session_id
                 or stream_sequence <= self._stream_sequence
-                or error_code != 0
+                or flags != 0
+                or record_len == 0
                 or record_len > CSI_HEADER_STRUCT.size + 512
+                or int(fresh_total) != self._fresh_record_total + 1
+                or int(raw_drop_total) < self.raw_drop_total
+                or int(backpressure_total) < self.raw_send_backpressure_total
             ):
                 raise RuntimeError("Direct raw endpoint sent an incompatible HTTP frame")
             if len(self._raw_buffer) < frame_length:
@@ -1342,16 +965,9 @@ class DirectRawCSIReceiver(CSIReceiver):
             frame = bytes(self._raw_buffer[:frame_length])
             del self._raw_buffer[:frame_length]
             self._stream_sequence = int(stream_sequence)
-            self.no_sample_total = int(no_sample_total)
-            self.replaced_sample_total = int(replaced_total)
-            self.raw_dropped_sample_total = int(dropped_total)
+            self._fresh_record_total = int(fresh_total)
+            self.raw_drop_total = int(raw_drop_total)
             self.raw_send_backpressure_total = int(backpressure_total)
-            if status == RAW_CSI_STATUS_NO_SAMPLE:
-                if record_len != 0:
-                    raise RuntimeError("Direct no-sample HTTP frame carried a record")
-                continue
-            if status != RAW_CSI_STATUS_FRESH or record_len == 0:
-                raise RuntimeError("Direct raw endpoint returned an error HTTP frame")
             packet, next_offset = parse_csi_record(
                 frame,
                 header_len,
@@ -1360,11 +976,39 @@ class DirectRawCSIReceiver(CSIReceiver):
             if (
                 packet is None
                 or next_offset != len(frame)
-                or packet.record_version != STREAM_VERSION_V8
-                or int(fresh_total) < self.packet_count + 1
+                or packet.record_version != RAW_CSI_RECORD_VERSION_V8
+                or packet.seq_num != min(int(stream_sequence), 0xFFFFFFFF)
+                or packet.request_accepted_total != min(int(stream_sequence), 0xFFFFFFFF)
+                or packet.fresh_record_total != min(int(fresh_total), 0xFFFFFFFF)
+                or packet.transport_backpressure_total != int(backpressure_total)
             ):
                 raise RuntimeError("Direct raw endpoint sent an invalid V8 record")
             self._dispatch_direct_packet(packet)
+
+    def _update_final_raw_diagnostics(self) -> None:
+        if self._control is None:
+            return
+        try:
+            diagnostics = self._control.request("diagnostics", timeout=min(self.timeout, 2.0))
+        except Exception:
+            return
+        raw = diagnostics.get("raw_csi", {}) if isinstance(diagnostics, dict) else {}
+        if not isinstance(raw, dict):
+            return
+        self.raw_drop_total = int(
+            raw.get("raw_drop_total", self.raw_drop_total)
+        )
+        self.raw_send_backpressure_total = int(
+            raw.get("send_backpressure_total", self.raw_send_backpressure_total)
+        )
+        if self.buffer:
+            packet = self.buffer[-1]
+            packet.raw_drop_total = self.raw_drop_total
+            packet.raw_send_backpressure_total = self.raw_send_backpressure_total
+            if "fresh_record_total" in raw:
+                packet.fresh_record_total = int(raw["fresh_record_total"])
+            if "stream_sequence" in raw:
+                packet.raw_final_stream_sequence = int(raw["stream_sequence"])
 
     def _read_raw_chunk(self) -> bytes:
         if self._raw_response is None:
@@ -1388,6 +1032,7 @@ class DirectRawCSIReceiver(CSIReceiver):
     def stop(self) -> None:
         self.running = False
         self._best_effort_stop()
+        self._update_final_raw_diagnostics()
         if self._raw_response is not None:
             self._raw_response.close()
             self._raw_response = None
@@ -1734,16 +1379,43 @@ class CSICollector:
             "duration_ms": duration_ms,
             "format_version": self.FORMAT_VERSION,
             "stream_seq_num": np.array([packet.seq_num for packet in packets], dtype=np.uint32),
+            "raw_stream_sequence": np.array(
+                [packet.raw_stream_sequence or packet.seq_num for packet in packets],
+                dtype=np.uint64,
+            ),
             "phy_mode": np.array([packet.phy_mode for packet in packets]),
             "ltf_type": np.array([packet.ltf_type for packet in packets]),
             "channel_width": np.array([packet.channel_width for packet in packets]),
             "device_id": np.uint64(device_id),
             "transport": packets[0].transport,
             "transport_target": packets[0].transport_target or "",
+            "endpoint": packets[0].transport_target or "",
             "effective_pps": np.float64(average_packet_rate),
+            "observed_pps": np.float64(average_packet_rate),
+            "requested_pps": np.float64(
+                packets[0].requested_pps
+                if packets[0].requested_pps is not None
+                else (nominal_packet_rate or csi_target_pps)
+            ),
             "raw_protocol_version": np.uint8(packets[0].raw_protocol_version or 0),
             "record_version": np.uint8(packets[0].record_version),
+            "frontend": packets[0].frontend or "",
+            "firmware_version": packets[0].firmware_version or "",
             "firmware_identity": packets[0].firmware_identity or "",
+            "raw_fresh_record_total": np.uint64(packets[-1].fresh_record_total or len(packets)),
+            "fresh_record_total": np.uint64(packets[-1].fresh_record_total or len(packets)),
+            "raw_drop_total": np.uint64(packets[-1].raw_drop_total or 0),
+            "raw_send_backpressure_total": np.uint64(
+                packets[-1].raw_send_backpressure_total or 0
+            ),
+            "send_backpressure_total": np.uint64(
+                packets[-1].raw_send_backpressure_total or 0
+            ),
+            "raw_final_stream_sequence": np.uint64(
+                packets[-1].raw_final_stream_sequence
+                if packets[-1].raw_final_stream_sequence is not None
+                else (packets[-1].raw_stream_sequence or packets[-1].seq_num)
+            ),
             **{
                 key: np.uint64(value)
                 for key, value in admission_provenance.items()
@@ -1793,10 +1465,33 @@ class CSICollector:
             transport_metadata={
                 "transport": packets[0].transport,
                 "transport_target": packets[0].transport_target or "",
+                "endpoint": packets[0].transport_target or "",
                 "effective_pps": round(float(average_packet_rate), 3),
+                "observed_pps": round(float(average_packet_rate), 3),
+                "requested_pps": float(
+                    packets[0].requested_pps
+                    if packets[0].requested_pps is not None
+                    else (nominal_packet_rate or csi_target_pps)
+                ),
                 "raw_protocol_version": int(packets[0].raw_protocol_version or 0),
                 "record_version": int(packets[0].record_version),
+                "frontend": packets[0].frontend or "",
+                "firmware_version": packets[0].firmware_version or "",
                 "firmware_identity": packets[0].firmware_identity or "",
+                "raw_fresh_record_total": int(packets[-1].fresh_record_total or len(packets)),
+                "fresh_record_total": int(packets[-1].fresh_record_total or len(packets)),
+                "raw_drop_total": int(packets[-1].raw_drop_total or 0),
+                "raw_send_backpressure_total": int(
+                    packets[-1].raw_send_backpressure_total or 0
+                ),
+                "send_backpressure_total": int(
+                    packets[-1].raw_send_backpressure_total or 0
+                ),
+                "raw_final_stream_sequence": int(
+                    packets[-1].raw_final_stream_sequence
+                    if packets[-1].raw_final_stream_sequence is not None
+                    else (packets[-1].raw_stream_sequence or packets[-1].seq_num)
+                ),
             },
         )
         return filepath
@@ -1898,15 +1593,8 @@ class CSICollector:
                 "channel": packet.channel,
                 "rssi_dbm": packet.rssi_dbm,
                 "last_seq": packet.seq_num,
-                "tx_backpressure_total": None,
-                "tx_backpressure_window_delta": 0,
-                "tx_backpressure_last_delta": 0,
-                "stream_fresh_total": None,
-                "stream_fresh_window_delta": 0,
-                "stream_fresh_last_delta": 0,
-                "pacing_rx_total": None,
-                "pacing_rx_window_delta": 0,
-                "pacing_rx_last_delta": 0,
+                "transport_backpressure_total": None,
+                "transport_backpressure_last_delta": 0,
             }
             device_states[device_id] = state
         else:
@@ -1961,10 +1649,10 @@ class CSICollector:
 
     @staticmethod
     def _format_backpressure_text(device_state: Dict[str, Any]) -> str:
-        total = device_state.get("tx_backpressure_total")
+        total = device_state.get("transport_backpressure_total")
         if total is None:
             return " | bp:--"
-        recent_delta = int(device_state.get("tx_backpressure_last_delta", 0) or 0)
+        recent_delta = int(device_state.get("transport_backpressure_last_delta", 0) or 0)
         if recent_delta > 0:
             return f" | bp:active(+{recent_delta})"
         return " | bp:no"
@@ -2136,19 +1824,17 @@ class CSICollector:
         return lines
 
     def _wait_for_ready_state(self, quiet: bool = False, summary_prefix: str = "  ") -> Dict[int, Dict[str, Any]]:
-        return self._wait_for_ready_state_with_pacing(
+        return self._wait_for_ready_state_impl(
             quiet=quiet,
             summary_prefix=summary_prefix,
             ready_stable_seconds=self.READY_STABLE_SECONDS,
         )
 
-    def _wait_for_ready_state_with_pacing(
+    def _wait_for_ready_state_impl(
         self,
         quiet: bool = False,
         summary_prefix: str = "  ",
         *,
-        pacing_controller: Optional[AdaptivePacingController] = None,
-        pacing_sender: Any = None,
         ready_stable_seconds: float = READY_STABLE_SECONDS,
     ) -> Dict[int, Dict[str, Any]]:
         if self.receiver.sock is None:
@@ -2181,16 +1867,7 @@ class CSICollector:
                     if packet.device_id is None:
                         continue
                     state = self._update_device_detector_state(device_states, packet, addr[0])
-                    if pacing_controller is not None:
-                        pacing_controller.observe_device(
-                            state,
-                            getattr(packet, "tx_backpressure_total", None),
-                            getattr(packet, "stream_fresh_total", None),
-                            getattr(packet, "pacing_rx_total", None),
-                        )
                 now = time.monotonic()
-                if pacing_controller is not None:
-                    pacing_controller.maybe_adjust(device_states, now=now, pacing_sender=pacing_sender)
                 summary = self._summarize_ready_devices(
                     device_states,
                     expected_device_count=self.expected_device_count,
@@ -2267,8 +1944,6 @@ class CSICollector:
         quiet: bool = False,
         initial_device_states: Optional[Dict[int, Dict[str, Any]]] = None,
         summary_prefix: str = "  ",
-        pacing_controller: Optional[AdaptivePacingController] = None,
-        pacing_sender: Any = None,
         ready_stable_seconds: float = READY_STABLE_SECONDS,
     ) -> List[CSIPacket]:
         if self.receiver.sock is None:
@@ -2306,16 +1981,7 @@ class CSICollector:
                     if packet.device_id is None:
                         continue
                     state = self._update_device_detector_state(device_states, packet, addr[0])
-                    if pacing_controller is not None:
-                        pacing_controller.observe_device(
-                            state,
-                            getattr(packet, "tx_backpressure_total", None),
-                            getattr(packet, "stream_fresh_total", None),
-                            getattr(packet, "pacing_rx_total", None),
-                        )
                 now = time.monotonic()
-                if pacing_controller is not None:
-                    pacing_controller.maybe_adjust(device_states, now=now, pacing_sender=pacing_sender)
                 if now - last_pps_time >= 1.0:
                     delta = processed_packets - last_pps_count
                     elapsed = now - last_pps_time
@@ -2367,27 +2033,9 @@ class CSICollector:
         num_samples: int = 1,
         quiet: bool = False,
         *,
-        pacing_sender: Any = None,
-        adaptive: bool = False,
-        adaptive_controller_kwargs: Optional[Dict[str, Any]] = None,
         ready_stable_seconds: float = READY_STABLE_SECONDS,
     ) -> List[Path]:
         saved_files: List[Path] = []
-        configured_nominal_packet_rate = self._nominal_packet_rate
-        initial_pacing_pps = 0.0
-        if pacing_sender is not None and hasattr(pacing_sender, "get_rate_pps"):
-            try:
-                initial_pacing_pps = float(pacing_sender.get_rate_pps())
-            except (TypeError, ValueError):
-                initial_pacing_pps = 0.0
-        if initial_pacing_pps > 0.0:
-            self._nominal_packet_rate = int(round(initial_pacing_pps))
-        controller_kwargs = dict(adaptive_controller_kwargs or {})
-        pacing_controller = AdaptivePacingController(
-            initial_pps=max(1.0, initial_pacing_pps),
-            enabled=adaptive,
-            **controller_kwargs,
-        )
         if not quiet:
             print(f'\n{"=" * 60}')
             print(f"  CSI Data Collection: {self.label}")
@@ -2398,7 +2046,6 @@ class CSICollector:
                 print("  Ready gate:          disabled")
             else:
                 print(f"  Ready gate:          implicit ({ready_stable_seconds:.1f}s stable)")
-            print(f"  Pacing mode:         {'backpressure' if adaptive else 'fixed'}")
             print(f'{"=" * 60}\n')
         self.receiver.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.receiver.sock.bind((self.receiver.bind_host, self.port))
@@ -2410,11 +2057,9 @@ class CSICollector:
                 self._drain_udp_backlog()
                 ready_device_states = None
                 if ready_stable_seconds > 0.0:
-                    ready_device_states = self._wait_for_ready_state_with_pacing(
+                    ready_device_states = self._wait_for_ready_state_impl(
                         quiet=quiet,
                         summary_prefix=summary_prefix,
-                        pacing_controller=pacing_controller,
-                        pacing_sender=pacing_sender,
                         ready_stable_seconds=ready_stable_seconds,
                     )
                 packets = self._collect_with_live_status(
@@ -2422,8 +2067,6 @@ class CSICollector:
                     quiet=quiet,
                     initial_device_states=ready_device_states,
                     summary_prefix=summary_prefix,
-                    pacing_controller=pacing_controller,
-                    pacing_sender=pacing_sender,
                     ready_stable_seconds=ready_stable_seconds,
                 )
                 sample_files = self.save_samples_by_device(packets)
@@ -2439,7 +2082,6 @@ class CSICollector:
         finally:
             if self.receiver.sock:
                 self.receiver.sock.close()
-            self._nominal_packet_rate = configured_nominal_packet_rate
         if not quiet:
             print(f'\n{"=" * 60}')
             print(f"  Collection complete: {len(saved_files)} device file(s) saved")
@@ -2478,7 +2120,7 @@ class CSICollector:
                             print(f"     - {filepath.name}")
                         sample_idx += 1
                     else:
-                        print("\r  ❌ No packets received! Check the streamer firmware and collector IP/port.")
+                        print("\r  ❌ No packets received! Check the device, traffic generator, and Direct endpoint.")
                     self._reset_live_status_block()
                 except KeyboardInterrupt:
                     print("\nCollection cancelled.")

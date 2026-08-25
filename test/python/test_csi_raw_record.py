@@ -1,15 +1,16 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
 """
-ESPectre - CSI Stream Protocol Tests
+ESPectre - Raw CSI Record Tests
 
-Unit tests for the unified CSI stream protocol parser and dataset writer.
+Unit tests for the transport-neutral CSI raw record parser and dataset writer.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
 import io
 import socket
+import time
 
 import numpy as np
 import pytest
@@ -17,27 +18,23 @@ import pytest
 from tools import espectre_traffic_generator
 from tools.lib import dataset_metadata
 from tools.lib.csi_io import (
-    AdaptivePacingController,
-    UdpPacingSender,
     CSICollector,
     CSIReceiver,
     DirectRawCSIReceiver,
     CSI_HEADER_STRUCT,
-    DEFAULT_PACING_INTERVAL_SECONDS,
-    DEFAULT_PACING_PAYLOAD,
-    MAGIC_STREAM,
-    STREAM_FLAG_WIFI_RX_START_TS_NS_VALID,
-    STREAM_FLAG_WIFI_RX_TS_VALID,
-    STREAM_VERSION,
-    STREAM_VERSION_V8,
+    RAW_CSI_FLAG_WIFI_RX_START_TS_NS_VALID,
+    RAW_CSI_FLAG_WIFI_RX_TS_VALID,
+    RAW_CSI_RECORD_MAGIC,
+    RAW_CSI_RECORD_VERSION,
+    RAW_CSI_RECORD_VERSION_V7,
+    RAW_CSI_RECORD_VERSION_V8,
     RAW_CSI_HTTP_FRAME_STRUCT,
     RAW_CSI_RESPONSE_MAGIC,
-    build_pacing_datagram,
     load_npz_arrays,
     load_npz_as_packets,
     load_npz_packet_view,
-    next_pacing_send_deadline,
     normalize_stored_csi_bin_layout,
+    parse_csi_record,
 )
 
 from device_utils import (
@@ -136,19 +133,19 @@ def build_packet(
     channel=6,
     rssi_dbm=-42,
     noise_floor_dbm=-96,
-    tx_backpressure_total=0,
-    stream_fresh_total=0,
-    pacing_rx_total=0,
+    transport_backpressure_total=0,
+    fresh_record_total=0,
+    request_accepted_total=0,
     phy_mode=2,
     ltf_type=2,
     channel_width=1,
-    version=STREAM_VERSION,
+    version=RAW_CSI_RECORD_VERSION,
 ):
     payload_values = payload if payload is not None else [1, 2, 3, 4]
     payload = np.array(payload_values, dtype=np.int8).tobytes()
     num_sc = len(payload) // 2
     header = CSI_HEADER_STRUCT.pack(
-        MAGIC_STREAM,
+        RAW_CSI_RECORD_MAGIC,
         version,
         CSI_HEADER_STRUCT.size,
         chip_code,
@@ -163,9 +160,9 @@ def build_packet(
         channel,
         rssi_dbm,
         noise_floor_dbm,
-        tx_backpressure_total,
-        stream_fresh_total,
-        pacing_rx_total,
+        transport_backpressure_total,
+        fresh_record_total,
+        request_accepted_total,
         phy_mode,
         ltf_type,
         channel_width,
@@ -173,7 +170,7 @@ def build_packet(
     return header + payload
 
 
-def test_parse_packet_accepts_unified_stream_header():
+def test_parse_packet_accepts_transport_neutral_v8_header():
     receiver = CSIReceiver(bind_host='127.0.0.1')
     packet = receiver._parse_packet(
         build_packet(
@@ -192,7 +189,7 @@ def test_parse_packet_accepts_unified_stream_header():
     assert packet.device_ticks_us == 987654
     assert packet.channel == 11
     assert packet.rssi_dbm == -55
-    assert packet.tx_backpressure_total == 0
+    assert packet.transport_backpressure_total == 0
     assert packet.phy_mode == 'ht'
     assert packet.ltf_type == 'ht-ltf'
     assert packet.channel_width == '20'
@@ -200,26 +197,37 @@ def test_parse_packet_accepts_unified_stream_header():
     np.testing.assert_allclose(packet.iq_complex, np.array([20 + 10j, 40 - 30j], dtype=np.complex64))
 
 
+def test_parse_csi_record_reads_historical_v7_offline():
+    record = build_packet(version=RAW_CSI_RECORD_VERSION_V7, seq_num=17)
+
+    packet, next_offset = parse_csi_record(record, derive_complex=False)
+
+    assert packet is not None
+    assert packet.record_version == RAW_CSI_RECORD_VERSION_V7
+    assert packet.seq_num == 17
+    assert next_offset == len(record)
+
+
 def test_parse_packet_accepts_v8_transport_neutral_counters_byte_for_byte():
     receiver = CSIReceiver(bind_host="127.0.0.1", derive_complex=False)
     record = build_packet(
-        version=STREAM_VERSION_V8,
-        tx_backpressure_total=11,
-        stream_fresh_total=22,
-        pacing_rx_total=33,
+        version=RAW_CSI_RECORD_VERSION_V8,
+        transport_backpressure_total=11,
+        fresh_record_total=22,
+        request_accepted_total=33,
         payload=[1, -2, 3, -4],
     )
 
     packet = receiver._parse_packet(record)
 
     assert packet is not None
-    assert packet.record_version == STREAM_VERSION_V8
+    assert packet.record_version == RAW_CSI_RECORD_VERSION_V8
     assert packet.transport_backpressure_total == 11
     assert packet.fresh_record_total == 22
     assert packet.request_accepted_total == 33
     assert record[: CSI_HEADER_STRUCT.size] == CSI_HEADER_STRUCT.pack(
-        MAGIC_STREAM,
-        STREAM_VERSION_V8,
+        RAW_CSI_RECORD_MAGIC,
+        RAW_CSI_RECORD_VERSION_V8,
         64,
         6,
         0,
@@ -258,8 +266,9 @@ def test_direct_raw_receiver_negotiates_v8_and_feeds_shared_packet_parser():
                     "features": {"raw_csi": True},
                     "raw_csi": {
                         "transport": "http",
+                        "protocol_version": 2,
                         "record_version": 8,
-                        "frame_prefix_bytes": 76,
+                        "frame_prefix_bytes": 60,
                     },
                 }
             if method == "info":
@@ -273,6 +282,15 @@ def test_direct_raw_receiver_negotiates_v8_and_feeds_shared_packet_parser():
                 return {"session_id": session_id.hex()}
             if method == "stop_raw_stream":
                 return {"code": "ok"}
+            if method == "diagnostics":
+                return {
+                    "raw_csi": {
+                        "fresh_record_total": 1,
+                        "raw_drop_total": 2,
+                        "send_backpressure_total": 3,
+                        "stream_sequence": 3,
+                    }
+                }
             raise AssertionError(method)
 
         def close(self):
@@ -295,17 +313,19 @@ def test_direct_raw_receiver_negotiates_v8_and_feeds_shared_packet_parser():
         def __init__(self):
             self.closed = False
             self.request_args = None
+            self.socket_timeouts = []
+            self.sock = self
             record = build_packet(
-                version=STREAM_VERSION_V8,
+                version=RAW_CSI_RECORD_VERSION_V8,
                 flags=1 << 3,
-                tx_backpressure_total=2,
-                stream_fresh_total=1,
-                pacing_rx_total=1,
+                transport_backpressure_total=2,
+                fresh_record_total=1,
+                request_accepted_total=1,
             )
             prefix = RAW_CSI_HTTP_FRAME_STRUCT.pack(
                 RAW_CSI_RESPONSE_MAGIC,
-                1,
-                0,
+                2,
+                8,
                 RAW_CSI_HTTP_FRAME_STRUCT.size,
                 session_id,
                 1,
@@ -313,11 +333,12 @@ def test_direct_raw_receiver_negotiates_v8_and_feeds_shared_packet_parser():
                 0,
                 1,
                 0,
-                0,
-                0,
                 2,
             )
             self.response = FakeRawResponse(prefix + record)
+
+        def settimeout(self, timeout):
+            self.socket_timeouts.append(timeout)
 
         def request(self, method, path, headers):
             self.request_args = (method, path, headers)
@@ -337,7 +358,7 @@ def test_direct_raw_receiver_negotiates_v8_and_feeds_shared_packet_parser():
         return control
 
     receiver = DirectRawCSIReceiver(
-        "192.168.1.23",
+        "192.168.1.23:62587",
         control_client_factory=control_factory,
         raw_connection_factory=lambda *_args, **_kwargs: raw,
         derive_complex=False,
@@ -356,16 +377,23 @@ def test_direct_raw_receiver_negotiates_v8_and_feeds_shared_packet_parser():
     receiver.stop()
 
     assert len(observed) == 1
-    assert observed[0].record_version == STREAM_VERSION_V8
+    assert observed[0].record_version == RAW_CSI_RECORD_VERSION_V8
     assert observed[0].transport == "http"
     assert observed[0].source_ip == "192.168.1.23"
+    assert observed[0].raw_stream_sequence == 1
+    assert observed[0].raw_final_stream_sequence == 3
+    assert observed[0].fresh_record_total == 1
+    assert observed[0].raw_drop_total == 2
+    assert observed[0].raw_send_backpressure_total == 3
     assert raw.request_args[0:2] == ("GET", "/espectre/v1/csi")
     assert raw.request_args[2]["Authorization"] == f"Bearer {session_id.hex()}"
+    assert raw.socket_timeouts == [None]
     assert [request[0] for request in control.requests] == [
         "capabilities",
         "info",
         "start_raw_stream",
         "stop_raw_stream",
+        "diagnostics",
     ]
 
 
@@ -391,6 +419,52 @@ def test_direct_raw_receiver_rejects_capability_mismatch_without_transport_fallb
     assert receiver._control is None
 
 
+def test_direct_raw_receiver_uses_shared_ghost_port_for_bare_targets():
+    receiver = DirectRawCSIReceiver("192.168.1.23", derive_complex=False)
+
+    assert receiver.control_endpoint == "http://192.168.1.23:62587/espectre/v1/request"
+    assert receiver.raw_endpoint == "http://192.168.1.23:62587/espectre/v1/csi"
+
+
+def test_direct_raw_receiver_parses_aggregated_frames_and_rejects_sequence_mismatch():
+    session_id = bytes.fromhex("00112233445566778899aabbccddeeff")
+
+    def frame(stream_sequence, record_sequence=None):
+        sequence = stream_sequence if record_sequence is None else record_sequence
+        record = build_packet(
+            version=RAW_CSI_RECORD_VERSION_V8,
+            seq_num=sequence,
+            request_accepted_total=sequence,
+            fresh_record_total=stream_sequence,
+        )
+        prefix = RAW_CSI_HTTP_FRAME_STRUCT.pack(
+            RAW_CSI_RESPONSE_MAGIC,
+            2,
+            8,
+            RAW_CSI_HTTP_FRAME_STRUCT.size,
+            session_id,
+            stream_sequence,
+            len(record),
+            0,
+            stream_sequence,
+            0,
+            0,
+        )
+        return prefix + record
+
+    receiver = DirectRawCSIReceiver("192.168.1.23", derive_complex=False)
+    receiver._session_id = session_id
+    receiver._raw_buffer.extend(frame(1) + frame(2))
+    receiver._consume_raw_frames()
+    assert [packet.raw_stream_sequence for packet in receiver.buffer] == [1, 2]
+
+    mismatched = DirectRawCSIReceiver("192.168.1.23", derive_complex=False)
+    mismatched._session_id = session_id
+    mismatched._raw_buffer.extend(frame(1, record_sequence=2))
+    with pytest.raises(RuntimeError, match="invalid V8 record"):
+        mismatched._consume_raw_frames()
+
+
 def test_parse_packet_reads_phy_metadata():
     receiver = CSIReceiver(bind_host='127.0.0.1')
     packet = receiver._parse_packet(
@@ -407,10 +481,10 @@ def test_parse_packet_reads_phy_metadata():
     assert packet.channel_width == '40'
 
 
-def test_parse_packet_rejects_previous_stream_version():
+def test_parse_packet_rejects_unknown_record_version():
     receiver = CSIReceiver(bind_host='127.0.0.1')
     packet_data = bytearray(build_packet())
-    packet_data[2] = STREAM_VERSION - 1
+    packet_data[2] = RAW_CSI_RECORD_VERSION_V7 - 1
 
     assert receiver._parse_packet(packet_data) is None
 
@@ -440,218 +514,6 @@ def test_parse_packet_derives_complex_data_lazily_when_disabled():
     assert packet._iq_complex is not None
 
 
-def test_build_pacing_datagram_uses_default_pacing_payload():
-    datagram = build_pacing_datagram()
-    assert datagram == b"ESPE"
-    assert datagram == DEFAULT_PACING_PAYLOAD
-
-
-def test_udp_pacing_sender_emits_udp_pacing_packets():
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(("127.0.0.1", 0))
-    sock.settimeout(6.0)
-
-    sender = UdpPacingSender(
-        target_host="127.0.0.1",
-        target_port=sock.getsockname()[1],
-        interval_s=0.05,
-    )
-    try:
-        sender.start()
-        first, _addr = sock.recvfrom(64)
-        second, _addr = sock.recvfrom(64)
-    finally:
-        sender.stop()
-        sock.close()
-
-    assert first == DEFAULT_PACING_PAYLOAD
-    assert second == DEFAULT_PACING_PAYLOAD
-
-
-def test_udp_pacing_sender_binds_to_requested_source_host():
-    rx_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    rx_sock.bind(("127.0.0.1", 0))
-    rx_sock.settimeout(1.0)
-
-    sender = UdpPacingSender(
-        target_host="127.0.0.1",
-        target_port=rx_sock.getsockname()[1],
-        source_host="127.0.0.1",
-        interval_s=0.05,
-    )
-    try:
-        sender.start()
-        _payload, addr = rx_sock.recvfrom(64)
-    finally:
-        sender.stop()
-        rx_sock.close()
-
-    assert addr[0] == "127.0.0.1"
-
-
-def test_udp_pacing_sender_fans_out_same_datagram_to_multiple_targets():
-    class FakeSocket:
-        def __init__(self):
-            self.calls = []
-
-        def sendto(self, payload, addr):
-            self.calls.append((payload, addr))
-
-    sender = UdpPacingSender(
-        target_host=["192.168.1.17", "192.168.1.24", "192.168.1.29"],
-        target_port=9999,
-    )
-    sender.sock = FakeSocket()
-
-    original_wait = sender._stop_event.wait
-
-    def stop_after_first_interval(_timeout):
-        sender._stop_event.set()
-        return True
-
-    sender._stop_event.wait = stop_after_first_interval
-    try:
-        sender._run()
-    finally:
-        sender._stop_event.wait = original_wait
-
-    assert len(sender.sock.calls) == 3
-    payloads = {payload for payload, _addr in sender.sock.calls}
-    assert len(payloads) == 1
-    assert [addr for _payload, addr in sender.sock.calls] == [
-        ("192.168.1.17", 9999),
-        ("192.168.1.24", 9999),
-        ("192.168.1.29", 9999),
-    ]
-    assert next(iter(payloads)) == DEFAULT_PACING_PAYLOAD
-
-
-def test_udp_pacing_sender_uses_default_interval():
-    sender = UdpPacingSender(target_host="192.168.1.17", target_port=9999)
-
-    assert sender.interval_s == DEFAULT_PACING_INTERVAL_SECONDS
-
-
-def test_udp_pacing_sender_updates_rate_safely():
-    sender = UdpPacingSender(target_host="192.168.1.17", target_port=9999, interval_s=0.1)
-
-    sender.set_rate_pps(25)
-
-    assert sender.get_rate_pps() == pytest.approx(25.0)
-    assert sender.interval_s == pytest.approx(0.04)
-
-
-def test_udp_pacing_sender_uses_absolute_deadlines(monkeypatch):
-    sender = UdpPacingSender(target_host="192.168.1.17", target_port=9999, interval_s=0.1)
-    clock = {"now": 10.0}
-    waits = []
-    sends = {"count": 0}
-
-    monkeypatch.setattr("tools.lib.csi_io.time.perf_counter", lambda: clock["now"])
-
-    def fake_send_once():
-        sends["count"] += 1
-        clock["now"] += 0.03
-
-    def fake_wait(timeout):
-        waits.append(timeout)
-        clock["now"] += timeout
-        if len(waits) >= 3:
-            sender._stop_event.set()
-        return False
-
-    sender._send_once = fake_send_once
-    sender._stop_event.wait = fake_wait
-
-    sender._run()
-
-    assert sends["count"] == 3
-    assert waits == pytest.approx([0.07, 0.07, 0.07], abs=1e-6)
-
-
-def test_udp_pacing_sender_does_not_catch_up_after_overrun(monkeypatch):
-    sender = UdpPacingSender(target_host="192.168.1.17", target_port=9999, interval_s=0.1)
-    clock = {"now": 10.0}
-    send_starts = []
-
-    monkeypatch.setattr("tools.lib.csi_io.time.perf_counter", lambda: clock["now"])
-
-    def fake_send_once():
-        send_starts.append(clock["now"])
-        clock["now"] += 0.15
-        if len(send_starts) >= 3:
-            sender._stop_event.set()
-
-    def fake_wait(timeout):
-        clock["now"] += timeout
-        return False
-
-    sender._send_once = fake_send_once
-    sender._stop_event.wait = fake_wait
-    sender._run()
-
-    assert send_starts == pytest.approx([10.0, 10.15, 10.3], abs=1e-6)
-
-
-def test_udp_pacing_sender_preserves_rate_across_wakeup_latency(monkeypatch):
-    sender = UdpPacingSender(target_host="192.168.1.17", target_port=9999, interval_s=0.1)
-    clock = {"now": 10.0}
-    send_starts = []
-
-    monkeypatch.setattr("tools.lib.csi_io.time.perf_counter", lambda: clock["now"])
-
-    def fake_send_once():
-        send_starts.append(clock["now"])
-        if len(send_starts) >= 4:
-            sender._stop_event.set()
-
-    def fake_wait(timeout):
-        clock["now"] += timeout + 0.02
-        return False
-
-    sender._send_once = fake_send_once
-    sender._stop_event.wait = fake_wait
-    sender._run()
-
-    assert send_starts == pytest.approx([10.0, 10.12, 10.22, 10.32], abs=1e-6)
-    assert all(
-        current - previous >= 0.08
-        for previous, current in zip(send_starts, send_starts[1:])
-    )
-
-
-def test_udp_pacing_sender_resets_phase_after_large_wakeup_latency(monkeypatch):
-    sender = UdpPacingSender(target_host="192.168.1.17", target_port=9999, interval_s=0.1)
-    clock = {"now": 10.0}
-    send_starts = []
-
-    monkeypatch.setattr("tools.lib.csi_io.time.perf_counter", lambda: clock["now"])
-
-    def fake_send_once():
-        send_starts.append(clock["now"])
-        if len(send_starts) >= 4:
-            sender._stop_event.set()
-
-    def fake_wait(timeout):
-        clock["now"] += timeout + 0.08
-        return False
-
-    sender._send_once = fake_send_once
-    sender._stop_event.wait = fake_wait
-    sender._run()
-
-    assert send_starts == pytest.approx([10.0, 10.18, 10.36, 10.54], abs=1e-6)
-
-
-@pytest.mark.parametrize(
-    "deadline_fn",
-    [next_pacing_send_deadline, espectre_traffic_generator.next_send_deadline],
-)
-def test_host_pacing_deadline_resets_when_next_slot_is_too_close(deadline_fn):
-    assert deadline_fn(10.0, 10.08, 0.1) == pytest.approx(10.18)
-    assert deadline_fn(10.0, 10.02, 0.1) == pytest.approx(10.1)
-
-
 def test_external_traffic_generator_configures_low_latency_multicast(monkeypatch):
     class FakeSocket:
         def __init__(self):
@@ -669,9 +531,60 @@ def test_external_traffic_generator_configures_low_latency_multicast(monkeypatch
     assert (socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1) in sock.options
 
 
+def test_external_traffic_generator_uses_canonical_single_byte_marker():
+    assert espectre_traffic_generator.ExternalTrafficGenerator.TRAFFIC_MARKER == "."
+    assert espectre_traffic_generator.ExternalTrafficGenerator.PAYLOAD == b"."
+
+
+def test_external_traffic_generator_rates_each_target_and_stops_safely(monkeypatch):
+    sockets = []
+
+    class FakeSocket:
+        def __init__(self):
+            self.options = []
+            self.bound = None
+            self.sent = []
+            self.closed = False
+            sockets.append(self)
+
+        def setsockopt(self, level, option, value):
+            self.options.append((level, option, value))
+
+        def bind(self, address):
+            self.bound = address
+
+        def sendto(self, payload, destination):
+            self.sent.append((payload, destination))
+            if len(self.sent) == 4:
+                generator._stop_event.set()
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(espectre_traffic_generator.socket, "socket", lambda *_args: FakeSocket())
+    generator = espectre_traffic_generator.ExternalTrafficGenerator(
+        ["127.0.0.1", "127.0.0.2"],
+        rate_pps=1000,
+        source_ip="127.0.0.3",
+    )
+
+    with generator as active:
+        deadline = time.monotonic() + 1.0
+        while active.running and time.monotonic() < deadline:
+            time.sleep(0.001)
+
+    assert not generator.running
+    assert generator.sent_packets == 4
+    assert generator.sent_by_target == {"127.0.0.1": 2, "127.0.0.2": 2}
+    assert generator.errors_by_target == {"127.0.0.1": 0, "127.0.0.2": 0}
+    assert sockets[0].bound == ("127.0.0.3", 0)
+    assert all(payload == b"." for payload, _destination in sockets[0].sent)
+    assert sockets[0].closed
+
+
 def test_parse_packet_reads_optional_metadata():
     receiver = CSIReceiver(bind_host='127.0.0.1')
-    flags = STREAM_FLAG_WIFI_RX_TS_VALID | STREAM_FLAG_WIFI_RX_START_TS_NS_VALID
+    flags = RAW_CSI_FLAG_WIFI_RX_TS_VALID | RAW_CSI_FLAG_WIFI_RX_START_TS_NS_VALID
     packet = receiver._parse_packet(
         build_packet(
             seq_num=42,
@@ -686,381 +599,28 @@ def test_parse_packet_reads_optional_metadata():
     assert packet.wifi_rx_start_ts_ns == 987654321
 
 
-def test_parse_packet_reads_tx_backpressure_total():
+def test_parse_packet_reads_transport_backpressure_total():
     receiver = CSIReceiver(bind_host='127.0.0.1')
     packet = receiver._parse_packet(
         build_packet(
             seq_num=43,
-            tx_backpressure_total=17,
+            transport_backpressure_total=17,
         )
     )
 
     assert packet is not None
-    assert packet.tx_backpressure_total == 17
+    assert packet.transport_backpressure_total == 17
 
 
-def test_parse_packet_reads_adaptive_up_counters():
+def test_parse_packet_reads_transport_counters():
     receiver = CSIReceiver(bind_host='127.0.0.1')
     packet = receiver._parse_packet(
         build_packet(
             seq_num=44,
-            stream_fresh_total=123,
-            pacing_rx_total=140,
+            fresh_record_total=123,
+            request_accepted_total=140,
         )
     )
-
-    assert packet is not None
-    assert packet.stream_fresh_total == 123
-    assert packet.pacing_rx_total == 140
-
-
-class _FakePacingSender:
-    def __init__(self):
-        self.rate_updates = []
-
-    def set_rate_pps(self, rate_pps):
-        self.rate_updates.append(float(rate_pps))
-
-
-def _step_adaptive_pacing(
-    controller,
-    sender,
-    device_state,
-    now,
-    *,
-    packets,
-    admitted=None,
-    excess=None,
-    backpressure=0,
-    fresh=None,
-    pacing_rx=None,
-):
-    device_state["packet_count"] = packets
-    if admitted is not None:
-        device_state["admitted_packets"] = admitted
-    if excess is not None:
-        device_state["excess_packets"] = excess
-    controller.observe_device(
-        device_state,
-        backpressure,
-        packets if fresh is None else fresh,
-        packets if pacing_rx is None else pacing_rx,
-    )
-    controller.maybe_adjust({1: device_state}, now=now, pacing_sender=sender)
-
-
-def test_adaptive_pacing_controller_holds_when_admitted_matches_target():
-    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
-    sender = _FakePacingSender()
-    device_state = {"source_ip": "192.168.1.17", "packet_count": 0, "tx_backpressure_total": 0}
-
-    _step_adaptive_pacing(controller, sender, device_state, 0.0, packets=0, admitted=0, excess=0)
-    _step_adaptive_pacing(controller, sender, device_state, 1.0, packets=100, admitted=100, excess=0)
-
-    assert sender.rate_updates == []
-    assert controller.last_action == "hold"
-    assert controller.last_window_admitted_pps == pytest.approx(100.0)
-
-
-def test_adaptive_pacing_controller_does_not_chase_raw_oversupply_when_admitted_is_full():
-    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
-    sender = _FakePacingSender()
-    device_state = {"source_ip": "192.168.1.17", "packet_count": 0, "tx_backpressure_total": 0}
-
-    _step_adaptive_pacing(controller, sender, device_state, 0.0, packets=0, admitted=0, excess=0)
-    _step_adaptive_pacing(controller, sender, device_state, 1.0, packets=200, admitted=100, excess=100)
-
-    assert sender.rate_updates == []
-    assert controller.current_pps == pytest.approx(100.0)
-    assert controller.last_window_admitted_pps == pytest.approx(100.0)
-    assert controller.last_window_excess_pps == pytest.approx(100.0)
-    assert controller.last_action == "hold"
-
-
-def test_adaptive_pacing_controller_does_not_change_rate_for_occupancy_shortfall():
-    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
-    sender = _FakePacingSender()
-    device_state = {"source_ip": "192.168.1.17", "packet_count": 0, "tx_backpressure_total": 0}
-
-    _step_adaptive_pacing(controller, sender, device_state, 0.0, packets=0, admitted=0, excess=0)
-    _step_adaptive_pacing(controller, sender, device_state, 1.0, packets=90, admitted=80, excess=5)
-
-    assert sender.rate_updates == []
-    assert controller.current_pps == pytest.approx(100.0)
-    assert controller.last_action == "hold"
-
-
-def test_adaptive_pacing_controller_does_not_change_rate_when_excess_is_material():
-    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
-    sender = _FakePacingSender()
-    device_state = {"source_ip": "192.168.1.17", "packet_count": 0, "tx_backpressure_total": 0}
-
-    _step_adaptive_pacing(controller, sender, device_state, 0.0, packets=0, admitted=0, excess=0)
-    _step_adaptive_pacing(controller, sender, device_state, 1.0, packets=120, admitted=80, excess=40)
-
-    assert sender.rate_updates == []
-    assert controller.current_pps == pytest.approx(100.0)
-    assert controller.last_action == "hold"
-
-
-def test_adaptive_pacing_controller_does_not_boost_on_csi_conversion_deficit():
-    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
-    sender = _FakePacingSender()
-    device_state = {"source_ip": "192.168.1.17", "packet_count": 0, "tx_backpressure_total": 0}
-
-    _step_adaptive_pacing(controller, sender, device_state, 0.0, packets=0)
-    _step_adaptive_pacing(controller, sender, device_state, 1.0, packets=80, fresh=40, pacing_rx=80)
-
-    assert sender.rate_updates == []
-    assert controller.last_action == "hold"
-
-
-def test_adaptive_pacing_controller_ignores_noisy_delivery_jitter():
-    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
-    sender = _FakePacingSender()
-    device_state = {"source_ip": "192.168.1.17", "packet_count": 0, "tx_backpressure_total": 0}
-
-    _step_adaptive_pacing(controller, sender, device_state, 0.0, packets=0)
-
-    for window, delta in enumerate([108, 92, 108, 92], start=1):
-        _step_adaptive_pacing(
-            controller,
-            sender,
-            device_state,
-            float(window),
-            packets=int(device_state["packet_count"]) + delta,
-        )
-
-    assert sender.rate_updates == []
-    assert controller.current_pps == pytest.approx(100.0)
-    assert controller.last_action == "hold"
-
-
-def test_adaptive_pacing_controller_does_not_slow_when_fresh_csi_falls_behind_pacing():
-    class FakePacingSender:
-        def __init__(self):
-            self.rate_updates = []
-
-        def set_rate_pps(self, rate_pps):
-            self.rate_updates.append(float(rate_pps))
-
-    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
-    sender = FakePacingSender()
-    device_state = {"source_ip": "192.168.1.17", "packet_count": 0, "tx_backpressure_total": 0}
-
-    controller.observe_device(device_state, 0, 0, 0)
-    controller.maybe_adjust({1: device_state}, now=0.0, pacing_sender=sender)
-
-    device_state["packet_count"] = 20
-    controller.observe_device(device_state, 0, 20, 100)
-    controller.maybe_adjust({1: device_state}, now=1.0, pacing_sender=sender)
-
-    assert sender.rate_updates == []
-    assert controller.last_action == "hold"
-
-    device_state["packet_count"] = 40
-    controller.observe_device(device_state, 0, 40, 200)
-    controller.maybe_adjust({1: device_state}, now=2.0, pacing_sender=sender)
-
-    assert sender.rate_updates == []
-    assert controller.last_window_fresh_ratio == pytest.approx(0.2)
-    assert controller.last_action == "hold"
-
-
-def test_adaptive_pacing_controller_holds_on_moderate_freshness_jitter():
-    class FakePacingSender:
-        def __init__(self):
-            self.rate_updates = []
-
-        def set_rate_pps(self, rate_pps):
-            self.rate_updates.append(float(rate_pps))
-
-    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
-    sender = FakePacingSender()
-    device_state = {"source_ip": "192.168.1.17", "packet_count": 0, "tx_backpressure_total": 0}
-
-    controller.observe_device(device_state, 0, 0, 0)
-    controller.maybe_adjust({1: device_state}, now=0.0, pacing_sender=sender)
-
-    device_state["packet_count"] = 80
-    controller.observe_device(device_state, 0, 80, 100)
-    controller.maybe_adjust({1: device_state}, now=1.0, pacing_sender=sender)
-
-    assert sender.rate_updates == []
-    assert controller.last_window_fresh_ratio == pytest.approx(0.8)
-    assert controller.last_action == "hold"
-
-
-def test_adaptive_pacing_controller_ignores_persistent_freshness_deficit():
-    class FakePacingSender:
-        def __init__(self):
-            self.rate_updates = []
-
-        def set_rate_pps(self, rate_pps):
-            self.rate_updates.append(float(rate_pps))
-
-    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
-    sender = FakePacingSender()
-    device_state = {"source_ip": "192.168.1.17", "packet_count": 0, "tx_backpressure_total": 0}
-
-    controller.observe_device(device_state, 0, 0, 0)
-    controller.maybe_adjust({1: device_state}, now=0.0, pacing_sender=sender)
-
-    for window in range(1, 7):
-        device_state["packet_count"] = window * 20
-        controller.observe_device(device_state, 0, window * 20, window * 100)
-        controller.maybe_adjust({1: device_state}, now=float(window), pacing_sender=sender)
-
-    assert sender.rate_updates == []
-    assert controller.current_pps == pytest.approx(100.0)
-
-
-def test_adaptive_pacing_controller_does_not_slow_for_csi_only_deficit():
-    class FakePacingSender:
-        def __init__(self):
-            self.rate_updates = []
-
-        def set_rate_pps(self, rate_pps):
-            self.rate_updates.append(float(rate_pps))
-
-    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
-    sender = FakePacingSender()
-    device_state = {
-        "source_ip": "192.168.1.17",
-        "packet_count": 0,
-        "tx_backpressure_total": 0,
-    }
-
-    controller.observe_device(device_state, 0, 0, 0)
-    controller.maybe_adjust({1: device_state}, now=0.0, pacing_sender=sender)
-
-    for window in range(1, 4):
-        device_state["packet_count"] = window * 20
-        controller.observe_device(device_state, 0, window * 20, window * 100)
-        controller.maybe_adjust({1: device_state}, now=float(window), pacing_sender=sender)
-
-    assert sender.rate_updates == []
-    assert controller.current_pps == pytest.approx(100.0)
-    assert controller.last_window_fresh_ratio == pytest.approx(0.2)
-    assert controller.last_action == "hold"
-
-
-def test_adaptive_pacing_controller_ignores_minor_backpressure():
-    class FakePacingSender:
-        def __init__(self):
-            self.rate_updates = []
-
-        def set_rate_pps(self, rate_pps):
-            self.rate_updates.append(float(rate_pps))
-
-    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
-    sender = FakePacingSender()
-    device_state = {
-        "source_ip": "192.168.1.17",
-        "packet_count": 0,
-        "tx_backpressure_total": 0,
-    }
-
-    controller.observe_device(device_state, 0, 0, 0)
-    controller.maybe_adjust({1: device_state}, now=0.0, pacing_sender=sender)
-
-    for window in range(1, 11):
-        device_state["packet_count"] = window * 70
-        controller.observe_device(device_state, window, window * 70, window * 70)
-        controller.maybe_adjust({1: device_state}, now=float(window), pacing_sender=sender)
-
-    assert sender.rate_updates == []
-    assert controller.current_pps == pytest.approx(100.0)
-    assert controller.last_action == "hold"
-
-
-def test_adaptive_pacing_controller_spaces_significant_backpressure_reductions():
-    class FakePacingSender:
-        def __init__(self):
-            self.rate_updates = []
-
-        def set_rate_pps(self, rate_pps):
-            self.rate_updates.append(float(rate_pps))
-
-    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
-    sender = FakePacingSender()
-    device_state = {
-        "source_ip": "192.168.1.17",
-        "packet_count": 0,
-        "tx_backpressure_total": 0,
-    }
-
-    controller.observe_device(device_state, 0, 0, 0)
-    controller.maybe_adjust({1: device_state}, now=0.0, pacing_sender=sender)
-
-    for window in range(1, 11):
-        device_state["packet_count"] = window * 70
-        controller.observe_device(device_state, window * 5, window * 70, window * 70)
-        controller.maybe_adjust({1: device_state}, now=float(window), pacing_sender=sender)
-
-    assert sender.rate_updates == pytest.approx([85.0, 72.25, 70.0])
-    assert controller.current_pps == pytest.approx(70.0)
-    assert controller.last_action == "backpressure_floor"
-
-
-def test_adaptive_pacing_controller_recovers_despite_csi_deficit():
-    class FakePacingSender:
-        def __init__(self):
-            self.rate_updates = []
-
-        def set_rate_pps(self, rate_pps):
-            self.rate_updates.append(float(rate_pps))
-
-    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
-    sender = FakePacingSender()
-    device_state = {
-        "source_ip": "192.168.1.17",
-        "packet_count": 0,
-        "tx_backpressure_total": 0,
-    }
-
-    controller.observe_device(device_state, 0, 0, 0)
-    controller.maybe_adjust({1: device_state}, now=0.0, pacing_sender=sender)
-
-    device_state["packet_count"] = 70
-    controller.observe_device(device_state, 5, 70, 100)
-    controller.maybe_adjust({1: device_state}, now=1.0, pacing_sender=sender)
-    assert controller.current_pps == pytest.approx(85.0)
-
-    for window in range(2, 13):
-        device_state["packet_count"] += 60
-        controller.observe_device(device_state, 5, window * 60, 100 + ((window - 1) * 85))
-        controller.maybe_adjust({1: device_state}, now=float(window), pacing_sender=sender)
-
-    assert sender.rate_updates == pytest.approx([85.0, 87.0, 89.0, 91.0, 93.0, 95.0, 97.0, 99.0, 100.0])
-    assert controller.current_pps == pytest.approx(100.0)
-
-
-def test_adaptive_pacing_controller_holds_on_severe_raw_deficit():
-    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
-    sender = _FakePacingSender()
-    device_state = {"source_ip": "192.168.1.17", "packet_count": 0, "tx_backpressure_total": 0}
-
-    _step_adaptive_pacing(controller, sender, device_state, 0.0, packets=0, admitted=0, excess=0)
-    _step_adaptive_pacing(controller, sender, device_state, 1.0, packets=40, admitted=40, excess=0)
-
-    assert sender.rate_updates == []
-    assert controller.current_pps == pytest.approx(100.0)
-    assert controller.last_action == "hold"
-
-
-def test_adaptive_pacing_controller_holds_when_receive_rate_is_above_target():
-    controller = AdaptivePacingController(initial_pps=100.0, enabled=True, control_window_s=1.0)
-    sender = _FakePacingSender()
-    device_state = {"source_ip": "192.168.1.17", "packet_count": 0, "tx_backpressure_total": 0}
-
-    _step_adaptive_pacing(controller, sender, device_state, 0.0, packets=0)
-    _step_adaptive_pacing(controller, sender, device_state, 1.1, packets=120)
-
-    assert sender.rate_updates == []
-    assert controller.last_action == "hold"
-
-
 def test_receiver_configures_udp_receive_buffer(monkeypatch):
     calls = []
 
@@ -1174,7 +734,7 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
     monkeypatch.setattr(dataset_metadata, 'DATASET_INFO_FILE', data_dir / 'dataset_info.json')
 
     receiver = CSIReceiver(bind_host='127.0.0.1')
-    flags = STREAM_FLAG_WIFI_RX_TS_VALID
+    flags = RAW_CSI_FLAG_WIFI_RX_TS_VALID
     packets = [
         receiver._parse_packet(
             build_packet(
@@ -1201,6 +761,20 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
             )
         ),
     ]
+    for index, packet in enumerate(packets, start=1000):
+        packet.transport = 'http'
+        packet.transport_target = 'http://192.168.1.23/espectre/v1/csi'
+        packet.requested_pps = 200.0
+        packet.raw_protocol_version = 2
+        packet.record_version = RAW_CSI_RECORD_VERSION_V8
+        packet.raw_stream_sequence = index
+        packet.frontend = 'esphome'
+        packet.firmware_version = '2.0.0-test'
+        packet.firmware_identity = 'espectre-esphome-test'
+    packets[-1].fresh_record_total = 102
+    packets[-1].raw_drop_total = 3
+    packets[-1].raw_send_backpressure_total = 4
+    packets[-1].raw_final_stream_sequence = 1004
 
     collector = CSICollector(
         label='static_presence',
@@ -1221,6 +795,23 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
     assert int(data['device_id']) == 0xABCDEF
     assert int(data['csi_target_pps']) == 100
     np.testing.assert_array_equal(data['stream_seq_num'], np.array([100, 101], dtype=np.uint32))
+    np.testing.assert_array_equal(data['raw_stream_sequence'], np.array([1000, 1001], dtype=np.uint64))
+    assert str(data['transport']) == 'http'
+    assert str(data['transport_target']) == 'http://192.168.1.23/espectre/v1/csi'
+    assert str(data['endpoint']) == 'http://192.168.1.23/espectre/v1/csi'
+    assert float(data['observed_pps']) == float(data['effective_pps'])
+    assert float(data['requested_pps']) == 200.0
+    assert int(data['raw_protocol_version']) == 2
+    assert int(data['record_version']) == 8
+    assert str(data['frontend']) == 'esphome'
+    assert str(data['firmware_version']) == '2.0.0-test'
+    assert str(data['firmware_identity']) == 'espectre-esphome-test'
+    assert int(data['raw_fresh_record_total']) == 102
+    assert int(data['fresh_record_total']) == 102
+    assert int(data['raw_drop_total']) == 3
+    assert int(data['raw_send_backpressure_total']) == 4
+    assert int(data['send_backpressure_total']) == 4
+    assert int(data['raw_final_stream_sequence']) == 1004
     np.testing.assert_array_equal(data['phy_mode'], np.array(['ht', 'ht']))
     np.testing.assert_array_equal(data['ltf_type'], np.array(['ht-ltf', 'ht-ltf']))
     np.testing.assert_array_equal(data['channel_width'], np.array(['20', '20']))
@@ -1234,6 +825,17 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
     assert info['files']['static_presence'][0]['device_id'] == '0000000000abcdef'
     assert info['files']['static_presence'][0]['description'] == 'HT20 static presence sample'
     assert info['files']['static_presence'][0]['nominal_packet_rate'] == 100
+    assert info['files']['static_presence'][0]['transport'] == 'http'
+    assert info['files']['static_presence'][0]['endpoint'] == 'http://192.168.1.23/espectre/v1/csi'
+    assert info['files']['static_presence'][0]['observed_pps'] == info['files']['static_presence'][0]['effective_pps']
+    assert info['files']['static_presence'][0]['requested_pps'] == 200.0
+    assert info['files']['static_presence'][0]['frontend'] == 'esphome'
+    assert info['files']['static_presence'][0]['raw_fresh_record_total'] == 102
+    assert info['files']['static_presence'][0]['fresh_record_total'] == 102
+    assert info['files']['static_presence'][0]['raw_drop_total'] == 3
+    assert info['files']['static_presence'][0]['raw_send_backpressure_total'] == 4
+    assert info['files']['static_presence'][0]['send_backpressure_total'] == 4
+    assert info['files']['static_presence'][0]['raw_final_stream_sequence'] == 1004
     assert 'dev0000000000abcdef' in filepath.name
 
 

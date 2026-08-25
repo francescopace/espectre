@@ -66,17 +66,6 @@ IDF_FRONTENDS = {
             "s3": "esp32s3",
         },
     },
-    "streamer": {
-        "app_dir": FRONTEND_DIR / "streamer" / "app",
-        "targets": {
-            "esp32": "esp32",
-            "c3": "esp32c3",
-            "c5": "esp32c5",
-            "c6": "esp32c6",
-            "s3": "esp32s3",
-            "s2": "esp32s2",
-        },
-    },
 }
 
 
