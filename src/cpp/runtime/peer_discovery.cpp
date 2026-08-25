@@ -12,7 +12,7 @@
 #include <map>
 #include <set>
 
-#include "direct_websocket_protocol.h"
+#include "direct_http_protocol.h"
 #include "protocol_json.h"
 
 namespace espectre {
@@ -89,10 +89,13 @@ bool valid_candidate(const PeerDiscoveryCandidate &candidate) {
          token(candidate.frontend, kMaxFrontendLength) &&
          (candidate.frontend == "native" || candidate.frontend == "streamer" ||
           candidate.frontend == "esphome" || candidate.frontend == "matter") &&
-         candidate.txt_version == "1" && candidate.protocol_version == "1" &&
-         candidate.path == ESPECTRE_DIRECT_WEBSOCKET_ENDPOINT &&
+         candidate.txt_version == ESPECTRE_DIRECT_DISCOVERY_TXT_VERSION &&
+         candidate.protocol_version == "1" &&
+         candidate.transport == ESPECTRE_DIRECT_HTTP_TRANSPORT &&
+         candidate.path == ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT &&
+         candidate.events == ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT &&
          printable_text(candidate.firmware, kMaxFirmwareLength) && token(candidate.chip, kMaxChipLength) &&
-         candidate.tls == "0" && printable_text(candidate.capabilities, kMaxCapabilitiesLength) &&
+         printable_text(candidate.capabilities, kMaxCapabilitiesLength) &&
          !capability_tokens(candidate.capabilities).empty() && candidate.port != 0U;
 }
 
@@ -108,11 +111,13 @@ std::string device_json(const PeerDiscoveryCandidate &device) {
   append_json_pair(&out, "hostname", device.hostname.c_str());
   append_json_pair(&out, "name", device.name.c_str());
   append_json_pair(&out, "frontend", device.frontend.c_str());
-  out += ",\"txt_version\":1,\"protocol_version\":1";
+  out += ",\"schema_version\":2,\"txt_version\":2,\"protocol_version\":1";
+  append_json_pair(&out, "transport", device.transport.c_str());
   append_json_pair(&out, "path", device.path.c_str());
+  append_json_pair(&out, "events", device.events.c_str());
   append_json_pair(&out, "firmware", device.firmware.c_str());
   append_json_pair(&out, "chip", device.chip.c_str());
-  out += ",\"tls\":false,\"port\":" + std::to_string(device.port) + ",\"capabilities\":[";
+  out += ",\"port\":" + std::to_string(device.port) + ",\"capabilities\":[";
   const auto capabilities = capability_tokens(device.capabilities);
   for (size_t index = 0U; index < capabilities.size(); ++index) {
     if (index != 0U) out += ",";
@@ -203,7 +208,7 @@ PeerDiscoverySnapshot validate_peer_discovery_candidates(
 }
 
 std::string peer_discovery_snapshot_json(const PeerDiscoverySnapshot &snapshot) {
-  std::string out{"{\"schema_version\":1,\"elapsed_ms\":"};
+  std::string out{"{\"schema_version\":2,\"elapsed_ms\":"};
   out += std::to_string(snapshot.elapsed_ms);
   out += ",\"status\":\"";
   out += snapshot.timed_out ? "timeout" : "complete";

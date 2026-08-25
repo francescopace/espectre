@@ -14,7 +14,7 @@
 
 #include "esp_netif.h"
 #include "esp_timer.h"
-#include "direct_websocket_protocol.h"
+#include "direct_http_protocol.h"
 #include "mdns.h"
 #include "mdns_private.h"
 #include "mdns_discovery_service.h"
@@ -37,7 +37,11 @@ MdnsDiscoveryServiceConfig direct_config() {
       "_espectre",
       "_tcp",
       80U,
-      {{"device_id", "0123456789abcdef"}, {"path", "/espectre/v1/ws"}, {"protovers", "1"}},
+      {{"device_id", "0123456789abcdef"},
+       {"transport", ESPECTRE_DIRECT_HTTP_TRANSPORT},
+       {"path", ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT},
+       {"events", ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT},
+       {"protovers", "1"}},
   };
 }
 
@@ -57,11 +61,13 @@ void test_registers_identity_service_and_txt() {
   TEST_ASSERT_EQUAL_STRING("_espectre", g_mdns_mock.service_type);
   TEST_ASSERT_EQUAL_STRING("_tcp", g_mdns_mock.service_proto);
   TEST_ASSERT_EQUAL(80U, g_mdns_mock.service_port);
-  TEST_ASSERT_EQUAL(3U, g_mdns_mock.txt_count);
+  TEST_ASSERT_EQUAL(5U, g_mdns_mock.txt_count);
   TEST_ASSERT_EQUAL_STRING("device_id", g_mdns_mock.txt_keys[0]);
   TEST_ASSERT_EQUAL_STRING("0123456789abcdef", g_mdns_mock.txt_values[0]);
-  TEST_ASSERT_EQUAL_STRING("path", g_mdns_mock.txt_keys[1]);
-  TEST_ASSERT_EQUAL_STRING("/espectre/v1/ws", g_mdns_mock.txt_values[1]);
+  TEST_ASSERT_EQUAL_STRING("transport", g_mdns_mock.txt_keys[1]);
+  TEST_ASSERT_EQUAL_STRING("http", g_mdns_mock.txt_values[1]);
+  TEST_ASSERT_EQUAL_STRING("path", g_mdns_mock.txt_keys[2]);
+  TEST_ASSERT_EQUAL_STRING(ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT, g_mdns_mock.txt_values[2]);
   service.shutdown();
   TEST_ASSERT_EQUAL_INT(1, g_mdns_mock.service_remove_call_count);
   TEST_ASSERT_EQUAL_INT(1, g_mdns_mock.free_call_count);
@@ -127,6 +133,7 @@ void test_streamer_advertises_canonical_direct_service() {
 
 constexpr char BOOTSTRAP_HOST[] =
     "espectre-devices-0123456789abcdef01234567";
+constexpr uint16_t DNS_TYPE_NSEC = 47U;
 
 uint16_t packet_u16(const uint8_t *data) {
   return static_cast<uint16_t>((static_cast<uint16_t>(data[0]) << 8U) | data[1]);
@@ -204,6 +211,31 @@ size_t answer_offset(const uint8_t *packet, size_t length) {
   return offset;
 }
 
+void assert_bootstrap_nsec(const uint8_t *packet,
+                           size_t length,
+                           size_t offset,
+                           const char *expected_host) {
+  const std::string expected_owner = std::string(expected_host) + ".local";
+  const std::string actual_owner = dns_name_at(packet, length, offset);
+  TEST_ASSERT_EQUAL_STRING(expected_owner.c_str(), actual_owner.c_str());
+  const size_t fields = skip_dns_name(packet, length, offset);
+  TEST_ASSERT_TRUE(fields + 10U <= length);
+  TEST_ASSERT_EQUAL(DNS_TYPE_NSEC, packet_u16(packet + fields));
+  TEST_ASSERT_EQUAL(1U, packet_u16(packet + fields + 2U));
+  TEST_ASSERT_EQUAL(NativeMdnsBootstrapResponder::RESPONSE_TTL_SECONDS,
+                    packet_u32(packet + fields + 4U));
+  const size_t rdata_length = packet_u16(packet + fields + 8U);
+  const size_t rdata = fields + 10U;
+  TEST_ASSERT_TRUE(rdata + rdata_length <= length);
+  const std::string next_domain = dns_name_at(packet, length, rdata);
+  TEST_ASSERT_EQUAL_STRING(expected_owner.c_str(), next_domain.c_str());
+  const size_t bitmap = skip_dns_name(packet, length, rdata);
+  TEST_ASSERT_EQUAL(rdata + rdata_length, bitmap + 3U);
+  TEST_ASSERT_EQUAL(0U, packet[bitmap]);
+  TEST_ASSERT_EQUAL(1U, packet[bitmap + 1U]);
+  TEST_ASSERT_EQUAL(0x40U, packet[bitmap + 2U]);
+}
+
 void assert_bootstrap_answer(const char *expected_host,
                              uint32_t expected_address,
                              bool legacy_unicast,
@@ -215,6 +247,7 @@ void assert_bootstrap_answer(const char *expected_host,
   TEST_ASSERT_EQUAL(0x8400U, packet_u16(packet + 2U));
   TEST_ASSERT_EQUAL(legacy_unicast ? 1U : 0U, packet_u16(packet + 4U));
   TEST_ASSERT_EQUAL(1U, packet_u16(packet + 6U));
+  TEST_ASSERT_EQUAL(1U, packet_u16(packet + 10U));
   const size_t offset = answer_offset(packet, length);
   const std::string expected_owner = std::string(expected_host) + ".local";
   const std::string actual_owner = dns_name_at(packet, length, offset);
@@ -229,6 +262,19 @@ void assert_bootstrap_answer(const char *expected_host,
   uint32_t address = 0U;
   std::memcpy(&address, packet + fields + 10U, sizeof(address));
   TEST_ASSERT_EQUAL(expected_address, address);
+  assert_bootstrap_nsec(packet, length, fields + 14U, expected_host);
+}
+
+void assert_bootstrap_negative_aaaa(const char *expected_host) {
+  const uint8_t *packet = g_mdns_mock.last_write_packet;
+  const size_t length = g_mdns_mock.last_write_len;
+  TEST_ASSERT_TRUE(length > 12U);
+  TEST_ASSERT_EQUAL(0U, packet_u16(packet));
+  TEST_ASSERT_EQUAL(0x8400U, packet_u16(packet + 2U));
+  TEST_ASSERT_EQUAL(0U, packet_u16(packet + 4U));
+  TEST_ASSERT_EQUAL(1U, packet_u16(packet + 6U));
+  TEST_ASSERT_EQUAL(0U, packet_u16(packet + 10U));
+  assert_bootstrap_nsec(packet, length, answer_offset(packet, length), expected_host);
 }
 
 void test_bootstrap_answers_multicast_a_after_bounded_delay() {
@@ -300,6 +346,24 @@ void test_bootstrap_answers_chrome_a_with_compressed_aaaa_question() {
   assert_bootstrap_answer(BOOTSTRAP_HOST, address, false, 0U);
 }
 
+void test_bootstrap_negates_aaaa_without_advertising_ipv6() {
+  reset_mocks();
+  esp_timer_mock::reset(100000, 0);
+  NativeMdnsBootstrapResponder responder;
+  TEST_ASSERT_TRUE(responder.setup());
+  const uint32_t source = ipv4(192U, 168U, 1U, 22U);
+  TEST_ASSERT_TRUE(responder.update(ipv4(192U, 168U, 1U, 42U)));
+
+  const std::vector<uint8_t> query =
+      bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_AAAA, 0x8001U);
+  responder.ingest_query(query.data(), query.size(), 0U, source, 5353U);
+
+  TEST_ASSERT_EQUAL(1, g_mdns_mock.real_write_call_count);
+  TEST_ASSERT_EQUAL(source, g_mdns_mock.last_write_destination_ipv4);
+  TEST_ASSERT_EQUAL(5353U, g_mdns_mock.last_write_destination_port);
+  assert_bootstrap_negative_aaaa(BOOTSTRAP_HOST);
+}
+
 void test_bootstrap_rejects_static_invalid_and_unsupported_queries() {
   reset_mocks();
   esp_timer_mock::reset(100000, 0);
@@ -316,9 +380,7 @@ void test_bootstrap_rejects_static_invalid_and_unsupported_queries() {
     const std::vector<uint8_t> query = bootstrap_query(host);
     responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
   }
-  std::vector<uint8_t> query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_AAAA);
-  responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
-  query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 3U);
+  std::vector<uint8_t> query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 3U);
   responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
   query = bootstrap_query(BOOTSTRAP_HOST, MDNS_TYPE_A, 1U, 0U, 0x8000U);
   responder.ingest_query(query.data(), query.size(), 0U, 1U, 5353U);
@@ -431,12 +493,13 @@ PeerDiscoveryCandidate peer(const char *device_id,
   candidate.device_id = device_id;
   candidate.name = "Kitchen sensor";
   candidate.frontend = "native";
-  candidate.txt_version = "1";
+  candidate.txt_version = ESPECTRE_DIRECT_DISCOVERY_TXT_VERSION;
   candidate.protocol_version = "1";
-  candidate.path = ESPECTRE_DIRECT_WEBSOCKET_ENDPOINT;
+  candidate.transport = ESPECTRE_DIRECT_HTTP_TRANSPORT;
+  candidate.path = ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT;
+  candidate.events = ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT;
   candidate.firmware = "3.0.0-rc1";
   candidate.chip = "esp32c3";
-  candidate.tls = "0";
   candidate.capabilities = "monitor,config,peer_discovery";
   candidate.port = 80U;
   candidate.ipv4_addresses = {address};
@@ -449,16 +512,17 @@ uint32_t ipv4(uint8_t first, uint8_t second, uint8_t third, uint8_t fourth) {
 }
 
 struct PeerMdnsFixture {
-  mdns_txt_item_t txt[10] = {
+  mdns_txt_item_t txt[11] = {
       {"device_id", "2222222222222222"},
       {"name", "Office sensor"},
       {"frontend", "native"},
-      {"txtvers", "1"},
+      {"txtvers", "2"},
       {"protovers", "1"},
-      {"path", "/espectre/v1/ws"},
+      {"transport", "http"},
+      {"path", "/espectre/v1/request"},
+      {"events", "/espectre/v1/events"},
       {"firmware", "3.0.0-rc1"},
       {"chip", "esp32c3"},
-      {"tls", "0"},
       {"capabilities", "config,monitor,peer_discovery"},
   };
   mdns_ip_addr_t address{};
@@ -495,7 +559,7 @@ void test_peer_results_are_bounded_validated_sorted_and_serializable() {
   TEST_ASSERT_TRUE(snapshot.rejected_results >= 2U);
   const std::string payload = peer_discovery_snapshot_json(snapshot);
   TEST_ASSERT_TRUE(payload.size() <= ESPECTRE_PEER_DISCOVERY_MAX_RESULT_SIZE);
-  TEST_ASSERT_TRUE(payload.find("\"schema_version\":1") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"schema_version\":2") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("192.168.1.102") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("8.8.8.8") == std::string::npos);
   TEST_ASSERT_TRUE(payload.find("peer_discovery") != std::string::npos);
@@ -516,12 +580,13 @@ void test_peer_results_reject_every_malformed_and_nonlocal_boundary() {
   reject([](auto &candidate) { candidate.device_id = "ABCDEF0123456789"; });
   reject([](auto &candidate) { candidate.name = "bad\nname"; });
   reject([](auto &candidate) { candidate.frontend = "unknown"; });
-  reject([](auto &candidate) { candidate.txt_version = "2"; });
+  reject([](auto &candidate) { candidate.txt_version = "1"; });
   reject([](auto &candidate) { candidate.protocol_version = "2"; });
-  reject([](auto &candidate) { candidate.path = "/espectre/v1/ws?token=x"; });
+  reject([](auto &candidate) { candidate.transport = "websocket"; });
+  reject([](auto &candidate) { candidate.path = "/espectre/v1/ws"; });
+  reject([](auto &candidate) { candidate.events = "/events"; });
   reject([](auto &candidate) { candidate.firmware.assign(49U, 'x'); });
   reject([](auto &candidate) { candidate.chip = "esp32.c3"; });
-  reject([](auto &candidate) { candidate.tls = "1"; });
   reject([](auto &candidate) { candidate.capabilities = "monitor,monitor"; });
   reject([](auto &candidate) { candidate.port = 0U; });
   reject([](auto &candidate) { candidate.ipv4_addresses = {ipv4(192U, 168U, 2U, 42U)}; });
@@ -671,6 +736,7 @@ int main() {
   RUN_TEST(test_bootstrap_answers_multicast_a_after_bounded_delay);
   RUN_TEST(test_bootstrap_handles_qu_and_legacy_unicast);
   RUN_TEST(test_bootstrap_answers_chrome_a_with_compressed_aaaa_question);
+  RUN_TEST(test_bootstrap_negates_aaaa_without_advertising_ipv6);
   RUN_TEST(test_bootstrap_rejects_static_invalid_and_unsupported_queries);
   RUN_TEST(test_bootstrap_requires_ipv4_and_cancels_pending_responses);
   RUN_TEST(test_bootstrap_bounds_pending_pool_and_global_rate);

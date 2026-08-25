@@ -235,6 +235,35 @@ bool RuntimeFrontendController::is_calibrating() const {
   return runtime_ != nullptr && runtime_->is_calibrating();
 }
 
+bool RuntimeFrontendController::start_raw_collection(raw_csi_packet_callback_t callback,
+                                                     void *context) {
+  if (!runtime_ || !capabilities_.supports_raw_csi || callback == nullptr) {
+    return false;
+  }
+  const bool started = runtime_->start_raw_collection(callback, context);
+  if (started) {
+    cache_snapshot_(runtime_->get_snapshot());
+  }
+  apply_deferred_shutdown_();
+  return started;
+}
+
+bool RuntimeFrontendController::stop_raw_collection(RawCsiStopReason reason) {
+  if (!runtime_ || runtime_->operation_state() != RuntimeOperationState::RAW_COLLECTION) {
+    return false;
+  }
+  const bool stopped = runtime_->stop_raw_collection(reason);
+  if (stopped) {
+    cache_snapshot_(runtime_->get_snapshot());
+  }
+  apply_deferred_shutdown_();
+  return stopped;
+}
+
+RuntimeOperationState RuntimeFrontendController::operation_state() const {
+  return runtime_ != nullptr ? runtime_->operation_state() : RuntimeOperationState::SENSING;
+}
+
 RuntimeDiagnosticsSnapshot RuntimeFrontendController::diagnostics() const {
   return runtime_ != nullptr ? runtime_->get_diagnostics() : RuntimeDiagnosticsSnapshot{};
 }

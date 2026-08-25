@@ -87,6 +87,32 @@ void CsiPipeline::clear_detector_buffer() {
   }
 }
 
+bool CsiPipeline::start_raw_capture(raw_csi_packet_callback_t callback, void *context) {
+  if (callback == nullptr || raw_capture_active()) {
+    return false;
+  }
+  pending_frames_.clear();
+  pending_candidate_valid_ = false;
+  live_telemetry_event_.clear();
+  motion_state_event_.clear();
+  detection_timing_.clear();
+  clear_detector_state_();
+  raw_packet_context_.store(context, std::memory_order_release);
+  raw_packet_callback_.store(callback, std::memory_order_release);
+  return true;
+}
+
+void CsiPipeline::stop_raw_capture() {
+  raw_packet_callback_.store(nullptr, std::memory_order_release);
+  raw_packet_context_.store(nullptr, std::memory_order_release);
+  pending_frames_.clear();
+  pending_candidate_valid_ = false;
+  live_telemetry_event_.clear();
+  motion_state_event_.clear();
+  detection_timing_.clear();
+  clear_detector_state_();
+}
+
 void CsiPipeline::clear_detector_state_() {
   if (detector_) {
     MotionState previous_state = effective_motion_state_;
@@ -363,6 +389,33 @@ void CsiPipeline::capture_packet_callback_(void *context,
     return;
   }
 
+  raw_csi_packet_callback_t raw_callback =
+      pipeline->raw_packet_callback_.load(std::memory_order_acquire);
+  if (raw_callback != nullptr) {
+    RawCsiPacketView packet;
+    packet.csi = normalized.data;
+    packet.csi_len = static_cast<uint16_t>(normalized.len);
+    packet.captured_at_us = static_cast<uint64_t>(esp_timer_get_time());
+    packet.wifi_rx_ts_us = data->rx_ctrl.timestamp;
+    packet.stream_flags = STREAM_FLAG_CSI_FRESH;
+    if (data->first_word_invalid) {
+      packet.stream_flags |= STREAM_FLAG_FIRST_WORD_INVALID;
+    }
+    if (data->rx_ctrl.timestamp != 0U) {
+      packet.stream_flags |= STREAM_FLAG_WIFI_RX_TS_VALID;
+    }
+    packet.channel = data->rx_ctrl.channel;
+    packet.rssi_dbm = data->rx_ctrl.rssi;
+    packet.noise_floor_dbm = static_cast<int8_t>(data->rx_ctrl.noise_floor);
+    // CsiCaptureService admits only the production HT20 format.
+    packet.phy_mode = StreamPhyMode::HT;
+    packet.ltf_type = StreamLtfType::HT_LTF;
+    packet.channel_width = StreamChannelWidth::MHZ_20;
+    (void) raw_callback(
+        pipeline->raw_packet_context_.load(std::memory_order_acquire), packet);
+    return;
+  }
+
   PendingCsiFrame frame;
   frame.rx_ctrl = data->rx_ctrl;
   frame.callback_time_us =
@@ -412,6 +465,8 @@ esp_err_t CsiPipeline::disable() {
   }
   
   enabled_ = false;
+  raw_packet_callback_.store(nullptr, std::memory_order_release);
+  raw_packet_context_.store(nullptr, std::memory_order_release);
   packet_callback_ = nullptr;
   capture_service_.set_packet_callback(nullptr, nullptr);
   pending_frames_.clear();

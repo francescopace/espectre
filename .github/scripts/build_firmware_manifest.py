@@ -227,8 +227,8 @@ def build_manifest(args: argparse.Namespace) -> dict:
             },
             "native": {
                 "label": "Native",
-                "post_flash": "Provision Wi-Fi over Improv Serial, then configure and monitor over Direct WebSocket.",
-                "notes": ["Native uses Improv Serial for Wi-Fi provisioning and Direct WebSocket for local setup and monitoring."],
+                "post_flash": "Provision Wi-Fi over Improv Serial, then configure and monitor over Direct HTTP.",
+                "notes": ["Native uses Improv Serial for Wi-Fi provisioning and Direct HTTP for local setup and monitoring."],
                 "artifacts": [],
             },
         },

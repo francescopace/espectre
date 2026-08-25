@@ -194,14 +194,14 @@ Do not pace Streamer devices with LAN broadcast. `./espectre collect --target 23
 The streamer is responsible for:
 
 - learning the collector IP from the source address of valid UDP pacing traffic
-- advertising its Direct WebSocket endpoint over mDNS/DNS-SD as `_espectre._tcp.local.` and carrying the UDP pacing port in TXT metadata
+- advertising its Direct HTTP endpoint over mDNS/DNS-SD as `_espectre._tcp.local.` and carrying the UDP pacing port in TXT metadata
 - embedding the latest AP-sourced CSI sample only when it is fresh
 - flagging emitted CSI records with `STREAM_FLAG_CSI_FRESH`
 - emitting CSI records only for pacing slots that coincide with a fresh sample, batching them into uplink datagrams, and retargeting live when the collector address changes
 
-[`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) owns the shared SRV and TXT contract. The SRV endpoint is Direct WebSocket on port `80`; it is not the UDP pacing target. Run `./espectre devices --frontend streamer` to list advertisements without starting collection. When `--target` is omitted, `./espectre collect` performs the same fresh browse and reads `traffic_port` from the selected record; `./espectre collect --list-devices` remains a Streamer-only convenience alias.
+[`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) owns the shared SRV and TXT contract. The SRV endpoint is Direct HTTP on port `80`; it is not the UDP pacing target. Run `./espectre devices --frontend streamer` to list advertisements without starting collection. When `--target` is omitted, `./espectre collect` performs the same fresh browse and reads `traffic_port` from the selected record; `./espectre collect --list-devices` remains a Streamer-only convenience alias.
 
-Streamer also exposes the common Direct status, diagnostics, and runtime-control surface. Raw CSI does not pass through WebSocket: collection remains on the bounded UDP data path described in this document.
+Streamer also exposes the common Direct HTTP status, diagnostics, and runtime-control surface. Raw CSI collection remains on the bounded UDP data path described in this document.
 
 On clean Wi-Fi disconnects, the firmware disables the mDNS service so peers can observe a best-effort goodbye. On reconnects and IP changes, it re-announces the same service identity on the new address. Host discovery still validates the announced `device_id` against the first CSI packets, so stale records or DHCP IP reuse cannot silently redirect a capture to the wrong device.
 

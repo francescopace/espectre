@@ -48,6 +48,8 @@ struct RuntimeCapabilities {
   bool supports_extended_diagnostics{false};
   /** The runtime owns CSI traffic generation and can be asked to retune it. */
   bool supports_traffic_control{false};
+  /** The runtime can temporarily bypass sensing and expose normalized raw CSI. */
+  bool supports_raw_csi{false};
 };
 
 }  // namespace espectre

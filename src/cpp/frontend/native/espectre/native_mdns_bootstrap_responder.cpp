@@ -1,7 +1,7 @@
 /*
  * ESPectre - Native mDNS Bootstrap Responder
  *
- * This extension observes IPv4 mDNS questions before the Espressif responder
+ * This extension observes bootstrap mDNS questions before the Espressif responder
  * filters unregistered hostnames. Matching one-shot bootstrap questions are
  * answered through the responder's existing socket without registering or
  * retaining the queried nonce.
@@ -39,6 +39,8 @@ constexpr uint16_t DNS_OPCODE_MASK = 0x7800U;
 constexpr uint16_t DNS_CLASS_IN = 0x0001U;
 constexpr uint16_t DNS_CLASS_UNICAST_RESPONSE = 0x8000U;
 constexpr uint16_t DNS_TYPE_A = 0x0001U;
+constexpr uint16_t DNS_TYPE_AAAA = 0x001cU;
+constexpr uint16_t DNS_TYPE_NSEC = 0x002fU;
 constexpr uint16_t MDNS_PORT = 5353U;
 constexpr int64_t RATE_WINDOW_US = 1000000;
 constexpr int64_t RESPONSE_DELAY_STEP_US = 25000;
@@ -160,6 +162,28 @@ size_t append_name(uint8_t *destination,
   return offset;
 }
 
+size_t append_nsec_record(const ParsedQuestion &question,
+                          uint8_t *destination,
+                          size_t capacity,
+                          size_t offset) {
+  offset = append_name(destination, capacity, offset, question.host.data(), question.host_length);
+  if (offset == 0U || offset + 10U > capacity) return 0U;
+  write_u16(destination + offset, DNS_TYPE_NSEC);
+  write_u16(destination + offset + 2U, DNS_CLASS_IN);
+  write_u32(destination + offset + 4U,
+            espectre::NativeMdnsBootstrapResponder::RESPONSE_TTL_SECONDS);
+  const size_t length_offset = offset + 8U;
+  const size_t rdata_offset = offset + 10U;
+  offset = append_name(
+      destination, capacity, rdata_offset, question.host.data(), question.host_length);
+  if (offset == 0U || offset + 3U > capacity) return 0U;
+  destination[offset++] = 0U;     // Type bitmap window 0.
+  destination[offset++] = 1U;     // One bitmap byte covers types 0-7.
+  destination[offset++] = 0x40U;  // Type A exists; type AAAA does not.
+  write_u16(destination + length_offset, static_cast<uint16_t>(offset - rdata_offset));
+  return offset;
+}
+
 size_t build_response(const ParsedQuestion &question,
                       uint16_t query_id,
                       uint32_t ipv4_address,
@@ -168,28 +192,33 @@ size_t build_response(const ParsedQuestion &question,
                       size_t capacity) {
   if (destination == nullptr || capacity < DNS_HEADER_SIZE) return 0U;
   std::memset(destination, 0, capacity);
+  const bool address_answer = question.type == DNS_TYPE_A;
   write_u16(destination, legacy_unicast ? query_id : 0U);
   write_u16(destination + 2U, DNS_FLAG_RESPONSE_AUTHORITATIVE);
   write_u16(destination + 4U, legacy_unicast ? 1U : 0U);
   write_u16(destination + 6U, 1U);
+  write_u16(destination + 10U, address_answer ? 1U : 0U);
   size_t offset = DNS_HEADER_SIZE;
   if (legacy_unicast) {
     offset = append_name(
         destination, capacity, offset, question.host.data(), question.host_length);
     if (offset == 0U || offset + 4U > capacity) return 0U;
-    write_u16(destination + offset, DNS_TYPE_A);
+    write_u16(destination + offset, question.type);
     write_u16(destination + offset + 2U, DNS_CLASS_IN);
     offset += 4U;
   }
-  offset = append_name(destination, capacity, offset, question.host.data(), question.host_length);
-  if (offset == 0U || offset + 14U > capacity) return 0U;
-  write_u16(destination + offset, DNS_TYPE_A);
-  write_u16(destination + offset + 2U, DNS_CLASS_IN);
-  write_u32(destination + offset + 4U,
-            espectre::NativeMdnsBootstrapResponder::RESPONSE_TTL_SECONDS);
-  write_u16(destination + offset + 8U, 4U);
-  std::memcpy(destination + offset + 10U, &ipv4_address, sizeof(ipv4_address));
-  return offset + 14U;
+  if (address_answer) {
+    offset = append_name(destination, capacity, offset, question.host.data(), question.host_length);
+    if (offset == 0U || offset + 14U > capacity) return 0U;
+    write_u16(destination + offset, DNS_TYPE_A);
+    write_u16(destination + offset + 2U, DNS_CLASS_IN);
+    write_u32(destination + offset + 4U,
+              espectre::NativeMdnsBootstrapResponder::RESPONSE_TTL_SECONDS);
+    write_u16(destination + offset + 8U, 4U);
+    std::memcpy(destination + offset + 10U, &ipv4_address, sizeof(ipv4_address));
+    offset += 14U;
+  }
+  return append_nsec_record(question, destination, capacity, offset);
 }
 
 }  // namespace
@@ -273,11 +302,14 @@ void NativeMdnsBootstrapResponder::ingest_query(const uint8_t *packet,
     ParsedQuestion question;
     if (!parse_question(packet, length, offset, &question)) return;
     offset = question.next_offset;
-    if (!found && question.matchable_name && question.type == DNS_TYPE_A &&
+    if (question.matchable_name &&
+        (question.type == DNS_TYPE_A || question.type == DNS_TYPE_AAAA) &&
         (question.clas & ~DNS_CLASS_UNICAST_RESPONSE) == DNS_CLASS_IN &&
         valid_bootstrap_label(question.host.data(), question.host_length)) {
-      match = question;
-      found = true;
+      if (!found || question.type == DNS_TYPE_A) {
+        match = question;
+        found = true;
+      }
     }
   }
   if (!found) return;

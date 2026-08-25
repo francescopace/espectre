@@ -5,7 +5,7 @@
 
 ## Context
 
-Native MQTT, Native Direct WebSocket, the shared Direct bridge, ESPHome entities, Matter controls, Streamer controls, and Micro-ESPectre evolved separate dispatchers. They described similar operations with different names, validation, result shapes, and side effects. In Native, independent outbound transport queues are required for backpressure, but independent command workers and registries are not. The duplicate control paths made it possible for one transport to accept a value another rejected, for queries to leak side responses onto MQTT, and for clients to maintain stale verb allowlists.
+Native MQTT, Native Direct HTTP, the shared Direct bridge, ESPHome entities, Matter controls, Streamer controls, and Micro-ESPectre evolved separate dispatchers. They described similar operations with different names, validation, result shapes, and side effects. In Native, independent outbound transport queues are required for backpressure, but independent command workers and registries are not. The duplicate control paths made it possible for one transport to accept a value another rejected, for queries to leak side responses onto MQTT, and for clients to maintain stale verb allowlists.
 
 ## Decision
 
@@ -29,7 +29,7 @@ Rejected. It breaks request correlation, discloses locally visible data across t
 
 ### Share one outbound queue for MQTT and Direct
 
-Rejected. Backpressure and delivery guarantees differ by transport. A slow broker must not delay local WebSocket clients, and a slow WebSocket client must not delay MQTT.
+Rejected. Backpressure and delivery guarantees differ by transport. A slow broker must not delay local WebSocket clients, and a slow SSE subscriber must not delay MQTT.
 
 ### Generate both language registries from one artifact
 

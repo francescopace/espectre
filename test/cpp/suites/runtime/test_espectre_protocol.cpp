@@ -10,7 +10,7 @@
  */
 #include "test_harness.h"
 
-#include "direct_websocket_protocol.h"
+#include "direct_http_protocol.h"
 #include "espectre_protocol.h"
 #include "ota_version.h"
 #include "runtime_diagnostics.h"
@@ -253,9 +253,9 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
       "{\"command\":\"capabilities\",\"code\":\"ok\",\"message\":\"capabilities returned\",\"data\":" +
       catalog + "}";
   const std::string capability_response =
-      direct_websocket_success_response("capabilities", capability_result);
-  TEST_ASSERT_TRUE(capability_response.size() > ESPECTRE_DIRECT_MAX_REQUEST_FRAME_SIZE);
-  TEST_ASSERT_TRUE(capability_response.size() <= ESPECTRE_DIRECT_MAX_RESPONSE_FRAME_SIZE);
+      direct_http_success_response("capabilities", capability_result);
+  TEST_ASSERT_TRUE(capability_response.size() > ESPECTRE_DIRECT_MAX_REQUEST_SIZE);
+  TEST_ASSERT_TRUE(capability_response.size() <= ESPECTRE_DIRECT_MAX_RESPONSE_SIZE);
 }
 
 void test_info_payload_omits_optional_sections_when_empty(void) {
@@ -546,11 +546,11 @@ void test_parse_espectre_config_command_rejects_invalid_inputs(void) {
   TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:device_label=test", nullptr, &error));
 }
 
-void test_direct_websocket_request_parses_versioned_envelope(void) {
-  DirectWebSocketRequest request;
+void test_direct_http_request_parses_versioned_envelope(void) {
+  DirectRequest request;
   std::string error;
 
-  TEST_ASSERT_TRUE(parse_direct_websocket_request(
+  TEST_ASSERT_TRUE(parse_direct_http_request(
       "{\"v\":1,\"type\":\"request\",\"id\":\"req:42\",\"method\":\"set_threshold\","
       "\"params\":{\"threshold\":0.42},\"future\":true}",
       &request,
@@ -559,7 +559,7 @@ void test_direct_websocket_request_parses_versioned_envelope(void) {
   TEST_ASSERT_EQUAL_STRING("set_threshold", request.method.c_str());
   TEST_ASSERT_EQUAL_STRING("{\"threshold\":0.42}", request.params.c_str());
 
-  TEST_ASSERT_TRUE(parse_direct_websocket_request(
+  TEST_ASSERT_TRUE(parse_direct_http_request(
       "{\"v\":1,\"type\":\"request\",\"id\":\"unicode-\\u0031\",\"method\":\"info\"}",
       &request,
       &error));
@@ -567,55 +567,55 @@ void test_direct_websocket_request_parses_versioned_envelope(void) {
   TEST_ASSERT_EQUAL_STRING("{}", request.params.c_str());
 }
 
-void test_direct_websocket_request_rejects_invalid_boundaries(void) {
-  DirectWebSocketRequest request;
+void test_direct_http_request_rejects_invalid_boundaries(void) {
+  DirectRequest request;
   std::string error;
 
-  TEST_ASSERT_FALSE(parse_direct_websocket_request("", &request, &error));
-  TEST_ASSERT_EQUAL_STRING("empty Direct frame", error.c_str());
-  TEST_ASSERT_FALSE(parse_direct_websocket_request("{", &request, &error));
-  TEST_ASSERT_FALSE(parse_direct_websocket_request(
+  TEST_ASSERT_FALSE(parse_direct_http_request("", &request, &error));
+  TEST_ASSERT_EQUAL_STRING("empty Direct request", error.c_str());
+  TEST_ASSERT_FALSE(parse_direct_http_request("{", &request, &error));
+  TEST_ASSERT_FALSE(parse_direct_http_request(
       "{\"v\":1,\"v\":1,\"type\":\"request\",\"id\":\"x\",\"method\":\"info\"}",
       &request,
       &error));
   TEST_ASSERT_EQUAL_STRING("duplicate JSON object field", error.c_str());
-  TEST_ASSERT_FALSE(parse_direct_websocket_request(
+  TEST_ASSERT_FALSE(parse_direct_http_request(
       "{\"v\":\"1\",\"type\":\"request\",\"id\":\"x\",\"method\":\"info\"}",
       &request,
       &error));
   TEST_ASSERT_EQUAL_STRING("unsupported Direct envelope version", error.c_str());
-  TEST_ASSERT_FALSE(parse_direct_websocket_request(
+  TEST_ASSERT_FALSE(parse_direct_http_request(
       "{\"v\":1,\"type\":\"event\",\"id\":\"x\",\"method\":\"info\"}",
       &request,
       &error));
-  TEST_ASSERT_EQUAL_STRING("Direct client frames must have type request", error.c_str());
-  TEST_ASSERT_FALSE(parse_direct_websocket_request(
+  TEST_ASSERT_EQUAL_STRING("Direct client messages must have type request", error.c_str());
+  TEST_ASSERT_FALSE(parse_direct_http_request(
       "{\"v\":1,\"type\":\"request\",\"id\":\"bad id\",\"method\":\"info\"}",
       &request,
       &error));
   TEST_ASSERT_EQUAL_STRING("invalid Direct request id", error.c_str());
-  TEST_ASSERT_FALSE(parse_direct_websocket_request(
+  TEST_ASSERT_FALSE(parse_direct_http_request(
       "{\"v\":1,\"type\":\"request\",\"id\":\"x\",\"method\":\"Info!\"}",
       &request,
       &error));
   TEST_ASSERT_EQUAL_STRING("invalid Direct request method", error.c_str());
-  TEST_ASSERT_FALSE(parse_direct_websocket_request(
+  TEST_ASSERT_FALSE(parse_direct_http_request(
       "{\"v\":1,\"type\":\"request\",\"id\":\"x\",\"method\":\"info\",\"params\":[]}",
       &request,
       &error));
   TEST_ASSERT_EQUAL_STRING("Direct request params must be an object", error.c_str());
 
-  const std::string oversized(ESPECTRE_DIRECT_MAX_REQUEST_FRAME_SIZE + 1U, 'x');
-  TEST_ASSERT_FALSE(parse_direct_websocket_request(oversized, &request, &error));
-  TEST_ASSERT_EQUAL_STRING("Direct frame exceeds the size limit", error.c_str());
-  TEST_ASSERT_FALSE(parse_direct_websocket_request("{}", nullptr, &error));
+  const std::string oversized(ESPECTRE_DIRECT_MAX_REQUEST_SIZE + 1U, 'x');
+  TEST_ASSERT_FALSE(parse_direct_http_request(oversized, &request, &error));
+  TEST_ASSERT_EQUAL_STRING("Direct request exceeds the size limit", error.c_str());
+  TEST_ASSERT_FALSE(parse_direct_http_request("{}", nullptr, &error));
   TEST_ASSERT_EQUAL_STRING("request output is required", error.c_str());
 }
 
-void test_direct_websocket_builders_emit_valid_correlated_envelopes(void) {
-  const std::string success = direct_websocket_success_response("req-1", "{\"device_id\":\"abc\"}");
-  const std::string rejected = direct_websocket_error_response("req-2", "invalid_request", "bad \"field\"");
-  const std::string event = direct_websocket_event("telemetry", "{\"movement_score\":0.25}");
+void test_direct_http_builders_emit_valid_correlated_envelopes(void) {
+  const std::string success = direct_http_success_response("req-1", "{\"device_id\":\"abc\"}");
+  const std::string rejected = direct_http_error_response("req-2", "invalid_request", "bad \"field\"");
+  const std::string event = direct_http_event("telemetry", "{\"movement_score\":0.25}");
 
   TEST_ASSERT_EQUAL_STRING(
       "{\"v\":1,\"type\":\"response\",\"id\":\"req-1\",\"ok\":true,\"result\":{\"device_id\":\"abc\"}}",
@@ -626,22 +626,22 @@ void test_direct_websocket_builders_emit_valid_correlated_envelopes(void) {
   TEST_ASSERT_EQUAL_STRING(
       "{\"v\":1,\"type\":\"event\",\"event\":\"telemetry\",\"data\":{\"movement_score\":0.25}}",
       event.c_str());
-  TEST_ASSERT_TRUE(direct_websocket_success_response("req-3", "not-json").find("\"result\":{}") !=
+  TEST_ASSERT_TRUE(direct_http_success_response("req-3", "not-json").find("\"result\":{}") !=
                    std::string::npos);
-  TEST_ASSERT_TRUE(direct_websocket_event("status", "[]").find("\"data\":{}") != std::string::npos);
+  TEST_ASSERT_TRUE(direct_http_event("status", "[]").find("\"data\":{}") != std::string::npos);
 }
 
-void test_direct_websocket_request_reuses_transport_neutral_command_validation(void) {
-  DirectWebSocketRequest request;
+void test_direct_http_request_reuses_transport_neutral_command_validation(void) {
+  DirectRequest request;
   EspectreCommand command;
   std::string error;
 
-  TEST_ASSERT_TRUE(parse_direct_websocket_request(
+  TEST_ASSERT_TRUE(parse_direct_http_request(
       "{\"v\":1,\"type\":\"request\",\"id\":\"direct-1\",\"method\":\"set_motion_hits\","
       "\"params\":{\"motion_on_hits\":6,\"motion_off_hits\":4}}",
       &request,
       &error));
-  TEST_ASSERT_TRUE(direct_websocket_request_to_command(request, &command, &error));
+  TEST_ASSERT_TRUE(direct_http_request_to_command(request, &command, &error));
   TEST_ASSERT_EQUAL_STRING("direct-1", command.command_id.c_str());
   TEST_ASSERT_EQUAL_STRING("set_motion_hits", command.command.c_str());
   TEST_ASSERT_EQUAL_UINT8(6U, command.motion_on_hits);
@@ -649,16 +649,16 @@ void test_direct_websocket_request_reuses_transport_neutral_command_validation(v
 
   request.method = "set_threshold";
   request.params = "{\"threshold\":\"0.5\"}";
-  TEST_ASSERT_FALSE(direct_websocket_request_to_command(request, &command, &error));
+  TEST_ASSERT_FALSE(direct_http_request_to_command(request, &command, &error));
   TEST_ASSERT_EQUAL_STRING("invalid threshold (accepted: 0.0-1.0)", error.c_str());
 
   request.method = "unknown_method";
   request.params = "{}";
-  TEST_ASSERT_TRUE(direct_websocket_request_to_command(request, &command, &error));
+  TEST_ASSERT_TRUE(direct_http_request_to_command(request, &command, &error));
   TEST_ASSERT_EQUAL_STRING("unknown_method", command.command.c_str());
 }
 
-void test_direct_websocket_configuration_commands_validate_write_only_fields(void) {
+void test_direct_http_configuration_commands_validate_write_only_fields(void) {
   EspectreCommand command;
   std::string error;
 
@@ -693,7 +693,7 @@ void test_direct_websocket_configuration_commands_validate_write_only_fields(voi
   TEST_ASSERT_TRUE(parse_espectre_command_request("clear-2", "clear_mqtt_config", "{}", &command, &error));
 }
 
-void test_direct_websocket_read_and_sensing_methods_map_to_shared_commands(void) {
+void test_direct_http_read_and_sensing_methods_map_to_shared_commands(void) {
   const char *methods[] = {
       "capabilities", "info", "status", "config", "diagnostics", "ota_status"};
   for (const char *method : methods) {
@@ -736,12 +736,12 @@ int process(void) {
   RUN_TEST(test_ota_channel_helpers);
   RUN_TEST(test_parse_espectre_config_command_updates_supported_fields);
   RUN_TEST(test_parse_espectre_config_command_rejects_invalid_inputs);
-  RUN_TEST(test_direct_websocket_request_parses_versioned_envelope);
-  RUN_TEST(test_direct_websocket_request_rejects_invalid_boundaries);
-  RUN_TEST(test_direct_websocket_builders_emit_valid_correlated_envelopes);
-  RUN_TEST(test_direct_websocket_request_reuses_transport_neutral_command_validation);
-  RUN_TEST(test_direct_websocket_configuration_commands_validate_write_only_fields);
-  RUN_TEST(test_direct_websocket_read_and_sensing_methods_map_to_shared_commands);
+  RUN_TEST(test_direct_http_request_parses_versioned_envelope);
+  RUN_TEST(test_direct_http_request_rejects_invalid_boundaries);
+  RUN_TEST(test_direct_http_builders_emit_valid_correlated_envelopes);
+  RUN_TEST(test_direct_http_request_reuses_transport_neutral_command_validation);
+  RUN_TEST(test_direct_http_configuration_commands_validate_write_only_fields);
+  RUN_TEST(test_direct_http_read_and_sensing_methods_map_to_shared_commands);
   return UNITY_END();
 }
 

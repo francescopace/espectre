@@ -19,13 +19,13 @@
 #undef protected
 #undef private
 
-#include "direct_websocket_service_mock.h"
+#include "direct_http_service_mock.h"
 #include "frontend_runtime_shim.h"
 #include "mqtt_transport_mock.h"
 #include "ota_service_mock.h"
 
 using namespace espectre;
-using espectre::direct_websocket_service_mock::MockDirectWebSocketService;
+using espectre::direct_http_service_mock::MockDirectHttpService;
 using espectre::mqtt_transport_mock::MockMqttTransport;
 using espectre::ota_service_mock::MockOtaService;
 
@@ -108,7 +108,7 @@ int mqtt_publish_index(const std::string &topic) {
 
 void setUp(void) {
   frontend_runtime_shim::reset();
-  direct_websocket_service_mock::reset();
+  direct_http_service_mock::reset();
   mqtt_transport_mock::reset();
   ota_service_mock::reset();
 }
@@ -605,7 +605,7 @@ void test_native_frontend_mqtt_connect_enables_live_telemetry(void) {
 
 void test_native_frontend_direct_reports_mqtt_connection_changes(void) {
   MockMqttTransport mqtt;
-  MockDirectWebSocketService direct;
+  MockDirectHttpService direct;
   EspectreDeviceConfig config;
   config.mqtt_host = "localhost";
 
@@ -618,26 +618,26 @@ void test_native_frontend_direct_reports_mqtt_connection_changes(void) {
   direct.emit_client_count(1U);
 
   mqtt.emit_connection(true);
-  TEST_ASSERT_EQUAL(1, static_cast<int>(direct_websocket_service_mock::state.published_events.size()));
+  TEST_ASSERT_EQUAL(1, static_cast<int>(direct_http_service_mock::state.published_events.size()));
   TEST_ASSERT_EQUAL_STRING(
-      "status", direct_websocket_service_mock::state.published_events[0].event_name.c_str());
+      "status", direct_http_service_mock::state.published_events[0].event_name.c_str());
   TEST_ASSERT_TRUE(
-      direct_websocket_service_mock::state.published_events[0].data_json.find("\"mqtt_connected\":true") !=
+      direct_http_service_mock::state.published_events[0].data_json.find("\"mqtt_connected\":true") !=
       std::string::npos);
 
-  direct_websocket_service_mock::state.published_events.clear();
+  direct_http_service_mock::state.published_events.clear();
   mqtt.emit_connection(false);
-  TEST_ASSERT_EQUAL(1, static_cast<int>(direct_websocket_service_mock::state.published_events.size()));
+  TEST_ASSERT_EQUAL(1, static_cast<int>(direct_http_service_mock::state.published_events.size()));
   TEST_ASSERT_EQUAL_STRING(
-      "status", direct_websocket_service_mock::state.published_events[0].event_name.c_str());
+      "status", direct_http_service_mock::state.published_events[0].event_name.c_str());
   TEST_ASSERT_TRUE(
-      direct_websocket_service_mock::state.published_events[0].data_json.find("\"mqtt_connected\":false") !=
+      direct_http_service_mock::state.published_events[0].data_json.find("\"mqtt_connected\":false") !=
       std::string::npos);
 }
 
 void test_native_frontend_direct_clear_mqtt_disconnects_and_reports_status(void) {
   MockMqttTransport mqtt;
-  MockDirectWebSocketService direct;
+  MockDirectHttpService direct;
   EspectreDeviceConfig config;
   config.mqtt_host = "localhost";
 
@@ -649,25 +649,25 @@ void test_native_frontend_direct_clear_mqtt_disconnects_and_reports_status(void)
   TEST_ASSERT_TRUE(frontend.setup());
   direct.emit_client_count(1U);
   mqtt.emit_connection(true);
-  direct_websocket_service_mock::state.published_events.clear();
+  direct_http_service_mock::state.published_events.clear();
 
   const std::string response = direct.emit_request(
-      DirectWebSocketRequest{"clear-mqtt", "clear_mqtt_config", "{}"});
+      DirectRequest{"clear-mqtt", "clear_mqtt_config", "{}"});
 
   TEST_ASSERT_TRUE(response.find("\"ok\":true") != std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.shutdown_called);
-  TEST_ASSERT_EQUAL(2, static_cast<int>(direct_websocket_service_mock::state.published_events.size()));
+  TEST_ASSERT_EQUAL(2, static_cast<int>(direct_http_service_mock::state.published_events.size()));
   TEST_ASSERT_EQUAL_STRING(
-      "status", direct_websocket_service_mock::state.published_events[0].event_name.c_str());
+      "status", direct_http_service_mock::state.published_events[0].event_name.c_str());
   TEST_ASSERT_TRUE(
-      direct_websocket_service_mock::state.published_events[0].data_json.find("\"mqtt_connected\":false") !=
+      direct_http_service_mock::state.published_events[0].data_json.find("\"mqtt_connected\":false") !=
       std::string::npos);
   TEST_ASSERT_TRUE(
-      direct_websocket_service_mock::state.published_events[0].data_json.find("\"mqtt_configured\":false") !=
+      direct_http_service_mock::state.published_events[0].data_json.find("\"mqtt_configured\":false") !=
       std::string::npos);
 
   const std::string status =
-      direct.emit_request(DirectWebSocketRequest{"read-status", "status", "{}"});
+      direct.emit_request(DirectRequest{"read-status", "status", "{}"});
   TEST_ASSERT_TRUE(status.find("\"mqtt_connected\":false") != std::string::npos);
   TEST_ASSERT_TRUE(status.find("\"mqtt_configured\":false") != std::string::npos);
 }
@@ -1358,32 +1358,32 @@ void test_native_recovery_button_requires_one_complete_long_press(void) {
 }
 
 void test_native_frontend_direct_service_follows_station_address_lifecycle(void) {
-  MockDirectWebSocketService direct;
+  MockDirectHttpService direct;
   NativeFrontend frontend(nullptr, nullptr, &direct);
   NativeFrontend::WifiProvisioningInfo wifi;
   wifi.ssid = "Lab";
   wifi.has_saved_config = true;
   frontend.set_wifi_provisioning_info(wifi);
   TEST_ASSERT_TRUE(frontend.setup());
-  TEST_ASSERT_EQUAL(0, direct_websocket_service_mock::state.setup_calls);
+  TEST_ASSERT_EQUAL(0, direct_http_service_mock::state.setup_calls);
 
   EspectreDeviceInfo info;
   info.frontend = "native";
   info.network.ip_address = "192.168.1.42";
   frontend.set_device_info(info);
-  TEST_ASSERT_EQUAL(1, direct_websocket_service_mock::state.setup_calls);
-  TEST_ASSERT_TRUE(direct_websocket_service_mock::state.running);
-  TEST_ASSERT_EQUAL_STRING(ESPECTRE_DIRECT_WEBSOCKET_ENDPOINT, "/espectre/v1/ws");
-  TEST_ASSERT_EQUAL(2, static_cast<int>(direct_websocket_service_mock::state.last_config.max_clients));
-  TEST_ASSERT_EQUAL(8, static_cast<int>(direct_websocket_service_mock::state.last_config.outbound_queue_depth));
-  TEST_ASSERT_FALSE(direct_websocket_service_mock::state.last_config.allow_missing_origin);
-  const auto expected_origins = DirectWebSocketServiceConfig::for_first_party_portals().allowed_origins;
+  TEST_ASSERT_EQUAL(1, direct_http_service_mock::state.setup_calls);
+  TEST_ASSERT_TRUE(direct_http_service_mock::state.running);
+  TEST_ASSERT_EQUAL_STRING(ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT, "/espectre/v1/request");
+  TEST_ASSERT_EQUAL(2, static_cast<int>(direct_http_service_mock::state.last_config.max_event_clients));
+  TEST_ASSERT_EQUAL(8, static_cast<int>(direct_http_service_mock::state.last_config.outbound_queue_depth));
+  TEST_ASSERT_FALSE(direct_http_service_mock::state.last_config.allow_missing_origin);
+  const auto expected_origins = DirectHttpServiceConfig::for_first_party_portals().allowed_origins;
   TEST_ASSERT_EQUAL(expected_origins.size(),
-                    direct_websocket_service_mock::state.last_config.allowed_origins.size());
+                    direct_http_service_mock::state.last_config.allowed_origins.size());
   for (const auto &origin : expected_origins) {
-    TEST_ASSERT_TRUE(std::find(direct_websocket_service_mock::state.last_config.allowed_origins.begin(),
-                               direct_websocket_service_mock::state.last_config.allowed_origins.end(),
-                               origin) != direct_websocket_service_mock::state.last_config.allowed_origins.end());
+    TEST_ASSERT_TRUE(std::find(direct_http_service_mock::state.last_config.allowed_origins.begin(),
+                               direct_http_service_mock::state.last_config.allowed_origins.end(),
+                               origin) != direct_http_service_mock::state.last_config.allowed_origins.end());
   }
 
   direct.emit_client_count(1U);
@@ -1392,12 +1392,12 @@ void test_native_frontend_direct_service_follows_station_address_lifecycle(void)
 
   info.network.ip_address.clear();
   frontend.set_device_info(info);
-  TEST_ASSERT_TRUE(direct_websocket_service_mock::state.shutdown_called);
+  TEST_ASSERT_TRUE(direct_http_service_mock::state.shutdown_called);
   TEST_ASSERT_EQUAL(0, static_cast<int>(frontend.direct_client_count()));
 }
 
 void test_native_frontend_direct_requests_share_command_dispatch_and_return_correlated_results(void) {
-  MockDirectWebSocketService direct;
+  MockDirectHttpService direct;
   NativeFrontend frontend(nullptr, nullptr, &direct);
   EspectreDeviceConfig config;
   config.device_id = 0x0000111122223333ULL;
@@ -1422,26 +1422,26 @@ void test_native_frontend_direct_requests_share_command_dispatch_and_return_corr
       });
   TEST_ASSERT_TRUE(frontend.setup());
 
-  const std::string info_response = direct.emit_request(DirectWebSocketRequest{"req-info", "info", "{}"});
+  const std::string info_response = direct.emit_request(DirectRequest{"req-info", "info", "{}"});
   TEST_ASSERT_TRUE(info_response.find("\"id\":\"req-info\"") != std::string::npos);
   TEST_ASSERT_TRUE(info_response.find("\"ok\":true") != std::string::npos);
   TEST_ASSERT_TRUE(info_response.find("3.0.0-test") != std::string::npos);
 
   const std::string update_response = direct.emit_request(
-      DirectWebSocketRequest{"req-label", "set_device_label", "{\"device_label\":\"Kitchen\"}"});
+      DirectRequest{"req-label", "set_device_label", "{\"device_label\":\"Kitchen\"}"});
   TEST_ASSERT_EQUAL_STRING("Kitchen", saved_label.c_str());
   TEST_ASSERT_TRUE(update_response.find("\"id\":\"req-label\"") != std::string::npos);
   TEST_ASSERT_TRUE(update_response.find("\"ok\":true") != std::string::npos);
 
   const std::string invalid_response =
-      direct.emit_request(DirectWebSocketRequest{"req-bad", "not_supported", "{}"});
+      direct.emit_request(DirectRequest{"req-bad", "not_supported", "{}"});
   TEST_ASSERT_TRUE(invalid_response.find("\"id\":\"req-bad\"") != std::string::npos);
   TEST_ASSERT_TRUE(invalid_response.find("\"ok\":false") != std::string::npos);
   TEST_ASSERT_TRUE(invalid_response.find("\"code\":\"unsupported\"") != std::string::npos);
 }
 
 void test_native_frontend_peer_discovery_is_capability_gated_correlated_and_bounded(void) {
-  MockDirectWebSocketService direct;
+  MockDirectHttpService direct;
   MockPeerDiscoveryService peers;
   NativeFrontend frontend(nullptr, nullptr, &direct);
   frontend.set_peer_discovery_service(&peers);
@@ -1453,20 +1453,20 @@ void test_native_frontend_peer_discovery_is_capability_gated_correlated_and_boun
   direct.emit_client_count(1U);
 
   auto capabilities = direct.emit_deferred_request(
-      77U, DirectWebSocketRequest{"caps", "capabilities", "{}"});
+      77U, DirectRequest{"caps", "capabilities", "{}"});
   TEST_ASSERT_FALSE(capabilities.deferred);
   TEST_ASSERT_TRUE(capabilities.response.find("\"discover_peers\"") != std::string::npos);
 
   auto request = direct.emit_deferred_request(
-      77U, DirectWebSocketRequest{"peers-1", "discover_peers", "{}"});
+      77U, DirectRequest{"peers-1", "discover_peers", "{}"});
   TEST_ASSERT_TRUE(request.deferred);
   TEST_ASSERT_TRUE(peers.active());
   auto invalid = direct.emit_deferred_request(
-      77U, DirectWebSocketRequest{"peers-invalid", "discover_peers", "{\"unexpected\":true}"});
+      77U, DirectRequest{"peers-invalid", "discover_peers", "{\"unexpected\":true}"});
   TEST_ASSERT_FALSE(invalid.deferred);
   TEST_ASSERT_TRUE(invalid.response.find("\"code\":\"invalid_params\"") != std::string::npos);
   auto conflict = direct.emit_deferred_request(
-      88U, DirectWebSocketRequest{"peers-2", "discover_peers", "{}"});
+      88U, DirectRequest{"peers-2", "discover_peers", "{}"});
   TEST_ASSERT_FALSE(conflict.deferred);
   TEST_ASSERT_TRUE(conflict.response.find("\"code\":\"conflict\"") != std::string::npos);
 
@@ -1474,23 +1474,23 @@ void test_native_frontend_peer_discovery_is_capability_gated_correlated_and_boun
   snapshot.elapsed_ms = 42U;
   snapshot.timed_out = true;
   peers.finish(snapshot);
-  TEST_ASSERT_EQUAL(77U, direct_websocket_service_mock::state.last_completed_token);
-  TEST_ASSERT_TRUE(direct_websocket_service_mock::state.last_deferred_response.find(
+  TEST_ASSERT_EQUAL(77U, direct_http_service_mock::state.last_completed_token);
+  TEST_ASSERT_TRUE(direct_http_service_mock::state.last_deferred_response.find(
                        "\"id\":\"peers-1\"") != std::string::npos);
-  TEST_ASSERT_TRUE(direct_websocket_service_mock::state.last_deferred_response.find(
+  TEST_ASSERT_TRUE(direct_http_service_mock::state.last_deferred_response.find(
                        "\"elapsed_ms\":42") != std::string::npos);
-  TEST_ASSERT_TRUE(direct_websocket_service_mock::state.last_deferred_response.find(
+  TEST_ASSERT_TRUE(direct_http_service_mock::state.last_deferred_response.find(
                        "\"status\":\"timeout\"") != std::string::npos);
 
   peers.start_result = false;
   auto unavailable = direct.emit_deferred_request(
-      77U, DirectWebSocketRequest{"peers-unavailable", "discover_peers", "{}"});
+      77U, DirectRequest{"peers-unavailable", "discover_peers", "{}"});
   TEST_ASSERT_FALSE(unavailable.deferred);
   TEST_ASSERT_TRUE(unavailable.response.find("\"code\":\"unavailable\"") != std::string::npos);
 }
 
 void test_native_frontend_peer_discovery_drops_completion_after_wifi_loss_and_shutdown(void) {
-  MockDirectWebSocketService direct;
+  MockDirectHttpService direct;
   MockPeerDiscoveryService peers;
   NativeFrontend frontend(nullptr, nullptr, &direct);
   frontend.set_peer_discovery_service(&peers);
@@ -1502,15 +1502,15 @@ void test_native_frontend_peer_discovery_drops_completion_after_wifi_loss_and_sh
   direct.emit_client_count(1U);
 
   auto request = direct.emit_deferred_request(
-      99U, DirectWebSocketRequest{"peers-wifi-loss", "discover_peers", "{}"});
+      99U, DirectRequest{"peers-wifi-loss", "discover_peers", "{}"});
   TEST_ASSERT_TRUE(request.deferred);
   TEST_ASSERT_TRUE(peers.active());
   info.network.ip_address.clear();
   frontend.set_device_info(info);
-  TEST_ASSERT_FALSE(direct_websocket_service_mock::state.running);
+  TEST_ASSERT_FALSE(direct_http_service_mock::state.running);
   TEST_ASSERT_FALSE(peers.wifi_ready);
   peers.finish(PeerDiscoverySnapshot{});
-  TEST_ASSERT_EQUAL(0U, direct_websocket_service_mock::state.last_completed_token);
+  TEST_ASSERT_EQUAL(0U, direct_http_service_mock::state.last_completed_token);
 
   frontend.shutdown();
   TEST_ASSERT_EQUAL(1U, peers.shutdown_calls);
@@ -1519,7 +1519,7 @@ void test_native_frontend_peer_discovery_drops_completion_after_wifi_loss_and_sh
 void test_native_frontend_serializes_telemetry_once_for_active_transports(void) {
   frontend_runtime_shim::state.snapshot = make_ready_snapshot();
   MockMqttTransport mqtt;
-  MockDirectWebSocketService direct;
+  MockDirectHttpService direct;
   NativeFrontend frontend(&mqtt, nullptr, &direct);
   EspectreDeviceConfig config;
   config.device_id = 0x0000111122223333ULL;
@@ -1537,10 +1537,10 @@ void test_native_frontend_serializes_telemetry_once_for_active_transports(void) 
   mqtt_transport_mock::state.publishes.clear();
 
   frontend.on_live_telemetry(2.5f, 1.25f);
-  TEST_ASSERT_EQUAL(0, static_cast<int>(direct_websocket_service_mock::state.published_events.size()));
+  TEST_ASSERT_EQUAL(0, static_cast<int>(direct_http_service_mock::state.published_events.size()));
   frontend.loop();
-  TEST_ASSERT_EQUAL(1, static_cast<int>(direct_websocket_service_mock::state.published_events.size()));
-  const auto &event = direct_websocket_service_mock::state.published_events.front();
+  TEST_ASSERT_EQUAL(1, static_cast<int>(direct_http_service_mock::state.published_events.size()));
+  const auto &event = direct_http_service_mock::state.published_events.front();
   TEST_ASSERT_EQUAL_STRING("telemetry", event.event_name.c_str());
   TEST_ASSERT_TRUE(event.replaceable_telemetry);
   TEST_ASSERT_TRUE(event.data_json.find("\"movement_score\":2.5") != std::string::npos);
@@ -1552,7 +1552,7 @@ void test_native_frontend_serializes_telemetry_once_for_active_transports(void) 
 
 void test_native_frontend_direct_updates_bssid_and_mqtt_without_returning_secrets(void) {
   MockMqttTransport mqtt;
-  MockDirectWebSocketService direct;
+  MockDirectHttpService direct;
   NativeFrontend frontend(&mqtt, nullptr, &direct);
   NativeFrontend::WifiProvisioningInfo wifi;
   wifi.ssid = "Ohana";
@@ -1582,18 +1582,18 @@ void test_native_frontend_direct_updates_bssid_and_mqtt_without_returning_secret
   TEST_ASSERT_TRUE(frontend.setup());
 
   const std::string wifi_response = direct.emit_request(
-      DirectWebSocketRequest{"wifi-1", "set_wifi_config", "{\"bssid\":\"E6:FA:C4:20:19:DE\"}"});
+      DirectRequest{"wifi-1", "set_wifi_config", "{\"bssid\":\"E6:FA:C4:20:19:DE\"}"});
   TEST_ASSERT_EQUAL_STRING(
       "SET_WIFI_CONFIG:ssid=Ohana&bssid=E6%3AFA%3AC4%3A20%3A19%3ADE", provisioning_command.c_str());
   TEST_ASSERT_TRUE(wifi_response.find("\"ok\":true") != std::string::npos);
   TEST_ASSERT_TRUE(wifi_response.find("password") == std::string::npos);
 
   const std::string clear_wifi_response = direct.emit_request(
-      DirectWebSocketRequest{"wifi-clear", "clear_wifi_config", "{}"});
+      DirectRequest{"wifi-clear", "clear_wifi_config", "{}"});
   TEST_ASSERT_EQUAL_STRING("CLEAR_WIFI", provisioning_command.c_str());
   TEST_ASSERT_TRUE(clear_wifi_response.find("\"ok\":true") != std::string::npos);
 
-  const std::string mqtt_response = direct.emit_request(DirectWebSocketRequest{
+  const std::string mqtt_response = direct.emit_request(DirectRequest{
       "mqtt-1",
       "set_mqtt_config",
       "{\"host\":\"homeassistant.local\",\"port\":1883,\"username\":\"mqtt\",\"password\":\"secret\"}"});
@@ -1624,12 +1624,12 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
   frontend_runtime_shim::state.diagnostics.detection_minimum_us = 80U;
   frontend_runtime_shim::state.diagnostics.detection_maximum_us = 140U;
   MockMqttTransport mqtt;
-  MockDirectWebSocketService direct;
-  direct_websocket_service_mock::state.diagnostics.accepted_connections = 4U;
-  direct_websocket_service_mock::state.diagnostics.client_limit = 2U;
-  direct_websocket_service_mock::state.diagnostics.queue_capacity = 8U;
-  direct_websocket_service_mock::state.diagnostics.dropped_telemetry_events = 3U;
-  direct_websocket_service_mock::state.diagnostics.slow_client_disconnects = 2U;
+  MockDirectHttpService direct;
+  direct_http_service_mock::state.diagnostics.accepted_connections = 4U;
+  direct_http_service_mock::state.diagnostics.event_client_limit = 2U;
+  direct_http_service_mock::state.diagnostics.queue_capacity = 8U;
+  direct_http_service_mock::state.diagnostics.dropped_telemetry_events = 3U;
+  direct_http_service_mock::state.diagnostics.slow_client_disconnects = 2U;
   mqtt_transport_mock::state.diagnostics.queued_publishes = 5U;
   mqtt_transport_mock::state.diagnostics.queue_capacity = 16U;
   mqtt_transport_mock::state.diagnostics.outbox_capacity_bytes = 8192U;
@@ -1661,18 +1661,18 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
   direct.emit_client_count(1U);
 
   const std::string capabilities =
-      direct.emit_request(DirectWebSocketRequest{"read-cap", "capabilities", "{}"});
+      direct.emit_request(DirectRequest{"read-cap", "capabilities", "{}"});
   TEST_ASSERT_TRUE(capabilities.find("\"name\":\"set_sensing\"") != std::string::npos);
   TEST_ASSERT_TRUE(capabilities.find("\"raw_csi\":false") != std::string::npos);
   TEST_ASSERT_TRUE(capabilities.find("\"access\":\"network_admin\"") != std::string::npos);
 
-  const std::string status = direct.emit_request(DirectWebSocketRequest{"read-status", "status", "{}"});
+  const std::string status = direct.emit_request(DirectRequest{"read-status", "status", "{}"});
   TEST_ASSERT_TRUE(status.find("\"wifi_connected\":true") != std::string::npos);
   TEST_ASSERT_TRUE(status.find("\"mqtt_configured\":true") != std::string::npos);
   TEST_ASSERT_TRUE(status.find("\"sensing_enabled\":true") != std::string::npos);
 
   const std::string visible_config =
-      direct.emit_request(DirectWebSocketRequest{"read-config", "config", "{}"});
+      direct.emit_request(DirectRequest{"read-config", "config", "{}"});
   TEST_ASSERT_TRUE(visible_config.find("AA:BB:CC:DD:EE:FF") != std::string::npos);
   TEST_ASSERT_TRUE(visible_config.find("broker.local") != std::string::npos);
   TEST_ASSERT_TRUE(visible_config.find("\"apply_state\":\"rolled_back\"") != std::string::npos);
@@ -1683,8 +1683,8 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
   TEST_ASSERT_TRUE(visible_config.find("\"password\"") == std::string::npos);
 
   const std::string diagnostics =
-      direct.emit_request(DirectWebSocketRequest{"read-diag", "diagnostics", "{}"});
-  TEST_ASSERT_TRUE(diagnostics.find("\"clients\":1") != std::string::npos);
+      direct.emit_request(DirectRequest{"read-diag", "diagnostics", "{}"});
+  TEST_ASSERT_TRUE(diagnostics.find("\"event_clients\":1") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"minimum_free_memory_kb\":") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"largest_free_memory_kb\":1") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"cpu_frequency_mhz\":160") != std::string::npos);
@@ -1693,7 +1693,7 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
   TEST_ASSERT_TRUE(diagnostics.find("\"detection_samples\":40") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"detection_max_us\":140") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"task_stack_high_water_bytes\":") != std::string::npos);
-  TEST_ASSERT_TRUE(diagnostics.find("\"client_limit\":2") != std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"event_client_limit\":2") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"queue_capacity\":8") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"accepted_connections\":4") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"dropped_telemetry_events\":3") != std::string::npos);
@@ -1707,7 +1707,7 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
 }
 
 void test_native_frontend_direct_set_sensing_is_correlated(void) {
-  MockDirectWebSocketService direct;
+  MockDirectHttpService direct;
   NativeFrontend frontend(nullptr, nullptr, &direct);
   NativeFrontend::WifiProvisioningInfo wifi;
   wifi.ssid = "Lab";
@@ -1719,21 +1719,92 @@ void test_native_frontend_direct_set_sensing_is_correlated(void) {
   TEST_ASSERT_TRUE(frontend.setup());
 
   const std::string stopped =
-      direct.emit_request(DirectWebSocketRequest{"sense-stop", "set_sensing", "{\"enabled\":false}"});
+      direct.emit_request(DirectRequest{"sense-stop", "set_sensing", "{\"enabled\":false}"});
   TEST_ASSERT_TRUE(stopped.find("\"id\":\"sense-stop\"") != std::string::npos);
   TEST_ASSERT_TRUE(stopped.find("\"ok\":true") != std::string::npos);
   TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
 
   const std::string started =
-      direct.emit_request(DirectWebSocketRequest{"sense-start", "set_sensing", "{\"enabled\":true}"});
+      direct.emit_request(DirectRequest{"sense-start", "set_sensing", "{\"enabled\":true}"});
   TEST_ASSERT_TRUE(started.find("\"id\":\"sense-start\"") != std::string::npos);
   TEST_ASSERT_TRUE(started.find("\"ok\":true") != std::string::npos);
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.services_armed);
 }
 
+void test_native_frontend_direct_raw_session_enforces_owner_and_keeps_mqtt_quiet(void) {
+  frontend_runtime_shim::state.snapshot = make_ready_snapshot();
+  frontend_runtime_shim::state.capabilities.supports_raw_csi = true;
+  MockMqttTransport mqtt;
+  MockDirectHttpService direct;
+  EspectreDeviceConfig config;
+  config.device_id = 0x112233445566ULL;
+  config.mqtt_host = "localhost";
+  EspectreDeviceInfo info;
+  info.frontend = "native";
+  info.firmware_version = "test";
+  info.chip = "esp32c3";
+  info.network.ip_address = "192.168.1.23";
+
+  NativeFrontend frontend(&mqtt, nullptr, &direct);
+  frontend.set_device_config(config);
+  frontend.set_device_info(info);
+  TEST_ASSERT_TRUE(frontend.setup());
+  TEST_ASSERT_TRUE(frontend.capabilities().supports_raw_csi);
+  direct.emit_client_count(2U);
+  mqtt.emit_connection(true);
+  mqtt_transport_mock::state.publishes.clear();
+
+  const auto capabilities = direct.emit_deferred_request(
+      77U, DirectRequest{"raw-cap", "capabilities", "{}"});
+  TEST_ASSERT_TRUE(capabilities.response.find("\"raw_csi\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.response.find("\"record_version\":8") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.response.find("\"transport\":\"http\"") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.response.find("subprotocol") == std::string::npos);
+
+  const auto started = direct.emit_deferred_request(
+      77U,
+      DirectRequest{
+          "raw-start", "start_raw_stream", "{\"target_pps\":100}"});
+  TEST_ASSERT_TRUE(started.response.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(started.response.find("\"session_id\"") != std::string::npos);
+  TEST_ASSERT_TRUE(direct_http_service_mock::state.raw_session_active);
+  TEST_ASSERT_EQUAL(RuntimeOperationState::RAW_COLLECTION, frontend.runtime_.operation_state());
+
+  static constexpr char kHex[] = "0123456789abcdef";
+  std::string bearer(ESPECTRE_RAW_CSI_SESSION_ID_BYTES * 2U, '0');
+  for (size_t index = 0U; index < ESPECTRE_RAW_CSI_SESSION_ID_BYTES; ++index) {
+    const uint8_t value = direct_http_service_mock::state.raw_config.session_id[index];
+    bearer[index * 2U] = kHex[(value >> 4U) & 0x0fU];
+    bearer[index * 2U + 1U] = kHex[value & 0x0fU];
+  }
+
+  frontend.on_live_telemetry(9.0f, 1.0f);
+  frontend.loop();
+  TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000112233445566/telemetry"));
+
+  const auto busy = direct.emit_deferred_request(
+      88U, DirectRequest{"raw-busy", "set_sensing", "{\"enabled\":false}"});
+  TEST_ASSERT_TRUE(busy.response.find("\"code\":\"busy_raw_collection\"") !=
+                   std::string::npos);
+  const auto non_owner = direct.emit_deferred_request(
+      88U,
+      DirectRequest{"raw-stop-other",
+                    "stop_raw_stream",
+                    "{}",
+                    "ffffffffffffffffffffffffffffffff"});
+  TEST_ASSERT_TRUE(non_owner.response.find("\"code\":\"not_raw_session_owner\"") !=
+                   std::string::npos);
+
+  const auto stopped = direct.emit_deferred_request(
+      77U, DirectRequest{"raw-stop", "stop_raw_stream", "{}", bearer});
+  TEST_ASSERT_TRUE(stopped.response.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_FALSE(direct_http_service_mock::state.raw_session_active);
+  TEST_ASSERT_EQUAL(RuntimeOperationState::SENSING, frontend.runtime_.operation_state());
+}
+
 void test_native_frontend_queries_stay_on_requesting_transport_and_mutations_fan_out(void) {
   MockMqttTransport mqtt;
-  MockDirectWebSocketService direct;
+  MockDirectHttpService direct;
   EspectreDeviceConfig config;
   config.device_id = 0x0000abcdeffedcbaULL;
   config.mqtt_host = "localhost";
@@ -1746,44 +1817,44 @@ void test_native_frontend_queries_stay_on_requesting_transport_and_mutations_fan
   TEST_ASSERT_TRUE(frontend.setup());
   direct.emit_client_count(1U);
   mqtt_transport_mock::state.publishes.clear();
-  direct_websocket_service_mock::state.published_events.clear();
+  direct_http_service_mock::state.published_events.clear();
 
-  const std::string query = direct.emit_request(DirectWebSocketRequest{"status-only", "status", "{}"});
+  const std::string query = direct.emit_request(DirectRequest{"status-only", "status", "{}"});
   TEST_ASSERT_TRUE(query.find("\"id\":\"status-only\"") != std::string::npos);
   TEST_ASSERT_TRUE(query.find("\"ok\":true") != std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.empty());
 
   const std::string mutation = direct.emit_request(
-      DirectWebSocketRequest{"threshold-fanout", "set_threshold", "{\"threshold\":0.4}"});
+      DirectRequest{"threshold-fanout", "set_threshold", "{\"threshold\":0.4}"});
   TEST_ASSERT_TRUE(mutation.find("\"ok\":true") != std::string::npos);
   TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/config"));
-  TEST_ASSERT_TRUE(std::any_of(direct_websocket_service_mock::state.published_events.begin(),
-                               direct_websocket_service_mock::state.published_events.end(),
-                               [](const direct_websocket_service_mock::PublishedEvent &event) {
+  TEST_ASSERT_TRUE(std::any_of(direct_http_service_mock::state.published_events.begin(),
+                               direct_http_service_mock::state.published_events.end(),
+                               [](const direct_http_service_mock::PublishedEvent &event) {
                                  return event.event_name == "config" &&
                                         event.data_json.find("\"runtime\"") != std::string::npos;
                                }));
   TEST_ASSERT_FALSE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/commands/result"));
 
   mqtt_transport_mock::state.publishes.clear();
-  direct_websocket_service_mock::state.published_events.clear();
+  direct_http_service_mock::state.published_events.clear();
   const std::string sensing = direct.emit_request(
-      DirectWebSocketRequest{"sensing-fanout", "set_sensing", "{\"enabled\":false}"});
+      DirectRequest{"sensing-fanout", "set_sensing", "{\"enabled\":false}"});
   TEST_ASSERT_TRUE(sensing.find("\"ok\":true") != std::string::npos);
   const int status_index =
       mqtt_publish_index("espectre/v1/devices/0000abcdeffedcba/status");
   TEST_ASSERT_TRUE(status_index >= 0);
-  TEST_ASSERT_EQUAL(1, static_cast<int>(direct_websocket_service_mock::state.published_events.size()));
+  TEST_ASSERT_EQUAL(1, static_cast<int>(direct_http_service_mock::state.published_events.size()));
   TEST_ASSERT_EQUAL_STRING(
-      "status", direct_websocket_service_mock::state.published_events[0].event_name.c_str());
+      "status", direct_http_service_mock::state.published_events[0].event_name.c_str());
   TEST_ASSERT_EQUAL_STRING(
       mqtt_transport_mock::state.publishes[static_cast<size_t>(status_index)].payload.c_str(),
-      direct_websocket_service_mock::state.published_events[0].data_json.c_str());
+      direct_http_service_mock::state.published_events[0].data_json.c_str());
 }
 
 void test_native_frontend_direct_ota_returns_status_and_streams_updates(void) {
   MockOtaService ota;
-  MockDirectWebSocketService direct;
+  MockDirectHttpService direct;
   ota_service_mock::state.status.default_channel = "develop";
 
   NativeFrontend frontend(nullptr, &ota, &direct);
@@ -1798,14 +1869,14 @@ void test_native_frontend_direct_ota_returns_status_and_streams_updates(void) {
   direct.emit_client_count(1U);
 
   const std::string status =
-      direct.emit_request(DirectWebSocketRequest{"ota-status", "ota_status", "{}"});
+      direct.emit_request(DirectRequest{"ota-status", "ota_status", "{}"});
   TEST_ASSERT_TRUE(status.find("\"id\":\"ota-status\"") != std::string::npos);
   TEST_ASSERT_TRUE(status.find("\"ok\":true") != std::string::npos);
   TEST_ASSERT_TRUE(status.find("\"current_version\":\"1.2.3\"") != std::string::npos);
   TEST_ASSERT_TRUE(status.find("\"default_channel\":\"develop\"") != std::string::npos);
 
   const std::string check = direct.emit_request(
-      DirectWebSocketRequest{"ota-check", "ota_check", "{\"channel\":\"preview\"}"});
+      DirectRequest{"ota-check", "ota_check", "{\"channel\":\"preview\"}"});
   TEST_ASSERT_TRUE(check.find("\"ok\":true") != std::string::npos);
   TEST_ASSERT_EQUAL(1, ota_service_mock::state.start_check_calls);
   TEST_ASSERT_EQUAL_STRING("1.2.3", ota_service_mock::state.last_current_version.c_str());
@@ -1817,16 +1888,16 @@ void test_native_frontend_direct_ota_returns_status_and_streams_updates(void) {
   available.target_version = "1.3.0";
   available.update_available = true;
   ota.emit_status(available);
-  TEST_ASSERT_EQUAL(1, static_cast<int>(direct_websocket_service_mock::state.published_events.size()));
-  const direct_websocket_service_mock::PublishedEvent &event =
-      direct_websocket_service_mock::state.published_events[0];
+  TEST_ASSERT_EQUAL(1, static_cast<int>(direct_http_service_mock::state.published_events.size()));
+  const direct_http_service_mock::PublishedEvent &event =
+      direct_http_service_mock::state.published_events[0];
   TEST_ASSERT_EQUAL_STRING("ota_status", event.event_name.c_str());
   TEST_ASSERT_TRUE(event.data_json.find("\"state\":\"update_available\"") != std::string::npos);
   TEST_ASSERT_TRUE(event.data_json.find("\"target_version\":\"1.3.0\"") != std::string::npos);
   TEST_ASSERT_FALSE(event.replaceable_telemetry);
 
   const std::string update = direct.emit_request(
-      DirectWebSocketRequest{"ota-start", "ota_start", "{\"channel\":\"preview\"}"});
+      DirectRequest{"ota-start", "ota_start", "{\"channel\":\"preview\"}"});
   TEST_ASSERT_TRUE(update.find("\"ok\":true") != std::string::npos);
   TEST_ASSERT_EQUAL(1, ota_service_mock::state.start_update_calls);
   TEST_ASSERT_EQUAL_STRING("preview", ota_service_mock::state.last_channel.c_str());
@@ -1877,6 +1948,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_direct_updates_bssid_and_mqtt_without_returning_secrets);
   RUN_TEST(test_native_frontend_direct_exposes_portal_reads_without_secrets);
   RUN_TEST(test_native_frontend_direct_set_sensing_is_correlated);
+  RUN_TEST(test_native_frontend_direct_raw_session_enforces_owner_and_keeps_mqtt_quiet);
   RUN_TEST(test_native_frontend_queries_stay_on_requesting_transport_and_mutations_fan_out);
   RUN_TEST(test_native_frontend_direct_ota_returns_status_and_streams_updates);
   return UNITY_END();

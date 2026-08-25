@@ -17,7 +17,6 @@ python-dotenv==1.2.2    # environment variables support
 PyYAML==6.0.3           # YAML parsing
 prompt_toolkit==3.0.53  # interactive CLI support
 zeroconf==0.150.0       # required by ESPHome 2026.7.4; used for host device discovery
-websockets==17.0.1      # BSD-3-Clause; Direct WebSocket benchmark transport
 
 # Test dependencies
 numpy==2.4.6            # latest verified NumPy compatible with shap/numba on Python 3.14

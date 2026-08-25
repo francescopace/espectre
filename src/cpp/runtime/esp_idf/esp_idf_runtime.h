@@ -47,6 +47,9 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   bool set_detection_algorithm_runtime(DetectionAlgorithm algorithm) override;
   bool trigger_recalibration() override;
   bool is_calibrating() const override;
+  bool start_raw_collection(raw_csi_packet_callback_t callback, void *context) override;
+  bool stop_raw_collection(RawCsiStopReason reason) override;
+  RuntimeOperationState operation_state() const override;
 
  private:
   void update_live_telemetry_callback_();
@@ -94,6 +97,8 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   PendingEvent<bool> calibration_finished_event_;
   bool wifi_ready_{false};
   esp_netif_ip_info_t wifi_ip_info_{};
+  std::atomic<RuntimeOperationState> operation_state_{RuntimeOperationState::SENSING};
+  bool raw_collection_was_armed_{false};
 };
 
 }  // namespace espectre

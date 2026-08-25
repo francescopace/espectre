@@ -1,7 +1,7 @@
 /*
  * ESPectre - Streamer Discovery Service
  *
- * Advertises the Streamer Direct WebSocket through mDNS/DNS-SD.
+ * Advertises the Streamer Direct HTTP service through mDNS/DNS-SD.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only

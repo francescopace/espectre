@@ -28,8 +28,8 @@
 #include "espectre_banner.h"
 #include "runtime_log_helpers.h"
 #include "device_identity.h"
-#include "direct_websocket_protocol.h"
-#include "direct_websocket_service_esp_idf.h"
+#include "direct_http_protocol.h"
+#include "direct_http_service_esp_idf.h"
 #include "espectre_protocol.h"
 #include "firmware_version.h"
 #include "matter_bindings_esp_matter.h"
@@ -68,12 +68,13 @@ espectre::MdnsTxtRecords matter_mdns_txt(uint64_t device_id) {
       {"device_id", espectre::format_espectre_device_id(device_id)},
       {"name", CONFIG_ESPECTRE_MATTER_NODE_LABEL},
       {"frontend", "matter"},
-      {"txtvers", "1"},
+      {"txtvers", espectre::ESPECTRE_DIRECT_DISCOVERY_TXT_VERSION},
       {"protovers", "1"},
-      {"path", espectre::ESPECTRE_DIRECT_WEBSOCKET_ENDPOINT},
+      {"transport", espectre::ESPECTRE_DIRECT_HTTP_TRANSPORT},
+      {"path", espectre::ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT},
+      {"events", espectre::ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT},
       {"firmware", espectre::espectre_firmware_version()},
       {"chip", CONFIG_IDF_TARGET},
-      {"tls", "0"},
       {"capabilities", "config,monitor"},
   };
 }
@@ -244,7 +245,7 @@ extern "C" void app_main() {
 
   g_motion_endpoint_id = endpoint::get_id(motion_endpoint);
 
-  static espectre::EspIdfDirectWebSocketService direct_service;
+  static espectre::EspIdfDirectHttpService direct_service;
   static espectre::MdnsDiscoveryService mdns_discovery;
   static espectre::MatterFrontend frontend(&g_bindings, g_motion_endpoint_id, &direct_service);
   const espectre::RuntimeConfig runtime_config = build_runtime_config();

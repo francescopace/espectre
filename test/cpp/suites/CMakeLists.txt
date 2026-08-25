@@ -82,8 +82,8 @@ add_espectre_test(test_mdns_discovery_service
     LIBRARIES espectre_runtime_testlib espectre_native_mdns_bootstrap_testlib
 )
 
-add_espectre_test(test_direct_websocket_service
-    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_direct_websocket_service.cpp"
+add_espectre_test(test_direct_http_service
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_direct_http_service.cpp"
     LIBRARIES espectre_direct_service_testlib
 )
 

@@ -1,7 +1,8 @@
 # ADR: unify frontend discovery and Direct control
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-08-24
+- Superseded by: `2026-08-25-replace-local-direct-websocket-with-http.md`
 
 ## Context
 

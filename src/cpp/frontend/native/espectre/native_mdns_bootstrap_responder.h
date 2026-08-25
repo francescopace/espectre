@@ -39,7 +39,7 @@ class NativeMdnsBootstrapResponder {
 
  private:
   static constexpr size_t MAX_PENDING_RESPONSES = 4U;
-  static constexpr size_t MAX_RESPONSE_BYTES = 160U;
+  static constexpr size_t MAX_RESPONSE_BYTES = 256U;
   static constexpr uint8_t MAX_RESPONSES_PER_SECOND = 8U;
 
   struct PendingResponse {

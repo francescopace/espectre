@@ -1,7 +1,7 @@
 /*
- * ESPectre - Runtime Direct WebSocket Bridge
+ * ESPectre - Runtime Direct HTTP Bridge
  *
- * Shared Direct WebSocket control surface for firmware frontends.
+ * Shared Direct HTTP control surface for firmware frontends.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -13,13 +13,13 @@
 #include <functional>
 #include <string>
 
-#include "direct_websocket_service.h"
+#include "direct_http_service.h"
 #include "frontend_control_helpers.h"
 #include "runtime_frontend_controller.h"
 
 namespace espectre {
 
-struct RuntimeDirectWebSocketBridgeConfig {
+struct RuntimeDirectHttpBridgeConfig {
   std::string frontend;
   std::string device_name;
   std::string firmware_version;
@@ -31,30 +31,30 @@ struct RuntimeDirectWebSocketBridgeConfig {
 };
 
 /**
- * Exposes the common runtime controls over the versioned Direct WebSocket.
+ * Exposes the common runtime controls over the versioned Direct HTTP API.
  *
  * Frontends retain ownership of their runtime and transport. The optional
  * callback lets an adapter republish frontend-native entities after a Direct
  * mutation, for example ESPHome number and select entities.
  */
-class RuntimeDirectWebSocketBridge {
+class RuntimeDirectHttpBridge {
  public:
   using ConfigChangedCallback = std::function<void()>;
 
-  bool setup(IDirectWebSocketService *service,
+  bool setup(IDirectHttpService *service,
              RuntimeFrontendController *runtime,
-             const RuntimeDirectWebSocketBridgeConfig &config,
+             const RuntimeDirectHttpBridgeConfig &config,
              ConfigChangedCallback config_changed = {});
   void loop();
   void shutdown();
   bool running() const;
-  size_t client_count() const;
+  size_t event_client_count() const;
   bool publish_event(const char *event_name, const std::string &data_json, bool replaceable_telemetry = false);
   bool publish_telemetry(const RuntimeSnapshot &snapshot);
   bool publish_changes(FrontendCommandChange changes);
 
  private:
-  std::string handle_request_(const DirectWebSocketRequest &request);
+  std::string handle_request_(const DirectRequest &request);
   std::string capabilities_payload_() const;
   std::string info_payload_() const;
   std::string status_payload_() const;
@@ -62,10 +62,10 @@ class RuntimeDirectWebSocketBridge {
   std::string diagnostics_payload_() const;
   void notify_config_changed_();
 
-  IDirectWebSocketService *service_{nullptr};
+  IDirectHttpService *service_{nullptr};
   RuntimeFrontendController *runtime_{nullptr};
   FrontendCommandEngine command_engine_{};
-  RuntimeDirectWebSocketBridgeConfig config_{};
+  RuntimeDirectHttpBridgeConfig config_{};
   ConfigChangedCallback config_changed_{};
 };
 

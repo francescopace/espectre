@@ -23,7 +23,7 @@ static const char *const TAG = "espectre.matter";
 
 MatterFrontend::MatterFrontend(IMatterBindings *bindings,
                                uint16_t endpoint_id,
-                               IDirectWebSocketService *direct_service)
+                               IDirectHttpService *direct_service)
     : bindings_(bindings), endpoint_id_(endpoint_id), direct_service_(direct_service) {}
 
 void MatterFrontend::set_runtime_config(const RuntimeConfig &config) { runtime_.set_config(config); }
@@ -53,7 +53,7 @@ bool MatterFrontend::setup() {
   if (direct_service_ != nullptr && !direct_bridge_.setup(
           direct_service_,
           &runtime_,
-          RuntimeDirectWebSocketBridgeConfig{
+          RuntimeDirectHttpBridgeConfig{
               "matter",
               "ESPectre Matter",
               espectre_firmware_version(),
@@ -63,7 +63,7 @@ bool MatterFrontend::setup() {
               false,
               false,
           })) {
-    ESP_LOGE(TAG, "Matter Direct WebSocket setup failed");
+    ESP_LOGE(TAG, "Matter Direct HTTP setup failed");
     runtime_.shutdown();
     return false;
   }

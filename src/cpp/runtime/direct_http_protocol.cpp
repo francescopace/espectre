@@ -1,14 +1,13 @@
 /*
- * ESPectre - Direct WebSocket Protocol
+ * ESPectre - Direct HTTP Protocol
  *
- * Versioned request, response, error, and event envelopes for the local
- * Direct WebSocket transport.
+ * Versioned request, response, error, and event envelopes for local HTTP.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
-#include "direct_websocket_protocol.h"
+#include "direct_http_protocol.h"
 
 #include <cctype>
 #include <vector>
@@ -49,16 +48,16 @@ std::string envelope_prefix(const char *type) {
 
 }  // namespace
 
-bool parse_direct_websocket_request(const std::string &payload,
-                                    DirectWebSocketRequest *request,
-                                    std::string *error) {
+bool parse_direct_http_request(const std::string &payload,
+                               DirectRequest *request,
+                               std::string *error) {
   if (request == nullptr) {
     if (error != nullptr) {
       *error = "request output is required";
     }
     return false;
   }
-  DirectWebSocketRequest parsed;
+  DirectRequest parsed;
   const auto reject = [&](const char *message) {
     if (error != nullptr) {
       *error = message;
@@ -67,10 +66,10 @@ bool parse_direct_websocket_request(const std::string &payload,
     return false;
   };
   if (payload.empty()) {
-    return reject("empty Direct frame");
+    return reject("empty Direct request");
   }
-  if (payload.size() > ESPECTRE_DIRECT_MAX_REQUEST_FRAME_SIZE) {
-    return reject("Direct frame exceeds the size limit");
+  if (payload.size() > ESPECTRE_DIRECT_MAX_REQUEST_SIZE) {
+    return reject("Direct request exceeds the size limit");
   }
 
   std::vector<JsonObjectField> fields;
@@ -89,7 +88,7 @@ bool parse_direct_websocket_request(const std::string &payload,
   }
   const JsonObjectField *type = find_json_object_field(fields, "type");
   if (type == nullptr || type->type != JsonValueType::STRING || type->value != "request") {
-    return reject("Direct client frames must have type request");
+    return reject("Direct client messages must have type request");
   }
   const JsonObjectField *id = find_json_object_field(fields, "id");
   if (id == nullptr || id->type != JsonValueType::STRING ||
@@ -114,13 +113,13 @@ bool parse_direct_websocket_request(const std::string &payload,
   return true;
 }
 
-bool direct_websocket_request_to_command(const DirectWebSocketRequest &request,
-                                         EspectreCommand *command,
-                                         std::string *error) {
+bool direct_http_request_to_command(const DirectRequest &request,
+                                    EspectreCommand *command,
+                                    std::string *error) {
   return parse_espectre_command_request(request.id, request.method, request.params, command, error);
 }
 
-std::string direct_websocket_success_response(const std::string &id, const std::string &result_json) {
+std::string direct_http_success_response(const std::string &id, const std::string &result_json) {
   const std::string result = validated_json_object(result_json) ? result_json : "{}";
   std::string out = envelope_prefix("response");
   append_json_pair(&out, "id", id.c_str(), false);
@@ -130,7 +129,7 @@ std::string direct_websocket_success_response(const std::string &id, const std::
   return out;
 }
 
-std::string direct_websocket_error_response(const std::string &id, const char *code, const char *message) {
+std::string direct_http_error_response(const std::string &id, const char *code, const char *message) {
   std::string out = envelope_prefix("response");
   append_json_pair(&out, "id", id.c_str(), false);
   out += ",\"ok\":false,\"error\":{";
@@ -140,7 +139,7 @@ std::string direct_websocket_error_response(const std::string &id, const char *c
   return out;
 }
 
-std::string direct_websocket_event(const char *event, const std::string &data_json) {
+std::string direct_http_event(const char *event, const std::string &data_json) {
   const std::string data = validated_json_object(data_json) ? data_json : "{}";
   std::string out = envelope_prefix("event");
   append_json_pair(&out, "event", event != nullptr ? event : "", false);

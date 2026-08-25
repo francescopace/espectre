@@ -1,7 +1,7 @@
 /*
  * ESPectre - Native Frontend Adapter
  *
- * Bridges runtime events and control flows to Direct WebSocket, MQTT, and OTA
+ * Bridges runtime events and control flows to Direct HTTP, MQTT, and OTA
  * services.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
@@ -10,6 +10,7 @@
  */
 #include "native_frontend.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cerrno>
 #include <cmath>
@@ -28,6 +29,10 @@
 #include "runtime_diagnostics.h"
 #include "sdkconfig.h"
 #include "wifi_band_helpers.h"
+
+#if defined(ESP_PLATFORM)
+#include <esp_random.h>
+#endif
 
 #if __has_include("esp_heap_caps.h")
 #include "esp_heap_caps.h"
@@ -118,11 +123,32 @@ uint32_t current_task_stack_high_water_bytes() {
 #endif
 }
 
+StreamChipType raw_stream_chip_type(const std::string &chip) {
+  const std::string normalized = normalize_text_token(chip);
+  if (normalized == "esp32c3" || normalized == "c3") return StreamChipType::C3;
+  if (normalized == "esp32c5" || normalized == "c5") return StreamChipType::C5;
+  if (normalized == "esp32c6" || normalized == "c6") return StreamChipType::C6;
+  if (normalized == "esp32s2" || normalized == "s2") return StreamChipType::S2;
+  if (normalized == "esp32s3" || normalized == "s3") return StreamChipType::S3;
+  if (normalized == "esp32") return StreamChipType::ESP32;
+  return StreamChipType::UNKNOWN;
+}
+
+std::string raw_session_id_hex(const uint8_t *session_id) {
+  static constexpr char kHex[] = "0123456789abcdef";
+  std::string value(ESPECTRE_RAW_CSI_SESSION_ID_BYTES * 2U, '0');
+  for (size_t index = 0U; index < ESPECTRE_RAW_CSI_SESSION_ID_BYTES; ++index) {
+    value[index * 2U] = kHex[session_id[index] >> 4U];
+    value[index * 2U + 1U] = kHex[session_id[index] & 0x0FU];
+  }
+  return value;
+}
+
 }  // namespace
 
 NativeFrontend::NativeFrontend(IMqttTransport *mqtt_transport,
                                IOtaService *ota_service,
-                               IDirectWebSocketService *direct_service)
+                               IDirectHttpService *direct_service)
     : mqtt_transport_(mqtt_transport),
       ota_service_(ota_service),
       direct_service_(direct_service) {}
@@ -224,6 +250,10 @@ void NativeFrontend::loop() {
     drain_pending_ha_snapshot_();
   }
   if (direct_service_ != nullptr && direct_service_->running()) {
+    if (!raw_session_authorization_.empty() &&
+        runtime_.operation_state() != RuntimeOperationState::RAW_COLLECTION) {
+      (void) direct_service_->stop_raw_session(RawCsiStopReason::INTERNAL_ERROR);
+    }
     direct_service_->loop();
   }
   if (peer_discovery_ != nullptr) {
@@ -261,7 +291,8 @@ void NativeFrontend::shutdown() {
 NativeFrontend::~NativeFrontend() { shutdown(); }
 
 void NativeFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
-  if (!snapshot.ready_to_publish) {
+  if (runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION ||
+      !snapshot.ready_to_publish) {
     return;
   }
   pending_motion_state_ = snapshot;
@@ -270,6 +301,7 @@ void NativeFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
 
 void NativeFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
   (void) packets_received;
+  if (runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION) return;
   sample_diagnostics_(now_ms_());
   if (!snapshot.ready_to_publish) {
     return;
@@ -280,6 +312,7 @@ void NativeFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_
 }
 
 void NativeFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
+  if (runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION) return;
   publish_mqtt_telemetry_(snapshot, now_ms_());
   if (snapshot.ready_to_publish) {
     publish_ha_threshold_(snapshot.threshold);
@@ -287,6 +320,7 @@ void NativeFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
 }
 
 void NativeFrontend::on_detector_changed(const RuntimeSnapshot &snapshot) {
+  if (runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION) return;
   publish_mqtt_info_();
   publish_mqtt_telemetry_(snapshot, now_ms_());
   if (snapshot.ready_to_publish) {
@@ -298,6 +332,7 @@ void NativeFrontend::on_detector_changed(const RuntimeSnapshot &snapshot) {
 }
 
 void NativeFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) {
+  if (runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION) return;
   calibration_started_ = true;
   calibration_start_threshold_ = snapshot.threshold;
   publish_ha_calibrate_(true);
@@ -307,6 +342,7 @@ void NativeFrontend::on_calibration_started(const RuntimeSnapshot &snapshot) {
 }
 
 void NativeFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) {
+  if (runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION) return;
   const bool threshold_changed =
       !calibration_started_ || std::fabs(snapshot.threshold - calibration_start_threshold_) > 1.0e-6f;
   calibration_started_ = false;
@@ -324,7 +360,8 @@ void NativeFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bo
 }
 
 void NativeFrontend::on_live_telemetry(float movement, float threshold) {
-  if (!runtime_.snapshot().ready_to_publish) {
+  if (runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION ||
+      !runtime_.snapshot().ready_to_publish) {
     return;
   }
   RuntimeSnapshot snapshot = runtime_.snapshot();
@@ -335,6 +372,11 @@ void NativeFrontend::on_live_telemetry(float movement, float threshold) {
 }
 
 void NativeFrontend::drain_pending_runtime_events_() {
+  if (runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    motion_state_pending_ = false;
+    live_telemetry_pending_ = false;
+    return;
+  }
   if (motion_state_pending_) {
     const RuntimeSnapshot snapshot = pending_motion_state_;
     motion_state_pending_ = false;
@@ -385,7 +427,21 @@ void NativeFrontend::handle_mqtt_command_(const std::string &payload) {
 
 FrontendCommandResult NativeFrontend::dispatch_command_(const EspectreCommand &command,
                                                          FrontendCommandOrigin origin,
-                                                         bool allow_local_config) {
+                                                         bool allow_local_config,
+                                                         uint64_t connection_token,
+                                                         std::string authorization) {
+  const bool read_during_raw = command.command == "capabilities" || command.command == "info" ||
+                               command.command == "status" || command.command == "config" ||
+                               command.command == "diagnostics" || command.command == "ota_status";
+  if (runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION &&
+      !read_during_raw && command.command != "stop_raw_stream") {
+    FrontendCommandResult busy;
+    busy.handled = true;
+    busy.command = command;
+    busy.code = "busy_raw_collection";
+    busy.message = "mutation is unavailable during raw CSI collection";
+    return busy;
+  }
   const FrontendCommandCapabilities capabilities{
       true,
       true,
@@ -402,10 +458,12 @@ FrontendCommandResult NativeFrontend::dispatch_command_(const EspectreCommand &c
       runtime_.capabilities().supports_manual_recalibration,
       ota_service_ != nullptr,
       allow_local_config && peer_discovery_enabled_,
+      allow_local_config && direct_session_tokens_enabled_ &&
+          runtime_.capabilities().supports_raw_csi,
   };
   FrontendCommandResult result = command_engine_.execute(
       command,
-      FrontendCommandContext{origin},
+      FrontendCommandContext{origin, connection_token, std::move(authorization)},
       ota_service_,
       device_info_.firmware_version.c_str(),
       capabilities,
@@ -418,7 +476,8 @@ FrontendCommandResult NativeFrontend::dispatch_command_(const EspectreCommand &c
                                                true,
                                                allow_local_config,
                                                allow_local_config,
-                                               capabilities.supports_peer_discovery);
+                                               capabilities.supports_peer_discovery,
+                                               capabilities.supports_raw_csi);
         }
         if (read.command == "info") {
           return espectre_info_payload(this->device_config_, this->mqtt_protocol_device_info_());
@@ -574,9 +633,18 @@ FrontendCommandResult NativeFrontend::dispatch_command_(const EspectreCommand &c
           *message = enabled ? "sensing started" : "sensing stopped";
         }
         return true;
+      },
+      [this](const EspectreCommand &raw_command,
+             const FrontendCommandContext &context,
+             std::string *code,
+             std::string *message,
+             std::string *data_json) {
+        return this->handle_raw_stream_command_(
+            raw_command, context, code, message, data_json);
       });
   if (result.accepted) {
-    if ((static_cast<uint8_t>(result.changes) & static_cast<uint8_t>(FrontendCommandChange::STATUS)) != 0U) {
+    if (command.command != "start_raw_stream" &&
+        (static_cast<uint8_t>(result.changes) & static_cast<uint8_t>(FrontendCommandChange::STATUS)) != 0U) {
       publish_runtime_status_state_();
     }
     if ((static_cast<uint8_t>(result.changes) & static_cast<uint8_t>(FrontendCommandChange::CONFIG)) != 0U) {
@@ -592,17 +660,22 @@ FrontendCommandResult NativeFrontend::dispatch_command_(const EspectreCommand &c
   return result;
 }
 
-std::string NativeFrontend::handle_direct_request_(const DirectWebSocketRequest &request) {
+std::string NativeFrontend::handle_direct_request_(const DirectRequest &request,
+                                                   uint64_t connection_token) {
   EspectreCommand command;
   std::string parse_error;
-  if (!direct_websocket_request_to_command(request, &command, &parse_error)) {
-    return direct_websocket_error_response(request.id, "invalid_params", parse_error.c_str());
+  if (!direct_http_request_to_command(request, &command, &parse_error)) {
+    return direct_http_error_response(request.id, "invalid_params", parse_error.c_str());
   }
 
   const FrontendCommandResult result =
-      dispatch_command_(command, FrontendCommandOrigin::DIRECT, true);
+      dispatch_command_(command,
+                        FrontendCommandOrigin::DIRECT,
+                        true,
+                        connection_token,
+                        request.authorization);
   if (!result.accepted) {
-    return direct_websocket_error_response(request.id, result.code.c_str(), result.message.c_str());
+    return direct_http_error_response(request.id, result.code.c_str(), result.message.c_str());
   }
   std::string response{"{"};
   append_json_pair(&response, "command", result.command.command.c_str(), true);
@@ -610,29 +683,29 @@ std::string NativeFrontend::handle_direct_request_(const DirectWebSocketRequest 
   append_json_pair(&response, "message", result.message.c_str());
   if (!result.data_json.empty()) response += ",\"data\":" + result.data_json;
   response += "}";
-  return direct_websocket_success_response(request.id, response);
+  return direct_http_success_response(request.id, response);
 }
 
-IDirectWebSocketService::DeferredRequestResult NativeFrontend::handle_deferred_direct_request_(
+IDirectHttpService::DeferredRequestResult NativeFrontend::handle_deferred_direct_request_(
     uint64_t connection_token,
-    const DirectWebSocketRequest &request) {
+    const DirectRequest &request) {
   if (request.method != ESPECTRE_PEER_DISCOVERY_METHOD) {
-    return {false, handle_direct_request_(request)};
+    return {false, handle_direct_request_(request, connection_token)};
   }
   if (!peer_discovery_enabled_ || peer_discovery_ == nullptr) {
     return {false,
-            direct_websocket_error_response(
+            direct_http_error_response(
                 request.id, "unsupported", "peer discovery is unavailable")};
   }
   std::vector<JsonObjectField> params;
   if (!parse_json_object_fields(request.params, &params) || !params.empty()) {
     return {false,
-            direct_websocket_error_response(
+            direct_http_error_response(
                 request.id, "invalid_params", "discover_peers does not accept parameters")};
   }
   if (peer_discovery_->active()) {
     return {false,
-            direct_websocket_error_response(
+            direct_http_error_response(
                 request.id, "conflict", "a peer discovery request is already active")};
   }
   const bool started = peer_discovery_->start(
@@ -644,11 +717,11 @@ IDirectWebSocketService::DeferredRequestResult NativeFrontend::handle_deferred_d
         append_json_pair(&result, "message", "peer discovery completed");
         result += ",\"data\":" + peer_discovery_snapshot_json(snapshot) + "}";
         (void) this->direct_service_->complete_deferred_response(
-            connection_token, direct_websocket_success_response(request_id, result));
+            connection_token, direct_http_success_response(request_id, result));
       });
   if (!started) {
     return {false,
-            direct_websocket_error_response(
+            direct_http_error_response(
                 request.id, "unavailable", "peer discovery could not be started")};
   }
   return {true, {}};
@@ -662,7 +735,9 @@ std::string NativeFrontend::direct_capabilities_payload_() const {
                                        true,
                                        true,
                                        true,
-                                       peer_discovery_enabled_);
+                                       peer_discovery_enabled_,
+                                       direct_session_tokens_enabled_ &&
+                                           runtime_.capabilities().supports_raw_csi);
 }
 
 std::string NativeFrontend::direct_status_payload_(bool online) const {
@@ -683,6 +758,19 @@ std::string NativeFrontend::direct_status_payload_(bool online) const {
   out += runtime_.snapshot().ready_to_publish ? "true" : "false";
   out += ",\"calibrating\":";
   out += runtime_.is_calibrating() ? "true" : "false";
+  append_json_pair(&out,
+                   "operation_state",
+                   runtime_operation_state_name(runtime_.operation_state()));
+  const RawCsiSessionDiagnostics raw =
+      direct_service_ != nullptr ? direct_service_->raw_diagnostics()
+                                 : RawCsiSessionDiagnostics{};
+  out += ",\"raw_session\":{\"active\":";
+  out += raw.active ? "true" : "false";
+  out += ",\"binary_bound\":";
+  out += raw.binary_bound ? "true" : "false";
+  out += ",\"authorized\":";
+  out += !raw_session_authorization_.empty() ? "true" : "false";
+  out += ",\"fresh_records\":" + std::to_string(raw.fresh_record_total) + "}";
   out += "}";
   return out;
 }
@@ -738,24 +826,38 @@ std::string NativeFrontend::direct_diagnostics_payload_() const {
   if (!out.empty() && out.back() == '}') {
     out.pop_back();
   }
-  const DirectWebSocketServiceDiagnostics direct =
-      direct_service_ != nullptr ? direct_service_->diagnostics() : DirectWebSocketServiceDiagnostics{};
+  const DirectHttpServiceDiagnostics direct =
+      direct_service_ != nullptr ? direct_service_->diagnostics() : DirectHttpServiceDiagnostics{};
   const MqttTransportDiagnostics mqtt =
       mqtt_transport_ != nullptr ? mqtt_transport_->diagnostics() : MqttTransportDiagnostics{};
   append_runtime_performance_diagnostics_json(&out, runtime_diagnostics, false);
   out += ",\"task_stack_high_water_bytes\":" + std::to_string(current_task_stack_high_water_bytes());
-  out += ",\"direct\":{\"clients\":" + std::to_string(direct_client_count_);
-  out += ",\"client_limit\":" + std::to_string(direct.client_limit);
+  out += ",\"direct_http\":{\"event_clients\":" + std::to_string(direct_client_count_);
+  out += ",\"event_client_limit\":" + std::to_string(direct.event_client_limit);
   out += ",\"queue_capacity\":" + std::to_string(direct.queue_capacity);
   out += ",\"queued_messages\":" + std::to_string(direct.queued_messages);
   out += ",\"accepted_connections\":" + std::to_string(direct.accepted_connections);
   out += ",\"rejected_connections\":" + std::to_string(direct.rejected_connections);
-  out += ",\"malformed_frames\":" + std::to_string(direct.malformed_frames);
-  out += ",\"oversized_frames\":" + std::to_string(direct.oversized_frames);
+  out += ",\"malformed_requests\":" + std::to_string(direct.malformed_requests);
+  out += ",\"oversized_requests\":" + std::to_string(direct.oversized_requests);
   out += ",\"rate_limited_requests\":" + std::to_string(direct.rate_limited_requests);
   out += ",\"dropped_telemetry_events\":" + std::to_string(direct.dropped_telemetry_events);
   out += ",\"send_failures\":" + std::to_string(direct.send_failures);
   out += ",\"slow_client_disconnects\":" + std::to_string(direct.slow_client_disconnects) + "}";
+  const RawCsiSessionDiagnostics raw =
+      direct_service_ != nullptr ? direct_service_->raw_diagnostics()
+                                 : RawCsiSessionDiagnostics{};
+  out += ",\"raw_csi\":{\"active\":";
+  out += raw.active ? "true" : "false";
+  out += ",\"binary_bound\":";
+  out += raw.binary_bound ? "true" : "false";
+  out += ",\"no_sample_total\":" + std::to_string(raw.no_sample_total);
+  out += ",\"replaced_sample_total\":" + std::to_string(raw.replaced_sample_total);
+  out += ",\"dropped_sample_total\":" + std::to_string(raw.dropped_sample_total);
+  out += ",\"send_backpressure_total\":" +
+         std::to_string(raw.raw_send_backpressure_total);
+  out += ",\"fresh_record_total\":" + std::to_string(raw.fresh_record_total);
+  out += ",\"stream_sequence\":" + std::to_string(raw.stream_sequence) + "}";
   out += ",\"mqtt\":{\"connected\":";
   out += mqtt_transport_ != nullptr && mqtt_transport_->connected() ? "true" : "false";
   out += ",\"queue_capacity\":" + std::to_string(mqtt.queue_capacity);
@@ -765,6 +867,113 @@ std::string NativeFrontend::direct_diagnostics_payload_() const {
   out += ",\"publish_failures\":" + std::to_string(mqtt.publish_failures);
   out += ",\"reconnects\":" + std::to_string(mqtt.reconnects) + "}}";
   return out;
+}
+
+bool NativeFrontend::handle_raw_stream_command_(const EspectreCommand &command,
+                                                const FrontendCommandContext &context,
+                                                std::string *code,
+                                                std::string *message,
+                                                std::string *data_json) {
+  if (direct_service_ == nullptr || !runtime_.capabilities().supports_raw_csi) {
+    if (code != nullptr) *code = "unsupported";
+    if (message != nullptr) *message = "raw CSI collection is unavailable";
+    return false;
+  }
+  if (command.command == "stop_raw_stream") {
+    if (raw_session_authorization_.empty()) {
+      if (code != nullptr) *code = "not_raw_session_owner";
+      if (message != nullptr) *message = "no raw CSI session is active";
+      return false;
+    }
+    if (context.authorization != raw_session_authorization_) {
+      if (code != nullptr) *code = "not_raw_session_owner";
+      if (message != nullptr) *message = "the raw CSI bearer does not own this session";
+      return false;
+    }
+    const bool stopped = direct_service_->stop_raw_session(RawCsiStopReason::REQUESTED);
+    if (code != nullptr) *code = stopped ? "ok" : "unavailable";
+    if (message != nullptr) {
+      *message = stopped ? "raw CSI collection stopped" : "raw CSI collection could not be stopped";
+    }
+    return stopped;
+  }
+
+  if (!raw_session_authorization_.empty() ||
+      runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    if (code != nullptr) *code = "busy_raw_collection";
+    if (message != nullptr) *message = "a raw CSI session is already active";
+    return false;
+  }
+
+  RawCsiSessionConfig session;
+  session.target_pps = command.raw_target_pps;
+  session.max_sample_age_us = std::max<uint64_t>(
+      10000U, std::min<uint64_t>(100000U, 2000000ULL / session.target_pps));
+  session.chip = raw_stream_chip_type(device_info_.chip);
+  if (!parse_espectre_device_id(espectre_effective_device_id(device_config_),
+                                &session.device_id)) {
+    if (code != nullptr) *code = "internal_error";
+    if (message != nullptr) *message = "device identity is unavailable";
+    return false;
+  }
+#if defined(ESP_PLATFORM)
+  esp_fill_random(session.session_id, sizeof(session.session_id));
+#else
+  uint64_t seed = static_cast<uint64_t>(esp_timer_get_time()) ^ context.connection_token ^
+                  session.device_id;
+  for (size_t index = 0U; index < sizeof(session.session_id); ++index) {
+    seed ^= seed << 13U;
+    seed ^= seed >> 7U;
+    seed ^= seed << 17U;
+    session.session_id[index] = static_cast<uint8_t>(seed);
+  }
+#endif
+
+  const bool transport_started = direct_service_->start_raw_session(
+      session,
+      [this](RawCsiStopReason reason) { this->handle_raw_session_stopped_(reason); });
+  if (!transport_started) {
+    if (code != nullptr) *code = "busy_raw_collection";
+    if (message != nullptr) *message = "the raw CSI collector is busy";
+    return false;
+  }
+  const bool runtime_started = runtime_.start_raw_collection(
+      [](void *opaque, const RawCsiPacketView &packet) {
+        auto *frontend = static_cast<NativeFrontend *>(opaque);
+        return frontend != nullptr && frontend->direct_service_ != nullptr &&
+               frontend->direct_service_->offer_raw_packet(packet);
+      },
+      this);
+  if (!runtime_started) {
+    (void) direct_service_->stop_raw_session(RawCsiStopReason::INTERNAL_ERROR);
+    if (code != nullptr) *code = "unavailable";
+    if (message != nullptr) *message = "raw CSI capture could not be started";
+    return false;
+  }
+
+  raw_session_authorization_ = raw_session_id_hex(session.session_id);
+  live_telemetry_pending_ = false;
+  motion_state_pending_ = false;
+  pending_ha_state_ = false;
+  if (code != nullptr) *code = "ok";
+  if (message != nullptr) *message = "raw CSI collection started";
+  if (data_json != nullptr) {
+    *data_json = "{\"session_id\":\"" + raw_session_id_hex(session.session_id) +
+                 "\",\"endpoint\":\"" + ESPECTRE_RAW_CSI_ENDPOINT +
+                 "\",\"transport\":\"http\",\"protocol_version\":1,"
+                 "\"record_version\":8,\"frame_prefix_bytes\":76,\"target_pps\":" +
+                 std::to_string(session.target_pps) + ",\"max_sample_age_us\":" +
+                 std::to_string(session.max_sample_age_us) + "}";
+  }
+  return true;
+}
+
+void NativeFrontend::handle_raw_session_stopped_(RawCsiStopReason reason) {
+  raw_session_authorization_.clear();
+  live_telemetry_pending_ = false;
+  motion_state_pending_ = false;
+  pending_ha_state_ = false;
+  (void) runtime_.stop_raw_collection(reason);
 }
 
 bool NativeFrontend::handle_threshold_write_(float threshold) {
@@ -960,8 +1169,9 @@ void NativeFrontend::refresh_direct_service_() {
     return;
   }
   peer_discovery_enabled_ = false;
+  direct_session_tokens_enabled_ = false;
 
-  DirectWebSocketServiceConfig config = DirectWebSocketServiceConfig::for_first_party_portals();
+  DirectHttpServiceConfig config = DirectHttpServiceConfig::for_first_party_portals();
 #if defined(CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED) && CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED
   config.allow_http_loopback_origins = true;
 #endif
@@ -969,24 +1179,24 @@ void NativeFrontend::refresh_direct_service_() {
     this->direct_client_count_ = client_count;
     this->update_live_telemetry_enabled_();
   };
-  bool setup = false;
-  if (peer_discovery_ != nullptr) {
-    setup = direct_service_->setup_deferred(
-        config,
-        [this](uint64_t token, const DirectWebSocketRequest &request) {
-          return this->handle_deferred_direct_request_(token, request);
-        },
-        client_count_changed);
-    peer_discovery_enabled_ = setup;
-  }
+  bool setup = direct_service_->setup_deferred(
+      config,
+      [this](uint64_t token, const DirectRequest &request) {
+        return this->handle_deferred_direct_request_(token, request);
+      },
+      client_count_changed);
+  direct_session_tokens_enabled_ = setup;
+  peer_discovery_enabled_ = setup && peer_discovery_ != nullptr;
   if (!setup) {
     setup = direct_service_->setup(
         config,
-        [this](const DirectWebSocketRequest &request) { return this->handle_direct_request_(request); },
+        [this](const DirectRequest &request) {
+          return this->handle_direct_request_(request, 0U);
+        },
         client_count_changed);
   }
   if (!setup) {
-    ESP_LOGE(TAG, "Direct WebSocket service setup failed");
+    ESP_LOGE(TAG, "Direct HTTP service setup failed");
   }
 }
 
@@ -996,6 +1206,7 @@ void NativeFrontend::stop_direct_service_() {
   }
   direct_client_count_ = 0U;
   peer_discovery_enabled_ = false;
+  direct_session_tokens_enabled_ = false;
 }
 
 void NativeFrontend::publish_direct_event_(const char *event_name,

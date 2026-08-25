@@ -1,7 +1,7 @@
 /*
  * ESPectre - Native Frontend Adapter
  *
- * Bridges runtime events and control flows to Direct WebSocket, MQTT, and OTA
+ * Bridges runtime events and control flows to Direct HTTP, MQTT, and OTA
  * services.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
@@ -15,7 +15,7 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "direct_websocket_service.h"
+#include "direct_http_service.h"
 #include "frontend_control_helpers.h"
 #include "frontend_ha_mqtt_helpers.h"
 #include "mqtt_transport.h"
@@ -44,7 +44,7 @@ class NativeFrontend : public IRuntimeListener {
 
   explicit NativeFrontend(IMqttTransport *mqtt_transport = nullptr,
                           IOtaService *ota_service = nullptr,
-                          IDirectWebSocketService *direct_service = nullptr);
+                          IDirectHttpService *direct_service = nullptr);
 
   void set_runtime_config(const RuntimeConfig &config);
   void set_device_config(const EspectreDeviceConfig &config);
@@ -82,11 +82,14 @@ class NativeFrontend : public IRuntimeListener {
   void handle_mqtt_command_(const std::string &payload);
   FrontendCommandResult dispatch_command_(const EspectreCommand &command,
                                           FrontendCommandOrigin origin,
-                                          bool allow_local_config);
-  std::string handle_direct_request_(const DirectWebSocketRequest &request);
-  IDirectWebSocketService::DeferredRequestResult handle_deferred_direct_request_(
+                                          bool allow_local_config,
+                                          uint64_t connection_token = 0U,
+                                          std::string authorization = {});
+  std::string handle_direct_request_(const DirectRequest &request,
+                                     uint64_t connection_token);
+  IDirectHttpService::DeferredRequestResult handle_deferred_direct_request_(
       uint64_t connection_token,
-      const DirectWebSocketRequest &request);
+      const DirectRequest &request);
   std::string direct_capabilities_payload_() const;
   std::string direct_status_payload_(bool online) const;
   std::string direct_config_payload_(bool include_local = true) const;
@@ -97,6 +100,12 @@ class NativeFrontend : public IRuntimeListener {
   bool handle_traffic_generator_mode_write_(RuntimeTrafficMode mode);
   bool handle_detector_write_(DetectionAlgorithm algorithm);
   bool handle_recalibration_write_();
+  bool handle_raw_stream_command_(const EspectreCommand &command,
+                                  const FrontendCommandContext &context,
+                                  std::string *code,
+                                  std::string *message,
+                                  std::string *data_json);
+  void handle_raw_session_stopped_(RawCsiStopReason reason);
   bool wifi_configured_() const;
   void handle_ha_birth_message_(const std::string &topic, const std::string &payload);
   void handle_ha_threshold_command_(const std::string &payload);
@@ -152,7 +161,7 @@ class NativeFrontend : public IRuntimeListener {
 
   IMqttTransport *mqtt_transport_{nullptr};
   IOtaService *ota_service_{nullptr};
-  IDirectWebSocketService *direct_service_{nullptr};
+  IDirectHttpService *direct_service_{nullptr};
   IPeerDiscoveryService *peer_discovery_{nullptr};
   ProvisioningCommandCallback provisioning_command_callback_{};
   DeviceConfigChangeCallback device_config_change_callback_{};
@@ -177,10 +186,12 @@ class NativeFrontend : public IRuntimeListener {
   bool ota_frontend_quiesced_{false};
   bool wifi_reconfigure_quiesced_{false};
   bool peer_discovery_enabled_{false};
+  bool direct_session_tokens_enabled_{false};
   bool protocol_recalibration_command_active_{false};
   bool calibration_started_{false};
   float calibration_start_threshold_{0.0f};
   float last_loop_time_ms_{0.0f};
+  std::string raw_session_authorization_;
 };
 
 }  // namespace espectre

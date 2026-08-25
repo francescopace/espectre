@@ -161,7 +161,7 @@ Reset on open:
 
 ### `devices`
 
-`devices` performs a fresh host-side browse for `_espectre._tcp.local.` and lists Native, Streamer, ESPHome, and Matter firmware through one first-party record contract. It does not inspect `_esphomelib`, `_matterc`, or other upstream service types. The normalized result includes the frontend, device identity, display name, chip, IP address, and Direct WebSocket endpoint. [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) defines the record-level contract.
+`devices` performs a fresh host-side browse for `_espectre._tcp.local.` and lists Native, Streamer, ESPHome, and Matter firmware through one first-party record contract. It does not inspect `_esphomelib`, `_matterc`, or other upstream service types. The normalized result includes the frontend, device identity, display name, chip, IP address, and Direct HTTP endpoint. [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) defines the record-level contract.
 
 | Flag | Purpose |
 |------|---------|
@@ -194,7 +194,7 @@ The password is never accepted as a command-line value, printed, or included in 
 
 ### `direct`
 
-`direct` sends one correlated Direct v1 request through the same bounded WebSocket client used by the firmware benchmark. Supply `--endpoint` with an HTTP(S) device URL or WS(S) endpoint, or use `--frontend` to discover a device. When discovery returns multiple records, the CLI prompts for an explicit selection.
+`direct` sends one correlated Direct v1 request through HTTP POST. Supply `--endpoint` with an HTTP(S) device URL, or use `--frontend` to discover a device. When discovery returns multiple records, the CLI prompts for an explicit selection.
 
 ```bash
 ./espectre direct status --frontend native
@@ -202,7 +202,7 @@ The password is never accepted as a command-line value, printed, or included in 
 ./espectre direct set_detector --frontend esphome --params '{"detector":"high_accuracy"}'
 ```
 
-The client sends the exact allowed `https://test.espectre.dev` Origin by default, negotiates `espectre.v1`, limits request frames to 4,096 bytes, accepts response and event frames up to 8,192 bytes, validates their envelopes, and closes cleanly. Use `--origin` only for another exact Origin already allowed by the firmware; the CLI does not weaken device Origin policy.
+The client sends the exact allowed `https://test.espectre.dev` Origin by default, limits the JSON request to 4,096 bytes, accepts a response up to 8,192 bytes, validates its correlated envelope, and closes cleanly. Use `--origin` only for another exact Origin already allowed by the firmware; the CLI does not weaken device Origin policy.
 
 ### `collect`
 
@@ -216,8 +216,9 @@ Common flags:
 
 | Flag | Purpose |
 |------|---------|
+| `--transport udp|http` | Required live transport selection; failure never falls back to the other transport |
 | `--list-devices` | Browse Streamer devices via mDNS, print the resolved targets, and exit |
-| `--target` | Unicast device IP, comma-separated unicast IPs, or joined multicast group `239.255.0.1`; LAN broadcast does not produce CSI |
+| `--target` | UDP accepts one or more unicast IPs or joined multicast group `239.255.0.1`; HTTP requires exactly one unicast Native endpoint |
 | `--duration` | Stop after N seconds |
 | `--label` | Dataset label for saved collections; omit for live inspection without saving |
 | `--start-delay` | Wait N seconds before starting collection; requires `--duration` |
@@ -226,7 +227,7 @@ Common flags:
 | `--detector` | Detector used by the ready gate: `lightweight` or `high_accuracy`; a comma-separated list is available only for live comparison |
 | `--ready-stable-seconds` | Seconds below threshold before saved collection starts; set `0` to disable the ready gate |
 
-When `--target` is omitted, `collect` performs one fresh browse for `_espectre._tcp.local.` at startup and keeps only records with `frontend=streamer`. It reads the UDP pacing target from the selected record's `traffic_port` metadata rather than using the Direct WebSocket SRV port:
+When `--target` is omitted, `collect` performs one fresh browse for `_espectre._tcp.local.` at startup. UDP keeps only `frontend=streamer` and reads the pacing target from `traffic_port`; HTTP keeps only `frontend=native`, then requires the exact raw capability during its control handshake:
 
 - `0` devices: fail explicitly and suggest `--target`
 - `1` device: auto-select it
@@ -240,7 +241,16 @@ The collector uses the same event-driven completion as `devices`: once a complet
 
 `--info` is also read-only: it uses `dataset_info.json` as the source of truth and prints one table per `environment`, with label rows and one column per chip.
 
-In live streamer mode, `collect` sends UDP pacing traffic to the device. The device learns the collector address, creates one CSI record for each valid pacing packet, and batches records into return datagrams. Without `--label`, the collector only inspects the stream; with `--label`, it saves a dataset.
+Live collection requires `--transport udp|http`. UDP keeps the existing Streamer pacing workflow unchanged. HTTP negotiates Native capabilities with POST, starts one bearer-bound raw session, and incrementally reads the binary response stream paced by the device. HTTP rejects multiple targets before connecting and requires V8; a capability, framing, timeout, or identity failure terminates the command without falling back to UDP. Both transports feed the same V7/V8 parser, temporal sampler, detector, identity checks, validator, and dataset writer.
+
+During the C3-first rollout, use UDP for Streamer on every chip and HTTP only with a Native ESP32-C3 image that advertises `features.raw_csi=true`:
+
+```bash
+./espectre collect --transport udp --target 192.168.1.50 --pps 100 --fixed
+./espectre collect --transport http --target 192.168.1.51 --pps 100
+```
+
+Saved files and catalog entries record the selected transport, target, effective PPS, raw protocol version, CSI record version, and firmware identity.
 
 Pacing terms:
 
@@ -266,13 +276,13 @@ Examples:
 
 ```bash
 ./espectre devices --frontend streamer
-./espectre collect --target 192.168.1.50
-./espectre collect --target 192.168.1.50,192.168.1.51
-./espectre collect --target 239.255.0.1
-./espectre collect --target 192.168.1.50 --pps 120
-./espectre collect --target 192.168.1.50 --pps 120 --fixed
-./espectre collect --label wave --duration 45 --target 192.168.1.50
-./espectre collect --label wave --duration 45 --start-delay 15 --target 192.168.1.50
+./espectre collect --transport udp --target 192.168.1.50
+./espectre collect --transport udp --target 192.168.1.50,192.168.1.51
+./espectre collect --transport udp --target 239.255.0.1
+./espectre collect --transport http --target 192.168.1.50 --pps 120
+./espectre collect --transport udp --target 192.168.1.50 --pps 120 --fixed
+./espectre collect --transport udp --label wave --duration 45 --target 192.168.1.50
+./espectre collect --transport http --label wave --duration 45 --start-delay 15 --target 192.168.1.50
 ./espectre collect --info
 ```
 

@@ -1,5 +1,5 @@
 /*
- * ESPectre - Direct WebSocket Service Mock
+ * ESPectre - Direct HTTP Service Mock
  *
  * Test double for the Native frontend Direct transport boundary.
  *
@@ -12,10 +12,10 @@
 #include <string>
 #include <vector>
 
-#include "direct_websocket_service.h"
+#include "direct_http_service.h"
 
 namespace espectre {
-namespace direct_websocket_service_mock {
+namespace direct_http_service_mock {
 
 struct PublishedEvent {
   std::string event_name;
@@ -29,43 +29,54 @@ struct State {
   bool shutdown_called{false};
   int setup_calls{0};
   size_t client_count{0U};
-  DirectWebSocketServiceConfig last_config;
-  DirectWebSocketServiceDiagnostics diagnostics;
+  DirectHttpServiceConfig last_config;
+  DirectHttpServiceDiagnostics diagnostics;
   std::vector<PublishedEvent> published_events;
-  IDirectWebSocketService::RequestHandler request_handler;
-  IDirectWebSocketService::DeferredRequestHandler deferred_request_handler;
-  IDirectWebSocketService::ClientCountCallback client_count_callback;
+  IDirectHttpService::RequestHandler request_handler;
+  IDirectHttpService::DeferredRequestHandler deferred_request_handler;
+  IDirectHttpService::ClientCountCallback client_count_callback;
   uint64_t last_completed_token{0U};
   std::string last_deferred_response;
+  bool raw_session_active{false};
+  bool raw_start_result{true};
+  RawCsiSessionConfig raw_config{};
+  RawCsiSessionDiagnostics raw_diagnostics{};
+  IDirectHttpService::RawSessionStoppedCallback raw_stopped_callback;
+  size_t raw_offer_calls{0U};
 };
 
 extern State state;
 
 void reset();
 
-class MockDirectWebSocketService : public IDirectWebSocketService {
+class MockDirectHttpService : public IDirectHttpService {
  public:
-  bool setup(const DirectWebSocketServiceConfig &config,
+  bool setup(const DirectHttpServiceConfig &config,
              RequestHandler request_handler,
              ClientCountCallback client_count_callback) override;
-  bool setup_deferred(const DirectWebSocketServiceConfig &config,
+  bool setup_deferred(const DirectHttpServiceConfig &config,
                       DeferredRequestHandler request_handler,
                       ClientCountCallback client_count_callback) override;
   bool complete_deferred_response(uint64_t connection_token, std::string response) override;
   void loop() override;
   void shutdown() override;
   bool running() const override;
-  size_t client_count() const override;
+  size_t event_client_count() const override;
   bool publish_event(const std::string &event_name,
                      const std::string &data_json,
                      bool replaceable_telemetry) override;
-  DirectWebSocketServiceDiagnostics diagnostics() const override;
+  DirectHttpServiceDiagnostics diagnostics() const override;
+  bool start_raw_session(const RawCsiSessionConfig &config,
+                         RawSessionStoppedCallback stopped_callback) override;
+  bool stop_raw_session(RawCsiStopReason reason) override;
+  bool offer_raw_packet(const RawCsiPacketView &packet) override;
+  RawCsiSessionDiagnostics raw_diagnostics() const override;
 
-  std::string emit_request(const DirectWebSocketRequest &request);
+  std::string emit_request(const DirectRequest &request);
   DeferredRequestResult emit_deferred_request(uint64_t connection_token,
-                                              const DirectWebSocketRequest &request);
+                                              const DirectRequest &request);
   void emit_client_count(size_t client_count);
 };
 
-}  // namespace direct_websocket_service_mock
+}  // namespace direct_http_service_mock
 }  // namespace espectre

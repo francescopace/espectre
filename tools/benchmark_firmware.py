@@ -19,6 +19,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -83,6 +84,9 @@ IDF_APP_BIN_NAMES = {
 IDF_IGNORED_BIN_NAMES = {"bootloader.bin", "partition-table.bin", "ota_data_initial.bin"}
 MICRO_SOURCE_DIR = REPO_ROOT / "src/python/micro_espectre"
 MIN_STREAMER_COLLECT_SAMPLES = 60
+RAW_MIGRATION_PAIR_COUNT = 5
+RAW_MIGRATION_TARGET_PPS = 100
+RAW_MIGRATION_MIN_DURATION_SECONDS = 60
 MOTION_WARMUP_SAMPLES = 3
 STABLE_STATUS_WARMUP_SAMPLES = 5
 STATUS_STABLE_WAIT_SECONDS = 30
@@ -97,6 +101,7 @@ CHIP_LABELS = {
     "c5": "ESP32-C5",
     "c6": "ESP32-C6",
     "s3": "ESP32-S3",
+    "s2": "ESP32-S2",
 }
 FRONTEND_LABELS = {
     "esphome": "ESPHome",
@@ -299,6 +304,32 @@ class BenchmarkResult:
     direct_samples: list[dict[str, object]] = field(default_factory=list)
     direct_events: list[dict[str, object]] = field(default_factory=list)
     transport_evidence: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass
+class RawMigrationRun:
+    pair: int
+    transport: str
+    record_version: int
+    duration_seconds: float
+    accepted_requests: int
+    fresh_records: int
+    no_sample_total: int = 0
+    replaced_sample_total: int = 0
+    dropped_sample_total: int = 0
+    backpressure_total: int = 0
+    control_latencies_ms: list[float] = field(default_factory=list)
+    firmware_identity: str = ""
+    raw_state_valid: bool = True
+    detection_samples_max: int = 0
+
+    @property
+    def fresh_yield_percent(self) -> float:
+        return 100.0 * self.fresh_records / max(self.accepted_requests, 1)
+
+    @property
+    def fresh_pps(self) -> float:
+        return self.fresh_records / max(self.duration_seconds, 0.001)
 
 
 @dataclass(frozen=True)
@@ -1818,8 +1849,8 @@ def normalize_direct_diagnostics(
         occupied = _numeric(payload.get("csi_occupancy_slots"))
         window = _numeric(payload.get("csi_window_slots"))
         occupancy = 100.0 * occupied / window if occupied is not None and window and window > 0 else None
-    direct = payload.get("direct") if isinstance(payload.get("direct"), dict) else {}
-    assert isinstance(direct, dict)
+    direct_http = payload.get("direct_http") if isinstance(payload.get("direct_http"), dict) else {}
+    assert isinstance(direct_http, dict)
     return {
         "host_elapsed_seconds": round(host_elapsed_seconds, 6),
         "timestamp_ms": timestamp_ms,
@@ -1841,10 +1872,10 @@ def normalize_direct_diagnostics(
         "detection_avg_us": _integer(payload.get("detection_avg_us")),
         "detection_min_us": _integer(payload.get("detection_min_us")),
         "detection_max_us": _integer(payload.get("detection_max_us")),
-        "direct_rejected_connections": _integer(direct.get("rejected_connections")),
-        "direct_send_failures": _integer(direct.get("send_failures")),
-        "direct_slow_client_disconnects": _integer(direct.get("slow_client_disconnects")),
-        "direct_dropped_telemetry_events": _integer(direct.get("dropped_telemetry_events")),
+        "direct_rejected_connections": _integer(direct_http.get("rejected_connections")),
+        "direct_send_failures": _integer(direct_http.get("send_failures")),
+        "direct_slow_client_disconnects": _integer(direct_http.get("slow_client_disconnects")),
+        "direct_dropped_telemetry_events": _integer(direct_http.get("dropped_telemetry_events")),
     }
 
 
@@ -2402,6 +2433,8 @@ def run_direct_frontend_cases(
                     collect_command = [
                         str(REPO_ROOT / "espectre"),
                         "collect",
+                        "--transport",
+                        "udp",
                         "--duration",
                         str(MONITOR_DURATION_SECONDS + STATUS_STABLE_WAIT_SECONDS),
                         "--fixed",
@@ -2454,9 +2487,10 @@ def run_direct_frontend_cases(
                     if collect_metrics.collect_packets_seen <= 0:
                         result.reasons.append("host collect did not receive Streamer packets")
                 result.transport_evidence = {
-                    "transport": "direct",
+                    "transport": "http",
                     "origin": DIRECT_ORIGIN,
-                    "subprotocol": "espectre.v1",
+                    "request_path": "/espectre/v1/request",
+                    "events_path": "/espectre/v1/events",
                     "improv_states": list(provisioning.states) if provisioning is not None else [],
                 }
                 result.status = "PASS" if not result.reasons else "FAIL"
@@ -2567,6 +2601,8 @@ def run_streamer_case(
                 collect_command = [
                     launcher,
                     "collect",
+                    "--transport",
+                    "udp",
                     "--duration",
                     str(STREAMER_COLLECT_DURATION_SECONDS),
                     "--fixed",
@@ -3655,6 +3691,281 @@ def write_report(
     return destination
 
 
+def _nearest_rank(values: Sequence[float], percentile: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(float(value) for value in values)
+    index = max(0, min(len(ordered) - 1, math.ceil(percentile * len(ordered) / 100.0) - 1))
+    return ordered[index]
+
+
+def raw_migration_gate_reasons(runs: Sequence[RawMigrationRun]) -> list[str]:
+    """Evaluate transport and control gates from five alternating pairs."""
+    reasons: list[str] = []
+    udp_runs = [run for run in runs if run.transport == "udp"]
+    http_runs = [run for run in runs if run.transport == "http"]
+    if len(udp_runs) != RAW_MIGRATION_PAIR_COUNT or len(http_runs) != RAW_MIGRATION_PAIR_COUNT:
+        reasons.append(
+            f"expected {RAW_MIGRATION_PAIR_COUNT} UDP/HTTP pairs, got "
+            f"{len(udp_runs)} UDP and {len(http_runs)} HTTP runs"
+        )
+        return reasons
+    for run in http_runs:
+        if run.record_version != 8:
+            reasons.append(f"pair {run.pair} HTTP record version is {run.record_version}, expected 8")
+        if run.fresh_yield_percent < 95.0:
+            reasons.append(f"pair {run.pair} HTTP fresh yield is {run.fresh_yield_percent:.2f}%")
+        if run.fresh_pps < 95.0:
+            reasons.append(f"pair {run.pair} HTTP fresh rate is {run.fresh_pps:.2f} pps")
+        if not run.raw_state_valid:
+            reasons.append(f"pair {run.pair} exposed an invalid runtime state during HTTP raw collection")
+        if run.detection_samples_max > 0:
+            reasons.append(
+                f"pair {run.pair} executed {run.detection_samples_max} detector samples during HTTP raw collection"
+            )
+        p95 = _nearest_rank(run.control_latencies_ms, 95.0)
+        p99 = _nearest_rank(run.control_latencies_ms, 99.0)
+        maximum = max(run.control_latencies_ms) if run.control_latencies_ms else None
+        if p95 is None:
+            reasons.append(f"pair {run.pair} has no HTTP control latency samples")
+        else:
+            if p95 > 100.0:
+                reasons.append(f"pair {run.pair} HTTP control p95 is {p95:.2f} ms")
+            if p99 is not None and p99 > 250.0:
+                reasons.append(f"pair {run.pair} HTTP control p99 is {p99:.2f} ms")
+            if maximum is not None and maximum > 1000.0:
+                reasons.append(f"pair {run.pair} HTTP control maximum is {maximum:.2f} ms")
+    yield_delta = statistics.median(run.fresh_yield_percent for run in http_runs) - statistics.median(
+        run.fresh_yield_percent for run in udp_runs
+    )
+    if yield_delta < -2.0:
+        reasons.append(f"median HTTP yield delta versus Streamer is {yield_delta:.2f} percentage points")
+    return reasons
+
+
+def _capture_udp_migration_run(
+    pair: int,
+    target: DiscoveredDevice,
+    duration_seconds: int,
+) -> RawMigrationRun:
+    from tools.lib.csi_io import CSIReceiver, UdpPacingSender, get_default_bind_host
+
+    bind_host = get_default_bind_host()
+    receiver = CSIReceiver(port=5001, buffer_size=8000, bind_host=bind_host, derive_complex=False)
+    sender = UdpPacingSender(
+        target_host=target.ip_address,
+        target_port=target.target_port,
+        source_host=bind_host,
+        interval_s=1.0 / RAW_MIGRATION_TARGET_PPS,
+    )
+    started = time.monotonic()
+    try:
+        sender.start()
+        receiver.run(timeout=duration_seconds, quiet=True)
+    finally:
+        sender.stop()
+        receiver.stop()
+    _elapsed = time.monotonic() - started
+    last_packet = receiver.buffer[-1] if receiver.buffer else None
+    return RawMigrationRun(
+        pair=pair,
+        transport="udp",
+        record_version=int(last_packet.record_version) if last_packet is not None else 0,
+        duration_seconds=float(duration_seconds),
+        accepted_requests=sender.sent_packets,
+        fresh_records=receiver.packet_count,
+        backpressure_total=int(last_packet.transport_backpressure_total or 0) if last_packet is not None else 0,
+        firmware_identity=str(last_packet.firmware_identity or "") if last_packet is not None else "",
+    )
+
+
+def _capture_http_migration_run(
+    pair: int,
+    target: DiscoveredDevice,
+    duration_seconds: int,
+) -> RawMigrationRun:
+    from tools.lib.csi_io import DirectRawCSIReceiver
+
+    receiver = DirectRawCSIReceiver(
+        target.ip_address,
+        target_pps=RAW_MIGRATION_TARGET_PPS,
+        buffer_size=8000,
+        derive_complex=False,
+        timeout=BENCHMARK_CONTROL_TIMEOUT_SECONDS,
+    )
+    receiver._open()
+    control = DirectClient(target.endpoint, origin=DIRECT_ORIGIN, timeout=BENCHMARK_CONTROL_TIMEOUT_SECONDS)
+    worker_error: list[BaseException] = []
+
+    def receive() -> None:
+        try:
+            receiver.run(timeout=duration_seconds, quiet=True)
+        except BaseException as exc:  # preserve the transport failure for the benchmark owner
+            worker_error.append(exc)
+
+    started = time.monotonic()
+    worker = threading.Thread(target=receive, name=f"raw-migration-{pair}", daemon=True)
+    worker.start()
+    latencies: list[float] = []
+    raw_state_valid = True
+    detection_samples_max = 0
+    try:
+        deadline = started + duration_seconds
+        query_index = 0
+        while worker.is_alive() and time.monotonic() < deadline:
+            request_started = time.perf_counter()
+            method = "status" if query_index % 2 == 0 else "diagnostics"
+            sample = control.request(method)
+            latencies.append((time.perf_counter() - request_started) * 1000.0)
+            if method == "status":
+                raw_session = sample.get("raw_session")
+                raw_state_valid = raw_state_valid and (
+                    sample.get("operation_state") == "raw_collection"
+                    and sample.get("calibrating") is False
+                    and sample.get("ready_to_publish") is False
+                    and isinstance(raw_session, dict)
+                    and raw_session.get("active") is True
+                    and raw_session.get("binary_bound") is True
+                )
+            else:
+                detection_samples = sample.get("detection_samples")
+                if isinstance(detection_samples, int):
+                    detection_samples_max = max(detection_samples_max, detection_samples)
+            query_index += 1
+            time.sleep(DIRECT_SAMPLE_INTERVAL_SECONDS)
+        worker.join(timeout=BENCHMARK_CONTROL_TIMEOUT_SECONDS)
+        if worker.is_alive():
+            raise TimeoutError("Direct raw receiver did not stop after the migration window")
+        if worker_error:
+            raise RuntimeError(f"Direct raw receiver failed: {worker_error[0]}")
+    finally:
+        receiver.stop()
+        control.close()
+        worker.join(timeout=1.0)
+    _elapsed = time.monotonic() - started
+    last_packet = receiver.buffer[-1] if receiver.buffer else None
+    return RawMigrationRun(
+        pair=pair,
+        transport="http",
+        record_version=int(last_packet.record_version) if last_packet is not None else 0,
+        duration_seconds=float(duration_seconds),
+        accepted_requests=RAW_MIGRATION_TARGET_PPS * duration_seconds,
+        fresh_records=receiver.packet_count,
+        no_sample_total=receiver.no_sample_total,
+        replaced_sample_total=receiver.replaced_sample_total,
+        dropped_sample_total=receiver.raw_dropped_sample_total,
+        backpressure_total=receiver.raw_send_backpressure_total,
+        control_latencies_ms=latencies,
+        firmware_identity=str(last_packet.firmware_identity or "") if last_packet is not None else "",
+        raw_state_valid=raw_state_valid,
+        detection_samples_max=detection_samples_max,
+    )
+
+
+def _flash_migration_build(
+    case: BenchmarkCase,
+    chip: str,
+    port: str,
+    build: BenchmarkResult,
+) -> None:
+    with case_context(case, chip, port, clean=False) as (env, config):
+        if not _flash_prebuilt_cpp_case_in_context(
+            case,
+            chip,
+            port,
+            build,
+            env=env,
+            config=config,
+        ):
+            raise RuntimeError(f"{case.frontend} flash failed during raw migration benchmark")
+
+
+def run_raw_migration_benchmark(
+    chip: str,
+    port: str,
+    duration_seconds: int,
+    artifact_dir: Path,
+) -> int:
+    """Alternate five Streamer V7 and Native V8 runs on one physical chip."""
+    if duration_seconds < RAW_MIGRATION_MIN_DURATION_SECONDS:
+        raise ValueError(
+            f"raw migration windows must be at least {RAW_MIGRATION_MIN_DURATION_SECONDS} seconds"
+        )
+    streamer_case = BenchmarkCase("streamer", "collect", benchmark_mode="stream")
+    native_case = BenchmarkCase("native", "lightweight")
+    require_benchmark_prerequisites((streamer_case, native_case))
+    streamer_build = build_case(streamer_case, chip, port, clean=True)
+    native_build = build_case(native_case, chip, port, clean=True)
+    for result in (streamer_build, native_build):
+        if result.build is None or result.build.returncode != 0:
+            raise RuntimeError(f"{result.case.frontend} build failed before raw migration benchmark")
+
+    runs: list[RawMigrationRun] = []
+    for pair in range(1, RAW_MIGRATION_PAIR_COUNT + 1):
+        print(f"\nRaw CSI migration pair {pair}/{RAW_MIGRATION_PAIR_COUNT}: Streamer V7", flush=True)
+        _flash_migration_build(streamer_case, chip, port, streamer_build)
+        streamer = discover_direct_device("streamer")
+        runs.append(_capture_udp_migration_run(pair, streamer, duration_seconds))
+
+        print(f"Raw CSI migration pair {pair}/{RAW_MIGRATION_PAIR_COUNT}: Native V8", flush=True)
+        _flash_migration_build(native_case, chip, port, native_build)
+        with ImprovSerialClient(port) as improv:
+            provisioning = improv.provision(
+                require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID"),
+                require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD"),
+                timeout=WIFI_CONNECT_WAIT_SECONDS,
+            )
+        endpoint = direct_endpoint_from_device_url(provisioning.endpoint)
+        native_control = _connect_direct_with_retry(endpoint, frontend="native")
+        try:
+            baseline = direct_handshake(native_control, frontend="native", chip=chip)
+            _verify_native_baseline(baseline)
+            if _apply_native_radio_pin(native_control):
+                native_control.close()
+                endpoint = discover_direct_device("native").endpoint
+                native_control = _connect_direct_with_retry(endpoint, frontend="native")
+                baseline = direct_handshake(native_control, frontend="native", chip=chip)
+                _verify_native_baseline(baseline)
+                _verify_native_radio_pin(native_control)
+        finally:
+            native_control.close()
+        native = discover_direct_device("native")
+        if native.endpoint != endpoint:
+            raise RuntimeError(
+                f"Native provisioning endpoint {endpoint} does not match discovered endpoint {native.endpoint}"
+            )
+        runs.append(_capture_http_migration_run(pair, native, duration_seconds))
+
+    reasons = raw_migration_gate_reasons(runs)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    report = {
+        "schema_version": 2,
+        "chip": chip,
+        "pair_count": RAW_MIGRATION_PAIR_COUNT,
+        "target_pps": RAW_MIGRATION_TARGET_PPS,
+        "duration_seconds": duration_seconds,
+        "status": "PASS" if not reasons else "FAIL",
+        "reasons": reasons,
+        "runs": [
+            {
+                **asdict(run),
+                "fresh_yield_percent": run.fresh_yield_percent,
+                "fresh_pps": run.fresh_pps,
+                "control_p95_ms": _nearest_rank(run.control_latencies_ms, 95.0),
+                "control_p99_ms": _nearest_rank(run.control_latencies_ms, 99.0),
+                "control_max_ms": max(run.control_latencies_ms, default=None),
+            }
+            for run in runs
+        ],
+    }
+    destination = artifact_dir / "raw-csi-migration.json"
+    destination.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"Wrote {destination}")
+    for reason in reasons:
+        print(f"FAIL: {reason}", file=sys.stderr)
+    return 0 if not reasons else 1
+
+
 def main() -> int:
     global MONITOR_DURATION_SECONDS
 
@@ -3699,8 +4010,39 @@ def main() -> int:
         metavar="SECONDS",
         help="Score each monitor window for this many seconds (default: 60)",
     )
+    parser.add_argument(
+        "--migration-raw-csi",
+        action="store_true",
+        help="Alternate five fixed-100-pps Streamer V7 and Native V8 hardware runs",
+    )
     args = parser.parse_args()
     MONITOR_DURATION_SECONDS = args.duration
+
+    if args.migration_raw_csi:
+        if args.frontend or args.detector or args.update or args.resume:
+            parser.error("--migration-raw-csi cannot be combined with case or report filters")
+        if args.duration < RAW_MIGRATION_MIN_DURATION_SECONDS:
+            parser.error(
+                f"--migration-raw-csi requires --duration >= {RAW_MIGRATION_MIN_DURATION_SECONDS}"
+            )
+        port = get_serial_port(None)
+        detected_chip = detect_chip_type(port)
+        if detected_chip is not None and detected_chip != args.chip:
+            parser.error(
+                f"connected device is {CHIP_LABELS.get(detected_chip, detected_chip)}, "
+                f"but --chip selects {CHIP_LABELS[args.chip]}"
+            )
+        started_at = datetime.now().astimezone()
+        artifact_dir = (
+            args.artifacts_dir.resolve()
+            if args.artifacts_dir is not None
+            else benchmark_artifact_dir(started_at, args.chip) / "raw-csi-migration"
+        )
+        try:
+            return run_raw_migration_benchmark(args.chip, port, args.duration, artifact_dir)
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(f"Raw CSI migration benchmark failed: {exc}", file=sys.stderr)
+            return 1
 
     requested_cases = select_cases(args.frontend, args.detector)
     if not requested_cases:

@@ -32,10 +32,11 @@ struct PeerDiscoveryCandidate {
   std::string frontend;
   std::string txt_version;
   std::string protocol_version;
+  std::string transport;
   std::string path;
+  std::string events;
   std::string firmware;
   std::string chip;
-  std::string tls;
   std::string capabilities;
   uint16_t port{0U};
   std::vector<uint32_t> ipv4_addresses;

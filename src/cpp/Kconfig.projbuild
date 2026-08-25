@@ -26,7 +26,7 @@ config ESPECTRE_SDK_ENABLE_PROVISIONING
     help
         Adds the NVS-backed device config store and the Wi-Fi provisioning
         service used to commission credentials over Improv Serial and Direct
-        WebSocket.
+        HTTP.
 
 config ESPECTRE_SDK_ENABLE_OTA
     bool "Build the HTTPS OTA service"
@@ -37,10 +37,10 @@ config ESPECTRE_SDK_ENABLE_OTA
         owns firmware updates.
 
 config ESPECTRE_SDK_ENABLE_DIRECT
-    bool "Build the Direct WebSocket control plane"
+    bool "Build the Direct HTTP control plane"
     default n
     help
-        Adds the local Direct WebSocket transport, the shared runtime bridge,
+        Adds the local Direct HTTP transport, the shared runtime bridge,
         and the canonical _espectre._tcp discovery service.
 
 config ESPECTRE_SDK_ENABLE_STREAM_RUNTIME

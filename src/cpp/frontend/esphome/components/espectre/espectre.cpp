@@ -22,7 +22,7 @@
 
 #include "runtime_log_helpers.h"
 #include "device_identity.h"
-#include "direct_websocket_protocol.h"
+#include "direct_http_protocol.h"
 #include "espectre_banner.h"
 #include "espectre_protocol.h"
 #include "firmware_version.h"
@@ -38,7 +38,7 @@ namespace espectre_component {
 
 namespace {
 
-constexpr uint16_t kDirectWebSocketPort = 6054U;
+constexpr uint16_t kDirectHttpPort = 6054U;
 constexpr uint32_t kMdnsRetryIntervalMs = 5000U;
 
 }  // namespace
@@ -95,18 +95,18 @@ void ESpectreComponent::setup() {
   if (!this->direct_bridge_.setup(
           &this->direct_service_,
           &this->runtime_,
-          RuntimeDirectWebSocketBridgeConfig{
+          RuntimeDirectHttpBridgeConfig{
               "esphome",
               this->device_name_(),
               espectre_firmware_version(),
               CONFIG_IDF_TARGET,
               this->runtime_.config().device_id,
-              kDirectWebSocketPort,
+              kDirectHttpPort,
               false,
               false,
           },
           [this]() { this->sync_direct_config_(); })) {
-    ESP_LOGE(TAG, "ESPHome Direct WebSocket setup failed");
+    ESP_LOGE(TAG, "ESPHome Direct HTTP setup failed");
     this->runtime_.shutdown();
     this->mark_failed();
     return;
@@ -139,12 +139,13 @@ void ESpectreComponent::setup_mdns_discovery_() {
       {"device_id", device_id},
       {"name", this->device_name_()},
       {"frontend", "esphome"},
-      {"txtvers", "1"},
+      {"txtvers", ESPECTRE_DIRECT_DISCOVERY_TXT_VERSION},
       {"protovers", "1"},
-      {"path", ESPECTRE_DIRECT_WEBSOCKET_ENDPOINT},
+      {"transport", ESPECTRE_DIRECT_HTTP_TRANSPORT},
+      {"path", ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT},
+      {"events", ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT},
       {"firmware", espectre_firmware_version()},
       {"chip", CONFIG_IDF_TARGET},
-      {"tls", "0"},
       {"capabilities", "config,monitor"},
   };
   if (!this->mdns_discovery_.setup(MdnsDiscoveryServiceConfig{
@@ -152,14 +153,14 @@ void ESpectreComponent::setup_mdns_discovery_() {
           this->device_name_() + " " + device_id,
           "_espectre",
           "_tcp",
-          kDirectWebSocketPort,
+          kDirectHttpPort,
           txt_records,
           MdnsResponderMode::USE_EXISTING_RESPONDER,
       })) {
     this->next_mdns_setup_ms_ = millis() + kMdnsRetryIntervalMs;
     return;
   }
-  ESP_LOGI(TAG, "Direct WebSocket discovery published on port %u", kDirectWebSocketPort);
+  ESP_LOGI(TAG, "Direct HTTP discovery published on port %u", kDirectHttpPort);
 }
 
 void ESpectreComponent::sync_direct_config_() {

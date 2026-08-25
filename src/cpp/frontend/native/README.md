@@ -1,6 +1,6 @@
 # ESPectre Native Frontend
 
-Native is the standalone ESP-IDF firmware for browser-based local setup, sensing over Direct WebSocket, optional MQTT integration, Home Assistant MQTT Discovery, and HTTPS OTA. The shared message model is documented in [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md).
+Native is the standalone ESP-IDF firmware for browser-based local setup, sensing over Direct HTTP, optional MQTT integration, Home Assistant MQTT Discovery, and HTTPS OTA. The shared message model is documented in [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md).
 
 ## Getting Started
 
@@ -9,8 +9,8 @@ The normal browser workflow is:
 1. Open [Flash](https://espectre.dev/flash) in a supported Chromium browser and install the Native image for the detected chip.
 2. Complete the standard Improv Serial prompt to provision Wi-Fi over USB.
 3. Open Configure with the returned device URL, or enter the private IP, device name, full 16-character device ID, or last 6 ID characters.
-4. Use Direct WebSocket to inspect status, reconcile or pin the associated BSSID, edit the device label, and add optional MQTT settings.
-5. Open Monitor and select Direct WebSocket for broker-free sensing, or MQTT for Home Assistant, automation, remote brokers, and multiple devices.
+4. Use Direct HTTP to inspect status, reconcile or pin the associated BSSID, edit the device label, and add optional MQTT settings.
+5. Open Monitor and select Direct HTTP for broker-free sensing, or MQTT for Home Assistant, automation, remote brokers, and multiple devices.
 
 Each `release`, `preview`, and `develop` channel publishes a full-flash image and an application-only OTA image for ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6. Matter does not publish an ESP32-S2 image because its supported commissioning flow requires a Bluetooth-capable target.
 
@@ -26,9 +26,9 @@ Complete the shared [`Local Build Prerequisites`](../../../../docs/SETUP.md#loca
 
 The wrapper uses a local ESP-IDF installation when available and can use the pinned Docker image for builds. Flashing and serial monitoring require local tooling. `--ota-channel` selects the default release channel used when an OTA request omits one.
 
-## Direct WebSocket
+## Direct HTTP
 
-Native starts `ws://<device>/espectre/v1/ws` after Wi-Fi obtains an address. Clients must negotiate the `espectre.v1` subprotocol. The production portal and `https://test.espectre.dev` validation origins are allowed by default; optional loopback development origins are controlled by Kconfig and remain disabled in published firmware.
+Native starts `POST http://<device>/espectre/v1/request` and `GET http://<device>/espectre/v1/events` after Wi-Fi obtains an address. The production portal and `https://test.espectre.dev` validation origins are allowed by default; optional loopback development origins are controlled by Kconfig and remain disabled in published firmware. Requests use JSON, and events use SSE read through streaming `fetch` so the browser can request local-network access explicitly.
 
 Direct mode provides:
 
@@ -39,15 +39,17 @@ Direct mode provides:
 - processed movement, state, calibration, diagnostics, and lifecycle events
 - supported OTA status and control operations
 
-The endpoint never returns stored Wi-Fi or MQTT passwords. It caps frame size, mutation rate, queued messages, and concurrent clients. Telemetry may replace an older queued telemetry sample, while command results and state transitions are preserved. Each Direct client has one asynchronous send in flight. MQTT uses its own 16-message frontend queue and bounded ESP-IDF outbox. Runtime callbacks only stage numeric sensing state; serialization and transport work run after detector evaluation returns.
+The endpoints never return stored Wi-Fi or MQTT passwords. They cap request and response size, mutation rate, queued messages, and concurrent SSE subscribers. Telemetry may replace an older queued telemetry sample, while state transitions are preserved. MQTT uses its own 16-message frontend queue and bounded ESP-IDF outbox. Runtime callbacks only stage numeric sensing state; serialization and transport work run after detector evaluation returns.
+
+ESP32-C3 images additionally advertise bearer-bound raw CSI collection. `start_raw_stream` on `/espectre/v1/request` returns a random 128-bit session ID, and one collector opens `/espectre/v1/csi` with that bearer. A dedicated worker paces fresh V8 records, sends at most one no-sample heartbeat per second, and prefixes every record with the bounded 76-byte HTTP frame. Raw mode bypasses sampling and detection, keeps MQTT connected but quiet, rejects sensing and configuration mutations, and restores the previous armed or disarmed state on stop, abort, timeout, or network loss. This capability is intentionally not advertised on the other chips until their migration benchmark passes, and there is no automatic UDP fallback.
 
 The device advertises `_espectre._tcp` through mDNS with a stable `espectre-<device_id>.local` hostname. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) owns the SRV and TXT record contract. Run `./espectre devices --frontend native` from the repository to enumerate advertised Native endpoints on an mDNS-visible LAN. Configure and Monitor present only private IP, device-ID, and device-name inputs: the portal maps a full ID to the unique hostname internally, while a name or 6-character suffix uses automatic discovery. One match connects directly, and multiple matches require explicit selection. Successful non-secret device references can be remembered or shared through a credential-free QR link.
 
-Hosted HTTPS access to a local cleartext WebSocket depends on browser policy. The portal path supports Chrome 147 or later on desktop through Local Network Access; Chrome 151 on macOS passed the hosted HTTPS validation path against a physical ESP32-C3. Firefox and Safari block the hosted HTTPS-to-`ws://` workflow under their mixed-content policy; Edge and mobile Chrome remain unclaimed until their physical browser runs are recorded. If the hosted path is unavailable, serve the portal locally as described in [`docs/web/README.md`](../../../../docs/web/README.md).
+Hosted HTTPS access to local cleartext HTTP depends on browser Private Network Access and mixed-content policy. The portal uses streaming `fetch` with `targetAddressSpace: "local"`, `Cache-Control: no-store`, and an explicit device Origin allowlist. Chrome 151 or later on macOS, Windows, and native Linux is the supported hosted path; compatibility with other browsers is not guaranteed. A local HTTP preview remains available for development as described in [`docs/web/README.md`](../../../../docs/web/README.md).
 
 ## Wi-Fi Provisioning and Recovery
 
-Standard Improv Serial remains available through the primary serial console. It owns initial Wi-Fi provisioning and returns `https://espectre.dev/tools/configure/?target=<device-ip>`; Configure uses the target to prefill its Direct connection field. The same parameter also accepts a device name or ID when a browser link is shared. Custom BSSID, device-label, MQTT, sensing, and OTA operations belong to Direct WebSocket.
+Standard Improv Serial remains available through the primary serial console. It owns initial Wi-Fi provisioning and returns `https://espectre.dev/tools/configure/?target=<device-ip>`; Configure uses the target to prefill its Direct connection field. The same parameter also accepts a device name or ID when a browser link is shared. Custom BSSID, device-label, MQTT, sensing, and OTA operations belong to Direct HTTP.
 
 Remote Wi-Fi changes are staged. Native attempts the candidate network, commits it only after association and address acquisition, and rolls back to the last-known-good settings when the attempt fails or times out. After a successful commit or rollback, Native reboots once so the ESP32-C3 radio returns with a fresh CSI capture session; Direct and MQTT clients should reconnect after the device address becomes reachable again. If an optional BSSID is unavailable, the provisioning policy can retry the same SSID without the pin instead of permanently stranding the device.
 
@@ -68,17 +70,17 @@ ESP32-C5 can use `5g` or `auto`; the other supported Native targets use `2g`. Se
 
 ## Automatic Discovery
 
-Native answers one-shot IPv4 bootstrap names in the form `espectre-devices-<24 hex>.local` and exposes the capability-gated Direct method `discover_peers`. Configure and Monitor generate a new 96-bit lowercase nonce through Web Crypto for every attempt, contact one eligible Native responder, request a bounded fresh `_espectre._tcp.local.` browse, and then connect to the selected Native, Streamer, ESPHome, or Matter endpoint at its advertised port. The selected device's exact Direct capability handshake controls which web configuration and runtime actions are shown; the frontend label and coarse DNS-SD capabilities are not authorization or UI feature gates. No nonce is retained or registered as device identity, and private IP, full ID, unique short ID, remembered device, Improv, QR, and share-link paths remain available.
+Native answers one-shot IPv4 bootstrap names in the form `espectre-devices-<24 hex>.local` and exposes the capability-gated Direct method `discover_peers`. Configure and Monitor generate a new 96-bit lowercase nonce through Web Crypto for every attempt, contact one eligible Native responder, request a bounded fresh `_espectre._tcp.local.` browse, and then connect to the selected Native, Streamer, ESPHome, or Matter endpoint at its advertised port. The selected device's exact Direct capability handshake controls which web configuration and runtime actions are shown; the frontend label and coarse DNS-SD capabilities are not authorization or UI feature gates. No nonce is retained or registered as device identity. Private IP, full ID, unique short ID, remembered device, Improv, QR, and share-link references remain available, but only a private IP endpoint is independent of mDNS.
 
-The bootstrap responder uses Native Direct on port 80 and IPv4 only; discovered endpoints retain their own advertised port, including ESPHome on port 6054. It accepts only class-IN A questions with an exact 24-character hexadecimal nonce, returns the requested owner as a shared record with a 10-second TTL and no cache-flush bit, and discards pending responses on disconnect or address change. It does not answer the former static alias, register or announce nonce names, send nonce goodbyes, or provide a compatibility fallback. The browser bounds the bootstrap connection to 10 seconds, and the responder bounds each peer query to 3 seconds. A result contains at most eight devices and two addresses per device; concurrent requests are rejected. Firmware accepts only canonical Native, Streamer, ESPHome, and Matter records with validated on-link IPv4 endpoints and returns no credentials, configuration secrets, telemetry, CSI, or broker details.
+The bootstrap responder uses Native Direct on port 80 and remains IPv4-only; discovered endpoints retain their own advertised port, including ESPHome on port 6054. It accepts class-IN A and AAAA questions with an exact 24-character hexadecimal nonce. An A response returns the requested owner as a shared record with a 10-second TTL and no cache-flush bit, plus an NSEC record declaring that A exists and AAAA does not. A standalone AAAA question receives only that NSEC assertion, allowing dual-stack resolvers to continue without an IPv6 timeout while never advertising an IPv6 address. Pending responses are discarded on disconnect or address change. The responder does not answer the former static alias, register or announce nonce names, send nonce goodbyes, or provide a compatibility fallback. The browser bounds the bootstrap request to 10 seconds, and the responder bounds each peer query to 3 seconds. A result contains at most eight devices and two addresses per device; concurrent requests are rejected. Firmware accepts only canonical Native, Streamer, ESPHome, and Matter records with validated on-link IPv4 endpoints and returns no credentials, configuration secrets, telemetry, CSI, or broker details.
 
-Automatic discovery requires working local multicast and client reachability. Multicast filtering, wireless client isolation, resolver restrictions, or the absence of a reachable Native bootstrap responder cause the portal to return to manual entry. Hosted Chrome 151 on macOS validated the complete automatic-discovery journey and responder failover; other browser and platform combinations remain subject to the support boundary described above.
+Automatic discovery requires working local multicast, a host resolver that sends `.local` address queries over mDNS, client reachability, and at least one eligible Native bootstrap responder. Multicast filtering, wireless client isolation, disabled mDNS, resolver restrictions, VLAN boundaries, or the absence of a reachable Native responder cause the portal to return to manual entry. The public [setup guide](https://espectre.dev/guides/setup/#setup-native-discovery) owns the browser and operating-system support and test-coverage matrix and the recovery procedure. The mDNS-free path is the current private IPv4 address returned by Improv Serial or shown in the router's DHCP lease table: a full device ID maps to `espectre-<device_id>.local`, while a device name or 6-character suffix invokes Auto-discovery. The repository `./espectre devices --frontend native` command performs its own fresh DNS-SD browse and may recover the IP when the host's `.local` resolver alone is disabled, but it still requires an mDNS-visible LAN.
 
 ## Optional MQTT and Home Assistant
 
-MQTT is disabled until configured. Wi-Fi alone is sufficient for Native to start Direct WebSocket and sense. Adding, losing, slowing, or clearing MQTT does not disable Direct mode.
+MQTT is disabled until configured. Wi-Fi alone is sufficient for Native to start Direct HTTP and sense. Adding, losing, slowing, or clearing MQTT does not disable Direct mode.
 
-When configured, MQTT runs concurrently with Direct WebSocket and provides the canonical ESPectre MQTT topic surface, Home Assistant MQTT Discovery, retained availability, and integration with broker-based clients. Both transports invoke the same command engine; a query answers only its requester, while a mutation fans out the corresponding authoritative state event. Their outbound queues remain separate so broker backpressure cannot delay Direct sensing. Monitor connects to the broker through MQTT over WebSockets, so the broker must expose a browser-compatible `ws://` or `wss://` listener.
+When configured, MQTT runs concurrently with Direct HTTP and provides the canonical ESPectre MQTT topic surface, Home Assistant MQTT Discovery, retained availability, and integration with broker-based clients. Both transports invoke the same command engine; a query answers only its requester, while a mutation fans out the corresponding authoritative state event. Their outbound queues remain separate so broker backpressure cannot delay Direct sensing. Monitor connects to the broker only through `wss://`, so the broker must present a certificate trusted by the browser; device-to-broker MQTT TCP configuration is unchanged.
 
 The Native `diagnostics` request returns uptime, current, minimum, and largest-block heap, CPU frequency, frontend-task stack high-water, bounded loop-load and detector-timing windows, and cached traffic, CSI, Wi-Fi, Direct, and MQTT diagnostics. Transport diagnostics include fixed client, queue, and MQTT outbox budgets alongside current occupancy and cumulative drops, send failures, and slow-client disconnects. Performance aggregation is unconditional production runtime state; it does not require a build option or periodic debug logger.
 
@@ -123,7 +125,7 @@ The per-chip manifest is named `espectre-native-ota-<chip>.json`. Its image URL 
 1. Confirm that the device and browser are on the same LAN.
 2. Try the current IP address if the `.local` hostname does not resolve.
 3. Grant the browser's local-network permission when prompted.
-4. Use a supported Chromium browser if another browser blocks HTTPS-to-`ws://` mixed content.
+4. Use a supported desktop Chromium browser if another browser does not implement hosted HTTPS-to-local-HTTP fetch with Private Network Access.
 5. Confirm that the page origin is `https://espectre.dev`, `https://www.espectre.dev`, `https://test.espectre.dev`, or an explicitly enabled HTTP loopback origin. Development builds accept any port only for exact `localhost`, `127.0.0.1`, or `[::1]` hosts; published firmware disables that exception.
 
 ### The device does not join Wi-Fi
@@ -132,7 +134,7 @@ Reconnect over Improv Serial and provision the network again. If a BSSID pin is 
 
 ### The device address changed or a saved endpoint is stale
 
-Enter the full device ID or use Auto-discovery, then check the router lease table for the current address. Use the portal's forget action to remove a stale remembered device before entering the current private IP or ID. If the browser reports an Origin, mixed-content, or local-network permission error, use a claimed browser, grant access only for the ESPectre portal, and confirm that the device is still on the same trusted LAN.
+Use the private IPv4 address returned by Improv Serial or shown in the router's DHCP lease table when Auto-discovery fails. A full device ID maps to a `.local` hostname, and a short ID or device name invokes Auto-discovery, so those references still depend on working mDNS. Use the portal's forget action to remove a stale remembered endpoint before entering the current IP. If the browser reports an Origin, mixed-content, or local-network permission error, use a claimed browser, grant access only for the ESPectre portal, and confirm that the device is still on the same trusted LAN.
 
 ### OTA failed or an older release is required
 
@@ -146,8 +148,8 @@ Confirm that the broker hostname resolves from both the ESP32 and browser, that 
 
 - [`app/`](app/): standalone ESP-IDF entry point, Wi-Fi lifecycle, Improv Serial, mDNS, Direct service, and recovery wiring
 - [`espectre/native_frontend.cpp`](espectre/native_frontend.cpp): transport-neutral command dispatch, event fan-out, MQTT integration, and Home Assistant adapter
-- [`../../runtime/direct_websocket_protocol.cpp`](../../runtime/direct_websocket_protocol.cpp): versioned Direct envelopes
-- [`../../runtime/esp_idf/direct_websocket_service_esp_idf.cpp`](../../runtime/esp_idf/direct_websocket_service_esp_idf.cpp): bounded ESP-IDF WebSocket server
+- [`../../runtime/direct_http_protocol.cpp`](../../runtime/direct_http_protocol.cpp): versioned Direct envelopes
+- [`../../runtime/esp_idf/direct_http_service_esp_idf.cpp`](../../runtime/esp_idf/direct_http_service_esp_idf.cpp): bounded ESP-IDF HTTP, SSE, and binary streaming server
 - [`../../runtime/esp_idf/mdns_discovery_service.cpp`](../../runtime/esp_idf/mdns_discovery_service.cpp): shared Native and Streamer discovery lifecycle
 - [`../../runtime/esp_idf/frontend_support/improv_serial_service.cpp`](../../runtime/esp_idf/frontend_support/improv_serial_service.cpp): standard Improv Serial adapter
 - [`../../runtime/esp_idf/frontend_support/wifi_provisioning_service.cpp`](../../runtime/esp_idf/frontend_support/wifi_provisioning_service.cpp): staged Wi-Fi updates, commit, rollback, and BSSID fallback

@@ -15,13 +15,13 @@
 #undef protected
 #undef private
 
-#include "direct_websocket_service_mock.h"
+#include "direct_http_service_mock.h"
 #include "frontend_runtime_shim.h"
 #include "matter_bindings_mock.h"
 #include "matter_surface.h"
 
 using namespace espectre;
-using espectre::direct_websocket_service_mock::MockDirectWebSocketService;
+using espectre::direct_http_service_mock::MockDirectHttpService;
 using espectre::matter_bindings_mock::MockMatterBindings;
 
 namespace {
@@ -41,7 +41,7 @@ RuntimeSnapshot make_ready_snapshot(bool motion) {
 
 void setUp(void) {
   frontend_runtime_shim::reset();
-  direct_websocket_service_mock::reset();
+  direct_http_service_mock::reset();
   matter_bindings_mock::reset();
 }
 
@@ -135,7 +135,7 @@ void test_matter_frontend_runtime_fault_is_reported(void) {
   TEST_ASSERT_EQUAL_STRING("wifi disconnected", matter_bindings_mock::state.faults[0].c_str());
 }
 
-void test_matter_frontend_exposes_runtime_tuning_over_direct_websocket(void) {
+void test_matter_frontend_exposes_runtime_tuning_over_direct_http(void) {
   RuntimeConfig config;
   config.device_id = 0x0123456789abcdefULL;
   config.runtime_detector_selection_enabled = true;
@@ -149,29 +149,29 @@ void test_matter_frontend_exposes_runtime_tuning_over_direct_websocket(void) {
   frontend_runtime_shim::state.diagnostics.detection_samples = 4U;
 
   MockMatterBindings bindings;
-  MockDirectWebSocketService direct;
+  MockDirectHttpService direct;
   MatterFrontend frontend(&bindings, 9, &direct);
   frontend.set_runtime_config(config);
 
   TEST_ASSERT_TRUE(frontend.setup());
-  TEST_ASSERT_EQUAL(1, direct_websocket_service_mock::state.setup_calls);
-  TEST_ASSERT_EQUAL(80U, direct_websocket_service_mock::state.last_config.port);
+  TEST_ASSERT_EQUAL(1, direct_http_service_mock::state.setup_calls);
+  TEST_ASSERT_EQUAL(80U, direct_http_service_mock::state.last_config.port);
 
-  const std::string info = direct.emit_request(DirectWebSocketRequest{"info-1", "info", "{}"});
+  const std::string info = direct.emit_request(DirectRequest{"info-1", "info", "{}"});
   TEST_ASSERT_TRUE(info.find("\"frontend\":\"matter\"") != std::string::npos);
   TEST_ASSERT_TRUE(info.find("\"device_id\":\"0123456789abcdef\"") != std::string::npos);
 
-  const std::string status = direct.emit_request(DirectWebSocketRequest{"status-1", "status", "{}"});
+  const std::string status = direct.emit_request(DirectRequest{"status-1", "status", "{}"});
   TEST_ASSERT_TRUE(status.find("\"sensing_enabled\":true") != std::string::npos);
 
-  const std::string diagnostics = direct.emit_request(DirectWebSocketRequest{"diagnostics-1", "diagnostics", "{}"});
+  const std::string diagnostics = direct.emit_request(DirectRequest{"diagnostics-1", "diagnostics", "{}"});
   TEST_ASSERT_TRUE(diagnostics.find("\"traffic_packets_total\":0") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"free_memory_kb\":4") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"runtime_load_percent\":12.5") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"detection_samples\":4") != std::string::npos);
 
   const std::string detector = direct.emit_request(
-      DirectWebSocketRequest{"detector-1", "set_detector", "{\"detector\":\"high_accuracy\"}"});
+      DirectRequest{"detector-1", "set_detector", "{\"detector\":\"high_accuracy\"}"});
   TEST_ASSERT_TRUE(detector.find("\"ok\":true") != std::string::npos);
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_detector_calls);
   TEST_ASSERT_EQUAL(static_cast<int>(DetectionAlgorithm::HIGH_ACCURACY),
@@ -195,7 +195,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_matter_frontend_motion_and_periodic_callbacks_publish_bindings);
   RUN_TEST(test_matter_frontend_threshold_and_calibration_callbacks_update_runtime_snapshot);
   RUN_TEST(test_matter_frontend_runtime_fault_is_reported);
-  RUN_TEST(test_matter_frontend_exposes_runtime_tuning_over_direct_websocket);
+  RUN_TEST(test_matter_frontend_exposes_runtime_tuning_over_direct_http);
   RUN_TEST(test_matter_surface_mapping_helpers);
   return UNITY_END();
 }

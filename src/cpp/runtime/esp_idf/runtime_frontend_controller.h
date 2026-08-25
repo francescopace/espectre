@@ -212,6 +212,12 @@ class RuntimeFrontendController : private IRuntimeListener {
   bool trigger_recalibration();
   /** True while the backend is calibrating. False before setup. */
   bool is_calibrating() const;
+  /** Enter transient raw collection through the active sensing backend. */
+  bool start_raw_collection(raw_csi_packet_callback_t callback, void *context);
+  /** Leave transient raw collection and restore the prior armed state. */
+  bool stop_raw_collection(RawCsiStopReason reason = RawCsiStopReason::REQUESTED);
+  /** Current transient backend operation. */
+  RuntimeOperationState operation_state() const;
 
  private:
   void on_motion_state_changed(const RuntimeSnapshot &snapshot) override;

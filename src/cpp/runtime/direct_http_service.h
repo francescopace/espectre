@@ -1,7 +1,7 @@
 /*
- * ESPectre - Direct WebSocket Service Boundary
+ * ESPectre - Direct HTTP Service Boundary
  *
- * Transport boundary for the local, versioned Direct WebSocket endpoint.
+ * Transport boundary for the local, versioned Direct HTTP endpoints.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -15,14 +15,15 @@
 #include <string>
 #include <vector>
 
-#include "direct_websocket_protocol.h"
+#include "direct_http_protocol.h"
+#include "raw_csi.h"
 
 namespace espectre {
 
-struct DirectWebSocketServiceConfig {
+struct DirectHttpServiceConfig {
   /** Configuration for ESPectre's production and validation portals. */
-  static DirectWebSocketServiceConfig for_first_party_portals() {
-    DirectWebSocketServiceConfig config;
+  static DirectHttpServiceConfig for_first_party_portals() {
+    DirectHttpServiceConfig config;
     config.allowed_origins = {
         "https://espectre.dev",
         "https://www.espectre.dev",
@@ -33,20 +34,21 @@ struct DirectWebSocketServiceConfig {
 
   std::vector<std::string> allowed_origins;
   uint16_t port{80U};
-  size_t max_clients{2U};
+  size_t max_event_clients{2U};
+  size_t max_pending_requests{4U};
   size_t outbound_queue_depth{8U};
   uint16_t max_mutations_per_minute{60U};
   bool allow_missing_origin{false};
   bool allow_http_loopback_origins{false};
 };
 
-struct DirectWebSocketServiceDiagnostics {
-  size_t client_limit{0U};
+struct DirectHttpServiceDiagnostics {
+  size_t event_client_limit{0U};
   size_t queue_capacity{0U};
   uint32_t accepted_connections{0U};
   uint32_t rejected_connections{0U};
-  uint32_t malformed_frames{0U};
-  uint32_t oversized_frames{0U};
+  uint32_t malformed_requests{0U};
+  uint32_t oversized_requests{0U};
   uint32_t rate_limited_requests{0U};
   uint32_t dropped_telemetry_events{0U};
   uint32_t send_failures{0U};
@@ -54,22 +56,23 @@ struct DirectWebSocketServiceDiagnostics {
   size_t queued_messages{0U};
 };
 
-/** Local WebSocket endpoint shared by ESPectre firmware frontends. */
-class IDirectWebSocketService {
+/** Local HTTP endpoints shared by ESPectre firmware frontends. */
+class IDirectHttpService {
  public:
-  using RequestHandler = std::function<std::string(const DirectWebSocketRequest &request)>;
+  using RequestHandler = std::function<std::string(const DirectRequest &request)>;
   struct DeferredRequestResult {
     bool deferred{false};
     std::string response;
   };
   using DeferredRequestHandler =
-      std::function<DeferredRequestResult(uint64_t connection_token, const DirectWebSocketRequest &request)>;
-  using ClientCountCallback = std::function<void(size_t client_count)>;
+      std::function<DeferredRequestResult(uint64_t request_token, const DirectRequest &request)>;
+  using ClientCountCallback = std::function<void(size_t event_client_count)>;
+  using RawSessionStoppedCallback = std::function<void(RawCsiStopReason reason)>;
 
-  virtual ~IDirectWebSocketService() = default;
+  virtual ~IDirectHttpService() = default;
 
   /** Configure and start the endpoint. Safe to call again after shutdown. */
-  virtual bool setup(const DirectWebSocketServiceConfig &config,
+  virtual bool setup(const DirectHttpServiceConfig &config,
                      RequestHandler request_handler,
                      ClientCountCallback client_count_callback) = 0;
   /**
@@ -79,7 +82,7 @@ class IDirectWebSocketService {
    * implement only synchronous Direct requests. A successful deferred handler
    * must eventually call complete_deferred_response() with the opaque token.
    */
-  virtual bool setup_deferred(const DirectWebSocketServiceConfig &config,
+  virtual bool setup_deferred(const DirectHttpServiceConfig &config,
                               DeferredRequestHandler request_handler,
                               ClientCountCallback client_count_callback) {
     (void) config;
@@ -88,8 +91,8 @@ class IDirectWebSocketService {
     return false;
   }
   /** Queue a deferred response only if the originating connection is live. */
-  virtual bool complete_deferred_response(uint64_t connection_token, std::string response) {
-    (void) connection_token;
+  virtual bool complete_deferred_response(uint64_t request_token, std::string response) {
+    (void) request_token;
     (void) response;
     return false;
   }
@@ -98,7 +101,7 @@ class IDirectWebSocketService {
   /** Stop accepting clients, close sockets, and release queued messages. */
   virtual void shutdown() = 0;
   virtual bool running() const = 0;
-  virtual size_t client_count() const = 0;
+  virtual size_t event_client_count() const = 0;
 
   /**
    * Queue a normalized event for every connected client.
@@ -110,7 +113,26 @@ class IDirectWebSocketService {
   virtual bool publish_event(const std::string &event_name,
                              const std::string &data_json,
                              bool replaceable_telemetry) = 0;
-  virtual DirectWebSocketServiceDiagnostics diagnostics() const = 0;
+  virtual DirectHttpServiceDiagnostics diagnostics() const = 0;
+
+  /** Begin one owner-bound raw session on the service's binary endpoint. */
+  virtual bool start_raw_session(const RawCsiSessionConfig &config,
+                                 RawSessionStoppedCallback stopped_callback) {
+    (void) config;
+    (void) stopped_callback;
+    return false;
+  }
+  /** Stop the active raw session and close its binary socket. */
+  virtual bool stop_raw_session(RawCsiStopReason reason) {
+    (void) reason;
+    return false;
+  }
+  /** Copy one callback-scoped sample into the transport's bounded raw slots. */
+  virtual bool offer_raw_packet(const RawCsiPacketView &packet) {
+    (void) packet;
+    return false;
+  }
+  virtual RawCsiSessionDiagnostics raw_diagnostics() const { return {}; }
 };
 
 }  // namespace espectre

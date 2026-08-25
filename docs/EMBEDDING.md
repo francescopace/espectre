@@ -109,12 +109,14 @@ After each `update_state()`, re-read `get_threshold()`: Lightweight can lower it
 | `runtime/runtime_config_utils.h` | Validators and name/enum conversion |
 | `runtime/runtime_diagnostics.h` | Capture and link counters, plus the sampler that turns them into rates |
 | `runtime/csi_traffic_types.h` | Runtime traffic-source and generator mode enums used by `RuntimeConfig` |
+| `runtime/csi_stream_protocol.h` | Versioned raw CSI record layouts for transport integrations and historical capture parsing |
+| `runtime/raw_csi.h` | Optional raw-collection runtime state, session configuration, diagnostics, and Direct binary framing |
 | `runtime/esp_idf/runtime_frontend_controller.h` | The recommended entry point |
 | `runtime/esp_idf/runtime_sensing_kconfig.h` | Build a config from menuconfig |
 | `runtime/espectre_protocol.h` | Wire types, payload builders, command parsers |
 | `runtime/mqtt_transport.h` | Implement to reach your own MQTT client |
-| `runtime/direct_websocket_protocol.h` | Versioned Direct request envelopes, parsing, and response/event builders |
-| `runtime/direct_websocket_service.h` | Implement to expose the local Direct WebSocket boundary |
+| `runtime/direct_http_protocol.h` | Transport-neutral Direct request envelopes, parsing, and response/event builders |
+| `runtime/direct_http_service.h` | Implement to expose Direct HTTP POST, SSE events, and optional raw CSI streaming |
 | `runtime/ota_service.h` | Implement to reach your own update channel |
 | `runtime/firmware_version.h` | The application version reported on the wire |
 | `core/detector_types.h`, `core/csi_types.h`, `core/filter_config.h`, `core/detector_limits.h` | Stable value types, dimensions, defaults, and ranges shared by both facades |
@@ -135,7 +137,7 @@ The control surface is single-owner. Internal bounded mailboxes protect callback
 - Run `setup()`, `loop()`, and `shutdown()` on one task.
 - Every `IRuntimeListener` callback is delivered on the caller's task: from `loop()` for sensing events, or inline on the task that invoked a control method. Work raised in the Wi-Fi CSI callback is deferred through an internal mailbox first, so no listener callback runs in interrupt or Wi-Fi driver context.
 - Keep callbacks bounded and non-blocking. A slow callback delays the next `loop()` iteration; sufficiently long work can fill the bounded CSI mailbox and drop incoming frames. Queue network publication, NVS writes, and other potentially blocking work for a separate task.
-- Call `set_*_runtime()` only from the owner task. The shipped MQTT, Direct WebSocket, and OTA adapters queue stack events and deliver application callbacks from the frontend loop, so Native follows this rule without external locks.
+- Call `set_*_runtime()` only from the owner task. The shipped MQTT, Direct HTTP, and OTA adapters queue stack events and deliver application callbacks from the frontend loop, so Native follows this rule without external locks.
 
 ### Lifecycle
 
@@ -196,7 +198,7 @@ Published SDK bundles stamp the same identity into `espectre_sdk_version.h` and 
 
 Both surfaces build the same sources; they differ only in how you select the optional capability groups.
 
-- **CMake / ESP-IDF**: include `src/cpp/espectre_sources.cmake` and consume the source lists (`ESPECTRE_CORE_SOURCES`, `ESPECTRE_RUNTIME_ESP_IDF_SOURCES`, and the per-capability lists for Direct WebSocket, MQTT, provisioning, and OTA) plus `ESPECTRE_SHARED_INCLUDE_DIRS`. The frontend `CMakeLists.txt` files show the working combinations.
+- **CMake / ESP-IDF**: include `src/cpp/espectre_sources.cmake` and consume the source lists (`ESPECTRE_CORE_SOURCES`, `ESPECTRE_RUNTIME_ESP_IDF_SOURCES`, and the per-capability lists for Direct HTTP, MQTT, provisioning, and OTA) plus `ESPECTRE_SHARED_INCLUDE_DIRS`. The frontend `CMakeLists.txt` files show the working combinations.
 - **Vendored ESP-IDF component**: drop `src/cpp/` into your project's `components/` directory and add `espectre` to your own component's `REQUIRES`. The sensing runtime is always built; the optional groups are opt-in under the "ESPectre SDK" menuconfig menu.
 - **Toolchain**: C++17, ESP-IDF `>= 5.5` for the `runtime/esp_idf` services. Repository builds use ESP-IDF `5.5.5`.
 
@@ -212,7 +214,7 @@ Both surfaces build the same sources; they differ only in how you select the opt
 | `ESPECTRE_SDK_ENABLE_OTA` | `ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES` | `HttpsOtaService` |
 | `ESPECTRE_SDK_ENABLE_STREAM_RUNTIME` | `ESPECTRE_RUNTIME_STREAMER_FRONTEND_SUPPORT_SOURCES` | The `RuntimeProfile::STREAM` backend |
 
-Each group is off by default, so a minimal integration does not pay for transports it never calls. Implementing `IMqttTransport`, `IDirectWebSocketService`, or `IOtaService` yourself needs no group at all: the interfaces are header-only. `DirectWebSocketServiceConfig` keeps its generic Origin allowlist empty; `for_first_party_portals()` explicitly selects the official production and validation portals. The Native reference app adds `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES` explicitly because Direct WebSocket and mDNS are frontend-owned deployment choices rather than a general SDK default.
+Each group is off by default, so a minimal integration does not pay for transports it never calls. Implementing `IMqttTransport`, `IDirectHttpService`, or `IOtaService` yourself needs no group at all: the interfaces are header-only. `DirectHttpServiceConfig` keeps its generic Origin allowlist empty; `for_first_party_portals()` explicitly selects the official production and validation portals. The Native reference app adds `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES` explicitly because Direct HTTP and mDNS are frontend-owned deployment choices rather than a general SDK default.
 
 ## Published SDK channels
 

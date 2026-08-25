@@ -91,8 +91,8 @@ def _make_discovered_streamer(
         chip=chip,
         ip_address=ip_address,
         port=80,
-        transport="ws",
-        endpoint=f"ws://{ip_address}/espectre/v1/ws",
+        transport="http",
+        endpoint=f"http://{ip_address}/espectre/v1/request",
         protocol="1",
         metadata=metadata,
     )
@@ -114,8 +114,8 @@ def _make_discovered_native(
         chip="esp32c3",
         ip_address=ip_address,
         port=80,
-        transport="ws",
-        endpoint=f"ws://{ip_address}/espectre/v1/ws",
+        transport="http",
+        endpoint=f"http://{ip_address}/espectre/v1/request",
         protocol="1",
         firmware="2.8.0",
         capabilities=("config", "monitor", "ota"),
@@ -441,12 +441,13 @@ def test_device_listener_normalizes_canonical_frontend_records() -> None:
             "device_id": device_id,
             "name": name,
             "frontend": frontend,
-            "txtvers": "1",
+            "txtvers": "2",
             "protovers": "1",
-            "path": "/espectre/v1/ws",
+            "transport": "http",
+            "path": "/espectre/v1/request",
+            "events": "/espectre/v1/events",
             "firmware": "3.0.0",
             "chip": "esp32c3",
-            "tls": "0",
             "capabilities": "config,monitor",
             **extra,
         }
@@ -494,16 +495,16 @@ def test_device_listener_normalizes_canonical_frontend_records() -> None:
     assert esphome.device_id_text == "3cf79180d3a0aca4"
     assert esphome.name == "ESPectre Office"
     assert esphome.chip == "esp32c3"
-    assert esphome.endpoint == "ws://192.168.1.31:6054/espectre/v1/ws"
+    assert esphome.endpoint == "http://192.168.1.31:6054/espectre/v1/request"
     assert matter.frontend == "matter"
     assert matter.device_id_text == "a1b2c3d4e5f60708"
-    assert matter.endpoint == "ws://192.168.1.32/espectre/v1/ws"
+    assert matter.endpoint == "http://192.168.1.32/espectre/v1/request"
     assert native.frontend == "native"
-    assert native.endpoint == "ws://192.168.1.34/espectre/v1/ws"
+    assert native.endpoint == "http://192.168.1.34/espectre/v1/request"
     assert native.capabilities == ("config", "monitor", "ota")
     assert streamer.frontend == "streamer"
     assert streamer.device_id_text == "0000000000abc123"
-    assert streamer.endpoint == "ws://192.168.1.29/espectre/v1/ws"
+    assert streamer.endpoint == "http://192.168.1.29/espectre/v1/request"
     assert streamer.target_port == 9999
 
 
@@ -523,18 +524,18 @@ def test_device_listener_rejects_noncanonical_and_unknown_frontend_records() -> 
             {
                 b"device_id": b"0011223344556677",
                 b"frontend": b"other",
-                b"txtvers": b"1",
+                b"txtvers": b"2",
                 b"protovers": b"1",
-                b"path": b"/espectre/v1/ws",
+                b"path": b"/espectre/v1/request",
             }
         ),
         (ESPECTRE_SERVICE_TYPE, incomplete_streamer_name): FakeServiceInfo(
             {
                 b"device_id": b"0011223344556677",
                 b"frontend": b"streamer",
-                b"txtvers": b"1",
+                b"txtvers": b"2",
                 b"protovers": b"1",
-                b"path": b"/espectre/v1/ws",
+                b"path": b"/espectre/v1/request",
             }
         ),
     }
@@ -660,7 +661,7 @@ def test_devices_command_prints_machine_readable_records(monkeypatch, capsys) ->
     assert calls == [(None, 1.5)]
     assert [record["frontend"] for record in payload] == ["native", "streamer"]
     assert payload[0]["device_id"] == "d361aceb3af61093"
-    assert payload[0]["endpoint"] == "ws://192.168.1.34/espectre/v1/ws"
+    assert payload[0]["endpoint"] == "http://192.168.1.34/espectre/v1/request"
 
 
 def test_streamer_discovery_normalizes_current_and_legacy_device_ids() -> None:
@@ -724,6 +725,28 @@ def test_collect_live_auto_selects_single_discovered_streamer(monkeypatch) -> No
     assert selected_args[0].target == "192.168.1.29"
     assert selected_args[0].target_port == 12000
     assert selected_args[0].expected_discovery_device_id == 0xABC123
+
+
+def test_collect_live_direct_discovers_one_native_without_udp_fallback(monkeypatch) -> None:
+    selected_args: list[argparse.Namespace] = []
+    discovered_frontends: list[str | None] = []
+    device = _make_discovered_native()
+
+    def fake_discover(*, frontend, **_kwargs):
+        discovered_frontends.append(frontend)
+        return [device]
+
+    monkeypatch.setattr(host, "discover_devices", fake_discover)
+    monkeypatch.setattr(host, "_run_live_collect", lambda args: selected_args.append(args))
+
+    host.collect_csi_data(
+        _make_live_collect_args(target=None, label=None, transport="http")
+    )
+
+    assert discovered_frontends == ["native"]
+    assert len(selected_args) == 1
+    assert selected_args[0].target == "192.168.1.34"
+    assert selected_args[0].expected_discovery_device_id == 0xD361ACEB3AF61093
 
 
 def test_collect_live_prompts_for_multiple_discovered_streamers(monkeypatch) -> None:
@@ -1389,7 +1412,15 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
 
     class FakeCollector:
         def __init__(self, **kwargs):
-            events.append(("collector_init", kwargs["label"], kwargs["description"], kwargs["expected_device_count"]))
+            events.append(
+                (
+                    "collector_init",
+                    kwargs["label"],
+                    kwargs["description"],
+                    kwargs["expected_device_count"],
+                    kwargs["target_pps"],
+                )
+            )
 
         def save_samples_by_device(self, packets):
             events.append(("save_sample", [p.seq_num for p in packets]))
@@ -1502,7 +1533,7 @@ def test_collect_live_saves_raw_packets_with_collector(monkeypatch, capsys) -> N
     )
 
     output = capsys.readouterr().out
-    assert ("collector_init", "empty", "live collect ML, idle-motion-idle", 1) in events
+    assert ("collector_init", "empty", "live collect ML, idle-motion-idle", 1, 100) in events
     assert ("sender_init", ["192.168.1.29"]) in events
     assert ("save_sample", [4, 5]) in events
     assert "STATUS: RECORDING 1/1" in output

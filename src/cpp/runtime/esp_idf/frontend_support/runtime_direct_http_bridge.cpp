@@ -1,15 +1,15 @@
 /*
- * ESPectre - Runtime Direct WebSocket Bridge
+ * ESPectre - Runtime Direct HTTP Bridge
  *
- * Shared Direct WebSocket control surface for firmware frontends.
+ * Shared Direct HTTP control surface for firmware frontends.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
-#include "runtime_direct_websocket_bridge.h"
+#include "runtime_direct_http_bridge.h"
 
-#include "direct_websocket_protocol.h"
+#include "direct_http_protocol.h"
 #include "espectre_protocol.h"
 #include "protocol_json.h"
 #include "runtime_config_utils.h"
@@ -41,9 +41,9 @@ void append_uint(std::string *out, const char *key, uint64_t value, bool first =
 
 }  // namespace
 
-bool RuntimeDirectWebSocketBridge::setup(IDirectWebSocketService *service,
+bool RuntimeDirectHttpBridge::setup(IDirectHttpService *service,
                                          RuntimeFrontendController *runtime,
-                                         const RuntimeDirectWebSocketBridgeConfig &config,
+                                         const RuntimeDirectHttpBridgeConfig &config,
                                          ConfigChangedCallback config_changed) {
   shutdown();
   if (service == nullptr || runtime == nullptr || !runtime->is_setup_complete() || config.frontend.empty() ||
@@ -55,7 +55,7 @@ bool RuntimeDirectWebSocketBridge::setup(IDirectWebSocketService *service,
   config_ = config;
   config_changed_ = std::move(config_changed);
 
-  DirectWebSocketServiceConfig service_config = DirectWebSocketServiceConfig::for_first_party_portals();
+  DirectHttpServiceConfig service_config = DirectHttpServiceConfig::for_first_party_portals();
   service_config.port = config.port;
   service_config.allow_missing_origin = config.allow_missing_origin;
 #if defined(CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED) && CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED
@@ -63,7 +63,7 @@ bool RuntimeDirectWebSocketBridge::setup(IDirectWebSocketService *service,
 #endif
   if (!service_->setup(
           service_config,
-          [this](const DirectWebSocketRequest &request) { return this->handle_request_(request); },
+          [this](const DirectRequest &request) { return this->handle_request_(request); },
           [](size_t client_count) { (void) client_count; })) {
     service_ = nullptr;
     runtime_ = nullptr;
@@ -73,13 +73,13 @@ bool RuntimeDirectWebSocketBridge::setup(IDirectWebSocketService *service,
   return true;
 }
 
-void RuntimeDirectWebSocketBridge::loop() {
+void RuntimeDirectHttpBridge::loop() {
   if (service_ != nullptr && service_->running()) {
     service_->loop();
   }
 }
 
-void RuntimeDirectWebSocketBridge::shutdown() {
+void RuntimeDirectHttpBridge::shutdown() {
   if (service_ != nullptr && service_->running()) {
     service_->shutdown();
   }
@@ -88,19 +88,19 @@ void RuntimeDirectWebSocketBridge::shutdown() {
   config_changed_ = {};
 }
 
-bool RuntimeDirectWebSocketBridge::running() const { return service_ != nullptr && service_->running(); }
+bool RuntimeDirectHttpBridge::running() const { return service_ != nullptr && service_->running(); }
 
-size_t RuntimeDirectWebSocketBridge::client_count() const {
-  return service_ != nullptr ? service_->client_count() : 0U;
+size_t RuntimeDirectHttpBridge::event_client_count() const {
+  return service_ != nullptr ? service_->event_client_count() : 0U;
 }
 
-bool RuntimeDirectWebSocketBridge::publish_event(const char *event_name,
+bool RuntimeDirectHttpBridge::publish_event(const char *event_name,
                                                  const std::string &data_json,
                                                  bool replaceable_telemetry) {
   return event_name != nullptr && running() && service_->publish_event(event_name, data_json, replaceable_telemetry);
 }
 
-bool RuntimeDirectWebSocketBridge::publish_telemetry(const RuntimeSnapshot &snapshot) {
+bool RuntimeDirectHttpBridge::publish_telemetry(const RuntimeSnapshot &snapshot) {
   EspectreDeviceConfig device;
   device.device_id = config_.device_id;
   return publish_event("telemetry",
@@ -112,7 +112,7 @@ bool RuntimeDirectWebSocketBridge::publish_telemetry(const RuntimeSnapshot &snap
                        true);
 }
 
-bool RuntimeDirectWebSocketBridge::publish_changes(FrontendCommandChange changes) {
+bool RuntimeDirectHttpBridge::publish_changes(FrontendCommandChange changes) {
   if (!running() || runtime_ == nullptr) {
     return false;
   }
@@ -130,11 +130,11 @@ bool RuntimeDirectWebSocketBridge::publish_changes(FrontendCommandChange changes
   return published;
 }
 
-std::string RuntimeDirectWebSocketBridge::handle_request_(const DirectWebSocketRequest &request) {
+std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &request) {
   EspectreCommand command;
   std::string parse_error;
-  if (!direct_websocket_request_to_command(request, &command, &parse_error)) {
-    return direct_websocket_error_response(request.id, "invalid_params", parse_error.c_str());
+  if (!direct_http_request_to_command(request, &command, &parse_error)) {
+    return direct_http_error_response(request.id, "invalid_params", parse_error.c_str());
   }
   const RuntimeCapabilities &runtime_capabilities = runtime_->capabilities();
   const FrontendCommandCapabilities capabilities{
@@ -156,7 +156,7 @@ std::string RuntimeDirectWebSocketBridge::handle_request_(const DirectWebSocketR
   };
   FrontendCommandResult result = command_engine_.execute(
       command,
-      FrontendCommandContext{FrontendCommandOrigin::DIRECT},
+      FrontendCommandContext{FrontendCommandOrigin::DIRECT, 0U, request.authorization},
       nullptr,
       config_.firmware_version.c_str(),
       capabilities,
@@ -184,7 +184,7 @@ std::string RuntimeDirectWebSocketBridge::handle_request_(const DirectWebSocketR
         return true;
       });
   if (!result.accepted) {
-    return direct_websocket_error_response(request.id, result.code.c_str(), result.message.c_str());
+    return direct_http_error_response(request.id, result.code.c_str(), result.message.c_str());
   }
   if (result.changes != FrontendCommandChange::NONE) {
     (void) publish_changes(result.changes);
@@ -196,10 +196,10 @@ std::string RuntimeDirectWebSocketBridge::handle_request_(const DirectWebSocketR
   append_json_pair(&response, "message", result.message.c_str());
   if (!result.data_json.empty()) response += ",\"data\":" + result.data_json;
   response += "}";
-  return direct_websocket_success_response(request.id, response);
+  return direct_http_success_response(request.id, response);
 }
 
-std::string RuntimeDirectWebSocketBridge::capabilities_payload_() const {
+std::string RuntimeDirectHttpBridge::capabilities_payload_() const {
   const RuntimeCapabilities &capabilities = runtime_->capabilities();
   EspectreDeviceConfig device;
   device.device_id = config_.device_id;
@@ -217,7 +217,7 @@ std::string RuntimeDirectWebSocketBridge::capabilities_payload_() const {
   return espectre_capabilities_payload(device, info, true, true, true);
 }
 
-std::string RuntimeDirectWebSocketBridge::info_payload_() const {
+std::string RuntimeDirectHttpBridge::info_payload_() const {
   EspectreDeviceConfig device;
   device.device_id = config_.device_id;
   device.device_label = config_.device_name;
@@ -230,7 +230,7 @@ std::string RuntimeDirectWebSocketBridge::info_payload_() const {
   return espectre_info_payload(device, info);
 }
 
-std::string RuntimeDirectWebSocketBridge::status_payload_() const {
+std::string RuntimeDirectHttpBridge::status_payload_() const {
   const RuntimeSnapshot &snapshot = runtime_->snapshot();
   EspectreDeviceConfig device;
   device.device_id = config_.device_id;
@@ -243,7 +243,7 @@ std::string RuntimeDirectWebSocketBridge::status_payload_() const {
   return out;
 }
 
-std::string RuntimeDirectWebSocketBridge::config_payload_() const {
+std::string RuntimeDirectHttpBridge::config_payload_() const {
   const RuntimeConfig &config = runtime_->config();
   std::string out{"{"};
   append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
@@ -260,7 +260,7 @@ std::string RuntimeDirectWebSocketBridge::config_payload_() const {
   return out;
 }
 
-std::string RuntimeDirectWebSocketBridge::diagnostics_payload_() const {
+std::string RuntimeDirectHttpBridge::diagnostics_payload_() const {
   const RuntimeDiagnosticsSnapshot diagnostics = runtime_->diagnostics();
   const uint32_t now_ms = monotonic_now_ms();
   std::string out{"{"};
@@ -283,19 +283,19 @@ std::string RuntimeDirectWebSocketBridge::diagnostics_payload_() const {
   append_uint(&out, "wifi_channel", diagnostics.wifi_channel);
   append_runtime_performance_diagnostics_json(&out, diagnostics);
   if (service_ != nullptr) {
-    const DirectWebSocketServiceDiagnostics direct = service_->diagnostics();
-    append_uint(&out, "direct_clients", service_->client_count());
+    const DirectHttpServiceDiagnostics direct = service_->diagnostics();
+    append_uint(&out, "direct_event_clients", service_->event_client_count());
     append_uint(&out, "direct_rejected_connections", direct.rejected_connections);
     append_uint(&out, "direct_dropped_telemetry_events", direct.dropped_telemetry_events);
-    out += ",\"direct\":{";
-    append_uint(&out, "clients", service_->client_count(), true);
-    append_uint(&out, "client_limit", direct.client_limit);
+    out += ",\"direct_http\":{";
+    append_uint(&out, "event_clients", service_->event_client_count(), true);
+    append_uint(&out, "event_client_limit", direct.event_client_limit);
     append_uint(&out, "queue_capacity", direct.queue_capacity);
     append_uint(&out, "queued_messages", direct.queued_messages);
     append_uint(&out, "accepted_connections", direct.accepted_connections);
     append_uint(&out, "rejected_connections", direct.rejected_connections);
-    append_uint(&out, "malformed_frames", direct.malformed_frames);
-    append_uint(&out, "oversized_frames", direct.oversized_frames);
+    append_uint(&out, "malformed_requests", direct.malformed_requests);
+    append_uint(&out, "oversized_requests", direct.oversized_requests);
     append_uint(&out, "rate_limited_requests", direct.rate_limited_requests);
     append_uint(&out, "dropped_telemetry_events", direct.dropped_telemetry_events);
     append_uint(&out, "send_failures", direct.send_failures);
@@ -306,7 +306,7 @@ std::string RuntimeDirectWebSocketBridge::diagnostics_payload_() const {
   return out;
 }
 
-void RuntimeDirectWebSocketBridge::notify_config_changed_() {
+void RuntimeDirectHttpBridge::notify_config_changed_() {
   if (config_changed_) {
     config_changed_();
   }

@@ -21,7 +21,7 @@
  * @brief Wire types and payload builders for the ESPectre Protocol.
  *
  * The protocol is the contract between a device and whatever consumes it:
- * MQTT topics, Direct WebSocket messages, JSON payloads, and the OTA status model.
+ * MQTT topics, Direct HTTP messages, JSON payloads, and the OTA status model.
  * It is specified in `docs/ESPECTRE_PROTOCOL.md`; this header is the C++ view
  * of that specification.
  *
@@ -178,6 +178,9 @@ struct EspectreCommand {
   bool has_traffic_generator_mode{false};
   std::string detector;
   bool has_detector{false};
+  /** Requested raw collection cadence for `start_raw_stream`. */
+  uint16_t raw_target_pps{100U};
+  bool has_raw_target_pps{false};
   std::string wifi_ssid;
   std::string wifi_password;
   std::string wifi_bssid;
@@ -321,7 +324,8 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
                                           bool supports_sensing_control = false,
                                           bool supports_wifi_config = false,
                                           bool supports_mqtt_config = false,
-                                          bool supports_peer_discovery = false);
+                                          bool supports_peer_discovery = false,
+                                          bool supports_raw_csi = false);
 /** Motion state, metric, and threshold. The payload behind every motion update. */
 std::string espectre_telemetry_payload(const EspectreDeviceConfig &config,
                                     const RuntimeSnapshot &snapshot,
@@ -379,7 +383,7 @@ bool parse_espectre_command(const std::string &payload, EspectreCommand *command
 /**
  * Parse a transport-neutral command name plus a JSON parameter object.
  *
- * Direct WebSocket uses the request envelope id and method as the first two
+ * Direct HTTP uses the request envelope id and method as the first two
  * arguments. MQTT uses `parse_espectre_command()` for its flat payload.
  */
 bool parse_espectre_command_request(const std::string &command_id,

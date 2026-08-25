@@ -29,7 +29,7 @@ constexpr uint8_t kCollectorPacingPayload[] = {'E', 'S', 'P', 'E'};
 
 }  // namespace
 
-StreamerFrontend::StreamerFrontend(IDirectWebSocketService *direct_service) : direct_service_(direct_service) {}
+StreamerFrontend::StreamerFrontend(IDirectHttpService *direct_service) : direct_service_(direct_service) {}
 
 RuntimeConfig StreamerFrontend::build_runtime_config_() const {
   RuntimeConfig config = make_runtime_sensing_config_from_kconfig();
@@ -60,7 +60,7 @@ bool StreamerFrontend::setup() {
   if (!direct_bridge_.setup(
           direct_service_,
           &runtime_,
-          RuntimeDirectWebSocketBridgeConfig{
+          RuntimeDirectHttpBridgeConfig{
               "streamer",
               "ESPectre Streamer " + format_espectre_device_id(config.device_id),
               espectre_firmware_version(),
@@ -70,7 +70,7 @@ bool StreamerFrontend::setup() {
               false,
               false,
           })) {
-    ESP_LOGE(TAG, "Streamer Direct WebSocket setup failed");
+    ESP_LOGE(TAG, "Streamer Direct HTTP setup failed");
     runtime_.shutdown();
     return false;
   }

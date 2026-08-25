@@ -1,7 +1,7 @@
 /*
  * ESPectre - Streamer Discovery Service
  *
- * Advertises the Streamer Direct WebSocket through mDNS/DNS-SD.
+ * Advertises the Streamer Direct HTTP service through mDNS/DNS-SD.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -11,7 +11,7 @@
 
 #include <cstdio>
 
-#include "direct_websocket_protocol.h"
+#include "direct_http_protocol.h"
 #include "espectre_protocol.h"
 #include "firmware_version.h"
 
@@ -56,12 +56,13 @@ MdnsTxtRecords StreamerDiscoveryService::txt_records_() const {
       {"device_id", device_id_text_},
       {"name", instance_name_},
       {"frontend", "streamer"},
-      {"txtvers", "1"},
+      {"txtvers", ESPECTRE_DIRECT_DISCOVERY_TXT_VERSION},
       {"protovers", "1"},
-      {"path", ESPECTRE_DIRECT_WEBSOCKET_ENDPOINT},
+      {"transport", ESPECTRE_DIRECT_HTTP_TRANSPORT},
+      {"path", ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT},
+      {"events", ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT},
       {"firmware", espectre_firmware_version()},
       {"chip", config_.chip},
-      {"tls", "0"},
       {"capabilities", "collect,monitor"},
       {"traffic_port", std::to_string(config_.traffic_port)},
   };

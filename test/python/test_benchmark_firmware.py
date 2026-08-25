@@ -14,7 +14,6 @@ import pytest
 from tools import benchmark_firmware as bench
 from src.python.espectre_cli.device_transport import (
     DIRECT_MAX_RESPONSE_FRAME_SIZE,
-    DIRECT_SUBPROTOCOL,
     DirectClient,
     DirectProtocolError,
     ImprovCommand,
@@ -36,22 +35,15 @@ espectre-native.bin binary size 0x15a8c0 bytes. Smallest app partition is 0x1e00
 """
 
 
-class _FakeWebSocket:
-    subprotocol = DIRECT_SUBPROTOCOL
+class _FakeHttpResponse:
+    status = 200
 
-    def __init__(self, responses: list[object]):
-        self.responses = responses
-        self.sent: list[str] = []
+    def __init__(self, payload: dict[str, object]):
+        self.payload = payload
         self.closed = False
 
-    def send(self, message: str) -> None:
-        self.sent.append(message)
-
-    def recv(self, timeout: float | None = None) -> object:
-        del timeout
-        if not self.responses:
-            raise TimeoutError
-        return self.responses.pop(0)
+    def read(self, _size: int = -1) -> bytes:
+        return json.dumps(self.payload).encode()
 
     def close(self) -> None:
         self.closed = True
@@ -171,84 +163,57 @@ def test_improv_client_ignores_current_state_url_before_device_info():
 def test_improv_portal_url_builds_direct_endpoint_from_device_ip():
     assert direct_endpoint_from_device_url(
         "https://espectre.dev/tools/configure/?target=192.0.2.10"
-    ) == "ws://192.0.2.10/espectre/v1/ws"
-    assert direct_endpoint_from_device_url("ws://192.0.2.10/custom") == "ws://192.0.2.10/custom"
+    ) == "http://192.0.2.10/espectre/v1/request"
+    assert direct_endpoint_from_device_url("http://192.0.2.10/custom") == "http://192.0.2.10/espectre/v1/request"
+    with pytest.raises(ValueError, match="invalid device URL"):
+        direct_endpoint_from_device_url("ws://192.0.2.10/custom")
 
 
-def test_direct_client_correlates_response_while_collecting_events():
-    socket = _FakeWebSocket(
-        [
-            json.dumps({"v": 1, "type": "event", "event": "telemetry", "data": {"motion": False}}),
-            json.dumps({
-                "v": 1,
-                "type": "response",
-                "id": "benchmark-1",
-                "ok": True,
-                "result": {
-                    "command": "diagnostics",
-                    "code": "ok",
-                    "message": "diagnostics returned",
-                    "data": {"uptime": 7},
-                },
-            }),
-        ]
-    )
-    connect_args: dict[str, object] = {}
+def test_direct_client_posts_a_correlated_http_response():
+    requests: list[object] = []
 
-    def connect(endpoint: str, **kwargs: object) -> _FakeWebSocket:
-        connect_args.update(endpoint=endpoint, **kwargs)
-        return socket
+    def open_request(request: object, **kwargs: object) -> _FakeHttpResponse:
+        requests.append((request, kwargs))
+        payload = json.loads(request.data)
+        return _FakeHttpResponse({
+            "v": 1, "type": "response", "id": payload["id"], "ok": True,
+            "result": {"data": {"uptime": 7}},
+        })
 
-    with DirectClient("ws://192.0.2.10/espectre/v1/ws", connect_factory=connect) as client:
+    with DirectClient("http://192.0.2.10/espectre/v1/request", urlopen_factory=open_request) as client:
         result = client.request("diagnostics")
-
         assert result == {"uptime": 7}
-        assert client.events[0].name == "telemetry"
-    request = json.loads(socket.sent[0])
-    assert request == {
+    request, kwargs = requests[0]
+    assert json.loads(request.data) == {
         "v": 1,
         "type": "request",
         "id": "benchmark-1",
         "method": "diagnostics",
         "params": {},
     }
-    assert connect_args["origin"] == "https://test.espectre.dev"
-    assert connect_args["subprotocols"] == [DIRECT_SUBPROTOCOL]
-    assert connect_args["ping_interval"] is None
-    assert connect_args["max_size"] == DIRECT_MAX_RESPONSE_FRAME_SIZE
-    assert socket.closed
+    assert request.headers["Origin"] == "https://test.espectre.dev"
+    assert request.headers["Cache-control"] == "no-store"
+    assert kwargs["timeout"] == 8.0
 
 
 def test_direct_client_accepts_response_larger_than_request_limit():
     padding = "x" * 4200
-    socket = _FakeWebSocket(
-        [json.dumps({
-            "v": 1,
-            "type": "response",
-            "id": "benchmark-1",
-            "ok": True,
-            "result": {
-                "command": "diagnostics",
-                "code": "ok",
-                "message": "diagnostics returned",
-                "data": {"padding": padding},
-            },
-        })]
-    )
+    response = _FakeHttpResponse({
+        "v": 1, "type": "response", "id": "benchmark-1", "ok": True,
+        "result": {"data": {"padding": padding}},
+    })
 
     with DirectClient(
-        "ws://192.0.2.10/espectre/v1/ws",
-        connect_factory=lambda *_args, **_kwargs: socket,
+        "http://192.0.2.10/espectre/v1/request",
+        urlopen_factory=lambda *_args, **_kwargs: response,
     ) as client:
         assert client.request("diagnostics") == {"padding": padding}
 
 
 def test_direct_client_rejects_unknown_response_identifier():
-    socket = _FakeWebSocket(
-        [json.dumps({"v": 1, "type": "response", "id": "wrong", "ok": True, "result": {}})]
-    )
+    response = _FakeHttpResponse({"v": 1, "type": "response", "id": "wrong", "ok": True, "result": {}})
 
-    with DirectClient("ws://192.0.2.10/espectre/v1/ws", connect_factory=lambda *_args, **_kwargs: socket) as client:
+    with DirectClient("http://192.0.2.10/espectre/v1/request", urlopen_factory=lambda *_args, **_kwargs: response) as client:
         with pytest.raises(DirectProtocolError, match="unknown response identifier"):
             client.request("status")
 
@@ -267,7 +232,7 @@ def test_direct_diagnostics_normalization_derives_shared_rates_and_occupancy():
         "csi_occupancy_slots": 84,
         "csi_window_slots": 100,
         "free_memory_kb": 120.0,
-        "direct": {"send_failures": 0, "slow_client_disconnects": 0},
+        "direct_http": {"send_failures": 0, "slow_client_disconnects": 0},
     }
 
     normalized = bench.normalize_direct_diagnostics(current, host_elapsed_seconds=1.0, previous=previous)
@@ -588,6 +553,71 @@ def test_resume_expected_cases_include_existing_and_requested_cases():
     expected = bench.expected_preserved_cases(existing_results, (micro_lightweight,))
 
     assert expected == (native_lightweight, micro_lightweight)
+
+
+def test_raw_migration_gate_accepts_five_paired_v7_v8_runs():
+    runs = []
+    for pair in range(1, 6):
+        runs.append(
+            bench.RawMigrationRun(
+                pair=pair,
+                transport="udp",
+                record_version=7,
+                duration_seconds=60.0,
+                accepted_requests=6000,
+                fresh_records=5940,
+            )
+        )
+        runs.append(
+            bench.RawMigrationRun(
+                pair=pair,
+                transport="http",
+                record_version=8,
+                duration_seconds=60.0,
+                accepted_requests=6000,
+                fresh_records=5880,
+                control_latencies_ms=[20.0] * 98 + [80.0, 200.0],
+            )
+        )
+
+    assert bench.raw_migration_gate_reasons(runs) == []
+
+
+def test_raw_migration_gate_reports_throughput_control_and_relative_yield_failures():
+    runs = []
+    for pair in range(1, 6):
+        runs.append(
+            bench.RawMigrationRun(
+                pair=pair,
+                transport="udp",
+                record_version=7,
+                duration_seconds=60.0,
+                accepted_requests=6000,
+                fresh_records=6000,
+            )
+        )
+        runs.append(
+            bench.RawMigrationRun(
+                pair=pair,
+                transport="http",
+                record_version=8,
+                duration_seconds=60.0,
+                accepted_requests=6000,
+                fresh_records=5400,
+                control_latencies_ms=[120.0] * 100,
+                raw_state_valid=False,
+                detection_samples_max=1,
+            )
+        )
+
+    reasons = bench.raw_migration_gate_reasons(runs)
+
+    assert any("fresh yield" in reason for reason in reasons)
+    assert any("fresh rate" in reason for reason in reasons)
+    assert any("control p95" in reason for reason in reasons)
+    assert any("yield delta" in reason for reason in reasons)
+    assert any("invalid runtime state" in reason for reason in reasons)
+    assert any("detector samples" in reason for reason in reasons)
 
 
 def test_resume_with_no_failed_or_missing_cases_does_not_access_hardware(
@@ -1098,9 +1128,10 @@ def test_cpp_artifacts_store_only_normalized_direct_evidence(tmp_path):
     )
     result.direct_samples = [{"host_elapsed_seconds": 1.0, "uptime": 7, "free_memory_kb": 120.0}]
     result.transport_evidence = {
-        "transport": "direct",
+        "transport": "http",
         "origin": "https://test.espectre.dev",
-        "subprotocol": "espectre.v1",
+        "request_path": "/espectre/v1/request",
+        "events_path": "/espectre/v1/events",
     }
 
     bench.write_benchmark_artifacts(
@@ -1118,7 +1149,7 @@ def test_cpp_artifacts_store_only_normalized_direct_evidence(tmp_path):
     assert not (case_dir / "flash.jsonl").exists()
     assert "192.168.1.50" not in serialized + manifest
     assert "AA:BB:CC:DD:EE:FF" not in serialized + manifest
-    assert '"transport": "direct"' in serialized
+    assert '"transport": "http"' in serialized
 
 
 @pytest.mark.parametrize(

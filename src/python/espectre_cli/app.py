@@ -76,6 +76,12 @@ def _add_collect_parser(
         help="Wait N seconds before starting collection; requires --duration (default: 0.0)",
     )
     collect_parser.add_argument("--info", "-i", action="store_true", help="Show dataset statistics")
+    collect_parser.add_argument(
+        "--transport",
+        choices=("udp", "http"),
+        default=None,
+        help="Explicit raw CSI transport; no automatic fallback is performed",
+    )
     collect_parser.add_argument("--udp-port", type=int, default=5001, help="UDP port for CSI reception (default: 5001)")
     collect_parser.add_argument("--bind-ip", default=None, help="Local IP/interface for UDP bind (default: auto-detect)")
     collect_parser.add_argument(
@@ -164,7 +170,7 @@ def _add_provision_parser(subparsers) -> None:
 def _add_direct_parser(subparsers) -> None:
     direct_parser = subparsers.add_parser(
         "direct",
-        help="Send one correlated request through the Direct WebSocket protocol",
+        help="Send one correlated request through Direct HTTP",
     )
     direct_parser.add_argument("method", help="Direct method, such as status or diagnostics")
     direct_parser.add_argument(
@@ -173,7 +179,7 @@ def _add_direct_parser(subparsers) -> None:
         help="Method parameters as a JSON object (default: {})",
     )
     target = direct_parser.add_mutually_exclusive_group()
-    target.add_argument("--endpoint", help="Device HTTP(S) URL or Direct WS(S) endpoint")
+    target.add_argument("--endpoint", help="Device HTTP(S) Direct endpoint")
     target.add_argument(
         "--frontend",
         choices=SUPPORTED_DISCOVERY_FRONTENDS,

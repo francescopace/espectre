@@ -11,6 +11,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 import ipaddress
+import http.client
 import math
 import socket
 import struct
@@ -103,7 +104,10 @@ except ImportError:
     )
 
 MAGIC_STREAM = 0x4353
-STREAM_VERSION = 7
+STREAM_VERSION_V7 = 7
+STREAM_VERSION_V8 = 8
+STREAM_VERSION = STREAM_VERSION_V7
+SUPPORTED_STREAM_VERSIONS = frozenset((STREAM_VERSION_V7, STREAM_VERSION_V8))
 DEFAULT_PORT = 5001
 STREAM_FLAG_FIRST_WORD_INVALID = 1 << 0
 STREAM_FLAG_WIFI_RX_TS_VALID = 1 << 1
@@ -119,6 +123,12 @@ MAX_STREAM_DATAGRAM_BYTES = 2048
 DEFAULT_SOCKET_RCVBUF_BYTES = 1024 * 1024
 DEFAULT_PACING_PORT = 9999
 DEFAULT_PACING_INTERVAL_SECONDS = 5.0
+RAW_CSI_PATH = "/espectre/v1/csi"
+RAW_CSI_PROTOCOL_VERSION = 1
+RAW_CSI_RESPONSE_MAGIC = 0x52505345
+RAW_CSI_HTTP_FRAME_STRUCT = struct.Struct("<IBBH16sQHHQQQQQ")
+RAW_CSI_STATUS_FRESH = 0
+RAW_CSI_STATUS_NO_SAMPLE = 1
 
 
 def _valid_noise_floor(value: Optional[int]) -> Optional[int]:
@@ -301,12 +311,13 @@ def format_device_id_text(device_id: int) -> str:
 
 @dataclass
 class CSIPacket:
-    """One CSI packet received via UDP."""
+    """One transport-neutral CSI record."""
 
     timestamp: float
     seq_num: int
     num_subcarriers: int
     iq_raw: np.ndarray
+    record_version: int = STREAM_VERSION_V7
     chip: str = "unknown"
     device_id: Optional[int] = None
     device_ticks_us: Optional[int] = None
@@ -318,6 +329,14 @@ class CSIPacket:
     tx_backpressure_total: Optional[int] = None
     stream_fresh_total: Optional[int] = None
     pacing_rx_total: Optional[int] = None
+    transport_backpressure_total: Optional[int] = None
+    fresh_record_total: Optional[int] = None
+    request_accepted_total: Optional[int] = None
+    transport: str = "unknown"
+    transport_target: Optional[str] = None
+    effective_pps: Optional[float] = None
+    raw_protocol_version: Optional[int] = None
+    firmware_identity: Optional[str] = None
     phy_mode: str = "unknown"
     ltf_type: str = "unknown"
     channel_width: str = "unknown"
@@ -353,6 +372,101 @@ class CSIPacket:
     def phases(self) -> np.ndarray:
         self._ensure_derived_arrays()
         return self._phases
+
+
+def parse_csi_record(
+    data: bytes,
+    offset: int = 0,
+    *,
+    derive_complex: bool = True,
+    timestamp: Optional[float] = None,
+) -> Tuple[Optional[CSIPacket], int]:
+    """Parse one V7 or V8 CSI record without coupling it to a transport."""
+    if offset < 0 or len(data) - offset < CSI_HEADER_STRUCT.size:
+        return None, offset
+
+    (
+        magic,
+        version,
+        header_len,
+        chip_code,
+        flags,
+        seq_num,
+        num_sc,
+        csi_len_bytes,
+        device_id,
+        device_ticks_us,
+        wifi_rx_ts_us,
+        wifi_rx_start_ts_ns,
+        channel,
+        rssi_dbm,
+        noise_floor_dbm,
+        transport_counter,
+        fresh_counter,
+        request_counter,
+        phy_mode_code,
+        ltf_type_code,
+        channel_width_code,
+    ) = CSI_HEADER_STRUCT.unpack_from(data, offset)
+
+    if magic != MAGIC_STREAM or version not in SUPPORTED_STREAM_VERSIONS:
+        return None, offset
+    if header_len < CSI_HEADER_STRUCT.size:
+        return None, offset
+    if csi_len_bytes == 0 or csi_len_bytes != num_sc * 2:
+        return None, offset
+    record_len = header_len + csi_len_bytes
+    if len(data) - offset < record_len:
+        return None, offset
+
+    iq_raw = np.frombuffer(
+        data, dtype=np.int8, count=csi_len_bytes, offset=offset + header_len
+    ).copy()
+    iq_complex: Optional[np.ndarray] = None
+    amplitudes: Optional[np.ndarray] = None
+    phases: Optional[np.ndarray] = None
+    if derive_complex:
+        q_values = iq_raw[0::2].astype(np.float32)
+        i_values = iq_raw[1::2].astype(np.float32)
+        iq_complex = (i_values + 1j * q_values).astype(np.complex64, copy=False)
+        amplitudes = np.abs(iq_complex)
+        phases = np.angle(iq_complex)
+
+    packet = CSIPacket(
+        timestamp=time.time() if timestamp is None else float(timestamp),
+        seq_num=seq_num,
+        num_subcarriers=num_sc,
+        iq_raw=iq_raw,
+        record_version=version,
+        chip=CHIP_CODES.get(chip_code, "unknown"),
+        device_id=device_id or None,
+        device_ticks_us=device_ticks_us or None,
+        wifi_rx_ts_us=wifi_rx_ts_us if (flags & STREAM_FLAG_WIFI_RX_TS_VALID) else None,
+        wifi_rx_start_ts_ns=(
+            wifi_rx_start_ts_ns
+            if (flags & STREAM_FLAG_WIFI_RX_START_TS_NS_VALID)
+            else None
+        ),
+        channel=int(channel),
+        rssi_dbm=int(rssi_dbm),
+        noise_floor_dbm=_valid_noise_floor(int(noise_floor_dbm)),
+        # Keep the legacy attribute aliases populated while rollout code still
+        # feeds one detector and dataset pipeline from both transports.
+        tx_backpressure_total=int(transport_counter),
+        stream_fresh_total=int(fresh_counter),
+        pacing_rx_total=int(request_counter),
+        transport_backpressure_total=int(transport_counter),
+        fresh_record_total=int(fresh_counter),
+        request_accepted_total=int(request_counter),
+        phy_mode=PHY_MODE_CODES.get(phy_mode_code, "unknown"),
+        ltf_type=LTF_TYPE_CODES.get(ltf_type_code, "unknown"),
+        channel_width=CHANNEL_WIDTH_CODES.get(channel_width_code, "unknown"),
+        csi_fresh=bool(flags & STREAM_FLAG_CSI_FRESH),
+        _iq_complex=iq_complex,
+        _amplitudes=amplitudes,
+        _phases=phases,
+    )
+    return packet, offset + record_len
 
 
 @dataclass(frozen=True)
@@ -865,79 +979,7 @@ class CSIReceiver:
         self._buffer_callbacks.append((callback, interval))
 
     def _parse_record(self, data: bytes, offset: int = 0) -> Tuple[Optional[CSIPacket], int]:
-        if offset < 0 or len(data) - offset < CSI_HEADER_STRUCT.size:
-            return None, offset
-
-        (
-            magic,
-            version,
-            header_len,
-            chip_code,
-            flags,
-            seq_num,
-            num_sc,
-            csi_len_bytes,
-            device_id,
-            device_ticks_us,
-            wifi_rx_ts_us,
-            wifi_rx_start_ts_ns,
-            channel,
-            rssi_dbm,
-            noise_floor_dbm,
-            tx_backpressure_total,
-            stream_fresh_total,
-            pacing_rx_total,
-            phy_mode_code,
-            ltf_type_code,
-            channel_width_code,
-        ) = CSI_HEADER_STRUCT.unpack_from(data, offset)
-
-        if magic != MAGIC_STREAM or version != STREAM_VERSION:
-            return None, offset
-        if header_len < CSI_HEADER_STRUCT.size:
-            return None, offset
-        if csi_len_bytes == 0 or csi_len_bytes != num_sc * 2:
-            return None, offset
-
-        record_len = header_len + csi_len_bytes
-        if len(data) - offset < record_len:
-            return None, offset
-
-        iq_raw = np.frombuffer(data, dtype=np.int8, count=csi_len_bytes, offset=offset + header_len).copy()
-        iq_complex: Optional[np.ndarray] = None
-        amplitudes: Optional[np.ndarray] = None
-        phases: Optional[np.ndarray] = None
-        if self.derive_complex:
-            q_values = iq_raw[0::2].astype(np.float32)
-            i_values = iq_raw[1::2].astype(np.float32)
-            iq_complex = (i_values + 1j * q_values).astype(np.complex64, copy=False)
-            amplitudes = np.abs(iq_complex)
-            phases = np.angle(iq_complex)
-        packet = CSIPacket(
-            timestamp=time.time(),
-            seq_num=seq_num,
-            num_subcarriers=num_sc,
-            iq_raw=iq_raw,
-            chip=CHIP_CODES.get(chip_code, "unknown"),
-            device_id=device_id or None,
-            device_ticks_us=device_ticks_us or None,
-            wifi_rx_ts_us=wifi_rx_ts_us if (flags & STREAM_FLAG_WIFI_RX_TS_VALID) else None,
-            wifi_rx_start_ts_ns=wifi_rx_start_ts_ns if (flags & STREAM_FLAG_WIFI_RX_START_TS_NS_VALID) else None,
-            channel=int(channel),
-            rssi_dbm=int(rssi_dbm),
-            noise_floor_dbm=_valid_noise_floor(int(noise_floor_dbm)),
-            tx_backpressure_total=int(tx_backpressure_total),
-            stream_fresh_total=int(stream_fresh_total),
-            pacing_rx_total=int(pacing_rx_total),
-            phy_mode=PHY_MODE_CODES.get(phy_mode_code, "unknown"),
-            ltf_type=LTF_TYPE_CODES.get(ltf_type_code, "unknown"),
-            channel_width=CHANNEL_WIDTH_CODES.get(channel_width_code, "unknown"),
-            csi_fresh=bool(flags & STREAM_FLAG_CSI_FRESH),
-            _iq_complex=iq_complex,
-            _amplitudes=amplitudes,
-            _phases=phases,
-        )
-        return packet, offset + record_len
+        return parse_csi_record(data, offset, derive_complex=self.derive_complex)
 
     def _parse_packets(self, data: bytes) -> List[CSIPacket]:
         packets: List[CSIPacket] = []
@@ -1067,6 +1109,8 @@ class CSIReceiver:
                     continue
                 for packet in packets:
                     packet.source_ip = addr[0]
+                    packet.transport = "udp"
+                    packet.transport_target = addr[0]
                     if not self.accept_packet(packet):
                         continue
                     self.buffer.append(packet)
@@ -1104,6 +1148,256 @@ class CSIReceiver:
 
     def stop(self) -> None:
         self.running = False
+
+
+class DirectRawCSIReceiver(CSIReceiver):
+    """Single-device Direct source backed by a paced HTTP binary stream."""
+
+    def __init__(
+        self,
+        target_host: str,
+        *,
+        target_pps: int = 100,
+        buffer_size: int = 500,
+        derive_complex: bool = True,
+        origin: str = "https://test.espectre.dev",
+        timeout: float = 8.0,
+        control_client_factory: Optional[Callable[..., Any]] = None,
+        raw_connection_factory: Optional[Callable[..., Any]] = None,
+    ) -> None:
+        try:
+            address = ipaddress.ip_address(str(target_host).strip())
+        except ValueError as exc:
+            raise ValueError(f"invalid Direct target: {target_host}") from exc
+        if address.version != 4:
+            raise ValueError("Direct raw collection currently requires one IPv4 target")
+        if not 1 <= int(target_pps) <= 500:
+            raise ValueError("target_pps must be in the 1-500 range")
+        super().__init__(
+            port=0,
+            buffer_size=buffer_size,
+            bind_host="127.0.0.1",
+            derive_complex=derive_complex,
+        )
+        self.target_host = str(address)
+        self.target_pps = int(target_pps)
+        self.origin = origin
+        self.timeout = float(timeout)
+        self._control_client_factory = control_client_factory
+        self._raw_connection_factory = raw_connection_factory
+        self._control = None
+        self._raw_connection = None
+        self._raw_response = None
+        self._raw_buffer = bytearray()
+        self._session_id = b""
+        self._firmware_identity = ""
+        self._stream_sequence = 0
+        self.no_sample_total = 0
+        self.replaced_sample_total = 0
+        self.raw_dropped_sample_total = 0
+        self.raw_send_backpressure_total = 0
+        self.effective_socket_rcvbuf_bytes = None
+
+    @property
+    def control_endpoint(self) -> str:
+        return f"http://{self.target_host}/espectre/v1/request"
+
+    @property
+    def raw_endpoint(self) -> str:
+        return f"http://{self.target_host}{RAW_CSI_PATH}"
+
+    def _open(self) -> None:
+        if self._control is not None:
+            return
+        from src.python.espectre_cli.device_transport import DirectClient
+
+        factory = self._control_client_factory or DirectClient
+        self._control = factory(
+            self.control_endpoint,
+            origin=self.origin,
+            timeout=self.timeout,
+        )
+        capabilities = self._control.request("capabilities")
+        features = capabilities.get("features")
+        raw_capability = capabilities.get("raw_csi")
+        if (
+            not isinstance(features, dict)
+            or features.get("raw_csi") is not True
+            or not isinstance(raw_capability, dict)
+            or raw_capability.get("transport") != "http"
+            or raw_capability.get("record_version") != STREAM_VERSION_V8
+            or raw_capability.get("frame_prefix_bytes") != RAW_CSI_HTTP_FRAME_STRUCT.size
+        ):
+            self._control.close()
+            self._control = None
+            raise RuntimeError("target does not advertise compatible Direct raw CSI")
+        info = self._control.request("info")
+        self._firmware_identity = "|".join(
+            str(info.get(key, "")) for key in ("device_id", "frontend", "firmware_version", "chip")
+        )
+
+        session = self._control.request(
+            "start_raw_stream",
+            {"target_pps": self.target_pps},
+        )
+        session_id = session.get("session_id")
+        if not isinstance(session_id, str) or len(session_id) != 32:
+            self._best_effort_stop()
+            raise RuntimeError("Direct raw session returned an invalid session id")
+        try:
+            self._session_id = bytes.fromhex(session_id)
+        except ValueError as exc:
+            self._best_effort_stop()
+            raise RuntimeError("Direct raw session returned an invalid session id") from exc
+
+        connection_factory = self._raw_connection_factory or http.client.HTTPConnection
+        try:
+            self._raw_connection = connection_factory(
+                self.target_host,
+                80,
+                timeout=self.timeout,
+            )
+            self._raw_connection.request(
+                "GET",
+                RAW_CSI_PATH,
+                headers={
+                    "Accept": "application/octet-stream",
+                    "Authorization": f"Bearer {session_id}",
+                    "Cache-Control": "no-store",
+                    "Origin": self.origin,
+                },
+            )
+            self._raw_response = self._raw_connection.getresponse()
+        except Exception:
+            self._best_effort_stop()
+            raise
+        if int(getattr(self._raw_response, "status", 0)) != 200:
+            status = int(getattr(self._raw_response, "status", 0))
+            self._raw_response.close()
+            self._raw_response = None
+            self._raw_connection.close()
+            self._raw_connection = None
+            self._best_effort_stop()
+            raise RuntimeError(f"Direct raw HTTP stream returned status {status}")
+        self.running = True
+        self.start_time = time.time()
+        self._last_pps_time = self.start_time
+
+    def _best_effort_stop(self) -> None:
+        if self._control is not None:
+            try:
+                self._control.request("stop_raw_stream", timeout=min(self.timeout, 2.0))
+            except Exception:
+                pass
+
+    def _dispatch_direct_packet(self, packet: CSIPacket) -> None:
+        packet.source_ip = self.target_host
+        packet.transport = "http"
+        packet.transport_target = self.target_host
+        packet.effective_pps = float(self.pps or self.target_pps)
+        packet.raw_protocol_version = RAW_CSI_PROTOCOL_VERSION
+        packet.firmware_identity = self._firmware_identity
+        if not self.accept_packet(packet):
+            return
+        self.buffer.append(packet)
+        self.packet_count += 1
+        self._pps_counter += 1
+        self._update_pps()
+        for callback in self._callbacks:
+            callback(packet)
+        for callback, interval in self._buffer_callbacks:
+            if self.packet_count % interval == 0:
+                callback(self.buffer)
+
+    def _consume_raw_frames(self) -> None:
+        while len(self._raw_buffer) >= RAW_CSI_HTTP_FRAME_STRUCT.size:
+            (
+                magic,
+                version,
+                status,
+                header_len,
+                session_id,
+                stream_sequence,
+                record_len,
+                error_code,
+                fresh_total,
+                no_sample_total,
+                replaced_total,
+                dropped_total,
+                backpressure_total,
+            ) = RAW_CSI_HTTP_FRAME_STRUCT.unpack_from(self._raw_buffer)
+            frame_length = int(header_len) + int(record_len)
+            if (
+                magic != RAW_CSI_RESPONSE_MAGIC
+                or version != RAW_CSI_PROTOCOL_VERSION
+                or header_len != RAW_CSI_HTTP_FRAME_STRUCT.size
+                or session_id != self._session_id
+                or stream_sequence <= self._stream_sequence
+                or error_code != 0
+                or record_len > CSI_HEADER_STRUCT.size + 512
+            ):
+                raise RuntimeError("Direct raw endpoint sent an incompatible HTTP frame")
+            if len(self._raw_buffer) < frame_length:
+                return
+            frame = bytes(self._raw_buffer[:frame_length])
+            del self._raw_buffer[:frame_length]
+            self._stream_sequence = int(stream_sequence)
+            self.no_sample_total = int(no_sample_total)
+            self.replaced_sample_total = int(replaced_total)
+            self.raw_dropped_sample_total = int(dropped_total)
+            self.raw_send_backpressure_total = int(backpressure_total)
+            if status == RAW_CSI_STATUS_NO_SAMPLE:
+                if record_len != 0:
+                    raise RuntimeError("Direct no-sample HTTP frame carried a record")
+                continue
+            if status != RAW_CSI_STATUS_FRESH or record_len == 0:
+                raise RuntimeError("Direct raw endpoint returned an error HTTP frame")
+            packet, next_offset = parse_csi_record(
+                frame,
+                header_len,
+                derive_complex=self.derive_complex,
+            )
+            if (
+                packet is None
+                or next_offset != len(frame)
+                or packet.record_version != STREAM_VERSION_V8
+                or int(fresh_total) < self.packet_count + 1
+            ):
+                raise RuntimeError("Direct raw endpoint sent an invalid V8 record")
+            self._dispatch_direct_packet(packet)
+
+    def _read_raw_chunk(self) -> bytes:
+        if self._raw_response is None:
+            raise RuntimeError("Direct raw HTTP stream is not open")
+        reader = getattr(self._raw_response, "read1", None)
+        if reader is None:
+            reader = self._raw_response.read
+        chunk = reader(4096)
+        if not isinstance(chunk, bytes) or not chunk:
+            raise RuntimeError("Direct raw HTTP stream ended unexpectedly")
+        return chunk
+
+    def run(self, timeout: float = 0, quiet: bool = False, announce_socket_rcvbuf: bool = False) -> None:
+        del quiet, announce_socket_rcvbuf
+        self._open()
+        deadline = time.monotonic() + timeout if timeout > 0 else None
+        while self.running and (deadline is None or time.monotonic() < deadline):
+            self._raw_buffer.extend(self._read_raw_chunk())
+            self._consume_raw_frames()
+
+    def stop(self) -> None:
+        self.running = False
+        self._best_effort_stop()
+        if self._raw_response is not None:
+            self._raw_response.close()
+            self._raw_response = None
+        if self._raw_connection is not None:
+            self._raw_connection.close()
+            self._raw_connection = None
+        self._raw_buffer.clear()
+        if self._control is not None:
+            self._control.close()
+            self._control = None
 
 
 def get_git_username() -> Optional[str]:
@@ -1280,6 +1574,7 @@ class CSICollector:
         expected_source_hosts: Optional[List[str]] = None,
         expected_device_id: Optional[int] = None,
         detector_algorithm: str = "classic",
+        target_pps: Optional[int] = None,
     ):
         self.label = label
         self.port = port
@@ -1296,7 +1591,9 @@ class CSICollector:
         self._ready_window_size = CollectionDetectorGate.default_window_size()
         self._ready_initial_threshold = CollectionDetectorGate.initial_threshold(self.detector_algorithm)
         self._live_status_line_count = 0
-        self._nominal_packet_rate: Optional[int] = None
+        self._nominal_packet_rate = (
+            max(1, int(target_pps)) if target_pps is not None else None
+        )
 
     def _should_accept_source_ip(self, source_ip: Optional[str]) -> bool:
         """Accept all broadcast/multicast sources, but pin unicast modes to targets."""
@@ -1441,6 +1738,12 @@ class CSICollector:
             "ltf_type": np.array([packet.ltf_type for packet in packets]),
             "channel_width": np.array([packet.channel_width for packet in packets]),
             "device_id": np.uint64(device_id),
+            "transport": packets[0].transport,
+            "transport_target": packets[0].transport_target or "",
+            "effective_pps": np.float64(average_packet_rate),
+            "raw_protocol_version": np.uint8(packets[0].raw_protocol_version or 0),
+            "record_version": np.uint8(packets[0].record_version),
+            "firmware_identity": packets[0].firmware_identity or "",
             **{
                 key: np.uint64(value)
                 for key, value in admission_provenance.items()
@@ -1487,6 +1790,14 @@ class CSICollector:
             average_packet_rate=average_packet_rate,
             nominal_packet_rate=nominal_packet_rate,
             admission_provenance=admission_provenance,
+            transport_metadata={
+                "transport": packets[0].transport,
+                "transport_target": packets[0].transport_target or "",
+                "effective_pps": round(float(average_packet_rate), 3),
+                "raw_protocol_version": int(packets[0].raw_protocol_version or 0),
+                "record_version": int(packets[0].record_version),
+                "firmware_identity": packets[0].firmware_identity or "",
+            },
         )
         return filepath
 
@@ -1502,6 +1813,7 @@ class CSICollector:
         average_packet_rate: Optional[float] = None,
         nominal_packet_rate: Optional[int] = None,
         admission_provenance: Optional[Dict[str, int]] = None,
+        transport_metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         info = dataset_metadata.load_dataset_info()
         if self.label not in info["labels"]:
@@ -1534,6 +1846,8 @@ class CSICollector:
                             for key, value in admission_provenance.items()
                         }
                     )
+                if transport_metadata is not None:
+                    file_info.update(transport_metadata)
                 info["files"][self.label].append(file_info)
         dataset_metadata.save_dataset_info(info)
 
@@ -2059,15 +2373,15 @@ class CSICollector:
         ready_stable_seconds: float = READY_STABLE_SECONDS,
     ) -> List[Path]:
         saved_files: List[Path] = []
+        configured_nominal_packet_rate = self._nominal_packet_rate
         initial_pacing_pps = 0.0
         if pacing_sender is not None and hasattr(pacing_sender, "get_rate_pps"):
             try:
                 initial_pacing_pps = float(pacing_sender.get_rate_pps())
             except (TypeError, ValueError):
                 initial_pacing_pps = 0.0
-        self._nominal_packet_rate = (
-            int(round(initial_pacing_pps)) if initial_pacing_pps > 0.0 else None
-        )
+        if initial_pacing_pps > 0.0:
+            self._nominal_packet_rate = int(round(initial_pacing_pps))
         controller_kwargs = dict(adaptive_controller_kwargs or {})
         pacing_controller = AdaptivePacingController(
             initial_pps=max(1.0, initial_pacing_pps),
@@ -2125,7 +2439,7 @@ class CSICollector:
         finally:
             if self.receiver.sock:
                 self.receiver.sock.close()
-            self._nominal_packet_rate = None
+            self._nominal_packet_rate = configured_nominal_packet_rate
         if not quiet:
             print(f'\n{"=" * 60}')
             print(f"  Collection complete: {len(saved_files)} device file(s) saved")

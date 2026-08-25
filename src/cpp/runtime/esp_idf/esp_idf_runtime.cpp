@@ -74,6 +74,11 @@ EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
   capabilities_.supports_extended_diagnostics = true;
   capabilities_.supports_traffic_control = true;
   capabilities_.supports_runtime_detector_selection = config_.runtime_detector_selection_enabled;
+#if CONFIG_IDF_TARGET_ESP32C3
+  // The implementation is compiled for every Native target. C3 is the first
+  // hardware-qualified target and therefore the only one that advertises it.
+  capabilities_.supports_raw_csi = true;
+#endif
 }
 
 bool EspIdfRuntime::setup() {
@@ -170,6 +175,9 @@ void EspIdfRuntime::shutdown() {
     return;
   }
 
+  if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    (void) stop_raw_collection(RawCsiStopReason::SHUTDOWN);
+  }
   on_wifi_disconnected_();
   wifi_lifecycle_.unregister_handlers();
   setup_complete_ = false;
@@ -185,6 +193,9 @@ void EspIdfRuntime::loop() {
     finish_threshold_calibration_(calibration_success);
   }
   csi_pipeline_.loop();
+  if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    return;
+  }
   csi_pipeline_.publish_if_due(monotonic_now_ms());
   DetectionTimingStats detection_timing;
   if (csi_pipeline_.take_detection_timing(&detection_timing)) {
@@ -218,6 +229,10 @@ RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {
 }
 
 void EspIdfRuntime::set_services_armed(bool armed) {
+  if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    ESP_LOGW(RUNTIME_TAG, "Rejected sensing mutation during raw collection");
+    return;
+  }
   if (services_armed_ == armed) {
     return;
   }
@@ -247,6 +262,9 @@ void EspIdfRuntime::set_live_telemetry_enabled(bool enabled) {
 }
 
 bool EspIdfRuntime::set_threshold_runtime(float threshold) {
+  if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    return false;
+  }
   if (!validate_runtime_threshold_for_algorithm(threshold, config_.detection_algorithm)) {
     ESP_LOGW(RUNTIME_TAG,
              "Rejected invalid runtime threshold: %.6f (detector=%s max=%.3f)",
@@ -268,6 +286,9 @@ bool EspIdfRuntime::set_threshold_runtime(float threshold) {
 }
 
 bool EspIdfRuntime::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits) {
+  if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    return false;
+  }
   if (motion_on_hits < RUNTIME_MOTION_HITS_MIN || motion_on_hits > RUNTIME_MOTION_HITS_MAX ||
       motion_off_hits < RUNTIME_MOTION_HITS_MIN || motion_off_hits > RUNTIME_MOTION_HITS_MAX) {
     ESP_LOGW(RUNTIME_TAG,
@@ -296,6 +317,9 @@ bool EspIdfRuntime::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t moti
 }
 
 bool EspIdfRuntime::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
+  if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    return false;
+  }
   if (!runtime_csi_traffic_mode_valid_for_profile(RuntimeProfile::SENSING, mode)) {
     ESP_LOGW(RUNTIME_TAG, "Invalid CSI traffic mode for sensing firmware");
     return false;
@@ -323,6 +347,9 @@ bool EspIdfRuntime::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
 }
 
 bool EspIdfRuntime::set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) {
+  if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    return false;
+  }
   if (!runtime_traffic_mode_valid(mode)) {
     ESP_LOGW(RUNTIME_TAG, "Invalid traffic generator mode");
     return false;
@@ -351,6 +378,9 @@ bool EspIdfRuntime::set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) 
 }
 
 bool EspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm) {
+  if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    return false;
+  }
   if (!capabilities_.supports_runtime_detector_selection ||
       !runtime_detection_algorithm_valid(algorithm)) {
     ESP_LOGW(RUNTIME_TAG, "Runtime detector selection is unavailable or invalid");
@@ -397,6 +427,9 @@ bool EspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm
 }
 
 bool EspIdfRuntime::trigger_recalibration() {
+  if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    return false;
+  }
   if (snapshot_.calibrating) {
     ESP_LOGW(RUNTIME_TAG, "Calibration already in progress");
     return false;
@@ -407,6 +440,99 @@ bool EspIdfRuntime::trigger_recalibration() {
 }
 
 bool EspIdfRuntime::is_calibrating() const { return snapshot_.calibrating; }
+
+RuntimeOperationState EspIdfRuntime::operation_state() const {
+  return operation_state_.load(std::memory_order_acquire);
+}
+
+bool EspIdfRuntime::start_raw_collection(raw_csi_packet_callback_t callback, void *context) {
+  if (!capabilities_.supports_raw_csi || callback == nullptr || !setup_complete_ ||
+      !wifi_ready_ || wifi_ip_info_.ip.addr == 0U ||
+      operation_state() != RuntimeOperationState::SENSING) {
+    return false;
+  }
+
+  operation_state_.store(RuntimeOperationState::RAW_COLLECTION, std::memory_order_release);
+  raw_collection_was_armed_ = services_armed_;
+  cancel_calibration_(true);
+  csi_traffic_service_.stop();
+  CsiTrafficServiceConfig raw_traffic_config = to_csi_traffic_config(config_);
+  raw_traffic_config.mode = CsiTrafficMode::EXTERNAL;
+  csi_traffic_service_.init(raw_traffic_config);
+#if defined(ESP_PLATFORM)
+  if (!csi_traffic_service_.start(wifi_ip_info_.gw.addr)) {
+    csi_traffic_service_.init(to_csi_traffic_config(config_));
+    operation_state_.store(RuntimeOperationState::SENSING, std::memory_order_release);
+    notify_fault_("Failed to start raw CSI traffic listener");
+    if (raw_collection_was_armed_) start_sensing_services_(wifi_ip_info_);
+    raw_collection_was_armed_ = false;
+    return false;
+  }
+#endif
+  snapshot_.ready_to_publish = false;
+  snapshot_.motion_state = MotionState::IDLE;
+  csi_pipeline_.set_motion_state_callback({});
+  csi_pipeline_.set_live_telemetry_callback({});
+  performance_diagnostics_.reset();
+  if (!csi_pipeline_.start_raw_capture(callback, context)) {
+    csi_traffic_service_.stop();
+    csi_traffic_service_.init(to_csi_traffic_config(config_));
+    operation_state_.store(RuntimeOperationState::SENSING, std::memory_order_release);
+    (void) csi_pipeline_.disable();
+    update_live_telemetry_callback_();
+    if (raw_collection_was_armed_) start_sensing_services_(wifi_ip_info_);
+    raw_collection_was_armed_ = false;
+    return false;
+  }
+  refresh_csi_local_identity_(wifi_ip_info_.ip.addr);
+
+  if (!csi_pipeline_.is_enabled()) {
+    const esp_err_t err = csi_pipeline_.enable({});
+    if (err != ESP_OK) {
+      csi_pipeline_.stop_raw_capture();
+      csi_traffic_service_.stop();
+      csi_traffic_service_.init(to_csi_traffic_config(config_));
+      update_live_telemetry_callback_();
+      operation_state_.store(RuntimeOperationState::SENSING, std::memory_order_release);
+      (void) csi_pipeline_.disable();
+      if (raw_collection_was_armed_) start_sensing_services_(wifi_ip_info_);
+      raw_collection_was_armed_ = false;
+      char message[96];
+      std::snprintf(message, sizeof(message), "Failed to enable raw CSI: %s", esp_err_to_name(err));
+      notify_fault_(message);
+      return false;
+    }
+  }
+
+  ESP_LOGI(RUNTIME_TAG, "Entered raw CSI collection mode");
+  return true;
+}
+
+bool EspIdfRuntime::stop_raw_collection(RawCsiStopReason reason) {
+  if (operation_state() != RuntimeOperationState::RAW_COLLECTION) {
+    return false;
+  }
+
+  operation_state_.store(RuntimeOperationState::SENSING, std::memory_order_release);
+  csi_pipeline_.stop_raw_capture();
+  csi_pipeline_.set_local_identity(0U, nullptr);
+  (void) csi_pipeline_.disable();
+  csi_traffic_service_.stop();
+  csi_traffic_service_.init(to_csi_traffic_config(config_));
+  cancel_calibration_(false);
+  snapshot_.ready_to_publish = false;
+  snapshot_.motion_state = MotionState::IDLE;
+  update_live_telemetry_callback_();
+
+  ESP_LOGI(RUNTIME_TAG, "Exited raw CSI collection mode: %u", static_cast<unsigned>(reason));
+  if (raw_collection_was_armed_ && services_armed_ && wifi_ready_ && wifi_ip_info_.ip.addr != 0U) {
+    start_sensing_services_(wifi_ip_info_);
+  } else if (listener_ != nullptr) {
+    listener_->on_motion_state_changed(snapshot_);
+  }
+  raw_collection_was_armed_ = false;
+  return true;
+}
 
 bool EspIdfRuntime::apply_traffic_runtime_config_(bool restart_service, bool recalibrate_if_active) {
   if (restart_service) {
@@ -515,6 +641,10 @@ void EspIdfRuntime::on_wifi_connected_(const esp_netif_ip_info_t &ip_info) {
 void EspIdfRuntime::on_wifi_disconnected_() {
   wifi_ready_ = false;
   wifi_ip_info_ = {};
+  if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    (void) stop_raw_collection(RawCsiStopReason::WIFI_LOST);
+    return;
+  }
   stop_sensing_services_();
 }
 
@@ -578,6 +708,14 @@ void EspIdfRuntime::stop_sensing_services_() {
 }
 
 void EspIdfRuntime::on_csi_channel_changed_(uint8_t previous_channel, uint8_t current_channel) {
+  if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    ESP_LOGW(RUNTIME_TAG,
+             "Ending raw collection after Wi-Fi channel change: %u -> %u",
+             static_cast<unsigned>(previous_channel),
+             static_cast<unsigned>(current_channel));
+    (void) stop_raw_collection(RawCsiStopReason::CHANNEL_CHANGED);
+    return;
+  }
   if (!wifi_ready_ || !services_armed_ || wifi_ip_info_.ip.addr == 0U || !csi_pipeline_.is_enabled()) {
     return;
   }

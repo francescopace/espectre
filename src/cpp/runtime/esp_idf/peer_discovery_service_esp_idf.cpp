@@ -66,10 +66,11 @@ std::vector<PeerDiscoveryCandidate> copy_candidates(mdns_result_t *results) {
     candidate.frontend = txt_value(result, "frontend", 16U);
     candidate.txt_version = txt_value(result, "txtvers", 8U);
     candidate.protocol_version = txt_value(result, "protovers", 8U);
+    candidate.transport = txt_value(result, "transport", 8U);
     candidate.path = txt_value(result, "path", 64U);
+    candidate.events = txt_value(result, "events", 64U);
     candidate.firmware = txt_value(result, "firmware", 48U);
     candidate.chip = txt_value(result, "chip", 16U);
-    candidate.tls = txt_value(result, "tls", 8U);
     candidate.capabilities = txt_value(result, "capabilities", 128U);
     candidate.port = result->port;
     for (mdns_ip_addr_t *address = result->addr; address != nullptr; address = address->next) {

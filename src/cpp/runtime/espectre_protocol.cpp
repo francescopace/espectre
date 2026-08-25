@@ -86,7 +86,8 @@ void append_capability_commands(std::string *out,
                                 bool supports_sensing_control,
                                 bool supports_wifi_config,
                                 bool supports_mqtt_config,
-                                bool supports_peer_discovery) {
+                                bool supports_peer_discovery,
+                                bool supports_raw_csi) {
   if (out == nullptr) {
     return;
   }
@@ -137,6 +138,12 @@ void append_capability_commands(std::string *out,
       "\"detector\":{\"type\":\"string\",\"enum\":[\"lightweight\",\"high_accuracy\"]}",
       "\"detector\"");
   add(info.supports_manual_recalibration, "recalibrate", "action", "control");
+  add(supports_raw_csi,
+      "start_raw_stream",
+      "action",
+      "control",
+      "\"target_pps\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":500}");
+  add(supports_raw_csi, "stop_raw_stream", "action", "control");
   add(info.supports_traffic_control,
       "set_csi_traffic_mode",
       "mutation",
@@ -354,6 +361,7 @@ bool parse_command_fields(const std::string &command_id,
     if (parsed.command == "set_detector") return name == "detector";
     if (parsed.command == "set_csi_traffic_mode") return name == "csi_traffic_mode";
     if (parsed.command == "set_traffic_generator_mode") return name == "traffic_generator_mode";
+    if (parsed.command == "start_raw_stream") return name == "target_pps";
     if (parsed.command == "set_wifi_config") {
       return name == "ssid" || name == "password" || name == "bssid" || name == "channel" ||
              name == "band_policy";
@@ -419,6 +427,16 @@ bool parse_command_fields(const std::string &command_id,
       return reject("invalid detector (accepted: lightweight and high_accuracy)");
     }
     parsed.has_detector = true;
+  } else if (parsed.command == "start_raw_stream") {
+    if (find_json_object_field(fields, "target_pps") != nullptr) {
+      std::string target_pps_token;
+      if (!number_field("target_pps", &target_pps_token) ||
+          !parse_uint16_value(target_pps_token, &parsed.raw_target_pps) ||
+          parsed.raw_target_pps == 0U || parsed.raw_target_pps > 500U) {
+        return reject("invalid raw target pps (accepted: 1-500)");
+      }
+      parsed.has_raw_target_pps = true;
+    }
   } else if (parsed.command == "set_wifi_config") {
     if (find_json_object_field(fields, "ssid") != nullptr) {
       if (!string_field("ssid", &parsed.wifi_ssid) || parsed.wifi_ssid.empty() ||
@@ -494,7 +512,7 @@ bool parse_command_fields(const std::string &command_id,
     }
   } else if (parsed.command == "clear_mqtt_config") {
     // No additional payload required.
-  } else if (parsed.command == "recalibrate") {
+  } else if (parsed.command == "recalibrate" || parsed.command == "stop_raw_stream") {
     // No additional payload required.
   } else if (parsed.command == "ota_check" || parsed.command == "ota_start") {
     if (find_json_object_field(fields, "manifest_url") != nullptr ||
@@ -685,7 +703,8 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
                                           bool supports_sensing_control,
                                           bool supports_wifi_config,
                                           bool supports_mqtt_config,
-                                          bool supports_peer_discovery) {
+                                          bool supports_peer_discovery,
+                                          bool supports_raw_csi) {
   const std::string device_id = espectre_effective_device_id(config);
   std::string out;
   out.reserve(3072U + device_id.size());
@@ -700,7 +719,8 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
                              supports_sensing_control,
                              supports_wifi_config,
                              supports_mqtt_config,
-                             supports_peer_discovery);
+                             supports_peer_discovery,
+                             supports_raw_csi);
   out += "],\"events\":[\"telemetry\",\"status\",\"info\",\"config\"";
   if (info.supports_ota) out += ",\"ota_status\"";
   out += ",\"fault\"],"
@@ -708,7 +728,17 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
   if (info.supports_device_config) out += ",\"device\"";
   if (supports_wifi_config) out += ",\"wifi\"";
   if (supports_mqtt_config) out += ",\"mqtt\"";
-  out += "],\"features\":{\"raw_csi\":false}}";
+  out += "],\"features\":{\"raw_csi\":";
+  out += supports_raw_csi ? "true" : "false";
+  out += "}";
+  if (supports_raw_csi) {
+    out += ",\"raw_csi\":{\"endpoint\":\"/espectre/v1/csi\","
+           "\"transport\":\"http\",\"protocol_version\":1,"
+           "\"record_version\":8,\"frame_prefix_bytes\":76,"
+           "\"target_pps\":{\"minimum\":1,\"maximum\":500},"
+           "\"bind_timeout_ms\":5000,\"heartbeat_ms\":1000}";
+  }
+  out += "}";
   return out;
 }
 

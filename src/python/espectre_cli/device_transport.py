@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
-"""Bounded Improv Serial and Direct WebSocket clients shared by the CLI."""
+"""Bounded Improv Serial and Direct HTTP clients shared by the CLI."""
 
 from __future__ import annotations
 
@@ -10,15 +10,16 @@ import ipaddress
 import json
 import time
 from typing import Callable, Protocol, Sequence
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit, urlunsplit
+from urllib.request import Request, urlopen
 
 
 IMPROV_HEADER = b"IMPROV"
 IMPROV_VERSION = 1
 IMPROV_MAX_FRAME_SIZE = 265
 DIRECT_VERSION = 1
-DIRECT_SUBPROTOCOL = "espectre.v1"
-DIRECT_PATH = "/espectre/v1/ws"
+DIRECT_PATH = "/espectre/v1/request"
 DIRECT_MAX_REQUEST_FRAME_SIZE = 4096
 DIRECT_MAX_RESPONSE_FRAME_SIZE = 8192
 DIRECT_MAX_FRAME_SIZE = DIRECT_MAX_REQUEST_FRAME_SIZE
@@ -89,11 +90,10 @@ class SerialTransport(Protocol):
     def close(self) -> None: ...
 
 
-class WebSocketTransport(Protocol):
-    subprotocol: str | None
+class HttpResponse(Protocol):
+    status: int
 
-    def send(self, message: str) -> None: ...
-    def recv(self, timeout: float | None = None) -> object: ...
+    def read(self, size: int = -1) -> bytes: ...
     def close(self) -> None: ...
 
 
@@ -316,7 +316,7 @@ class ImprovSerialClient:
 
 def direct_endpoint_from_device_url(device_url: str) -> str:
     parsed = urlsplit(device_url)
-    if parsed.scheme not in {"http", "https", "ws", "wss"} or not parsed.hostname:
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ValueError("Improv returned an invalid device URL")
     target_values = parse_qs(parsed.query, strict_parsing=False).get("target", [])
     if target_values:
@@ -327,15 +327,12 @@ def direct_endpoint_from_device_url(device_url: str) -> str:
         except ValueError as error:
             raise ValueError("Improv returned an invalid device target") from error
         host = f"[{address}]" if address.version == 6 else str(address)
-        return urlunsplit(("ws", host, DIRECT_PATH, "", ""))
-    if parsed.scheme in {"ws", "wss"}:
-        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path or DIRECT_PATH, "", ""))
-    scheme = "wss" if parsed.scheme == "https" else "ws"
-    return urlunsplit((scheme, parsed.netloc, DIRECT_PATH, "", ""))
+        return urlunsplit(("http", host, DIRECT_PATH, "", ""))
+    return urlunsplit((parsed.scheme, parsed.netloc, DIRECT_PATH, "", ""))
 
 
 class DirectClient:
-    """Sequential, correlated Direct v1 client with strict envelope validation."""
+    """Sequential Direct v1 POST client with strict envelope validation."""
 
     def __init__(
         self,
@@ -343,39 +340,28 @@ class DirectClient:
         *,
         origin: str = DEFAULT_DIRECT_ORIGIN,
         timeout: float = 8.0,
-        connect_factory: Callable[..., WebSocketTransport] | None = None,
+        urlopen_factory: Callable[..., HttpResponse] | None = None,
     ) -> None:
-        if connect_factory is None:
-            from websockets.sync.client import connect
-
-            connect_factory = connect
+        parsed = urlsplit(endpoint)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.path != DIRECT_PATH
+            or parsed.query
+            or parsed.fragment
+            or parsed.username is not None
+        ):
+            raise ValueError("Direct endpoint must be an HTTP URL ending in /espectre/v1/request")
         self.endpoint = endpoint
         self.origin = origin
         self.timeout = timeout
-        self._started = time.monotonic()
         self._next_id = 1
         self.events: list[DirectEvent] = []
-        try:
-            self._socket = connect_factory(
-                endpoint,
-                origin=origin,
-                subprotocols=[DIRECT_SUBPROTOCOL],
-                open_timeout=timeout,
-                ping_interval=None,
-                close_timeout=timeout,
-                max_size=DIRECT_MAX_RESPONSE_FRAME_SIZE,
-                proxy=None,
-            )
-        except Exception as exc:
-            raise DirectProtocolError(f"Direct WebSocket handshake failed: {exc}") from exc
-        if self._socket.subprotocol != DIRECT_SUBPROTOCOL:
-            self._socket.close()
-            raise DirectProtocolError(
-                f"Direct subprotocol mismatch: {self._socket.subprotocol!r}"
-            )
+        self._urlopen = urlopen if urlopen_factory is None else urlopen_factory
+        self._authorization: str | None = None
 
     def close(self) -> None:
-        self._socket.close()
+        self._authorization = None
 
     def __enter__(self) -> "DirectClient":
         return self
@@ -383,14 +369,12 @@ class DirectClient:
     def __exit__(self, _type, _value, _traceback) -> None:
         self.close()
 
-    def _decode(self, raw: object) -> dict[str, object]:
-        if not isinstance(raw, str):
-            raise DirectProtocolError("Direct endpoint sent a non-text frame")
-        if len(raw.encode("utf-8")) > DIRECT_MAX_RESPONSE_FRAME_SIZE:
-            raise DirectProtocolError("Direct frame exceeds the size limit")
+    def _decode(self, raw: bytes) -> dict[str, object]:
+        if len(raw) > DIRECT_MAX_RESPONSE_FRAME_SIZE:
+            raise DirectProtocolError("Direct response exceeds the size limit")
         try:
-            envelope = json.loads(raw)
-        except json.JSONDecodeError as exc:
+            envelope = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise DirectProtocolError("Direct endpoint sent invalid JSON") from exc
         if not isinstance(envelope, dict) or envelope.get("v") != DIRECT_VERSION:
             raise DirectProtocolError("Direct endpoint sent an incompatible envelope")
@@ -417,43 +401,58 @@ class DirectClient:
         )
         if len(message.encode("utf-8")) > DIRECT_MAX_REQUEST_FRAME_SIZE:
             raise ValueError("Direct request exceeds the size limit")
-        self._socket.send(message)
-        deadline = time.monotonic() + (self.timeout if timeout is None else timeout)
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise TimeoutError(f"timed out waiting for Direct response to {method}")
-            envelope = self._decode(self._socket.recv(timeout=remaining))
-            envelope_type = envelope.get("type")
-            if envelope_type == "event":
-                name = envelope.get("event")
-                data = envelope.get("data")
-                if not isinstance(name, str) or not name or not isinstance(data, dict):
-                    raise DirectProtocolError("invalid Direct event envelope")
-                self.events.append(DirectEvent(name, data, time.monotonic() - self._started))
-                continue
-            if envelope_type != "response":
-                raise DirectProtocolError("Direct endpoint sent an invalid envelope type")
-            if envelope.get("id") != request_id:
-                raise DirectProtocolError("Direct endpoint sent an unknown response identifier")
-            ok = envelope.get("ok")
-            if not isinstance(ok, bool):
-                raise DirectProtocolError("Direct response is missing its boolean result status")
-            if ok:
-                result = envelope.get("result")
-                if not isinstance(result, dict):
-                    raise DirectProtocolError("Direct success response result must be an object")
-                if "data" in result:
-                    data = result["data"]
-                    if not isinstance(data, dict):
-                        raise DirectProtocolError("Direct query response data must be an object")
-                    return data
-                return result
-            error = envelope.get("error")
-            if not isinstance(error, dict):
-                raise DirectProtocolError("Direct error response is missing its error object")
-            code = error.get("code")
-            error_message = error.get("message")
-            if not isinstance(code, str) or not isinstance(error_message, str):
-                raise DirectProtocolError("Direct error response fields must be strings")
-            raise DirectRequestError(code, error_message)
+        encoded = message.encode("utf-8")
+        headers = {
+            "Accept": "application/json",
+            "Cache-Control": "no-store",
+            "Content-Type": "application/json",
+            "Origin": self.origin,
+        }
+        if method == "stop_raw_stream" and self._authorization is not None:
+            headers["Authorization"] = f"Bearer {self._authorization}"
+        request = Request(self.endpoint, data=encoded, headers=headers, method="POST")
+        response: HttpResponse | None = None
+        try:
+            response = self._urlopen(request, timeout=self.timeout if timeout is None else timeout)
+            status = int(getattr(response, "status", 200))
+            raw = response.read(DIRECT_MAX_RESPONSE_FRAME_SIZE + 1)
+        except HTTPError as exc:
+            detail = exc.read(512).decode("utf-8", errors="replace").strip()
+            raise DirectProtocolError(f"Direct HTTP {exc.code}: {detail or exc.reason}") from exc
+        except (TimeoutError, URLError) as exc:
+            raise DirectProtocolError(f"Direct HTTP request failed: {exc}") from exc
+        finally:
+            if response is not None:
+                response.close()
+        if status != 200:
+            raise DirectProtocolError(f"Direct HTTP returned status {status}")
+        envelope = self._decode(raw)
+        if envelope.get("type") != "response":
+            raise DirectProtocolError("Direct endpoint sent an invalid envelope type")
+        if envelope.get("id") != request_id:
+            raise DirectProtocolError("Direct endpoint sent an unknown response identifier")
+        ok = envelope.get("ok")
+        if not isinstance(ok, bool):
+            raise DirectProtocolError("Direct response is missing its boolean result status")
+        if ok:
+            result = envelope.get("result")
+            if not isinstance(result, dict):
+                raise DirectProtocolError("Direct success response result must be an object")
+            data = result.get("data", result)
+            if not isinstance(data, dict):
+                raise DirectProtocolError("Direct query response data must be an object")
+            if method == "start_raw_stream":
+                session_id = data.get("session_id")
+                if isinstance(session_id, str) and len(session_id) == 32:
+                    self._authorization = session_id
+            elif method == "stop_raw_stream":
+                self._authorization = None
+            return data
+        error = envelope.get("error")
+        if not isinstance(error, dict):
+            raise DirectProtocolError("Direct error response is missing its error object")
+        code = error.get("code")
+        error_message = error.get("message")
+        if not isinstance(code, str) or not isinstance(error_message, str):
+            raise DirectProtocolError("Direct error response fields must be strings")
+        raise DirectRequestError(code, error_message)

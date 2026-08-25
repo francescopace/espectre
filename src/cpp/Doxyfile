@@ -36,7 +36,9 @@ GENERATE_TREEVIEW      = YES
 INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/espectre_core_sdk.h \
                          src/cpp/runtime/espectre_sdk_version.h \
+                         src/cpp/runtime/csi_stream_protocol.h \
                          src/cpp/runtime/runtime_interface.h \
+                         src/cpp/runtime/raw_csi.h \
                          src/cpp/runtime/runtime_events.h \
                          src/cpp/runtime/runtime_snapshot.h \
                          src/cpp/runtime/runtime_capabilities.h \
@@ -46,8 +48,8 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/runtime/csi_traffic_types.h \
                          src/cpp/runtime/espectre_protocol.h \
                          src/cpp/runtime/mqtt_transport.h \
-                         src/cpp/runtime/direct_websocket_protocol.h \
-                         src/cpp/runtime/direct_websocket_service.h \
+                         src/cpp/runtime/direct_http_protocol.h \
+                         src/cpp/runtime/direct_http_service.h \
                          src/cpp/runtime/ota_service.h \
                          src/cpp/runtime/firmware_version.h \
                          src/cpp/runtime/esp_idf/runtime_frontend_controller.h \

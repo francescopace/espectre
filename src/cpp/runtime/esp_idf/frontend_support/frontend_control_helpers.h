@@ -45,6 +45,11 @@ using FrontendWifiConfigCallback =
 using FrontendMqttConfigCallback =
     std::function<bool(const EspectreCommand &command, bool clear, std::string *message)>;
 using FrontendSensingControlCallback = std::function<bool(bool enabled, std::string *message)>;
+using FrontendRawStreamCallback = std::function<bool(const EspectreCommand &command,
+                                                      const struct FrontendCommandContext &context,
+                                                      std::string *code,
+                                                      std::string *message,
+                                                      std::string *data_json)>;
 
 struct FrontendCommandCapabilities {
   bool supports_info{true};
@@ -62,6 +67,7 @@ struct FrontendCommandCapabilities {
   bool supports_recalibrate{false};
   bool supports_ota{false};
   bool supports_peer_discovery{false};
+  bool supports_raw_csi{false};
 };
 
 enum class FrontendCommandChange : uint8_t {
@@ -85,6 +91,10 @@ enum class FrontendCommandOrigin : uint8_t {
 
 struct FrontendCommandContext {
   FrontendCommandOrigin origin{FrontendCommandOrigin::DIRECT};
+  /** Opaque request identity used only to complete deferred Direct responses. */
+  uint64_t connection_token{0U};
+  /** Normalized bearer token supplied by the Direct HTTP transport. */
+  std::string authorization;
 };
 
 struct FrontendCommandResult {
@@ -119,7 +129,8 @@ class FrontendCommandEngine {
                                 FrontendRecalibrateCallback recalibrate_callback = {},
                                 FrontendWifiConfigCallback wifi_config_callback = {},
                                 FrontendMqttConfigCallback mqtt_config_callback = {},
-                                FrontendSensingControlCallback sensing_control_callback = {}) const;
+                                FrontendSensingControlCallback sensing_control_callback = {},
+                                FrontendRawStreamCallback raw_stream_callback = {}) const;
 };
 
 }  // namespace espectre

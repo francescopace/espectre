@@ -135,6 +135,14 @@ Use `--resume` to keep passing results from the chip report and rerun only faile
 python tools/benchmark_firmware.py --chip c3 --resume
 ```
 
+During the raw CSI migration, `--migration-raw-csi` builds both transition frontends once, then alternates five Streamer V7 and Native V8 runs on the same connected board. Every run is at least 60 seconds at fixed 100 pps. Window `1` is tried first; Direct retries with `2` and then `4` only when the control gates pass and throughput alone fails. The JSON artifact records every run and fails on Direct yield below 95%, fewer than 95 fresh records/s, median yield more than two percentage points below Streamer, control p95 above 100 ms, p99 above 250 ms, or a maximum above one second:
+
+```bash
+python tools/benchmark_firmware.py --chip c3 --migration-raw-csi --duration 60
+```
+
+The mode erases and reprovisions Native before each Direct half-pair and requires the same benchmark SSID, optional BSSID/channel pin, AP, host, and physical placement throughout. It does not authorize a chip rollout by itself: heap, stack, start/stop-cycle, recovery, slow-client, and ten-minute soak gates must also pass and be retained with the hardware evidence.
+
 The command writes a partial report when a case fails and returns success only when every selected case passes. It stores normalized Direct samples, transport outcomes, firmware hashes, structured analysis, and a run manifest under `data/untracked/firmware_benchmarks/<run-id>/`; C++ artifacts exclude raw serial output, raw Direct payloads, credentials, device identity, and local addresses. Matter artifacts contain only build-and-flash evidence, while Micro-ESPectre retains its redacted raw serial artifacts. C++ sensing cases wait for five consecutive ready, non-zero Direct diagnostics samples before scoring. Native and ESPHome confirm `internal` CSI traffic, the `ping` source, and the requested detector through production responses. Heap-decline scoring begins 10 seconds into the scored window, device uptime must remain monotonic, Direct transport failure counters must not increase, and sensing-runtime detector timing must be present. Micro-ESPectre retains its serial heartbeat, post-GC heap, GC pause, packet-processing timing, and framing-anomaly analysis. Each report is a snapshot of the Git revision, hardware, environment, and run time recorded in its header; it does not certify later source revisions. Do not edit or reformat generated chip reports separately from a hardware benchmark run.
 
 Expected sample counts tolerate one sample at the scored-window boundary. Direct cadence uses host-monotonic receive times and device uptime; Micro-ESPectre continues to use its device timestamps. Recovered Micro serial framing anomalies remain visible in the report but do not fail an otherwise continuous runtime window; any real gap over the cadence tolerance still fails the case.

@@ -118,4 +118,23 @@ bool EspIdfRuntime::is_calibrating() const {
   return frontend_runtime_shim::state.calibrating;
 }
 
+bool EspIdfRuntime::start_raw_collection(raw_csi_packet_callback_t, void *) {
+  operation_state_.store(RuntimeOperationState::RAW_COLLECTION, std::memory_order_release);
+  snapshot_.ready_to_publish = false;
+  frontend_runtime_shim::state.snapshot = snapshot_;
+  return capabilities_.supports_raw_csi;
+}
+
+bool EspIdfRuntime::stop_raw_collection(RawCsiStopReason) {
+  const bool was_active = operation_state() == RuntimeOperationState::RAW_COLLECTION;
+  operation_state_.store(RuntimeOperationState::SENSING, std::memory_order_release);
+  snapshot_.ready_to_publish = frontend_runtime_shim::state.services_armed;
+  frontend_runtime_shim::state.snapshot = snapshot_;
+  return was_active;
+}
+
+RuntimeOperationState EspIdfRuntime::operation_state() const {
+  return operation_state_.load(std::memory_order_acquire);
+}
+
 }  // namespace espectre

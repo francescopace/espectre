@@ -21,8 +21,8 @@
 #include "native_mdns_bootstrap_responder.h"
 #include "recovery_button_service.h"
 #include "device_config_store.h"
-#include "direct_websocket_protocol.h"
-#include "direct_websocket_service_esp_idf.h"
+#include "direct_http_protocol.h"
+#include "direct_http_service_esp_idf.h"
 #include "nvs_helpers.h"
 #include "device_identity.h"
 #include "espectre_banner.h"
@@ -72,12 +72,13 @@ espectre::MdnsTxtRecords native_mdns_txt(const espectre::EspectreDeviceConfig &c
       {"device_id", espectre::format_espectre_device_id(config.device_id)},
       {"name", config.device_label},
       {"frontend", "native"},
-      {"txtvers", "1"},
+      {"txtvers", espectre::ESPECTRE_DIRECT_DISCOVERY_TXT_VERSION},
       {"protovers", "1"},
-      {"path", espectre::ESPECTRE_DIRECT_WEBSOCKET_ENDPOINT},
+      {"transport", espectre::ESPECTRE_DIRECT_HTTP_TRANSPORT},
+      {"path", espectre::ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT},
+      {"events", espectre::ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT},
       {"firmware", espectre::espectre_firmware_version()},
       {"chip", CONFIG_IDF_TARGET},
-      {"tls", "0"},
       {"capabilities", native_capabilities()},
   };
 }
@@ -92,12 +93,13 @@ espectre::PeerDiscoveryCandidate native_peer_candidate(
   candidate.device_id = device_id;
   candidate.name = instance_name;
   candidate.frontend = "native";
-  candidate.txt_version = "1";
+  candidate.txt_version = espectre::ESPECTRE_DIRECT_DISCOVERY_TXT_VERSION;
   candidate.protocol_version = "1";
-  candidate.path = espectre::ESPECTRE_DIRECT_WEBSOCKET_ENDPOINT;
+  candidate.transport = espectre::ESPECTRE_DIRECT_HTTP_TRANSPORT;
+  candidate.path = espectre::ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT;
+  candidate.events = espectre::ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT;
   candidate.firmware = espectre::espectre_firmware_version();
   candidate.chip = CONFIG_IDF_TARGET;
-  candidate.tls = "0";
   candidate.capabilities = native_capabilities();
   candidate.port = 80U;
   return candidate;
@@ -290,7 +292,7 @@ extern "C" void app_main() {
   }
 
   static espectre::EspIdfMqttTransport mqtt_transport;
-  static espectre::EspIdfDirectWebSocketService direct_service;
+  static espectre::EspIdfDirectHttpService direct_service;
   static espectre::MdnsDiscoveryService mdns_discovery;
   static espectre::NativeMdnsBootstrapResponder mdns_bootstrap_responder;
   static espectre::EspIdfPeerDiscoveryService peer_discovery;

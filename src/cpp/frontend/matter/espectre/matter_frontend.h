@@ -11,10 +11,10 @@
 
 #include <memory>
 
-#include "direct_websocket_service.h"
+#include "direct_http_service.h"
 #include "matter_bindings.h"
 #include "runtime_events.h"
-#include "runtime_direct_websocket_bridge.h"
+#include "runtime_direct_http_bridge.h"
 #include "runtime_frontend_controller.h"
 
 namespace espectre {
@@ -23,7 +23,7 @@ class MatterFrontend : public IRuntimeListener {
  public:
   MatterFrontend(IMatterBindings *bindings,
                  uint16_t endpoint_id,
-                 IDirectWebSocketService *direct_service = nullptr);
+                 IDirectHttpService *direct_service = nullptr);
 
   void set_runtime_config(const RuntimeConfig &config);
   void set_runtime_services_armed(bool armed);
@@ -53,8 +53,8 @@ class MatterFrontend : public IRuntimeListener {
   IMatterBindings *bindings_;
   uint16_t endpoint_id_;
   RuntimeFrontendController runtime_;
-  IDirectWebSocketService *direct_service_{nullptr};
-  RuntimeDirectWebSocketBridge direct_bridge_;
+  IDirectHttpService *direct_service_{nullptr};
+  RuntimeDirectHttpBridge direct_bridge_;
 };
 
 }  // namespace espectre

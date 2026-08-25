@@ -17,6 +17,7 @@
 #include "runtime_snapshot.h"
 #include "runtime_sensing_schema.h"
 #include "csi_traffic_types.h"
+#include "raw_csi.h"
 
 /**
  * @file runtime_interface.h
@@ -236,6 +237,28 @@ class IEspectreRuntime {
   virtual bool trigger_recalibration() = 0;
   /** True while startup calibration is running and detection is not yet valid. */
   virtual bool is_calibrating() const = 0;
+
+  /**
+   * Enter transient raw collection while preserving persisted sensing config.
+   *
+   * Defaulted so existing external runtime implementations remain source
+   * compatible. The callback runs in the CSI capture context and must remain
+   * bounded and allocation-free.
+   */
+  virtual bool start_raw_collection(raw_csi_packet_callback_t callback, void *context) {
+    (void) callback;
+    (void) context;
+    return false;
+  }
+  /** Leave raw collection and restore the previous sensing lifecycle. */
+  virtual bool stop_raw_collection(RawCsiStopReason reason) {
+    (void) reason;
+    return false;
+  }
+  /** Current transient operation state. */
+  virtual RuntimeOperationState operation_state() const {
+    return RuntimeOperationState::SENSING;
+  }
 
   /** Current sensing state. Cheap enough to poll from your loop. */
   virtual RuntimeSnapshot get_snapshot() const = 0;

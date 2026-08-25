@@ -4,7 +4,7 @@
 
 | Milestone | Timing | Commitment | Product outcome |
 | --- | --- | --- | --- |
-| **v3.0.0-rc1** | End of August 2026 | Planned | Remove first-party BLE, add Direct WebSocket, freeze the v3 contract, and validate release artifacts |
+| **v3.0.0-rc1** | End of August 2026 | Planned | Remove first-party BLE, add local Direct HTTP/SSE, freeze the v3 contract, and validate release artifacts |
 | **v3.0.0-rc2** | After `rc1` findings | Planned | Resolve targeted findings without widening the frozen v3 baseline |
 | **v3.0.0** | After `rc2` validation | Planned | Ship the stable shared sensing platform and supported firmware frontends |
 | **v3.1.0** | After v3.0.x triage | Planned | Expand Matter support and validate it across more controllers |
@@ -21,12 +21,14 @@
 
 ### Release Scope
 
-The candidate covers the shared sensing architecture, runtime and protocol contracts, supported firmware frontends, release artifacts, and embeddable SDK surface intended for v3.0.0. Before the candidate is published, standard Improv Serial provisioning and the versioned local Direct WebSocket API replace the first-party Native BLE surface across firmware, SDK, portal, tests, and current documentation. Other product capabilities move to a later minor release unless they are required to correct a release blocker.
+The candidate covers the shared sensing architecture, runtime and protocol contracts, supported firmware frontends, release artifacts, and embeddable SDK surface intended for v3.0.0. Before the candidate is published, standard Improv Serial provisioning and the versioned local Direct HTTP API replace the first-party Native BLE surface across firmware, SDK, portal, tests, and current documentation. JSON commands use HTTP POST, processed events use SSE over streaming fetch, and Native C3 raw CSI uses a bearer-bound binary HTTP stream. Other product capabilities move to a later minor release unless they are required to correct a release blocker.
 
 Completed implementation and detector experiments live in [CHANGELOG.md](CHANGELOG.md) and [FEATURES.md](FEATURES.md).
 
 **Release tasks**:
 
+- [ ] Update HA Dashboard and screenshot per calibration
+- [ ] fetch bssid from device
 - [ ] Benchmark for all chips
 - [ ] Review code, docs, site, ga4
 
@@ -124,7 +126,9 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 **Product boundary**: local sensing and node coordination must not depend on the managed service. The web layer supports local, self-hosted, and managed deployment profiles. Raw CSI and unnecessary radio identifiers remain outside the default service boundary, and cooperative nodes exchange only the minimum derived state required by the supported coordination contract.
 
-**Provider feasibility**: before locking the deployment architecture, evaluate low-cost MQTT deployment candidates, including self-hosted Eclipse Mosquitto, EMQX Cloud, HiveMQ Cloud, and AWS IoT Core, and assess full IoT platforms such as ESP RainMaker separately. Record a promotion or rejection decision based on representative fleet cost, ESPectre Protocol compatibility, TLS and per-device credentials, tenant isolation, regional availability, operational burden, licensing, portability, and migration risk.
+**Relay boundary**: add an optional, protocol-documented, and self-hostable WebSocket relay. A device opens an authenticated outbound WSS connection, and the browser opens WSS to the same relay. The relay carries control, status, and derived sensing only, never raw CSI. Local Direct HTTP remains the default and must work without an account, relay, or Internet connection. `relay.espectre.dev` is the managed implementation, not a distinct protocol.
+
+**Relay gates**: define per-device pairing and revocable credentials, tenant isolation, authorization, origin policy, bounded queues, heartbeat, reconnect and resume behavior, rate limits, abuse controls, observability, regional and retention policy, threat model, and credential recovery before enabling the portal's Relay mode. Validate clean failover without causing devices to expose inbound Internet ports or making local sensing depend on relay availability.
 
 ### Delivery Sequence
 
@@ -132,8 +136,8 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 | --- | --- | --- |
 | **1. Coordination contract** | Node identity, room membership, capability discovery, peer discovery options, trust boundaries, failure behavior, and the minimum derived state shared between nodes | The architecture selects or rejects same-Wi-Fi, ESP-NOW, or other candidate mechanisms using measured latency, range, interoperability, airtime, and CSI-quality evidence |
 | **2. Cooperative node plane** | Supported local discovery, coordinated traffic generation, derived event exchange, node health, and degraded operation when peers disappear | The supported coordination path improves multi-node operation or reduces airtime without weakening sensing quality, latency, standalone operation, or recovery |
-| **3. Web foundation** | Tenant, location, room, device ownership, roles, accounts, initial social login, deployment profiles and open-source boundaries, privacy, threat models, retention, consent, and cookie posture | Identity and deployment boundaries are documented, testable, and consistent across supported profiles |
-| **4. Product plane** | Physical-presence claim through supported local provisioning, derived telemetry and status ingestion, device inventory, remote supported settings, signed artifact storage, OTA workflows, room views, history with retention controls, and email alerts | A user can onboard, observe, configure, and update a multi-node deployment, understand current and historical state, and configure the first alert path without exporting raw CSI |
+| **3. Relay foundation** | Self-hostable WSS protocol, outbound device client, browser client, pairing, per-device credentials, revocation, tenant isolation, bounded queues, heartbeat, reconnect, rate limits, and threat model | Device and browser reconnect safely through authenticated WSS, revoked credentials stop working, tenants cannot cross boundaries, and local Direct HTTP remains independent |
+| **4. Product plane** | `relay.espectre.dev`, tenant, location, room, device ownership, roles, accounts, derived telemetry and status ingestion, supported remote settings, signed artifact storage, OTA workflows, room views, history with retention controls, and email alerts | A user can onboard, observe, configure, and update a multi-node deployment without exporting raw CSI or requiring the managed relay for local operation |
 | **5. Launch gate** | Security, abuse resistance, privacy, tenant isolation, resilience, backup, recovery, deployment, self-hosting, and service responsibilities | Operational and security reviews pass, and every deployment profile has complete operator documentation |
 
 **Exit criteria**: all five stages meet their completion conditions, cooperative sensing remains functional without the web layer, the privacy boundary is enforced by default, and local or self-hosted operation does not depend on the managed service.

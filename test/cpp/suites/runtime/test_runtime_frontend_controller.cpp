@@ -243,6 +243,23 @@ void test_runtime_frontend_controller_recalibration_requires_capability_and_runt
   TEST_ASSERT_FALSE(controller.is_calibrating());
 }
 
+void test_runtime_frontend_controller_refreshes_snapshot_across_raw_collection(void) {
+  RuntimeFrontendController controller;
+  DummyRuntimeListener listener;
+  frontend_runtime_shim::state.capabilities.supports_raw_csi = true;
+  frontend_runtime_shim::state.snapshot.ready_to_publish = true;
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+
+  TEST_ASSERT_TRUE(controller.start_raw_collection(
+      [](void *, const RawCsiPacketView &) { return true; }, nullptr));
+  TEST_ASSERT_EQUAL(RuntimeOperationState::RAW_COLLECTION, controller.operation_state());
+  TEST_ASSERT_FALSE(controller.snapshot().ready_to_publish);
+
+  TEST_ASSERT_TRUE(controller.stop_raw_collection());
+  TEST_ASSERT_EQUAL(RuntimeOperationState::SENSING, controller.operation_state());
+  TEST_ASSERT_TRUE(controller.snapshot().ready_to_publish);
+}
+
 void test_runtime_frontend_controller_caches_and_forwards_listener_events(void) {
   RuntimeFrontendController controller;
   DummyRuntimeListener listener;
@@ -332,6 +349,7 @@ int process(void) {
   RUN_TEST(test_runtime_frontend_controller_motion_hits_runtime_updates_config);
   RUN_TEST(test_runtime_frontend_controller_traffic_runtime_updates_config);
   RUN_TEST(test_runtime_frontend_controller_recalibration_requires_capability_and_runtime);
+  RUN_TEST(test_runtime_frontend_controller_refreshes_snapshot_across_raw_collection);
   RUN_TEST(test_runtime_frontend_controller_caches_and_forwards_listener_events);
   RUN_TEST(test_runtime_frontend_controller_defers_shutdown_requested_by_listener);
   RUN_TEST(test_runtime_frontend_controller_switches_detector_and_resets_threshold);

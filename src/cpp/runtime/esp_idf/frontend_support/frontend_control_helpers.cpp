@@ -106,7 +106,8 @@ FrontendCommandResult FrontendCommandEngine::execute(
     FrontendRecalibrateCallback recalibrate_callback,
     FrontendWifiConfigCallback wifi_config_callback,
     FrontendMqttConfigCallback mqtt_config_callback,
-    FrontendSensingControlCallback sensing_control_callback) const {
+    FrontendSensingControlCallback sensing_control_callback,
+    FrontendRawStreamCallback raw_stream_callback) const {
   FrontendCommandResult result;
   result.handled = true;
   result.command = command;
@@ -136,8 +137,9 @@ FrontendCommandResult FrontendCommandEngine::execute(
   if (context.origin == FrontendCommandOrigin::MQTT &&
       (command.command == "set_wifi_config" || command.command == "clear_wifi_config" ||
        command.command == "set_mqtt_config" || command.command == "clear_mqtt_config" ||
-       command.command == "discover_peers")) {
-    return reject("forbidden", "command is local to Direct WebSocket");
+       command.command == "discover_peers" || command.command == "start_raw_stream" ||
+       command.command == "stop_raw_stream")) {
+    return reject("forbidden", "command is local to Direct HTTP");
   }
 
   if (command.command == "capabilities") return accept_read("capabilities returned");
@@ -156,6 +158,29 @@ FrontendCommandResult FrontendCommandEngine::execute(
   if (command.command == "diagnostics") {
     return capabilities.supports_diagnostics ? accept_read("diagnostics returned")
                                              : reject("unsupported", "unsupported command");
+  }
+
+  if (command.command == "start_raw_stream" || command.command == "stop_raw_stream") {
+    if (!capabilities.supports_raw_csi || !raw_stream_callback ||
+        context.origin != FrontendCommandOrigin::DIRECT ||
+        (command.command == "stop_raw_stream" && context.authorization.empty())) {
+      return reject("unsupported", "raw CSI collection is unavailable");
+    }
+    result.accepted = raw_stream_callback(
+        command, context, &result.code, &result.message, &result.data_json);
+    if (result.code.empty()) {
+      result.code = result.accepted ? "ok" : "unavailable";
+    }
+    if (result.message.empty()) {
+      result.message = result.accepted
+                           ? (command.command == "start_raw_stream" ? "raw CSI collection started"
+                                                                    : "raw CSI collection stopped")
+                           : "raw CSI collection rejected";
+    }
+    if (result.accepted) {
+      result.changes = FrontendCommandChange::STATUS;
+    }
+    return result;
   }
 
   if (command.command == "set_device_label") {

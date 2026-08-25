@@ -1,8 +1,9 @@
 # ADR: replace Native BLE with Improv Serial and Direct WebSocket
 
-- Status: Accepted
+- Status: Superseded
 - Date: 2026-08-23
 - Supersedes: `2026-08-17-keep-native-ble-as-setup-recovery.md`
+- Superseded by: `2026-08-25-replace-local-direct-websocket-with-http.md`
 
 ## Context
 

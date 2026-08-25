@@ -82,7 +82,7 @@
  *   fill the bounded CSI mailbox, dropping incoming frames. Queue network I/O,
  *   NVS writes, and other blocking work for another task.
  * - Call `set_*_runtime()` only from the owner task. The shipped MQTT, Direct
- *   WebSocket, and OTA adapters queue stack events and deliver their application callbacks
+ *   HTTP, and OTA adapters queue stack events and deliver their application callbacks
  *   from the frontend loop, so Native follows this rule without external locks.
  * - Do not drive the controller from inside `on_runtime_fault()` beyond
  *   `shutdown()`.
@@ -116,12 +116,13 @@
 #include "runtime/runtime_diagnostics.h"
 #include "runtime/runtime_events.h"
 #include "runtime/runtime_interface.h"
+#include "runtime/raw_csi.h"
 #include "runtime/runtime_sensing_schema.h"
 #include "runtime/runtime_snapshot.h"
 
 // Boundary interfaces you implement to reach your own transports.
 #include "runtime/espectre_protocol.h"
-#include "runtime/direct_websocket_service.h"
+#include "runtime/direct_http_service.h"
 #include "runtime/mqtt_transport.h"
 #include "runtime/ota_service.h"
 

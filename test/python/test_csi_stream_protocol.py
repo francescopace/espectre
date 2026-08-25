@@ -21,6 +21,7 @@ from tools.lib.csi_io import (
     UdpPacingSender,
     CSICollector,
     CSIReceiver,
+    DirectRawCSIReceiver,
     CSI_HEADER_STRUCT,
     DEFAULT_PACING_INTERVAL_SECONDS,
     DEFAULT_PACING_PAYLOAD,
@@ -28,6 +29,9 @@ from tools.lib.csi_io import (
     STREAM_FLAG_WIFI_RX_START_TS_NS_VALID,
     STREAM_FLAG_WIFI_RX_TS_VALID,
     STREAM_VERSION,
+    STREAM_VERSION_V8,
+    RAW_CSI_HTTP_FRAME_STRUCT,
+    RAW_CSI_RESPONSE_MAGIC,
     build_pacing_datagram,
     load_npz_arrays,
     load_npz_as_packets,
@@ -138,13 +142,14 @@ def build_packet(
     phy_mode=2,
     ltf_type=2,
     channel_width=1,
+    version=STREAM_VERSION,
 ):
     payload_values = payload if payload is not None else [1, 2, 3, 4]
     payload = np.array(payload_values, dtype=np.int8).tobytes()
     num_sc = len(payload) // 2
     header = CSI_HEADER_STRUCT.pack(
         MAGIC_STREAM,
-        STREAM_VERSION,
+        version,
         CSI_HEADER_STRUCT.size,
         chip_code,
         flags,
@@ -193,6 +198,197 @@ def test_parse_packet_accepts_unified_stream_header():
     assert packet.channel_width == '20'
     np.testing.assert_array_equal(packet.iq_raw, np.array([10, 20, -30, 40], dtype=np.int8))
     np.testing.assert_allclose(packet.iq_complex, np.array([20 + 10j, 40 - 30j], dtype=np.complex64))
+
+
+def test_parse_packet_accepts_v8_transport_neutral_counters_byte_for_byte():
+    receiver = CSIReceiver(bind_host="127.0.0.1", derive_complex=False)
+    record = build_packet(
+        version=STREAM_VERSION_V8,
+        tx_backpressure_total=11,
+        stream_fresh_total=22,
+        pacing_rx_total=33,
+        payload=[1, -2, 3, -4],
+    )
+
+    packet = receiver._parse_packet(record)
+
+    assert packet is not None
+    assert packet.record_version == STREAM_VERSION_V8
+    assert packet.transport_backpressure_total == 11
+    assert packet.fresh_record_total == 22
+    assert packet.request_accepted_total == 33
+    assert record[: CSI_HEADER_STRUCT.size] == CSI_HEADER_STRUCT.pack(
+        MAGIC_STREAM,
+        STREAM_VERSION_V8,
+        64,
+        6,
+        0,
+        1,
+        2,
+        4,
+        0x112233445566,
+        123456,
+        0,
+        0,
+        6,
+        -42,
+        -96,
+        11,
+        22,
+        33,
+        2,
+        2,
+        1,
+    )
+
+
+def test_direct_raw_receiver_negotiates_v8_and_feeds_shared_packet_parser():
+    session_id = bytes.fromhex("00112233445566778899aabbccddeeff")
+
+    class FakeControl:
+        def __init__(self, endpoint, **_kwargs):
+            self.endpoint = endpoint
+            self.requests = []
+            self.closed = False
+
+        def request(self, method, params=None, **_kwargs):
+            self.requests.append((method, params))
+            if method == "capabilities":
+                return {
+                    "features": {"raw_csi": True},
+                    "raw_csi": {
+                        "transport": "http",
+                        "record_version": 8,
+                        "frame_prefix_bytes": 76,
+                    },
+                }
+            if method == "info":
+                return {
+                    "device_id": "112233445566",
+                    "frontend": "native",
+                    "firmware_version": "test",
+                    "chip": "esp32c3",
+                }
+            if method == "start_raw_stream":
+                return {"session_id": session_id.hex()}
+            if method == "stop_raw_stream":
+                return {"code": "ok"}
+            raise AssertionError(method)
+
+        def close(self):
+            self.closed = True
+
+    class FakeRawResponse:
+        status = 200
+
+        def __init__(self, payload):
+            self.chunks = [payload[:17], payload[17:93], payload[93:]]
+            self.closed = False
+
+        def read1(self, _size):
+            return self.chunks.pop(0)
+
+        def close(self):
+            self.closed = True
+
+    class FakeRawConnection:
+        def __init__(self):
+            self.closed = False
+            self.request_args = None
+            record = build_packet(
+                version=STREAM_VERSION_V8,
+                flags=1 << 3,
+                tx_backpressure_total=2,
+                stream_fresh_total=1,
+                pacing_rx_total=1,
+            )
+            prefix = RAW_CSI_HTTP_FRAME_STRUCT.pack(
+                RAW_CSI_RESPONSE_MAGIC,
+                1,
+                0,
+                RAW_CSI_HTTP_FRAME_STRUCT.size,
+                session_id,
+                1,
+                len(record),
+                0,
+                1,
+                0,
+                0,
+                0,
+                2,
+            )
+            self.response = FakeRawResponse(prefix + record)
+
+        def request(self, method, path, headers):
+            self.request_args = (method, path, headers)
+
+        def getresponse(self):
+            return self.response
+
+        def close(self):
+            self.closed = True
+
+    control = None
+    raw = FakeRawConnection()
+
+    def control_factory(*args, **kwargs):
+        nonlocal control
+        control = FakeControl(*args, **kwargs)
+        return control
+
+    receiver = DirectRawCSIReceiver(
+        "192.168.1.23",
+        control_client_factory=control_factory,
+        raw_connection_factory=lambda *_args, **_kwargs: raw,
+        derive_complex=False,
+    )
+    observed = []
+    receiver.add_callback(observed.append)
+
+    receiver._open()
+    receiver._raw_buffer.extend(receiver._read_raw_chunk())
+    receiver._consume_raw_frames()
+    assert observed == []
+    receiver._raw_buffer.extend(receiver._read_raw_chunk())
+    receiver._consume_raw_frames()
+    receiver._raw_buffer.extend(receiver._read_raw_chunk())
+    receiver._consume_raw_frames()
+    receiver.stop()
+
+    assert len(observed) == 1
+    assert observed[0].record_version == STREAM_VERSION_V8
+    assert observed[0].transport == "http"
+    assert observed[0].source_ip == "192.168.1.23"
+    assert raw.request_args[0:2] == ("GET", "/espectre/v1/csi")
+    assert raw.request_args[2]["Authorization"] == f"Bearer {session_id.hex()}"
+    assert [request[0] for request in control.requests] == [
+        "capabilities",
+        "info",
+        "start_raw_stream",
+        "stop_raw_stream",
+    ]
+
+
+def test_direct_raw_receiver_rejects_capability_mismatch_without_transport_fallback():
+    class IncompatibleControl:
+        def __init__(self, *_args, **_kwargs):
+            self.closed = False
+
+        def request(self, method, *_args, **_kwargs):
+            assert method == "capabilities"
+            return {"features": {"raw_csi": False}}
+
+        def close(self):
+            self.closed = True
+
+    receiver = DirectRawCSIReceiver(
+        "192.168.1.24",
+        control_client_factory=IncompatibleControl,
+    )
+
+    with pytest.raises(RuntimeError, match="does not advertise"):
+        receiver._open()
+    assert receiver._control is None
 
 
 def test_parse_packet_reads_phy_metadata():
@@ -1006,7 +1202,12 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
         ),
     ]
 
-    collector = CSICollector(label='static_presence', contributor='tester', bind_host='127.0.0.1')
+    collector = CSICollector(
+        label='static_presence',
+        contributor='tester',
+        bind_host='127.0.0.1',
+        target_pps=100,
+    )
     filepath = collector.save_sample(packets)
 
     assert filepath is not None
@@ -1018,6 +1219,7 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
     assert int(data['num_subcarriers']) == 2
     assert str(data['format_version']) == '1.2'
     assert int(data['device_id']) == 0xABCDEF
+    assert int(data['csi_target_pps']) == 100
     np.testing.assert_array_equal(data['stream_seq_num'], np.array([100, 101], dtype=np.uint32))
     np.testing.assert_array_equal(data['phy_mode'], np.array(['ht', 'ht']))
     np.testing.assert_array_equal(data['ltf_type'], np.array(['ht-ltf', 'ht-ltf']))
@@ -1031,6 +1233,7 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
     assert info['files']['static_presence'][0]['filename'] == filepath.name
     assert info['files']['static_presence'][0]['device_id'] == '0000000000abcdef'
     assert info['files']['static_presence'][0]['description'] == 'HT20 static presence sample'
+    assert info['files']['static_presence'][0]['nominal_packet_rate'] == 100
     assert 'dev0000000000abcdef' in filepath.name
 
 

@@ -25,6 +25,7 @@
 #include "csi_format.h"
 #include "pending_event.h"
 #include "pending_queue.h"
+#include "raw_csi.h"
 #include "runtime_sensing_schema.h"
 #include "temporal_csi_sampler.h"
 #include "wifi_csi_interface.h"
@@ -183,6 +184,14 @@ class CsiPipeline {
     packet_interceptor_ = interceptor;
     packet_interceptor_context_ = context;
   }
+
+  /** Route normalized capture directly to a bounded raw consumer. */
+  bool start_raw_capture(raw_csi_packet_callback_t callback, void *context = nullptr);
+  /** Stop the pre-sampler raw branch and clear all transient capture state. */
+  void stop_raw_capture();
+  bool raw_capture_active() const {
+    return raw_packet_callback_.load(std::memory_order_acquire) != nullptr;
+  }
   
   /**
    * Check if CSI is currently enabled
@@ -319,6 +328,8 @@ class CsiPipeline {
   static constexpr size_t kPendingCsiFrameCapacity = 8U;
   PendingQueue<PendingCsiFrame, kPendingCsiFrameCapacity> pending_frames_;
   std::atomic<uint64_t> pending_frame_drops_{0U};
+  std::atomic<raw_csi_packet_callback_t> raw_packet_callback_{nullptr};
+  std::atomic<void *> raw_packet_context_{nullptr};
   // Notifications are produced while the owning loop evaluates detector state
   // and are consumed after the pending CSI batch has been drained.
   PendingEvent<MotionState> motion_state_event_;

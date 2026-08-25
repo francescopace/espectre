@@ -8,7 +8,7 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include "streamer_frontend.h"
-#include "direct_websocket_service_esp_idf.h"
+#include "direct_http_service_esp_idf.h"
 
 #include <esp_log.h>
 #include "freertos/FreeRTOS.h"
@@ -28,7 +28,7 @@ TickType_t clamp_delay_to_tick_(uint32_t delay_ms) {
 extern "C" void app_main() {
   espectre::configure_runtime_log_levels();
   espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });
-  static espectre::EspIdfDirectWebSocketService direct_service;
+  static espectre::EspIdfDirectHttpService direct_service;
   static espectre::StreamerFrontend frontend(&direct_service);
   if (!frontend.setup()) {
     return;

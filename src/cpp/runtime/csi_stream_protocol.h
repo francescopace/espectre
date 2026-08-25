@@ -17,7 +17,8 @@ namespace espectre {
 enum class StreamChipType : uint8_t {
   UNKNOWN = 0,
   ESP32 = 1,
-  RESERVED_LEGACY_S2 = 2,
+  S2 = 2,
+  RESERVED_LEGACY_S2 = S2,
   S3 = 3,
   C3 = 4,
   C5 = 5,
@@ -62,7 +63,11 @@ enum class StreamChannelWidth : uint8_t {
 };
 
 static constexpr uint16_t STREAM_MAGIC = 0x4353U;
-static constexpr uint8_t STREAM_VERSION = 7U;
+static constexpr uint8_t STREAM_VERSION_V7 = 7U;
+static constexpr uint8_t STREAM_VERSION_V8 = 8U;
+// The dedicated Streamer frontend remains the unchanged V7 migration
+// baseline. Native Direct raw collection emits V8 records instead.
+static constexpr uint8_t STREAM_VERSION = STREAM_VERSION_V7;
 
 #pragma pack(push, 1)
 struct CsiStreamHeaderV7 {
@@ -92,9 +97,40 @@ struct CsiStreamHeaderV7 {
   uint8_t ltf_type;
   uint8_t channel_width;
 };
+
+/** Transport-neutral raw CSI record emitted by Native Direct collection. */
+struct CsiStreamHeaderV8 {
+  uint16_t magic;
+  uint8_t version;
+  uint8_t header_len;
+
+  uint8_t chip;
+  uint8_t flags;
+  uint32_t seq_num;
+  uint16_t num_subcarriers;
+  uint16_t csi_len_bytes;
+
+  uint64_t device_id;
+  /** Monotonic device time captured with the CSI sample. */
+  uint64_t device_ticks_us;
+  uint32_t wifi_rx_ts_us;
+  uint64_t wifi_rx_start_ts_ns;
+
+  uint8_t channel;
+  int8_t rssi_dbm;
+  int8_t noise_floor_dbm;
+  uint64_t transport_backpressure_total;
+  uint32_t fresh_record_total;
+  uint32_t request_accepted_total;
+
+  uint8_t phy_mode;
+  uint8_t ltf_type;
+  uint8_t channel_width;
+};
 #pragma pack(pop)
 
 static_assert(sizeof(CsiStreamHeaderV7) == 64U, "CSI stream header size must remain stable");
+static_assert(sizeof(CsiStreamHeaderV8) == 64U, "CSI V8 stream header size must remain stable");
 
 static constexpr size_t STREAM_MAX_CSI_LEN_BYTES = 512U;
 static constexpr size_t STREAM_MAX_PACKET_BYTES = sizeof(CsiStreamHeaderV7) + STREAM_MAX_CSI_LEN_BYTES;

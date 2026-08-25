@@ -43,6 +43,7 @@ class DiscoveredDevice:
     transport: str
     endpoint: str
     protocol: str
+    events_endpoint: str | None = None
     firmware: str | None = None
     capabilities: tuple[str, ...] = ()
     metadata: tuple[tuple[str, str], ...] = ()
@@ -53,7 +54,7 @@ class DiscoveredDevice:
 
     @property
     def target_port(self) -> int:
-        """Return the Streamer pacing port, not the Direct WebSocket port."""
+        """Return the Streamer pacing port, not the Direct HTTP port."""
         if self.frontend != "streamer":
             return self.port
         return _parse_optional_port(dict(self.metadata).get("traffic_port")) or self.port
@@ -115,8 +116,9 @@ def _parse_record(service_type: str, service_name: str, info) -> DiscoveredDevic
     addresses = info.parsed_addresses(IPVersion.V4Only)
     parsed_device_id = _parse_device_id(_decode_txt(info.properties, "device_id"))
     frontend = _decode_txt(info.properties, "frontend")
+    transport = _decode_txt(info.properties, "transport")
     path = _decode_txt(info.properties, "path")
-    tls = _decode_txt(info.properties, "tls") or "0"
+    events = _decode_txt(info.properties, "events")
     txtvers = _decode_txt(info.properties, "txtvers")
     protovers = _decode_txt(info.properties, "protovers")
     port = int(info.port)
@@ -125,20 +127,17 @@ def _parse_record(service_type: str, service_name: str, info) -> DiscoveredDevic
         or not addresses
         or parsed_device_id is None
         or frontend not in SUPPORTED_DISCOVERY_FRONTENDS
+        or transport != "http"
         or not 1 <= port <= 65535
-        or not path
-        or not path.startswith("/")
-        or " " in path
-        or tls not in {"0", "1"}
-        or txtvers != "1"
+        or path != "/espectre/v1/request"
+        or events != "/espectre/v1/events"
+        or txtvers != "2"
         or protovers != "1"
     ):
         return None
 
     device_id, device_id_text = parsed_device_id
-    transport = "wss" if tls == "1" else "ws"
-    default_port = 443 if transport == "wss" else 80
-    authority = addresses[0] if port == default_port else f"{addresses[0]}:{port}"
+    authority = addresses[0] if port == 80 else f"{addresses[0]}:{port}"
     traffic_port = _parse_optional_port(_decode_txt(info.properties, "traffic_port"))
     if frontend == "streamer" and traffic_port is None:
         return None
@@ -160,8 +159,9 @@ def _parse_record(service_type: str, service_name: str, info) -> DiscoveredDevic
         ip_address=addresses[0],
         port=port,
         transport=transport,
-        endpoint=f"{transport}://{authority}{path}",
+        endpoint=f"http://{authority}{path}",
         protocol=protovers,
+        events_endpoint=f"http://{authority}{events}",
         firmware=_decode_txt(info.properties, "firmware"),
         capabilities=capabilities,
         metadata=metadata,
