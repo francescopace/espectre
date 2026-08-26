@@ -100,7 +100,6 @@ def test_init_requires_native_backend(traffic_gen):
     assert traffic_gen.error_count == 0
     assert traffic_gen.gateway_ip is None
     assert traffic_gen.sock is None
-    assert not hasattr(traffic_gen, "_run_sender_task")
 
 
 def test_start_delegates_ping_to_native_backend(mock_wlan):

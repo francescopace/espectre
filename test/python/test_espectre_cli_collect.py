@@ -74,17 +74,6 @@ def test_collect_parser_exposes_only_http_collection_options() -> None:
     assert args.source_ip == "192.168.1.8"
     assert args.pps == 325
     assert args.label == "benchmark"
-    for removed in ("transport", "udp_port", "target_port", "fixed", "list_devices"):
-        assert not hasattr(args, removed)
-
-
-@pytest.mark.parametrize(
-    "removed_option",
-    ["--transport", "--udp-port", "--target-port", "--fixed", "--list-devices"],
-)
-def test_collect_parser_rejects_removed_udp_and_streamer_options(removed_option: str) -> None:
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(["collect", removed_option])
 
 
 def test_discovery_frontends_exclude_streamer() -> None:

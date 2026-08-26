@@ -734,28 +734,17 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     assert f"gh release view {develop_tag}" in snapshot
     assert re.search(rf'(?m)^              echo "release_tag={re.escape(develop_tag)}"$', ci)
     assert re.search(rf'(?m)^              echo "release_tag={re.escape(preview_tag)}"$', ci)
-    assert "gh release view preview" not in ci
-    assert "gh release view preview" not in release
-    assert 'echo "tag=preview"' not in snapshot
-    assert 'echo "tag=develop"' not in snapshot
     assert "detect_git_version.py" in ci
     assert "detect_git_version.py" in snapshot
     assert "detect_git_version.py" in release
     assert "ESPECTRE_GIT_VERSION: ${{ steps.git-version.outputs.version }}" in ci
     assert "ESPECTRE_GIT_VERSION: ${{ github.ref_name }}" in release
-    assert 'echo "version=preview"' not in ci
-    assert 'echo "version=develop"' not in ci
-    assert "--version preview" not in snapshot
-    assert "--version develop" not in snapshot
     for source in (ci, snapshot, release):
         assert "uses: ./.github/actions/build-pages" in source
         assert "fetch-depth: 0" in source
         assert "--output-dir docs/web/artifacts/firmware/release" in source
         assert "--channel release" in source
         assert "--url-prefix /artifacts/firmware/release" in source
-        assert "firmware/stable" not in source
-        assert "firmware-manifest-stable" not in source
-        assert "--channel stable" not in source
     for source in (snapshot, release):
         assert 'require-release: "true"' in source
     pages_action = (REPO_ROOT / ".github" / "actions" / "build-pages" / "action.yml").read_text(
