@@ -178,7 +178,9 @@ class IEspectreRuntime {
    * traffic. The current Wi-Fi association is preserved so arming again can
    * restart capture without waiting for another IP event. Matter uses this to
    * stay quiet until commissioning completes; Native uses it to pause sensing
-   * while a frontend intentionally suspends sensing.
+   * while a frontend intentionally suspends sensing. During raw collection,
+   * the requested state is staged without interrupting the capture callback
+   * and takes effect when collection stops.
    */
   virtual void set_services_armed(bool armed) = 0;
   /** Enable or suppress the high-rate `on_live_telemetry()` stream. */

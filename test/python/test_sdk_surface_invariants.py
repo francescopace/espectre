@@ -41,6 +41,27 @@ RUNTIME_INTERNAL_HEADERS = {
     "core/threshold.h",
     "core/utils.h",
 }
+CORE_PUBLIC_HEADERS = {
+    "espectre_core_sdk.h",
+    "runtime/espectre_sdk_version.h",
+    "core/base_detector.h",
+    "core/csi_format.h",
+    "core/csi_types.h",
+    "core/detector_limits.h",
+    "core/detector_types.h",
+    "core/filter_config.h",
+    "core/high_accuracy_detector.h",
+    "core/lightweight_detector.h",
+}
+CORE_IMPLEMENTATION_HEADERS = {
+    "core/csi_features.h",
+    "core/filtered_turbulence_ring.h",
+    "core/filters.h",
+    "core/l1_delta_tracker.h",
+    "core/ml_feature_trackers.h",
+    "core/threshold.h",
+    "core/utils.h",
+}
 
 FACADE_INCLUDE_PATTERN = re.compile(r'^\s*#include\s+"([^"]+)"', re.MULTILINE)
 FORWARD_DECLARATION_PATTERN = re.compile(r"^\s*(?:struct|class)\s+([A-Za-z_][A-Za-z0-9_]*)\s*;", re.MULTILINE)
@@ -172,16 +193,24 @@ def test_core_facade_is_complete_documented_and_mapped() -> None:
     )
 
     names = {header.relative_to(CPP_ROOT).as_posix() for header in reachable}
-    assert not (names - doxygen_input_headers()), (
-        f"headers reachable from {CORE_FACADE.name} are absent from the Doxyfile INPUT list: "
-        f"{sorted(names - doxygen_input_headers())}"
+    assert CORE_PUBLIC_HEADERS <= names, (
+        f"the declared core SDK header set is not reachable from {CORE_FACADE.name}: "
+        f"{sorted(CORE_PUBLIC_HEADERS - names)}"
+    )
+    assert not (CORE_PUBLIC_HEADERS - doxygen_input_headers()), (
+        f"supported core SDK headers are absent from the Doxyfile INPUT list: "
+        f"{sorted(CORE_PUBLIC_HEADERS - doxygen_input_headers())}"
+    )
+    assert not (CORE_IMPLEMENTATION_HEADERS & doxygen_input_headers()), (
+        "core implementation dependencies leaked into the generated API reference: "
+        f"{sorted(CORE_IMPLEMENTATION_HEADERS & doxygen_input_headers())}"
     )
 
     guide = EMBEDDING_GUIDE.read_text(encoding="utf-8")
     documented = set(re.findall(r"`([\w/]+\.h)`", guide))
-    assert not (names - documented), (
-        f"headers reachable from {CORE_FACADE.name} are missing from the "
-        f"{EMBEDDING_GUIDE.name} header map: {sorted(names - documented)}"
+    assert not (CORE_PUBLIC_HEADERS - documented), (
+        f"supported core SDK headers are missing from the {EMBEDDING_GUIDE.name} "
+        f"header map: {sorted(CORE_PUBLIC_HEADERS - documented)}"
     )
 
 

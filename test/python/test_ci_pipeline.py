@@ -310,10 +310,15 @@ def test_sdk_snapshot_stamps_git_describe_identity(tmp_path: Path) -> None:
 
 def test_generate_sdk_api_stamps_a_working_copy_without_mutating_the_repo(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     generator = load_script("generate_sdk_api")
     repo_doxyfile = (REPO_ROOT / "src" / "cpp" / "Doxyfile").read_text(encoding="utf-8")
     stamped_versions: list[str] = []
+    api_output = tmp_path / "sdk" / "api"
+    api_output.mkdir(parents=True)
+    stale_page = api_output / "stale-internal-type.html"
+    stale_page.write_text("stale", encoding="utf-8")
 
     def fake_run(cmd, *, cwd, check):
         assert cmd[0] == "doxygen"
@@ -327,9 +332,12 @@ def test_generate_sdk_api_stamps_a_working_copy_without_mutating_the_repo(
         return subprocess.CompletedProcess(cmd, 0)
 
     monkeypatch.setattr(generator.subprocess, "run", fake_run)
+    monkeypatch.setattr(generator, "API_OUTPUT_DIR", api_output.parent)
+    monkeypatch.setattr(generator, "API_HTML_OUTPUT_DIR", api_output)
     version = generator.generate_sdk_api("3.0.0-12-gabcdef1")
     assert version == "3.0.0-12-gabcdef1"
     assert stamped_versions == ["3.0.0-12-gabcdef1"]
+    assert not stale_page.exists()
     assert (REPO_ROOT / "src" / "cpp" / "Doxyfile").read_text(encoding="utf-8") == repo_doxyfile
     assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*UNSTAMPED\s*$", repo_doxyfile)
 

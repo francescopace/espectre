@@ -22,6 +22,5 @@
 #include "runtime/espectre_sdk_version.h"
 #include "core/base_detector.h"
 #include "core/csi_format.h"
-#include "core/filtered_turbulence_ring.h"
 #include "core/high_accuracy_detector.h"
 #include "core/lightweight_detector.h"

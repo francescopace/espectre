@@ -290,20 +290,23 @@ void test_runtime_raw_collection_restores_armed_and_disarmed_sensing(void) {
   TEST_ASSERT_FALSE(runtime.snapshot_.ready_to_publish);
   TEST_ASSERT_FALSE(runtime.set_threshold_runtime(0.5f));
 
+  runtime.set_services_armed(false);
+  TEST_ASSERT_EQUAL(RuntimeOperationState::RAW_COLLECTION, runtime.operation_state());
+  TEST_ASSERT_TRUE(runtime.csi_pipeline_.is_enabled());
   TEST_ASSERT_TRUE(runtime.stop_raw_collection(RawCsiStopReason::REQUESTED));
   TEST_ASSERT_EQUAL(RuntimeOperationState::SENSING, runtime.operation_state());
   TEST_ASSERT_EQUAL(CsiTrafficMode::EXTERNAL, runtime.csi_traffic_service_.mode_);
+  TEST_ASSERT_FALSE(runtime.csi_pipeline_.is_enabled());
+  TEST_ASSERT_FALSE(runtime.snapshot_.ready_to_publish);
+
+  TEST_ASSERT_TRUE(runtime.start_raw_collection(&accept_raw_packet, nullptr));
+  TEST_ASSERT_TRUE(runtime.csi_pipeline_.is_enabled());
+  runtime.set_services_armed(true);
+  TEST_ASSERT_EQUAL(RuntimeOperationState::RAW_COLLECTION, runtime.operation_state());
+  TEST_ASSERT_TRUE(runtime.stop_raw_collection(RawCsiStopReason::REQUESTED));
   TEST_ASSERT_TRUE(runtime.csi_pipeline_.is_enabled());
   TEST_ASSERT_TRUE(runtime.snapshot_.calibrating);
   TEST_ASSERT_TRUE(runtime.snapshot_.ready_to_publish);
-
-  runtime.set_services_armed(false);
-  TEST_ASSERT_FALSE(runtime.csi_pipeline_.is_enabled());
-  TEST_ASSERT_TRUE(runtime.start_raw_collection(&accept_raw_packet, nullptr));
-  TEST_ASSERT_TRUE(runtime.csi_pipeline_.is_enabled());
-  TEST_ASSERT_TRUE(runtime.stop_raw_collection(RawCsiStopReason::REQUESTED));
-  TEST_ASSERT_FALSE(runtime.csi_pipeline_.is_enabled());
-  TEST_ASSERT_FALSE(runtime.snapshot_.ready_to_publish);
   runtime.csi_traffic_service_.stop();
 }
 

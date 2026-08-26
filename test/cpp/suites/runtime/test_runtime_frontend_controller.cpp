@@ -297,6 +297,39 @@ void test_runtime_frontend_controller_refreshes_snapshot_across_raw_collection(v
   TEST_ASSERT_TRUE(controller.snapshot().ready_to_publish);
 }
 
+void test_runtime_frontend_controller_applies_armed_state_staged_during_raw_collection(void) {
+  RuntimeFrontendController controller;
+  DummyRuntimeListener listener;
+  frontend_runtime_shim::state.capabilities.supports_raw_csi = true;
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+  TEST_ASSERT_TRUE(controller.start_raw_collection(
+      [](void *, const RawCsiPacketView &) { return true; }, nullptr));
+
+  controller.set_services_armed(false);
+  TEST_ASSERT_FALSE(controller.services_armed());
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
+  TEST_ASSERT_EQUAL(RuntimeOperationState::RAW_COLLECTION, controller.operation_state());
+
+  TEST_ASSERT_TRUE(controller.stop_raw_collection());
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
+}
+
+void test_runtime_frontend_controller_quiesces_raw_collection_for_ota(void) {
+  RuntimeFrontendController controller;
+  DummyRuntimeListener listener;
+  frontend_runtime_shim::state.capabilities.supports_raw_csi = true;
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+  TEST_ASSERT_TRUE(controller.start_raw_collection(
+      [](void *, const RawCsiPacketView &) { return true; }, nullptr));
+
+  controller.quiesce_for_ota();
+
+  TEST_ASSERT_EQUAL(RuntimeOperationState::SENSING, controller.operation_state());
+  TEST_ASSERT_FALSE(controller.services_armed());
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
+}
+
 void test_runtime_frontend_controller_caches_and_forwards_listener_events(void) {
   RuntimeFrontendController controller;
   DummyRuntimeListener listener;
@@ -370,6 +403,8 @@ int process(void) {
   RUN_TEST(test_runtime_frontend_controller_traffic_runtime_updates_config);
   RUN_TEST(test_runtime_frontend_controller_recalibration_requires_capability_and_runtime);
   RUN_TEST(test_runtime_frontend_controller_refreshes_snapshot_across_raw_collection);
+  RUN_TEST(test_runtime_frontend_controller_applies_armed_state_staged_during_raw_collection);
+  RUN_TEST(test_runtime_frontend_controller_quiesces_raw_collection_for_ota);
   RUN_TEST(test_runtime_frontend_controller_caches_and_forwards_listener_events);
   RUN_TEST(test_runtime_frontend_controller_defers_shutdown_requested_by_listener);
   RUN_TEST(test_runtime_frontend_controller_switches_detector_and_resets_threshold);

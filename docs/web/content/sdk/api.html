@@ -44,6 +44,8 @@
     <div><strong><code>shutdown()</code></strong><span>release runtime</span></div>
   </div>
 
+  <div class="note"><strong>Raw CSI callbacks use a different threading contract.</strong> Listener events arrive from the owner task, but a callback passed to <code>start_raw_collection()</code> runs synchronously in Wi-Fi capture context. Keep it bounded, non-blocking, and allocation-free, and copy accepted packets into a preallocated queue for later work.</div>
+
   <h2>Two public facades</h2>
   <div class="api-map">
     <a href="/artifacts/sdk/api/espectre__sdk_8h.html">

@@ -117,9 +117,10 @@ REPORT_SNAPSHOT_SCOPE = (
 )
 REPORT_DETECTOR_SCOPE = (
     "Detector coverage: ESPHome, Native, and Matter support Lightweight and High Accuracy. "
-    "ESPHome and Native support runtime switching, Matter selects the detector at build time, "
-    "and Micro-ESPectre deploys Lightweight only. The matrix below samples representative cases "
-    "rather than every supported combination."
+    "All three C++ frontends support persisted runtime switching, while Micro-ESPectre deploys "
+    "Lightweight only. The Matter benchmark case is build-and-flash smoke and does not exercise "
+    "runtime switching. The matrix below samples representative cases rather than every supported "
+    "combination."
 )
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")

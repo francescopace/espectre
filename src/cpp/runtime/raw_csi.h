@@ -38,7 +38,13 @@ enum class RawCsiStopReason : uint8_t {
   INTERNAL_ERROR,
 };
 
-/** View valid only for the duration of the capture callback. */
+/**
+ * Callback-scoped view of one normalized raw CSI packet.
+ *
+ * The struct and the bytes addressed by `csi` are valid only for the duration
+ * of the capture callback. Copy them before returning if another task needs the
+ * sample.
+ */
 struct RawCsiPacketView {
   const int8_t *csi{nullptr};
   uint16_t csi_len{0U};
@@ -54,6 +60,20 @@ struct RawCsiPacketView {
   RawCsiChannelWidth channel_width{RawCsiChannelWidth::UNKNOWN};
 };
 
+/**
+ * Consume one packet synchronously from the Wi-Fi CSI capture context.
+ *
+ * The callback must remain bounded, non-blocking, and allocation-free. It may
+ * copy the packet into a preallocated bounded queue for another task. Returning
+ * false reports that the consumer did not accept this packet, for example
+ * because that queue was full; collection continues, and the consumer owns any
+ * drop or backpressure accounting.
+ *
+ * @param context Opaque caller-owned value supplied to `start_raw_collection()`.
+ * @param packet Callback-scoped normalized CSI view.
+ * @return true when the consumer accepted the packet, or false when it dropped
+ *         it. The runtime does not stop collection on false.
+ */
 using raw_csi_packet_callback_t = bool (*)(void *context, const RawCsiPacketView &packet);
 
 constexpr char ESPECTRE_RAW_CSI_ENDPOINT[] = "/espectre/v1/csi";

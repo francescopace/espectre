@@ -95,13 +95,15 @@ void RuntimeFrontendController::shutdown() {
 }
 
 void RuntimeFrontendController::set_services_armed(bool armed) {
+  services_armed_ = armed;
   if (runtime_ && runtime_->operation_state() == RuntimeOperationState::RAW_COLLECTION) {
-    ESP_LOGW(TAG, "Rejected sensing mutation during raw collection");
+    runtime_->set_services_armed(armed);
+    ESP_LOGI(TAG, "Deferred sensing mutation until raw collection stops");
     return;
   }
-  services_armed_ = armed;
   if (runtime_) {
     runtime_->set_services_armed(armed);
+    snapshot_ = runtime_->get_snapshot();
   }
   apply_deferred_shutdown_();
 }
@@ -116,6 +118,13 @@ void RuntimeFrontendController::set_live_telemetry_enabled(bool enabled) {
 
 void RuntimeFrontendController::quiesce_for_ota() {
   set_live_telemetry_enabled(false);
+  if (runtime_ && runtime_->operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    set_services_armed(false);
+    if (!stop_raw_collection(RawCsiStopReason::SHUTDOWN)) {
+      ESP_LOGE(TAG, "Failed to stop raw collection while preparing for OTA");
+    }
+    return;
+  }
   set_services_armed(false);
 }
 
@@ -259,6 +268,7 @@ bool RuntimeFrontendController::stop_raw_collection(RawCsiStopReason reason) {
   }
   const bool stopped = runtime_->stop_raw_collection(reason);
   if (stopped) {
+    runtime_->set_services_armed(services_armed_);
     cache_snapshot_(runtime_->get_snapshot());
   }
   apply_deferred_shutdown_();

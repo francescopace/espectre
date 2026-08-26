@@ -12,9 +12,10 @@
 /**
  * @mainpage ESPectre SDK
  *
- * This reference covers the supported integration surface only. Every header
- * listed here follows the SDK version contract; anything else in the bundle is
- * internal and may change in any release.
+ * This reference covers the supported integration surface only. Every
+ * declaration included in the reference follows the SDK version contract;
+ * implementation dependencies that merely ship in the bundle are internal and
+ * may change in any release.
  *
  * Start at espectre_sdk.h for the integration model, the threading contract,
  * and a working example. The repository guide `docs/EMBEDDING.md` covers build
@@ -86,6 +87,9 @@
  *   from the frontend loop, so Native follows this rule without external locks.
  * - Do not drive the controller from inside `on_runtime_fault()` beyond
  *   `shutdown()`.
+ * - Raw CSI packet callbacks are the deliberate exception to listener delivery:
+ *   they run synchronously in Wi-Fi capture context. Keep them bounded,
+ *   non-blocking, and allocation-free; see `raw_csi_packet_callback_t`.
  *
  * @section sdk_versioning Versioning
  *

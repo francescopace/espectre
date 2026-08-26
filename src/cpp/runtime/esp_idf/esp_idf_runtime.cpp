@@ -236,15 +236,15 @@ RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {
 }
 
 void EspIdfRuntime::set_services_armed(bool armed) {
-  if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
-    ESP_LOGW(RUNTIME_TAG, "Rejected sensing mutation during raw collection");
-    return;
-  }
   if (services_armed_ == armed) {
     return;
   }
 
   services_armed_ = armed;
+  if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
+    ESP_LOGI(RUNTIME_TAG, "Deferred sensing mutation until raw collection stops");
+    return;
+  }
   if (!setup_complete_) {
     return;
   }
@@ -458,7 +458,6 @@ bool EspIdfRuntime::start_raw_collection(raw_csi_packet_callback_t callback, voi
   }
 
   operation_state_.store(RuntimeOperationState::RAW_COLLECTION, std::memory_order_release);
-  raw_collection_was_armed_ = services_armed_;
   cancel_calibration_(true);
   snapshot_.ready_to_publish = false;
   snapshot_.motion_state = MotionState::IDLE;
@@ -469,8 +468,7 @@ bool EspIdfRuntime::start_raw_collection(raw_csi_packet_callback_t callback, voi
     operation_state_.store(RuntimeOperationState::SENSING, std::memory_order_release);
     (void) csi_pipeline_.disable();
     update_live_telemetry_callback_();
-    if (raw_collection_was_armed_) start_sensing_services_(wifi_ip_info_);
-    raw_collection_was_armed_ = false;
+    if (services_armed_) start_sensing_services_(wifi_ip_info_);
     return false;
   }
   refresh_csi_local_identity_(wifi_ip_info_.ip.addr);
@@ -482,8 +480,7 @@ bool EspIdfRuntime::start_raw_collection(raw_csi_packet_callback_t callback, voi
       update_live_telemetry_callback_();
       operation_state_.store(RuntimeOperationState::SENSING, std::memory_order_release);
       (void) csi_pipeline_.disable();
-      if (raw_collection_was_armed_) start_sensing_services_(wifi_ip_info_);
-      raw_collection_was_armed_ = false;
+      if (services_armed_) start_sensing_services_(wifi_ip_info_);
       char message[96];
       std::snprintf(message, sizeof(message), "Failed to enable raw CSI: %s", esp_err_to_name(err));
       notify_fault_(message);
@@ -510,12 +507,11 @@ bool EspIdfRuntime::stop_raw_collection(RawCsiStopReason reason) {
   update_live_telemetry_callback_();
 
   ESP_LOGI(RUNTIME_TAG, "Exited raw CSI collection mode: %u", static_cast<unsigned>(reason));
-  if (raw_collection_was_armed_ && services_armed_ && wifi_ready_ && wifi_ip_info_.ip.addr != 0U) {
+  if (services_armed_ && wifi_ready_ && wifi_ip_info_.ip.addr != 0U) {
     start_sensing_services_(wifi_ip_info_);
   } else if (listener_ != nullptr) {
     listener_->on_motion_state_changed(snapshot_);
   }
-  raw_collection_was_armed_ = false;
   return true;
 }
 

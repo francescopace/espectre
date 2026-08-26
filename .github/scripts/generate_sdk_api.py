@@ -34,6 +34,7 @@ from detect_git_version import detect_git_version, parse_version_core
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOXYFILE = REPO_ROOT / "src" / "cpp" / "Doxyfile"
 API_OUTPUT_DIR = REPO_ROOT / "docs" / "web" / "artifacts" / "sdk"
+API_HTML_OUTPUT_DIR = API_OUTPUT_DIR / "api"
 
 
 def parse_args() -> argparse.Namespace:
@@ -50,6 +51,8 @@ def parse_args() -> argparse.Namespace:
 def generate_sdk_api(version: str | None = None) -> str:
     sdk_version = version or detect_git_version()
     parse_version_core(sdk_version)
+    if API_HTML_OUTPUT_DIR.exists():
+        shutil.rmtree(API_HTML_OUTPUT_DIR)
     API_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="espectre-doxy-") as tmp_dir:

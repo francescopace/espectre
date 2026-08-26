@@ -100,7 +100,6 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   bool wifi_ready_{false};
   esp_netif_ip_info_t wifi_ip_info_{};
   std::atomic<RuntimeOperationState> operation_state_{RuntimeOperationState::SENSING};
-  bool raw_collection_was_armed_{false};
 };
 
 }  // namespace espectre

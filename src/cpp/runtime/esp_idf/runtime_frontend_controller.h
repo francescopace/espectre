@@ -139,7 +139,10 @@ class RuntimeFrontendController : private IRuntimeListener {
    *
    * Sticky: the value is remembered and reapplied to the backend created by a
    * later `setup()`. Matter uses it to stay silent until commissioning.
-   * Frontends use it to pause CSI without dropping Wi-Fi.
+   * Frontends use it to pause CSI without dropping Wi-Fi. During raw
+   * collection the requested value is staged and applied when collection
+   * stops, because changing sensing services cannot interrupt the capture
+   * callback in place.
    */
   void set_services_armed(bool armed);
   /** Enable or suppress `IRuntimeListener::on_live_telemetry()`. Also sticky. */
@@ -149,8 +152,9 @@ class RuntimeFrontendController : private IRuntimeListener {
   /**
    * Quiet the runtime ahead of an OTA update.
    *
-   * Drops live telemetry and disarms services so the download is not competing
-   * with CSI capture and traffic generation. Reverse it with
+   * Stops any active raw collection, drops live telemetry, and disarms services
+   * so the download is not competing with CSI capture and traffic generation.
+   * Reverse it with
    * `set_services_armed(true)` if the update is abandoned.
    */
   void quiesce_for_ota();
@@ -211,7 +215,21 @@ class RuntimeFrontendController : private IRuntimeListener {
   bool trigger_recalibration();
   /** True while the backend is calibrating. False before setup. */
   bool is_calibrating() const;
-  /** Enter transient raw collection through the active sensing backend. */
+  /**
+   * Enter transient raw collection through the active sensing backend.
+   *
+   * The callback runs synchronously in the Wi-Fi CSI capture context, not from
+   * `loop()`. It must remain bounded, non-blocking, and allocation-free. Copy
+   * any bytes needed after the callback returns; the packet view and its CSI
+   * buffer expire with the call. See `raw_csi_packet_callback_t` for the return
+   * convention.
+   *
+   * @param callback Capture-context packet consumer. Must not be `nullptr`.
+   * @param context Opaque caller-owned value passed to every callback. The
+   *        caller must keep it valid until collection stops.
+   * @return false before setup, without raw-CSI capability, with no Wi-Fi link,
+   *         or when another transient operation is active.
+   */
   bool start_raw_collection(raw_csi_packet_callback_t callback, void *context);
   /** Leave transient raw collection and restore the prior armed state. */
   bool stop_raw_collection(RawCsiStopReason reason = RawCsiStopReason::REQUESTED);
