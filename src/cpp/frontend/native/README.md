@@ -152,9 +152,9 @@ Confirm that the broker hostname resolves from both the ESP32 and browser, that 
 
 - [`app/`](app/): standalone ESP-IDF entry point, Wi-Fi lifecycle, Improv Serial, mDNS, Direct service, and recovery wiring
 - [`espectre/native_frontend.cpp`](espectre/native_frontend.cpp): transport-neutral command dispatch, event fan-out, MQTT integration, and Home Assistant adapter
-- [`../../runtime/direct_http_protocol.cpp`](../../runtime/direct_http_protocol.cpp): versioned Direct envelopes
+- [`../../runtime/direct_http_protocol.cpp`](../../runtime/direct_http_protocol.cpp): canonical request parsing and Direct/MQTT protocol mapping
 - [`../../runtime/esp_idf/direct_http_service_esp_idf.cpp`](../../runtime/esp_idf/direct_http_service_esp_idf.cpp): bounded ESP-IDF HTTP, SSE, and binary streaming server
 - [`../../runtime/esp_idf/mdns_discovery_service.cpp`](../../runtime/esp_idf/mdns_discovery_service.cpp): shared Direct discovery lifecycle
 - [`../../runtime/esp_idf/frontend_support/improv_serial_service.cpp`](../../runtime/esp_idf/frontend_support/improv_serial_service.cpp): standard Improv Serial adapter
 - [`../../runtime/esp_idf/frontend_support/wifi_provisioning_service.cpp`](../../runtime/esp_idf/frontend_support/wifi_provisioning_service.cpp): staged Wi-Fi updates, commit, rollback, and BSSID fallback
-- [`../../runtime/espectre_protocol.cpp`](../../runtime/espectre_protocol.cpp): shared command and MQTT payload semantics
+- [`../../runtime/espectre_protocol.cpp`](../../runtime/espectre_protocol.cpp): shared command and application payload semantics

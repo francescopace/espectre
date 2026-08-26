@@ -13,6 +13,7 @@
 #include <set>
 
 #include "direct_http_protocol.h"
+#include "espectre_protocol.h"
 #include "protocol_json.h"
 
 namespace espectre {
@@ -88,9 +89,9 @@ bool valid_candidate(const PeerDiscoveryCandidate &candidate) {
          device_id(candidate.device_id) && printable_text(candidate.name, kMaxNameLength, true) &&
          token(candidate.frontend, kMaxFrontendLength) &&
          (candidate.frontend == "native" || candidate.frontend == "esphome" ||
-          candidate.frontend == "matter") &&
-         candidate.txt_version == ESPECTRE_DIRECT_DISCOVERY_TXT_VERSION &&
-         candidate.protocol_version == "1" &&
+          candidate.frontend == "matter" || candidate.frontend == "micro") &&
+         candidate.txt_version == ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION &&
+         candidate.protocol_version == ESPECTRE_PROTOCOL_VERSION &&
          candidate.transport == ESPECTRE_DIRECT_HTTP_TRANSPORT &&
          candidate.path == ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT &&
          candidate.events == ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT &&
@@ -111,7 +112,9 @@ std::string device_json(const PeerDiscoveryCandidate &device) {
   append_json_pair(&out, "hostname", device.hostname.c_str());
   append_json_pair(&out, "name", device.name.c_str());
   append_json_pair(&out, "frontend", device.frontend.c_str());
-  out += ",\"schema_version\":2,\"txt_version\":2,\"protocol_version\":1";
+  out += ",\"dns_sd_schema_version\":";
+  out += ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION;
+  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION);
   append_json_pair(&out, "transport", device.transport.c_str());
   append_json_pair(&out, "path", device.path.c_str());
   append_json_pair(&out, "events", device.events.c_str());

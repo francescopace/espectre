@@ -260,11 +260,11 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"discover_peers\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"commands\"") == std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"stats\"") == std::string::npos);
-  const std::string capability_result =
-      "{\"command\":\"capabilities\",\"code\":\"ok\",\"message\":\"capabilities returned\",\"data\":" +
-      catalog + "}";
+  EspectreCommand command;
+  command.command_id = "capabilities";
+  command.command = "capabilities";
   const std::string capability_response =
-      direct_http_success_response("capabilities", capability_result);
+      espectre_command_result_payload(config, command, true, "ok", "capabilities returned", catalog);
   TEST_ASSERT_TRUE(capability_response.size() > ESPECTRE_DIRECT_MAX_REQUEST_SIZE);
   TEST_ASSERT_TRUE(capability_response.size() <= ESPECTRE_DIRECT_MAX_RESPONSE_SIZE);
 }
@@ -330,42 +330,42 @@ void test_parse_espectre_command_parses_info_and_threshold_commands(void) {
   EspectreCommand command;
   std::string error;
 
-  TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x1\",\"command\":\"info\"}", &command, &error));
+  TEST_ASSERT_TRUE(parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"x1\",\"command\":\"info\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("x1", command.command_id.c_str());
   TEST_ASSERT_EQUAL_STRING("info", command.command.c_str());
   TEST_ASSERT_FALSE(command.has_threshold);
 
   TEST_ASSERT_TRUE(
-      parse_espectre_command("{\"command_id\":\"x-capabilities\",\"command\":\"capabilities\"}", &command, &error));
+      parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"x-capabilities\",\"command\":\"capabilities\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("capabilities", command.command.c_str());
 
   TEST_ASSERT_TRUE(parse_espectre_command(
-      "{\"command_id\":\"x-sensing\",\"command\":\"set_sensing\",\"enabled\":false}", &command, &error));
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"x-sensing\",\"command\":\"set_sensing\",\"enabled\":false}", &command, &error));
   TEST_ASSERT_TRUE(command.has_sensing_enabled);
   TEST_ASSERT_FALSE(command.sensing_enabled);
 
   TEST_ASSERT_TRUE(parse_espectre_command(
-      "{\"command_id\":\"x-label\",\"command\":\"set_device_label\",\"device_label\":\"Kitchen\"}",
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"x-label\",\"command\":\"set_device_label\",\"device_label\":\"Kitchen\"}",
       &command,
       &error));
   TEST_ASSERT_TRUE(command.has_device_label);
   TEST_ASSERT_EQUAL_STRING("Kitchen", command.device_label.c_str());
 
   TEST_ASSERT_TRUE(parse_espectre_command(
-      "{\"command_id\":\"x-label-clear\",\"command\":\"set_device_label\",\"device_label\":\"\"}",
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"x-label-clear\",\"command\":\"set_device_label\",\"device_label\":\"\"}",
       &command,
       &error));
   TEST_ASSERT_TRUE(command.has_device_label);
   TEST_ASSERT_TRUE(command.device_label.empty());
 
   TEST_ASSERT_TRUE(
-      parse_espectre_command("{\"command_id\":\"x2\",\"command\":\"set_threshold\",\"threshold\":2.5}", &command, &error));
+      parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"x2\",\"command\":\"set_threshold\",\"threshold\":2.5}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("set_threshold", command.command.c_str());
   TEST_ASSERT_TRUE(command.has_threshold);
   TEST_ASSERT_EQUAL_FLOAT(2.5f, command.threshold);
 
   TEST_ASSERT_TRUE(parse_espectre_command(
-      "{\"command_id\":\"x-motion\",\"command\":\"set_motion_hits\",\"motion_on_hits\":6,\"motion_off_hits\":4}",
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"x-motion\",\"command\":\"set_motion_hits\",\"motion_on_hits\":6,\"motion_off_hits\":4}",
       &command,
       &error));
   TEST_ASSERT_TRUE(command.has_motion_hits);
@@ -373,42 +373,42 @@ void test_parse_espectre_command_parses_info_and_threshold_commands(void) {
   TEST_ASSERT_EQUAL_UINT8(4U, command.motion_off_hits);
 
   TEST_ASSERT_TRUE(parse_espectre_command(
-      "{\"command_id\":\"x-detector\",\"command\":\"set_detector\",\"detector\":\"high_accuracy\"}",
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"x-detector\",\"command\":\"set_detector\",\"detector\":\"high_accuracy\"}",
       &command,
       &error));
   TEST_ASSERT_TRUE(command.has_detector);
   TEST_ASSERT_EQUAL_STRING("high_accuracy", command.detector.c_str());
 
-  TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x3\",\"command\":\"ota_check\"}", &command, &error));
+  TEST_ASSERT_TRUE(parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"x3\",\"command\":\"ota_check\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("ota_check", command.command.c_str());
   TEST_ASSERT_FALSE(command.has_ota_channel);
 
   TEST_ASSERT_TRUE(parse_espectre_command(
-      "{\"command_id\":\"x3b\",\"command\":\"ota_check\",\"channel\":\"preview\"}", &command, &error));
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"x3b\",\"command\":\"ota_check\",\"channel\":\"preview\"}", &command, &error));
   TEST_ASSERT_TRUE(command.has_ota_channel);
   TEST_ASSERT_EQUAL_STRING("preview", command.ota_channel.c_str());
 
-  TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x4\",\"command\":\"ota_start\"}", &command, &error));
+  TEST_ASSERT_TRUE(parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"x4\",\"command\":\"ota_start\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("ota_start", command.command.c_str());
   TEST_ASSERT_FALSE(command.has_ota_channel);
 
   TEST_ASSERT_TRUE(parse_espectre_command(
-      "{\"command_id\":\"x4b\",\"command\":\"ota_start\",\"channel\":\"develop\"}", &command, &error));
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"x4b\",\"command\":\"ota_start\",\"channel\":\"develop\"}", &command, &error));
   TEST_ASSERT_TRUE(command.has_ota_channel);
   TEST_ASSERT_EQUAL_STRING("develop", command.ota_channel.c_str());
 
-  TEST_ASSERT_TRUE(parse_espectre_command("{\"command_id\":\"x5\",\"command\":\"recalibrate\"}", &command, &error));
+  TEST_ASSERT_TRUE(parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"x5\",\"command\":\"recalibrate\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("recalibrate", command.command.c_str());
 
   TEST_ASSERT_TRUE(parse_espectre_command(
-      "{\"command_id\":\"x6\",\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"external\"}",
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"x6\",\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"external\"}",
       &command,
       &error));
   TEST_ASSERT_TRUE(command.has_csi_traffic_mode);
   TEST_ASSERT_EQUAL_STRING("external", command.csi_traffic_mode.c_str());
 
   TEST_ASSERT_TRUE(parse_espectre_command(
-      "{\"command_id\":\"x7\",\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"dns\"}",
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"x7\",\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"dns\"}",
       &command,
       &error));
   TEST_ASSERT_TRUE(command.has_traffic_generator_mode);
@@ -420,62 +420,62 @@ void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(v
   EspectreCommand command;
   std::string error;
 
-  TEST_ASSERT_FALSE(parse_espectre_command("{\"command_id\":\"x3\"}", &command, &error));
+  TEST_ASSERT_FALSE(parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"x3\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("missing command", error.c_str());
 
-  TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"set_device_label\"}", &command, &error));
+  TEST_ASSERT_FALSE(parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_device_label\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("invalid device label (accepted: a single-line string)", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_command(
-      "{\"command\":\"set_device_label\",\"device_label\":123}", &command, &error));
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_device_label\",\"device_label\":123}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("invalid device label (accepted: a single-line string)", error.c_str());
 
   TEST_ASSERT_FALSE(
-      parse_espectre_command("{\"command\":\"set_threshold\",\"threshold\":\"abc\"}", &command, &error));
+      parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_threshold\",\"threshold\":\"abc\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("invalid threshold (accepted: 0.0-1.0)", error.c_str());
 
-  TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"set_threshold\",\"threshold\":1e999}", &command, &error));
+  TEST_ASSERT_FALSE(parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_threshold\",\"threshold\":1e999}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("invalid threshold (accepted: 0.0-1.0)", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_command(
-      "{\"command\":\"set_motion_hits\",\"motion_on_hits\":\"abc\",\"motion_off_hits\":2}", &command, &error));
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_motion_hits\",\"motion_on_hits\":\"abc\",\"motion_off_hits\":2}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("invalid motion hits (accepted: motion_on_hits and motion_off_hits in 1-20)", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_command(
-      "{\"command\":\"set_detector\",\"detector\":\"pca\"}", &command, &error));
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_detector\",\"detector\":\"pca\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("invalid detector (accepted: lightweight and high_accuracy)", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_command(
-      "{\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"bogus\"}", &command, &error));
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"bogus\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("invalid csi traffic mode (accepted: internal and external)", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_command(
-      "{\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"pacing\"}", &command, &error));
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"pacing\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("invalid csi traffic mode (accepted: internal and external)", error.c_str());
 
   TEST_ASSERT_FALSE(parse_espectre_command(
-      "{\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"udp\"}", &command, &error));
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"udp\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("invalid traffic generator mode (accepted: ping and dns)", error.c_str());
 
-  TEST_ASSERT_TRUE(parse_espectre_command("{\"command\":\"ota_check\"}", &command, &error));
+  TEST_ASSERT_TRUE(parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"ota_check\"}", &command, &error));
 
-  TEST_ASSERT_TRUE(parse_espectre_command("{\"command\":\"ota_start\"}", &command, &error));
+  TEST_ASSERT_TRUE(parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"ota_start\"}", &command, &error));
 
   TEST_ASSERT_FALSE(parse_espectre_command(
-      "{\"command\":\"ota_start\",\"image_url\":\"https://fw.example/native.bin\"}", &command, &error));
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"ota_start\",\"image_url\":\"https://fw.example/native.bin\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("ota overrides are not supported (manifest_url, image_url, and version are not accepted)",
                            error.c_str());
 
   TEST_ASSERT_FALSE(
-      parse_espectre_command("{\"command\":\"ota_check\",\"manifest_url\":\"\"}", &command, &error));
+      parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"ota_check\",\"manifest_url\":\"\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("ota overrides are not supported (manifest_url, image_url, and version are not accepted)",
                            error.c_str());
 
   TEST_ASSERT_FALSE(
-      parse_espectre_command("{\"command\":\"ota_check\",\"channel\":\"latest\"}", &command, &error));
+      parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"ota_check\",\"channel\":\"latest\"}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("invalid ota channel (accepted: release, preview, and develop)", error.c_str());
 
-  TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"info\"}", nullptr, &error));
+  TEST_ASSERT_FALSE(parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"info\"}", nullptr, &error));
 }
 
 void test_ota_status_payload_includes_expected_fields(void) {
@@ -557,13 +557,13 @@ void test_parse_espectre_config_command_rejects_invalid_inputs(void) {
   TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:device_label=test", nullptr, &error));
 }
 
-void test_direct_http_request_parses_versioned_envelope(void) {
+void test_direct_http_request_parses_canonical_message(void) {
   DirectRequest request;
   std::string error;
 
   TEST_ASSERT_TRUE(parse_direct_http_request(
-      "{\"v\":1,\"type\":\"request\",\"id\":\"req:42\",\"method\":\"set_threshold\","
-      "\"params\":{\"threshold\":0.42},\"future\":true}",
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"req:42\","
+      "\"command\":\"set_threshold\",\"threshold\":0.42}",
       &request,
       &error));
   TEST_ASSERT_EQUAL_STRING("req:42", request.id.c_str());
@@ -571,7 +571,7 @@ void test_direct_http_request_parses_versioned_envelope(void) {
   TEST_ASSERT_EQUAL_STRING("{\"threshold\":0.42}", request.params.c_str());
 
   TEST_ASSERT_TRUE(parse_direct_http_request(
-      "{\"v\":1,\"type\":\"request\",\"id\":\"unicode-\\u0031\",\"method\":\"info\"}",
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"unicode-\\u0031\",\"command\":\"info\"}",
       &request,
       &error));
   TEST_ASSERT_EQUAL_STRING("unicode-1", request.id.c_str());
@@ -586,35 +586,30 @@ void test_direct_http_request_rejects_invalid_boundaries(void) {
   TEST_ASSERT_EQUAL_STRING("empty Direct request", error.c_str());
   TEST_ASSERT_FALSE(parse_direct_http_request("{", &request, &error));
   TEST_ASSERT_FALSE(parse_direct_http_request(
-      "{\"v\":1,\"v\":1,\"type\":\"request\",\"id\":\"x\",\"method\":\"info\"}",
+      "{\"protocol_version\":\"1.0\",\"protocol_version\":\"1.0\",\"command_id\":\"x\",\"command\":\"info\"}",
       &request,
       &error));
   TEST_ASSERT_EQUAL_STRING("duplicate JSON object field", error.c_str());
   TEST_ASSERT_FALSE(parse_direct_http_request(
-      "{\"v\":\"1\",\"type\":\"request\",\"id\":\"x\",\"method\":\"info\"}",
+      "{\"protocol_version\":\"2.0\",\"command_id\":\"x\",\"command\":\"info\"}",
       &request,
       &error));
-  TEST_ASSERT_EQUAL_STRING("unsupported Direct envelope version", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("unsupported ESPectre protocol version", error.c_str());
   TEST_ASSERT_FALSE(parse_direct_http_request(
-      "{\"v\":1,\"type\":\"event\",\"id\":\"x\",\"method\":\"info\"}",
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"bad id\",\"command\":\"info\"}",
       &request,
       &error));
-  TEST_ASSERT_EQUAL_STRING("Direct client messages must have type request", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("invalid ESPectre command_id", error.c_str());
   TEST_ASSERT_FALSE(parse_direct_http_request(
-      "{\"v\":1,\"type\":\"request\",\"id\":\"bad id\",\"method\":\"info\"}",
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"x\",\"command\":\"Info!\"}",
       &request,
       &error));
-  TEST_ASSERT_EQUAL_STRING("invalid Direct request id", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("invalid ESPectre command", error.c_str());
   TEST_ASSERT_FALSE(parse_direct_http_request(
-      "{\"v\":1,\"type\":\"request\",\"id\":\"x\",\"method\":\"Info!\"}",
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"x\",\"command\":\"info\",\"unexpected\":true}",
       &request,
       &error));
-  TEST_ASSERT_EQUAL_STRING("invalid Direct request method", error.c_str());
-  TEST_ASSERT_FALSE(parse_direct_http_request(
-      "{\"v\":1,\"type\":\"request\",\"id\":\"x\",\"method\":\"info\",\"params\":[]}",
-      &request,
-      &error));
-  TEST_ASSERT_EQUAL_STRING("Direct request params must be an object", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("unknown command parameter", error.c_str());
 
   const std::string oversized(ESPECTRE_DIRECT_MAX_REQUEST_SIZE + 1U, 'x');
   TEST_ASSERT_FALSE(parse_direct_http_request(oversized, &request, &error));
@@ -623,23 +618,27 @@ void test_direct_http_request_rejects_invalid_boundaries(void) {
   TEST_ASSERT_EQUAL_STRING("request output is required", error.c_str());
 }
 
-void test_direct_http_builders_emit_valid_correlated_envelopes(void) {
-  const std::string success = direct_http_success_response("req-1", "{\"device_id\":\"abc\"}");
-  const std::string rejected = direct_http_error_response("req-2", "invalid_request", "bad \"field\"");
-  const std::string event = direct_http_event("telemetry", "{\"movement_score\":0.25}");
-
+void test_canonical_message_builders_and_transport_catalog(void) {
+  EspectreDeviceConfig config;
+  EspectreCommand command;
+  command.command_id = "req-1";
+  command.command = "set_threshold";
   TEST_ASSERT_EQUAL_STRING(
-      "{\"v\":1,\"type\":\"response\",\"id\":\"req-1\",\"ok\":true,\"result\":{\"device_id\":\"abc\"}}",
-      success.c_str());
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"req-1\",\"command\":\"set_threshold\",\"threshold\":0.5}",
+      espectre_command_request_payload("req-1", "set_threshold", "{\"threshold\":0.5}").c_str());
   TEST_ASSERT_EQUAL_STRING(
-      "{\"v\":1,\"type\":\"response\",\"id\":\"req-2\",\"ok\":false,\"error\":{\"code\":\"invalid_request\",\"message\":\"bad \\\"field\\\"\"}}",
-      rejected.c_str());
-  TEST_ASSERT_EQUAL_STRING(
-      "{\"v\":1,\"type\":\"event\",\"event\":\"telemetry\",\"data\":{\"movement_score\":0.25}}",
-      event.c_str());
-  TEST_ASSERT_TRUE(direct_http_success_response("req-3", "not-json").find("\"result\":{}") !=
-                   std::string::npos);
-  TEST_ASSERT_TRUE(direct_http_event("status", "[]").find("\"data\":{}") != std::string::npos);
+      "{\"protocol_version\":\"1.0\",\"device_id\":\"0000000000000000\",\"command_id\":\"req-1\",\"command\":\"set_threshold\",\"accepted\":true,\"code\":\"ok\",\"message\":\"updated\",\"data\":{\"threshold\":0.5}}",
+      espectre_command_result_payload(config, command, true, "ok", "updated", "{\"threshold\":0.5}").c_str());
+  const std::string messages = espectre_message_catalog_payload();
+  TEST_ASSERT_TRUE(messages.find("\"txtvers\":\"1\"") != std::string::npos);
+  TEST_ASSERT_TRUE(messages.find("\"protovers\":\"1.0\"") != std::string::npos);
+  TEST_ASSERT_TRUE(messages.find("topic_suffix") == std::string::npos);
+  const std::string mapping = espectre_transport_mapping_payload();
+  TEST_ASSERT_TRUE(mapping.find("\"framing\":\"sse\"") != std::string::npos);
+  TEST_ASSERT_TRUE(mapping.find("\"topic_suffix\":\"commands/result\"") != std::string::npos);
+  const std::string catalog = espectre_protocol_catalog_payload();
+  TEST_ASSERT_TRUE(catalog.find("\"message_model\":") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"transport_mapping\":") != std::string::npos);
 }
 
 void test_direct_http_request_reuses_transport_neutral_command_validation(void) {
@@ -648,8 +647,8 @@ void test_direct_http_request_reuses_transport_neutral_command_validation(void) 
   std::string error;
 
   TEST_ASSERT_TRUE(parse_direct_http_request(
-      "{\"v\":1,\"type\":\"request\",\"id\":\"direct-1\",\"method\":\"set_motion_hits\","
-      "\"params\":{\"motion_on_hits\":6,\"motion_off_hits\":4}}",
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"direct-1\",\"command\":\"set_motion_hits\","
+      "\"motion_on_hits\":6,\"motion_off_hits\":4}",
       &request,
       &error));
   TEST_ASSERT_TRUE(direct_http_request_to_command(request, &command, &error));
@@ -758,9 +757,9 @@ int process(void) {
   RUN_TEST(test_ota_channel_helpers);
   RUN_TEST(test_parse_espectre_config_command_updates_supported_fields);
   RUN_TEST(test_parse_espectre_config_command_rejects_invalid_inputs);
-  RUN_TEST(test_direct_http_request_parses_versioned_envelope);
+  RUN_TEST(test_direct_http_request_parses_canonical_message);
   RUN_TEST(test_direct_http_request_rejects_invalid_boundaries);
-  RUN_TEST(test_direct_http_builders_emit_valid_correlated_envelopes);
+  RUN_TEST(test_canonical_message_builders_and_transport_catalog);
   RUN_TEST(test_direct_http_request_reuses_transport_neutral_command_validation);
   RUN_TEST(test_direct_http_configuration_commands_validate_write_only_fields);
   RUN_TEST(test_direct_http_read_and_sensing_methods_map_to_shared_commands);

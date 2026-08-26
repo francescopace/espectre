@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-24
 - Updated: 2026-08-26
-- Implementation: Partial; command semantics are shared, but the MQTT and Direct JSON envelopes still require convergence
+- Implementation: Complete for protocol `1.0`; cross-language parity covers the message model, DNS-SD versions, and the Micro capability profile, while C++ separately verifies Direct/MQTT mapping
 
 ## Context
 
@@ -23,7 +23,7 @@ A query returns only to its requesting transport. An accepted mutation emits one
 
 Capability discovery is a filtered, minified schema catalog below 4 KiB. It includes command kind, access, parameter schema, result schema, events, features, and visible configuration sections. Clients render controls, help, completion, and validation from this catalog rather than duplicated allowlists. The catalog and canonical message schema are the executable contract; adding an operation requires coordinated registry, transport, frontend, client, test, and documentation changes.
 
-The current MQTT flat request/result shape and Direct `v`/`id`/`method` envelope are migration debt. Before the protocol is frozen for v3, the owning protocol document and implementations must select one canonical request, result, and event shape; migrate firmware, CLI, browser clients, MicroPython, discovery metadata, and tests atomically; and remove the redundant translation path without preserving unreleased aliases.
+Protocol `1.0` uses the former MQTT flat request and correlated result shape as the canonical model. Direct POST bodies now carry that request unchanged, Direct HTTP response bodies carry the same `commands/result` object as MQTT, and SSE `data:` carries the same event payload published to the corresponding MQTT topic. The removed Direct `v`/`type`/`id`/`method`/`params`, `ok`/`result`/`error`, and event wrapper shapes were unreleased and have no aliases. DNS-SD advertises `txtvers=1` and `protovers=1.0`; the latter is serialized from the same application version constant as JSON `protocol_version`.
 
 ## Alternatives Considered
 

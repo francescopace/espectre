@@ -14,11 +14,12 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
+from micro_espectre.protocol import PROTOCOL_VERSION
+
 
 IMPROV_HEADER = b"IMPROV"
 IMPROV_VERSION = 1
 IMPROV_MAX_FRAME_SIZE = 265
-DIRECT_VERSION = 1
 DIRECT_PATH = "/espectre/v1/request"
 DIRECT_MAX_REQUEST_FRAME_SIZE = 4096
 DIRECT_MAX_RESPONSE_FRAME_SIZE = 8192
@@ -52,7 +53,7 @@ class ImprovProtocolError(RuntimeError):
 
 
 class DirectProtocolError(RuntimeError):
-    """Raised when the Direct peer violates the versioned envelope contract."""
+    """Raised when the Direct peer violates the canonical message contract."""
 
 
 class DirectRequestError(RuntimeError):
@@ -332,7 +333,7 @@ def direct_endpoint_from_device_url(device_url: str) -> str:
 
 
 class DirectClient:
-    """Sequential Direct v1 POST client with strict envelope validation."""
+    """Sequential Direct HTTP client for the canonical ESPectre message model."""
 
     def __init__(
         self,
@@ -376,8 +377,11 @@ class DirectClient:
             envelope = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise DirectProtocolError("Direct endpoint sent invalid JSON") from exc
-        if not isinstance(envelope, dict) or envelope.get("v") != DIRECT_VERSION:
-            raise DirectProtocolError("Direct endpoint sent an incompatible envelope")
+        if (
+            not isinstance(envelope, dict)
+            or envelope.get("protocol_version") != PROTOCOL_VERSION
+        ):
+            raise DirectProtocolError("Direct endpoint sent an incompatible protocol message")
         return envelope
 
     def request(
@@ -389,13 +393,15 @@ class DirectClient:
     ) -> dict[str, object]:
         request_id = f"benchmark-{self._next_id}"
         self._next_id += 1
+        arguments = params or {}
+        if any(key in arguments for key in ("protocol_version", "command_id", "command")):
+            raise ValueError("Direct command arguments contain a reserved protocol field")
         message = json.dumps(
             {
-                "v": DIRECT_VERSION,
-                "type": "request",
-                "id": request_id,
-                "method": method,
-                "params": params or {},
+                "protocol_version": PROTOCOL_VERSION,
+                "command_id": request_id,
+                "command": method,
+                **arguments,
             },
             separators=(",", ":"),
         )
@@ -427,18 +433,19 @@ class DirectClient:
         if status != 200:
             raise DirectProtocolError(f"Direct HTTP returned status {status}")
         envelope = self._decode(raw)
-        if envelope.get("type") != "response":
-            raise DirectProtocolError("Direct endpoint sent an invalid envelope type")
-        if envelope.get("id") != request_id:
+        if envelope.get("command_id") != request_id:
             raise DirectProtocolError("Direct endpoint sent an unknown response identifier")
-        ok = envelope.get("ok")
-        if not isinstance(ok, bool):
+        if envelope.get("command") != method:
+            raise DirectProtocolError("Direct endpoint sent a result for another command")
+        accepted = envelope.get("accepted")
+        if not isinstance(accepted, bool):
             raise DirectProtocolError("Direct response is missing its boolean result status")
-        if ok:
-            result = envelope.get("result")
-            if not isinstance(result, dict):
-                raise DirectProtocolError("Direct success response result must be an object")
-            data = result.get("data", result)
+        code = envelope.get("code")
+        error_message = envelope.get("message")
+        if not isinstance(code, str) or not isinstance(error_message, str):
+            raise DirectProtocolError("Direct result code and message must be strings")
+        if accepted:
+            data = envelope.get("data", {})
             if not isinstance(data, dict):
                 raise DirectProtocolError("Direct query response data must be an object")
             if method == "start_raw_stream":
@@ -448,11 +455,4 @@ class DirectClient:
             elif method == "stop_raw_stream":
                 self._authorization = None
             return data
-        error = envelope.get("error")
-        if not isinstance(error, dict):
-            raise DirectProtocolError("Direct error response is missing its error object")
-        code = error.get("code")
-        error_message = error.get("message")
-        if not isinstance(code, str) or not isinstance(error_message, str):
-            raise DirectProtocolError("Direct error response fields must be strings")
         raise DirectRequestError(code, error_message)

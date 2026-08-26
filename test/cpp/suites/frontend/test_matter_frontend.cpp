@@ -173,7 +173,7 @@ void test_matter_frontend_exposes_runtime_tuning_over_direct_http(void) {
 
   const std::string detector = direct.emit_request(
       DirectRequest{"detector-1", "set_detector", "{\"detector\":\"high_accuracy\"}"});
-  TEST_ASSERT_TRUE(detector.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(detector.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_detector_calls);
   TEST_ASSERT_EQUAL(static_cast<int>(DetectionAlgorithm::HIGH_ACCURACY),
                     static_cast<int>(frontend_runtime_shim::state.last_detector));
@@ -191,7 +191,7 @@ void test_matter_frontend_raw_session_uses_shared_controller_and_recovers(void) 
 
   const std::string started = direct.emit_request(
       DirectRequest{"raw-start", "start_raw_stream", "{}"});
-  TEST_ASSERT_TRUE(started.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(started.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(direct_http_service_mock::state.raw_session_active);
   TEST_ASSERT_EQUAL(RuntimeOperationState::RAW_COLLECTION,
                     frontend.runtime_.operation_state());
@@ -238,14 +238,14 @@ void test_matter_direct_exposes_common_wifi_and_node_label_capabilities(void) {
       DirectRequest{"unpin", "clear_wifi_bssid", "{}"});
   const std::string credential_reset = direct.emit_request(
       DirectRequest{"reset", "clear_wifi_config", "{}"});
-  TEST_ASSERT_TRUE(scan.find("\"ok\":true") != std::string::npos);
-  TEST_ASSERT_TRUE(pin.find("\"ok\":true") != std::string::npos);
-  TEST_ASSERT_TRUE(unpin.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(scan.find("\"accepted\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(pin.find("\"accepted\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(unpin.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(credential_reset.find("\"code\":\"unsupported\"") != std::string::npos);
 
   const std::string label = direct.emit_request(
       DirectRequest{"label", "set_device_label", "{\"device_label\":\"Kitchen Matter\"}"});
-  TEST_ASSERT_TRUE(label.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(label.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_EQUAL_STRING("Kitchen Matter", matter_bindings_mock::state.node_label.c_str());
   const std::string info = direct.emit_request(DirectRequest{"info", "info", "{}"});
   const std::string visible_config = direct.emit_request(DirectRequest{"config", "config", "{}"});

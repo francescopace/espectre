@@ -80,10 +80,21 @@ enum class EspectreConfigSection : uint8_t {
   COUNT,
 };
 
-/** Exact Direct command and readable-configuration surface advertised by a frontend. */
+enum class EspectreEvent : uint8_t {
+  TELEMETRY = 0,
+  STATUS,
+  INFO,
+  CONFIG,
+  OTA_STATUS,
+  FAULT,
+  COUNT,
+};
+
+/** Exact Direct command, event, and readable-configuration surface advertised by a frontend. */
 struct EspectreCapabilityProfile {
   std::array<bool, static_cast<size_t>(EspectreDirectMethod::COUNT)> methods{};
   std::array<bool, static_cast<size_t>(EspectreConfigSection::COUNT)> config_sections{};
+  std::array<bool, static_cast<size_t>(EspectreEvent::COUNT)> events{{true, true, true, true, false, true}};
 
   bool supports(EspectreDirectMethod method) const {
     return methods[static_cast<size_t>(method)];
@@ -97,12 +108,25 @@ struct EspectreCapabilityProfile {
   void set(EspectreConfigSection section, bool enabled = true) {
     config_sections[static_cast<size_t>(section)] = enabled;
   }
+  bool publishes(EspectreEvent event) const {
+    return events[static_cast<size_t>(event)];
+  }
+  void set(EspectreEvent event, bool enabled = true) {
+    events[static_cast<size_t>(event)] = enabled;
+  }
+  void clear_events() {
+    events.fill(false);
+  }
 };
 
 struct RuntimeDiagnosticsSample;
 
 /** Protocol version reported in payloads. Bumped on a wire-format change. */
 inline constexpr const char *ESPECTRE_PROTOCOL_VERSION = "1.0";
+/** DNS-SD TXT record schema advertised as the RFC 6763 `txtvers` value. */
+inline constexpr const char *ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION = "1";
+/** Maximum canonical command correlation identifier length. */
+inline constexpr size_t ESPECTRE_COMMAND_ID_MAX_LENGTH = 64U;
 /** Default MQTT topic root. Override per device with `EspectreDeviceConfig::topic_prefix`. */
 inline constexpr const char *ESPECTRE_TOPIC_PREFIX = "espectre/v1/devices";
 /** Official tagged GitHub Release OTA channel. */
@@ -418,6 +442,16 @@ std::string espectre_command_result_payload(const EspectreDeviceConfig &config,
                                             const char *code,
                                             const char *message,
                                             const std::string &data_json = {});
+/** Build the canonical flat command request carried by MQTT and Direct HTTP. */
+std::string espectre_command_request_payload(const std::string &command_id,
+                                             const std::string &command,
+                                             const std::string &params_json = "{}");
+/** Runtime fault event shared by every transport. */
+std::string espectre_fault_payload(const EspectreDeviceConfig &config,
+                                   const char *message,
+                                   uint32_t timestamp_ms);
+/** Executable transport-neutral message samples used by the C++/Python parity gate. */
+std::string espectre_message_catalog_payload();
 /** OTA progress payload, for each `IOtaService` status callback worth publishing. */
 std::string espectre_ota_status_payload(const EspectreDeviceConfig &config,
                                     const EspectreOtaStatus &status,
@@ -442,10 +476,10 @@ std::string espectre_ota_status_payload(const EspectreDeviceConfig &config,
  */
 bool parse_espectre_command(const std::string &payload, EspectreCommand *command, std::string *error);
 /**
- * Parse a transport-neutral command name plus a JSON parameter object.
+ * Parse an already separated command name plus a JSON parameter object.
  *
- * Direct HTTP uses the request envelope id and method as the first two
- * arguments. MQTT uses `parse_espectre_command()` for its flat payload.
+ * Frontend adapters use this after the canonical flat request has been
+ * validated and separated into its internal fields.
  */
 bool parse_espectre_command_request(const std::string &command_id,
                                     const std::string &command_name,

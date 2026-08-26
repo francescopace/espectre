@@ -10,6 +10,7 @@
  */
 #include "espectre_protocol.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cerrno>
 #include <cinttypes>
@@ -34,6 +35,14 @@ const char *motion_state_name(MotionState state) {
 
 double json_finite(float value) {
   return std::isfinite(value) ? static_cast<double>(value) : 0.0;
+}
+
+bool command_id_accepted(const std::string &value) {
+  if (value.empty() || value.size() > ESPECTRE_COMMAND_ID_MAX_LENGTH) return false;
+  return std::all_of(value.begin(), value.end(), [](unsigned char character) {
+    return std::isalnum(character) || character == '_' || character == '-' || character == '.' ||
+           character == ':';
+  });
 }
 
 void append_command_descriptor(std::string *out,
@@ -662,9 +671,25 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
   append_json_pair(&out, "device_id", device_id.c_str());
   out += ",\"commands\":[";
   append_capability_commands(&out, capabilities);
-  out += "],\"events\":[\"telemetry\",\"status\",\"info\",\"config\"";
-  if (capabilities.supports(EspectreDirectMethod::OTA_STATUS)) out += ",\"ota_status\"";
-  out += ",\"fault\"],\"config_sections\":[";
+  out += "],\"events\":[";
+  bool first_event = true;
+  const auto append_event = [&out, &first_event, &capabilities](EspectreEvent event,
+                                                                const char *name) {
+    const bool supported_ota_event =
+        event == EspectreEvent::OTA_STATUS &&
+        capabilities.supports(EspectreDirectMethod::OTA_STATUS);
+    if (!capabilities.publishes(event) && !supported_ota_event) return;
+    if (!first_event) out += ',';
+    append_json_string(&out, name);
+    first_event = false;
+  };
+  append_event(EspectreEvent::TELEMETRY, "telemetry");
+  append_event(EspectreEvent::STATUS, "status");
+  append_event(EspectreEvent::INFO, "info");
+  append_event(EspectreEvent::CONFIG, "config");
+  append_event(EspectreEvent::OTA_STATUS, "ota_status");
+  append_event(EspectreEvent::FAULT, "fault");
+  out += "],\"config_sections\":[";
   bool first_section = true;
   const auto append_section = [&out, &first_section, &capabilities](EspectreConfigSection section,
                                                                     const char *name) {
@@ -740,6 +765,7 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
   capabilities.set(Method::DISCOVER_PEERS, supports_peer_discovery);
   capabilities.set(Method::START_RAW_STREAM, supports_raw_csi);
   capabilities.set(Method::STOP_RAW_STREAM, supports_raw_csi);
+  capabilities.set(EspectreEvent::OTA_STATUS, info.supports_ota);
   // The compatibility overload historically reported the runtime section even
   // when callers hid the config command.
   capabilities.set(EspectreConfigSection::RUNTIME);
@@ -863,6 +889,78 @@ std::string espectre_command_result_payload(const EspectreDeviceConfig &config,
   return out;
 }
 
+std::string espectre_command_request_payload(const std::string &command_id,
+                                             const std::string &command,
+                                             const std::string &params_json) {
+  if (!command_id_accepted(command_id) || command.empty()) return {};
+  std::vector<JsonObjectField> fields;
+  if (!parse_json_object_fields(params_json, &fields, nullptr)) return {};
+  std::string out{"{"};
+  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
+  append_json_pair(&out, "command_id", command_id.c_str());
+  append_json_pair(&out, "command", command.c_str());
+  for (const JsonObjectField &field : fields) {
+    if (field.name == "protocol_version" || field.name == "command_id" || field.name == "command") return {};
+    out += ',';
+    append_json_string(&out, field.name.c_str());
+    out += ':';
+    if (field.type == JsonValueType::STRING) {
+      append_json_string(&out, field.value.c_str());
+    } else {
+      out += field.value;
+    }
+  }
+  out += "}";
+  return out;
+}
+
+std::string espectre_fault_payload(const EspectreDeviceConfig &config,
+                                   const char *message,
+                                   uint32_t timestamp_ms) {
+  std::string out{"{"};
+  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
+  append_json_pair(&out, "device_id", espectre_effective_device_id(config).c_str());
+  out += ",\"timestamp_ms\":" + std::to_string(static_cast<unsigned>(timestamp_ms));
+  append_json_pair(&out, "message", message != nullptr ? message : "runtime fault");
+  out += "}";
+  return out;
+}
+
+std::string espectre_message_catalog_payload() {
+  EspectreDeviceConfig config;
+  EspectreCommand command;
+  command.command_id = "contract-1";
+  command.command = "set_threshold";
+  RuntimeSnapshot snapshot;
+  snapshot.motion_state = MotionState::MOTION;
+  snapshot.movement_metric = 0.25f;
+  snapshot.threshold = 0.5f;
+  snapshot.detector_name = "lightweight";
+
+  std::string out{"{"};
+  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
+  out += ",\"dns_sd\":{";
+  append_json_pair(&out, "txtvers", ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION, true);
+  append_json_pair(&out, "protovers", ESPECTRE_PROTOCOL_VERSION);
+  out += "},\"messages\":{\"request\":";
+  out += espectre_command_request_payload(command.command_id, command.command, "{\"threshold\":0.5}");
+  out += ",\"result\":";
+  out += espectre_command_result_payload(config, command, true, "ok", "threshold updated",
+                                         "{\"threshold\":0.5}");
+  out += ",\"error\":";
+  out += espectre_command_result_payload(config, command, false, "invalid_params",
+                                         "threshold is invalid");
+  out += ",\"events\":{\"names\":[\"telemetry\",\"status\",\"info\",\"config\","
+         "\"ota_status\",\"fault\"],\"status\":";
+  out += espectre_status_payload(config, true, 1000U);
+  out += ",\"telemetry\":";
+  out += espectre_telemetry_payload(config, snapshot, 1000U, 1U, "micro");
+  out += ",\"fault\":";
+  out += espectre_fault_payload(config, "runtime fault", 1000U);
+  out += "}}}";
+  return out;
+}
+
 std::string espectre_ota_status_payload(const EspectreDeviceConfig &config,
                                     const EspectreOtaStatus &status,
                                     uint32_t timestamp_ms) {
@@ -910,17 +1008,29 @@ bool parse_espectre_command(const std::string &payload, EspectreCommand *command
   }
   std::string command_id;
   const JsonObjectField *id_field = find_json_object_field(fields, "command_id");
-  if (id_field != nullptr) {
-    if (id_field->type != JsonValueType::STRING) {
-      if (error != nullptr) {
-        *error = "invalid command_id (accepted: string)";
-      }
-      *command = EspectreCommand{};
-      return false;
+  if (id_field == nullptr || id_field->type != JsonValueType::STRING ||
+      !command_id_accepted(id_field->value)) {
+    if (error != nullptr) {
+      *error = "invalid command_id (accepted: non-empty string up to 64 characters)";
     }
-    command_id = id_field->value;
+    *command = EspectreCommand{};
+    return false;
   }
+  command_id = id_field->value;
   const JsonObjectField *command_field = find_json_object_field(fields, "command");
+  const JsonObjectField *version_field = find_json_object_field(fields, "protocol_version");
+  if (version_field == nullptr || version_field->type != JsonValueType::STRING ||
+      version_field->value != ESPECTRE_PROTOCOL_VERSION) {
+    if (error != nullptr) {
+      *error = "unsupported protocol_version";
+    }
+    *command = EspectreCommand{};
+    command->command_id = command_id;
+    if (command_field != nullptr && command_field->type == JsonValueType::STRING) {
+      command->command = command_field->value;
+    }
+    return false;
+  }
   if (command_field == nullptr || command_field->type != JsonValueType::STRING) {
     if (error != nullptr) {
       *error = "missing command";

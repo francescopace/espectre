@@ -49,7 +49,7 @@ Before adding product-specific behavior, enforce these runtime constraints:
 | `src/cpp/espectre_sdk.h` | Stable full-runtime SDK facade | Header only |
 | `src/cpp/espectre_core_sdk.h` | Optional core-only detector facade | C++17 standard library only |
 | `src/cpp/core/` | Lightweight and High-Accuracy detectors, feature extraction, filters, CSI format | C++17 standard library only |
-| `src/cpp/runtime/` | Runtime contracts, snapshots, events, ESPectre Protocol model, traffic generation | Portable, host-testable |
+| `src/cpp/runtime/` | Runtime contracts, snapshots, events, ESPectre Protocol message and capability models, traffic generation | Portable, host-testable |
 | `src/cpp/runtime/esp_idf/` | CSI capture, Wi-Fi lifecycle, sensing pipeline, traffic generation, NVS persistence | ESP-IDF `>= 5.5` |
 | `src/cpp/frontend/` | ESPHome, Native Direct/MQTT, and Matter reference integrations | Frontend-specific stacks |
 
@@ -115,7 +115,7 @@ After each `update_state()`, re-read `get_threshold()`: Lightweight can lower it
 | `runtime/esp_idf/runtime_sensing_kconfig.h` | Build a config from menuconfig |
 | `runtime/espectre_protocol.h` | Wire types, payload builders, command parsers |
 | `runtime/mqtt_transport.h` | Implement to reach your own MQTT client |
-| `runtime/direct_http_protocol.h` | Transport-neutral Direct request envelopes, parsing, and response/event builders |
+| `runtime/direct_http_protocol.h` | Canonical request parsing, Direct HTTP constants, and the executable Direct/MQTT mapping |
 | `runtime/direct_http_service.h` | Implement to expose Direct HTTP POST, SSE events, and optional raw CSI streaming |
 | `runtime/ota_service.h` | Implement to reach your own update channel |
 | `runtime/firmware_version.h` | The application version reported on the wire |

@@ -15,6 +15,7 @@
 #include "esp_netif.h"
 #include "esp_timer.h"
 #include "direct_http_protocol.h"
+#include "espectre_protocol.h"
 #include "mdns.h"
 #include "mdns_private.h"
 #include "mdns_discovery_service.h"
@@ -40,7 +41,7 @@ MdnsDiscoveryServiceConfig direct_config() {
        {"transport", ESPECTRE_DIRECT_HTTP_TRANSPORT},
        {"path", ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT},
        {"events", ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT},
-       {"protovers", "1"}},
+       {"protovers", "1.0"}},
   };
 }
 
@@ -479,8 +480,8 @@ PeerDiscoveryCandidate peer(const char *device_id,
   candidate.device_id = device_id;
   candidate.name = "Kitchen sensor";
   candidate.frontend = "native";
-  candidate.txt_version = ESPECTRE_DIRECT_DISCOVERY_TXT_VERSION;
-  candidate.protocol_version = "1";
+  candidate.txt_version = ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION;
+  candidate.protocol_version = ESPECTRE_PROTOCOL_VERSION;
   candidate.transport = ESPECTRE_DIRECT_HTTP_TRANSPORT;
   candidate.path = ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT;
   candidate.events = ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT;
@@ -502,8 +503,8 @@ struct PeerMdnsFixture {
       {"device_id", "2222222222222222"},
       {"name", "Office sensor"},
       {"frontend", "native"},
-      {"txtvers", "2"},
-      {"protovers", "1"},
+      {"txtvers", "1"},
+      {"protovers", "1.0"},
       {"transport", "http"},
       {"path", "/espectre/v1/request"},
       {"events", "/espectre/v1/events"},
@@ -532,6 +533,9 @@ void test_peer_results_are_bounded_validated_sorted_and_serializable() {
   const uint32_t station = ipv4(192U, 168U, 1U, 100U);
   const uint32_t netmask = ipv4(255U, 255U, 255U, 0U);
   PeerDiscoveryCandidate second = peer("2222222222222222", "espectre-2", station + (2U << 24U));
+  PeerDiscoveryCandidate micro = peer("3333333333333333", "espectre-micro-333333", station + (3U << 24U));
+  micro.frontend = "micro";
+  micro.capabilities = "monitor";
   PeerDiscoveryCandidate first = peer("1111111111111111", "espectre-1", station + (1U << 24U));
   first.ipv4_addresses.push_back(8U | (8U << 8U) | (8U << 16U) | (8U << 24U));
   PeerDiscoveryCandidate malformed = peer("not-an-identity", "bad", station + (3U << 24U));
@@ -539,16 +543,19 @@ void test_peer_results_are_bounded_validated_sorted_and_serializable() {
   conflict.hostname = "conflicting-host";
 
   const PeerDiscoverySnapshot snapshot = validate_peer_discovery_candidates(
-      {second, malformed, first, conflict}, station, netmask, 3000U, false);
-  TEST_ASSERT_EQUAL(1U, snapshot.devices.size());
+      {second, malformed, first, conflict, micro}, station, netmask, 3000U, false);
+  TEST_ASSERT_EQUAL(2U, snapshot.devices.size());
   TEST_ASSERT_EQUAL_STRING("2222222222222222", snapshot.devices[0].device_id.c_str());
   TEST_ASSERT_TRUE(snapshot.rejected_results >= 2U);
   const std::string payload = peer_discovery_snapshot_json(snapshot);
   TEST_ASSERT_TRUE(payload.size() <= ESPECTRE_PEER_DISCOVERY_MAX_RESULT_SIZE);
   TEST_ASSERT_TRUE(payload.find("\"schema_version\":2") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"dns_sd_schema_version\":1") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"protocol_version\":\"1.0\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("192.168.1.102") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("8.8.8.8") == std::string::npos);
   TEST_ASSERT_TRUE(payload.find("peer_discovery") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"frontend\":\"micro\"") != std::string::npos);
 }
 
 void test_peer_results_reject_every_malformed_and_nonlocal_boundary() {
@@ -566,7 +573,7 @@ void test_peer_results_reject_every_malformed_and_nonlocal_boundary() {
   reject([](auto &candidate) { candidate.device_id = "ABCDEF0123456789"; });
   reject([](auto &candidate) { candidate.name = "bad\nname"; });
   reject([](auto &candidate) { candidate.frontend = "unknown"; });
-  reject([](auto &candidate) { candidate.txt_version = "1"; });
+  reject([](auto &candidate) { candidate.txt_version = "2"; });
   reject([](auto &candidate) { candidate.protocol_version = "2"; });
   reject([](auto &candidate) { candidate.transport = "websocket"; });
   reject([](auto &candidate) { candidate.path = "/espectre/v1/ws"; });

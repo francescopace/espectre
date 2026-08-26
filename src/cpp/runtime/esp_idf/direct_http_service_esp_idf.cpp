@@ -25,6 +25,9 @@
 #include <netinet/tcp.h>
 #endif
 
+#include "protocol_json.h"
+#include "espectre_protocol.h"
+
 namespace espectre {
 
 namespace {
@@ -102,8 +105,8 @@ std::string session_id_hex(const uint8_t *session_id) {
   return out;
 }
 
-std::string sse_payload(const std::string &event_name, const std::string &envelope) {
-  return "event: " + event_name + "\ndata: " + envelope + "\n\n";
+std::string sse_payload(const std::string &event_name, const std::string &data_json) {
+  return "event: " + event_name + "\ndata: " + data_json + "\n\n";
 }
 
 esp_err_t send_http_error(httpd_req_t *request, const char *status, const char *message) {
@@ -288,10 +291,21 @@ void EspIdfDirectHttpService::loop() {
       }
     } else {
       if (response.empty()) {
-        response = direct_http_error_response(pending.direct.id, "internal_error", "empty Direct response");
+        EspectreDeviceConfig device;
+        device.device_id = config_.device_id;
+        EspectreCommand command;
+        command.command_id = pending.direct.id;
+        command.command = pending.direct.method;
+        response = espectre_command_result_payload(
+            device, command, false, "internal_error", "empty Direct response");
       } else if (response.size() > ESPECTRE_DIRECT_MAX_RESPONSE_SIZE) {
-        response = direct_http_error_response(
-            pending.direct.id, "internal_error", "Direct response exceeds the size limit");
+        EspectreDeviceConfig device;
+        device.device_id = config_.device_id;
+        EspectreCommand command;
+        command.command_id = pending.direct.id;
+        command.command = pending.direct.method;
+        response = espectre_command_result_payload(
+            device, command, false, "internal_error", "Direct response exceeds the size limit");
       }
       (void) finish_request_(std::move(pending), response);
     }
@@ -373,9 +387,12 @@ bool EspIdfDirectHttpService::publish_event(const std::string &event_name,
                                             const std::string &data_json,
                                             bool replaceable_telemetry) {
   if (server_ == nullptr || event_name.empty()) return false;
-  const std::string envelope = direct_http_event(event_name.c_str(), data_json);
-  if (envelope.size() > ESPECTRE_DIRECT_MAX_RESPONSE_SIZE) return false;
-  const OutboundEvent event{sse_payload(event_name, envelope), event_name, replaceable_telemetry};
+  std::vector<JsonObjectField> fields;
+  if (!parse_json_object_fields(data_json, &fields, nullptr) ||
+      data_json.size() > ESPECTRE_DIRECT_MAX_RESPONSE_SIZE) {
+    return false;
+  }
+  const OutboundEvent event{sse_payload(event_name, data_json), event_name, replaceable_telemetry};
   bool accepted = false;
   if (lock_()) {
     for (EventClient &client : event_clients_) {

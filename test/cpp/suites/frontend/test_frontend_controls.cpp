@@ -137,7 +137,7 @@ void test_espectre_component_raw_session_uses_shared_controller_and_recovers(voi
 
   const std::string started = component.direct_bridge_.handle_request_(
       DirectRequest{"raw-start", "start_raw_stream", "{}"});
-  TEST_ASSERT_TRUE(started.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(started.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(component.direct_service_.raw_diagnostics().active);
   TEST_ASSERT_EQUAL(RuntimeOperationState::RAW_COLLECTION,
                     component.runtime_.operation_state());
@@ -184,14 +184,14 @@ void test_esphome_direct_exposes_common_wifi_and_label_capabilities(void) {
       DirectRequest{"unpin", "clear_wifi_bssid", "{}"});
   const std::string credential_reset = component.direct_bridge_.handle_request_(
       DirectRequest{"reset", "clear_wifi_config", "{}"});
-  TEST_ASSERT_TRUE(scan.find("\"ok\":true") != std::string::npos);
-  TEST_ASSERT_TRUE(pin.find("\"ok\":true") != std::string::npos);
-  TEST_ASSERT_TRUE(unpin.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(scan.find("\"accepted\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(pin.find("\"accepted\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(unpin.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(credential_reset.find("\"code\":\"unsupported\"") != std::string::npos);
 
   const std::string label = component.direct_bridge_.handle_request_(
       DirectRequest{"label", "set_device_label", "{\"device_label\":\"Kitchen ESPHome\"}"});
-  TEST_ASSERT_TRUE(label.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(label.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_EQUAL_STRING("Kitchen ESPHome", component.device_name_().c_str());
   const std::string info = component.direct_bridge_.handle_request_(
       DirectRequest{"info", "info", "{}"});

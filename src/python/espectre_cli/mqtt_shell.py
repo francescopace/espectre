@@ -43,6 +43,7 @@ from .common import (
     Style,
 )
 from micro_espectre.branding import ASCII_BANNER
+from micro_espectre.protocol import PROTOCOL_VERSION
 
 _SHELL_ALIASES = {
     "i": "info",
@@ -227,7 +228,7 @@ def send_mqtt_command_and_wait(
     """Publish one MQTT command and wait for the matching response."""
     _base_topic, topic_cmd, topic_responses, _info_topic = _mqtt_topic_bindings(args)
     command = dict(cmd_data)
-    command.setdefault("protocol_version", "1.0")
+    command.setdefault("protocol_version", PROTOCOL_VERSION)
     command_id = str(command.get("command_id") or f"cmd-{uuid.uuid4().hex[:12]}")
     command["command_id"] = command_id
 
@@ -311,7 +312,7 @@ def request_mqtt_info_and_wait(
     _base_topic, topic_cmd, topic_responses, _info_topic = _mqtt_topic_bindings(args)
     command_id = f"cmd-{uuid.uuid4().hex[:12]}"
     command = {
-        "protocol_version": "1.0",
+        "protocol_version": PROTOCOL_VERSION,
         "command_id": command_id,
         "command": "info",
     }
@@ -495,7 +496,7 @@ class EspectreMQTTShell:
                 self.topic_cmd,
                 json.dumps(
                     {
-                        "protocol_version": "1.0",
+                        "protocol_version": PROTOCOL_VERSION,
                         "command_id": command_id,
                         "command": "capabilities",
                     }
@@ -771,7 +772,7 @@ class EspectreMQTTShell:
 
     def send_command(self, cmd_data: Dict[str, Any], *, timeout_s: float | None = None):
         command = dict(cmd_data)
-        command.setdefault("protocol_version", "1.0")
+        command.setdefault("protocol_version", PROTOCOL_VERSION)
         command_id = str(command.get("command_id") or f"cmd-{uuid.uuid4().hex[:12]}")
         command["command_id"] = command_id
         payload_label = self._PAYLOAD_LABELS.get(str(command.get("command") or ""))

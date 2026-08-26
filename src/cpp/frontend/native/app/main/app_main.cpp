@@ -72,8 +72,8 @@ espectre::MdnsTxtRecords native_mdns_txt(const espectre::EspectreDeviceConfig &c
       {"device_id", espectre::format_espectre_device_id(config.device_id)},
       {"name", config.device_label},
       {"frontend", "native"},
-      {"txtvers", espectre::ESPECTRE_DIRECT_DISCOVERY_TXT_VERSION},
-      {"protovers", "1"},
+      {"txtvers", espectre::ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION},
+      {"protovers", espectre::ESPECTRE_PROTOCOL_VERSION},
       {"transport", espectre::ESPECTRE_DIRECT_HTTP_TRANSPORT},
       {"path", espectre::ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT},
       {"events", espectre::ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT},
@@ -93,8 +93,8 @@ espectre::PeerDiscoveryCandidate native_peer_candidate(
   candidate.device_id = device_id;
   candidate.name = instance_name;
   candidate.frontend = "native";
-  candidate.txt_version = espectre::ESPECTRE_DIRECT_DISCOVERY_TXT_VERSION;
-  candidate.protocol_version = "1";
+  candidate.txt_version = espectre::ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION;
+  candidate.protocol_version = espectre::ESPECTRE_PROTOCOL_VERSION;
   candidate.transport = espectre::ESPECTRE_DIRECT_HTTP_TRANSPORT;
   candidate.path = espectre::ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT;
   candidate.events = espectre::ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT;

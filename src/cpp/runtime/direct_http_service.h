@@ -1,7 +1,7 @@
 /*
  * ESPectre - Direct HTTP Service Boundary
  *
- * Transport boundary for the local, versioned Direct HTTP endpoints.
+ * Transport boundary for local HTTP carriage of canonical ESPectre messages.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -33,6 +33,7 @@ struct DirectHttpServiceConfig {
   }
 
   std::vector<std::string> allowed_origins;
+  uint64_t device_id{0U};
   uint16_t port{ESPECTRE_DIRECT_HTTP_PORT};
   size_t max_event_clients{2U};
   size_t max_pending_requests{4U};

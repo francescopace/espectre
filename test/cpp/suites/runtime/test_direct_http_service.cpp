@@ -13,6 +13,7 @@
 #include "direct_http_service_esp_idf.h"
 #include "esp_http_server.h"
 #include "esp_timer.h"
+#include "espectre_protocol.h"
 
 using namespace espectre;
 
@@ -45,6 +46,14 @@ void prepare_json(const char *payload, const char *origin = "https://espectre.de
 std::string sent_payload(int index) {
   return std::string(reinterpret_cast<const char *>(g_httpd_mock.sent_payloads[index]),
                      g_httpd_mock.sent_lengths[index]);
+}
+
+std::string command_result(const DirectRequest &request, const std::string &data_json = "{}") {
+  EspectreDeviceConfig device;
+  EspectreCommand command;
+  command.command_id = request.id;
+  command.command = request.method;
+  return espectre_command_result_payload(device, command, true, "ok", "completed", data_json);
 }
 
 void test_setup_registers_http_post_sse_raw_and_preflight() {
@@ -81,24 +90,24 @@ void test_post_validates_origin_content_type_size_and_dispatches_on_loop() {
       config(),
       [&method](const DirectRequest &request) {
         method = request.method;
-        return direct_http_success_response(request.id, "{\"methods\":[]}");
+        return command_result(request, "{\"methods\":[]}");
       },
       {}));
 
-  prepare_json("{\"v\":1,\"type\":\"request\",\"id\":\"r1\",\"method\":\"capabilities\",\"params\":{}}",
+  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"r1\",\"command\":\"capabilities\"}",
                "https://evil.example");
   httpd_req_t rejected = request_for(0U);
   TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[0].handler(&rejected));
   TEST_ASSERT_EQUAL_STRING(HTTPD_403_FORBIDDEN, g_httpd_mock.response_status);
 
-  prepare_json("{\"v\":1,\"type\":\"request\",\"id\":\"r1\",\"method\":\"capabilities\",\"params\":{}}");
+  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"r1\",\"command\":\"capabilities\"}");
   httpd_req_t request = request_for(0U);
   TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&request));
   TEST_ASSERT_EQUAL(1, g_httpd_mock.send_calls);
   service.loop();
   TEST_ASSERT_EQUAL_STRING("capabilities", method.c_str());
   TEST_ASSERT_EQUAL(2, g_httpd_mock.send_calls);
-  TEST_ASSERT_TRUE(sent_payload(1).find("\"id\":\"r1\"") != std::string::npos);
+  TEST_ASSERT_TRUE(sent_payload(1).find("\"command_id\":\"r1\"") != std::string::npos);
   TEST_ASSERT_EQUAL_STRING("application/json; charset=utf-8", g_httpd_mock.response_type);
   TEST_ASSERT_EQUAL_STRING("no-store", g_httpd_mock.cache_control);
   TEST_ASSERT_EQUAL_STRING("https://espectre.dev", g_httpd_mock.allow_origin);
@@ -146,23 +155,23 @@ void test_post_distinguishes_queue_saturation_from_mutation_rate_limit() {
   limits.max_mutations_per_minute = 1U;
   TEST_ASSERT_TRUE(service.setup(
       limits, [](const DirectRequest &request) {
-        return direct_http_success_response(request.id, "{}");
+        return command_result(request);
       }, {}));
 
-  prepare_json("{\"v\":1,\"type\":\"request\",\"id\":\"q1\",\"method\":\"capabilities\",\"params\":{}}");
+  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"q1\",\"command\":\"capabilities\"}");
   httpd_req_t queued = request_for(0U, 20);
   TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&queued));
-  prepare_json("{\"v\":1,\"type\":\"request\",\"id\":\"q2\",\"method\":\"status\",\"params\":{}}");
+  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"q2\",\"command\":\"status\"}");
   httpd_req_t full = request_for(0U, 21);
   TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[0].handler(&full));
   TEST_ASSERT_EQUAL_STRING(HTTPD_503_SERVICE_UNAVAILABLE, g_httpd_mock.response_status);
   service.loop();
 
-  prepare_json("{\"v\":1,\"type\":\"request\",\"id\":\"m1\",\"method\":\"set_threshold\",\"params\":{}}");
+  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"m1\",\"command\":\"set_threshold\",\"threshold\":0.5}");
   httpd_req_t first_mutation = request_for(0U, 22);
   TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&first_mutation));
   service.loop();
-  prepare_json("{\"v\":1,\"type\":\"request\",\"id\":\"m2\",\"method\":\"recalibrate\",\"params\":{}}");
+  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"m2\",\"command\":\"recalibrate\"}");
   httpd_req_t limited = request_for(0U, 23);
   TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[0].handler(&limited));
   TEST_ASSERT_EQUAL_STRING(HTTPD_429_TOO_MANY_REQUESTS, g_httpd_mock.response_status);
@@ -219,16 +228,16 @@ void test_deferred_post_completes_only_once() {
         return IDirectHttpService::DeferredRequestResult{true, {}};
       },
       {}));
-  prepare_json("{\"v\":1,\"type\":\"request\",\"id\":\"peers\",\"method\":\"discover_peers\",\"params\":{}}");
+  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"peers\",\"command\":\"discover_peers\"}");
   httpd_req_t request = request_for(0U);
   TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&request));
   service.loop();
   TEST_ASSERT_TRUE(token != 0U);
   TEST_ASSERT_EQUAL_STRING("peers", request_id.c_str());
   TEST_ASSERT_TRUE(service.complete_deferred_response(
-      token, direct_http_success_response(request_id, "{\"devices\":[]}")));
+      token, command_result(DirectRequest{request_id, "discover_peers", "{}"}, "{\"devices\":[]}")));
   TEST_ASSERT_FALSE(service.complete_deferred_response(
-      token, direct_http_success_response(request_id, "{\"devices\":[]}")));
+      token, command_result(DirectRequest{request_id, "discover_peers", "{}"}, "{\"devices\":[]}")));
   TEST_ASSERT_EQUAL(1, g_httpd_mock.send_calls);
 }
 

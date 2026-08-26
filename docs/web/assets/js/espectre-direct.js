@@ -13,7 +13,8 @@
 (function () {
     'use strict';
 
-    const ENVELOPE_VERSION = 1;
+    const PROTOCOL_VERSION = '1.0';
+    const DNS_SD_SCHEMA_VERSION = 1;
     // Low 16 bits of U+1F47B GHOST (0xF47B), the ESPectre service marker.
     const DEFAULT_PORT = 62587;
     const REQUEST_PATH = '/espectre/v1/request';
@@ -271,8 +272,8 @@
         if (!data || typeof data !== 'object' || Array.isArray(data)) {
             throw new ESPectreDirectError('Direct payload must be a JSON object.', 'invalid_envelope');
         }
-        if (data.v !== ENVELOPE_VERSION) {
-            throw new ESPectreDirectError(`Unsupported Direct envelope version ${String(data.v)}.`, 'unsupported_version');
+        if (data.protocol_version !== PROTOCOL_VERSION) {
+            throw new ESPectreDirectError(`Unsupported ESPectre protocol version ${String(data.protocol_version)}.`, 'unsupported_version');
         }
         return data;
     }
@@ -302,8 +303,9 @@
                 && validText(peer.instance, 63)
                 && validText(peer.hostname, 63, { token: true })
                 && validText(peer.name, 63, { empty: true })
-                && ['native', 'esphome', 'matter'].includes(peer.frontend)
-                && peer.txt_version === 2 && peer.protocol_version === 1
+                && ['native', 'esphome', 'matter', 'micro'].includes(peer.frontend)
+                && peer.dns_sd_schema_version === DNS_SD_SCHEMA_VERSION
+                && peer.protocol_version === PROTOCOL_VERSION
                 && peer.transport === 'http'
                 && peer.path === REQUEST_PATH && peer.events === EVENTS_PATH
                 && validText(peer.firmware, 48)
@@ -330,7 +332,7 @@
 
     class ESPectreDirectClient {
         static get VERSION() { return '2.0.0'; }
-        static get ENVELOPE_VERSION() { return ENVELOPE_VERSION; }
+        static get PROTOCOL_VERSION() { return PROTOCOL_VERSION; }
         static get DEFAULT_PORT() { return DEFAULT_PORT; }
         static get ENDPOINT_PATH() { return REQUEST_PATH; }
         static get EVENTS_PATH() { return EVENTS_PATH; }
@@ -459,12 +461,8 @@
                 if (new TextEncoder().encode(text).byteLength > MAX_RESPONSE_BYTES) {
                     throw new ESPectreDirectError('Direct event exceeds the 8192-byte limit.', 'frame_too_large');
                 }
-                const envelope = parseObject(text);
-                if (envelope.type !== 'event' || envelope.event !== eventName
-                    || !envelope.data || typeof envelope.data !== 'object' || Array.isArray(envelope.data)) {
-                    throw new ESPectreDirectError('Direct SSE envelope is invalid.', 'invalid_envelope');
-                }
-                this.#emit('event', eventName, envelope.data);
+                const event = parseObject(text);
+                this.#emit('event', eventName, event);
             } catch (error) {
                 this.#emit('protocol-error', error);
             }
@@ -506,7 +504,15 @@
             if (!/^[A-Za-z0-9_.:-]{1,64}$/.test(id)) {
                 throw new ESPectreDirectError('Direct request id is invalid.', 'invalid_request_id');
             }
-            const payload = JSON.stringify({ v: ENVELOPE_VERSION, type: 'request', id, method, params });
+            if (['protocol_version', 'command_id', 'command'].some((name) => Object.hasOwn(params, name))) {
+                throw new ESPectreDirectError('Direct params contain a reserved protocol field.', 'invalid_params');
+            }
+            const payload = JSON.stringify({
+                protocol_version: PROTOCOL_VERSION,
+                command_id: id,
+                command: method,
+                ...params
+            });
             if (new TextEncoder().encode(payload).byteLength > MAX_REQUEST_BYTES) {
                 throw new ESPectreDirectError('Direct request exceeds the 4096-byte limit.', 'frame_too_large');
             }
@@ -543,19 +549,17 @@
             if (new TextEncoder().encode(text).byteLength > MAX_RESPONSE_BYTES) {
                 throw new ESPectreDirectError('Direct response exceeds the 8192-byte limit.', 'frame_too_large');
             }
-            const envelope = parseObject(text);
-            if (envelope.type !== 'response' || envelope.id !== id || typeof envelope.ok !== 'boolean') {
-                throw new ESPectreDirectError('Direct response envelope is invalid.', 'invalid_envelope');
+            const resultMessage = parseObject(text);
+            if (resultMessage.command_id !== id || resultMessage.command !== method
+                || typeof resultMessage.accepted !== 'boolean'
+                || typeof resultMessage.code !== 'string'
+                || typeof resultMessage.message !== 'string') {
+                throw new ESPectreDirectError('Direct command result is invalid.', 'invalid_envelope');
             }
-            if (!envelope.ok) {
-                const code = typeof envelope.error?.code === 'string' ? envelope.error.code : 'device_error';
-                const message = typeof envelope.error?.message === 'string' ? envelope.error.message : 'Device rejected the request.';
-                throw new ESPectreDirectError(message, code);
+            if (!resultMessage.accepted) {
+                throw new ESPectreDirectError(resultMessage.message, resultMessage.code);
             }
-            if (!envelope.result || typeof envelope.result !== 'object' || Array.isArray(envelope.result)) {
-                throw new ESPectreDirectError('Direct success result must be an object.', 'invalid_envelope');
-            }
-            const result = envelope.result.data ?? envelope.result;
+            const result = resultMessage.data ?? {};
             if (!result || typeof result !== 'object' || Array.isArray(result)) {
                 throw new ESPectreDirectError('Direct response data must be an object.', 'invalid_envelope');
             }

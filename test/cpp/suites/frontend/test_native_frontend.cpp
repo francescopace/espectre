@@ -654,7 +654,7 @@ void test_native_frontend_direct_clear_mqtt_disconnects_and_reports_status(void)
   const std::string response = direct.emit_request(
       DirectRequest{"clear-mqtt", "clear_mqtt_config", "{}"});
 
-  TEST_ASSERT_TRUE(response.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(response.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.shutdown_called);
   TEST_ASSERT_EQUAL(2, static_cast<int>(direct_http_service_mock::state.published_events.size()));
   TEST_ASSERT_EQUAL_STRING(
@@ -953,7 +953,7 @@ void test_native_frontend_mqtt_set_threshold_command_publishes_result(void) {
   TEST_ASSERT_TRUE(frontend.setup());
   mqtt_transport_mock::state.publishes.clear();
 
-  mqtt.emit_command("{\"command_id\":\"cmd-1\",\"command\":\"set_threshold\",\"threshold\":0.45}");
+  mqtt.emit_command("{\"protocol_version\":\"1.0\",\"command_id\":\"cmd-1\",\"command\":\"set_threshold\",\"threshold\":0.45}");
 
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_threshold_calls);
   TEST_ASSERT_EQUAL_FLOAT(0.45f, frontend_runtime_shim::state.last_threshold);
@@ -961,6 +961,29 @@ void test_native_frontend_mqtt_set_threshold_command_publishes_result(void) {
   const auto &publish = mqtt_transport_mock::state.publishes.back();
   TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0000abcdeffedcba/commands/result", publish.topic.c_str());
   TEST_ASSERT_TRUE(publish.payload.find("\"accepted\":true") != std::string::npos);
+}
+
+void test_native_frontend_mqtt_rejects_unsupported_protocol_version(void) {
+  MockMqttTransport mqtt;
+  EspectreDeviceConfig config;
+  config.device_id = 0x0000abcdeffedcbaULL;
+  config.mqtt_host = "localhost";
+
+  NativeFrontend frontend(&mqtt);
+  frontend.set_device_config(config);
+  TEST_ASSERT_TRUE(frontend.setup());
+  mqtt_transport_mock::state.publishes.clear();
+
+  mqtt.emit_command(
+      "{\"protocol_version\":\"2.0\",\"command_id\":\"cmd-version\",\"command\":\"info\"}");
+
+  TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
+  const auto &publish = mqtt_transport_mock::state.publishes.back();
+  TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0000abcdeffedcba/commands/result", publish.topic.c_str());
+  TEST_ASSERT_TRUE(publish.payload.find("\"command_id\":\"cmd-version\"") != std::string::npos);
+  TEST_ASSERT_TRUE(publish.payload.find("\"command\":\"info\"") != std::string::npos);
+  TEST_ASSERT_TRUE(publish.payload.find("\"accepted\":false") != std::string::npos);
+  TEST_ASSERT_TRUE(publish.payload.find("\"code\":\"unsupported_version\"") != std::string::npos);
 }
 
 void test_native_frontend_mqtt_set_device_label_persists_and_republishes_info(void) {
@@ -983,7 +1006,7 @@ void test_native_frontend_mqtt_set_device_label_persists_and_republishes_info(vo
   mqtt_transport_mock::state.publishes.clear();
 
   mqtt.emit_command(
-      "{\"command_id\":\"label-1\",\"command\":\"set_device_label\",\"device_label\":\"Kitchen Sensor\"}");
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"label-1\",\"command\":\"set_device_label\",\"device_label\":\"Kitchen Sensor\"}");
 
   TEST_ASSERT_EQUAL_STRING("Kitchen Sensor", frontend.device_config().device_label.c_str());
   TEST_ASSERT_EQUAL(1, static_cast<int>(persisted_configs.size()));
@@ -1014,7 +1037,7 @@ void test_native_frontend_mqtt_recalibrate_command_publishes_result(void) {
   TEST_ASSERT_TRUE(frontend.setup());
   mqtt_transport_mock::state.publishes.clear();
 
-  mqtt.emit_command("{\"command_id\":\"cmd-recal\",\"command\":\"recalibrate\"}");
+  mqtt.emit_command("{\"protocol_version\":\"1.0\",\"command_id\":\"cmd-recal\",\"command\":\"recalibrate\"}");
 
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.trigger_recalibration_calls);
   TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
@@ -1037,7 +1060,7 @@ void test_native_frontend_mqtt_detector_command_updates_runtime(void) {
 
   mqtt_transport_mock::state.publishes.clear();
   mqtt.emit_command(
-      "{\"command_id\":\"det-1\",\"command\":\"set_detector\",\"detector\":\"lightweight\"}");
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"det-1\",\"command\":\"set_detector\",\"detector\":\"lightweight\"}");
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_detector_calls);
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_detector == DetectionAlgorithm::LIGHTWEIGHT);
   TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
@@ -1059,7 +1082,7 @@ void test_native_frontend_mqtt_motion_hits_command_updates_runtime(void) {
 
   mqtt_transport_mock::state.publishes.clear();
   mqtt.emit_command(
-      "{\"command_id\":\"motion-1\",\"command\":\"set_motion_hits\",\"motion_on_hits\":5,\"motion_off_hits\":3}");
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"motion-1\",\"command\":\"set_motion_hits\",\"motion_on_hits\":5,\"motion_off_hits\":3}");
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_motion_hits_calls);
   TEST_ASSERT_EQUAL_UINT8(5U, frontend_runtime_shim::state.last_motion_on_hits);
   TEST_ASSERT_EQUAL_UINT8(3U, frontend_runtime_shim::state.last_motion_off_hits);
@@ -1082,19 +1105,19 @@ void test_native_frontend_mqtt_traffic_commands_update_runtime(void) {
 
   mqtt_transport_mock::state.publishes.clear();
   mqtt.emit_command(
-      "{\"command_id\":\"traffic-1\",\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"pacing\"}");
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"traffic-1\",\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"pacing\"}");
   TEST_ASSERT_EQUAL(0, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
   TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.back().payload.find("\"accepted\":false") !=
                    std::string::npos);
 
   mqtt.emit_command(
-      "{\"command_id\":\"traffic-1b\",\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"external\"}");
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"traffic-1b\",\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"external\"}");
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficMode::EXTERNAL);
 
   mqtt.emit_command(
-      "{\"command_id\":\"traffic-2\",\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"ping\"}");
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"traffic-2\",\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"ping\"}");
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == RuntimeTrafficMode::PING);
   TEST_ASSERT_TRUE(!mqtt_transport_mock::state.publishes.empty());
@@ -1113,7 +1136,7 @@ void test_native_frontend_mqtt_rejects_direct_local_commands_with_forbidden(void
   mqtt_transport_mock::state.publishes.clear();
 
   mqtt.emit_command(
-      "{\"command_id\":\"wifi-local\",\"command\":\"set_wifi_bssid\",\"bssid\":\"E6:FA:C4:20:19:DE\"}");
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"wifi-local\",\"command\":\"set_wifi_bssid\",\"bssid\":\"E6:FA:C4:20:19:DE\"}");
 
   TEST_ASSERT_EQUAL(1, static_cast<int>(mqtt_transport_mock::state.publishes.size()));
   const auto &result = mqtt_transport_mock::state.publishes[0];
@@ -1152,8 +1175,8 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
   frontend.on_motion_state_changed(snapshot);
   frontend.loop();
   mqtt_transport_mock::state.publishes.clear();
-  mqtt.emit_command("{\"command_id\":\"cmd-info\",\"command\":\"info\"}");
-  mqtt.emit_command("{\"command_id\":\"cmd-diagnostics\",\"command\":\"diagnostics\"}");
+  mqtt.emit_command("{\"protocol_version\":\"1.0\",\"command_id\":\"cmd-info\",\"command\":\"info\"}");
+  mqtt.emit_command("{\"protocol_version\":\"1.0\",\"command_id\":\"cmd-diagnostics\",\"command\":\"diagnostics\"}");
 
   TEST_ASSERT_EQUAL(2, static_cast<int>(mqtt_transport_mock::state.publishes.size()));
   TEST_ASSERT_EQUAL_STRING("espectre/v1/devices/0000abcdeffedcba/commands/result",
@@ -1187,7 +1210,7 @@ void test_native_frontend_mqtt_info_and_stats_commands_publish_protocol_payloads
                    std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[1].payload.find("\"movement\":") == std::string::npos);
 
-  mqtt.emit_command("{\"command_id\":\"cmd-capabilities\",\"command\":\"capabilities\"}");
+  mqtt.emit_command("{\"protocol_version\":\"1.0\",\"command_id\":\"cmd-capabilities\",\"command\":\"capabilities\"}");
   TEST_ASSERT_EQUAL(3, static_cast<int>(mqtt_transport_mock::state.publishes.size()));
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"commands\":[") != std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes[2].payload.find("\"set_device_label\"") != std::string::npos);
@@ -1236,7 +1259,7 @@ void test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state(vo
   TEST_ASSERT_TRUE(frontend.setup());
   mqtt_transport_mock::state.publishes.clear();
 
-  mqtt.emit_command("{\"command_id\":\"cmd-ota-check\",\"command\":\"ota_check\"}");
+  mqtt.emit_command("{\"protocol_version\":\"1.0\",\"command_id\":\"cmd-ota-check\",\"command\":\"ota_check\"}");
   TEST_ASSERT_EQUAL(1, ota_service_mock::state.start_check_calls);
   TEST_ASSERT_EQUAL_STRING("1.0.0", ota_service_mock::state.last_current_version.c_str());
   TEST_ASSERT_TRUE(ota_service_mock::state.last_channel.empty());
@@ -1244,12 +1267,12 @@ void test_native_frontend_mqtt_ota_commands_use_ota_service_and_publish_state(vo
                            mqtt_transport_mock::state.publishes.back().topic.c_str());
 
   mqtt_transport_mock::state.publishes.clear();
-  mqtt.emit_command("{\"command_id\":\"cmd-ota-check-preview\",\"command\":\"ota_check\",\"channel\":\"preview\"}");
+  mqtt.emit_command("{\"protocol_version\":\"1.0\",\"command_id\":\"cmd-ota-check-preview\",\"command\":\"ota_check\",\"channel\":\"preview\"}");
   TEST_ASSERT_EQUAL(2, ota_service_mock::state.start_check_calls);
   TEST_ASSERT_EQUAL_STRING("preview", ota_service_mock::state.last_channel.c_str());
 
   mqtt_transport_mock::state.publishes.clear();
-  mqtt.emit_command("{\"command_id\":\"cmd-ota-start\",\"command\":\"ota_start\"}");
+  mqtt.emit_command("{\"protocol_version\":\"1.0\",\"command_id\":\"cmd-ota-start\",\"command\":\"ota_start\"}");
   TEST_ASSERT_EQUAL(1, ota_service_mock::state.start_update_calls);
   TEST_ASSERT_EQUAL_STRING("1.0.0", ota_service_mock::state.last_current_version.c_str());
 
@@ -1313,20 +1336,20 @@ void test_espectre_protocol_parses_config_and_rejects_bad_commands(void) {
   TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_port=1884", &config, &error));
 
   EspectreCommand command;
-  TEST_ASSERT_TRUE(parse_espectre_command("{\"command\":\"set_threshold\",\"threshold\":3.25}", &command, &error));
+  TEST_ASSERT_TRUE(parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_threshold\",\"threshold\":3.25}", &command, &error));
   TEST_ASSERT_EQUAL_STRING("set_threshold", command.command.c_str());
   TEST_ASSERT_TRUE(command.has_threshold);
   TEST_ASSERT_EQUAL_FLOAT(3.25f, command.threshold);
   TEST_ASSERT_TRUE(parse_espectre_command(
-      "{\"command\":\"set_motion_hits\",\"motion_on_hits\":6,\"motion_off_hits\":4}", &command, &error));
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_motion_hits\",\"motion_on_hits\":6,\"motion_off_hits\":4}", &command, &error));
   TEST_ASSERT_TRUE(command.has_motion_hits);
   TEST_ASSERT_TRUE(parse_espectre_command(
-      "{\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"external\"}", &command, &error));
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"external\"}", &command, &error));
   TEST_ASSERT_TRUE(command.has_csi_traffic_mode);
   TEST_ASSERT_TRUE(parse_espectre_command(
-      "{\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"dns\"}", &command, &error));
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"dns\"}", &command, &error));
   TEST_ASSERT_TRUE(command.has_traffic_generator_mode);
-  TEST_ASSERT_FALSE(parse_espectre_command("{\"command\":\"set_threshold\",\"threshold\":\"bad\"}", &command, &error));
+  TEST_ASSERT_FALSE(parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_threshold\",\"threshold\":\"bad\"}", &command, &error));
 }
 
 void test_native_frontend_allows_sensing_when_mqtt_is_missing(void) {
@@ -1423,20 +1446,20 @@ void test_native_frontend_direct_requests_share_command_dispatch_and_return_corr
   TEST_ASSERT_TRUE(frontend.setup());
 
   const std::string info_response = direct.emit_request(DirectRequest{"req-info", "info", "{}"});
-  TEST_ASSERT_TRUE(info_response.find("\"id\":\"req-info\"") != std::string::npos);
-  TEST_ASSERT_TRUE(info_response.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(info_response.find("\"command_id\":\"req-info\"") != std::string::npos);
+  TEST_ASSERT_TRUE(info_response.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(info_response.find("3.0.0-test") != std::string::npos);
 
   const std::string update_response = direct.emit_request(
       DirectRequest{"req-label", "set_device_label", "{\"device_label\":\"Kitchen\"}"});
   TEST_ASSERT_EQUAL_STRING("Kitchen", saved_label.c_str());
-  TEST_ASSERT_TRUE(update_response.find("\"id\":\"req-label\"") != std::string::npos);
-  TEST_ASSERT_TRUE(update_response.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(update_response.find("\"command_id\":\"req-label\"") != std::string::npos);
+  TEST_ASSERT_TRUE(update_response.find("\"accepted\":true") != std::string::npos);
 
   const std::string invalid_response =
       direct.emit_request(DirectRequest{"req-bad", "not_supported", "{}"});
-  TEST_ASSERT_TRUE(invalid_response.find("\"id\":\"req-bad\"") != std::string::npos);
-  TEST_ASSERT_TRUE(invalid_response.find("\"ok\":false") != std::string::npos);
+  TEST_ASSERT_TRUE(invalid_response.find("\"command_id\":\"req-bad\"") != std::string::npos);
+  TEST_ASSERT_TRUE(invalid_response.find("\"accepted\":false") != std::string::npos);
   TEST_ASSERT_TRUE(invalid_response.find("\"code\":\"unsupported\"") != std::string::npos);
 }
 
@@ -1476,7 +1499,7 @@ void test_native_frontend_peer_discovery_is_capability_gated_correlated_and_boun
   peers.finish(snapshot);
   TEST_ASSERT_EQUAL(77U, direct_http_service_mock::state.last_completed_token);
   TEST_ASSERT_TRUE(direct_http_service_mock::state.last_deferred_response.find(
-                       "\"id\":\"peers-1\"") != std::string::npos);
+                       "\"command_id\":\"peers-1\"") != std::string::npos);
   TEST_ASSERT_TRUE(direct_http_service_mock::state.last_deferred_response.find(
                        "\"elapsed_ms\":42") != std::string::npos);
   TEST_ASSERT_TRUE(direct_http_service_mock::state.last_deferred_response.find(
@@ -1591,23 +1614,23 @@ void test_native_frontend_direct_updates_bssid_and_mqtt_without_returning_secret
       DirectRequest{"wifi-1", "set_wifi_bssid", "{\"bssid\":\"E6:FA:C4:20:19:DE\"}"});
   TEST_ASSERT_EQUAL_STRING(
       "SET_WIFI_BSSID:bssid=E6%3AFA%3AC4%3A20%3A19%3ADE", provisioning_command.c_str());
-  TEST_ASSERT_TRUE(wifi_response.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(wifi_response.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(wifi_response.find("password") == std::string::npos);
 
   const std::string scan_response = direct.emit_request(
       DirectRequest{"wifi-scan", "scan_wifi_access_points", "{}"});
   TEST_ASSERT_EQUAL(1, scan_calls);
-  TEST_ASSERT_TRUE(scan_response.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(scan_response.find("\"accepted\":true") != std::string::npos);
 
   const std::string clear_bssid_response = direct.emit_request(
       DirectRequest{"wifi-bssid-clear", "clear_wifi_bssid", "{}"});
   TEST_ASSERT_EQUAL_STRING("SET_WIFI_BSSID:bssid=", provisioning_command.c_str());
-  TEST_ASSERT_TRUE(clear_bssid_response.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(clear_bssid_response.find("\"accepted\":true") != std::string::npos);
 
   const std::string removed_command = direct.emit_request(
       DirectRequest{"wifi-removed", "clear_wifi_config", "{}"});
   TEST_ASSERT_EQUAL_STRING("CLEAR_WIFI", provisioning_command.c_str());
-  TEST_ASSERT_TRUE(removed_command.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(removed_command.find("\"accepted\":true") != std::string::npos);
 
   const std::string mqtt_response = direct.emit_request(DirectRequest{
       "mqtt-1",
@@ -1618,7 +1641,7 @@ void test_native_frontend_direct_updates_bssid_and_mqtt_without_returning_secret
   TEST_ASSERT_EQUAL_STRING("mqtt", persisted.mqtt_username.c_str());
   TEST_ASSERT_EQUAL_STRING("secret", persisted.mqtt_password.c_str());
   TEST_ASSERT_EQUAL(1, mqtt_transport_mock::state.setup_calls);
-  TEST_ASSERT_TRUE(mqtt_response.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(mqtt_response.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(mqtt_response.find("secret") == std::string::npos);
 }
 
@@ -1758,14 +1781,14 @@ void test_native_frontend_direct_set_sensing_is_correlated(void) {
 
   const std::string stopped =
       direct.emit_request(DirectRequest{"sense-stop", "set_sensing", "{\"enabled\":false}"});
-  TEST_ASSERT_TRUE(stopped.find("\"id\":\"sense-stop\"") != std::string::npos);
-  TEST_ASSERT_TRUE(stopped.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(stopped.find("\"command_id\":\"sense-stop\"") != std::string::npos);
+  TEST_ASSERT_TRUE(stopped.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
 
   const std::string started =
       direct.emit_request(DirectRequest{"sense-start", "set_sensing", "{\"enabled\":true}"});
-  TEST_ASSERT_TRUE(started.find("\"id\":\"sense-start\"") != std::string::npos);
-  TEST_ASSERT_TRUE(started.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(started.find("\"command_id\":\"sense-start\"") != std::string::npos);
+  TEST_ASSERT_TRUE(started.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.services_armed);
 }
 
@@ -1803,7 +1826,7 @@ void test_native_frontend_direct_raw_session_enforces_owner_and_keeps_mqtt_quiet
       77U,
       DirectRequest{
           "raw-start", "start_raw_stream", "{}"});
-  TEST_ASSERT_TRUE(started.response.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(started.response.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(started.response.find("\"session_id\"") != std::string::npos);
   TEST_ASSERT_TRUE(direct_http_service_mock::state.raw_session_active);
   TEST_ASSERT_EQUAL(RuntimeOperationState::RAW_COLLECTION, frontend.runtime_.operation_state());
@@ -1835,7 +1858,7 @@ void test_native_frontend_direct_raw_session_enforces_owner_and_keeps_mqtt_quiet
 
   const auto stopped = direct.emit_deferred_request(
       77U, DirectRequest{"raw-stop", "stop_raw_stream", "{}", bearer});
-  TEST_ASSERT_TRUE(stopped.response.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(stopped.response.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_FALSE(direct_http_service_mock::state.raw_session_active);
   TEST_ASSERT_EQUAL(RuntimeOperationState::SENSING, frontend.runtime_.operation_state());
 }
@@ -1858,13 +1881,13 @@ void test_native_frontend_queries_stay_on_requesting_transport_and_mutations_fan
   direct_http_service_mock::state.published_events.clear();
 
   const std::string query = direct.emit_request(DirectRequest{"status-only", "status", "{}"});
-  TEST_ASSERT_TRUE(query.find("\"id\":\"status-only\"") != std::string::npos);
-  TEST_ASSERT_TRUE(query.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(query.find("\"command_id\":\"status-only\"") != std::string::npos);
+  TEST_ASSERT_TRUE(query.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(mqtt_transport_mock::state.publishes.empty());
 
   const std::string mutation = direct.emit_request(
       DirectRequest{"threshold-fanout", "set_threshold", "{\"threshold\":0.4}"});
-  TEST_ASSERT_TRUE(mutation.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(mutation.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/config"));
   TEST_ASSERT_TRUE(std::any_of(direct_http_service_mock::state.published_events.begin(),
                                direct_http_service_mock::state.published_events.end(),
@@ -1878,7 +1901,7 @@ void test_native_frontend_queries_stay_on_requesting_transport_and_mutations_fan
   direct_http_service_mock::state.published_events.clear();
   const std::string sensing = direct.emit_request(
       DirectRequest{"sensing-fanout", "set_sensing", "{\"enabled\":false}"});
-  TEST_ASSERT_TRUE(sensing.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(sensing.find("\"accepted\":true") != std::string::npos);
   const int status_index =
       mqtt_publish_index("espectre/v1/devices/0000abcdeffedcba/status");
   TEST_ASSERT_TRUE(status_index >= 0);
@@ -1908,14 +1931,14 @@ void test_native_frontend_direct_ota_returns_status_and_streams_updates(void) {
 
   const std::string status =
       direct.emit_request(DirectRequest{"ota-status", "ota_status", "{}"});
-  TEST_ASSERT_TRUE(status.find("\"id\":\"ota-status\"") != std::string::npos);
-  TEST_ASSERT_TRUE(status.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(status.find("\"command_id\":\"ota-status\"") != std::string::npos);
+  TEST_ASSERT_TRUE(status.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(status.find("\"current_version\":\"1.2.3\"") != std::string::npos);
   TEST_ASSERT_TRUE(status.find("\"default_channel\":\"develop\"") != std::string::npos);
 
   const std::string check = direct.emit_request(
       DirectRequest{"ota-check", "ota_check", "{\"channel\":\"preview\"}"});
-  TEST_ASSERT_TRUE(check.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(check.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_EQUAL(1, ota_service_mock::state.start_check_calls);
   TEST_ASSERT_EQUAL_STRING("1.2.3", ota_service_mock::state.last_current_version.c_str());
   TEST_ASSERT_EQUAL_STRING("preview", ota_service_mock::state.last_channel.c_str());
@@ -1936,7 +1959,7 @@ void test_native_frontend_direct_ota_returns_status_and_streams_updates(void) {
 
   const std::string update = direct.emit_request(
       DirectRequest{"ota-start", "ota_start", "{\"channel\":\"preview\"}"});
-  TEST_ASSERT_TRUE(update.find("\"ok\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(update.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_EQUAL(1, ota_service_mock::state.start_update_calls);
   TEST_ASSERT_EQUAL_STRING("preview", ota_service_mock::state.last_channel.c_str());
 }
@@ -1965,6 +1988,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_live_telemetry_publishes_mqtt_telemetry);
   RUN_TEST(test_native_frontend_motion_edge_publishes_ready_ha_motion);
   RUN_TEST(test_native_frontend_mqtt_set_threshold_command_publishes_result);
+  RUN_TEST(test_native_frontend_mqtt_rejects_unsupported_protocol_version);
   RUN_TEST(test_native_frontend_mqtt_set_device_label_persists_and_republishes_info);
   RUN_TEST(test_native_frontend_mqtt_recalibrate_command_publishes_result);
   RUN_TEST(test_native_frontend_mqtt_detector_command_updates_runtime);

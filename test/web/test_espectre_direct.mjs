@@ -73,7 +73,16 @@ function pendingBody(chunks = []) {
 }
 
 function responseEnvelope(request, result = {}) {
-    return JSON.stringify({ v: 1, type: 'response', id: request.id, ok: true, result });
+    return JSON.stringify({
+        protocol_version: '1.0',
+        device_id: '0123456789abcdef',
+        command_id: request.command_id,
+        command: request.command,
+        accepted: true,
+        code: 'ok',
+        message: 'completed',
+        data: result
+    });
 }
 
 function installHttpFixture({ eventChunks = [], resultFor = () => ({}) } = {}) {
@@ -178,7 +187,7 @@ describe('Peer discovery schema v2', () => {
         assert.equal(client.connected, false);
         assert.equal(calls.length, 1);
         assert.equal(calls[0].options.method, 'POST');
-        assert.equal(JSON.parse(calls[0].options.body).method, 'discover_peers');
+        assert.equal(JSON.parse(calls[0].options.body).command, 'discover_peers');
         client.close();
     });
 
@@ -215,7 +224,7 @@ describe('Direct HTTP request and SSE lifecycle', () => {
     it('opens SSE with private-network options and posts correlated JSON without caching', async () => {
         const capabilities = { commands: [{ name: 'capabilities' }, { name: 'info' }], features: { raw_csi: false } };
         const { client, calls } = await connectedClient({
-            resultFor: (request) => request.method === 'capabilities' ? capabilities : { firmware: '4.0.0' }
+            resultFor: (request) => request.command === 'capabilities' ? capabilities : { firmware: '4.0.0' }
         });
         await client.handshake();
         assert.deepEqual(await client.request('info'), { firmware: '4.0.0' });
@@ -224,12 +233,12 @@ describe('Direct HTTP request and SSE lifecycle', () => {
         assert.equal(calls[0].options.cache, 'no-store');
         assert.equal(calls[1].options.method, 'POST');
         assert.equal(calls[1].options.headers['Content-Type'], 'application/json');
-        assert.equal(JSON.parse(calls[2].options.body).method, 'info');
+        assert.equal(JSON.parse(calls[2].options.body).command, 'info');
         client.close();
     });
 
     it('parses SSE events split across fetch chunks', async () => {
-        const envelope = JSON.stringify({ v: 1, type: 'event', event: 'telemetry', data: { movement_score: 0.42 } });
+        const envelope = JSON.stringify({ protocol_version: '1.0', device_id: '0123456789abcdef', movement_score: 0.42 });
         const midpoint = Math.floor(envelope.length / 2);
         installHttpFixture({
             eventChunks: [`event: telemetry\ndata: ${envelope.slice(0, midpoint)}`, `${envelope.slice(midpoint)}\n\n`]
@@ -238,17 +247,17 @@ describe('Direct HTTP request and SSE lifecycle', () => {
         const eventPromise = new Promise((resolve) => client.on('event', (name, data) => resolve({ name, data })));
         await client.connect();
         const event = await eventPromise;
-        assert.deepEqual(event, { name: 'telemetry', data: { movement_score: 0.42 } });
+        assert.deepEqual(event, { name: 'telemetry', data: { protocol_version: '1.0', device_id: '0123456789abcdef', movement_score: 0.42 } });
         client.close();
     });
 
     it('parses an SSE delimiter split between CR and LF chunks', async () => {
-        const envelope = JSON.stringify({ v: 1, type: 'event', event: 'status', data: { sensing: true } });
+        const envelope = JSON.stringify({ protocol_version: '1.0', device_id: '0123456789abcdef', sensing: true });
         installHttpFixture({ eventChunks: [`event: status\r\ndata: ${envelope}\r`, '\n\r\n'] });
         const client = new Client('192.168.1.42');
         const eventPromise = new Promise((resolve) => client.on('event', (name, data) => resolve({ name, data })));
         await client.connect();
-        assert.deepEqual(await eventPromise, { name: 'status', data: { sensing: true } });
+        assert.deepEqual(await eventPromise, { name: 'status', data: { protocol_version: '1.0', device_id: '0123456789abcdef', sensing: true } });
         client.close();
     });
 
@@ -256,10 +265,10 @@ describe('Direct HTTP request and SSE lifecycle', () => {
         const sessionId = '00112233445566778899aabbccddeeff';
         const { client, calls } = await connectedClient({
             resultFor: (request) => {
-                if (request.method === 'capabilities') {
+                if (request.command === 'capabilities') {
                     return { commands: [{ name: 'capabilities' }, { name: 'start_raw_stream' }, { name: 'stop_raw_stream' }], features: { raw_csi: true } };
                 }
-                if (request.method === 'start_raw_stream') return { session_id: sessionId };
+                if (request.command === 'start_raw_stream') return { session_id: sessionId };
                 return {};
             }
         });

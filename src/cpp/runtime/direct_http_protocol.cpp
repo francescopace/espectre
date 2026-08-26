@@ -1,7 +1,7 @@
 /*
  * ESPectre - Direct HTTP Protocol
  *
- * Versioned request, response, error, and event envelopes for local HTTP.
+ * HTTP framing for the transport-neutral ESPectre message model.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -30,20 +30,6 @@ bool identifier_accepted(const std::string &value, size_t max_size, bool method)
     }
   }
   return true;
-}
-
-bool validated_json_object(const std::string &payload) {
-  std::vector<JsonObjectField> fields;
-  return parse_json_object_fields(payload, &fields, nullptr);
-}
-
-std::string envelope_prefix(const char *type) {
-  std::string out;
-  out.reserve(48U);
-  out = "{\"v\":";
-  out += std::to_string(ESPECTRE_DIRECT_ENVELOPE_VERSION);
-  append_json_pair(&out, "type", type != nullptr ? type : "", false);
-  return out;
 }
 
 }  // namespace
@@ -82,33 +68,48 @@ bool parse_direct_http_request(const std::string &payload,
     return false;
   }
 
-  const JsonObjectField *version = find_json_object_field(fields, "v");
-  if (version == nullptr || version->type != JsonValueType::NUMBER || version->value != "1") {
-    return reject("unsupported Direct envelope version");
+  const JsonObjectField *version = find_json_object_field(fields, "protocol_version");
+  if (version == nullptr || version->type != JsonValueType::STRING ||
+      version->value != ESPECTRE_PROTOCOL_VERSION) {
+    return reject("unsupported ESPectre protocol version");
   }
-  const JsonObjectField *type = find_json_object_field(fields, "type");
-  if (type == nullptr || type->type != JsonValueType::STRING || type->value != "request") {
-    return reject("Direct client messages must have type request");
-  }
-  const JsonObjectField *id = find_json_object_field(fields, "id");
+  const JsonObjectField *id = find_json_object_field(fields, "command_id");
   if (id == nullptr || id->type != JsonValueType::STRING ||
       !identifier_accepted(id->value, ESPECTRE_DIRECT_MAX_REQUEST_ID_SIZE, false)) {
-    return reject("invalid Direct request id");
+    return reject("invalid ESPectre command_id");
   }
   parsed.id = id->value;
-  const JsonObjectField *method = find_json_object_field(fields, "method");
+  const JsonObjectField *method = find_json_object_field(fields, "command");
   if (method == nullptr || method->type != JsonValueType::STRING ||
       !identifier_accepted(method->value, ESPECTRE_DIRECT_MAX_METHOD_SIZE, true)) {
-    return reject("invalid Direct request method");
+    return reject("invalid ESPectre command");
   }
   parsed.method = method->value;
-  const JsonObjectField *params = find_json_object_field(fields, "params");
-  if (params != nullptr) {
-    if (params->type != JsonValueType::OBJECT) {
-      return reject("Direct request params must be an object");
-    }
-    parsed.params = params->value;
+
+  EspectreCommand command;
+  if (!parse_espectre_command(payload, &command, &json_error)) {
+    if (error != nullptr) *error = json_error;
+    *request = parsed;
+    return false;
   }
+
+  parsed.params = "{";
+  bool first = true;
+  for (const JsonObjectField &field : fields) {
+    if (field.name == "protocol_version" || field.name == "command_id" || field.name == "command") {
+      continue;
+    }
+    if (!first) parsed.params += ',';
+    append_json_string(&parsed.params, field.name.c_str());
+    parsed.params += ':';
+    if (field.type == JsonValueType::STRING) {
+      append_json_string(&parsed.params, field.value.c_str());
+    } else {
+      parsed.params += field.value;
+    }
+    first = false;
+  }
+  parsed.params += '}';
   *request = std::move(parsed);
   return true;
 }
@@ -119,34 +120,25 @@ bool direct_http_request_to_command(const DirectRequest &request,
   return parse_espectre_command_request(request.id, request.method, request.params, command, error);
 }
 
-std::string direct_http_success_response(const std::string &id, const std::string &result_json) {
-  const std::string result = validated_json_object(result_json) ? result_json : "{}";
-  std::string out = envelope_prefix("response");
-  append_json_pair(&out, "id", id.c_str(), false);
-  out += ",\"ok\":true,\"result\":";
-  out += result;
-  out += "}";
+std::string espectre_transport_mapping_payload() {
+  std::string out{"{"};
+  out += "\"direct\":{\"request\":{\"framing\":\"http_post\"";
+  append_json_pair(&out, "path", ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT);
+  append_json_pair(&out, "message", "request");
+  out += "},\"result\":{\"framing\":\"http_response_body\",\"message\":\"result\"},"
+         "\"events\":{\"framing\":\"sse\"";
+  append_json_pair(&out, "path", ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT);
+  append_json_pair(&out, "name", "event");
+  append_json_pair(&out, "data", "event_payload");
+  out += "}},\"mqtt\":{\"request\":{\"topic_suffix\":\"commands/request\",\"message\":\"request\"},"
+         "\"result\":{\"topic_suffix\":\"commands/result\",\"message\":\"result\"},"
+         "\"events\":{\"topic_suffix\":\"{event}\",\"message\":\"event_payload\"}}}";
   return out;
 }
 
-std::string direct_http_error_response(const std::string &id, const char *code, const char *message) {
-  std::string out = envelope_prefix("response");
-  append_json_pair(&out, "id", id.c_str(), false);
-  out += ",\"ok\":false,\"error\":{";
-  append_json_pair(&out, "code", code != nullptr ? code : "internal_error", true);
-  append_json_pair(&out, "message", message != nullptr ? message : "", false);
-  out += "}}";
-  return out;
-}
-
-std::string direct_http_event(const char *event, const std::string &data_json) {
-  const std::string data = validated_json_object(data_json) ? data_json : "{}";
-  std::string out = envelope_prefix("event");
-  append_json_pair(&out, "event", event != nullptr ? event : "", false);
-  out += ",\"data\":";
-  out += data;
-  out += "}";
-  return out;
+std::string espectre_protocol_catalog_payload() {
+  return "{\"message_model\":" + espectre_message_catalog_payload() +
+         ",\"transport_mapping\":" + espectre_transport_mapping_payload() + "}";
 }
 
 }  // namespace espectre

@@ -1,20 +1,41 @@
 /*
  * ESPectre - Command Capabilities Probe
  *
- * Emits the normalized C++ capabilities catalog used by the cross-language
- * parity gate.
+ * Emits the normalized C++ capability and wire-contract catalogs used by the
+ * cross-language parity gate.
  *
  * SPDX-License-Identifier: GPL-3.0-only
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include <iostream>
+#include <string>
 
+#include "runtime/direct_http_protocol.h"
 #include "runtime/espectre_protocol.h"
 
-int main(int argc, char **) {
+int main(int argc, char **argv) {
   espectre::EspectreDeviceConfig config;
   espectre::EspectreDeviceInfo info;
   info.supports_info = true;
+  const bool micro_profile = argc > 1 && std::string(argv[1]) == "micro";
+  if (micro_profile) {
+    espectre::EspectreCapabilityProfile capabilities;
+    using Method = espectre::EspectreDirectMethod;
+    capabilities.set(Method::CAPABILITIES);
+    capabilities.set(Method::INFO);
+    capabilities.set(Method::STATUS);
+    capabilities.set(Method::CONFIG);
+    capabilities.set(espectre::EspectreConfigSection::RUNTIME);
+    capabilities.set(espectre::EspectreConfigSection::DEVICE);
+    capabilities.set(espectre::EspectreConfigSection::WIFI);
+    capabilities.clear_events();
+    capabilities.set(espectre::EspectreEvent::TELEMETRY);
+    std::cout << "{\"capabilities\":"
+              << espectre::espectre_capabilities_payload(config, info, capabilities)
+              << ",\"message_model\":" << espectre::espectre_message_catalog_payload() << "}\n";
+    return 0;
+  }
+
   info.supports_diagnostics = true;
   info.supports_runtime_threshold = true;
   info.supports_runtime_motion_hits = true;
@@ -22,10 +43,11 @@ int main(int argc, char **) {
   info.supports_manual_recalibration = true;
   info.supports_traffic_control = true;
 
-  const bool native_profile = argc > 1;
+  const bool native_profile = argc > 1 && std::string(argv[1]) == "native";
   info.supports_device_config = native_profile;
   info.supports_ota = native_profile;
-  std::cout << espectre::espectre_capabilities_payload(config,
+  std::cout << "{\"capabilities\":"
+            << espectre::espectre_capabilities_payload(config,
                                                        info,
                                                        true,
                                                        true,
@@ -33,6 +55,8 @@ int main(int argc, char **) {
                                                        native_profile,
                                                        native_profile,
                                                        native_profile)
-            << '\n';
+            << ",\"message_model\":" << espectre::espectre_message_catalog_payload()
+            << ",\"transport_mapping\":" << espectre::espectre_transport_mapping_payload()
+            << "}\n";
   return 0;
 }

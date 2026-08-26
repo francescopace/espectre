@@ -2,27 +2,28 @@
 
 - Status: Accepted
 - Date: 2026-08-25
+- Updated: 2026-08-26
 - Supersedes: `2026-08-23-replace-native-ble-with-direct-websocket.md`, `2026-08-24-unify-frontend-discovery-and-direct-control.md`
 
 ## Context
 
 The production portal is served over HTTPS, while first-party devices expose a trusted-LAN cleartext service. Browser mixed-content handling marks an HTTPS page that opens `ws://` as insecure even when Local Network Access permits the connection. That visible downgrade is not an acceptable production experience. A streaming `fetch()` to the same local device was validated without changing the page security indicator and can request local-network access through `targetAddressSpace: "local"`.
 
-The Direct message envelopes and shared command engine are transport-neutral. Processed events are server-to-client, so SSE supplies the required direction without WebSocket framing. Native raw CSI also needs only a server-to-client binary response once an authenticated collection session has been started.
+The ESPectre application messages and shared command engine are transport-neutral. Processed events are server-to-client, so SSE supplies the required direction without WebSocket framing. Native raw CSI also needs only a server-to-client binary response once an authenticated collection session has been started.
 
 ## Decision
 
 Replace the local Direct WebSocket server and every first-party Direct WebSocket client with a shared HTTP service:
 
 - `POST /espectre/v1/request` carries correlated JSON requests and responses;
-- `GET /espectre/v1/events` carries versioned event envelopes as SSE with a 10-second heartbeat, fixed queues, at most two subscribers, telemetry coalescing, and slow-client eviction;
+- `GET /espectre/v1/events` carries canonical event payloads as SSE with a 10-second heartbeat, fixed queues, at most two subscribers, telemetry coalescing, and slow-client eviction;
 - Native, Matter, and ESPHome advertise `GET /espectre/v1/csi`, a bearer-bound binary HTTP stream without device-side pacing;
 - Native, Matter, and ESPHome listen on the shared TCP port `62587` (`0xF47B`, the low 16 bits of `U+1F47B` GHOST), keeping Direct independent of frontend-owned port-80 web servers, captive portals, and native APIs;
 - every response uses `Cache-Control: no-store`, exact Origin allowlisting, CORS, and Private Network Access preflight handling;
-- discovery TXT schema v2 declares `transport=http`, the request path, and the event path; and
+- discovery TXT schema v1 declares `transport=http`, the request path, and the event path; and
 - no local Direct WebSocket endpoint, subprotocol, alias, or automatic compatibility fallback remains.
 
-The ESPectre v1 envelope, command engine, method catalog, and message families do not change. HTTP status reports transport-level parsing, policy, size, rate, and saturation failures. A valid request always receives a correlated response envelope.
+ESPectre protocol `1.0` uses the same canonical request, result, error, and event payloads over HTTP and MQTT. HTTP status reports transport-level parsing, policy, size, rate, and saturation failures. A valid request always receives a correlated canonical result.
 
 Raw CSI start returns a random 128-bit session ID. The binary GET and stop request require the same bearer. A dedicated worker drains a bounded 16-record ring in batches of up to four, prefixes every CSI V8 record with the 60-byte raw HTTP v2 framing record, and applies no data-plane pacing or decimation. Abort, timeout, stop, network loss, reboot, or fault releases the session and restores the previous runtime state without modifying the configured traffic source.
 

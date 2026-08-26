@@ -11,6 +11,7 @@ import threading
 import time
 
 from .common import Fore, Style
+from micro_espectre.protocol import DNS_SD_TXT_SCHEMA_VERSION, PROTOCOL_VERSION
 
 try:
     from zeroconf import IPVersion, ServiceBrowser, ServiceListener, Zeroconf
@@ -24,7 +25,7 @@ except ImportError:  # pragma: no cover - exercised via CLI integration tests
 ESPECTRE_SERVICE_TYPE = "_espectre._tcp.local."
 # Low 16 bits of U+1F47B GHOST (0xF47B), the ESPectre service marker.
 ESPECTRE_DIRECT_PORT = 62587
-SUPPORTED_DISCOVERY_FRONTENDS = ("native", "esphome", "matter")
+SUPPORTED_DISCOVERY_FRONTENDS = ("native", "esphome", "matter", "micro")
 DISCOVERY_TIMEOUT_S = 2.5
 DISCOVERY_QUIET_WINDOW_S = 0.35
 # Collect uses the same fresh PTR browse as the generic devices command.
@@ -131,8 +132,8 @@ def _parse_record(service_type: str, service_name: str, info) -> DiscoveredDevic
         or not 1 <= port <= 65535
         or path != "/espectre/v1/request"
         or events != "/espectre/v1/events"
-        or txtvers != "2"
-        or protovers != "1"
+        or txtvers != DNS_SD_TXT_SCHEMA_VERSION
+        or protovers != PROTOCOL_VERSION
     ):
         return None
 

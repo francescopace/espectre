@@ -384,10 +384,7 @@ void NativeFrontend::drain_pending_runtime_events_() {
 }
 
 void NativeFrontend::on_runtime_fault(const char *message) {
-  std::string data{"{"};
-  append_json_pair(&data, "message", message != nullptr ? message : "runtime fault", true);
-  data += "}";
-  publish_direct_event_("fault", data);
+  publish_direct_event_("fault", espectre_fault_payload(device_config_, message, now_ms_()));
 }
 
 void NativeFrontend::handle_mqtt_command_(const std::string &payload) {
@@ -400,7 +397,7 @@ void NativeFrontend::handle_mqtt_command_(const std::string &payload) {
     FrontendCommandResult result;
     result.handled = true;
     result.command = std::move(command);
-    result.code = "invalid_params";
+    result.code = parse_error == "unsupported protocol_version" ? "unsupported_version" : "invalid_params";
     result.message = std::move(parse_error);
     publish_mqtt_command_result_(result);
     return;
@@ -619,7 +616,10 @@ std::string NativeFrontend::handle_direct_request_(const DirectRequest &request,
   EspectreCommand command;
   std::string parse_error;
   if (!direct_http_request_to_command(request, &command, &parse_error)) {
-    return direct_http_error_response(request.id, "invalid_params", parse_error.c_str());
+    command.command_id = request.id;
+    command.command = request.method;
+    return espectre_command_result_payload(
+        device_config_, command, false, "invalid_params", parse_error.c_str());
   }
 
   const FrontendCommandResult result =
@@ -629,15 +629,19 @@ std::string NativeFrontend::handle_direct_request_(const DirectRequest &request,
                         connection_token,
                         request.authorization);
   if (!result.accepted) {
-    return direct_http_error_response(request.id, result.code.c_str(), result.message.c_str());
+    return espectre_command_result_payload(device_config_,
+                                           result.command,
+                                           false,
+                                           result.code.c_str(),
+                                           result.message.c_str(),
+                                           result.data_json);
   }
-  std::string response{"{"};
-  append_json_pair(&response, "command", result.command.command.c_str(), true);
-  append_json_pair(&response, "code", result.code.c_str());
-  append_json_pair(&response, "message", result.message.c_str());
-  if (!result.data_json.empty()) response += ",\"data\":" + result.data_json;
-  response += "}";
-  return direct_http_success_response(request.id, response);
+  return espectre_command_result_payload(device_config_,
+                                         result.command,
+                                         true,
+                                         result.code.c_str(),
+                                         result.message.c_str(),
+                                         result.data_json);
 }
 
 IDirectHttpService::DeferredRequestResult NativeFrontend::handle_deferred_direct_request_(
@@ -647,36 +651,47 @@ IDirectHttpService::DeferredRequestResult NativeFrontend::handle_deferred_direct
     return {false, handle_direct_request_(request, connection_token)};
   }
   if (!peer_discovery_enabled_ || peer_discovery_ == nullptr) {
-    return {false,
-            direct_http_error_response(
-                request.id, "unsupported", "peer discovery is unavailable")};
+    EspectreCommand command;
+    command.command_id = request.id;
+    command.command = request.method;
+    return {false, espectre_command_result_payload(device_config_, command, false, "unsupported",
+                                                   "peer discovery is unavailable")};
   }
   std::vector<JsonObjectField> params;
   if (!parse_json_object_fields(request.params, &params) || !params.empty()) {
-    return {false,
-            direct_http_error_response(
-                request.id, "invalid_params", "discover_peers does not accept parameters")};
+    EspectreCommand command;
+    command.command_id = request.id;
+    command.command = request.method;
+    return {false, espectre_command_result_payload(device_config_, command, false, "invalid_params",
+                                                   "discover_peers does not accept parameters")};
   }
   if (peer_discovery_->active()) {
-    return {false,
-            direct_http_error_response(
-                request.id, "conflict", "a peer discovery request is already active")};
+    EspectreCommand command;
+    command.command_id = request.id;
+    command.command = request.method;
+    return {false, espectre_command_result_payload(device_config_, command, false, "conflict",
+                                                   "a peer discovery request is already active")};
   }
   const bool started = peer_discovery_->start(
-      [this, connection_token, request_id = request.id](PeerDiscoverySnapshot snapshot) {
+      [this, connection_token, request_id = request.id, command_name = request.method](PeerDiscoverySnapshot snapshot) {
         if (this->direct_service_ == nullptr) {
           return;
         }
-        std::string result{"{\"command\":\"discover_peers\",\"code\":\"ok\""};
-        append_json_pair(&result, "message", "peer discovery completed");
-        result += ",\"data\":" + peer_discovery_snapshot_json(snapshot) + "}";
+        EspectreCommand command;
+        command.command_id = request_id;
+        command.command = command_name;
         (void) this->direct_service_->complete_deferred_response(
-            connection_token, direct_http_success_response(request_id, result));
+            connection_token,
+            espectre_command_result_payload(this->device_config_, command, true, "ok",
+                                            "peer discovery completed",
+                                            peer_discovery_snapshot_json(snapshot)));
       });
   if (!started) {
-    return {false,
-            direct_http_error_response(
-                request.id, "unavailable", "peer discovery could not be started")};
+    EspectreCommand command;
+    command.command_id = request.id;
+    command.command = request.method;
+    return {false, espectre_command_result_payload(device_config_, command, false, "unavailable",
+                                                   "peer discovery could not be started")};
   }
   return {true, {}};
 }
@@ -906,7 +921,7 @@ void NativeFrontend::refresh_peer_candidate_() {
   candidate.device_id = device_id;
   candidate.name = name;
   candidate.frontend = "native";
-  candidate.txt_version = ESPECTRE_DIRECT_DISCOVERY_TXT_VERSION;
+  candidate.txt_version = ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION;
   candidate.protocol_version = ESPECTRE_PROTOCOL_VERSION;
   candidate.transport = ESPECTRE_DIRECT_HTTP_TRANSPORT;
   candidate.path = ESPECTRE_DIRECT_HTTP_REQUEST_ENDPOINT;
@@ -1141,6 +1156,7 @@ void NativeFrontend::refresh_direct_service_() {
   direct_session_tokens_enabled_ = false;
 
   DirectHttpServiceConfig config = DirectHttpServiceConfig::for_first_party_portals();
+  config.device_id = device_config_.device_id;
 #if defined(CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED) && CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED
   config.allow_http_loopback_origins = true;
 #endif

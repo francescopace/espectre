@@ -13,6 +13,7 @@ import pytest
 
 from tools import benchmark_firmware as bench
 from src.python.espectre_cli.device_transport import (
+    DIRECT_MAX_REQUEST_FRAME_SIZE,
     DIRECT_MAX_RESPONSE_FRAME_SIZE,
     DirectClient,
     DirectProtocolError,
@@ -26,6 +27,7 @@ from src.python.espectre_cli.device_transport import (
     encode_improv_rpc,
     parse_improv_rpc_response,
 )
+from src.python.micro_espectre import protocol
 from src.python.micro_espectre.runtime_diagnostics import RuntimeDebugTelemetry
 
 
@@ -175,33 +177,76 @@ def test_direct_client_posts_a_correlated_http_response():
     def open_request(request: object, **kwargs: object) -> _FakeHttpResponse:
         requests.append((request, kwargs))
         payload = json.loads(request.data)
-        return _FakeHttpResponse({
-            "v": 1, "type": "response", "id": payload["id"], "ok": True,
-            "result": {"data": {"uptime": 7}},
-        })
+        return _FakeHttpResponse(
+            protocol.build_command_result(
+                "0123456789abcdef",
+                payload["command_id"],
+                payload["command"],
+                True,
+                "ok",
+                "diagnostics returned",
+                {"uptime": 7},
+            )
+        )
 
     with DirectClient("http://192.0.2.10/espectre/v1/request", urlopen_factory=open_request) as client:
         result = client.request("diagnostics")
         assert result == {"uptime": 7}
     request, kwargs = requests[0]
-    assert json.loads(request.data) == {
-        "v": 1,
-        "type": "request",
-        "id": "benchmark-1",
-        "method": "diagnostics",
-        "params": {},
-    }
+    assert json.loads(request.data) == protocol.build_command_request("benchmark-1", "diagnostics")
     assert request.headers["Origin"] == "https://test.espectre.dev"
     assert request.headers["Cache-control"] == "no-store"
     assert kwargs["timeout"] == 8.0
 
 
+def test_direct_client_flattens_command_arguments_and_rejects_reserved_fields():
+    requests: list[object] = []
+
+    def open_request(request: object, **_kwargs: object) -> _FakeHttpResponse:
+        requests.append(request)
+        payload = json.loads(request.data)
+        return _FakeHttpResponse(
+            protocol.build_command_result(
+                "0123456789abcdef",
+                payload["command_id"],
+                payload["command"],
+                True,
+                "ok",
+                "sensing updated",
+            )
+        )
+
+    with DirectClient(
+        "http://192.0.2.10/espectre/v1/request",
+        urlopen_factory=open_request,
+    ) as client:
+        assert client.request("set_sensing", {"enabled": True}) == {}
+        with pytest.raises(ValueError):
+            client.request("set_sensing", {"command_id": "override"})
+
+    assert len(requests) == 1
+    assert json.loads(requests[0].data) == protocol.build_command_request(
+        "benchmark-1",
+        "set_sensing",
+        enabled=True,
+    )
+
+
 def test_direct_client_accepts_response_larger_than_request_limit():
-    padding = "x" * 4200
-    response = _FakeHttpResponse({
-        "v": 1, "type": "response", "id": "benchmark-1", "ok": True,
-        "result": {"data": {"padding": padding}},
-    })
+    padding = "x" * (DIRECT_MAX_REQUEST_FRAME_SIZE + 1)
+    response = _FakeHttpResponse(
+        protocol.build_command_result(
+            "0123456789abcdef",
+            "benchmark-1",
+            "diagnostics",
+            True,
+            "ok",
+            "diagnostics returned",
+            {"padding": padding},
+        )
+    )
+    response_size = len(json.dumps(response.payload).encode())
+    assert DIRECT_MAX_REQUEST_FRAME_SIZE < response_size <= DIRECT_MAX_RESPONSE_FRAME_SIZE
 
     with DirectClient(
         "http://192.0.2.10/espectre/v1/request",
@@ -211,7 +256,17 @@ def test_direct_client_accepts_response_larger_than_request_limit():
 
 
 def test_direct_client_rejects_unknown_response_identifier():
-    response = _FakeHttpResponse({"v": 1, "type": "response", "id": "wrong", "ok": True, "result": {}})
+    response = _FakeHttpResponse(
+        protocol.build_command_result(
+            "0123456789abcdef",
+            "wrong",
+            "status",
+            True,
+            "ok",
+            "status returned",
+            {},
+        )
+    )
 
     with DirectClient("http://192.0.2.10/espectre/v1/request", urlopen_factory=lambda *_args, **_kwargs: response) as client:
         with pytest.raises(DirectProtocolError, match="unknown response identifier"):
