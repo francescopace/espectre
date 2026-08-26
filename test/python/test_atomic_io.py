@@ -2,6 +2,7 @@
 # Commercial licensing available under separate agreement; see LICENSING.md.
 import os
 
+import numpy as np
 import pytest
 
 from tools.lib import atomic_io
@@ -32,3 +33,16 @@ def test_atomic_write_set_rolls_back_existing_and_new_files(monkeypatch, tmp_pat
 
     assert existing.read_bytes() == b"before"
     assert not created.exists()
+
+
+def test_atomic_savez_compressed_publishes_loadable_archive(tmp_path):
+    destination = tmp_path / "sample.npz"
+
+    atomic_io.atomic_savez_compressed(
+        destination,
+        {"values": np.arange(8, dtype=np.int8)},
+    )
+
+    with np.load(destination, allow_pickle=False) as archive:
+        np.testing.assert_array_equal(archive["values"], np.arange(8, dtype=np.int8))
+    assert not list(tmp_path.glob("*.tmp.npz"))

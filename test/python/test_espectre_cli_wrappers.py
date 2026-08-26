@@ -120,7 +120,15 @@ def test_get_serial_port_rejects_invalid_selection(monkeypatch) -> None:
         common.get_serial_port(None)
 
 
-def test_detect_chip_type_returns_detected_chip_and_closes_port(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("chip_name", "expected"),
+    (("ESP32-C6", "c6"), ("ESP32-S2", "s2")),
+)
+def test_detect_chip_type_returns_detected_chip_and_closes_port(
+    chip_name: str,
+    expected: str,
+    monkeypatch,
+) -> None:
     closed = {"value": False}
 
     class FakePort:
@@ -128,7 +136,7 @@ def test_detect_chip_type_returns_detected_chip_and_closes_port(monkeypatch) -> 
             closed["value"] = True
 
     class FakeDevice:
-        CHIP_NAME = "ESP32-C6"
+        CHIP_NAME = chip_name
         _port = FakePort()
 
     fake_esptool = ModuleType("esptool")
@@ -136,7 +144,7 @@ def test_detect_chip_type_returns_detected_chip_and_closes_port(monkeypatch) -> 
     monkeypatch.setitem(sys.modules, "esptool", fake_esptool)
     monkeypatch.setattr(common.time, "sleep", lambda _seconds: None)
 
-    assert common.detect_chip_type("/dev/cu.test") == "c6"
+    assert common.detect_chip_type("/dev/cu.test") == expected
     assert closed["value"] is True
 
 
@@ -155,7 +163,7 @@ def test_detect_chip_type_returns_none_when_detection_fails(monkeypatch) -> None
 
 def test_prompt_chip_type_handles_valid_and_invalid_choices(monkeypatch) -> None:
     monkeypatch.setattr("builtins.input", lambda _prompt: "3")
-    assert common.prompt_chip_type() == "s3"
+    assert common.prompt_chip_type() == "s2"
 
     monkeypatch.setattr("builtins.input", lambda _prompt: "0")
     assert common.prompt_chip_type() is None

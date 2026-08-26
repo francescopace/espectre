@@ -217,17 +217,23 @@ def _require_mpy_cross() -> None:
         raise SystemExit(1)
 
 
-def _reset_device(port: str) -> None:
+def _reset_device(port: str) -> bool:
+    """Reset one MicroPython device and report whether the command succeeded."""
     time.sleep(0.5)
     try:
         subprocess.run(
             ["mpremote", "connect", port, "exec", "import machine; machine.reset()"],
             timeout=5,
             capture_output=True,
+            text=True,
+            check=True,
         )
         print(f"{Fore.GREEN}ESP32 reset completed{Style.RESET_ALL}")
-    except Exception:
-        print(f"{Fore.GREEN}ESP32 reset completed{Style.RESET_ALL}")
+        return True
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        detail = getattr(exc, "stderr", None) or getattr(exc, "stdout", None) or str(exc)
+        print(f"{Fore.RED}❌ ESP32 reset failed: {str(detail).strip()}{Style.RESET_ALL}")
+        return False
 
 
 def flash_firmware(args) -> None:
@@ -281,6 +287,7 @@ def flash_firmware(args) -> None:
     chip_name_map = {
         "esp32": "esp32",
         "c3": "esp32c3",
+        "s2": "esp32s2",
         "s3": "esp32s3",
         "c5": "esp32c5",
         "c6": "esp32c6",
@@ -300,6 +307,7 @@ def flash_firmware(args) -> None:
         flash_offset_map = {
             "esp32": "0x1000",
             "c3": "0x0",
+            "s2": "0x1000",
             "s3": "0x0",
             "c5": "0x2000",
             "c6": "0x0",
@@ -404,27 +412,105 @@ def deploy_code(args) -> None:
                 Path(build_dir),
             )
 
-            print(f"{Fore.YELLOW}📁 Creating directories...{Style.RESET_ALL}")
-            subprocess.run(["mpremote", "connect", port, "mkdir", ":src"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            stage_dir = ":src.stage"
+            prepare_script = (
+                "import os\n"
+                "def exists(path):\n"
+                "    try:\n"
+                "        os.stat(path)\n"
+                "        return True\n"
+                "    except OSError:\n"
+                "        return False\n"
+                "def remove_tree(path):\n"
+                "    try:\n"
+                "        names = os.listdir(path)\n"
+                "    except OSError:\n"
+                "        return\n"
+                "    for name in names:\n"
+                "        child = path + '/' + name\n"
+                "        try:\n"
+                "            os.remove(child)\n"
+                "        except OSError:\n"
+                "            remove_tree(child)\n"
+                "    os.rmdir(path)\n"
+                "remove_tree('/src.stage')\n"
+                "if exists('/src.previous'):\n"
+                "    if exists('/src'):\n"
+                "        remove_tree('/src.previous')\n"
+                "    else:\n"
+                "        os.rename('/src.previous', '/src')"
+            )
+            subprocess.run(
+                ["mpremote", "connect", port, "exec", prepare_script],
+                check=True,
+                capture_output=True,
+            )
+            print(f"{Fore.YELLOW}📁 Creating staging directory...{Style.RESET_ALL}")
+            subprocess.run(
+                ["mpremote", "connect", port, "mkdir", stage_dir],
+                check=True,
+                capture_output=True,
+            )
 
             print(f"{Fore.YELLOW}📤 Uploading optimized bytecode...{Style.RESET_ALL}")
             for src, dst in compiled_files:
-                print(f"  {Path(src).name} → {dst}")
-                subprocess.run(["mpremote", "connect", port, "cp", src, dst], check=True, capture_output=True)
+                staged_dst = dst.replace(":src/", f"{stage_dir}/", 1)
+                print(f"  {Path(src).name} → {staged_dst}")
+                subprocess.run(
+                    ["mpremote", "connect", port, "cp", src, staged_dst],
+                    check=True,
+                    capture_output=True,
+                )
 
-            print(f"{Fore.YELLOW}🧹 Removing superseded source files...{Style.RESET_ALL}")
-            for rel_path in MICRO_DEVICE_RELATIVE_FILES:
-                subprocess.run(
-                    ["mpremote", "connect", port, "rm", f":src/{rel_path}"],
-                    check=False,
-                    capture_output=True,
-                )
-            for legacy_config in (":config_local.py", ":config_local.mpy"):
-                subprocess.run(
-                    ["mpremote", "connect", port, "rm", legacy_config],
-                    check=False,
-                    capture_output=True,
-                )
+            print(f"{Fore.YELLOW}🔄 Activating staged bytecode...{Style.RESET_ALL}")
+            expected_names = tuple(
+                Path(rel_path).with_suffix(".mpy").name
+                for rel_path in MICRO_DEVICE_RELATIVE_FILES
+            )
+            activate_script = (
+                "import os\n"
+                "def exists(path):\n"
+                "    try:\n"
+                "        os.stat(path)\n"
+                "        return True\n"
+                "    except OSError:\n"
+                "        return False\n"
+                "def remove_tree(path):\n"
+                "    if not exists(path):\n"
+                "        return\n"
+                "    for name in os.listdir(path):\n"
+                "        child = path + '/' + name\n"
+                "        try:\n"
+                "            os.remove(child)\n"
+                "        except OSError:\n"
+                "            remove_tree(child)\n"
+                "    os.rmdir(path)\n"
+                f"expected = {expected_names!r}\n"
+                "present = os.listdir('/src.stage')\n"
+                "missing = [name for name in expected if name not in present]\n"
+                "if missing:\n"
+                "    raise OSError('staged deployment is incomplete: ' + ','.join(missing))\n"
+                "had_src = exists('/src')\n"
+                "if had_src:\n"
+                "    os.rename('/src', '/src.previous')\n"
+                "try:\n"
+                "    os.rename('/src.stage', '/src')\n"
+                "except BaseException:\n"
+                "    if had_src and exists('/src.previous'):\n"
+                "        os.rename('/src.previous', '/src')\n"
+                "    raise\n"
+                "remove_tree('/src.previous')\n"
+                "for path in ('/config_local.py', '/config_local.mpy'):\n"
+                "    try:\n"
+                "        os.remove(path)\n"
+                "    except OSError:\n"
+                "        pass"
+            )
+            subprocess.run(
+                ["mpremote", "connect", port, "exec", activate_script],
+                check=True,
+                capture_output=True,
+            )
 
         print()
         print(f"{Fore.GREEN}✅ Deployment complete!{Style.RESET_ALL}")
@@ -475,7 +561,8 @@ def run_application(args) -> None:
                 process.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 process.kill()
-        _reset_device(port)
+        if not _reset_device(port):
+            raise SystemExit(1)
     except Exception as e:
         print(f"\n{Fore.RED}❌ Unexpected error: {e}{Style.RESET_ALL}")
         raise SystemExit(1)

@@ -56,7 +56,17 @@ class DirectApi:
         self.traffic_generator = traffic_generator
         self.device_id = derive_runtime_device_id(wlan)
         self.started_ms = time.ticks_ms()
+        self._uptime_last_ms = self.started_ms
+        self._uptime_ms = 0
         self.started = False
+
+    def _uptime_seconds(self, now_ms):
+        """Accumulate uptime across MicroPython's wrapping tick counter."""
+        elapsed_ms = time.ticks_diff(now_ms, self._uptime_last_ms)
+        if elapsed_ms > 0:
+            self._uptime_ms += elapsed_ms
+            self._uptime_last_ms = now_ms
+        return self._uptime_ms // 1000
 
     def _device_hostname(self):
         return "espectre-micro-" + self.device_id[-6:]
@@ -129,11 +139,10 @@ class DirectApi:
     def _diagnostics(self, now_ms=None, measurements=None):
         if now_ms is None:
             now_ms = time.ticks_ms()
-        uptime_ms = max(0, time.ticks_diff(now_ms, self.started_ms))
         return build_diagnostics_payload(
             self.device_id,
             now_ms,
-            uptime_ms // 1000,
+            self._uptime_seconds(now_ms),
             measurements,
         )
 
@@ -174,7 +183,6 @@ class DirectApi:
             return
         if now_ms is None:
             now_ms = time.ticks_ms()
-        uptime_ms = max(0, time.ticks_diff(now_ms, self.started_ms))
         payload = build_telemetry_payload(
             self.device_id,
             "micro",
@@ -183,7 +191,7 @@ class DirectApi:
             movement_score,
             threshold,
             "lightweight",
-            uptime_ms // 1000,
+            self._uptime_seconds(now_ms),
         )
         native_direct.publish("telemetry", _json(payload))
 

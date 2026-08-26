@@ -622,6 +622,48 @@ def test_external_traffic_generator_rates_each_target_and_stops_safely(monkeypat
     assert sockets[0].closed
 
 
+def test_background_traffic_stop_never_signals_pid_from_state_file(tmp_path, monkeypatch):
+    pid_file = tmp_path / "traffic.pid"
+    control_file = tmp_path / "traffic.control"
+    token = "owned-session"
+    pid_file.write_text('{"pid": 4242, "token": "owned-session"}', encoding="utf-8")
+    control_file.write_text(token, encoding="utf-8")
+    signals = []
+
+    def fake_kill(pid, signal_number):
+        signals.append((pid, signal_number))
+        raise ProcessLookupError
+
+    monkeypatch.setattr(espectre_traffic_generator, "PID_FILE", pid_file)
+    monkeypatch.setattr(espectre_traffic_generator, "CONTROL_FILE", control_file)
+    monkeypatch.setattr(espectre_traffic_generator.os, "kill", fake_kill)
+
+    espectre_traffic_generator.stop()
+
+    assert signals
+    assert all(signal_number == 0 for _pid, signal_number in signals)
+    assert not pid_file.exists()
+    assert not control_file.exists()
+
+
+def test_background_traffic_start_cleans_control_after_launch_failure(tmp_path, monkeypatch):
+    pid_file = tmp_path / "traffic.pid"
+    control_file = tmp_path / "traffic.control"
+    monkeypatch.setattr(espectre_traffic_generator, "PID_FILE", pid_file)
+    monkeypatch.setattr(espectre_traffic_generator, "CONTROL_FILE", control_file)
+    monkeypatch.setattr(
+        espectre_traffic_generator.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("cannot launch")),
+    )
+
+    with pytest.raises(OSError, match="cannot launch"):
+        espectre_traffic_generator.start()
+
+    assert not pid_file.exists()
+    assert not control_file.exists()
+
+
 def test_parse_packet_reads_optional_metadata():
     receiver = CSIReceiver(bind_host='127.0.0.1')
     flags = RAW_CSI_FLAG_WIFI_RX_TS_VALID | RAW_CSI_FLAG_WIFI_RX_START_TS_NS_VALID
@@ -1108,6 +1150,62 @@ def test_save_samples_by_device_splits_capture_window(tmp_path, monkeypatch):
         '0000000000000010',
         '0000000000000020',
     }
+
+
+@pytest.mark.parametrize('label', ('../motion', '/tmp/motion', 'room/left', '.', 'motion label'))
+def test_collector_rejects_labels_that_are_not_safe_directory_names(label):
+    with pytest.raises(ValueError, match='dataset label'):
+        CSICollector(label=label, bind_host='127.0.0.1')
+
+
+def test_save_sample_removes_archive_when_catalog_update_fails(tmp_path, monkeypatch):
+    data_dir = tmp_path / 'data'
+    monkeypatch.setattr(dataset_metadata, 'DATA_DIR', data_dir)
+    monkeypatch.setattr(dataset_metadata, 'DATASET_INFO_FILE', data_dir / 'dataset_info.json')
+    receiver = CSIReceiver(bind_host='127.0.0.1')
+    collector = CSICollector(label='motion', contributor='tester', bind_host='127.0.0.1')
+    packet = receiver._parse_packet(build_packet(seq_num=1, payload=[1, 2, 3, 4], device_id=0x10))
+    monkeypatch.setattr(
+        collector,
+        '_update_dataset_info',
+        lambda **_kwargs: (_ for _ in ()).throw(OSError('catalog unavailable')),
+    )
+
+    with pytest.raises(OSError, match='catalog unavailable'):
+        collector.save_sample([packet])
+
+    assert not list(data_dir.rglob('*.npz'))
+
+
+def test_multi_device_save_rolls_back_archives_and_catalog(tmp_path, monkeypatch):
+    data_dir = tmp_path / 'data'
+    monkeypatch.setattr(dataset_metadata, 'DATA_DIR', data_dir)
+    monkeypatch.setattr(dataset_metadata, 'DATASET_INFO_FILE', data_dir / 'dataset_info.json')
+    receiver = CSIReceiver(bind_host='127.0.0.1')
+    collector = CSICollector(label='motion', contributor='tester', bind_host='127.0.0.1')
+    packets = [
+        receiver._parse_packet(build_packet(seq_num=1, payload=[1, 2, 3, 4], device_id=0x10)),
+        receiver._parse_packet(build_packet(seq_num=2, payload=[5, 6, 7, 8], device_id=0x20)),
+    ]
+    original_info = dataset_metadata.load_dataset_info()
+    dataset_metadata.save_dataset_info(original_info)
+    real_save_sample = collector.save_sample
+    save_calls = 0
+
+    def fail_second_device(device_packets):
+        nonlocal save_calls
+        save_calls += 1
+        if save_calls == 2:
+            raise OSError('second device failed')
+        return real_save_sample(device_packets)
+
+    monkeypatch.setattr(collector, 'save_sample', fail_second_device)
+
+    with pytest.raises(OSError, match='second device failed'):
+        collector.save_samples_by_device(packets)
+
+    assert not list(data_dir.rglob('*.npz'))
+    assert dataset_metadata.load_dataset_info() == original_info
 
 
 def test_save_samples_by_device_rejects_missing_device_id(tmp_path, monkeypatch):

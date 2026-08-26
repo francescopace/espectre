@@ -169,3 +169,24 @@ def test_direct_facade_starts_and_publishes_canonical_telemetry(monkeypatch):
 
     facade.stop()
     native.stop.assert_called_once_with()
+
+
+def test_direct_facade_uptime_accumulates_across_tick_wrap(monkeypatch):
+    native = MagicMock()
+    monkeypatch.setitem(sys.modules, "espectre_native_direct", native)
+    tick_period = 1 << 30
+    half_period = tick_period // 2
+
+    def ticks_diff(current, previous):
+        return ((current - previous + half_period) % tick_period) - half_period
+
+    monkeypatch.setattr(time, "ticks_diff", ticks_diff, raising=False)
+    sys.modules.pop("direct_api", None)
+    from direct_api import DirectApi
+
+    facade = object.__new__(DirectApi)
+    facade._uptime_last_ms = tick_period - 500
+    facade._uptime_ms = 0
+
+    assert facade._uptime_seconds(500) == 1
+    assert facade._uptime_seconds(1500) == 2

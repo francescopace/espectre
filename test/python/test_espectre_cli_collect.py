@@ -76,6 +76,45 @@ def test_collect_parser_exposes_only_http_collection_options() -> None:
     assert args.label == "benchmark"
 
 
+def test_collect_rejects_unsafe_label_before_resolving_device(monkeypatch) -> None:
+    target_resolution_attempted = False
+
+    def resolve_target(_args):
+        nonlocal target_resolution_attempted
+        target_resolution_attempted = True
+
+    monkeypatch.setattr(host, "_resolve_collect_target_via_discovery", resolve_target)
+    args = collect_args(
+        label="../outside",
+        info=False,
+        ready_stable_seconds=3.0,
+    )
+
+    with pytest.raises(SystemExit):
+        host.collect_csi_data(args)
+
+    assert target_resolution_attempted is False
+
+
+def test_collect_allows_live_inspection_without_label(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(
+        host,
+        "_resolve_collect_target_via_discovery",
+        lambda _args: calls.append("resolve"),
+    )
+    monkeypatch.setattr(host, "_run_live_collect", lambda _args: calls.append("run"))
+    args = collect_args(
+        label=None,
+        info=False,
+        ready_stable_seconds=3.0,
+    )
+
+    host.collect_csi_data(args)
+
+    assert calls == ["resolve", "run"]
+
+
 def test_discovery_frontends_exclude_streamer() -> None:
     assert device_discovery.SUPPORTED_DISCOVERY_FRONTENDS == ("native", "esphome", "matter", "micro")
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass
 from datetime import datetime
@@ -81,6 +82,20 @@ DATASET_ROLES = ADMITTED_DATASET_ROLES | {"exclude"}
 DEFAULT_DATASET_ROLE = "exclude"
 DATA_DIR = data_dir()
 DATASET_INFO_FILE = DATA_DIR / "dataset_info.json"
+_DATASET_LABEL_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
+
+
+def validate_dataset_label(value: Any) -> str:
+    """Return a safe dataset directory label or reject ambiguous path input."""
+    if not isinstance(value, str):
+        raise ValueError("dataset label must be a string")
+    label = value.strip()
+    if not _DATASET_LABEL_PATTERN.fullmatch(label):
+        raise ValueError(
+            "dataset label must contain 1-64 ASCII letters, digits, underscores, or "
+            "hyphens, and must start with a letter or digit"
+        )
+    return label
 
 
 def dataset_role(entry: Mapping[str, Any]) -> str:

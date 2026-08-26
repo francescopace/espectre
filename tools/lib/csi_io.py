@@ -32,6 +32,7 @@ import numpy as np
 from .bootstrap import setup_paths
 from . import dataset_metadata
 from . import npz_cache
+from .atomic_io import atomic_savez_compressed
 from .temporal_replay import TemporalReplayController
 
 setup_paths()
@@ -1291,7 +1292,7 @@ class CSICollector:
         detector_algorithm: str = "classic",
         target_pps: Optional[int] = None,
     ):
-        self.label = label
+        self.label = dataset_metadata.validate_dataset_label(label)
         self.port = port
         self.bind_host = bind_host
         self.chip = None
@@ -1389,13 +1390,20 @@ class CSICollector:
                 f"cannot save capture window without device_id metadata "
                 f"({missing_device_packets} packets missing device_id)"
             )
-        # Fail fast on corrupt dataset_info.json before writing any NPZ files.
-        dataset_metadata.load_dataset_info()
+        # Fail fast on corrupt dataset_info.json before writing any NPZ files,
+        # and retain the exact catalog state for a multi-device rollback.
+        original_info = dataset_metadata.load_dataset_info()
         saved_files: List[Path] = []
-        for device_id in sorted(packets_by_device):
-            filepath = self.save_sample(packets_by_device[device_id])
-            if filepath is not None:
-                saved_files.append(filepath)
+        try:
+            for device_id in sorted(packets_by_device):
+                filepath = self.save_sample(packets_by_device[device_id])
+                if filepath is not None:
+                    saved_files.append(filepath)
+        except BaseException:
+            for filepath in saved_files:
+                filepath.unlink(missing_ok=True)
+            dataset_metadata.save_dataset_info(original_info)
+            raise
         return saved_files
 
     def save_sample(self, packets: List[CSIPacket]) -> Optional[Path]:
@@ -1519,51 +1527,59 @@ class CSICollector:
         label_dir = self._get_label_dir()
         filename = self._generate_filename(packets[0].num_subcarriers, device_id)
         filepath = label_dir / filename
-        np.savez_compressed(filepath, **sample)
+        atomic_savez_compressed(filepath, sample)
 
-        self._update_dataset_info(
-            filename=filename,
-            num_subcarriers=packets[0].num_subcarriers,
-            num_packets=len(packets),
-            duration_ms=duration_ms,
-            collected_at=sample["collected_at"],
-            description=self.description,
-            device_id=device_id,
-            average_packet_rate=average_packet_rate,
-            nominal_packet_rate=nominal_packet_rate,
-            admission_provenance=admission_provenance,
-            transport_metadata={
-                "transport": packets[0].transport,
-                "transport_target": packets[0].transport_target or "",
-                "endpoint": packets[0].transport_target or "",
-                "effective_pps": round(float(average_packet_rate), 3),
-                "observed_pps": round(float(average_packet_rate), 3),
-                "requested_pps": float(
-                    packets[0].requested_pps
-                    if packets[0].requested_pps is not None
-                    else (nominal_packet_rate or csi_target_pps)
-                ),
-                "raw_protocol_version": int(packets[0].raw_protocol_version or 0),
-                "record_version": int(packets[0].record_version),
-                "frontend": packets[0].frontend or "",
-                "firmware_version": packets[0].firmware_version or "",
-                "firmware_identity": packets[0].firmware_identity or "",
-                "raw_fresh_record_total": int(packets[-1].fresh_record_total or len(packets)),
-                "fresh_record_total": int(packets[-1].fresh_record_total or len(packets)),
-                "raw_drop_total": int(packets[-1].raw_drop_total or 0),
-                "raw_send_backpressure_total": int(
-                    packets[-1].raw_send_backpressure_total or 0
-                ),
-                "send_backpressure_total": int(
-                    packets[-1].raw_send_backpressure_total or 0
-                ),
-                "raw_final_stream_sequence": int(
-                    packets[-1].raw_final_stream_sequence
-                    if packets[-1].raw_final_stream_sequence is not None
-                    else (packets[-1].raw_stream_sequence or packets[-1].seq_num)
-                ),
-            },
-        )
+        try:
+            self._update_dataset_info(
+                filename=filename,
+                num_subcarriers=packets[0].num_subcarriers,
+                num_packets=len(packets),
+                duration_ms=duration_ms,
+                collected_at=sample["collected_at"],
+                description=self.description,
+                device_id=device_id,
+                average_packet_rate=average_packet_rate,
+                nominal_packet_rate=nominal_packet_rate,
+                admission_provenance=admission_provenance,
+                transport_metadata={
+                    "transport": packets[0].transport,
+                    "transport_target": packets[0].transport_target or "",
+                    "endpoint": packets[0].transport_target or "",
+                    "effective_pps": round(float(average_packet_rate), 3),
+                    "observed_pps": round(float(average_packet_rate), 3),
+                    "requested_pps": float(
+                        packets[0].requested_pps
+                        if packets[0].requested_pps is not None
+                        else (nominal_packet_rate or csi_target_pps)
+                    ),
+                    "raw_protocol_version": int(packets[0].raw_protocol_version or 0),
+                    "record_version": int(packets[0].record_version),
+                    "frontend": packets[0].frontend or "",
+                    "firmware_version": packets[0].firmware_version or "",
+                    "firmware_identity": packets[0].firmware_identity or "",
+                    "raw_fresh_record_total": int(
+                        packets[-1].fresh_record_total or len(packets)
+                    ),
+                    "fresh_record_total": int(
+                        packets[-1].fresh_record_total or len(packets)
+                    ),
+                    "raw_drop_total": int(packets[-1].raw_drop_total or 0),
+                    "raw_send_backpressure_total": int(
+                        packets[-1].raw_send_backpressure_total or 0
+                    ),
+                    "send_backpressure_total": int(
+                        packets[-1].raw_send_backpressure_total or 0
+                    ),
+                    "raw_final_stream_sequence": int(
+                        packets[-1].raw_final_stream_sequence
+                        if packets[-1].raw_final_stream_sequence is not None
+                        else (packets[-1].raw_stream_sequence or packets[-1].seq_num)
+                    ),
+                },
+            )
+        except BaseException:
+            filepath.unlink(missing_ok=True)
+            raise
         return filepath
 
     def _update_dataset_info(

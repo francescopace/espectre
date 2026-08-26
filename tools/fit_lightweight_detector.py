@@ -52,6 +52,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from tools.lib.atomic_io import atomic_write_set  # noqa: E402
 from tools.lib.bootstrap import setup_paths  # noqa: E402
 
 setup_paths()
@@ -661,8 +662,12 @@ def main() -> int:
 
     python_text = render_python(coefficients, base_threshold, idle_q95)
     cpp_text = render_cpp(coefficients, base_threshold, idle_q95)
-    PYTHON_SOURCE.write_text(python_text)
-    CPP_SOURCE.write_text(cpp_text)
+    atomic_write_set(
+        {
+            PYTHON_SOURCE: python_text.encode("utf-8"),
+            CPP_SOURCE: cpp_text.encode("utf-8"),
+        }
+    )
     print(f"\nWrote {PYTHON_SOURCE.relative_to(REPO_ROOT)} and {CPP_SOURCE.relative_to(REPO_ROOT)}")
     return 0
 

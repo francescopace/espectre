@@ -125,6 +125,9 @@ def detect_chip_type(port: str) -> str | None:
         if "ESP32-S3" in chip_name:
             print(f"{Fore.GREEN}✅ Detected: ESP32-S3{Style.RESET_ALL}\n")
             return "s3"
+        if "ESP32-S2" in chip_name:
+            print(f"{Fore.GREEN}✅ Detected: ESP32-S2{Style.RESET_ALL}\n")
+            return "s2"
         if "ESP32-C6" in chip_name:
             print(f"{Fore.GREEN}✅ Detected: ESP32-C6{Style.RESET_ALL}\n")
             return "c6"
@@ -156,21 +159,30 @@ def prompt_chip_type() -> str | None:
     print(f"\n{Fore.CYAN}Please select your ESP32 chip type:{Style.RESET_ALL}")
     print("  1. ESP32 (original)")
     print("  2. ESP32-C3")
-    print("  3. ESP32-S3")
-    print("  4. ESP32-C5")
-    print("  5. ESP32-C6")
+    print("  3. ESP32-S2")
+    print("  4. ESP32-S3")
+    print("  5. ESP32-C5")
+    print("  6. ESP32-C6")
     print()
 
     try:
-        choice = input(f"{Fore.CYAN}Select chip (1-5): {Style.RESET_ALL}")
+        choice = input(f"{Fore.CYAN}Select chip (1-6): {Style.RESET_ALL}")
     except (KeyboardInterrupt, EOFError):
         print(f"\n{Fore.RED}Cancelled{Style.RESET_ALL}")
         return None
 
-    mapping = {"1": "esp32", "2": "c3", "3": "s3", "4": "c5", "5": "c6"}
+    mapping = {
+        "1": "esp32",
+        "2": "c3",
+        "3": "s2",
+        "4": "s3",
+        "5": "c5",
+        "6": "c6",
+    }
     labels = {
         "esp32": "ESP32",
         "c3": "ESP32-C3",
+        "s2": "ESP32-S2",
         "s3": "ESP32-S3",
         "c5": "ESP32-C5",
         "c6": "ESP32-C6",

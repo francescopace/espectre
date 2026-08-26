@@ -86,17 +86,31 @@ def atomic_write_set(payloads: Mapping[str | Path, bytes]) -> tuple[Path, ...]:
     return destinations
 
 
-def atomic_savez(path: str | Path, payload: Mapping[str, Any]) -> Path:
-    """Publish an NPZ archive without exposing a partial ZIP file."""
+def _atomic_savez(
+    path: str | Path,
+    payload: Mapping[str, Any],
+    writer: Any,
+) -> Path:
+    """Publish an NPZ archive using the selected NumPy writer."""
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = _temporary_sibling(destination, ".tmp.npz")
     try:
-        np.savez(temporary, **payload)
-        with temporary.open("rb") as handle:
+        writer(temporary, **payload)
+        with temporary.open("rb+") as handle:
             os.fsync(handle.fileno())
         os.replace(temporary, destination)
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise
     return destination
+
+
+def atomic_savez(path: str | Path, payload: Mapping[str, Any]) -> Path:
+    """Publish an uncompressed NPZ archive without exposing a partial ZIP file."""
+    return _atomic_savez(path, payload, np.savez)
+
+
+def atomic_savez_compressed(path: str | Path, payload: Mapping[str, Any]) -> Path:
+    """Publish a compressed NPZ archive without exposing a partial ZIP file."""
+    return _atomic_savez(path, payload, np.savez_compressed)

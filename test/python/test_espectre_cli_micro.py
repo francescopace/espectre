@@ -135,26 +135,24 @@ def test_require_mpy_cross_exits_when_binary_missing(monkeypatch) -> None:
         micro._require_mpy_cross()
 
 
-def test_reset_device_reports_completion_even_on_exception(monkeypatch, capsys) -> None:
+def test_reset_device_reports_command_result(monkeypatch) -> None:
     calls: list[list[str]] = []
     monkeypatch.setattr(micro.time, "sleep", lambda _seconds: None)
 
-    def fake_run(cmd, timeout, capture_output):
+    def fake_run(cmd, timeout, capture_output, text, check):
         calls.append(cmd)
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(micro.subprocess, "run", fake_run)
-    micro._reset_device("/dev/cu.usbmodem1")
+    assert micro._reset_device("/dev/cu.usbmodem1") is True
 
-    def fake_run_fail(cmd, timeout, capture_output):
-        raise RuntimeError("busy")
+    def fake_run_fail(cmd, timeout, capture_output, text, check):
+        raise subprocess.CalledProcessError(1, cmd, stderr="busy")
 
     monkeypatch.setattr(micro.subprocess, "run", fake_run_fail)
-    micro._reset_device("/dev/cu.usbmodem1")
+    assert micro._reset_device("/dev/cu.usbmodem1") is False
 
-    out = capsys.readouterr().out
     assert calls == [["mpremote", "connect", "/dev/cu.usbmodem1", "exec", "import machine; machine.reset()"]]
-    assert out.count("ESP32 reset completed") == 2
 
 
 def test_flash_firmware_raises_when_esptool_missing(monkeypatch) -> None:
@@ -213,17 +211,18 @@ def test_flash_firmware_rejects_missing_custom_firmware(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize(
-    ("chip", "offset"),
+    ("chip", "esptool_chip", "offset"),
     (
-        ("esp32", "0x1000"),
-        ("c3", "0x0"),
-        ("c5", "0x2000"),
-        ("c6", "0x0"),
-        ("s3", "0x0"),
+        ("esp32", "esp32", "0x1000"),
+        ("c3", "esp32c3", "0x0"),
+        ("s2", "esp32s2", "0x1000"),
+        ("c5", "esp32c5", "0x2000"),
+        ("c6", "esp32c6", "0x0"),
+        ("s3", "esp32s3", "0x0"),
     ),
 )
 def test_flash_firmware_uses_project_build_for_supported_chips(
-    chip: str, offset: str, tmp_path: Path, monkeypatch
+    chip: str, esptool_chip: str, offset: str, tmp_path: Path, monkeypatch
 ) -> None:
     firmware = tmp_path / "project.bin"
     firmware.write_bytes(b"project")
@@ -243,6 +242,7 @@ def test_flash_firmware_uses_project_build_for_supported_chips(
 
     micro.flash_firmware(_make_args(chip=chip))
 
+    assert calls[-1][:2] == ["--chip", esptool_chip]
     assert calls[-1][-2:] == [offset, str(firmware)]
 
 
@@ -311,20 +311,22 @@ def test_deploy_code_uploads_files_to_device(monkeypatch, tmp_path: Path) -> Non
 
     mkdir_calls = [cmd for cmd in calls if "mkdir" in cmd]
     cp_calls = [cmd for cmd in calls if "cp" in cmd]
-    rm_calls = [cmd for cmd in calls if "rm" in cmd]
+    exec_scripts = [cmd[-1] for cmd in calls if cmd[:4] == ["mpremote", "connect", "/dev/cu.usbmodem1", "exec"]]
     assert len(mkdir_calls) == 1
+    assert mkdir_calls[0][-1] == ":src.stage"
     assert len(cp_calls) == len(micro.MICRO_DEVICE_RELATIVE_FILES)
-    assert len(rm_calls) == len(micro.MICRO_DEVICE_RELATIVE_FILES) + 2
-    assert any(cmd[-1] == ":src/main.mpy" for cmd in cp_calls)
-    assert not any(cmd[-1].startswith(":src/mqtt/") for cmd in cp_calls)
+    assert any(cmd[-1] == ":src.stage/main.mpy" for cmd in cp_calls)
+    assert not any(cmd[-1].startswith(":src.stage/mqtt/") for cmd in cp_calls)
     assert any(cmd[-2].endswith("console_output.mpy") for cmd in cp_calls)
     assert any(cmd[-2].endswith("branding.mpy") for cmd in cp_calls)
     assert any(cmd[-2].endswith("lightweight_detector.mpy") for cmd in cp_calls)
     assert any(cmd[-2].endswith("runtime_diagnostics.mpy") for cmd in cp_calls)
     assert any(cmd[-2].endswith("protocol.mpy") for cmd in cp_calls)
     assert all(cmd[-2].endswith(".mpy") for cmd in cp_calls)
-    assert any(cmd[-1] == ":src/protocol.py" for cmd in rm_calls)
-    assert any(cmd[-1] == ":config_local.mpy" for cmd in rm_calls)
+    assert all(cmd[-1].startswith(":src.stage/") for cmd in cp_calls)
+    assert any("remove_tree('/src.stage')" in script for script in exec_scripts)
+    assert any("os.rename('/src.stage', '/src')" in script for script in exec_scripts)
+    assert any("os.rename('/src.previous', '/src')" in script for script in exec_scripts)
 
     compile_calls = [
         cmd
@@ -470,7 +472,7 @@ def test_deploy_code_uses_selected_config_as_device_override(monkeypatch, tmp_pa
         if cmd and cmd[0] == micro.MPY_CROSS_COMMAND and cmd[-1] == str(benchmark_config)
     )
     assert config_compile[3] == "src/config_local.py"
-    assert any(cmd[-1] == ":src/config_local.mpy" for cmd in calls if "cp" in cmd)
+    assert any(cmd[-1] == ":src.stage/config_local.mpy" for cmd in calls if "cp" in cmd)
 
 
 def test_deploy_code_retries_healthcheck_while_micropython_starts(monkeypatch, tmp_path: Path) -> None:
@@ -540,7 +542,10 @@ def test_deploy_code_exits_on_copy_failure(monkeypatch, tmp_path: Path) -> None:
     src_dir = tmp_path / "src"
     _create_micro_src_tree(src_dir)
 
+    calls: list[list[str]] = []
+
     def fake_run(cmd, **kwargs):
+        calls.append(cmd)
         if cmd[:4] == ["mpremote", "connect", "/dev/cu.usbmodem1", "exec"]:
             return SimpleNamespace(returncode=0, stdout="MP_OK", stderr="")
         if "cp" in cmd:
@@ -554,6 +559,9 @@ def test_deploy_code_exits_on_copy_failure(monkeypatch, tmp_path: Path) -> None:
 
     with pytest.raises(SystemExit):
         micro.deploy_code(_make_args())
+
+    exec_scripts = [cmd[-1] for cmd in calls if cmd[:4] == ["mpremote", "connect", "/dev/cu.usbmodem1", "exec"]]
+    assert not any("os.rename('/src.stage', '/src')" in script for script in exec_scripts)
 
 
 def test_run_application_starts_mpremote_process(monkeypatch) -> None:
@@ -609,11 +617,30 @@ def test_run_application_handles_keyboard_interrupt_and_resets_device(monkeypatc
     monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
     monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
     monkeypatch.setattr(micro.subprocess, "Popen", lambda _cmd: FakeProcess())
-    monkeypatch.setattr(micro, "_reset_device", lambda port: events.append(f"reset:{port}"))
+    monkeypatch.setattr(micro, "_reset_device", lambda port: events.append(f"reset:{port}") or True)
 
     micro.run_application(_make_args())
 
     assert events == ["terminate", "kill", "reset:/dev/cu.usbmodem1"]
+
+
+def test_run_application_exits_when_interrupt_reset_fails(monkeypatch) -> None:
+    class FakeProcess:
+        def wait(self, timeout=None):
+            if timeout is None:
+                raise KeyboardInterrupt
+            return 0
+
+        def terminate(self):
+            return None
+
+    monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro.subprocess, "Popen", lambda _cmd: FakeProcess())
+    monkeypatch.setattr(micro, "_reset_device", lambda _port: False)
+
+    with pytest.raises(SystemExit):
+        micro.run_application(_make_args())
 
 
 def test_run_application_exits_on_subprocess_error(monkeypatch) -> None:

@@ -344,6 +344,14 @@ def collect_csi_data(args) -> None:
     if getattr(args, "info", False):
         _show_dataset_info()
         return
+    if getattr(args, "label", None) is not None:
+        try:
+            from tools.lib.dataset_metadata import validate_dataset_label
+
+            args.label = validate_dataset_label(args.label)
+        except (ImportError, ValueError) as exc:
+            print(f"{Fore.RED}❌ Invalid dataset label: {exc}{Style.RESET_ALL}")
+            raise SystemExit(1)
     _resolve_collect_target_via_discovery(args)
     _run_live_collect(args)
 
