@@ -23,13 +23,13 @@
 <meta name="twitter:image" content="https://espectre.dev/assets/images/brand/espectre-og.jpg">
 <link rel="icon" type="image/svg+xml" href="/assets/images/brand/espectre-logo.svg?v=5c234009f6c5">
 <link rel="alternate icon" type="image/png" href="/assets/images/brand/favicon.png">
-<link rel="stylesheet" href="/assets/css/styles.css?v=82ec7f8f8731">
+<link rel="stylesheet" href="/assets/css/styles.css?v=5e874704e153">
 <script src="/assets/js/espectre-direct.js?v=9359fea8bf00" defer></script>
 <script src="/assets/js/browser-support.js?v=ac4ba70c7f17" defer></script>
-<script src="/assets/js/route-registry.js?v=2cdc0eba3521" defer></script>
-<script src="/assets/js/navigation.js?v=88d37c28b5a6" defer></script>
-<script src="/assets/js/analytics.js?v=db8930cc99ba" defer></script>
-<script src="/assets/js/app.js?v=17e9a89ab422" defer></script>
+<script src="/assets/js/route-registry.js?v=4526f65d0bd1" defer></script>
+<script src="/assets/js/navigation.js?v=bb0a8a4fb938" defer></script>
+<script src="/assets/js/analytics.js?v=1ba5c2cbf44c" defer></script>
+<script src="/assets/js/app.js?v=5d5659e63299" defer></script>
 </head>
 <body>
 
@@ -254,16 +254,22 @@
             <p>Turn a supported ESP32 into a Wi-Fi motion sensor over USB.</p>
             <span class="home-card-action">Open Flash →</span>
           </a>
+          <a href="/guides/setup/#setup-native-discovery" class="home-tool-card">
+            <span class="home-card-label">DISCOVER</span>
+            <h3>Find devices on LAN.</h3>
+            <p>Find compatible devices from the browser. No mobile app, extension, or address-range scan.</p>
+            <span class="home-card-action">See how discovery works →</span>
+          </a>
           <a href="/tools/configure/" class="home-tool-card">
             <span class="home-card-label">CONFIGURE</span>
             <h3>Set up your sensor.</h3>
-            <p>Configure the device over its local Direct HTTP API.</p>
+            <p>Configure the device over its Local Direct API.</p>
             <span class="home-card-action">Open Configure →</span>
           </a>
           <a href="/tools/monitor/" class="home-tool-card">
             <span class="home-card-label">MONITOR</span>
             <h3>Watch motion live.</h3>
-            <p>Use local HTTP to inspect motion, tune detection, and view diagnostics.</p>
+            <p>Use Local Direct API to inspect motion, tune detection, and view diagnostics.</p>
             <span class="home-card-action">Open Monitor →</span>
           </a>
         </div>
@@ -300,7 +306,7 @@
 
 <!-- ============================== Tools ============================== -->
 <main class="js-page page-narrow" data-page="tools" hidden>
-  <div class="js-static-content" data-content-url="content/tools.html?v=55d56224a580" data-static-url="/tools/">
+  <div class="js-static-content" data-content-url="content/tools.html?v=6711bf845586" data-static-url="/tools/">
     <p class="guide-loading">Loading tools…</p>
   </div>
 </main>
@@ -755,7 +761,7 @@
 
 <!-- ============================== Security ============================== -->
 <main class="js-page page-narrow" data-page="security" hidden>
-  <div class="js-static-content" data-content-url="content/security.html?v=b089d39362c4" data-static-url="/security/">
+  <div class="js-static-content" data-content-url="content/security.html?v=1dcda9362b3f" data-static-url="/security/">
     <p class="guide-loading">Loading security information…</p>
   </div>
 </main>
@@ -778,7 +784,7 @@
 <!-- ============================== Guide: Setup ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-setup" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Flash &amp; Wi-Fi setup</span></div>
-  <div class="js-static-content" data-content-url="content/guides/setup.html?v=7a97cdca2125" data-static-url="/guides/setup/">
+  <div class="js-static-content" data-content-url="content/guides/setup.html?v=26d9b70c31ec" data-static-url="/guides/setup/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -904,7 +910,7 @@
   <section class="device-connect-card connection-card direct-connect-card empty-state" data-transport="direct">
     <span class="connection-card-eyebrow">Local connection</span>
     <h2>Find your ESPectre</h2>
-    <p>Auto-discovery requires working mDNS and at least one ESPectre device on this LAN. Chrome may ask for Local network access.</p>
+    <p>Find compatible ESPectre devices on this LAN without looking up or entering an IP address. Discovery stays local; Chrome may ask for Local Network Access.</p>
     <p class="tool-note js-direct-browser-note" role="status">Your browser may ask for Local network access. Allow it only for this site and the LAN you intend to manage.</p>
     <button type="button" class="btn-primary js-direct-discover">Find devices</button>
     <div class="direct-discovery js-direct-discovery" role="status" aria-live="polite" hidden></div>

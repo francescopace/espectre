@@ -25,10 +25,15 @@
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
         const link = event.target.closest('a[href]');
         if (!link || (link.target && link.target !== '_self')) return;
-        const route = window.ESPectreRoutes?.routeForPath(link.getAttribute('href'));
-        if (!route) return;
+        const target = window.ESPectreRoutes?.staticTargetForHref(
+            link.getAttribute('href'), window.location.href
+        );
+        if (!target) return;
         event.preventDefault();
-        window.location.assign(`/#${route}`);
+        const destination = new URL('/', window.location.href);
+        if (target.anchor) destination.searchParams.set('anchor', target.anchor);
+        destination.hash = target.route;
+        window.location.assign(destination.pathname + destination.search + destination.hash);
     }
 
     normalizeSpaEntryPath();

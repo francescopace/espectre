@@ -2639,7 +2639,7 @@ ewt-install-dialog {
   gap: 8px 14px;
 }
 .page-toc a { font-weight: 600; }
-.article :is(h2, h3)[id],
+.article :is(h2, h3, h4)[id],
 .docs-quickstart :is(h2, h3)[id] { scroll-margin-top: calc(var(--header-height) + 20px); }
 
 /* Media */

@@ -28,7 +28,6 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 **Release tasks**:
 
 - [ ] Re-run the on-device firmware benchmark on every supported chip and refresh the published performance reports
-- [ ] Review the Changelog
 
 **Exit criteria**:
 

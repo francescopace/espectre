@@ -258,22 +258,32 @@ describe('analytics route metadata', () => {
 
 describe('analytics automatic events', () => {
     it('tracks contact and public tool links added after analytics initialization', () => {
-        const { api, listeners, window } = analyticsContext();
+        const { api, consentBanner, listeners, window } = analyticsContext();
         api.enableAnalytics({ sendPageView: false });
         listeners.get('DOMContentLoaded')();
 
         const click = listeners.get('click');
-        const dispatchLink = (href) => click({
-            target: {
-                closest: () => ({
-                    href,
-                    dataset: {},
-                    getAttribute: () => href,
-                    querySelector: () => null,
-                    textContent: href
-                })
-            }
-        });
+        const dispatchLink = (href, { cookieSettings = false } = {}) => {
+            const link = {
+                href,
+                dataset: {},
+                getAttribute: () => href,
+                querySelector: () => null,
+                textContent: href
+            };
+            let prevented = false;
+            click({
+                target: {
+                    closest: (selector) => {
+                        if (selector === '.js-cookie-settings') return cookieSettings ? link : null;
+                        if (selector === 'a[href]') return link;
+                        return null;
+                    }
+                },
+                preventDefault: () => { prevented = true; }
+            });
+            return prevented;
+        };
 
         dispatchLink('mailto:contact@espectre.dev?subject=Product');
         assert.equal(window.dataLayer.at(-1)[1], 'click_contact');
@@ -282,5 +292,8 @@ describe('analytics automatic events', () => {
         dispatchLink('https://espectre.dev/tools/configure/');
         assert.equal(window.dataLayer.at(-1)[1], 'select_tool');
         assert.equal(window.dataLayer.at(-1)[2].tool_name, 'configure');
+        consentBanner.hidden = true;
+        assert.equal(dispatchLink('/privacy/#cookie-settings', { cookieSettings: true }), true);
+        assert.equal(consentBanner.hidden, false);
     });
 });

@@ -115,6 +115,24 @@
             || contentNameForPath(normalized, 'sdk-', 'sdk');
     }
 
+    function staticTargetForHref(href, baseHref) {
+        let base;
+        let target;
+        try {
+            base = new URL(baseHref);
+            target = new URL(href, base);
+        } catch (error) {
+            return null;
+        }
+        if (target.origin !== base.origin || target.search) return null;
+        const route = byStaticPath.get(target.pathname);
+        if (!route) return null;
+        return Object.freeze({
+            route,
+            anchor: target.hash.length > 1 ? target.hash.slice(1) : ''
+        });
+    }
+
     window.ESPectreRoutes = Object.freeze({
         all: Object.freeze(definitions.map((definition) => definition.name)),
         contentGroup,
@@ -124,6 +142,7 @@
         guideNameForPath: (path) => contentNameForPath(path, 'guide-', 'guides'),
         has: (name) => byName.has(name),
         routeForPath: (path) => byStaticPath.get(path) || '',
+        staticTargetForHref,
         title: (name) => byName.get(name)?.title || ''
     });
     window.ESPectreSite = Object.freeze({

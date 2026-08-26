@@ -16,9 +16,9 @@ An ESP32 associated with a Wi-Fi network receives packets and reads how the radi
 If you want the fastest path, use the browser flasher:
 
 1. Open [espectre.dev/tools/flash](https://espectre.dev/tools/flash/) with a Chromium-based browser
-2. Pick the Native, ESPHome, or Matter firmware and ESP32 target
+2. Pick the firmware and release channel
 3. Flash the board
-4. Complete Improv Serial Wi-Fi provisioning for Native or ESPHome, or Matter commissioning for Matter
+4. Complete Wi-Fi provisioning for Native or ESPHome, or Matter commissioning for Matter
 
 The browser tools share one site:
 
@@ -26,6 +26,8 @@ The browser tools share one site:
 - [Monitor](https://espectre.dev/tools/monitor/) watches motion, tunes detection, and inspects diagnostics
 - [Raw CSI](https://espectre.dev/tools/raw-csi/) inspects raw CSI frames in the browser
 - [Run with the Spectre](https://espectre.dev/tools/game/) and [Theremin](https://espectre.dev/tools/theremin/) provide interactive sensing demos
+
+On supported desktop browsers, Configure and Monitor find compatible devices directly on the LAN, so users do not need to look up IP addresses or install an extension. The portal resolves a fresh `.local` hostname to reach one eligible device, which performs the DNS-SD browse on the browser's behalf. See [Peer-assisted browser discovery](docs/ESPECTRE_PROTOCOL.md#peer-assisted-browser-discovery).
 
 GitHub Releases provide OTA payloads for ESPHome and Native. ESPHome updates can be compiled through ESPHome Device Builder or installed from a downloaded OTA image with the ESPectre CLI.
 

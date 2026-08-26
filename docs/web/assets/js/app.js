@@ -2141,8 +2141,37 @@
         target.focus({ preventScroll: true });
     }
 
+    function focusRouteAnchor(routeName, encodedTargetId) {
+        let targetId = '';
+        try {
+            targetId = decodeURIComponent(encodedTargetId);
+        } catch (error) {
+            return false;
+        }
+        const page = $(`[data-page="${routeName}"]`);
+        const target = page && document.getElementById(targetId);
+        if (!target || !page.contains(target)) return false;
+        target.scrollIntoView();
+        if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+        target.focus({ preventScroll: true });
+        return true;
+    }
+
+    let pendingRouteAnchor = '';
+
+    function consumeRouteAnchorHandoff() {
+        const url = new URL(location.href);
+        const anchor = url.searchParams.get('anchor') || '';
+        if (!anchor) return;
+        pendingRouteAnchor = anchor;
+        url.searchParams.delete('anchor');
+        history.replaceState(null, '', url.pathname + url.search + url.hash);
+    }
+
     function applyRoute({ focus = true } = {}) {
         const routeAtStart = route;
+        const anchorAtStart = pendingRouteAnchor;
+        pendingRouteAnchor = '';
         $$('.js-page').forEach((page) => {
             const current = page.dataset.page === route;
             page.hidden = !current;
@@ -2186,9 +2215,12 @@
             }
             flashRefresh();
         }
-        if (focus) {
+        if (focus || anchorAtStart) {
             contentPromise.finally(() => {
-                if (route === routeAtStart) focusRouteContent(routeAtStart);
+                if (route !== routeAtStart) return;
+                if (!anchorAtStart || !focusRouteAnchor(routeAtStart, anchorAtStart)) {
+                    focusRouteContent(routeAtStart);
+                }
             });
         }
         // The router owns navigation, so it reports it.
@@ -2276,27 +2308,37 @@
         const link = event.target.closest('a[href]');
         if (!link) return;
         const href = link.getAttribute('href');
-        const staticRoute = routeRegistry.routeForPath(href);
-        if (staticRoute) {
+        const staticTarget = routeRegistry.staticTargetForHref(href, location.href);
+        if (staticTarget) {
             event.preventDefault();
-            location.hash = '#' + staticRoute;
+            const routeHash = '#' + staticTarget.route;
+            if (location.hash !== routeHash) {
+                pendingRouteAnchor = staticTarget.anchor;
+                location.hash = routeHash;
+            } else if (staticTarget.anchor) {
+                loadStaticContent(staticTarget.route).finally(() => {
+                    if (route !== staticTarget.route) return;
+                    if (!focusRouteAnchor(staticTarget.route, staticTarget.anchor)) {
+                        focusRouteContent(staticTarget.route);
+                    }
+                });
+            }
         } else if (href.startsWith('/#')) {
             event.preventDefault();
             location.hash = href.slice(1);
         } else if (href.startsWith('#') && href.length > 1) {
             const page = $(`[data-page="${route}"]`);
-            let targetId = '';
+            const targetId = href.slice(1);
+            let decodedTargetId = '';
             try {
-                targetId = decodeURIComponent(href.slice(1));
+                decodedTargetId = decodeURIComponent(targetId);
             } catch (error) {
                 return;
             }
-            const target = page && document.getElementById(targetId);
+            const target = page && document.getElementById(decodedTargetId);
             if (!target || !page.contains(target)) return;
             event.preventDefault();
-            target.scrollIntoView();
-            if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
-            target.focus({ preventScroll: true });
+            focusRouteAnchor(route, targetId);
         }
     }
 
@@ -6417,6 +6459,7 @@
         renderBrowserSupport();
         renderDirectBrowserGuidance();
         renderStoredDirectEndpoints();
+        consumeRouteAnchorHandoff();
         consumeDirectHandoff();
 
         $$('.js-connect-direct').forEach((btn) => btn.addEventListener('click', () => connectDirect({

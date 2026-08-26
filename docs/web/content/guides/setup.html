@@ -98,20 +98,6 @@ python -m pip install -r requirements.txt</code></pre>
           <li><h3>Open Direct Configure</h3><p>Go to <a href="/tools/configure/">Configure</a>. Enter the private device IP, device name, full 16-character device ID, or the last 6 characters of that ID. A name or short ID uses <em>Auto-discovery</em>: one match connects directly, while multiple matches are listed for selection. The button lists all compatible devices when no reference is known. Automatic discovery is optional, IPv4-only, and returns to the same manual form when multicast, resolver, or browser policy blocks it. From a repository checkout, <code>./espectre devices --frontend native</code> remains the deterministic host discovery path. Direct HTTP shows the current SSID and active band, lists access points with BSSID and signal strength, sets an optional BSSID pin, removes the Wi-Fi configuration, edits the device label, and adds or clears MQTT. Change the Wi-Fi name or password through Improv Serial over USB; Direct does not expose the password or band selection. Removing Wi-Fi disconnects the device and returns it to Improv Serial provisioning. A failed BSSID change rolls back to the last-known-good access point. Hold BOOT for 3 seconds when USB recovery is needed.</p></li>
           <li><h3>Start sensing</h3><p>Open <a href="/tools/monitor/">Monitor</a>, keep Direct HTTP selected, connect to the same endpoint, and start sensing without a broker. Browser monitoring uses local HTTP; configure MQTT separately when you need Home Assistant or broker-based automation.</p></li>
         </ol>
-        <section class="code-tab-subsection" aria-labelledby="setup-native-discovery">
-          <h4 id="setup-native-discovery" class="subheading">Automatic discovery and operating-system support</h4>
-          <p>Auto-discovery is an optional convenience, not a requirement for Direct Configure. The browser resolves one random <code>.local</code> name to reach an eligible Native device; that device performs the bounded <code>_espectre._tcp.local.</code> browse and returns compatible Native, ESPHome, and Matter endpoints. At least one ESPectre device must therefore be reachable to bootstrap browser discovery, even when the device you ultimately select uses another frontend.</p>
-          <section class="table-wrap"><table>
-            <thead><tr><th>Browser environment</th><th>Status</th><th>Discovery requirements</th></tr></thead>
-            <tbody>
-              <tr><td>Chrome 151 or later on macOS</td><td><strong>Supported</strong></td><td>Tested end to end against physical hardware, including multiple responders and responder failover.</td></tr>
-              <tr><td>Chrome 151 or later on Windows 10/11</td><td><strong>Supported</strong></td><td>Physical test coverage is pending. Windows must resolve <code>.local</code> through mDNS, the LAN and firewall must pass multicast UDP port 5353, and Local Network Access must be allowed for the portal.</td></tr>
-              <tr><td>Chrome 151 or later on native Linux</td><td><strong>Supported</strong></td><td>Physical test coverage is pending. The system resolver must route <code>.local</code> to mDNS through a configured service such as systemd-resolved or Avahi/NSS, the active interface and firewall must pass multicast UDP port 5353, and Local Network Access must be allowed.</td></tr>
-              <tr><td>Edge, Firefox, Safari, mobile Chrome, and WSL browser environments</td><td><strong>Compatibility not guaranteed</strong></td><td>Use a supported desktop Chrome path or connect with the current private IP address.</td></tr>
-            </tbody>
-          </table></section>
-          <aside class="note"><strong>If mDNS is disabled or unreliable:</strong> enter the device's current private IPv4 address from the Improv Serial completion link or the router's DHCP client/lease list. A full device ID is converted to <code>espectre-&lt;device-id&gt;.local</code>, while a device name or 6-character ID starts Auto-discovery, so none of those references is an mDNS-free fallback. From a repository checkout, run <code>./espectre devices --frontend native</code> on macOS/Linux or <code>espectre.cmd devices --frontend native</code> on Windows and copy the returned IP endpoint; this fresh host-side browse may still work when only the operating system's <code>.local</code> resolver is disabled, but it cannot cross multicast filtering, client isolation, or VLAN boundaries. You do not need to enable mDNS to configure a device by IP.</aside>
-        </section>
         <section class="code-tab-subsection" aria-labelledby="setup-native-mqtt-shell">
           <h4 id="setup-native-mqtt-shell" class="subheading">Tune from the MQTT shell</h4>
           <p>Run the shell on your computer with the broker address. It selects a single device automatically or presents a menu when several devices are online. Use <code>help</code> to see the available commands, then adjust the motion threshold or start a new calibration:</p>
@@ -137,6 +123,22 @@ espectre&gt; recalibrate</code></pre>
         </ol>
       </div>
     </div>
+
+    <section aria-labelledby="setup-native-discovery">
+      <h3 id="setup-native-discovery" class="subheading">Automatic LAN discovery and browser support</h3>
+      <p>Browsers can resolve individual <code>.local</code> names, but ordinary web applications cannot enumerate DNS-SD services. The portal resolves a hostname containing a new 96-bit nonce to reach one eligible ESPectre device. That device performs the bounded <code>_espectre._tcp.local.</code> browse on the browser's behalf and returns validated endpoints. The new hostname also prevents resolver caches from satisfying the lookup with a positive or negative result from an earlier attempt.</p>
+      <p>The discovery exchange stays on the LAN and uses no mobile app, browser extension, or address-range scan. Discovery is optional and IPv4-only. At least one eligible responder must be reachable, even if you then select a different device. Manual private IP entry remains available when multicast, resolver, or browser policy blocks discovery.</p>
+      <section class="table-wrap"><table>
+        <thead><tr><th>Browser environment</th><th>Status</th><th>Discovery requirements</th></tr></thead>
+        <tbody>
+          <tr><td>Chrome 151 or later on macOS</td><td><strong>Supported</strong></td><td>Tested end to end against physical hardware, including multiple responders and responder failover.</td></tr>
+          <tr><td>Chrome 151 or later on Windows 10/11</td><td><strong>Supported</strong></td><td>Physical test coverage is pending. Windows must resolve <code>.local</code> through mDNS, the LAN and firewall must pass multicast UDP port 5353, and Local Network Access must be allowed for the portal.</td></tr>
+          <tr><td>Chrome 151 or later on native Linux</td><td><strong>Supported</strong></td><td>Physical test coverage is pending. The system resolver must route <code>.local</code> to mDNS through a configured service such as systemd-resolved or Avahi/NSS, the active interface and firewall must pass multicast UDP port 5353, and Local Network Access must be allowed.</td></tr>
+          <tr><td>Edge, Firefox, Safari, mobile Chrome, and WSL browser environments</td><td><strong>Compatibility not guaranteed</strong></td><td>Use a supported desktop Chrome path or connect with the current private IP address.</td></tr>
+        </tbody>
+      </table></section>
+      <aside class="note"><strong>If mDNS is disabled or unreliable:</strong> enter the device's current private IPv4 address from the Improv Serial completion link or the router's DHCP client/lease list. A full device ID is converted to <code>espectre-&lt;device-id&gt;.local</code>, while a device name or 6-character ID starts Auto-discovery, so none of those references is an mDNS-free fallback. From a repository checkout, run <code>./espectre devices --frontend native</code> on macOS/Linux or <code>espectre.cmd devices --frontend native</code> on Windows and copy the returned IP endpoint; this fresh host-side browse may still work when only the operating system's <code>.local</code> resolver is disabled, but it cannot cross multicast filtering, client isolation, or VLAN boundaries. You do not need to enable mDNS to configure a device by IP.</aside>
+    </section>
 
     <h2 id="setup-test">Step 4 — Let it calibrate, then test</h2>
     <ul class="checklist">

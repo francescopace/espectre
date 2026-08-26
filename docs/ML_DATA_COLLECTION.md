@@ -32,14 +32,14 @@ Gesture, HAR, and people-counting datasets are possible, but they are not the ma
 The primary collection path is:
 
 ```text
-raw-capable Native, ESPHome, or Matter frontend
+raw-capable ESPectre frontend
   -> ExternalTrafficGenerator UDP marker
   -> bearer-bound raw HTTP v2
   -> ./espectre collect
   -> one .npz per device_id
 ```
 
-The collector resolves the Direct endpoint, persistently selects `csi_traffic_mode=external`, verifies the device configuration, opens the raw HTTP stream, and imports the same standard-library-only external generator used by `tools/espectre_traffic_generator.py`. This guide assumes that a raw-capable Native, ESPHome, or Matter device is already running and reachable.
+The collector resolves the Direct endpoint, persistently selects `csi_traffic_mode=external`, verifies the device configuration, opens the raw HTTP stream, and imports the same standard-library-only external generator used by `tools/espectre_traffic_generator.py`. This guide assumes that a raw-capable ESPectre device is already running and reachable.
 
 ## Quick Start
 

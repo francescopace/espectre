@@ -239,7 +239,30 @@ describe('website accessibility and navigation', () => {
         ]) {
             assert.ok(source.indexOf('href="/sdk/" class="nav-link') < source.indexOf('href="/roadmap/" class="nav-link'));
         }
-        assert.match(app, /const staticRoute = routeRegistry\.routeForPath\(href\);[\s\S]*?location\.hash = '#' \+ staticRoute;/);
+        assert.match(app, /const staticTarget = routeRegistry\.staticTargetForHref\(href, location\.href\);[\s\S]*?location\.hash = routeHash;/);
+    });
+
+    it('resolves canonical page anchors before entering the SPA', () => {
+        const window = {};
+        runInNewContext(routeRegistry, { Map, Object, Set, URL, window });
+        const routes = window.ESPectreRoutes;
+        const target = routes.staticTargetForHref(
+            '/guides/setup/#setup-native-discovery',
+            'https://test.espectre.dev/'
+        );
+
+        assert.equal(target.route, 'guide-setup');
+        assert.equal(target.anchor, 'setup-native-discovery');
+        assert.equal(
+            routes.staticTargetForHref('https://example.com/guides/setup/', 'https://test.espectre.dev/'),
+            null
+        );
+        assert.equal(
+            routes.staticTargetForHref('/guides/setup/?source=external', 'https://test.espectre.dev/'),
+            null
+        );
+        assert.match(app, /pendingRouteAnchor = staticTarget\.anchor/);
+        assert.match(app, /focusRouteAnchor\(routeAtStart, anchorAtStart\)/);
     });
 
     it('normalizes explicit HTML entries and static-page clicks to root SPA hashes', () => {
@@ -267,7 +290,15 @@ describe('website accessibility and navigation', () => {
             location,
             history,
             matchMedia: () => ({ matches: false, addEventListener: () => {} }),
-            ESPectreRoutes: { routeForPath: (href) => href === '/contact/' ? 'contact' : '' },
+            ESPectreRoutes: {
+                staticTargetForHref: (href) => {
+                    if (href === '/contact/') return { route: 'contact', anchor: '' };
+                    if (href === '/roadmap/#roadmap-research-title') {
+                        return { route: 'roadmap', anchor: 'roadmap-research-title' };
+                    }
+                    return null;
+                }
+            },
         };
         runInNewContext(navigation, { document, URL, window });
 
@@ -289,7 +320,26 @@ describe('website accessibility and navigation', () => {
             preventDefault: () => { prevented = true; },
         });
         assert.equal(prevented, true);
-        assert.deepEqual(assignments, ['/#contact']);
+        listeners.get('click')({
+            defaultPrevented: false,
+            button: 0,
+            metaKey: false,
+            ctrlKey: false,
+            shiftKey: false,
+            altKey: false,
+            target: {
+                closest: () => ({
+                    target: '',
+                    getAttribute: () => '/roadmap/#roadmap-research-title',
+                }),
+            },
+            preventDefault: () => {},
+        });
+        assert.deepEqual(assignments, [
+            '/#contact',
+            '/?anchor=roadmap-research-title#roadmap'
+        ]);
+        assert.match(app, /consumeRouteAnchorHandoff\(\);[\s\S]*?consumeDirectHandoff\(\);/);
     });
 
     it('has a responsive navigation control and a live status region', () => {
@@ -314,7 +364,7 @@ describe('website accessibility and navigation', () => {
         assert.match(app, /target\.focus\(\{ preventScroll: true \}\)/);
         assert.match(app, /page\.id = 'main-content'/);
         assert.match(app, /const routeAtStart = route;/);
-        assert.match(app, /if \(route === routeAtStart\) focusRouteContent\(routeAtStart\);/);
+        assert.match(app, /if \(route !== routeAtStart\) return;[\s\S]*?focusRouteContent\(routeAtStart\);/);
         assert.match(styles, /h1\[tabindex="-1"\]:focus \{ outline: none; \}/);
         for (const path of [
             '.github/scripts/build_static_pages.py',
@@ -553,7 +603,7 @@ describe('website UX contracts', () => {
         assert.match(styles, /\.footer-links a,\s*\.footer-links a:visited \{[\s\S]*?display: inline-flex;[\s\S]*?color: var\(--text\);[\s\S]*?text-decoration: none;/);
         assert.match(styles, /\.footer-links a:hover,\s*\.footer-links a:focus-visible \{ color: var\(--accent\); text-decoration: none; \}/);
         assert.match(read('docs/web/content/privacy.html'), /<h2 id="cookie-settings">/);
-        assert.match(read('docs/web/assets/js/analytics.js'), /document\.querySelectorAll\('\.js-cookie-settings'\)[\s\S]*?event\.preventDefault\(\);[\s\S]*?showConsentBanner\(\);/);
+        assert.match(read('docs/web/assets/js/analytics.js'), /document\.addEventListener\('click'[\s\S]*?closest\('\.js-cookie-settings'\)[\s\S]*?event\.preventDefault\(\);[\s\S]*?showConsentBanner\(\);/);
         assert.match(notFound, /class="consent-banner js-consent-banner"/);
         const notFoundScripts = [...notFound.matchAll(/<script\b([^>]*)>/g)]
             .map((match) => match[1]);

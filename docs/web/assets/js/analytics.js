@@ -241,13 +241,6 @@ function initializeConsentControls() {
             disableAnalytics();
         });
     });
-    document.querySelectorAll('.js-cookie-settings').forEach((control) => {
-        control.addEventListener('click', (event) => {
-            event.preventDefault();
-            showConsentBanner();
-        });
-    });
-
     if (!analyticsAllowedHere()) {
         hideConsentBanner();
         return;
@@ -260,6 +253,11 @@ function initializeConsentControls() {
 
 function initializeAutoTracking() {
     document.addEventListener('click', (event) => {
+        if (event.target.closest('.js-cookie-settings')) {
+            event.preventDefault();
+            showConsentBanner();
+            return;
+        }
         const link = event.target.closest('a[href]');
         if (!link) return;
 
