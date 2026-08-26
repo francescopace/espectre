@@ -42,6 +42,8 @@ inline RuntimeCapabilities sensing_runtime_capabilities() {
 
 struct State {
   bool setup_result{true};
+  bool override_config_on_setup{false};
+  RuntimeConfig setup_config{};
   RuntimeSnapshot snapshot{};
   RuntimeDiagnosticsSnapshot diagnostics{};
   RuntimeCapabilities capabilities{sensing_runtime_capabilities()};

@@ -46,6 +46,9 @@ bool EspIdfRuntime::setup() {
   // here instead. RuntimeFrontendController always calls set_listener() before
   // setup(), so listener_ is already the frontend by this point.
   frontend_runtime_shim::state.last_listener = listener_;
+  if (frontend_runtime_shim::state.override_config_on_setup) {
+    config_ = frontend_runtime_shim::state.setup_config;
+  }
   return frontend_runtime_shim::state.setup_result;
 }
 

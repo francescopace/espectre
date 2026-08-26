@@ -20,7 +20,9 @@
 #undef private
 
 #include "nvs.h"
+#include "runtime_detector_store.h"
 #include "runtime_motion_hits_store.h"
+#include "runtime_traffic_mode_store.h"
 
 using namespace espectre;
 
@@ -158,6 +160,34 @@ void test_runtime_motion_hits_runtime_updates_pipeline_and_persists(void) {
   TEST_ASSERT_TRUE(has_saved_value);
   TEST_ASSERT_EQUAL_UINT8(8U, saved_motion_on_hits);
   TEST_ASSERT_EQUAL_UINT8(6U, saved_motion_off_hits);
+}
+
+void test_runtime_setup_loads_all_persisted_runtime_controls(void) {
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_detection_algorithm(DetectionAlgorithm::HIGH_ACCURACY));
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_motion_hits(8U, 6U));
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_csi_traffic_mode(CsiTrafficMode::EXTERNAL));
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(RuntimeTrafficMode::DNS));
+
+  RuntimeConfig config;
+  config.runtime_detector_selection_enabled = true;
+  config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
+  config.motion_on_hits = 4U;
+  config.motion_off_hits = 3U;
+  config.csi_traffic_mode = CsiTrafficMode::INTERNAL;
+  config.traffic_generator_mode = RuntimeTrafficMode::PING;
+  EspIdfRuntime runtime(config);
+
+  TEST_ASSERT_TRUE(runtime.setup());
+  const RuntimeConfig &effective = runtime.effective_config();
+  TEST_ASSERT_TRUE(effective.detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
+  TEST_ASSERT_EQUAL_FLOAT(HIGH_ACCURACY_DEFAULT_THRESHOLD, effective.segmentation_threshold);
+  TEST_ASSERT_EQUAL_UINT8(8U, effective.motion_on_hits);
+  TEST_ASSERT_EQUAL_UINT8(6U, effective.motion_off_hits);
+  TEST_ASSERT_TRUE(effective.csi_traffic_mode == CsiTrafficMode::EXTERNAL);
+  TEST_ASSERT_TRUE(effective.traffic_generator_mode == RuntimeTrafficMode::DNS);
+  TEST_ASSERT_TRUE(runtime.csi_traffic_service_.mode_ == CsiTrafficMode::EXTERNAL);
+  TEST_ASSERT_TRUE(runtime.csi_traffic_service_.traffic_generator_.mode_ == TrafficGeneratorMode::DNS);
+  runtime.shutdown();
 }
 
 void test_runtime_diagnostics_read_current_wifi_association(void) {
@@ -339,6 +369,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_runtime_traffic_updates_roll_back_when_persistence_fails);
   RUN_TEST(test_runtime_detector_adaptation_emits_threshold_changed);
   RUN_TEST(test_runtime_motion_hits_runtime_updates_pipeline_and_persists);
+  RUN_TEST(test_runtime_setup_loads_all_persisted_runtime_controls);
   RUN_TEST(test_runtime_diagnostics_read_current_wifi_association);
   RUN_TEST(test_runtime_channel_change_rearms_csi_and_restarts_calibration);
   RUN_TEST(test_runtime_services_armed_preserves_wifi_ip_and_restarts_capture);

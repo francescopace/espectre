@@ -34,7 +34,6 @@
 #include "ota_service_https.h"
 #include "peer_discovery_service_esp_idf.h"
 #include "mqtt_transport_esp_idf.h"
-#include "runtime_motion_hits_store.h"
 #include "runtime_sensing_kconfig.h"
 #include "standalone_wifi_service.h"
 #include "runtime_log_helpers.h"
@@ -174,17 +173,6 @@ void sync_frontend_wifi_info() {
 espectre::RuntimeConfig make_runtime_config() {
   espectre::RuntimeConfig config = espectre::make_runtime_sensing_config_from_kconfig();
   config.wifi_band_policy = g_wifi_provisioning.config().band_policy;
-  uint8_t saved_motion_on_hits = 0U;
-  uint8_t saved_motion_off_hits = 0U;
-  bool has_saved_motion_hits = false;
-  const esp_err_t err =
-      espectre::load_runtime_motion_hits(&saved_motion_on_hits, &saved_motion_off_hits, &has_saved_motion_hits);
-  if (err != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to load persisted motion hits: %s", esp_err_to_name(err));
-  } else if (has_saved_motion_hits) {
-    config.motion_on_hits = saved_motion_on_hits;
-    config.motion_off_hits = saved_motion_off_hits;
-  }
   return config;
 }
 

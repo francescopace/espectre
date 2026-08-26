@@ -139,6 +139,28 @@ void test_runtime_frontend_controller_setup_propagates_state_and_handles_failure
   TEST_ASSERT_FALSE(failing.is_setup_complete());
 }
 
+void test_runtime_frontend_controller_adopts_backend_effective_config(void) {
+  RuntimeFrontendController controller;
+  RuntimeConfig staged;
+  staged.csi_traffic_mode = CsiTrafficMode::INTERNAL;
+  staged.traffic_generator_mode = RuntimeTrafficMode::PING;
+  controller.set_config(staged);
+
+  frontend_runtime_shim::state.override_config_on_setup = true;
+  frontend_runtime_shim::state.setup_config = staged;
+  frontend_runtime_shim::state.setup_config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
+  frontend_runtime_shim::state.setup_config.traffic_generator_mode = RuntimeTrafficMode::DNS;
+  frontend_runtime_shim::state.setup_config.motion_on_hits = 8U;
+  frontend_runtime_shim::state.setup_config.motion_off_hits = 6U;
+
+  DummyRuntimeListener listener;
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+  TEST_ASSERT_TRUE(controller.config().csi_traffic_mode == CsiTrafficMode::EXTERNAL);
+  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
+  TEST_ASSERT_EQUAL_UINT8(8U, controller.config().motion_on_hits);
+  TEST_ASSERT_EQUAL_UINT8(6U, controller.config().motion_off_hits);
+}
+
 void test_runtime_frontend_controller_loop_shutdown_and_runtime_toggles_forward(void) {
   RuntimeFrontendController controller;
   DummyRuntimeListener listener;
@@ -339,6 +361,7 @@ int process(void) {
   RUN_TEST(test_runtime_frontend_controller_rejects_invalid_config_before_backend_setup);
   RUN_TEST(test_runtime_frontend_controller_keeps_staged_mutations_out_of_live_validation);
   RUN_TEST(test_runtime_frontend_controller_setup_propagates_state_and_handles_failure);
+  RUN_TEST(test_runtime_frontend_controller_adopts_backend_effective_config);
   RUN_TEST(test_runtime_frontend_controller_loop_shutdown_and_runtime_toggles_forward);
   RUN_TEST(test_runtime_frontend_controller_reads_diagnostics_from_backend);
   RUN_TEST(test_runtime_frontend_controller_threshold_runtime_updates_config_and_snapshot);

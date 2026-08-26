@@ -86,7 +86,7 @@ Your firmware owns boot, provisioning, networking policy, OTA, and the product s
 - `IEspectreRuntime` (`runtime/runtime_interface.h`): `setup()`, `loop()`, runtime threshold/detector control, recalibration, and snapshot access.
 - `IRuntimeListener` (`runtime/runtime_events.h`): callbacks for motion-state changes, periodic updates, threshold/detector changes (including Lightweight settled-level recovery), calibration lifecycle, live telemetry, and runtime faults. If you publish a writable threshold control, override `on_threshold_changed()` rather than inferring the live value from telemetry.
 
-`RuntimeFrontendController` wires configuration, detector persistence, and the runtime backend together. The Native and Matter frontends are compact reference integrations for this path.
+`RuntimeFrontendController` wires configuration, runtime-control persistence, and the runtime backend together. After `setup()`, `config()` reflects the backend's effective configuration, including persisted detector, motion-hit, and traffic overrides; direct writes to `config()` after setup only stage the next setup, while live changes use the capability-gated runtime setters. The Native and Matter frontends are compact reference integrations for this path.
 
 ### Core-only
 

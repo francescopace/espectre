@@ -125,6 +125,18 @@ bool EspIdfRuntime::setup() {
     config_.traffic_generator_mode = saved_generator_mode;
   }
 
+  uint8_t saved_motion_on_hits = config_.motion_on_hits;
+  uint8_t saved_motion_off_hits = config_.motion_off_hits;
+  bool has_saved_motion_hits = false;
+  const esp_err_t motion_hits_err =
+      load_runtime_motion_hits(&saved_motion_on_hits, &saved_motion_off_hits, &has_saved_motion_hits);
+  if (motion_hits_err != ESP_OK) {
+    ESP_LOGW(RUNTIME_TAG, "Failed to load persisted motion hits: %s", esp_err_to_name(motion_hits_err));
+  } else if (has_saved_motion_hits) {
+    config_.motion_on_hits = saved_motion_on_hits;
+    config_.motion_off_hits = saved_motion_off_hits;
+  }
+
   if (!configure_detector_()) {
     return false;
   }

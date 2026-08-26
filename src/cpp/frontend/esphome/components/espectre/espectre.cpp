@@ -27,8 +27,6 @@
 #include "espectre_protocol.h"
 #include "firmware_version.h"
 #include "protocol_json.h"
-#include "runtime_motion_hits_store.h"
-#include "runtime_traffic_mode_store.h"
 #include "sdkconfig.h"
 
 #include <esp_netif.h>
@@ -59,35 +57,6 @@ void ESpectreComponent::setup() {
   }
 
   this->runtime_.set_live_telemetry_enabled(this->sensor_publisher_.has_movement_sensor());
-  uint8_t saved_motion_on_hits = 0U;
-  uint8_t saved_motion_off_hits = 0U;
-  bool has_saved_motion_hits = false;
-  const esp_err_t motion_hits_err =
-      espectre::load_runtime_motion_hits(&saved_motion_on_hits, &saved_motion_off_hits, &has_saved_motion_hits);
-  if (motion_hits_err != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to load persisted motion hits: %s", esp_err_to_name(motion_hits_err));
-  } else if (has_saved_motion_hits) {
-    this->runtime_.config().motion_on_hits = saved_motion_on_hits;
-    this->runtime_.config().motion_off_hits = saved_motion_off_hits;
-  }
-  bool has_saved_csi_traffic_mode = false;
-  CsiTrafficMode saved_csi_traffic_mode = this->runtime_.config().csi_traffic_mode;
-  const esp_err_t csi_traffic_err =
-      espectre::load_runtime_csi_traffic_mode(&saved_csi_traffic_mode, &has_saved_csi_traffic_mode);
-  if (csi_traffic_err != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to load persisted CSI traffic mode: %s", esp_err_to_name(csi_traffic_err));
-  } else if (has_saved_csi_traffic_mode) {
-    this->runtime_.config().csi_traffic_mode = saved_csi_traffic_mode;
-  }
-  bool has_saved_generator_mode = false;
-  RuntimeTrafficMode saved_generator_mode = this->runtime_.config().traffic_generator_mode;
-  const esp_err_t generator_err =
-      espectre::load_runtime_traffic_generator_mode(&saved_generator_mode, &has_saved_generator_mode);
-  if (generator_err != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to load persisted traffic generator mode: %s", esp_err_to_name(generator_err));
-  } else if (has_saved_generator_mode) {
-    this->runtime_.config().traffic_generator_mode = saved_generator_mode;
-  }
   if (!this->runtime_.setup(this)) {
     ESP_LOGE(TAG, "ESPectre runtime setup failed");
     this->mark_failed();

@@ -48,7 +48,8 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
 
   listener_ = listener;
   active_config_ = config_;
-  runtime_.reset(new EspIdfRuntime(active_config_));
+  auto *backend = new EspIdfRuntime(active_config_);
+  runtime_.reset(backend);
   runtime_->set_listener(this);
   runtime_->set_services_armed(services_armed_);
   runtime_->set_live_telemetry_enabled(live_telemetry_enabled_);
@@ -59,15 +60,10 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
     return false;
   }
 
+  active_config_ = backend->effective_config();
+  config_ = active_config_;
   snapshot_ = runtime_->get_snapshot();
   capabilities_ = runtime_->get_capabilities();
-  if (active_config_.runtime_profile == RuntimeProfile::SENSING &&
-      active_config_.runtime_detector_selection_enabled) {
-    active_config_.detection_algorithm = parse_detection_algorithm(snapshot_.detector_name);
-    active_config_.segmentation_threshold = snapshot_.threshold;
-    config_.detection_algorithm = active_config_.detection_algorithm;
-    config_.segmentation_threshold = active_config_.segmentation_threshold;
-  }
   setup_complete_ = true;
   apply_deferred_shutdown_();
   return setup_complete_;

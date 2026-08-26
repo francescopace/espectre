@@ -77,12 +77,13 @@ class RuntimeFrontendController : private IRuntimeListener {
    * Mutable access to the staged configuration.
    *
    * Provided so a frontend can adjust individual fields before `setup()`
-   * without rebuilding the whole struct. Writing to it after setup stages the
-   * next setup only; live controls continue to validate against the active
-   * configuration.
+   * without rebuilding the whole struct. After a successful setup it reflects
+   * the backend's effective configuration, including persisted overrides.
+   * Writing to it after setup stages the next setup only; live controls
+   * continue to validate against the active configuration.
    */
   RuntimeConfig &config() { return config_; }
-  /** Read-only view of the staged configuration. */
+  /** Read-only view of the staged or last effective configuration. */
   const RuntimeConfig &config() const { return config_; }
   /**
    * Latest known snapshot, without querying the backend.
