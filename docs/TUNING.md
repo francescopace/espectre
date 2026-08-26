@@ -52,7 +52,7 @@ Start with threshold. If needed, then adjust window size or filters.
 
 ### Threshold
 
-The threshold is selected automatically at startup. Lightweight adapts it from the observed quiet room, and may still lower it after a long quiet stretch if that opening was noisier than the rest of the session. High Accuracy uses the value validated with the exported model. Where a frontend exposes writable threshold control, both remain adjustable for the current session, and those surfaces follow detector-driven drops as well as operator writes. Recalibration recomputes the quiet-room threshold for Lightweight; for High Accuracy, it immediately restores the trained default without collecting a quiet-room window. Native Direct, Native MQTT, and ESPHome expose the threshold, motion-hit debounce, and recalibration control family. Matter and Micro-ESPectre expose no writable sensing controls; Micro uses Lightweight and calibrates it at startup.
+The threshold is selected automatically at startup. Lightweight adapts it from the observed quiet room, and may still lower it after a long quiet stretch if that opening was noisier than the rest of the session. High Accuracy uses the value validated with the exported model. Where a frontend exposes writable threshold control, both remain adjustable for the current session, and those surfaces follow detector-driven drops as well as operator writes. Recalibration recomputes the quiet-room threshold for Lightweight; for High Accuracy, it immediately restores the trained default without collecting a quiet-room window. Native Direct, Native MQTT, ESPHome, and Matter Direct expose the threshold, motion-hit debounce, and recalibration control family. Micro-ESPectre exposes no writable sensing controls; it uses Lightweight and calibrates at startup.
 
 Both detectors expose a `0.0-1.0` probability threshold.
 
@@ -61,7 +61,7 @@ Rules of thumb:
 - too many false positives: raise the threshold
 - missed movement: lower the threshold
 
-Runtime threshold changes are session-only and are recalculated at boot. ESPHome and Native can switch between `lightweight` and `high_accuracy` at runtime and persist the selection. Matter supports either detector as a build-time choice but exposes no runtime detector control; published Matter firmware uses `lightweight`.
+Runtime threshold changes are session-only and are recalculated at boot. ESPHome, Native, and Matter can switch between `lightweight` and `high_accuracy` at runtime and persist the selection. Matter exposes the detector control through Direct HTTP rather than standard Matter clusters; published Matter firmware starts with `lightweight`.
 
 ### Detection Profile
 
@@ -75,7 +75,7 @@ espectre:
 | **Lightweight Detection** (`lightweight`) | Lower detector CPU and working-memory cost, with lower accuracy and robustness than High Accuracy | About 10 seconds of clean, ready quiet-room coverage after temporal warmup; longer in wall time when occupancy is insufficient |
 | **High-Accuracy Detection** (`high_accuracy`) | Higher accuracy and generalization, with additional feature state and neural-inference work | No threshold calibration; waits for CSI readiness and feature-window warmup |
 
-Choose `lightweight` when the device must reserve resources for other firmware features or when its compute and memory budget is tight. Choose `high_accuracy` when detection quality is the priority and the additional runtime cost fits the product budget. On ESPHome and Native you can compare them at runtime; on Matter the choice is made at build time. Current measurements and known limits are documented in [ALGORITHMS.md](ALGORITHMS.md#known-limits) and the [performance report](performance/README.md).
+Choose `lightweight` when the device must reserve resources for other firmware features or when its compute and memory budget is tight. Choose `high_accuracy` when detection quality is the priority and the additional runtime cost fits the product budget. On ESPHome, Native, and Matter, you can compare them at runtime through the controls each frontend advertises. Current measurements and known limits are documented in [ALGORITHMS.md](ALGORITHMS.md#known-limits) and the [performance report](performance/README.md).
 
 ### Window Size
 
@@ -286,7 +286,7 @@ If your AP changes channel often:
 
 `lightweight` can recompute its threshold without changing firmware. For `high_accuracy`, the same control restores the trained default immediately and does not start a quiet-room calibration window.
 
-Use the recalibration control when your frontend exposes one. ESPHome provides a calibration entity, and Native exposes the shared control through Direct, MQTT, and Home Assistant Discovery. Matter and Micro-ESPectre currently expose no writable sensing controls; Micro recalibrates Lightweight at startup.
+Use the recalibration control when your frontend exposes one. ESPHome provides a calibration entity, Native exposes the shared control through Direct, MQTT, and Home Assistant Discovery, and Matter exposes it through Direct. Micro-ESPectre exposes no writable sensing controls and recalibrates Lightweight at startup.
 
 When recalibrating:
 
@@ -308,7 +308,7 @@ Whatever frontend you use, keep an eye on:
 
 Compare firmware variants with the production compiler optimization for each frontend and enable only debug-level ESPectre telemetry. A compiler `DEBUG` build changes the CPU and memory profile being measured. Record the binary size and free application-partition space from the build summary, then monitor the device for several minutes after startup has settled.
 
-For the repository hardware benchmark, connect one supported board and run `python tools/benchmark_firmware.py --chip <chip>`. It samples Native Lightweight and High Accuracy, Micro-ESPectre Lightweight, ESPHome Lightweight and High Accuracy, and Matter's build-time default. This is representative benchmark coverage, not a capability matrix: ESPHome, Native, Matter, and Micro-ESPectre support both profiles; ESPHome and Native switch at runtime, Matter selects at build time, and Micro-ESPectre selects at deploy time. See [tools/README.md](../tools/README.md#firmware-benchmark) for prerequisites and report behavior.
+For the repository hardware benchmark, connect one supported board and run `python tools/benchmark_firmware.py --chip <chip>`. It samples Native Lightweight and High Accuracy, Micro-ESPectre Lightweight, ESPHome Lightweight and High Accuracy, and a Matter build-and-flash smoke case with its initial default detector. This is representative benchmark coverage, not a capability matrix: ESPHome, Native, and Matter support persisted runtime switching between both profiles, while Micro-ESPectre deploys Lightweight only. The Matter smoke case does not commission the device or exercise runtime switching. See [tools/README.md](../tools/README.md#firmware-benchmark) for prerequisites and report behavior.
 
 The shared ESP-IDF runtime emits a `[telemetry]` line approximately every 10 seconds at `DEBUG` level. Check that:
 

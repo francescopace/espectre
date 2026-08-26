@@ -64,7 +64,7 @@ Rejected. Fixed-band deployments need deterministic policy, and integrators must
 
 ## Related
 
-- [`2026-07-19-preserve-per-record-phy-provenance-in-streamer-datasets.md`](2026-07-19-preserve-per-record-phy-provenance-in-streamer-datasets.md)
+- [`2026-07-03-unify-raw-csi-collection-over-http.md`](2026-07-03-unify-raw-csi-collection-over-http.md)
 - [`2026-07-25-select-the-classic-band-from-channel-coherence.md`](2026-07-25-select-the-classic-band-from-channel-coherence.md)
 - [`../ALGORITHMS.md`](../ALGORITHMS.md)
 - [`../ARCHITECTURE.md`](../ARCHITECTURE.md)

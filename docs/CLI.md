@@ -23,6 +23,8 @@ Run the CLI from the repository root.
 | `micro` | Flash, deploy, run, and verify the MicroPython workflow |
 | `monitor` | Attach to serial logs with auto-reconnect support |
 | `devices` | Discover advertised ESPectre devices on the local network |
+| `provision` | Provision Native or ESPHome Wi-Fi through Improv Serial |
+| `direct` | Send one Direct HTTP protocol request to a device |
 | `collect` | Run live CSI inspection and dataset collection flows |
 | `doctor` | Validate the local ESP-IDF environment used by the wrapper |
 | `mqtt` | Open the interactive MQTT shell |
@@ -66,7 +68,7 @@ For `build`, cleanup flags are:
 
 ### `native` and `matter`
 
-The three ESP-IDF namespaces expose `build` and `flash`:
+The Native and Matter namespaces expose `build` and `flash`:
 
 | Command | Purpose |
 |---------|---------|
@@ -119,8 +121,8 @@ The `micro` namespace owns MicroPython device lifecycle commands:
 
 | Command | Purpose |
 |---------|---------|
-| `./espectre micro build --chip <esp32|c3|c5|c6|s3>` | Build the lean Micro-ESPectre firmware for the selected chip |
-| `./espectre micro flash --chip <esp32|c3|c5|c6|s3> --erase` | Build and flash the optimized project firmware |
+| `./espectre micro build --chip <esp32|c3|s2|s3|c5|c6>` | Build the lean Micro-ESPectre firmware for the selected chip |
+| `./espectre micro flash --chip <esp32|c3|s2|s3|c5|c6> --erase` | Build and flash the optimized project firmware |
 | `./espectre micro flash --erase` | Auto-detect the chip, then build and flash its project firmware |
 | `./espectre micro deploy` | Compile and upload the complete `.mpy -O3` application manifest |
 | `./espectre micro run` | Start the device application |
@@ -132,7 +134,7 @@ Notes:
 - `micro flash` also supports `--chip` and `--firmware`. Every supported chip builds the optimized project firmware by default; `--firmware` remains available for an explicitly supplied image.
 - `micro build` and the implicit build performed by `micro flash` accept the shared `--backend auto|local|docker` and `--pull ask|missing|never` flags. `auto` follows the same local-first policy as Native and Matter.
 - `micro build` and the default flash path pin one MicroPython revision for every supported chip. The images use one lean project board profile with native ESP-IDF ICMP traffic generation and a bounded Direct HTTP/mDNS service, but do not embed the Micro-ESPectre application. MQTT and DNS-over-TCP traffic generation are not built. The deployed application requires those native modules and does not provide Python transport fallbacks, so flash the matching project firmware before deployment. The shared profile prioritizes the Wi-Fi CSI path through performance optimization, balanced queues, a 1 kHz FreeRTOS tick, disabled power management, and Wi-Fi, PHY, and lwIP IRAM placement. Classic ESP32 alone uses reduced Wi-Fi queues and omits lwIP IRAM placement to preserve heap. RX AMPDU remains disabled for individual HT20 CSI delivery. Building requires an ESP-IDF 5.5 host toolchain; cached source and build trees live under `.firmware/`.
-- Firmware is normally flashed once. Application changes use `micro deploy`, which compiles the complete device manifest with MPY ABI 6.3 and optimization level `-O3`, uploads it to the filesystem, and removes superseded `.py` files afterward.
+- Firmware is normally flashed once. Application changes use `micro deploy`, which compiles the complete device manifest with MPY ABI 6.3 and optimization level `-O3`, uploads it into a staging directory, and atomically activates the complete manifest while retaining rollback protection for interrupted deployments.
 - `micro deploy --config <path>` compiles an alternate local override as device `config_local.mpy`; the firmware benchmark uses this to keep laboratory settings isolated from the developer's normal config.
 
 ### `monitor`
@@ -162,7 +164,7 @@ Reset on open:
 
 ### `devices`
 
-`devices` performs a fresh host-side browse for `_espectre._tcp.local.` and lists Native, ESPHome, and Matter firmware through one first-party record contract. It does not inspect `_esphomelib`, `_matterc`, or other upstream service types. The normalized result includes the frontend, device identity, display name, chip, IP address, and Direct HTTP endpoint. [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) defines the record-level contract.
+`devices` performs a fresh host-side browse for `_espectre._tcp.local.` and lists Native, ESPHome, Matter, and Micro-ESPectre firmware through one first-party record contract. It does not inspect `_esphomelib`, `_matterc`, or other upstream service types. The normalized result includes the frontend, device identity, display name, chip, IP address, and Direct HTTP endpoint. [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) defines the record-level contract.
 
 | Flag | Purpose |
 |------|---------|
@@ -218,10 +220,10 @@ Common flags:
 | Flag | Purpose |
 |------|---------|
 | `--target` | Device IP, hostname, full Direct endpoint, or device ID; omit it to discover a raw-capable device |
-| `--frontend` | Optional `native`, `esphome`, `matter`, or `micro` discovery filter |
+| `--frontend` | Optional `native`, `esphome`, or `matter` discovery filter |
 | `--source-ip` | Optional local IPv4 source for hosts with multiple interfaces |
 | `--duration` | Stop after N seconds |
-| `--label` | Dataset label for saved collections; omit for live inspection without saving |
+| `--label` | Dataset label for saved collections; use 1-64 ASCII letters, digits, underscores, or hyphens, starting with a letter or digit; omit for live inspection without saving |
 | `--start-delay` | Wait N seconds before starting collection; requires `--duration` |
 | `--pps` | Intentional external UDP generator rate and nominal dataset rate |
 | `--detector` | Detector used by the ready gate: `lightweight` or `high_accuracy`; a comma-separated list is available only for live comparison |

@@ -236,7 +236,7 @@ Examples live in:
 
 ![ESPectre Home Assistant dashboard](../../../../docs/web/assets/images/guides/home-assistant-dashboard.png)
 
-*Home Assistant dashboard with motion state, movement score, movement-versus-threshold history, detection profile, threshold, calibration, and diagnostics. Native and Micro MQTT Discovery reuse these cards after replacing the `espectre_` prefix.*
+*Home Assistant dashboard with motion state, movement score, movement-versus-threshold history, detection profile, threshold, calibration, and diagnostics. Native MQTT Discovery reuses these cards after replacing the `espectre_` prefix.*
 
 To import a dashboard:
 
@@ -246,7 +246,7 @@ To import a dashboard:
 4. Replace the default content with the YAML from the example file
 5. Save the dashboard
 
-If you changed the device name from `espectre`, update entity IDs in the YAML. If you enabled `name_add_mac_suffix: true`, include the MAC suffix in the entity names as well. Home Assistant generates Native and Micro MQTT entity IDs when it first registers them, so inspect the exact IDs under the device before adapting this dashboard. A default Native device can produce an ID such as `sensor.espectre_c3_223333_movement_score`, and an existing registry collision can add a suffix such as `_2`.
+If you changed the device name from `espectre`, update entity IDs in the YAML. If you enabled `name_add_mac_suffix: true`, include the MAC suffix in the entity names as well. Home Assistant generates Native MQTT entity IDs when it first registers them, so inspect the exact IDs under the device before adapting this dashboard. A default Native device can produce an ID such as `sensor.espectre_c3_223333_movement_score`, and an existing registry collision can add a suffix such as `_2`.
 
 ## Traffic Generator and Runtime Notes
 
@@ -268,7 +268,7 @@ Available modes:
 | Mode | Protocol | Notes |
 |------|----------|-------|
 | `ping` | ICMP | Default and usually the safest choice |
-| `dns` | UDP | Lower-overhead alternative when the router responds consistently |
+| `dns` | TCP | Persistent, non-blocking root queries to gateway port `53`; use only when the router accepts DNS over TCP |
 
 ### External Traffic Mode
 

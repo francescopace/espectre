@@ -71,6 +71,6 @@ Trade-offs:
 
 - [`2026-03-08-use-host-side-validation-gates-for-detector-promotion.md`](2026-03-08-use-host-side-validation-gates-for-detector-promotion.md)
 - [`2026-07-26-recover-the-startup-threshold-once-a-session-settles.md`](2026-07-26-recover-the-startup-threshold-once-a-session-settles.md)
-- [`2026-08-13-use-aggregated-turbulence-iqr-for-classic.md`](2026-08-13-use-aggregated-turbulence-iqr-for-classic.md)
+- [`2026-08-13-use-aggregated-turbulence-iqr-for-lightweight.md`](2026-08-13-use-aggregated-turbulence-iqr-for-lightweight.md)
 - [`../ALGORITHMS.md`](../ALGORITHMS.md)
 - git commits: `dc0658ed`, `5b871159`, `dbbe21dd`, `b2e0de00`, `8641425d`, `acec4a2c`, `a593edb1`

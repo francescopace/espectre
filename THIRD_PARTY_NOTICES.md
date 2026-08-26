@@ -34,7 +34,6 @@ The production site stages only pinned direct browser assets. `.github/scripts/s
 | Package | Version | License |
 | --- | --- | --- |
 | esp-web-tools | 10.4.0 | Apache-2.0 |
-| mqtt.js | 5.3.0 | MIT |
 | qrcodejs | 1.0.0 | MIT |
 
 The npm lockfile also records transitive build and browser packages under Apache-2.0, BSD-3-Clause, ISC, MIT, 0BSD, and zlib terms. Production deployment uses the staged bundles and does not publish `node_modules`.

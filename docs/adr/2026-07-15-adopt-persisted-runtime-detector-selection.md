@@ -2,11 +2,11 @@
 
 - Status: Accepted
 - Date: 2026-07-15
-- Updated: 2026-08-12
+- Updated: 2026-08-26
 
 ## Context
 
-ESPectre supports Lightweight and High Accuracy, but its frontends have different control contracts. ESPHome and Native expose writable runtime controls, while Matter is intentionally read-only. A frontend-local implementation would duplicate validation, persistence, threshold reset, and calibration behavior.
+ESPectre supports Lightweight and High Accuracy, but its frontends expose different integration surfaces. ESPHome has entities and Direct HTTP, Native has Direct HTTP and optional MQTT, and Matter has standard occupancy clusters plus Direct HTTP for ESPectre-specific tuning. A frontend-local implementation would duplicate validation, persistence, threshold reset, and calibration behavior.
 
 ## Decision
 
@@ -14,9 +14,9 @@ Keep detector selection in the shared runtime and expose it through explicit fro
 
 | Frontend | Detector capability | Default and persistence |
 | --- | --- | --- |
-| ESPHome | Writable `lightweight` or `high_accuracy` | Persist the selected value in the shared ESP-IDF store |
-| Native | Writable `lightweight` or `high_accuracy` | Persist the selected value in the shared ESP-IDF store |
-| Matter | Read-only | Use Lightweight as the frontend-owned fixed default |
+| ESPHome | Writable through ESPHome entities or Direct HTTP | Start from the configured value, then persist runtime selection in the shared ESP-IDF store |
+| Native | Writable through Direct HTTP or MQTT | Start from the configured value, then persist runtime selection in the shared ESP-IDF store |
+| Matter | Writable through Direct HTTP; not represented in standard Matter occupancy clusters | Published firmware starts with Lightweight, then persists runtime selection in the shared ESP-IDF store |
 
 On a supported runtime switch:
 
@@ -26,14 +26,15 @@ On a supported runtime switch:
 - cancel active Lightweight calibration when switching to High Accuracy; and
 - emit the shared runtime and protocol state change without adding work to the CSI hot path.
 
-Matter intentionally exposes no persisted writable selection. Its original ML default changed to Classic before the v3 release candidate; those profiles were later renamed High Accuracy and Lightweight. The read-only occupancy frontend therefore follows the platform's Lightweight default.
+Matter keeps detector selection out of its standard occupancy clusters because those clusters do not define an equivalent control. Its shared Direct HTTP bridge advertises `set_detector` when the runtime capability is enabled and persists the accepted value through the same store as the other ESP-IDF frontends.
 
 ## Decision History
 
 | Date | Direction | Resolution |
 | --- | --- | --- |
 | 2026-07-15 | Add shared persisted selection; use ML as Matter's fixed default | Persisted selection retained for writable frontends |
-| 2026-07-28 | Change Matter's fixed default from ML to Classic | Amended the capability matrix without superseding shared persisted selection |
+| 2026-07-28 | Change Matter's fixed default from ML to Classic | Amended the initial frontend default; the profiles were later renamed High Accuracy and Lightweight |
+| 2026-08-26 | Enable persisted Matter detector selection through Direct HTTP | Accepted without adding a non-standard Matter cluster |
 
 ## Alternatives Considered
 
@@ -45,20 +46,20 @@ Rejected. Deployed comparisons would continue to require rebuilding or reflashin
 
 Rejected. It would duplicate lifecycle and validation semantics.
 
-### Expose the same writable control everywhere
+### Add detector selection to the Matter occupancy surface
 
-Rejected. Matter's surface is read-only.
+Rejected. Standard occupancy clusters do not define this ESPectre-specific control. Direct HTTP provides it without inventing a non-standard Matter data model.
 
 ## Consequences
 
-- ESPHome and Native can switch detectors without reflashing.
+- ESPHome, Native, and Matter can switch detectors without reflashing through their advertised control surfaces.
 - Persistence, threshold reset, and calibration remain aligned in the shared runtime.
 - Capability differences are explicit instead of appearing as frontend drift.
-- Choosing High Accuracy on Matter still requires a firmware-level product change.
+- Matter controllers continue to see the standard occupancy surface, while Direct clients can select the detector independently.
 
 ## Related
 
 - [`2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md`](2026-06-03-adopt-the-core-runtime-frontend-firmware-split.md)
-- [`2026-07-02-use-a-shared-espectre-protocol-across-esp-idf-frontends.md`](2026-07-02-use-a-shared-espectre-protocol-across-esp-idf-frontends.md)
+- [`2026-07-02-use-one-message-model-and-command-engine-across-transports.md`](2026-07-02-use-one-message-model-and-command-engine-across-transports.md)
 - [`2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md`](2026-07-08-promote-classic-detector-and-retire-legacy-baselines.md)
 - git commit: `52a6f350`

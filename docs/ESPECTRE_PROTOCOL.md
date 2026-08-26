@@ -129,7 +129,7 @@ The C++ definitions live in `src/cpp/runtime/espectre_protocol.cpp` and `src/cpp
 
 ### Direct HTTP transport
 
-This section defines the common local transport used by the C++ frontends. Native owns the complete local profile; ESPHome and Matter use the shared bridge and advertise a filtered command intersection. The durable direction is recorded in `docs/adr/2026-08-25-replace-local-direct-websocket-with-http.md` and `docs/adr/2026-08-24-use-one-command-engine-across-frontends.md`.
+This section defines the common local transport used by the C++ frontends. Native owns the complete local profile; ESPHome and Matter use the shared bridge and advertise a filtered command intersection. The durable direction is recorded in `docs/adr/2026-08-17-adopt-improv-serial-and-direct-http-for-local-control.md` and `docs/adr/2026-07-02-use-one-message-model-and-command-engine-across-transports.md`.
 
 Direct exposes `POST /espectre/v1/request` with `application/json`, `GET /espectre/v1/events` with `text/event-stream`, and, on Native, ESPHome, and Matter, `GET /espectre/v1/csi` with `application/octet-stream`. Requests are limited to 4,096 bytes, and correlated JSON results and SSE event payloads are limited to 8,192 bytes. The server dispatches commands only from the frontend owner task, uses fixed queues and rate limits, and reports malformed JSON framing, unsupported media types, disallowed Origins, oversize input, saturation, and internal failures through an appropriate HTTP status. A syntactically valid JSON object reaches the canonical command validator, so unsupported versions, invalid identifiers, unknown parameters, and command rejection return the same correlated result object used on MQTT. Micro-ESPectre advertises only `capabilities`, `info`, `status`, `config`, and `diagnostics`, publishes only the `telemetry` event family, exposes the `runtime`, `device`, and `wifi` configuration sections, and accepts no mutations.
 
@@ -548,7 +548,7 @@ Update CSI traffic ownership on frontends that advertise traffic control:
 }
 ```
 
-Accepted values are `internal` and `external`. Native, ESPHome, and Matter persist the accepted value across reboot. Micro-ESPectre keeps the selection session-only. Runtime requests using removed `pacing` or `disabled` values receive `invalid_params`; persisted legacy values migrate once to `internal`. On ESP-IDF sensing frontends, `external` opens the UDP listener on port `5555`, joins multicast group `239.255.0.1` unless `csi_traffic_multicast_group` is empty, and accepts only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`) addressed to the device or configured group. A period payload, truncated or malformed UTF-8, and any payload with additional bytes are rejected fail-closed.
+Accepted values are `internal` and `external`. Native, ESPHome, and Matter persist the accepted value across reboot. Micro-ESPectre advertises no traffic-control mutation; its deployment configuration selects native ICMP traffic or external traffic for the current boot. Runtime requests using removed `pacing` or `disabled` values receive `invalid_params`; persisted legacy values migrate once to `internal`. On ESP-IDF sensing frontends, `external` opens the UDP listener on port `5555`, joins multicast group `239.255.0.1` unless `csi_traffic_multicast_group` is empty, and accepts only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`) addressed to the device or configured group. A period payload, truncated or malformed UTF-8, and any payload with additional bytes are rejected fail-closed.
 
 Update the internal traffic generator type on frontends that advertise traffic control:
 
@@ -631,7 +631,7 @@ Every accepted or rejected MQTT request produces exactly one non-retained `comma
 
 ## Deployment Profiles
 
-ESPectre Protocol can be carried by multiple deployment profiles. In the local Native path, [Configure](https://espectre.dev/configure) hands a newly flashed device to standard Improv Serial for initial Wi-Fi provisioning, then uses Direct HTTP for configuration and recovery. [Monitor](https://espectre.dev/monitor) uses Direct HTTP for broker-free local sensing. Direct is a trusted-LAN transport; browser support depends on the browser's mixed-content and local-network access policy. MQTT remains available to device integrations, Home Assistant, and the host CLI, but is not a browser Monitor transport.
+ESPectre Protocol can be carried by multiple deployment profiles. In the local Native path, [Configure](https://espectre.dev/tools/configure/) hands a newly flashed device to standard Improv Serial for initial Wi-Fi provisioning, then uses Direct HTTP for configuration and recovery. [Monitor](https://espectre.dev/tools/monitor/) uses Direct HTTP for broker-free local sensing. Direct is a trusted-LAN transport; browser support depends on the browser's mixed-content and local-network access policy. MQTT remains available to device integrations, Home Assistant, and the host CLI, but is not a browser Monitor transport.
 
 Web orchestration profiles add identity, tenancy, device claim, state mirrors, history, alerts, and OTA around the same protocol. Those system-level concerns belong to [ARCHITECTURE.md](ARCHITECTURE.md), not to this message schema.
 

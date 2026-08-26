@@ -157,7 +157,7 @@ Micro-ESPectre uses MicroPython-friendly rate and performance samplers to cache 
 
 `runtime_load` measures wall time spent inside the ESPectre runtime loop, not whole-system CPU utilization. Wi-Fi callbacks only normalize and enqueue CSI; detector processing, inference, state transitions, and frontend callback delivery run in the owning loop task. MQTT, Direct HTTP, and OTA stacks may still perform transport work on private tasks, but their application events are drained by the frontend loop. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. For High Accuracy, it covers ML feature extraction, inference, and state update.
 
-The C++ field names and units are part of the additive Direct diagnostics contract in [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#direct-http-v1). Raw diagnostics separately expose `raw_drop_total` and HTTP send backpressure.
+The C++ field names and units are part of the additive Direct diagnostics contract in [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#direct-http-transport). Raw diagnostics separately expose `raw_drop_total` and HTTP send backpressure.
 
 ## ESPectre Protocol In The Architecture
 

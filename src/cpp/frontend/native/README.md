@@ -6,11 +6,11 @@ Native is the standalone ESP-IDF firmware for browser-based local setup, sensing
 
 The normal browser workflow is:
 
-1. Open [Flash](https://espectre.dev/flash) in a supported Chromium browser and install the Native image for the detected chip.
+1. Open [Flash](https://espectre.dev/tools/flash/) in a supported Chromium browser and install the Native image for the detected chip.
 2. Complete the standard Improv Serial prompt to provision Wi-Fi over USB.
 3. Open Configure with the returned device URL, or enter the private IP, device name, full 16-character device ID, or last 6 ID characters.
 4. Use Direct HTTP to inspect status, reconcile or pin the associated BSSID, edit the device label, and add optional MQTT settings.
-5. Open Monitor and select Direct HTTP for broker-free sensing, or MQTT for Home Assistant, automation, remote brokers, and multiple devices.
+5. Open Monitor for broker-free sensing over Direct HTTP. Use MQTT for Home Assistant, automation, remote brokers, and other broker-based clients.
 
 Each `release`, `preview`, and `develop` channel publishes a full-flash image and an application-only OTA image for ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6. Matter does not publish an ESP32-S2 image because its supported commissioning flow requires a Bluetooth-capable target.
 
@@ -84,7 +84,7 @@ Automatic discovery requires working local multicast, a host resolver that sends
 
 MQTT is disabled until configured. Wi-Fi alone is sufficient for Native to start Direct HTTP and sense. Adding, losing, slowing, or clearing MQTT does not disable Direct mode.
 
-When configured, MQTT runs concurrently with Direct HTTP and provides the canonical ESPectre MQTT topic surface, Home Assistant MQTT Discovery, retained availability, and integration with broker-based clients. Both transports invoke the same command engine; a query answers only its requester, while a mutation fans out the corresponding authoritative state event. Their outbound queues remain separate so broker backpressure cannot delay Direct sensing. Monitor connects to the broker only through `wss://`, so the broker must present a certificate trusted by the browser; device-to-broker MQTT TCP configuration is unchanged.
+When configured, MQTT runs concurrently with Direct HTTP and provides the canonical ESPectre MQTT topic surface, Home Assistant MQTT Discovery, retained availability, and integration with broker-based clients. Both transports invoke the same command engine; a query answers only its requester, while a mutation fans out the corresponding authoritative state event. Their outbound queues remain separate so broker backpressure cannot delay Direct sensing. The browser Monitor uses Direct HTTP and does not connect to MQTT; device-to-broker MQTT TCP configuration is unchanged.
 
 The Native `diagnostics` request returns uptime, current, minimum, and largest-block heap, CPU frequency, frontend-task stack high-water, bounded loop-load and detector-timing windows, and cached traffic, CSI, Wi-Fi, Direct, and MQTT diagnostics. Transport diagnostics include fixed client, queue, and MQTT outbox budgets alongside current occupancy and cumulative drops, send failures, and slow-client disconnects. Performance aggregation is unconditional production runtime state; it does not require a build option or periodic debug logger.
 
@@ -144,9 +144,9 @@ Use the private IPv4 address returned by Improv Serial or shown in the router's 
 
 Reflash the full factory image over USB when OTA cannot complete. Downgrades are not a general compatibility promise: use an older factory image only when that release's migration notes explicitly allow it, and erase flash when its persisted configuration schema is incompatible. A full reflash and Improv Serial provisioning do not depend on MQTT, a remembered endpoint, or the original browser profile.
 
-### MQTT data does not appear in Monitor
+### MQTT clients do not receive data
 
-Confirm that the broker hostname resolves from both the ESP32 and browser, that the credentials are valid, and that the broker exposes MQTT over WebSockets. Direct Monitor should remain operational while broker issues are diagnosed.
+Confirm that the broker hostname resolves from the ESP32, that the credentials are valid, and that the intended broker client subscribes to the canonical topics. The browser Monitor uses Direct HTTP and should remain operational while broker issues are diagnosed.
 
 ## Implementation Map
 

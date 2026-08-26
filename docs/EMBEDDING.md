@@ -121,12 +121,12 @@ After each `update_state()`, re-read `get_threshold()`: Lightweight can lower it
 | `runtime/firmware_version.h` | The application version reported on the wire |
 | `core/detector_types.h`, `core/csi_types.h`, `core/filter_config.h`, `core/detector_limits.h` | Stable value types, dimensions, defaults, and ranges shared by both facades |
 | **Core-only extension** | **Headers below are reached only through `espectre_core_sdk.h`** |
-| `core/lightweight_detector.h`, `core/high_accuracy_detector.h`, `core/filtered_turbulence_ring.h` | The core-only detector path and its shared filtered-sample storage |
+| `core/lightweight_detector.h`, `core/high_accuracy_detector.h` | The supported core-only detector classes |
 | `core/base_detector.h` | The shared detector lifecycle both detectors inherit |
 | `core/csi_format.h` | CSI layout and the subcarrier band the detectors measure on |
-| `core/detector_limits.h`, `core/filters.h`, `core/utils.h` | Detector limits, filter state, and numeric helpers used by the public detector definitions |
-| `core/csi_features.h`, `core/ml_feature_trackers.h`, `core/l1_delta_tracker.h` | Feature extraction and tracker types embedded in the public detector definitions |
-| `core/threshold.h` | Detector threshold validation and startup calibrator used by the core-only implementation |
+| `core/detector_limits.h` | Detector dimensions and limits used by the supported classes |
+
+Headers such as `core/filtered_turbulence_ring.h`, `core/filters.h`, `core/utils.h`, `core/csi_features.h`, `core/ml_feature_trackers.h`, `core/l1_delta_tracker.h`, and `core/threshold.h` ship because the detector definitions depend on them. They are implementation dependencies rather than independent extension points, do not appear in the generated API reference, and may change without a compatibility guarantee.
 
 ## Runtime contract
 
@@ -138,6 +138,7 @@ The control surface is single-owner. Internal bounded mailboxes protect callback
 - Every `IRuntimeListener` callback is delivered on the caller's task: from `loop()` for sensing events, or inline on the task that invoked a control method. Work raised in the Wi-Fi CSI callback is deferred through an internal mailbox first, so no listener callback runs in interrupt or Wi-Fi driver context.
 - Keep callbacks bounded and non-blocking. A slow callback delays the next `loop()` iteration; sufficiently long work can fill the bounded CSI mailbox and drop incoming frames. Queue network publication, NVS writes, and other potentially blocking work for a separate task.
 - Call `set_*_runtime()` only from the owner task. The shipped MQTT, Direct HTTP, and OTA adapters queue stack events and deliver application callbacks from the frontend loop, so Native follows this rule without external locks.
+- Raw CSI packet callbacks are the deliberate exception: they run synchronously in the Wi-Fi CSI capture context. Keep them bounded, non-blocking, and allocation-free, and copy accepted samples into a preallocated bounded queue when another task must process them. Returning false reports a caller-owned drop or backpressure event; it does not stop collection.
 
 ### Lifecycle
 

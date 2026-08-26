@@ -42,7 +42,7 @@ WIFI_PASSWORD = "YourWiFiPassword"
 # WIFI_BSSID = "AA:BB:CC:DD:EE:FF"  # Optional AP lock
 ```
 
-The firmware image freezes only MicroPython's upstream boot and filesystem helpers. The complete ESPectre application is compiled to optimized `.mpy -O3` bytecode and stored on the filesystem, so research changes require only `micro deploy`, not a firmware rebuild and flash. The device and `mpy-cross` use MPY ABI 6.3.
+The firmware image freezes only MicroPython's upstream boot and filesystem helpers. The complete ESPectre application is compiled to optimized `.mpy -O3` bytecode and stored on the filesystem, so research changes require only `micro deploy`, not a firmware rebuild and flash. Deployment uploads the complete manifest to a staging directory and atomically activates it, restoring the previous directory after an interrupted swap. The device and `mpy-cross` use MPY ABI 6.3.
 
 The native firmware components are the ICMP generator and the Direct HTTP/mDNS service. Bluetooth, ESP-NOW, asyncio, Ethernet, unused peripheral bindings, and unused generic Python modules remain disabled.
 
@@ -89,7 +89,7 @@ Only one SSE client is retained to bound sockets and heap. Query snapshots are g
 
 | Command | Purpose |
 | --- | --- |
-| `./espectre micro build --chip <esp32|c3|c5|c6|s3>` | Build the lean project firmware |
+| `./espectre micro build --chip <esp32|c3|s2|s3|c5|c6>` | Build the lean project firmware |
 | `./espectre micro flash --chip <chip> --erase` | Build and flash the project image |
 | `./espectre micro deploy` | Compile and upload the complete `.mpy -O3` manifest |
 | `./espectre micro run` | Start the device application |

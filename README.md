@@ -15,17 +15,17 @@ An ESP32 associated with a Wi-Fi network receives packets and reads how the radi
 
 If you want the fastest path, use the browser flasher:
 
-1. Open [espectre.dev/flash](https://espectre.dev/flash/) with a Chromium-based browser
+1. Open [espectre.dev/tools/flash](https://espectre.dev/tools/flash/) with a Chromium-based browser
 2. Pick the Native, ESPHome, or Matter firmware and ESP32 target
 3. Flash the board
 4. Complete Improv Serial Wi-Fi provisioning for Native or ESPHome, or Matter commissioning for Matter
 
 The browser tools share one site:
 
-- [Configure](https://espectre.dev/configure) optionally pins a Wi-Fi BSSID, sets the Native device name, and adds MQTT after Improv Serial provisioning
-- [Monitor](https://espectre.dev/monitor) watches motion, tunes detection, and inspects diagnostics
-- [Raw CSI](https://espectre.dev/raw-csi) inspects raw CSI frames in the browser
-- [Run with the Spectre](https://espectre.dev/game/) and [Theremin](https://espectre.dev/theremin/) provide interactive sensing demos
+- [Configure](https://espectre.dev/tools/configure/) optionally pins a Wi-Fi BSSID, sets the Native device name, and adds MQTT after Improv Serial provisioning
+- [Monitor](https://espectre.dev/tools/monitor/) watches motion, tunes detection, and inspects diagnostics
+- [Raw CSI](https://espectre.dev/tools/raw-csi/) inspects raw CSI frames in the browser
+- [Run with the Spectre](https://espectre.dev/tools/game/) and [Theremin](https://espectre.dev/tools/theremin/) provide interactive sensing demos
 
 GitHub Releases provide OTA payloads for ESPHome and Native. ESPHome updates can be compiled through ESPHome Device Builder or installed from a downloaded OTA image with the ESPectre CLI.
 

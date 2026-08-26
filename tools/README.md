@@ -112,9 +112,9 @@ Do not edit `docs/performance/README.md` manually. `--check-current` is a lightw
 3. Micro-ESPectre Lightweight
 4. ESPHome Lightweight
 5. ESPHome High Accuracy by runtime switching of the same ESPHome firmware
-6. Matter with its build-time default detector
+6. Matter build-and-flash smoke with its initial default detector
 
-This matrix is not a capability table. ESPHome, Native, and Matter support Lightweight and High Accuracy; ESPHome and Native can switch at runtime, and Matter selects the detector at build time. Micro-ESPectre deploys Lightweight only.
+This matrix is not a capability table. ESPHome, Native, and Matter support persisted runtime switching between Lightweight and High Accuracy. Micro-ESPectre deploys Lightweight only, and the Matter smoke case does not commission the device or exercise runtime switching.
 
 The benchmark reads laboratory settings from `tools/benchmark_firmware.local.env`, with exported `ESPECTRE_BENCHMARK_*` variables taking precedence. Native compiles with empty Wi-Fi, device-label, and MQTT defaults, erases NVS, provisions the SSID and password at runtime through standard Improv Serial, and applies an optional BSSID or channel pin through Direct after the first connection. Native and ESPHome reuse one flashed Lightweight image and select both scored detectors through Direct. Matter is a build-and-flash smoke case: it stops after a successful flash and requires neither commissioning nor benchmark Wi-Fi settings. Micro-ESPectre copies the laboratory Wi-Fi settings into an isolated temporary `config_local.py` and explicitly enables the native ICMP generator. Copy `tools/benchmark_firmware.local.env.example` to `tools/benchmark_firmware.local.env`, fill in the laboratory values required by the selected frontends, connect the target board, and run:
 

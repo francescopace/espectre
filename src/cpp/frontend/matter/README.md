@@ -125,11 +125,11 @@ The standard Matter surface remains intentionally narrow. It does not expose:
 
 The firmware therefore exposes `http://<device>:62587/espectre/v1/request` as its local tuning plane. Direct HTTP can select the detector, adjust threshold and motion-hit counts, trigger recalibration, control sensing, report status and diagnostics, inspect the Wi-Fi association, scan and pin an access-point BSSID, edit the Basic Information `NodeLabel`, discover peers, and stream raw CSI according to the runtime capability catalog. Wi-Fi credentials remain Matter-owned, and Direct cannot reset them. The Direct adapter uses the same `FrontendCommandEngine` as the other C++ frontends; only genuinely frontend-owned operations differ. It remains available after Matter commissioning; `_matterc` is still used only by Matter controllers during an open commissioning window. Direct does not replace commissioning, fabric access, or the read-only Matter occupancy attribute.
 
-Matter supports both `lightweight` and `high_accuracy` as build-time detection profile choices. Choose Lightweight to leave more detector CPU and working memory for the Matter stack or other product work; choose High Accuracy for higher detection accuracy, stronger generalization, and startup without Lightweight threshold calibration. Lightweight requires about 10 seconds of clean, ready quiet-room coverage after temporal warmup; insufficient occupancy extends that wall-clock duration. High Accuracy still waits for CSI readiness and feature-window warmup. The published firmware selects Lightweight, while a local build can select High Accuracy through the shared ESP-IDF sensing configuration. Unlike ESPHome and Native, Matter does not expose runtime profile selection or persist an end-user choice.
+Matter supports both `lightweight` and `high_accuracy`. Choose Lightweight to leave more detector CPU and working memory for the Matter stack or other product work; choose High Accuracy for higher detection accuracy, stronger generalization, and startup without Lightweight threshold calibration. Lightweight requires about 10 seconds of clean, ready quiet-room coverage after temporal warmup; insufficient occupancy extends that wall-clock duration. High Accuracy still waits for CSI readiness and feature-window warmup. The published firmware starts with Lightweight, while a local build can select another initial profile through the shared ESP-IDF sensing configuration. Direct HTTP can switch profiles at runtime, persists the accepted selection in the shared ESP-IDF store, resets the threshold to the selected profile's default, and starts calibration when switching to Lightweight. Standard Matter occupancy clusters do not expose this control.
 
 The same build-time sensing menu defines positive `CONFIG_ESPECTRE_CSI_TARGET_PPS` and a separate `CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_*` ownership choice. Both Matter detectors use the fixed temporal-admission grid; arrival jitter does not resize them or restart calibration. `external` joins `CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP` (`239.255.0.1` by default) on the shared UDP listener port `5555` and accepts only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`). Matter exposes the shared bearer-bound raw HTTP v2 endpoint on port `62587` without changing the configured traffic source.
 
-The current frontend provides a Matter-native occupancy surface over the shared ESPectre runtime, without ESPectre-specific writable controls.
+The current frontend provides a Matter-native occupancy surface over the shared ESPectre runtime. ESPectre-specific writable controls remain available only through Direct HTTP.
 
 ## Targets and Validation
 
@@ -145,7 +145,7 @@ Validation notes:
 
 | Area | Current status |
 | --- | --- |
-| Firmware hardware smoke | Recorded on `ESP32-C3` |
+| Firmware hardware smoke | Recorded for every published target in the generated chip benchmark snapshots |
 | Controller commissioning | Limited; no complete cross-controller validation matrix has been published |
 
 Published target availability does not imply that every controller and target combination has been commissioned successfully. Add verified controller results to this table only with a reproducible hardware test record.

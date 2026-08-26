@@ -17,7 +17,7 @@ Browser flashing uses Web Serial and works in desktop Chrome or Edge. Firefox, S
 
 Published Native and ESPHome images speak standard Improv Serial, so any website that supports that protocol can provision Wi-Fi after a flash. Use [espectre.dev/tools/flash](https://espectre.dev/tools/flash/) as the recommended installer: it has the published catalog, detects the chip over USB, and chooses the matching image.
 
-Use `Latest Release` for official firmware, `Release Preview` for the latest build from `main`, or `Development` for the latest build from `develop`. Published ESPHome firmware starts with Lightweight Detection and supports persisted runtime switching to High Accuracy. Published Matter firmware starts with Lightweight; High Accuracy is available in local Matter builds and is selected at build time.
+Use `Latest Release` for official firmware, `Release Preview` for the latest build from `main`, or `Development` for the latest build from `develop`. Published ESPHome and Matter firmware start with Lightweight Detection and support persisted runtime switching to High Accuracy through their advertised controls.
 
 To flash:
 
@@ -189,7 +189,7 @@ Frontend coverage:
 |--------|---------------|---------|---------------|
 | `wifi.band_mode` (ESPHome) / `RuntimeConfig::wifi_band_policy` | `2.4GHz`, `5GHz`, or `AUTO` in ESPHome; `BAND_2G`, `BAND_5G`, or `AUTO` in the SDK | ESPHome C5: `AUTO` when omitted; other frontends, including Native C5: `2.4GHz` | `5GHz` and `AUTO` require the dual-band ESP32-C5. Select the policy in ESPHome YAML or an SDK build; Direct HTTP does not expose band selection. ESPHome examples select `2.4GHz`, and the production PHY remains HT20 |
 | `detection_algorithm` | `lightweight` or `high_accuracy` | `lightweight`, including Matter | Lightweight uses less detector CPU and working memory; High Accuracy improves detection quality and skips quiet-room threshold calibration |
-| Runtime threshold | probability | detector-specific | Selected automatically at startup; session-adjustable where the frontend exposes a writable control. Matter currently exposes no writable sensing controls |
+| Runtime threshold | probability | detector-specific | Selected automatically at startup; session-adjustable through ESPHome entities, Native Direct HTTP or MQTT, and Matter Direct HTTP when advertised |
 | `segmentation_window_size_ms` | int | `1000` | `1000-2000` milliseconds; combined with `csi_target_pps` to define a fixed temporal slot window |
 | `csi_target_pps` | int | `100` | `1-500`; defines detector slot cadence and the managed-traffic target, but never enables or disables traffic |
 | `csi_traffic_mode` | `internal` or `external` | `internal` | Selects the configured traffic source independently from `csi_target_pps`; persisted legacy `pacing` or `disabled` values migrate once to `internal` |
@@ -221,7 +221,7 @@ ESPectre keeps two production detection profiles because no single choice optimi
 
 At boot, Lightweight adapts its threshold to the room from about 10 seconds of clean, ready CSI coverage after temporal warmup. Missing or burst-concentrated slots extend wall-clock calibration instead of counting as evidence. After that, a long quiet stretch can still lower the live threshold if the opening was noisier than the rest of the session; Home Assistant, ESPHome, and the website Monitor follow that value. High Accuracy uses its trained threshold and skips threshold calibration; it becomes active after CSI capture is ready and the feature window has filled.
 
-ESPHome, Native, and Matter support both `lightweight` and `high_accuracy`. ESPHome and Native can switch profiles at runtime and persist the selection; the switch resets the threshold to the selected profile's default, and `high_accuracy -> lightweight` starts calibration automatically. Matter selects the profile at build time, exposes no runtime detector control, and uses `lightweight` in published firmware while the frontend remains preview. Micro-ESPectre deploys only `lightweight`; its High Accuracy sources remain host-side for research and parity validation.
+ESPHome, Native, and Matter support both `lightweight` and `high_accuracy`. All three persist an accepted runtime selection; the switch resets the threshold to the selected profile's default, and `high_accuracy -> lightweight` starts calibration automatically. ESPHome exposes the control through its entity and Direct HTTP, Native through Direct HTTP and optional MQTT, and Matter through Direct HTTP because standard occupancy clusters do not define detector selection. Published Matter firmware starts with `lightweight` while the frontend remains preview. Micro-ESPectre deploys only `lightweight`; its High Accuracy sources remain host-side for research and parity validation.
 
 See:
 

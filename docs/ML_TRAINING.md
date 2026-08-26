@@ -47,7 +47,7 @@ An `empty` recording marked `long_recording: true` never enters the training mat
 
 A normal one-candidate production run evaluates its final candidate on the configured selection and holdout replays before export. Seed search evaluates every candidate on `selection`, chooses one winner, and opens `holdout` only for that winner. Repeatedly consulting holdout results while changing the model turns the holdout into selection data and invalidates its role.
 
-The split policy and its rationale are recorded in [2026-07-23-separate-ml-training-data-from-promotion-replays.md](adr/2026-07-23-separate-ml-training-data-from-promotion-replays.md).
+The split policy and its rationale are recorded in [2026-06-30-separate-ml-training-data-from-promotion-replays.md](adr/2026-06-30-separate-ml-training-data-from-promotion-replays.md).
 
 ## Production Training Workflow
 
@@ -267,4 +267,4 @@ Do not claim a promotion is complete until the generated reports are current and
 - [ALGORITHMS.md](ALGORITHMS.md#high-accuracy-implementation-highaccuracydetector): runtime detector behavior
 - [performance/README.md](performance/README.md): generated current performance
 - [tools/README.md](../tools/README.md): complete tool reference and cache operations
-- [2026-07-23-separate-ml-training-data-from-promotion-replays.md](adr/2026-07-23-separate-ml-training-data-from-promotion-replays.md): split and promotion rationale
+- [2026-06-30-separate-ml-training-data-from-promotion-replays.md](adr/2026-06-30-separate-ml-training-data-from-promotion-replays.md): split and promotion rationale

@@ -2,17 +2,11 @@
 
 - Status: Accepted
 - Date: 2026-07-18
+- Updated: 2026-08-26
 
 ## Context
 
-ESPectre now ships four firmware frontends:
-
-1. `ESPHome`
-2. `Native`
-3. `Matter`
-4. `Streamer`
-
-Each frontend already needs a five-chip product build matrix for the supported targets. QEMU smoke coverage multiplied the CI surface further because it added extra logic, extra matrix branches, extra artifact handling, extra log uploads, and frontend-specific workarounds.
+When this decision was made, ESPectre built ESPHome, Native, Matter, and the former Streamer frontend across their supported target matrices. The maintained C++ set is now ESPHome, Native, and Matter, and the exact chip matrix differs by frontend. QEMU smoke coverage multiplied that CI surface with extra matrix branches, artifact handling, log uploads, and frontend-specific workarounds.
 
 The intended value of the QEMU smoke tests was limited boot validation:
 
@@ -33,7 +27,7 @@ That signal is weak for ESPectre's actual product risk. The frontends depend on 
 Local validation confirmed the mismatch:
 
 - `Native` product firmware on `ESP32-C3` booted in QEMU only until Bluetooth controller initialization, then asserted before the frontend could exercise any real BLE fallback logic
-- `Streamer` could reach the early startup marker, but still failed later in the known Wi-Fi PHY path that QEMU does not model
+- the former `Streamer` frontend could reach the early startup marker, but still failed later in the known Wi-Fi PHY path that QEMU does not model
 - QEMU never exercised the real runtime value of CSI sensing, provisioning, Wi-Fi association, BLE, or Matter commissioning
 
 As a result, QEMU increased CI time and complexity while not covering the frontends' highest-risk behavior. It also covered only a subset of the shipped chips, creating an asymmetric and potentially misleading quality signal.
@@ -47,7 +41,7 @@ This includes:
 - deleting QEMU-specific workflow branches and log artifacts
 - deleting QEMU-specific helper actions and configs
 - deleting code or config changes that existed only to support QEMU smoke paths
-- keeping only the five-chip product build matrix per frontend in CI
+- keeping the supported product-build matrix for each maintained frontend in CI
 
 CI remains responsible for:
 
@@ -59,7 +53,7 @@ CI remains responsible for:
 
 ### Keep QEMU only for some frontends
 
-Rejected. `Streamer` could still provide a narrow early-boot signal, but that signal was too small to justify keeping the custom CI path, and it still did not cover the real Wi-Fi/CSI runtime behavior.
+Rejected. The former Streamer frontend could provide a narrow early-boot signal, but that signal was too small to justify the custom CI path and did not cover real Wi-Fi or CSI behavior.
 
 ### Keep QEMU only for some chips
 
