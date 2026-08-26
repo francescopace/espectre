@@ -53,7 +53,7 @@ Startup details and the measured trade-offs are documented in [SETUP.md](docs/SE
 | **Matter** | Controllers with Matter occupancy-sensor support; validation is still limited | [Matter frontend](src/cpp/frontend/matter/README.md) |
 | **Native Direct/MQTT** | Standalone devices, browser-local sensing, Home Assistant MQTT Discovery, and custom apps | [Native frontend](src/cpp/frontend/native/README.md) |
 | **Micro-ESPectre** | Lightweight MicroPython sensing with read-only Direct HTTP monitoring | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
-| **SDK** | Custom firmware, smart-device makers, and OEM exploration | [EMBEDDING.md](docs/EMBEDDING.md) |
+| **SDK** | Custom firmware, smart-device makers, and OEM exploration | [SDK.md](docs/SDK.md) |
 
 ![ESPectre Monitor](docs/web/assets/images/guides/mqtt-dashboard.png)
 
@@ -64,7 +64,7 @@ ESPectre does not use cameras, microphones, or wearables. It works with derived 
 ## Documentation
 
 - **Install and operate:** [SETUP.md](docs/SETUP.md), [CLI.md](docs/CLI.md), and [TUNING.md](docs/TUNING.md)
-- **Understand and integrate:** [ARCHITECTURE.md](docs/ARCHITECTURE.md), [EMBEDDING.md](docs/EMBEDDING.md), [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md), and [ALGORITHMS.md](docs/ALGORITHMS.md)
+- **Understand and integrate:** [ARCHITECTURE.md](docs/ARCHITECTURE.md), [SDK.md](docs/SDK.md), [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md), and [ALGORITHMS.md](docs/ALGORITHMS.md)
 - **Collect and train:** [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md), [ML_TRAINING.md](docs/ML_TRAINING.md), [FEATURES.md](docs/FEATURES.md), and the generated [performance report](docs/performance/README.md)
 - **Research and direction:** [LITERATURE.md](docs/LITERATURE.md), [ROADMAP.md](docs/ROADMAP.md), the [ADR index](docs/adr/README.md), and [CHANGELOG.md](docs/CHANGELOG.md)
 - **Frontend reference:** [ESPHome](src/cpp/frontend/esphome/README.md), [Native](src/cpp/frontend/native/README.md), and [Matter](src/cpp/frontend/matter/README.md)

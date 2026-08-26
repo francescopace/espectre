@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include "esp_netif.h"
+#include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -23,6 +24,8 @@
 #define NATIVE_TRAFFIC_TASK_PRIORITY (5)
 #define NATIVE_TRAFFIC_REOPEN_ERROR_COUNT (8)
 #define NATIVE_TRAFFIC_STOP_TIMEOUT_MS (1000)
+
+static const char *const NATIVE_TRAFFIC_TAG = "MicroTraffic";
 
 typedef struct __attribute__((packed)) {
     uint8_t type;
@@ -192,6 +195,7 @@ static void native_traffic_task(void *arg) {
             native_traffic_close_socket(self);
             self->sock = native_traffic_open_socket(self);
             if (self->sock < 0) {
+                ESP_LOGW(NATIVE_TRAFFIC_TAG, "Failed to reopen socket (errno=%d)", errno);
                 self->error_count++;
                 vTaskDelay(pdMS_TO_TICKS(100));
                 continue;
@@ -210,7 +214,11 @@ static void native_traffic_task(void *arg) {
         } else {
             self->error_count++;
             consecutive_errors++;
+            if (consecutive_errors == 1) {
+                ESP_LOGW(NATIVE_TRAFFIC_TAG, "ICMP send failed (errno=%d)", errno);
+            }
             if (consecutive_errors >= NATIVE_TRAFFIC_REOPEN_ERROR_COUNT) {
+                ESP_LOGW(NATIVE_TRAFFIC_TAG, "Reopening socket after repeated send errors");
                 self->reopen_requested = true;
                 consecutive_errors = 0;
             }

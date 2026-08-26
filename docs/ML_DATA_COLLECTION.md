@@ -67,6 +67,18 @@ Then record labeled data:
 ./espectre collect --label motion --duration 60 --target 192.168.1.50
 ```
 
+Before validation, curate the new entries in `data/dataset_info.json`. The collector records capture and transport provenance, but it cannot infer the room name or decide how a recording may be used. Add an explicit `environment` and `dataset_role` to every new entry; use `exclude` while reviewing a capture, and assign `train`, `selection`, or `holdout` only as a deliberate corpus decision. One entry should look like this:
+
+```json
+{
+  "filename": "static_presence_c6_64sc_dev...npz",
+  "environment": "bedroom",
+  "dataset_role": "exclude"
+}
+```
+
+Use the same environment name for comparable recordings. Do not add pair fields by hand: the validator derives reciprocal static-presence and motion pairs after the required manual metadata is present.
+
 ## `espectre collect`
 
 `./espectre collect` is the host-side entry point for live inspection and dataset capture in the workflow described above.
@@ -96,7 +108,7 @@ Current canonical room-state labels:
 
 Use these labels only when the whole capture is homogeneous.
 
-Quiet long-run replays also live under `empty`. Mark them in `dataset_info.json` with `long_recording: true` so validation and long-recording suites can find them while ML training keeps them out of the binary IDLE class.
+Quiet long-run replays also live under `empty`. Mark them in `dataset_info.json` with `long_recording: true` so validation and long-recording suites can find them. The trainer excludes these recordings from fitting; `selection` and `holdout` long recordings still participate in the quiet replay gate.
 
 Mixed sessions are not part of the current v3 mainline dataset contract.
 
@@ -105,7 +117,9 @@ Suggested workflow for one session:
 1. collect `empty`
 2. collect `static_presence`
 3. collect `motion`
-4. run `./espectre collect --info`
+4. add `environment` and an explicit `dataset_role` to each new `dataset_info.json` entry
+5. run `./espectre collect --info`
+6. run `python tools/validate_dataset_quality.py`
 
 Recommended starting point:
 
@@ -161,7 +175,7 @@ All current ESPectre datasets use HT20 CSI with 64 logical subcarriers. Training
 - `low_rssi: true` for real and synthetic weak-link datasets stored under their semantic labels. Stream-continuity admission warns above 1% missing sequence records, fails above 3% for normal recordings, and fails above 5% for `low_rssi` recordings; maximum sequence-gap and inter-packet-gap gates remain unchanged
 - `synthetic: true` for generated captures that are not real measurements
 - `long_recording: true` for quiet long-run `empty` captures reserved for the long-recording replay suites; these stay evaluation-only and do not enter ML training or the standard empty-room admission table. A long recording with `dataset_role: exclude` remains in the catalog for provenance and quality-report diagnostics only
-- `dataset_role: train | selection | holdout | exclude` to reserve recordings for the deployment safety replays. Entries without a role default to `exclude` and must be admitted explicitly. `selection` recordings gate candidate selection, `holdout` recordings stay sealed until the trainer evaluates the final winner once, and `exclude` keeps a dataset in the catalog while removing it from the current train/selection/holdout workflow
+- `dataset_role: train | selection | holdout | exclude` to control how a recording participates in fitting and deployment replay. The trainer treats a missing role as `exclude` for safety, but dataset validation still fails until every entry declares its role explicitly. `selection` recordings gate candidate selection, `holdout` recordings stay sealed until the trainer evaluates the final winner once, and `exclude` keeps a dataset in the catalog while removing it from the current train/selection/holdout workflow
 
 `validate_dataset_quality.py` regenerates those pair fields automatically before admission and shared feature-space review. It never pairs a real capture with a synthetic capture; generated pair identity is read from the NPZ metadata.
 
@@ -173,7 +187,7 @@ Existing generated NPZs can retain detailed generation provenance, fitted parame
 
 Each `.npz` file stores raw CSI plus capture metadata.
 
-Common fields:
+Current collector fields:
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -187,6 +201,9 @@ Common fields:
 | `stream_seq_num` | `uint32[N]` | Stream sequence numbers |
 | `raw_stream_sequence` | `uint64[N]` | Canonical raw HTTP v2 sequence numbers, including observable gaps |
 | `device_ticks_us` | `uint64[N]` | Device monotonic timestamps |
+| `phy_mode` | `str[N]` | Per-record PHY mode; current sensing rows use `ht` |
+| `ltf_type` | `str[N]` | Per-record LTF type; current sensing rows use `ht-ltf` |
+| `channel_width` | `str[N]` | Per-record channel width; current sensing rows use `20` |
 | `device_id` | `uint64` | Stable pseudonymous device identifier |
 | `transport` | `str` | Live transport, currently `http` for new captures |
 | `endpoint`, `transport_target` | `str` | Direct raw endpoint used for collection |
@@ -200,6 +217,11 @@ Common fields:
 | `raw_drop_total` | `uint64` | Final count of raw records not transmitted |
 | `send_backpressure_total`, `raw_send_backpressure_total` | `uint64` | Final failed-send backpressure counter |
 | `raw_final_stream_sequence` | `uint64` | Final offered-frame sequence used with the final counters to validate the raw-loss invariant |
+| `csi_target_pps` | `uint64` | Nominal temporal-admission rate recorded for replay |
+| `detector_admitted_packets` | `uint64` | Records accepted by the production temporal sampler during capture review |
+| `temporal_missing_slots`, `temporal_excess_packets` | `uint64` | Missing nominal slots and records above the configured slot cadence |
+| `temporal_stale_packets`, `temporal_out_of_order_packets` | `uint64` | Records rejected for stale or reversed timing |
+| `temporal_occupancy_slots`, `temporal_window_slots` | `uint64` | Occupied and available slots used to calculate mean temporal occupancy |
 | `wifi_rx_ts_us` | `uint32[N]` | Optional Wi-Fi RX timestamps |
 | `wifi_rx_start_ts_ns` | `uint64[N]` | Optional RX-start estimate |
 | `channel` | `uint8[N]` | Optional per-packet Wi-Fi channel |
@@ -261,9 +283,9 @@ python tools/validate_dataset_quality.py
 python tools/train_ml_model.py --info
 ```
 
-`collect --info` summarizes collected files. `validate_dataset_quality.py` refreshes pair metadata, runs admission plus quality review, and updates `data/auto_generated/DATASET_QUALITY_CHECK.md`. Mean valid-slot occupancy warns below 85%, fails admission below 70%, and caps every affected review score; temporal quality and ML-readiness checks require a usable recorded packet rate, or `num_packets` plus `duration_ms`. Insufficient timing metadata is a validation failure and is never interpreted as 100 pps. `train_ml_model.py --info` shows the dataset view used by the trainer.
+`collect --info` summarizes collected files but does not assign environments or dataset roles. `validate_dataset_quality.py` requires those manual fields, refreshes pair metadata, runs admission plus quality review, and updates `data/auto_generated/DATASET_QUALITY_CHECK.md`. Mean valid-slot occupancy warns below 85%, fails admission below 70%, and caps every affected review score; temporal quality and ML-readiness checks require a usable recorded packet rate, or `num_packets` plus `duration_ms`. Insufficient timing metadata is a validation failure and is never interpreted as 100 pps. `train_ml_model.py --info` shows the dataset view used by the trainer.
 
-Run the validator before training. Admission failures block the workflow; feature-space scores are diagnostic only. Dataset roles remain manual, and the validator never assigns `train`, `selection`, or `holdout`. See [`tools/README.md`](../tools/README.md#dataset-inspection-and-validation) for command variants and report behavior.
+Run the validator after curating new entries and before training. Admission failures block the workflow; feature-space scores are diagnostic only. Dataset roles remain manual, and the validator never assigns `train`, `selection`, or `holdout`. See [`tools/README.md`](../tools/README.md#dataset-inspection-and-validation) for command variants and report behavior.
 
 ## Contributing Data
 
@@ -277,9 +299,10 @@ Before opening a PR:
 
 1. collect at least 10 samples per label when possible
 2. keep labels homogeneous
-3. note chip, room type, and unusual environmental conditions
-4. verify the dataset with `./espectre collect --info`
-5. run `python tools/validate_dataset_quality.py` and resolve admission FAILs
+3. add a stable environment name and an explicit dataset role to every catalog entry
+4. record room type and unusual environmental conditions in the description
+5. verify the dataset with `./espectre collect --info`
+6. run `python tools/validate_dataset_quality.py` and resolve admission FAILs
 
 ## Next Steps
 

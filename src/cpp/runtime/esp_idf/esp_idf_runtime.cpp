@@ -194,6 +194,12 @@ void EspIdfRuntime::loop() {
     finish_threshold_calibration_(calibration_success);
   }
   csi_pipeline_.loop();
+  // Detector-owned adaptation is a control-plane change, so keep the runtime
+  // snapshot and listener event current even when high-rate live telemetry is
+  // disabled because no frontend consumer is watching it.
+  if (detector_ != nullptr) {
+    notify_threshold_if_changed_(detector_->get_threshold());
+  }
   // Keep the active traffic source healthy while raw capture bypasses the
   // sensing sampler. In external mode this drains the non-blocking UDP socket;
   // otherwise its receive queue fills during long raw sessions and the marker

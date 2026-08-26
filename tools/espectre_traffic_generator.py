@@ -359,19 +359,28 @@ def run_loop(token=None):
             _remove_runtime_files(token)
 
 
-if __name__ == '__main__':
-    if len(sys.argv) < 2:
+def main(argv=None):
+    """Dispatch the standalone traffic-generator command."""
+    args = list(sys.argv[1:] if argv is None else argv)
+    if not args:
         print(__doc__)
-        sys.exit(1)
+        return 1
 
-    cmd = sys.argv[1].lower()
+    cmd = args[0].lower()
     commands = {'start': start, 'stop': stop, 'status': status}
 
-    if cmd == "run":
-        run(sys.argv[2] if len(sys.argv) > 2 else None)
+    if cmd in {"-h", "--help", "help"}:
+        print(__doc__)
+    elif cmd == "run":
+        run(args[1] if len(args) > 1 else None)
     elif cmd in commands:
         commands[cmd]()
     else:
         print(f"Unknown command: {cmd}")
         print("Use: start, stop, status, or run")
-        sys.exit(1)
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

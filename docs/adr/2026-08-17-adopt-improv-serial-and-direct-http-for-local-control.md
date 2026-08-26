@@ -93,6 +93,6 @@ Rejected. Local setup and sensing must work without an account, external service
 
 - [`../ESPECTRE_PROTOCOL.md`](../ESPECTRE_PROTOCOL.md)
 - [`../ARCHITECTURE.md`](../ARCHITECTURE.md)
-- [`../EMBEDDING.md`](../EMBEDDING.md)
+- [`../SDK.md`](../SDK.md)
 - [`2026-07-02-use-one-message-model-and-command-engine-across-transports.md`](2026-07-02-use-one-message-model-and-command-engine-across-transports.md)
 - [`2026-07-03-unify-raw-csi-collection-over-http.md`](2026-07-03-unify-raw-csi-collection-over-http.md)

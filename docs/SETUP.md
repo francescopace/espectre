@@ -1,6 +1,6 @@
 # Setup Guide
 
-Choose a frontend first. If it has a published image, [Web Flash](#web-flash-no-coding-required) is the shortest installation path. Local builds use the repository environment and the relevant frontend README. Firmware integrators should start with [EMBEDDING.md](EMBEDDING.md).
+Choose a frontend first. If it has a published image, [Web Flash](#web-flash-no-coding-required) is the shortest installation path. Local builds use the repository environment and the relevant frontend README. Firmware integrators should start with [SDK.md](SDK.md).
 
 ## Choose Your Frontend
 
@@ -150,7 +150,7 @@ The bundle is source-first. It includes:
 - `src/cpp/espectre_sources.cmake` for CMake / ESP-IDF integration
 - a component-shaped `src/cpp/` root with `CMakeLists.txt`, `espectre_git_version.cmake`, `idf_component.yml`, and `Kconfig.projbuild`, where the optional MQTT, provisioning, OTA, and stream-runtime groups are selected under the "ESPectre SDK" menuconfig menu
 
-Use [EMBEDDING.md](EMBEDDING.md) for the actual integration model and runtime contracts.
+Use [SDK.md](SDK.md) for the actual integration model and runtime contracts.
 
 ## After Installation
 
@@ -196,17 +196,17 @@ Frontend coverage:
 | `csi_traffic_multicast_group` | IPv4 multicast address, or empty | `239.255.0.1` | Joined by the UDP listener in `external`. Empty disables the join. Unicast to the device IP still works |
 | `traffic_generator_mode` | `ping` or `dns` | `ping` | Shared internal traffic generator mode |
 | `evaluation_interval_ms` | int | `250` | `10-10000` milliseconds between detector evaluations |
-| `motion_on_hits` | int | `4` | `1-20` consecutive evaluation hits for `IDLE -> MOTION` (about `1.0 s` at the default `250 ms` interval) |
-| `motion_off_hits` | int | `3` | `1-20` consecutive evaluation hits for `MOTION -> IDLE` (about `0.75 s` at the same defaults) |
+| `motion_on_hits` | int | `4` | `1-20` consecutive evaluation hits for `IDLE -> MOTION` (about `0.75-1.0 s` from physical motion at the default `250 ms` interval) |
+| `motion_off_hits` | int | `3` | `1-20` consecutive evaluation hits for `MOTION -> IDLE` (about `0.50-0.75 s` from physical idle at the same defaults) |
 | `lowpass_enabled` | bool | `false` | Enables low-pass filtering |
-| `lowpass_cutoff` | float | `11.0` | `5.0-20.0` Hz |
-| `hampel_enabled` | bool | `true` in the C++ sensing frontends; `false` in Micro-ESPectre | Enables Hampel outlier filtering; Micro keeps it off by default to preserve CPU and heap headroom |
+| `lowpass_cutoff` | float | `11.0` | `5.0-20.0` Hz against a nominal regular `100 pps` cadence; other targets or substantial missing-slot patterns require filter revalidation |
+| `hampel_enabled` | bool | `true` | Enables Hampel outlier filtering in the C++ sensing frontends and Micro-ESPectre |
 | `hampel_window` | int | `7` | `3-11` samples |
 | `hampel_threshold` | float | `5.0` | `1.0-10.0` MAD units |
 
 Migration from earlier v3 snapshots: replace `traffic_generator_rate: N` with `csi_target_pps: N` plus `csi_traffic_mode: internal`. Persisted `pacing` and `disabled` values are migrated once to `internal`; runtime requests using those removed values fail with `invalid_params`.
 
-See [TUNING.md](TUNING.md) for how evaluation cadence and hit filtering set the expected publish delay (about `1 s` for `IDLE -> MOTION` with the defaults).
+See [TUNING.md](TUNING.md) for how evaluation cadence, tick alignment, and hit filtering set the expected publish delay.
 
 Use the frontend README for the exact syntax and local workflow:
 
@@ -219,7 +219,7 @@ Use the frontend README for the exact syntax and local workflow:
 
 ESPectre keeps two production detection profiles because no single choice optimizes both accuracy and resource use. Lightweight runs fewer feature trackers and is the leaner choice when the chip or surrounding firmware needs more CPU time and working memory for other work. High Accuracy uses a larger feature state and neural inference to provide higher accuracy and stronger generalization on the maintained corpus.
 
-At boot, Lightweight adapts its threshold to the room from about 10 seconds of clean, ready CSI coverage after temporal warmup. Missing or burst-concentrated slots extend wall-clock calibration instead of counting as evidence. After that, a long quiet stretch can still lower the live threshold if the opening was noisier than the rest of the session; Home Assistant, ESPHome, and the website Monitor follow that value. High Accuracy uses its trained threshold and skips threshold calibration; it becomes active after CSI capture is ready and the feature window has filled.
+At boot, Lightweight adapts its threshold to the room within a budget of ten seconds of valid, ready CSI coverage after temporal warmup. A clean `quiet -> motion -> quiet` pattern can finish earlier; otherwise the quiet-first fallback must converge inside that budget. Missing or burst-concentrated slots extend wall-clock calibration instead of counting as evidence. After that, a long quiet stretch can still lower the live threshold if the opening was noisier than the rest of the session; Home Assistant, ESPHome, and the website Monitor follow that value. High Accuracy uses its trained threshold and skips threshold calibration; it becomes active after CSI capture is ready and the feature window has filled.
 
 ESPHome, Native, and Matter support both `lightweight` and `high_accuracy`. All three persist an accepted runtime selection; the switch resets the threshold to the selected profile's default, and `high_accuracy -> lightweight` starts calibration automatically. ESPHome exposes the control through its entity and Direct HTTP, Native through Direct HTTP and optional MQTT, and Matter through Direct HTTP because standard occupancy clusters do not define detector selection. Published Matter firmware starts with `lightweight` while the frontend remains preview. Micro-ESPectre deploys only `lightweight`; its High Accuracy sources remain host-side for research and parity validation.
 
@@ -241,16 +241,16 @@ Raw rate near `csi_target_pps` does not prove that the target is usable: an AP m
 |------|--------------|----------------|--------------------|--------------|
 | Native / Matter | `CONFIG_ESPECTRE_CSI_TARGET_PPS` | `csi_traffic_mode`; internal by default | yes | phase-preserving cadence without catch-up bursts; local socket backoff only |
 | ESPHome | `csi_target_pps` | `csi_traffic_mode`; internal by default | yes | phase-preserving cadence without catch-up bursts; local socket backoff only |
-| Micro-ESPectre | `CSI_TARGET_PPS` | `TRAFFIC_GENERATOR_ENABLED`; native ICMP ping when enabled, external traffic when disabled | yes | phase-preserving cadence without catch-up bursts; local socket backoff only |
+| Micro-ESPectre | `CSI_TARGET_PPS` | `TRAFFIC_GENERATOR_ENABLED`; ICMP ping when enabled, external traffic when disabled | yes | phase-preserving cadence without catch-up bursts; local socket backoff only |
 | Collector detector, replay, training, and validation | recorded `csi_target_pps`, collector `--pps`, or a documented legacy fallback | recorded raw HTTP stream | yes, through the production Micro-ESPectre sampler | external generator owns rate; HTTP does not pace |
 
 Raw HTTP collection is available on Native, ESPHome, and Matter. It preserves every classified CSI frame except explicitly counted fixed-ring drops; only the collector's derived live detector view applies temporal admission.
 
 External UDP traffic can be unicast to each device IP, or sent to multicast group `239.255.0.1`. ESP-IDF frontends join that group automatically in `external`. Empty `csi_traffic_multicast_group` disables the join. Subnet and limited broadcast (`x.x.x.255`, `255.255.255.255`) do not produce reliable HT20 CSI. ESPHome, Native, and Matter listen on port `5555` and accept only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`); use [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) standalone or through `./espectre collect`.
 
-Micro-ESPectre selects traffic ownership at deployment through `TRAFFIC_GENERATOR_ENABLED`. Its native component sends ICMP echo requests when enabled; when disabled, another source must generate usable traffic. Micro has no runtime traffic mutation, DNS generator, UDP listener, or multicast join.
+Micro-ESPectre selects traffic ownership at deployment through `TRAFFIC_GENERATOR_ENABLED`. When enabled, its native component sends ICMP echo requests to the station gateway. When disabled, another source must generate usable traffic. Micro has no runtime traffic mutation, DNS generator, external UDP listener, or multicast join.
 
-Across Native, Matter, and ESPHome, internal `ping` mode sends ICMP echo requests, while internal `dns` mode sends DNS root queries through a persistent, non-blocking TCP connection to gateway port `53`. DNS mode requires the gateway resolver to accept TCP queries. Micro-ESPectre implements only ICMP ping.
+Across Native, Matter, and ESPHome, internal `ping` mode sends ICMP echo requests, while internal `dns` mode sends DNS root queries through a persistent, non-blocking TCP connection to gateway port `53`. DNS mode therefore requires the gateway resolver to accept TCP queries. Micro-ESPectre implements only ICMP ping.
 
 If you are tuning `csi_target_pps`, thresholds, or filters, use [TUNING.md](TUNING.md) for the rationale and the frontend README for the configuration syntax.
 
@@ -259,4 +259,4 @@ If you are tuning `csi_target_pps`, thresholds, or filters, use [TUNING.md](TUNI
 - To configure or troubleshoot an installed device, use its frontend README and [TUNING.md](TUNING.md).
 - To study detector behavior and formulas, use [ALGORITHMS.md](ALGORITHMS.md).
 - To change the shared code, use [ARCHITECTURE.md](ARCHITECTURE.md).
-- To integrate the SDK into another firmware product, use [EMBEDDING.md](EMBEDDING.md).
+- To integrate the SDK into another firmware product, use [SDK.md](SDK.md).

@@ -18,7 +18,7 @@
  * may change in any release.
  *
  * Start at espectre_sdk.h for the integration model, the threading contract,
- * and a working example. The repository guide `docs/EMBEDDING.md` covers build
+ * and a working example. The repository guide `docs/SDK.md` covers build
  * integration, install surfaces, and release channels.
  */
 
@@ -102,7 +102,7 @@
  * Everything reachable from this header is the stable runtime surface and
  * follows the SDK version contract. The opt-in `espectre_core_sdk.h` facade is
  * the lower-level detector extension. Other headers are internal and can
- * change in any release. `docs/EMBEDDING.md` defines the exact guarantees.
+ * change in any release. `docs/SDK.md` defines the exact guarantees.
  *
  * @section sdk_licensing Licensing
  *

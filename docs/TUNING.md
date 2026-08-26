@@ -1,69 +1,23 @@
 # Tuning Guide
 
-Use this operational guide after a device is installed and producing motion data. It explains what to change, in what order, and what result to expect. Detailed detector formulas and validation evidence remain in [ALGORITHMS.md](ALGORITHMS.md) and the generated [performance report](performance/README.md).
+Use this guide after a device is installed and producing motion data. It explains what to check, what to change, and in what order. Detector formulas and validation evidence remain in [ALGORITHMS.md](ALGORITHMS.md) and the generated [performance report](performance/README.md).
 
-Inline snippets use ESPHome YAML as a concrete example. CSI means channel state information. Raw accepted `pps` is the capture supply used by traffic control; admitted `pps` is the detector input after temporal slot admission.
+Inline snippets use ESPHome YAML as a concrete example. CSI means channel state information. Accepted `pps` is the identity-accepted capture supply; admitted `pps` is the detector input after temporal slot admission.
 
-## Quick Start
+## Tuning Order
 
-### 1. Boot In A Quiet Room
+1. Verify packet flow, slot occupancy, and sensor placement.
+2. If you use `lightweight`, boot with the room quiet.
+3. Walk through the monitored area and confirm that the movement score responds to real movement.
+4. Choose the detection profile that fits the product's accuracy and resource budget.
+5. Tune the threshold.
+6. Tune motion-hit filtering if state changes are too slow or unstable.
+7. Enable the low-pass filter only if noise remains after the earlier checks.
+8. Change `csi_target_pps` or `segmentation_window_size_ms` only as a measured experiment, then rerun the relevant performance validation.
 
-For the default `lightweight` detector, startup quality matters.
+Change one setting at a time and repeat the same quiet-and-motion test after each change.
 
-Current startup behavior:
-
-1. CSI capture starts with AGC active
-2. the runtime builds a quiet anchor
-3. if a clean `quiet -> motion -> quiet` pattern appears, startup may finish early
-4. otherwise the detector falls back internally to the quiet-only path
-
-With the default `segmentation_window_size_ms: 1000` and `csi_target_pps: 100`, the startup budget is ten seconds of clean, ready slot coverage after temporal warmup. Missing or burst-concentrated slots extend wall-clock calibration instead of counting as evidence; ten seconds is required valid coverage, not a fixed wait.
-
-Practical rule:
-
-- stay quiet immediately after boot
-- after the first quiet phase, one short motion can help `lightweight` converge faster, but it is optional
-- repeated movement during startup still hurts calibration quality
-
-`high_accuracy` does not use startup threshold calibration and becomes active as soon as CSI capture is ready and its feature window has filled.
-
-### 2. Watch The Runtime Surface
-
-Use whatever your frontend exposes:
-
-- logs or serial monitor
-- live motion state
-- movement score
-- current threshold
-- calibration state, when available
-
-### 3. Test Real Movement
-
-Walk in the monitored area and confirm:
-
-- `MOTION` while moving
-- `IDLE` while still
-
-### 4. Tune Only One Knob At A Time
-
-Start with threshold. If needed, then adjust window size or filters.
-
-## Main Parameters
-
-### Threshold
-
-The threshold is selected automatically at startup. Lightweight adapts it from the observed quiet room, and may still lower it after a long quiet stretch if that opening was noisier than the rest of the session. High Accuracy uses the value validated with the exported model. Where a frontend exposes writable threshold control, both remain adjustable for the current session, and those surfaces follow detector-driven drops as well as operator writes. Recalibration recomputes the quiet-room threshold for Lightweight; for High Accuracy, it immediately restores the trained default without collecting a quiet-room window. Native Direct, Native MQTT, ESPHome, and Matter Direct expose the threshold, motion-hit debounce, and recalibration control family. Micro-ESPectre exposes no writable sensing controls; it uses Lightweight and calibrates at startup.
-
-Both detectors expose a `0.0-1.0` probability threshold.
-
-Rules of thumb:
-
-- too many false positives: raise the threshold
-- missed movement: lower the threshold
-
-Runtime threshold changes are session-only and are recalculated at boot. ESPHome, Native, and Matter can switch between `lightweight` and `high_accuracy` at runtime and persist the selection. Matter exposes the detector control through Direct HTTP rather than standard Matter clusters; published Matter firmware starts with `lightweight`.
-
-### Detection Profile
+## Startup And Detection Profile
 
 ```yaml
 espectre:
@@ -71,61 +25,30 @@ espectre:
 ```
 
 | Profile | Accuracy and cost | Startup behavior |
-|-----------|-------------------|------------------|
-| **Lightweight Detection** (`lightweight`) | Lower detector CPU and working-memory cost, with lower accuracy and robustness than High Accuracy | About 10 seconds of clean, ready quiet-room coverage after temporal warmup; longer in wall time when occupancy is insufficient |
-| **High-Accuracy Detection** (`high_accuracy`) | Higher accuracy and generalization, with additional feature state and neural-inference work | No threshold calibration; waits for CSI readiness and feature-window warmup |
+|---------|-------------------|------------------|
+| **Lightweight Detection** (`lightweight`) | Lower detector CPU and working-memory cost, with lower accuracy and generalization than High Accuracy | Uses up to 10 seconds of valid, ready coverage after temporal warmup; a clean `quiet -> motion -> quiet` pattern can finish earlier |
+| **High-Accuracy Detection** (`high_accuracy`) | Higher accuracy and generalization, with additional feature state and neural-inference work | Skips threshold calibration; waits for CSI readiness and feature-window warmup |
 
-Choose `lightweight` when the device must reserve resources for other firmware features or when its compute and memory budget is tight. Choose `high_accuracy` when detection quality is the priority and the additional runtime cost fits the product budget. On ESPHome, Native, and Matter, you can compare them at runtime through the controls each frontend advertises. Current measurements and known limits are documented in [ALGORITHMS.md](ALGORITHMS.md#known-limits) and the [performance report](performance/README.md).
+For Lightweight, stay quiet immediately after boot. After the first quiet phase, one short movement may complete startup early, but it is optional. Repeated movement during the initial quiet phase still reduces calibration quality. Missing or burst-concentrated slots extend the wall-clock duration because they do not count as valid evidence.
 
-### Window Size
+Choose `lightweight` when the surrounding firmware needs the smaller active detector state and lower per-packet cost. Choose `high_accuracy` when detection quality matters more than that additional cost. ESPHome, Native, and Matter support persisted runtime profile selection through the controls they advertise. Published Matter firmware starts with `lightweight`. Micro-ESPectre deploys Lightweight only.
 
-```yaml
-espectre:
-  segmentation_window_size_ms: 1000
-```
+See [ALGORITHMS.md](ALGORITHMS.md#known-limits) and the [performance report](performance/README.md) for current measurements and known limits. The relevant frontend README owns the exact configuration and control surface.
 
-The setting is elapsed time. Together with `csi_target_pps`, it defines a fixed temporal grid: `window_slots = ceil(csi_target_pps * segmentation_window_size_ms / 1000)`. The runtime admits at most one packet per slot, preserves missing slots, and requires at least 70% valid occupancy before detection is ready. A burst cannot fill the window early, and arrival jitter never reconstructs the detector.
+## Threshold
 
-The temporal-admission contract belongs in [ALGORITHMS.md](ALGORITHMS.md#detector-timing) and its [ADR](adr/2026-08-15-use-fixed-temporal-csi-admission.md). Historical recordings without target provenance, or with sustained occupancy below 70%, cannot claim exact runtime-parity evidence and must be recollected for binding performance validation.
+Lightweight adapts its threshold to the observed room during startup. It may lower that value later after a long quiet stretch if the opening was noisier than the rest of the session. High Accuracy starts from the threshold validated with the exported model.
 
-Rules of thumb:
-
-- `1000 ms`: the default and the interval used by runtime, replay, validation, and training
-- larger interval: steadier and slower to react
-- occupancy below 70% of the configured slots: repair traffic pacing or packet supply; if the path cannot sustain the cadence, lower `csi_target_pps` explicitly and rerun performance validation rather than letting runtime jitter change it
-
-Start with `1000 ms` unless you have a measured reason to change it.
-
-### Traffic Rate
-
-For frontends that expose the shared internal traffic generator:
-
-```yaml
-espectre:
-  csi_target_pps: 100
-  csi_traffic_mode: internal
-```
-
-`csi_target_pps` is both the detector's temporal grid and the managed-traffic target. `csi_traffic_mode` separately chooses who supplies traffic. Internal traffic follows a fixed-phase cadence at that target during ordinary scheduler jitter. After a delay would leave less than half a period before the next deadline, the generator resets from the actual send time instead of issuing a catch-up packet that would create a burst. Local socket send backoff still applies on `ENOMEM`; occupancy does not change the send rate. If occupancy stays below 70%, repair the traffic path or lower `csi_target_pps` explicitly and revalidate.
-
-Runtime traffic controls follow one family across the C++ Direct, MQTT, ESPHome, and website surfaces:
-
-- `csi_traffic_mode`: `internal` or `external`
-- `traffic_generator_mode`: `ping` or `dns`
-
-`ping` sends stateless ICMP echo requests and remains the portable default. `dns` sends length-prefixed DNS root queries over one persistent, non-blocking TCP connection to gateway port `53`, with `TCP_NODELAY`; it reconnects if the gateway closes the stream. DNS mode therefore requires the configured gateway to accept DNS over TCP. Both modes request the same low-latency IP/WMM treatment.
-
-Native, ESPHome, and Matter persist accepted traffic-control changes. Micro-ESPectre has no runtime traffic controls: deployment selects native ICMP ping or external traffic, and DNS generation is not built. Persisted legacy `pacing` or `disabled` values migrate once to `internal`, while runtime requests using those removed values fail with `invalid_params`.
-
-Host `espectre collect` persistently selects `external` and uses the importable `ExternalTrafficGenerator`; `--pps` controls that UDP source and the nominal dataset cadence, never the HTTP worker. ESPHome, Native, and Matter listen on port `5555`, join the configured multicast group, and accept only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`). [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) can use a unicast `TARGETS` list or `239.255.0.1`; do not use LAN broadcast. Raw HTTP forwards classified CSI without pacing or temporal decimation and reports bounded ring drops separately.
+Both profiles use a `0.0-1.0` probability threshold. Where a frontend advertises writable threshold control, an operator can override it for the current session. Operator changes are discarded at boot: Lightweight calibrates again, while High Accuracy restores its trained default.
 
 Rules of thumb:
 
-- `100 pps`: default and recommended CSI target
-- lower values: less overhead, less temporal detail
-- higher values: more detail, more CPU and Wi-Fi cost
+- too many false positives: raise the threshold
+- missed movement: lower the threshold
 
-### Evaluation Interval And Hit Filtering
+Tune the threshold before changing filters, packet cadence, or detector-window geometry.
+
+## Evaluation Cadence And Hit Filtering
 
 ```yaml
 espectre:
@@ -134,31 +57,27 @@ espectre:
   motion_off_hits: 3
 ```
 
-The detector processes every admitted CSI packet into its sliding window, but the published motion state updates only on a coarser cadence:
+The detector processes every admitted CSI packet into its sliding window, but it evaluates and publishes on the coarser `evaluation_interval_ms` cadence. Packet timestamps drive that cadence; there is no packet-count fallback, so live input and supported replay datasets must provide advancing timestamps.
 
-1. every `evaluation_interval_ms` of packet arrival time, the runtime evaluates the detector and gets a raw `IDLE` or `MOTION` reading; there is no packet-count fallback, so live input and supported replay datasets must provide advancing timestamps
-2. Native Direct and MQTT, Micro Direct SSE, and ESPHome publish canonical telemetry and Movement Score from that evaluation once `ready_to_publish` is true
-3. that raw reading must repeat for `motion_on_hits` consecutive evaluations before the published state becomes `MOTION`
-4. leaving motion requires `motion_off_hits` consecutive `IDLE` evaluations
+Each evaluation produces a raw `IDLE` or `MOTION` reading. The runtime requires `motion_on_hits` consecutive opposing readings before publishing `MOTION`, and `motion_off_hits` consecutive readings before returning to `IDLE`. One reading in the current published state clears the pending count. These hits are evaluation ticks, not detector windows.
 
-These hits are consecutive evaluation ticks, not detector windows (`segmentation_window_size_ms`). One opposing reading resets the pending count.
+With regular 250 ms evaluation ticks, the default confirmation latency from a physical transition depends on its alignment with the next tick:
 
-ESPHome, Native Direct, and Native MQTT expose these runtime motion-hit settings and persist accepted updates. Micro-ESPectre uses deployment-time values and does not expose mutations through its minimal Direct API.
+| Transition | Hits | Confirmation latency |
+|------------|------|----------------------|
+| `IDLE -> MOTION` | `4` | about `0.75-1.0 s` |
+| `MOTION -> IDLE` | `3` | about `0.50-0.75 s` |
 
-With the default `evaluation_interval_ms = 250`:
-
-| Transition | Hits | Evaluation period | Minimum hold before publish |
-|------------|------|-------------------|-----------------------------|
-| `IDLE -> MOTION` | `4` | `0.25 s` | about `1.0 s` of sustained raw motion |
-| `MOTION -> IDLE` | `3` | `0.25 s` | about `0.75 s` of sustained raw idle |
-
-So a brief burst that crosses the detector threshold for one or two evaluations does not become a published motion alarm. That is the intended debounce: fewer false edges, at the cost of a short confirmation delay.
+The lower bound applies when the transition aligns with an evaluation tick; the upper bound applies when it begins just after one. Missing valid coverage can delay the next evaluation further.
 
 Rules of thumb:
 
-- more hit filtering: steadier state changes, slower transitions
-- expected publish latency is roughly `0.25 s * motion_on_hits`, and it no longer depends on the packet rate: a link running at `80 pps` confirms motion in the same wall-clock time as one at `100`
-- increasing `evaluation_interval_ms` reduces evaluation frequency and lengthens the confirmation delay proportionally
+- increase `motion_on_hits` to reject brief motion bursts
+- increase `motion_off_hits` to keep short idle readings from clearing motion
+- reduce the corresponding hit count when confirmation is too slow
+- changing `evaluation_interval_ms` scales both confirmation ranges proportionally
+
+ESPHome, Native, and Matter expose persisted runtime hit controls through the surfaces they advertise. Micro-ESPectre uses deployment-time values and publishes telemetry through Direct SSE when a client is connected. Every shipped frontend makes telemetry available on each detector evaluation once `ready_to_publish` is true and a frontend-specific consumer requests it.
 
 ## Filters
 
@@ -173,12 +92,7 @@ espectre:
   hampel_threshold: 5.0
 ```
 
-Use it to suppress short outlier spikes. It applies to both `lightweight` and `high_accuracy`.
-
-Disable it only if:
-
-- you need maximum sensitivity in a clean environment, or
-- you suspect it is suppressing useful low-SNR motion detail
+Hampel filtering suppresses short outlier spikes and feeds both `lightweight` and `high_accuracy`. Keep it enabled unless a controlled comparison shows that it removes useful motion detail in the target environment.
 
 ### Low-Pass Filter
 
@@ -190,31 +104,64 @@ espectre:
   lowpass_cutoff: 11.0
 ```
 
-Use it when the environment is noisy and false positives persist after threshold tuning.
+Use the low-pass filter when a stable installation still produces noise-driven false positives after threshold tuning. A lower cutoff applies more smoothing and may hide fast motion; a higher cutoff preserves more short-term variation.
+
+The current C++ and Micro-ESPectre implementations calculate low-pass coefficients against a nominal `100 Hz` sample rate. `lowpass_cutoff` has its nominal frequency meaning when the admitted stream follows that regular cadence. A different target or substantial missing-slot pattern changes the effective time scale, so treat that combination as an experiment and revalidate it.
+
+## Traffic Health And Target Rate
+
+For frontends that expose the shared internal traffic generator:
+
+```yaml
+espectre:
+  csi_target_pps: 100
+  csi_traffic_mode: internal
+  traffic_generator_mode: ping
+```
+
+`csi_target_pps` defines both the detector's temporal grid and the managed-traffic target. `csi_traffic_mode` independently selects whether the device or an external source supplies traffic. The runtime admits at most one packet per temporal slot, preserves missing slots, and requires at least 70% valid occupancy before detection is ready. Raw packet rate alone is therefore not enough: an access point can deliver packets in bursts that leave both same-slot excess and missing slots.
+
+If occupancy remains below 70%:
+
+1. verify that the selected traffic source is active
+2. inspect packet loss, burst delivery, and Wi-Fi placement
+3. repair the traffic path when possible
+4. if the path cannot sustain the cadence, lower `csi_target_pps` explicitly and rerun performance validation
+
+The runtime never changes the target automatically because doing so would change feature timing.
+
+The C++ sensing frontends support internal `ping` and `dns`. Ping sends ICMP echo requests and is the portable default. DNS uses a persistent, non-blocking TCP connection to gateway port `53`, so the gateway must accept DNS over TCP. Micro-ESPectre selects native ICMP ping or external traffic at deployment; it does not expose runtime traffic mutations.
 
 Rules of thumb:
 
-- lower cutoff: more smoothing, more risk of missing fast motion
-- higher cutoff: less smoothing, more reactivity
+- `100 pps`: production default and the cadence used by current training and validation
+- lower target: less traffic and lower temporal resolution; requires validation at the chosen cadence
+- higher target: more Wi-Fi and CPU cost without guaranteed occupancy or detector improvement; requires validation
+
+The collector, external UDP marker, raw HTTP framing, and persistence behavior belong to [CLI.md](CLI.md#collect), [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md), [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md#direct-raw-csi-v2), and [SETUP.md](SETUP.md#traffic-generation).
+
+## Detector Window
+
+```yaml
+espectre:
+  segmentation_window_size_ms: 1000
+```
+
+The setting is elapsed time. Together with `csi_target_pps`, it defines the fixed slot count:
+
+```text
+window_slots = ceil(csi_target_pps * segmentation_window_size_ms / 1000)
+```
+
+The production model, replay gates, training workflow, and published performance evidence use `1000 ms`. Other supported values change feature geometry and response time but are not covered by those published results. Do not use the window as a routine false-positive or latency control; prefer threshold and hit filtering. If a product needs a different window, validate the selected detector profile and the C++/Python parity gates at that setting.
+
+The detailed timing contract and historical-data restrictions live in [ALGORITHMS.md](ALGORITHMS.md#detector-timing) and the [fixed temporal-admission ADR](adr/2026-08-15-use-fixed-temporal-csi-admission.md).
 
 ## Sensor Placement
 
-Placement still matters more than parameter tuning.
+Verify placement before compensating with detector parameters. Start with a stable path through the monitored area, keep the device out of metal enclosures and behind as few heavy obstacles as practical, and confirm that accepted rate and occupancy remain stable while the room is quiet.
 
-Recommended operating range:
-
-| Distance to AP | Typical RSSI | Practical reading |
-|----------------|--------------|-------------------|
-| too close | above `-40 dBm` | more saturation risk |
-| best range | `-40` to `-70 dBm` | good CSI headroom |
-| too far | below `-80 dBm` | weaker signal, more noise |
-
-Practical advice:
-
-- keep the node roughly `3-8 m` from the AP when possible
-- face the device toward the AP or router, not side-on to the link
-- avoid putting it behind heavy obstacles if you want strong motion contrast
-- if the node is too close to the AP, move it away before retuning thresholds
+A distance of roughly `3-8 m` from the access point is a starting point, not a requirement. Walls, antenna orientation, access-point power, and furniture can matter more than distance. Use the dedicated [sensor placement guide](https://espectre.dev/guides/placement/) for the RSSI ranges, room layouts, and repeatable placement test.
 
 ## Troubleshooting
 
@@ -222,111 +169,69 @@ Practical advice:
 
 Try in this order:
 
-1. raise the threshold
-2. enable or tune the low-pass filter
-3. keep Hampel enabled
-4. increase the window size slightly
-5. inspect interference sources such as fans, curtains, pets, Bluetooth, or microwave activity
-6. when using Lightweight, rerun calibration in a quiet room
+1. distinguish real environmental movement, such as fans, curtains, or pets, from radio noise
+2. verify occupancy and placement
+3. raise the threshold
+4. increase `motion_on_hits` if only short bursts become alarms
+5. at the default 100 PPS cadence, enable or tune the low-pass filter
+6. for Lightweight, recalibrate in a quiet room
 
 ### Missing Movements
 
 Try in this order:
 
-1. lower the threshold
-2. reduce the window size
-3. verify placement and packet flow
-4. confirm the traffic source is active
+1. verify packet flow, occupancy, and placement
+2. lower the threshold
+3. reduce `motion_on_hits` if the raw score responds but the published state changes too slowly
+4. compare High Accuracy when the additional runtime cost fits the product
 
 ### Calibration Stalls Or Startup Quality Is Poor
 
-Usual causes:
-
-- movement during the initial quiet phase
-- sparse packet flow
-- sensor too close to the AP
-- chaotic RF environment at boot
+Common causes are movement during the initial quiet phase, insufficient valid slot coverage, a poor radio path, or a chaotic RF environment at boot.
 
 Try:
 
-1. boot again with a quieter room
-2. move the sensor further from the AP
-3. verify that packet flow is healthy
-4. let startup complete before judging steady-state quality
+1. inspect occupancy rather than raw packet rate alone
+2. boot again with a quieter room
+3. improve placement or traffic delivery
+4. let startup finish before judging steady-state quality
 
 ### Unstable Detection Or Flickering
 
 Try:
 
-1. raise the threshold
-2. increase the window size
-3. enable the low-pass filter
-4. increase hit filtering if your frontend exposes it
+1. verify that packet occupancy is stable
+2. raise the threshold if the raw score crosses it repeatedly in a quiet room
+3. increase the relevant hit count
+4. enable the low-pass filter at the default 100 PPS cadence if the score itself remains noisy
 
 ### No CSI Packets
 
-Check:
+Check Wi-Fi connection status, the traffic source, the CSI-enabled build configuration, and actual packet flow. If logs report protocol or bandwidth as `unavailable`, do not infer a CSI failure from that field alone; use packet counters and calibration progress.
 
-1. Wi-Fi connection status
-2. traffic generation path
-3. CSI-enabled build/configuration
-4. router compatibility and packet flow
+### False Positives After A Wi-Fi Channel Change
 
-If logs say protocol or bandwidth is `unavailable`, do not assume CSI is broken. Judge health from actual packet flow and calibration progress.
-
-### False Positives After Wi-Fi Channel Change
-
-If your AP changes channel often:
-
-1. prefer a fixed router channel
-2. reduce local interference
-3. allow the runtime to reset and restabilize
+Prefer a fixed access-point channel when possible. After a channel change, allow the runtime to reset its detector history and collect fresh valid coverage before evaluating the result.
 
 ## Recalibration
 
-`lightweight` can recompute its threshold without changing firmware. For `high_accuracy`, the same control restores the trained default immediately and does not start a quiet-room calibration window.
+Use recalibration after a material placement or radio-environment change when the frontend advertises the control.
 
-Use the recalibration control when your frontend exposes one. ESPHome provides a calibration entity, Native exposes the shared control through Direct, MQTT, and Home Assistant Discovery, and Matter exposes it through Direct. Micro-ESPectre exposes no writable sensing controls and recalibrates Lightweight at startup.
+- Lightweight starts a fresh threshold calibration; keep the room quiet as you would at boot.
+- High Accuracy immediately restores its trained threshold and does not collect a quiet-room window.
+- Micro-ESPectre has no writable sensing controls and recalibrates Lightweight at startup.
 
-When recalibrating:
+## Monitoring
 
-- expect the control surface to be briefly busy
-- with Lightweight, keep the room quiet and treat it like a fresh startup calibration
-- with High Accuracy, expect the trained default threshold to be restored without a collection phase
+During tuning, watch:
 
-## Monitoring Checklist
+- accepted and admitted packet rates
+- slot occupancy and missing-slot or excess-slot diagnostics
+- motion state and movement score
+- current threshold and calibration state
+- heap and runtime-loop stability when comparing firmware variants
 
-Whatever frontend you use, keep an eye on:
-
-- motion state
-- movement score
-- threshold
-- readiness or calibration progress
-- packet flow
-
-### Firmware Performance Check
-
-Compare firmware variants with the production compiler optimization for each frontend and enable only debug-level ESPectre telemetry. A compiler `DEBUG` build changes the CPU and memory profile being measured. Record the binary size and free application-partition space from the build summary, then monitor the device for several minutes after startup has settled.
-
-For the repository hardware benchmark, connect one supported board and run `python tools/benchmark_firmware.py --chip <chip>`. It samples Native Lightweight and High Accuracy, Micro-ESPectre Lightweight, ESPHome Lightweight and High Accuracy, and a Matter build-and-flash smoke case with its initial default detector. This is representative benchmark coverage, not a capability matrix: ESPHome, Native, and Matter support persisted runtime switching between both profiles, while Micro-ESPectre deploys Lightweight only. The Matter smoke case does not commission the device or exercise runtime switching. See [tools/README.md](../tools/README.md#firmware-benchmark) for prerequisites and report behavior.
-
-The shared ESP-IDF runtime emits a `[telemetry]` line approximately every 10 seconds at `DEBUG` level. Check that:
-
-- packet flow stays close to the configured rate, normally around `100 pps`
-- motion state remains stable when the environment is still
-- `heap_free`, `heap_min`, and `heap_largest` settle instead of declining continuously
-- `runtime_load`, `loop_avg_us`, and `loop_max_us` remain reasonably stable
-- `detection_avg_us`, `detection_min_us`, and `detection_max_us` remain stable when comparing detector variants
-
-For `high_accuracy`, detector timing includes feature extraction, inference, and state update. `runtime_load` measures the ESPectre runtime loop only; it is not whole-system CPU utilization. Compare results on the same target, Wi-Fi setup, traffic rate, and log level.
-
-## Short Version
-
-1. start with `lightweight`, `segmentation_window_size_ms: 1000`, and no low-pass filter
-2. boot in a quiet room
-3. tune threshold first
-4. touch filters only when threshold alone is not enough
-5. fix placement before chasing small parameter tweaks
+The shared ESP-IDF runtime exposes periodic debug telemetry, but compiler mode, log level, hardware, Wi-Fi setup, and traffic rate must stay fixed for a meaningful firmware comparison. Use the repository [firmware benchmark](../tools/README.md#firmware-benchmark) and generated [performance reports](performance/README.md) for repeatable resource measurements rather than treating an ad hoc tuning session as benchmark evidence.
 
 ## Related Docs
 
@@ -334,5 +239,5 @@ For `high_accuracy`, detector timing includes feature extraction, inference, and
 - [`SETUP.md`](SETUP.md)
 - [`ALGORITHMS.md`](ALGORITHMS.md)
 - [`ARCHITECTURE.md`](ARCHITECTURE.md)
-- [`docs/performance`](performance/README.md)
-- the README of your selected frontend
+- [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md)
+- the README of the selected frontend

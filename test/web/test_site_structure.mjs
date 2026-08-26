@@ -800,7 +800,7 @@ describe('website UX contracts', () => {
             { file: 'architecture', previous: null, next: '/sdk/api/' },
             { file: 'api', previous: '/sdk/architecture/', next: '/sdk/detectors/' },
             { file: 'detectors', previous: '/sdk/api/', next: '/sdk/examples/' },
-            { file: 'examples', previous: '/sdk/detectors/', next: 'https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md' },
+            { file: 'examples', previous: '/sdk/detectors/', next: 'https://github.com/francescopace/espectre/blob/main/docs/SDK.md' },
         ];
         for (const page of sdkPages) {
             const content = read(`docs/web/content/sdk/${page.file}.html`);
@@ -812,7 +812,7 @@ describe('website UX contracts', () => {
                 assert.match(articleNav, new RegExp(`<a href="${page.next}" class="doc-link doc-link-next"`), `${page.file} identifies its next page`);
             }
         }
-        assert.match(read('docs/web/content/sdk/examples.html'), /docs\/EMBEDDING\.md/);
+        assert.match(read('docs/web/content/sdk/examples.html'), /docs\/SDK\.md/);
     });
 
     it('publishes the detector architecture through SDK SPA and static routes', () => {

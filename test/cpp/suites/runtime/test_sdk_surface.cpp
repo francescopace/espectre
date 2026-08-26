@@ -84,7 +84,7 @@ void test_sdk_version_macros_agree_with_each_other(void) {
 }
 
 void test_default_runtime_config_is_a_working_sensing_config(void) {
-  // docs/EMBEDDING.md tells integrators that `RuntimeConfig{}` is usable as is.
+  // docs/SDK.md tells integrators that `RuntimeConfig{}` is usable as is.
   // If a default drifts away from the schema, that promise silently breaks.
   const RuntimeConfig config;
 
@@ -208,11 +208,14 @@ void test_detector_names_round_trip_through_the_protocol_form(void) {
 }
 
 void test_core_only_detector_path_is_reachable_from_the_facade(void) {
-  // The core-only integration path documented on LightweightDetector must be
-  // usable through the explicit core facade.
+  // The core-only integration path, including production temporal admission,
+  // must be usable through the explicit core facade.
   LightweightDetector detector;
+  TemporalCsiSampler sampler(100U, 1000U);
 
   TEST_ASSERT_FALSE(detector.is_ready());
+  TEST_ASSERT_EQUAL(100U, sampler.window_slots());
+  TEST_ASSERT_EQUAL(70U, sampler.minimum_valid_slots());
   TEST_ASSERT_EQUAL(static_cast<int>(MotionState::IDLE), static_cast<int>(detector.get_state()));
   TEST_ASSERT_EQUAL_STRING("Lightweight", detector.get_name());
   TEST_ASSERT_TRUE(detector.set_threshold(LIGHTWEIGHT_DEFAULT_THRESHOLD));

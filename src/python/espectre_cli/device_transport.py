@@ -6,8 +6,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import IntEnum
+import http.client
 import ipaddress
 import json
+import socket
 import threading
 import time
 from typing import Callable, Protocol, Sequence
@@ -345,6 +347,7 @@ class DirectClient:
         origin: str = DEFAULT_DIRECT_ORIGIN,
         timeout: float = 8.0,
         urlopen_factory: Callable[..., HttpResponse] | None = None,
+        persistent_requests: bool = False,
     ) -> None:
         parsed = urlsplit(endpoint)
         if (
@@ -362,8 +365,12 @@ class DirectClient:
         self._next_id = 1
         self.events: list[DirectEvent] = []
         self._urlopen = urlopen if urlopen_factory is None else urlopen_factory
+        self._use_persistent_requests = persistent_requests and urlopen_factory is None
+        self._request_connection: http.client.HTTPConnection | None = None
+        self._request_lock = threading.Lock()
         self._authorization: str | None = None
         self._events_response: HttpResponse | None = None
+        self._events_socket: socket.socket | None = None
         self._events_thread: threading.Thread | None = None
         self._events_stop = threading.Event()
         self._events_ready = threading.Event()
@@ -371,7 +378,49 @@ class DirectClient:
 
     def close(self) -> None:
         self.stop_events()
+        self._close_request_connection()
         self._authorization = None
+
+    def _close_request_connection(self) -> None:
+        connection = self._request_connection
+        self._request_connection = None
+        if connection is not None:
+            connection.close()
+
+    def _persistent_request(
+        self,
+        encoded: bytes,
+        headers: dict[str, str],
+        *,
+        timeout: float,
+    ) -> tuple[int, bytes]:
+        parsed = urlsplit(self.endpoint)
+        connection_type = (
+            http.client.HTTPSConnection
+            if parsed.scheme == "https"
+            else http.client.HTTPConnection
+        )
+        with self._request_lock:
+            for attempt in range(2):
+                try:
+                    connection = self._request_connection
+                    if connection is None:
+                        connection = connection_type(parsed.hostname, parsed.port, timeout=timeout)
+                        self._request_connection = connection
+                    else:
+                        connection.timeout = timeout
+                        if connection.sock is not None:
+                            connection.sock.settimeout(timeout)
+                    connection.request("POST", parsed.path, body=encoded, headers=headers)
+                    response = connection.getresponse()
+                    status = response.status
+                    raw = response.read(DIRECT_MAX_RESPONSE_FRAME_SIZE + 1)
+                    return status, raw
+                except (OSError, TimeoutError, http.client.HTTPException):
+                    self._close_request_connection()
+                    if attempt == 1:
+                        raise
+        raise RuntimeError("unreachable Direct request retry state")
 
     def _events_endpoint(self) -> str:
         parsed = urlsplit(self.endpoint)
@@ -394,6 +443,10 @@ class DirectClient:
             status = int(getattr(response, "status", 200))
             if status != 200:
                 raise DirectProtocolError(f"Direct event stream returned status {status}")
+            raw_socket = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+            if raw_socket is not None:
+                raw_socket.settimeout(None)
+                self._events_socket = raw_socket
             self._events_ready.set()
             event_name = "message"
             data_lines: list[str] = []
@@ -432,7 +485,15 @@ class DirectClient:
                     event_name = value
                 elif field == "data":
                     data_lines.append(value)
-        except (HTTPError, TimeoutError, URLError, OSError, ValueError, DirectProtocolError) as exc:
+        except (
+            HTTPError,
+            TimeoutError,
+            URLError,
+            OSError,
+            ValueError,
+            AttributeError,
+            DirectProtocolError,
+        ) as exc:
             if not self._events_stop.is_set():
                 self._events_error = (
                     exc
@@ -444,6 +505,7 @@ class DirectClient:
             if response is not None:
                 response.close()
             self._events_response = None
+            self._events_socket = None
             self._events_ready.set()
 
     def start_events(self, *, timeout: float | None = None) -> None:
@@ -475,6 +537,12 @@ class DirectClient:
         if thread is None:
             return
         self._events_stop.set()
+        event_socket = self._events_socket
+        if event_socket is not None:
+            try:
+                event_socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
         response = self._events_response
         if response is not None:
             response.close()
@@ -539,6 +607,21 @@ class DirectClient:
         }
         if method == "stop_raw_stream" and self._authorization is not None:
             headers["Authorization"] = f"Bearer {self._authorization}"
+        if self._use_persistent_requests:
+            try:
+                status, raw = self._persistent_request(
+                    encoded,
+                    headers,
+                    timeout=self.timeout if timeout is None else timeout,
+                )
+            except (OSError, TimeoutError, http.client.HTTPException) as exc:
+                raise DirectProtocolError(f"Direct HTTP request failed: {exc}") from exc
+            if status != 200:
+                detail = raw[:512].decode("utf-8", errors="replace").strip()
+                raise DirectProtocolError(f"Direct HTTP {status}: {detail or 'request failed'}")
+            envelope = self._decode(raw)
+            return self._validate_response(envelope, request_id, method)
+
         request = Request(self.endpoint, data=encoded, headers=headers, method="POST")
         response: HttpResponse | None = None
         try:
@@ -556,6 +639,14 @@ class DirectClient:
         if status != 200:
             raise DirectProtocolError(f"Direct HTTP returned status {status}")
         envelope = self._decode(raw)
+        return self._validate_response(envelope, request_id, method)
+
+    def _validate_response(
+        self,
+        envelope: dict[str, object],
+        request_id: str,
+        method: str,
+    ) -> dict[str, object]:
         if envelope.get("command_id") != request_id:
             raise DirectProtocolError("Direct endpoint sent an unknown response identifier")
         if envelope.get("command") != method:

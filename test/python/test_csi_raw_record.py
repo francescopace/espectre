@@ -576,6 +576,13 @@ def test_external_traffic_generator_uses_canonical_ghost_marker():
     assert espectre_traffic_generator.ExternalTrafficGenerator.PAYLOAD == bytes.fromhex("f09f91bb")
 
 
+def test_external_traffic_generator_help_exits_successfully(capsys):
+    assert espectre_traffic_generator.main(["--help"]) == 0
+    output = capsys.readouterr().out
+    assert "python3 espectre_traffic_generator.py start" in output
+    assert "python3 espectre_traffic_generator.py run" in output
+
+
 def test_external_traffic_generator_rates_each_target_and_stops_safely(monkeypatch):
     sockets = []
 

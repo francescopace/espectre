@@ -62,7 +62,7 @@
 
   <h2>Compatibility</h2>
   <p>Final numeric releases follow Semantic Versioning for C++ source compatibility. Patch releases preserve documented behavior, minor releases may add compatible declarations, and breaking changes require a major release. Preview and develop bundles may change before the corresponding final release.</p>
-  <p>The SDK ships as source and does not promise a stable binary ABI. Rebuild the SDK and your integration together, and initialize public structs with their defaults before assigning named fields. The complete contract, including detector-output limits and deprecation rules, lives in the <a href="https://github.com/francescopace/espectre/blob/main/docs/EMBEDDING.md" target="_blank" rel="noopener">embedding guide</a>.</p>
+  <p>The SDK ships as source and does not promise a stable binary ABI. Rebuild the SDK and your integration together, and initialize public structs with their defaults before assigning named fields. The complete contract, including detector-output limits and deprecation rules, lives in the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md" target="_blank" rel="noopener">SDK guide</a>.</p>
 
   <h2>Replacing the runtime</h2>
   <p>A platform port implements <a href="/artifacts/sdk/api/classespectre_1_1_i_espectre_runtime.html"><code>IEspectreRuntime</code></a>. The interface covers lifecycle, state, controls, diagnostics, capabilities, and listener delivery; the existing <code>RuntimeFrontendController</code> remains ESP-IDF-specific and does not inject an arbitrary backend.</p>

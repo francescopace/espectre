@@ -55,7 +55,7 @@ Rejected. Aliases would make both naming systems part of the SDK and configurati
 ## Related
 
 - [ALGORITHMS.md](../ALGORITHMS.md)
-- [EMBEDDING.md](../EMBEDDING.md)
+- [SDK.md](../SDK.md)
 - [CHANGELOG.md](../CHANGELOG.md)
 - [detectors.html](../web/content/guides/detectors.html)
 - [2026-07-15-adopt-persisted-runtime-detector-selection.md](2026-07-15-adopt-persisted-runtime-detector-selection.md)

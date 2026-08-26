@@ -41,7 +41,7 @@ The production trainer admits only the HT20 sensing contract: `phy_mode=ht`, `lt
 | `holdout` | Final validation of the selected winner | No |
 | `exclude` | Retained provenance or diagnostics outside model selection | No |
 
-Entries without an explicit role default to `exclude` and must be admitted explicitly. The quality validator never assigns roles automatically.
+The trainer treats entries without an explicit role as `exclude`, so an incomplete catalog cannot enter fitting or replay by accident. The quality validator is stricter: every entry must declare `dataset_role`, including entries intentionally kept in `exclude`. It never assigns roles automatically.
 
 An `empty` recording marked `long_recording: true` never enters the training matrix. When its role is `selection` or `holdout`, the quiet gate evaluates the complete recording and can block promotion. A long recording in `exclude` remains available only for explicit diagnostics and the generated quality report.
 
@@ -57,23 +57,32 @@ Inspect the admitted corpus and split first:
 python tools/train_ml_model.py --info
 ```
 
-Run a production-compatible train with the promoted augmentation recipe:
-
-```bash
-python tools/train_ml_model.py --augment
-```
-
-Without `--features`, the trainer uses the promoted Subband 8F production order: `turb_iqr_over_mean_aggr`, `turb_autocorr`, `turb_zcr`, `l1_delta_lag_ratio`, `chan_shape_spread_subband`, `chan_shape_coherent_innovation_energy`, `chan_shape_excess_path`, and `chan_shape_subband_kendall_lag_excess`. The trainer runs grouped cross-validation, fits the final candidate, evaluates the deployment replay gates, compares the candidate with the exported baseline, and exports new artifacts only when every promotion requirement passes.
+Without `--features`, the trainer uses the promoted Subband 8F production order: `turb_iqr_over_mean_aggr`, `turb_autocorr`, `turb_zcr`, `l1_delta_lag_ratio`, `chan_shape_spread_subband`, `chan_shape_coherent_innovation_energy`, `chan_shape_excess_path`, and `chan_shape_subband_kendall_lag_excess`.
 
 Use read-only variants while investigating a change:
 
 ```bash
 python tools/train_ml_model.py --augment --no-export
-python tools/train_ml_model.py --augment --evaluate-gates
+python tools/train_ml_model.py --augment --seed SEED --evaluate-selection
+```
+
+`--no-export` runs training and grouped CV without replacing artifacts or opening deployment replays. `--evaluate-selection` adds the clean and occupancy-70% selection gates while keeping holdout sealed. Pass an explicit seed for a controlled comparison; when omitted, the trainer reuses the seed embedded in the exported model when available.
+
+After the feature set, configuration, and seed are fixed, promote a runtime-supported finalist with one production run:
+
+```bash
+python tools/train_ml_model.py --augment --seed SEED
+```
+
+The production run performs grouped cross-validation, fits the candidate, opens the final selection and holdout gates, compares the candidate with the exported baseline, and exports new artifacts only when every promotion requirement passes.
+
+For a host-only finalist that cannot be exported, open the same final gates once without replacing runtime artifacts:
+
+```bash
 python tools/train_ml_model.py --augment --seed SEED --evaluate-gates
 ```
 
-`--no-export` runs the training and grouped-CV path without replacing artifacts. `--evaluate-gates` also evaluates the in-memory candidate on clean reserved replays and occupancy-70% thinned reserved replays without exporting it. Pass an explicit seed when a controlled comparison must be reproducible; when omitted, the trainer reuses the seed embedded in the exported model when available.
+Treat either final result as the validation of a fixed candidate, not as feedback for another tuning round.
 
 For seed search:
 
@@ -126,7 +135,7 @@ Bare `--augment` enables the `base,drift,burst-loss` recipe:
 The exported High Accuracy artifact uses the occupancy-70% `base` scale `0.7-1.0` with a 70 pps floor.
 
 ```bash
-python tools/train_ml_model.py --augment --seed 656446646 --no-export --evaluate-gates
+python tools/train_ml_model.py --augment --seed 656446646 --evaluate-selection
 ```
 
 Production training builds two deterministic packet views with seeds `20260807` and `20260808`, then keeps alternating row positions from the two views within each source recording. This produces approximately one augmented row set rather than doubling the synthetic sample count, while exposing the model to the complementary false-positive and weak-recall stress tails of both seeds. The seed order and per-file modulo assignment are fixed; model seeds do not alter packet augmentation.
@@ -183,12 +192,12 @@ python tools/train_ml_model.py --augment --shap 500 --seed SEED --no-export
 python tools/train_ml_model.py --augment --ablation-feature FEATURE_OR_JOINT_REMOVAL --seed SEED
 ```
 
-Candidate features live in `tools/lib/candidate_features.py`. They may be selected with `--features`, but they cannot be exported until they have matching Python and C++ runtime implementations and a published feature ID. Retired candidate evidence remains in `docs/FEATURES.md`; retired implementations are not kept executable solely for historical comparisons. Use `--evaluate-gates` or `--no-export` while evaluating current candidates.
+Candidate features live in `tools/lib/candidate_features.py`. They may be selected with `--features`, but they cannot be exported until they have matching Python and C++ runtime implementations and a published feature ID. Retired candidate evidence remains in `docs/FEATURES.md`; retired implementations are not kept executable solely for historical comparisons. Use `--no-export` for CV-only work, `--evaluate-selection` while comparing candidates, and `--evaluate-gates` once for the fixed finalist.
 
 Trajectory-bin experiments use the same host streaming path and keep the production `80 ms` default unless explicitly overridden:
 
 ```bash
-python tools/train_ml_model.py --augment --seed SEED --trajectory-bin-ms 50 --evaluate-gates
+python tools/train_ml_model.py --augment --seed SEED --trajectory-bin-ms 50 --evaluate-selection
 ```
 
 Non-default bins are read-only and cannot export runtime artifacts. Their host feature columns use a bin-specific cache identity, while exported-baseline comparisons always retain the canonical production bin.
@@ -219,7 +228,7 @@ A successful promotion updates:
 - `src/cpp/core/ml_weights.h`; and
 - `data/auto_generated/ml_test_data.npz`.
 
-The exported weight files store the training seed and complete runtime arrays. `ml_test_data.npz` is an inference-regression artifact, not a model-selection score.
+The exported weight files store the training seed, timestamp, feature order, scaler, topology, and complete runtime arrays. They do not embed the training corpus revision or the full selection policy. Record the exact `dataset_info.json` revision, admitted roles, timing-quality policy, augmentation recipe, and fitting parameters in the current production section of [FEATURES.md](FEATURES.md). `ml_test_data.npz` is an inference-regression artifact, not a model-selection score.
 
 Do not edit generated weight files manually. Export them through the trainer so Python, C++, and regression data remain aligned.
 
@@ -258,7 +267,7 @@ When the corpus, roles, or dataset-quality logic changes, also regenerate and ve
 .venv/bin/pytest test/python/test_dataset_quality_validation.py -v
 ```
 
-Do not claim a promotion is complete until the generated reports are current and every required Python/C++ gate passes.
+Do not claim a promotion is complete until the generated reports are current, every required Python/C++ gate passes, and [FEATURES.md](FEATURES.md) identifies the promoted run's corpus revision and training contract.
 
 ## Related Documentation
 

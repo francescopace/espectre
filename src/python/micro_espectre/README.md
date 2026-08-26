@@ -15,7 +15,7 @@ The deployed runtime intentionally contains only:
 - mDNS/DNS-SD advertisement and a unique `.local` hostname; and
 - serial logging and the MicroPython REPL.
 
-The device does not deploy the High Accuracy ML detector, ML weights, MQTT, Home Assistant discovery, DNS-over-TCP traffic generation, runtime detector switching, raw CSI streaming, OTA, or configuration mutations. The High Accuracy Python sources remain in the repository for host-side research and C++/Python validation, but `micro deploy` does not copy them to the device.
+The device does not deploy the High Accuracy ML detector, ML weights, MQTT, Home Assistant discovery, the shared C++ DNS-over-TCP generator, runtime detector switching, raw CSI streaming, OTA, or configuration mutations. The High Accuracy Python sources remain in the repository for host-side research and C++/Python validation, but `micro deploy` does not copy them to the device.
 
 ESPectre contributed direct ESP32 Wi-Fi CSI access to mainline MicroPython through [micropython/micropython#18460](https://github.com/micropython/micropython/pull/18460). Micro-ESPectre builds a pinned mainline revision with a lean ESPectre board profile rather than using the earlier CSI fork.
 
@@ -44,14 +44,14 @@ WIFI_PASSWORD = "YourWiFiPassword"
 
 The firmware image freezes only MicroPython's upstream boot and filesystem helpers. The complete ESPectre application is compiled to optimized `.mpy -O3` bytecode and stored on the filesystem, so research changes require only `micro deploy`, not a firmware rebuild and flash. Deployment uploads the complete manifest to a staging directory and atomically activates it, restoring the previous directory after an interrupted swap. The device and `mpy-cross` use MPY ABI 6.3.
 
-The native firmware components are the ICMP generator and the Direct HTTP/mDNS service. Bluetooth, ESP-NOW, asyncio, Ethernet, unused peripheral bindings, and unused generic Python modules remain disabled.
+The native firmware components are the ICMP traffic generator and the Direct HTTP/mDNS service. Bluetooth, ESP-NOW, asyncio, Ethernet, unused peripheral bindings, and unused generic Python modules remain disabled.
 
 ## Runtime behavior
 
 The runtime uses this fixed sensing path:
 
 ```text
-Wi-Fi -> native ICMP traffic -> CSI temporal sampler -> Lightweight calibration -> detection -> Direct SSE and serial
+Wi-Fi -> native managed traffic -> CSI temporal sampler -> Lightweight calibration -> detection -> Direct SSE and serial
 ```
 
 Key settings live in `config.py`:
@@ -65,9 +65,9 @@ MOTION_ON_HITS = 4
 MOTION_OFF_HITS = 3
 ```
 
-`CSI_TARGET_PPS` defines the detector grid and ICMP target rate. Setting `TRAFFIC_GENERATOR_ENABLED = False` requires an external CSI traffic source. The production `TemporalCsiSampler` retains the packet nearest each slot center, preserves missing slots, and keeps the live detector geometry independent from observed network jitter.
+`CSI_TARGET_PPS` defines the detector grid and ICMP target rate. Setting `TRAFFIC_GENERATOR_ENABLED = False` requires an external CSI traffic source. These values are deployment settings rather than runtime mutations. The production `TemporalCsiSampler` retains the packet nearest each slot center, preserves missing slots, and keeps the live detector geometry independent from observed network jitter.
 
-Lightweight selects its threshold during startup calibration. Keep the room quiet immediately after boot; insufficient valid quiet coverage extends calibration. See [TUNING.md](../../../docs/TUNING.md) and [ALGORITHMS.md](../../../docs/ALGORITHMS.md) for the current filter and detector rationale.
+Lightweight selects its threshold during startup calibration. Keep the room quiet immediately after boot for the most predictable fallback; a clean `quiet -> motion -> quiet` pattern can finish early, while insufficient valid temporal coverage extends calibration. See [TUNING.md](../../../docs/TUNING.md) and [ALGORITHMS.md](../../../docs/ALGORITHMS.md) for the current filter and detector rationale.
 
 ## Direct HTTP surface
 

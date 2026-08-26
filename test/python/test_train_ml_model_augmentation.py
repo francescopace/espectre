@@ -613,6 +613,47 @@ def test_main_allows_production_augmentation_for_shap(monkeypatch):
     assert captured["export_artifacts"] is False
 
 
+def test_main_evaluate_selection_keeps_holdout_sealed(monkeypatch):
+    captured = {}
+
+    def fake_train_all(**kwargs):
+        captured.update(kwargs)
+        return 0, kwargs["seed"], {}
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "train_ml_model.py",
+            "--augment",
+            "--seed",
+            "1049082371",
+            "--evaluate-selection",
+        ],
+    )
+    monkeypatch.setattr(trainer, "train_all", fake_train_all)
+
+    assert trainer.main() == 0
+    assert captured["export_artifacts"] is False
+    assert captured["evaluate_deployment"] is True
+    assert captured["deployment_roles"] == ("selection",)
+
+
+def test_main_rejects_both_gate_evaluation_modes(monkeypatch, capsys):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "train_ml_model.py",
+            "--evaluate-selection",
+            "--evaluate-gates",
+        ],
+    )
+
+    assert trainer.main() == 1
+    assert "mutually exclusive" in capsys.readouterr().out
+
+
 def test_cross_validate_shap_uses_clean_background_with_packet_augmentation(
     monkeypatch,
 ):

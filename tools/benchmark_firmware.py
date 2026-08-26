@@ -18,18 +18,21 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 import hashlib
+import ipaddress
 import json
 import math
 import os
 from pathlib import Path
 import re
 import signal
+import socket
 import statistics
 import subprocess
 import sys
 import threading
 import time
 from typing import Callable, Iterator, Sequence
+from urllib.parse import urlsplit
 
 from dotenv import dotenv_values
 
@@ -43,7 +46,12 @@ from src.python.espectre_cli.common import FIRMWARE_CACHE_DIR, detect_chip_type,
 from src.python.espectre_cli.idf import resolve_idf_build_dir_name
 from src.python.espectre_cli.micro import deployment_files
 from src.python.espectre_cli.micro_firmware import PROJECT_FIRMWARE_NAMES
-from src.python.espectre_cli.device_discovery import DeviceDiscoveryError, DiscoveredDevice, discover_devices
+from src.python.espectre_cli.device_discovery import (
+    ESPECTRE_DIRECT_PORT,
+    DeviceDiscoveryError,
+    DiscoveredDevice,
+    discover_devices,
+)
 from src.python.espectre_cli.targets import ESPHOME_CONFIGS, ESPHOME_EXAMPLES_DIR, IDF_FRONTENDS
 from src.python.micro_espectre.temporal_csi_sampler import (
     MINIMUM_COVERAGE_DENOMINATOR,
@@ -85,9 +93,12 @@ MICRO_SOURCE_DIR = REPO_ROOT / "src/python/micro_espectre"
 MOTION_WARMUP_SAMPLES = 3
 STABLE_STATUS_WARMUP_SAMPLES = 5
 STATUS_STABLE_WAIT_SECONDS = 30
-BENCHMARK_CONTROL_TIMEOUT_SECONDS = 8.0
+BENCHMARK_CONTROL_TIMEOUT_SECONDS = 30.0
 RUNTIME_STATUS_GAP_TOLERANCE_MS = 500
 RUNTIME_STATUS_BOUNDARY_TOLERANCE_SAMPLES = 1
+MICRO_BENCHMARK_PPS = 40
+CPP_BENCHMARK_UDP_PORT = 5555
+CPP_BENCHMARK_TRAFFIC_MARKER = b"\xf0\x9f\x91\xbb"
 
 SUPPORTED_CHIPS = tuple(sorted(set(ESPHOME_CONFIGS) & set(IDF_FRONTENDS["native"]["targets"])))
 CHIP_LABELS = {
@@ -170,6 +181,9 @@ COLLECT_DETAIL_RE = re.compile(
     r"\s+thr:(?P<threshold>-?[0-9.]+)\s+\|\s+(?P<state>MOTION|IDLE)\s+\|"
     r"\s+csi:(?P<pps>\d+)/\d+\s+tx:\d+\s+occ:\d+%\s+miss:\d+\s+excess:\d+\s+stale:\d+\s+ooo:\d+"
     r"\s+\|\s+ch:(?P<channel>\S+)\s+rssi:(?P<rssi>\S+)"
+)
+MICRO_WIFI_IP_RE = re.compile(
+    r"WiFi connected - IP:\s*(?P<ip>\d{1,3}(?:\.\d{1,3}){3})\b"
 )
 
 
@@ -407,6 +421,17 @@ def benchmark_setting_int(name: str, default: int) -> int:
     return int(value)
 
 
+def benchmark_csi_target_pps() -> int:
+    """Return an optional benchmark cadence override."""
+    target_pps = benchmark_setting_int("ESPECTRE_BENCHMARK_CSI_TARGET_PPS", 0)
+    if target_pps < 0 or target_pps > 1000:
+        raise RuntimeError(
+            "ESPECTRE_BENCHMARK_CSI_TARGET_PPS must be 1..1000, "
+            "or 0 to keep the frontend default"
+        )
+    return target_pps
+
+
 def quote_kconfig_string(value: str) -> str:
     escaped = value.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
@@ -445,6 +470,15 @@ def require_benchmark_prerequisites(cases: Sequence[BenchmarkCase]) -> None:
     if any(case.frontend != "matter" for case in cases):
         require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID")
         require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD")
+    if (
+        any(case.frontend == "native" for case in cases)
+        and benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0) > 0
+        and not benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "")
+    ):
+        raise RuntimeError(
+            "ESPECTRE_BENCHMARK_WIFI_CHANNEL requires "
+            "ESPECTRE_BENCHMARK_WIFI_BSSID so the benchmark can pin and verify one access point"
+        )
 
 
 def append_benchmark_frontend_defaults(frontend: str, override_lines: list[str]) -> None:
@@ -767,6 +801,23 @@ def _output_has_sensing_status(output_lines: Sequence[str]) -> bool:
 
 def _output_has_fatal_log(output_lines: Sequence[str]) -> bool:
     return any(pattern in line for line in output_lines for pattern in FATAL_PATTERNS)
+
+
+def wait_for_micro_direct_endpoint(
+    process: subprocess.Popen[str],
+    output_lines: Sequence[str],
+    *,
+    timeout_seconds: float = WIFI_CONNECT_WAIT_SECONDS,
+) -> str:
+    """Return the Direct endpoint reported by the running Micro serial console."""
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline and process.poll() is None:
+        match = MICRO_WIFI_IP_RE.search("".join(output_lines))
+        if match is not None:
+            address = ipaddress.IPv4Address(match.group("ip"))
+            return f"http://{address}:{ESPECTRE_DIRECT_PORT}{DIRECT_PATH}"
+        time.sleep(0.25)
+    raise RuntimeError("Micro-ESPectre did not report its Wi-Fi address on the serial console")
 
 
 def max_runtime_status_gap_ms() -> int:
@@ -1384,6 +1435,69 @@ def apply_esphome_benchmark_wifi(content: str) -> str:
     return "\n".join(updated_lines) + ("\n" if content.endswith("\n") else "")
 
 
+def apply_esphome_benchmark_identity(content: str, chip: str) -> str:
+    """Isolate the temporary node from configured Home Assistant clients."""
+    updated, name_replacements = re.subn(
+        r"^(\s*name:\s*)[^\s#]+(\s*(?:#.*)?)$",
+        rf"\g<1>espectre-benchmark-{chip}\g<2>",
+        content,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if name_replacements != 1:
+        raise RuntimeError("could not set ESPHome benchmark node name")
+    remove_api = benchmark_setting("ESPECTRE_BENCHMARK_REMOVE_ESPHOME_API", "") == "1"
+    disable_api_listener = (
+        benchmark_setting("ESPECTRE_BENCHMARK_DISABLE_ESPHOME_API_LISTENER", "") == "1"
+    )
+    if remove_api and disable_api_listener:
+        raise RuntimeError("ESPHome benchmark API removal and listener isolation are mutually exclusive")
+    # This fixed lab-only key keeps the API in the normal benchmark image while
+    # preventing an existing Home Assistant entry from injecting uncontrolled
+    # traffic into the scored window. Full removal is a diagnostic-only option.
+    api_replacement = (
+        ""
+        if remove_api
+        else r"\1api:\n\1  encryption:\n\1    key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    )
+    updated, api_replacements = re.subn(
+        r"^(\s*)api:\s*$",
+        api_replacement,
+        updated,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if api_replacements != 1:
+        raise RuntimeError("could not isolate ESPHome API in benchmark config")
+    if remove_api:
+        # The shared package advertises an import URL for dashboards, which is
+        # only valid when the API component exists. Remove that metadata too so
+        # this diagnostic image has no API dependency or API mDNS service.
+        updated = f"{updated.rstrip()}\n\ndashboard_import: !remove\n"
+    if disable_api_listener:
+        if re.search(r"^\s+on_boot:\s*$", updated, flags=re.MULTILINE):
+            raise RuntimeError("ESPHome benchmark API isolation requires a config without on_boot")
+        updated, boot_replacements = re.subn(
+            rf"^(\s*name:\s*espectre-benchmark-{re.escape(chip)}\s*(?:#.*)?)$",
+            (
+                r"\1\n"
+                "  on_boot:\n"
+                "    - priority: -100\n"
+                "      then:\n"
+                "        - lambda: |-\n"
+                "            if (esphome::api::global_api_server != nullptr) {\n"
+                "              esphome::api::global_api_server->on_shutdown();\n"
+                "            }"
+            ),
+            updated,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        if boot_replacements != 1:
+            raise RuntimeError("could not disable the ESPHome benchmark API listener")
+    return updated
+
+
 def render_micro_benchmark_config() -> str:
     """Configure Micro laboratory Wi-Fi and native ping traffic."""
     values: list[tuple[str, object]] = [
@@ -1391,6 +1505,7 @@ def render_micro_benchmark_config() -> str:
         ("WIFI_PASSWORD", require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD")),
         ("WIFI_BSSID", benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "")),
         ("WIFI_CHANNEL", benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)),
+        ("CSI_TARGET_PPS", MICRO_BENCHMARK_PPS),
         ("TRAFFIC_GENERATOR_ENABLED", True),
     ]
     lines = [
@@ -1399,6 +1514,53 @@ def render_micro_benchmark_config() -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+class _BenchmarkUdpTrafficSource:
+    """Send canonical external CSI traffic to one benchmark endpoint."""
+
+    def __init__(self, host: str, port: int, rate_pps: int):
+        self.host = host
+        self.port = port
+        self.rate_pps = rate_pps
+        self._stop = threading.Event()
+        self._socket: socket.socket | None = None
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._thread = threading.Thread(
+            target=self._send,
+            name="firmware-benchmark-udp-source",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def _send(self) -> None:
+        assert self._socket is not None
+        target = (self.host, self.port)
+        interval = 1.0 / self.rate_pps
+        next_send = time.monotonic()
+        while not self._stop.is_set():
+            now = time.monotonic()
+            if now < next_send:
+                self._stop.wait(next_send - now)
+                continue
+            try:
+                self._socket.sendto(CPP_BENCHMARK_TRAFFIC_MARKER, target)
+            except OSError:
+                if self._stop.is_set():
+                    break
+            next_send += interval
+            if next_send < now:
+                next_send = now + interval
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._socket is not None:
+            self._socket.close()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
 
 
 @contextmanager
@@ -1436,7 +1598,27 @@ def esphome_case_config(chip: str, detector: str, port: str | None = None) -> It
     )
     if replacements != 1:
         raise RuntimeError(f"could not set detector in {source_path}")
+    target_pps = benchmark_csi_target_pps()
+    if target_pps > 0:
+        updated, target_replacements = re.subn(
+            r"^(\s*csi_target_pps:\s*)\d+(\s*(?:#.*)?)$",
+            rf"\g<1>{target_pps}\g<2>",
+            updated,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        if target_replacements == 0:
+            updated, target_replacements = re.subn(
+                r"^(\s*detection_algorithm:.*)$",
+                rf"\1\n  csi_target_pps: {target_pps}",
+                updated,
+                count=1,
+                flags=re.MULTILINE,
+            )
+        if target_replacements != 1:
+            raise RuntimeError(f"could not set CSI target in {source_path}")
     updated = apply_esphome_benchmark_wifi(updated)
+    updated = apply_esphome_benchmark_identity(updated, chip)
 
     temporary_path = source_path.parent / f".espectre-benchmark-{chip}-{detector}.yaml"
     if temporary_path.exists():
@@ -1465,6 +1647,7 @@ def idf_case_environment(frontend: str, chip: str, detector: str) -> Iterator[di
     ]
     append_benchmark_frontend_defaults(frontend, override_lines)
     if frontend == "native":
+        target_pps = benchmark_csi_target_pps()
         override_lines.extend(
             [
                 (
@@ -1479,6 +1662,8 @@ def idf_case_environment(frontend: str, chip: str, detector: str) -> Iterator[di
                 ),
             ]
         )
+        if target_pps > 0:
+            override_lines.append(f"CONFIG_ESPECTRE_CSI_TARGET_PPS={target_pps}")
     override_lines.append("")
     override = "\n".join(override_lines)
     temporary_path = app_dir / f".espectre-benchmark-{chip}-{detector}.defaults"
@@ -2001,6 +2186,22 @@ def direct_handshake(client: DirectClient, *, frontend: str, chip: str) -> dict[
 
 
 def prepare_direct_runtime(client: DirectClient, case: BenchmarkCase, *, chip: str) -> dict[str, dict[str, object]]:
+    csi_traffic_mode = benchmark_setting(
+        "ESPECTRE_BENCHMARK_CSI_TRAFFIC_MODE",
+        "internal",
+    )
+    if csi_traffic_mode not in {"internal", "external"}:
+        raise RuntimeError(
+            "ESPECTRE_BENCHMARK_CSI_TRAFFIC_MODE must be internal or external"
+        )
+    traffic_generator_mode = benchmark_setting(
+        "ESPECTRE_BENCHMARK_TRAFFIC_GENERATOR_MODE",
+        "ping",
+    )
+    if traffic_generator_mode not in {"ping", "dns"}:
+        raise RuntimeError(
+            "ESPECTRE_BENCHMARK_TRAFFIC_GENERATOR_MODE must be ping or dns"
+        )
     handshake = direct_handshake(client, frontend=case.frontend, chip=chip)
     methods = {
         str(item.get("name"))
@@ -2018,8 +2219,12 @@ def prepare_direct_runtime(client: DirectClient, case: BenchmarkCase, *, chip: s
         missing = sorted(required - methods)
         if missing:
             raise RuntimeError(f"Direct endpoint lacks required methods: {', '.join(missing)}")
-        client.request("set_csi_traffic_mode", {"csi_traffic_mode": "internal"})
-        client.request("set_traffic_generator_mode", {"traffic_generator_mode": "ping"})
+        client.request("set_csi_traffic_mode", {"csi_traffic_mode": csi_traffic_mode})
+        if csi_traffic_mode == "internal":
+            client.request(
+                "set_traffic_generator_mode",
+                {"traffic_generator_mode": traffic_generator_mode},
+            )
         client.request("set_detector", {"detector": case.detector})
     if "set_sensing" in methods:
         client.request("set_sensing", {"enabled": True})
@@ -2035,10 +2240,18 @@ def prepare_direct_runtime(client: DirectClient, case: BenchmarkCase, *, chip: s
         detector = runtime_config.get("detector") or (detection.get("algorithm") if isinstance(detection, dict) else None)
         if detector != case.detector:
             raise RuntimeError(f"Direct endpoint did not confirm detector {case.detector}")
-        if runtime_config.get("csi_traffic_mode") not in {None, "internal"}:
-            raise RuntimeError("Direct endpoint did not confirm internal CSI traffic")
-        if runtime_config.get("traffic_generator_mode") not in {None, "ping"}:
-            raise RuntimeError("Direct endpoint did not confirm ping traffic generation")
+        if runtime_config.get("csi_traffic_mode") not in {None, csi_traffic_mode}:
+            raise RuntimeError(
+                f"Direct endpoint did not confirm {csi_traffic_mode} CSI traffic"
+            )
+        if (
+            csi_traffic_mode == "internal"
+            and runtime_config.get("traffic_generator_mode") not in {None, traffic_generator_mode}
+        ):
+            raise RuntimeError(
+                "Direct endpoint did not confirm "
+                f"{traffic_generator_mode} traffic generation"
+            )
     return {**handshake, **confirmation}
 
 
@@ -2147,7 +2360,12 @@ def _connect_direct_with_retry(
     while time.monotonic() < deadline:
         client: DirectClient | None = None
         try:
-            client = DirectClient(candidate, origin=DIRECT_ORIGIN, timeout=BENCHMARK_CONTROL_TIMEOUT_SECONDS)
+            client = DirectClient(
+                candidate,
+                origin=DIRECT_ORIGIN,
+                timeout=BENCHMARK_CONTROL_TIMEOUT_SECONDS,
+                persistent_requests=True,
+            )
             client.request("capabilities")
             return client
         except (OSError, RuntimeError, TimeoutError) as exc:
@@ -2250,15 +2468,17 @@ def run_cpp_build_flash_case(case: BenchmarkCase, chip: str, port: str) -> Bench
 
 def _apply_native_radio_pin(client: DirectClient) -> bool:
     bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "") or ""
-    channel = benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)
-    if not bssid and channel <= 0:
+    if not bssid:
         return False
-    params: dict[str, object] = {}
-    if bssid:
-        params["bssid"] = bssid
-    if channel > 0:
-        params["channel"] = channel
-    client.request("set_wifi_config", params)
+    requested_channel = benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)
+    config = client.request("config")
+    wifi = config.get("wifi") if isinstance(config.get("wifi"), dict) else {}
+    if isinstance(wifi, dict):
+        bssid_matches = str(wifi.get("bssid", "")).casefold() == bssid.casefold()
+        channel_matches = requested_channel <= 0 or _integer(wifi.get("channel")) == requested_channel
+        if wifi.get("configured") is True and bssid_matches and channel_matches:
+            return False
+    client.request("set_wifi_bssid", {"bssid": bssid})
     return True
 
 
@@ -2368,24 +2588,50 @@ def run_direct_frontend_cases(
     else:
         endpoint = discover_direct_device(frontend).endpoint
 
-    client = _connect_direct_with_retry(endpoint, frontend=frontend)
+    monitor_command = [str(REPO_ROOT / "espectre"), "monitor", "--port", port]
+    (
+        monitor_process,
+        monitor_output,
+        monitor_line_times,
+        monitor_relay,
+        monitor_started,
+    ) = _run_background_command(
+        monitor_command,
+        output_prefix=f"[{FRONTEND_LABELS[frontend]} serial] ",
+    )
+    time.sleep(1.0)
+    client: DirectClient | None = None
+    results: list[BenchmarkResult] = []
     try:
+        client = _connect_direct_with_retry(endpoint, frontend=frontend)
         baseline = direct_handshake(client, frontend=frontend, chip=chip)
         if frontend == "native":
             _verify_native_baseline(baseline)
-            if _apply_native_radio_pin(client):
+            radio_pin_applied = _apply_native_radio_pin(client)
+            if radio_pin_applied:
                 client.close()
                 endpoint = discover_direct_device("native").endpoint
                 client = _connect_direct_with_retry(endpoint, frontend="native")
                 baseline = direct_handshake(client, frontend="native", chip=chip)
                 _verify_native_baseline(baseline)
+            if benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", ""):
                 _verify_native_radio_pin(client)
 
-        results: list[BenchmarkResult] = []
         for case in selected_cases:
             result = _clone_direct_result(case, bootstrap)
+            traffic_source: _BenchmarkUdpTrafficSource | None = None
             try:
                 prepare_direct_runtime(client, case, chip=chip)
+                if benchmark_setting("ESPECTRE_BENCHMARK_CSI_TRAFFIC_MODE", "internal") == "external":
+                    host = urlsplit(client.endpoint).hostname
+                    if not host:
+                        raise RuntimeError("Direct endpoint has no host for external CSI traffic")
+                    traffic_source = _BenchmarkUdpTrafficSource(
+                        host,
+                        CPP_BENCHMARK_UDP_PORT,
+                        benchmark_csi_target_pps() or 100,
+                    )
+                    traffic_source.start()
                 wait_for_direct_runtime_ready(client, require_publish_ready=True)
                 result.direct_samples, result.direct_events = capture_direct_window(
                     client,
@@ -2427,6 +2673,9 @@ def run_direct_frontend_cases(
             except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
                 result.status = "FAIL"
                 result.reasons.append(str(exc))
+            finally:
+                if traffic_source is not None:
+                    traffic_source.stop()
             results.append(result)
         try:
             client.request("set_sensing", {"enabled": False})
@@ -2434,7 +2683,26 @@ def run_direct_frontend_cases(
             pass
         return results
     finally:
-        client.close()
+        if client is not None:
+            client.close()
+        monitor_exited_early = monitor_process.poll() is not None
+        if not monitor_exited_early:
+            _terminate_process(monitor_process)
+        monitor_result = _finalize_background_command(
+            monitor_process,
+            monitor_output,
+            monitor_line_times,
+            monitor_relay,
+            monitor_started,
+            monitor_command,
+        )
+        for result in results:
+            result.monitor = monitor_result
+            if monitor_exited_early:
+                result.status = "FAIL"
+                result.reasons.append(
+                    f"serial log drain exited early with status {monitor_result.returncode}"
+                )
 
 
 def run_direct_frontend_cases_safely(
@@ -2612,8 +2880,12 @@ def run_micro_case(
         process, output_lines, line_times, relay_thread, started = _run_background_command(run_command_line)
         client: DirectClient | None = None
         try:
-            endpoint = discover_direct_device("micro").endpoint
-            client = _connect_direct_with_retry(endpoint, frontend="micro")
+            endpoint = wait_for_micro_direct_endpoint(process, output_lines)
+            client = _connect_direct_with_retry(
+                endpoint,
+                frontend="micro",
+                timeout_seconds=WIFI_CONNECT_WAIT_SECONDS + DIRECT_DISCOVERY_TIMEOUT_SECONDS,
+            )
             prepare_micro_direct_runtime(client, case, chip=chip)
             wait_for_direct_runtime_ready(client, require_publish_ready=True)
             result.direct_samples, result.direct_events = capture_direct_window(
@@ -2638,7 +2910,8 @@ def run_micro_case(
         finally:
             if client is not None:
                 client.close()
-            if process.poll() is None:
+            runtime_exited_early = process.poll() is not None
+            if not runtime_exited_early:
                 _terminate_process(process)
             result.monitor = _finalize_background_command(
                 process,
@@ -2648,8 +2921,8 @@ def run_micro_case(
                 started,
                 run_command_line,
             )
-        if result.monitor.returncode != 0:
-            result.reasons.append(f"runtime launcher exited with status {result.monitor.returncode}")
+        if runtime_exited_early:
+            result.reasons.append(f"runtime launcher exited early with status {result.monitor.returncode}")
         result.status = "PASS" if not result.reasons else "FAIL"
     except (OSError, RuntimeError, ValueError) as exc:
         result.status = "FAIL"

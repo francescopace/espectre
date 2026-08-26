@@ -172,7 +172,7 @@ must not include, query, or call higher layers.
 
 - Treat everything reachable from `src/cpp/espectre_sdk.h` as the published SDK
 surface. Adding a public type there means updating the facade include, the
-`src/cpp/Doxyfile` INPUT list, and the header map in `docs/EMBEDDING.md` in the
+`src/cpp/Doxyfile` INPUT list, and the header map in `docs/SDK.md` in the
 same change. `test/python/test_sdk_surface_invariants.py` enforces this.
 - Forward declarations are fine inside the surface, but the definition must
 still arrive through the facade. A type an integrator can name in a signature

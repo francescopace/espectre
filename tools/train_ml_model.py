@@ -9108,11 +9108,14 @@ def main():
                             f'(default: {CHANNEL_SHAPE_BIN_US // 1000}; '
                             'non-default values cannot export runtime artifacts)')
     parser.add_argument('--evaluate-gates', action='store_true',
-                       help='Run the deployment replay gates and report them without '
-                            'exporting runtime artifacts. This is how a host-side '
-                            'candidate is measured against the clean paired and quiet '
-                            'gates plus the occupancy-70%% thinned reserved replays, '
-                            'since a candidate cannot be exported')
+                       help='Run the final selection and holdout deployment replay '
+                            'gates without exporting runtime artifacts. Use only after '
+                            'the candidate and seed are fixed; repeated use opens the '
+                            'reserved holdout')
+    parser.add_argument('--evaluate-selection', action='store_true',
+                       help='Run only the selection deployment replay gates without '
+                            'exporting runtime artifacts. Use while comparing candidates '
+                            'so the holdout remains sealed')
     parser.add_argument('--no-export', action='store_true',
                        help='Leave runtime artifacts unchanged (CV-only for normal training; '
                             'also use with --shap / --ablation-feature diagnostics)')
@@ -9161,6 +9164,9 @@ def main():
                             'and evaluate on the held-out chip. '
                             'Diagnostic only; does not train a promotable model or export artifacts')
     args = parser.parse_args()
+    if args.evaluate_gates and args.evaluate_selection:
+        print("Error: --evaluate-gates and --evaluate-selection are mutually exclusive")
+        return 1
     try:
         set_active_trajectory_bin_ms(args.trajectory_bin_ms)
     except ValueError as exc:
@@ -9206,6 +9212,7 @@ def main():
             and not (
                 args.no_export
                 or args.evaluate_gates
+                or args.evaluate_selection
                 or args.shap is not None
                 or args.ablation_feature
                 or args.correlation
@@ -9225,7 +9232,7 @@ def main():
             print(
                 "Error: feature(s) without a C++ extractor id cannot be "
                 f"exported: {', '.join(unsupported)}. Use --no-export or "
-                "--evaluate-gates until they are promoted"
+                "--evaluate-selection until they are promoted"
             )
             return 1
         if host_only:
@@ -9245,6 +9252,7 @@ def main():
         and not (
             args.no_export
             or args.evaluate_gates
+            or args.evaluate_selection
             or args.shap is not None
             or args.ablation_feature
             or args.correlation
@@ -9256,7 +9264,7 @@ def main():
     ):
         print(
             "Error: a non-default --trajectory-bin-ms is experimental and "
-            "requires a read-only flow such as --no-export or --evaluate-gates"
+            "requires a read-only flow such as --no-export or --evaluate-selection"
         )
         return 1
     if ACTIVE_TRAJECTORY_BIN_US != CHANNEL_SHAPE_BIN_US:
@@ -9462,11 +9470,17 @@ def main():
         export_artifacts=(
             not args.no_export
             and not args.evaluate_gates
+            and not args.evaluate_selection
             and args.shap is None
         ),
         evaluate_deployment=(
-            (args.evaluate_gates or not args.no_export)
+            (args.evaluate_gates or args.evaluate_selection or not args.no_export)
             and args.shap is None
+        ),
+        deployment_roles=(
+            ('selection',)
+            if args.evaluate_selection
+            else ('selection', 'holdout')
         ),
         force_export=args.force_promote,
     )

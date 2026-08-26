@@ -5,7 +5,7 @@ ESPectre - SDK Surface Invariants
 
 Guards the invariants that keep the published C++ SDK surface coherent, which
 a compiler cannot see because they hold across separate artifacts: the
-`espectre_sdk.h` facade, the Doxygen input list, and the embedding guide.
+`espectre_sdk.h` facade, the Doxygen input list, and the SDK guide.
 
 The failure these protect against is a real one: a public type added to the
 runtime layer, used in a facade-visible signature, but never made reachable
@@ -26,7 +26,7 @@ CPP_ROOT = REPO_ROOT / "src" / "cpp"
 FACADE = CPP_ROOT / "espectre_sdk.h"
 CORE_FACADE = CPP_ROOT / "espectre_core_sdk.h"
 DOXYFILE = CPP_ROOT / "Doxyfile"
-EMBEDDING_GUIDE = REPO_ROOT / "docs" / "EMBEDDING.md"
+SDK_GUIDE = REPO_ROOT / "docs" / "SDK.md"
 RUNTIME_INTERNAL_HEADERS = {
     "core/base_detector.h",
     "core/csi_features.h",
@@ -52,6 +52,7 @@ CORE_PUBLIC_HEADERS = {
     "core/filter_config.h",
     "core/high_accuracy_detector.h",
     "core/lightweight_detector.h",
+    "core/temporal_csi_sampler.h",
 }
 CORE_IMPLEMENTATION_HEADERS = {
     "core/csi_features.h",
@@ -206,22 +207,22 @@ def test_core_facade_is_complete_documented_and_mapped() -> None:
         f"{sorted(CORE_IMPLEMENTATION_HEADERS & doxygen_input_headers())}"
     )
 
-    guide = EMBEDDING_GUIDE.read_text(encoding="utf-8")
+    guide = SDK_GUIDE.read_text(encoding="utf-8")
     documented = set(re.findall(r"`([\w/]+\.h)`", guide))
     assert not (CORE_PUBLIC_HEADERS - documented), (
-        f"supported core SDK headers are missing from the {EMBEDDING_GUIDE.name} "
+        f"supported core SDK headers are missing from the {SDK_GUIDE.name} "
         f"header map: {sorted(CORE_PUBLIC_HEADERS - documented)}"
     )
 
 
-def test_supported_headers_appear_in_the_embedding_header_map() -> None:
-    """The embedding guide's header map is the human index of the same surface."""
-    guide = EMBEDDING_GUIDE.read_text(encoding="utf-8")
+def test_supported_headers_appear_in_the_sdk_header_map() -> None:
+    """The SDK guide's header map is the human index of the same surface."""
+    guide = SDK_GUIDE.read_text(encoding="utf-8")
     # The map groups related headers on one row, so match anywhere in the guide
     # rather than trying to parse the table structure.
     documented = set(re.findall(r"`([\w/]+\.h)`", guide))
     missing = sorted(facade_reachable_header_names() - documented)
     assert not missing, (
-        f"headers reachable from {FACADE.name} are missing from the {EMBEDDING_GUIDE.name} "
+        f"headers reachable from {FACADE.name} are missing from the {SDK_GUIDE.name} "
         f"header map: {missing}"
     )

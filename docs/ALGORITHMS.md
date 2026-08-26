@@ -41,7 +41,7 @@ Lightweight and High Accuracy are both production paths because they optimize di
 - **Lightweight Detection minimizes active detector cost.** It uses two scalar feature streams, does not allocate the ML-only L1 and trajectory state, and performs less per-packet work. This leaves more CPU time and working memory for constrained chips or products in which sensing is only one firmware feature. The trade-off is lower accuracy and weaker generalization than High Accuracy on the maintained corpus.
 - **High-Accuracy Detection prioritizes detection quality.** Its ML implementation maintains eight production features and runs a compact neural network, increasing memory and computation while improving accuracy and transfer across recorded environments. Its trained threshold also removes Lightweight's initial quiet-room calibration.
 
-Lightweight calibration requires about 10 seconds of clean, ready CSI coverage after temporal warmup. Its wall-clock duration can be longer when slots are missing, and it remains in calibration rather than consuming its budget with an invalid window. High Accuracy skips threshold calibration but still waits for CSI readiness and enough samples to fill its feature window. In images that support runtime profile switching, choosing Lightweight reduces active working state and per-packet detector work; it does not necessarily remove ML code or weights from flash.
+Lightweight calibration consumes up to 10 seconds of temporally valid, ready CSI coverage after temporal warmup. It can complete early when the motion-first gate observes a stable quiet anchor, sustained motion, and a return to quiet; otherwise it uses the quiet-first fallback within the same evidence budget. Missing slots can extend the wall-clock duration because an invalid window does not consume the budget. High Accuracy skips threshold calibration but still waits for CSI readiness and enough samples to fill its feature window. In images that support runtime profile switching, choosing Lightweight reduces active working state and per-packet detector work; it does not necessarily remove ML code or weights from flash.
 
 ## Processing Pipeline
 
@@ -63,7 +63,7 @@ At boot:
 - `lightweight` performs startup threshold calibration
 - `high_accuracy` starts from its trained default threshold once CSI capture is active and its feature window has filled
 
-With the default `1000 ms` detector window and `100 pps` target, the `lightweight` startup budget is ten seconds of clean equivalent slot coverage after the detector first becomes ready. Missing slots do not become synthetic packets, same-slot bursts do not advance calibration, and a contaminating window-sized gap restarts it. Ten seconds is the required valid evidence, not a wall-clock timeout.
+With the default `1000 ms` detector window and `100 pps` target, the `lightweight` startup budget is ten seconds of valid equivalent slot coverage after the detector first becomes ready. Missing slots do not become synthetic packets, same-slot bursts do not advance calibration, and a contaminating window-sized gap restarts it. Successful motion-first calibration can finish before the budget is exhausted; quiet-first fallback must converge within it. The budget measures admissible evidence, not a wall-clock timeout.
 
 ## Detector Timing
 
@@ -82,9 +82,9 @@ The runtime derives fixed slots from `csi_target_pps`, not from measured arrival
 
 Calibration and steady-state detection share one cadence. Both paths evaluate admitted packets on the same schedule.
 
-The detector instance, its slot capacity, and startup calibration remain stable under ordinary delivery jitter. A target or window configuration change is an explicit lifecycle boundary; measured receive rate is diagnostic only and never reconstructs a detector. Micro-ESPectre, collector sensing, replay, training, Python validation, and C++ integration replay all use their production-language sampler before feature processing. Raw HTTP collection preserves every provenance-classified frame except explicit bounded-ring drops, while its collector-derived sensing view applies the same sampler.
+The detector instance, its slot capacity, and startup calibration remain stable under ordinary delivery jitter. A target or window configuration change is an explicit lifecycle boundary; measured receive rate is diagnostic only and never reconstructs a detector. Micro-ESPectre, collector-derived sensing, replay, training, Python validation, and C++ integration replay all use their production-language sampler before feature processing. Runtime placement and raw-collection behavior are documented in [ARCHITECTURE.md](ARCHITECTURE.md#shared-wi-fi-and-csi-lifecycle) and [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md#direct-raw-csi-v2).
 
-Cadence advances on admitted packet timestamps, never on the loop clock or a packet-count fallback. A live slot is closed by observing a packet in a later timestamp slot, not merely because wall-clock time passed, so a delayed but better candidate is not discarded. Wall-clock time is used only to reject processing-backlog staleness. ESP-IDF sensing firmware records `esp_timer` when the Wi-Fi callback accepts a frame, measures callback-to-loop queue age with that same clock, and translates only the elapsed duration into the Wi-Fi RX timestamp domain. The hardware RX timestamp remains the source for temporal slots, gaps, and occupancy; raw collection bypasses the live sampler and its callback-backlog check. Live input and binding replay datasets must provide trustworthy timestamps and target provenance; missing or non-advancing timestamps contribute no evidence.
+Cadence advances on admitted packet timestamps, never on the loop clock or a packet-count fallback. A live slot is closed by observing a packet in a later timestamp slot, not merely because wall-clock time passed, so a delayed but better candidate is not discarded. Wall-clock time is used only to reject processing-backlog staleness. Live input and binding replay datasets must provide trustworthy timestamps and target provenance; missing or non-advancing timestamps contribute no evidence.
 
 The rest of the replay contract mirrors this cadence and reset behavior; see [ML_TRAINING.md](ML_TRAINING.md).
 
@@ -186,7 +186,7 @@ t_i = std(A_i) / mean(A_i)
 
 After Hampel filtering, Lightweight calculates lag-1 autocorrelation over the turbulence window. This input is invariant under ideal uniform scaling because the coefficient of variation is itself a ratio. The shared `hampel_enabled` setting still controls the turbulence filter in both runtimes, and the same filtered turbulence stream feeds the ML `turb_*` features.
 
-Lightweight does not allocate or update an L1-delta tracker. At the default C++ window, this removes two 90-float delta rings, one `10 x 12` profile ring, two 11-float Hampel buffers, their metadata, and the associated per-packet normalization, displacement, and filtering work. The tracker remains conditional on the exported feature ids in ML, where `l1_delta_lag_ratio` still consumes it.
+Lightweight does not allocate or update an L1-delta tracker. The tracker remains conditional on the exported feature IDs in ML, where `l1_delta_lag_ratio` consumes it. Current runtime-state ownership and measured feature costs are recorded in [FEATURES.md](FEATURES.md).
 
 ### Aggregated Turbulence IQR
 
@@ -208,7 +208,7 @@ probability = 1 / (1 + exp(-logit))
 motion = probability > threshold
 ```
 
-The coefficients come from grouped, de-overlapped out-of-fold training balanced by class, chip, and session. The global operating point is then selected on sequential production replay, because a dense-window OOF false-positive rate does not encode the empty-room alarm budget. Lightweight may raise at most one effective alarm per short empty-room recording; High Accuracy remains zero-alarm. The runtime contains no majority vote or recovery branch in the score itself; all runtime adaptation happens at the threshold.
+The coefficients come from grouped, de-overlapped out-of-fold training balanced by class, chip, and session. The global operating point is then selected on sequential production replay because a dense-window OOF false-positive rate does not encode the empty-room alarm budget. Current results and alarm gates live in the generated [performance report](performance/README.md). The runtime contains no majority vote or recovery branch in the score itself; all runtime adaptation happens at the threshold.
 
 Startup adaptation thresholds this fitted two-feature logit directly. The older low-RSSI L1 blend path is retired; it is not part of the current detector surface.
 
@@ -228,13 +228,13 @@ The settled-level rule cannot create a high threshold. It only ever lowers one a
 
 ### Known Limits
 
-Lightweight clears the aggregate normal-link recall target on every chip, but C5 and C6 retain the largest false-positive tails, including on long quiet recordings. After the occupancy floor moved to seven tenths, one short S3 empty-room recording can complete a single four-hit debounce burst; the Lightweight sequential gate therefore allows at most one effective alarm per empty file. Weak-link captures remain report-only stress diagnostics. See the generated [performance report](performance/README.md) for current metrics.
+Lightweight has weaker quiet-room and held-out generalization than High Accuracy on the maintained corpus. The generated [performance report](performance/README.md) owns the current per-chip, weak-link, occupancy, false-positive, and alarm results.
 
 Use High-Accuracy Detection where accuracy, quiet-room robustness, or held-out generalization matters more than the additional runtime cost. Use Lightweight Detection when CPU and working-memory headroom are the stronger product constraint. The active Lightweight feature-selection record lives in `FEATURES.md`; no additional pair or triplet is approved for export on the current corpus.
 
 ### Settled-Level Threshold Recovery
 
-The runtime therefore revisits the threshold once a session proves itself quieter than its own opening. Every `20` evaluations it records the maximum metric logit in that block, keeps the last `12` blocks, and once the ring is full compares the median of those maxima against the live threshold. If that level plus `LIGHTWEIGHT_SETTLE_MARGIN_LOGITS` sits below the threshold, the threshold drops to it. The runtime emits `on_threshold_changed` when that happens, so Home Assistant, ESPHome, and the website Monitor control follow the live value rather than remaining on the post-calibration snapshot.
+The detector revisits the threshold once a session proves itself quieter than its own opening. Every `20` evaluations it records the maximum metric logit in that block, keeps the last `12` blocks, and once the ring is full compares the median of those maxima against the live threshold. If that level plus `LIGHTWEIGHT_SETTLE_MARGIN_LOGITS` sits below the threshold, the threshold drops to it. The shared runtime reports that control-plane change through `on_threshold_changed`; frontend and transport propagation are documented in [ARCHITECTURE.md](ARCHITECTURE.md#runtime-contract) and [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md#home-assistant-mqtt-adapter-profile).
 
 The recovery has these safeguards:
 
@@ -295,7 +295,7 @@ The production model consumes these eight scale-invariant inputs, in export orde
 
 Every member is a gain-invariant ratio, correlation, crossing rate, or normalized channel-shape geometry. The exact definitions, physical interpretations, implementation locations, retained metrics, and candidate-admission rules live in [FEATURES.md](FEATURES.md).
 
-The first input uses a dedicated turbulence series computed after averaging adjacent live-bin magnitudes with `W=5`; its statistic is `(Q75 - Q25) / abs(mean)`. This extra buffer exists when the exported ML feature ids request it, and Lightweight independently uses the same compact primitive for its promoted second input. `turb_autocorr` and `turb_zcr` continue to read the normal twelve-subcarrier turbulence series. `l1_delta_lag_ratio` comes directly from the L1 tracker rather than from a rebuilt series. The final four inputs share one physical-time trajectory tracker: it reduces the live band to eight gain-normalized Hellinger subbands, takes component-wise medians in `80 ms` bins over a one-second path, discards exact consecutive CSI duplicates, and leaves missing bins absent. Subband spread is the participation ratio of motion energy accumulated from adjacent profile differences; coherent innovation measures positive low-order DCT energy after a constant-velocity prediction and high-order noise subtraction; excess path measures positive two-step path length beyond its chord after the analogous high-order subtraction; and guarded Kendall lag-excess is the median positive excess of the `240 ms` pairwise-order distance over the mean of its three constituent `80 ms` distances. Finalized bins retain their orthonormal DCT coefficients instead of their profiles, while the changing current bin is transformed once per extraction. Innovation and excess path remain in mode space because DCT linearity and Parseval's identity preserve their geometry. Subband spread reconstructs only each adjacent eight-component profile difference through the inverse DCT because its per-subband participation ratio is basis-dependent. Kendall lag-excess stores two 28-bit pairwise-order masks per bin rather than reconstructing profiles. The runtime feeds the shared tracker the packet arrival timestamp, so packet-rate changes and loss do not redefine the temporal scale. The exported ML model no longer requests the full-band shape-spread tracker, L1-delta autocorrelation, or frequency-coherence curve standard deviation.
+The first three inputs come from the normal and adjacent-bin aggregated turbulence streams, the fourth comes from normalized profile displacement, and the final four share one physical-time channel-trajectory tracker. Packet timestamps preserve the trajectory scale through rate changes and loss. Runtime state remains conditional on the exported feature IDs, so superseded features do not retain inactive trackers. [FEATURES.md](FEATURES.md#current-production-ml-set) owns the exact formulas, physical interpretations, storage representation, implementation locations, and retained evidence.
 
 ### Inference Flow
 
@@ -321,10 +321,10 @@ The same production feature set is used by:
 
 | Detection profile | Threshold | Startup behavior |
 |----------|-----------|------------------|
-| `lightweight` | automatic, session-adjustable | quiet-logit startup adaptation with motion-first completion and quiet-only fallback |
+| `lightweight` | automatic, session-adjustable | motion-first completion with quiet-first fallback inside the valid evidence budget; applies session `q95` logit adaptation |
 | `high_accuracy` | trained default, session-adjustable | no threshold calibration; starts once CSI is active and its feature window has filled |
 
-Both profiles use the same fixed subcarrier set. Only the detector metric and threshold behavior differ.
+Both profiles use the same fixed subcarrier set and temporal-admission contract. Their feature extraction, working state, readiness gates, motion metric, and threshold-calibration behavior differ.
 
 ## References
 

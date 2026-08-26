@@ -1,6 +1,6 @@
 # Architecture Guide
 
-This reference is for contributors and firmware integrators who need the current code layout, dependency boundaries, and runtime contracts. It is not an installation guide; use [SETUP.md](SETUP.md) for deployment and [EMBEDDING.md](EMBEDDING.md) for the supported SDK path.
+This reference is for contributors and firmware integrators who need the current code layout, dependency boundaries, and runtime contracts. It is not an installation guide; use [SETUP.md](SETUP.md) for deployment and [SDK.md](SDK.md) for the supported SDK path.
 
 In this document, **core** means portable detector logic, **runtime** means the execution and event layer around it, and **frontend** means an ecosystem-specific adapter such as ESPHome or Matter. Historical rationale lives in the [ADR index](adr/README.md); this page describes only the current structure.
 
@@ -174,7 +174,7 @@ ESPHome still expects a component-shaped entry point under the external componen
 ## Related References
 
 - Deployment and frontend selection: [SETUP.md](SETUP.md)
-- Supported SDK surface: [EMBEDDING.md](EMBEDDING.md)
+- Supported SDK surface: [SDK.md](SDK.md)
 - Detector behavior and tuning: [ALGORITHMS.md](ALGORITHMS.md) and [TUNING.md](TUNING.md)
 - Measured detector results: [docs/performance](performance/README.md)
 - Frontend operation: the relevant README under `src/cpp/frontend/`

@@ -1,4 +1,4 @@
-# Embedding Guide
+# C++ SDK Guide
 
 This guide is for firmware teams that want to integrate the ESPectre sensing engine into their own ESP32 firmware instead of shipping one of the published frontends. It complements [ARCHITECTURE.md](ARCHITECTURE.md), which describes the internal layering in detail.
 
@@ -46,7 +46,7 @@ Before adding product-specific behavior, enforce these runtime constraints:
 
 | Layer | Contents | Dependencies |
 |-------|----------|--------------|
-| `src/cpp/espectre_sdk.h` | Stable full-runtime SDK facade | Header only |
+| `src/cpp/espectre_sdk.h` | Stable full-runtime SDK facade | Single include; link the selected core and runtime sources |
 | `src/cpp/espectre_core_sdk.h` | Optional core-only detector facade | C++17 standard library only |
 | `src/cpp/core/` | Lightweight and High-Accuracy detectors, feature extraction, filters, CSI format | C++17 standard library only |
 | `src/cpp/runtime/` | Runtime contracts, snapshots, events, ESPectre Protocol message and capability models, traffic generation | Portable, host-testable |
@@ -71,11 +71,11 @@ ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, using standard sing
 
 Set `RuntimeConfig::wifi_band_policy` to choose `BAND_2G`, `BAND_5G`, or `AUTO`. `BAND_2G` is the default and is supported by every target; `BAND_5G` and `AUTO` require dual-band silicon, currently ESP32-C5 among the published targets. The runtime applies that choice and pins an 802.11n protocol ceiling plus HT20 on the selected band or bands. Unsupported policies fail setup instead of falling back silently, and packets outside the HT20 contract are dropped and counted.
 
-## Choosing A Detection Profile
+## Choosing a detection profile
 
-Choose Lightweight Detection when sensing must leave more CPU time and working memory for the rest of the product. It runs fewer feature trackers and less per-packet computation, but gives up accuracy and cross-environment robustness relative to High-Accuracy Detection. Choose High Accuracy when detection quality is the priority and the product can afford its additional feature state and neural inference.
+Choose Lightweight Detection when sensing must leave more CPU time and working memory for the rest of the product. Choose High Accuracy when detection quality is the priority and the product can afford additional feature state and neural inference. [ALGORITHMS.md](ALGORITHMS.md#why-two-detection-profiles) owns the detector behavior and resource rationale, while [TUNING.md](TUNING.md#detection-profile) owns the operator-facing choice.
 
-Lightweight adapts its threshold from about 10 seconds of clean, ready quiet-room coverage after temporal warmup; missing or burst-concentrated slots extend wall-clock calibration instead of counting as evidence. After that, a long quiet stretch can still lower the live threshold if the opening was noisier than the rest of the session. The runtime reports those drops through `IRuntimeListener::on_threshold_changed()`, the same hook used for control writes and calibration finish; live telemetry still carries the per-sample comparison value. High Accuracy uses a trained threshold and skips that calibration, although it still needs CSI readiness and one feature window of warmup. A runtime-switching build may contain both detector implementations and ML weights in flash even while Lightweight is active; budget flash separately from active detector CPU and working memory.
+For SDK integration, gate output on `RuntimeSnapshot::ready_to_publish`, mirror threshold changes from `IRuntimeListener::on_threshold_changed()`, and budget flash separately from the CPU and working memory used by the active profile. A runtime-switching build may contain both detector implementations and ML weights even while Lightweight is active.
 
 ## Integration paths
 
@@ -90,9 +90,18 @@ Your firmware owns boot, provisioning, networking policy, OTA, and the product s
 
 ### Core-only
 
-If your firmware already owns Wi-Fi and CSI capture, include `espectre_core_sdk.h` and consume the detectors directly. The `core` detectors accept normalized CSI payloads and expose motion state, movement metric, and threshold control. Apply the same temporal admission as the shipped pipeline before `process_packet()`: retain the candidate nearest each `csi_target_pps` slot center, enforce the target-derived half-slot minimum spacing, and leave missing slots invalid.
+If your firmware already owns Wi-Fi and CSI capture, include `espectre_core_sdk.h` and consume the detectors directly. The `core` detectors accept normalized CSI payloads and expose motion state, movement metric, and threshold control. The same facade exposes `TemporalCsiSampler`, which applies the production fixed-grid admission before `process_packet()`.
 
-After each `update_state()`, re-read `get_threshold()`: Lightweight can lower it without a setter call, and the core-only path has no `on_threshold_changed()` hook. `core/temporal_csi_sampler.h` is the production sampler; it is internal to the bundle rather than part of the supported `espectre_sdk.h` facade. Use `runtime/esp_idf/csi_pipeline.cpp` as the reference for normalization, temporal admission, evaluation cadence, and hit filtering before committing to custom wiring.
+The sampler tracks timing and slots; your integration stores the selected CSI payload. Handle each input in this order:
+
+1. Call `admit()` before replacing the stored payload.
+2. If `admit()` returns `true`, consume the stored payload: clear detector history when `reset_required()` is true, call `advance_missing_slots(missing_slots_before())`, and then call `process_packet()`.
+3. If `gap_reset_required()` is true, clear detector history again before admitting post-gap data.
+4. If `selected_current()` is true, replace the stored payload with the current normalized CSI.
+
+At the end of a finite stream, call `flush()` and consume the stored payload if it returns `true`.
+
+After each `update_state()`, re-read `get_threshold()`: Lightweight can lower it without a setter call, and the core-only path has no `on_threshold_changed()` hook. The sampler owns admission only; use `runtime/esp_idf/csi_pipeline.cpp` as the reference for CSI normalization, evaluation cadence, and hit filtering before committing to custom wiring.
 
 ## Header map
 
@@ -124,6 +133,7 @@ After each `update_state()`, re-read `get_threshold()`: Lightweight can lower it
 | `core/lightweight_detector.h`, `core/high_accuracy_detector.h` | The supported core-only detector classes |
 | `core/base_detector.h` | The shared detector lifecycle both detectors inherit |
 | `core/csi_format.h` | CSI layout and the subcarrier band the detectors measure on |
+| `core/temporal_csi_sampler.h` | Production fixed-grid admission for a custom capture pipeline |
 | `core/detector_limits.h` | Detector dimensions and limits used by the supported classes |
 
 Headers such as `core/filtered_turbulence_ring.h`, `core/filters.h`, `core/utils.h`, `core/csi_features.h`, `core/ml_feature_trackers.h`, `core/l1_delta_tracker.h`, and `core/threshold.h` ship because the detector definitions depend on them. They are implementation dependencies rather than independent extension points, do not appear in the generated API reference, and may change without a compatibility guarantee.
@@ -170,11 +180,11 @@ sampler_.reset(runtime_.diagnostics(), now_ms);
 latest_ = sampler_.sample(runtime_.diagnostics(), now_ms);
 ```
 
-`RuntimeDiagnosticsSample::csi_admitted_pps` is the detector input rate after temporal admission. `csi_accepted_pps` is the identity-accepted supply. Compare admitted PPS with `RuntimeConfig::csi_target_pps` together with `csi_occupancy_ratio`, same-slot excess, missing-slot, stale, and out-of-order rates when a deployment underperforms. Occupancy is diagnostic telemetry and does not change the device send rate. The canonical `diagnostics` query returns the same occupancy as `csi_occupancy` in `commands/result.data`; the SDK field name remains `csi_occupancy_ratio`.
+`RuntimeDiagnosticsSample::csi_admitted_pps` is the detector input rate after temporal admission. `csi_accepted_pps` is the identity-accepted supply. Compare admitted PPS with `RuntimeConfig::csi_target_pps` together with `csi_occupancy_ratio`, same-slot excess, missing-slot, stale, and out-of-order rates when a deployment underperforms. Occupancy is diagnostic telemetry and does not change the device send rate. [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md#diagnostics) owns the corresponding wire field names, units, and optionality.
 
-Transport adapters parse commands into `EspectreCommand`. `set_sensing` uses the typed `sensing_enabled` value only when `has_sensing_enabled` is true, matching the other optional command fields. `FrontendCommandEngine` applies the frontend capability and access policy, returns stable `code`, `message`, and optional query `data`, and identifies the state families changed by an accepted mutation. Embedders should preserve this distinction: query results return only to the requester, while state changes may be fanned out to active transports.
+SDK transport adapters should pass parsed requests through `FrontendCommandEngine` and preserve the canonical distinction between requester-scoped query results and state changes published to active transports. [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md#one-message-model-multiple-transports) owns the message fields and cross-transport semantics; [ARCHITECTURE.md](ARCHITECTURE.md#shared-protocol-and-transport-services) owns command-engine and adapter placement.
 
-The shipped ESP-IDF runtime always collects these counters and bounded performance windows. `RuntimeDiagnosticsSnapshot` also reports heap, CPU frequency, loop load and timing, detector timing, CSI provenance classification, and provenance rejection. Native and ESPHome refresh their rate cache from the same sensing update that feeds their normal status surfaces; Direct `diagnostics` returns the production snapshot without enabling a build option or periodic debug logger. Matter uses the same shared bridge.
+The shipped ESP-IDF runtime always collects these counters and bounded performance windows. `RuntimeDiagnosticsSnapshot` also reports heap, CPU frequency, loop load and timing, detector timing, CSI provenance classification, and provenance rejection. Architecture owns how first-party frontends collect and cache those samples, while Protocol owns their transport representation.
 
 ### Versioning
 
@@ -197,9 +207,10 @@ Published SDK bundles stamp the same identity into `espectre_sdk_version.h` and 
 
 ## Build integration
 
-Both surfaces build the same sources; they differ only in how you select the optional capability groups.
+Both surfaces are distributed as source, but they compile different source sets.
 
-- **CMake / ESP-IDF**: include `src/cpp/espectre_sources.cmake` and consume the source lists (`ESPECTRE_CORE_SOURCES`, `ESPECTRE_RUNTIME_ESP_IDF_SOURCES`, `ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES`, and the per-capability lists for Direct HTTP, MQTT, provisioning, and OTA) plus `ESPECTRE_SHARED_INCLUDE_DIRS`. The frontend `CMakeLists.txt` files show the working combinations.
+- **Core-only CMake**: include `src/cpp/espectre_sources.cmake`, compile `ESPECTRE_CORE_SOURCES`, and add `ESPECTRE_SHARED_INCLUDE_DIRS`. No ESP-IDF runtime sources are required.
+- **Full-runtime CMake / ESP-IDF**: compile `ESPECTRE_CORE_SOURCES` and `ESPECTRE_RUNTIME_ESP_IDF_SOURCES`, then add `ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES` or the per-capability Direct HTTP, MQTT, provisioning, and OTA lists only when the integration uses them. Add `ESPECTRE_SHARED_INCLUDE_DIRS`; the frontend `CMakeLists.txt` files show working combinations.
 - **Vendored ESP-IDF component**: drop `src/cpp/` into your project's `components/` directory and add `espectre` to your own component's `REQUIRES`. The sensing runtime is always built; the optional groups are opt-in under the "ESPectre SDK" menuconfig menu.
 - **Toolchain**: C++17, ESP-IDF `>= 5.5` for the `runtime/esp_idf` services. Repository builds use ESP-IDF `5.5.5`.
 
@@ -229,6 +240,7 @@ ESPectre publishes source-first SDK bundles alongside the firmware release chann
 
 Each SDK bundle includes:
 
+- `docs/SDK.md`
 - `src/cpp/espectre_sdk.h`
 - `src/cpp/espectre_core_sdk.h`
 - `src/cpp/core/`
@@ -241,14 +253,9 @@ Each SDK bundle includes:
 - `src/cpp/Kconfig.projbuild`
 - `src/cpp/Doxyfile`
 - generated `src/cpp/core/ml_weights.h`
+- `LICENSE`, `LICENSING.md`, and `THIRD_PARTY_NOTICES.md`
 
 The published bundle is not a chip-specific binary library. It is a versioned source package with stamped packaging metadata, suitable for vendoring or unpacking into your own firmware tree. Its `.tar.gz` and `.zip` archives are generated deterministically from the source commit timestamp, and the accompanying SDK manifest records a SHA-256 digest for each archive so consumers can verify downloaded bytes.
-
-## Detection profile behavior
-
-- **Lightweight Detection** (`DetectionAlgorithm::LIGHTWEIGHT`) uses `LightweightDetector`, requires no training data, and adapts its probability threshold to the session at startup and again if a later quiet stretch proves the opening was too noisy. Mirror `on_threshold_changed()` if your product publishes that threshold.
-- **High-Accuracy Detection** (`DetectionAlgorithm::HIGH_ACCURACY`) uses `HighAccuracyDetector` with a trained model (`core/ml_weights.h`) and a fixed default threshold. The training and export pipeline is documented in [ML_TRAINING.md](ML_TRAINING.md).
-- Shared defaults, ranges, and validation live in `runtime/runtime_sensing_schema.h` and are documented in [SETUP.md](SETUP.md).
 
 ## Validation assets
 

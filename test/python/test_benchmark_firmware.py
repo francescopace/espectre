@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+import socket
 import sys
 import threading
 import time
@@ -68,6 +69,30 @@ class _FakeEventResponse:
 
     def close(self) -> None:
         self.closed.set()
+
+
+class _ClosingEventResponse(_FakeEventResponse):
+    class EventSocket:
+        def __init__(self, closed):
+            self.closed = closed
+            self.timeout = object()
+            self.shutdown_mode = None
+
+        def settimeout(self, timeout):
+            self.timeout = timeout
+
+        def shutdown(self, mode):
+            self.shutdown_mode = mode
+            self.closed.set()
+
+    def __init__(self, lines):
+        super().__init__(lines)
+        self.event_socket = self.EventSocket(self.closed)
+        self.fp = SimpleNamespace(raw=SimpleNamespace(_sock=self.event_socket))
+
+    def readline(self, _size: int = -1) -> bytes:
+        self.closed.wait(1.0)
+        raise AttributeError("response stream was closed")
 
 
 def _improv_rpc_response(command: ImprovCommand, values: list[str]) -> bytes:
@@ -239,6 +264,20 @@ def test_direct_client_collects_canonical_sse_events():
     assert len(client.events) == 1
     assert client.events[0].name == "telemetry"
     assert client.events[0].data == payload
+
+
+def test_direct_client_ignores_http_client_close_race():
+    response = _ClosingEventResponse([])
+
+    with DirectClient(
+        "http://192.0.2.10/espectre/v1/request",
+        urlopen_factory=lambda *_args, **_kwargs: response,
+    ) as client:
+        client.start_events()
+        client.stop_events()
+
+    assert response.event_socket.timeout is None
+    assert response.event_socket.shutdown_mode == socket.SHUT_RDWR
 
 
 def test_direct_retry_performs_a_capabilities_request(monkeypatch):
@@ -769,11 +808,13 @@ def test_micro_benchmark_config_overrides_lab_wifi(monkeypatch):
     assert "WIFI_SSID = 'lab'" in content
     assert "WIFI_PASSWORD = 'secret'" in content
     assert "TRAFFIC_GENERATOR_ENABLED = True" in content
+    assert f"CSI_TARGET_PPS = {bench.MICRO_BENCHMARK_PPS}" in content
     assert assignment_names == {
         "WIFI_SSID",
         "WIFI_PASSWORD",
         "WIFI_BSSID",
         "WIFI_CHANNEL",
+        "CSI_TARGET_PPS",
         "TRAFFIC_GENERATOR_ENABLED",
     }
 
@@ -804,6 +845,45 @@ def test_micro_benchmark_prerequisites_are_wifi_only(monkeypatch):
     bench.require_benchmark_prerequisites(
         [bench.BenchmarkCase("micro", "lightweight")]
     )
+
+
+def test_native_benchmark_rejects_channel_without_bssid(monkeypatch):
+    monkeypatch.setattr(bench, "BENCHMARK_LOCAL_ENV", {})
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_CHANNEL", "6")
+    monkeypatch.delenv("ESPECTRE_BENCHMARK_WIFI_BSSID", raising=False)
+
+    with pytest.raises(RuntimeError, match="WIFI_CHANNEL requires.*WIFI_BSSID"):
+        bench.require_benchmark_prerequisites(
+            [bench.BenchmarkCase("native", "lightweight")]
+        )
+
+
+def test_native_idf_environment_applies_explicit_csi_target_pps(tmp_path, monkeypatch):
+    app_dir = tmp_path / "native"
+    app_dir.mkdir()
+    (app_dir / "sdkconfig.defaults").write_text("", encoding="utf-8")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_CSI_TARGET_PPS", "80")
+    monkeypatch.setattr(
+        bench,
+        "IDF_FRONTENDS",
+        {
+            **bench.IDF_FRONTENDS,
+            "native": {
+                **bench.IDF_FRONTENDS["native"],
+                "app_dir": str(app_dir),
+                "targets": {"c3": "esp32c3"},
+            },
+        },
+    )
+
+    with bench.idf_case_environment("native", "c3", "lightweight") as env:
+        override_path = bench.Path(env["SDKCONFIG_DEFAULTS"].split(";")[-1])
+        override = override_path.read_text(encoding="utf-8")
+
+    assert "CONFIG_ESPECTRE_CSI_TARGET_PPS=80" in override
+    assert not override_path.exists()
 
 
 def test_micro_benchmark_config_reads_shared_local_env_not_developer_config(monkeypatch):
@@ -878,6 +958,50 @@ def test_native_radio_pin_accepts_committed_values_after_reboot(monkeypatch):
     bench._verify_native_radio_pin(FakeClient())
 
 
+def test_native_radio_pin_uses_canonical_bssid_command(monkeypatch):
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_BSSID", "AA:BB:CC:DD:EE:FF")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_CHANNEL", "6")
+    requests = []
+
+    class FakeClient:
+        def request(self, method, params=None):
+            requests.append((method, params))
+            if method == "config":
+                return {
+                    "wifi": {
+                        "configured": True,
+                        "bssid": "11:22:33:44:55:66",
+                        "channel": 1,
+                    }
+                }
+
+    assert bench._apply_native_radio_pin(FakeClient()) is True
+    assert requests == [
+        ("config", None),
+        ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF"}),
+    ]
+
+
+def test_native_radio_pin_preserves_matching_connection(monkeypatch):
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_BSSID", "AA:BB:CC:DD:EE:FF")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_CHANNEL", "6")
+    requests = []
+
+    class FakeClient:
+        def request(self, method, params=None):
+            requests.append((method, params))
+            return {
+                "wifi": {
+                    "configured": True,
+                    "bssid": "aa:bb:cc:dd:ee:ff",
+                    "channel": 6,
+                }
+            }
+
+    assert bench._apply_native_radio_pin(FakeClient()) is False
+    assert requests == [("config", None)]
+
+
 def test_cpp_flash_only_runner_reuses_one_build_context(monkeypatch):
     context_env = {"SDKCONFIG_DEFAULTS": "/tmp/benchmark.defaults"}
     context_config = object()
@@ -926,6 +1050,7 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, chip):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
     commands: list[list[str]] = []
+    connections: list[tuple[str, float]] = []
 
     def fake_run_command(command, **_kwargs):
         resolved = list(command)
@@ -944,13 +1069,18 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, chip):
     def fake_background(command, **_kwargs):
         resolved = list(command)
         commands.append(resolved)
-        return process, [], [], SimpleNamespace(), 0.0
+        output_lines = ["WiFi connected - IP: 192.0.2.10, Protocol: 802.11n, Bandwidth: 20MHz\n"]
+        return process, output_lines, [], SimpleNamespace(), 0.0
 
     monkeypatch.setattr(bench, "run_command", fake_run_command)
     monkeypatch.setattr(bench, "_run_background_command", fake_background)
-    monkeypatch.setattr(bench, "discover_direct_device", lambda *_args, **_kwargs: SimpleNamespace(endpoint="http://micro/espectre/v1/request"))
     client = SimpleNamespace(close=lambda: None)
-    monkeypatch.setattr(bench, "_connect_direct_with_retry", lambda *_args, **_kwargs: client)
+
+    def fake_connect(endpoint, **kwargs):
+        connections.append((endpoint, kwargs["timeout_seconds"]))
+        return client
+
+    monkeypatch.setattr(bench, "_connect_direct_with_retry", fake_connect)
     monkeypatch.setattr(bench, "prepare_micro_direct_runtime", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(bench, "wait_for_direct_runtime_ready", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(bench, "capture_direct_window", lambda *_args, **_kwargs: ([{"uptime": 1}], [{"event": "telemetry"}]))
@@ -959,7 +1089,7 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, chip):
     monkeypatch.setattr(
         bench,
         "_finalize_background_command",
-        lambda *_args, **_kwargs: bench.CommandResult(commands[-1], 0, 60.0, ""),
+        lambda *_args, **_kwargs: bench.CommandResult(commands[-1], 1, 60.0, ""),
     )
 
     result = bench.run_micro_case(
@@ -972,6 +1102,12 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, chip):
     assert result.deploy is not None
     assert result.build_metrics.deployed_source_bytes is not None
     assert result.transport_evidence["transport"] == "direct-http"
+    assert connections == [
+        (
+            f"http://192.0.2.10:{bench.ESPECTRE_DIRECT_PORT}/espectre/v1/request",
+            bench.WIFI_CONNECT_WAIT_SECONDS + bench.DIRECT_DISCOVERY_TIMEOUT_SECONDS,
+        )
+    ]
     assert result.transport_evidence["serial_scored"] is False
     assert [command[1:3] for command in commands] == [
         ["micro", "flash"],
@@ -984,7 +1120,9 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, chip):
 def test_esphome_case_config_keeps_production_logger_configuration(tmp_path, monkeypatch):
     source_path = tmp_path / "espectre-s3.yaml"
     source_path.write_text(
-        """espectre:
+        """esphome:
+  name: espectre
+espectre:
   detection_algorithm: lightweight
 wifi:
   ap:
@@ -997,6 +1135,7 @@ api:
     )
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_CSI_TARGET_PPS", "100")
     monkeypatch.setattr(bench, "ESPHOME_CONFIGS", {"s3": str(source_path)})
     with bench.esphome_case_config("s3", "lightweight", "/dev/cu.bridge") as config_path:
         content = config_path.read_text(encoding="utf-8")
@@ -1005,8 +1144,72 @@ api:
     assert "level: INFO" in content
     assert 'ssid: "lab"' in content
     assert 'password: "secret"' in content
+    assert "csi_target_pps: 100" in content
+    assert "name: espectre-benchmark-s3" in content
+    assert "encryption:" in content
+    assert "key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" in content
     assert "debug_telemetry" not in content
     assert not config_path.exists()
+
+
+def test_esphome_case_config_can_keep_api_compiled_without_listener(tmp_path, monkeypatch):
+    source_path = tmp_path / "espectre-c3.yaml"
+    source_path.write_text(
+        """esphome:
+  name: espectre
+espectre:
+  detection_algorithm: lightweight
+wifi:
+  ap:
+    ssid: fallback
+logger:
+  level: INFO
+api:
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_DISABLE_ESPHOME_API_LISTENER", "1")
+    monkeypatch.setattr(bench, "ESPHOME_CONFIGS", {"c3": str(source_path)})
+
+    with bench.esphome_case_config("c3", "lightweight", "/dev/cu.bridge") as config_path:
+        content = config_path.read_text(encoding="utf-8")
+
+    assert "api:" in content
+    assert "encryption:" in content
+    assert "on_boot:" in content
+    assert "global_api_server->on_shutdown()" in content
+
+
+def test_esphome_case_config_can_remove_api_for_external_traffic_diagnostic(tmp_path, monkeypatch):
+    source_path = tmp_path / "espectre-c3.yaml"
+    source_path.write_text(
+        """esphome:
+  name: espectre
+espectre:
+  detection_algorithm: lightweight
+wifi:
+  ap:
+    ssid: fallback
+logger:
+  level: INFO
+api:
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_REMOVE_ESPHOME_API", "1")
+    monkeypatch.setattr(bench, "ESPHOME_CONFIGS", {"c3": str(source_path)})
+
+    with bench.esphome_case_config("c3", "lightweight", "/dev/cu.bridge") as config_path:
+        content = config_path.read_text(encoding="utf-8")
+
+    assert "api:" not in content
+    assert "encryption:" not in content
+    assert "on_boot:" not in content
+    assert "dashboard_import: !remove" in content
 
 
 def test_parse_report_results_accepts_na_packet_rate():

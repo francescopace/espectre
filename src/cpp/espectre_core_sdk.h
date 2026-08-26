@@ -24,3 +24,4 @@
 #include "core/csi_format.h"
 #include "core/high_accuracy_detector.h"
 #include "core/lightweight_detector.h"
+#include "core/temporal_csi_sampler.h"

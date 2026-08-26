@@ -3,7 +3,7 @@
 # Generates a browsable reference for the supported integration surface only.
 # Internal headers are excluded on purpose: shipping them in the reference
 # would present the whole bundle as public API, which is the opposite of the
-# stability tiers documented in docs/EMBEDDING.md.
+# stability tiers documented in docs/SDK.md.
 #
 # Usage, from the repository root:
 #   python3 .github/scripts/generate_sdk_api.py
@@ -31,7 +31,7 @@ GENERATE_LATEX         = NO
 GENERATE_TREEVIEW      = YES
 
 # The landing page lives in espectre_sdk.h itself, so the entry point of the
-# reference is the entry point of the code. docs/EMBEDDING.md is deliberately
+# reference is the entry point of the code. docs/SDK.md is deliberately
 # not an input: its links are repository-relative and only resolve on GitHub.
 INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/espectre_core_sdk.h \
@@ -61,6 +61,7 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/core/lightweight_detector.h \
                          src/cpp/core/high_accuracy_detector.h \
                          src/cpp/core/csi_format.h \
+                         src/cpp/core/temporal_csi_sampler.h \
                          src/cpp/core/detector_limits.h
 
 FILE_PATTERNS          = *.h

@@ -23,27 +23,53 @@ static_assert(TEMPORAL_CSI_MINIMUM_COVERAGE_DENOMINATOR > 0U);
 static_assert(TEMPORAL_CSI_MINIMUM_COVERAGE_NUMERATOR <=
               TEMPORAL_CSI_MINIMUM_COVERAGE_DENOMINATOR);
 
+/** Return the fixed-grid slot count for a target rate and window duration. */
 uint32_t temporal_window_slots(uint32_t target_pps, uint32_t window_size_ms);
+/** Return the minimum occupied slots required for a ready window. */
 uint32_t temporal_minimum_valid_slots(uint32_t window_slots);
+/** Return the minimum spacing between selected candidates at a target rate. */
 uint32_t temporal_minimum_sample_spacing_us(uint32_t target_pps);
 
+/**
+ * Admit timestamped CSI packets onto the production fixed-time grid.
+ *
+ * The sampler retains at most one candidate per target-rate slot, preserves
+ * missing slots, rejects invalid timestamp progress, and reports when a gap
+ * requires detector history to be cleared. A core-only integration should
+ * apply its admission result before forwarding CSI to a detector.
+ *
+ * The sampler stores timing and slot state, not CSI payloads. The caller keeps
+ * the currently selected payload. When admit() commits a prior slot, consume
+ * that retained payload before replacing it when selected_current() is true.
+ *
+ * Not thread-safe. Construct, configure, admit, and read it from the task that
+ * owns the custom capture pipeline.
+ */
 class TemporalCsiSampler {
  public:
+  /** Construct a sampler for the requested target rate and window duration. */
   explicit TemporalCsiSampler(uint32_t target_pps = 100U,
                               uint32_t window_size_ms = 1000U);
 
+  /** Reconfigure the grid and clear its timestamp epoch and window state. */
   bool configure(uint32_t target_pps, uint32_t window_size_ms);
+  /** Clear the timestamp epoch, window state, and lifetime counters. */
   void reset();
   /** Clear the window and timestamp grid while retaining lifetime counters. */
   void clear_history();
   /** Clear admitted window data while retaining the active timestamp grid. */
   void clear_window_preserving_phase();
 
-  // `now_us` is optional processing time on the same unsigned 32-bit clock as
-  // `timestamp_us`. Omit it when the clocks differ, including classic ESP32
-  // Wi-Fi RX timestamps versus `esp_timer`.
+  /**
+   * Observe one candidate and report whether the retained payload was committed.
+   *
+   * `now_us` is optional processing time on the same unsigned 32-bit clock as
+   * `timestamp_us`. Omit it when the clocks differ, including classic ESP32
+   * Wi-Fi RX timestamps versus `esp_timer`.
+   */
   bool admit(uint32_t timestamp_us, bool has_timestamp = true,
              uint32_t now_us = 0U, bool has_now = false);
+  /** Commit the retained payload when the input stream ends. */
   bool flush();
 
   uint32_t target_pps() const { return target_pps_; }

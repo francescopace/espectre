@@ -120,24 +120,23 @@ void test_runtime_traffic_updates_roll_back_when_persistence_fails(void) {
   TEST_ASSERT_TRUE(runtime.config_.traffic_generator_mode == RuntimeTrafficMode::PING);
 }
 
-void test_runtime_detector_adaptation_emits_threshold_changed(void) {
+void test_runtime_detector_adaptation_emits_threshold_changed_without_live_telemetry(void) {
   RuntimeConfig config;
+  config.segmentation_threshold = 0.80f;
   EspIdfRuntime runtime(config);
   DetectorListener listener;
   runtime.set_listener(&listener);
-  runtime.snapshot_.threshold = 0.80f;
-  runtime.config_.segmentation_threshold = 0.80f;
+  TEST_ASSERT_TRUE(runtime.configure_detector_());
+  runtime.set_live_telemetry_enabled(false);
 
-  runtime.notify_threshold_if_changed_(0.80f);
-  TEST_ASSERT_EQUAL(0, listener.threshold_changes);
-
-  runtime.notify_threshold_if_changed_(0.42f);
+  TEST_ASSERT_TRUE(runtime.detector_->set_threshold(0.42f));
+  runtime.loop();
   TEST_ASSERT_EQUAL(1, listener.threshold_changes);
   TEST_ASSERT_EQUAL_FLOAT(0.42f, listener.last_threshold);
   TEST_ASSERT_EQUAL_FLOAT(0.42f, runtime.get_snapshot().threshold);
   TEST_ASSERT_EQUAL_FLOAT(0.42f, runtime.config_.segmentation_threshold);
 
-  runtime.notify_threshold_if_changed_(0.42f);
+  runtime.loop();
   TEST_ASSERT_EQUAL(1, listener.threshold_changes);
 }
 
@@ -370,7 +369,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_runtime_detector_switch_updates_pipeline_threshold_and_calibration);
   RUN_TEST(test_runtime_detector_configuration_preserves_the_requested_threshold);
   RUN_TEST(test_runtime_traffic_updates_roll_back_when_persistence_fails);
-  RUN_TEST(test_runtime_detector_adaptation_emits_threshold_changed);
+  RUN_TEST(test_runtime_detector_adaptation_emits_threshold_changed_without_live_telemetry);
   RUN_TEST(test_runtime_motion_hits_runtime_updates_pipeline_and_persists);
   RUN_TEST(test_runtime_setup_loads_all_persisted_runtime_controls);
   RUN_TEST(test_runtime_diagnostics_read_current_wifi_association);

@@ -57,7 +57,7 @@ SDK_REQUIRED_PATHS = (
     Path("src/cpp/espectre_git_version.cmake"),
     Path("src/cpp/core/ml_weights.h"),
     Path("src/cpp/runtime/espectre_sdk_version.h"),
-    Path("docs/EMBEDDING.md"),
+    Path("docs/SDK.md"),
     Path("src/cpp/Doxyfile"),
     Path("src/cpp/runtime/espectre_protocol.h"),
     Path("src/cpp/runtime/esp_idf/runtime_sensing_kconfig.cpp"),
@@ -82,7 +82,7 @@ SDK_TOP_LEVEL_FILES = (
     # self-contained: `doxygen src/cpp/Doxyfile` from the bundle root rebuilds
     # the API reference offline. Packaging rewrites OUTPUT_DIRECTORY to output
     # because the repo Doxyfile targets docs/web/artifacts/sdk.
-    Path("docs/EMBEDDING.md"),
+    Path("docs/SDK.md"),
     Path("LICENSE"),
     Path("LICENSING.md"),
     Path("THIRD_PARTY_NOTICES.md"),
