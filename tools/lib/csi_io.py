@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import ipaddress
 import http.client
-import math
+import queue
 import socket
 import struct
 import subprocess
@@ -770,6 +770,9 @@ class DirectRawCSIReceiver(CSIReceiver):
         self._raw_connection = None
         self._raw_response = None
         self._raw_buffer = bytearray()
+        self._raw_read_queue = queue.Queue(maxsize=1)
+        self._raw_reader_stop = threading.Event()
+        self._raw_reader_thread = None
         self._session_id = b""
         self._firmware_identity = ""
         self._frontend = ""
@@ -881,6 +884,9 @@ class DirectRawCSIReceiver(CSIReceiver):
         raw_socket = getattr(self._raw_connection, "sock", None)
         if raw_socket is not None:
             raw_socket.settimeout(None)
+        self._raw_read_queue = queue.Queue(maxsize=1)
+        self._raw_reader_stop = threading.Event()
+        self._raw_reader_thread = None
         self.running = True
         self.start_time = time.time()
         self._last_pps_time = self.start_time
@@ -1023,27 +1029,74 @@ class DirectRawCSIReceiver(CSIReceiver):
         packet.fresh_record_total = self.raw_final_fresh_record_total
         packet.raw_final_stream_sequence = self.raw_final_stream_sequence
 
-    def _read_raw_chunk(self) -> bytes:
-        if self._raw_response is None:
+    def _read_raw_chunk(self, response=None) -> bytes:
+        raw_response = self._raw_response if response is None else response
+        if raw_response is None:
             raise RuntimeError("Direct raw HTTP stream is not open")
-        reader = getattr(self._raw_response, "read1", None)
+        reader = getattr(raw_response, "read1", None)
         if reader is None:
-            reader = self._raw_response.read
+            reader = raw_response.read
         chunk = reader(4096)
         if not isinstance(chunk, bytes) or not chunk:
             raise RuntimeError("Direct raw HTTP stream ended unexpectedly")
         return chunk
 
+    @staticmethod
+    def _queue_raw_read_result(result_queue, stop_event, chunk, error) -> bool:
+        while not stop_event.is_set():
+            try:
+                result_queue.put((chunk, error), timeout=0.1)
+                return True
+            except queue.Full:
+                continue
+        return False
+
+    def _raw_reader_loop(self, response, result_queue, stop_event) -> None:
+        while not stop_event.is_set():
+            try:
+                chunk = self._read_raw_chunk(response)
+            except Exception as exc:
+                self._queue_raw_read_result(result_queue, stop_event, None, exc)
+                return
+            if not self._queue_raw_read_result(result_queue, stop_event, chunk, None):
+                return
+
+    def _ensure_raw_reader(self) -> None:
+        if self._raw_response is None:
+            raise RuntimeError("Direct raw HTTP stream is not open")
+        if self._raw_reader_thread is not None:
+            return
+        self._raw_reader_thread = threading.Thread(
+            target=self._raw_reader_loop,
+            args=(self._raw_response, self._raw_read_queue, self._raw_reader_stop),
+            name="espectre-direct-raw-reader",
+            daemon=True,
+        )
+        self._raw_reader_thread.start()
+
     def run(self, timeout: float = 0, quiet: bool = False, announce_socket_rcvbuf: bool = False) -> None:
         del quiet, announce_socket_rcvbuf
         self._open()
+        self._ensure_raw_reader()
         deadline = time.monotonic() + timeout if timeout > 0 else None
         while self.running and (deadline is None or time.monotonic() < deadline):
-            self._raw_buffer.extend(self._read_raw_chunk())
+            wait_seconds = 0.1
+            if deadline is not None:
+                wait_seconds = min(wait_seconds, max(0.0, deadline - time.monotonic()))
+                if wait_seconds == 0.0:
+                    break
+            try:
+                chunk, error = self._raw_read_queue.get(timeout=wait_seconds)
+            except queue.Empty:
+                continue
+            if error is not None:
+                raise error
+            self._raw_buffer.extend(chunk)
             self._consume_raw_frames()
 
     def stop(self) -> None:
         self.running = False
+        self._raw_reader_stop.set()
         self._best_effort_stop()
         self._update_final_raw_diagnostics()
         if self._raw_response is not None:
@@ -1052,6 +1105,10 @@ class DirectRawCSIReceiver(CSIReceiver):
         if self._raw_connection is not None:
             self._raw_connection.close()
             self._raw_connection = None
+        reader_thread = self._raw_reader_thread
+        if reader_thread is not None and reader_thread is not threading.current_thread():
+            reader_thread.join(timeout=0.5)
+        self._raw_reader_thread = None
         self._raw_buffer.clear()
         if self._control is not None:
             self._control.close()
@@ -2324,11 +2381,6 @@ def assess_ht20_sensing_record(
     return layout
 
 
-def is_ht20_phy(phy_mode: Any, channel_width: Any, ltf_type: Any = "ht-ltf") -> bool:
-    """Return True when metadata matches the HT20 HT-LTF sensing contract."""
-    return str(phy_mode) == "ht" and str(channel_width) == "20" and str(ltf_type) == "ht-ltf"
-
-
 def _packet_phy_mask(
     phy_modes: Optional[np.ndarray],
     ltf_types: Optional[np.ndarray],
@@ -2401,47 +2453,6 @@ def ht20_packet_mask(
         predicate=assess_ht20_sensing_record,
         allow_historical_missing_metadata=allow_historical_missing_metadata,
     )
-
-
-def filter_npz_arrays_ht20(arrays: Dict[str, Any]) -> Dict[str, Any]:
-    """Return a shallow copy of NPZ arrays with non-HT20 packets removed.
-
-    Scalar metadata is preserved. Per-packet vectors whose leading axis matches
-    ``csi_data`` / ``csi`` length are sliced with the HT20 mask. When PHY
-    metadata is absent, the input mapping is returned unchanged.
-    """
-    if "csi_data" in arrays:
-        csi_key = "csi_data"
-    elif "csi" in arrays:
-        csi_key = "csi"
-    else:
-        return arrays
-
-    csi = np.asarray(arrays[csi_key])
-    if csi.ndim == 0:
-        return arrays
-    num_packets = int(csi.shape[0])
-    raw_len = int(csi.shape[1])
-    raw_num_subcarriers = int(arrays.get("num_subcarriers", raw_len // 2))
-    mask = ht20_packet_mask(
-        arrays.get("phy_mode"),
-        arrays.get("ltf_type"),
-        arrays.get("channel_width"),
-        raw_len,
-        raw_num_subcarriers,
-        num_packets,
-    )
-    if mask is None or bool(np.all(mask)):
-        return arrays
-
-    filtered: Dict[str, Any] = {}
-    for key, value in arrays.items():
-        arr = np.asarray(value)
-        if arr.ndim >= 1 and arr.shape[0] == num_packets:
-            filtered[key] = arr[mask]
-        else:
-            filtered[key] = value
-    return filtered
 
 
 def filter_npz_arrays_sensing(arrays: Dict[str, Any]) -> Dict[str, Any]:

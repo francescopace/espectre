@@ -11,6 +11,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 import copy
 import io
 import socket
+import threading
 import time
 
 import numpy as np
@@ -402,6 +403,38 @@ def test_direct_raw_receiver_negotiates_v8_and_feeds_shared_packet_parser():
         "stop_raw_stream",
         "diagnostics",
     ]
+
+
+def test_direct_raw_receiver_run_timeout_does_not_wait_for_idle_stream():
+    class IdleRawResponse:
+        def __init__(self):
+            self.closed = threading.Event()
+
+        def read1(self, _size):
+            self.closed.wait(timeout=2.0)
+            return b""
+
+        def close(self):
+            self.closed.set()
+
+    class IdleRawConnection:
+        def close(self):
+            pass
+
+    response = IdleRawResponse()
+    receiver = DirectRawCSIReceiver("192.168.1.23", derive_complex=False)
+    receiver._raw_response = response
+    receiver._raw_connection = IdleRawConnection()
+    receiver.running = True
+    receiver._open = lambda: None
+
+    started_at = time.monotonic()
+    receiver.run(timeout=0.05)
+    elapsed = time.monotonic() - started_at
+    receiver.stop()
+
+    assert elapsed < 0.5
+    assert response.closed.is_set()
 
 
 def test_direct_raw_receiver_rejects_capability_mismatch_without_transport_fallback():

@@ -459,7 +459,7 @@ def _run_live_collect(args) -> None:
         print(f"{Fore.RED}❌ Start delay requires --duration{Style.RESET_ALL}")
         raise SystemExit(1)
     if not getattr(args, "target", None):
-        print(f"{Fore.RED}❌ Target required. Use --target <ip[,ip,...]> or discovery.{Style.RESET_ALL}")
+        print(f"{Fore.RED}❌ Target required. Use --target <ip|hostname|device-id> or discovery.{Style.RESET_ALL}")
         raise SystemExit(1)
 
     requested_pps = float(args.pps)
@@ -1427,10 +1427,13 @@ def _run_live_collect(args) -> None:
     try:
         _wait_before_collection(start_delay)
         _start_raw_http_collection(receiver, traffic_generator)
+        supports_socket_rcvbuf_announcement = (
+            "announce_socket_rcvbuf" in inspect.signature(receiver.run).parameters
+        )
         while state["running"]:
             announce_socket_rcvbuf = state.get("socket_rcvbuf_reported") is not True
             run_kwargs = {"timeout": 1.0, "quiet": True}
-            if "announce_socket_rcvbuf" in inspect.signature(receiver.run).parameters:
+            if supports_socket_rcvbuf_announcement:
                 run_kwargs["announce_socket_rcvbuf"] = announce_socket_rcvbuf
             receiver.run(**run_kwargs)
             if announce_socket_rcvbuf and receiver.effective_socket_rcvbuf_bytes is not None:

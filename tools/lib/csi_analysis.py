@@ -36,11 +36,6 @@ def calculate_spatial_turbulence(csi_data, selected_subcarriers=None) -> float:
     return turbulence
 
 
-def calculate_variance_two_pass(values) -> float:
-    """Calculate variance using the shared numerically stable implementation."""
-    return SegmentationContext.compute_variance_two_pass(values)
-
-
 def extract_amplitudes_matrix(csi_matrix) -> np.ndarray:
     """Extract amplitudes for all packets at once using numpy.
 

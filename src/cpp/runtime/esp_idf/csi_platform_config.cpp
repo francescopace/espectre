@@ -29,6 +29,8 @@ wifi_csi_config_t build_ht20_csi_config() {
       .acquire_csi_he_stbc_mode = 0,
       .val_scale_cfg = 0,
       .dump_ack_en = 0,
+      .lltf_bit_mode = 0,
+      .reserved = 0,
   };
 #elif CONFIG_IDF_TARGET_ESP32C6
   return wifi_csi_config_t{
@@ -43,6 +45,7 @@ wifi_csi_config_t build_ht20_csi_config() {
       .acquire_csi_he_stbc = 0,
       .val_scale_cfg = 0,
       .dump_ack_en = 0,
+      .reserved = 0,
   };
 #else
   return wifi_csi_config_t{
