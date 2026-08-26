@@ -22,15 +22,27 @@ set(espectre_sdk_requires
     esp_event
     esp_netif
     esp_timer
+    mqtt
+    app_update
+    esp_http_client
+    esp_http_server
+    esp_https_ota
+    esp-tls
     nvs_flash
     lwip
     driver
     freertos
     heap
+    improv
+    mdns
     log
     mbedtls
     ${ESPECTRE_SDK_ADDITIONAL_REQUIRES}
 )
+
+# ESP-IDF expands component requirements before menuconfig values are
+# available. Declare the dependencies for every opt-in source group here; the
+# source switches below still keep their code out of the linked firmware.
 
 if(CONFIG_ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT)
     list(APPEND espectre_sdk_sources ${ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES})
@@ -38,7 +50,6 @@ endif()
 
 if(CONFIG_ESPECTRE_SDK_ENABLE_MQTT)
     list(APPEND espectre_sdk_sources ${ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES})
-    list(APPEND espectre_sdk_requires mqtt)
 endif()
 
 if(CONFIG_ESPECTRE_SDK_ENABLE_PROVISIONING)
@@ -47,12 +58,10 @@ endif()
 
 if(CONFIG_ESPECTRE_SDK_ENABLE_OTA)
     list(APPEND espectre_sdk_sources ${ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES})
-    list(APPEND espectre_sdk_requires app_update esp_http_client esp_https_ota esp-tls mbedtls)
 endif()
 
 if(CONFIG_ESPECTRE_SDK_ENABLE_DIRECT)
     list(APPEND espectre_sdk_sources ${ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES})
-    list(APPEND espectre_sdk_requires mdns esp_http_server)
 endif()
 
 list(REMOVE_DUPLICATES espectre_sdk_sources)

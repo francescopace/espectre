@@ -12,6 +12,10 @@
 
 namespace espectre {
 
+const char *frontend_command_parse_error_code(const std::string &error) {
+  return error == "unsupported protocol_version" ? "unsupported_version" : "invalid_params";
+}
+
 bool frontend_command_allowed_during_raw_collection(const std::string &command) {
   return command == "capabilities" || command == "info" || command == "status" ||
          command == "config" || command == "diagnostics" || command == "ota_status" ||

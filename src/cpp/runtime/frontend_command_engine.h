@@ -20,6 +20,9 @@
 
 namespace espectre {
 
+/** Map a canonical command parse failure to its stable result code. */
+const char *frontend_command_parse_error_code(const std::string &error);
+
 struct DeviceConfigCommandResult {
   bool handled{false};
   bool accepted{false};

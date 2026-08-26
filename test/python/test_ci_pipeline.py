@@ -51,6 +51,18 @@ def file_sha256(path: Path) -> str:
 
 def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     builder = load_script("build_sdk_package")
+    component_cmake = (REPO_ROOT / "src" / "cpp" / "CMakeLists.txt").read_text(encoding="utf-8")
+    for dependency in (
+        "mqtt",
+        "app_update",
+        "esp_http_client",
+        "esp_http_server",
+        "esp_https_ota",
+        "esp-tls",
+        "improv",
+        "mdns",
+    ):
+        assert re.search(rf"(?m)^    {re.escape(dependency)}$", component_cmake)
     outputs = [tmp_path / "first", tmp_path / "second"]
     for output in outputs:
         args = argparse.Namespace(
@@ -73,6 +85,13 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     manifest_path = next(outputs[0].glob("sdk-manifest-*.json"))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["generated_at"] == "2027-01-15T08:00:00+00:00"
+    assert manifest["install_surfaces"]["cmake"]["optional_source_groups"] == [
+        "ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES",
+        "ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES",
+        "ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES",
+        "ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES",
+        "ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES",
+    ]
     zip_path = next(outputs[0].glob("*.zip"))
     with zipfile.ZipFile(zip_path) as archive:
         archived = set(archive.namelist())
@@ -269,6 +288,9 @@ def test_sdk_snapshot_stamps_git_describe_identity(tmp_path: Path) -> None:
     assert "ESPectre SDK version is unresolved" not in header
     assert 'version: "2.8.0-237-g7439944"' in yml
     assert 'version: ">=5.5.0"' in yml
+    assert "https://github.com/improv-wifi/sdk-cpp.git" in yml
+    assert "version: 17898613a1c17062ca5af295ceb639b16b4930bf" in yml
+    assert 'espressif/mdns:\n    version: "^1.9.0"' in yml
     assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*2\.8\.0-237-g7439944\s*$", bundled_doxyfile)
     for relative_path in (
         "src/cpp/frontend/native/espectre/idf_component.yml",

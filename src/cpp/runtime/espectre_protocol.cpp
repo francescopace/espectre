@@ -248,6 +248,7 @@ std::string normalize_chip_label(const char *chip) {
   if (normalized == "ESP32C3") return "C3";
   if (normalized == "ESP32C5") return "C5";
   if (normalized == "ESP32C6") return "C6";
+  if (normalized == "ESP32S2") return "S2";
   if (normalized == "ESP32S3") return "S3";
   if (normalized == "ESP32") return "ESP32";
   return normalized.empty() ? "UNK" : normalized;
@@ -1046,7 +1047,28 @@ bool parse_espectre_command_request(const std::string &command_id,
                                     const std::string &command_name,
                                     const std::string &params_json,
                                     EspectreCommand *command,
-                                    std::string *error) {
+                                    std::string *error,
+                                    const std::string &protocol_version) {
+  if (!command_id_accepted(command_id)) {
+    if (error != nullptr) {
+      *error = "invalid command_id (accepted: non-empty string up to 64 characters)";
+    }
+    if (command != nullptr) {
+      *command = EspectreCommand{};
+      command->command_id = command_id;
+      command->command = command_name;
+    }
+    return false;
+  }
+  if (protocol_version != ESPECTRE_PROTOCOL_VERSION) {
+    if (error != nullptr) *error = "unsupported protocol_version";
+    if (command != nullptr) {
+      *command = EspectreCommand{};
+      command->command_id = command_id;
+      command->command = command_name;
+    }
+    return false;
+  }
   std::vector<JsonObjectField> fields;
   std::string json_error;
   if (!parse_json_object_fields(params_json, &fields, &json_error)) {

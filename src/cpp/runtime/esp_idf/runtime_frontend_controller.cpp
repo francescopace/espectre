@@ -47,7 +47,8 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
   }
 
   listener_ = listener;
-  runtime_.reset(new EspIdfRuntime(config_));
+  active_config_ = config_;
+  runtime_.reset(new EspIdfRuntime(active_config_));
   runtime_->set_listener(this);
   runtime_->set_services_armed(services_armed_);
   runtime_->set_live_telemetry_enabled(live_telemetry_enabled_);
@@ -60,9 +61,12 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
 
   snapshot_ = runtime_->get_snapshot();
   capabilities_ = runtime_->get_capabilities();
-  if (config_.runtime_profile == RuntimeProfile::SENSING && config_.runtime_detector_selection_enabled) {
-    config_.detection_algorithm = parse_detection_algorithm(snapshot_.detector_name);
-    config_.segmentation_threshold = snapshot_.threshold;
+  if (active_config_.runtime_profile == RuntimeProfile::SENSING &&
+      active_config_.runtime_detector_selection_enabled) {
+    active_config_.detection_algorithm = parse_detection_algorithm(snapshot_.detector_name);
+    active_config_.segmentation_threshold = snapshot_.threshold;
+    config_.detection_algorithm = active_config_.detection_algorithm;
+    config_.segmentation_threshold = active_config_.segmentation_threshold;
   }
   setup_complete_ = true;
   apply_deferred_shutdown_();
@@ -120,8 +124,9 @@ void RuntimeFrontendController::quiesce_for_ota() {
 }
 
 bool RuntimeFrontendController::set_threshold_runtime(float threshold) {
-  if (config_.runtime_profile != RuntimeProfile::SENSING ||
-      !validate_runtime_threshold_for_algorithm(threshold, config_.detection_algorithm)) {
+  const RuntimeConfig &effective_config = runtime_ ? active_config_ : config_;
+  if (effective_config.runtime_profile != RuntimeProfile::SENSING ||
+      !validate_runtime_threshold_for_algorithm(threshold, effective_config.detection_algorithm)) {
     return false;
   }
   if (runtime_) {
@@ -134,13 +139,15 @@ bool RuntimeFrontendController::set_threshold_runtime(float threshold) {
     snapshot_.threshold = threshold;
   }
   config_.segmentation_threshold = threshold;
+  if (runtime_) active_config_.segmentation_threshold = threshold;
   snapshot_.threshold = threshold;
   apply_deferred_shutdown_();
   return true;
 }
 
 bool RuntimeFrontendController::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t motion_off_hits) {
-  if (config_.runtime_profile != RuntimeProfile::SENSING ||
+  const RuntimeConfig &effective_config = runtime_ ? active_config_ : config_;
+  if (effective_config.runtime_profile != RuntimeProfile::SENSING ||
       motion_on_hits < RUNTIME_MOTION_HITS_MIN || motion_on_hits > RUNTIME_MOTION_HITS_MAX ||
       motion_off_hits < RUNTIME_MOTION_HITS_MIN || motion_off_hits > RUNTIME_MOTION_HITS_MAX) {
     return false;
@@ -154,12 +161,17 @@ bool RuntimeFrontendController::set_motion_hits_runtime(uint8_t motion_on_hits, 
   }
   config_.motion_on_hits = motion_on_hits;
   config_.motion_off_hits = motion_off_hits;
+  if (runtime_) {
+    active_config_.motion_on_hits = motion_on_hits;
+    active_config_.motion_off_hits = motion_off_hits;
+  }
   apply_deferred_shutdown_();
   return true;
 }
 
 bool RuntimeFrontendController::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
-  if (!runtime_csi_traffic_mode_valid_for_profile(config_.runtime_profile, mode)) {
+  const RuntimeConfig &effective_config = runtime_ ? active_config_ : config_;
+  if (!runtime_csi_traffic_mode_valid_for_profile(effective_config.runtime_profile, mode)) {
     return false;
   }
   if (runtime_) {
@@ -169,6 +181,7 @@ bool RuntimeFrontendController::set_csi_traffic_mode_runtime(CsiTrafficMode mode
     }
   }
   config_.csi_traffic_mode = mode;
+  if (runtime_) active_config_.csi_traffic_mode = mode;
   apply_deferred_shutdown_();
   return true;
 }
@@ -184,12 +197,14 @@ bool RuntimeFrontendController::set_traffic_generator_mode_runtime(RuntimeTraffi
     }
   }
   config_.traffic_generator_mode = mode;
+  if (runtime_) active_config_.traffic_generator_mode = mode;
   apply_deferred_shutdown_();
   return true;
 }
 
 bool RuntimeFrontendController::set_detection_algorithm_runtime(DetectionAlgorithm algorithm) {
-  if (config_.runtime_profile != RuntimeProfile::SENSING ||
+  const RuntimeConfig &effective_config = runtime_ ? active_config_ : config_;
+  if (effective_config.runtime_profile != RuntimeProfile::SENSING ||
       !runtime_detection_algorithm_valid(algorithm)) {
     return false;
   }
@@ -208,6 +223,10 @@ bool RuntimeFrontendController::set_detection_algorithm_runtime(DetectionAlgorit
   }
   config_.detection_algorithm = algorithm;
   config_.segmentation_threshold = snapshot_.threshold;
+  if (runtime_) {
+    active_config_.detection_algorithm = algorithm;
+    active_config_.segmentation_threshold = snapshot_.threshold;
+  }
   apply_deferred_shutdown_();
   return true;
 }
@@ -298,6 +317,7 @@ void RuntimeFrontendController::on_periodic_update(const RuntimeSnapshot &snapsh
 void RuntimeFrontendController::on_threshold_changed(const RuntimeSnapshot &snapshot) {
   cache_snapshot_(snapshot);
   config_.segmentation_threshold = snapshot.threshold;
+  active_config_.segmentation_threshold = snapshot.threshold;
   if (listener_ != nullptr) {
     begin_callback_();
     listener_->on_threshold_changed(snapshot);
@@ -309,6 +329,8 @@ void RuntimeFrontendController::on_detector_changed(const RuntimeSnapshot &snaps
   cache_snapshot_(snapshot);
   config_.detection_algorithm = parse_detection_algorithm(snapshot.detector_name);
   config_.segmentation_threshold = snapshot.threshold;
+  active_config_.detection_algorithm = config_.detection_algorithm;
+  active_config_.segmentation_threshold = snapshot.threshold;
   if (listener_ != nullptr) {
     begin_callback_();
     listener_->on_detector_changed(snapshot);
@@ -329,6 +351,7 @@ void RuntimeFrontendController::on_calibration_finished(const RuntimeSnapshot &s
                                                         bool success) {
   cache_snapshot_(snapshot);
   config_.segmentation_threshold = snapshot.threshold;
+  active_config_.segmentation_threshold = snapshot.threshold;
   if (listener_ != nullptr) {
     begin_callback_();
     listener_->on_calibration_finished(snapshot, success);
@@ -340,6 +363,7 @@ void RuntimeFrontendController::on_live_telemetry(float movement, float threshol
   snapshot_.movement_metric = movement;
   snapshot_.threshold = threshold;
   config_.segmentation_threshold = threshold;
+  active_config_.segmentation_threshold = threshold;
   if (listener_ != nullptr) {
     begin_callback_();
     listener_->on_live_telemetry(movement, threshold);

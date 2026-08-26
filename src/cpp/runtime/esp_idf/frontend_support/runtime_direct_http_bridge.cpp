@@ -171,9 +171,10 @@ std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &reques
   EspectreCommand command;
   std::string parse_error;
   if (!direct_http_request_to_command(request, &command, &parse_error)) {
-    command.command_id = request.id;
-    command.command = request.method;
-    return espectre_command_result_payload(device, command, false, "invalid_params", parse_error.c_str());
+    command.command_id = request.command_id;
+    command.command = request.command;
+    return espectre_command_result_payload(
+        device, command, false, frontend_command_parse_error_code(parse_error), parse_error.c_str());
   }
   if (runtime_->operation_state() == RuntimeOperationState::RAW_COLLECTION &&
       !frontend_command_allowed_during_raw_collection(command.command)) {
@@ -250,14 +251,14 @@ std::string RuntimeDirectHttpBridge::handle_request_(const DirectRequest &reques
 IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferred_request_(
     uint64_t request_token,
     const DirectRequest &request) {
-  if (request.method != ESPECTRE_PEER_DISCOVERY_METHOD) {
+  if (request.command != ESPECTRE_PEER_DISCOVERY_METHOD) {
     return {false, handle_request_(request)};
   }
   EspectreDeviceConfig device;
   device.device_id = config_.device_id;
   EspectreCommand command;
-  command.command_id = request.id;
-  command.command = request.method;
+  command.command_id = request.command_id;
+  command.command = request.command;
   if (!deferred_requests_enabled_ || config_.peer_discovery == nullptr) {
     return {false, espectre_command_result_payload(device, command, false, "unsupported",
                                                    "peer discovery is unavailable")};
@@ -272,7 +273,7 @@ IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferr
                                                    "a peer discovery request is already active")};
   }
   const bool started = config_.peer_discovery->start(
-      [this, request_token, request_id = request.id, command_name = request.method](PeerDiscoverySnapshot snapshot) {
+      [this, request_token, request_id = request.command_id, command_name = request.command](PeerDiscoverySnapshot snapshot) {
         if (service_ == nullptr) return;
         EspectreDeviceConfig response_device;
         response_device.device_id = config_.device_id;

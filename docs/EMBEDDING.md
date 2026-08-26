@@ -67,7 +67,7 @@ The frontend layer is a set of reference integrations, not a supported API. Read
 
 ## Supported hardware
 
-ESP32, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, using standard single-antenna Wi-Fi CSI with AGC active and HT20 bandwidth. No extra sensors or radio hardware are required. See [SETUP.md](SETUP.md) for the current per-frontend target matrix.
+ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, using standard single-antenna Wi-Fi CSI with AGC active and HT20 bandwidth. No extra sensors or radio hardware are required. See [SETUP.md](SETUP.md) for the current per-frontend target matrix.
 
 Set `RuntimeConfig::wifi_band_policy` to choose `BAND_2G`, `BAND_5G`, or `AUTO`. `BAND_2G` is the default and is supported by every target; `BAND_5G` and `AUTO` require dual-band silicon, currently ESP32-C5 among the published targets. The runtime applies that choice and pins an 802.11n protocol ceiling plus HT20 on the selected band or bands. Unsupported policies fail setup instead of falling back silently, and packets outside the HT20 contract are dropped and counted.
 
@@ -198,7 +198,7 @@ Published SDK bundles stamp the same identity into `espectre_sdk_version.h` and 
 
 Both surfaces build the same sources; they differ only in how you select the optional capability groups.
 
-- **CMake / ESP-IDF**: include `src/cpp/espectre_sources.cmake` and consume the source lists (`ESPECTRE_CORE_SOURCES`, `ESPECTRE_RUNTIME_ESP_IDF_SOURCES`, and the per-capability lists for Direct HTTP, MQTT, provisioning, and OTA) plus `ESPECTRE_SHARED_INCLUDE_DIRS`. The frontend `CMakeLists.txt` files show the working combinations.
+- **CMake / ESP-IDF**: include `src/cpp/espectre_sources.cmake` and consume the source lists (`ESPECTRE_CORE_SOURCES`, `ESPECTRE_RUNTIME_ESP_IDF_SOURCES`, `ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES`, and the per-capability lists for Direct HTTP, MQTT, provisioning, and OTA) plus `ESPECTRE_SHARED_INCLUDE_DIRS`. The frontend `CMakeLists.txt` files show the working combinations.
 - **Vendored ESP-IDF component**: drop `src/cpp/` into your project's `components/` directory and add `espectre` to your own component's `REQUIRES`. The sensing runtime is always built; the optional groups are opt-in under the "ESPectre SDK" menuconfig menu.
 - **Toolchain**: C++17, ESP-IDF `>= 5.5` for the `runtime/esp_idf` services. Repository builds use ESP-IDF `5.5.5`.
 
@@ -206,14 +206,15 @@ Both surfaces build the same sources; they differ only in how you select the opt
 
 ### Optional capability groups
 
-| Menuconfig option | `espectre_sources.cmake` variable | Adds |
-|-------------------|-----------------------------------|------|
-| `ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT` | `ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES` | Shared bootstrap, control, sysinfo, and MQTT payload helpers |
-| `ESPECTRE_SDK_ENABLE_MQTT` | `ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES` | `EspIdfMqttTransport` over `esp-mqtt` |
-| `ESPECTRE_SDK_ENABLE_PROVISIONING` | `ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES` | Device config store and Wi-Fi provisioning |
-| `ESPECTRE_SDK_ENABLE_OTA` | `ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES` | `HttpsOtaService` |
+| Menuconfig option | `espectre_sources.cmake` variable | Adds | Additional source-list requirements |
+|-------------------|-----------------------------------|------|------------------------------------|
+| `ESPECTRE_SDK_ENABLE_FRONTEND_SUPPORT` | `ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES` | Shared bootstrap, control, sysinfo, and MQTT payload helpers | None beyond the base runtime |
+| `ESPECTRE_SDK_ENABLE_MQTT` | `ESPECTRE_RUNTIME_ESP_IDF_MQTT_SOURCES` | `EspIdfMqttTransport` over `esp-mqtt` | `mqtt` |
+| `ESPECTRE_SDK_ENABLE_PROVISIONING` | `ESPECTRE_RUNTIME_ESP_IDF_PROVISIONING_SOURCES` | Device config store and Wi-Fi provisioning | `improv` |
+| `ESPECTRE_SDK_ENABLE_OTA` | `ESPECTRE_RUNTIME_ESP_IDF_OTA_SOURCES` | `HttpsOtaService` | `app_update`, `esp_http_client`, `esp_https_ota`, and `esp-tls` |
+| `ESPECTRE_SDK_ENABLE_DIRECT` | `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES` | Direct HTTP, SSE, raw CSI streaming, peer discovery, and mDNS | `esp_http_server` and `mdns` |
 
-Each group is off by default, so a minimal integration does not pay for transports it never calls. Implementing `IMqttTransport`, `IDirectHttpService`, or `IOtaService` yourself needs no group at all: the interfaces are header-only. `DirectHttpServiceConfig` keeps its generic Origin allowlist empty; `for_first_party_portals()` explicitly selects the official production and validation portals. The Native reference app adds `ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES` explicitly because Direct HTTP and mDNS are frontend-owned deployment choices rather than a general SDK default.
+Each group is off by default, so a minimal integration does not link transport code it never calls. ESP-IDF resolves component requirements before menuconfig, so the vendored component declares every optional stack dependency up front; the source switches still control what reaches the firmware image. Its manifest resolves the pinned Improv revision and constrained Espressif mDNS component so provisioning and Direct builds work when selected; source-list integrations must declare those dependencies themselves. Implementing `IMqttTransport`, `IDirectHttpService`, or `IOtaService` yourself needs no group at all: the interfaces are header-only. `DirectHttpServiceConfig` keeps its generic Origin allowlist empty; `for_first_party_portals()` explicitly selects the official production and validation portals.
 
 ## Published SDK channels
 

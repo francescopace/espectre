@@ -13,9 +13,9 @@
 #include <cstdint>
 #include <string>
 
-namespace espectre {
+#include "espectre_protocol.h"
 
-struct EspectreCommand;
+namespace espectre {
 
 /** ESPectre service port: low 16 bits of U+1F47B GHOST (0xF47B). */
 inline constexpr uint16_t ESPECTRE_DIRECT_HTTP_PORT = 0xF47BU;  // 62587
@@ -24,16 +24,22 @@ inline constexpr const char *ESPECTRE_DIRECT_HTTP_EVENTS_ENDPOINT = "/espectre/v
 inline constexpr const char *ESPECTRE_DIRECT_HTTP_TRANSPORT = "http";
 inline constexpr size_t ESPECTRE_DIRECT_MAX_REQUEST_SIZE = 4096U;
 inline constexpr size_t ESPECTRE_DIRECT_MAX_RESPONSE_SIZE = 8192U;
-inline constexpr size_t ESPECTRE_DIRECT_MAX_REQUEST_ID_SIZE = 64U;
-inline constexpr size_t ESPECTRE_DIRECT_MAX_METHOD_SIZE = 64U;
+/** @deprecated Use `ESPECTRE_COMMAND_ID_MAX_LENGTH`; Direct uses the canonical limit. */
+[[deprecated("use ESPECTRE_COMMAND_ID_MAX_LENGTH")]] inline constexpr size_t
+    ESPECTRE_DIRECT_MAX_REQUEST_ID_SIZE = ESPECTRE_COMMAND_ID_MAX_LENGTH;
+/** @deprecated Command names are validated by the canonical registry. */
+[[deprecated("command names are validated by the canonical registry")]] inline constexpr size_t
+    ESPECTRE_DIRECT_MAX_METHOD_SIZE = 64U;
 
 struct DirectRequest {
-  std::string id;
-  std::string method;
-  /** Validated JSON object containing method parameters. */
+  std::string command_id;
+  std::string command;
+  /** Syntactically valid JSON object containing command parameters. */
   std::string params{"{}"};
   /** Bearer token supplied by the HTTP transport; never parsed from JSON. */
   std::string authorization;
+  /** Canonical message version supplied by the requester. */
+  std::string protocol_version{ESPECTRE_PROTOCOL_VERSION};
 };
 
 bool parse_direct_http_request(const std::string &payload,

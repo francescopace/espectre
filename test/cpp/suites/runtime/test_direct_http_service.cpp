@@ -51,8 +51,8 @@ std::string sent_payload(int index) {
 std::string command_result(const DirectRequest &request, const std::string &data_json = "{}") {
   EspectreDeviceConfig device;
   EspectreCommand command;
-  command.command_id = request.id;
-  command.command = request.method;
+  command.command_id = request.command_id;
+  command.command = request.command;
   return espectre_command_result_payload(device, command, true, "ok", "completed", data_json);
 }
 
@@ -89,7 +89,7 @@ void test_post_validates_origin_content_type_size_and_dispatches_on_loop() {
   TEST_ASSERT_TRUE(service.setup(
       config(),
       [&method](const DirectRequest &request) {
-        method = request.method;
+        method = request.command;
         return command_result(request, "{\"methods\":[]}");
       },
       {}));
@@ -112,6 +112,13 @@ void test_post_validates_origin_content_type_size_and_dispatches_on_loop() {
   TEST_ASSERT_EQUAL_STRING("no-store", g_httpd_mock.cache_control);
   TEST_ASSERT_EQUAL_STRING("https://espectre.dev", g_httpd_mock.allow_origin);
   TEST_ASSERT_EQUAL(1, g_httpd_mock.async_complete_calls);
+
+  prepare_json("{\"protocol_version\":\"2.0\",\"command_id\":\"version\",\"command\":\"info\"}");
+  httpd_req_t semantic_rejection = request_for(0U);
+  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&semantic_rejection));
+  service.loop();
+  TEST_ASSERT_EQUAL_STRING("info", method.c_str());
+  TEST_ASSERT_EQUAL(0U, service.diagnostics().malformed_requests);
 
   prepare_json("{}");
   httpd_mock_set_header("Content-Type", "text/plain");
@@ -224,7 +231,7 @@ void test_deferred_post_completes_only_once() {
       config(),
       [&token, &request_id](uint64_t current, const DirectRequest &request) {
         token = current;
-        request_id = request.id;
+        request_id = request.command_id;
         return IDirectHttpService::DeferredRequestResult{true, {}};
       },
       {}));

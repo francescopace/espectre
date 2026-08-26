@@ -63,7 +63,9 @@ constexpr float LIGHTWEIGHT_SETTLE_MARGIN_LOGITS = 2.7f;
  *
  * @code
  * espectre::LightweightDetector detector;
- * // per packet, from your capture callback:
+ * // For each slot retained by your temporal sampler:
+ * detector.advance_missing_slots(missing_slots_before_this_packet);
+ * detector.set_packet_timestamp_us(packet_timestamp_us);
  * detector.process_packet(csi, csi_len, espectre::DEFAULT_SUBCARRIERS,
  *                         espectre::HT20_SELECTED_BAND_SIZE, rssi_dbm);
  * // on your evaluation cadence:

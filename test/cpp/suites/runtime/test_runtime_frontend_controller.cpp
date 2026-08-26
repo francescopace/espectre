@@ -96,6 +96,22 @@ void test_runtime_frontend_controller_rejects_invalid_config_before_backend_setu
   TEST_ASSERT_EQUAL_STRING("invalid publish interval", listener.last_fault.c_str());
 }
 
+void test_runtime_frontend_controller_keeps_staged_mutations_out_of_live_validation(void) {
+  RuntimeFrontendController controller;
+  DummyRuntimeListener listener;
+  frontend_runtime_shim::state.capabilities.supports_runtime_threshold_updates = true;
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+
+  controller.config().runtime_profile = static_cast<RuntimeProfile>(0x7f);
+  TEST_ASSERT_TRUE(controller.set_threshold_runtime(0.55f));
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_threshold_calls);
+  TEST_ASSERT_EQUAL_FLOAT(0.55f, controller.snapshot().threshold);
+
+  controller.shutdown();
+  TEST_ASSERT_FALSE(controller.setup(&listener));
+  TEST_ASSERT_EQUAL(1, listener.fault_count);
+}
+
 void test_runtime_frontend_controller_setup_propagates_state_and_handles_failure(void) {
   RuntimeFrontendController controller;
   DummyRuntimeListener listener;
@@ -321,6 +337,7 @@ int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_runtime_frontend_controller_preserves_pre_setup_config_and_snapshot);
   RUN_TEST(test_runtime_frontend_controller_rejects_invalid_config_before_backend_setup);
+  RUN_TEST(test_runtime_frontend_controller_keeps_staged_mutations_out_of_live_validation);
   RUN_TEST(test_runtime_frontend_controller_setup_propagates_state_and_handles_failure);
   RUN_TEST(test_runtime_frontend_controller_loop_shutdown_and_runtime_toggles_forward);
   RUN_TEST(test_runtime_frontend_controller_reads_diagnostics_from_backend);

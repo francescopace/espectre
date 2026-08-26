@@ -478,14 +478,16 @@ bool parse_espectre_command(const std::string &payload, EspectreCommand *command
 /**
  * Parse an already separated command name plus a JSON parameter object.
  *
- * Frontend adapters use this after the canonical flat request has been
- * validated and separated into its internal fields.
+ * Frontend adapters use this after separating a canonical flat request into
+ * internal fields. Validation follows canonical envelope order: correlation
+ * identifier, protocol version, command name, and parameters.
  */
 bool parse_espectre_command_request(const std::string &command_id,
                                     const std::string &command_name,
                                     const std::string &params_json,
                                     EspectreCommand *command,
-                                    std::string *error);
+                                    std::string *error,
+                                    const std::string &protocol_version = ESPECTRE_PROTOCOL_VERSION);
 /**
  * Whether `channel` is a published OTA channel name.
  *

@@ -397,7 +397,7 @@ void NativeFrontend::handle_mqtt_command_(const std::string &payload) {
     FrontendCommandResult result;
     result.handled = true;
     result.command = std::move(command);
-    result.code = parse_error == "unsupported protocol_version" ? "unsupported_version" : "invalid_params";
+    result.code = frontend_command_parse_error_code(parse_error);
     result.message = std::move(parse_error);
     publish_mqtt_command_result_(result);
     return;
@@ -616,10 +616,10 @@ std::string NativeFrontend::handle_direct_request_(const DirectRequest &request,
   EspectreCommand command;
   std::string parse_error;
   if (!direct_http_request_to_command(request, &command, &parse_error)) {
-    command.command_id = request.id;
-    command.command = request.method;
+    command.command_id = request.command_id;
+    command.command = request.command;
     return espectre_command_result_payload(
-        device_config_, command, false, "invalid_params", parse_error.c_str());
+        device_config_, command, false, frontend_command_parse_error_code(parse_error), parse_error.c_str());
   }
 
   const FrontendCommandResult result =
@@ -647,33 +647,33 @@ std::string NativeFrontend::handle_direct_request_(const DirectRequest &request,
 IDirectHttpService::DeferredRequestResult NativeFrontend::handle_deferred_direct_request_(
     uint64_t connection_token,
     const DirectRequest &request) {
-  if (request.method != ESPECTRE_PEER_DISCOVERY_METHOD) {
+  if (request.command != ESPECTRE_PEER_DISCOVERY_METHOD) {
     return {false, handle_direct_request_(request, connection_token)};
   }
   if (!peer_discovery_enabled_ || peer_discovery_ == nullptr) {
     EspectreCommand command;
-    command.command_id = request.id;
-    command.command = request.method;
+    command.command_id = request.command_id;
+    command.command = request.command;
     return {false, espectre_command_result_payload(device_config_, command, false, "unsupported",
                                                    "peer discovery is unavailable")};
   }
   std::vector<JsonObjectField> params;
   if (!parse_json_object_fields(request.params, &params) || !params.empty()) {
     EspectreCommand command;
-    command.command_id = request.id;
-    command.command = request.method;
+    command.command_id = request.command_id;
+    command.command = request.command;
     return {false, espectre_command_result_payload(device_config_, command, false, "invalid_params",
                                                    "discover_peers does not accept parameters")};
   }
   if (peer_discovery_->active()) {
     EspectreCommand command;
-    command.command_id = request.id;
-    command.command = request.method;
+    command.command_id = request.command_id;
+    command.command = request.command;
     return {false, espectre_command_result_payload(device_config_, command, false, "conflict",
                                                    "a peer discovery request is already active")};
   }
   const bool started = peer_discovery_->start(
-      [this, connection_token, request_id = request.id, command_name = request.method](PeerDiscoverySnapshot snapshot) {
+      [this, connection_token, request_id = request.command_id, command_name = request.command](PeerDiscoverySnapshot snapshot) {
         if (this->direct_service_ == nullptr) {
           return;
         }
@@ -688,8 +688,8 @@ IDirectHttpService::DeferredRequestResult NativeFrontend::handle_deferred_direct
       });
   if (!started) {
     EspectreCommand command;
-    command.command_id = request.id;
-    command.command = request.method;
+    command.command_id = request.command_id;
+    command.command = request.command;
     return {false, espectre_command_result_payload(device_config_, command, false, "unavailable",
                                                    "peer discovery could not be started")};
   }

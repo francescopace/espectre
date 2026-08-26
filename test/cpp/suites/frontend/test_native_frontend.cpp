@@ -1461,6 +1461,12 @@ void test_native_frontend_direct_requests_share_command_dispatch_and_return_corr
   TEST_ASSERT_TRUE(invalid_response.find("\"command_id\":\"req-bad\"") != std::string::npos);
   TEST_ASSERT_TRUE(invalid_response.find("\"accepted\":false") != std::string::npos);
   TEST_ASSERT_TRUE(invalid_response.find("\"code\":\"unsupported\"") != std::string::npos);
+
+  const std::string version_response =
+      direct.emit_request(DirectRequest{"req-version", "info", "{}", "", "2.0"});
+  TEST_ASSERT_TRUE(version_response.find("\"command_id\":\"req-version\"") != std::string::npos);
+  TEST_ASSERT_TRUE(version_response.find("\"accepted\":false") != std::string::npos);
+  TEST_ASSERT_TRUE(version_response.find("\"code\":\"unsupported_version\"") != std::string::npos);
 }
 
 void test_native_frontend_peer_discovery_is_capability_gated_correlated_and_bounded(void) {

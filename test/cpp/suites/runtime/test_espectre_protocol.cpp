@@ -60,6 +60,7 @@ void test_device_id_helpers_format_and_parse_canonical_hex_consistently(void) {
   TEST_ASSERT_EQUAL(ESPECTRE_DEFAULT_DEVICE_ID, espectre_device_id_from_mac(nullptr, 0));
 #pragma GCC diagnostic pop
   TEST_ASSERT_EQUAL_STRING("ESPectre C6 42bbac", espectre_device_name(0x00007C2C6742BBACULL, "esp32c6").c_str());
+  TEST_ASSERT_EQUAL_STRING("ESPectre S2 42bbac", espectre_device_name(0x00007C2C6742BBACULL, "esp32s2").c_str());
   TEST_ASSERT_EQUAL_STRING("ESPectre UNK 000000", espectre_device_name(ESPECTRE_DEFAULT_DEVICE_ID).c_str());
 }
 
@@ -566,19 +567,19 @@ void test_direct_http_request_parses_canonical_message(void) {
       "\"command\":\"set_threshold\",\"threshold\":0.42}",
       &request,
       &error));
-  TEST_ASSERT_EQUAL_STRING("req:42", request.id.c_str());
-  TEST_ASSERT_EQUAL_STRING("set_threshold", request.method.c_str());
+  TEST_ASSERT_EQUAL_STRING("req:42", request.command_id.c_str());
+  TEST_ASSERT_EQUAL_STRING("set_threshold", request.command.c_str());
   TEST_ASSERT_EQUAL_STRING("{\"threshold\":0.42}", request.params.c_str());
 
   TEST_ASSERT_TRUE(parse_direct_http_request(
       "{\"protocol_version\":\"1.0\",\"command_id\":\"unicode-\\u0031\",\"command\":\"info\"}",
       &request,
       &error));
-  TEST_ASSERT_EQUAL_STRING("unicode-1", request.id.c_str());
+  TEST_ASSERT_EQUAL_STRING("unicode-1", request.command_id.c_str());
   TEST_ASSERT_EQUAL_STRING("{}", request.params.c_str());
 }
 
-void test_direct_http_request_rejects_invalid_boundaries(void) {
+void test_direct_http_request_separates_framing_from_canonical_validation(void) {
   DirectRequest request;
   std::string error;
 
@@ -590,25 +591,37 @@ void test_direct_http_request_rejects_invalid_boundaries(void) {
       &request,
       &error));
   TEST_ASSERT_EQUAL_STRING("duplicate JSON object field", error.c_str());
-  TEST_ASSERT_FALSE(parse_direct_http_request(
+  TEST_ASSERT_TRUE(parse_direct_http_request(
       "{\"protocol_version\":\"2.0\",\"command_id\":\"x\",\"command\":\"info\"}",
       &request,
       &error));
-  TEST_ASSERT_EQUAL_STRING("unsupported ESPectre protocol version", error.c_str());
-  TEST_ASSERT_FALSE(parse_direct_http_request(
+  EspectreCommand command;
+  TEST_ASSERT_FALSE(direct_http_request_to_command(request, &command, &error));
+  TEST_ASSERT_EQUAL_STRING("unsupported protocol_version", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("x", command.command_id.c_str());
+  TEST_ASSERT_EQUAL_STRING("info", command.command.c_str());
+
+  TEST_ASSERT_TRUE(parse_direct_http_request(
       "{\"protocol_version\":\"1.0\",\"command_id\":\"bad id\",\"command\":\"info\"}",
       &request,
       &error));
-  TEST_ASSERT_EQUAL_STRING("invalid ESPectre command_id", error.c_str());
-  TEST_ASSERT_FALSE(parse_direct_http_request(
-      "{\"protocol_version\":\"1.0\",\"command_id\":\"x\",\"command\":\"Info!\"}",
+  TEST_ASSERT_FALSE(direct_http_request_to_command(request, &command, &error));
+  TEST_ASSERT_EQUAL_STRING(
+      "invalid command_id (accepted: non-empty string up to 64 characters)", error.c_str());
+
+  TEST_ASSERT_TRUE(parse_direct_http_request(
+      "{\"protocol_version\":\"2.0\",\"command_id\":\"bad id\",\"command\":\"info\"}",
       &request,
       &error));
-  TEST_ASSERT_EQUAL_STRING("invalid ESPectre command", error.c_str());
-  TEST_ASSERT_FALSE(parse_direct_http_request(
+  TEST_ASSERT_FALSE(direct_http_request_to_command(request, &command, &error));
+  TEST_ASSERT_EQUAL_STRING(
+      "invalid command_id (accepted: non-empty string up to 64 characters)", error.c_str());
+
+  TEST_ASSERT_TRUE(parse_direct_http_request(
       "{\"protocol_version\":\"1.0\",\"command_id\":\"x\",\"command\":\"info\",\"unexpected\":true}",
       &request,
       &error));
+  TEST_ASSERT_FALSE(direct_http_request_to_command(request, &command, &error));
   TEST_ASSERT_EQUAL_STRING("unknown command parameter", error.c_str());
 
   const std::string oversized(ESPECTRE_DIRECT_MAX_REQUEST_SIZE + 1U, 'x');
@@ -657,12 +670,12 @@ void test_direct_http_request_reuses_transport_neutral_command_validation(void) 
   TEST_ASSERT_EQUAL_UINT8(6U, command.motion_on_hits);
   TEST_ASSERT_EQUAL_UINT8(4U, command.motion_off_hits);
 
-  request.method = "set_threshold";
+  request.command = "set_threshold";
   request.params = "{\"threshold\":\"0.5\"}";
   TEST_ASSERT_FALSE(direct_http_request_to_command(request, &command, &error));
   TEST_ASSERT_EQUAL_STRING("invalid threshold (accepted: 0.0-1.0)", error.c_str());
 
-  request.method = "unknown_method";
+  request.command = "unknown_method";
   request.params = "{}";
   TEST_ASSERT_TRUE(direct_http_request_to_command(request, &command, &error));
   TEST_ASSERT_EQUAL_STRING("unknown_method", command.command.c_str());
@@ -758,7 +771,7 @@ int process(void) {
   RUN_TEST(test_parse_espectre_config_command_updates_supported_fields);
   RUN_TEST(test_parse_espectre_config_command_rejects_invalid_inputs);
   RUN_TEST(test_direct_http_request_parses_canonical_message);
-  RUN_TEST(test_direct_http_request_rejects_invalid_boundaries);
+  RUN_TEST(test_direct_http_request_separates_framing_from_canonical_validation);
   RUN_TEST(test_canonical_message_builders_and_transport_catalog);
   RUN_TEST(test_direct_http_request_reuses_transport_neutral_command_validation);
   RUN_TEST(test_direct_http_configuration_commands_validate_write_only_fields);

@@ -9,30 +9,11 @@
  */
 #include "direct_http_protocol.h"
 
-#include <cctype>
 #include <vector>
 
-#include "espectre_protocol.h"
 #include "protocol_json.h"
 
 namespace espectre {
-
-namespace {
-
-bool identifier_accepted(const std::string &value, size_t max_size, bool method) {
-  if (value.empty() || value.size() > max_size) {
-    return false;
-  }
-  for (const unsigned char ch : value) {
-    const bool accepted = std::isalnum(ch) || ch == '_' || ch == '-' || ch == '.' || (!method && ch == ':');
-    if (!accepted) {
-      return false;
-    }
-  }
-  return true;
-}
-
-}  // namespace
 
 bool parse_direct_http_request(const std::string &payload,
                                DirectRequest *request,
@@ -68,30 +49,13 @@ bool parse_direct_http_request(const std::string &payload,
     return false;
   }
 
-  const JsonObjectField *version = find_json_object_field(fields, "protocol_version");
-  if (version == nullptr || version->type != JsonValueType::STRING ||
-      version->value != ESPECTRE_PROTOCOL_VERSION) {
-    return reject("unsupported ESPectre protocol version");
-  }
   const JsonObjectField *id = find_json_object_field(fields, "command_id");
-  if (id == nullptr || id->type != JsonValueType::STRING ||
-      !identifier_accepted(id->value, ESPECTRE_DIRECT_MAX_REQUEST_ID_SIZE, false)) {
-    return reject("invalid ESPectre command_id");
-  }
-  parsed.id = id->value;
+  parsed.command_id = id != nullptr && id->type == JsonValueType::STRING ? id->value : "";
   const JsonObjectField *method = find_json_object_field(fields, "command");
-  if (method == nullptr || method->type != JsonValueType::STRING ||
-      !identifier_accepted(method->value, ESPECTRE_DIRECT_MAX_METHOD_SIZE, true)) {
-    return reject("invalid ESPectre command");
-  }
-  parsed.method = method->value;
-
-  EspectreCommand command;
-  if (!parse_espectre_command(payload, &command, &json_error)) {
-    if (error != nullptr) *error = json_error;
-    *request = parsed;
-    return false;
-  }
+  parsed.command = method != nullptr && method->type == JsonValueType::STRING ? method->value : "";
+  const JsonObjectField *version = find_json_object_field(fields, "protocol_version");
+  parsed.protocol_version =
+      version != nullptr && version->type == JsonValueType::STRING ? version->value : "";
 
   parsed.params = "{";
   bool first = true;
@@ -117,7 +81,8 @@ bool parse_direct_http_request(const std::string &payload,
 bool direct_http_request_to_command(const DirectRequest &request,
                                     EspectreCommand *command,
                                     std::string *error) {
-  return parse_espectre_command_request(request.id, request.method, request.params, command, error);
+  return parse_espectre_command_request(
+      request.command_id, request.command, request.params, command, error, request.protocol_version);
 }
 
 std::string espectre_transport_mapping_payload() {

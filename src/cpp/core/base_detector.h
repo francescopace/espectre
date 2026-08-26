@@ -62,12 +62,12 @@ public:
     // ========================================================================
     
     /**
-     * Process a CSI packet and update internal state
+     * Process one normalized, temporally admitted CSI packet.
      * 
      * Calculates spatial turbulence from CSI data, applies filtering,
      * and stores in circular buffer.
      * 
-     * @param csi_data Raw CSI data (I/Q interleaved)
+     * @param csi_data Normalized CSI data (I/Q interleaved)
      * @param csi_len Length of CSI data
      * @param selected_subcarriers Array of subcarrier indices
      * @param num_subcarriers Number of selected subcarriers

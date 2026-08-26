@@ -294,16 +294,16 @@ void EspIdfDirectHttpService::loop() {
         EspectreDeviceConfig device;
         device.device_id = config_.device_id;
         EspectreCommand command;
-        command.command_id = pending.direct.id;
-        command.command = pending.direct.method;
+        command.command_id = pending.direct.command_id;
+        command.command = pending.direct.command;
         response = espectre_command_result_payload(
             device, command, false, "internal_error", "empty Direct response");
       } else if (response.size() > ESPECTRE_DIRECT_MAX_RESPONSE_SIZE) {
         EspectreDeviceConfig device;
         device.device_id = config_.device_id;
         EspectreCommand command;
-        command.command_id = pending.direct.id;
-        command.command = pending.direct.method;
+        command.command_id = pending.direct.command_id;
+        command.command = pending.direct.command;
         response = espectre_command_result_payload(
             device, command, false, "internal_error", "Direct response exceeds the size limit");
       }
@@ -618,7 +618,7 @@ esp_err_t EspIdfDirectHttpService::handle_request_(httpd_req_t *request) {
   uint64_t token = 0U;
   if (lock_()) {
     const uint64_t now_us = static_cast<uint64_t>(esp_timer_get_time());
-    const bool mutation_allowed = mutation_allowed_locked_(direct.method, now_us);
+    const bool mutation_allowed = mutation_allowed_locked_(direct.command, now_us);
     queue_full = inbound_.size() + deferred_.size() >= config_.max_pending_requests;
     if (mutation_allowed && !queue_full) {
       token = next_request_token_++;

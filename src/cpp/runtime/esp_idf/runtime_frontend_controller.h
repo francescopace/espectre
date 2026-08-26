@@ -77,8 +77,9 @@ class RuntimeFrontendController : private IRuntimeListener {
    * Mutable access to the staged configuration.
    *
    * Provided so a frontend can adjust individual fields before `setup()`
-   * without rebuilding the whole struct. Writing to it after setup changes
-   * only this cached copy, not the running runtime.
+   * without rebuilding the whole struct. Writing to it after setup stages the
+   * next setup only; live controls continue to validate against the active
+   * configuration.
    */
   RuntimeConfig &config() { return config_; }
   /** Read-only view of the staged configuration. */
@@ -232,6 +233,7 @@ class RuntimeFrontendController : private IRuntimeListener {
   void apply_deferred_shutdown_();
 
   RuntimeConfig config_{};
+  RuntimeConfig active_config_{};
   RuntimeSnapshot snapshot_{};
   RuntimeCapabilities capabilities_{};
   std::unique_ptr<IEspectreRuntime> runtime_;
