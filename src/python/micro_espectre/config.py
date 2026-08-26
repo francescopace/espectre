@@ -18,9 +18,8 @@ WIFI_PASSWORD = "YourPassword"
 # Generates WiFi traffic to ensure continuous CSI data
 CSI_TARGET_PPS = 100  # Requested temporal sensing grid and managed traffic target
 TRAFFIC_GENERATOR_ENABLED = True  # False expects an external CSI traffic source
-PUBLISH_INTERVAL_MS = 1000    # Time between periodic Direct HTTP/log updates
+PUBLISH_INTERVAL_MS = 1000    # Time between Direct snapshot and telemetry updates
 EVALUATION_INTERVAL_MS = 250  # Time between internal detector evaluations
-DEBUG_TELEMETRY = False       # Periodic benchmark-only heap and timing logs
 MOTION_HITS_MIN = 1
 MOTION_HITS_MAX = 20
 MOTION_ON_HITS = 4            # Consecutive evaluated hits required for IDLE -> MOTION

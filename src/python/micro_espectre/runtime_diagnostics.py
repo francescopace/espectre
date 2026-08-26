@@ -4,7 +4,7 @@
 Micro-ESPectre - Runtime Diagnostics
 
 Rate and link diagnostics derived from cumulative runtime counters.
-Mirrors `src/cpp/runtime/runtime_diagnostics.cpp` for serial runtime sampling.
+Mirrors the canonical C++ runtime diagnostic window for Direct queries.
 """
 import time
 
@@ -217,15 +217,32 @@ class RuntimeDiagnosticsSampler:
         return result
 
 
-class RuntimeDebugTelemetry:
-    """Aggregate optional loop, detector, and heap benchmark diagnostics."""
+class RuntimePerformanceDiagnostics:
+    """Aggregate loop, detector, and heap measurements into canonical windows."""
 
-    LOG_INTERVAL_MS = 10_000
+    WINDOW_INTERVAL_MS = 10_000
 
-    def __init__(self, enabled=False):
-        self.enabled = bool(enabled)
+    def __init__(self):
         self._minimum_heap_free = None
+        self._latest = self._empty_snapshot()
         self.reset()
+
+    @staticmethod
+    def _empty_snapshot():
+        return {
+            "performance_window_ready": False,
+            "performance_window_ms": None,
+            "runtime_load_percent": None,
+            "loop_samples": None,
+            "loop_avg_us": None,
+            "loop_max_us": None,
+            "detection_timing_supported": True,
+            "detection_samples": None,
+            "detection_sum_us": None,
+            "detection_avg_us": None,
+            "detection_min_us": None,
+            "detection_max_us": None,
+        }
 
     def reset(self):
         """Clear the current timing window while retaining the heap low-water mark."""
@@ -238,21 +255,9 @@ class RuntimeDebugTelemetry:
         self._detection_duration_min_us = 0
         self._detection_duration_max_us = 0
         self._detection_samples = 0
-        self._packet_duration_sum_us = 0
-        self._packet_duration_min_us = 0
-        self._packet_duration_max_us = 0
-        self._packet_samples = 0
-
-    def is_due(self, now_ms):
-        """Return whether the next call to format_if_due() will emit a sample."""
-        if not self.enabled or self._window_start_ms is None:
-            return False
-        return _ticks_diff(int(now_ms), self._window_start_ms) >= self.LOG_INTERVAL_MS
 
     def record_loop_duration(self, duration_us):
         """Record one measured main-loop body duration."""
-        if not self.enabled:
-            return
         duration_us = max(0, int(duration_us))
         self._loop_busy_us += duration_us
         self._loop_duration_sum_us += duration_us
@@ -261,8 +266,6 @@ class RuntimeDebugTelemetry:
 
     def record_detection_duration(self, duration_us):
         """Record one detector evaluation duration."""
-        if not self.enabled:
-            return
         duration_us = max(0, int(duration_us))
         self._detection_duration_sum_us += duration_us
         if self._detection_samples == 0:
@@ -278,29 +281,8 @@ class RuntimeDebugTelemetry:
         )
         self._detection_samples += 1
 
-    def record_packet_duration(self, duration_us):
-        """Record detector packet-processing time, excluding state evaluation."""
-        if not self.enabled:
-            return
-        duration_us = max(0, int(duration_us))
-        self._packet_duration_sum_us += duration_us
-        if self._packet_samples == 0:
-            self._packet_duration_min_us = duration_us
-        else:
-            self._packet_duration_min_us = min(
-                self._packet_duration_min_us,
-                duration_us,
-            )
-        self._packet_duration_max_us = max(
-            self._packet_duration_max_us,
-            duration_us,
-        )
-        self._packet_samples += 1
-
-    def format_if_due(self, now_ms, heap_free, heap_free_post_gc=None, gc_pause_us=None):
-        """Return a C++-compatible telemetry payload when the window is due."""
-        if not self.enabled:
-            return None
+    def update_if_due(self, now_ms, heap_free):
+        """Complete a window when due and return the current canonical snapshot."""
         now_ms = int(now_ms)
         heap_free = max(0, int(heap_free))
         if self._minimum_heap_free is None:
@@ -309,10 +291,10 @@ class RuntimeDebugTelemetry:
             self._minimum_heap_free = min(self._minimum_heap_free, heap_free)
         if self._window_start_ms is None:
             self._window_start_ms = now_ms
-            return None
+            return self.snapshot(heap_free)
         elapsed_ms = _ticks_diff(now_ms, self._window_start_ms)
-        if elapsed_ms < self.LOG_INTERVAL_MS:
-            return None
+        if elapsed_ms < self.WINDOW_INTERVAL_MS:
+            return self.snapshot(heap_free)
 
         elapsed_us = max(1, int(elapsed_ms) * 1000)
         runtime_load = min(100.0, self._loop_busy_us * 100.0 / elapsed_us)
@@ -326,38 +308,32 @@ class RuntimeDebugTelemetry:
             if self._detection_samples
             else 0
         )
-        packet_average = (
-            self._packet_duration_sum_us // self._packet_samples
-            if self._packet_samples
-            else 0
-        )
-        payload = (
-            "[telemetry] heap_free={} heap_min={} runtime_load={:.2f}% "
-            "loop_avg_us={} loop_max_us={} detection_samples={} "
-            "detection_sum_us={} detection_avg_us={} detection_min_us={} "
-            "detection_max_us={} packet_samples={} packet_sum_us={} "
-            "packet_avg_us={} packet_min_us={} packet_max_us={}"
-        ).format(
-            heap_free,
-            self._minimum_heap_free,
-            runtime_load,
-            loop_average,
-            self._loop_duration_max_us,
-            self._detection_samples,
-            self._detection_duration_sum_us,
-            detection_average,
-            self._detection_duration_min_us,
-            self._detection_duration_max_us,
-            self._packet_samples,
-            self._packet_duration_sum_us,
-            packet_average,
-            self._packet_duration_min_us,
-            self._packet_duration_max_us,
-        )
-        if heap_free_post_gc is not None:
-            payload += " heap_free_post_gc={}".format(max(0, int(heap_free_post_gc)))
-        if gc_pause_us is not None:
-            payload += " gc_pause_us={}".format(max(0, int(gc_pause_us)))
+        self._latest = {
+            "performance_window_ready": True,
+            "performance_window_ms": elapsed_ms,
+            "runtime_load_percent": runtime_load,
+            "loop_samples": self._loop_samples,
+            "loop_avg_us": loop_average,
+            "loop_max_us": self._loop_duration_max_us,
+            "detection_timing_supported": True,
+            "detection_samples": self._detection_samples,
+            "detection_sum_us": self._detection_duration_sum_us,
+            "detection_avg_us": detection_average,
+            "detection_min_us": self._detection_duration_min_us,
+            "detection_max_us": self._detection_duration_max_us,
+        }
         self.reset()
         self._window_start_ms = now_ms
-        return payload
+        return self.snapshot(heap_free)
+
+    def snapshot(self, heap_free):
+        """Return the latest window with current and low-water heap values."""
+        heap_free = max(0, int(heap_free))
+        if self._minimum_heap_free is None:
+            self._minimum_heap_free = heap_free
+        else:
+            self._minimum_heap_free = min(self._minimum_heap_free, heap_free)
+        result = dict(self._latest)
+        result["free_memory_kb"] = heap_free / 1024.0
+        result["minimum_free_memory_kb"] = self._minimum_heap_free / 1024.0
+        return result

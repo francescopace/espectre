@@ -87,7 +87,8 @@ idf_component_register(
   SRCS <span class="s">"main.cpp"</span>
   REQUIRES espectre
 )</pre></div>
-          <p class="docs-step-note">The SDK is source-based, so there is no chip-specific library to link. Optional Direct HTTP, MQTT, provisioning, and OTA support stay disabled until selected in menuconfig. The first-party C++ frontends enable the Direct capability they use.</p>
+          <p class="docs-step-note">The SDK is source-based, so there is no chip-specific library to link. Direct HTTP, MQTT, provisioning, and OTA sources stay disabled until selected in menuconfig; ESP-IDF resolves their declared stack dependencies when it configures the component.</p>
+          <p class="docs-step-note">The runtime supports ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6. Reference frontend availability differs by chip; see the <a href="/guides/hardware/">hardware guide</a> for the published firmware matrix.</p>
         </div>
       </section>
 

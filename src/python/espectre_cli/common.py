@@ -39,7 +39,7 @@ for path in (str(REPO_ROOT), str(PYTHON_ROOT_DIR), str(PYTHON_SRC_DIR), str(TOOL
         sys.path.insert(0, path)
 
 MICROPYTHON_FIRMWARE_BUILD = "20260818-v1.29.0-preview.731.g1c3c201149"
-MICRO_CHIP_CHOICES = ["esp32", "c3", "s3", "c5", "c6"]
+MICRO_CHIP_CHOICES = ["esp32", "c3", "s2", "s3", "c5", "c6"]
 
 init()
 load_dotenv()

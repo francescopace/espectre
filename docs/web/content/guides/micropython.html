@@ -31,7 +31,7 @@
   <div class="table-wrap"><table>
     <thead><tr><th>Requirement</th><th>Current support</th></tr></thead>
     <tbody>
-      <tr><td>Board</td><td>ESP32, ESP32-C3, ESP32-C5, ESP32-C6, or ESP32-S3</td></tr>
+      <tr><td>Board</td><td>ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, or ESP32-C6</td></tr>
       <tr><td>Radio</td><td>2.4 GHz Wi-Fi and incoming traffic for CSI capture</td></tr>
       <tr><td>Firmware</td><td>Official MicroPython firmware with ESP32 CSI support</td></tr>
       <tr><td>Host setup</td><td>The ESPectre repository environment and <code>./espectre</code> wrapper</td></tr>
@@ -61,7 +61,7 @@ cp src/python/micro_espectre/config_local.py.example \
 
   <h2 id="micropython-profiles">Lightweight sensing</h2>
   <p>The deployed runtime contains only the Lightweight detector. It adapts its threshold from clean, ready quiet-room coverage during startup. High Accuracy sources and weights remain in the repository for research and parity validation, but <code>micro deploy</code> does not copy them to the device.</p>
-  <p>Micro-ESPectre exposes <code>capabilities</code>, <code>info</code>, <code>status</code>, and <code>config</code> through Direct HTTP and publishes canonical telemetry to one bounded SSE client. It has no MQTT or Home Assistant adapter.</p>
+  <p>Micro-ESPectre exposes <code>capabilities</code>, <code>info</code>, <code>status</code>, <code>config</code>, and <code>diagnostics</code> through Direct HTTP and publishes canonical telemetry to one bounded SSE client. Diagnostics use only canonical protocol fields and do not emit periodic serial logs. It has no MQTT or Home Assistant adapter.</p>
 
   <h2 id="micropython-boundary">Current role and limits</h2>
   <p>Micro-ESPectre is ESPectre's maintained Python and MicroPython experimentation path. It is not yet presented as a stable embeddable SDK: the current distribution deploys the complete reference runtime, and its supported public library boundary has not been frozen.</p>

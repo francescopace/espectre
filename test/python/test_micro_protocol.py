@@ -17,6 +17,11 @@ def test_device_id_matches_native_sha256_pseudonym():
     assert protocol._derive_device_id_from_mac(bytes.fromhex("7c2c6742bbac")) == "3cf79180d3a0aca4"
 
 
+def test_chip_labels_match_the_shared_short_names():
+    assert protocol._normalize_chip_label("esp32s2") == "S2"
+    assert protocol._normalize_chip_label("ESP32-C6") == "C6"
+
+
 def test_cpp_and_python_protocol_catalogs_match():
     repo_root = Path(__file__).resolve().parents[2]
     build_dir = repo_root / "test" / "cpp" / "build"
@@ -42,11 +47,32 @@ def test_micro_capabilities_are_read_only_and_minimal():
     payload = protocol.build_capabilities_payload("0123456789abcdef")
     commands = {command["name"] for command in payload["commands"]}
 
-    assert commands == {"capabilities", "info", "status", "config"}
+    assert commands == {"capabilities", "info", "status", "config", "diagnostics"}
     assert all(command["access"] == "read" for command in payload["commands"])
     assert payload["events"] == ["telemetry"]
     assert payload["config_sections"] == ["runtime", "device", "wifi"]
     assert payload["features"] == {"raw_csi": False}
+
+
+def test_micro_diagnostics_payload_keeps_only_canonical_fields():
+    payload = protocol.build_diagnostics_payload(
+        "0123456789abcdef",
+        12_000,
+        12,
+        {
+            "free_memory_kb": 118.5,
+            "csi_admitted_pps": 99.0,
+            "performance_window_ready": True,
+            "packet_processing_us": 400,
+            "gc_pause_us": 500,
+        },
+    )
+
+    assert payload["free_memory_kb"] == 118.5
+    assert payload["csi_admitted_pps"] == 99.0
+    assert payload["performance_window_ready"] is True
+    assert "packet_processing_us" not in payload
+    assert "gc_pause_us" not in payload
 
 
 def test_direct_facade_starts_and_publishes_canonical_telemetry(monkeypatch):
@@ -85,13 +111,13 @@ def test_direct_facade_starts_and_publishes_canonical_telemetry(monkeypatch):
 
     facade = DirectApi(config, wlan, detector, state, policy, traffic)
     facade.start()
-    facade.publish(0.75, 1, 0.25, 2000)
+    facade.publish(0.75, 1, 0.25, facade.started_ms + 1000)
 
     start_args = native.start.call_args.kwargs
     capabilities = json.loads(start_args["capabilities"])
     info = json.loads(start_args["info"])
     assert {entry["name"] for entry in capabilities["commands"]} == {
-        "capabilities", "info", "status", "config"
+        "capabilities", "info", "status", "config", "diagnostics"
     }
     assert start_args["hostname"].startswith("espectre-micro-")
     assert start_args["protocol_version"] == protocol.PROTOCOL_VERSION
@@ -106,6 +132,9 @@ def test_direct_facade_starts_and_publishes_canonical_telemetry(monkeypatch):
     assert telemetry["frontend"] == "micro"
     assert telemetry["detector"] == "lightweight"
     assert telemetry["motion_state"] == "motion"
+    diagnostics = json.loads(native.update_diagnostics.call_args.args[0])
+    assert diagnostics["protocol_version"] == protocol.PROTOCOL_VERSION
+    assert diagnostics["uptime"] == 1
 
     facade.stop()
     native.stop.assert_called_once_with()

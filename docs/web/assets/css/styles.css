@@ -3039,20 +3039,20 @@ ewt-install-dialog {
 .api-lifecycle > div { min-width: 150px; }
 .example-picker {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
 }
 .example-picker article {
   display: flex;
   flex-direction: column;
-  min-height: 190px;
-  padding: 20px;
+  min-height: 176px;
+  padding: 18px;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--surface);
 }
-.article .example-picker h2 { margin: 8px 0 6px; font-size: 20px; }
-.article .example-picker p { color: var(--dim); font-size: 13.5px; }
+.article .example-picker h2 { margin: 7px 0 5px; font-size: 19px; }
+.article .example-picker p { color: var(--dim); font-size: 13px; }
 .example-picker a { margin-top: auto; font-size: 13px; font-weight: 600; }
 .compact-steps { margin-top: 20px; }
 .runtime-port-notes {
@@ -3133,6 +3133,7 @@ ewt-install-dialog {
 /* ---------------------------------------------------------- responsive */
 
 @media (max-width: 900px) {
+  .example-picker { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .roadmap-foundation-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .roadmap-chapter-now,
   .roadmap-chapter-with-media,

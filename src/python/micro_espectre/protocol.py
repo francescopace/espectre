@@ -81,6 +81,54 @@ def build_telemetry_payload(
     }
 
 
+DIAGNOSTIC_FIELDS = (
+    "free_memory_kb",
+    "minimum_free_memory_kb",
+    "largest_free_memory_kb",
+    "cpu_frequency_mhz",
+    "loop_time_ms",
+    "performance_window_ready",
+    "performance_window_ms",
+    "runtime_load_percent",
+    "loop_samples",
+    "loop_avg_us",
+    "loop_max_us",
+    "detection_timing_supported",
+    "detection_samples",
+    "detection_sum_us",
+    "detection_avg_us",
+    "detection_min_us",
+    "detection_max_us",
+    "traffic_tx_pps",
+    "csi_callback_pps",
+    "csi_accepted_pps",
+    "csi_admitted_pps",
+    "csi_filtered_pps",
+    "csi_missing_slots_pps",
+    "csi_excess_pps",
+    "csi_stale_pps",
+    "csi_out_of_order_pps",
+    "csi_occupancy",
+    "wifi_channel",
+    "wifi_rssi_dbm",
+)
+
+
+def build_diagnostics_payload(device_id, timestamp_ms, uptime_s, measurements=None):
+    """Build a canonical diagnostics result from supported Micro measurements."""
+    payload = {
+        "protocol_version": PROTOCOL_VERSION,
+        "device_id": device_id,
+        "timestamp_ms": int(timestamp_ms),
+        "uptime": max(0, int(uptime_s)),
+    }
+    if isinstance(measurements, dict):
+        for key in DIAGNOSTIC_FIELDS:
+            if key in measurements:
+                payload[key] = measurements[key]
+    return payload
+
+
 def build_protocol_catalog():
     """Return executable transport-neutral samples for the C++ parity check."""
     device_id = "0000000000000000"
@@ -141,6 +189,7 @@ def command_registry():
         {"name": "info", "kind": "query", "access": "read", "params": empty, "result": "info"},
         {"name": "status", "kind": "query", "access": "read", "params": empty, "result": "status"},
         {"name": "config", "kind": "query", "access": "read", "params": empty, "result": "config"},
+        {"name": "diagnostics", "kind": "query", "access": "read", "params": empty, "result": "diagnostics"},
     ]
 
 
@@ -173,6 +222,8 @@ def _normalize_chip_label(chip):
         return "C5"
     if normalized == "ESP32C6":
         return "C6"
+    if normalized == "ESP32S2":
+        return "S2"
     if normalized == "ESP32S3":
         return "S3"
     if normalized == "ESP32":

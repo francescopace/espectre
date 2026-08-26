@@ -20,6 +20,7 @@
 #define DIRECT_MAX_REQUEST_BYTES (512)
 #define DIRECT_MAX_EVENT_BYTES (4096)
 #define DIRECT_MAX_STATUS_BYTES (384)
+#define DIRECT_MAX_DIAGNOSTICS_BYTES (2048)
 #define DIRECT_MAX_PROTOCOL_VERSION_BYTES (16)
 #define DIRECT_MAX_DNS_SD_SCHEMA_VERSION_BYTES (8)
 #define DIRECT_MAX_COMMAND_ID_BYTES (64)
@@ -33,6 +34,7 @@ typedef struct {
     char *info;
     char status[DIRECT_MAX_STATUS_BYTES + 1];
     char *config;
+    char diagnostics[DIRECT_MAX_DIAGNOSTICS_BYTES + 1];
     char *device_id;
     char *protocol_version;
     char *dns_sd_schema_version;
@@ -132,6 +134,21 @@ static bool direct_replace_status(const char *source, size_t length) {
     return true;
 }
 
+static bool direct_replace_diagnostics(const char *source, size_t length) {
+    if (length > DIRECT_MAX_DIAGNOSTICS_BYTES) {
+        return false;
+    }
+    if (direct_state.lock != NULL) {
+        xSemaphoreTake(direct_state.lock, portMAX_DELAY);
+    }
+    memcpy(direct_state.diagnostics, source, length);
+    direct_state.diagnostics[length] = '\0';
+    if (direct_state.lock != NULL) {
+        xSemaphoreGive(direct_state.lock);
+    }
+    return true;
+}
+
 static esp_err_t direct_send_json(
     httpd_req_t *request,
     const char *status,
@@ -203,6 +220,8 @@ static char *direct_copy_command_snapshot(const char *command) {
         snapshot = direct_state.status;
     } else if (strcmp(command, "config") == 0) {
         snapshot = direct_state.config;
+    } else if (strcmp(command, "diagnostics") == 0) {
+        snapshot = direct_state.diagnostics;
     }
     char *copy = snapshot == NULL ? NULL : strdup(snapshot);
     if (direct_state.lock != NULL) {
@@ -285,7 +304,8 @@ static esp_err_t direct_request_handler(httpd_req_t *request) {
     bool supported = strcmp(command->valuestring, "capabilities") == 0 ||
         strcmp(command->valuestring, "info") == 0 ||
         strcmp(command->valuestring, "status") == 0 ||
-        strcmp(command->valuestring, "config") == 0;
+        strcmp(command->valuestring, "config") == 0 ||
+        strcmp(command->valuestring, "diagnostics") == 0;
     char *snapshot = supported ? direct_copy_command_snapshot(command->valuestring) : NULL;
     esp_err_t result;
     if (!supported) {
@@ -396,6 +416,7 @@ static void direct_free_snapshots(void) {
     direct_state.info = NULL;
     direct_state.status[0] = '\0';
     direct_state.config = NULL;
+    direct_state.diagnostics[0] = '\0';
     direct_state.device_id = NULL;
     direct_state.protocol_version = NULL;
     direct_state.dns_sd_schema_version = NULL;
@@ -492,6 +513,7 @@ static mp_obj_t native_direct_start(
         ARG_info,
         ARG_config,
         ARG_status,
+        ARG_diagnostics,
     };
     static const mp_arg_t allowed_args[] = {
         {MP_QSTR_port, MP_ARG_REQUIRED | MP_ARG_INT, {.u_int = 0}},
@@ -505,6 +527,7 @@ static mp_obj_t native_direct_start(
         {MP_QSTR_info, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL}},
         {MP_QSTR_config, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL}},
         {MP_QSTR_status, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL}},
+        {MP_QSTR_diagnostics, MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL}},
     };
     mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
     mp_arg_parse_all(n_pos_args, pos_args, kw_args, MP_ARRAY_SIZE(allowed_args), allowed_args, args);
@@ -525,10 +548,12 @@ static mp_obj_t native_direct_start(
     size_t info_len;
     size_t config_len;
     size_t status_len;
+    size_t diagnostics_len;
     const char *capabilities = mp_obj_str_get_data(args[ARG_capabilities].u_obj, &capabilities_len);
     const char *info = mp_obj_str_get_data(args[ARG_info].u_obj, &info_len);
     const char *config_snapshot = mp_obj_str_get_data(args[ARG_config].u_obj, &config_len);
     const char *status = mp_obj_str_get_data(args[ARG_status].u_obj, &status_len);
+    const char *diagnostics = mp_obj_str_get_data(args[ARG_diagnostics].u_obj, &diagnostics_len);
 
     size_t protocol_version_len = strlen(protocol_version);
     size_t dns_sd_schema_version_len = strlen(dns_sd_schema_version);
@@ -547,6 +572,7 @@ static mp_obj_t native_direct_start(
         direct_replace_string(&direct_state.capabilities, capabilities, capabilities_len) == NULL ||
         direct_replace_string(&direct_state.info, info, info_len) == NULL ||
         direct_replace_string(&direct_state.config, config_snapshot, config_len) == NULL ||
+        !direct_replace_diagnostics(diagnostics, diagnostics_len) ||
         !direct_replace_status(status, status_len) ||
         direct_replace_string(&direct_state.device_id, device_id, strlen(device_id)) == NULL ||
         direct_replace_string(
@@ -591,6 +617,16 @@ static mp_obj_t native_direct_update_status(mp_obj_t status_obj) {
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(native_direct_update_status_obj, native_direct_update_status);
+
+static mp_obj_t native_direct_update_diagnostics(mp_obj_t diagnostics_obj) {
+    size_t length;
+    const char *diagnostics = mp_obj_str_get_data(diagnostics_obj, &length);
+    if (!direct_replace_diagnostics(diagnostics, length)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("Direct diagnostics are too large"));
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(native_direct_update_diagnostics_obj, native_direct_update_diagnostics);
 
 static mp_obj_t native_direct_publish(mp_obj_t event_obj, mp_obj_t payload_obj) {
     size_t event_length;
@@ -651,6 +687,7 @@ static const mp_rom_map_elem_t native_direct_module_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_espectre_native_direct)},
     {MP_ROM_QSTR(MP_QSTR_start), MP_ROM_PTR(&native_direct_start_obj)},
     {MP_ROM_QSTR(MP_QSTR_update_status), MP_ROM_PTR(&native_direct_update_status_obj)},
+    {MP_ROM_QSTR(MP_QSTR_update_diagnostics), MP_ROM_PTR(&native_direct_update_diagnostics_obj)},
     {MP_ROM_QSTR(MP_QSTR_publish), MP_ROM_PTR(&native_direct_publish_obj)},
     {MP_ROM_QSTR(MP_QSTR_stop), MP_ROM_PTR(&native_direct_stop_obj)},
 };

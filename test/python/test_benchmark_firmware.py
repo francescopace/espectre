@@ -7,6 +7,8 @@ from __future__ import annotations
 from datetime import datetime
 import json
 import sys
+import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -28,7 +30,7 @@ from src.python.espectre_cli.device_transport import (
     parse_improv_rpc_response,
 )
 from src.python.micro_espectre import protocol
-from src.python.micro_espectre.runtime_diagnostics import RuntimeDebugTelemetry
+from src.python.micro_espectre.runtime_diagnostics import RuntimePerformanceDiagnostics
 
 
 IDF_SIZE_LOG = """
@@ -49,6 +51,23 @@ class _FakeHttpResponse:
 
     def close(self) -> None:
         self.closed = True
+
+
+class _FakeEventResponse:
+    status = 200
+
+    def __init__(self, lines: list[bytes]):
+        self.lines = list(lines)
+        self.closed = threading.Event()
+
+    def readline(self, _size: int = -1) -> bytes:
+        if self.lines:
+            return self.lines.pop(0)
+        self.closed.wait(1.0)
+        return b""
+
+    def close(self) -> None:
+        self.closed.set()
 
 
 def _improv_rpc_response(command: ImprovCommand, values: list[str]) -> bytes:
@@ -197,6 +216,89 @@ def test_direct_client_posts_a_correlated_http_response():
     assert request.headers["Origin"] == "https://test.espectre.dev"
     assert request.headers["Cache-control"] == "no-store"
     assert kwargs["timeout"] == 8.0
+
+
+def test_direct_client_collects_canonical_sse_events():
+    payload = protocol.build_telemetry_payload(
+        "0123456789abcdef", "micro", 1000, "idle", 0.1, 0.25, "lightweight", 1
+    )
+    response = _FakeEventResponse(
+        [b": connected\n", b"\n", b"event: telemetry\n", f"data: {json.dumps(payload)}\n".encode(), b"\n"]
+    )
+
+    with DirectClient(
+        "http://192.0.2.10/espectre/v1/request",
+        urlopen_factory=lambda *_args, **_kwargs: response,
+    ) as client:
+        client.start_events()
+        deadline = time.monotonic() + 1.0
+        while not client.events and time.monotonic() < deadline:
+            time.sleep(0.01)
+        client.stop_events()
+
+    assert len(client.events) == 1
+    assert client.events[0].name == "telemetry"
+    assert client.events[0].data == payload
+
+
+def test_direct_retry_performs_a_capabilities_request(monkeypatch):
+    clients = []
+
+    class FakeClient:
+        def __init__(self, endpoint, **_kwargs):
+            self.endpoint = endpoint
+            self.closed = False
+            self.index = len(clients)
+            clients.append(self)
+
+        def request(self, method):
+            assert method == "capabilities"
+            if self.index == 0:
+                raise RuntimeError("not listening yet")
+            return {"commands": []}
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(bench, "DirectClient", FakeClient)
+    monkeypatch.setattr(bench.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        bench,
+        "discover_direct_device",
+        lambda *_args, **_kwargs: SimpleNamespace(endpoint="http://192.0.2.11/espectre/v1/request"),
+    )
+
+    connected = bench._connect_direct_with_retry(
+        "http://192.0.2.10/espectre/v1/request",
+        frontend="micro",
+        timeout_seconds=1.0,
+    )
+
+    assert connected is clients[1]
+    assert clients[0].closed is True
+
+
+def test_direct_capture_opens_and_closes_event_collection():
+    class FakeClient:
+        def __init__(self):
+            self.events = []
+            self.started = False
+            self.stopped = False
+
+        def start_events(self):
+            self.started = True
+
+        def stop_events(self):
+            self.stopped = True
+
+    client = FakeClient()
+
+    samples, events = bench.capture_direct_window(client, duration_seconds=0)
+
+    assert samples == []
+    assert events == []
+    assert client.started is True
+    assert client.stopped is True
 
 
 def test_direct_client_flattens_command_arguments_and_rejects_reserved_fields():
@@ -583,6 +685,15 @@ def test_cases_include_micro_espectre_lightweight_only():
     assert "Micro-ESPectre High Accuracy" not in labels
 
 
+def test_s2_cases_exclude_matter_without_removing_other_frontends():
+    labels = [case.label for case in bench.select_cases(chip="s2")]
+
+    assert "Matter Default" not in labels
+    assert "Native Lightweight" in labels
+    assert "Micro-ESPectre Lightweight" in labels
+    assert "ESPHome Lightweight" in labels
+
+
 def test_resume_selects_only_failed_and_missing_requested_cases():
     native_lightweight = bench.BenchmarkCase("native", "lightweight")
     native_high_accuracy = bench.BenchmarkCase("native", "high_accuracy")
@@ -644,7 +755,7 @@ Result: **PASS**
     assert "no failed or missing selected cases" in capsys.readouterr().out
 
 
-def test_micro_benchmark_config_overrides_lab_wifi_and_debug_telemetry(monkeypatch):
+def test_micro_benchmark_config_overrides_lab_wifi(monkeypatch):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
 
@@ -658,14 +769,12 @@ def test_micro_benchmark_config_overrides_lab_wifi_and_debug_telemetry(monkeypat
     assert "WIFI_SSID = 'lab'" in content
     assert "WIFI_PASSWORD = 'secret'" in content
     assert "TRAFFIC_GENERATOR_ENABLED = True" in content
-    assert "DEBUG_TELEMETRY = True" in content
     assert assignment_names == {
         "WIFI_SSID",
         "WIFI_PASSWORD",
         "WIFI_BSSID",
         "WIFI_CHANNEL",
         "TRAFFIC_GENERATOR_ENABLED",
-        "DEBUG_TELEMETRY",
     }
 
 
@@ -724,35 +833,30 @@ def test_micro_benchmark_config_reads_shared_local_env_not_developer_config(monk
     assert "WIFI_BSSID = 'AA:BB:CC:DD:EE:FF'" in content
     assert "WIFI_CHANNEL = 6" in content
     assert "TRAFFIC_GENERATOR_ENABLED = True" in content
-    assert "DEBUG_TELEMETRY = True" in content
+    assert "DEBUG_TELEMETRY" not in content
 
 
-def test_micro_debug_telemetry_uses_shared_benchmark_keys():
-    telemetry = RuntimeDebugTelemetry(enabled=True)
-    assert telemetry.format_if_due(1_000, 120_000) is None
-    assert not telemetry.is_due(10_999)
-    assert telemetry.is_due(11_000)
-    telemetry.record_loop_duration(200)
-    telemetry.record_loop_duration(400)
-    telemetry.record_detection_duration(1_200)
-    telemetry.record_packet_duration(2_000)
-    telemetry.record_packet_duration(3_000)
+def test_micro_performance_diagnostics_uses_canonical_window_fields():
+    diagnostics = RuntimePerformanceDiagnostics()
+    first = diagnostics.update_if_due(1_000, 120_000)
+    diagnostics.record_loop_duration(200)
+    diagnostics.record_loop_duration(400)
+    diagnostics.record_detection_duration(1_200)
 
-    payload = telemetry.format_if_due(
-        11_000,
-        118_000,
-        heap_free_post_gc=124_000,
-        gc_pause_us=4_500,
-    )
+    payload = diagnostics.update_if_due(11_000, 118_000)
 
-    assert payload is not None
-    assert "heap_free=118000 heap_min=118000" in payload
-    assert "loop_avg_us=300 loop_max_us=400" in payload
-    assert "detection_samples=1 detection_sum_us=1200" in payload
-    assert "detection_min_us=1200 detection_max_us=1200" in payload
-    assert "packet_samples=2 packet_sum_us=5000 packet_avg_us=2500" in payload
-    assert "packet_min_us=2000 packet_max_us=3000" in payload
-    assert "heap_free_post_gc=124000 gc_pause_us=4500" in payload
+    assert first["performance_window_ready"] is False
+    assert payload["free_memory_kb"] == 118_000 / 1024.0
+    assert payload["minimum_free_memory_kb"] == 118_000 / 1024.0
+    assert payload["performance_window_ms"] == 10_000
+    assert payload["loop_samples"] == 2
+    assert payload["loop_avg_us"] == 300
+    assert payload["loop_max_us"] == 400
+    assert payload["detection_samples"] == 1
+    assert payload["detection_sum_us"] == 1_200
+    assert payload["detection_min_us"] == 1_200
+    assert payload["detection_max_us"] == 1_200
+    assert not any("packet" in key or "gc" in key for key in payload)
 
 
 def test_native_radio_pin_accepts_committed_values_after_reboot(monkeypatch):
@@ -829,16 +933,34 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, chip):
         output = "MAC: AA:BB:CC:DD:EE:FF\n" if resolved[1:3] == ["micro", "flash"] else ""
         return bench.CommandResult(resolved, 0, 1.0, output)
 
-    def fake_capture(command, **_kwargs):
+    class FakeProcess:
+        returncode = None
+
+        def poll(self):
+            return self.returncode
+
+    process = FakeProcess()
+
+    def fake_background(command, **_kwargs):
         resolved = list(command)
         commands.append(resolved)
-        return (
-            bench.CommandResult(resolved, 0, 60.0, ""),
-            _runtime_log({offset: 140_000 for offset in range(0, 60_000, 10_000)}),
-        )
+        return process, [], [], SimpleNamespace(), 0.0
 
     monkeypatch.setattr(bench, "run_command", fake_run_command)
-    monkeypatch.setattr(bench, "_capture_runtime_monitor", fake_capture)
+    monkeypatch.setattr(bench, "_run_background_command", fake_background)
+    monkeypatch.setattr(bench, "discover_direct_device", lambda *_args, **_kwargs: SimpleNamespace(endpoint="http://micro/espectre/v1/request"))
+    client = SimpleNamespace(close=lambda: None)
+    monkeypatch.setattr(bench, "_connect_direct_with_retry", lambda *_args, **_kwargs: client)
+    monkeypatch.setattr(bench, "prepare_micro_direct_runtime", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(bench, "wait_for_direct_runtime_ready", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(bench, "capture_direct_window", lambda *_args, **_kwargs: ([{"uptime": 1}], [{"event": "telemetry"}]))
+    monkeypatch.setattr(bench, "analyze_direct_evidence", lambda *_args, **_kwargs: (bench.RuntimeMetrics(), []))
+    monkeypatch.setattr(bench, "_terminate_process", lambda target: setattr(target, "returncode", 0))
+    monkeypatch.setattr(
+        bench,
+        "_finalize_background_command",
+        lambda *_args, **_kwargs: bench.CommandResult(commands[-1], 0, 60.0, ""),
+    )
 
     result = bench.run_micro_case(
         bench.BenchmarkCase("micro", "lightweight"),
@@ -849,6 +971,8 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, chip):
     assert result.status == "PASS"
     assert result.deploy is not None
     assert result.build_metrics.deployed_source_bytes is not None
+    assert result.transport_evidence["transport"] == "direct-http"
+    assert result.transport_evidence["serial_scored"] is False
     assert [command[1:3] for command in commands] == [
         ["micro", "flash"],
         ["micro", "deploy"],
@@ -858,14 +982,13 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, chip):
 
 
 def test_esphome_case_config_keeps_production_logger_configuration(tmp_path, monkeypatch):
-    source_path = tmp_path / "espectre-s3-dev.yaml"
+    source_path = tmp_path / "espectre-s3.yaml"
     source_path.write_text(
         """espectre:
   detection_algorithm: lightweight
 wifi:
-  networks:
-    - ssid: old
-      password: old
+  ap:
+    ssid: fallback
 logger:
   level: INFO
 api:
@@ -874,12 +997,14 @@ api:
     )
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
-    monkeypatch.setattr(bench, "ESPHOME_CONFIGS", {"s3": {"dev": str(source_path)}})
+    monkeypatch.setattr(bench, "ESPHOME_CONFIGS", {"s3": str(source_path)})
     with bench.esphome_case_config("s3", "lightweight", "/dev/cu.bridge") as config_path:
         content = config_path.read_text(encoding="utf-8")
 
     assert "hardware_uart:" not in content
     assert "level: INFO" in content
+    assert 'ssid: "lab"' in content
+    assert 'password: "secret"' in content
     assert "debug_telemetry" not in content
     assert not config_path.exists()
 
@@ -1054,7 +1179,7 @@ def test_report_round_trip_preserves_reboot_and_settled_heap_diagnostics():
     assert parsed.gc_pause_us_max == 4_800
 
 
-def test_artifacts_preserve_timed_raw_lines_and_redact_lab_values(tmp_path, monkeypatch):
+def test_micro_artifacts_do_not_persist_runtime_serial_output(tmp_path, monkeypatch):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "super-secret-password")
     case = bench.BenchmarkCase("micro", "lightweight")
     result = bench.BenchmarkResult(case=case, status="PASS")
@@ -1076,15 +1201,10 @@ def test_artifacts_preserve_timed_raw_lines_and_redact_lab_values(tmp_path, monk
     )
 
     case_dir = tmp_path / "micro-lightweight"
-    raw_log = (case_dir / "monitor.log").read_text(encoding="utf-8")
-    events = [json.loads(line) for line in (case_dir / "monitor.jsonl").read_text().splitlines()]
     manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
-    assert "super-secret-password" not in raw_log
-    assert "<espectre_benchmark_wifi_password>" in raw_log
-    assert events[0]["host_elapsed_seconds"] == 0.5
-    assert events[0]["device_timestamp_ms"] == 1_000
-    assert not events[0]["scored"]
-    assert events[1]["scored"]
+    assert not (case_dir / "monitor.log").exists()
+    assert not (case_dir / "monitor.jsonl").exists()
+    assert manifest["cases"][0]["commands"]["monitor"]["returncode"] == 0
     assert manifest["schema_version"] == bench.BENCHMARK_ARTIFACT_SCHEMA_VERSION
 
 

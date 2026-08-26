@@ -51,6 +51,8 @@ from src.python.micro_espectre.temporal_csi_sampler import (
 )
 from src.python.espectre_cli.device_transport import (
     DEFAULT_DIRECT_ORIGIN,
+    DIRECT_EVENTS_PATH,
+    DIRECT_PATH,
     DirectClient,
     DirectEvent,
     ImprovProvisioningResult,
@@ -317,13 +319,22 @@ CASES = tuple(
 LEGACY_REPORT_CASE_LABELS = frozenset({"Micro-ESPectre High Accuracy"})
 
 
-def select_cases(frontend: str | None = None, detector: str | None = None) -> tuple[BenchmarkCase, ...]:
+def select_cases(
+    frontend: str | None = None,
+    detector: str | None = None,
+    chip: str | None = None,
+) -> tuple[BenchmarkCase, ...]:
     """Return the benchmark cases matching the optional CLI filters."""
     return tuple(
         case
         for case in CASES
         if (frontend is None or case.frontend == frontend)
         and (detector is None or case.detector == detector)
+        and (
+            chip is None
+            or case.frontend != "matter"
+            or chip in IDF_FRONTENDS["matter"]["targets"]
+        )
     )
 
 
@@ -1304,7 +1315,22 @@ def apply_esphome_benchmark_wifi(content: str) -> str:
         None,
     )
     if networks_index is None:
-        raise RuntimeError("could not find wifi.networks block in ESPHome benchmark config")
+        wifi_match = re.match(r"^(\s*)wifi:\s*$", lines[wifi_index])
+        assert wifi_match is not None
+        wifi_field_indent = f"{wifi_match.group(1)}  "
+        entry_indent = f"{wifi_field_indent}  "
+        network_lines = [
+            f"{wifi_field_indent}fast_connect: true",
+            f"{wifi_field_indent}networks:",
+            f"{entry_indent}- ssid: {quote_yaml_string(ssid)}",
+            f"{entry_indent}  password: {quote_yaml_string(password)}",
+        ]
+        if bssid:
+            network_lines.append(f"{entry_indent}  bssid: {quote_yaml_string(bssid)}")
+        if channel > 0:
+            network_lines.append(f"{entry_indent}  channel: {channel}")
+        lines[wifi_index + 1 : wifi_index + 1] = network_lines
+        networks_index = wifi_index + 2
 
     entry_start = next(
         (index for index in range(networks_index + 1, len(lines)) if re.match(r"^(\s*)-\s+ssid:\s*", lines[index])),
@@ -1358,17 +1384,16 @@ def apply_esphome_benchmark_wifi(content: str) -> str:
 
 
 def render_micro_benchmark_config() -> str:
-    """Configure Micro laboratory Wi-Fi, native ping traffic, and debug telemetry."""
+    """Configure Micro laboratory Wi-Fi and native ping traffic."""
     values: list[tuple[str, object]] = [
         ("WIFI_SSID", require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID")),
         ("WIFI_PASSWORD", require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD")),
         ("WIFI_BSSID", benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "")),
         ("WIFI_CHANNEL", benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)),
         ("TRAFFIC_GENERATOR_ENABLED", True),
-        ("DEBUG_TELEMETRY", True),
     ]
     lines = [
-        "# Generated temporary Micro-ESPectre laboratory env and debug-telemetry overrides.",
+        "# Generated temporary Micro-ESPectre laboratory environment overrides.",
         *(f"{name} = {value!r}" for name, value in values),
         "",
     ]
@@ -1399,7 +1424,7 @@ def micro_deployed_source_size(config_path: Path) -> int:
 @contextmanager
 def esphome_case_config(chip: str, detector: str, port: str | None = None) -> Iterator[Path]:
     del port
-    source_path = Path(ESPHOME_CONFIGS[chip]["dev"])
+    source_path = Path(ESPHOME_CONFIGS[chip])
     content = source_path.read_text(encoding="utf-8")
     updated, replacements = re.subn(
         r"^(\s*detection_algorithm:\s*)(?:lightweight|high_accuracy)(\s*(?:#.*)?)$",
@@ -2016,6 +2041,38 @@ def prepare_direct_runtime(client: DirectClient, case: BenchmarkCase, *, chip: s
     return {**handshake, **confirmation}
 
 
+def prepare_micro_direct_runtime(
+    client: DirectClient,
+    case: BenchmarkCase,
+    *,
+    chip: str,
+) -> dict[str, dict[str, object]]:
+    """Confirm the fixed read-only Micro runtime profile through Direct."""
+    handshake = direct_handshake(client, frontend="micro", chip=chip)
+    methods = {
+        str(item.get("name"))
+        for item in handshake["capabilities"].get("commands", [])
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    }
+    if "diagnostics" not in methods:
+        raise RuntimeError("Micro Direct endpoint lacks required diagnostics method")
+    status = handshake["status"]
+    if status.get("sensing_enabled") is not True:
+        raise RuntimeError("Micro Direct status did not confirm sensing enabled")
+    info = handshake["info"]
+    detection = info.get("detection") if isinstance(info.get("detection"), dict) else {}
+    config = handshake["config"]
+    runtime_config = config.get("runtime") if isinstance(config.get("runtime"), dict) else config
+    detector = runtime_config.get("detector") or detection.get("algorithm")
+    if detector != case.detector:
+        raise RuntimeError(f"Micro Direct endpoint did not confirm detector {case.detector}")
+    if runtime_config.get("csi_traffic_mode") != "internal":
+        raise RuntimeError("Micro Direct endpoint did not confirm internal CSI traffic")
+    if runtime_config.get("traffic_generator_mode") != "ping":
+        raise RuntimeError("Micro Direct endpoint did not confirm ping traffic generation")
+    return handshake
+
+
 def capture_direct_window(
     client: DirectClient,
     *,
@@ -2024,24 +2081,28 @@ def capture_direct_window(
     samples: list[dict[str, object]] = []
     previous_raw: dict[str, object] | None = None
     events_start = len(client.events)
+    client.start_events()
     started = time.monotonic()
     deadline = started + duration_seconds
     next_sample = started
-    while time.monotonic() < deadline:
-        now = time.monotonic()
-        if now < next_sample:
-            time.sleep(min(next_sample - now, 0.05))
-            continue
-        raw = client.request("diagnostics")
-        samples.append(
-            normalize_direct_diagnostics(
-                raw,
-                host_elapsed_seconds=time.monotonic() - started,
-                previous=previous_raw,
+    try:
+        while time.monotonic() < deadline:
+            now = time.monotonic()
+            if now < next_sample:
+                time.sleep(min(next_sample - now, 0.05))
+                continue
+            raw = client.request("diagnostics")
+            samples.append(
+                normalize_direct_diagnostics(
+                    raw,
+                    host_elapsed_seconds=time.monotonic() - started,
+                    previous=previous_raw,
+                )
             )
-        )
-        previous_raw = raw
-        next_sample += DIRECT_SAMPLE_INTERVAL_SECONDS
+            previous_raw = raw
+            next_sample += DIRECT_SAMPLE_INTERVAL_SECONDS
+    finally:
+        client.stop_events()
     return samples, normalize_direct_events(client.events, from_index=events_start)
 
 
@@ -2083,9 +2144,14 @@ def _connect_direct_with_retry(
     candidate = endpoint
     last_error: Exception | None = None
     while time.monotonic() < deadline:
+        client: DirectClient | None = None
         try:
-            return DirectClient(candidate, origin=DIRECT_ORIGIN, timeout=BENCHMARK_CONTROL_TIMEOUT_SECONDS)
+            client = DirectClient(candidate, origin=DIRECT_ORIGIN, timeout=BENCHMARK_CONTROL_TIMEOUT_SECONDS)
+            client.request("capabilities")
+            return client
         except (OSError, RuntimeError, TimeoutError) as exc:
+            if client is not None:
+                client.close()
             last_error = exc
             time.sleep(1.0)
             try:
@@ -2491,7 +2557,7 @@ def run_micro_case(
     *,
     shared_flash: CommandResult | None = None,
 ) -> BenchmarkResult:
-    """Flash, deploy, and monitor one production Micro-ESPectre profile."""
+    """Flash, deploy, launch, and measure one Micro profile through Direct."""
     print(f"\n{'=' * 72}\n{case.label}\n{'=' * 72}", flush=True)
     result = BenchmarkResult(case=case)
     if case.detector != "lightweight":
@@ -2541,23 +2607,48 @@ def run_micro_case(
                 result.reasons.append(f"deploy exited with status {result.deploy.returncode}")
                 return result
 
-        result.monitor, analysis_output = _capture_runtime_monitor(
-            [launcher, "micro", "run", "--port", port],
-        )
+        run_command_line = [launcher, "micro", "run", "--port", port]
+        process, output_lines, line_times, relay_thread, started = _run_background_command(run_command_line)
+        client: DirectClient | None = None
+        try:
+            endpoint = discover_direct_device("micro").endpoint
+            client = _connect_direct_with_retry(endpoint, frontend="micro")
+            prepare_micro_direct_runtime(client, case, chip=chip)
+            wait_for_direct_runtime_ready(client, require_publish_ready=True)
+            result.direct_samples, result.direct_events = capture_direct_window(
+                client,
+                duration_seconds=MONITOR_DURATION_SECONDS,
+            )
+            result.runtime_metrics, analysis_reasons = analyze_direct_evidence(
+                result.direct_samples,
+                result.direct_events,
+                duration_seconds=MONITOR_DURATION_SECONDS,
+                require_telemetry=True,
+                require_detection_timing=True,
+            )
+            result.runtime_metrics.verified_detector = case.detector
+            result.reasons.extend(analysis_reasons)
+            result.transport_evidence = {
+                "transport": "direct-http",
+                "request_path": DIRECT_PATH,
+                "events_path": DIRECT_EVENTS_PATH,
+                "serial_scored": False,
+            }
+        finally:
+            if client is not None:
+                client.close()
+            if process.poll() is None:
+                _terminate_process(process)
+            result.monitor = _finalize_background_command(
+                process,
+                output_lines,
+                line_times,
+                relay_thread,
+                started,
+                run_command_line,
+            )
         if result.monitor.returncode != 0:
-            result.status = "FAIL"
-            result.reasons.append(f"runtime exited with status {result.monitor.returncode}")
-            return result
-        result.runtime_metrics, analysis_reasons = analyze_monitor_output(
-            analysis_output,
-            benchmark_mode=case.benchmark_mode,
-            monitor_duration_seconds=max(
-                MONITOR_DURATION_SECONDS,
-                int(result.monitor.duration_seconds),
-            ),
-            line_elapsed_seconds=scored_line_elapsed_seconds(result.monitor),
-        )
-        result.reasons.extend(analysis_reasons)
+            result.reasons.append(f"runtime launcher exited with status {result.monitor.returncode}")
         result.status = "PASS" if not result.reasons else "FAIL"
     except (OSError, RuntimeError, ValueError) as exc:
         result.status = "FAIL"
@@ -2751,7 +2842,7 @@ def write_benchmark_artifacts(
             command_result = getattr(result, phase)
             if command_result is None:
                 continue
-            if result.case.frontend == "micro":
+            if result.case.frontend == "micro" and phase != "monitor":
                 _write_command_artifacts(case_dir, phase, command_result)
             commands[phase] = _command_metadata(
                 command_result,
@@ -3049,18 +3140,18 @@ def render_report(
             "## Pass Criteria",
             "",
             "- all required builds, flashes, and Micro-ESPectre deployments complete successfully",
-            "- Native and ESPHome negotiate Direct v1, keep one correlated HTTP session open, and sample production diagnostics throughout each scored window",
+            "- Native, ESPHome, and Micro-ESPectre negotiate Direct v1 and sample canonical diagnostics throughout each scored window",
             "- Native starts with empty network and MQTT build defaults, erases NVS, provisions through Improv Serial, and remains MQTT-unconfigured",
-            f"- Micro-ESPectre alone logs at least {MIN_TELEMETRY_SAMPLES} debug telemetry samples",
+            f"- sensing frontends receive at least {MIN_TELEMETRY_SAMPLES} canonical telemetry events through Direct SSE",
             "- free heap does not decline by more than 5% after startup has settled",
             "- the device uptime does not restart during a scored runtime window",
             "- Direct diagnostics cadence stays within the runtime gap tolerance, and production telemetry events remain live on sensing frontends",
             f"- {english_join(runtime_case_labels())} mean CSI occupancy stays at or above "
             f"the {MINIMUM_OCCUPANCY_PERCENT:.0f}% admitted-slot detector-ready floor",
             f"- {english_join(runtime_case_labels())} detector timing is present",
-            "- Direct send failures, slow-client disconnects, and unexpected rejected connections do not increase during a scored C++ window",
+            "- Direct send failures, slow-client disconnects, and unexpected rejected connections do not increase when the frontend exposes those counters",
             "- Matter smoke benchmarks stop after a successful build and flash, without commissioning, network discovery, Direct, or scored serial monitoring",
-            "- Micro-ESPectre serial output contains no fatal firmware log",
+            "- the Micro-ESPectre runtime launcher remains active throughout Direct collection",
             "",
         ]
     )
@@ -3398,6 +3489,7 @@ def main() -> int:
         ),
     )
     parser.add_argument("--chip", required=True, choices=SUPPORTED_CHIPS, help="Connected ESP32 target")
+    parser.add_argument("--port", help="Serial port for the connected ESP32 target")
     parser.add_argument(
         "--frontend",
         choices=("esphome", "micro", "native", "matter"),
@@ -3434,7 +3526,7 @@ def main() -> int:
     args = parser.parse_args()
     MONITOR_DURATION_SECONDS = args.duration
 
-    requested_cases = select_cases(args.frontend, args.detector)
+    requested_cases = select_cases(args.frontend, args.detector, args.chip)
     if not requested_cases:
         parser.error("the selected frontend and detector do not define a benchmark case")
 
@@ -3458,7 +3550,7 @@ def main() -> int:
         print(f"Overall result: {'PASS' if passed else 'FAIL'}")
         return 0 if passed else 1
 
-    port = get_serial_port(None)
+    port = get_serial_port(args.port)
     detected_chip = detect_chip_type(port)
     if detected_chip is not None and detected_chip != args.chip:
         parser.error(

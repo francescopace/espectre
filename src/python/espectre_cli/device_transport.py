@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from enum import IntEnum
 import ipaddress
 import json
+import threading
 import time
 from typing import Callable, Protocol, Sequence
 from urllib.error import HTTPError, URLError
@@ -21,6 +22,7 @@ IMPROV_HEADER = b"IMPROV"
 IMPROV_VERSION = 1
 IMPROV_MAX_FRAME_SIZE = 265
 DIRECT_PATH = "/espectre/v1/request"
+DIRECT_EVENTS_PATH = "/espectre/v1/events"
 DIRECT_MAX_REQUEST_FRAME_SIZE = 4096
 DIRECT_MAX_RESPONSE_FRAME_SIZE = 8192
 DIRECT_MAX_FRAME_SIZE = DIRECT_MAX_REQUEST_FRAME_SIZE
@@ -95,6 +97,7 @@ class HttpResponse(Protocol):
     status: int
 
     def read(self, size: int = -1) -> bytes: ...
+    def readline(self, size: int = -1) -> bytes: ...
     def close(self) -> None: ...
 
 
@@ -333,7 +336,7 @@ def direct_endpoint_from_device_url(device_url: str) -> str:
 
 
 class DirectClient:
-    """Sequential Direct HTTP client for the canonical ESPectre message model."""
+    """Direct HTTP request and event client for the canonical message model."""
 
     def __init__(
         self,
@@ -360,9 +363,129 @@ class DirectClient:
         self.events: list[DirectEvent] = []
         self._urlopen = urlopen if urlopen_factory is None else urlopen_factory
         self._authorization: str | None = None
+        self._events_response: HttpResponse | None = None
+        self._events_thread: threading.Thread | None = None
+        self._events_stop = threading.Event()
+        self._events_ready = threading.Event()
+        self._events_error: Exception | None = None
 
     def close(self) -> None:
+        self.stop_events()
         self._authorization = None
+
+    def _events_endpoint(self) -> str:
+        parsed = urlsplit(self.endpoint)
+        return urlunsplit((parsed.scheme, parsed.netloc, DIRECT_EVENTS_PATH, "", ""))
+
+    def _consume_events(self, started: float) -> None:
+        request = Request(
+            self._events_endpoint(),
+            headers={
+                "Accept": "text/event-stream",
+                "Cache-Control": "no-store",
+                "Origin": self.origin,
+            },
+            method="GET",
+        )
+        response: HttpResponse | None = None
+        try:
+            response = self._urlopen(request, timeout=max(self.timeout, 15.0))
+            self._events_response = response
+            status = int(getattr(response, "status", 200))
+            if status != 200:
+                raise DirectProtocolError(f"Direct event stream returned status {status}")
+            self._events_ready.set()
+            event_name = "message"
+            data_lines: list[str] = []
+            while not self._events_stop.is_set():
+                raw_line = response.readline(DIRECT_MAX_RESPONSE_FRAME_SIZE + 1)
+                if not raw_line:
+                    if not self._events_stop.is_set():
+                        raise DirectProtocolError("Direct event stream closed unexpectedly")
+                    break
+                if len(raw_line) > DIRECT_MAX_RESPONSE_FRAME_SIZE:
+                    raise DirectProtocolError("Direct event stream line exceeds the size limit")
+                try:
+                    line = raw_line.decode("utf-8").rstrip("\r\n")
+                except UnicodeDecodeError as exc:
+                    raise DirectProtocolError("Direct event stream sent invalid UTF-8") from exc
+                if not line:
+                    if data_lines:
+                        try:
+                            data = json.loads("\n".join(data_lines))
+                        except json.JSONDecodeError as exc:
+                            raise DirectProtocolError("Direct event stream sent invalid JSON") from exc
+                        if not isinstance(data, dict) or data.get("protocol_version") != PROTOCOL_VERSION:
+                            raise DirectProtocolError("Direct event stream sent an incompatible protocol message")
+                        self.events.append(
+                            DirectEvent(event_name, data, time.monotonic() - started)
+                        )
+                    event_name = "message"
+                    data_lines = []
+                    continue
+                if line.startswith(":"):
+                    continue
+                field, separator, value = line.partition(":")
+                if separator and value.startswith(" "):
+                    value = value[1:]
+                if field == "event":
+                    event_name = value
+                elif field == "data":
+                    data_lines.append(value)
+        except (HTTPError, TimeoutError, URLError, OSError, ValueError, DirectProtocolError) as exc:
+            if not self._events_stop.is_set():
+                self._events_error = (
+                    exc
+                    if isinstance(exc, DirectProtocolError)
+                    else DirectProtocolError(f"Direct event stream failed: {exc}")
+                )
+                self._events_ready.set()
+        finally:
+            if response is not None:
+                response.close()
+            self._events_response = None
+            self._events_ready.set()
+
+    def start_events(self, *, timeout: float | None = None) -> None:
+        """Open the Direct SSE stream and begin collecting canonical events."""
+        if self._events_thread is not None and self._events_thread.is_alive():
+            return
+        self._events_stop.clear()
+        self._events_ready.clear()
+        self._events_error = None
+        started = time.monotonic()
+        self._events_thread = threading.Thread(
+            target=self._consume_events,
+            args=(started,),
+            name="espectre-direct-events",
+            daemon=True,
+        )
+        self._events_thread.start()
+        if not self._events_ready.wait(self.timeout if timeout is None else timeout):
+            self.stop_events()
+            raise DirectProtocolError("timed out opening the Direct event stream")
+        if self._events_error is not None:
+            error = self._events_error
+            self._events_thread = None
+            raise error
+
+    def stop_events(self) -> None:
+        """Close the Direct SSE stream and surface collection failures."""
+        thread = self._events_thread
+        if thread is None:
+            return
+        self._events_stop.set()
+        response = self._events_response
+        if response is not None:
+            response.close()
+        thread.join(timeout=min(max(self.timeout, 1.0), 5.0))
+        self._events_thread = None
+        if thread.is_alive():
+            raise DirectProtocolError("timed out closing the Direct event stream")
+        if self._events_error is not None:
+            error = self._events_error
+            self._events_error = None
+            raise error
 
     def __enter__(self) -> "DirectClient":
         return self

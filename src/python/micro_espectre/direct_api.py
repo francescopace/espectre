@@ -12,6 +12,7 @@ try:
         DNS_SD_TXT_SCHEMA_VERSION,
         PROTOCOL_VERSION,
         build_capabilities_payload,
+        build_diagnostics_payload,
         build_info_payload,
         build_status_payload,
         build_telemetry_payload,
@@ -22,6 +23,7 @@ except ImportError:
         DNS_SD_TXT_SCHEMA_VERSION,
         PROTOCOL_VERSION,
         build_capabilities_payload,
+        build_diagnostics_payload,
         build_info_payload,
         build_status_payload,
         build_telemetry_payload,
@@ -124,6 +126,17 @@ class DirectApi:
             },
         }
 
+    def _diagnostics(self, now_ms=None, measurements=None):
+        if now_ms is None:
+            now_ms = time.ticks_ms()
+        uptime_ms = max(0, time.ticks_diff(now_ms, self.started_ms))
+        return build_diagnostics_payload(
+            self.device_id,
+            now_ms,
+            uptime_ms // 1000,
+            measurements,
+        )
+
     def start(self):
         """Start the native bounded HTTP server and mDNS advertisement."""
         if self.started:
@@ -142,16 +155,18 @@ class DirectApi:
             info=_json(info),
             config=_json(self._config()),
             status=_json(self._status()),
+            diagnostics=_json(self._diagnostics()),
         )
         self.started = True
 
-    def publish(self, movement_score, motion_state, threshold, now_ms=None):
+    def publish(self, movement_score, motion_state, threshold, now_ms=None, diagnostics=None):
         """Refresh status and emit one canonical telemetry event."""
         if not self.started:
             return
         if now_ms is None:
             now_ms = time.ticks_ms()
         native_direct.update_status(_json(self._status(now_ms)))
+        native_direct.update_diagnostics(_json(self._diagnostics(now_ms, diagnostics)))
         uptime_ms = max(0, time.ticks_diff(now_ms, self.started_ms))
         payload = build_telemetry_payload(
             self.device_id,

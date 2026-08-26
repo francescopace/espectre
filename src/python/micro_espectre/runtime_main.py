@@ -568,50 +568,40 @@ def main(wlan=None):
         target_pps,
         getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000),
     )
-    debug_telemetry_enabled = bool(getattr(config, 'DEBUG_TELEMETRY', False))
-    debug_telemetry = None
-    diagnostics_sampler = None
-    diagnostics_helpers = None
-    if debug_telemetry_enabled:
-        from src.console_output import format_detection_publish_line
-        from src.runtime_diagnostics import (
-            RuntimeDebugTelemetry,
-            RuntimeDiagnosticsSampler,
-            collect_runtime_diagnostics_snapshot,
-            wifi_csi_dropped,
-            wifi_rssi_dbm,
-        )
-        diagnostics_helpers = (
-            collect_runtime_diagnostics_snapshot,
-            wifi_csi_dropped,
-            wifi_rssi_dbm,
-        )
-        debug_telemetry = RuntimeDebugTelemetry(enabled=True)
-        diagnostics_sampler = RuntimeDiagnosticsSampler()
-        diagnostics_sampler.reset(
-            collect_runtime_diagnostics_snapshot(
-                traffic_generator=traffic_gen,
-                callback_total=wifi_csi_dropped(wlan),
-                accepted_total=0,
-                admitted_total=0,
-                filtered_total=0,
-                missing_slots_total=0,
-                excess_total=0,
-                stale_total=0,
-                out_of_order_total=0,
-                occupancy_slots=0,
-                window_slots=temporal_sampler.window_slots,
-                wifi_channel=g_state.current_channel,
-                rssi_dbm=wifi_rssi_dbm(wlan),
-            ),
-            time.ticks_ms(),
-        )
+    from src.runtime_diagnostics import (
+        RuntimeDiagnosticsSampler,
+        RuntimePerformanceDiagnostics,
+        collect_runtime_diagnostics_snapshot,
+        wifi_csi_dropped,
+        wifi_rssi_dbm,
+    )
+    diagnostics_sampler = RuntimeDiagnosticsSampler()
+    performance_diagnostics = RuntimePerformanceDiagnostics()
+    diagnostics_sampler.reset(
+        collect_runtime_diagnostics_snapshot(
+            traffic_generator=traffic_gen,
+            callback_total=wifi_csi_dropped(wlan),
+            accepted_total=0,
+            admitted_total=0,
+            filtered_total=0,
+            missing_slots_total=0,
+            excess_total=0,
+            stale_total=0,
+            out_of_order_total=0,
+            occupancy_slots=0,
+            window_slots=temporal_sampler.window_slots,
+            wifi_channel=g_state.current_channel,
+            rssi_dbm=wifi_rssi_dbm(wlan),
+        ),
+        time.ticks_ms(),
+    )
     pending_csi_data = bytearray(EXPECTED_CSI_LEN)
     emitted_csi_data = bytearray(EXPECTED_CSI_LEN)
     pending_timestamp_us = 0
     latest_motion_metric = 0.0
     latest_threshold = detector.get_threshold()
     latest_effective_state = runtime_policy.effective_state
+    latest_loop_duration_us = 0
     from src.direct_api import DirectApi
     direct_api = DirectApi(
         config,
@@ -625,78 +615,46 @@ def main(wlan=None):
         direct_api.start()
         print_heap('after_direct_http_start')
         while True:
-            loop_start = time.ticks_us() if debug_telemetry_enabled else None
+            loop_start = time.ticks_us()
 
             # Suspend main loop during calibration
             if g_state.calibration_mode:
                 time.sleep_ms(1000) # Sleep for 1 second to yield CPU
+                latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
+                performance_diagnostics.record_loop_duration(latest_loop_duration_us)
                 continue
 
             current_time = time.ticks_ms()
             time_delta = time.ticks_diff(current_time, last_publish_time)
             if time_delta >= publish_interval_ms:
-                if debug_telemetry_enabled:
-                    assert diagnostics_sampler is not None
-                    assert diagnostics_helpers is not None
-                    collect_snapshot, wifi_csi_dropped, wifi_rssi_dbm = diagnostics_helpers
-                    diagnostics = diagnostics_sampler.sample(
-                        collect_snapshot(
-                            traffic_generator=traffic_gen,
-                            callback_total=(
-                                callback_packet_count + wifi_csi_dropped(wlan)
-                            ),
-                            accepted_total=processed_packet_count,
-                            admitted_total=temporal_sampler.accepted_packets,
-                            filtered_total=filtered_count + out_of_order_count,
-                            missing_slots_total=temporal_sampler.missing_slots,
-                            excess_total=temporal_sampler.excess_packets,
-                            stale_total=temporal_sampler.stale_packets,
-                            out_of_order_total=temporal_sampler.out_of_order_packets,
-                            occupancy_slots=temporal_sampler.occupancy_slots,
-                            window_slots=temporal_sampler.window_slots,
-                            wifi_channel=g_state.current_channel,
-                            rssi_dbm=wifi_rssi_dbm(wlan),
-                        ),
-                        current_time,
-                    )
-                    status_line = format_detection_publish_line(
-                        diagnostics=diagnostics,
-                        motion_metric=latest_motion_metric,
-                        threshold=latest_threshold,
-                        effective_state=latest_effective_state,
-                    )
-                    status_line = f"I ({current_time}) micro_espectre: {status_line}"
-                else:
-                    state_label = "MOTION" if latest_effective_state else "IDLE"
-                    status_line = "mvmt:{:.6f} thr:{:.6f} | {}".format(
-                        latest_motion_metric,
-                        latest_threshold,
-                        state_label,
-                    )
-                print(status_line)
-                if debug_telemetry_enabled:
-                    assert debug_telemetry is not None
-                    heap_free = gc.mem_free()
-                    heap_free_post_gc = None
-                    gc_pause_us = None
-                    if debug_telemetry.is_due(current_time):
-                        gc_start_us = time.ticks_us()
-                        gc.collect()
-                        gc_pause_us = time.ticks_diff(time.ticks_us(), gc_start_us)
-                        heap_free_post_gc = gc.mem_free()
-                    debug_line = debug_telemetry.format_if_due(
-                        current_time,
-                        heap_free,
-                        heap_free_post_gc=heap_free_post_gc,
-                        gc_pause_us=gc_pause_us,
-                    )
-                    if debug_line is not None:
-                        print(f"D ({current_time}) micro_espectre: {debug_line}")
+                diagnostics = diagnostics_sampler.sample(
+                    collect_runtime_diagnostics_snapshot(
+                        traffic_generator=traffic_gen,
+                        callback_total=callback_packet_count + wifi_csi_dropped(wlan),
+                        accepted_total=processed_packet_count,
+                        admitted_total=temporal_sampler.accepted_packets,
+                        filtered_total=filtered_count + out_of_order_count,
+                        missing_slots_total=temporal_sampler.missing_slots,
+                        excess_total=temporal_sampler.excess_packets,
+                        stale_total=temporal_sampler.stale_packets,
+                        out_of_order_total=temporal_sampler.out_of_order_packets,
+                        occupancy_slots=temporal_sampler.occupancy_slots,
+                        window_slots=temporal_sampler.window_slots,
+                        wifi_channel=g_state.current_channel,
+                        rssi_dbm=wifi_rssi_dbm(wlan),
+                    ),
+                    current_time,
+                )
+                diagnostics.update(
+                    performance_diagnostics.update_if_due(current_time, gc.mem_free())
+                )
+                diagnostics["loop_time_ms"] = latest_loop_duration_us / 1000.0
                 direct_api.publish(
                     latest_motion_metric,
                     latest_effective_state,
                     latest_threshold,
                     current_time,
+                    diagnostics,
                 )
                 last_publish_time = current_time
 
@@ -725,12 +683,8 @@ def main(wlan=None):
                             )
                         )
                     del frame
-                    if debug_telemetry_enabled:
-                        assert debug_telemetry is not None
-                        assert loop_start is not None
-                        debug_telemetry.record_loop_duration(
-                            time.ticks_diff(time.ticks_us(), loop_start),
-                        )
+                    latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
+                    performance_diagnostics.record_loop_duration(latest_loop_duration_us)
                     time.sleep_us(100)
                     continue
 
@@ -744,12 +698,8 @@ def main(wlan=None):
                     filtered_count += 1
                     format_drop_streak += 1
                     del frame
-                    if debug_telemetry_enabled:
-                        assert debug_telemetry is not None
-                        assert loop_start is not None
-                        debug_telemetry.record_loop_duration(
-                            time.ticks_diff(time.ticks_us(), loop_start),
-                        )
+                    latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
+                    performance_diagnostics.record_loop_duration(latest_loop_duration_us)
                     time.sleep_us(100)
                     continue
 
@@ -758,12 +708,8 @@ def main(wlan=None):
                     if out_of_order_count % 100 == 1:
                         print(f"[WARN] Filtered {out_of_order_count} duplicate or out-of-order CSI frames")
                     del frame
-                    if debug_telemetry_enabled:
-                        assert debug_telemetry is not None
-                        assert loop_start is not None
-                        debug_telemetry.record_loop_duration(
-                            time.ticks_diff(time.ticks_us(), loop_start),
-                        )
+                    latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
+                    performance_diagnostics.record_loop_duration(latest_loop_duration_us)
                     time.sleep_us(100)
                     continue
 
@@ -821,17 +767,11 @@ def main(wlan=None):
                         if callable(advance_missing):
                             advance_missing(temporal_sampler.missing_slots_before)
 
-                    packet_start_us = time.ticks_us() if debug_telemetry_enabled else None
                     detector.process_packet(
                         emitted_csi_data,
                         config.DEFAULT_SUBCARRIERS,
                         timestamp_us=emitted_timestamp_us,
                     )
-                    if packet_start_us is not None:
-                        assert debug_telemetry is not None
-                        debug_telemetry.record_packet_duration(
-                            time.ticks_diff(time.ticks_us(), packet_start_us),
-                        )
                     runtime_policy.note_arrival(emitted_timestamp_us)
                 if temporal_sampler.gap_reset_required:
                     detector.reset()
@@ -839,44 +779,30 @@ def main(wlan=None):
                     latest_motion_metric = 0.0
                     latest_effective_state = runtime_policy.effective_state
                 if not emitted:
-                    if debug_telemetry_enabled:
-                        assert debug_telemetry is not None
-                        assert loop_start is not None
-                        debug_telemetry.record_loop_duration(
-                            time.ticks_diff(time.ticks_us(), loop_start),
-                        )
+                    latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
+                    performance_diagnostics.record_loop_duration(latest_loop_duration_us)
                     time.sleep_us(100)
                     continue
 
                 if runtime_policy.should_evaluate():
-                    detection_start = time.ticks_us() if debug_telemetry_enabled else None
+                    detection_start = time.ticks_us()
                     metrics = detector.update_state()
-                    if detection_start is not None:
-                        assert debug_telemetry is not None
-                        debug_telemetry.record_detection_duration(
-                            time.ticks_diff(time.ticks_us(), detection_start),
-                        )
+                    performance_diagnostics.record_detection_duration(
+                        time.ticks_diff(time.ticks_us(), detection_start),
+                    )
                     effective_state, _ = runtime_policy.apply_state(metrics['state'])
                     runtime_policy.after_evaluation()
                     latest_motion_metric = metrics.get('motion_metric', 0.0)
                     latest_threshold = metrics['threshold']
                     latest_effective_state = effective_state
 
-                if debug_telemetry_enabled:
-                    assert debug_telemetry is not None
-                    assert loop_start is not None
-                    debug_telemetry.record_loop_duration(
-                        time.ticks_diff(time.ticks_us(), loop_start),
-                    )
+                latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
+                performance_diagnostics.record_loop_duration(latest_loop_duration_us)
 
                 time.sleep_us(100)
             else:
-                if debug_telemetry_enabled:
-                    assert debug_telemetry is not None
-                    assert loop_start is not None
-                    debug_telemetry.record_loop_duration(
-                        time.ticks_diff(time.ticks_us(), loop_start),
-                    )
+                latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
+                performance_diagnostics.record_loop_duration(latest_loop_duration_us)
 
                 time.sleep_us(100)
 
