@@ -4,7 +4,7 @@
 Micro-ESPectre - Runtime Diagnostics
 
 Rate and link diagnostics derived from cumulative runtime counters.
-Mirrors `src/cpp/runtime/runtime_diagnostics.cpp` for MQTT `stats`.
+Mirrors `src/cpp/runtime/runtime_diagnostics.cpp` for serial runtime sampling.
 """
 import time
 
@@ -42,7 +42,7 @@ def _packets_per_second(delta, elapsed_ms):
 
 
 def empty_diagnostics_sample(wifi_channel=0, wifi_rssi_dbm=None):
-    """Return the MQTT `stats` CSI/Wi-Fi fields with zero rates."""
+    """Return the CSI/Wi-Fi fields with zero rates."""
     return {
         "traffic_tx_pps": 0.0,
         "csi_callback_pps": 0.0,
@@ -133,7 +133,7 @@ def collect_runtime_diagnostics_snapshot(
 
 
 def apply_diagnostics_sample(payload, sample, wifi_channel=0, rssi_dbm=None):
-    """Copy MQTT diagnostic keys into `payload`, filling zeros for missing ones."""
+    """Copy diagnostic keys into `payload`, filling zeros for missing ones."""
     defaults = empty_diagnostics_sample(wifi_channel=wifi_channel, wifi_rssi_dbm=rssi_dbm)
     source = sample if isinstance(sample, dict) else defaults
     for key in STATS_DIAGNOSTIC_KEYS:

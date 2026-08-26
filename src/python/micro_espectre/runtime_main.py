@@ -25,26 +25,19 @@ from src.device_utils import (
     csi_read_frame,
 )
 from src.detector_interface import (
-    detector_needs_startup_calibration,
-    get_detector_algorithm,
     get_detector_label,
     load_detector_class,
-    normalize_detector_algorithm,
 )
 from src.runtime_motion_policy import RuntimeMotionPolicy
 from src.wifi_bootstrap import cleanup_wifi, connect_wifi
-
-HIGH_ACCURACY_DEFAULT_THRESHOLD = 0.5
 
 # Global state for calibration mode and performance metrics
 class GlobalState:
     def __init__(self):
         self.calibration_mode = False  # Flag to suspend main loop during calibration
-        self.loop_time_us = 0  # Last loop iteration time in microseconds
         self.chip_type = None  # Detected chip type (S3, C6, etc.)
         self.csi_phy_metadata_missing = False  # C5/C6 RX metadata omits legacy PHY fields
         self.current_channel = 0  # Track WiFi channel for change detection
-        self.latest_diagnostics = None  # Cached MQTT stats CSI/Wi-Fi sample
 
 
 g_state = GlobalState()
@@ -67,25 +60,18 @@ def create_detector(detection_algorithm, window_packets):
     try:
         detector_class = load_detector_class(detection_algorithm)
     except ValueError:
-        raise ValueError(f"Unsupported DETECTION_ALGORITHM: {detection_algorithm}")
-
-    threshold = 1.0 if detector_needs_startup_calibration(detection_algorithm) else HIGH_ACCURACY_DEFAULT_THRESHOLD
+        raise ValueError(f"Unsupported Micro detector: {detection_algorithm}")
 
     print(f'Detection algorithm: {get_detector_label(detection_algorithm)}')
     return detector_class(
         window_size=window_packets,
-        threshold=threshold,
+        threshold=1.0,
         enable_lowpass=config.ENABLE_LOWPASS_FILTER,
         lowpass_cutoff=config.LOWPASS_CUTOFF,
         enable_hampel=config.ENABLE_HAMPEL_FILTER,
         hampel_window=config.HAMPEL_WINDOW,
         hampel_threshold=config.HAMPEL_THRESHOLD,
     )
-
-
-def detector_uses_startup_calibration(detector):
-    """Return True when the detector needs quiet-room startup calibration."""
-    return detector_needs_startup_calibration(get_detector_algorithm(detector))
 
 
 def run_startup_calibration(wlan, detector, traffic_gen):
@@ -100,27 +86,6 @@ def run_startup_calibration(wlan, detector, traffic_gen):
         bool: True if startup calibration completed
     """
     detector_name = detector.get_name()
-    if not detector_uses_startup_calibration(detector):
-        g_state.calibration_mode = True
-        detector.set_threshold(HIGH_ACCURACY_DEFAULT_THRESHOLD)
-
-        print('')
-        print('='*60)
-        print('High Accuracy Quick Boot')
-        print('='*60)
-        print(f'Free memory: {gc.mem_free()} bytes')
-
-        print('')
-        print('='*60)
-        print('High Accuracy Quick Boot Complete!')
-        print(f'   Subcarriers: {list(config.DEFAULT_SUBCARRIERS)}')
-        print(f'   Threshold: {detector.get_threshold():.2f} (0-1 probability score)')
-        print('   Startup path: AGC-active normalized pipeline')
-        print('='*60)
-        print('')
-
-        g_state.calibration_mode = False
-        return True
     g_state.calibration_mode = True
 
     gc.collect()
@@ -400,20 +365,6 @@ def run_startup_calibration(wlan, detector, traffic_gen):
     return success
 
 
-def maybe_run_ha_recalibration(mqtt_handler, wlan, detector, traffic_gen, runtime_policy, temporal_sampler):
-    """Run one HA-requested recalibration from the main loop, never from MQTT."""
-    if mqtt_handler is None or not mqtt_handler.take_recalibrate_request():
-        return False
-    success = run_startup_calibration(wlan, detector, traffic_gen)
-    if not success:
-        print('[WARN] Recalibration failed; keeping current threshold')
-    runtime_policy.reset()
-    temporal_sampler.reset()
-    motion_metric = detector.get_motion_metric() if detector.is_ready() else 0.0
-    mqtt_handler.finish_recalibration(motion_metric, detector.get_threshold())
-    return True
-
-
 def get_chip_type():
     """Extract short chip type from os.uname().machine."""
     machine = os.uname().machine.upper()
@@ -432,7 +383,7 @@ def restart_traffic_generator(traffic_gen):
     if not traffic_gen or not getattr(config, 'TRAFFIC_GENERATOR_ENABLED', True):
         return
 
-    time.sleep(1)  # Give WiFi/MQTT stack time to settle before reopening raw socket.
+    time.sleep(1)  # Give the Wi-Fi stack time to settle before reopening the raw socket.
     gc.collect()
     target_pps = max(1, int(getattr(config, 'CSI_TARGET_PPS', 100)))
     if not traffic_gen.start(target_pps):
@@ -461,9 +412,7 @@ def main(wlan=None):
 
     # Detector capacity is fixed by the configured temporal grid. Measured
     # delivery rate is diagnostic only and never reconstructs the detector.
-    detection_algorithm = normalize_detector_algorithm(
-        getattr(config, 'DETECTION_ALGORITHM', 'lightweight')
-    )
+    detection_algorithm = 'lightweight'
     from src.temporal_csi_sampler import (
         TemporalCsiSampler,
         minimum_valid_slots,
@@ -477,11 +426,9 @@ def main(wlan=None):
 
     # Initialize and start traffic generator (target CSI rate from config.py)
     gc.collect()  # Free memory before creating socket
-    traffic_mode = getattr(config, 'TRAFFIC_GENERATOR_MODE', 'ping')
     from src.traffic_generator import TrafficGenerator
-    traffic_gen = TrafficGenerator(mode=traffic_mode)
+    traffic_gen = TrafficGenerator()
     print_heap('after_traffic_gen_init')
-    observed_interval_us = None
     if getattr(config, 'TRAFFIC_GENERATOR_ENABLED', True):
         if not traffic_gen.start(target_pps):
             print("FATAL: Traffic generator failed to start - CSI will not work")
@@ -490,7 +437,7 @@ def main(wlan=None):
             time.sleep(5)
             machine.reset()  # Reboot and retry
 
-        print(f'Traffic generator started ({traffic_mode}, target={target_pps} CSI pps)')
+        print(f'Traffic generator started (ping, target={target_pps} CSI pps)')
         print_heap('after_traffic_gen_start')
 
         # Verify CSI packets are flowing with retry logic
@@ -500,26 +447,17 @@ def main(wlan=None):
 
             print('Waiting for CSI packets...')
             csi_received = 0
-            csi_timestamps = []
             frame_result = None
             for _ in range(100):  # Max 100 attempts (~5 seconds)
                 frame = csi_read_frame(wlan, frame_result)
                 if frame:
                     frame_result = frame
                     csi_received += 1
-                    csi_timestamps.append(int(frame[4]))
                     if csi_received >= 17:
                         break
                 time.sleep(0.05)
 
             if csi_received >= 17:
-                deltas = []
-                for previous, current in zip(csi_timestamps, csi_timestamps[1:]):
-                    delta = (current - previous) % (1 << 32)
-                    if 0 < delta < (1 << 31):
-                        deltas.append(delta)
-                if deltas:
-                    observed_interval_us = max(1, sum(deltas) // len(deltas))
                 break  # Success
 
             if tg_attempt < max_tg_retries - 1:
@@ -553,7 +491,6 @@ def main(wlan=None):
                 deltas.append(delta)
         if not deltas:
             raise RuntimeError('External CSI traffic did not provide advancing timestamps')
-        observed_interval_us = max(1, sum(deltas) // len(deltas))
 
     detector = create_detector(detection_algorithm, detector_window_packets)
     set_minimum_valid = getattr(detector, "set_minimum_valid_samples", None)
@@ -580,24 +517,6 @@ def main(wlan=None):
         motion_off_hits=getattr(config, 'MOTION_OFF_HITS', 3),
         segmentation_window_size_ms=getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000),
     )
-    mqtt_enabled = getattr(config, 'MQTT_ENABLED', True)
-    mqtt_handler = None
-    if mqtt_enabled:
-        # Reserve the transport object and native buffers before calibration
-        # fragments the MicroPython and ESP-IDF heaps. The MQTT task itself is
-        # still started only after sensing has calibrated and stabilized.
-        from src.mqtt.handler import MQTTHandler
-        mqtt_handler = MQTTHandler(
-            config,
-            detector,
-            wlan,
-            g_state,
-            runtime_policy=runtime_policy,
-            traffic_generator=traffic_gen,
-        )
-        mqtt_handler.prepare()
-        print_heap('after_mqtt_handler_init')
-
     calibration_ok = run_startup_calibration(
         wlan,
         detector,
@@ -610,37 +529,13 @@ def main(wlan=None):
         raise RuntimeError("Startup calibration failed")
     print_heap('after_calibration')
 
-    # The calibration helper is large and is only needed again on an explicit
-    # recalibration request. Release it before importing MQTT and HA discovery;
-    # run_startup_calibration() will load it again on demand.
+    # The calibration helper is large and is not needed by the steady-state loop.
     import sys
     sys.modules.pop("src.threshold", None)
-    # Retain the already allocated traffic socket. Reopening a raw socket after
-    # MQTT setup fragments the original ESP32 heap and fails with ENOMEM.
+    # Retain the already allocated traffic socket.
     gc.collect()
 
-    if mqtt_handler is not None:
-        traffic_paused_for_mqtt = traffic_gen.pause()
-        if traffic_paused_for_mqtt:
-            time.sleep_ms(50)
-        mqtt_handler.connect()
-        print_heap('after_mqtt_connect')
-        if traffic_paused_for_mqtt:
-            traffic_gen.resume()
-
-    else:
-        print('MQTT disabled')
-
     from src.branding import ASCII_BANNER
-    from src.console_output import format_detection_publish_line
-    from src.runtime_diagnostics import (
-        RuntimeDebugTelemetry,
-        RuntimeDiagnosticsSampler,
-        collect_runtime_diagnostics_snapshot,
-        empty_diagnostics_sample,
-        wifi_csi_dropped,
-        wifi_rssi_dbm,
-    )
     if getattr(config, 'TRAFFIC_GENERATOR_ENABLED', True) and not traffic_gen.is_running():
         restart_traffic_generator(traffic_gen)
 
@@ -652,7 +547,7 @@ def main(wlan=None):
     gc.collect()
     print(f'Free memory before main loop: {gc.mem_free()} bytes')
 
-    # Main CSI processing loop with integrated MQTT publishing
+    # Main CSI processing loop with bounded Direct HTTP publishing.
     processed_packet_count = 0
     callback_packet_count = 0
     filtered_count = 0  # Packets with wrong SC count
@@ -673,86 +568,111 @@ def main(wlan=None):
         target_pps,
         getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000),
     )
-    diagnostics_sampler = RuntimeDiagnosticsSampler()
     debug_telemetry_enabled = bool(getattr(config, 'DEBUG_TELEMETRY', False))
-    debug_telemetry = RuntimeDebugTelemetry(enabled=True) if debug_telemetry_enabled else None
-    diagnostics_sampler.reset(
-        collect_runtime_diagnostics_snapshot(
-            traffic_generator=traffic_gen,
-            callback_total=wifi_csi_dropped(wlan),
-            accepted_total=0,
-            admitted_total=0,
-            filtered_total=0,
-            missing_slots_total=0,
-            excess_total=0,
-            stale_total=0,
-            out_of_order_total=0,
-            occupancy_slots=0,
-            window_slots=temporal_sampler.window_slots,
-            wifi_channel=g_state.current_channel,
-            rssi_dbm=wifi_rssi_dbm(wlan),
-        ),
-        time.ticks_ms(),
-    )
-    g_state.latest_diagnostics = empty_diagnostics_sample(
-        wifi_channel=g_state.current_channel,
-        wifi_rssi_dbm=wifi_rssi_dbm(wlan),
-    )
+    debug_telemetry = None
+    diagnostics_sampler = None
+    diagnostics_helpers = None
+    if debug_telemetry_enabled:
+        from src.console_output import format_detection_publish_line
+        from src.runtime_diagnostics import (
+            RuntimeDebugTelemetry,
+            RuntimeDiagnosticsSampler,
+            collect_runtime_diagnostics_snapshot,
+            wifi_csi_dropped,
+            wifi_rssi_dbm,
+        )
+        diagnostics_helpers = (
+            collect_runtime_diagnostics_snapshot,
+            wifi_csi_dropped,
+            wifi_rssi_dbm,
+        )
+        debug_telemetry = RuntimeDebugTelemetry(enabled=True)
+        diagnostics_sampler = RuntimeDiagnosticsSampler()
+        diagnostics_sampler.reset(
+            collect_runtime_diagnostics_snapshot(
+                traffic_generator=traffic_gen,
+                callback_total=wifi_csi_dropped(wlan),
+                accepted_total=0,
+                admitted_total=0,
+                filtered_total=0,
+                missing_slots_total=0,
+                excess_total=0,
+                stale_total=0,
+                out_of_order_total=0,
+                occupancy_slots=0,
+                window_slots=temporal_sampler.window_slots,
+                wifi_channel=g_state.current_channel,
+                rssi_dbm=wifi_rssi_dbm(wlan),
+            ),
+            time.ticks_ms(),
+        )
     pending_csi_data = bytearray(EXPECTED_CSI_LEN)
     emitted_csi_data = bytearray(EXPECTED_CSI_LEN)
     pending_timestamp_us = 0
     latest_motion_metric = 0.0
     latest_threshold = detector.get_threshold()
     latest_effective_state = runtime_policy.effective_state
-
+    from src.direct_api import DirectApi
+    direct_api = DirectApi(
+        config,
+        wlan,
+        detector,
+        g_state,
+        runtime_policy,
+        traffic_gen,
+    )
     try:
+        direct_api.start()
+        print_heap('after_direct_http_start')
         while True:
-            loop_start = time.ticks_us()
+            loop_start = time.ticks_us() if debug_telemetry_enabled else None
 
             # Suspend main loop during calibration
             if g_state.calibration_mode:
                 time.sleep_ms(1000) # Sleep for 1 second to yield CPU
                 continue
 
-            if maybe_run_ha_recalibration(
-                mqtt_handler, wlan, detector, traffic_gen, runtime_policy, temporal_sampler
-            ):
-                latest_motion_metric = mqtt_handler.last_variance
-                latest_threshold = mqtt_handler.last_threshold
-                latest_effective_state = runtime_policy.effective_state
-                continue
-
             current_time = time.ticks_ms()
             time_delta = time.ticks_diff(current_time, last_publish_time)
             if time_delta >= publish_interval_ms:
-                g_state.latest_diagnostics = diagnostics_sampler.sample(
-                    collect_runtime_diagnostics_snapshot(
-                        traffic_generator=traffic_gen,
-                        callback_total=(
-                            callback_packet_count + wifi_csi_dropped(wlan)
-                        ),
-                        accepted_total=processed_packet_count,
-                        admitted_total=temporal_sampler.accepted_packets,
-                        filtered_total=filtered_count + out_of_order_count,
-                        missing_slots_total=temporal_sampler.missing_slots,
-                        excess_total=temporal_sampler.excess_packets,
-                        stale_total=temporal_sampler.stale_packets,
-                        out_of_order_total=temporal_sampler.out_of_order_packets,
-                        occupancy_slots=temporal_sampler.occupancy_slots,
-                        window_slots=temporal_sampler.window_slots,
-                        wifi_channel=g_state.current_channel,
-                        rssi_dbm=wifi_rssi_dbm(wlan),
-                    ),
-                    current_time,
-                )
-                status_line = format_detection_publish_line(
-                    diagnostics=g_state.latest_diagnostics,
-                    motion_metric=latest_motion_metric,
-                    threshold=latest_threshold,
-                    effective_state=latest_effective_state,
-                )
                 if debug_telemetry_enabled:
+                    assert diagnostics_sampler is not None
+                    assert diagnostics_helpers is not None
+                    collect_snapshot, wifi_csi_dropped, wifi_rssi_dbm = diagnostics_helpers
+                    diagnostics = diagnostics_sampler.sample(
+                        collect_snapshot(
+                            traffic_generator=traffic_gen,
+                            callback_total=(
+                                callback_packet_count + wifi_csi_dropped(wlan)
+                            ),
+                            accepted_total=processed_packet_count,
+                            admitted_total=temporal_sampler.accepted_packets,
+                            filtered_total=filtered_count + out_of_order_count,
+                            missing_slots_total=temporal_sampler.missing_slots,
+                            excess_total=temporal_sampler.excess_packets,
+                            stale_total=temporal_sampler.stale_packets,
+                            out_of_order_total=temporal_sampler.out_of_order_packets,
+                            occupancy_slots=temporal_sampler.occupancy_slots,
+                            window_slots=temporal_sampler.window_slots,
+                            wifi_channel=g_state.current_channel,
+                            rssi_dbm=wifi_rssi_dbm(wlan),
+                        ),
+                        current_time,
+                    )
+                    status_line = format_detection_publish_line(
+                        diagnostics=diagnostics,
+                        motion_metric=latest_motion_metric,
+                        threshold=latest_threshold,
+                        effective_state=latest_effective_state,
+                    )
                     status_line = f"I ({current_time}) micro_espectre: {status_line}"
+                else:
+                    state_label = "MOTION" if latest_effective_state else "IDLE"
+                    status_line = "mvmt:{:.6f} thr:{:.6f} | {}".format(
+                        latest_motion_metric,
+                        latest_threshold,
+                        state_label,
+                    )
                 print(status_line)
                 if debug_telemetry_enabled:
                     assert debug_telemetry is not None
@@ -772,21 +692,12 @@ def main(wlan=None):
                     )
                     if debug_line is not None:
                         print(f"D ({current_time}) micro_espectre: {debug_line}")
-                if mqtt_handler is not None:
-                    mqtt_handler.publish_live_ha(
-                        latest_motion_metric,
-                        latest_effective_state,
-                        latest_threshold,
-                    )
-                    mqtt_handler.check_messages()
-                    if maybe_run_ha_recalibration(
-                        mqtt_handler, wlan, detector, traffic_gen, runtime_policy, temporal_sampler
-                    ):
-                        latest_motion_metric = mqtt_handler.last_variance
-                        latest_threshold = mqtt_handler.last_threshold
-                        latest_effective_state = runtime_policy.effective_state
-                        last_publish_time = current_time
-                        continue
+                direct_api.publish(
+                    latest_motion_metric,
+                    latest_effective_state,
+                    latest_threshold,
+                    current_time,
+                )
                 last_publish_time = current_time
 
             frame = csi_read_frame(wlan, frame_result)
@@ -814,10 +725,12 @@ def main(wlan=None):
                             )
                         )
                     del frame
-                    g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
                     if debug_telemetry_enabled:
                         assert debug_telemetry is not None
-                        debug_telemetry.record_loop_duration(g_state.loop_time_us)
+                        assert loop_start is not None
+                        debug_telemetry.record_loop_duration(
+                            time.ticks_diff(time.ticks_us(), loop_start),
+                        )
                     time.sleep_us(100)
                     continue
 
@@ -831,10 +744,12 @@ def main(wlan=None):
                     filtered_count += 1
                     format_drop_streak += 1
                     del frame
-                    g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
                     if debug_telemetry_enabled:
                         assert debug_telemetry is not None
-                        debug_telemetry.record_loop_duration(g_state.loop_time_us)
+                        assert loop_start is not None
+                        debug_telemetry.record_loop_duration(
+                            time.ticks_diff(time.ticks_us(), loop_start),
+                        )
                     time.sleep_us(100)
                     continue
 
@@ -843,10 +758,12 @@ def main(wlan=None):
                     if out_of_order_count % 100 == 1:
                         print(f"[WARN] Filtered {out_of_order_count} duplicate or out-of-order CSI frames")
                     del frame
-                    g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
                     if debug_telemetry_enabled:
                         assert debug_telemetry is not None
-                        debug_telemetry.record_loop_duration(g_state.loop_time_us)
+                        assert loop_start is not None
+                        debug_telemetry.record_loop_duration(
+                            time.ticks_diff(time.ticks_us(), loop_start),
+                        )
                     time.sleep_us(100)
                     continue
 
@@ -922,10 +839,12 @@ def main(wlan=None):
                     latest_motion_metric = 0.0
                     latest_effective_state = runtime_policy.effective_state
                 if not emitted:
-                    g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
                     if debug_telemetry_enabled:
                         assert debug_telemetry is not None
-                        debug_telemetry.record_loop_duration(g_state.loop_time_us)
+                        assert loop_start is not None
+                        debug_telemetry.record_loop_duration(
+                            time.ticks_diff(time.ticks_us(), loop_start),
+                        )
                     time.sleep_us(100)
                     continue
 
@@ -943,19 +862,21 @@ def main(wlan=None):
                     latest_threshold = metrics['threshold']
                     latest_effective_state = effective_state
 
-                # Update loop time metric
-                g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
                 if debug_telemetry_enabled:
                     assert debug_telemetry is not None
-                    debug_telemetry.record_loop_duration(g_state.loop_time_us)
+                    assert loop_start is not None
+                    debug_telemetry.record_loop_duration(
+                        time.ticks_diff(time.ticks_us(), loop_start),
+                    )
 
                 time.sleep_us(100)
             else:
-                # Update loop time metric (idle iteration)
-                g_state.loop_time_us = time.ticks_diff(time.ticks_us(), loop_start)
                 if debug_telemetry_enabled:
                     assert debug_telemetry is not None
-                    debug_telemetry.record_loop_duration(g_state.loop_time_us)
+                    assert loop_start is not None
+                    debug_telemetry.record_loop_duration(
+                        time.ticks_diff(time.ticks_us(), loop_start),
+                    )
 
                 time.sleep_us(100)
 
@@ -964,8 +885,7 @@ def main(wlan=None):
 
     finally:
         print('Cleaning up...')
-        if mqtt_handler is not None:
-            mqtt_handler.disconnect()
+        direct_api.stop()
         if traffic_gen.is_running():
             traffic_gen.stop()
         cleanup_wifi(wlan)

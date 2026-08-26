@@ -647,18 +647,26 @@ Result: **PASS**
 def test_micro_benchmark_config_overrides_lab_wifi_and_debug_telemetry(monkeypatch):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
-    monkeypatch.setenv("ESPECTRE_BENCHMARK_MQTT_HOST", "broker.local")
 
     content = bench.render_micro_benchmark_config()
+    assignment_names = {
+        line.split("=", 1)[0].strip()
+        for line in content.splitlines()
+        if line and not line.startswith("#")
+    }
 
     assert "WIFI_SSID = 'lab'" in content
     assert "WIFI_PASSWORD = 'secret'" in content
-    assert "MQTT_BROKER = 'broker.local'" in content
+    assert "TRAFFIC_GENERATOR_ENABLED = True" in content
     assert "DEBUG_TELEMETRY = True" in content
-    assert "DETECTION_ALGORITHM" not in content
-    assert "MQTT_ENABLED" not in content
-    assert "MQTT_HA_DISCOVERY_ENABLED" not in content
-    assert "MQTT_CLIENT_ID" not in content
+    assert assignment_names == {
+        "WIFI_SSID",
+        "WIFI_PASSWORD",
+        "WIFI_BSSID",
+        "WIFI_CHANNEL",
+        "TRAFFIC_GENERATOR_ENABLED",
+        "DEBUG_TELEMETRY",
+    }
 
 
 def test_matter_flash_only_benchmark_has_no_network_prerequisite(monkeypatch):
@@ -671,17 +679,30 @@ def test_matter_flash_only_benchmark_has_no_network_prerequisite(monkeypatch):
     )
 
 
+def test_micro_benchmark_prerequisites_are_wifi_only(monkeypatch):
+    monkeypatch.setattr(bench, "BENCHMARK_LOCAL_ENV", {})
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
+    for name in (
+        "ESPECTRE_BENCHMARK_MQTT_HOST",
+        "ESPECTRE_BENCHMARK_MQTT_PORT",
+        "ESPECTRE_BENCHMARK_MQTT_USERNAME",
+        "ESPECTRE_BENCHMARK_MQTT_PASSWORD",
+        "ESPECTRE_BENCHMARK_MQTT_TOPIC_PREFIX",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    bench.require_benchmark_prerequisites(
+        [bench.BenchmarkCase("micro", "lightweight")]
+    )
+
+
 def test_micro_benchmark_config_reads_shared_local_env_not_developer_config(monkeypatch):
     setting_names = (
         "ESPECTRE_BENCHMARK_WIFI_SSID",
         "ESPECTRE_BENCHMARK_WIFI_PASSWORD",
         "ESPECTRE_BENCHMARK_WIFI_BSSID",
         "ESPECTRE_BENCHMARK_WIFI_CHANNEL",
-        "ESPECTRE_BENCHMARK_MQTT_HOST",
-        "ESPECTRE_BENCHMARK_MQTT_PORT",
-        "ESPECTRE_BENCHMARK_MQTT_USERNAME",
-        "ESPECTRE_BENCHMARK_MQTT_PASSWORD",
-        "ESPECTRE_BENCHMARK_MQTT_TOPIC_PREFIX",
     )
     for name in setting_names:
         monkeypatch.delenv(name, raising=False)
@@ -693,11 +714,6 @@ def test_micro_benchmark_config_reads_shared_local_env_not_developer_config(monk
             "ESPECTRE_BENCHMARK_WIFI_PASSWORD": "file-wifi-password",
             "ESPECTRE_BENCHMARK_WIFI_BSSID": "AA:BB:CC:DD:EE:FF",
             "ESPECTRE_BENCHMARK_WIFI_CHANNEL": "6",
-            "ESPECTRE_BENCHMARK_MQTT_HOST": "file-broker.local",
-            "ESPECTRE_BENCHMARK_MQTT_PORT": "2883",
-            "ESPECTRE_BENCHMARK_MQTT_USERNAME": "file-user",
-            "ESPECTRE_BENCHMARK_MQTT_PASSWORD": "file-mqtt-password",
-            "ESPECTRE_BENCHMARK_MQTT_TOPIC_PREFIX": "file/espectre",
         },
     )
 
@@ -707,15 +723,8 @@ def test_micro_benchmark_config_reads_shared_local_env_not_developer_config(monk
     assert "WIFI_PASSWORD = 'file-wifi-password'" in content
     assert "WIFI_BSSID = 'AA:BB:CC:DD:EE:FF'" in content
     assert "WIFI_CHANNEL = 6" in content
-    assert "MQTT_BROKER = 'file-broker.local'" in content
-    assert "MQTT_PORT = 2883" in content
-    assert "MQTT_USERNAME = 'file-user'" in content
-    assert "MQTT_PASSWORD = 'file-mqtt-password'" in content
-    assert "MQTT_TOPIC_PREFIX = 'file/espectre'" in content
+    assert "TRAFFIC_GENERATOR_ENABLED = True" in content
     assert "DEBUG_TELEMETRY = True" in content
-    assert "DETECTION_ALGORITHM" not in content
-    assert "MQTT_ENABLED" not in content
-    assert "MQTT_HA_DISCOVERY_ENABLED" not in content
 
 
 def test_micro_debug_telemetry_uses_shared_benchmark_keys():
@@ -808,13 +817,10 @@ def test_cpp_flash_only_runner_reuses_one_build_context(monkeypatch):
     assert result.transport_evidence == {"transport": "flash-only"}
 
 
-
-
 @pytest.mark.parametrize("chip", ["c3", "esp32"])
 def test_run_micro_case_uses_production_cli_workflow(monkeypatch, chip):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
-    monkeypatch.setenv("ESPECTRE_BENCHMARK_MQTT_HOST", "broker.local")
     commands: list[list[str]] = []
 
     def fake_run_command(command, **_kwargs):

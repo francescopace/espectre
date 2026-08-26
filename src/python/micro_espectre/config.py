@@ -14,22 +14,11 @@ WIFI_PASSWORD = "YourPassword"
 # Format: "AA:BB:CC:DD:EE:FF" (or without separators).
 # WIFI_BSSID = "AA:BB:CC:DD:EE:FF"
 
-# MQTT Configuration
-MQTT_ENABLED = False
-MQTT_BROKER = "homeassistant.local"  # Your MQTT broker IP
-MQTT_PORT = 1883
-MQTT_TOPIC_PREFIX = "espectre/v1/devices"
-MQTT_USERNAME = "mqtt"
-MQTT_PASSWORD = "mqtt"
-MQTT_HA_DISCOVERY_ENABLED = True
-MQTT_HA_DISCOVERY_PREFIX = "homeassistant"
-
 # Traffic Generator Configuration
 # Generates WiFi traffic to ensure continuous CSI data
 CSI_TARGET_PPS = 100  # Requested temporal sensing grid and managed traffic target
 TRAFFIC_GENERATOR_ENABLED = True  # False expects an external CSI traffic source
-TRAFFIC_GENERATOR_MODE = "ping"  # Default mode: "ping" or "dns"
-PUBLISH_INTERVAL_MS = 1000    # Time between periodic MQTT/log updates
+PUBLISH_INTERVAL_MS = 1000    # Time between periodic Direct HTTP/log updates
 EVALUATION_INTERVAL_MS = 250  # Time between internal detector evaluations
 DEBUG_TELEMETRY = False       # Periodic benchmark-only heap and timing logs
 MOTION_HITS_MIN = 1
@@ -40,18 +29,13 @@ MOTION_OFF_HITS = 3           # Consecutive evaluated hits required for MOTION -
 # CSI Configuration
 CSI_BUFFER_SIZE = 8  # Circular buffer size (used to store csi packets until processed)
 
-# Fixed subcarriers shared by Lightweight and High Accuracy detectors.
+# Fixed subcarriers used by the Lightweight detector.
 # Subcarriers +/-4, +/-9, +/-14, +/-19, +/-24, +/-28. Spans the full usable range
 # because the motion perturbation stays coherent over ~10 subcarriers (3.1 MHz)
 # while quiet noise is nearly per-tone independent, so span is what buys
 # independent looks. Stops short of |sc| <= 3, where relative jitter rises ~10%.
 # See docs/adr/2026-07-25-select-the-classic-band-from-channel-coherence.md.
 DEFAULT_SUBCARRIERS = (4, 8, 13, 18, 23, 28, 36, 41, 46, 51, 56, 60)
-
-# Detection profile
-# "lightweight" (default): lower CPU and working-memory cost, with startup calibration
-# "high_accuracy": stronger generalization, with trained weights and no threshold calibration
-DETECTION_ALGORITHM = "lightweight"
 
 # Threshold bootstrap configuration (fixed subcarriers, no disk I/O)
 CALIBRATION_NUM_WINDOWS = 10

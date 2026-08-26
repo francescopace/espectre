@@ -123,23 +123,25 @@ def ensure_docker_backend(
     return docker
 
 
-def build_docker_command(
+def build_toolchain_docker_command(
     docker: str,
     *,
     frontend: str,
-    app_path: Path,
+    workdir: Path,
     commands: list[list[str]],
     repo_root: Path,
-    sdkconfig_defaults: str,
+    environment: dict[str, str] | None = None,
     image: str = IDF_DOCKER_IMAGE,
 ) -> list[str]:
-    """Build the Docker CLI command that executes an ESP-IDF command sequence."""
+    """Build a Docker command for toolchain work inside the repository."""
     resolved_root = repo_root.resolve()
-    resolved_app = app_path.resolve()
+    resolved_workdir = workdir.resolve()
     try:
-        app_relative = resolved_app.relative_to(resolved_root)
+        workdir_relative = resolved_workdir.relative_to(resolved_root)
     except ValueError as exc:
-        raise DockerBackendError(f"ESP-IDF app directory is outside the repository: {resolved_app}") from exc
+        raise DockerBackendError(
+            f"ESP-IDF work directory is outside the repository: {resolved_workdir}"
+        ) from exc
 
     container_home_relative = Path(".github") / ".cache" / f"{frontend}-home"
     container_home = resolved_root / container_home_relative
@@ -162,14 +164,18 @@ def build_docker_command(
             f"CCACHE_DIR=/work/{container_home_relative.as_posix()}/ccache",
             "-e",
             "CCACHE_MAXSIZE=2G",
-            "-e",
-            f"SDKCONFIG_DEFAULTS={sdkconfig_defaults}",
+        ]
+    )
+    for key, value in (environment or {}).items():
+        command.extend(["-e", f"{key}={value}"])
+    command.extend(
+        [
             "-v",
             f"{root_managed_components}:/opt/esp/root_managed_components",
             "-v",
             f"{resolved_root}:/work",
             "-w",
-            f"/work/{app_relative.as_posix()}",
+            f"/work/{workdir_relative.as_posix()}",
             image,
             "bash",
             "-lc",
@@ -177,6 +183,28 @@ def build_docker_command(
         ]
     )
     return command
+
+
+def build_docker_command(
+    docker: str,
+    *,
+    frontend: str,
+    app_path: Path,
+    commands: list[list[str]],
+    repo_root: Path,
+    sdkconfig_defaults: str,
+    image: str = IDF_DOCKER_IMAGE,
+) -> list[str]:
+    """Build the Docker command for a standard ESP-IDF frontend."""
+    return build_toolchain_docker_command(
+        docker,
+        frontend=frontend,
+        workdir=app_path,
+        commands=commands,
+        repo_root=repo_root,
+        environment={"SDKCONFIG_DEFAULTS": sdkconfig_defaults},
+        image=image,
+    )
 
 
 def run_idf_container(
@@ -190,18 +218,42 @@ def run_idf_container(
     docker: str | None = None,
 ) -> None:
     """Run ESP-IDF build commands in the pinned Docker image."""
-    docker = docker or ensure_docker_backend(pull_policy)
-    command = build_docker_command(
-        docker,
+    run_toolchain_container(
         frontend=frontend,
-        app_path=app_path,
+        workdir=app_path,
         commands=commands,
         repo_root=repo_root,
-        sdkconfig_defaults=sdkconfig_defaults,
+        pull_policy=pull_policy,
+        docker=docker,
+        environment={"SDKCONFIG_DEFAULTS": sdkconfig_defaults},
+        error_label="Docker ESP-IDF build",
+    )
+
+
+def run_toolchain_container(
+    *,
+    frontend: str,
+    workdir: Path,
+    commands: list[list[str]],
+    repo_root: Path,
+    pull_policy: str,
+    docker: str | None = None,
+    environment: dict[str, str] | None = None,
+    error_label: str = "Docker ESP-IDF toolchain build",
+) -> None:
+    """Run arbitrary repository toolchain commands in the pinned IDF image."""
+    docker = docker or ensure_docker_backend(pull_policy)
+    command = build_toolchain_docker_command(
+        docker,
+        frontend=frontend,
+        workdir=workdir,
+        commands=commands,
+        repo_root=repo_root,
+        environment=environment,
     )
     try:
         subprocess.run(command, check=True)
     except OSError as exc:
         raise DockerBackendError("The Docker CLI could not be started.") from exc
     except subprocess.CalledProcessError as exc:
-        raise DockerBackendError(f"Docker ESP-IDF build failed with exit code {exc.returncode}.") from exc
+        raise DockerBackendError(f"{error_label} failed with exit code {exc.returncode}.") from exc

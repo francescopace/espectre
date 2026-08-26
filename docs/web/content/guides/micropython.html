@@ -23,7 +23,7 @@
     <div><strong>CSI capture</strong><span>MicroPython</span></div>
     <div><strong>Features</strong><span>on-device Python</span></div>
     <div><strong>Detection</strong><span>on-device Python</span></div>
-    <div><strong>MQTT event</strong><span>local network</span></div>
+    <div><strong>Direct SSE</strong><span>local network</span></div>
   </div>
   <p>The Python and C++ implementations follow the same detector design. Shared CSI format, timing, feature, threshold, and protocol contracts stay aligned so Python experiments can be validated before stable behavior is promoted to the production C++ layers.</p>
 
@@ -35,7 +35,7 @@
       <tr><td>Radio</td><td>2.4 GHz Wi-Fi and incoming traffic for CSI capture</td></tr>
       <tr><td>Firmware</td><td>Official MicroPython firmware with ESP32 CSI support</td></tr>
       <tr><td>Host setup</td><td>The ESPectre repository environment and <code>./espectre</code> wrapper</td></tr>
-      <tr><td>Telemetry</td><td>An MQTT broker when remote monitoring or Home Assistant Discovery is needed</td></tr>
+      <tr><td>Monitoring</td><td>A browser or client that can reach Direct HTTP on the local network</td></tr>
     </tbody>
   </table></div>
 
@@ -57,27 +57,21 @@ cp src/python/micro_espectre/config_local.py.example \
 ./espectre micro deploy
 ./espectre micro verify
 ./espectre micro run</code></pre>
-  <div class="note">Keep Wi-Fi and MQTT credentials in <code>config_local.py</code>. Never commit that local file.</div>
+  <div class="note">Keep Wi-Fi credentials in <code>config_local.py</code>. Never commit that local file.</div>
 
-  <h2 id="micropython-profiles">The same two detection profiles</h2>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Profile</th><th>Choose it when</th><th>Startup</th></tr></thead>
-    <tbody>
-      <tr><td>Lightweight</td><td>You want the leaner detector and fast Python-side iteration.</td><td>Adapts its threshold from clean, ready quiet-room coverage.</td></tr>
-      <tr><td>High Accuracy</td><td>You can spend more memory and inference work for better detection quality.</td><td>Uses its trained threshold, then waits for CSI and feature-window readiness.</td></tr>
-    </tbody>
-  </table></div>
-  <p>Both publish through the ESPectre Protocol message model used by the Native frontend. Micro-ESPectre can also enable an optional Home Assistant MQTT Discovery adapter for motion, movement score, controls, and on-demand diagnostics.</p>
+  <h2 id="micropython-profiles">Lightweight sensing</h2>
+  <p>The deployed runtime contains only the Lightweight detector. It adapts its threshold from clean, ready quiet-room coverage during startup. High Accuracy sources and weights remain in the repository for research and parity validation, but <code>micro deploy</code> does not copy them to the device.</p>
+  <p>Micro-ESPectre exposes <code>capabilities</code>, <code>info</code>, <code>status</code>, and <code>config</code> through Direct HTTP and publishes canonical telemetry to one bounded SSE client. It has no MQTT or Home Assistant adapter.</p>
 
   <h2 id="micropython-boundary">Current role and limits</h2>
   <p>Micro-ESPectre is ESPectre's maintained Python and MicroPython experimentation path. It is not yet presented as a stable embeddable SDK: the current distribution deploys the complete reference runtime, and its supported public library boundary has not been frozen.</p>
   <ul class="checklist">
-    <li>Detector selection is made at deployment time rather than switched at runtime.</li>
-    <li>Runtime control changes are session-only unless device code explicitly persists them.</li>
+    <li>The deployed detector is fixed to Lightweight.</li>
+    <li>The Direct surface is read-only; configuration changes require a filesystem deployment.</li>
     <li>Bluetooth provisioning and OTA are not implemented on the MicroPython path.</li>
     <li>Production changes still require aligned C++ behavior and parity validation.</li>
   </ul>
-  <p>For configuration, MQTT topics, Home Assistant entities, implementation detail, and development checks, continue with the maintained <a href="https://github.com/francescopace/espectre/blob/main/src/python/micro_espectre/README.md" target="_blank" rel="noopener">Micro-ESPectre reference</a>.</p>
+  <p>For configuration, Direct endpoints, implementation detail, and development checks, continue with the maintained <a href="https://github.com/francescopace/espectre/blob/main/src/python/micro_espectre/README.md" target="_blank" rel="noopener">Micro-ESPectre reference</a>.</p>
 
   <div class="article-nav">
     <a href="/guides/detectors/" class="doc-link"><div class="doc-link-title">← Previous: Choose your detection profile</div><div class="doc-link-sub">Compare Lightweight and High Accuracy for the available device budget.</div></a>

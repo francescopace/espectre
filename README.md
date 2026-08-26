@@ -50,7 +50,7 @@ Startup details and the measured trade-offs are documented in [SETUP.md](docs/SE
 | **ESPHome** | Home Assistant users who want the most polished production path | [ESPHome frontend](src/cpp/frontend/esphome/README.md) |
 | **Matter** | Controllers with Matter occupancy-sensor support; validation is still limited | [Matter frontend](src/cpp/frontend/matter/README.md) |
 | **Native Direct/MQTT** | Standalone devices, browser-local sensing, Home Assistant MQTT Discovery, and custom apps | [Native frontend](src/cpp/frontend/native/README.md) |
-| **Micro-ESPectre** | MicroPython prototyping and optional Home Assistant MQTT Discovery | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
+| **Micro-ESPectre** | Lightweight MicroPython sensing with read-only Direct HTTP monitoring | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
 | **SDK** | Custom firmware, smart-device makers, and OEM exploration | [EMBEDDING.md](docs/EMBEDDING.md) |
 
 ![ESPectre Monitor](docs/web/assets/images/guides/mqtt-dashboard.png)

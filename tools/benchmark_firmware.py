@@ -114,10 +114,10 @@ REPORT_SNAPSHOT_SCOPE = (
     "for exact case provenance."
 )
 REPORT_DETECTOR_SCOPE = (
-    "Detector coverage: ESPHome, Micro-ESPectre, Native, and Matter support Lightweight and High Accuracy. "
-    "ESPHome and Native support runtime switching; Matter selects the detector at build time, "
-    "and Micro-ESPectre selects it at deploy time. The matrix below samples representative "
-    "cases rather than every supported combination."
+    "Detector coverage: ESPHome, Native, and Matter support Lightweight and High Accuracy. "
+    "ESPHome and Native support runtime switching, Matter selects the detector at build time, "
+    "and Micro-ESPectre deploys Lightweight only. The matrix below samples representative cases "
+    "rather than every supported combination."
 )
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -433,8 +433,6 @@ def require_benchmark_prerequisites(cases: Sequence[BenchmarkCase]) -> None:
     if any(case.frontend != "matter" for case in cases):
         require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID")
         require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD")
-    if any(case.frontend == "micro" for case in cases):
-        require_benchmark_setting("ESPECTRE_BENCHMARK_MQTT_HOST")
 
 
 def append_benchmark_frontend_defaults(frontend: str, override_lines: list[str]) -> None:
@@ -1360,17 +1358,13 @@ def apply_esphome_benchmark_wifi(content: str) -> str:
 
 
 def render_micro_benchmark_config() -> str:
-    """Copy laboratory env keys and force debug telemetry; leave remaining Micro defaults."""
+    """Configure Micro laboratory Wi-Fi, native ping traffic, and debug telemetry."""
     values: list[tuple[str, object]] = [
         ("WIFI_SSID", require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID")),
         ("WIFI_PASSWORD", require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD")),
         ("WIFI_BSSID", benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "")),
         ("WIFI_CHANNEL", benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)),
-        ("MQTT_BROKER", require_benchmark_setting("ESPECTRE_BENCHMARK_MQTT_HOST")),
-        ("MQTT_PORT", benchmark_setting_int("ESPECTRE_BENCHMARK_MQTT_PORT", 1883)),
-        ("MQTT_USERNAME", benchmark_setting("ESPECTRE_BENCHMARK_MQTT_USERNAME", "")),
-        ("MQTT_PASSWORD", benchmark_setting("ESPECTRE_BENCHMARK_MQTT_PASSWORD", "")),
-        ("MQTT_TOPIC_PREFIX", benchmark_setting("ESPECTRE_BENCHMARK_MQTT_TOPIC_PREFIX", "espectre/v1/devices")),
+        ("TRAFFIC_GENERATOR_ENABLED", True),
         ("DEBUG_TELEMETRY", True),
     ]
     lines = [
@@ -2500,6 +2494,10 @@ def run_micro_case(
     """Flash, deploy, and monitor one production Micro-ESPectre profile."""
     print(f"\n{'=' * 72}\n{case.label}\n{'=' * 72}", flush=True)
     result = BenchmarkResult(case=case)
+    if case.detector != "lightweight":
+        result.status = "FAIL"
+        result.reasons.append("Micro-ESPectre deploys only the lightweight detector")
+        return result
     launcher = str(REPO_ROOT / "espectre")
     try:
         flash_result = shared_flash
@@ -2676,9 +2674,6 @@ def _redact_benchmark_text(text: str) -> str:
         "ESPECTRE_BENCHMARK_WIFI_SSID",
         "ESPECTRE_BENCHMARK_WIFI_PASSWORD",
         "ESPECTRE_BENCHMARK_WIFI_BSSID",
-        "ESPECTRE_BENCHMARK_MQTT_HOST",
-        "ESPECTRE_BENCHMARK_MQTT_USERNAME",
-        "ESPECTRE_BENCHMARK_MQTT_PASSWORD",
     ):
         value = benchmark_setting(name)
         if value and len(value) >= 4:

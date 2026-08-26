@@ -128,7 +128,8 @@ Notes:
 
 - `--port` is optional; the CLI tries to auto-detect a serial device when possible.
 - `micro flash` also supports `--chip` and `--firmware`. Every supported chip builds the optimized project firmware by default; `--firmware` remains available for an explicitly supplied image.
-- `micro build` and the default flash path pin one MicroPython revision for every supported chip. The images use one lean project board profile with ESP-IDF MQTT 3.1.1/TCP and STA-bound ICMP or persistent DNS-over-TCP traffic generation modules, but do not embed the Micro-ESPectre application. The deployed application requires those native modules and does not provide Python transport fallbacks, so flash the matching project firmware before deployment. The shared profile prioritizes the Wi-Fi CSI path through performance optimization, balanced queues, a 1 kHz FreeRTOS tick, disabled power management, and Wi-Fi, PHY, and lwIP IRAM placement. Classic ESP32 alone uses reduced Wi-Fi queues and omits lwIP IRAM placement to preserve heap. RX AMPDU remains disabled for individual HT20 CSI delivery. DNS and mDNS broker-name resolution remain in MicroPython. Building requires an ESP-IDF 5.5 host toolchain; cached source and build trees live under `.firmware/`.
+- `micro build` and the implicit build performed by `micro flash` accept the shared `--backend auto|local|docker` and `--pull ask|missing|never` flags. `auto` follows the same local-first policy as Native and Matter.
+- `micro build` and the default flash path pin one MicroPython revision for every supported chip. The images use one lean project board profile with native ESP-IDF ICMP traffic generation and a bounded Direct HTTP/mDNS service, but do not embed the Micro-ESPectre application. MQTT and DNS-over-TCP traffic generation are not built. The deployed application requires those native modules and does not provide Python transport fallbacks, so flash the matching project firmware before deployment. The shared profile prioritizes the Wi-Fi CSI path through performance optimization, balanced queues, a 1 kHz FreeRTOS tick, disabled power management, and Wi-Fi, PHY, and lwIP IRAM placement. Classic ESP32 alone uses reduced Wi-Fi queues and omits lwIP IRAM placement to preserve heap. RX AMPDU remains disabled for individual HT20 CSI delivery. Building requires an ESP-IDF 5.5 host toolchain; cached source and build trees live under `.firmware/`.
 - Firmware is normally flashed once. Application changes use `micro deploy`, which compiles the complete device manifest with MPY ABI 6.3 and optimization level `-O3`, uploads it to the filesystem, and removes superseded `.py` files afterward.
 - `micro deploy --config <path>` compiles an alternate local override as device `config_local.mpy`; the firmware benchmark uses this to keep laboratory settings isolated from the developer's normal config.
 
@@ -163,7 +164,7 @@ Reset on open:
 
 | Flag | Purpose |
 |------|---------|
-| `--frontend native|esphome|matter` | Limit discovery to one frontend; omit it to browse every supported service |
+| `--frontend native|esphome|matter|micro` | Limit discovery to one frontend; omit it to browse every supported service |
 | `--timeout <seconds>` | Set the maximum one-shot browse duration; the default is 2.5 seconds |
 | `--json` | Emit machine-readable normalized records for scripts and tooling |
 
@@ -192,7 +193,7 @@ The password is never accepted as a command-line value, printed, or included in 
 
 ### `direct`
 
-`direct` sends one correlated Direct v1 request through HTTP POST. Supply `--endpoint` with an HTTP(S) device URL, or use `--frontend` to discover a device. When discovery returns multiple records, the CLI prompts for an explicit selection.
+`direct` sends one correlated ESPectre protocol `1.0` request through HTTP POST. Supply `--endpoint` with an HTTP(S) device URL, or use `--frontend` to discover a device. When discovery returns multiple records, the CLI prompts for an explicit selection.
 
 ```bash
 ./espectre direct status --frontend native
@@ -200,7 +201,7 @@ The password is never accepted as a command-line value, printed, or included in 
 ./espectre direct set_detector --frontend esphome --params '{"detector":"high_accuracy"}'
 ```
 
-The client sends the exact allowed `https://test.espectre.dev` Origin by default, limits the JSON request to 4,096 bytes, accepts a response up to 8,192 bytes, validates its correlated envelope, and closes cleanly. Use `--origin` only for another exact Origin already allowed by the firmware; the CLI does not weaken device Origin policy.
+The client sends the exact allowed `https://test.espectre.dev` Origin by default, limits the JSON request to 4,096 bytes, accepts a response up to 8,192 bytes, validates the canonical correlated result, and closes cleanly. The POST body and result use the same message shapes as MQTT `commands/request` and `commands/result`. Use `--origin` only for another exact Origin already allowed by the firmware; the CLI does not weaken device Origin policy.
 
 ### `collect`
 
@@ -215,7 +216,7 @@ Common flags:
 | Flag | Purpose |
 |------|---------|
 | `--target` | Device IP, hostname, full Direct endpoint, or device ID; omit it to discover a raw-capable device |
-| `--frontend` | Optional `native`, `esphome`, or `matter` discovery filter |
+| `--frontend` | Optional `native`, `esphome`, `matter`, or `micro` discovery filter |
 | `--source-ip` | Optional local IPv4 source for hosts with multiple interfaces |
 | `--duration` | Stop after N seconds |
 | `--label` | Dataset label for saved collections; omit for live inspection without saving |
@@ -310,7 +311,7 @@ espectre/v1/devices/{device_id}/ota_status
 
 After selection the shell consumes the retained `capabilities` schema to populate help and tab completion. Every query, mutation, and action returns through `commands/result`; query payloads are nested in `data`. Command results annotate the typed prompt line with `✓` or `✗ code: reason` when the terminal allows it. Otherwise they appear on the next line. Retained state topics are still dumped as YAML.
 
-This behavior is transport-level and is not specific to the MicroPython frontend; it also applies to other ESPectre devices that expose the same MQTT topic surface.
+This behavior belongs to the MQTT transport and applies to ESPectre devices that advertise the MQTT topic surface.
 
 Common MQTT flags:
 
@@ -350,5 +351,5 @@ Browser tools such as Flash, Configure, Monitor, and Theremin live on [espectre.
 ## Related Documents
 
 - [`SETUP.md`](SETUP.md) for shared setup, frontend selection, and entry points
-- [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md) for the MicroPython runtime workflow
 - frontend READMEs under `src/cpp/frontend/` for frontend-specific build, flash, provisioning, and protocol details
+- [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md) for the MicroPython runtime, project firmware, and filesystem deployment

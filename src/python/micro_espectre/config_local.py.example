@@ -14,12 +14,5 @@ WIFI_PASSWORD = "YourPassword"
 # Optional AP lock (helps on mesh networks)
 # WIFI_BSSID = "AA:BB:CC:DD:EE:FF"
 
-# MQTT Configuration
-MQTT_ENABLED = True
-MQTT_BROKER = "homeassistant.local"  # Your MQTT broker IP or hostname
-MQTT_PORT = 1883
-MQTT_TOPIC_PREFIX = "espectre/v1/devices"
-MQTT_USERNAME = "username"
-MQTT_PASSWORD = "password"
-MQTT_HA_DISCOVERY_ENABLED = True
-MQTT_HA_DISCOVERY_PREFIX = "homeassistant"
+# Optional device label shown by Direct HTTP clients
+# DEVICE_LABEL = "Lab prototype"

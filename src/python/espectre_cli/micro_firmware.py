@@ -10,7 +10,13 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from .common import FIRMWARE_CACHE_DIR, MICROPYTHON_FIRMWARE_BUILD
+from .common import FIRMWARE_CACHE_DIR, MICROPYTHON_FIRMWARE_BUILD, REPO_ROOT
+from .idf import (
+    resolve_idf_build_backend,
+    resolve_idf_build_dir_name,
+    run_in_idf_environment,
+)
+from .idf_container import IDF_VERSION, run_toolchain_container
 
 
 MICROPYTHON_REPOSITORY = "https://github.com/micropython/micropython.git"
@@ -63,65 +69,16 @@ def _checkout_pinned_repository(url: str, commit: str, destination: Path) -> Non
     )
 
 
-def _resolve_idf_build_environment() -> dict[str, str]:
-    """Resolve the ESP-IDF 5.5 host environment used by the CMake build."""
-    env = os.environ.copy()
-    home = Path.home()
-    idf_path = Path(env["IDF_PATH"]).expanduser() if env.get("IDF_PATH") else None
-    if idf_path is None or not idf_path.is_dir():
-        candidates = (
-            home / ".platformio" / "packages" / "framework-espidf",
-            home / "esp" / "esp-idf",
-        )
-        idf_path = next((path for path in candidates if path.is_dir()), None)
-    if idf_path is None:
-        raise RuntimeError(
-            "ESP-IDF was not found; activate an ESP-IDF 5.5 shell or install the repository toolchain"
-        )
-
-    python_env = (
-        Path(env["IDF_PYTHON_ENV_PATH"]).expanduser()
-        if env.get("IDF_PYTHON_ENV_PATH")
-        else None
-    )
-    if python_env is None or not python_env.is_dir():
-        python_envs = list(
-            (home / ".espressif" / "python_env").glob("idf5.5_py*_env")
-        )
-
-        def python_version(path: Path) -> tuple[int, int]:
-            match = re.search(r"_py(\d+)\.(\d+)_env$", path.name)
-            return (int(match.group(1)), int(match.group(2))) if match else (0, 0)
-
-        python_env = max(python_envs, key=python_version) if python_envs else None
-    if python_env is None:
-        raise RuntimeError(
-            "ESP-IDF 5.5 Python environment was not found; run the ESP-IDF installer first"
-        )
-
-    tool_bins = sorted(
-        (
-            path
-            for path in (home / ".espressif" / "tools").glob("**/bin")
-            if path.is_dir()
-        ),
-        reverse=True,
-    )
-    path_entries = [str(python_env / ("Scripts" if os.name == "nt" else "bin"))]
-    path_entries.extend(str(path) for path in tool_bins)
-    path_entries.append(env.get("PATH", ""))
-    env["IDF_PATH"] = str(idf_path)
-    env["IDF_PYTHON_ENV_PATH"] = str(python_env)
-    env["PATH"] = os.pathsep.join(path_entries)
-    return env
-
-
-def _align_idf_lockfile(micropython_dir: Path, chip: str, idf_path: Path) -> None:
-    """Align the cached MicroPython component lock with the ESP-IDF 5.5 patch release."""
+def _read_idf_version(idf_path: Path) -> str:
+    """Read and normalize the ESP-IDF release used by a local backend."""
     version_file = idf_path / "version.txt"
     if not version_file.is_file():
         raise RuntimeError(f"ESP-IDF version file is missing: {version_file}")
-    idf_version = version_file.read_text(encoding="utf-8").strip()
+    return version_file.read_text(encoding="utf-8").strip().removeprefix("v")
+
+
+def _align_idf_lockfile(micropython_dir: Path, chip: str, idf_version: str) -> None:
+    """Align the cached MicroPython component lock with the ESP-IDF 5.5 patch release."""
     if re.fullmatch(r"5\.5\.\d+", idf_version) is None:
         raise RuntimeError(f"ESP-IDF 5.5 is required; found {idf_version or 'unknown'}")
 
@@ -235,6 +192,8 @@ def build_project_firmware(
     chip: str = "esp32",
     clean: bool = False,
     cache_dir: Path = FIRMWARE_CACHE_DIR,
+    backend: str = "auto",
+    pull_policy: str = "ask",
 ) -> Path:
     """Build a lean project firmware used with filesystem bytecode."""
     board = PROJECT_FIRMWARE_BOARDS.get(chip)
@@ -242,11 +201,19 @@ def build_project_firmware(
     if board is None or firmware_name is None:
         raise ValueError(f"Unsupported project firmware chip: {chip}")
 
+    resolved_backend = resolve_idf_build_backend(backend, pull_policy)
+
     cache_dir.mkdir(parents=True, exist_ok=True)
     workspace = cache_dir / "micro-esp32"
     micropython_dir = workspace / "micropython"
     micropython_lib_dir = workspace / "micropython-lib"
-    build_dir = workspace / ("build" if chip == "esp32" else f"build-{chip}")
+    build_dir_name = resolve_idf_build_dir_name(
+        workspace,
+        chip,
+        container=resolved_backend.mode == "docker",
+    )
+    assert build_dir_name is not None
+    build_dir = workspace / build_dir_name
     support_root = workspace / "firmware-support"
     manifest_path = workspace / "manifest.py"
 
@@ -275,56 +242,74 @@ def build_project_firmware(
         for generated_config in ("sdkconfig", "sdkconfig.old"):
             (build_dir / generated_config).unlink(missing_ok=True)
 
-    env = _resolve_idf_build_environment()
-    _align_idf_lockfile(micropython_dir, chip, Path(env["IDF_PATH"]))
+    if resolved_backend.mode == "local":
+        idf_environment = resolved_backend.idf_environment
+        assert idf_environment is not None
+        idf_path = idf_environment.install_dir
+        if idf_path is None and idf_environment.idf_path_entry:
+            idf_path = Path(idf_environment.idf_path_entry).resolve().parents[1]
+        if idf_path is None:
+            raise RuntimeError("The resolved local ESP-IDF path is unavailable")
+        idf_version = _read_idf_version(idf_path)
+    else:
+        idf_version = IDF_VERSION
+    _align_idf_lockfile(micropython_dir, chip, idf_version)
     jobs = str(max(1, min(8, os.cpu_count() or 1)))
-    subprocess.run(
-        ["make", "-C", str(micropython_dir / "mpy-cross"), f"-j{jobs}"],
-        check=True,
-        env=os.environ.copy(),
-    )
-    subprocess.run(
+    if resolved_backend.mode == "docker":
+        build_root = Path("/work") / workspace.resolve().relative_to(REPO_ROOT.resolve())
+    else:
+        build_root = workspace.resolve()
+    commands = [
+        ["make", "-C", "micropython/mpy-cross", f"-j{jobs}"],
         [
             "cmake",
             "-S",
-            str(micropython_dir / "ports" / "esp32"),
+            "micropython/ports/esp32",
             "-B",
-            str(build_dir),
+            build_dir.name,
             "-G",
             "Ninja",
             f"-DMICROPY_BOARD={board}",
-            "-DMICROPY_BOARD_DIR=" + str(support_root / "boards" / board),
-            f"-DMICROPY_FROZEN_MANIFEST={manifest_path}",
-            f"-DMICROPY_LIB_DIR={micropython_lib_dir}",
-            f"-DUSER_C_MODULES={support_root / 'native_components' / 'micropython.cmake'}",
+            f"-DMICROPY_BOARD_DIR={build_root / 'firmware-support' / 'boards' / board}",
+            f"-DMICROPY_FROZEN_MANIFEST={build_root / 'manifest.py'}",
+            f"-DMICROPY_LIB_DIR={build_root / 'micropython-lib'}",
+            f"-DUSER_C_MODULES={build_root / 'firmware-support' / 'native_components' / 'micropython.cmake'}",
             "-DMICROPY_PY_BTREE=0",
         ],
-        check=True,
-        env=env,
-    )
-    subprocess.run(
-        ["cmake", "--build", str(build_dir), f"-j{jobs}"],
-        check=True,
-        env=env,
-    )
-
-    python_executable = Path(env["IDF_PYTHON_ENV_PATH"]) / (
-        "Scripts/python.exe" if os.name == "nt" else "bin/python"
-    )
-    subprocess.run(
         [
-            str(python_executable),
-            str(micropython_dir / "ports" / "esp32" / "makeimg.py"),
-            str(build_dir / "sdkconfig"),
-            str(build_dir / "bootloader" / "bootloader.bin"),
-            str(build_dir / "partition_table" / "partition-table.bin"),
-            str(build_dir / "micropython.bin"),
-            str(build_dir / "firmware.bin"),
-            str(build_dir / "firmware.uf2"),
+            "cmake",
+            "--build",
+            build_dir.name,
+            f"-j{jobs}",
         ],
-        check=True,
-        env=env,
-    )
+        [
+            "python",
+            "micropython/ports/esp32/makeimg.py",
+            f"{build_dir.name}/sdkconfig",
+            f"{build_dir.name}/bootloader/bootloader.bin",
+            f"{build_dir.name}/partition_table/partition-table.bin",
+            f"{build_dir.name}/micropython.bin",
+            f"{build_dir.name}/firmware.bin",
+            f"{build_dir.name}/firmware.uf2",
+        ],
+    ]
+    if resolved_backend.mode == "docker":
+        run_toolchain_container(
+            frontend="micro",
+            workdir=workspace,
+            commands=commands,
+            repo_root=REPO_ROOT,
+            pull_policy=pull_policy,
+            docker=resolved_backend.docker,
+        )
+    else:
+        assert resolved_backend.idf_environment is not None
+        for command in commands:
+            run_in_idf_environment(
+                command,
+                resolved_backend.idf_environment,
+                cwd=workspace,
+            )
 
     firmware_path = cache_dir / firmware_name
     shutil.copy2(build_dir / "firmware.bin", firmware_path)

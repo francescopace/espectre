@@ -10,12 +10,11 @@ from espectre_native_traffic import TrafficGenerator as _NativeTrafficGenerator
 
 TRAFFIC_RATE_MIN = 0          # Minimum rate (0=disabled)
 TRAFFIC_RATE_MAX = 1000       # Maximum rate (packets per second)
-MODE_DNS = "dns"
 MODE_PING = "ping"
 
 
 class TrafficGenerator:
-    """Drive the firmware-native DNS-over-TCP or ICMP sensing traffic generator."""
+    """Drive the firmware-native ICMP sensing traffic generator."""
 
     def __init__(self, mode=MODE_PING):
         self.running = False
@@ -38,7 +37,7 @@ class TrafficGenerator:
     def _normalize_mode(mode):
         """Validate and normalize the traffic-generator mode."""
         mode = (mode or MODE_PING).lower()
-        if mode not in (MODE_DNS, MODE_PING):
+        if mode != MODE_PING:
             raise ValueError(f"Invalid traffic generator mode: {mode}")
         return mode
 
@@ -102,7 +101,7 @@ class TrafficGenerator:
         self.paused = False
         try:
             self.running = bool(
-                self._native_traffic.start(self.gateway_ip, rate_pps, self.mode)
+                self._native_traffic.start(self.gateway_ip, rate_pps)
             )
         except Exception as exc:
             print(f"Failed to start native traffic generator: {exc}")

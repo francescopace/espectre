@@ -192,7 +192,7 @@ def test_flash_firmware_retries_after_failed_write_and_succeeds(tmp_path: Path, 
     monkeypatch.setattr(
         micro,
         "build_project_firmware_image",
-        lambda *, chip, clean: firmware,
+        lambda *, chip, clean, backend, pull_policy: firmware,
     )
     monkeypatch.setattr(micro.time, "sleep", lambda _seconds: None)
     monkeypatch.setitem(sys.modules, "esptool", FakeEsptool())
@@ -238,7 +238,7 @@ def test_flash_firmware_uses_project_build_for_supported_chips(
     monkeypatch.setattr(
         micro,
         "build_project_firmware_image",
-        lambda *, chip, clean: firmware,
+        lambda *, chip, clean, backend, pull_policy: firmware,
     )
 
     micro.flash_firmware(_make_args(chip=chip))
@@ -270,7 +270,7 @@ def test_flash_firmware_exits_after_exhausting_retries(tmp_path: Path, monkeypat
     monkeypatch.setattr(
         micro,
         "build_project_firmware_image",
-        lambda *, chip, clean: firmware,
+        lambda *, chip, clean, backend, pull_policy: firmware,
     )
     monkeypatch.setattr(micro.time, "sleep", lambda _seconds: None)
 
@@ -312,18 +312,18 @@ def test_deploy_code_uploads_files_to_device(monkeypatch, tmp_path: Path) -> Non
     mkdir_calls = [cmd for cmd in calls if "mkdir" in cmd]
     cp_calls = [cmd for cmd in calls if "cp" in cmd]
     rm_calls = [cmd for cmd in calls if "rm" in cmd]
-    assert len(mkdir_calls) == 2
+    assert len(mkdir_calls) == 1
     assert len(cp_calls) == len(micro.MICRO_DEVICE_RELATIVE_FILES)
     assert len(rm_calls) == len(micro.MICRO_DEVICE_RELATIVE_FILES) + 2
     assert any(cmd[-1] == ":src/main.mpy" for cmd in cp_calls)
-    assert any(cmd[-1].startswith(":src/mqtt/") for cmd in cp_calls)
+    assert not any(cmd[-1].startswith(":src/mqtt/") for cmd in cp_calls)
     assert any(cmd[-2].endswith("console_output.mpy") for cmd in cp_calls)
     assert any(cmd[-2].endswith("branding.mpy") for cmd in cp_calls)
     assert any(cmd[-2].endswith("lightweight_detector.mpy") for cmd in cp_calls)
     assert any(cmd[-2].endswith("runtime_diagnostics.mpy") for cmd in cp_calls)
     assert any(cmd[-2].endswith("protocol.mpy") for cmd in cp_calls)
     assert all(cmd[-2].endswith(".mpy") for cmd in cp_calls)
-    assert any(cmd[-1] == ":src/mqtt/protocol.py" for cmd in rm_calls)
+    assert any(cmd[-1] == ":src/protocol.py" for cmd in rm_calls)
     assert any(cmd[-1] == ":config_local.mpy" for cmd in rm_calls)
 
     compile_calls = [
@@ -364,11 +364,7 @@ def test_project_firmware_aligns_idf_55_lockfile(tmp_path: Path) -> None:
         "dependencies:\n  idf:\n    source:\n      type: idf\n    version: 5.5.2\n",
         encoding="utf-8",
     )
-    idf_path = tmp_path / "esp-idf"
-    idf_path.mkdir()
-    (idf_path / "version.txt").write_text("5.5.5\n", encoding="utf-8")
-
-    micro_firmware._align_idf_lockfile(micropython_dir, "s3", idf_path)
+    micro_firmware._align_idf_lockfile(micropython_dir, "s3", "5.5.5")
 
     assert "    version: 5.5.5\n" in lockfile.read_text(encoding="utf-8")
 
@@ -426,12 +422,33 @@ def test_project_boards_use_one_shared_profile_and_only_esp32_override() -> None
     )
     assert overrides == ["ESP32_MICRO_ESPECTRE/sdkconfig.override"]
 
+    common_header = (boards_dir / "mpconfigboard_common.h").read_text(encoding="utf-8")
+    assert "MICROPY_HW_ENABLE_MDNS_RESPONDER (1)" in common_header
+
+    native_cmake = (
+        micro.PYTHON_SRC_DIR / "firmware" / "native_components" / "micropython.cmake"
+    ).read_text(encoding="utf-8")
+    assert "native_direct.c" in native_cmake
+    assert "native_traffic.c" in native_cmake
+    assert "native_mqtt.c" not in native_cmake
+    assert "idf::mqtt" not in native_cmake
+
+
+def test_device_manifest_is_lightweight_direct_only() -> None:
+    deployed = set(micro.MICRO_DEVICE_RELATIVE_FILES)
+
+    assert {"lightweight_detector.py", "direct_api.py", "protocol.py"} <= deployed
+    assert "high_accuracy_detector.py" not in deployed
+    assert "ml_feature_trackers.py" not in deployed
+    assert "ml_weights.py" not in deployed
+    assert not any(path.startswith("mqtt/") for path in deployed)
+
 
 def test_deploy_code_uses_selected_config_as_device_override(monkeypatch, tmp_path: Path) -> None:
     src_dir = tmp_path / "src"
     _create_micro_src_tree(src_dir)
     benchmark_config = tmp_path / "benchmark_config.py"
-    benchmark_config.write_text("DETECTION_ALGORITHM = 'high_accuracy'\n", encoding="utf-8")
+    benchmark_config.write_text("CSI_TARGET_PPS = 80\n", encoding="utf-8")
     calls: list[list[str]] = []
 
     def fake_run(cmd, **kwargs):
@@ -617,17 +634,11 @@ def test_verify_installation_passes_when_all_checks_succeed(monkeypatch) -> None
         Path(rel_path).with_suffix(".mpy").name
         for rel_path in micro.MICRO_DEVICE_RELATIVE_FILES
         if "/" not in rel_path
-    ] + ["mqtt"]
-    mqtt_listing = [
-        Path(rel_path).with_suffix(".mpy").name
-        for rel_path in micro.MICRO_DEVICE_RELATIVE_FILES
-        if rel_path.startswith("mqtt/")
     ]
     results = [
         SimpleNamespace(stdout="csi_start,csi_stop\n", stderr=""),
         SimpleNamespace(stdout="(1, 24, 0)\n", stderr=""),
         SimpleNamespace(stdout=f"{src_listing!r}\n", stderr=""),
-        SimpleNamespace(stdout=f"{mqtt_listing!r}\n", stderr=""),
         SimpleNamespace(stdout="True\n", stderr=""),
     ]
 
@@ -645,7 +656,6 @@ def test_verify_installation_raises_when_required_checks_fail(monkeypatch) -> No
         SimpleNamespace(stdout="NONE\n", stderr=""),
         subprocess.CalledProcessError(1, ["mpremote"], stderr="version error"),
         subprocess.CalledProcessError(1, ["mpremote"], stderr="missing src"),
-        subprocess.CalledProcessError(1, ["mpremote"], stderr="missing mqtt"),
         subprocess.CalledProcessError(1, ["mpremote"], stderr="config missing"),
     ]
 

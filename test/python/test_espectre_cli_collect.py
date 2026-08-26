@@ -88,7 +88,7 @@ def test_collect_parser_rejects_removed_udp_and_streamer_options(removed_option:
 
 
 def test_discovery_frontends_exclude_streamer() -> None:
-    assert device_discovery.SUPPORTED_DISCOVERY_FRONTENDS == ("native", "esphome", "matter")
+    assert device_discovery.SUPPORTED_DISCOVERY_FRONTENDS == ("native", "esphome", "matter", "micro")
 
 
 def test_collect_explicit_esphome_target_uses_shared_direct_port(monkeypatch) -> None:

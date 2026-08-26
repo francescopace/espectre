@@ -4,7 +4,7 @@
 Micro-ESPectre - Detector Interface
 
 Base class for motion detection algorithms.
-Provides a polymorphic interface for the Lightweight and High Accuracy profiles.
+Provides the polymorphic interface for the Lightweight profile.
 
 Note: MicroPython doesn't have abc module, so we use a simple base class.
 
@@ -22,9 +22,7 @@ def normalize_detector_algorithm(name):
     """
     Normalize detector identifiers to the shared config/protocol names.
 
-    Examples:
-    - "lightweight" -> "lightweight"
-    - "HIGH-ACCURACY" -> "high_accuracy"
+    The Micro runtime intentionally supports only the lightweight detector.
     """
     normalized = (
         str(name or "lightweight")
@@ -36,8 +34,6 @@ def normalize_detector_algorithm(name):
     canonical = {
         "lightweight": "lightweight",
         "lightweight_detection": "lightweight",
-        "high_accuracy": "high_accuracy",
-        "high_accuracy_detection": "high_accuracy",
     }
     return canonical.get(normalized, normalized)
 
@@ -58,12 +54,6 @@ DETECTOR_REGISTRY = {
         "LightweightDetector",
         True,
         "Lightweight Detection",
-    ),
-    "high_accuracy": (
-        "high_accuracy_detector",
-        "HighAccuracyDetector",
-        False,
-        "High-Accuracy Detection",
     ),
 }
 
@@ -110,8 +100,6 @@ class IDetector:
     
     Implementations:
     - LightweightDetector: the implementation behind Lightweight Detection
-    - HighAccuracyDetector: the neural implementation behind High-Accuracy Detection
-    
     Subclasses must implement all methods.
     """
     
@@ -195,7 +183,6 @@ class IDetector:
         
         Returns:
             str: Human-friendly detector label, for example "Lightweight Detection"
-                or "High-Accuracy Detection"
         """
         raise NotImplementedError
     

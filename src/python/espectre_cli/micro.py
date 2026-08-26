@@ -50,17 +50,11 @@ MICRO_DEVICE_RELATIVE_FILES = [
     "temporal_csi_sampler.py",
     "wifi_bootstrap.py",
     "lightweight_detector.py",
-    "high_accuracy_detector.py",
-    "ml_feature_trackers.py",
-    "ml_weights.py",
     "traffic_generator.py",
     "console_output.py",
+    "protocol.py",
+    "direct_api.py",
     "main.py",
-    "mqtt/__init__.py",
-    "mqtt/handler.py",
-    "mqtt/commands.py",
-    "mqtt/home_assistant.py",
-    "mqtt/protocol.py",
 ]
 MPY_CROSS_COMMAND = "mpy-cross-v6.3"
 MPY_OPTIMIZATION_LEVEL = "-O3"
@@ -82,8 +76,7 @@ def deployment_files(config_local_path: Path) -> List[Tuple[str, str]]:
             files.append((str(config_local_path), ":src/config_local.py"))
             continue
         src_path = PYTHON_SRC_DIR / rel_path
-        destination = ":src/mqtt/" if rel_path.startswith("mqtt/") else ":src/"
-        files.append((str(src_path), destination))
+        files.append((str(src_path), ":src/"))
     return files
 
 
@@ -130,7 +123,13 @@ def compile_deployment_files(
     return compiled
 
 
-def build_project_firmware_image(*, chip: str = "esp32", clean: bool = False) -> Path:
+def build_project_firmware_image(
+    *,
+    chip: str = "esp32",
+    clean: bool = False,
+    backend: str = "auto",
+    pull_policy: str = "ask",
+) -> Path:
     """Build the pinned lean firmware for a supported Micro-ESPectre chip."""
     from .micro_firmware import build_project_firmware
 
@@ -138,6 +137,8 @@ def build_project_firmware_image(*, chip: str = "esp32", clean: bool = False) ->
         PYTHON_SRC_DIR,
         chip=chip,
         clean=clean,
+        backend=backend,
+        pull_policy=pull_policy,
     )
 
 
@@ -151,7 +152,9 @@ def build_project_firmware_command(args) -> None:
     try:
         firmware_path = build_project_firmware_image(
             chip=chip,
-            clean=bool(getattr(args, "clean", False))
+            clean=bool(getattr(args, "clean", False)),
+            backend=getattr(args, "backend", "auto"),
+            pull_policy=getattr(args, "pull", "ask"),
         )
     except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
         print(f"{Fore.RED}❌ Project firmware build failed: {exc}{Style.RESET_ALL}")
@@ -260,7 +263,9 @@ def flash_firmware(args) -> None:
         try:
             firmware_path = build_project_firmware_image(
                 chip=chip,
-                clean=bool(getattr(args, "clean", False))
+                clean=bool(getattr(args, "clean", False)),
+                backend=getattr(args, "backend", "auto"),
+                pull_policy=getattr(args, "pull", "ask"),
             )
         except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
             print(f"{Fore.RED}❌ Project firmware build failed: {exc}{Style.RESET_ALL}")
@@ -401,7 +406,6 @@ def deploy_code(args) -> None:
 
             print(f"{Fore.YELLOW}📁 Creating directories...{Style.RESET_ALL}")
             subprocess.run(["mpremote", "connect", port, "mkdir", ":src"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-            subprocess.run(["mpremote", "connect", port, "mkdir", ":src/mqtt"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
             print(f"{Fore.YELLOW}📤 Uploading optimized bytecode...{Style.RESET_ALL}")
             for src, dst in compiled_files:
@@ -536,35 +540,19 @@ def verify_installation(args) -> None:
             text=True,
             check=True,
         )
-        mqtt_result = subprocess.run(
-            ["mpremote", "connect", port, "exec", 'import os; print(os.listdir("/src/mqtt"))'],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
         expected_src = {
             Path(rel).with_suffix(".mpy").name
             for rel in MICRO_DEVICE_RELATIVE_FILES
             if "/" not in rel
         }
-        expected_mqtt = {
-            Path(rel).with_suffix(".mpy").name
-            for rel in MICRO_DEVICE_RELATIVE_FILES
-            if rel.startswith("mqtt/")
-        }
         src_present = set(ast.literal_eval(src_result.stdout.strip()))
-        mqtt_present = set(ast.literal_eval(mqtt_result.stdout.strip()))
         missing_src = sorted(expected_src - src_present)
-        missing_mqtt = sorted(expected_mqtt - mqtt_present)
-        if missing_src or missing_mqtt:
+        if missing_src:
             print(f"{Fore.RED}❌ Missing deployed bytecode detected{Style.RESET_ALL}")
-            if missing_src:
-                print(f"{Fore.YELLOW}   Missing in /src: {', '.join(missing_src)}{Style.RESET_ALL}")
-            if missing_mqtt:
-                print(f"{Fore.YELLOW}   Missing in /src/mqtt: {', '.join(missing_mqtt)}{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}   Missing in /src: {', '.join(missing_src)}{Style.RESET_ALL}")
             all_ok = False
         else:
-            print(f"{Fore.GREEN}✅ Required bytecode found in /src and /src/mqtt{Style.RESET_ALL}")
+            print(f"{Fore.GREEN}✅ Required bytecode found in /src{Style.RESET_ALL}")
     except subprocess.CalledProcessError:
         print(f"{Fore.RED}❌ Application modules not found{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}   Hint: Deploy the code first:{Style.RESET_ALL}")

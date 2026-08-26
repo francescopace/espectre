@@ -9,28 +9,22 @@ Choose a frontend first. If it has a published image, [Web Flash](#web-flash-no-
 | `ESPHome` | [Web Flash](#web-flash-no-coding-required), Home Assistant entities, and Direct HTTP runtime tuning | [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md) |
 | `Native` | [Web Flash](#web-flash-no-coding-required), Improv Serial Wi-Fi provisioning, Direct HTTP, and optional MQTT or Home Assistant MQTT Discovery | [`README.md` (native)](../src/cpp/frontend/native/README.md) |
 | `Matter` | [Web Flash](#web-flash-no-coding-required), Matter commissioning, and Direct HTTP detector tuning | [`README.md (matter)`](../src/cpp/frontend/matter/README.md) |
-| `Micro-ESPectre` | Frontend README for the maintained MicroPython R&D runtime, project firmware, deployment, and MQTT workflow | [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md) |
+| `Micro-ESPectre` | Frontend README for the maintained MicroPython R&D runtime, project firmware, filesystem deployment, and read-only Direct monitoring | [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md) |
 
 ## Web Flash (no coding required)
 
-Go to [espectre.dev/flash](https://espectre.dev/flash/) and select:
+Browser flashing uses Web Serial and works in desktop Chrome or Edge. Firefox, Safari, and mobile browsers do not support it; on those, [build and flash with the repository CLI](#local-build-prerequisites) instead.
 
-- the firmware frontend
-- the firmware channel
-- your target chip
+Published Native and ESPHome images speak standard Improv Serial, so any website that supports that protocol can provision Wi-Fi after a flash. Use [espectre.dev/tools/flash](https://espectre.dev/tools/flash/) as the recommended installer: it has the published catalog, detects the chip over USB, and chooses the matching image.
 
 Use `Latest Release` for official firmware, `Release Preview` for the latest build from `main`, or `Development` for the latest build from `develop`. Published ESPHome firmware starts with Lightweight Detection and supports persisted runtime switching to High Accuracy. Published Matter firmware starts with Lightweight; High Accuracy is available in local Matter builds and is selected at build time.
 
 To flash:
 
 1. Connect the board over USB
-2. Click **Connect**
+2. Click **Connect via USB**
 3. Select the serial port
 4. Confirm the browser prompt
-
-If your browser does not support Web Serial, the same page exposes direct download links for manual flashing.
-
-Website maintainers can find local preview and artifact-staging instructions in [`docs/web/README.md`](web/README.md).
 
 ## Shared Prerequisites
 
@@ -53,7 +47,7 @@ Use the frontend README for the workflow and surface details after you choose th
 
 ### Software
 
-- Chromium-based browser with Web Serial support for browser flashing
+- Desktop Chrome or Edge for browser flashing; see [Web Flash](#web-flash-no-coding-required)
 - For local workflows, use the repository [CLI.md](CLI.md) plus the relevant frontend README
 
 ### Local Build Prerequisites
@@ -68,17 +62,17 @@ python -m pip install -r requirements.txt
 
 On Windows PowerShell, create the environment with `py -3 -m venv .venv`, activate `.\.venv\Scripts\Activate.ps1`, and run the same install command.
 
-Native and Matter builds prefer an active `IDF_PATH` environment, a standard local ESP-IDF installation, or the pinned ESP-IDF toolchain already managed by ESPHome, and automatically fall back to the pinned ESP-IDF Docker image when none is available. Repository ESPHome commands explicitly select its native `esp-idf` toolchain and never use PlatformIO.
+Native, Matter, and Micro-ESPectre firmware builds use one shared backend policy: prefer an active `IDF_PATH` environment, a standard local ESP-IDF installation, or the pinned ESP-IDF toolchain already managed by ESPHome, and automatically fall back to the pinned ESP-IDF Docker image when none is available. Repository ESPHome commands explicitly select its native `esp-idf` toolchain and never use PlatformIO.
 
 ```bash
 ./espectre native build --chip c3
 ```
 
-On Windows, use `.\espectre.cmd native build --chip c3`. The same pattern applies to Matter.
+On Windows, use `.\espectre.cmd native build --chip c3`. The same pattern applies to Matter and Micro-ESPectre.
 
 When the local environment is absent and Docker is running, a cached image is used without prompting. If the image is missing, an interactive build asks before downloading it; non-interactive builds must opt in with `--pull missing`. If Docker is installed but stopped, the CLI asks you to start it and retry. Use `--backend local` or `--backend docker` to require one path, and use `./espectre doctor` to inspect only the local ESP-IDF environment.
 
-Docker currently covers builds only. Flashing through the repository CLI still uses local serial tooling and ESP-IDF. If neither build backend is available, build an ESPHome configuration once to provision its native toolchain, install Docker, or install ESP-IDF `5.5.5` with the official [ESP-IDF Get Started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html) flow.
+Docker covers firmware compilation only; flashing still uses host serial tooling. If neither build backend is available, build an ESPHome configuration once to provision its native toolchain, install Docker, or install ESP-IDF `5.5.5` with the official [ESP-IDF Get Started](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/get-started/index.html) flow.
 
 #### Optional Compiler Cache
 
@@ -167,7 +161,7 @@ The next step depends on the frontend you chose:
 | `ESPHome` | [`README.md`](../src/cpp/frontend/esphome/README.md) | Wi-Fi provisioning, YAML parameters, Home Assistant entities, dashboards, ESPHome-specific troubleshooting |
 | `Native` | [`README.md`](../src/cpp/frontend/native/README.md) | Build/flash workflow, Wi-Fi and MQTT setup, Home Assistant MQTT Discovery, native control surface, and HTTPS OTA flow |
 | `Matter` | [`README.md`](../src/cpp/frontend/matter/README.md) | Commissioning flow, Matter occupancy surface, and local ESP-IDF workflow |
-| `Micro-ESPectre` | [`README.md`](../src/python/micro_espectre/README.md) | Project firmware, filesystem deployment, local configuration, and MQTT operation |
+| `Micro-ESPectre` | [`README.md`](../src/python/micro_espectre/README.md) | Project firmware, filesystem deployment, local configuration, and read-only Direct monitoring |
 
 ## Reference: Shared Runtime Concepts
 
@@ -180,7 +174,7 @@ These options belong to the shared sensing runtime and apply to all sensing fron
 - `ESPHome`: YAML under `espectre:`, except the ESP32-C5 band policy, which uses ESPHome's native `wifi.band_mode`
 - `Native`: shared ESP-IDF sensing `sdkconfig` menu, with frontend-local overrides in `app/sdkconfig.defaults`
 - `Matter`: shared ESP-IDF sensing `sdkconfig` menu, with frontend-local overrides in `app/sdkconfig.defaults`
-- `Micro-ESPectre`: constants in `src/python/micro_espectre/config.py`, overridden locally through `config_local.py`; supported MQTT writes are session-only
+- `Micro-ESPectre`: constants in `src/python/micro_espectre/config.py`, overridden locally through `config_local.py`; runtime changes require an updated filesystem deployment
 
 Frontend coverage:
 
@@ -189,7 +183,7 @@ Frontend coverage:
 | `ESPHome` | yes |
 | `Native` | yes |
 | `Matter` | yes |
-| `Micro-ESPectre` | yes, through its MicroPython configuration surface; runtime MQTT writes are session-only |
+| `Micro-ESPectre` | yes, through its MicroPython configuration surface and filesystem deployment |
 
 | Option | Type / values | Default | Range / notes |
 |--------|---------------|---------|---------------|
@@ -228,7 +222,7 @@ ESPectre keeps two production detection profiles because no single choice optimi
 
 At boot, Lightweight adapts its threshold to the room from about 10 seconds of clean, ready CSI coverage after temporal warmup. Missing or burst-concentrated slots extend wall-clock calibration instead of counting as evidence. After that, a long quiet stretch can still lower the live threshold if the opening was noisier than the rest of the session; Home Assistant, ESPHome, and the website Monitor follow that value. High Accuracy uses its trained threshold and skips threshold calibration; it becomes active after CSI capture is ready and the feature window has filled.
 
-ESPHome, Native, Matter, and Micro-ESPectre support both `lightweight` and `high_accuracy`. ESPHome and Native can switch profiles at runtime and persist the selection; the switch resets the threshold to the selected profile's default, and `high_accuracy -> lightweight` starts calibration automatically. Matter selects the profile at build time, exposes no runtime detector control, and uses `lightweight` in published firmware while the frontend remains preview. Micro-ESPectre selects the profile in its deployment configuration and does not expose runtime detector switching.
+ESPHome, Native, and Matter support both `lightweight` and `high_accuracy`. ESPHome and Native can switch profiles at runtime and persist the selection; the switch resets the threshold to the selected profile's default, and `high_accuracy -> lightweight` starts calibration automatically. Matter selects the profile at build time, exposes no runtime detector control, and uses `lightweight` in published firmware while the frontend remains preview. Micro-ESPectre deploys only `lightweight`; its High Accuracy sources remain host-side for research and parity validation.
 
 See:
 
@@ -248,16 +242,16 @@ Raw rate near `csi_target_pps` does not prove that the target is usable: an AP m
 |------|--------------|----------------|--------------------|--------------|
 | Native / Matter | `CONFIG_ESPECTRE_CSI_TARGET_PPS` | `csi_traffic_mode`; internal by default | yes | phase-preserving cadence without catch-up bursts; local socket backoff only |
 | ESPHome | `csi_target_pps` | `csi_traffic_mode`; internal by default | yes | phase-preserving cadence without catch-up bursts; local socket backoff only |
-| Micro-ESPectre | `CSI_TARGET_PPS` | factory default from `TRAFFIC_GENERATOR_ENABLED`, with session-only MQTT overrides for `csi_traffic_mode` and `traffic_generator_mode` | yes | phase-preserving cadence without catch-up bursts; local socket backoff only |
+| Micro-ESPectre | `CSI_TARGET_PPS` | `TRAFFIC_GENERATOR_ENABLED`; native ICMP ping when enabled, external traffic when disabled | yes | phase-preserving cadence without catch-up bursts; local socket backoff only |
 | Collector detector, replay, training, and validation | recorded `csi_target_pps`, collector `--pps`, or a documented legacy fallback | recorded raw HTTP stream | yes, through the production Micro-ESPectre sampler | external generator owns rate; HTTP does not pace |
 
 Raw HTTP collection is available on Native, ESPHome, and Matter. It preserves every classified CSI frame except explicitly counted fixed-ring drops; only the collector's derived live detector view applies temporal admission.
 
 External UDP traffic can be unicast to each device IP, or sent to multicast group `239.255.0.1`. ESP-IDF frontends join that group automatically in `external`. Empty `csi_traffic_multicast_group` disables the join. Subnet and limited broadcast (`x.x.x.255`, `255.255.255.255`) do not produce reliable HT20 CSI. ESPHome, Native, and Matter listen on port `5555` and accept only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`); use [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) standalone or through `./espectre collect`.
 
-Micro-ESPectre keeps its persisted factory default as `TRAFFIC_GENERATOR_ENABLED` plus `TRAFFIC_GENERATOR_MODE`, then exposes session-only MQTT and Home Assistant runtime control over `csi_traffic_mode` and `traffic_generator_mode`. `internal` starts the local generator, and `external` stops it. Micro does not open a UDP listener, so it does not join the multicast group.
+Micro-ESPectre selects traffic ownership at deployment through `TRAFFIC_GENERATOR_ENABLED`. Its native component sends ICMP echo requests when enabled; when disabled, another source must generate usable traffic. Micro has no runtime traffic mutation, DNS generator, UDP listener, or multicast join.
 
-Across Native, Matter, ESPHome, and Micro-ESPectre, internal `ping` mode sends ICMP echo requests, while internal `dns` mode sends DNS root queries through a persistent, non-blocking TCP connection to gateway port `53`. DNS mode requires the gateway resolver to accept TCP queries.
+Across Native, Matter, and ESPHome, internal `ping` mode sends ICMP echo requests, while internal `dns` mode sends DNS root queries through a persistent, non-blocking TCP connection to gateway port `53`. DNS mode requires the gateway resolver to accept TCP queries. Micro-ESPectre implements only ICMP ping.
 
 If you are tuning `csi_target_pps`, thresholds, or filters, use [TUNING.md](TUNING.md) for the rationale and the frontend README for the configuration syntax.
 

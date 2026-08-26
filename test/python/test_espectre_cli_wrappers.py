@@ -1099,6 +1099,22 @@ def test_idf_build_parser_accepts_backend_and_pull_policy(monkeypatch) -> None:
     assert args.ota_channel == "release"
 
 
+def test_micro_build_and_flash_accept_shared_backend_policy() -> None:
+    parser = app.build_parser()
+
+    build_args = parser.parse_args(
+        ["micro", "build", "--chip", "c3", "--backend", "docker", "--pull", "missing"]
+    )
+    flash_args = parser.parse_args(
+        ["micro", "flash", "--chip", "c3", "--backend", "local"]
+    )
+
+    assert build_args.backend == "docker"
+    assert build_args.pull == "missing"
+    assert flash_args.backend == "local"
+    assert flash_args.pull == "ask"
+
+
 def test_native_build_parser_accepts_ota_channel() -> None:
     parser = app.build_parser()
 

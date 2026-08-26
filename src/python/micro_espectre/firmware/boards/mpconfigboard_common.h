@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Commercial licensing available under separate agreement; see LICENSING.md.
 
-// Micro-ESPectre uses Wi-Fi only. Keep mDNS queries for `.local` MQTT
-// brokers, but do not advertise an mDNS responder from the sensing node.
+// Micro-ESPectre uses Wi-Fi only. Retain mDNS for its Direct HTTP identity.
 #define MICROPY_PY_BLUETOOTH (0)
 #define MICROPY_PY_ESPNOW (0)
 #define MICROPY_PY_ASYNCIO (0)
 #define MICROPY_HW_ENABLE_MDNS_QUERIES (1)
-#define MICROPY_HW_ENABLE_MDNS_RESPONDER (0)
+#define MICROPY_HW_ENABLE_MDNS_RESPONDER (1)
 
 // Keep only the generic modules used by the filesystem-deployed sensing
 // runtime. These are public MicroPython build options, not port patches.

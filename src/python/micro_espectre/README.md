@@ -1,33 +1,25 @@
 # Micro-ESPectre
 
-Micro-ESPectre runs the detector, MQTT control path, and CSI collection helpers in MicroPython. Contributors use it to prototype device-side sensing changes and compare them with C++ before porting production behavior.
+Micro-ESPectre is the small, research-oriented MicroPython sensing frontend. It keeps the device path easy to modify while using native ESP-IDF components only where timing or transport work benefits from fixed memory and predictable scheduling.
 
-This guide assumes basic Python and MQTT familiarity. CSI means channel state information, the per-packet Wi-Fi channel measurement used by the detectors.
+Changes to shared detector behavior must remain aligned with the C++ implementation. See the main [README](../../../README.md), [SETUP.md](../../../docs/SETUP.md), [ARCHITECTURE.md](../../../docs/ARCHITECTURE.md), and [ESPECTRE_PROTOCOL.md](../../../docs/ESPECTRE_PROTOCOL.md) for the project-wide contracts.
 
-Use it for MicroPython device experiments, MQTT inspection, dataset collection, and C++/Python parity work. Changes to shared detector behavior must remain aligned with the C++ implementation. For end-user firmware paths, start from the main [README](../../../README.md) and [SETUP.md](../../../docs/SETUP.md); [ARCHITECTURE.md](../../../docs/ARCHITECTURE.md) describes the platform split.
+## Device profile
 
-## MicroPython CSI Dependency
+The deployed runtime intentionally contains only:
 
-ESPectre brought direct ESP32 Wi-Fi CSI access to mainline MicroPython through [micropython/micropython#18460](https://github.com/micropython/micropython/pull/18460). The contribution added the ESP32 `network.WLAN` CSI methods now described in the [official MicroPython documentation](https://micropython.org/resources/docs/en/latest/library/network.WLAN.html#csi-methods-esp32-only), and it was merged for the `1.29.0` release cycle.
+- the Lightweight CSI detector and its startup threshold calibration;
+- the ESP-IDF ICMP ping traffic generator;
+- a bounded, read-only Direct HTTP endpoint for monitoring;
+- one SSE telemetry client;
+- mDNS/DNS-SD advertisement and a unique `.local` hostname; and
+- serial logging and the MicroPython REPL.
 
-Micro-ESPectre builds a pinned mainline MicroPython revision with the lean ESPectre board profile on top of that upstream foundation. The project firmware adds the native MQTT and traffic modules required by the filesystem-deployed application; it is not the earlier [micropython-esp32-csi](https://github.com/francescopace/micropython-esp32-csi) fork.
+The device does not deploy the High Accuracy ML detector, ML weights, MQTT, Home Assistant discovery, DNS-over-TCP traffic generation, runtime detector switching, raw CSI streaming, OTA, or configuration mutations. The High Accuracy Python sources remain in the repository for host-side research and C++/Python validation, but `micro deploy` does not copy them to the device.
 
-Because these methods are in mainline MicroPython, Micro-ESPectre no longer depends on the earlier CSI fork. Other MicroPython applications can use the same API independently.
+ESPectre contributed direct ESP32 Wi-Fi CSI access to mainline MicroPython through [micropython/micropython#18460](https://github.com/micropython/micropython/pull/18460). Micro-ESPectre builds a pinned mainline revision with a lean ESPectre board profile rather than using the earlier CSI fork.
 
-## Requirements
-
-Hardware:
-
-- ESP32 board with CSI support (`ESP32`, `ESP32-C3`, `ESP32-C5`, `ESP32-S3`, `ESP32-C6`)
-- 2.4 GHz Wi-Fi network
-
-Software:
-
-- repository Python environment, currently Python `3.14`
-- MicroPython firmware with ESP32 CSI support
-- MQTT broker for telemetry and runtime control
-
-## Quick Start
+## Build and deploy
 
 From the repository root:
 
@@ -36,87 +28,37 @@ python3.14 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
 
-./espectre micro flash --chip esp32 --erase  # Original ESP32
+cp src/python/micro_espectre/config_local.py.example src/python/micro_espectre/config_local.py
+./espectre micro flash --chip c3 --erase
 ./espectre micro deploy
 ./espectre micro run
 ```
 
-On Windows, use `.\espectre.cmd` instead of `./espectre` and COM ports such as `COM5`.
-
-The `micro` namespace owns only MicroPython device operations:
-
-| Command | Purpose |
-|---------|---------|
-| `./espectre micro build --chip <esp32|c3|c5|c6|s3>` | Build the lean project firmware for the selected chip |
-| `./espectre micro flash --chip <esp32|c3|c5|c6|s3> --erase` | Build and flash the optimized project image |
-| `./espectre micro flash --erase` | Auto-detect the chip, then build and flash its project firmware |
-| `./espectre micro deploy` | Compile and upload the complete `.mpy -O3` application manifest |
-| `./espectre micro run` | Start the device application |
-| `./espectre micro verify` | Check firmware and device readiness |
-
-Host-side workflows live at the repository CLI root:
-
-| Command | Purpose |
-|---------|---------|
-| `./espectre collect ...` | Unified host CLI for live detection, live recording, and legacy timed dataset collection |
-| `./espectre mqtt` | Interactive MQTT command and telemetry console |
-| `./espectre monitor ...` | Attach to serial logs with auto-reconnect; add `--reset` for a hard reset on open |
-
-See the repository [CLI.md](../../../docs/CLI.md) for current CLI syntax and host-side workflow behavior, and the shared [SETUP.md](../../../docs/SETUP.md) for setup and frontend selection.
-
-All supported chips use the same lean project firmware profile. It excludes Bluetooth, ESP-NOW, asyncio, unused generic Python modules, and optional peripheral bindings such as DAC, I²S, SD card, PCNT, and Ethernet. The frozen manifest contains only the upstream boot and filesystem helpers.
-
-Each image provides MQTT 3.1.1 over plain TCP and STA-bound ICMP or persistent DNS-over-TCP traffic generation through ESP-IDF modules; DNS and mDNS broker resolution remain in MicroPython. Internal traffic uses the shared fixed-phase pacing policy without catch-up bursts, and DNS traffic reconnects non-blockingly to gateway port `53`. The filesystem application requires these native modules and has no Python transport fallback, so firmware and application revisions must remain aligned. The native MQTT client uses a 3 KiB task stack, 512-byte I/O buffers, ESP-IDF-managed reconnects, and a retained offline Last Will.
-
-The shared profile uses performance compiler optimization, a 1 kHz FreeRTOS tick, disabled power management, balanced Wi-Fi queues, and Wi-Fi, PHY, and lwIP IRAM optimization. RX AMPDU stays disabled so the detector receives individual HT20 frames. Classic ESP32 uses smaller Wi-Fi queues and omits lwIP IRAM placement to preserve heap. The Micro-ESPectre application is not frozen into the image: every chip uses the same complete `.mpy -O3` deployment workflow, so application changes do not require reflashing.
-
-`micro deploy --config <path>` compiles the selected override as device `config_local.mpy` together with the complete device manifest. This is primarily useful for isolated firmware benchmarks and other repeatable laboratory runs. Filesystem deployment uses MPY ABI 6.3, removes superseded `.py` files only after every `.mpy` upload succeeds, cleans legacy root-level configuration left by older frozen images, and embeds device-relative source names so tracebacks remain readable.
-
-## Configure Wi-Fi and MQTT
-
-Create a local config file:
-
-```bash
-cp src/python/micro_espectre/config_local.py.example src/python/micro_espectre/config_local.py
-```
-
-Set at least:
+Set the Wi-Fi credentials in `config_local.py`; do not commit that file.
 
 ```python
 WIFI_SSID = "YourWiFiSSID"
 WIFI_PASSWORD = "YourWiFiPassword"
-
-MQTT_ENABLED = True
-MQTT_BROKER = "homeassistant.local"
-MQTT_TOPIC_PREFIX = "espectre/v1/devices"
-MQTT_USERNAME = "mqtt"
-MQTT_PASSWORD = "mqtt"
-MQTT_DEVICE_LABEL = "Lab prototype"  # Optional
+# WIFI_BSSID = "AA:BB:CC:DD:EE:FF"  # Optional AP lock
 ```
 
-Do not commit `config_local.py`.
+The firmware image freezes only MicroPython's upstream boot and filesystem helpers. The complete ESPectre application is compiled to optimized `.mpy -O3` bytecode and stored on the filesystem, so research changes require only `micro deploy`, not a firmware rebuild and flash. The device and `mpy-cross` use MPY ABI 6.3.
 
-## Runtime Behavior
+The native firmware components are the ICMP generator and the Direct HTTP/mDNS service. Bluetooth, ESP-NOW, asyncio, Ethernet, unused peripheral bindings, and unused generic Python modules remain disabled.
 
-Micro-ESPectre follows the same detector direction as the C++ platform:
+## Runtime behavior
+
+The runtime uses this fixed sensing path:
 
 ```text
-Boot -> AGC-active startup -> Lightweight threshold bootstrap or High Accuracy startup -> Detection Loop
+Wi-Fi -> native ICMP traffic -> CSI temporal sampler -> Lightweight calibration -> detection -> Direct SSE and serial
 ```
 
-### Detection Profiles
-
-Micro-ESPectre implements the same two detector families as the C++ platform, `lightweight` and `high_accuracy`, described in [ALGORITHMS.md](../../../docs/ALGORITHMS.md).
-
-Lightweight uses fewer feature trackers and less per-packet computation, but is less accurate and robust than High Accuracy on the maintained corpus. High Accuracy uses more working memory and CPU for its eight features and neural inference, but provides better detection quality and skips Lightweight's threshold calibration. Lightweight requires about 10 seconds of clean, ready quiet-room coverage after temporal warmup; insufficient occupancy extends that wall-clock duration. High Accuracy still waits for CSI readiness and its feature window to fill.
-
-Key config values live in `config.py`:
+Key settings live in `config.py`:
 
 ```python
-DETECTION_ALGORITHM = "lightweight"  # "lightweight" or "high_accuracy"
 CSI_TARGET_PPS = 100
-TRAFFIC_GENERATOR_ENABLED = True  # False expects an external traffic source
-MQTT_ENABLED = True
+TRAFFIC_GENERATOR_ENABLED = True
 SEGMENTATION_WINDOW_SIZE_MS = 1000
 PUBLISH_INTERVAL_MS = 1000
 EVALUATION_INTERVAL_MS = 250
@@ -124,112 +66,49 @@ MOTION_ON_HITS = 4
 MOTION_OFF_HITS = 3
 ```
 
-`CSI_TARGET_PPS` defines both the requested temporal detector grid and the internal generator target. Every supported chip uses the shared 100 pps default and the same 70% valid-slot floor as the ESP-IDF frontends. MQTT telemetry and commands are enabled by default through the native ESP-IDF transport; set `MQTT_ENABLED = False` in `config_local.py` to disable them. Home Assistant discovery follows `MQTT_HA_DISCOVERY_ENABLED` without chip-specific overrides. `TRAFFIC_GENERATOR_ENABLED` selects traffic ownership independently; the target is always positive. Session MQTT `external` stops the local generator. Micro-ESPectre does not open a UDP listener, so it does not join multicast group `239.255.0.1`; ESP-IDF sensing frontends do. The production `TemporalCsiSampler` retains the packet nearest each slot center, enforces a half-slot minimum spacing derived from the configured target, preserves missing slots, and is imported unchanged by CPython collection, replay, training, and validation workflows. The live loop uses two fixed CSI payload buffers so the previous slot can be emitted while the current candidate is retained without hot-path allocation.
+`CSI_TARGET_PPS` defines the detector grid and ICMP target rate. Setting `TRAFFIC_GENERATOR_ENABLED = False` requires an external CSI traffic source. The production `TemporalCsiSampler` retains the packet nearest each slot center, preserves missing slots, and keeps the live detector geometry independent from observed network jitter.
 
-Lightweight selects its threshold automatically during startup calibration; keep the room quiet immediately after boot. A later quiet stretch can still lower that threshold, and the HA number plus Monitor follow the live value. High Accuracy uses its trained default threshold. Both thresholds remain adjustable at runtime. For the practical startup workflow, see [TUNING.md](../../../docs/TUNING.md). For the calibration formulas and detector theory, see [ALGORITHMS.md](../../../docs/ALGORITHMS.md).
+Lightweight selects its threshold during startup calibration. Keep the room quiet immediately after boot; insufficient valid quiet coverage extends calibration. See [TUNING.md](../../../docs/TUNING.md) and [ALGORITHMS.md](../../../docs/ALGORITHMS.md) for the current filter and detector rationale.
 
-### Filters
+## Direct HTTP surface
 
-Both detector paths support the same lightweight filters. In Lightweight and High Accuracy, the single Hampel switch controls the active feature streams:
+Micro-ESPectre listens on port `62587`, advertises `_espectre._tcp.local.`, and exposes:
 
-```python
-ENABLE_HAMPEL_FILTER = False
-HAMPEL_WINDOW = 7
-HAMPEL_THRESHOLD = 5.0
+- `POST /espectre/v1/request` with `capabilities`, `info`, `status`, and `config`;
+- `GET /espectre/v1/events` with canonical `telemetry` SSE events; and
+- CORS and Private Network Access preflight support for the ESPectre website.
 
-ENABLE_LOWPASS_FILTER = False
-LOWPASS_CUTOFF = 11.0
-```
-
-Hampel preprocessing is disabled by default on Micro-ESPectre to preserve CPU and heap headroom on the original ESP32. It remains available as an opt-in setting for controlled experiments.
-
-For tuning rationale, use [TUNING.md](../../../docs/TUNING.md). For detector theory, use [ALGORITHMS.md](../../../docs/ALGORITHMS.md).
-
-## MQTT Surface
-
-Micro-ESPectre publishes ESPectre Protocol telemetry with `frontend: "micro"`. The exact payload and topic model are defined in [ESPECTRE_PROTOCOL.md](../../../docs/ESPECTRE_PROTOCOL.md).
-
-For protocol identity fields:
-
-- `device_id` uses the same station-MAC SHA-256 pseudonym as Native and Matter
-- `device_name` is derived automatically from chip and `device_id`
-- `device_label` is optional and can be supplied through `MQTT_DEVICE_LABEL`
-
-Default telemetry topic shape:
-
-```text
-espectre/v1/devices/{device_id}/telemetry
-```
-
-Use:
+The exact capability response is authoritative: the Micro frontend advertises only read-only queries. The Monitor site therefore displays sensing without sending unsupported control requests. Enter the device IP or `espectre-micro-<suffix>.local` in the site, or discover it with:
 
 ```bash
-./espectre mqtt
+./espectre devices --frontend micro
 ```
 
-for interactive MQTT inspection and runtime commands. Micro-ESPectre retains canonical `status`, `info`, `config`, and `capabilities` payloads. A `diagnostics` query returns the cached CSI and Wi-Fi sample only in correlated `commands/result.data`; it does not publish a diagnostics topic. Micro-ESPectre accepts session-only `set_threshold`, `set_motion_hits`, `recalibrate`, `set_csi_traffic_mode`, and `set_traffic_generator_mode` commands. Its capability schema omits detector switching, OTA, device administration, and `set_sensing` because this runtime does not yet have a safe sensing pause. The independent MicroPython registry is checked against the C++ schema by the host capabilities probe. Traffic ownership accepts `internal` and `external`. For repository CLI behavior, including MQTT shell discovery and selection flow, use [CLI.md](../../../docs/CLI.md). Runtime changes made over MQTT are session-only unless the device code explicitly persists them.
+Only one SSE client is retained to bound sockets and heap. Query snapshots are generated by the MicroPython runtime, while HTTP framing, request parsing, CORS, and mDNS run in the native firmware component.
 
-### Home Assistant MQTT Discovery
+## Commands
 
-Micro-ESPectre can optionally publish a small Home Assistant adapter surface on top of the ESPectre protocol topics. Enable it in `config_local.py` when the same broker is shared with Home Assistant:
+| Command | Purpose |
+| --- | --- |
+| `./espectre micro build --chip <esp32|c3|c5|c6|s3>` | Build the lean project firmware |
+| `./espectre micro flash --chip <chip> --erase` | Build and flash the project image |
+| `./espectre micro deploy` | Compile and upload the complete `.mpy -O3` manifest |
+| `./espectre micro run` | Start the device application |
+| `./espectre micro verify` | Check firmware, native modules, and deployed bytecode |
+| `./espectre monitor --reset` | Follow serial output with auto-reconnect |
 
-```python
-MQTT_HA_DISCOVERY_ENABLED = True
-MQTT_HA_DISCOVERY_PREFIX = "homeassistant"
-```
+`micro build` and the implicit build in `micro flash` use the shared ESP-IDF backend policy. The default `--backend auto` prefers the detected local or ESPHome-managed toolchain and falls back to the pinned Docker image when no local environment exists. Use `--backend local` or `--backend docker` to require one path; `--pull ask|missing|never` controls retrieval of a missing image.
 
-When enabled, the runtime:
+## Validation
 
-- publishes retained discovery payloads for Motion Detected, Movement Score, Threshold, Motion On Hits, Motion Off Hits, CSI Traffic Ownership, CSI Traffic Source, Trigger Calibration, the ESPHome CSI diagnostic sensors, and Refresh Diagnostics
-- publishes empty retained discovery payloads for leftover Intensity and previous Micro object IDs so Home Assistant entity IDs match ESPHome slugs after a prefix swap
-- publishes plain HA availability, motion, movement, threshold, motion-hit, calibrate, traffic-control, and on-demand diagnostic state topics under the existing device topic base
-- subscribes to `homeassistant/status` and republishes discovery when Home Assistant announces `online`
-
-HA sensing cadences match ESPHome and Native MQTT so the same Home Assistant dashboard can be reused after replacing entity ID prefixes:
-
-| Entity | Topic suffix | Cadence |
-|--------|--------------|---------|
-| Motion Detected | `ha/motion/state` | Filtered state edges |
-| Movement Score | `ha/movement/state` | Detector evaluation (`EVALUATION_INTERVAL_MS`, default 250 ms) |
-| Threshold | `ha/threshold/state` and `ha/threshold/set` | On change (operator write, calibration, or Lightweight settled-level recovery), plus connect/birth snapshot; writable 0.0–1.0 number |
-| Motion On Hits | `ha/motion_on_hits/state` and `ha/motion_on_hits/set` | On change, plus connect/birth snapshot; writable 1–20 number |
-| Motion Off Hits | `ha/motion_off_hits/state` and `ha/motion_off_hits/set` | On change, plus connect/birth snapshot; writable 1–20 number |
-| CSI Traffic Ownership | `ha/csi_traffic_mode/state` and `ha/csi_traffic_mode/set` | On change, plus connect/birth snapshot; writable `internal` or `external` select |
-| CSI Traffic Source | `ha/traffic_generator_mode/state` and `ha/traffic_generator_mode/set` | On change, plus connect/birth snapshot; writable `ping` / `dns` select |
-| Trigger Calibration | `ha/calibrate/state` and `ha/calibrate/set` | ON while recalibrating; ON starts startup recalibration, OFF is ignored while a session is running |
-| Traffic TX Rate, CSI rates, occupancy, Wi-Fi channel, Wi-Fi RSSI | `ha/traffic_tx_rate/state`, `ha/csi_callback_rate/state`, `ha/csi_accepted_rate/state`, `ha/csi_admitted_rate/state`, `ha/csi_filtered_rate/state`, `ha/csi_missing_rate/state`, `ha/csi_excess_rate/state`, `ha/csi_stale_rate/state`, `ha/csi_out_of_order_rate/state`, `ha/csi_occupancy/state`, `ha/wifi_channel/state`, `ha/wifi_rssi/state` | On demand after Refresh Diagnostics; diagnostic category |
-| Refresh Diagnostics | `ha/diagnostics/set` | Button; publishes the latest cached diagnostic sample |
-
-Home Assistant generates an MQTT entity ID when it first registers the entity; the discovery topic's `object_id` does not determine that ID. With the default device name, an ID can look like `sensor.espectre_s3_223333_movement_score`, while an existing registry collision can add a suffix such as `_2`. Copy the ESPHome dashboard from [`home-assistant-dashboard.yaml`](../../cpp/frontend/esphome/examples/home-assistant-dashboard.yaml), inspect the exact IDs under the Micro-ESPectre device, and replace the `espectre_` prefix only when the active entities share one consistent prefix.
-
-![ESPectre Home Assistant dashboard](../../../docs/web/assets/images/guides/home-assistant-dashboard.png)
-
-*Home Assistant dashboard reused from the ESPHome example. Replace the `espectre_` prefix so the entity IDs match this Micro-ESPectre device.*
-
-The canonical ESPectre protocol topics remain unchanged.
-
-## Relevant Paths
-
-```text
-src/python/micro_espectre/       MicroPython runtime sources
-src/python/espectre_cli/         Repository CLI implementation
-tools/                           Host-side analysis and validation tools
-docs/web/                       Website
-test/python/                     Python test suite
-data/                            Local CSI datasets
-```
-
-## Testing
-
-Run the Python test suite from the repository root:
+Run the focused host tests from the repository environment:
 
 ```bash
-source .venv/bin/activate
-pytest test/python -v
+.venv/bin/pytest test/python/test_traffic_generator.py test/python/test_espectre_cli_micro.py test/python/test_micro_protocol.py -v
 ```
 
-With coverage:
+Firmware builds use the project wrapper:
 
 ```bash
-pytest test/python -v --cov=src/python/micro_espectre --cov-report=term-missing
+./espectre micro build --chip c3
 ```

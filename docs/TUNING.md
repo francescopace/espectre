@@ -52,7 +52,7 @@ Start with threshold. If needed, then adjust window size or filters.
 
 ### Threshold
 
-The threshold is selected automatically at startup. Lightweight adapts it from the observed quiet room, and may still lower it after a long quiet stretch if that opening was noisier than the rest of the session. High Accuracy uses the value validated with the exported model. Where a frontend exposes writable threshold control, both remain adjustable for the current session, and those surfaces follow detector-driven drops as well as operator writes. Recalibration recomputes the quiet-room threshold for Lightweight; for High Accuracy, it immediately restores the trained default without collecting a quiet-room window. Matter currently exposes no writable sensing controls. Native Direct and MQTT, Micro MQTT, and ESPHome expose the same threshold, motion-hit debounce, and recalibration control family; Micro keeps every runtime write session-only.
+The threshold is selected automatically at startup. Lightweight adapts it from the observed quiet room, and may still lower it after a long quiet stretch if that opening was noisier than the rest of the session. High Accuracy uses the value validated with the exported model. Where a frontend exposes writable threshold control, both remain adjustable for the current session, and those surfaces follow detector-driven drops as well as operator writes. Recalibration recomputes the quiet-room threshold for Lightweight; for High Accuracy, it immediately restores the trained default without collecting a quiet-room window. Native Direct, Native MQTT, and ESPHome expose the threshold, motion-hit debounce, and recalibration control family. Matter and Micro-ESPectre expose no writable sensing controls; Micro uses Lightweight and calibrates it at startup.
 
 Both detectors expose a `0.0-1.0` probability threshold.
 
@@ -108,14 +108,14 @@ espectre:
 
 `csi_target_pps` is both the detector's temporal grid and the managed-traffic target. `csi_traffic_mode` separately chooses who supplies traffic. Internal traffic follows a fixed-phase cadence at that target during ordinary scheduler jitter. After a delay would leave less than half a period before the next deadline, the generator resets from the actual send time instead of issuing a catch-up packet that would create a burst. Local socket send backoff still applies on `ENOMEM`; occupancy does not change the send rate. If occupancy stays below 70%, repair the traffic path or lower `csi_target_pps` explicitly and revalidate.
 
-Runtime traffic controls follow one family across ESPHome, Native MQTT, Micro MQTT, and the website:
+Runtime traffic controls follow one family across the C++ Direct, MQTT, ESPHome, and website surfaces:
 
 - `csi_traffic_mode`: `internal` or `external`
 - `traffic_generator_mode`: `ping` or `dns`
 
 `ping` sends stateless ICMP echo requests and remains the portable default. `dns` sends length-prefixed DNS root queries over one persistent, non-blocking TCP connection to gateway port `53`, with `TCP_NODELAY`; it reconnects if the gateway closes the stream. DNS mode therefore requires the configured gateway to accept DNS over TCP. Both modes request the same low-latency IP/WMM treatment.
 
-Native, ESPHome, and Matter persist accepted traffic-control changes; Micro keeps them session-only. Persisted legacy `pacing` or `disabled` values migrate once to `internal`, while runtime requests using those removed values fail with `invalid_params`.
+Native, ESPHome, and Matter persist accepted traffic-control changes. Micro-ESPectre has no runtime traffic controls: deployment selects native ICMP ping or external traffic, and DNS generation is not built. Persisted legacy `pacing` or `disabled` values migrate once to `internal`, while runtime requests using those removed values fail with `invalid_params`.
 
 Host `espectre collect` persistently selects `external` and uses the importable `ExternalTrafficGenerator`; `--pps` controls that UDP source and the nominal dataset cadence, never the HTTP worker. ESPHome, Native, and Matter listen on port `5555`, join the configured multicast group, and accept only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`). [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) can use a unicast `TARGETS` list or `239.255.0.1`; do not use LAN broadcast. Raw HTTP forwards classified CSI without pacing or temporal decimation and reports bounded ring drops separately.
 
@@ -146,13 +146,13 @@ espectre:
 The detector processes every admitted CSI packet into its sliding window, but the published motion state updates only on a coarser cadence:
 
 1. every `evaluation_interval_ms` of packet arrival time, the runtime evaluates the detector and gets a raw `IDLE` or `MOTION` reading; there is no packet-count fallback, so live input and supported replay datasets must provide advancing timestamps
-2. Native Direct and MQTT, Micro MQTT, and ESPHome publish canonical telemetry and Movement Score from that evaluation once `ready_to_publish` is true
+2. Native Direct and MQTT, Micro Direct SSE, and ESPHome publish canonical telemetry and Movement Score from that evaluation once `ready_to_publish` is true
 3. that raw reading must repeat for `motion_on_hits` consecutive evaluations before the published state becomes `MOTION`
 4. leaving motion requires `motion_off_hits` consecutive `IDLE` evaluations
 
 These hits are consecutive evaluation ticks, not detector windows (`segmentation_window_size_ms`). One opposing reading resets the pending count.
 
-ESPHome, Native Direct and MQTT, and Micro MQTT all expose these runtime motion-hit settings. Native and ESPHome persist accepted updates; Micro applies them only for the current session.
+ESPHome, Native Direct, and Native MQTT expose these runtime motion-hit settings and persist accepted updates. Micro-ESPectre uses deployment-time values and does not expose mutations through its minimal Direct API.
 
 With the default `evaluation_interval_ms = 250`:
 
@@ -295,7 +295,7 @@ If your AP changes channel often:
 
 `lightweight` can recompute its threshold without changing firmware. For `high_accuracy`, the same control restores the trained default immediately and does not start a quiet-room calibration window.
 
-Use the recalibration control when your frontend exposes one. ESPHome provides a calibration entity, Native exposes the shared control through Direct, MQTT, and Home Assistant Discovery, and Micro MQTT exposes the same `recalibrate` action plus the Home Assistant switch. Matter currently exposes no writable sensing controls.
+Use the recalibration control when your frontend exposes one. ESPHome provides a calibration entity, and Native exposes the shared control through Direct, MQTT, and Home Assistant Discovery. Matter and Micro-ESPectre currently expose no writable sensing controls; Micro recalibrates Lightweight at startup.
 
 When recalibrating:
 

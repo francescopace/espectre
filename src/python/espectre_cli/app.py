@@ -225,6 +225,22 @@ def _add_version_parser(subparsers) -> None:
     version_parser.set_defaults(handler=print_version)
 
 
+def _add_idf_build_backend_arguments(parser) -> None:
+    """Add the build backend policy shared by every ESP-IDF firmware path."""
+    parser.add_argument(
+        "--backend",
+        choices=("auto", "local", "docker"),
+        default="auto",
+        help="Build environment: prefer local ESP-IDF, require local ESP-IDF, or use Docker (default: auto)",
+    )
+    parser.add_argument(
+        "--pull",
+        choices=DOCKER_PULL_POLICIES,
+        default="ask",
+        help="Docker image download policy when the image is missing (default: ask)",
+    )
+
+
 def _add_micro_namespace(subparsers) -> None:
     micro_parser = subparsers.add_parser(
         "micro",
@@ -239,6 +255,7 @@ def _add_micro_namespace(subparsers) -> None:
     )
     build_parser.add_argument("--chip", choices=MICRO_CHIP_CHOICES, default="esp32")
     build_parser.add_argument("--clean", action="store_true", help="Discard the cached build directory first")
+    _add_idf_build_backend_arguments(build_parser)
     build_parser.set_defaults(handler=build_project_firmware_command)
 
     flash_parser = micro_subparsers.add_parser("flash", help="Flash MicroPython firmware to ESP32")
@@ -247,6 +264,7 @@ def _add_micro_namespace(subparsers) -> None:
     flash_parser.add_argument("--erase", action="store_true", help="Erase flash before flashing (recommended)")
     flash_parser.add_argument("--firmware", help="Custom firmware path (optional)")
     flash_parser.add_argument("--clean", action="store_true", help="Discard the cached project build directory first")
+    _add_idf_build_backend_arguments(flash_parser)
     flash_parser.set_defaults(handler=flash_firmware)
 
     deploy_parser = micro_subparsers.add_parser("deploy", help="Deploy code to MicroPython device")
@@ -318,18 +336,7 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
                     default=os.environ.get("NATIVE_OTA_CHANNEL", "release"),
                     help="Default OTA channel compiled into Native firmware (default: release, or NATIVE_OTA_CHANNEL)",
                 )
-            command_parser.add_argument(
-                "--backend",
-                choices=("auto", "local", "docker"),
-                default="auto",
-                help="Build environment: prefer local ESP-IDF, require local ESP-IDF, or use Docker (default: auto)",
-            )
-            command_parser.add_argument(
-                "--pull",
-                choices=DOCKER_PULL_POLICIES,
-                default="ask",
-                help="Docker image download policy when the image is missing (default: ask)",
-            )
+            _add_idf_build_backend_arguments(command_parser)
             clean_group = command_parser.add_mutually_exclusive_group()
             clean_group.add_argument(
                 "--clean",

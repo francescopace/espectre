@@ -1,6 +1,6 @@
 # Analysis And Benchmark Tools
 
-This directory contains host-side Python tools for CSI inspection, dataset validation, detector research, model training, firmware benchmarking, and local firmware-manifest generation. It is written for contributors who already understand the basic ESPectre workflow; start with [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md) if you need to collect data, or [ALGORITHMS.md](../docs/ALGORITHMS.md) if you need the detector concepts first.
+This directory contains host-side Python tools for CSI inspection, dataset validation, detector research, model training, and firmware benchmarking. It is written for contributors who already understand the basic ESPectre workflow; start with [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md) if you need to collect data, or [ALGORITHMS.md](../docs/ALGORITHMS.md) if you need the detector concepts first.
 
 Run commands from the repository root through the project virtual environment. Use `python tools/<tool>.py --help` for the complete and current option reference; this README explains which tool to choose and the safe mainline workflows.
 
@@ -38,7 +38,6 @@ The tools support the original ESP32, ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3
 | `train_ml_model.py` | train, evaluate, and conditionally export the production ML model |
 | `generate_performance_report.py` | regenerate the aggregate detector performance report and run its parity checks |
 | `benchmark_firmware.py` | build, flash, monitor, and report representative live firmware cases |
-| `generate_firmware_manifest.py` | generate the website firmware manifest from locally built factory images |
 | `analyze_seed_dispersion.py` | measure replay-metric variation across training seeds |
 | `compare_reserved_selection.py` | compare one candidate on reserved selection roles with an explicit seed |
 | `benchmark_subcarrier_aggregation.py` | evaluate adjacent-subcarrier aggregation as a host-side experiment |
@@ -115,9 +114,9 @@ Do not edit `docs/performance/README.md` manually. `--check-current` is a lightw
 5. ESPHome High Accuracy by runtime switching of the same ESPHome firmware
 6. Matter with its build-time default detector
 
-This matrix is not a capability table. ESPHome, Micro-ESPectre, Native, and Matter support Lightweight and High Accuracy; ESPHome and Native can switch at runtime, Matter selects the detector at build time, and Micro-ESPectre selects it at deploy time. The hardware matrix samples only Lightweight on Micro-ESPectre.
+This matrix is not a capability table. ESPHome, Native, and Matter support Lightweight and High Accuracy; ESPHome and Native can switch at runtime, and Matter selects the detector at build time. Micro-ESPectre deploys Lightweight only.
 
-The benchmark reads laboratory settings from `tools/benchmark_firmware.local.env`, with exported `ESPECTRE_BENCHMARK_*` variables taking precedence. Native compiles with empty Wi-Fi, device-label, and MQTT defaults, erases NVS, provisions the SSID and password at runtime through standard Improv Serial, and applies an optional BSSID or channel pin through Direct after the first connection. Native and ESPHome reuse one flashed Lightweight image and select both scored detectors through Direct. Matter is a build-and-flash smoke case: it stops after a successful flash and requires neither commissioning nor benchmark Wi-Fi settings. Only Micro-ESPectre requires MQTT settings, copies them into an isolated temporary `config_local.py`, and enables its separate default-off `DEBUG_TELEMETRY` switch. Copy `tools/benchmark_firmware.local.env.example` to `tools/benchmark_firmware.local.env`, fill in the laboratory values required by the selected frontends, connect the target board, and run:
+The benchmark reads laboratory settings from `tools/benchmark_firmware.local.env`, with exported `ESPECTRE_BENCHMARK_*` variables taking precedence. Native compiles with empty Wi-Fi, device-label, and MQTT defaults, erases NVS, provisions the SSID and password at runtime through standard Improv Serial, and applies an optional BSSID or channel pin through Direct after the first connection. Native and ESPHome reuse one flashed Lightweight image and select both scored detectors through Direct. Matter is a build-and-flash smoke case: it stops after a successful flash and requires neither commissioning nor benchmark Wi-Fi settings. Micro-ESPectre copies the laboratory Wi-Fi settings into an isolated temporary `config_local.py`, explicitly enables the native ICMP generator, and enables its separate default-off `DEBUG_TELEMETRY` switch. Copy `tools/benchmark_firmware.local.env.example` to `tools/benchmark_firmware.local.env`, fill in the laboratory values required by the selected frontends, connect the target board, and run:
 
 ```bash
 python tools/benchmark_firmware.py --chip c3
@@ -140,17 +139,6 @@ The command writes a partial report when a case fails and returns success only w
 Expected sample counts tolerate one sample at the scored-window boundary. Direct cadence uses host-monotonic receive times and device uptime; Micro-ESPectre continues to use its device timestamps. Recovered Micro serial framing anomalies remain visible in the report but do not fail an otherwise continuous runtime window; any real gap over the cadence tolerance still fails the case.
 
 When `--update` or `--resume` preserves cases from an existing report, the report header identifies the updating run, not the provenance of every preserved case. Use that run's structured artifacts for the exact revision, duration, and raw evidence of each case that was actually executed.
-
-## Firmware Manifest
-
-`generate_firmware_manifest.py` writes `docs/web/artifacts/firmware/<channel>/firmware-manifest-<channel>.json` from canonical local Native and Matter `build-<chip>` factory images, plus any available ESPHome `firmware.factory.bin`. It merges ESP-IDF flash layouts with `esptool merge-bin`, keeps previously staged factory images that were not rebuilt, and defaults to the `release` channel used by a local website preview. Official Pages deployments continue to stage published GitHub Release assets through CI; this helper is only for local flashing against firmware already built on the machine.
-
-```bash
-python tools/generate_firmware_manifest.py
-python tools/generate_firmware_manifest.py --chip c3 --chip s3 --chip c5
-python tools/generate_firmware_manifest.py --frontend native --replace
-python tools/generate_firmware_manifest.py --dry-run
-```
 
 ## Research-Only Detector Experiments
 

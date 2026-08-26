@@ -13,7 +13,7 @@
 
     <h2 id="ha-before">Before you start</h2>
     <ul class="checklist">
-      <li>Your ESPectre device is online in Home Assistant through ESPHome or Native MQTT Discovery. Micro-ESPectre works too when its optional MQTT Discovery adapter is enabled, but its combined calibration switch requires replacing the template's separate Recalibrate and Calibration Active rows.</li>
+      <li>Your ESPectre device is online in Home Assistant through ESPHome or Native MQTT Discovery. Micro-ESPectre exposes read-only Direct HTTP and is not part of this Home Assistant workflow.</li>
       <li>You can see the device under <em>Settings → Devices &amp; services</em>, and its Motion Detected and Movement Score entities have current values.</li>
       <li>You have administrator access, which Home Assistant requires to create and manage dashboards.</li>
     </ul>
@@ -30,14 +30,14 @@
       <thead><tr><th>Situation</th><th>Movement Score example</th><th>Dashboard change</th></tr></thead>
       <tbody>
         <tr><td>Default ESPHome name</td><td><code>sensor.espectre_movement_score</code></td><td>No prefix change</td></tr>
-        <tr><td>Default Native or Micro device name</td><td><code>sensor.espectre_c3_f61093_movement_score</code></td><td>Replace <code>espectre_</code> with <code>espectre_c3_f61093_</code></td></tr>
+        <tr><td>Default Native device name</td><td><code>sensor.espectre_c3_f61093_movement_score</code></td><td>Replace <code>espectre_</code> with <code>espectre_c3_f61093_</code></td></tr>
         <tr><td>Entity-ID collision</td><td><code>sensor.espectre_c3_f61093_movement_score_2</code></td><td>Replace each affected complete entity ID</td></tr>
       </tbody>
     </table></div>
     <p>These are examples, not values to guess. The chip label, short device ID, custom device name, manual renames, and existing registry entries can all change the final ID. If Home Assistant shows both an unsuffixed entity and an <code>_2</code> variant, it registered two entities that requested the same ID. The suffix is not part of the device prefix and may differ from one entity to another; use the entities attached to the active device rather than mixing both sets.</p>
 
     <h3 id="ha-recreate-ids" class="subheading">Optional — Recreate clean MQTT entity IDs</h3>
-    <p>Use this reset only for Native or Micro MQTT Discovery when stale registrations keep producing duplicate IDs. Dashboard cards and recorder history refer to entity IDs, so note the current IDs and back up the dashboard before changing them.</p>
+    <p>Use this reset only for Native MQTT Discovery when stale registrations keep producing duplicate IDs. Dashboard cards and recorder history refer to entity IDs, so note the current IDs and back up the dashboard before changing them.</p>
     <ol class="steps-list">
       <li><h3>Keep only one publisher</h3><p>Turn off or disconnect every old ESPectre instance that uses the same device identity. Leave the intended device disconnected while cleaning the retained discovery configuration.</p></li>
       <li><h3>Find this device's discovery topics</h3><p>With an MQTT client such as MQTT Explorer or your broker tooling, inspect retained topics matching <code>homeassistant/&lt;component&gt;/&lt;object-id&gt;/config</code>. Match the payload's device identifier, device name, and <code>unique_id</code> to the ESPectre device you are resetting.</p></li>
