@@ -18,6 +18,18 @@ python3 .github/scripts/web_asset_versions.py
 
 The website tests fail if a committed hash does not match the file contents. Generated static and SDK pages compute the same hashes at build time, so only the changed file is cache-busted.
 
+## Local firmware catalog
+
+Published Pages deployments stage GitHub Release factory images through `.github/scripts/stage_web_firmware.py`. To flash firmware already built on the machine from the local website preview, restage the canonical Native and Matter `build-<chip>` images plus any available ESPHome `firmware.factory.bin`:
+
+```bash
+./test/web/generate_firmware_manifest.sh
+./test/web/generate_firmware_manifest.sh --dry-run
+./test/web/generate_firmware_manifest.sh --replace
+```
+
+The wrapper calls `.github/scripts/stage_web_firmware.py --from-local-builds` with the `release` channel, the current `git describe` version, and C3, S3, and C5. It merges ESP-IDF flash layouts with `esptool merge-bin`, keeps previously staged factory images that were not rebuilt, and writes `artifacts/firmware/release/firmware-manifest-release.json`. Extra `--chip`, `--frontend`, `--version`, and `--output-dir` flags are forwarded to the Python script. Use `--replace` to drop factory images that this run did not rebuild. Official site deployments continue to stage published GitHub Release assets through CI.
+
 ## Static content pages
 
 Guides, docs, media, the roadmap, privacy, terms, legal, security, licensing, and contact content use shared HTML fragments for both SPA hash routes and canonical, indexable paths. Generate the standalone pages before previewing their direct URLs:
@@ -69,7 +81,7 @@ Outcome events use `result` values such as `accepted`, `success`, `failure`, `un
 
 ## Generated artifacts
 
-The website stages all downloadable output under the generated `artifacts/` tree. SDK downloads live under `artifacts/sdk/release/`, `artifacts/sdk/preview/`, and `artifacts/sdk/develop/`, the Doxygen reference lives under `artifacts/sdk/api/` (also the default `src/cpp/Doxyfile` output in this repository), and firmware lives under `artifacts/firmware/<channel>/`. GitHub Releases publish each firmware image directly and consolidate its build-specific SBOMs, notices, and license archives into `firmware-compliance-<channel-or-version>.zip`; website staging expands that bundle so each compliance file remains available next to its firmware image. CI recreates the entire tree before deployment; none of its contents are tracked. Generate the API reference locally with `python3 .github/scripts/generate_sdk_api.py`, which stamps Doxygen from the same `git describe` identity as the SDK bundles. To generate the local web flasher catalog from firmware already built on the machine, run `python tools/generate_firmware_manifest.py`; see [tools/README.md](../../tools/README.md).
+The website stages all downloadable output under the generated `artifacts/` tree. SDK downloads live under `artifacts/sdk/release/`, `artifacts/sdk/preview/`, and `artifacts/sdk/develop/`, the Doxygen reference lives under `artifacts/sdk/api/` (also the default `src/cpp/Doxyfile` output in this repository), and firmware lives under `artifacts/firmware/<channel>/`. GitHub Releases publish each firmware image directly and consolidate its build-specific SBOMs, notices, and license archives into `firmware-compliance-<channel-or-version>.zip`; website staging expands that bundle so each compliance file remains available next to its firmware image. CI recreates the entire tree before deployment; none of its contents are tracked. Generate the API reference locally with `python3 .github/scripts/generate_sdk_api.py`, which stamps Doxygen from the same `git describe` identity as the SDK bundles. Restage locally built factory images with the [local firmware catalog](#local-firmware-catalog) helper.
 
 CI, official releases, and rolling preview builds use the same local `build-pages` action. It stages pinned browser dependencies, runs the web tests, generates static routes and the Doxygen reference, and verifies the complete tree before it can be uploaded to Pages. Channel-aware verification also rejects incomplete firmware matrices, mismatched SDK manifests, and missing artifacts.
 
@@ -90,3 +102,5 @@ The hardware-independent Direct HTTP surface, website analytics, and structural 
 ```bash
 node --test 'test/web/*.mjs'
 ```
+
+`test/web/generate_firmware_manifest.sh` restages the local firmware catalog. It is not part of the Node test runner.

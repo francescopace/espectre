@@ -33,6 +33,18 @@ FRONTEND_CHIPS = {
 }
 
 
+def published_asset_prefix(channel: str, frontend: str, version: str) -> str:
+    if channel == "release":
+        return f"espectre-{frontend}-{version}-"
+    if channel == "preview":
+        return f"espectre-{frontend}-preview-"
+    return f"espectre-{frontend}-develop-"
+
+
+def published_factory_filename(channel: str, frontend: str, version: str, chip: str) -> str:
+    return f"{published_asset_prefix(channel, frontend, version)}{chip}.bin"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build an ESPectre firmware manifest.")
     parser.add_argument("--firmware-dir", required=True, help="Directory containing built firmware assets")
@@ -194,18 +206,9 @@ def build_manifest(args: argparse.Namespace) -> dict:
     firmware_dir = Path(args.firmware_dir)
     output_path = Path(args.output)
 
-    if args.channel == "release":
-        esphome_prefix = f"espectre-esphome-{args.version}-"
-        native_prefix = f"espectre-native-{args.version}-"
-        matter_prefix = f"espectre-matter-{args.version}-"
-    elif args.channel == "preview":
-        esphome_prefix = "espectre-esphome-preview-"
-        native_prefix = "espectre-native-preview-"
-        matter_prefix = "espectre-matter-preview-"
-    else:
-        esphome_prefix = "espectre-esphome-develop-"
-        native_prefix = "espectre-native-develop-"
-        matter_prefix = "espectre-matter-develop-"
+    esphome_prefix = published_asset_prefix(args.channel, "esphome", args.version)
+    native_prefix = published_asset_prefix(args.channel, "native", args.version)
+    matter_prefix = published_asset_prefix(args.channel, "matter", args.version)
 
     manifest = {
         "schema_version": 1,
