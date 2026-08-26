@@ -2,6 +2,7 @@
 # Commercial licensing available under separate agreement; see LICENSING.md.
 """Minimal Direct HTTP facade for the Micro-ESPectre sensing runtime."""
 
+import gc
 import json
 import time
 
@@ -152,7 +153,7 @@ class DirectApi:
             return
         capabilities = build_capabilities_payload(self.device_id)
         info = self._info()
-        native_direct.start(
+        arguments = dict(
             port=DIRECT_HTTP_PORT,
             hostname=self._device_hostname(),
             instance=info["device_name"],
@@ -166,16 +167,30 @@ class DirectApi:
             status=_json(self._status()),
             diagnostics=_json(self._diagnostics()),
         )
+        for attempt in range(3):
+            try:
+                native_direct.start(**arguments)
+                break
+            except OSError:
+                if attempt == 2:
+                    raise
+                gc.collect()
+                time.sleep_ms(100)
         self.started = True
 
     def refresh_snapshots(self, now_ms=None, diagnostics=None):
         """Refresh the read-only status and diagnostics snapshots."""
         if not self.started:
             return
+        gc.collect()
         if now_ms is None:
             now_ms = time.ticks_ms()
-        native_direct.update_status(_json(self._status(now_ms)))
-        native_direct.update_diagnostics(_json(self._diagnostics(now_ms, diagnostics)))
+        status_json = _json(self._status(now_ms))
+        native_direct.update_status(status_json)
+        status_json = None
+        diagnostics_json = _json(self._diagnostics(now_ms, diagnostics))
+        native_direct.update_diagnostics(diagnostics_json)
+        diagnostics_json = None
 
     def publish_telemetry(self, movement_score, motion_state, threshold, now_ms=None):
         """Emit one canonical telemetry event after a detector evaluation."""

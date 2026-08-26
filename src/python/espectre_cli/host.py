@@ -266,7 +266,7 @@ def _print_dataset_catalog_stats(stats) -> None:
         print(f"  {Fore.YELLOW}No samples collected yet.{Style.RESET_ALL}")
         print()
         print(f"  {Fore.CYAN}To collect data:{Style.RESET_ALL}")
-        print("    1. Run a raw-capable Native, ESPHome, or Matter firmware on the device")
+        print("    1. Run a raw-capable ESPectre firmware on the device")
         print(f"    2. Collect samples: {cli_command('collect', '--label', 'wave', '--duration', '45', '--target', '192.168.1.50')}")
         print()
         return

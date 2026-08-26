@@ -9,6 +9,7 @@
 #include "cJSON.h"
 #include "esp_err.h"
 #include "esp_http_server.h"
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "mdns.h"
@@ -23,6 +24,7 @@
 #define DIRECT_MAX_DIAGNOSTICS_BYTES (2048)
 #define DIRECT_MAX_PROTOCOL_VERSION_BYTES (16)
 #define DIRECT_MAX_DNS_SD_SCHEMA_VERSION_BYTES (8)
+#define DIRECT_MAX_DEVICE_ID_BYTES (64)
 #define DIRECT_MAX_COMMAND_ID_BYTES (64)
 #define DIRECT_MAX_COMMAND_BYTES (48)
 
@@ -41,7 +43,14 @@ typedef struct {
     bool mdns_service_added;
 } native_direct_state_t;
 
+typedef struct {
+    httpd_req_t *request;
+    size_t length;
+    char data[];
+} native_direct_event_work_t;
+
 static native_direct_state_t direct_state;
+static const char *const NATIVE_DIRECT_TAG = "MicroDirect";
 
 static bool direct_identifier_valid(const char *value, size_t max_length, bool command) {
     if (value == NULL) {
@@ -149,21 +158,6 @@ static bool direct_replace_diagnostics(const char *source, size_t length) {
     return true;
 }
 
-static esp_err_t direct_send_json(
-    httpd_req_t *request,
-    const char *status,
-    const char *body
-) {
-    if (!direct_set_cors(request)) {
-        httpd_resp_set_status(request, "403 Forbidden");
-        return httpd_resp_sendstr(request, "Forbidden");
-    }
-    httpd_resp_set_status(request, status);
-    httpd_resp_set_type(request, "application/json");
-    (void)httpd_resp_set_hdr(request, "Cache-Control", "no-store");
-    return httpd_resp_sendstr(request, body);
-}
-
 static esp_err_t direct_send_result(
     httpd_req_t *request,
     const char *command_id,
@@ -174,36 +168,48 @@ static esp_err_t direct_send_result(
     const char *snapshot,
     const char *http_status
 ) {
-    cJSON *root = cJSON_CreateObject();
-    if (root == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-    cJSON_AddStringToObject(
-        root,
-        "protocol_version",
-        direct_state.protocol_version == NULL ? "" : direct_state.protocol_version
+    const char *protocol_version = direct_state.protocol_version == NULL
+        ? ""
+        : direct_state.protocol_version;
+    const char *device_id = direct_state.device_id == NULL ? "" : direct_state.device_id;
+    const char *safe_command_id = command_id == NULL ? "" : command_id;
+    const char *safe_command = command == NULL ? "" : command;
+    char prefix[512];
+    int prefix_length = snprintf(
+        prefix,
+        sizeof(prefix),
+        "{\"protocol_version\":\"%s\",\"device_id\":\"%s\","
+        "\"command_id\":\"%s\",\"command\":\"%s\",\"accepted\":%s,"
+        "\"code\":\"%s\",\"message\":\"%s\"%s",
+        protocol_version,
+        device_id,
+        safe_command_id,
+        safe_command,
+        accepted ? "true" : "false",
+        code,
+        message,
+        snapshot == NULL ? "}" : ",\"data\":"
     );
-    cJSON_AddStringToObject(root, "device_id", direct_state.device_id == NULL ? "" : direct_state.device_id);
-    cJSON_AddStringToObject(root, "command_id", command_id == NULL ? "" : command_id);
-    cJSON_AddStringToObject(root, "command", command == NULL ? "" : command);
-    cJSON_AddBoolToObject(root, "accepted", accepted);
-    cJSON_AddStringToObject(root, "code", code);
-    cJSON_AddStringToObject(root, "message", message);
-    if (snapshot != NULL) {
-        cJSON *data = cJSON_Parse(snapshot);
-        if (data == NULL) {
-            cJSON_Delete(root);
-            return ESP_ERR_INVALID_STATE;
-        }
-        cJSON_AddItemToObject(root, "data", data);
+    if (prefix_length < 0 || (size_t)prefix_length >= sizeof(prefix)) {
+        return ESP_FAIL;
     }
-    char *body = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
-    if (body == NULL) {
-        return ESP_ERR_NO_MEM;
+    if (!direct_set_cors(request)) {
+        httpd_resp_set_status(request, "403 Forbidden");
+        return httpd_resp_sendstr(request, "Forbidden");
     }
-    esp_err_t result = direct_send_json(request, http_status, body);
-    cJSON_free(body);
+    httpd_resp_set_status(request, http_status);
+    httpd_resp_set_type(request, "application/json");
+    (void)httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+    esp_err_t result = httpd_resp_send_chunk(request, prefix, (size_t)prefix_length);
+    if (result == ESP_OK && snapshot != NULL) {
+        result = httpd_resp_send_chunk(request, snapshot, strlen(snapshot));
+    }
+    if (result == ESP_OK && snapshot != NULL) {
+        result = httpd_resp_send_chunk(request, "}", 1);
+    }
+    if (result == ESP_OK) {
+        result = httpd_resp_send_chunk(request, NULL, 0);
+    }
     return result;
 }
 
@@ -405,6 +411,24 @@ static void direct_close_event_stream(void) {
     }
 }
 
+static void direct_send_event_work(void *argument) {
+    native_direct_event_work_t *work = argument;
+    if (work == NULL) {
+        return;
+    }
+    if (direct_state.lock != NULL) {
+        xSemaphoreTake(direct_state.lock, portMAX_DELAY);
+    }
+    bool active = direct_state.event_request == work->request;
+    if (direct_state.lock != NULL) {
+        xSemaphoreGive(direct_state.lock);
+    }
+    if (active && httpd_resp_send_chunk(work->request, work->data, work->length) != ESP_OK) {
+        direct_close_event_stream();
+    }
+    free(work);
+}
+
 static void direct_free_snapshots(void) {
     free(direct_state.capabilities);
     free(direct_state.info);
@@ -558,7 +582,8 @@ static mp_obj_t native_direct_start(
     size_t protocol_version_len = strlen(protocol_version);
     size_t dns_sd_schema_version_len = strlen(dns_sd_schema_version);
     if (
-        protocol_version_len == 0 || protocol_version_len > DIRECT_MAX_PROTOCOL_VERSION_BYTES ||
+        !direct_identifier_valid(device_id, DIRECT_MAX_DEVICE_ID_BYTES, false) ||
+        !direct_identifier_valid(protocol_version, DIRECT_MAX_PROTOCOL_VERSION_BYTES, true) ||
         dns_sd_schema_version_len == 0 ||
         dns_sd_schema_version_len > DIRECT_MAX_DNS_SD_SCHEMA_VERSION_BYTES
     ) {
@@ -591,16 +616,25 @@ static mp_obj_t native_direct_start(
 
     httpd_config_t server_config = HTTPD_DEFAULT_CONFIG();
     server_config.server_port = (uint16_t)port;
-    server_config.stack_size = 3584;
-    server_config.max_open_sockets = 3;
+    server_config.max_open_sockets = 4;
     server_config.lru_purge_enable = true;
+    server_config.enable_so_linger = true;
+    server_config.linger_timeout = 0;
     server_config.recv_wait_timeout = 5;
     server_config.send_wait_timeout = 5;
-    if (httpd_start(&direct_state.server, &server_config) != ESP_OK || !direct_register_http_handlers()) {
+    esp_err_t server_result = httpd_start(&direct_state.server, &server_config);
+    if (server_result != ESP_OK) {
+        ESP_LOGE(NATIVE_DIRECT_TAG, "HTTP server start failed: %s", esp_err_to_name(server_result));
+        direct_stop_native();
+        mp_raise_OSError(MP_EIO);
+    }
+    if (!direct_register_http_handlers()) {
+        ESP_LOGE(NATIVE_DIRECT_TAG, "HTTP handler registration failed");
         direct_stop_native();
         mp_raise_OSError(MP_EIO);
     }
     if (!direct_add_mdns_service(hostname, instance, device_id, chip, (uint16_t)port)) {
+        ESP_LOGE(NATIVE_DIRECT_TAG, "mDNS service registration failed");
         direct_stop_native();
         mp_raise_OSError(MP_EIO);
     }
@@ -672,17 +706,24 @@ static mp_obj_t native_direct_publish(mp_obj_t event_obj, mp_obj_t payload_obj) 
         (int)event_length,
         event
     );
-    esp_err_t result = prefix_length <= 0 || (size_t)prefix_length >= sizeof(prefix)
-        ? ESP_FAIL
-        : httpd_resp_send_chunk(request, prefix, (size_t)prefix_length);
-    if (result == ESP_OK) {
-        result = httpd_resp_send_chunk(request, payload, payload_length);
+    if (prefix_length <= 0 || (size_t)prefix_length >= sizeof(prefix)) {
+        return mp_const_false;
     }
-    if (result == ESP_OK) {
-        result = httpd_resp_send_chunk(request, "\n\n", 2);
+    size_t frame_length = (size_t)prefix_length + payload_length + 2;
+    native_direct_event_work_t *work = malloc(sizeof(*work) + frame_length);
+    if (work == NULL) {
+        return mp_const_false;
     }
-    if (result != ESP_OK) {
-        direct_close_event_stream();
+    work->request = request;
+    work->length = frame_length;
+    memcpy(work->data, prefix, (size_t)prefix_length);
+    memcpy(work->data + prefix_length, payload, payload_length);
+    memcpy(work->data + prefix_length + payload_length, "\n\n", 2);
+    if (
+        direct_state.server == NULL ||
+        httpd_queue_work(direct_state.server, direct_send_event_work, work) != ESP_OK
+    ) {
+        free(work);
         return mp_const_false;
     }
     return mp_const_true;
