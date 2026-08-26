@@ -122,6 +122,21 @@ void test_espectre_component_loop_and_destructor_forward_to_runtime(void) {
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.shutdown_called);
 }
 
+void test_espectre_component_loop_does_not_poll_wifi_without_peer_discovery(void) {
+  ESpectreComponentProbe component;
+  component.setup();
+  int wifi_snapshot_reads = 0;
+  component.direct_bridge_.config_.wifi_snapshot_getter = [&wifi_snapshot_reads]() {
+    wifi_snapshot_reads++;
+    return DirectWifiSnapshot{};
+  };
+
+  component.loop();
+
+  TEST_ASSERT_EQUAL(0, wifi_snapshot_reads);
+  TEST_ASSERT_FALSE(component.peer_discovery_.wifi_ready_);
+}
+
 void test_espectre_component_direct_client_enables_live_telemetry(void) {
   ESpectreComponentProbe component;
   component.setup();
@@ -569,6 +584,7 @@ int process(void) {
   RUN_TEST(test_espectre_component_setup_uses_mock_runtime_snapshot);
   RUN_TEST(test_espectre_component_setup_marks_failed_when_runtime_setup_fails);
   RUN_TEST(test_espectre_component_loop_and_destructor_forward_to_runtime);
+  RUN_TEST(test_espectre_component_loop_does_not_poll_wifi_without_peer_discovery);
   RUN_TEST(test_espectre_component_direct_client_enables_live_telemetry);
   RUN_TEST(test_espectre_component_raw_session_uses_shared_controller_and_recovers);
   RUN_TEST(test_esphome_direct_exposes_common_wifi_and_label_capabilities);

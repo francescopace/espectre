@@ -166,7 +166,10 @@ bool EspIdfDirectHttpService::setup(const DirectHttpServiceConfig &config,
   http_config.max_open_sockets = static_cast<uint16_t>(config_.max_event_clients + 5U);
   http_config.max_uri_handlers = 8U;
   http_config.lru_purge_enable = false;
-  http_config.recv_wait_timeout = 1U;
+  // Direct clients commonly poll diagnostics once per second. Leave enough
+  // margin for scheduling and Wi-Fi jitter so a healthy keep-alive session is
+  // not closed immediately before the next request arrives.
+  http_config.recv_wait_timeout = 5U;
   http_config.send_wait_timeout = 1U;
   if (httpd_start(&server_, &http_config) != ESP_OK) {
     server_ = nullptr;
@@ -242,19 +245,19 @@ bool EspIdfDirectHttpService::complete_deferred_response(uint64_t request_token,
   if (response.empty() || response.size() > ESPECTRE_DIRECT_MAX_RESPONSE_SIZE || !lock_()) {
     return false;
   }
-  PendingRequest *stored = find_deferred_locked_(request_token);
-  if (stored == nullptr) {
+  const auto stored = std::find_if(deferred_.begin(), deferred_.end(),
+                                   [request_token](const PendingRequest &request) {
+                                     return request.token == request_token;
+                                   });
+  if (stored == deferred_.end()) {
     unlock_();
     return false;
   }
   PendingRequest pending = std::move(*stored);
-  deferred_.erase(std::remove_if(deferred_.begin(), deferred_.end(),
-                                 [request_token](const PendingRequest &item) {
-                                   return item.token == request_token;
-                                 }),
-                  deferred_.end());
+  deferred_.erase(stored);
+  enqueue_completed_response_locked_(std::move(pending), std::move(response));
   unlock_();
-  return finish_request_(std::move(pending), response);
+  return true;
 }
 
 void EspIdfDirectHttpService::loop() {
@@ -270,7 +273,7 @@ void EspIdfDirectHttpService::loop() {
       inbound_.pop_front();
       have_request = true;
     }
-    diagnostics_.queued_messages = inbound_.size() + deferred_.size();
+    diagnostics_.queued_messages = inbound_.size() + deferred_.size() + completed_.size();
     for (const EventClient &client : event_clients_) diagnostics_.queued_messages += client.outbound.size();
     unlock_();
   }
@@ -288,6 +291,8 @@ void EspIdfDirectHttpService::loop() {
       if (lock_()) {
         deferred_.push_back(std::move(pending));
         unlock_();
+      } else {
+        release_request_(std::move(pending));
       }
     } else {
       if (response.empty()) {
@@ -307,7 +312,7 @@ void EspIdfDirectHttpService::loop() {
         response = espectre_command_result_payload(
             device, command, false, "internal_error", "Direct response exceeds the size limit");
       }
-      (void) finish_request_(std::move(pending), response);
+      (void) enqueue_completed_response_(std::move(pending), std::move(response));
     }
   }
 #if !defined(ESP_PLATFORM)
@@ -349,10 +354,12 @@ void EspIdfDirectHttpService::shutdown() {
     for (EventClient &client : event_clients_) requests.push_back(client.request);
     for (PendingRequest &pending : inbound_) requests.push_back(pending.request);
     for (PendingRequest &pending : deferred_) requests.push_back(pending.request);
+    for (CompletedResponse &completed : completed_) requests.push_back(completed.request.request);
     event_clients_.clear();
     pending_event_connections_ = 0U;
     inbound_.clear();
     deferred_.clear();
+    completed_.clear();
     diagnostics_.queued_messages = 0U;
     unlock_();
   }
@@ -619,7 +626,8 @@ esp_err_t EspIdfDirectHttpService::handle_request_(httpd_req_t *request) {
   if (lock_()) {
     const uint64_t now_us = static_cast<uint64_t>(esp_timer_get_time());
     const bool mutation_allowed = mutation_allowed_locked_(direct.command, now_us);
-    queue_full = inbound_.size() + deferred_.size() >= config_.max_pending_requests;
+    queue_full = inbound_.size() + deferred_.size() + completed_.size() >=
+                 config_.max_pending_requests;
     if (mutation_allowed && !queue_full) {
       token = next_request_token_++;
       if (next_request_token_ == 0U) next_request_token_ = 1U;
@@ -899,10 +907,10 @@ bool EspIdfDirectHttpService::enqueue_event_locked_(EventClient *client, Outboun
   return true;
 }
 
-EspIdfDirectHttpService::PendingRequest *EspIdfDirectHttpService::find_deferred_locked_(uint64_t token) {
-  const auto found = std::find_if(deferred_.begin(), deferred_.end(),
-                                  [token](const PendingRequest &request) { return request.token == token; });
-  return found == deferred_.end() ? nullptr : &*found;
+void EspIdfDirectHttpService::enqueue_completed_response_locked_(PendingRequest request,
+                                                                 std::string response) {
+  completed_.push_back(CompletedResponse{std::move(request), std::move(response)});
+  diagnostics_.queued_messages = inbound_.size() + deferred_.size() + completed_.size();
 }
 
 bool EspIdfDirectHttpService::finish_request_(PendingRequest request, const std::string &response) {
@@ -919,6 +927,24 @@ bool EspIdfDirectHttpService::finish_request_(PendingRequest request, const std:
   return result == ESP_OK;
 }
 
+bool EspIdfDirectHttpService::enqueue_completed_response_(PendingRequest request,
+                                                          std::string response) {
+  if (request.request == nullptr || response.empty()) return false;
+  if (!lock_()) {
+    release_request_(std::move(request));
+    return false;
+  }
+  enqueue_completed_response_locked_(std::move(request), std::move(response));
+  unlock_();
+  return true;
+}
+
+void EspIdfDirectHttpService::release_request_(PendingRequest request) {
+  if (request.request != nullptr) {
+    (void) httpd_req_async_handler_complete(request.request);
+  }
+}
+
 void EspIdfDirectHttpService::service_event_streams_() {
   struct Send {
     int fd{-1};
@@ -928,7 +954,9 @@ void EspIdfDirectHttpService::service_event_streams_() {
   std::vector<Send> sends;
   const uint64_t now_us = static_cast<uint64_t>(esp_timer_get_time());
   if (lock_()) {
-    sends.reserve(event_clients_.size());
+    // Most worker iterations have nothing to send. Reserving for the active
+    // clients here would allocate and free on every 1 ms poll while an SSE
+    // connection is open, eventually starving the single-core frontend loop.
     for (EventClient &client : event_clients_) {
       if (!client.outbound.empty()) {
         sends.push_back(Send{client.fd, client.request, std::move(client.outbound.front().payload)});
@@ -1096,6 +1124,20 @@ void EspIdfDirectHttpService::dispatch_pending_callbacks_() {
 
 void EspIdfDirectHttpService::worker_loop_() {
   if (server_ == nullptr) return;
+  CompletedResponse completed;
+  bool have_response = false;
+  if (lock_()) {
+    if (!completed_.empty()) {
+      completed = std::move(completed_.front());
+      completed_.pop_front();
+      diagnostics_.queued_messages = inbound_.size() + deferred_.size() + completed_.size();
+      have_response = true;
+    }
+    unlock_();
+  }
+  if (have_response) {
+    (void) finish_request_(std::move(completed.request), completed.response);
+  }
   service_event_streams_();
 #if !defined(ESP_PLATFORM)
   (void) service_raw_stream_();

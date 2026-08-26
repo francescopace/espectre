@@ -27,4 +27,7 @@ struct DirectWifiSnapshot {
 /** Read the current ESP-IDF station configuration and association without credentials. */
 DirectWifiSnapshot read_direct_wifi_snapshot();
 
+/** Read cached IPv4 link readiness without querying the Wi-Fi driver. */
+bool read_direct_wifi_connected();
+
 }  // namespace espectre

@@ -76,7 +76,7 @@ void test_setup_registers_http_post_sse_raw_and_preflight() {
   TEST_ASSERT_EQUAL(7U, g_httpd_mock.last_config.max_open_sockets);
   TEST_ASSERT_EQUAL(8U, g_httpd_mock.last_config.max_uri_handlers);
   TEST_ASSERT_EQUAL(ESPECTRE_DIRECT_HTTP_PORT, g_httpd_mock.last_config.server_port);
-  TEST_ASSERT_EQUAL(1U, g_httpd_mock.last_config.recv_wait_timeout);
+  TEST_ASSERT_EQUAL(5U, g_httpd_mock.last_config.recv_wait_timeout);
   TEST_ASSERT_EQUAL(1U, g_httpd_mock.last_config.send_wait_timeout);
   service.shutdown();
   TEST_ASSERT_EQUAL(1, g_httpd_mock.stop_calls);
@@ -245,7 +245,12 @@ void test_deferred_post_completes_only_once() {
       token, command_result(DirectRequest{request_id, "discover_peers", "{}"}, "{\"devices\":[]}")));
   TEST_ASSERT_FALSE(service.complete_deferred_response(
       token, command_result(DirectRequest{request_id, "discover_peers", "{}"}, "{\"devices\":[]}")));
+  TEST_ASSERT_EQUAL(0, g_httpd_mock.send_calls);
+  TEST_ASSERT_EQUAL(1U, service.diagnostics().queued_messages);
+  service.loop();
   TEST_ASSERT_EQUAL(1, g_httpd_mock.send_calls);
+  TEST_ASSERT_EQUAL(0U, service.diagnostics().queued_messages);
+  TEST_ASSERT_EQUAL(1, g_httpd_mock.async_complete_calls);
 }
 
 void test_raw_get_requires_bearer_and_emits_v2_frame() {

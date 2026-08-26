@@ -189,14 +189,36 @@ void test_runtime_setup_loads_all_persisted_runtime_controls(void) {
   runtime.shutdown();
 }
 
-void test_runtime_diagnostics_read_current_wifi_association(void) {
+void test_runtime_diagnostics_cache_current_wifi_association(void) {
+  esp_wifi_mock_reset();
   RuntimeConfig config;
   EspIdfRuntime runtime(config);
+  runtime.services_armed_ = false;
+  esp_netif_ip_info_t ip_info{};
+  ip_info.ip.addr = 0x0101A8C0U;
 
-  const RuntimeDiagnosticsSnapshot diagnostics = runtime.get_diagnostics();
+  runtime.on_wifi_connected_(ip_info);
 
+  RuntimeDiagnosticsSnapshot diagnostics = runtime.get_diagnostics();
   TEST_ASSERT_EQUAL_UINT8(6U, diagnostics.wifi_channel);
   TEST_ASSERT_EQUAL_INT8(-55, diagnostics.wifi_rssi_dbm);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.get_ap_info_call_count);
+
+  runtime.csi_pipeline_.last_channel_ = 11U;
+  runtime.csi_pipeline_.last_rssi_dbm_ = -42;
+  runtime.refresh_wifi_association_from_csi_();
+  runtime.csi_pipeline_.last_channel_ = 0U;
+  runtime.csi_pipeline_.last_rssi_dbm_ = INT8_MIN;
+
+  diagnostics = runtime.get_diagnostics();
+  TEST_ASSERT_EQUAL_UINT8(11U, diagnostics.wifi_channel);
+  TEST_ASSERT_EQUAL_INT8(-42, diagnostics.wifi_rssi_dbm);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.get_ap_info_call_count);
+
+  runtime.on_wifi_disconnected_();
+  diagnostics = runtime.get_diagnostics();
+  TEST_ASSERT_EQUAL_UINT8(0U, diagnostics.wifi_channel);
+  TEST_ASSERT_EQUAL_INT8(INT8_MIN, diagnostics.wifi_rssi_dbm);
 }
 
 void test_runtime_channel_change_rearms_csi_and_restarts_calibration(void) {
@@ -372,7 +394,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_runtime_detector_adaptation_emits_threshold_changed_without_live_telemetry);
   RUN_TEST(test_runtime_motion_hits_runtime_updates_pipeline_and_persists);
   RUN_TEST(test_runtime_setup_loads_all_persisted_runtime_controls);
-  RUN_TEST(test_runtime_diagnostics_read_current_wifi_association);
+  RUN_TEST(test_runtime_diagnostics_cache_current_wifi_association);
   RUN_TEST(test_runtime_channel_change_rearms_csi_and_restarts_calibration);
   RUN_TEST(test_runtime_services_armed_preserves_wifi_ip_and_restarts_capture);
   RUN_TEST(test_runtime_raw_collection_restores_armed_and_disarmed_sensing);

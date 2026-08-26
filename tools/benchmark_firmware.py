@@ -72,7 +72,7 @@ from src.python.espectre_cli.device_transport import (
 BENCHMARK_LOCAL_ENV_PATH = SCRIPT_DIR / "benchmark_firmware.local.env"
 BENCHMARK_LOCAL_ENV = dotenv_values(BENCHMARK_LOCAL_ENV_PATH) if BENCHMARK_LOCAL_ENV_PATH.is_file() else {}
 BENCHMARK_ARTIFACT_ROOT = REPO_ROOT / "data" / "untracked" / "firmware_benchmarks"
-BENCHMARK_ARTIFACT_SCHEMA_VERSION = 2
+BENCHMARK_ARTIFACT_SCHEMA_VERSION = 3
 MONITOR_DURATION_SECONDS = 60
 WIFI_CONNECT_WAIT_SECONDS = 60
 DIRECT_DISCOVERY_TIMEOUT_SECONDS = 45
@@ -99,6 +99,13 @@ RUNTIME_STATUS_BOUNDARY_TOLERANCE_SAMPLES = 1
 MICRO_BENCHMARK_PPS = 40
 CPP_BENCHMARK_UDP_PORT = 5555
 CPP_BENCHMARK_TRAFFIC_MARKER = b"\xf0\x9f\x91\xbb"
+BENCHMARK_SOURCE_PATHS = (
+    "espectre",
+    "src/cpp",
+    "src/python/espectre_cli",
+    "src/python/micro_espectre",
+    "tools/benchmark_firmware.py",
+)
 
 SUPPORTED_CHIPS = tuple(sorted(set(ESPHOME_CONFIGS) & set(IDF_FRONTENDS["native"]["targets"])))
 CHIP_LABELS = {
@@ -196,6 +203,14 @@ class BenchmarkCase:
     @property
     def label(self) -> str:
         return f"{FRONTEND_LABELS[self.frontend]} {DETECTOR_LABELS[self.detector]}"
+
+
+@dataclass(frozen=True)
+class RepositoryState:
+    revision: str
+    worktree_dirty: bool
+    source_fingerprint: str
+
 
 @dataclass
 class CommandResult:
@@ -1701,7 +1716,7 @@ def _commands_for_case(
         config_value = str(config)
         build_command = [launcher, "esphome", "build", "--config", config_value]
         if clean:
-            build_command.append("--clean")
+            build_command.append("--clean-all")
         return (
             build_command,
             [launcher, "esphome", "flash", "--config", config_value, "--device", port],
@@ -3024,9 +3039,59 @@ def _git_worktree_dirty() -> bool:
     return completed.returncode == 0 and bool(completed.stdout.strip())
 
 
-def benchmark_artifact_dir(started_at: datetime, chip: str) -> Path:
+def _git_source_fingerprint() -> str:
+    digest = hashlib.sha256()
+    diff = subprocess.run(
+        ["git", "diff", "--binary", "--no-ext-diff", "HEAD", "--", *BENCHMARK_SOURCE_PATHS],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    untracked = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard", "-z", "--", *BENCHMARK_SOURCE_PATHS],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    if diff.returncode != 0 or untracked.returncode != 0:
+        return "unknown"
+    digest.update(diff.stdout)
+    for raw_path in sorted(path for path in untracked.stdout.split(b"\0") if path):
+        source_path = REPO_ROOT / os.fsdecode(raw_path)
+        if not source_path.is_file():
+            continue
+        digest.update(raw_path)
+        digest.update(b"\0")
+        digest.update(source_path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def repository_state() -> RepositoryState:
+    return RepositoryState(
+        revision=_git_revision(),
+        worktree_dirty=_git_worktree_dirty(),
+        source_fingerprint=_git_source_fingerprint(),
+    )
+
+
+def benchmark_source_provenance_reason(
+    state_start: RepositoryState,
+    state_end: RepositoryState,
+) -> str | None:
+    changes: list[str] = []
+    if state_end.revision != state_start.revision:
+        changes.append(f"Git revision changed from {state_start.revision} to {state_end.revision}")
+    if state_end.source_fingerprint != state_start.source_fingerprint:
+        changes.append("firmware or benchmark sources changed")
+    if not changes:
+        return None
+    return f"benchmark source provenance is invalid: {' and '.join(changes)} during the run"
+
+
+def benchmark_artifact_dir(started_at: datetime, chip: str, revision: str | None = None) -> Path:
     timestamp = started_at.astimezone().strftime("%Y%m%dT%H%M%S%z")
-    return BENCHMARK_ARTIFACT_ROOT / f"{timestamp}-{chip}-{_git_revision()}"
+    return BENCHMARK_ARTIFACT_ROOT / f"{timestamp}-{chip}-{revision or _git_revision()}"
 
 
 def _case_artifact_name(case: BenchmarkCase) -> str:
@@ -3106,7 +3171,11 @@ def write_benchmark_artifacts(
     port: str,
     started_at: datetime,
     results: Sequence[BenchmarkResult],
+    repository_state_start: RepositoryState | None = None,
+    source_changed_during_run: bool = False,
 ) -> None:
+    state_start = repository_state_start or repository_state()
+    state_end = repository_state()
     destination.mkdir(parents=True, exist_ok=True)
     manifest_cases: list[dict[str, object]] = []
     for result in results:
@@ -3146,8 +3215,14 @@ def write_benchmark_artifacts(
         {
             "cases": manifest_cases,
             "chip": chip,
-            "git_revision": _git_revision(),
-            "git_worktree_dirty": _git_worktree_dirty(),
+            "git_revision": state_start.revision,
+            "git_revision_end": state_end.revision,
+            "git_revision_changed": state_start.revision != state_end.revision,
+            "git_source_fingerprint": state_start.source_fingerprint,
+            "git_source_fingerprint_end": state_end.source_fingerprint,
+            "git_source_changed_during_run": source_changed_during_run,
+            "git_worktree_dirty": state_start.worktree_dirty,
+            "git_worktree_dirty_end": state_end.worktree_dirty,
             "monitor_duration_seconds": MONITOR_DURATION_SECONDS,
             "port": port,
             "run_started": started_at.astimezone().isoformat(timespec="seconds"),
@@ -3832,12 +3907,15 @@ def main() -> int:
             f"but --chip selects {CHIP_LABELS[args.chip]}"
         )
     started_at = datetime.now().astimezone()
+    repository_state_start = repository_state()
     artifact_dir = (
         args.artifacts_dir.resolve()
         if args.artifacts_dir is not None
-        else benchmark_artifact_dir(started_at, args.chip)
+        else benchmark_artifact_dir(started_at, args.chip, repository_state_start.revision)
     )
     results: list[BenchmarkResult] = []
+    source_changed_during_run = False
+    provenance_reason: str | None = None
     print(f"Chip:     {CHIP_LABELS[args.chip]}")
     print(f"Port:     {port}")
     print(f"Report:   {report_path.relative_to(REPO_ROOT)}")
@@ -3845,6 +3923,17 @@ def main() -> int:
     print(f"Matrix:   {', '.join(case.label for case in selected_cases)}")
 
     def write_current_report() -> Path:
+        nonlocal provenance_reason, source_changed_during_run
+        state_now = repository_state()
+        current_provenance_reason = benchmark_source_provenance_reason(repository_state_start, state_now)
+        source_changed_during_run = source_changed_during_run or current_provenance_reason is not None
+        if source_changed_during_run and provenance_reason is None:
+            provenance_reason = current_provenance_reason
+        if provenance_reason is not None:
+            for result in results:
+                if provenance_reason not in result.reasons:
+                    result.reasons.append(provenance_reason)
+                    result.status = "FAIL"
         if preserve_existing:
             report_results = merge_report_results(existing_results, results)
             expected_cases = (
@@ -3861,6 +3950,8 @@ def main() -> int:
             port=port,
             started_at=started_at,
             results=results,
+            repository_state_start=repository_state_start,
+            source_changed_during_run=source_changed_during_run,
         )
         return destination
 

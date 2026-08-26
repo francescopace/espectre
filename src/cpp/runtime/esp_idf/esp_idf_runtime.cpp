@@ -166,6 +166,8 @@ bool EspIdfRuntime::setup() {
 
   wifi_ready_ = false;
   wifi_ip_info_ = {};
+  wifi_rssi_dbm_ = INT8_MIN;
+  wifi_channel_ = 0U;
   setup_complete_ = true;
   performance_diagnostics_.reset();
   return true;
@@ -194,6 +196,7 @@ void EspIdfRuntime::loop() {
     finish_threshold_calibration_(calibration_success);
   }
   csi_pipeline_.loop();
+  refresh_wifi_association_from_csi_();
   // Detector-owned adaptation is a control-plane change, so keep the runtime
   // snapshot and listener event current even when high-rate live telemetry is
   // disabled because no frontend consumer is watching it.
@@ -220,11 +223,8 @@ void EspIdfRuntime::loop() {
 
 RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {
   RuntimeDiagnosticsSnapshot diagnostics = EspIdfRuntimeBase::get_diagnostics();
-  wifi_ap_record_t ap_info{};
-  if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
-    diagnostics.wifi_rssi_dbm = ap_info.rssi;
-    diagnostics.wifi_channel = ap_info.primary;
-  }
+  diagnostics.wifi_rssi_dbm = wifi_rssi_dbm_;
+  diagnostics.wifi_channel = wifi_channel_;
   diagnostics.traffic_packets_total = csi_traffic_service_.get_traffic_packets_total();
   diagnostics.csi_callbacks_total = csi_pipeline_.capture_callback_invocations_total();
   diagnostics.csi_classified_total = csi_pipeline_.traffic_classified_packets_total();
@@ -617,6 +617,14 @@ void EspIdfRuntime::on_wifi_connected_(const esp_netif_ip_info_t &ip_info) {
 
   wifi_ready_ = true;
   wifi_ip_info_ = ip_info;
+  wifi_ap_record_t ap_info{};
+  if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
+    wifi_rssi_dbm_ = ap_info.rssi;
+    wifi_channel_ = ap_info.primary;
+  } else {
+    wifi_rssi_dbm_ = INT8_MIN;
+    wifi_channel_ = 0U;
+  }
   if (!services_armed_) {
     ESP_LOGI(RUNTIME_TAG, "Wi-Fi connected, CSI services not armed");
     return;
@@ -628,11 +636,21 @@ void EspIdfRuntime::on_wifi_connected_(const esp_netif_ip_info_t &ip_info) {
 void EspIdfRuntime::on_wifi_disconnected_() {
   wifi_ready_ = false;
   wifi_ip_info_ = {};
+  wifi_rssi_dbm_ = INT8_MIN;
+  wifi_channel_ = 0U;
   if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
     (void) stop_raw_collection(RawCsiStopReason::WIFI_LOST);
     return;
   }
   stop_sensing_services_();
+}
+
+void EspIdfRuntime::refresh_wifi_association_from_csi_() {
+  if (!wifi_ready_) return;
+  const int8_t rssi_dbm = csi_pipeline_.last_rssi_dbm();
+  const uint8_t channel = csi_pipeline_.last_channel();
+  if (rssi_dbm != INT8_MIN) wifi_rssi_dbm_ = rssi_dbm;
+  if (channel != 0U) wifi_channel_ = channel;
 }
 
 void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) {

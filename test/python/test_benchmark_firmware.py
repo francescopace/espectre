@@ -132,8 +132,17 @@ def test_improv_rpc_response_validates_lengths_and_utf8():
 
     assert command == ImprovCommand.WIFI_SETTINGS
     assert values == ("http://192.0.2.10",)
+
+    # ESPHome includes Improv SDK's reserved inner checksum slot in the outer
+    # serial frame when checksum generation is disabled.
+    command, values = parse_improv_rpc_response(frame.data + b"\x00")
+
+    assert command == ImprovCommand.WIFI_SETTINGS
+    assert values == ("http://192.0.2.10",)
     with pytest.raises(ImprovProtocolError, match="length"):
         parse_improv_rpc_response(b"\x01\x01\x01x")
+    with pytest.raises(ImprovProtocolError, match="length"):
+        parse_improv_rpc_response(frame.data + b"\x01")
 
 
 def test_improv_client_handles_multiple_frames_in_one_serial_read():
@@ -1152,6 +1161,22 @@ api:
     assert not config_path.exists()
 
 
+def test_esphome_bootstrap_build_cleans_shared_component_caches(tmp_path):
+    case = bench.BenchmarkCase("esphome", "lightweight")
+    config = tmp_path / "espectre-c3.yaml"
+
+    build, _flash, _monitor = bench._commands_for_case(
+        case,
+        "c3",
+        "/dev/cu.test",
+        config,
+        clean=True,
+    )
+
+    assert build[-1] == "--clean-all"
+    assert "--clean" not in build
+
+
 def test_esphome_case_config_can_keep_api_compiled_without_listener(tmp_path, monkeypatch):
     source_path = tmp_path / "espectre-c3.yaml"
     source_path.write_text(
@@ -1409,6 +1434,47 @@ def test_micro_artifacts_do_not_persist_runtime_serial_output(tmp_path, monkeypa
     assert not (case_dir / "monitor.jsonl").exists()
     assert manifest["cases"][0]["commands"]["monitor"]["returncode"] == 0
     assert manifest["schema_version"] == bench.BENCHMARK_ARTIFACT_SCHEMA_VERSION
+
+
+def test_benchmark_artifacts_preserve_starting_source_provenance(tmp_path, monkeypatch):
+    case = bench.BenchmarkCase("esphome", "lightweight")
+    result = bench.BenchmarkResult(case=case, status="FAIL")
+    state_start = bench.RepositoryState("aaaaaaaaaaaa", True, "source-start")
+    state_end = bench.RepositoryState("bbbbbbbbbbbb", False, "source-end")
+    monkeypatch.setattr(bench, "repository_state", lambda: state_end)
+
+    bench.write_benchmark_artifacts(
+        tmp_path,
+        chip="c3",
+        port="/dev/cu.test",
+        started_at=datetime.fromisoformat("2026-08-26T12:49:37+02:00"),
+        results=[result],
+        repository_state_start=state_start,
+        source_changed_during_run=True,
+    )
+
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["git_revision"] == "aaaaaaaaaaaa"
+    assert manifest["git_revision_end"] == "bbbbbbbbbbbb"
+    assert manifest["git_revision_changed"] is True
+    assert manifest["git_source_fingerprint"] == "source-start"
+    assert manifest["git_source_fingerprint_end"] == "source-end"
+    assert manifest["git_source_changed_during_run"] is True
+    assert manifest["git_worktree_dirty"] is True
+    assert manifest["git_worktree_dirty_end"] is False
+
+
+def test_benchmark_source_provenance_detects_revision_and_source_changes():
+    state_start = bench.RepositoryState("aaaaaaaaaaaa", False, "source-start")
+
+    assert bench.benchmark_source_provenance_reason(state_start, state_start) is None
+    assert bench.benchmark_source_provenance_reason(
+        state_start,
+        bench.RepositoryState("bbbbbbbbbbbb", False, "source-end"),
+    ) == (
+        "benchmark source provenance is invalid: Git revision changed from aaaaaaaaaaaa to "
+        "bbbbbbbbbbbb and firmware or benchmark sources changed during the run"
+    )
 
 
 def test_cpp_artifacts_store_only_normalized_direct_evidence(tmp_path):

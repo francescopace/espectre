@@ -166,7 +166,16 @@ def encode_improv_rpc(command: ImprovCommand, values: Sequence[str] = ()) -> byt
 
 
 def parse_improv_rpc_response(data: bytes) -> tuple[ImprovCommand, tuple[str, ...]]:
-    if len(data) < 2 or data[1] != len(data) - 2:
+    if len(data) < 2:
+        raise ImprovProtocolError("invalid Improv RPC response length")
+    declared_length = data[1]
+    actual_length = len(data) - 2
+    if declared_length + 1 == actual_length and data[-1] == 0:
+        # Improv SDK 1.2.x reserves an inner checksum byte even when
+        # add_checksum=false. ESPHome includes that zero byte in the outer
+        # serial frame, while the Native frontend removes it.
+        data = data[:-1]
+    elif declared_length != actual_length:
         raise ImprovProtocolError("invalid Improv RPC response length")
     try:
         command = ImprovCommand(data[0])

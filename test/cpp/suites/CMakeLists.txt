@@ -187,3 +187,4 @@ target_link_libraries(espectre_capabilities_probe
     PRIVATE
         espectre_runtime_testlib
 )
+espectre_apply_coverage(espectre_capabilities_probe)

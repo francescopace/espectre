@@ -299,7 +299,11 @@ bool TrafficGeneratorManager::start(uint32_t gateway_addr) {
   reset_runtime_state_();
   running_.store(true, std::memory_order_relaxed);
   task_exited_.store(false, std::memory_order_relaxed);
-  const BaseType_t result = xTaskCreate(traffic_task_, "traffic_gen", 3072, this, 5, &task_handle_);
+  // The generator is best-effort sensing stimulus. Keeping it above the
+  // frontend loop can starve the single-core C3 while lwIP drains a burst,
+  // preventing the loop watchdog from being serviced.
+  const BaseType_t result = xTaskCreate(traffic_task_, "traffic_gen", 3072, this,
+                                        tskIDLE_PRIORITY + 1U, &task_handle_);
   if (result != pdPASS) {
     running_.store(false, std::memory_order_relaxed);
     task_exited_.store(true, std::memory_order_relaxed);

@@ -80,6 +80,11 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
     std::string origin;
   };
 
+  struct CompletedResponse {
+    PendingRequest request;
+    std::string response;
+  };
+
   struct RawSampleSlot {
     RawCsiPacketView metadata{};
     std::array<int8_t, RAW_CSI_MAX_PAYLOAD_BYTES> csi{};
@@ -120,7 +125,9 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   bool read_bearer_(httpd_req_t *request, std::string *value) const;
   bool mutation_allowed_locked_(const std::string &method, uint64_t now_us);
   bool enqueue_event_locked_(EventClient *client, OutboundEvent event);
-  PendingRequest *find_deferred_locked_(uint64_t token);
+  void enqueue_completed_response_locked_(PendingRequest request, std::string response);
+  bool enqueue_completed_response_(PendingRequest request, std::string response);
+  void release_request_(PendingRequest request);
   bool finish_request_(PendingRequest request, const std::string &response);
   void service_event_streams_();
   bool service_raw_stream_();
@@ -145,6 +152,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   size_t pending_event_connections_{0U};
   std::deque<PendingRequest> inbound_;
   std::vector<PendingRequest> deferred_;
+  std::deque<CompletedResponse> completed_;
   DirectHttpServiceDiagnostics diagnostics_{};
   uint64_t next_request_token_{1U};
   uint64_t mutation_window_started_us_{0U};

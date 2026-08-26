@@ -114,8 +114,11 @@ bool RuntimeDirectHttpBridge::setup(IDirectHttpService *service,
 void RuntimeDirectHttpBridge::loop() {
   if (service_ != nullptr && service_->running()) {
     raw_session_controller_.ensure_runtime_consistency();
-    if (config_.peer_discovery != nullptr) {
-      config_.peer_discovery->set_wifi_ready(wifi_snapshot_().connected);
+    if (config_.peer_discovery != nullptr && config_.peer_discovery->active()) {
+      // Refresh link readiness only while discovery is active. Even the cheap
+      // netif query may contend with the Wi-Fi task on single-core targets and
+      // must not run in every frontend loop.
+      config_.peer_discovery->set_wifi_ready(read_direct_wifi_connected());
       config_.peer_discovery->loop();
     }
     service_->loop();
@@ -287,6 +290,7 @@ IDirectHttpService::DeferredRequestResult RuntimeDirectHttpBridge::handle_deferr
     return {false, espectre_command_result_payload(device, command, false, "conflict",
                                                    "a peer discovery request is already active")};
   }
+  config_.peer_discovery->set_wifi_ready(read_direct_wifi_connected());
   const bool started = config_.peer_discovery->start(
       [this, request_token, request_id = request.command_id, command_name = request.command](PeerDiscoverySnapshot snapshot) {
         if (service_ == nullptr) return;

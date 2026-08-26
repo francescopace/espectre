@@ -11,6 +11,7 @@
 #include <cstring>
 
 #if defined(ESP_PLATFORM)
+#include <esp_netif.h>
 #include <esp_wifi.h>
 #endif
 
@@ -48,6 +49,17 @@ DirectWifiSnapshot read_direct_wifi_snapshot() {
   }
 #endif
   return snapshot;
+}
+
+bool read_direct_wifi_connected() {
+#if defined(ESP_PLATFORM)
+  esp_netif_t *station = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+  esp_netif_ip_info_t ip_info{};
+  return station != nullptr && esp_netif_get_ip_info(station, &ip_info) == ESP_OK &&
+         ip_info.ip.addr != 0U;
+#else
+  return false;
+#endif
 }
 
 }  // namespace espectre
