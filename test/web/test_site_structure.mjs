@@ -1434,10 +1434,21 @@ describe('website UX contracts', () => {
         assert.match(rawPage, /js-raw-csi-choose-device/);
         assert.match(rawPage, /js-raw-pps/);
         assert.match(rawPage, /raw-csi-stats[\s\S]*js-raw-pps[\s\S]*js-raw-fresh/);
+        for (const metric of ['snr', 'capture-interval']) {
+            assert.match(rawPage, new RegExp(`js-raw-${metric}`));
+        }
+        assert.equal((rawPage.match(/js-raw-csi-toggle/g) || []).length, 1);
+        assert.ok(rawPage.indexOf('js-raw-csi-toggle') < rawPage.indexOf('js-raw-visualization-select'));
+        assert.ok(rawPage.indexOf('raw-csi-visualizer') < rawPage.indexOf('raw-csi-diagnostics'));
+        assert.match(rawPage, /<details class="device-live-diagnostics raw-csi-diagnostics">[\s\S]*raw-csi-stats/);
         assert.match(app, /function rawCsiDirectReady\(\) \{\s*return conn\.mode === 'direct' && conn\.status === 'connected' && Boolean\(directClient\?\.connected\)/);
         assert.match(rawClient, /conn\.status !== 'connected' \|\| !\['direct', 'demo'\]\.includes\(conn\.mode\)[\s\S]*onboarding\.hidden = false/);
         assert.match(rawClient, /if \(conn\.mode === 'demo'\) \{[\s\S]*rawCsiSetAvailable\(true\)/);
         assert.match(rawClient, /function rawCsiStartDemo\(targetPps\)/);
+        assert.match(rawClient, /function rawCsiCollectRadioMetrics\(view\)/);
+        assert.match(rawClient, /function rawCsiCollectCaptureInterval\(captureTicksUs\)/);
+        assert.match(rawClient, /function rawCsiFlushMetrics\(\)/);
+        assert.match(rawClient, /setInterval\(rawCsiFlushMetrics, 1000\)/);
         assert.match(rawClient, /if \(conn\.mode === 'demo'\) \{\s*rawCsiStartDemo\(100\);\s*return;/);
         assert.match(rawClient, /const client = directClient;[\s\S]*client\.request\('start_raw_stream'/);
         assert.doesNotMatch(rawClient, /makeDirectClient|client\.connect\(|client\.handshake\(|client\.close\(/);
@@ -1447,6 +1458,7 @@ describe('website UX contracts', () => {
         assert.match(rawClient, /if \(rawCsi\.state === 'stopping'\) return rawCsi\.stopPromise/);
         assert.match(rawClient, /const pendingStart = rawCsi\.startRequest[\s\S]*await pendingStart/);
         assert.match(rawClient, /rawCsi\.generation !== generation \|\| rawCsi\.state !== 'starting'/);
+        assert.match(rawClient, /function rawCsiToggle\(\) \{[\s\S]*rawCsiStart\(\)[\s\S]*rawCsiStop\(\)/);
         assert.match(app, /previousRoute === 'tool-raw-csi'[\s\S]*void rawCsiStop\(\)/);
         assert.match(app, /rawCapability\?\.protocol_version === 2[\s\S]*rawCapability\?\.marker === '👻'/);
     });
@@ -1463,8 +1475,7 @@ describe('website UX contracts', () => {
         ];
         assert.equal((rawPage.match(/class="js-raw-visualization"/g) || []).length, 1);
         assert.equal((rawPage.match(/<option value=/g) || []).length, visualizationValues.length);
-        assert.match(rawPage, /<label for="raw-csi-visualization">/);
-        assert.match(rawPage, /<select id="raw-csi-visualization" class="js-raw-visualization-select">/);
+        assert.match(rawPage, /<select id="raw-csi-visualization" class="js-raw-visualization-select" aria-label=/);
         for (const value of visualizationValues) {
             assert.match(rawPage, new RegExp(`<option value="${value}">`));
             assert.match(rawClient, new RegExp(`'${value}'`));
@@ -1473,13 +1484,16 @@ describe('website UX contracts', () => {
         assert.match(rawClient, /canvas\.setAttribute\('aria-label', metadata\.ariaLabel\)/);
         assert.match(rawClient, /rawCsiNormalizeProfile\(amplitudes\)/);
         assert.match(rawClient, /Math\.log\(\(profile\[index\] \+ 0\.05\) \/ \(baseline \+ 0\.05\)\)/);
+        assert.match(rawClient, /function rawCsiWaterfallColor\(active, alpha = 1\)/);
         assert.match(rawClient, /function rawCsiSanitizedPhase\(iValues, qValues, profile\)/);
         assert.match(rawClient, /const RAW_CSI_CHANNEL_GHOST_GAIN = 5;/);
         assert.match(rawClient, /RAW_CSI_PHASE_TRAIL_GAIN/);
-        assert.match(rawClient, /function rawCsiUpdatePacketRate\(received\)/);
+        assert.doesNotMatch(rawClient, /function rawCsiUpdatePacketRate\(received\)/);
         assert.match(rawClient, /function rawCsiDrawIqConstellation\(context, canvas\)/);
-        assert.match(rawClient, /const RAW_CSI_IQ_WINDOW_US = 1000000;/);
+        assert.match(rawClient, /const RAW_CSI_IQ_WINDOW_US = 2000000;/);
+        assert.match(rawClient, /const RAW_CSI_IQ_EXTENT = 128;/);
         assert.match(rawClient, /captureTicksUs - rawCsi\.iqTimestampsUs\[0\] > RAW_CSI_IQ_WINDOW_US/);
+        assert.match(rawClient, /context\.fillStyle = `hsl\(\$\{hue\} 94% 68%\)`;/);
         assert.match(rawClient, /qValues\[index\] = view\.getInt8\(offset\)/);
         assert.match(rawClient, /iValues\[index\] = view\.getInt8\(offset \+ 1\)/);
         assert.match(rawClient, /new ResizeObserver\(rawCsiResizeVisualization\)/);

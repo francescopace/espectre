@@ -5321,7 +5321,8 @@
     const RAW_CSI_V8_HEADER_BYTES = 64;
     const RAW_CSI_VISUAL_HISTORY = 720;
     const RAW_CSI_PHASE_HISTORY = 72;
-    const RAW_CSI_IQ_WINDOW_US = 1000000;
+    const RAW_CSI_IQ_WINDOW_US = 2000000;
+    const RAW_CSI_IQ_EXTENT = 128;
     const RAW_CSI_VISUAL_STEP_US = 33333;
     const RAW_CSI_RENDER_INTERVAL_MS = 1000 / 30;
     const RAW_CSI_CHANNEL_GHOST_GAIN = 5;
@@ -5350,7 +5351,7 @@
         }),
         'iq-constellation': Object.freeze({
             title: 'I/Q constellation',
-            description: 'Recent raw Espressif I/Q samples from the 12 production subcarriers over a one-second window.',
+            description: 'Recent raw Espressif I/Q samples from the 12 production subcarriers over a two-second window.',
             badge: 'LIVE',
             ariaLabel: 'Recent raw CSI I and Q constellation samples by subcarrier'
         }),
@@ -5365,6 +5366,7 @@
         sessionClient: null,
         controller: null,
         demoTimer: null,
+        metricsTimer: null,
         demoFresh: 0,
         state: 'idle',
         generation: 0,
@@ -5378,7 +5380,6 @@
         phaseHistory: [],
         iqHistory: [],
         iqTimestampsUs: [],
-        packetArrivalTimes: [],
         baseline: null,
         latestProfile: null,
         latestDelta: null,
@@ -5386,6 +5387,18 @@
         lastVisualTicksUs: 0,
         lastRenderAt: 0,
         renderFrame: 0,
+        metricsWindowStartedAt: 0,
+        metricsReceived: 0,
+        metricsRssiSum: 0,
+        metricsRssiSamples: 0,
+        metricsSnrSum: 0,
+        metricsSnrSamples: 0,
+        metricsCaptureIntervalMsSum: 0,
+        metricsCaptureIntervalSamples: 0,
+        metricsLastCaptureTicksUs: 0,
+        metricsFresh: 0,
+        metricsDropped: 0,
+        metricsBackpressure: 0,
         heatmapSurface: null,
         heatmapPixels: null,
         resizeObserver: null
@@ -5443,10 +5456,13 @@
 
     function rawCsiSetState(state) {
         rawCsi.state = state;
-        const start = $('.js-raw-csi-start');
-        const stop = $('.js-raw-csi-stop');
-        if (start) start.disabled = state !== 'idle';
-        if (stop) stop.disabled = state === 'idle' || state === 'stopping';
+        const toggle = $('.js-raw-csi-toggle');
+        if (!toggle) return;
+        const idle = state === 'idle';
+        toggle.textContent = state === 'stopping' ? 'Stopping…' : idle ? 'Start' : 'Stop';
+        toggle.disabled = state === 'stopping';
+        toggle.classList.toggle('btn-primary', idle);
+        toggle.classList.toggle('btn-secondary', !idle);
     }
 
     function rawCsiCounter(selector, value) {
@@ -5455,12 +5471,86 @@
             ? value.toLocaleString('en-US') : Number(value).toLocaleString('en-US');
     }
 
-    function rawCsiUpdatePacketRate(received) {
+    function rawCsiLabel(selector, value) {
+        const element = $(selector);
+        if (element) element.textContent = value || '—';
+    }
+
+    function rawCsiCollectSignalSample(rssi, noiseFloor) {
+        rawCsi.metricsRssiSum += rssi;
+        rawCsi.metricsRssiSamples += 1;
+        if (noiseFloor < 0) {
+            rawCsi.metricsSnrSum += rssi - noiseFloor;
+            rawCsi.metricsSnrSamples += 1;
+        }
+    }
+
+    function rawCsiCollectRadioMetrics(view) {
+        const rssi = view.getInt8(43);
+        const noiseFloor = view.getInt8(44);
+        rawCsiCollectSignalSample(rssi, noiseFloor);
+    }
+
+    function rawCsiCollectCaptureInterval(captureTicksUs) {
+        const previousTicksUs = rawCsi.metricsLastCaptureTicksUs;
+        const intervalMs = previousTicksUs > 0 && captureTicksUs > previousTicksUs
+            ? (captureTicksUs - previousTicksUs) / 1000 : 0;
+        if (intervalMs > 0) {
+            rawCsi.metricsCaptureIntervalMsSum += intervalMs;
+            rawCsi.metricsCaptureIntervalSamples += 1;
+        }
+        rawCsi.metricsLastCaptureTicksUs = captureTicksUs;
+    }
+
+    function rawCsiResetMetricWindow(now = performance.now()) {
+        rawCsi.metricsWindowStartedAt = now;
+        rawCsi.metricsReceived = 0;
+        rawCsi.metricsRssiSum = 0;
+        rawCsi.metricsRssiSamples = 0;
+        rawCsi.metricsSnrSum = 0;
+        rawCsi.metricsSnrSamples = 0;
+        rawCsi.metricsCaptureIntervalMsSum = 0;
+        rawCsi.metricsCaptureIntervalSamples = 0;
+    }
+
+    function rawCsiFlushMetrics() {
         const now = performance.now();
-        if (received) rawCsi.packetArrivalTimes.push(now);
-        const cutoff = now - 1000;
-        while (rawCsi.packetArrivalTimes[0] <= cutoff) rawCsi.packetArrivalTimes.shift();
-        rawCsiCounter('.js-raw-pps', rawCsi.packetArrivalTimes.length);
+        const elapsedMs = Math.max(1, now - rawCsi.metricsWindowStartedAt);
+        rawCsiCounter('.js-raw-pps', Math.round(rawCsi.metricsReceived * 1000 / elapsedMs));
+        rawCsiCounter('.js-raw-fresh', rawCsi.metricsFresh);
+        rawCsiCounter('.js-raw-dropped', rawCsi.metricsDropped);
+        rawCsiCounter('.js-raw-backpressure', rawCsi.metricsBackpressure);
+        rawCsiLabel('.js-raw-capture-interval', rawCsi.metricsCaptureIntervalSamples > 0
+            ? (rawCsi.metricsCaptureIntervalMsSum / rawCsi.metricsCaptureIntervalSamples).toFixed(1)
+            : '—');
+        rawCsiLabel('.js-raw-rssi', rawCsi.metricsRssiSamples > 0
+            ? (rawCsi.metricsRssiSum / rawCsi.metricsRssiSamples).toFixed(1)
+            : '—');
+        rawCsiLabel('.js-raw-snr', rawCsi.metricsSnrSamples > 0
+            ? (rawCsi.metricsSnrSum / rawCsi.metricsSnrSamples).toFixed(1)
+            : '—');
+        rawCsiResetMetricWindow(now);
+    }
+
+    function rawCsiStartMetrics() {
+        clearInterval(rawCsi.metricsTimer);
+        rawCsi.metricsFresh = 0;
+        rawCsi.metricsDropped = 0;
+        rawCsi.metricsBackpressure = 0;
+        rawCsi.metricsLastCaptureTicksUs = 0;
+        rawCsiResetMetricWindow();
+        ['.js-raw-pps', '.js-raw-fresh', '.js-raw-dropped', '.js-raw-backpressure']
+            .forEach((selector) => rawCsiCounter(selector, 0));
+        ['.js-raw-capture-interval', '.js-raw-rssi', '.js-raw-snr']
+            .forEach((selector) => rawCsiLabel(selector, '—'));
+        rawCsi.metricsTimer = setInterval(rawCsiFlushMetrics, 1000);
+    }
+
+    function rawCsiStopMetrics() {
+        clearInterval(rawCsi.metricsTimer);
+        rawCsi.metricsTimer = null;
+        rawCsi.metricsReceived = 0;
+        rawCsiCounter('.js-raw-pps', 0);
     }
 
     function rawCsiPushBounded(collection, value, limit) {
@@ -5480,8 +5570,6 @@
         rawCsi.phaseHistory.length = 0;
         rawCsi.iqHistory.length = 0;
         rawCsi.iqTimestampsUs.length = 0;
-        rawCsi.packetArrivalTimes.length = 0;
-        rawCsiCounter('.js-raw-pps', 0);
         rawCsi.baseline = null;
         rawCsi.latestProfile = null;
         rawCsi.latestDelta = null;
@@ -5654,6 +5742,14 @@
         pixels[offset + 3] = 255;
     }
 
+    function rawCsiWaterfallColor(active, alpha = 1) {
+        const intensity = Math.max(0, Math.min(1, active));
+        const hue = Math.round(205 - intensity * 157);
+        const saturation = Math.round(88 + intensity * 8);
+        const lightness = Math.round(61 + intensity * 4);
+        return `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha})`;
+    }
+
     function rawCsiDrawHeatmap(context, canvas) {
         if (!rawCsi.profiles.length) {
             rawCsiDrawEmpty(context, canvas);
@@ -5732,7 +5828,7 @@
         const backY = 54;
         const frontY = canvas.height - 58;
         const maximumSpan = canvas.width - 110;
-        context.strokeStyle = 'rgba(111, 91, 220, .16)';
+        context.strokeStyle = 'rgba(77, 156, 255, .14)';
         context.lineWidth = 1;
         for (let line = 0; line <= 8; line += 1) {
             const x = centerX - maximumSpan / 2 + line * maximumSpan / 8;
@@ -5753,13 +5849,10 @@
             energy /= RAW_CSI_LIVE_SUBCARRIERS.length;
             const active = Math.sqrt(Math.min(1, energy / 0.08));
             const alpha = 0.16 + depth * 0.7;
-            const red = Math.round(112 + active * 143);
-            const green = Math.round(68 + active * 10);
-            const blue = Math.round(255 - active * 155);
-            context.strokeStyle = `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+            context.strokeStyle = rawCsiWaterfallColor(active, alpha);
             context.lineWidth = profileIndex === profiles.length - 1 ? 2.8 : 1 + active * 0.55;
             context.shadowColor = profileIndex === profiles.length - 1
-                ? `rgba(${red}, ${green}, ${blue}, .9)` : 'transparent';
+                ? rawCsiWaterfallColor(active, .9) : 'transparent';
             context.shadowBlur = profileIndex === profiles.length - 1 ? 14 : 0;
             [[4, 31], [33, 60]].forEach(([start, end]) => {
                 context.beginPath();
@@ -5892,18 +5985,7 @@
         const subcarrierCount = latest.length / 2;
         const selectedSubcarriers = RAW_CSI_SELECTED_SUBCARRIERS
             .filter((subcarrier) => subcarrier < subcarrierCount);
-        const absoluteValues = [];
-        rawCsi.iqHistory.forEach((sample) => {
-            selectedSubcarriers.forEach((subcarrier) => {
-                absoluteValues.push(
-                    Math.abs(sample[subcarrier * 2]), Math.abs(sample[subcarrier * 2 + 1]));
-            });
-        });
-        absoluteValues.sort((left, right) => left - right);
-        const percentileIndex = Math.min(absoluteValues.length - 1,
-            Math.floor(absoluteValues.length * 0.98));
-        const extent = Math.max(12, Math.min(128,
-            (absoluteValues[percentileIndex] || 0) * 1.12));
+        const extent = RAW_CSI_IQ_EXTENT;
         const panelSize = Math.min(canvas.height - 58, canvas.width - 30);
         const top = (canvas.height - panelSize) / 2;
         const centerX = canvas.width / 2;
@@ -5931,10 +6013,9 @@
         context.strokeRect(left + 0.5, top + 0.5, panelSize - 1, panelSize - 1);
         selectedSubcarriers.forEach((subcarrier, subcarrierIndex) => {
             const hue = 188 + subcarrierIndex * 12;
-            rawCsi.iqHistory.forEach((sample, historyIndex) => {
-                const depth = (historyIndex + 1) / rawCsi.iqHistory.length;
+            rawCsi.iqHistory.forEach((sample) => {
                 const point = pointPosition(sample, subcarrier);
-                context.fillStyle = `hsla(${hue}, 94%, 68%, ${0.05 + depth * depth * 0.36})`;
+                context.fillStyle = `hsl(${hue} 94% 68%)`;
                 context.fillRect(centerX + point.x - 1.2, centerY - point.y - 1.2, 2.4, 2.4);
             });
             const point = pointPosition(latest, subcarrier);
@@ -5949,7 +6030,7 @@
         context.fillStyle = 'rgba(255, 255, 255, .58)';
         context.font = '12px ui-monospace, "SFMono-Regular", Consolas, monospace';
         context.textAlign = 'center';
-        context.fillText('12 PRODUCTION SUBCARRIERS · 1 SECOND', centerX, top - 10);
+        context.fillText('12 PRODUCTION SUBCARRIERS · 2 SECONDS', centerX, top - 10);
         context.textAlign = 'right';
         context.fillText('I →', left + panelSize, top + panelSize + 18);
         context.textAlign = 'left';
@@ -6127,21 +6208,21 @@
             iValues[index] = view.getInt8(offset + 1);
             amplitudes[index] = Math.hypot(iValues[index], qValues[index]);
         }
-        rawCsiCounter('.js-raw-rssi', view.getInt8(43));
-        rawCsiCounter('.js-raw-channel', view.getUint8(42));
+        rawCsiCollectRadioMetrics(view);
         const capturedTicksUs = Number(view.getBigUint64(22, true))
             || rawCsi.lastCaptureTicksUs + RAW_CSI_VISUAL_STEP_US;
+        rawCsiCollectCaptureInterval(capturedTicksUs);
         rawCsiIngestVisualFrame(amplitudes, iValues, qValues, capturedTicksUs);
     }
 
     function rawCsiAppend(chunk) {
         if (!rawCsi.parser) throw new Error('Raw CSI parser is not initialized.');
         rawCsi.parser.append(chunk).forEach((frame) => {
-            rawCsiCounter('.js-raw-fresh', frame.freshRecordTotal);
-            rawCsiCounter('.js-raw-dropped', frame.rawDropTotal);
-            rawCsiCounter('.js-raw-backpressure', frame.sendBackpressureTotal);
+            rawCsi.metricsFresh = frame.freshRecordTotal;
+            rawCsi.metricsDropped = frame.rawDropTotal;
+            rawCsi.metricsBackpressure = frame.sendBackpressureTotal;
             rawCsiConsumeRecord(frame.record, frame.streamSequence);
-            rawCsiUpdatePacketRate(true);
+            rawCsi.metricsReceived += 1;
         });
     }
 
@@ -6160,12 +6241,15 @@
             qValues[index] = Math.sin(phase) * amplitude;
             amplitudes[index] = amplitude;
         }
-        rawCsiIngestVisualFrame(amplitudes, iValues, qValues, Math.round(performance.now() * 1000));
+        const captureTicksUs = Math.round(performance.now() * 1000);
+        rawCsiCollectCaptureInterval(captureTicksUs);
+        rawCsiIngestVisualFrame(amplitudes, iValues, qValues, captureTicksUs);
         rawCsi.demoFresh += Math.max(1, Math.round(targetPps * intervalMs / 1000));
-        rawCsiCounter('.js-raw-pps', targetPps);
-        rawCsiCounter('.js-raw-fresh', rawCsi.demoFresh);
-        rawCsiCounter('.js-raw-rssi', Math.round(-50 + motion * 7));
-        rawCsiCounter('.js-raw-channel', 6);
+        rawCsi.metricsFresh = rawCsi.demoFresh;
+        rawCsi.metricsReceived += 1;
+        const rssi = Math.round(-50 + motion * 7);
+        const noiseFloor = -96;
+        rawCsiCollectSignalSample(rssi, noiseFloor);
     }
 
     function rawCsiStartDemo(targetPps) {
@@ -6173,8 +6257,7 @@
         const startedAtMs = performance.now();
         rawCsi.demoFresh = 0;
         rawCsiResetVisualization();
-        ['.js-raw-fresh', '.js-raw-dropped', '.js-raw-backpressure']
-            .forEach((selector) => rawCsiCounter(selector, 0));
+        rawCsiStartMetrics();
         rawCsiSetState('running');
         rawCsiStatus(`Streaming simulated CSI at ${targetPps} target packets/s.`);
         rawCsiDemoFrame(targetPps, intervalMs, startedAtMs);
@@ -6191,12 +6274,11 @@
         clearInterval(rawCsi.demoTimer);
         rawCsi.demoTimer = null;
         rawCsi.demoFresh = 0;
+        rawCsiStopMetrics();
         rawCsi.controller?.abort('raw stream stopped');
         rawCsi.controller = null;
         rawCsiSetState('stopping');
         rawCsi.parser = null;
-        rawCsi.packetArrivalTimes.length = 0;
-        rawCsiCounter('.js-raw-pps', 0);
         rawCsi.stopPromise = (async () => {
             try { await pendingStart; } catch (_error) { /* a failed start has no device session to release */ }
             if (client?.rawSessionId && client.connected) {
@@ -6245,6 +6327,7 @@
             });
             if (rawCsi.generation !== generation || rawCsi.state !== 'starting') return;
             if (!response.ok || !response.body) throw new Error(`Raw stream returned HTTP ${response.status}.`);
+            rawCsiStartMetrics();
             rawCsiSetState('running');
             rawCsiStatus('Streaming every classified CSI frame received from the configured traffic generator.');
             const reader = response.body.getReader();
@@ -6274,10 +6357,14 @@
         directEndpointInput()?.focus();
     }
 
+    function rawCsiToggle() {
+        if (rawCsi.state === 'idle') void rawCsiStart();
+        else if (rawCsi.state !== 'stopping') void rawCsiStop();
+    }
+
     function rawCsiInit() {
         $('.js-raw-csi-choose-device')?.addEventListener('click', rawCsiChooseDevice);
-        $('.js-raw-csi-start')?.addEventListener('click', rawCsiStart);
-        $('.js-raw-csi-stop')?.addEventListener('click', () => rawCsiStop());
+        $('.js-raw-csi-toggle')?.addEventListener('click', rawCsiToggle);
         $('.js-raw-visualization-select')?.addEventListener('change', (event) => {
             rawCsiSelectVisualization(event.target.value);
         });

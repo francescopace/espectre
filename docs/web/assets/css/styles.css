@@ -1989,25 +1989,9 @@ ewt-install-dialog {
   border-radius: 10px;
 }
 
-.raw-csi-controls .field-row {
-  align-items: end;
-}
-
-.raw-csi-controls .panel-actions {
-  margin: 0;
-}
-
-.raw-csi-stats {
-  margin: 1rem 0;
-}
-
-.raw-csi-visualizer {
-  margin-top: 1rem;
-}
-
 .raw-csi-visualizer-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(210px, 260px);
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 24px;
   align-items: end;
   margin-bottom: 16px;
@@ -2025,6 +2009,20 @@ ewt-install-dialog {
 
 .raw-csi-visualization-description {
   margin: 4px 0 0;
+}
+
+.raw-csi-visualization-actions {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+}
+
+.raw-csi-visualization-actions > button {
+  flex: 0 0 auto;
+}
+
+.raw-csi-visualization-picker {
+  min-width: 210px;
 }
 
 .raw-csi-visualization-picker label {
@@ -2046,11 +2044,30 @@ ewt-install-dialog {
   background: #05070d;
 }
 
+.raw-csi-visualizer > .tool-note {
+  margin-bottom: 0;
+}
+
+@media (min-width: 960px) {
+  .raw-csi-stats {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 620px) {
   .raw-csi-visualizer-head {
     grid-template-columns: 1fr;
     gap: 14px;
     align-items: stretch;
+  }
+
+  .raw-csi-visualization-actions {
+    align-items: end;
+  }
+
+  .raw-csi-visualization-picker {
+    flex: 1;
+    min-width: 0;
   }
 }
 .js-mon-state.motion { color: var(--accent); }

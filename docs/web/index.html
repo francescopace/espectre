@@ -23,13 +23,13 @@
 <meta name="twitter:image" content="https://espectre.dev/assets/images/brand/espectre-og.jpg">
 <link rel="icon" type="image/svg+xml" href="/assets/images/brand/espectre-logo.svg?v=5c234009f6c5">
 <link rel="alternate icon" type="image/png" href="/assets/images/brand/favicon.png">
-<link rel="stylesheet" href="/assets/css/styles.css?v=0510a8afbf52">
+<link rel="stylesheet" href="/assets/css/styles.css?v=82ec7f8f8731">
 <script src="/assets/js/espectre-direct.js?v=9359fea8bf00" defer></script>
 <script src="/assets/js/browser-support.js?v=ac4ba70c7f17" defer></script>
 <script src="/assets/js/route-registry.js?v=2cdc0eba3521" defer></script>
 <script src="/assets/js/navigation.js?v=88d37c28b5a6" defer></script>
 <script src="/assets/js/analytics.js?v=db8930cc99ba" defer></script>
-<script src="/assets/js/app.js?v=09fbff6c0f1f" defer></script>
+<script src="/assets/js/app.js?v=17e9a89ab422" defer></script>
 </head>
 <body>
 
@@ -557,7 +557,7 @@
 <main class="js-page page-narrow page-tool" data-page="tool-raw-csi" data-static-url="/tools/raw-csi/" hidden>
   <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Raw CSI</span></div>
   <h1 class="page-title">Raw CSI</h1>
-  <p class="page-sub">Inspect CSI V8 records over a local binary HTTP stream, or explore synthetic samples in Demo mode. Raw samples stay in this browser and are never uploaded or included in analytics.</p>
+  <p class="page-sub">Visualize raw Wi-Fi channel data as it changes over time, compare signal views, and inspect stream health. Starting the raw stream pauses standard sensing until the stream stops.</p>
 
   <div class="js-raw-csi-onboarding">
     <espectre-connection-picker data-surface="raw-csi"></espectre-connection-picker>
@@ -573,24 +573,6 @@
   </section>
 
   <div class="js-raw-csi-workspace" hidden>
-    <section class="panel raw-csi-controls">
-      <div class="panel-actions">
-        <button type="button" class="btn-primary js-raw-csi-start">Start stream</button>
-        <button type="button" class="btn-secondary js-raw-csi-stop" disabled>Stop</button>
-      </div>
-      <p class="tool-note js-raw-csi-status" role="status" aria-live="polite">Connected. Start the ephemeral stream when ready.</p>
-      <p class="tool-note js-raw-csi-external-hint" hidden>External traffic mode is active. If no packets arrive, <a href="/tools/configure/">configure the device traffic source</a>.</p>
-    </section>
-
-    <div class="diag-grid raw-csi-stats">
-      <div class="stat"><div class="stat-label">Packets/s</div><div class="stat-value js-raw-pps">0</div></div>
-      <div class="stat"><div class="stat-label">Fresh</div><div class="stat-value js-raw-fresh">0</div></div>
-      <div class="stat"><div class="stat-label">Dropped</div><div class="stat-value js-raw-dropped">0</div></div>
-      <div class="stat"><div class="stat-label">Backpressure</div><div class="stat-value js-raw-backpressure">0</div></div>
-      <div class="stat"><div class="stat-label">RSSI</div><div class="stat-value js-raw-rssi">—</div></div>
-      <div class="stat"><div class="stat-label">Channel</div><div class="stat-value js-raw-channel">—</div></div>
-    </div>
-
     <section class="panel raw-csi-visualizer">
       <div class="raw-csi-visualizer-head">
         <div>
@@ -600,21 +582,38 @@
           </div>
           <p class="tool-note raw-csi-visualization-description js-raw-visualization-description">Brightness shows normalized amplitude; cyan and coral reveal movement around the slow baseline.</p>
         </div>
-        <div class="field raw-csi-visualization-picker">
-          <label for="raw-csi-visualization">Visualization</label>
-          <select id="raw-csi-visualization" class="js-raw-visualization-select">
-            <option value="channel-heatmap">Channel heatmap</option>
-            <option value="rf-waterfall">RF waterfall</option>
-            <option value="channel-ghost">Channel ghost</option>
-            <option value="iq-constellation">I/Q constellation</option>
-            <option value="phase-trails">Sanitized phase trails</option>
-          </select>
+        <div class="raw-csi-visualization-actions">
+          <button type="button" class="btn-primary btn-sm js-raw-csi-toggle">Start</button>
+          <div class="field raw-csi-visualization-picker">
+            <select id="raw-csi-visualization" class="js-raw-visualization-select" aria-label="Visualization">
+              <option value="channel-heatmap">Channel heatmap</option>
+              <option value="rf-waterfall">RF waterfall</option>
+              <option value="channel-ghost">Channel ghost</option>
+              <option value="iq-constellation">I/Q constellation</option>
+              <option value="phase-trails">Sanitized phase trails</option>
+            </select>
+          </div>
         </div>
       </div>
       <div class="raw-csi-visualization-stage">
         <canvas class="js-raw-visualization" width="960" height="420" aria-label="Combined CSI amplitude and motion heatmap over time"></canvas>
       </div>
+      <p class="tool-note js-raw-csi-status" role="status" aria-live="polite">Connected. Start the ephemeral stream when ready.</p>
+      <p class="tool-note js-raw-csi-external-hint" hidden>External traffic mode is active. If no packets arrive, <a href="/tools/configure/">configure the device traffic source</a>.</p>
     </section>
+
+    <details class="device-live-diagnostics raw-csi-diagnostics">
+      <summary><span>Diagnostics</span><small>Stream delivery, signal, and channel health</small></summary>
+      <div class="diag-grid raw-csi-stats">
+        <div class="stat"><div class="stat-label">Packets/s</div><div class="stat-value js-raw-pps">0</div></div>
+        <div class="stat"><div class="stat-label">Fresh</div><div class="stat-value js-raw-fresh">0</div></div>
+        <div class="stat"><div class="stat-label">Dropped</div><div class="stat-value js-raw-dropped">0</div></div>
+        <div class="stat"><div class="stat-label">Backpressure</div><div class="stat-value js-raw-backpressure">0</div></div>
+        <div class="stat"><div class="stat-label">Interval (ms)</div><div class="stat-value js-raw-capture-interval">—</div></div>
+        <div class="stat"><div class="stat-label">RSSI (dBm)</div><div class="stat-value js-raw-rssi">—</div></div>
+        <div class="stat"><div class="stat-label">SNR (dB)</div><div class="stat-value js-raw-snr">—</div></div>
+      </div>
+    </details>
   </div>
 </main>
 
