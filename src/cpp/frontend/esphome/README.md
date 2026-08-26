@@ -20,9 +20,10 @@ After flashing, configure Wi-Fi with one of these provisioning paths:
 
 | Method | How |
 |--------|-----|
-| BLE | Use the ESPHome or Home Assistant Companion app |
-| USB | Go to [web.esphome.io](https://web.esphome.io) and use **Connect** -> **Configure WiFi** |
+| USB | Use Improv Serial with `./espectre provision --ssid MyNetwork` or any Improv Serial-compatible web flasher, such as the [ESPectre web flasher](https://espectre.dev/tools/flash/) |
 | Captive portal | Connect to the `ESPectre Fallback` network and finish setup in the browser |
+
+All maintained ESPHome example configurations enable Improv Serial.
 
 Once Wi-Fi is configured, the device is discovered automatically by Home Assistant through ESPHome.
 
@@ -215,14 +216,7 @@ Once the device is flashed and connected to Wi-Fi:
 
 The ESPHome frontend exposes movement, motion, sensing state, threshold control, motion-hit debounce control, recalibration, calibration state, CSI traffic ownership, traffic generator selection, and on-demand CSI diagnostics as Home Assistant entities. Every writable entity invokes the common command engine and republishes authoritative state when a command is rejected. Direct mutations use the same engine and immediately synchronize the affected entities. Movement Score updates on the detector evaluation cadence (default 250 ms). Motion Detected publishes only on filtered state edges. Threshold publishes on operator writes, calibration, and Lightweight settled-level recovery; motion-hit controls publish on change. Calibration Active reports the read-only runtime state, and the traffic selects mirror runtime state on connect and each accepted change. Diagnostic sensors publish only when Refresh Diagnostics runs the canonical `diagnostics` query. If the Home Assistant recorder is a concern, exclude `sensor.*_movement_score` rather than lowering `evaluation_interval_ms`.
 
-To manage configuration and OTA updates, install ESPHome Device Builder and adopt the discovered device. The adopted configuration compiles the component from the `git_ref` substitution, which defaults to `main`. ESPHome's GitHub clone is shallow and has no numeric tags, so Device Builder cannot configure when `project_version` is a branch name. Pin `git_ref` to a numeric release tag before compiling. First-party CI overrides `project_version` with `git describe`. Local `-dev` checkouts resolve the same identity from the repository.
-
-To compile in Device Builder, or to stay on one version, declare `git_ref` in the adopted configuration:
-
-```yaml
-substitutions:
-  git_ref: "3.0.0"
-```
+To manage configuration and OTA updates, install ESPHome Device Builder and adopt the discovered device. The adopted configuration uses the GitHub source profile, follows `main`, and identifies that rolling build as `0.0.0-main`. First-party CI and release builds use the local checkout and override `project_version` with `git describe` or the release tag.
 
 To install a prebuilt OTA image from GitHub Releases instead, download the `espectre-esphome-<channel-or-version>-<chip>-ota.bin` asset and upload it over the network:
 
@@ -230,9 +224,7 @@ To install a prebuilt OTA image from GitHub Releases instead, download the `espe
 ./espectre esphome flash --chip c6 --device espectre.local --firmware espectre-esphome-3.0.0-esp32c6-ota.bin
 ```
 
-The same value also drives the import URL the device republishes after the next build, so this one declaration is enough.
-
-The `@` suffix of the adopted `packages` URL is a separate ref, and it selects which revision of the example YAML is downloaded. Change it to `@${git_ref}` to keep both on the same revision. This matters for preview and develop builds, whose URL carries their source commit while the component still follows `main`.
+To stay on a released version, use the matching prebuilt image rather than the rolling `main` example.
 
 ### Dashboard Examples
 
@@ -307,7 +299,7 @@ Runtime recalibration is exposed as the `recalibrate_button` entity in Home Assi
 
 ### As an ESPHome external component
 
-Production examples consume this frontend with:
+Each maintained chip has one canonical example. By default it includes `espectre-source-github.yaml`, which resolves the component from GitHub:
 
 ```yaml
 external_components:
@@ -318,7 +310,7 @@ external_components:
     components: [espectre]
 ```
 
-Local development examples consume it with:
+Repository development selects `espectre-source-local.yaml` instead, which resolves the same component from the local checkout:
 
 ```yaml
 external_components:
@@ -341,7 +333,7 @@ See [`CLI.md`](../../../../docs/CLI.md) for shared CLI syntax, host-side tools, 
 
 On Windows, use `.\espectre.cmd esphome ...` from the repository root and pass a COM port such as `COM5` to `--device` when serial access is needed.
 
-Add `--dev` to use the local development YAML mapping. Use `flash` for upload-only and `monitor` for logs.
+The repository CLI keeps the selected canonical YAML and loads the ESPectre component from the local checkout. Use `flash` for upload-only and `monitor` for logs.
 
 ## Hardware and Packaging Notes
 
@@ -351,7 +343,9 @@ The ESPHome examples use ESPHome 2026.7's native ESP-IDF backend. The external c
 
 ### Automatic SDK Configuration
 
-The frontend automatically sets the ESP-IDF options required by the runtime, including CSI enablement, disabled Wi-Fi power save, TX AMPDU, the shared high-rate Wi-Fi buffer profile, lwIP IRAM optimization, and enlarged TCP/IP and UDP mailboxes. RX AMPDU remains disabled so sensing receives individual CSI frames. ESPHome keeps the ESP-IDF default log level at ERROR so Wi-Fi and lwIP stay quiet; the shared SDK compiles INFO/DEBUG only in its own sources and restores the `espectre` and `espectre.runtime` tags at runtime so the periodic `IDLE | csi:` status lines reach USB serial. The supplied examples do not enable Bluetooth. In most cases you do not need to set these options manually.
+The frontend automatically sets the ESP-IDF options required by the runtime, including CSI enablement, disabled Wi-Fi power save, TX AMPDU, the shared high-rate Wi-Fi buffer profile, lwIP IRAM optimization, and enlarged TCP/IP and UDP mailboxes. RX AMPDU remains disabled so sensing receives individual CSI frames. ESPHome keeps the ESP-IDF default log level at ERROR so Wi-Fi and lwIP stay quiet; the shared SDK compiles INFO/DEBUG only in its own sources and restores the `espectre` and `espectre.runtime` tags at runtime so the periodic `IDLE | csi:` status lines reach USB serial. In most cases you do not need to set these options manually.
+
+The supplied examples deliberately use Improv Serial instead of BLE provisioning. Omitting BLE keeps its provisioning stack out of the firmware, reducing flash and memory pressure. BLE and Wi-Fi share the ESP32's 2.4 GHz radio; while BLE is active, coexistence can interrupt the Wi-Fi packet flow and reduce the CSI occupancy required for reliable sensing. Disabling BLE after provisioning ends that radio contention, but it does not remove the compiled-in stack or the added provisioning lifecycle.
 
 For board-specific tweaks, you can still add `sdkconfig_options` in YAML:
 
@@ -397,7 +391,7 @@ The frontend itself does not require a custom partition table.
 
 If the device roams between access points, lock it to a specific BSSID.
 
-For development YAML files:
+For local configurations:
 
 ```yaml
 wifi_bssid: "AA:BB:CC:DD:EE:FF"
@@ -411,29 +405,6 @@ wifi:
     - ssid: !secret wifi_ssid
       password: !secret wifi_password
       bssid: !secret wifi_bssid
-```
-
-### ESP32-C3 Super Mini
-
-Common fixes for low-cost C3 boards:
-
-1. if USB logs are missing, force `UART0` in the logger
-2. if calibration hangs, keep `csi_target_pps` at `94` or below and inspect temporal occupancy
-3. if flash mode is unreliable, switch from `qio` to `dio`
-
-Logger example:
-
-```yaml
-logger:
-  hardware_uart: UART0
-```
-
-Flash mode example:
-
-```yaml
-esp32:
-  variant: ESP32C3
-  flash_mode: dio
 ```
 
 ### Flash failed

@@ -68,7 +68,7 @@ python -m pip install -r requirements.txt</code></pre>
 ./espectre esphome flash --chip c3
 ./espectre esphome monitor --chip c3</code></pre>
         <p>Flash and monitor discover the target automatically. With one available device they use it directly; with several serial or network devices, the CLI presents a selection menu.</p>
-        <p>For a specific local YAML, add the same <code>--config path/to/espectre.yaml</code> option to all three commands and keep its credentials in an ignored <code>secrets.yaml</code>. Use <code>--dev</code> instead of <code>--config</code> to select the maintained development YAML for that chip and load the component from the local checkout:</p>
+        <p>For a specific local YAML, add the same <code>--config path/to/espectre.yaml</code> option to all three commands. Each chip has one canonical example; repository CLI commands keep that device configuration and load the ESPectre component from the local checkout:</p>
         <pre class="code"><code>./espectre esphome build --chip c3 --config path/to/espectre.yaml --clean
 ./espectre esphome flash --chip c3 --config path/to/espectre.yaml
 ./espectre esphome monitor --chip c3 --config path/to/espectre.yaml</code></pre>
@@ -127,7 +127,7 @@ espectre&gt; recalibrate</code></pre>
           <li><h3>Configure Wi-Fi in the flasher</h3><p>Right after installation, the same dialog offers <em>Configure Wi-Fi</em>. Enter your network name and password. Published images use 2.4&nbsp;GHz. If that prompt does not appear, connect to the <code>ESPectre Fallback</code> hotspot and finish setup in the browser.</p></li>
           <li><h3>Add it in Home Assistant</h3><p>Within a minute, Home Assistant shows a notification for a discovered ESPHome device. Accept it, and you get the motion sensor, movement score, threshold control, recalibrate button, and calibration-state sensor. The <a href="/guides/home-assistant/">Home Assistant dashboard guide</a> turns those entities into a focused sensing and diagnostics view.</p></li>
         </ol>
-        <p><strong>CLI path:</strong> use <code>--dev</code> to embed the Wi-Fi credentials from <code>secrets.yaml</code> directly in the firmware.</p>
+        <p><strong>CLI path:</strong> repository builds use the local component checkout without embedding Wi-Fi credentials; provision the resulting firmware through Improv Serial or the fallback access point.</p>
       </div>
       <div class="code-tab-panel" id="setup-network-matter-panel" role="tabpanel" aria-labelledby="setup-network-matter-tab" data-network-frontend="matter" hidden>
         <ol class="steps-list">

@@ -103,7 +103,7 @@ jobs:
       - name: Compile
         env:
           ESPECTRE_GIT_VERSION: ${{ github.ref_name }}
-        run: esphome -s git_ref "${GITHUB_REF_NAME}" -s project_version "${GITHUB_REF_NAME}" -s detection_algorithm lightweight compile "${{ matrix.config }}"
+        run: esphome -s component_source local -s project_version "${GITHUB_REF_NAME}" compile "${{ matrix.config }}"
       
       - name: Rename firmware files
         run: |

@@ -18,30 +18,12 @@ FRONTEND_DIR = REPO_ROOT / "src" / "cpp" / "frontend"
 ESPHOME_EXAMPLES_DIR = FRONTEND_DIR / "esphome" / "examples"
 
 ESPHOME_CONFIGS = {
-    "esp32": {
-        "dev": ESPHOME_EXAMPLES_DIR / "espectre-esp32-dev.yaml",
-        "release": ESPHOME_EXAMPLES_DIR / "espectre-esp32.yaml",
-    },
-    "c3": {
-        "dev": ESPHOME_EXAMPLES_DIR / "espectre-c3-dev.yaml",
-        "release": ESPHOME_EXAMPLES_DIR / "espectre-c3.yaml",
-    },
-    "c5": {
-        "dev": ESPHOME_EXAMPLES_DIR / "espectre-c5-dev.yaml",
-        "release": ESPHOME_EXAMPLES_DIR / "espectre-c5.yaml",
-    },
-    "c6": {
-        "dev": ESPHOME_EXAMPLES_DIR / "espectre-c6-dev.yaml",
-        "release": ESPHOME_EXAMPLES_DIR / "espectre-c6.yaml",
-    },
-    "s3": {
-        "dev": ESPHOME_EXAMPLES_DIR / "espectre-s3-dev.yaml",
-        "release": ESPHOME_EXAMPLES_DIR / "espectre-s3.yaml",
-    },
-    "s2": {
-        "dev": ESPHOME_EXAMPLES_DIR / "espectre-s2-dev.yaml",
-        "release": ESPHOME_EXAMPLES_DIR / "espectre-s2.yaml",
-    },
+    "esp32": ESPHOME_EXAMPLES_DIR / "espectre-esp32.yaml",
+    "c3": ESPHOME_EXAMPLES_DIR / "espectre-c3.yaml",
+    "c5": ESPHOME_EXAMPLES_DIR / "espectre-c5.yaml",
+    "c6": ESPHOME_EXAMPLES_DIR / "espectre-c6.yaml",
+    "s3": ESPHOME_EXAMPLES_DIR / "espectre-s3.yaml",
+    "s2": ESPHOME_EXAMPLES_DIR / "espectre-s2.yaml",
 }
 
 IDF_FRONTENDS = {
@@ -69,7 +51,7 @@ IDF_FRONTENDS = {
 }
 
 
-def resolve_esphome_config(chip: str | None, dev: bool, config: str | None) -> Path:
+def resolve_esphome_config(chip: str | None, config: str | None) -> Path:
     """Resolve the ESPHome config file for a chip or explicit override."""
     if config:
         path = Path(config)
@@ -79,8 +61,7 @@ def resolve_esphome_config(chip: str | None, dev: bool, config: str | None) -> P
     if not chip:
         raise ValueError("--chip is required unless --config is provided")
     try:
-        key = "dev" if dev else "release"
-        return ESPHOME_CONFIGS[chip][key]
+        return ESPHOME_CONFIGS[chip]
     except KeyError as exc:
         raise ValueError(f"Unsupported ESPHome chip: {chip}") from exc
 

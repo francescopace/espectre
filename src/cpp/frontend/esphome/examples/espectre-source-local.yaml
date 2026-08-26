@@ -1,0 +1,12 @@
+# ESPectre component source for repository development.
+substitutions:
+  project_version: local
+
+external_components:
+  - source:
+      type: local
+      path: ../components
+    components: [ espectre ]
+
+dashboard_import:
+  package_import_url: github://francescopace/espectre/src/cpp/frontend/esphome/examples/${example_config}@main

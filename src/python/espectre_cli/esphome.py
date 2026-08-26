@@ -22,13 +22,20 @@ ACTION_MAP = {
     "monitor": "logs",
 }
 
-ESPHOME_COMMAND_PREFIX = ["esphome", "--toolchain", "esp-idf"]
+ESPHOME_COMMAND_PREFIX = [
+    "esphome",
+    "--toolchain",
+    "esp-idf",
+    "-s",
+    "component_source",
+    "local",
+]
 
 
 def run_esphome_command(args) -> None:
     """Run an ESPHome action against the resolved repository config."""
     try:
-        config_path = resolve_esphome_config(args.chip, args.dev, args.config)
+        config_path = resolve_esphome_config(args.chip, args.config)
     except ValueError as e:
         print(f"{Fore.RED}❌ {e}{Style.RESET_ALL}")
         raise SystemExit(1)

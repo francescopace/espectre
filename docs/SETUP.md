@@ -38,10 +38,10 @@ Current chip support by frontend:
 
 | Frontend | Supported chips | Delivery |
 |----------|-----------------|----------|
-| `ESPHome` | `ESP32-S3`, `ESP32-S2`, `ESP32-C6`, `ESP32-C5`, `ESP32-C3`, `ESP32` | Published web-flash images; ESP32-S2 uses serial or fallback-AP provisioning because it has no Bluetooth radio |
-| `Native` | `ESP32`, `ESP32-S3`, `ESP32-S2`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Published web-flash images |
-| `Matter` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Published web-flash images |
-| `Micro-ESPectre` | `ESP32`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6`, `ESP32-S3` | Local project-firmware build and filesystem deployment workflow |
+| `ESPHome` | `ESP32-S3`, `ESP32-S2`, `ESP32-C6`, `ESP32-C5`, `ESP32-C3`, `ESP32` | Published web-flash images, Improv Serial and fallback-AP provisioning |
+| `Native` | `ESP32`, `ESP32-S3`, `ESP32-S2`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Published web-flash images and Improv Serial |
+| `Matter` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Published web-flash images and Matter commissioning |
+| `Micro-ESPectre` | `ESP32`, `ESP32-S2`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Local project-firmware build |
 
 Use the frontend README for the workflow and surface details after you choose the firmware path.
 

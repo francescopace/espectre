@@ -138,7 +138,7 @@ def _add_devices_parser(subparsers) -> None:
 def _add_provision_parser(subparsers) -> None:
     provision_parser = subparsers.add_parser(
         "provision",
-        help="Provision a clean Native device through standard Improv Serial",
+        help="Provision a clean Native or ESPHome device through standard Improv Serial",
     )
     provision_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
     provision_parser.add_argument("--ssid", required=True, help="Wi-Fi network name")
@@ -297,7 +297,6 @@ def _add_esphome_namespace(subparsers) -> None:
     }.items():
         command_parser = esphome_subparsers.add_parser(command_name, help=help_text)
         command_parser.add_argument("--chip", choices=sorted(ESPHOME_CONFIGS.keys()), help="Target chip family")
-        command_parser.add_argument("--dev", action="store_true", help="Use the *-dev example config")
         command_parser.add_argument("--config", help="Explicit ESPHome YAML path override")
         command_parser.add_argument("--device", help="Serial device or hostname for flash/monitor when needed")
         if command_name == "flash":
@@ -371,7 +370,7 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {cli_command('version')}",
             f"  {cli_command('doctor')}",
             f"  {cli_command('monitor', '--port', serial_port_example())}",
-            f"  {cli_command('esphome', 'build', '--chip', 'c3', '--dev')}",
+            f"  {cli_command('esphome', 'build', '--chip', 'c3')}",
             f"  {cli_command('esphome', 'build', '--chip', 'c3', '--clean')}",
             f"  {cli_command('esphome', 'build', '--chip', 'c3', '--clean-all')}",
             f"  {cli_command('esphome', 'monitor', '--chip', 'c3', '--device', serial_port_example())}",

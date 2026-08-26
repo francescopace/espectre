@@ -1,14 +1,16 @@
 # ESPectre - ESP32-S2 Configuration
 # WiFi CSI-based motion detection with Home Assistant integration
 #
-# ESP32-S2 has no Bluetooth radio. Provision it through Improv Serial over
-# USB, or through the fallback access point.
+# ESP32-S2 has no Bluetooth radio. Provision it through Improv Serial with
+# `./espectre provision --ssid MyNetwork` or any Improv Serial-compatible web
+# flasher, such as https://espectre.dev/tools/flash/, or use the fallback access point.
 
 substitutions:
-  git_ref: main # branch, tag, or commit
-  # Device Builder: pin git_ref to a numeric release tag. A branch name is not a firmware version, and the GitHub clone has no git tags.
-  project_version: ${git_ref} # firmware identity; first-party CI sets git describe
-  detection_algorithm: lightweight # lightweight (default) or high_accuracy
+  component_source: github # github or local
+  example_config: espectre-s2.yaml
+
+packages:
+  component_source: !include espectre-source-${component_source}.yaml
 
 esphome:
   name: espectre
@@ -25,24 +27,12 @@ esp32:
   framework:
     type: esp-idf
 
-# Load ESPectre component from GitHub
-external_components:
-  - source:
-      type: git
-      url: https://github.com/francescopace/espectre
-      ref: ${git_ref}
-      path: src/cpp/frontend/esphome/components
-    components: [ espectre ]
-    refresh: always
-
 espectre:
   id: espectre_csi
-  detection_algorithm: ${detection_algorithm}
-  csi_target_pps: 100
-  csi_traffic_mode: internal
-
-dashboard_import:
-  package_import_url: github://francescopace/espectre/src/cpp/frontend/esphome/examples/espectre-s2.yaml@${git_ref}
+  detection_algorithm: lightweight # lightweight (default) or high_accuracy
+  csi_traffic_mode: internal # internal (default) or external
+  traffic_generator_mode: ping # ping (default) or dns; used in internal mode
+  evaluation_interval_ms: 250 # 250-1000 recommended; detector and live telemetry interval
 
 wifi:
   ap:
@@ -54,6 +44,7 @@ captive_portal:
 improv_serial:
 
 logger:
+  level: INFO
 
 api:
 

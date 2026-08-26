@@ -164,17 +164,16 @@ def test_prompt_chip_type_handles_valid_and_invalid_choices(monkeypatch) -> None
 def test_resolve_esphome_config_supports_chip_and_explicit_path() -> None:
     relative = Path("src/cpp/frontend/esphome/examples/espectre-c3.yaml")
 
-    assert targets.resolve_esphome_config("c3", True, None).name == "espectre-c3-dev.yaml"
-    assert targets.resolve_esphome_config("c3", False, None).name == "espectre-c3.yaml"
-    assert targets.resolve_esphome_config(None, False, str(relative)) == common.REPO_ROOT / relative
+    assert targets.resolve_esphome_config("c3", None).name == "espectre-c3.yaml"
+    assert targets.resolve_esphome_config(None, str(relative)) == common.REPO_ROOT / relative
 
 
 def test_resolve_target_helpers_reject_invalid_inputs() -> None:
     with pytest.raises(ValueError):
-        targets.resolve_esphome_config(None, False, None)
+        targets.resolve_esphome_config(None, None)
 
     with pytest.raises(ValueError):
-        targets.resolve_esphome_config("bad-chip", False, None)
+        targets.resolve_esphome_config("bad-chip", None)
 
     with pytest.raises(ValueError):
         targets.resolve_idf_target("native", "bad-chip")
@@ -188,7 +187,7 @@ def test_resolve_idf_target_returns_app_dir_and_target() -> None:
 
 
 def test_esp32_s2_is_supported_without_claiming_matter() -> None:
-    assert targets.resolve_esphome_config("s2", False, None).name == "espectre-s2.yaml"
+    assert targets.resolve_esphome_config("s2", None).name == "espectre-s2.yaml"
     assert targets.resolve_idf_target("native", "s2")[1] == "esp32s2"
     with pytest.raises(ValueError, match="Unsupported matter target: s2"):
         targets.resolve_idf_target("matter", "s2")
@@ -203,11 +202,17 @@ def test_run_esphome_command_uses_resolved_config_and_device(monkeypatch, tmp_pa
     monkeypatch.setattr(esphome.subprocess, "run", lambda cmd, check: calls.append(cmd))
 
     esphome.run_esphome_command(
-        argparse.Namespace(chip="c3", dev=True, config=None, esphome_command="flash", device="/dev/cu.usb")
+        argparse.Namespace(chip="c3", config=None, esphome_command="flash", device="/dev/cu.usb")
     )
 
     assert calls == [
-        ["esphome", "--toolchain", "esp-idf", "upload", str(config_path), "--device", "/dev/cu.usb"]
+        [
+            *esphome.ESPHOME_COMMAND_PREFIX,
+            "upload",
+            str(config_path),
+            "--device",
+            "/dev/cu.usb",
+        ]
     ]
 
 
@@ -224,7 +229,6 @@ def test_run_esphome_flash_uploads_prebuilt_firmware(monkeypatch, tmp_path: Path
     esphome.run_esphome_command(
         argparse.Namespace(
             chip="c6",
-            dev=False,
             config=None,
             esphome_command="flash",
             device="espectre.local",
@@ -234,9 +238,7 @@ def test_run_esphome_flash_uploads_prebuilt_firmware(monkeypatch, tmp_path: Path
 
     assert calls == [
         [
-            "esphome",
-            "--toolchain",
-            "esp-idf",
+            *esphome.ESPHOME_COMMAND_PREFIX,
             "upload",
             str(config_path),
             "--device",
@@ -256,11 +258,11 @@ def test_run_esphome_monitor_uses_logs_action(monkeypatch, tmp_path: Path) -> No
     monkeypatch.setattr(esphome.subprocess, "run", lambda cmd, check: calls.append(cmd))
 
     esphome.run_esphome_command(
-        argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="monitor", device="/dev/cu.usb")
+        argparse.Namespace(chip="c3", config=None, esphome_command="monitor", device="/dev/cu.usb")
     )
 
     assert calls == [
-        ["esphome", "--toolchain", "esp-idf", "logs", str(config_path), "--device", "/dev/cu.usb"]
+        [*esphome.ESPHOME_COMMAND_PREFIX, "logs", str(config_path), "--device", "/dev/cu.usb"]
     ]
 
 
@@ -273,12 +275,12 @@ def test_run_esphome_command_build_runs_esphome_clean_when_requested(monkeypatch
     monkeypatch.setattr(esphome.subprocess, "run", lambda cmd, check: calls.append(cmd))
 
     esphome.run_esphome_command(
-        argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None, clean=True, clean_all=False)
+        argparse.Namespace(chip="c3", config=None, esphome_command="build", device=None, clean=True, clean_all=False)
     )
 
     assert calls == [
-        ["esphome", "--toolchain", "esp-idf", "clean", str(config_path)],
-        ["esphome", "--toolchain", "esp-idf", "compile", str(config_path)],
+        [*esphome.ESPHOME_COMMAND_PREFIX, "clean", str(config_path)],
+        [*esphome.ESPHOME_COMMAND_PREFIX, "compile", str(config_path)],
     ]
 
 
@@ -291,12 +293,12 @@ def test_run_esphome_command_build_runs_esphome_clean_all_when_requested(monkeyp
     monkeypatch.setattr(esphome.subprocess, "run", lambda cmd, check: calls.append(cmd))
 
     esphome.run_esphome_command(
-        argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None, clean=False, clean_all=True)
+        argparse.Namespace(chip="c3", config=None, esphome_command="build", device=None, clean=False, clean_all=True)
     )
 
     assert calls == [
-        ["esphome", "--toolchain", "esp-idf", "clean-all", str(config_path)],
-        ["esphome", "--toolchain", "esp-idf", "compile", str(config_path)],
+        [*esphome.ESPHOME_COMMAND_PREFIX, "clean-all", str(config_path)],
+        [*esphome.ESPHOME_COMMAND_PREFIX, "compile", str(config_path)],
     ]
 
 
@@ -306,7 +308,7 @@ def test_run_esphome_command_handles_missing_config(monkeypatch, tmp_path: Path)
 
     with pytest.raises(SystemExit):
         esphome.run_esphome_command(
-            argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None, clean=False, clean_all=False)
+            argparse.Namespace(chip="c3", config=None, esphome_command="build", device=None, clean=False, clean_all=False)
         )
 
 
@@ -321,7 +323,7 @@ def test_run_esphome_command_surfaces_subprocess_failures(monkeypatch, tmp_path:
     monkeypatch.setattr(esphome.subprocess, "run", _raise_not_found)
     with pytest.raises(SystemExit):
         esphome.run_esphome_command(
-            argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None, clean=False, clean_all=False)
+            argparse.Namespace(chip="c3", config=None, esphome_command="build", device=None, clean=False, clean_all=False)
         )
 
     def _raise_called(_cmd, check):
@@ -330,7 +332,7 @@ def test_run_esphome_command_surfaces_subprocess_failures(monkeypatch, tmp_path:
     monkeypatch.setattr(esphome.subprocess, "run", _raise_called)
     with pytest.raises(SystemExit) as exc:
         esphome.run_esphome_command(
-            argparse.Namespace(chip="c3", dev=False, config=None, esphome_command="build", device=None, clean=False, clean_all=False)
+            argparse.Namespace(chip="c3", config=None, esphome_command="build", device=None, clean=False, clean_all=False)
         )
 
     assert exc.value.code == 7

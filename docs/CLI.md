@@ -49,11 +49,13 @@ The `esphome` namespace exposes:
 | `config` | Validate and render the selected config |
 | `monitor` | Open logs for the selected config |
 
-Common flags include `--chip`, `--dev`, `--config`, and `--device`. `esphome flash --firmware <path>` uploads a prebuilt image instead of the most recent local build; use an ESPHome OTA image when `--device` is a hostname or IP address:
+Common flags include `--chip`, `--config`, and `--device`. `esphome flash --firmware <path>` uploads a prebuilt image instead of the most recent local build; use an ESPHome OTA image when `--device` is a hostname or IP address:
 
 ```bash
 ./espectre esphome flash --chip c6 --device espectre.local --firmware espectre-esphome-3.0.0-esp32c6-ota.bin
 ```
+
+Each chip uses one canonical example. The repository CLI keeps that device configuration and switches the ESPectre component source from GitHub to the local checkout.
 
 The wrapper explicitly selects ESPHome's native `esp-idf` toolchain for every command. It does not use the legacy PlatformIO build backend.
 
@@ -183,7 +185,7 @@ The command uses the repository `zeroconf` dependency and requires the host and 
 
 ### `provision`
 
-`provision` uses the shared Improv Serial v1 client to configure a clean Native device over USB. The Wi-Fi password is read from `ESPECTRE_WIFI_PASSWORD` by default, or from the variable named by `--password-env`; when the variable is unset, the CLI prompts without echoing the password. The command validates framing, checksums, state transitions, correlated RPC results, UTF-8 strings, and the returned device URL.
+`provision` uses the shared Improv Serial v1 client to configure a clean Native or ESPHome device over USB. The Wi-Fi password is read from `ESPECTRE_WIFI_PASSWORD` by default, or from the variable named by `--password-env`; when the variable is unset, the CLI prompts without echoing the password. The command validates framing, checksums, state transitions, correlated RPC results, UTF-8 strings, and the returned device URL.
 
 ```bash
 ESPECTRE_WIFI_PASSWORD='secret' ./espectre provision --port /dev/cu.usbmodemXXXX --ssid MyNetwork

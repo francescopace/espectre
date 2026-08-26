@@ -9,7 +9,7 @@
 # Contributed by: @Techsociology (https://github.com/Techsociology)
 
 packages:
-  base: !include espectre-s3-dev.yaml
+  base: !include espectre-s3.yaml
 
 # ESPHome web server dashboard
 web_server:

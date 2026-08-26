@@ -234,27 +234,11 @@ jobs:
         id: git-version
         run: echo "version=$(python3 .github/scripts/detect_git_version.py)" >> "$GITHUB_OUTPUT"
       
-      - name: Prepare ESPHome config
-        id: esphome-config
-        run: |
-          CONFIG_PATH="${{ matrix.config }}"
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            CONFIG_PATH="src/cpp/frontend/esphome/examples/.ci-${{ matrix.chip }}.yaml"
-            # ${git_ref} below is literal ESPHome YAML content.
-            # shellcheck disable=SC2016
-            MATRIX_CONFIG="${{ matrix.config }}" MATRIX_CHIP="${{ matrix.chip }}" python3 -c 'from pathlib import Path; import os; src = Path(os.environ["MATRIX_CONFIG"]); chip = os.environ["MATRIX_CHIP"]; dst = Path(f"src/cpp/frontend/esphome/examples/.ci-{chip}.yaml"); text = src.read_text(encoding="utf-8"); old = "external_components:\n  - source:\n      type: git\n      url: https://github.com/francescopace/espectre\n      ref: ${git_ref}\n      path: src/cpp/frontend/esphome/components\n    components: [ espectre ]\n    refresh: always\n"; new = "external_components:\n  - source:\n      type: local\n      path: ../components\n    components: [ espectre ]\n"; assert old in text, "expected external_components block not found"; dst.write_text(text.replace(old, new), encoding="utf-8")'
-          fi
-          echo "config_path=${CONFIG_PATH}" >> "$GITHUB_OUTPUT"
-
       - name: Compile
         env:
           ESPECTRE_GIT_VERSION: ${{ steps.git-version.outputs.version }}
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            esphome -s git_ref "${{ github.sha }}" -s project_version "${{ steps.git-version.outputs.version }}" -s detection_algorithm lightweight compile "${{ steps.esphome-config.outputs.config_path }}"
-          else
-            esphome -s project_version "${{ steps.git-version.outputs.version }}" -s detection_algorithm lightweight compile "${{ steps.esphome-config.outputs.config_path }}"
-          fi
+          esphome -s component_source local -s project_version "${{ steps.git-version.outputs.version }}" compile "${{ matrix.config }}"
 
       - name: Locate ESPHome firmware images
         id: esphome-artifacts

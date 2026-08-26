@@ -11,7 +11,7 @@
 # Contributed by: @Techsociology (https://github.com/Techsociology)
 
 packages:
-  base: !include espectre-s3-dev.yaml
+  base: !include espectre-s3.yaml
 
 # Onboard RGB LED (WS2812 on GPIO48)
 light:

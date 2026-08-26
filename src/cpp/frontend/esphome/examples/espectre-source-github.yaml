@@ -1,0 +1,15 @@
+# ESPectre component source for published and adopted configurations.
+substitutions:
+  project_version: 0.0.0-main
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/francescopace/espectre
+      ref: main
+      path: src/cpp/frontend/esphome/components
+    components: [ espectre ]
+    refresh: always
+
+dashboard_import:
+  package_import_url: github://francescopace/espectre/src/cpp/frontend/esphome/examples/${example_config}@main

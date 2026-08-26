@@ -987,8 +987,7 @@ describe('website UX contracts', () => {
         }
         assert.match(setupGuide, /\.\/espectre esphome monitor/);
         assert.doesNotMatch(setupGuide, /\.\/espectre esphome config/);
-        assert.match(setupGuide, /<code>--dev<\/code>/);
-        assert.match(setupGuide, /<code>--config<\/code>/);
+        assert.match(setupGuide, /<code>--config path\/to\/espectre\.yaml<\/code>/);
         assert.match(setupGuide, /\.\/espectre monitor --reset/);
         assert.match(setupGuide, /\.\/espectre devices --frontend native/);
         assert.equal((setupGuide.match(/class="code-tabs" data-code-tabs/g) || []).length, 2);
@@ -1013,7 +1012,6 @@ describe('website UX contracts', () => {
         }
         const esphomePanel = setupGuide.match(/<div class="code-tab-panel"[^>]*data-frontend="esphome"[^>]*>([\s\S]*?)<\/div>/)[1];
         assert.match(esphomePanel, /--config path\/to\/espectre\.yaml/);
-        assert.match(esphomePanel, /<code>--dev<\/code>/);
         assert.doesNotMatch(esphomePanel, /--device/);
         const frontendOperations = setupGuide.slice(setupGuide.indexOf('id="setup-network"'));
         assert.doesNotMatch(frontendOperations, /\.\/espectre (?:esphome|native|matter|streamer) build/);
@@ -1031,7 +1029,6 @@ describe('website UX contracts', () => {
         assert.match(nativeNetworkPanel, /espectre&gt; set_threshold 0\.35/);
         assert.match(nativeNetworkPanel, /espectre&gt; recalibrate/);
         assert.doesNotMatch(nativeNetworkPanel, /set_ble off/);
-        assert.match(networkTabsSection, /data-network-frontend="esphome"[\s\S]*?<code>--dev<\/code>[\s\S]*?<code>secrets\.yaml<\/code>/);
         assert.match(styles, /\.code-tabs \{[\s\S]*?border: 1px solid var\(--border\);[\s\S]*?border-radius: 14px;[\s\S]*?background: var\(--surface\);/);
         assert.match(styles, /\.code-tabs-list \{[\s\S]*?display: flex;[\s\S]*?overflow-x: auto;/);
         assert.match(styles, /\.code-tab-panel \{ padding: 18px; \}/);
