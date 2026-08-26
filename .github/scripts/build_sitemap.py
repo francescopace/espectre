@@ -31,6 +31,7 @@ ROUTE_SOURCES = {
     "/tools/flash/": (Path("docs/web/assets/js/app.js"), Path("docs/web/index.html"), STATIC_PAGE_BUILDER),
     "/tools/configure/": (Path("docs/web/assets/js/app.js"), Path("docs/web/index.html"), STATIC_PAGE_BUILDER),
     "/tools/monitor/": (Path("docs/web/assets/js/app.js"), Path("docs/web/index.html"), STATIC_PAGE_BUILDER),
+    "/tools/raw-csi/": (Path("docs/web/assets/js/app.js"), Path("docs/web/index.html"), STATIC_PAGE_BUILDER),
     "/tools/theremin/": (Path("docs/web/assets/js/app.js"), Path("docs/web/index.html"), STATIC_PAGE_BUILDER),
     "/tools/game/": (Path("docs/web/assets/js/app.js"), Path("docs/web/index.html"), STATIC_PAGE_BUILDER),
     "/guides/": (Path("docs/web/content/guides.html"), STATIC_PAGE_BUILDER),

@@ -9,6 +9,7 @@
  */
 #include "test_harness.h"
 
+#include <cstring>
 #include <string>
 
 #include "esp_event.h"

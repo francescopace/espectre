@@ -3,6 +3,6 @@
 nvs,      data, nvs,     0x9000,   0x5000,
 otadata,  data, ota,     0xe000,   0x2000,
 nvs_key,  data, nvs_keys,0x10000,  0x1000,
-app0,     app,  ota_0,   0x20000,  0x1E0000,
-app1,     app,  ota_1,   0x200000, 0x1E0000,
+# Matter OTA is unsupported; keep one large app slot and preserve onboarding data.
+app0,     app,  ota_0,   0x20000,  0x3D0000,
 matter_factory,data,0x40,0x3F0000, 0x1000,
