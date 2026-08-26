@@ -1,35 +1,40 @@
 name: Docs, setup, or UX feedback
-description: Report confusing setup, missing docs, or onboarding friction
+description: Report unclear instructions, missing documentation, or setup problems
 title: "[DOCS] "
 body:
   - type: dropdown
     id: area
     attributes:
       label: Area
+      description: Choose the page, tool, or setup step that needs work.
       options:
         - README
         - Setup guide
-        - Frontend README
-        - Web flasher
+        - Firmware README
+        - Web Flash and installation
+        - Web provisioning and Configure
+        - Web Monitor and live detector
+        - Raw CSI and interactive web tools
         - CLI UX
-        - Documentation site
+        - Website guides, content, or navigation
         - GitHub templates / CI UX
         - Other
     validations:
       required: true
 
   - type: dropdown
-    id: frontend
+    id: firmware
     attributes:
-      label: Related frontend
-      description: Pick the closest match if relevant.
+      label: Firmware
+      description: Which firmware were you using? Choose all that apply.
+      multiple: true
       options:
         - ESPHome
         - Matter
         - Native
         - Micro-ESPectre
-        - Shared / multiple
-        - Not frontend-specific
+        - Shared across firmware
+        - Not tied to firmware
     validations:
       required: true
 
@@ -37,7 +42,7 @@ body:
     id: problem
     attributes:
       label: What was confusing or missing?
-      placeholder: "I followed the setup guide for Matter, but it is not clear when the commissioning window should appear."
+      placeholder: "I followed the Matter setup guide but could not tell when the commissioning window should open."
     validations:
       required: true
 
@@ -53,8 +58,7 @@ body:
     id: context
     attributes:
       label: Relevant context
-      description: Link the page, command, screenshot, or step where the confusion happened.
-      render: text
+      description: Include the page, command, screenshot, or setup step.
       placeholder: |
         Page or file:
         Exact command:

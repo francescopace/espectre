@@ -1,20 +1,39 @@
 name: Other
-description: Use this when your report does not fit the structured forms above
+description: Use this for reports that do not fit the bug, feature, or documentation forms
 title: "[OTHER] "
 body:
   - type: dropdown
-    id: area
+    id: surface
     attributes:
-      label: Frontend or area
+      label: Area
+      description: Where does this apply? Choose all that apply.
+      multiple: true
+      options:
+        - Detector or on-device runtime
+        - Firmware installation or provisioning
+        - Website or web tools
+        - ESPectre CLI or host tools
+        - Home Assistant or controller integration
+        - SDK, research, or data tooling
+        - Documentation
+        - CI, builds, or releases
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: firmware
+    attributes:
+      label: Firmware
+      description: Which firmware does this involve? Choose all that apply.
+      multiple: true
       options:
         - ESPHome
         - Matter
         - Native
         - Micro-ESPectre
-        - Shared core/runtime
-        - Docs
-        - CI/tooling
-        - Other
+        - Shared across firmware
+        - Not tied to firmware
     validations:
       required: true
 
@@ -22,8 +41,7 @@ body:
     id: description
     attributes:
       label: Description
-      description: Describe the issue, question, or topic.
-      placeholder: "Describe what you want to report or ask."
+      description: Describe what you want to report.
     validations:
       required: true
 
@@ -31,5 +49,4 @@ body:
     id: details
     attributes:
       label: Additional details
-      description: Include links, context, related issues, or anything useful for triage.
-      render: text
+      description: Add links, related issues, logs, or other relevant context.

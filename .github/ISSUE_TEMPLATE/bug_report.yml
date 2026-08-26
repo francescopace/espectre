@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible bug in firmware, tooling, docs, or CI
+description: Report a bug in firmware, web tools, CLI, docs, or CI
 title: "[BUG] "
 labels:
   - bug
@@ -7,42 +7,76 @@ body:
   - type: checkboxes
     id: preflight
     attributes:
-      label: Before You Start
-      description: A quick check helps keep triage fast.
+      label: Before you start
+      description: Please check these before submitting.
       options:
         - label: I searched existing issues for similar reports.
           required: true
-        - label: I can reproduce this issue on a current release or recent `main` snapshot.
+        - label: I tested against the current website or a recent release or development build. If I could not, I explained why below.
           required: true
 
-  - type: dropdown
-    id: area
+  - type: markdown
     attributes:
-      label: Frontend or area
-      description: Pick the closest match.
+      value: >
+        Do not include Wi-Fi or MQTT credentials, Matter onboarding codes, tokens, or other secrets. Report security vulnerabilities through [private vulnerability reporting](https://github.com/francescopace/espectre/security/advisories/new).
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Area affected
+      description: Where did the problem occur? Choose all that apply.
+      multiple: true
       options:
-        - ESPHome
-        - Matter
-        - Native
-        - Micro-ESPectre
-        - Shared core/runtime
-        - Docs
-        - CI/tooling
+        - Detector or on-device runtime
+        - Firmware build or device flashing
+        - Web Flash and firmware catalog
+        - Wi-Fi provisioning or Matter commissioning
+        - Web Configure and device discovery
+        - Web Monitor and live detector
+        - Raw CSI or interactive web tools
+        - ESPectre CLI or host tools
+        - Home Assistant or controller integration
+        - Documentation or website content
+        - CI, builds, or releases
         - Other
     validations:
       required: true
 
   - type: dropdown
-    id: install_path
+    id: firmware
     attributes:
-      label: Installation path
-      description: How are you using or building ESPectre?
+      label: Firmware
+      description: Which firmware were you using? Choose all that apply.
+      multiple: true
       options:
-        - Web Flash
+        - ESPHome
+        - Matter
+        - Native
+        - Micro-ESPectre
+        - Shared across firmware
+        - Not tied to firmware
+    validations:
+      required: true
+
+  - type: dropdown
+    id: setup
+    attributes:
+      label: Installation or connection
+      description: How did you install, run, or connect to ESPectre? Choose all that apply.
+      multiple: true
+      options:
+        - Web Flash (published image)
         - ESPectre CLI
         - ESP-IDF directly
         - ESPHome local build
         - MicroPython workflow
+        - Web Serial or Improv provisioning
+        - Matter commissioning
+        - Direct HTTP or SSE
+        - MQTT, MQTT over WebSockets, or Home Assistant
+        - OTA update
+        - Website demo mode
+        - Website without a device
         - Other
     validations:
       required: true
@@ -51,8 +85,8 @@ body:
     id: version
     attributes:
       label: ESPectre version or commit
-      description: Release tag, `main`, snapshot, or commit SHA.
-      placeholder: "3.0.0, main, snapshot, or a1b2c3d"
+      description: Include the release tag or commit. For published images, include the release, preview, or develop channel.
+      placeholder: "3.0.0 (release), preview at a1b2c3d, develop, or current website"
     validations:
       required: true
 
@@ -60,24 +94,38 @@ body:
     id: board
     attributes:
       label: Board and chip
-      description: Include the board name when possible.
-      placeholder: "XIAO ESP32-C6, ESP32-S3 DevKitC-1, or generic ESP32-C3"
+      description: Include the board name when possible, or enter N/A for a website-only, docs, or host-only issue.
+      placeholder: "XIAO ESP32-C6, ESP32-S3 DevKitC-1, generic ESP32-C3, or N/A"
     validations:
       required: true
+
+  - type: input
+    id: website_page
+    attributes:
+      label: Website page or origin
+      description: For website or web-tool issues, include the exact page URL or local preview origin.
+      placeholder: "https://espectre.dev/tools/monitor/, https://test.espectre.dev/..., or http://localhost:8000/..."
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      description: For browser-based workflows, include the browser and version.
+      placeholder: "Chrome 151, Edge 151, Safari 20, or N/A"
 
   - type: input
     id: host_os
     attributes:
       label: Host OS
-      description: Required for local builds, tooling, web, or collector issues.
+      description: Include this for local builds, CLI, web tools, or collector issues.
       placeholder: "macOS 15, Ubuntu 24.04, Windows 11, or N/A"
 
   - type: input
     id: integration_version
     attributes:
-      label: Integration version
-      description: Fill if relevant for your path.
-      placeholder: "Home Assistant 2026.7, ESPHome 2026.6, Apple Home, Google Home, or N/A"
+      label: Controller or integration
+      description: Include its name and version when relevant.
+      placeholder: "Home Assistant 2026.7, ESPHome 2026.6, Apple Home, Google Home, Mosquitto 2.0, or N/A"
 
   - type: textarea
     id: summary
@@ -113,7 +161,7 @@ body:
     id: config
     attributes:
       label: Relevant config or command
-      description: Paste the relevant frontend config, CLI command, `sdkconfig` diff, collector settings, or Python/YAML snippet. Remove secrets first.
+      description: Paste the relevant firmware config, exact CLI command, `sdkconfig` diff, collector settings, or Python/YAML snippet. For CLI build, flash, or toolchain issues, include `./espectre doctor` output. Remove secrets first.
       render: text
       placeholder: |
         ./espectre native build --chip c3 --clean
@@ -124,7 +172,7 @@ body:
     id: logs
     attributes:
       label: Relevant logs
-      description: Paste serial logs, CLI output, collector output, or browser console logs.
+      description: Paste serial logs, CLI output, collector output, or browser console logs. Remove credentials, Matter onboarding codes, tokens, and other secrets first.
       render: text
       placeholder: |
         Paste logs here
@@ -134,13 +182,12 @@ body:
     attributes:
       label: Crash debug artifacts
       description: If this is a crash, attach the `.elf` and `.map` files, then note the paths here.
-      value: |
+      placeholder: |
         ESPHome: `.esphome/build/<device-name>/build/firmware.elf` and `<device-name>.map`
         Matter: `src/cpp/frontend/matter/app/build-<target>/espectre-matter.elf` and the corresponding `.map`
         Native: `src/cpp/frontend/native/app/build-<target>/espectre-native.elf` and the corresponding `.map`
 
         For collector or tooling bugs, also include the exact command you ran and any related host-side logs.
-      render: text
 
   - type: textarea
     id: additional

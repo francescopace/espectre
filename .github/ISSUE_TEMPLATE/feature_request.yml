@@ -1,5 +1,5 @@
 name: Feature request
-description: Propose a new capability or meaningful improvement
+description: Propose a new capability or improvement
 title: "[FEATURE] "
 labels:
   - enhancement
@@ -7,7 +7,7 @@ body:
   - type: checkboxes
     id: preflight
     attributes:
-      label: Before You Start
+      label: Before you start
       options:
         - label: I searched existing issues for related requests.
           required: true
@@ -15,20 +15,41 @@ body:
           required: true
 
   - type: dropdown
-    id: area
+    id: surface
     attributes:
-      label: Frontend or area
-      description: Pick the closest match.
+      label: Area
+      description: Where would this change apply? Choose all that apply.
+      multiple: true
+      options:
+        - Detector or on-device runtime
+        - Firmware installation or provisioning
+        - Web Flash and firmware catalog
+        - Web Configure and device discovery
+        - Web Monitor and live detector
+        - Raw CSI or interactive web tools
+        - ESPectre CLI or host tools
+        - Home Assistant or controller integration
+        - SDK or embedding
+        - Research, data, or ML tooling
+        - Documentation or website content
+        - CI, builds, or releases
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: firmware
+    attributes:
+      label: Firmware
+      description: Which firmware would this affect? Choose all that apply.
+      multiple: true
       options:
         - ESPHome
         - Matter
         - Native
         - Micro-ESPectre
-        - Shared core
-        - Shared runtime
-        - Docs
-        - CI/tooling
-        - Other
+        - Shared across firmware
+        - Not tied to firmware
     validations:
       required: true
 
@@ -37,33 +58,29 @@ body:
     attributes:
       label: Summary
       description: A concise description of the feature.
-      placeholder: "Add a guided Wi-Fi provisioning flow for the native frontend web client."
+      placeholder: "Add a guided Wi-Fi provisioning flow for Native in the web tools."
     validations:
       required: true
 
   - type: textarea
     id: use_case
     attributes:
-      label: Use case
-      description: What are you trying to accomplish, why does it matter, and who benefits?
+      label: Problem or use case
+      description: What are you trying to do, and what prevents you from doing it today?
       placeholder: |
         I want to ...
-        This matters because ...
-        The main users are ...
+        Today I cannot ...
     validations:
       required: true
 
   - type: textarea
     id: proposed_solution
     attributes:
-      label: Proposed solution
-      description: Describe the behavior you want.
+      label: Suggested behavior
+      description: If you have a preferred behavior or interface, describe it here. A technical design is not required.
       placeholder: |
-        The feature should ...
-        Users would interact with it by ...
-        Configuration would live in ...
-    validations:
-      required: true
+        ESPectre could ...
+        Users would ...
 
   - type: textarea
     id: alternatives
@@ -76,11 +93,11 @@ body:
     id: implementation_notes
     attributes:
       label: Implementation notes
-      description: Optional technical context such as affected modules, constraints, or likely challenges.
+      description: Optional technical context such as affected modules or constraints.
       placeholder: |
         Affected modules:
-        Potential challenges:
-        Related docs or prior issues:
+        Constraints:
+        Related docs or issues:
 
   - type: checkboxes
     id: contribution
