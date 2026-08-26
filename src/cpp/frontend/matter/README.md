@@ -83,7 +83,7 @@ The Matter frontend keeps ownership boundaries explicit:
 
 That ordering is visible in [`app_main.cpp`](app/main/app_main.cpp).
 
-The Matter frontend uses the shared periodic progress-bar sensing status helper, as do the ESPHome and standalone Native frontends. This keeps runtime serial diagnostics aligned across the ecosystem-facing firmware targets.
+The Matter frontend uses the shared periodic progress-bar sensing status helper, as do the ESPHome and standalone Native frontends. The same one-second heartbeat caches the CSI and Wi-Fi rate sample returned by Direct diagnostics. High-rate telemetry follows the detector evaluation cadence only while a Direct SSE client is connected; the Matter occupancy attribute remains edge-triggered.
 
 ### Commissioning Window Behavior
 

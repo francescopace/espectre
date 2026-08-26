@@ -145,7 +145,7 @@ bool EspIdfRuntime::setup() {
   // only defines cadence.
   csi_traffic_service_.init(to_csi_traffic_config(config_));
 
-  csi_pipeline_.init(detector_.get(), config_.publish_interval_ms);
+  csi_pipeline_.init(detector_.get());
   csi_pipeline_.set_evaluation_interval_ms(config_.evaluation_interval_ms);
   csi_pipeline_.set_csi_target_pps(config_.csi_target_pps);
   csi_pipeline_.set_segmentation_window_size_ms(config_.segmentation_window_size_ms);
@@ -202,7 +202,7 @@ void EspIdfRuntime::loop() {
   if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
     return;
   }
-  csi_pipeline_.publish_if_due(monotonic_now_ms());
+  csi_pipeline_.heartbeat_if_due(monotonic_now_ms());
   DetectionTimingStats detection_timing;
   if (csi_pipeline_.take_detection_timing(&detection_timing)) {
     performance_diagnostics_.record_detection_timing(detection_timing.duration_sum_us,

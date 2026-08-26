@@ -79,7 +79,7 @@ These options are applied from YAML during firmware configuration. Runtime contr
 
 ### Diagnostic Telemetry
 
-Diagnostic entities are always available in production builds. ESPectre refreshes their cached rate sample from the existing sensing update that also feeds the periodic status log, without adding a diagnostic timer or periodically publishing new Home Assistant states. Press `Refresh Diagnostics` to publish the latest cached sample on demand:
+Diagnostic entities are always available in production builds. ESPectre refreshes their cached rate sample from the existing sensing update that also feeds the periodic status log, without adding a diagnostic timer or periodically publishing new Home Assistant states. Direct returns the same cached rate sample. Press `Refresh Diagnostics` to publish it to Home Assistant on demand:
 
 | Entity | Meaning |
 |--------|---------|
@@ -214,7 +214,7 @@ Once the device is flashed and connected to Wi-Fi:
 3. Configure the discovered device
 4. The default entities are added automatically
 
-The ESPHome frontend exposes movement, motion, sensing state, threshold control, motion-hit debounce control, recalibration, calibration state, CSI traffic ownership, traffic generator selection, and on-demand CSI diagnostics as Home Assistant entities. Every writable entity invokes the common command engine and republishes authoritative state when a command is rejected. Direct mutations use the same engine and immediately synchronize the affected entities. Movement Score updates on the detector evaluation cadence (default 250 ms). Motion Detected publishes only on filtered state edges. Threshold publishes on operator writes, calibration, and Lightweight settled-level recovery; motion-hit controls publish on change. Calibration Active reports the read-only runtime state, and the traffic selects mirror runtime state on connect and each accepted change. Diagnostic sensors publish only when Refresh Diagnostics runs the canonical `diagnostics` query. If the Home Assistant recorder is a concern, exclude `sensor.*_movement_score` rather than lowering `evaluation_interval_ms`.
+The ESPHome frontend exposes movement, motion, sensing state, threshold control, motion-hit debounce control, recalibration, calibration state, CSI traffic ownership, traffic generator selection, and on-demand CSI diagnostics as Home Assistant entities. Every writable entity invokes the common command engine and republishes authoritative state when a command is rejected. Direct mutations use the same engine and immediately synchronize the affected entities. Movement Score updates on the detector evaluation cadence (default 250 ms). The high-rate path runs while the Movement Score entity exists or a Direct SSE client is connected, so Direct-only configurations do not need to add an unused Home Assistant sensor. Motion Detected publishes only on filtered state edges. Threshold publishes on operator writes, calibration, and Lightweight settled-level recovery; motion-hit controls publish on change. Calibration Active reports the read-only runtime state, and the traffic selects mirror runtime state on connect and each accepted change. Diagnostic sensors publish only when Refresh Diagnostics runs the canonical `diagnostics` query. If the Home Assistant recorder is a concern, exclude `sensor.*_movement_score` rather than lowering `evaluation_interval_ms`.
 
 To manage configuration and OTA updates, install ESPHome Device Builder and adopt the discovered device. The adopted configuration uses the GitHub source profile, follows `main`, and identifies that rolling build as `0.0.0-main`. First-party CI and release builds use the local checkout and override `project_version` with `git describe` or the release tag.
 
@@ -279,7 +279,6 @@ espectre:
   csi_target_pps: 100
   csi_traffic_mode: external
   csi_traffic_multicast_group: "239.255.0.1"
-  publish_interval_ms: 1000
   evaluation_interval_ms: 250
 ```
 

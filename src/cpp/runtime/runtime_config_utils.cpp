@@ -113,10 +113,6 @@ RuntimeConfigError validate_runtime_config(const RuntimeConfig &config) {
                                  RUNTIME_SEGMENTATION_WINDOW_SIZE_MS_MAX)) {
       return RuntimeConfigError::SEGMENTATION_WINDOW_SIZE_MS;
     }
-    if (!validate_runtime_uint32(config.publish_interval_ms, RUNTIME_PUBLISH_INTERVAL_MS_MIN,
-                                 RUNTIME_PUBLISH_INTERVAL_MS_MAX)) {
-      return RuntimeConfigError::PUBLISH_INTERVAL_MS;
-    }
     if (!validate_runtime_uint32(config.evaluation_interval_ms,
                                  RUNTIME_EVALUATION_INTERVAL_MS_MIN,
                                  RUNTIME_EVALUATION_INTERVAL_MS_MAX)) {
@@ -160,7 +156,6 @@ const char *runtime_config_error_message(RuntimeConfigError error) {
     case RuntimeConfigError::CSI_TRAFFIC_MODE: return "invalid CSI traffic mode for runtime profile";
     case RuntimeConfigError::CSI_TRAFFIC_UDP_PORT: return "invalid CSI traffic UDP port";
     case RuntimeConfigError::CSI_TRAFFIC_MULTICAST_GROUP: return "invalid CSI multicast group";
-    case RuntimeConfigError::PUBLISH_INTERVAL_MS: return "invalid publish interval";
     case RuntimeConfigError::EVALUATION_INTERVAL_MS: return "invalid evaluation interval";
     case RuntimeConfigError::MOTION_HITS: return "invalid motion hit counts";
     case RuntimeConfigError::LOWPASS_CUTOFF: return "invalid low-pass cutoff";

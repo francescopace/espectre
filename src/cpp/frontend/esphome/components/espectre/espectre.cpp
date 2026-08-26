@@ -56,7 +56,7 @@ void ESpectreComponent::setup() {
     }
   }
 
-  this->runtime_.set_live_telemetry_enabled(this->sensor_publisher_.has_movement_sensor());
+  this->update_live_telemetry_enabled_();
   if (!this->runtime_.setup(this)) {
     ESP_LOGE(TAG, "ESPectre runtime setup failed");
     this->mark_failed();
@@ -90,6 +90,7 @@ void ESpectreComponent::setup() {
               },
               {},
               &this->peer_discovery_,
+              [this]() { return &this->latest_diagnostics_; },
           },
           [this]() { this->sync_direct_config_(); })) {
     ESP_LOGE(TAG, "ESPHome Direct HTTP setup failed");
@@ -118,6 +119,7 @@ ESpectreComponent::~ESpectreComponent() {
 void ESpectreComponent::loop() {
   this->runtime_.loop();
   this->direct_bridge_.loop();
+  this->update_live_telemetry_enabled_();
   esp_netif_ip_info_t ip_info{};
   esp_netif_t *station = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
   (void) this->mdns_bootstrap_responder_.update(
@@ -128,6 +130,16 @@ void ESpectreComponent::loop() {
   if (!this->mdns_discovery_.service_enabled() && millis() >= this->next_mdns_setup_ms_) {
     this->setup_mdns_discovery_();
   }
+}
+
+void ESpectreComponent::update_live_telemetry_enabled_() {
+  const bool enabled = this->sensor_publisher_.has_movement_sensor() ||
+                       this->direct_bridge_.event_client_count() > 0U;
+  if (enabled == this->live_telemetry_enabled_) {
+    return;
+  }
+  this->live_telemetry_enabled_ = enabled;
+  this->runtime_.set_live_telemetry_enabled(enabled);
 }
 
 std::string ESpectreComponent::device_name_() const {
@@ -583,10 +595,6 @@ void ESpectreComponent::dump_config() {
                 config.csi_traffic_multicast_group.empty() ? "[disabled]"
                                                           : config.csi_traffic_multicast_group.c_str());
   ESP_LOGCONFIG(TAG, " └─ Status ............. %s", snapshot.ready_to_publish ? "[ACTIVE]" : "[IDLE]");
-  ESP_LOGCONFIG(TAG, " ");
-  ESP_LOGCONFIG(TAG, " PUBLISH INTERVAL");
-  ESP_LOGCONFIG(TAG, " └─ Status log ......... %u ms",
-                static_cast<unsigned>(config.publish_interval_ms));
   ESP_LOGCONFIG(TAG, " ");
   ESP_LOGCONFIG(TAG, " EVALUATION");
   ESP_LOGCONFIG(TAG, " ├─ Interval ........... %u ms",

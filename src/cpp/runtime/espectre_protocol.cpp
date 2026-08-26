@@ -653,10 +653,6 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
     out += ",\"evaluation_interval_ms\":";
     out += std::to_string(static_cast<unsigned>(info.evaluation_interval_ms));
   }
-  if (info.publish_interval_ms > 0U) {
-    out += ",\"publish_interval_ms\":";
-    out += std::to_string(static_cast<unsigned>(info.publish_interval_ms));
-  }
   out += "}";
   return out;
 }

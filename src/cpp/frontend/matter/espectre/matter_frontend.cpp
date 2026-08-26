@@ -16,6 +16,7 @@
 #include "matter_surface.h"
 #include "protocol_json.h"
 #include "runtime_config_utils.h"
+#include "runtime_time.h"
 #include "sdkconfig.h"
 
 namespace espectre {
@@ -43,6 +44,7 @@ bool MatterFrontend::setup() {
     return false;
   }
 
+  update_live_telemetry_enabled_();
   if (!runtime_.setup(this)) {
     ESP_LOGE(TAG, "ESPectre runtime setup failed");
     return false;
@@ -51,6 +53,10 @@ bool MatterFrontend::setup() {
   const uint64_t device_id = runtime_.config().device_id != 0U
                                  ? runtime_.config().device_id
                                  : derive_runtime_device_id();
+  const uint32_t diagnostics_now_ms = monotonic_now_ms();
+  const RuntimeDiagnosticsSnapshot diagnostics = runtime_.diagnostics();
+  diagnostics_sampler_.reset(diagnostics, diagnostics_now_ms);
+  latest_diagnostics_ = diagnostics_sampler_.sample(diagnostics, diagnostics_now_ms);
   if (direct_service_ != nullptr && !direct_bridge_.setup(
           direct_service_,
           &runtime_,
@@ -77,6 +83,7 @@ bool MatterFrontend::setup() {
               },
               {},
               &peer_discovery_,
+              [this]() { return &this->latest_diagnostics_; },
           })) {
     ESP_LOGE(TAG, "Matter Direct HTTP setup failed");
     runtime_.shutdown();
@@ -102,6 +109,16 @@ MatterFrontend::~MatterFrontend() { shutdown(); }
 void MatterFrontend::loop() {
   runtime_.loop();
   direct_bridge_.loop();
+  update_live_telemetry_enabled_();
+}
+
+void MatterFrontend::update_live_telemetry_enabled_() {
+  const bool enabled = direct_bridge_.event_client_count() > 0U;
+  if (enabled == live_telemetry_enabled_) {
+    return;
+  }
+  live_telemetry_enabled_ = enabled;
+  runtime_.set_live_telemetry_enabled(enabled);
 }
 
 void MatterFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
@@ -116,6 +133,7 @@ void MatterFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
 void MatterFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
   (void) snapshot;
   (void) packets_received;
+  latest_diagnostics_ = diagnostics_sampler_.sample(runtime_.diagnostics(), monotonic_now_ms());
 }
 
 void MatterFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {

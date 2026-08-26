@@ -40,6 +40,10 @@ set(espectre_sdk_requires
     ${ESPECTRE_SDK_ADDITIONAL_REQUIRES}
 )
 
+if(ESPECTRE_SDK_EXCLUDED_REQUIRES)
+    list(REMOVE_ITEM espectre_sdk_requires ${ESPECTRE_SDK_EXCLUDED_REQUIRES})
+endif()
+
 # ESP-IDF expands component requirements before menuconfig values are
 # available. Declare the dependencies for every opt-in source group here; the
 # source switches below still keep their code out of the linked firmware.

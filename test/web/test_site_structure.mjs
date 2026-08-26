@@ -1591,7 +1591,6 @@ describe('website UX contracts', () => {
         assert.match(app, /function applySensingCadence/);
         assert.match(app, /function evaluationIntervalMs/);
         assert.match(app, /snapshot\.evaluation_interval_ms/);
-        assert.match(app, /snapshot\.publish_interval_ms/);
         assert.match(app, /snapshot\.csi_target_pps/);
         assert.match(app, /demoTimer = setInterval\(\(\) => \{[\s\S]*?\}, evaluationIntervalMs\(\)\)/);
         assert.match(app, /function gameSensingActive/);
@@ -1600,6 +1599,7 @@ describe('website UX contracts', () => {
         assert.doesNotMatch(app, /game\.phase === 'strike' && conn\.motion/);
         assert.match(app, /const tau = evaluationIntervalMs\(\) \/ 2000/);
         assert.match(app, /function monitorChartMaxPoints/);
+        assert.match(app, /const DIAGNOSTICS_POLL_INTERVAL_MS = 1000/);
         assert.match(app, /setInterval\(monitorRequestStats, interval\)/);
         assert.match(styles, /transition: width \.25s linear/);
     });

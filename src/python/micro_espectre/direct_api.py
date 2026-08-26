@@ -159,14 +159,21 @@ class DirectApi:
         )
         self.started = True
 
-    def publish(self, movement_score, motion_state, threshold, now_ms=None, diagnostics=None):
-        """Refresh status and emit one canonical telemetry event."""
+    def refresh_snapshots(self, now_ms=None, diagnostics=None):
+        """Refresh the read-only status and diagnostics snapshots."""
         if not self.started:
             return
         if now_ms is None:
             now_ms = time.ticks_ms()
         native_direct.update_status(_json(self._status(now_ms)))
         native_direct.update_diagnostics(_json(self._diagnostics(now_ms, diagnostics)))
+
+    def publish_telemetry(self, movement_score, motion_state, threshold, now_ms=None):
+        """Emit one canonical telemetry event after a detector evaluation."""
+        if not self.started or not native_direct.has_event_client():
+            return
+        if now_ms is None:
+            now_ms = time.ticks_ms()
         uptime_ms = max(0, time.ticks_diff(now_ms, self.started_ms))
         payload = build_telemetry_payload(
             self.device_id,

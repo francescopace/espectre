@@ -119,8 +119,6 @@ struct RuntimeConfig {
    * `derive_runtime_device_id()`.
    */
   uint64_t device_id{0U};
-  /** Milliseconds between `IRuntimeListener::on_periodic_update()` callbacks. */
-  uint32_t publish_interval_ms{RUNTIME_PUBLISH_INTERVAL_MS_DEFAULT};
   /** Detector evaluation cadence in milliseconds. */
   uint32_t evaluation_interval_ms{RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT};
   /** Consecutive above-threshold evaluations before reporting motion (1..20). */

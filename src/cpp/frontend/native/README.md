@@ -39,7 +39,7 @@ Direct mode provides:
 - processed movement, state, calibration, diagnostics, and lifecycle events
 - supported OTA status and control operations
 
-The endpoints never return stored Wi-Fi or MQTT passwords. They cap request and response size, mutation rate, queued messages, and concurrent SSE subscribers. Telemetry may replace an older queued telemetry sample, while state transitions are preserved. MQTT uses its own 16-message frontend queue and bounded ESP-IDF outbox. Runtime callbacks only stage numeric sensing state; serialization and transport work run after detector evaluation returns.
+The endpoints never return stored Wi-Fi or MQTT passwords. They cap request and response size, mutation rate, queued messages, and concurrent SSE subscribers. Telemetry may replace an older queued telemetry sample, while state transitions are preserved. MQTT uses its own 16-message frontend queue and bounded ESP-IDF outbox. The high-rate telemetry callback runs only while MQTT is connected or a Direct SSE client is present. Runtime callbacks only stage numeric sensing state; serialization and transport work run after detector evaluation returns.
 
 Native images advertise bearer-bound raw CSI HTTP v2 collection. `start_raw_stream` on `/espectre/v1/request` accepts no rate parameter, returns a random 128-bit session ID, and one collector opens `/espectre/v1/csi` with that bearer. Classified frames bypass temporal sampling and enter a fixed 16-record ring; a dedicated worker sends up to four ordered V8 records per HTTP chunk with a 60-byte prefix and no pacing or replacement. Raw mode leaves the configured internal or external traffic source active and restores sensing on stop, abort, timeout, or network loss without changing persisted traffic configuration.
 

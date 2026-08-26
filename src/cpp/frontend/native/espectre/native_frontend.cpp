@@ -291,9 +291,6 @@ void NativeFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_
   if (!snapshot.ready_to_publish) {
     return;
   }
-  if (runtime_.capabilities().supports_runtime_detector_selection && snapshot.detector_name != nullptr) {
-    publish_ha_detector_(snapshot.detector_name);
-  }
 }
 
 void NativeFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {
@@ -1495,7 +1492,6 @@ EspectreDeviceInfo NativeFrontend::mqtt_protocol_device_info_() const {
   info.csi_traffic_udp_port = runtime_.config().csi_traffic_udp_port;
   info.csi_traffic_multicast_group = runtime_.config().csi_traffic_multicast_group;
   info.evaluation_interval_ms = runtime_.config().evaluation_interval_ms;
-  info.publish_interval_ms = runtime_.config().publish_interval_ms;
   return info;
 }
 

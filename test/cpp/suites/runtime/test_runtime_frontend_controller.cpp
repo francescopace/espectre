@@ -85,7 +85,7 @@ void test_runtime_frontend_controller_preserves_pre_setup_config_and_snapshot(vo
 void test_runtime_frontend_controller_rejects_invalid_config_before_backend_setup(void) {
   RuntimeFrontendController controller;
   RuntimeConfig config;
-  config.publish_interval_ms = 0U;
+  config.evaluation_interval_ms = 0U;
   controller.set_config(config);
   DummyRuntimeListener listener;
 
@@ -93,7 +93,7 @@ void test_runtime_frontend_controller_rejects_invalid_config_before_backend_setu
   TEST_ASSERT_FALSE(controller.is_setup_complete());
   TEST_ASSERT_NULL(frontend_runtime_shim::state.last_instance);
   TEST_ASSERT_EQUAL(1, listener.fault_count);
-  TEST_ASSERT_EQUAL_STRING("invalid publish interval", listener.last_fault.c_str());
+  TEST_ASSERT_EQUAL_STRING("invalid evaluation interval", listener.last_fault.c_str());
 }
 
 void test_runtime_frontend_controller_keeps_staged_mutations_out_of_live_validation(void) {

@@ -276,5 +276,4 @@ def build_info_payload(
         "traffic_mode": "ping",
         "csi_target_pps": max(1, int(getattr(config, "CSI_TARGET_PPS", 100))),
         "evaluation_interval_ms": max(1, int(getattr(config, "EVALUATION_INTERVAL_MS", 250))),
-        "publish_interval_ms": max(1, int(getattr(config, "PUBLISH_INTERVAL_MS", 1000))),
     }

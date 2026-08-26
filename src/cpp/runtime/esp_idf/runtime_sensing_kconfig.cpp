@@ -43,9 +43,6 @@
 #ifndef CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_PING
 #define CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_PING 1
 #endif
-#ifndef CONFIG_ESPECTRE_PUBLISH_INTERVAL_MS
-#define CONFIG_ESPECTRE_PUBLISH_INTERVAL_MS 1000
-#endif
 #ifndef CONFIG_ESPECTRE_EVALUATION_INTERVAL_MS
 #define CONFIG_ESPECTRE_EVALUATION_INTERVAL_MS 250
 #endif
@@ -169,12 +166,6 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
 #else
   config.traffic_generator_mode = RuntimeTrafficMode::PING;
 #endif
-  config.publish_interval_ms =
-      clamp_uint32_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_PUBLISH_INTERVAL_MS),
-                               RUNTIME_PUBLISH_INTERVAL_MS_DEFAULT,
-                               RUNTIME_PUBLISH_INTERVAL_MS_MIN,
-                               RUNTIME_PUBLISH_INTERVAL_MS_MAX,
-                               "CONFIG_ESPECTRE_PUBLISH_INTERVAL_MS");
   config.evaluation_interval_ms =
       clamp_uint32_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_EVALUATION_INTERVAL_MS),
                                RUNTIME_EVALUATION_INTERVAL_MS_DEFAULT,

@@ -20,12 +20,9 @@ namespace espectre {
 
 static const char *TAG = "CsiPipeline";
 
-void CsiPipeline::init(BaseDetector* detector,
-                     uint32_t publish_interval_ms,
-                     IWiFiCSI* wifi_csi) {
+void CsiPipeline::init(BaseDetector* detector, IWiFiCSI* wifi_csi) {
   detector_ = detector;
-  publish_interval_ms_ = std::max<uint32_t>(1U, publish_interval_ms);
-  last_publish_ms_ = 0U;
+  last_heartbeat_ms_ = 0U;
   packets_processed_.store(0U, std::memory_order_relaxed);
   capture_service_.init(wifi_csi);
   capture_service_.set_packet_callback(&CsiPipeline::capture_packet_callback_, this);
@@ -153,18 +150,18 @@ void CsiPipeline::loop() {
   }
 }
 
-void CsiPipeline::publish_if_due(uint32_t now_ms) {
+void CsiPipeline::heartbeat_if_due(uint32_t now_ms) {
   if (!enabled_ || !packet_callback_) {
     return;
   }
-  if (last_publish_ms_ == 0U) {
-    last_publish_ms_ = now_ms;
+  if (last_heartbeat_ms_ == 0U) {
+    last_heartbeat_ms_ = now_ms;
     return;
   }
-  if (now_ms - last_publish_ms_ < publish_interval_ms_) {
+  if (now_ms - last_heartbeat_ms_ < RUNTIME_HEARTBEAT_INTERVAL_MS) {
     return;
   }
-  last_publish_ms_ = now_ms;
+  last_heartbeat_ms_ = now_ms;
   const uint32_t packets_received =
       packets_processed_.exchange(0U, std::memory_order_relaxed);
   packet_callback_(heartbeat_motion_state_.load(std::memory_order_relaxed), packets_received);
@@ -450,7 +447,7 @@ esp_err_t CsiPipeline::enable(csi_processed_callback_t packet_callback) {
   esp_err_t err = capture_service_.enable();
   if (err == ESP_OK) {
     enabled_ = true;
-    last_publish_ms_ = 0U;
+    last_heartbeat_ms_ = 0U;
     packets_processed_.store(0U, std::memory_order_relaxed);
   }
   return err;
@@ -477,7 +474,7 @@ esp_err_t CsiPipeline::disable() {
   live_telemetry_event_.clear();
   detection_timing_.clear();
   packets_processed_.store(0U, std::memory_order_relaxed);
-  last_publish_ms_ = 0U;
+  last_heartbeat_ms_ = 0U;
   last_rssi_dbm_ = INT8_MIN;
   last_channel_ = 0U;
   cadence_.reset();

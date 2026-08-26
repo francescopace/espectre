@@ -89,11 +89,6 @@ choice ESPECTRE_TRAFFIC_GENERATOR_MODE
         bool "PING"
 endchoice
 
-config ESPECTRE_PUBLISH_INTERVAL_MS
-    int "Publish interval (milliseconds)"
-    range 100 60000
-    default 1000
-
 config ESPECTRE_EVALUATION_INTERVAL_MS
     int "Evaluation interval (milliseconds)"
     range 10 10000

@@ -278,7 +278,7 @@ espectre/v1/devices/{device_id}/telemetry
 }
 ```
 
-Native publishes telemetry over Direct and MQTT on every detector evaluation once `ready_to_publish` is true, matching the canonical payload Micro-ESPectre sends over Direct SSE. Filtered motion-state transitions update the Home Assistant motion entity immediately without a second telemetry publish. `publish_interval_ms` remains a monotonic-clock heartbeat for status logs and diagnostics sampling; it never publishes sensing telemetry and never forces detector evaluation.
+Every shipped frontend makes telemetry available on each detector evaluation once `ready_to_publish` is true, but suppresses the high-rate serialization path when it has no consumer. Native treats MQTT or a Direct SSE client as a consumer, ESPHome also treats its Movement Score entity as one, and Matter and Micro-ESPectre enable the stream for a Direct SSE client. Filtered motion-state transitions update the ecosystem motion entity immediately without forcing another detector evaluation. The C++ and Micro runtimes use a fixed one-second heartbeat for status logs and diagnostics sampling; it is not configurable and does not control sensing telemetry.
 
 ### Status
 
@@ -330,12 +330,11 @@ espectre/v1/devices/{device_id}/info
   "csi_traffic_mode": "internal",
   "traffic_mode": "ping",
   "csi_target_pps": 100,
-  "evaluation_interval_ms": 250,
-  "publish_interval_ms": 1000
+  "evaluation_interval_ms": 250
 }
 ```
 
-`info` contains identity, firmware, chip, frontend, timing, and non-sensitive descriptive data. Capability booleans are not duplicated here; clients consume the `capabilities` schema. Native publishes `info` retained over MQTT on connect and after an accepted label change so late subscribers, including `./espectre mqtt` discovery, see the current frontend identity. Direct clients request the current value from Native or Micro explicitly. `network` and `detection` are optional. Canonical MQTT `info` reports the active Wi-Fi channel when available, but does not serialize the local IP address or station MAC. `csi_traffic_mode`, `traffic_mode`, and `csi_target_pps` are included when the frontend owns CSI traffic configuration; omit them when those values are unset. `evaluation_interval_ms` and `publish_interval_ms` are the detector evaluation cadence and the status-log heartbeat; omit them when unset. Nearby setup and local logs may still expose configuration or link details, including SSID, BSSID, local IP, station MAC, broker host, or broker username. Managed services should not collect those values by default.
+`info` contains identity, firmware, chip, frontend, timing, and non-sensitive descriptive data. Capability booleans are not duplicated here; clients consume the `capabilities` schema. Native publishes `info` retained over MQTT on connect and after an accepted label change so late subscribers, including `./espectre mqtt` discovery, see the current frontend identity. Direct clients request the current value from Native or Micro explicitly. `network` and `detection` are optional. Canonical MQTT `info` reports the active Wi-Fi channel when available, but does not serialize the local IP address or station MAC. `csi_traffic_mode`, `traffic_mode`, and `csi_target_pps` are included when the frontend owns CSI traffic configuration; omit them when those values are unset. `evaluation_interval_ms` is the detector and sensing-telemetry cadence; omit it when unset. Nearby setup and local logs may still expose configuration or link details, including SSID, BSSID, local IP, station MAC, broker host, or broker username. Managed services should not collect those values by default.
 
 ### Config
 
@@ -364,7 +363,7 @@ espectre/v1/devices/{device_id}/config
 
 ### Diagnostics
 
-Returned only as `data` in the correlated response to an explicit `diagnostics` query. C++ frontends that advertise extended diagnostics include the CSI and Wi-Fi fields below. A frontend that does not sample those counters omits the extra keys and keeps the shared core (`uptime`, `free_memory_kb`, and `loop_time_ms`):
+Returned only as `data` in the correlated response to an explicit `diagnostics` query. Shipped frontends cache the CSI and Wi-Fi rate sample below on the fixed one-second heartbeat. A custom frontend that does not sample those counters may omit the extra keys and keep the shared core (`uptime`, `free_memory_kb`, and `loop_time_ms`):
 
 ```json
 {
@@ -411,9 +410,9 @@ Returned only as `data` in the correlated response to an explicit `diagnostics` 
 
 Diagnostics are on-demand. Product dashboards should prefer telemetry, status, and info for normal operation. When available, `free_memory_kb` reports current free heap and `loop_time_ms` reports the measured last loop-body cost in milliseconds, excluding the outer task sleep or idle delay. Motion state, movement score, threshold, detector selection, and turbulence belong to telemetry or live config and info surfaces instead of diagnostics.
 
-Native includes the CSI and Wi-Fi fields, the minimum observed free heap, the current frontend task's stack high-water mark in ESP-IDF bytes, and `direct` and `mqtt` transport diagnostics. The transport objects report their fixed queue and client or outbox budgets beside current occupancy and cumulative drop or failure counters. Rates derive from cumulative counters when the existing periodic sensing update runs; the frontend caches that completed sample and adds no diagnostic timer or periodic diagnostic publication. `traffic_tx_pps` is the traffic-generator transmit rate; `csi_callback_pps` is the raw CSI callback rate; `csi_accepted_pps` is the identity-accepted rate; `csi_admitted_pps` is the detector input rate after temporal admission; `csi_filtered_pps` is the capture-filter drop rate; the temporal drop fields distinguish missing slots, same-slot excess, stale packets, and out-of-order packets; and `csi_occupancy` is the valid fraction of the active detector window. Occupancy is diagnostic telemetry and does not change the device send rate. The extra CSI and transport fields are additive on protocol `1.0`; consumers may ignore unknown keys. The SDK sample uses `csi_occupancy_ratio` for the same occupancy value. Before the first periodic sensing update completes, rate fields are zero.
+Native additionally includes the minimum observed free heap, the current frontend task's stack high-water mark in ESP-IDF bytes, and `direct` and `mqtt` transport diagnostics. The transport objects report their fixed queue and client or outbox budgets beside current occupancy and cumulative drop or failure counters. Rates derive from cumulative counters when the existing periodic sensing update runs; every shipped frontend caches that completed sample and adds no diagnostic timer or periodic diagnostic publication. `traffic_tx_pps` is the traffic-generator transmit rate; `csi_callback_pps` is the raw CSI callback rate; `csi_accepted_pps` is the identity-accepted rate; `csi_admitted_pps` is the detector input rate after temporal admission; `csi_filtered_pps` is the capture-filter drop rate; the temporal drop fields distinguish missing slots, same-slot excess, stale packets, and out-of-order packets; and `csi_occupancy` is the valid fraction of the active detector window. Occupancy is diagnostic telemetry and does not change the device send rate. The extra CSI and transport fields are additive on protocol `1.0`; consumers may ignore unknown keys. The SDK sample uses `csi_occupancy_ratio` for the same occupancy value. Before the first periodic sensing update completes, rate fields are zero.
 
-ESPHome exposes the same cached measurements as diagnostic entities. Native MQTT Discovery matches that surface: the diagnostic sensors stay unpublished until Home Assistant presses `Refresh Diagnostics`. These on-demand diagnostics are independent of optional runtime debug logs. Micro-ESPectre exposes the supported canonical subset through its read-only Direct `diagnostics` query: CSI and Wi-Fi rates, occupancy, current and minimum heap, runtime-loop timing, and detector timing. Measurements that MicroPython cannot provide are omitted, and no transport-specific fields or periodic serial diagnostics are added.
+ESPHome exposes the same cached measurements through Direct and as diagnostic entities. Matter returns them through Direct. Native MQTT Discovery matches the entity surface: the diagnostic sensors stay unpublished until Home Assistant presses `Refresh Diagnostics`. These on-demand diagnostics are independent of the fixed one-second sensing status log shared by the C++ and Micro runtimes. Micro-ESPectre exposes the supported canonical subset through its read-only Direct `diagnostics` query: CSI and Wi-Fi rates, occupancy, current and minimum heap, runtime-loop timing, and detector timing. Measurements that MicroPython cannot provide are omitted, and no transport-specific fields are added.
 
 ### Capabilities
 

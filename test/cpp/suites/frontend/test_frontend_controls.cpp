@@ -122,6 +122,20 @@ void test_espectre_component_loop_and_destructor_forward_to_runtime(void) {
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.shutdown_called);
 }
 
+void test_espectre_component_direct_client_enables_live_telemetry(void) {
+  ESpectreComponentProbe component;
+  component.setup();
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
+
+  component.direct_service_.event_clients_.push_back({});
+  component.loop();
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.live_telemetry_enabled);
+
+  component.direct_service_.event_clients_.clear();
+  component.loop();
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
+}
+
 void test_espectre_component_raw_session_uses_shared_controller_and_recovers(void) {
   frontend_runtime_shim::state.capabilities.supports_raw_csi = true;
   ESpectreComponentProbe component;
@@ -265,6 +279,10 @@ void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {
 
   TEST_ASSERT_FALSE(traffic_rate.has_state());
   TEST_ASSERT_FALSE(channel.has_state());
+  const std::string direct_diagnostics = component.direct_bridge_.handle_request_(
+      DirectRequest{"diagnostics", "diagnostics", "{}"});
+  TEST_ASSERT_TRUE(direct_diagnostics.find("\"traffic_tx_pps\":100") != std::string::npos);
+  TEST_ASSERT_TRUE(direct_diagnostics.find("\"csi_callback_pps\":96") != std::string::npos);
 
   DiagnosticsButtonProbe diagnostics_button;
   diagnostics_button.press_action();
@@ -306,7 +324,6 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
   component.set_detection_algorithm("lightweight");
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT);
-  component.set_publish_interval_ms(2000);
   component.set_evaluation_interval_ms(500);
   component.set_motion_on_hits(4);
   component.set_motion_off_hits(5);
@@ -332,7 +349,6 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   TEST_ASSERT_TRUE(component.runtime_.config().csi_traffic_mode == CsiTrafficMode::EXTERNAL);
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
-  TEST_ASSERT_EQUAL(2000, component.runtime_.config().publish_interval_ms);
   TEST_ASSERT_EQUAL(500, component.runtime_.config().evaluation_interval_ms);
   TEST_ASSERT_EQUAL(4, component.runtime_.config().motion_on_hits);
   TEST_ASSERT_EQUAL(5, component.runtime_.config().motion_off_hits);
@@ -553,6 +569,7 @@ int process(void) {
   RUN_TEST(test_espectre_component_setup_uses_mock_runtime_snapshot);
   RUN_TEST(test_espectre_component_setup_marks_failed_when_runtime_setup_fails);
   RUN_TEST(test_espectre_component_loop_and_destructor_forward_to_runtime);
+  RUN_TEST(test_espectre_component_direct_client_enables_live_telemetry);
   RUN_TEST(test_espectre_component_raw_session_uses_shared_controller_and_recovers);
   RUN_TEST(test_esphome_direct_exposes_common_wifi_and_label_capabilities);
   RUN_TEST(test_espectre_component_publishes_cached_csi_diagnostics_on_demand);

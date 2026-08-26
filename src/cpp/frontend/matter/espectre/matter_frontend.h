@@ -16,6 +16,7 @@
 #include "peer_discovery_service_esp_idf.h"
 #include "runtime_events.h"
 #include "runtime_direct_http_bridge.h"
+#include "runtime_diagnostics.h"
 #include "runtime_frontend_controller.h"
 
 namespace espectre {
@@ -52,12 +53,17 @@ class MatterFrontend : public IRuntimeListener {
   void on_runtime_fault(const char *message) override;
 
  private:
+  void update_live_telemetry_enabled_();
+
   IMatterBindings *bindings_;
   uint16_t endpoint_id_;
   RuntimeFrontendController runtime_;
   IDirectHttpService *direct_service_{nullptr};
   RuntimeDirectHttpBridge direct_bridge_;
   EspIdfPeerDiscoveryService peer_discovery_;
+  RuntimeDiagnosticsSampler diagnostics_sampler_;
+  RuntimeDiagnosticsSample latest_diagnostics_{};
+  bool live_telemetry_enabled_{true};
   std::string fallback_device_label_{"ESPectre Matter"};
 };
 

@@ -31,6 +31,8 @@ from src.detector_interface import (
 from src.runtime_motion_policy import RuntimeMotionPolicy
 from src.wifi_bootstrap import cleanup_wifi, connect_wifi
 
+HEARTBEAT_INTERVAL_MS = 1000
+
 # Global state for calibration mode and performance metrics
 class GlobalState:
     def __init__(self):
@@ -551,7 +553,7 @@ def main(wlan=None):
     processed_packet_count = 0
     callback_packet_count = 0
     filtered_count = 0  # Packets with wrong SC count
-    last_publish_time = time.ticks_ms()
+    last_heartbeat_time = time.ticks_ms()
     collapse_logged = False
     remap_logged = False
     ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
@@ -563,7 +565,6 @@ def main(wlan=None):
     last_normalization_id = None
     # Reused per-frame assessment mapping: keeps the hot loop allocation-free.
     assessment_result = {}
-    publish_interval_ms = max(1, int(getattr(config, 'PUBLISH_INTERVAL_MS', 1000)))
     temporal_sampler = TemporalCsiSampler(
         target_pps,
         getattr(config, 'SEGMENTATION_WINDOW_SIZE_MS', 1000),
@@ -575,6 +576,7 @@ def main(wlan=None):
         wifi_csi_dropped,
         wifi_rssi_dbm,
     )
+    from src.console_output import format_detection_publish_line
     diagnostics_sampler = RuntimeDiagnosticsSampler()
     performance_diagnostics = RuntimePerformanceDiagnostics()
     diagnostics_sampler.reset(
@@ -625,8 +627,8 @@ def main(wlan=None):
                 continue
 
             current_time = time.ticks_ms()
-            time_delta = time.ticks_diff(current_time, last_publish_time)
-            if time_delta >= publish_interval_ms:
+            time_delta = time.ticks_diff(current_time, last_heartbeat_time)
+            if time_delta >= HEARTBEAT_INTERVAL_MS:
                 diagnostics = diagnostics_sampler.sample(
                     collect_runtime_diagnostics_snapshot(
                         traffic_generator=traffic_gen,
@@ -649,14 +651,14 @@ def main(wlan=None):
                     performance_diagnostics.update_if_due(current_time, gc.mem_free())
                 )
                 diagnostics["loop_time_ms"] = latest_loop_duration_us / 1000.0
-                direct_api.publish(
-                    latest_motion_metric,
-                    latest_effective_state,
-                    latest_threshold,
-                    current_time,
-                    diagnostics,
-                )
-                last_publish_time = current_time
+                print(format_detection_publish_line(
+                    diagnostics=diagnostics,
+                    motion_metric=latest_motion_metric,
+                    threshold=latest_threshold,
+                    effective_state=latest_effective_state,
+                ))
+                direct_api.refresh_snapshots(current_time, diagnostics)
+                last_heartbeat_time = current_time
 
             frame = csi_read_frame(wlan, frame_result)
 
@@ -795,6 +797,12 @@ def main(wlan=None):
                     latest_motion_metric = metrics.get('motion_metric', 0.0)
                     latest_threshold = metrics['threshold']
                     latest_effective_state = effective_state
+                    direct_api.publish_telemetry(
+                        latest_motion_metric,
+                        latest_effective_state,
+                        latest_threshold,
+                        current_time,
+                    )
 
                 latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
                 performance_diagnostics.record_loop_duration(latest_loop_duration_us)

@@ -628,6 +628,18 @@ static mp_obj_t native_direct_update_diagnostics(mp_obj_t diagnostics_obj) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(native_direct_update_diagnostics_obj, native_direct_update_diagnostics);
 
+static mp_obj_t native_direct_has_event_client(void) {
+    if (direct_state.lock != NULL) {
+        xSemaphoreTake(direct_state.lock, portMAX_DELAY);
+    }
+    bool connected = direct_state.event_request != NULL;
+    if (direct_state.lock != NULL) {
+        xSemaphoreGive(direct_state.lock);
+    }
+    return mp_obj_new_bool(connected);
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(native_direct_has_event_client_obj, native_direct_has_event_client);
+
 static mp_obj_t native_direct_publish(mp_obj_t event_obj, mp_obj_t payload_obj) {
     size_t event_length;
     size_t payload_length;
@@ -688,6 +700,7 @@ static const mp_rom_map_elem_t native_direct_module_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR_start), MP_ROM_PTR(&native_direct_start_obj)},
     {MP_ROM_QSTR(MP_QSTR_update_status), MP_ROM_PTR(&native_direct_update_status_obj)},
     {MP_ROM_QSTR(MP_QSTR_update_diagnostics), MP_ROM_PTR(&native_direct_update_diagnostics_obj)},
+    {MP_ROM_QSTR(MP_QSTR_has_event_client), MP_ROM_PTR(&native_direct_has_event_client_obj)},
     {MP_ROM_QSTR(MP_QSTR_publish), MP_ROM_PTR(&native_direct_publish_obj)},
     {MP_ROM_QSTR(MP_QSTR_stop), MP_ROM_PTR(&native_direct_stop_obj)},
 };

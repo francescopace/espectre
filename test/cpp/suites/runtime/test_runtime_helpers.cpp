@@ -314,9 +314,6 @@ void test_runtime_config_validator_covers_the_public_schema(void) {
     config.csi_traffic_multicast_group = "192.168.1.2";
     TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::CSI_TRAFFIC_MULTICAST_GROUP);
     config = RuntimeConfig{};
-    config.publish_interval_ms = 0U;
-    TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::PUBLISH_INTERVAL_MS);
-    config = RuntimeConfig{};
     config.evaluation_interval_ms = 0U;
     TEST_ASSERT_TRUE(validate_runtime_config(config) == RuntimeConfigError::EVALUATION_INTERVAL_MS);
     config = RuntimeConfig{};

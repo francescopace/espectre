@@ -121,9 +121,6 @@ void test_documented_defaults_sit_inside_documented_ranges(void) {
   TEST_ASSERT_TRUE(validate_runtime_uint32(config.csi_target_pps,
                                            RUNTIME_CSI_TARGET_PPS_MIN,
                                            RUNTIME_CSI_TARGET_PPS_MAX));
-  TEST_ASSERT_TRUE(validate_runtime_uint32(config.publish_interval_ms,
-                                           RUNTIME_PUBLISH_INTERVAL_MS_MIN,
-                                           RUNTIME_PUBLISH_INTERVAL_MS_MAX));
   TEST_ASSERT_TRUE(validate_runtime_uint32(config.evaluation_interval_ms,
                                            RUNTIME_EVALUATION_INTERVAL_MS_MIN,
                                            RUNTIME_EVALUATION_INTERVAL_MS_MAX));

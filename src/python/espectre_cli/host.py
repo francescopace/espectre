@@ -479,10 +479,7 @@ def _run_live_collect(args) -> None:
         configured_window_ms,
         int(getattr(config, "CALIBRATION_DURATION_MS", configured_window_ms * 10)),
     )
-    publish_interval_seconds = max(
-        0.001,
-        float(getattr(config, "PUBLISH_INTERVAL_MS", 1000) or 1000) / 1000.0,
-    )
+    status_render_interval_seconds = 1.0
 
     def get_initial_threshold(kind):
         if kind == "high_accuracy":
@@ -769,7 +766,7 @@ def _run_live_collect(args) -> None:
             "pps": 0,
             "pps_window_started_at": None,
             "pps_window_packets": 0,
-            "last_publish_at": None,
+            "last_status_render_at": None,
             "transport_backpressure_total": None,
             "transport_backpressure_last_delta": 0,
             "fresh_record_total": None,
@@ -1305,12 +1302,12 @@ def _run_live_collect(args) -> None:
                 return
             return
 
-        last_publish_at = device_state["last_publish_at"]
-        if last_publish_at is None:
-            device_state["last_publish_at"] = now
-            should_publish = False
+        last_status_render_at = device_state["last_status_render_at"]
+        if last_status_render_at is None:
+            device_state["last_status_render_at"] = now
+            status_render_due = False
         else:
-            should_publish = now - last_publish_at >= publish_interval_seconds
+            status_render_due = now - last_status_render_at >= status_render_interval_seconds
         should_render_summary = False
         if admitted:
             should_render_summary = process_temporal_admission(
@@ -1321,8 +1318,8 @@ def _run_live_collect(args) -> None:
             should_render_summary = True
 
         update_ready_gate_state(device_state, now)
-        if should_publish:
-            device_state["last_publish_at"] = now
+        if status_render_due:
+            device_state["last_status_render_at"] = now
             should_render_summary = True
 
         if save_enabled and not state["capture_ready"]:

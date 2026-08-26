@@ -195,7 +195,6 @@ Frontend coverage:
 | `csi_traffic_mode` | `internal` or `external` | `internal` | Selects the configured traffic source independently from `csi_target_pps`; persisted legacy `pacing` or `disabled` values migrate once to `internal` |
 | `csi_traffic_multicast_group` | IPv4 multicast address, or empty | `239.255.0.1` | Joined by the UDP listener in `external`. Empty disables the join. Unicast to the device IP still works |
 | `traffic_generator_mode` | `ping` or `dns` | `ping` | Shared internal traffic generator mode |
-| `publish_interval_ms` | int | `1000` | `100-60000` milliseconds between periodic status-log and diagnostics samples. Canonical MQTT telemetry and Home Assistant Movement Score follow `evaluation_interval_ms` |
 | `evaluation_interval_ms` | int | `250` | `10-10000` milliseconds between detector evaluations |
 | `motion_on_hits` | int | `4` | `1-20` consecutive evaluation hits for `IDLE -> MOTION` (about `1.0 s` at the default `250 ms` interval) |
 | `motion_off_hits` | int | `3` | `1-20` consecutive evaluation hits for `MOTION -> IDLE` (about `0.75 s` at the same defaults) |

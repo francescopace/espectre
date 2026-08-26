@@ -11,6 +11,32 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import protocol
+from console_output import format_detection_publish_line
+
+
+def test_micro_heartbeat_uses_the_shared_runtime_status_format():
+    line = format_detection_publish_line(
+        diagnostics={
+            "csi_admitted_pps": 99.0,
+            "csi_accepted_pps": 100.0,
+            "traffic_tx_pps": 101.0,
+            "csi_occupancy": 0.8,
+            "csi_missing_slots_pps": 1.0,
+            "csi_excess_pps": 2.0,
+            "csi_stale_pps": 3.0,
+            "csi_out_of_order_pps": 4.0,
+            "wifi_channel": 6,
+            "wifi_rssi_dbm": -50,
+        },
+        motion_metric=0.75,
+        threshold=0.25,
+        effective_state=1,
+    )
+
+    assert line == (
+        "[#####|#########-----] | mvmt:0.750000 thr:0.250000 | MOTION | "
+        "csi:99/100 tx:101 occ:80% miss:1 excess:2 stale:3 ooo:4 | ch:6 rssi:-50"
+    )
 
 
 def test_device_id_matches_native_sha256_pseudonym():
@@ -106,12 +132,17 @@ def test_direct_facade_starts_and_publishes_canonical_telemetry(monkeypatch):
         WIFI_SSID="lab",
         CSI_TARGET_PPS=100,
         EVALUATION_INTERVAL_MS=250,
-        PUBLISH_INTERVAL_MS=1000,
     )
 
     facade = DirectApi(config, wlan, detector, state, policy, traffic)
     facade.start()
-    facade.publish(0.75, 1, 0.25, facade.started_ms + 1000)
+    facade.refresh_snapshots(facade.started_ms + 1000, {"csi_admitted_pps": 99.0})
+    native.publish.assert_not_called()
+    native.has_event_client.return_value = False
+    facade.publish_telemetry(0.75, 1, 0.25, facade.started_ms + 1000)
+    native.publish.assert_not_called()
+    native.has_event_client.return_value = True
+    facade.publish_telemetry(0.75, 1, 0.25, facade.started_ms + 1000)
 
     start_args = native.start.call_args.kwargs
     capabilities = json.loads(start_args["capabilities"])

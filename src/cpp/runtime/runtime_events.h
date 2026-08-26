@@ -68,7 +68,7 @@ class IRuntimeListener {
    */
   virtual void on_motion_state_changed(const RuntimeSnapshot &snapshot) {}
   /**
-   * Heartbeat, emitted every `RuntimeConfig::publish_interval_ms` milliseconds.
+   * Heartbeat, emitted every fixed `RUNTIME_HEARTBEAT_INTERVAL_MS` milliseconds.
    *
    * Use it for status logging and diagnostics sampling rather than sensing
    * telemetry. Movement and canonical MQTT telemetry follow detector evaluation

@@ -107,12 +107,9 @@ class CsiPipeline {
    * Initialize CSI Pipeline
    * 
    * @param detector Motion detector instance (BaseDetector*)
-   * @param publish_interval_ms Milliseconds between periodic callbacks
    * @param wifi_csi WiFi CSI interface (nullptr for real implementation)
    */
-  void init(BaseDetector* detector,
-            uint32_t publish_interval_ms,
-            IWiFiCSI* wifi_csi = nullptr);
+  void init(BaseDetector* detector, IWiFiCSI* wifi_csi = nullptr);
   
   /**
    * Update segmentation threshold
@@ -162,7 +159,7 @@ class CsiPipeline {
   void loop();
 
   /** Emit the periodic heartbeat when its monotonic deadline is due. */
-  void publish_if_due(uint32_t now_ms);
+  void heartbeat_if_due(uint32_t now_ms);
   
   /**
    * Process incoming CSI packet
@@ -310,8 +307,7 @@ class CsiPipeline {
   motion_state_callback_t motion_state_callback_;
   live_telemetry_callback_t live_telemetry_callback_;
   channel_change_callback_t channel_change_callback_;
-  uint32_t publish_interval_ms_{RUNTIME_PUBLISH_INTERVAL_MS_DEFAULT};
-  uint32_t last_publish_ms_{0U};
+  uint32_t last_heartbeat_ms_{0U};
   // Evaluation advances on elapsed packet time, not on packet count, so a
   // window keeps its deploy-time meaning when the stream runs off-nominal.
   EvaluationCadence cadence_{};

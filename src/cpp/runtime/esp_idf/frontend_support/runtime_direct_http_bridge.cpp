@@ -47,6 +47,18 @@ void append_uint(std::string *out, const char *key, uint64_t value, bool first =
   *out += "\":" + std::to_string(value);
 }
 
+void append_float(std::string *out, const char *key, float value) {
+  if (out == nullptr || key == nullptr) {
+    return;
+  }
+  char text[32];
+  std::snprintf(text, sizeof(text), "%.6g", static_cast<double>(value));
+  *out += ",\"";
+  *out += key;
+  *out += "\":";
+  *out += text;
+}
+
 }  // namespace
 
 bool RuntimeDirectHttpBridge::setup(IDirectHttpService *service,
@@ -135,6 +147,9 @@ bool RuntimeDirectHttpBridge::publish_event(const char *event_name,
 }
 
 bool RuntimeDirectHttpBridge::publish_telemetry(const RuntimeSnapshot &snapshot) {
+  if (event_client_count() == 0U) {
+    return false;
+  }
   EspectreDeviceConfig device;
   device.device_id = config_.device_id;
   return publish_event("telemetry",
@@ -471,7 +486,6 @@ std::string RuntimeDirectHttpBridge::info_payload_() const {
   info.firmware_version = config_.firmware_version;
   info.chip = config_.chip;
   info.evaluation_interval_ms = runtime_->config().evaluation_interval_ms;
-  info.publish_interval_ms = runtime_->config().publish_interval_ms;
   return espectre_info_payload(device, info);
 }
 
@@ -543,11 +557,29 @@ std::string RuntimeDirectHttpBridge::diagnostics_payload_() const {
   append_uint(&out, "csi_out_of_order_total", diagnostics.csi_out_of_order_total);
   append_uint(&out, "csi_occupancy_slots", diagnostics.csi_occupancy_slots);
   append_uint(&out, "csi_window_slots", diagnostics.csi_window_slots);
+  const RuntimeDiagnosticsSample *sample = config_.diagnostics_sample_getter
+                                               ? config_.diagnostics_sample_getter()
+                                               : nullptr;
+  if (sample != nullptr) {
+    append_float(&out, "traffic_tx_pps", sample->traffic_tx_pps);
+    append_float(&out, "csi_callback_pps", sample->csi_callback_pps);
+    append_float(&out, "csi_accepted_pps", sample->csi_accepted_pps);
+    append_float(&out, "csi_admitted_pps", sample->csi_admitted_pps);
+    append_float(&out, "csi_filtered_pps", sample->csi_filtered_pps);
+    append_float(&out, "csi_missing_slots_pps", sample->csi_missing_slots_pps);
+    append_float(&out, "csi_excess_pps", sample->csi_excess_pps);
+    append_float(&out, "csi_stale_pps", sample->csi_stale_pps);
+    append_float(&out, "csi_out_of_order_pps", sample->csi_out_of_order_pps);
+    append_float(&out, "csi_occupancy", sample->csi_occupancy_ratio);
+  }
   out += ",\"wifi_rssi_dbm\":";
-  out += diagnostics.wifi_rssi_dbm == INT8_MIN
+  const int8_t wifi_rssi_dbm = sample != nullptr ? sample->wifi_rssi_dbm : diagnostics.wifi_rssi_dbm;
+  out += wifi_rssi_dbm == INT8_MIN
              ? "null"
-             : std::to_string(static_cast<int>(diagnostics.wifi_rssi_dbm));
-  append_uint(&out, "wifi_channel", diagnostics.wifi_channel);
+             : std::to_string(static_cast<int>(wifi_rssi_dbm));
+  append_uint(&out,
+              "wifi_channel",
+              sample != nullptr ? sample->wifi_channel : diagnostics.wifi_channel);
   append_runtime_performance_diagnostics_json(&out, diagnostics);
   if (service_ != nullptr) {
     const DirectHttpServiceDiagnostics direct = service_->diagnostics();

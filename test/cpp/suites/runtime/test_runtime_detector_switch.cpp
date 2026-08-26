@@ -68,7 +68,7 @@ void test_runtime_detector_switch_updates_pipeline_threshold_and_calibration(voi
   DetectorListener listener;
   runtime.set_listener(&listener);
   TEST_ASSERT_TRUE(runtime.configure_detector_());
-  runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval_ms);
+  runtime.csi_pipeline_.init(runtime.detector_.get());
 
   TEST_ASSERT_TRUE(runtime.set_detection_algorithm_runtime(DetectionAlgorithm::HIGH_ACCURACY));
   TEST_ASSERT_EQUAL_STRING("high_accuracy", runtime.get_snapshot().detector_name);
@@ -146,7 +146,7 @@ void test_runtime_motion_hits_runtime_updates_pipeline_and_persists(void) {
   config.detection_algorithm = DetectionAlgorithm::LIGHTWEIGHT;
   EspIdfRuntime runtime(config);
   TEST_ASSERT_TRUE(runtime.configure_detector_());
-  runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval_ms);
+  runtime.csi_pipeline_.init(runtime.detector_.get());
 
   TEST_ASSERT_TRUE(runtime.set_motion_hits_runtime(8U, 6U));
   TEST_ASSERT_EQUAL_UINT8(8U, runtime.csi_pipeline_.motion_on_hits_);
@@ -208,7 +208,7 @@ void test_runtime_channel_change_rearms_csi_and_restarts_calibration(void) {
   DetectorListener listener;
   runtime.set_listener(&listener);
   TEST_ASSERT_TRUE(runtime.configure_detector_());
-  runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval_ms);
+  runtime.csi_pipeline_.init(runtime.detector_.get());
   runtime.csi_traffic_service_.init(to_csi_traffic_config(config));
   TEST_ASSERT_EQUAL(ESP_OK, runtime.csi_pipeline_.enable());
 
@@ -233,7 +233,7 @@ void test_runtime_services_armed_preserves_wifi_ip_and_restarts_capture(void) {
   DetectorListener listener;
   runtime.set_listener(&listener);
   TEST_ASSERT_TRUE(runtime.configure_detector_());
-  runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval_ms);
+  runtime.csi_pipeline_.init(runtime.detector_.get());
   runtime.csi_traffic_service_.init(to_csi_traffic_config(config));
   TEST_ASSERT_EQUAL(ESP_OK, runtime.csi_pipeline_.enable());
   runtime.setup_complete_ = true;
@@ -271,7 +271,7 @@ void test_runtime_raw_collection_restores_armed_and_disarmed_sensing(void) {
   DetectorListener listener;
   runtime.set_listener(&listener);
   TEST_ASSERT_TRUE(runtime.configure_detector_());
-  runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval_ms);
+  runtime.csi_pipeline_.init(runtime.detector_.get());
   runtime.csi_traffic_service_.init(to_csi_traffic_config(config));
   runtime.capabilities_.supports_raw_csi = true;
   runtime.setup_complete_ = true;
@@ -312,7 +312,7 @@ void test_runtime_raw_collection_terminates_on_wifi_loss_and_channel_change(void
   config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
   EspIdfRuntime runtime(config);
   TEST_ASSERT_TRUE(runtime.configure_detector_());
-  runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval_ms);
+  runtime.csi_pipeline_.init(runtime.detector_.get());
   runtime.csi_traffic_service_.init(to_csi_traffic_config(config));
   runtime.capabilities_.supports_raw_csi = true;
   runtime.setup_complete_ = true;
@@ -339,7 +339,7 @@ void test_runtime_channel_change_cold_resets_ml_without_calibration(void) {
   config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
   EspIdfRuntime runtime(config);
   TEST_ASSERT_TRUE(runtime.configure_detector_());
-  runtime.csi_pipeline_.init(runtime.detector_.get(), config.publish_interval_ms);
+  runtime.csi_pipeline_.init(runtime.detector_.get());
   runtime.csi_traffic_service_.init(to_csi_traffic_config(config));
   TEST_ASSERT_EQUAL(ESP_OK, runtime.csi_pipeline_.enable());
 

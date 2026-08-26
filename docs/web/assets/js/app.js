@@ -123,7 +123,7 @@
     /* ==================================================== shared connection */
 
     const EVALUATION_INTERVAL_MS_DEFAULT = 250;
-    const PUBLISH_INTERVAL_MS_DEFAULT = 1000;
+    const DIAGNOSTICS_POLL_INTERVAL_MS = 1000;
     const CSI_TARGET_PPS_DEFAULT = 100;
     const CONFIG_VERIFICATION_INITIAL_DELAY_MS = 250;
     const CONFIG_VERIFICATION_RETRY_MS = 1500;
@@ -210,7 +210,6 @@
         threshold: 0.5,
         motion: false,
         evaluationIntervalMs: 0,
-        publishIntervalMs: 0,
         csiTargetPps: 0,
         csiTrafficMode: '',
         deviceName: '',
@@ -427,27 +426,20 @@
         return conn.evaluationIntervalMs || EVALUATION_INTERVAL_MS_DEFAULT;
     }
 
-    function publishIntervalMs() {
-        return conn.publishIntervalMs || PUBLISH_INTERVAL_MS_DEFAULT;
-    }
-
     function csiTargetPps() {
         return conn.csiTargetPps || CSI_TARGET_PPS_DEFAULT;
     }
 
     function resetSensingCadence() {
         conn.evaluationIntervalMs = 0;
-        conn.publishIntervalMs = 0;
         conn.csiTargetPps = 0;
     }
 
     function applySensingCadence(snapshot) {
         if (!snapshot || typeof snapshot !== 'object') return;
         const evaluation = positiveInt(snapshot.evaluation_interval_ms);
-        const publish = positiveInt(snapshot.publish_interval_ms);
         const pps = positiveInt(snapshot.csi_target_pps);
         if (evaluation) conn.evaluationIntervalMs = evaluation;
-        if (publish) conn.publishIntervalMs = publish;
         if (pps) conn.csiTargetPps = pps;
         syncDiagnosticsPolling();
     }
@@ -1809,7 +1801,6 @@
                 csi_traffic_mode: 'internal',
                 traffic_mode: 'ping',
                 csi_target_pps: '98',
-                publish_interval_ms: '1000',
                 evaluation_interval_ms: '250',
                 wifi_connected: 'true',
                 mqtt_connected: 'true',
@@ -3317,7 +3308,7 @@
             stopDiagnosticsPolling();
             return;
         }
-        const interval = publishIntervalMs();
+        const interval = DIAGNOSTICS_POLL_INTERVAL_MS;
         if (monitor.diagTimer && monitor.diagIntervalMs === interval) return;
         stopDiagnosticsPolling();
         monitorRequestStats();

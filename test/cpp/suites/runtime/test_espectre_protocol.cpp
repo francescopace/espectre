@@ -214,7 +214,6 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   info.traffic_mode = "ping";
   info.csi_target_pps = 100U;
   info.evaluation_interval_ms = 250U;
-  info.publish_interval_ms = 1000U;
   info.network.ip_address = "192.168.1.10";
   info.network.mac_address = "AA:BB:CC:DD:EE:FF";
   info.network.channel = 6;
@@ -238,7 +237,6 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(payload.find("\"traffic_mode\":\"ping\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"csi_target_pps\":100") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"evaluation_interval_ms\":250") != std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"publish_interval_ms\":1000") != std::string::npos);
 
   const std::string catalog =
       espectre_capabilities_payload(config, info, true, true, true, true, true, true, true);
@@ -295,7 +293,6 @@ void test_info_payload_omits_optional_sections_when_empty(void) {
   TEST_ASSERT_TRUE(payload.find("\"traffic_mode\"") == std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"csi_target_pps\"") == std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"evaluation_interval_ms\"") == std::string::npos);
-  TEST_ASSERT_TRUE(payload.find("\"publish_interval_ms\"") == std::string::npos);
 
   const std::string catalog = espectre_capabilities_payload(config, info);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"capabilities\"") != std::string::npos);

@@ -125,15 +125,6 @@ Rules of thumb:
 - lower values: less overhead, less temporal detail
 - higher values: more detail, more CPU and Wi-Fi cost
 
-### Publish Interval
-
-```yaml
-espectre:
-  publish_interval_ms: 1000
-```
-
-This controls the periodic status log and diagnostics sampling from the runtime's monotonic clock. Canonical MQTT telemetry and Home Assistant Movement Score follow `evaluation_interval_ms` instead. Motion state edges are handled separately, and neither heartbeat deadlines nor state-edge publication force detector evaluation.
-
 ### Evaluation Interval And Hit Filtering
 
 ```yaml

@@ -76,11 +76,18 @@ void test_matter_frontend_setup_fails_when_runtime_setup_fails(void) {
 
 void test_matter_frontend_loop_and_shutdown_forward_to_runtime(void) {
   MockMatterBindings bindings;
+  MockDirectHttpService direct;
   {
-    MatterFrontend frontend(&bindings, 2);
+    MatterFrontend frontend(&bindings, 2, &direct);
     TEST_ASSERT_TRUE(frontend.setup());
+    TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
+    direct.emit_client_count(1U);
     frontend.loop();
     TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.loop_calls);
+    TEST_ASSERT_TRUE(frontend_runtime_shim::state.live_telemetry_enabled);
+    direct.emit_client_count(0U);
+    frontend.loop();
+    TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
   }
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.shutdown_called);
 }
@@ -167,9 +174,19 @@ void test_matter_frontend_exposes_runtime_tuning_over_direct_http(void) {
 
   const std::string diagnostics = direct.emit_request(DirectRequest{"diagnostics-1", "diagnostics", "{}"});
   TEST_ASSERT_TRUE(diagnostics.find("\"traffic_packets_total\":0") != std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"traffic_tx_pps\":0") != std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"csi_callback_pps\":0") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"free_memory_kb\":4") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"runtime_load_percent\":12.5") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"detection_samples\":4") != std::string::npos);
+
+  frontend_runtime_shim::state.diagnostics.traffic_packets_total = 10U;
+  frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 8U;
+  frontend.on_periodic_update(make_ready_snapshot(false), 8U);
+  const std::string sampled_diagnostics = direct.emit_request(
+      DirectRequest{"diagnostics-2", "diagnostics", "{}"});
+  TEST_ASSERT_TRUE(sampled_diagnostics.find("\"traffic_tx_pps\":0") == std::string::npos);
+  TEST_ASSERT_TRUE(sampled_diagnostics.find("\"csi_callback_pps\":0") == std::string::npos);
 
   const std::string detector = direct.emit_request(
       DirectRequest{"detector-1", "set_detector", "{\"detector\":\"high_accuracy\"}"});

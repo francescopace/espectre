@@ -123,7 +123,7 @@ public:
     // ========================================================================
     
     /**
-     * Update state machine (call at publish interval)
+     * Update state machine (call at the detector evaluation interval)
      * 
      * Subclasses implement their detection algorithm here.
      */

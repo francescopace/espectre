@@ -18,6 +18,7 @@
 #include "frontend_command_engine.h"
 #include "peer_discovery.h"
 #include "raw_csi_session_controller.h"
+#include "runtime_diagnostics.h"
 #include "runtime_frontend_controller.h"
 
 namespace espectre {
@@ -36,6 +37,7 @@ struct RuntimeDirectHttpBridgeConfig {
   FrontendDeviceLabelCallback device_label_setter;
   std::function<DirectWifiSnapshot()> wifi_snapshot_getter;
   IPeerDiscoveryService *peer_discovery{nullptr};
+  std::function<const RuntimeDiagnosticsSample *()> diagnostics_sample_getter;
 };
 
 /**

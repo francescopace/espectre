@@ -87,9 +87,6 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void set_detection_algorithm(const std::string &algo) {
     this->runtime_.config().detection_algorithm = parse_detection_algorithm(algo.c_str());
   }
-  void set_publish_interval_ms(uint32_t interval_ms) {
-    this->runtime_.config().publish_interval_ms = interval_ms;
-  }
   void set_evaluation_interval_ms(uint32_t interval_ms) {
     this->runtime_.config().evaluation_interval_ms = interval_ms;
   }
@@ -158,6 +155,7 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void on_runtime_fault(const char *message) override;
   void sample_diagnostics_();
   void publish_cached_diagnostics_();
+  void update_live_telemetry_enabled_();
   FrontendCommandResult execute_entity_command_(const EspectreCommand &command);
   void sync_direct_config_();
   void setup_mdns_discovery_();
@@ -207,6 +205,7 @@ class ESpectreComponent : public Component, public IRuntimeListener {
 
   RuntimeDiagnosticsSampler diagnostics_sampler_;
   RuntimeDiagnosticsSample latest_diagnostics_{};
+  bool live_telemetry_enabled_{true};
 
   bool threshold_republished_{false};
   bool detector_republished_{false};

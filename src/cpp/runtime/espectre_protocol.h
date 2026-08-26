@@ -227,12 +227,6 @@ struct EspectreDeviceInfo {
    * Omitted from `info` when zero. Canonical MQTT telemetry follows this interval.
    */
   uint32_t evaluation_interval_ms{0U};
-  /**
-   * Status-log and diagnostics heartbeat, in milliseconds.
-   *
-   * Omitted from `info` when zero. This is not the sensing telemetry interval.
-   */
-  uint32_t publish_interval_ms{0U};
   EspectreNetworkInfo network{};
 };
 
