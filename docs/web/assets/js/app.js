@@ -4290,7 +4290,7 @@
     gameGhostImage.src = '/assets/images/brand/espectre-logo.svg';
     const GAME_FACTORY_IMAGE_SOURCES = Object.freeze([
         '/assets/images/game/hardware-factory.avif',
-        '/assets/images/game/hardware-factory.png'
+        '/assets/images/game/hardware-factory.webp'
     ]);
     let gameFactoryImage = null;
     let gameFactoryImagePromise = null;

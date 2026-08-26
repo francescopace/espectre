@@ -437,7 +437,7 @@ describe('website UX contracts', () => {
 
     it('uses natural scrolling and progressively loads narrative images', () => {
         assert.match(index, /data-src-mobile="\/assets\/images\/home\/scene-smart-heating-mobile\.webp"/);
-        assert.match(index, /data-src="\/assets\/images\/home\/scene-embedded-sdk\.jpg" data-src-mobile="\/assets\/images\/home\/scene-embedded-sdk-mobile\.webp"/);
+        assert.match(index, /data-src="\/assets\/images\/home\/scene-embedded-sdk\.webp" data-src-mobile="\/assets\/images\/home\/scene-embedded-sdk-mobile\.webp"/);
         assert.match(app, /image\.dataset\.srcMobile/);
         const sceneIds = [...index.matchAll(/class="[^"]*\bjs-scrolly-scene\b[^"]*" data-scene="(\d+)"/g)].map((match) => Number(match[1]));
         const captionIds = [...index.matchAll(/class="[^"]*\bjs-scrolly-caption\b[^"]*" data-scene="(\d+)"/g)].map((match) => Number(match[1]));
@@ -1631,7 +1631,7 @@ describe('website UX contracts', () => {
         assert.match(app, /entity\.x -= travel/);
         assert.match(app, /game\.scrollX \* 0\.18/);
         assert.match(app, /- game\.scrollX\) % width/);
-        assert.match(app, /const GAME_FACTORY_IMAGE_SOURCES = Object\.freeze\(\[[\s\S]*hardware-factory\.avif[\s\S]*hardware-factory\.png/);
+        assert.match(app, /const GAME_FACTORY_IMAGE_SOURCES = Object\.freeze\(\[[\s\S]*hardware-factory\.avif[\s\S]*hardware-factory\.webp/);
         assert.match(app, /function gameLoadFactoryImage\(\)/);
         assert.match(app, /if \(route === 'tool-game'\) \{\s*void gameLoadFactoryImage\(\)/);
         assert.match(app, /function gameDrawFactoryBackdrop/);
@@ -1639,10 +1639,12 @@ describe('website UX contracts', () => {
         assert.match(app, /game\.scrollX \* 0\.12/);
         assert.match(app, /game\.scrollX \* 0\.24/);
         assert.match(app, /function gameDrawChip/);
-        const factoryPng = readFileSync(new URL('../../docs/web/assets/images/game/hardware-factory.png', import.meta.url));
+        const factoryWebp = readFileSync(new URL('../../docs/web/assets/images/game/hardware-factory.webp', import.meta.url));
         const factoryAvif = readFileSync(new URL('../../docs/web/assets/images/game/hardware-factory.avif', import.meta.url));
-        assert.ok(factoryPng.length > 100000);
-        assert.ok(factoryAvif.length < factoryPng.length);
+        assert.equal(factoryWebp.subarray(0, 4).toString('ascii'), 'RIFF');
+        assert.equal(factoryWebp.subarray(8, 12).toString('ascii'), 'WEBP');
+        assert.ok(factoryWebp.length < 100000);
+        assert.ok(factoryAvif.length < factoryWebp.length);
         assert.match(app, /if \(obstacleHit\) gameFinish\(\)/);
     });
 });

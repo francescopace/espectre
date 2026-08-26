@@ -424,7 +424,7 @@ button.conn-pill:hover { border-color: var(--accent-line); }
 }
 .hero-media {
   z-index: 0;
-  background: var(--media-bg-raised) url("/assets/images/home/hero-esp32-poster.jpg") center / cover no-repeat;
+  background: var(--media-bg-raised) url("/assets/images/home/hero-esp32-poster.webp") center / cover no-repeat;
 }
 .hero-frame {
   position: absolute;

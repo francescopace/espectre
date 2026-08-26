@@ -81,7 +81,7 @@ python -m pip install -r requirements.txt</code></pre>
 ./espectre monitor --reset</code></pre>
       </div>
     </div>
-    <p>Run <code>./espectre devices</code> to inspect Direct HTTP endpoints advertised on the local network. Native, ESPHome, and Matter publish the same first-party <code>_espectre._tcp.local.</code> contract, so the command needs one fresh browse and does not interpret upstream ESPHome or Matter records. Use <code>--frontend</code> when you need only one firmware type.</p>
+    <p>Run <code>./espectre devices</code> to inspect Direct HTTP endpoints advertised on the local network. All ESPectre frontends publish the same first-party <code>_espectre._tcp.local.</code> contract, so the command performs a single fresh browse and does not interpret upstream ESPHome or Matter records. Use <code>--frontend</code> when you need only one firmware type.</p>
     <p>On Windows, use <code>espectre.cmd</code> instead of <code>./espectre</code>; the <a href="https://github.com/francescopace/espectre/blob/main/docs/SETUP.md" target="_blank" rel="noopener">setup reference</a> and <a href="https://github.com/francescopace/espectre/blob/main/docs/CLI.md" target="_blank" rel="noopener">CLI reference</a> cover complete prerequisites, explicit device overrides, <code>--clean-all</code>, and backend options.</p>
 
     <h2 id="setup-network">Step 3 — Connect it to your network</h2>

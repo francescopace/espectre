@@ -46,6 +46,9 @@ from tools.lib.dataset_metadata import (  # noqa: E402
 from tools.lib.ui import show_plot_window  # noqa: E402
 
 DEFAULT_LABELS = ("empty", "static_presence", "motion")
+DEFAULT_WEBP_QUALITY = 90
+PUBLICATION_WEBP_MAX_WIDTH = 1800
+PUBLICATION_WEBP_QUALITY = 82
 LABEL_TITLES = {
     "empty": "Empty",
     "static_presence": "Static presence",
@@ -234,7 +237,14 @@ def _shared_clim(samples: Sequence[HeatmapSample]) -> Tuple[float, float]:
     return float(lo), float(hi)
 
 
-def _export_image(path: Path, fig, *, dpi: int) -> None:
+def _export_image(
+    path: Path,
+    fig,
+    *,
+    dpi: int,
+    webp_quality: int = DEFAULT_WEBP_QUALITY,
+    max_width: Optional[int] = None,
+) -> None:
     """Save a matplotlib figure, converting to WebP when requested."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -248,7 +258,13 @@ def _export_image(path: Path, fig, *, dpi: int) -> None:
         fig.savefig(buffer, dpi=dpi, bbox_inches="tight", facecolor="white")
         buffer.seek(0)
         image = Image.open(buffer).convert("RGB")
-        image.save(path, "WEBP", quality=90, method=6)
+        if max_width is not None and image.width > max_width:
+            target_height = round(image.height * max_width / image.width)
+            image = image.resize(
+                (max_width, target_height),
+                Image.Resampling.LANCZOS,
+            )
+        image.save(path, "WEBP", quality=webp_quality, method=6)
     else:
         fig.savefig(path, dpi=dpi, bbox_inches="tight", facecolor="white")
     print(f"Saved: {path}")
@@ -343,7 +359,15 @@ def plot_csi_heatmaps(
         colorbar.set_label(colorbar_label, fontsize=label_size)
 
     if output is not None:
-        _export_image(Path(output), fig, dpi=dpi)
+        _export_image(
+            Path(output),
+            fig,
+            dpi=dpi,
+            webp_quality=(
+                PUBLICATION_WEBP_QUALITY if publication else DEFAULT_WEBP_QUALITY
+            ),
+            max_width=PUBLICATION_WEBP_MAX_WIDTH if publication else None,
+        )
 
     if show:
         show_plot_window(plt)
