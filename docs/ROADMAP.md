@@ -21,7 +21,7 @@
 
 ### Release Scope
 
-The candidate covers the shared sensing architecture, runtime and protocol contracts, supported firmware frontends, release artifacts, and embeddable SDK surface intended for v3.0.0. Before the candidate is published, standard Improv Serial provisioning and the versioned local Direct HTTP API replace the first-party Native BLE surface across firmware, SDK, portal, tests, and current documentation. JSON commands use HTTP POST, processed events use SSE over streaming fetch, and Native, ESPHome, and Matter expose bearer-bound raw CSI over a binary HTTP stream on supported chips. Other product capabilities move to a later minor release unless they are required to correct a release blocker.
+The candidate covers the shared sensing architecture, runtime and protocol contracts, supported firmware frontends, release artifacts, and embeddable SDK surface intended for v3.0.0. Before the candidate is published, standard Improv Serial provisioning and the versioned local Direct HTTP API replace the first-party Native BLE surface across firmware, SDK, portal, tests, and current documentation. JSON commands use HTTP POST, processed events use SSE over streaming fetch, and ESPectre frontends expose bearer-bound raw CSI over a binary HTTP stream on supported chips. Other product capabilities move to a later minor release unless they are required to correct a release blocker.
 
 Completed implementation and detector experiments live in [CHANGELOG.md](CHANGELOG.md) and [FEATURES.md](FEATURES.md).
 

@@ -21,7 +21,7 @@ If you came from the shared setup hub, this README covers the Matter workflow af
 
 Start from [`SETUP.md`](../../../../docs/SETUP.md) for the shared browser-flash entry point and supported image flow.
 
-Each release and snapshot publishes one full-flash Matter image per supported chip. The current Matter frontend does not publish a separate OTA image.
+The `release`, `preview`, and `develop` channels publish one full-flash Matter image per supported chip. The current Matter frontend does not publish a separate OTA image.
 
 ESP32-S2 is intentionally excluded. It has no Bluetooth radio, while the supported `esp-matter` onboarding path used by this frontend commissions Wi-Fi over Bluetooth. A different non-Bluetooth commissioning design would require a separate architectural decision and implementation.
 
@@ -37,7 +37,7 @@ The first boot generates a random setup passcode, discriminator, and SPAKE2+ sal
 
 ### Local ESP-IDF Workflow
 
-Before building locally, complete the shared [`Local Build Prerequisites`](../../../../docs/SETUP.md#local-build-prerequisites). The repository CLI prefers a reusable local ESP-IDF installation and falls back to the pinned Docker build environment when local ESP-IDF is absent; use [`CLI.md`](../../../../docs/CLI.md) for backend controls and command syntax.
+Before building locally, complete the shared [`Local Build Prerequisites`](../../../../docs/SETUP.md#local-build-prerequisites). Use [`CLI.md`](../../../../docs/CLI.md) for backend controls and shared command syntax.
 
 Repository CLI:
 
@@ -51,11 +51,9 @@ Repository CLI:
 Notes:
 
 - On Windows, use `.\espectre.cmd matter ...` and `.\espectre.cmd monitor --port COM5`.
-- Docker can replace local ESP-IDF for `build`; `flash` and `doctor` continue to use the local environment.
 - Shared sensing options are selected through the shared ESPectre sensing `sdkconfig` menu.
 - The first build downloads managed components and compiles `esp_matter`, so it is significantly slower than incremental builds.
 - Subsequent builds reuse the target-specific build directory; use `--clean` only when changing an incompatible toolchain or recovering from stale build state.
-- Docker builds enable a persistent compiler cache automatically. For local builds, follow the shared [`ccache` setup](../../../../docs/SETUP.md#optional-compiler-cache) to retain compiled objects even after a clean build.
 
 <details>
 <summary>Advanced raw ESP-IDF flow</summary>
@@ -83,7 +81,9 @@ The Matter frontend keeps ownership boundaries explicit:
 
 That ordering is visible in [`app_main.cpp`](app/main/app_main.cpp).
 
-The Matter frontend uses the shared periodic progress-bar sensing status helper, as do the ESPHome and standalone Native frontends. The same one-second heartbeat caches the CSI and Wi-Fi rate sample returned by Direct diagnostics. High-rate telemetry follows the detector evaluation cadence only while a Direct SSE client is connected; the Matter occupancy attribute remains edge-triggered.
+The Matter frontend uses the shared periodic progress-bar sensing status helper, as do ESPHome and Native. The same one-second heartbeat caches the CSI and Wi-Fi rate sample returned by Direct diagnostics.
+
+High-rate telemetry follows the detector evaluation cadence only while a Direct SSE client is connected. The Matter occupancy attribute remains edge-triggered.
 
 ### Commissioning Window Behavior
 
@@ -123,13 +123,15 @@ The standard Matter surface remains intentionally narrow. It does not expose:
 - an end-user Matter-native workflow for every runtime knob
 - a separate frontend-owned tuning guide beyond the shared [`TUNING.md`](../../../../docs/TUNING.md)
 
-The firmware therefore exposes `http://<device>:62587/espectre/v1/request` as its local tuning plane. Direct HTTP can select the detector, adjust threshold and motion-hit counts, trigger recalibration, control sensing, report status and diagnostics, inspect the Wi-Fi association, scan and pin an access-point BSSID, edit the Basic Information `NodeLabel`, discover peers, and stream raw CSI according to the runtime capability catalog. Shared Auto-discovery, including Micro-ESPectre peer results, is documented in [Peer-assisted browser discovery](../../../../docs/ESPECTRE_PROTOCOL.md#peer-assisted-browser-discovery). Wi-Fi credentials remain Matter-owned, and Direct cannot reset them. The Direct adapter uses the same `FrontendCommandEngine` as the other C++ frontends; only genuinely frontend-owned operations differ. It remains available after Matter commissioning; `_matterc` is still used only by Matter controllers during an open commissioning window. Direct does not replace commissioning, fabric access, or the read-only Matter occupancy attribute.
+The firmware exposes `http://<device>:62587/espectre/v1/request` as its local tuning plane. Direct HTTP provides the shared runtime controls, diagnostics, Wi-Fi association inspection, BSSID selection, Basic Information `NodeLabel` editing, peer discovery, and raw CSI advertised by the capability catalog. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md) owns the method catalog and [peer-assisted browser discovery](../../../../docs/ESPECTRE_PROTOCOL.md#peer-assisted-browser-discovery).
 
-Matter supports both `lightweight` and `high_accuracy`. Choose Lightweight to leave more detector CPU and working memory for the Matter stack or other product work; choose High Accuracy for higher detection accuracy, stronger generalization, and startup without Lightweight threshold calibration. Lightweight requires about 10 seconds of clean, ready quiet-room coverage after temporal warmup; insufficient occupancy extends that wall-clock duration. High Accuracy still waits for CSI readiness and feature-window warmup. The published firmware starts with Lightweight, while a local build can select another initial profile through the shared ESP-IDF sensing configuration. Direct HTTP can switch profiles at runtime, persists the accepted selection in the shared ESP-IDF store, resets the threshold to the selected profile's default, and starts calibration when switching to Lightweight. Standard Matter occupancy clusters do not expose this control.
+Matter still owns Wi-Fi credentials, commissioning, and fabric access. Direct cannot reset the Wi-Fi configuration or replace the read-only Matter occupancy attribute. It remains available after commissioning, while `_matterc` is advertised only to Matter controllers during an open commissioning window.
 
-The same build-time sensing menu defines positive `CONFIG_ESPECTRE_CSI_TARGET_PPS` and a separate `CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_*` ownership choice. Both Matter detectors use the fixed temporal-admission grid; arrival jitter does not resize them or restart calibration. `external` joins `CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP` (`239.255.0.1` by default) on the shared UDP listener port `5555` and accepts only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`). Matter exposes the shared bearer-bound raw HTTP v2 endpoint on port `62587` without changing the configured traffic source.
+The Direct adapter uses the same `FrontendCommandEngine` as the other C++ frontends; only frontend-owned operations differ.
 
-The current frontend provides a Matter-native occupancy surface over the shared ESPectre runtime. ESPectre-specific writable controls remain available only through Direct HTTP.
+Matter supports both `lightweight` and `high_accuracy`. Published firmware starts with Lightweight, while a local build can select another initial profile through the shared ESP-IDF sensing configuration. Direct HTTP changes and persists the runtime selection; standard Matter occupancy clusters do not expose that control. [`TUNING.md`](../../../../docs/TUNING.md#startup-and-detection-profile) owns the profile trade-offs and startup procedure.
+
+Matter also supports the shared internal and external traffic modes and the bearer-bound raw HTTP v2 surface. [`SETUP.md`](../../../../docs/SETUP.md#traffic-generation) owns traffic configuration, and [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#direct-raw-csi-v2) owns raw-session behavior and framing.
 
 ## Targets and Validation
 
@@ -141,14 +143,30 @@ Current published Matter targets:
 - `ESP32-C5`
 - `ESP32-C6`
 
+Generated firmware snapshots record the latest per-target scope and result: [ESP32](../../../../docs/performance/ESP32.md), [ESP32-S3](../../../../docs/performance/ESP32-S3.md), [ESP32-C3](../../../../docs/performance/ESP32-C3.md), [ESP32-C5](../../../../docs/performance/ESP32-C5.md), and [ESP32-C6](../../../../docs/performance/ESP32-C6.md).
+
 Validation notes:
 
 | Area | Current status |
 | --- | --- |
-| Firmware hardware smoke | Recorded for every published target in the generated chip benchmark snapshots |
-| Controller commissioning | Limited; no complete cross-controller validation matrix has been published |
+| Firmware hardware smoke | Recorded for every published target; the generated chip snapshot defines the exact scope |
+| Controller commissioning | Limited; see [Matter Controller Compatibility](#matter-controller-compatibility) |
 
-Published target availability does not imply that every controller and target combination has been commissioned successfully. Add verified controller results to this table only with a reproducible hardware test record.
+### Matter Controller Compatibility
+
+The following matrix separates support documented by each controller ecosystem from compatibility validated with ESPectre. Vendor support for the standard Occupancy Sensor device type or Occupancy Sensing cluster does not, by itself, prove that ESPectre commissions, reports state, and triggers automations correctly in that ecosystem. Vendor documentation was last reviewed on 2026-08-26.
+
+| Controller ecosystem | Vendor-documented Matter support | ESPectre validation |
+| --- | --- | --- |
+| Google Home | Lists the Occupancy Sensor device type (`0x0107`) and Occupancy Sensing cluster (`0x0406`) in its [supported-device matrix](https://developers.home.google.com/matter/supported-devices) | Not yet recorded |
+| Amazon Alexa | Maps a Matter motion detector using Occupancy Sensing to `Alexa.MotionSensor` in its [supported-category matrix](https://developer.amazon.com/docs/alexaplus/smarthome/supported-matter-device-categories.html) | Not yet recorded |
+| Apple Home | Lists Matter motion sensors among the categories supported by Apple Home in its [Matter accessory guidance](https://developer.apple.com/apple-home/works-with-apple-home/) | Not yet recorded |
+| Samsung SmartThings | Provides a standard Matter [`motionSensor`](https://developer.smartthings.com/docs/edge-device-drivers/matter/defaults/motionSensor.html) handler in its Edge driver API | Not yet recorded |
+| Home Assistant | Maps `OccupancySensing.Occupancy` to an occupancy binary sensor in its [Matter integration source](https://github.com/home-assistant/core/blob/dev/homeassistant/components/matter/binary_sensor.py) | Not yet recorded |
+
+Published target availability does not imply that every controller and target combination has been commissioned successfully. The current firmware uses development VID/PID `0xFFF1` / `0x8000` and example device-attestation credentials, so an ecosystem may require a developer workflow or an explicit acknowledgement for an uncertified accessory.
+
+Mark a controller as validated only with a reproducible hardware record that identifies the controller app and hub versions, ESP32 target, firmware identity, and results for commissioning, occupancy-state updates, and an automation trigger.
 
 ## Implementation Map
 
@@ -186,9 +204,9 @@ Current behavior:
 - the shared ESPectre MQTT-triggered HTTPS OTA service is not reused by Matter
 - published Matter images are full firmware images intended for manual flashing and commissioning workflows
 
-Any future Matter OTA work should define a complete Requestor-plus-Provider design, not a direct firmware download path.
-
 ## Matter-Specific Troubleshooting
+
+Use [`SETUP.md`](../../../../docs/SETUP.md#direct-http-connectivity) for Direct HTTP, browser permission, address, and discovery failures. Use [`TUNING.md`](../../../../docs/TUNING.md#troubleshooting) for missing motion, false positives, calibration, packet health, placement, or unstable detection.
 
 ### The device does not appear for commissioning
 
@@ -206,17 +224,11 @@ The firmware logs fail-safe expiration events. Retry with:
 2. a fresh power cycle
 3. a controller that supports the target platform cleanly
 
-### Google Home commissioning is slow
+### Commissioning remains open or progresses slowly
 
-Google Home is stricter than local development controllers about the advertised device type, commissioning transports, and Wi-Fi behavior during network commissioning.
-
-Check that:
+Check the firmware-owned state before attributing the delay to the controller:
 
 1. the serial log shows CSI services as `waiting for commissioning` before pairing completes
 2. the commissioning window advertises BLE through the all-supported transport mode
 3. the image was built from `sdkconfig.defaults` with commissionable device type enabled and device type `0x0107`
 4. Wi-Fi CSI policy logs appear only after `Commissioning complete`
-
-### Runtime values are not exposed as writable Matter controls
-
-The current Matter surface exposes only standard occupancy behavior; it does not mirror the broader ESPectre runtime control plane.

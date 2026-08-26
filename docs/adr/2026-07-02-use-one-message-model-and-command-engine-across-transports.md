@@ -33,7 +33,7 @@ Protocol `1.0` uses the former MQTT flat request and correlated result shape as 
 | Date | Direction | Resolution |
 | --- | --- | --- |
 | 2026-07-02 | Extract BLE, MQTT, provisioning, telemetry, OTA status, and command helpers from Native into shared ESP-IDF runtime services | Established the first shared protocol baseline |
-| 2026-08-24 | Use one C++ command engine across Native, ESPHome, and Matter | Replaced frontend-local dispatchers while retaining transport-specific envelopes |
+| 2026-08-24 | Use one C++ command engine across ESPectre frontends | Replaced frontend-local dispatchers while retaining transport-specific envelopes |
 | 2026-08-25 | Carry Direct control over HTTP and processed events over SSE | Changed transport framing without changing command semantics |
 | 2026-08-26 | Use one canonical message model and version across HTTP, MQTT, and MicroPython | Replaced the remaining transport-specific envelopes and added serialized cross-language parity |
 

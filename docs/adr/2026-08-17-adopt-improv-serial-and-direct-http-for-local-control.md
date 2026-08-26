@@ -8,7 +8,7 @@
 
 Native originally used first-party BLE for provisioning, recovery, configuration, status, and live sensing. BLE and Wi-Fi CSI share the ESP32 radio. Measurements showed that keeping BLE active reduced CSI occupancy from about 80–90% to 35–45%, so the runtime had to pause sensing during setup. Requiring both Wi-Fi and MQTT before BLE could stop then made a broker mandatory for the first supported sensing session.
 
-Standard Improv Serial already provides Wi-Fi provisioning after a browser flash without adding another radio workload. Once the device joins the LAN, Native, ESPHome, and Matter need one first-party discovery and control surface that carries the canonical ESPectre identity and command model. Upstream ESPHome and Matter discovery records do not provide that stable contract.
+Standard Improv Serial already provides Wi-Fi provisioning after a browser flash without adding another radio workload. Once the device joins the LAN, ESPectre needs one first-party discovery and control surface that carries the canonical ESPectre identity and command model. Upstream ESPHome and Matter discovery records do not provide that stable contract.
 
 The production portal is served over HTTPS, while devices expose a trusted-LAN cleartext service. A local `ws://` connection caused a visible browser security downgrade. Streaming `fetch()` to local HTTP was validated without changing the page security indicator and can request local-network access through `targetAddressSpace: "local"`. Processed events and raw CSI are server-to-client streams, so neither requires WebSocket framing.
 
@@ -29,7 +29,7 @@ Native keeps MQTT optional. Direct and MQTT use the same application messages th
 
 Native stages remote Wi-Fi changes, verifies association and address acquisition, and preserves or restores the last-known-good network on failure. Improv Serial and the documented physical recovery action remain available without the portal or MQTT. Stored Wi-Fi and MQTT passwords are never returned through Direct.
 
-Native, ESPHome, and Matter publish `_espectre._tcp.local.` through their existing mDNS lifecycle. The TXT record carries the canonical `device_id`, frontend, TXT and protocol versions, HTTP transport, endpoint paths, firmware, chip, and coarse capabilities. `./espectre devices` performs one fresh browse for this record and filters by the ESPectre-owned `frontend` field. It does not inspect `_esphomelib`, `_matterc`, or other upstream schemas. Explicit IP addresses, unique `.local` names, full device IDs, remembered endpoints, and Improv Serial remain deterministic fallbacks when multicast discovery is unavailable.
+ESPectre frontends publish `_espectre._tcp.local.` through their existing mDNS lifecycle. The TXT record carries the canonical `device_id`, frontend, TXT and protocol versions, HTTP transport, endpoint paths, firmware, chip, and coarse capabilities. `./espectre devices` performs one fresh browse for this record and filters by the ESPectre-owned `frontend` field. It does not inspect `_esphomelib`, `_matterc`, or other upstream schemas. Explicit IP addresses, unique `.local` names, full device IDs, remembered endpoints, and Improv Serial remain deterministic fallbacks when multicast discovery is unavailable.
 
 ESPHome and Matter add only the ESPectre service to the responder they already own. Direct mutations pass through the shared command engine; ESPHome republishes affected entity state, while Matter keeps commissioning and occupancy in Matter and uses Direct for the controls absent from standard occupancy clusters.
 

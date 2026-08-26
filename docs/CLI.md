@@ -229,7 +229,7 @@ Common flags:
 | `--detector` | Detector used by the ready gate: `lightweight` or `high_accuracy`; a comma-separated list is available only for live comparison |
 | `--ready-stable-seconds` | Seconds below threshold before saved collection starts; set `0` to disable the ready gate |
 
-When `--target` is omitted, `collect` performs one fresh browse for `_espectre._tcp.local.` at startup and keeps raw-capable Native, ESPHome, and Matter records at their advertised Direct port:
+When `--target` is omitted, `collect` performs one fresh browse for `_espectre._tcp.local.` at startup and keeps raw-capable ESPectre records at their advertised Direct port:
 
 - `0` devices: fail explicitly and suggest `--target`
 - `1` device: auto-select it

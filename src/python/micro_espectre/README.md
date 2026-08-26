@@ -21,13 +21,9 @@ ESPectre contributed direct ESP32 Wi-Fi CSI access to mainline MicroPython throu
 
 ## Build and deploy
 
-From the repository root:
+Complete the shared prerequisites in [SETUP.md](../../../docs/SETUP.md#local-build-prerequisites), then run the Micro-ESPectre workflow from the repository root:
 
 ```bash
-python3.14 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-
 cp src/python/micro_espectre/config_local.py.example src/python/micro_espectre/config_local.py
 ./espectre micro flash --chip c3 --erase
 ./espectre micro deploy
@@ -65,9 +61,7 @@ MOTION_ON_HITS = 4
 MOTION_OFF_HITS = 3
 ```
 
-`CSI_TARGET_PPS` defines the detector grid and ICMP target rate. Setting `TRAFFIC_GENERATOR_ENABLED = False` requires an external CSI traffic source. These values are deployment settings rather than runtime mutations. The production `TemporalCsiSampler` retains the packet nearest each slot center, preserves missing slots, and keeps the live detector geometry independent from observed network jitter.
-
-Lightweight selects its threshold during startup calibration. Keep the room quiet immediately after boot for the most predictable fallback; a clean `quiet -> motion -> quiet` pattern can finish early, while insufficient valid temporal coverage extends calibration. See [TUNING.md](../../../docs/TUNING.md) and [ALGORITHMS.md](../../../docs/ALGORITHMS.md) for the current filter and detector rationale.
+`CSI_TARGET_PPS` defines the detector grid and ICMP target rate. Setting `TRAFFIC_GENERATOR_ENABLED = False` requires an external CSI traffic source. These values are deployment settings rather than runtime mutations. The production `TemporalCsiSampler` retains the packet nearest each slot center, preserves missing slots, and keeps the live detector geometry independent from observed network jitter. See [SETUP.md](../../../docs/SETUP.md#traffic-generation) for shared traffic behavior, [TUNING.md](../../../docs/TUNING.md) for startup and detector operation, and [ALGORITHMS.md](../../../docs/ALGORITHMS.md) for the implementation rationale.
 
 ## Direct HTTP surface
 
@@ -98,7 +92,23 @@ Only one SSE client is retained to bound sockets and heap. Query snapshots are g
 | `./espectre micro verify` | Check firmware, native modules, and deployed bytecode |
 | `./espectre monitor --reset` | Follow serial output with auto-reconnect |
 
-`micro build` and the implicit build in `micro flash` use the shared ESP-IDF backend policy. The default `--backend auto` prefers the detected local or ESPHome-managed toolchain and falls back to the pinned Docker image when no local environment exists. Use `--backend local` or `--backend docker` to require one path; `--pull ask|missing|never` controls retrieval of a missing image.
+`micro build` and the implicit build in `micro flash` use the shared ESP-IDF backend policy documented in [SETUP.md](../../../docs/SETUP.md#local-build-prerequisites). See [CLI.md](../../../docs/CLI.md) for `--backend` and `--pull` controls.
+
+## Troubleshooting
+
+Use [SETUP.md](../../../docs/SETUP.md#direct-http-connectivity) for Direct HTTP, browser permission, address, and discovery failures. Use [TUNING.md](../../../docs/TUNING.md#troubleshooting) for missing CSI, calibration, placement, false positives, or unstable detection.
+
+### Deployed changes do not appear
+
+Run `./espectre micro deploy` again, then restart the application with `./espectre micro run`. If the application still does not start, use `./espectre micro verify` to check CSI firmware support, the MicroPython version, required bytecode, and `config_local.mpy`.
+
+### Monitor cannot open the event stream
+
+Micro-ESPectre retains one SSE client. Close any previous Monitor tab or client before reconnecting with the private IP or unique `.local` hostname.
+
+### Wi-Fi never becomes ready
+
+Confirm that `config_local.py` exists, contains the intended SSID and password, and does not retain a stale optional `WIFI_BSSID`. Deploy the updated configuration and run the application again.
 
 ## Validation
 

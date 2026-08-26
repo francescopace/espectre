@@ -5,61 +5,96 @@
 
 <h1>ESPectre <img src="docs/web/assets/images/brand/espectre-logo.svg" alt="ESPectre logo" width="40" align="absmiddle" /></h1>
 
-**ESPectre** is open-source firmware and tooling for motion sensing with ESP32 Wi-Fi channel state information (CSI). Detection runs on the device, without cameras, microphones, wearables, or radar hardware. ESPectre publishes motion and movement scores through ESPHome or MQTT, and exposes a standard Matter occupancy sensor.
+**Turn an ESP32 into a private, local Wi-Fi motion sensor.**
 
-## How It Works
+When someone moves through a room, they change the way Wi-Fi signals travel through it. ESPectre reads those changes and reports motion in real time. No camera, no microphone, no wearable, and no dedicated radar hardware: just a supported ESP32 and the Wi-Fi network already in the room.
 
-An ESP32 associated with a Wi-Fi network receives packets and reads how the radio channel changes across Wi-Fi frequencies. The detectors track changes in those measurements and produce a movement score and motion state. One board covers one sensing area; room-level coverage requires one board in each room.
+**ESPectre** is an open-source platform, not only a firmware image. It brings together ready-to-flash firmware, an embeddable C++ SDK, a MicroPython implementation, browser tools, a host CLI, an open dataset, open model weights, and the research workflow used to build and validate the detectors.
 
-## Quick Start
+[**Flash from your browser**](https://espectre.dev/tools/flash/) · [See the live tools](https://espectre.dev/tools/) · [Read the documentation](https://espectre.dev/guides/) · [Explore the SDK](https://espectre.dev/sdk/)
 
-If you want the fastest path, use the browser flasher:
+## What You Can Build
 
-1. Open [espectre.dev/tools/flash](https://espectre.dev/tools/flash/) with a Chromium-based browser
-2. Pick the firmware and release channel
-3. Flash the board
-4. Complete Wi-Fi provisioning for Native or ESPHome, or Matter commissioning for Matter
+Use ESPectre to add motion-aware lighting, heating, cooling, notifications, or room automations to a home, workspace, or prototype. Connect it to Home Assistant through ESPHome or MQTT, expose it as a standard Matter occupancy sensor, consume its local Direct HTTP API, or embed the sensing engine in your own ESP32 firmware.
 
-The browser tools share one site:
+Detection runs on the device. ESPectre reports a motion state and a movement score, so an application can react without sending raw sensing data to a cloud service. One board covers one sensing area; room-level coverage normally requires one board in each room.
 
-- [Configure](https://espectre.dev/tools/configure/) optionally pins a Wi-Fi BSSID, sets the Native device name, and adds MQTT after Improv Serial provisioning
-- [Monitor](https://espectre.dev/tools/monitor/) watches motion, tunes detection, and inspects diagnostics
-- [Raw CSI](https://espectre.dev/tools/raw-csi/) inspects raw CSI frames in the browser
-- [Run with the Spectre](https://espectre.dev/tools/game/) and [Theremin](https://espectre.dev/tools/theremin/) provide interactive sensing demos
+ESPectre detects changes in the radio environment. It does not identify people, count them, prove that a room is empty, or replace a safety-certified security, medical, or emergency system.
 
-On supported desktop browsers, Configure and Monitor find compatible devices directly on the LAN, so users do not need to look up IP addresses or install an extension. The portal resolves a fresh `.local` hostname to reach one eligible device, which performs the DNS-SD browse on the browser's behalf. See [Peer-assisted browser discovery](docs/ESPECTRE_PROTOCOL.md#peer-assisted-browser-discovery).
+## Start in Four Steps
 
-GitHub Releases provide OTA payloads for ESPHome and Native. ESPHome updates can be compiled through ESPHome Device Builder or installed from a downloaded OTA image with the ESPectre CLI.
+The quickest path uses the browser and requires no local build environment:
 
-Supported hardware:
+1. Open [Flash](https://espectre.dev/tools/flash/) in a Chromium-based browser.
+2. Connect a supported ESP32 over USB, then choose a firmware and release channel.
+3. Complete on-screen Wi-Fi provisioning, or commission Matter firmware with a controller that supports Matter occupancy sensors.
+4. Open [Monitor](https://espectre.dev/tools/monitor/) to watch motion, tune detection, and inspect the device.
+
+![ESPectre Monitor](docs/web/assets/images/guides/sensing-dashboard.png)
+
+> **Matter status:** The Matter frontend is still being validated across controller ecosystems. A controller may support standard Matter occupancy sensors without having been tested with current firmware.
+> See [Matter controller compatibility](src/cpp/frontend/matter/README.md#matter-controller-compatibility) for the current matrix.
+
+## Using the CLI
+
+The repository wrapper exposes the available workflows through:
+
+```bash
+./espectre --help
+```
+
+## Supported hardware
 
 - ESP32-C6, ESP32-C5, ESP32-C3, ESP32-S3, ESP32-S2, and classic ESP32
-- a normal Wi-Fi network; 2.4 GHz on every board, plus 5 GHz on the ESP32-C5
+- a normal Wi-Fi network: 2.4 GHz on every supported board, plus 5 GHz on the ESP32-C5
 
-ESPectre includes two on-device detection profiles because deployments have different accuracy and resource budgets:
+## One Platform, Several Ways to Use It
 
-| Detection profile | Choose it when | Startup |
+| Part | What it gives you | Start here |
 |---|---|---|
-| `lightweight` | The surrounding firmware needs more CPU time and working memory | Learns a room-specific threshold from about 10 seconds of usable quiet-room data |
-| `high_accuracy` | Detection quality matters more than the additional feature state and inference work | Uses a trained threshold and starts after CSI and its feature window are ready |
-
-Startup details and the measured trade-offs are documented in [SETUP.md](docs/SETUP.md#detection-profiles-and-startup) and [ALGORITHMS.md](docs/ALGORITHMS.md).
+| **Firmware** | ESPHome, Native, Matter, and MicroPython paths for different products and integrations | [Choose a firmware path](#choose-a-firmware-path) |
+| **C++ SDK** | The same sensing core and runtime for custom ESP-IDF firmware | [SDK.md](docs/SDK.md) |
+| **Browser tools** | Flash, configure, discover, monitor, tune, inspect raw CSI, and run interactive demos | [espectre.dev/tools](https://espectre.dev/tools/) |
+| **Host CLI and research tools** | Build firmware, provision devices, issue commands, collect CSI, train models, and validate results | [CLI.md](docs/CLI.md) |
+| **Open research assets** | Raw datasets, model weights, feature history, training code, and reproducible performance reports | [Research You Can Inspect](#research-you-can-inspect) |
+| **Documentation and website** | Guides, protocol references, architecture decisions, security guidance, and the complete website source | [Documentation](#documentation) |
 
 ## Choose a Firmware Path
 
 | Path | Best for | Start here |
-| ---- | -------- | ---------- |
+|---|---|---|
 | **ESPHome** | Home Assistant users who want the most polished production path | [ESPHome frontend](src/cpp/frontend/esphome/README.md) |
-| **Matter** | Controllers with Matter occupancy-sensor support; validation is still limited | [Matter frontend](src/cpp/frontend/matter/README.md) |
-| **Native Direct/MQTT** | Standalone devices, browser-local sensing, Home Assistant MQTT Discovery, and custom apps | [Native frontend](src/cpp/frontend/native/README.md) |
-| **Micro-ESPectre** | Lightweight MicroPython sensing with read-only Direct HTTP monitoring | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
-| **SDK** | Custom firmware, smart-device makers, and OEM exploration | [SDK.md](docs/SDK.md) |
+| **Native Direct/MQTT** | Standalone sensors, browser-local sensing, Home Assistant MQTT Discovery, and custom applications | [Native frontend](src/cpp/frontend/native/README.md) |
+| **Matter** | Matter controllers with occupancy-sensor support; controller validation is still limited | [Matter frontend](src/cpp/frontend/matter/README.md) |
+| **Micro-ESPectre** | Lightweight sensing in MicroPython with local, read-only Direct HTTP monitoring | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
+| **SDK** | Custom firmware, connected products, and OEM evaluation | [SDK.md](docs/SDK.md) |
 
-![ESPectre Monitor](docs/web/assets/images/guides/mqtt-dashboard.png)
+ESPHome, Native, and Matter can choose between a `lightweight` detector, which learns a room-specific threshold at startup and leaves more resources to the rest of the application, and a `high_accuracy` detector, which runs the trained model included in the repository. Micro-ESPectre currently deploys the lightweight detector; its High Accuracy implementation remains available for research and parity validation. Their behavior and measured trade-offs are documented in [SETUP.md](docs/SETUP.md#detection-profiles-and-startup), [ALGORITHMS.md](docs/ALGORITHMS.md), and the [performance report](docs/performance/README.md).
 
-## Responsible Use
+## Research You Can Inspect
 
-ESPectre does not use cameras, microphones, or wearables. It works with derived radio-channel measurements, and the project is designed around a local-first privacy boundary. Motion and occupancy signals can still reveal sensitive patterns such as presence, routines, sleep, and absence from home. Use ESPectre only in spaces where you have the right to deploy it, inform affected people, protect retained data, and follow local privacy laws. See [Security and responsible use](https://espectre.dev/security/) for the project’s technical safeguards, deployment guidance, abuse-reporting channel, and private vulnerability-reporting process.
+ESPectre is also an open research project. Results matter, but so does the evidence behind them. The path from a radio measurement to a production motion event is kept visible:
+
+- The [open CSI dataset](data/) contains real recordings for empty rooms, static presence, and motion, with its catalog and provenance in [dataset_info.json](data/dataset_info.json).
+- The trained model weights are committed in both [C++](src/cpp/core/ml_weights.h) and [Python](src/python/micro_espectre/ml_weights.py), and [ML_TRAINING.md](docs/ML_TRAINING.md) documents how training, export, and validation work.
+- [FEATURES.md](docs/FEATURES.md) records features that were tested, promoted, or rejected instead of hiding unsuccessful experiments.
+- [ALGORITHMS.md](docs/ALGORITHMS.md), the generated [performance report](docs/performance/README.md), and the [dataset quality report](data/auto_generated/DATASET_QUALITY_CHECK.md) make detector behavior and current evidence reviewable.
+- [LITERATURE.md](docs/LITERATURE.md), the [architecture decision records](docs/adr/README.md), and the public [roadmap](docs/ROADMAP.md) separate what is shipped, what has been measured, and what remains a direction for future work.
+
+The project has also contributed ESP32 CSI support upstream to MicroPython. The merged [MicroPython PR #18460](https://github.com/micropython/micropython/pull/18460) added direct CSI methods to the mainline `network.WLAN` implementation, so Micro-ESPectre no longer depends on a project-specific MicroPython fork.
+
+## Security, Privacy, and Transparency
+
+A sensor that can reveal presence should not be a black box. Wi-Fi sensing avoids images and audio, but motion and occupancy data can still reveal routines, sleep, or absence from home. ESPectre treats that risk as part of the engineering work:
+
+- motion detection is local, and cloud connectivity is not required;
+- raw CSI collection is optional and intended for defined research and debugging needs;
+- the [security and responsible-use guide](https://espectre.dev/security/) documents deployment boundaries, consent, data minimization, abuse reporting, and private vulnerability reporting;
+- firmware releases include build-specific SBOMs, notices, and license archives so their contents can be inspected;
+- the public website and every browser tool are part of this repository under [docs/web](docs/web/README.md), including their source, privacy rules, analytics contract, and pinned browser dependencies;
+- protocols, algorithms, performance evidence, limitations, roadmap decisions, and known validation boundaries are documented in public.
+
+Use ESPectre only in spaces and networks where you have the right to deploy it. Inform affected people, obtain consent where required, protect access to the device and its data, and follow applicable privacy laws.
 
 ## Documentation
 
@@ -73,19 +108,19 @@ ESPectre does not use cameras, microphones, or wearables. It works with derived 
 ## Related Projects
 
 - [radio-presence-scanner](https://github.com/francescopace/radio-presence-scanner): complementary BLE radio presence sensing from host devices, with an optional HTTP dashboard.
-- [micropython-esp32-csi](https://github.com/francescopace/micropython-esp32-csi): historical development fork that led to upstream MicroPython ESP32 CSI support.
+- [micropython-esp32-csi](https://github.com/francescopace/micropython-esp32-csi): the historical development fork that led to upstream MicroPython ESP32 CSI support.
 
 ## Acknowledgments
 
 - Thanks to [Espressif](https://www.espressif.com/) for making CSI accessible in ESP-IDF and for recognizing ESPectre as a [community project](https://github.com/espressif/esp-csi#6-related-resources) in [esp-csi](https://github.com/espressif/esp-csi).
 - Thanks to the TOMMY team for the constructive public discussion around Wi-Fi sensing approaches, including their [TOMMY vs ESPectre](https://www.tommysense.com/docs/comparisons/espectre-comparison) comparison page.
-- Thanks to the [MicroPython](https://github.com/micropython/micropython) maintainers for reviewing, testing, and merging our [PR](https://github.com/micropython/micropython/pull/18460), which added direct ESP32 Wi-Fi CSI methods to the mainline `network.WLAN` implementation. Micro-ESPectre can therefore use a mainline MicroPython revision instead of a project-specific CSI fork.
+- Thanks to the [MicroPython](https://github.com/micropython/micropython) maintainers for reviewing, testing, and merging ESPectre's upstream CSI contribution.
 
 ## License
 
-ESPectre is dual-licensed:
+ESPectre first-party code is available under GPLv3, and eligible parts are also available under a separate commercial agreement:
 
-- **GPLv3** for open-source use: see [LICENSE](LICENSE).
-- **Commercial licenses** for embedding ESPectre into proprietary firmware: see [LICENSING.md](LICENSING.md).
+- Choose **GPLv3** when your firmware or application can comply with GPLv3, including making the corresponding source available. See [LICENSE](LICENSE).
+- If you want to embed ESPectre in **proprietary or closed-source firmware** without GPLv3 source-disclosure obligations, see [LICENSING.md](LICENSING.md) for commercial licensing. The commercial license covers eligible material and does not replace third-party terms; the ESPHome C++ frontend remains GPLv3-only.
 
 Third-party terms and build-specific compliance artifacts are described in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

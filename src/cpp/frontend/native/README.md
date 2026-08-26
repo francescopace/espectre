@@ -12,7 +12,7 @@ The normal browser workflow is:
 4. Use Direct HTTP to inspect status, reconcile or pin the associated BSSID, edit the device label, and add optional MQTT settings.
 5. Open Monitor for broker-free sensing over Direct HTTP. Use MQTT for Home Assistant, automation, remote brokers, and other broker-based clients.
 
-Each `release`, `preview`, and `develop` channel publishes a full-flash image and an application-only OTA image for ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6. Matter does not publish an ESP32-S2 image because its supported commissioning flow requires a Bluetooth-capable target.
+The `release`, `preview`, and `develop` channels publish a full-flash image and an application-only OTA image for ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6.
 
 ### Local ESP-IDF Workflow
 
@@ -24,7 +24,7 @@ Complete the shared [`Local Build Prerequisites`](../../../../docs/SETUP.md#loca
 ./espectre monitor --port /dev/cu.usbmodemXXXX
 ```
 
-The wrapper uses a local ESP-IDF installation when available and can use the pinned Docker image for builds. Flashing and serial monitoring require local tooling. `--ota-channel` selects the default release channel used when an OTA request omits one.
+Flashing and serial monitoring require local tooling. `--ota-channel` selects the default release channel used when an OTA request omits one.
 
 ## Direct HTTP
 
@@ -39,13 +39,13 @@ Direct mode provides:
 - processed movement, state, calibration, diagnostics, and lifecycle events
 - supported OTA status and control operations
 
-The endpoints never return stored Wi-Fi or MQTT passwords. They cap request and response size, mutation rate, queued messages, and concurrent SSE subscribers. Telemetry may replace an older queued telemetry sample, while state transitions are preserved. MQTT uses its own 16-message frontend queue and bounded ESP-IDF outbox. The high-rate telemetry callback runs only while MQTT is connected or a Direct SSE client is present. Runtime callbacks only stage numeric sensing state; serialization and transport work run after detector evaluation returns.
+The endpoints never return stored Wi-Fi or MQTT passwords. They cap request and response size, mutation rate, queued messages, and concurrent SSE subscribers. Telemetry may replace an older queued sample, while state transitions are preserved. MQTT uses its own 16-message frontend queue and bounded ESP-IDF outbox.
 
-Native images advertise bearer-bound raw CSI HTTP v2 collection. `start_raw_stream` on `/espectre/v1/request` accepts no rate parameter, returns a random 128-bit session ID, and one collector opens `/espectre/v1/csi` with that bearer. Classified frames bypass temporal sampling and enter a fixed 16-record ring; a dedicated worker sends up to four ordered V8 records per HTTP chunk with a 60-byte prefix and no pacing or replacement. Raw mode leaves the configured internal or external traffic source active and restores sensing on stop, abort, timeout, or network loss without changing persisted traffic configuration.
+The high-rate telemetry callback runs only while MQTT is connected or a Direct SSE client is present. Runtime callbacks stage numeric sensing state; serialization and transport work run after detector evaluation returns.
 
-The device advertises `_espectre._tcp` through mDNS with a stable `espectre-<device_id>.local` hostname. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) owns the SRV and TXT record contract. Shared Auto-discovery, including Micro-ESPectre peer results returned by a Native, ESPHome, or Matter responder, is documented in [Peer-assisted browser discovery](../../../../docs/ESPECTRE_PROTOCOL.md#peer-assisted-browser-discovery). Run `./espectre devices --frontend native` from the repository to enumerate advertised Native endpoints on an mDNS-visible LAN. Configure and Monitor present only private IP, device-ID, and device-name inputs: the portal maps a full ID to the unique hostname internally, while a name or 6-character suffix uses automatic discovery. One match connects directly, and multiple matches require explicit selection. Successful non-secret device references can be remembered or shared through a credential-free QR link.
+Native advertises the shared bearer-bound raw CSI HTTP v2 surface. A raw session keeps the configured traffic source active and restores sensing when the session ends without changing persisted traffic configuration. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#direct-raw-csi-v2) owns session authorization, framing, queue limits, and recovery behavior; [`CLI.md`](../../../../docs/CLI.md#collect) owns the `./espectre collect` workflow.
 
-Hosted HTTPS access to local cleartext HTTP depends on browser Private Network Access and mixed-content policy. The portal uses streaming `fetch` with `targetAddressSpace: "local"`, `Cache-Control: no-store`, and an explicit device Origin allowlist. Chrome 151 or later on macOS, Windows, and native Linux is the supported hosted path; compatibility with other browsers is not guaranteed. A local HTTP preview remains available for development as described in [`docs/web/README.md`](../../../../docs/web/README.md).
+The device advertises `_espectre._tcp` through mDNS with a stable `espectre-<device_id>.local` hostname. Run `./espectre devices --frontend native` to enumerate Native endpoints on an mDNS-visible LAN. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) owns the SRV, TXT, and peer-discovery contract; [`SETUP.md`](../../../../docs/SETUP.md#direct-http-connectivity) owns browser permissions, supported connection identifiers, and recovery when discovery fails.
 
 ## Wi-Fi Provisioning and Recovery
 
@@ -76,7 +76,9 @@ ESP32-C5 can use `5g` or `auto`; the other supported Native targets use `2g`. Se
 
 MQTT is disabled until configured. Wi-Fi alone is sufficient for Native to start Direct HTTP and sense. Adding, losing, slowing, or clearing MQTT does not disable Direct mode.
 
-When configured, MQTT runs concurrently with Direct HTTP and provides the canonical ESPectre MQTT topic surface, Home Assistant MQTT Discovery, retained availability, and integration with broker-based clients. Both transports invoke the same command engine; a query answers only its requester, while a mutation fans out the corresponding authoritative state event. Their outbound queues remain separate so broker backpressure cannot delay Direct sensing. The browser Monitor uses Direct HTTP and does not connect to MQTT; device-to-broker MQTT TCP configuration is unchanged.
+When configured, MQTT runs concurrently with Direct HTTP and provides the canonical ESPectre topic surface, Home Assistant MQTT Discovery, retained availability, and integration with broker-based clients. Both transports invoke the same command engine: a query answers only its requester, while a mutation fans out the corresponding authoritative state event. Their outbound queues remain separate, so broker backpressure cannot delay Direct sensing.
+
+The browser Monitor uses Direct HTTP and does not connect to MQTT. Device-to-broker MQTT configuration is independent of the browser connection.
 
 The Native `diagnostics` request returns uptime, current, minimum, and largest-block heap, CPU frequency, frontend-task stack high-water, bounded loop-load and detector-timing windows, and cached traffic, CSI, Wi-Fi, Direct, and MQTT diagnostics. Transport diagnostics include fixed client, queue, and MQTT outbox budgets alongside current occupancy and cumulative drops, send failures, and slow-client disconnects. Performance aggregation is unconditional production runtime state; it does not require a build option or periodic debug logger.
 
@@ -97,9 +99,7 @@ Canonical topics under `espectre/v1/devices/{device_id}/...` remain available to
 
 ## Detection and Traffic
 
-Lightweight Detection uses less CPU and memory and learns a room-specific threshold from usable quiet-room coverage. High Accuracy uses the bundled model and skips threshold calibration, but still waits for CSI readiness and feature-window warmup. The selected profile persists across reboot and can be changed through Direct, MQTT, or Home Assistant.
-
-`CONFIG_ESPECTRE_CSI_TARGET_PPS` sets the sensing cadence target. `CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_*` selects internal or external traffic. External mode opens UDP port `5555`, joins `CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP`, `239.255.0.1` by default, and accepts only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`). Use [`espectre_traffic_generator.py`](../../../../tools/espectre_traffic_generator.py) standalone or through `./espectre collect`. A raw session uses the already configured traffic mode and does not change its rate.
+Native selects its build-time sensing defaults through the shared ESP-IDF `sdkconfig` menu and exposes supported runtime controls through Direct HTTP, optional MQTT, and Home Assistant MQTT Discovery. The accepted detector and traffic selections persist across reboot. [`SETUP.md`](../../../../docs/SETUP.md#shared-sensing-options) owns option names, defaults, traffic modes, and external-source configuration; [`TUNING.md`](../../../../docs/TUNING.md) owns profile selection, calibration, packet health, placement, and detector troubleshooting.
 
 ## OTA
 
@@ -116,21 +116,11 @@ The per-chip manifest is named `espectre-native-ota-<chip>.json`. Its image URL 
 
 ## Troubleshooting
 
-### Direct mode cannot connect
-
-1. Confirm that the device and browser are on the same LAN.
-2. Try the current IP address if the `.local` hostname does not resolve.
-3. Grant the browser's local-network permission when prompted.
-4. Use a supported desktop Chromium browser if another browser does not implement hosted HTTPS-to-local-HTTP fetch with Private Network Access.
-5. Confirm that the page origin is `https://espectre.dev`, `https://www.espectre.dev`, `https://test.espectre.dev`, or an explicitly enabled HTTP loopback origin. Development builds accept any port only for exact `localhost`, `127.0.0.1`, or `[::1]` hosts; published firmware disables that exception.
+Use [`SETUP.md`](../../../../docs/SETUP.md#direct-http-connectivity) for Direct HTTP, browser permission, address, and discovery failures. Use [`TUNING.md`](../../../../docs/TUNING.md#troubleshooting) for missing motion, false positives, calibration, packet health, placement, or unstable detection.
 
 ### The device does not join Wi-Fi
 
 Reconnect over Improv Serial and provision the network again. If a BSSID pin is stale, configure the SSID without a pin. When remote configuration is unreachable, hold BOOT for the configured recovery interval and repeat Improv Serial provisioning.
-
-### The device address changed or a saved endpoint is stale
-
-Use the private IPv4 address returned by Improv Serial or shown in the router's DHCP lease table when Auto-discovery fails. A full device ID maps to a `.local` hostname, and a short ID or device name invokes Auto-discovery, so those references still depend on working mDNS. Use the portal's forget action to remove a stale remembered endpoint before entering the current IP. If the browser reports an Origin, mixed-content, or local-network permission error, use a claimed browser, grant access only for the ESPectre portal, and confirm that the device is still on the same trusted LAN.
 
 ### OTA failed or an older release is required
 

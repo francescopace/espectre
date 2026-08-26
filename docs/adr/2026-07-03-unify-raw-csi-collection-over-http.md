@@ -15,7 +15,7 @@ Normalized amplitude does not erase radio context. Every record must retain the 
 
 ## Decision
 
-Remove the Streamer frontend and use raw HTTP v2 as the only live collection transport on Native, ESPHome, and Matter.
+Remove the Streamer frontend and use raw HTTP v2 as the only live collection transport across supported ESPectre frontends.
 
 Raw collection does not change the configured traffic source, pace output, select a freshest sample, or apply temporal admission. The CSI callback first applies the bounded, fail-closed provenance classifier for the configured internal or external generator. Classified raw frames enter a preallocated 16-record atomic SPSC ring. A dedicated task-notified worker sends up to four ordered records per chunk. A full ring drops the newest record with an explicit counter. Each offered frame receives its 64-bit stream sequence before enqueue, so a drop creates an observable gap.
 
@@ -31,7 +31,7 @@ Raw HTTP v2 is intentionally incompatible with raw HTTP v1. Host tooling retains
 | --- | --- | --- |
 | 2026-07-03 | Use a dedicated C++ Streamer frontend with collector-paced UDP and TX-backpressure feedback | Replaced after raw collection became available in every maintained sensing frontend |
 | 2026-07-19 | Preserve per-record PHY provenance in Streamer V7 datasets | Retained as a format invariant in CSI V8 and raw HTTP v2 |
-| 2026-08-25 | Remove Streamer and collect through raw HTTP on Native, ESPHome, and Matter | Accepted |
+| 2026-08-25 | Remove Streamer and collect through raw HTTP across supported ESPectre frontends | Accepted |
 | 2026-08-25 | Pace or replace samples inside the HTTP data plane | Rejected because transport feedback would decide which records enter the dataset |
 
 ## Alternatives Considered

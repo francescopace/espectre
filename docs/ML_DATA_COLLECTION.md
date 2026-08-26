@@ -6,7 +6,7 @@ A **label** is the observed room state, a **pair** links comparable static-prese
 
 Use:
 
-- [`SETUP.md`](SETUP.md) for Native, ESPHome, and Matter firmware setup and external traffic generation
+- [`SETUP.md`](SETUP.md) for ESPectre firmware setup and external traffic generation
 - [`ML_TRAINING.md`](ML_TRAINING.md) for training, export, and validation
 - [`ALGORITHMS.md`](ALGORITHMS.md) for detector and feature definitions
 

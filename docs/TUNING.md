@@ -1,6 +1,6 @@
 # Tuning Guide
 
-Use this guide after a device is installed and producing motion data. It explains what to check, what to change, and in what order. Detector formulas and validation evidence remain in [ALGORITHMS.md](ALGORITHMS.md) and the generated [performance report](performance/README.md).
+Use this guide after a device is installed and connected, even if it is not producing valid motion data yet. It explains what to check, what to change, and in what order. Detector formulas and validation evidence remain in [ALGORITHMS.md](ALGORITHMS.md) and the generated [performance report](performance/README.md).
 
 Inline snippets use ESPHome YAML as a concrete example. CSI means channel state information. Accepted `pps` is the identity-accepted capture supply; admitted `pps` is the detector input after temporal slot admission.
 
@@ -31,7 +31,7 @@ espectre:
 
 For Lightweight, stay quiet immediately after boot. After the first quiet phase, one short movement may complete startup early, but it is optional. Repeated movement during the initial quiet phase still reduces calibration quality. Missing or burst-concentrated slots extend the wall-clock duration because they do not count as valid evidence.
 
-Choose `lightweight` when the surrounding firmware needs the smaller active detector state and lower per-packet cost. Choose `high_accuracy` when detection quality matters more than that additional cost. ESPHome, Native, and Matter support persisted runtime profile selection through the controls they advertise. Published Matter firmware starts with `lightweight`. Micro-ESPectre deploys Lightweight only.
+Choose `lightweight` when the surrounding firmware needs the smaller active detector state and lower per-packet cost. Choose `high_accuracy` when detection quality matters more than that additional cost. ESPHome, Native, and Matter persist an accepted runtime profile selection through the controls they advertise. A profile change resets the threshold to the selected profile's default, and `high_accuracy -> lightweight` starts calibration. Published Matter firmware starts with `lightweight`. Micro-ESPectre deploys Lightweight only.
 
 See [ALGORITHMS.md](ALGORITHMS.md#known-limits) and the [performance report](performance/README.md) for current measurements and known limits. The relevant frontend README owns the exact configuration and control surface.
 
@@ -209,6 +209,34 @@ Try:
 
 Check Wi-Fi connection status, the traffic source, the CSI-enabled build configuration, and actual packet flow. If logs report protocol or bandwidth as `unavailable`, do not infer a CSI failure from that field alone; use packet counters and calibration progress.
 
+### Mesh Wi-Fi Instability
+
+If the device roams between access points that share an SSID, the radio path, channel, and packet delivery can change underneath the detector. Pin the device to a specific BSSID when roaming causes unstable occupancy or detection. ESPectre exposes this control when it is advertised in its Direct capability catalog; Micro-ESPectre accepts an optional deployment-time `WIFI_BSSID` setting.
+
+In the browser:
+
+1. Open [Configure](https://espectre.dev/tools/configure/).
+2. Connect with the private IP, device name, full 16-character device ID, or the last 6 characters of that ID.
+3. Refresh the access-point list, select the BSSID you want, and save.
+
+From the repository CLI:
+
+```bash
+./espectre direct scan_wifi_access_points  # start an access-point scan
+./espectre direct wifi_access_points        # list BSSID, channel, and RSSI
+./espectre direct set_wifi_bssid --params '{"bssid":"AA:BB:CC:DD:EE:FF"}'  # pin one AP
+```
+
+The scan is asynchronous, so wait a few seconds after `scan_wifi_access_points` before listing results. Use `--frontend native`, `--frontend esphome`, or `--frontend matter` to filter discovery, or use `--endpoint` when you already know the Direct URL. The station reconnects after a pin or clear.
+
+To restore automatic access-point selection without removing the SSID or password, choose automatic selection in Configure or run:
+
+```bash
+./espectre direct clear_wifi_bssid
+```
+
+Clear a stale pin after replacing or removing an access point. [CLI.md](CLI.md#direct) owns Direct syntax, and [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md) owns the methods.
+
 ### False Positives After A Wi-Fi Channel Change
 
 Prefer a fixed access-point channel when possible. After a channel change, allow the runtime to reset its detector history and collect fresh valid coverage before evaluating the result.
@@ -230,6 +258,8 @@ During tuning, watch:
 - motion state and movement score
 - current threshold and calibration state
 - heap and runtime-loop stability when comparing firmware variants
+
+Read the packet rates in sequence. Traffic without CSI callbacks points to capture or radio state. Callbacks without accepted packets point to capture validation or identity filtering. Accepted packets without adequate admission or occupancy point to temporal delivery. Stable detector input with unstable output points to threshold, filtering, or detector behavior.
 
 The shared ESP-IDF runtime exposes periodic debug telemetry, but compiler mode, log level, hardware, Wi-Fi setup, and traffic rate must stay fixed for a meaningful firmware comparison. Use the repository [firmware benchmark](../tools/README.md#firmware-benchmark) and generated [performance reports](performance/README.md) for repeatable resource measurements rather than treating an ad hoc tuning session as benchmark evidence.
 

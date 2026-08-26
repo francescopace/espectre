@@ -17,7 +17,7 @@ Browser flashing uses Web Serial and works in desktop Chrome or Edge. Firefox, S
 
 Published Native and ESPHome images speak standard Improv Serial, so any website that supports that protocol can provision Wi-Fi after a flash. Use [espectre.dev/tools/flash](https://espectre.dev/tools/flash/) as the recommended installer: it has the published catalog, detects the chip over USB, and chooses the matching image.
 
-Use `Latest Release` for official firmware, `Release Preview` for the latest build from `main`, or `Development` for the latest build from `develop`. Published ESPHome and Matter firmware start with Lightweight Detection and support persisted runtime switching to High Accuracy through their advertised controls.
+Use `Latest Release` for official firmware, `Release Preview` for the latest build from `main`, or `Development` for the latest build from `develop`. Published ESPectre firmware images start with Lightweight Detection and support persisted runtime switching to High Accuracy through their advertised controls.
 
 To flash:
 
@@ -25,6 +25,8 @@ To flash:
 2. Click **Connect via USB**
 3. Select the serial port
 4. Confirm the browser prompt
+
+If the board does not enter download mode automatically, use its `BOOT` and `RESET` controls: hold `BOOT`, press and release `RESET`, release `BOOT`, and retry the flash. Board labels and automatic-reset behavior vary, so use the board documentation when those controls are named differently.
 
 ## Shared Prerequisites
 
@@ -114,12 +116,6 @@ Matter generates a unique onboarding identity on first boot and stores it in a d
 
 Normal flashes preserve the QR. Erasing the complete flash generates a new identity on the next boot.
 
-Browser tools such as Flash, Configure, Monitor, and Theremin live on [espectre.dev](https://espectre.dev). Configure offers starting device-to-broker presets for Home Assistant with the Mosquitto add-on, a broker on the LAN, EMQX Cloud, HiveMQ Cloud, Flespi, and a custom broker; credentials are never prefilled. Provider presets fill stable MQTT TLS ports and prefill editable `.emqxsl.com` and `.hivemq.cloud` endpoint templates. Provider-defined ports and the fixed Flespi hostname are read-only while their preset is selected; account-specific endpoints, credentials, and topic prefixes remain editable. Configure adds the `mqtts://` scheme automatically when saving a secure preset. Monitor uses Direct HTTP rather than MQTT over WebSockets. To preview the same site from this repository, serve `docs/web` as described in [docs/web/README.md](web/README.md).
-
-Configure and Monitor accept a private device IP, device name, full 16-character device ID, or its last 6 characters. A full ID is translated to the device's unique local address internally; a name or short ID runs the same bounded discovery as the **Auto-discovery** button. One match connects directly, while multiple matches are all displayed for an explicit selection. When automatic discovery is unavailable, enter the device IP, reuse a remembered device, run `./espectre devices`, or consult the router lease table. The public [setup guide](https://espectre.dev/guides/setup/#setup-native-discovery) owns the browser matrix; [Peer-assisted browser discovery](ESPECTRE_PROTOCOL.md#peer-assisted-browser-discovery) owns the shared contract.
-
-On Configure, click the device ID in the connected-device banner to set the first user-facing name, or click the current name to edit it. The browser saves the value when the field loses focus; Enter saves immediately, and Escape cancels the edit.
-
 See the repository [CLI.md](CLI.md) for:
 
 - launcher syntax on each host
@@ -133,6 +129,26 @@ Use the frontend READMEs for frontend-specific prerequisites, examples, and chip
 - [`README.md` (native)](../src/cpp/frontend/native/README.md)
 - [`README.md` (matter)](../src/cpp/frontend/matter/README.md)
 - [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md)
+
+## Browser Configuration and Monitoring
+
+Browser tools such as Flash, Configure, Monitor, and Theremin live on [espectre.dev](https://espectre.dev). Configure offers starting device-to-broker presets for Home Assistant with the Mosquitto add-on, a broker on the LAN, EMQX Cloud, HiveMQ Cloud, Flespi, and a custom broker; credentials are never prefilled. Provider presets fill stable MQTT TLS ports and prefill editable `.emqxsl.com` and `.hivemq.cloud` endpoint templates. Provider-defined ports and the fixed Flespi hostname are read-only while their preset is selected; account-specific endpoints, credentials, and topic prefixes remain editable. Configure adds the `mqtts://` scheme automatically when saving a secure preset. Monitor uses Direct HTTP rather than MQTT over WebSockets. To preview the same site from this repository, serve `docs/web` as described in [docs/web/README.md](web/README.md).
+
+On Configure, click the device ID in the connected-device banner to set the first user-facing name, or click the current name to edit it. The browser saves the value when the field loses focus; Enter saves immediately, and Escape cancels the edit.
+
+## Direct HTTP Connectivity
+
+Native, ESPHome, Matter, and Micro-ESPectre expose Direct HTTP on the local network. If Configure or Monitor cannot connect:
+
+1. Confirm that the device and browser are on the same LAN.
+2. Try the current private IPv4 address if the `.local` hostname does not resolve.
+3. Grant the browser's local-network permission when prompted.
+4. Use a desktop Chromium browser listed in the current [browser support matrix](https://espectre.dev/guides/setup/#setup-native-discovery) when another browser blocks hosted HTTPS-to-local-HTTP access.
+5. Confirm that the hosted page uses `https://espectre.dev`, `https://www.espectre.dev`, or `https://test.espectre.dev`. A local website preview also requires firmware that accepts the corresponding loopback origin.
+
+Configure and Monitor accept a private IP, device name, full 16-character device ID, or the last 6 characters of that ID. A full ID maps to the device's unique local address; a name or short ID uses the same bounded discovery as the **Auto-discovery** button. One match connects directly, while multiple matches require an explicit selection. Names, short IDs, and `.local` addresses depend on working mDNS. If discovery fails, use `./espectre devices`, enter the current IP, or check the router's DHCP lease table. Remove a stale remembered endpoint before entering a replacement address. [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#peer-assisted-browser-discovery) owns the peer-discovery contract.
+
+Origin, mixed-content, and local-network permission errors come from the browser boundary rather than the detector. Grant local-network access only to the ESPectre portal, confirm that the device remains on the same trusted LAN, and retry with a browser in the support matrix. Once Direct connects, use [TUNING.md](TUNING.md) for missing CSI, calibration, or detection problems.
 
 ## Advanced: SDK Bundles
 
@@ -165,7 +181,7 @@ The next step depends on the frontend you chose:
 
 ## Reference: Shared Runtime Concepts
 
-These concepts are shared across the C++ platform, even though each frontend exposes them differently.
+These concepts are shared across the sensing frontends, even though each frontend exposes them differently.
 
 ### Shared Sensing Options
 
@@ -215,27 +231,15 @@ Use the frontend README for the exact syntax and local workflow:
 - [`README.md` (matter)](../src/cpp/frontend/matter/README.md)
 - [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md)
 
-### Detection Profiles And Startup
+### Detection Profile Availability
 
-ESPectre keeps two production detection profiles because no single choice optimizes both accuracy and resource use. Lightweight runs fewer feature trackers and is the leaner choice when the chip or surrounding firmware needs more CPU time and working memory for other work. High Accuracy uses a larger feature state and neural inference to provide higher accuracy and stronger generalization on the maintained corpus.
+ESPHome, Native, and Matter ship both `lightweight` and `high_accuracy`. They persist an accepted runtime selection and expose it through their advertised controls: ESPHome entities and Direct HTTP, Native Direct HTTP and optional MQTT, and Matter Direct HTTP. Published Matter firmware starts with `lightweight`. Micro-ESPectre deploys only `lightweight`; its High Accuracy sources remain host-side for research and parity validation.
 
-At boot, Lightweight adapts its threshold to the room within a budget of ten seconds of valid, ready CSI coverage after temporal warmup. A clean `quiet -> motion -> quiet` pattern can finish earlier; otherwise the quiet-first fallback must converge inside that budget. Missing or burst-concentrated slots extend wall-clock calibration instead of counting as evidence. After that, a long quiet stretch can still lower the live threshold if the opening was noisier than the rest of the session; Home Assistant, ESPHome, and the website Monitor follow that value. High Accuracy uses its trained threshold and skips threshold calibration; it becomes active after CSI capture is ready and the feature window has filled.
-
-ESPHome, Native, and Matter support both `lightweight` and `high_accuracy`. All three persist an accepted runtime selection; the switch resets the threshold to the selected profile's default, and `high_accuracy -> lightweight` starts calibration automatically. ESPHome exposes the control through its entity and Direct HTTP, Native through Direct HTTP and optional MQTT, and Matter through Direct HTTP because standard occupancy clusters do not define detector selection. Published Matter firmware starts with `lightweight` while the frontend remains preview. Micro-ESPectre deploys only `lightweight`; its High Accuracy sources remain host-side for research and parity validation.
-
-See:
-
-- [ALGORITHMS.md](ALGORITHMS.md) for detector behavior and formulas
-- [TUNING.md](TUNING.md) for the practical startup and threshold workflow, including the `quiet -> motion -> quiet` behavior and the quiet-only fallback
-- the frontend README for configuration syntax
+Use [TUNING.md](TUNING.md#startup-and-detection-profile) to choose a profile and follow its startup procedure, [ALGORITHMS.md](ALGORITHMS.md) for detector behavior and formulas, and the frontend README for configuration syntax.
 
 ### Traffic Generation
 
 Motion detection frontends depend on CSI packets. For the shared detection runtime, traffic is generated internally by default, but the way that traffic is configured or exposed belongs to each frontend surface.
-
-The fixed temporal admission grid accepts at most one packet per target slot. Same-slot bursts are discarded, missing slots remain missing, and the detector becomes ready only after a complete configured window has at least 70% valid occupancy. Arrival-rate jitter does not resize or reconstruct the detector.
-
-Raw rate near `csi_target_pps` does not prove that the target is usable: an AP may deliver those packets in aggregates, producing both same-slot excess and missing slots. If occupancy stays below 70%, fix the traffic source or choose a lower explicit `csi_target_pps` and revalidate detector quality at that cadence. The runtime never lowers the target automatically because doing so would silently change feature timing.
 
 | Path | Target owner | Traffic source | Detector admission | Pacing notes |
 |------|--------------|----------------|--------------------|--------------|
@@ -244,7 +248,7 @@ Raw rate near `csi_target_pps` does not prove that the target is usable: an AP m
 | Micro-ESPectre | `CSI_TARGET_PPS` | `TRAFFIC_GENERATOR_ENABLED`; ICMP ping when enabled, external traffic when disabled | yes | phase-preserving cadence without catch-up bursts; local socket backoff only |
 | Collector detector, replay, training, and validation | recorded `csi_target_pps`, collector `--pps`, or a documented legacy fallback | recorded raw HTTP stream | yes, through the production Micro-ESPectre sampler | external generator owns rate; HTTP does not pace |
 
-Raw HTTP collection is available on Native, ESPHome, and Matter. It preserves every classified CSI frame except explicitly counted fixed-ring drops; only the collector's derived live detector view applies temporal admission.
+Raw HTTP collection is available on supported ESPectre frontends. [`CLI.md`](CLI.md#collect) owns the collection workflow, and [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#direct-raw-csi-v2) owns session behavior and framing.
 
 External UDP traffic can be unicast to each device IP, or sent to multicast group `239.255.0.1`. ESP-IDF frontends join that group automatically in `external`. Empty `csi_traffic_multicast_group` disables the join. Subnet and limited broadcast (`x.x.x.255`, `255.255.255.255`) do not produce reliable HT20 CSI. ESPHome, Native, and Matter listen on port `5555` and accept only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`); use [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) standalone or through `./espectre collect`.
 
@@ -252,11 +256,12 @@ Micro-ESPectre selects traffic ownership at deployment through `TRAFFIC_GENERATO
 
 Across Native, Matter, and ESPHome, internal `ping` mode sends ICMP echo requests, while internal `dns` mode sends DNS root queries through a persistent, non-blocking TCP connection to gateway port `53`. DNS mode therefore requires the gateway resolver to accept TCP queries. Micro-ESPectre implements only ICMP ping.
 
-If you are tuning `csi_target_pps`, thresholds, or filters, use [TUNING.md](TUNING.md) for the rationale and the frontend README for the configuration syntax.
+Use [TUNING.md](TUNING.md#traffic-health-and-target-rate) to evaluate packet occupancy or change `csi_target_pps`, and use the frontend README for configuration syntax.
 
 ## Where to Go Next
 
-- To configure or troubleshoot an installed device, use its frontend README and [TUNING.md](TUNING.md).
+- For installation, discovery, or Direct connectivity, use this guide and the selected frontend README.
+- For CSI health, calibration, placement, or detection quality, use [TUNING.md](TUNING.md).
 - To study detector behavior and formulas, use [ALGORITHMS.md](ALGORITHMS.md).
 - To change the shared code, use [ARCHITECTURE.md](ARCHITECTURE.md).
 - To integrate the SDK into another firmware product, use [SDK.md](SDK.md).

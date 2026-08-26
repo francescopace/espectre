@@ -25,33 +25,23 @@ After flashing, configure Wi-Fi with one of these provisioning paths:
 
 All maintained ESPHome example configurations enable Improv Serial.
 
+The maintained examples provision Wi-Fi through Improv Serial or the `ESPectre Fallback` captive portal and do not embed SSID, password, or BSSID in YAML. After the device is on the LAN, use the mesh Wi-Fi procedure in [`TUNING.md`](../../../../docs/TUNING.md#mesh-wi-fi-instability) if its access-point association is unstable.
+
 Once Wi-Fi is configured, the device is discovered automatically by Home Assistant through ESPHome.
 
-ESPHome continues to advertise its native API as `_esphomelib._tcp.local.`. ESPectre also publishes the canonical `_espectre._tcp.local.` record for its Direct HTTP endpoint on the shared port `62587`. Run `./espectre devices --frontend esphome` to list that first-party record with the standard ESPectre `device_id`; the CLI does not inspect or depend on ESPHome's upstream TXT schema. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) owns the shared record contract.
+ESPHome continues to advertise its native API as `_esphomelib._tcp.local.`. ESPectre also publishes the canonical `_espectre._tcp.local.` record for its Direct HTTP endpoint on the shared port `62587`. Run `./espectre devices --frontend esphome` to list that record with the standard ESPectre `device_id`.
 
-Direct HTTP exposes the same runtime threshold, motion-hit counts, detector selection, recalibration, CSI traffic ownership, and traffic-generator controls as the ESPHome entities when the runtime advertises them. It also exposes the current Wi-Fi association, access-point scans, BSSID pinning and pin removal, an editable persisted ESPectre label, peer discovery, and raw CSI. Shared Auto-discovery, including Micro-ESPectre peer results, is documented in [Peer-assisted browser discovery](../../../../docs/ESPECTRE_PROTOCOL.md#peer-assisted-browser-discovery). A successful Direct mutation republishes the affected number or select state, so Home Assistant and Direct clients observe one current runtime configuration. Wi-Fi credentials, OTA, and ESPHome API encryption remain owned by ESPHome rather than this Direct surface; changing the ESPectre label does not alter the ESPHome hostname, adopted YAML, or entity IDs.
+The CLI does not inspect or depend on ESPHome's upstream TXT schema. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) owns the shared discovery contract.
+
+Direct HTTP and the ESPHome entities use the same command engine for the runtime controls advertised by the device. Direct also exposes shared local-management features such as Wi-Fi association inspection, BSSID selection, device labels, peer discovery, and raw CSI. The capability response is authoritative; [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md) owns the shared method catalog and [peer-assisted browser discovery](../../../../docs/ESPECTRE_PROTOCOL.md#peer-assisted-browser-discovery).
+
+A successful Direct mutation republishes the affected number or select state, so Home Assistant and Direct clients observe the same runtime configuration. Wi-Fi credentials, OTA, and ESPHome API encryption remain owned by ESPHome. Changing the ESPectre label does not alter the ESPHome hostname, adopted YAML, or entity IDs.
 
 The `release`, `preview`, and `develop` channels publish one full-flash image and one OTA image per supported chip, with `lightweight` as the initial detector. Both `lightweight` and `high_accuracy` are available in the image and can be selected through the persisted runtime detector entity. After adoption, ESPHome Device Builder can compile and install updates wirelessly from the device YAML; `detection_algorithm` sets the initial detector for a fresh configuration rather than limiting which detector the firmware supports.
 
 ## Integration Surface
 
-The frontend maps runtime state into ESPHome and Home Assistant entities.
-
-| Runtime state/event | ESPHome surface | Cadence |
-|---------------------|-----------------|---------|
-| movement metric | `movement_sensor` | Detector evaluation (`evaluation_interval_ms`, default 250 ms) |
-| motion state | `motion_sensor` | Filtered state edges |
-| runtime threshold write | `threshold_number` | On change |
-| runtime motion-hit debounce write | `motion_on_hits_number`, `motion_off_hits_number` | On change |
-| runtime detector selection | `detector_select` | On change |
-| sensing lifecycle | `sensing_switch` | On change |
-| runtime recalibration trigger | `recalibrate_button` | On press |
-| calibration state | `calibration_active_sensor` | On change |
-| CSI traffic ownership | `csi_traffic_mode_select` | On change |
-| internal traffic generator type | `traffic_generator_mode_select` | On change |
-| on-demand CSI diagnostics | diagnostic sensors and `diagnostics_button` | On request |
-
-The default entities are created automatically when the `espectre:` component is declared.
+The frontend maps runtime state and controls into the ESPHome entities listed under [Integrated Entities](#integrated-entities). Those entities are created automatically when the `espectre:` component is declared.
 
 ## Configuration Surface
 
@@ -61,21 +51,7 @@ The ESPHome YAML schema is defined in [`__init__.py`](components/espectre/__init
 
 The shared sensing options, with their defaults and ranges, are documented in the [`Shared Sensing Options`](../../../../docs/SETUP.md#shared-sensing-options) table in `SETUP.md`. In ESPHome, those options live under the `espectre:` section with the same names, as shown in the example below.
 
-These options are applied from YAML during firmware configuration. Runtime control is exposed separately through the entities below:
-
-| Runtime surface | Config key | Runtime behavior |
-|-----------------|------------|------------------|
-| Movement score | `movement_sensor` | Read-only Home Assistant sensor; evaluation cadence |
-| Motion state | `motion_sensor` | Read-only Home Assistant binary sensor; edge-published |
-| Threshold | `threshold_number` | Writable runtime threshold control |
-| Motion On Hits | `motion_on_hits_number` | Writable runtime motion-on debounce control |
-| Motion Off Hits | `motion_off_hits_number` | Writable runtime motion-off debounce control |
-| Detection profile | `detector_select` | Writable, persisted `lightweight` / `high_accuracy` selection |
-| Sensing | `sensing_switch` | Writable runtime sensing lifecycle |
-| Recalibration | `recalibrate_button` | Writable runtime recalibration action |
-| Calibration state | `calibration_active_sensor` | Read-only runtime calibration state |
-| CSI traffic ownership | `csi_traffic_mode_select` | Writable, persisted `internal` / `external` selection |
-| Traffic generator | `traffic_generator_mode_select` | Writable, persisted `ping` / `dns` selection |
+These options are applied from YAML during firmware configuration. The [Integrated Entities](#integrated-entities) table is the canonical ESPHome mapping for read-only state, writable runtime controls, and publication cadence.
 
 ### Diagnostic Telemetry
 
@@ -86,11 +62,17 @@ Diagnostic entities are always available in production builds. ESPectre refreshe
 | `Traffic TX Rate` | Successful internal generator or observed external marker packets per second |
 | `CSI Callback Rate` | Raw ESP-IDF CSI callbacks per second |
 | `CSI Accepted Rate` | CSI packets per second accepted by the sensing pipeline |
+| `CSI Admitted Rate` | CSI packets per second admitted to the detector's temporal grid |
 | `CSI Filtered Rate` | CSI packets per second rejected by capture validation |
+| `CSI Missing Slot Rate` | Detector slots without an admitted packet per second |
+| `CSI Excess Rate` | Non-selected same-slot candidates per second |
+| `CSI Stale Rate` | Stale packets discarded per second |
+| `CSI Out-of-Order Rate` | Duplicate or backward-timestamp packets discarded per second |
+| `CSI Temporal Occupancy` | Valid-slot occupancy of the active detector window |
 | `WiFi Channel` | Current primary channel reported by the associated access point |
 | `WiFi RSSI` | Current RSSI reported by the Wi-Fi association |
 
-Comparing the three main rates localizes failures: traffic without callbacks points at capture/radio state, callbacks without accepted packets points at validation or identity filtering, and accepted packets without stable detector output points above the capture layer.
+Use the diagnostic sequence in [`TUNING.md`](../../../../docs/TUNING.md#monitoring) to localize traffic, capture, temporal-admission, and detector failures.
 
 Runtime performance, heap, load, and detector timing are collected as production diagnostics and are available through Direct HTTP without a build-time switch or periodic debug logs.
 
@@ -106,17 +88,9 @@ espectre:
 
 ESPHome owns Wi-Fi association policy through `wifi.band_mode`; it is not an `espectre:` property. On ESP32-C5 it accepts `2.4GHz`, `5GHz`, or `AUTO` and is optional; when omitted, ESPectre follows ESPHome's `AUTO` default. Other supported targets are single-band and remain fixed to 2.4 GHz. ESPectre mirrors the effective ESPHome selection into its runtime and keeps the production sensing contract at HT20 on the selected band. The examples select `2.4GHz` because detection quality on 5 GHz is not yet characterized.
 
-Threshold behavior:
-
-- range: `0.0-1.0` for both detectors
-- `lightweight`: automatic session-adapted startup threshold, then possible quiet-stretch lowering published through `on_threshold_changed`
-- `high_accuracy` default: `0.5`
-
-Lightweight Detection uses less active detector CPU and working memory, making it suitable when the ESPHome node also runs resource-intensive components. High-Accuracy Detection uses more feature state and inference work but provides higher accuracy and skips Lightweight's threshold calibration. Lightweight requires about 10 seconds of clean, ready quiet-room coverage after temporal warmup; insufficient occupancy extends that wall-clock duration. High Accuracy still waits for CSI readiness and its feature window to fill.
-
 The YAML value is the initial profile when no persisted selection exists. The Home Assistant `detector_select` changes it live and persists the choice across reboot. `high_accuracy -> lightweight` starts calibration automatically, and `calibration_active_sensor` reflects automatic and user-triggered calibration state.
 
-See [`ALGORITHMS.md`](../../../../docs/ALGORITHMS.md) for how the two detectors differ and [`TUNING.md`](../../../../docs/TUNING.md) for choosing between them.
+See [`SETUP.md`](../../../../docs/SETUP.md#shared-sensing-options) for shared defaults and ranges, [`TUNING.md`](../../../../docs/TUNING.md#startup-and-detection-profile) for profile selection and startup, and [`ALGORITHMS.md`](../../../../docs/ALGORITHMS.md) for detector behavior.
 
 ### Example
 
@@ -214,7 +188,13 @@ Once the device is flashed and connected to Wi-Fi:
 3. Configure the discovered device
 4. The default entities are added automatically
 
-The ESPHome frontend exposes movement, motion, sensing state, threshold control, motion-hit debounce control, recalibration, calibration state, CSI traffic ownership, traffic generator selection, and on-demand CSI diagnostics as Home Assistant entities. Every writable entity invokes the common command engine and republishes authoritative state when a command is rejected. Direct mutations use the same engine and immediately synchronize the affected entities. Movement Score updates on the detector evaluation cadence (default 250 ms). The high-rate path runs while the Movement Score entity exists or a Direct SSE client is connected, so Direct-only configurations do not need to add an unused Home Assistant sensor. Motion Detected publishes only on filtered state edges. Threshold publishes on operator writes, calibration, and Lightweight settled-level recovery; motion-hit controls publish on change. Calibration Active reports the read-only runtime state, and the traffic selects mirror runtime state on connect and each accepted change. Diagnostic sensors publish only when Refresh Diagnostics runs the canonical `diagnostics` query. If the Home Assistant recorder is a concern, exclude `sensor.*_movement_score` rather than lowering `evaluation_interval_ms`.
+The ESPHome frontend exposes movement, motion, sensing state, tuning controls, calibration, traffic controls, and on-demand diagnostics as Home Assistant entities. Every writable entity invokes the common command engine and republishes authoritative state when a command is rejected. Direct mutations use the same engine and immediately synchronize the affected entities.
+
+Movement Score updates on the detector evaluation cadence, 250 ms by default. The high-rate path runs while the Movement Score entity exists or a Direct SSE client is connected, so Direct-only configurations do not need an unused Home Assistant sensor. Motion Detected publishes only on filtered state edges.
+
+Threshold publishes after operator writes, calibration, and Lightweight settled-level recovery. Motion-hit controls publish on change, Calibration Active reports the read-only runtime state, and the traffic selects mirror runtime state on connect and after each accepted change. Diagnostic sensors publish only when Refresh Diagnostics runs the canonical `diagnostics` query.
+
+If the Home Assistant recorder is a concern, exclude `sensor.*_movement_score` rather than lowering `evaluation_interval_ms`.
 
 To manage configuration and OTA updates, install ESPHome Device Builder and adopt the discovered device. The adopted configuration uses the GitHub source profile, follows `main`, and identifies that rolling build as `0.0.0-main`. First-party CI and release builds use the local checkout and override `project_version` with `git describe` or the release tag.
 
@@ -236,7 +216,7 @@ Examples live in:
 
 ![ESPectre Home Assistant dashboard](../../../../docs/web/assets/images/guides/home-assistant-dashboard.png)
 
-*Home Assistant dashboard with motion state, movement score, movement-versus-threshold history, detection profile, threshold, calibration, and diagnostics. Native MQTT Discovery reuses these cards after replacing the `espectre_` prefix.*
+*Home Assistant dashboard with motion state, movement score, movement-versus-threshold history, detection profile, threshold, calibration, and diagnostics.*
 
 To import a dashboard:
 
@@ -246,11 +226,11 @@ To import a dashboard:
 4. Replace the default content with the YAML from the example file
 5. Save the dashboard
 
-If you changed the device name from `espectre`, update entity IDs in the YAML. If you enabled `name_add_mac_suffix: true`, include the MAC suffix in the entity names as well. Home Assistant generates Native MQTT entity IDs when it first registers them, so inspect the exact IDs under the device before adapting this dashboard. A default Native device can produce an ID such as `sensor.espectre_c3_223333_movement_score`, and an existing registry collision can add a suffix such as `_2`.
+If you changed the device name from `espectre`, update the entity IDs in the YAML. If you enabled `name_add_mac_suffix: true`, include the MAC suffix in the entity names as well. Inspect the exact IDs under the Home Assistant device before adapting the dashboard because an existing registry collision can add a suffix such as `_2`.
 
-## Traffic Generator and Runtime Notes
+## Traffic Configuration
 
-The ESPHome surface exposes the shared runtime traffic-generation settings. By default, the device continuously generates traffic for CSI collection while powered on.
+The ESPHome surface exposes the shared runtime traffic settings under `espectre:`. [`SETUP.md`](../../../../docs/SETUP.md#traffic-generation) owns traffic modes, pacing, ports, and external marker behavior; [`TUNING.md`](../../../../docs/TUNING.md#traffic-health-and-target-rate) owns rate and occupancy guidance.
 
 ### Internal Traffic Generator
 
@@ -261,14 +241,7 @@ espectre:
   traffic_generator_mode: ping
 ```
 
-`csi_target_pps` defines the temporal detector grid and the internal managed-traffic target. `csi_traffic_mode` independently selects `internal` or `external`; a rate of zero is invalid. Internal traffic uses a fixed DNS or ICMP send rate at that target. Occupancy does not change the send rate; if occupancy stays below 70%, repair the traffic path or lower `csi_target_pps` explicitly.
-
-Available modes:
-
-| Mode | Protocol | Notes |
-|------|----------|-------|
-| `ping` | ICMP | Default and usually the safest choice |
-| `dns` | TCP | Persistent, non-blocking root queries to gateway port `53`; use only when the router accepts DNS over TCP |
+The `traffic_generator_mode_select` entity can change the internal source at runtime, and `csi_traffic_mode_select` can switch between internal and external ownership. Both selections persist after an accepted change.
 
 ### External Traffic Mode
 
@@ -282,17 +255,7 @@ espectre:
   evaluation_interval_ms: 250
 ```
 
-In that mode the runtime opens a UDP listener on port `5555` and joins multicast group `239.255.0.1` by default. Drive it with unicast UDP to each device IP, or with one datagram to `239.255.0.1`. Use [`espectre_traffic_generator.py`](../../../../tools/espectre_traffic_generator.py) and set `TARGETS` to a device IP, a list of addresses, or `['239.255.0.1']`. Set `csi_traffic_multicast_group: ""` to disable the join. Subnet and limited broadcast (`x.x.x.255`, `255.255.255.255`) do not produce reliable CSI: access points typically send those frames at legacy rates, which the HT20 capture contract drops.
-
-For raw collection, use `./espectre collect` with this device's IP, hostname, Direct endpoint, or device ID. ESPHome exposes Direct and raw HTTP on the shared port `62587`; the collector persistently selects external mode and drives the port-`5555` marker source.
-
-For rate recommendations, airtime tradeoffs, and placement guidance, see [`TUNING.md`](../../../../docs/TUNING.md).
-
-## Startup Calibration
-
-In `lightweight` mode, keep the room quiet after boot so the runtime can complete the startup threshold bootstrap; a later quiet stretch can still lower the live threshold, and the Home Assistant number follows it. `high_accuracy` skips the bootstrap and starts once CSI capture is ready and its feature window has filled. For the startup workflow and budget details, see [`TUNING.md`](../../../../docs/TUNING.md).
-
-Runtime recalibration is exposed as the `recalibrate_button` entity in Home Assistant. `calibration_active_sensor` reports the authoritative in-progress state.
+For raw collection, use `./espectre collect` with this device's IP, hostname, Direct endpoint, or device ID. ESPHome exposes Direct and raw HTTP on the shared port `62587`; [`CLI.md`](../../../../docs/CLI.md#collect) owns the collector workflow, including its persistent external-traffic selection.
 
 ## Build and Consumption
 
@@ -373,45 +336,7 @@ The frontend itself does not require a custom partition table.
 
 ## ESPHome-Specific Troubleshooting
 
-### No motion detection
-
-1. Verify Wi-Fi is connected
-2. Verify traffic generation is active, or provide unicast or multicast (`239.255.0.1`) external traffic to port `5555`
-3. Wait for startup calibration to complete in `lightweight`
-4. Lower the Threshold number entity if the detector is too conservative
-
-### False positives
-
-1. Raise the Threshold number entity
-2. Check for fans, AC, curtains, or other interference
-3. Increase `segmentation_window_size_ms` for a longer, steadier analysis interval
-
-### Mesh Wi-Fi instability
-
-If the device roams between access points, lock it to a specific BSSID.
-
-For local configurations:
-
-```yaml
-wifi_bssid: "AA:BB:CC:DD:EE:FF"
-```
-
-Then reference it in the `wifi` block:
-
-```yaml
-wifi:
-  networks:
-    - ssid: !secret wifi_ssid
-      password: !secret wifi_password
-      bssid: !secret wifi_bssid
-```
-
-### Flash failed
-
-1. Hold the `BOOT` button
-2. Press `RESET`
-3. Release `BOOT`
-4. Retry the flash
+Use [`TUNING.md`](../../../../docs/TUNING.md#troubleshooting) for missing motion, false positives, calibration, packet health, placement, or unstable detection. Use the shared [`SETUP.md`](../../../../docs/SETUP.md#web-flash-no-coding-required) recovery procedure when the board does not enter download mode.
 
 ### View logs
 
