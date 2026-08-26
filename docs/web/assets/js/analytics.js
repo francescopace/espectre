@@ -1,9 +1,9 @@
 /*
  * ESPectre - Privacy-conscious analytics
  *
- * Google Analytics is enabled only on the production hostname and only after
- * explicit consent. The SPA router owns manual page views; generated static
- * pages report their canonical path directly.
+ * Google Analytics is enabled only on production and allowlisted debug hosts
+ * after explicit consent. The SPA router owns manual page views; generated
+ * static pages report their canonical path directly.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -205,7 +205,7 @@ function trackRouteView(route = currentRoute(), { sendPageView = true } = {}) {
     if (!capability || reportedCapabilities.has(route)) return;
     reportedCapabilities.add(route);
     trackEvent('tool_capability', {
-        tool_name: route,
+        tool_name: window.ESPectreRoutes?.get(route)?.analyticsName || route,
         capability: capability[0],
         result: capability[1] in navigator ? 'available' : 'unavailable'
     });

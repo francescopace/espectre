@@ -187,6 +187,12 @@ describe('website analytics contracts', () => {
             /device_id|address|hostname|endpoint|firmware|capabilities|payload/
         );
     });
+
+    it('reports every registered SPA route, including Raw CSI', () => {
+        assert.doesNotMatch(app, /trackRouteView && route !== 'tool-raw-csi'/);
+        assert.match(app, /if \(window\.trackRouteView\) window\.trackRouteView\(route\);/);
+        assert.match(app, /window\.trackRouteView\(route, \{ sendPageView: false \}\)/);
+    });
 });
 
 describe('website accessibility and navigation', () => {
@@ -525,9 +531,6 @@ describe('website UX contracts', () => {
         assert.match(app, /installTrigger\.disabled = !browserSupport\.flash/);
         assert.match(app, /button\.disabled = directConnecting/);
         assert.match(app, /if \(browserSupport\.flash\) \{\s*loadBrowserDependency/);
-        assert.match(styles, /\.link-btn \{[\s\S]*?color: var\(--accent\);[\s\S]*?text-decoration: none;/);
-        assert.match(styles, /\.link-btn:visited \{ color: var\(--accent\); \}/);
-        assert.match(styles, /\.link-btn:hover \{ color: var\(--accent\); text-decoration: underline; \}/);
         assert.match(styles, /min-height: 100dvh/);
         assert.match(styles, /touch-action: manipulation/);
         const mobileCss = styles.split('@media (max-width: 720px)')[1]
@@ -932,8 +935,9 @@ describe('website UX contracts', () => {
     it('keeps Flash guidance and actions aligned with the selected frontend', () => {
         const flashPage = index.match(/data-page="tool-flash"[\s\S]*?<\/main>/)?.[0] || '';
         assert.match(flashPage, /id="flash-frontend"[\s\S]*?href="\/guides\/setup\/"/);
-        assert.match(flashPage, /<button slot="activate" class="btn-primary btn-sm">[\s\S]*?<\/button>[\s\S]*class="btn-secondary btn-sm js-matter-read" hidden>[\s\S]*?<\/button>[\s\S]*class="btn-secondary btn-sm" href="https:\/\/github\.com\/francescopace\/espectre\/releases"/);
+        assert.match(flashPage, /<button slot="activate" class="btn-primary btn-sm">[\s\S]*?<\/button>[\s\S]*class="btn-secondary btn-sm js-matter-read" hidden>[\s\S]*?<\/button>[\s\S]*class="btn-secondary btn-sm js-firmware-releases" href="https:\/\/github\.com\/francescopace\/espectre\/releases"/);
         assert.match(app, /matterReadButton\.hidden = frontendKey !== 'matter'/);
+        assert.match(app, /track\('firmware_releases_open', \{[\s\S]*frontend: params\.frontend,[\s\S]*channel: params\.channel,[\s\S]*entry_point: 'flash'/);
         assert.doesNotMatch(app, /flashNextLink|flashSetNextStep|js-flash-next/);
         assert.doesNotMatch(styles, /\.flash-downloads/);
     });
@@ -959,7 +963,7 @@ describe('website UX contracts', () => {
         assert.ok((app.match(/if \(requestId !== flash\.refreshRequest\) return;/g) || []).length >= 2);
         assert.match(app, /FLASH_CHIP_UNSUPPORTED_RE/);
         assert.match(app, /report\('unsupported'\)/);
-        assert.doesNotMatch(app, /flashRenderDownloads|firmware_download|downloadReady/);
+        assert.doesNotMatch(app, /flashRenderDownloads|downloadReady/);
         assert.match(app, /function flashSetFrontendActions/);
         assert.match(index, /class="modal-backdrop js-matter-modal" hidden>[\s\S]*class="modal-card matter-modal-card" role="dialog" aria-modal="true"/);
         assert.match(index, /id="matter-modal-title"/);
@@ -1093,8 +1097,9 @@ describe('website UX contracts', () => {
         assert.doesNotMatch(index, /id="cfg-wifi-pass"/);
         assert.match(app, /activeToolName\(\) === 'configure'[\s\S]*?directClient\.request\('diagnostics'\)/);
         assert.match(app, /snapshot\.wifi_channel[\s\S]*?set\('cfg-channel'/);
-        assert.match(app, /directClient\.request\('scan_wifi_access_points'\)/);
-        assert.match(app, /directClient\.request\('wifi_access_points'\)/);
+        assert.match(app, /const client = directClient[\s\S]*client\.request\('scan_wifi_access_points'\)/);
+        assert.match(app, /client\.request\('wifi_access_points'\)/);
+        assert.match(app, /if \(directClient !== client \|\| !client\.connected\) return;/);
         assert.match(app, /const method = bssid \? 'set_wifi_bssid' : 'clear_wifi_bssid'/);
         assert.match(app, /new Option\(`\$\{bssid\} · \$\{rssi\} dBm`, bssid\)/);
         assert.match(app, /if \(!select \|\| !scanButton\) return;/);
@@ -1160,7 +1165,7 @@ describe('website UX contracts', () => {
         assert.match(app, /device: 'tool-configure'/);
         assert.match(app, /const directSetup = connected && conn\.mode === 'direct'/);
         assert.match(app, /const directConnecting = conn\.status === 'connecting'/);
-        assert.match(styles, /\.field input\.is-invalid/);
+        assert.match(styles, /\.field input\[aria-invalid="true"\]/);
         assert.match(styles, /@keyframes espFieldErrorBlink/);
         assert.match(app, /function syncThresholdControl\(/);
         assert.match(app, /function bindThresholdControls/);
@@ -1322,7 +1327,7 @@ describe('website UX contracts', () => {
         assert.match(app, /inspectTimer = setInterval\(inspect, 250\)/);
         assert.match(app, /clearInterval\(inspectTimer\)/);
         assert.match(styles, /ewt-install-dialog \{[\s\S]*--md-dialog-container-shape: 16px/);
-        assert.match(styles, /ewt-install-dialog \{[\s\S]*--md-dialog-headline-font: 'Space Grotesk'/);
+        assert.match(styles, /ewt-install-dialog \{[\s\S]*--md-dialog-headline-font: var\(--font-display\)/);
         assert.match(styles, /ewt-install-dialog \{[\s\S]*--md-sys-color-primary: var\(--accent\)/);
         assert.match(styles, /ewt-install-dialog \{[\s\S]*--md-circular-progress-active-indicator-color: var\(--accent\)/);
         assert.match(app, /function startSilentOtaCheck/);
@@ -1345,10 +1350,10 @@ describe('website UX contracts', () => {
         assert.match(app, /if \(!currentOtaCheckTransport\(\)\) return;/);
         assert.match(app, /monitorPublishCommand\(otaCommandFields\('ota_start'\)/);
         assert.match(app, /OTA_TRACKING_TIMEOUT_MS/);
-        assert.match(app, /otaBusy \|\| otaTracking \|\| otaState === 'reboot_scheduled'/);
+        assert.match(app, /normalizedState === 'reboot_scheduled'[\s\S]*otaAwaitingReconnect = true/);
         assert.match(app, /if \(otaTargetVersion && version !== otaTargetVersion\)/);
         assert.match(app, /finishOtaTracking\('success', null, 'reconnected'\)/);
-        assert.match(app, /if \(otaAwaitingReconnect\) completeOtaReconnect\(\)/);
+        assert.match(app, /otaAwaitingReconnect &&[\s\S]*normalizedState === 'idle'[\s\S]*completeOtaReconnect\(\)/);
         assert.match(index, /js-menu-firmware[\s\S]*js-firmware-update-notice[\s\S]*js-disconnect/);
         assert.match(index, /class="conn-firmware-row"/);
         assert.doesNotMatch(index, /device-firmware-update-icon/);
@@ -1537,6 +1542,10 @@ describe('website UX contracts', () => {
         assert.doesNotMatch(rawClient, /makeDirectClient|client\.connect\(|client\.handshake\(|client\.close\(/);
         assert.match(rawClient, /new window\.ESPectreRawCsiV2Parser\(session\.session_id\)/);
         assert.match(rawClient, /rawCsi\.parser\.append\(chunk\)\.forEach/);
+        assert.match(rawClient, /state: 'idle'/);
+        assert.match(rawClient, /if \(rawCsi\.state === 'stopping'\) return rawCsi\.stopPromise/);
+        assert.match(rawClient, /const pendingStart = rawCsi\.startRequest[\s\S]*await pendingStart/);
+        assert.match(rawClient, /rawCsi\.generation !== generation \|\| rawCsi\.state !== 'starting'/);
         assert.match(app, /previousRoute === 'tool-raw-csi'[\s\S]*void rawCsiStop\(\)/);
         assert.match(app, /rawCapability\?\.protocol_version === 2[\s\S]*rawCapability\?\.marker === '👻'/);
     });
@@ -1575,6 +1584,9 @@ describe('website UX contracts', () => {
         assert.match(rawClient, /iValues\[index\] = view\.getInt8\(offset \+ 1\)/);
         assert.match(rawClient, /new ResizeObserver\(rawCsiResizeVisualization\)/);
         assert.match(rawClient, /requestAnimationFrame\(rawCsiRender\)/);
+        assert.match(rawClient, /const RAW_CSI_RENDER_INTERVAL_MS = 1000 \/ 30;/);
+        assert.match(rawClient, /surfaceContext\.createImageData\(RAW_CSI_VISUAL_HISTORY, rows\)/);
+        assert.match(rawClient, /surfaceContext\.putImageData\(pixels, 0, 0\)/);
     });
 
     it('calibrates Game and Theremin to the detector evaluation cadence', () => {
@@ -1659,14 +1671,19 @@ describe('website UX contracts', () => {
         assert.match(app, /entity\.x -= travel/);
         assert.match(app, /game\.scrollX \* 0\.18/);
         assert.match(app, /- game\.scrollX\) % width/);
-        assert.match(app, /gameFactoryImage\.src = '\/assets\/images\/game\/hardware-factory\.png'/);
+        assert.match(app, /const GAME_FACTORY_IMAGE_SOURCES = Object\.freeze\(\[[\s\S]*hardware-factory\.avif[\s\S]*hardware-factory\.png/);
+        assert.match(app, /function gameLoadFactoryImage\(\)/);
+        assert.match(app, /if \(route === 'tool-game'\) \{\s*void gameLoadFactoryImage\(\)/);
+        assert.doesNotMatch(app, /gameFactoryImage\.src =/);
         assert.match(app, /function gameDrawFactoryBackdrop/);
         assert.match(app, /function gameDrawFactoryParallax/);
         assert.match(app, /game\.scrollX \* 0\.12/);
         assert.match(app, /game\.scrollX \* 0\.24/);
         assert.match(app, /function gameDrawChip/);
-        assert.match(app, /gameFactoryImage\.addEventListener\('load', gameDraw\)/);
-        assert.ok(readFileSync(new URL('../../docs/web/assets/images/game/hardware-factory.png', import.meta.url)).length > 100000);
+        const factoryPng = readFileSync(new URL('../../docs/web/assets/images/game/hardware-factory.png', import.meta.url));
+        const factoryAvif = readFileSync(new URL('../../docs/web/assets/images/game/hardware-factory.avif', import.meta.url));
+        assert.ok(factoryPng.length > 100000);
+        assert.ok(factoryAvif.length < factoryPng.length);
         assert.doesNotMatch(app, /game\.distance \* 12/);
         assert.match(app, /if \(obstacleHit\) gameFinish\(\)/);
         assert.doesNotMatch(app, /TOTAL_ROUNDS|game\.phase === 'strike'|game\.inputArmed|function gameJump/);

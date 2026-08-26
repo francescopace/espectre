@@ -267,7 +267,6 @@
     let otaAwaitingReconnect = false;
     let pendingConfigVerification = null;
     let activeDeviceView = 'live';
-    let latestDeviceInfo = null;
 
     const sysinfoBoolean = (value) => value === true || value === 'true' || value === '1';
 
@@ -518,7 +517,7 @@
 
     function formatFrontendLabel(frontend) {
         const value = String(frontend || '');
-        const labels = { native: 'Native', esphome: 'ESPHome', matter: 'Matter' };
+        const labels = { native: 'Native', esphome: 'ESPHome', matter: 'Matter', micro: 'Micro-ESPectre' };
         return labels[value.toLowerCase()] || value;
     }
 
@@ -675,23 +674,6 @@
 
     function saveMonitorDeviceNameOnBlur() {
         return saveDeviceNameOnBlur('monitor');
-    }
-
-    function applyDeviceInfo(data) {
-        if (!data || typeof data !== 'object') return;
-        latestDeviceInfo = data;
-        applyDeviceIdentity(data);
-        conn.deviceName = data.device_label || data.device_name || conn.deviceName || 'ESPectre';
-        const line = formatDeviceIdentityLine(
-            data.frontend || conn.frontend,
-            data.chip && String(data.chip).toUpperCase(),
-            data.device_id || conn.deviceId,
-            data.firmware_version
-        );
-        if (line) conn.deviceBannerSub = line;
-        applySensingSnapshot(data);
-        renderConnection();
-        if (otaAwaitingReconnect) completeOtaReconnect();
     }
 
     function adoptDeviceId(deviceId) {
@@ -989,6 +971,10 @@
                 && methods.has('set_traffic_generator_mode'),
             supports_ota: methods.has('ota_status')
         };
+    }
+
+    function directSupportsCommand(name) {
+        return Boolean(directClient?.capabilities?.commands?.some((item) => item?.name === name));
     }
 
     function applyDirectConfig(config) {
@@ -1392,7 +1378,7 @@
         const info = await directClient.request('info');
         const status = await directClient.request('status');
         const config = await directClient.request('config');
-        const diagnostics = activeToolName() === 'configure'
+        const diagnostics = activeToolName() === 'configure' && directSupportsCommand('diagnostics')
             ? await directClient.request('diagnostics')
             : null;
         const otaStatus = supportsOta ? await directClient.request('ota_status') : null;
@@ -1500,7 +1486,8 @@
             syncDirectEndpointInputs(target.display);
             rememberDirectEndpoint(normalizedEndpoint);
             await refreshDirectDevice();
-            if ((openView || (route === 'tool-monitor' ? 'live' : 'connectivity')) === 'live') {
+            if ((openView || (route === 'tool-monitor' ? 'live' : 'connectivity')) === 'live'
+                && directSupportsCommand('set_sensing')) {
                 await client.request('set_sensing', { enabled: true });
             }
             setStatus('connected');
@@ -1647,7 +1634,9 @@
         }
         if (conn.mode === 'direct' && directClient?.connected) {
             try {
-                await directClient.request('set_sensing', { enabled: true });
+                if (directSupportsCommand('set_sensing')) {
+                    await directClient.request('set_sensing', { enabled: true });
+                }
                 setDeviceView('live');
                 completeLiveConnectionNavigation();
                 toast('Sensing is live over Direct HTTP.');
@@ -1879,14 +1868,6 @@
         demoPointer.x = event.clientX;
         demoPointer.y = event.clientY;
         demoPointer.t = now;
-    }
-
-    function demoResetMotion() {
-        if (conn.mode !== 'demo') return;
-        demoInputEnergy = 0;
-        conn.movement = 0.04;
-        conn.motion = false;
-        renderTelemetry();
     }
 
     /* ----------------------------------------------------- shared teardown */
@@ -2193,6 +2174,7 @@
         if (route === 'tool-monitor') monitorResizeChart();
         if (route === 'tool-raw-csi') rawCsiUseConnection();
         if (route === 'tool-game') {
+            void gameLoadFactoryImage();
             requestAnimationFrame(() => {
                 gameResizeCanvas();
                 gameSetFlight(gameSensingActive());
@@ -2219,7 +2201,7 @@
             });
         }
         // The router owns navigation, so it reports it.
-        if (window.trackRouteView && route !== 'tool-raw-csi') window.trackRouteView(route);
+        if (window.trackRouteView) window.trackRouteView(route);
     }
 
     /**
@@ -2663,7 +2645,7 @@
             if (!artifacts.length) {
                 flashSetFrontendActions(frontendSel.value);
                 summary.textContent = 'No matching firmware was found for the selected combination.';
-                flashStatus('Change the selection or use the manual download.', 'is-error');
+                flashStatus('Change the frontend or channel.', 'is-error');
                 return;
             }
 
@@ -3031,6 +3013,14 @@
             flashStatus('Select the serial port. The installer detects the chip and chooses the matching firmware.');
             track('firmware_installer_open', flashParams());
         });
+        $('.js-firmware-releases').addEventListener('click', () => {
+            const params = flashParams();
+            track('firmware_releases_open', {
+                frontend: params.frontend,
+                channel: params.channel,
+                entry_point: 'flash'
+            });
+        });
         $('.js-matter-read').addEventListener('click', matterReadQr);
         $$('.js-matter-close').forEach((button) => {
             button.addEventListener('click', () => matterClose());
@@ -3197,7 +3187,7 @@
         ctx.lineWidth = 1;
         ctx.strokeStyle = border;
         ctx.fillStyle = dim;
-        ctx.font = '10px "JetBrains Mono", ui-monospace, monospace';
+        ctx.font = '10px ui-monospace, "SFMono-Regular", Consolas, monospace';
         ctx.textBaseline = 'top';
         const tickMs = 10 * 1000;
         const labelEvery = width >= 420 ? 1 : 2;
@@ -3723,18 +3713,23 @@
             });
             return;
         }
-        if (!directClient?.connected || !monitor.commands.has('scan_wifi_access_points')) return;
+        const client = directClient;
+        if (!client?.connected || !monitor.commands.has('scan_wifi_access_points')) return;
         renderWifiAccessPoints({ scanning: true, message: 'Scanning access points…' });
         try {
-            await directClient.request('scan_wifi_access_points');
+            await client.request('scan_wifi_access_points');
             for (let attempt = 0; attempt < 20; attempt += 1) {
                 await new Promise((resolve) => setTimeout(resolve, 350));
-                const snapshot = await directClient.request('wifi_access_points');
+                if (directClient !== client || !client.connected) return;
+                const snapshot = await client.request('wifi_access_points');
+                if (directClient !== client || !client.connected) return;
                 renderWifiAccessPoints(snapshot);
                 if (!snapshot.scanning) return;
             }
+            if (directClient !== client || !client.connected) return;
             renderWifiAccessPoints({ scanning: false, message: 'Access point scan timed out. Try again.' });
         } catch (error) {
+            if (directClient !== client || !client.connected) return;
             renderWifiAccessPoints({
                 scanning: false,
                 message: 'Access point scan failed: ' + (error.message || error)
@@ -3964,7 +3959,7 @@
 
     function completeOtaReconnect() {
         if (!otaAwaitingReconnect) return;
-        const version = conn.firmwareVersion || (latestDeviceInfo && latestDeviceInfo.firmware_version) || '';
+        const version = conn.firmwareVersion || '';
         if (otaTargetVersion && version !== otaTargetVersion) {
             setOtaModalDescription('Device is back online. Verifying the updated firmware version…');
             return;
@@ -3990,21 +3985,6 @@
         otaTargetVersion = '';
         otaCheckTransport = '';
         maybeStartSilentOtaCheck();
-    }
-
-    function handleOtaDeviceAvailability(online) {
-        if (!online) {
-            if (otaBusy || otaTracking || otaState === 'reboot_scheduled') {
-                otaAwaitingReconnect = true;
-                setOtaModalDescription('Update applied. Waiting for the device to come back online…');
-                monitorStatus('Device rebooting after the update…');
-            }
-            return;
-        }
-        if (otaAwaitingReconnect || otaState === 'reboot_scheduled') {
-            otaAwaitingReconnect = true;
-            completeOtaReconnect();
-        }
     }
 
     function selectedOtaChannel() {
@@ -4275,9 +4255,12 @@
     const gameGhostImage = new Image();
     gameGhostImage.decoding = 'async';
     gameGhostImage.src = '/assets/images/brand/espectre-logo.svg';
-    const gameFactoryImage = new Image();
-    gameFactoryImage.decoding = 'async';
-    gameFactoryImage.src = '/assets/images/game/hardware-factory.png';
+    const GAME_FACTORY_IMAGE_SOURCES = Object.freeze([
+        '/assets/images/game/hardware-factory.avif',
+        '/assets/images/game/hardware-factory.png'
+    ]);
+    let gameFactoryImage = null;
+    let gameFactoryImagePromise = null;
     const gameAudio = {
         context: null,
         master: null,
@@ -4318,6 +4301,37 @@
         particles: [],
         hitFlash: 0
     };
+
+    function gameLoadFactoryImage() {
+        if (gameFactoryImagePromise) return gameFactoryImagePromise;
+        gameFactoryImagePromise = new Promise((resolve) => {
+            const image = new Image();
+            image.decoding = 'async';
+            let sourceIndex = 0;
+            const finish = (loaded) => {
+                image.removeEventListener('load', handleLoad);
+                image.removeEventListener('error', handleError);
+                if (loaded) {
+                    gameFactoryImage = image;
+                    gameDraw();
+                }
+                resolve(loaded ? image : null);
+            };
+            const handleLoad = () => finish(true);
+            const handleError = () => {
+                sourceIndex += 1;
+                if (sourceIndex < GAME_FACTORY_IMAGE_SOURCES.length) {
+                    image.src = GAME_FACTORY_IMAGE_SOURCES[sourceIndex];
+                    return;
+                }
+                finish(false);
+            };
+            image.addEventListener('load', handleLoad);
+            image.addEventListener('error', handleError);
+            image.src = GAME_FACTORY_IMAGE_SOURCES[sourceIndex];
+        });
+        return gameFactoryImagePromise;
+    }
 
     function gameSet(selector, value) {
         const el = $(selector);
@@ -4917,7 +4931,7 @@
     }
 
     function gameDrawFactoryBackdrop(ctx, width, height) {
-        if (!gameFactoryImage.complete || !gameFactoryImage.naturalWidth) return;
+        if (!gameFactoryImage?.complete || !gameFactoryImage.naturalWidth) return;
         const imageWidth = gameFactoryImage.naturalWidth;
         const imageHeight = gameFactoryImage.naturalHeight;
         const canvasRatio = width / height;
@@ -5317,7 +5331,8 @@
     const RAW_CSI_VISUAL_HISTORY = 720;
     const RAW_CSI_PHASE_HISTORY = 72;
     const RAW_CSI_IQ_WINDOW_US = 1000000;
-    const RAW_CSI_VISUAL_STEP_US = 10000;
+    const RAW_CSI_VISUAL_STEP_US = 33333;
+    const RAW_CSI_RENDER_INTERVAL_MS = 1000 / 30;
     const RAW_CSI_CHANNEL_GHOST_GAIN = 5;
     const RAW_CSI_PHASE_TRAIL_GAIN = 5;
     const RAW_CSI_SELECTED_SUBCARRIERS = Object.freeze([4, 8, 13, 18, 23, 28, 36, 41, 46, 51, 56, 60]);
@@ -5360,7 +5375,10 @@
         controller: null,
         demoTimer: null,
         demoFresh: 0,
-        running: false,
+        state: 'idle',
+        generation: 0,
+        startRequest: null,
+        stopPromise: null,
         parser: null,
         visualization: 'channel-heatmap',
         profiles: [],
@@ -5375,7 +5393,10 @@
         latestDelta: null,
         lastCaptureTicksUs: 0,
         lastVisualTicksUs: 0,
+        lastRenderAt: 0,
         renderFrame: 0,
+        heatmapSurface: null,
+        heatmapPixels: null,
         resizeObserver: null
     };
 
@@ -5429,12 +5450,12 @@
         return available;
     }
 
-    function rawCsiSetRunning(running) {
-        rawCsi.running = running;
+    function rawCsiSetState(state) {
+        rawCsi.state = state;
         const start = $('.js-raw-csi-start');
         const stop = $('.js-raw-csi-stop');
-        if (start) start.disabled = running;
-        if (stop) stop.disabled = !running;
+        if (start) start.disabled = state !== 'idle';
+        if (stop) stop.disabled = state === 'idle' || state === 'stopping';
     }
 
     function rawCsiCounter(selector, value) {
@@ -5475,6 +5496,7 @@
         rawCsi.latestDelta = null;
         rawCsi.lastCaptureTicksUs = 0;
         rawCsi.lastVisualTicksUs = 0;
+        rawCsi.lastRenderAt = 0;
         rawCsiScheduleRender();
     }
 
@@ -5613,7 +5635,7 @@
     function rawCsiDrawEmpty(context, canvas, message = 'Start the stream to reveal the channel.') {
         rawCsiClearCanvas(context, canvas);
         context.fillStyle = 'rgba(255, 255, 255, .48)';
-        context.font = '500 15px "JetBrains Mono", monospace';
+        context.font = '500 15px ui-monospace, "SFMono-Regular", Consolas, monospace';
         context.textAlign = 'center';
         context.textBaseline = 'middle';
         context.fillText(message, canvas.width / 2, canvas.height / 2);
@@ -5628,14 +5650,17 @@
         return `rgba(${channels[0]}, ${channels[1]}, ${channels[2]}, ${alpha})`;
     }
 
-    function rawCsiChannelColor(amplitude, delta) {
+    function rawCsiWriteChannelPixel(pixels, offset, amplitude, delta) {
         const level = Math.max(0, Math.min(1, amplitude / 2.2));
         const motion = Math.sqrt(Math.min(1, Math.abs(delta) / 0.32));
-        const base = [Math.round(8 + level * 46), Math.round(8 + level * 34), Math.round(24 + level * 126)];
-        const target = delta < 0 ? [42, 220, 255] : [255, 74, 105];
-        const channels = base.map((channel, index) => Math.round(
-            channel + (target[index] - channel) * motion));
-        return `rgb(${channels[0]}, ${channels[1]}, ${channels[2]})`;
+        const baseRed = 8 + level * 46;
+        const baseGreen = 8 + level * 34;
+        const baseBlue = 24 + level * 126;
+        const negative = delta < 0;
+        pixels[offset] = Math.round(baseRed + ((negative ? 42 : 255) - baseRed) * motion);
+        pixels[offset + 1] = Math.round(baseGreen + ((negative ? 220 : 74) - baseGreen) * motion);
+        pixels[offset + 2] = Math.round(baseBlue + ((negative ? 255 : 105) - baseBlue) * motion);
+        pixels[offset + 3] = 255;
     }
 
     function rawCsiDrawHeatmap(context, canvas) {
@@ -5650,23 +5675,43 @@
         const height = canvas.height - top - 48;
         context.fillStyle = '#09091c';
         context.fillRect(left, top, width, height);
-        const columnWidth = width / RAW_CSI_VISUAL_HISTORY;
-        const startX = left + width - rawCsi.profiles.length * columnWidth;
+        const rows = rawCsi.profiles[0].length;
+        if (!rawCsi.heatmapSurface) rawCsi.heatmapSurface = document.createElement('canvas');
+        const surface = rawCsi.heatmapSurface;
+        if (surface.width !== RAW_CSI_VISUAL_HISTORY || surface.height !== rows) {
+            surface.width = RAW_CSI_VISUAL_HISTORY;
+            surface.height = rows;
+            rawCsi.heatmapPixels = null;
+        }
+        const surfaceContext = surface.getContext('2d');
+        if (!rawCsi.heatmapPixels) {
+            rawCsi.heatmapPixels = surfaceContext.createImageData(RAW_CSI_VISUAL_HISTORY, rows);
+        }
+        const pixels = rawCsi.heatmapPixels;
+        const data = pixels.data;
+        for (let offset = 0; offset < data.length; offset += 4) {
+            data[offset] = 9;
+            data[offset + 1] = 9;
+            data[offset + 2] = 28;
+            data[offset + 3] = 255;
+        }
+        const startColumn = RAW_CSI_VISUAL_HISTORY - rawCsi.profiles.length;
         rawCsi.profiles.forEach((profile, profileIndex) => {
-            const x0 = Math.floor(startX + profileIndex * columnWidth);
-            const x1 = Math.ceil(startX + (profileIndex + 1) * columnWidth);
             profile.forEach((value, subcarrier) => {
-                context.fillStyle = rawCsiChannelColor(
-                    value, rawCsi.deltas[profileIndex]?.[subcarrier] || 0);
-                const y0 = Math.floor(top + subcarrier * height / profile.length);
-                const y1 = Math.ceil(top + (subcarrier + 1) * height / profile.length);
-                context.fillRect(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0));
+                const offset = (subcarrier * RAW_CSI_VISUAL_HISTORY
+                    + startColumn + profileIndex) * 4;
+                rawCsiWriteChannelPixel(
+                    data, offset, value, rawCsi.deltas[profileIndex]?.[subcarrier] || 0);
             });
         });
+        surfaceContext.putImageData(pixels, 0, 0);
+        context.imageSmoothingEnabled = false;
+        context.drawImage(surface, left, top, width, height);
+        context.imageSmoothingEnabled = true;
         context.strokeStyle = 'rgba(255, 255, 255, .15)';
         context.strokeRect(left + 0.5, top + 0.5, width - 1, height - 1);
         context.fillStyle = 'rgba(255, 255, 255, .55)';
-        context.font = '12px "JetBrains Mono", monospace';
+        context.font = '12px ui-monospace, "SFMono-Regular", Consolas, monospace';
         context.textAlign = 'right';
         context.textBaseline = 'middle';
         context.fillText('−32', left - 10, top + 4);
@@ -5739,7 +5784,7 @@
         });
         context.shadowBlur = 0;
         context.fillStyle = 'rgba(255, 255, 255, .55)';
-        context.font = '12px "JetBrains Mono", monospace';
+        context.font = '12px ui-monospace, "SFMono-Regular", Consolas, monospace';
         context.textAlign = 'left';
         context.fillText('PAST', centerX - maximumSpan * 0.31, backY - 18);
         context.fillText('NOW', centerX - maximumSpan / 2, frontY + 28);
@@ -5835,7 +5880,7 @@
             context.fill();
         });
         context.fillStyle = 'rgba(255, 255, 255, .55)';
-        context.font = '12px "JetBrains Mono", monospace';
+        context.font = '12px ui-monospace, "SFMono-Regular", Consolas, monospace';
         context.textAlign = 'left';
         context.fillText('— CURRENT', left, canvas.height - 18);
         context.fillStyle = 'rgba(255, 255, 255, .4)';
@@ -5911,7 +5956,7 @@
         });
         context.shadowBlur = 0;
         context.fillStyle = 'rgba(255, 255, 255, .58)';
-        context.font = '12px "JetBrains Mono", monospace';
+        context.font = '12px ui-monospace, "SFMono-Regular", Consolas, monospace';
         context.textAlign = 'center';
         context.fillText('12 PRODUCTION SUBCARRIERS · 1 SECOND', centerX, top - 10);
         context.textAlign = 'right';
@@ -5932,7 +5977,7 @@
                 context.arc(x, y - 4, 4, 0, 2 * Math.PI);
                 context.fill();
                 context.fillStyle = 'rgba(255, 255, 255, .48)';
-                context.font = '11px "JetBrains Mono", monospace';
+                context.font = '11px ui-monospace, "SFMono-Regular", Consolas, monospace';
                 context.textAlign = 'left';
                 context.fillText(`SC ${subcarrier}`, x + 10, y);
             });
@@ -6012,7 +6057,7 @@
         });
         context.shadowBlur = 0;
         context.fillStyle = 'rgba(255, 255, 255, .5)';
-        context.font = '12px "JetBrains Mono", monospace';
+        context.font = '12px ui-monospace, "SFMono-Regular", Consolas, monospace';
         context.textAlign = 'left';
         context.fillText('5× TRAIL SPREAD', 12, 20);
         context.textAlign = 'right';
@@ -6022,8 +6067,13 @@
         context.fillText('CFO/STO-REDUCED PHASE · NOT POSITION', centerX, canvas.height - 16);
     }
 
-    function rawCsiRender() {
+    function rawCsiRender(timestamp) {
         rawCsi.renderFrame = 0;
+        if (timestamp - rawCsi.lastRenderAt < RAW_CSI_RENDER_INTERVAL_MS) {
+            rawCsi.renderFrame = requestAnimationFrame(rawCsiRender);
+            return;
+        }
+        rawCsi.lastRenderAt = timestamp;
         const surface = rawCsiCanvasContext();
         if (!surface) return;
         const { canvas, context } = surface;
@@ -6134,43 +6184,60 @@
         rawCsiResetVisualization();
         ['.js-raw-fresh', '.js-raw-dropped', '.js-raw-backpressure']
             .forEach((selector) => rawCsiCounter(selector, 0));
-        rawCsiSetRunning(true);
+        rawCsiSetState('running');
         rawCsiStatus(`Streaming simulated CSI at ${targetPps} target packets/s.`);
         rawCsiDemoFrame(targetPps, intervalMs, startedAtMs);
         rawCsi.demoTimer = setInterval(
             () => rawCsiDemoFrame(targetPps, intervalMs, startedAtMs), intervalMs);
     }
 
-    async function rawCsiStop() {
+    async function rawCsiStop(expectedGeneration = rawCsi.generation) {
+        if (expectedGeneration !== rawCsi.generation || rawCsi.state === 'idle') return;
+        if (rawCsi.state === 'stopping') return rawCsi.stopPromise;
+        const stopGeneration = ++rawCsi.generation;
         const client = rawCsi.sessionClient;
-        rawCsi.sessionClient = null;
+        const pendingStart = rawCsi.startRequest;
         clearInterval(rawCsi.demoTimer);
         rawCsi.demoTimer = null;
         rawCsi.demoFresh = 0;
         rawCsi.controller?.abort('raw stream stopped');
         rawCsi.controller = null;
-        rawCsiSetRunning(false);
+        rawCsiSetState('stopping');
         rawCsi.parser = null;
         rawCsi.packetArrivalTimes.length = 0;
         rawCsiCounter('.js-raw-pps', 0);
-        if (client?.rawSessionId && client.connected) {
-            try { await client.request('stop_raw_stream', {}, { timeoutMs: 3000 }); } catch (_error) { /* abort also releases the device session */ }
-        }
+        rawCsi.stopPromise = (async () => {
+            try { await pendingStart; } catch (_error) { /* a failed start has no device session to release */ }
+            if (client?.rawSessionId && client.connected) {
+                try { await client.request('stop_raw_stream', {}, { timeoutMs: 3000 }); } catch (_error) { /* abort also releases the device session */ }
+            }
+            if (rawCsi.generation !== stopGeneration) return;
+            rawCsi.sessionClient = null;
+            rawCsi.startRequest = null;
+            rawCsi.stopPromise = null;
+            rawCsiSetState('idle');
+        })();
+        return rawCsi.stopPromise;
     }
 
     async function rawCsiStart() {
         const client = directClient;
-        if (rawCsi.running || conn.status !== 'connected') return;
+        if (rawCsi.state !== 'idle' || conn.status !== 'connected') return;
+        const generation = ++rawCsi.generation;
         if (conn.mode === 'demo') {
             rawCsiStartDemo(100);
             return;
         }
         if (!rawCsiDirectReady() || client.capabilities?.features?.raw_csi !== true) return;
-        rawCsiSetRunning(true);
+        rawCsiSetState('starting');
         rawCsi.sessionClient = client;
         rawCsiStatus('Starting raw CSI stream…');
         try {
-            const session = await client.request('start_raw_stream');
+            const startRequest = client.request('start_raw_stream');
+            rawCsi.startRequest = startRequest;
+            const session = await startRequest;
+            if (rawCsi.startRequest === startRequest) rawCsi.startRequest = null;
+            if (rawCsi.generation !== generation || rawCsi.state !== 'starting') return;
             rawCsi.parser = new window.ESPectreRawCsiV2Parser(session.session_id);
             rawCsiResetVisualization();
             const controller = new AbortController();
@@ -6185,19 +6252,29 @@
                 signal: controller.signal,
                 targetAddressSpace: 'local'
             });
+            if (rawCsi.generation !== generation || rawCsi.state !== 'starting') return;
             if (!response.ok || !response.body) throw new Error(`Raw stream returned HTTP ${response.status}.`);
+            rawCsiSetState('running');
             rawCsiStatus('Streaming every classified CSI frame received from the configured traffic generator.');
             const reader = response.body.getReader();
-            while (!controller.signal.aborted) {
+            while (rawCsi.generation === generation && !controller.signal.aborted) {
                 const { value, done } = await reader.read();
                 if (done) break;
+                if (rawCsi.generation !== generation) break;
                 rawCsiAppend(value);
             }
-            if (!controller.signal.aborted) throw new Error('Raw stream ended unexpectedly.');
+            if (rawCsi.generation === generation && !controller.signal.aborted) {
+                throw new Error('Raw stream ended unexpectedly.');
+            }
         } catch (error) {
-            if (!rawCsi.controller?.signal.aborted) rawCsiStatus(error.message, true);
+            if (rawCsi.generation === generation && !rawCsi.controller?.signal.aborted) {
+                rawCsiStatus(error.message, true);
+            }
         } finally {
-            if (rawCsi.running) await rawCsiStop();
+            if (rawCsi.generation === generation
+                    && rawCsi.state !== 'idle' && rawCsi.state !== 'stopping') {
+                await rawCsiStop(generation);
+            }
         }
     }
 
@@ -6249,7 +6326,6 @@
         document.addEventListener('fullscreenchange', gameOnFullscreenChange);
         document.addEventListener('webkitfullscreenchange', gameOnFullscreenChange);
         gameGhostImage.addEventListener('load', gameDraw);
-        gameFactoryImage.addEventListener('load', gameDraw);
         gameRenderSoundControl();
         gameSyncFullscreenButton();
         gameResetPlayer();
@@ -6325,9 +6401,7 @@
     }
 
     document.addEventListener('espectre:analytics-enabled', () => {
-        if (window.trackRouteView && route !== 'tool-raw-csi') {
-            window.trackRouteView(route, { sendPageView: false });
-        }
+        if (window.trackRouteView) window.trackRouteView(route, { sendPageView: false });
         if (conn.readyState) markToolReady(conn.readyState);
         if (monitor.readyState) markMonitorReady(monitor.readyState);
         if (conn.mode === 'direct' && directClient) cfgRefreshDevice();

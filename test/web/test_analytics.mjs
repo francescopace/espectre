@@ -237,11 +237,22 @@ describe('analytics route metadata', () => {
         api.trackRouteView('tool-flash', { sendPageView: false });
         const capability = window.dataLayer.at(-1);
         assert.equal(capability[1], 'tool_capability');
+        assert.equal(capability[2].tool_name, 'flash');
         assert.equal(capability[2].result, 'available');
         const after = window.dataLayer.filter(
             (entry) => entry[0] === 'event' && entry[1] === 'page_view'
         ).length;
         assert.equal(after, before);
+    });
+
+    it('reports the Raw CSI SPA route through its canonical page path', () => {
+        const { api, window } = analyticsContext({ hash: '#tool-raw-csi' });
+        api.enableAnalytics({ sendPageView: false });
+        api.sendRoutePageView('tool-raw-csi');
+        const pageView = window.dataLayer.at(-1);
+        assert.equal(pageView[1], 'page_view');
+        assert.equal(pageView[2].page_path, '/tools/raw-csi/');
+        assert.equal(pageView[2].content_group, 'raw-csi');
     });
 });
 
