@@ -34,6 +34,6 @@ public:
 };
 
 // Global App instance
-extern App App;
+inline App App;
 
 } // namespace esphome

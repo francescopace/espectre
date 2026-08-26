@@ -66,6 +66,6 @@ inline uint32_t fnv1_hash(const std::string& str) {
 }
 
 // Global preferences instance (mock)
-extern ESPPreferences* global_preferences;
+inline ESPPreferences* global_preferences = nullptr;
 
 } // namespace esphome
