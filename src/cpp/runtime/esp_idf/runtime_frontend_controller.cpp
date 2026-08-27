@@ -13,6 +13,8 @@
 #include "esp_idf_runtime.h"
 #include "runtime_config_utils.h"
 
+#include <new>
+
 namespace espectre {
 
 namespace {
@@ -46,9 +48,17 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
     return false;
   }
 
-  listener_ = listener;
   active_config_ = config_;
-  auto *backend = new EspIdfRuntime(active_config_);
+  auto *backend = new (std::nothrow) EspIdfRuntime(active_config_);
+  if (backend == nullptr) {
+    constexpr const char *message = "Failed to allocate runtime backend";
+    ESP_LOGE(TAG, "%s", message);
+    if (listener != nullptr) {
+      listener->on_runtime_fault(message);
+    }
+    return false;
+  }
+  listener_ = listener;
   runtime_.reset(backend);
   runtime_->set_listener(this);
   runtime_->set_services_armed(services_armed_);

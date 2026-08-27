@@ -21,6 +21,7 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
 from web_asset_versions import asset_version
+from validate_release import SEMVER_PATTERN
 
 WEB_ROOT = Path(__file__).resolve().parents[2] / "docs" / "web"
 
@@ -47,8 +48,24 @@ def load_sdk_manifest(sdk_dir: Path) -> dict:
     return json.loads(matches[0].read_text(encoding="utf-8"))
 
 
+def release_is_final(manifest: dict) -> bool:
+    match = SEMVER_PATTERN.fullmatch(str(manifest.get("version", "")))
+    return match is not None and match.group("prerelease") is None
+
+
+def sdk_stability(manifest: dict, channel: str) -> str:
+    if channel == "release":
+        return "final" if release_is_final(manifest) else "prerelease"
+    return "rolling"
+
+
 def channel_copy(manifest: dict, channel: str) -> tuple[str, str]:
     if channel == "release":
+        if not release_is_final(manifest):
+            return (
+                "SDK Prerelease",
+                "Official prerelease SDK bundle for compatibility evaluation before the final release.",
+            )
         return (
             "Latest SDK Release",
             "Official SDK bundle for open-source and commercial embedding workflows.",
@@ -64,18 +81,23 @@ def channel_copy(manifest: dict, channel: str) -> tuple[str, str]:
     )
 
 
-def channel_note(channel: str) -> str:
+def channel_note(manifest: dict, channel: str) -> str:
     if channel == "develop":
         return (
             '<div class="note">This is a rolling development bundle from <code>develop</code>, not a production SDK. '
-            'Use <a href="/artifacts/sdk/release/">release</a> for production integrations, or '
+            'Use a final numeric version from <a href="/artifacts/sdk/release/">release</a> for production integrations, or '
             '<a href="/artifacts/sdk/preview/">preview</a> to validate <code>main</code>.</div>'
         )
     if channel == "preview":
         return (
             '<div class="note">Rolling preview from <code>main</code>. '
-            'Use <a href="/artifacts/sdk/release/">release</a> for production, or '
+            'Use a final numeric version from <a href="/artifacts/sdk/release/">release</a> for production, or '
             '<a href="/artifacts/sdk/develop/">develop</a> for pre-main validation.</div>'
+        )
+    if not release_is_final(manifest):
+        return (
+            '<div class="note" data-sdk-production-ready="false">This tagged SDK is a prerelease evaluation build. '
+            'Its source-compatibility promise begins with the corresponding final numeric release.</div>'
         )
     return (
         '<div class="note">Looking for a rolling bundle? See '
@@ -86,6 +108,7 @@ def channel_note(channel: str) -> str:
 
 def render_page(manifest: dict, channel: str) -> str:
     title, description = channel_copy(manifest, channel)
+    stability = sdk_stability(manifest, channel)
     commit = manifest.get("commit") or "n/a"
     artifact_links = "\n".join(
         f'      <li><a href="{artifact["url"]}" data-sdk-channel="{channel}" '
@@ -100,7 +123,7 @@ def render_page(manifest: dict, channel: str) -> str:
     analytics_version = asset_version("assets/js/analytics.js")
     logo_version = asset_version("assets/images/brand/espectre-logo.svg")
     return f"""<!DOCTYPE html>
-<html lang="en" data-theme="light" data-static-page data-site-section="documentation">
+<html lang="en" data-theme="light" data-static-page data-site-section="documentation" data-sdk-stability="{stability}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -168,7 +191,7 @@ def render_page(manifest: dict, channel: str) -> str:
       </tbody>
     </table></div>
 
-    {channel_note(channel)}
+      {channel_note(manifest, channel)}
   </article>
 </main>
 <footer class="site-footer">

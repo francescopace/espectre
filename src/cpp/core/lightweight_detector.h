@@ -18,7 +18,7 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <vector>
+#include <memory>
 
 namespace espectre {
 
@@ -63,6 +63,7 @@ constexpr float LIGHTWEIGHT_SETTLE_MARGIN_LOGITS = 2.7f;
  *
  * @code
  * espectre::LightweightDetector detector;
+ * if (!detector.is_valid()) { return; }
  * // For each slot retained by your temporal sampler:
  * detector.advance_missing_slots(missing_slots_before_this_packet);
  * detector.set_packet_timestamp_us(packet_timestamp_us);
@@ -117,6 +118,9 @@ class LightweightDetector : public BaseDetector {
   void configure_lowpass(bool enabled,
                          float cutoff_hz = LOWPASS_CUTOFF_DEFAULT) override;
   bool is_ready() const override;
+  bool is_valid() const override {
+    return BaseDetector::is_valid() && aggregated_turbulence_buffer_ != nullptr;
+  }
   bool set_threshold(float threshold) override;
   bool set_adaptive_threshold(float threshold) override;
   float get_threshold() const override { return threshold_; }
@@ -158,7 +162,7 @@ class LightweightDetector : public BaseDetector {
   uint8_t settle_block_evaluations_;
   uint8_t settle_block_count_;
   uint8_t settle_block_index_;
-  std::vector<float> aggregated_turbulence_buffer_;
+  std::unique_ptr<float[]> aggregated_turbulence_buffer_;
   FilteredTurbulenceRing aggregated_turbulence_;
 };
 

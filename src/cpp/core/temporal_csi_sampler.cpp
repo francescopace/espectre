@@ -7,7 +7,10 @@
 #include "temporal_csi_sampler.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <limits>
+#include <new>
+#include <utility>
 
 namespace espectre {
 
@@ -50,19 +53,27 @@ bool TemporalCsiSampler::configure(uint32_t target_pps,
       window_us > std::numeric_limits<uint32_t>::max()) {
     return false;
   }
+  std::unique_ptr<uint64_t[]> slot_ids(
+      new (std::nothrow) uint64_t[static_cast<size_t>(slots)]);
+  if (slot_ids == nullptr) {
+    return false;
+  }
+  std::fill(slot_ids.get(), slot_ids.get() + slots, kEmptySlot);
   target_pps_ = target_pps;
   window_size_ms_ = window_size_ms;
   window_size_us_ = static_cast<uint32_t>(window_us);
   window_slots_ = slots;
   minimum_valid_slots_ = temporal_minimum_valid_slots(slots);
   minimum_sample_spacing_us_ = temporal_minimum_sample_spacing_us(target_pps);
-  slot_ids_.assign(window_slots_, kEmptySlot);
+  slot_ids_ = std::move(slot_ids);
   reset();
   return true;
 }
 
 void TemporalCsiSampler::clear_window_() {
-  std::fill(slot_ids_.begin(), slot_ids_.end(), kEmptySlot);
+  if (slot_ids_ != nullptr) {
+    std::fill(slot_ids_.get(), slot_ids_.get() + window_slots_, kEmptySlot);
+  }
   occupancy_slots_ = 0U;
 }
 

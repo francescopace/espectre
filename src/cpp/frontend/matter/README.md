@@ -164,7 +164,7 @@ The following matrix separates support documented by each controller ecosystem f
 | Samsung SmartThings | Provides a standard Matter [`motionSensor`](https://developer.smartthings.com/docs/edge-device-drivers/matter/defaults/motionSensor.html) handler in its Edge driver API | Not yet recorded |
 | Home Assistant | Maps `OccupancySensing.Occupancy` to an occupancy binary sensor in its [Matter integration source](https://github.com/home-assistant/core/blob/dev/homeassistant/components/matter/binary_sensor.py) | Not yet recorded |
 
-Published target availability does not imply that every controller and target combination has been commissioned successfully. The current firmware uses development VID/PID `0xFFF1` / `0x8000` and example device-attestation credentials, so an ecosystem may require a developer workflow or an explicit acknowledgement for an uncertified accessory.
+Published target availability does not imply that every controller and target combination has been commissioned successfully. Current images are uncertified development accessories, so an ecosystem may require a developer workflow or an explicit acknowledgement. [Dependencies and Firmware Layout](#dependencies-and-firmware-layout) records the identifiers and credentials used by published firmware.
 
 Mark a controller as validated only with a reproducible hardware record that identifies the controller app and hub versions, ESP32 target, firmware identity, and results for commissioning, occupancy-state updates, and an automation trigger.
 

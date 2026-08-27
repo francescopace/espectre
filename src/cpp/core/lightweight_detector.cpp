@@ -33,9 +33,12 @@ LightweightDetector::LightweightDetector(uint16_t window_size, float threshold,
       settle_block_evaluations_(0U),
       settle_block_count_(0U),
       settle_block_index_(0U),
-      aggregated_turbulence_buffer_(window_size_, 0.0f) {
+      aggregated_turbulence_buffer_(alloc_zeroed_floats(window_size_)) {
   reset_settled_level_();
-  aggregated_turbulence_.bind(aggregated_turbulence_buffer_.data(), window_size_);
+  aggregated_turbulence_.bind(aggregated_turbulence_buffer_.get(), window_size_);
+  if (aggregated_turbulence_buffer_ == nullptr) {
+    ESP_LOGE(TAG, "Failed to allocate aggregated turbulence buffer");
+  }
   ESP_LOGI(TAG, "Initialized weighted fusion (window=%u, threshold=%.3f, ac_lag=%u)",
            static_cast<unsigned>(window_size_), threshold_,
            static_cast<unsigned>(autocorr_lag_));

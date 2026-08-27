@@ -53,7 +53,7 @@
         <span class="docs-step-number">01</span>
         <div class="docs-step-body">
           <h3>Add the SDK</h3>
-          <p>Extract the release source bundle as <code>components/espectre/</code>, then declare the component from your application:</p>
+          <p>Extract the release bundle, then copy its <code>src/cpp/</code> directory to <code>components/espectre/</code>. The copied directory is the ESP-IDF component root:</p>
           <div class="code-block"><pre><span class="c"># main/CMakeLists.txt</span>
 idf_component_register(
   SRCS <span class="s">"main.cpp"</span>
@@ -67,7 +67,7 @@ idf_component_register(
         <span class="docs-step-number">02</span>
         <div class="docs-step-body">
           <h3>Drive the runtime</h3>
-          <p>Start it after the station has joined Wi-Fi, call <code>loop()</code> continuously, and queue the events your product needs:</p>
+          <p>Set it up after the default station and event loop exist, preferably before association. An already connected station is restored from its current IP state. Call <code>loop()</code> continuously, and queue the events your product needs:</p>
           <div class="code-block"><pre><span class="k">#include</span> <span class="s">"espectre_sdk.h"</span>
 
 <span class="k">class</span> <span class="nc">ProductFrontend</span> : <span class="k">public</span> espectre::IRuntimeListener {

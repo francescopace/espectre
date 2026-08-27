@@ -66,6 +66,9 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/core/temporal_csi_sampler.h \
                          src/cpp/core/detector_limits.h
 
+# Render consumer-facing include paths relative to the published SDK root.
+STRIP_FROM_INC_PATH    = src/cpp
+
 FILE_PATTERNS          = *.h
 RECURSIVE              = NO
 

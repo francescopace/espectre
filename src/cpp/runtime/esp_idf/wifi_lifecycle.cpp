@@ -410,6 +410,21 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
     }
     return err;
   }
+
+  // Registration may happen after the product has already joined Wi-Fi. In
+  // that case GOT_IP is historical and no event will wake the runtime, so
+  // seed the same deferred path from the current station state. Registering
+  // first closes the opposite race; a concurrent duplicate GOT_IP is harmless
+  // because service startup is idempotent.
+  esp_netif_t *station = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+  esp_netif_ip_info_t current_ip{};
+  if (station != nullptr && esp_netif_get_ip_info(station, &current_ip) == ESP_OK &&
+      current_ip.ip.addr != 0U &&
+      !pending_events_.post_overwrite_oldest(
+          PendingWifiEvent{PendingWifiEventType::CONNECTED, current_ip})) {
+    ESP_LOGW(WIFI_LIFECYCLE_TAG,
+             "Wi-Fi event queue overflowed while restoring the current station state");
+  }
   
   ESP_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi event handlers registered");
   return ESP_OK;
@@ -435,6 +450,7 @@ void WiFiLifecycleManager::unregister_handlers() {
   started_policy_applied_.store(false, std::memory_order_relaxed);
   started_policy_attempted_.store(false, std::memory_order_relaxed);
   ready_ = false;
+  active_ip_info_ = {};
   ESP_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi event handlers unregistered");
 }
 
@@ -443,9 +459,18 @@ esp_err_t WiFiLifecycleManager::process_pending_events() {
   while (pending_events_.take(event)) {
     if (event.type == PendingWifiEventType::DISCONNECTED) {
       ready_ = false;
+      active_ip_info_ = {};
       if (disconnected_callback_) {
         disconnected_callback_();
       }
+      continue;
+    }
+
+    const bool duplicate = ready_ &&
+        active_ip_info_.ip.addr == event.ip_info.ip.addr &&
+        active_ip_info_.netmask.addr == event.ip_info.netmask.addr &&
+        active_ip_info_.gw.addr == event.ip_info.gw.addr;
+    if (duplicate) {
       continue;
     }
 
@@ -457,6 +482,7 @@ esp_err_t WiFiLifecycleManager::process_pending_events() {
     if (connected_callback_) {
       connected_callback_(event.ip_info);
     }
+    active_ip_info_ = event.ip_info;
   }
   return ESP_OK;
 }

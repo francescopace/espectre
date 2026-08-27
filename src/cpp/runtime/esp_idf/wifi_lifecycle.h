@@ -44,7 +44,8 @@ class WiFiLifecycleManager {
    * @param connected_cb Callback when WiFi obtains an IPv4 configuration;
    *        receives the address, netmask, and gateway from GOT_IP
    * @param disconnected_cb Callback when WiFi disconnects
-   * @return ESP_OK on success
+   * @return ESP_OK on success. If the default station already has an IPv4
+   *         address, its current state is queued for process_pending_events().
    */
   esp_err_t register_handlers(wifi_connected_callback_t connected_cb,
                               wifi_disconnected_callback_t disconnected_cb,
@@ -113,6 +114,7 @@ class WiFiLifecycleManager {
   std::atomic<bool> started_policy_attempted_{false};
   WifiBandPolicy band_policy_{WifiBandPolicy::BAND_2G};
   bool ready_{false};
+  esp_netif_ip_info_t active_ip_info_{};
 };
 
 }  // namespace espectre

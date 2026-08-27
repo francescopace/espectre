@@ -120,9 +120,10 @@ class RuntimeFrontendController : private IRuntimeListener {
    *
    * @param listener Event sink, or `nullptr` for none. Not owned; it must
    *        outlive the controller.
-   * @return false when the backend cannot start. On failure the backend is
-   *         dropped and the controller stays un-setup, so it is safe to fix
-   *         the config and retry.
+   * @return false when the backend cannot start or its bounded working storage
+   *         cannot be allocated. On failure the backend is dropped and the
+   *         controller stays un-setup, so it is safe to fix the config and
+   *         retry.
    */
   bool setup(IRuntimeListener *listener);
   /**

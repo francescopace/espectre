@@ -95,8 +95,14 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     zip_path = next(outputs[0].glob("*.zip"))
     with zipfile.ZipFile(zip_path) as archive:
         archived = set(archive.namelist())
+        component_cmake_name = next(
+            name for name in archived if name.endswith("/src/cpp/CMakeLists.txt")
+        )
         doxy_name = next(name for name in archived if name.endswith("/src/cpp/Doxyfile"))
         bundled_doxyfile = archive.read(doxy_name).decode("utf-8")
+    bundle_root = component_cmake_name.removesuffix("/src/cpp/CMakeLists.txt")
+    assert f"{bundle_root}/CMakeLists.txt" not in archived
+    assert manifest["install_surfaces"]["esp_idf_component"]["component_root"] == "src/cpp"
     assert re.search(r"(?m)^OUTPUT_DIRECTORY\s*=\s*output\s*$", bundled_doxyfile)
     assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*3\.0\.0\s*$", bundled_doxyfile)
     assert re.search(r"(?m)^GENERATE_HTML\s*=\s*NO\s*$", bundled_doxyfile)
@@ -132,6 +138,51 @@ def test_web_sdk_rejects_a_channel_mismatch_before_cleaning(tmp_path: Path) -> N
             )
         )
     assert sentinel.read_text(encoding="utf-8") == "keep"
+
+
+@pytest.mark.parametrize(
+    ("version", "expected_stability", "production_ready"),
+    [
+        ("3.0.0", "final", True),
+        ("3.0.0-rc1", "prerelease", False),
+    ],
+)
+def test_release_sdk_page_exposes_version_stability(
+    version: str, expected_stability: str, production_ready: bool
+) -> None:
+    stage = load_script("stage_web_sdk")
+    manifest = {
+        "channel": "release",
+        "version": version,
+        "package_version": version,
+        "release_tag": version,
+        "protocol_version": 1,
+        "supported_esp_idf": ">=5.5.0",
+        "commit": "0123456789abcdef",
+        "artifacts": [
+            {
+                "url": f"https://example.invalid/espectre-sdk-{version}.zip",
+                "format": "zip",
+                "filename": f"espectre-sdk-{version}.zip",
+            }
+        ],
+        "install_surfaces": {
+            "cmake": {
+                "entrypoint": "src/cpp/espectre_sources.cmake",
+                "optional_source_groups": [],
+            },
+            "esp_idf_component": {
+                "component_root": "src/cpp",
+                "cmake": "src/cpp/CMakeLists.txt",
+                "kconfig": "src/cpp/Kconfig.projbuild",
+            },
+        },
+    }
+
+    page = stage.render_page(manifest, "release")
+
+    assert f'data-sdk-stability="{expected_stability}"' in page
+    assert ('data-sdk-production-ready="false"' in page) is not production_ready
 
 
 @pytest.mark.parametrize("tag", ["v3.0.0", "03.0.0", "3.0.0-01", "3.0", "release"])

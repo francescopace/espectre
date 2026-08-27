@@ -7,10 +7,10 @@
   <p class="article-lead">Start with the smallest supported runtime adapter, then inspect the shipped frontend whose lifecycle and product boundary most closely match your firmware.</p>
 
   <h2 data-toc-label="Minimal component">Minimal ESP-IDF component</h2>
-  <p>Vendor the release bundle under <code>components/espectre/</code>. Keep the product adapter in your application component so it can use product-owned services without adding upward dependencies to the SDK.</p>
+  <p>Extract the release bundle, then vendor the bundle's <code>src/cpp/</code> directory as <code>components/espectre/</code>. Keep the product adapter in your application component so it can use product-owned services without adding upward dependencies to the SDK.</p>
   <pre class="code"><code>product-firmware/
 ├── components/
-│   └── espectre/          # unpacked SDK source bundle
+│   └── espectre/          # contents of the bundle's src/cpp directory
 └── main/
     ├── CMakeLists.txt
     ├── main.cpp
@@ -68,7 +68,7 @@ class ProductFrontend : public espectre::IRuntimeListener {
 
   <h2 data-toc-label="Lifecycle">Handle startup, steady state, and shutdown</h2>
   <ol class="steps-list compact-steps">
-    <li><h3>Join Wi-Fi before setup</h3><p>The ESP-IDF backend needs the station interface and link policy established by the product.</p></li>
+    <li><h3>Create the station before setup</h3><p>Call setup after the default station and event loop exist. Prefer setup before association so the CSI radio policy is applied at station start; if the product is already connected, the runtime restores the current IPv4 state.</p></li>
     <li><h3>Check the setup result</h3><p>A failed <code>setup()</code> leaves the controller un-setup. Correct the configuration or link state before retrying.</p></li>
     <li><h3>Call loop continuously</h3><p><code>loop()</code> drains deferred CSI work and delivers listener events. Slow product callbacks can fill the bounded mailbox and drop incoming frames.</p></li>
     <li><h3>Shut down from the owner task</h3><p>Call <code>shutdown()</code> before tearing down Wi-Fi or the application services used by the adapter.</p></li>

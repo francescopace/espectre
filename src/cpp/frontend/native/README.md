@@ -80,7 +80,13 @@ When configured, MQTT runs concurrently with Direct HTTP and provides the canoni
 
 The browser Monitor uses Direct HTTP and does not connect to MQTT. Device-to-broker MQTT configuration is independent of the browser connection.
 
-The Native `diagnostics` request returns uptime, current, minimum, and largest-block heap, CPU frequency, frontend-task stack high-water, bounded loop-load and detector-timing windows, and cached traffic, CSI, Wi-Fi, Direct, and MQTT diagnostics. Transport diagnostics include fixed client, queue, and MQTT outbox budgets alongside current occupancy and cumulative drops, send failures, and slow-client disconnects. Performance aggregation is unconditional production runtime state; it does not require a build option or periodic debug logger.
+The Native `diagnostics` request groups production metrics into:
+
+- system state: uptime, current, minimum, and largest-block heap, CPU frequency, and frontend-task stack high-water;
+- sensing and performance: bounded loop-load and detector-timing windows, plus cached traffic, CSI, and Wi-Fi diagnostics; and
+- transports: Direct and MQTT diagnostics, including fixed client and queue budgets, the MQTT outbox budget, current occupancy, cumulative drops, send failures, and slow-client disconnects.
+
+Performance aggregation is unconditional production runtime state; it does not require a build option or periodic debug logger.
 
 Home Assistant discovery is enabled in the published defaults and can be disabled with `CONFIG_ESPECTRE_HA_DISCOVERY_ENABLED`. It publishes the same primary sensing and tuning entities used by the ESPHome frontend:
 

@@ -10,7 +10,7 @@
 #pragma once
 
 #include <cstdint>
-#include <vector>
+#include <memory>
 
 namespace espectre {
 
@@ -43,16 +43,25 @@ uint32_t temporal_minimum_sample_spacing_us(uint32_t target_pps);
  * that retained payload before replacing it when selected_current() is true.
  *
  * Not thread-safe. Construct, configure, admit, and read it from the task that
- * owns the custom capture pipeline.
+ * owns the custom capture pipeline. Construction and configure() use
+ * non-throwing storage allocation; check is_valid() after construction and
+ * the configure() result before consuming packets. The sampler is movable and
+ * intentionally non-copyable because the slot window owns live temporal state.
  */
 class TemporalCsiSampler {
  public:
   /** Construct a sampler for the requested target rate and window duration. */
   explicit TemporalCsiSampler(uint32_t target_pps = 100U,
                               uint32_t window_size_ms = 1000U);
+  TemporalCsiSampler(TemporalCsiSampler&&) noexcept = default;
+  TemporalCsiSampler& operator=(TemporalCsiSampler&&) noexcept = default;
+  TemporalCsiSampler(const TemporalCsiSampler&) = delete;
+  TemporalCsiSampler& operator=(const TemporalCsiSampler&) = delete;
 
   /** Reconfigure the grid and clear its timestamp epoch and window state. */
   bool configure(uint32_t target_pps, uint32_t window_size_ms);
+  /** Return whether the active slot window owns complete storage. */
+  bool is_valid() const { return slot_ids_ != nullptr && window_slots_ > 0U; }
   /** Clear the timestamp epoch, window state, and lifetime counters. */
   void reset();
   /** Clear the window and timestamp grid while retaining lifetime counters. */
@@ -117,7 +126,7 @@ class TemporalCsiSampler {
   uint32_t window_slots_{100U};
   uint32_t minimum_valid_slots_{70U};
   uint32_t minimum_sample_spacing_us_{5000U};
-  std::vector<uint64_t> slot_ids_;
+  std::unique_ptr<uint64_t[]> slot_ids_;
   uint32_t occupancy_slots_{0U};
 
   bool has_last_timestamp_{false};

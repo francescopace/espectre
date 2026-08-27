@@ -119,22 +119,28 @@ class CsiPipeline {
   bool set_threshold(float threshold);
   void set_detector(BaseDetector *detector);
   void set_evaluation_interval_ms(uint32_t interval_ms) { cadence_.set_interval_ms(interval_ms); }
-  void set_segmentation_window_size_ms(uint32_t window_size_ms) {
+  bool set_segmentation_window_size_ms(uint32_t window_size_ms) {
+    if (!sampler_.configure(sampler_.target_pps(), window_size_ms)) {
+      return false;
+    }
     cadence_.set_window_size_ms(window_size_ms);
-    sampler_.configure(sampler_.target_pps(), window_size_ms);
     pending_candidate_valid_ = false;
     if (detector_ != nullptr) {
       detector_->set_minimum_valid_samples(
           static_cast<uint16_t>(sampler_.minimum_valid_slots()));
     }
+    return true;
   }
-  void set_csi_target_pps(uint32_t target_pps) {
-    sampler_.configure(target_pps, sampler_.window_size_ms());
+  bool set_csi_target_pps(uint32_t target_pps) {
+    if (!sampler_.configure(target_pps, sampler_.window_size_ms())) {
+      return false;
+    }
     pending_candidate_valid_ = false;
     if (detector_ != nullptr) {
       detector_->set_minimum_valid_samples(
           static_cast<uint16_t>(sampler_.minimum_valid_slots()));
     }
+    return true;
   }
   void set_motion_on_hits(uint8_t hits) { motion_on_hits_ = hits > 0 ? hits : 1; }
   void set_motion_off_hits(uint8_t hits) { motion_off_hits_ = hits > 0 ? hits : 1; }

@@ -115,6 +115,11 @@ class L1DeltaTracker {
   L1DeltaTracker(const L1DeltaTracker&) = delete;
   L1DeltaTracker& operator=(const L1DeltaTracker&) = delete;
 
+  /** Return whether the requested delta-ring capacity was allocated. */
+  bool has_capacity(uint16_t capacity) const {
+    return capacity == 0U || (capacity_ == capacity && storage_ != nullptr);
+  }
+
   /**
    * @param capacity Delta ring capacity in packets
    * @param lag Profile-displacement distance in packets, bounded by

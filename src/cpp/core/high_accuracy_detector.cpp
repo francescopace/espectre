@@ -122,6 +122,12 @@ MLSeriesScratch HighAccuracyDetector::series_scratch_() const {
     return MLSeriesScratch{feature_scratch_, window_size_};
 }
 
+bool HighAccuracyDetector::is_valid() const {
+    return BaseDetector::is_valid() && feature_scratch_ != nullptr &&
+           (!uses_aggregated_turbulence_ || aggregated_turbulence_buffer_ != nullptr) &&
+           (!uses_l1_tracker_ || l1_tracker_.has_capacity(l1_delta_capacity_()));
+}
+
 void HighAccuracyDetector::configure_hampel(bool enabled, uint8_t window_size,
                                   float threshold) {
     BaseDetector::configure_hampel(enabled, window_size, threshold);

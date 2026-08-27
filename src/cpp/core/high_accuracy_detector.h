@@ -47,10 +47,9 @@ public:
     /**
      * Constructor
      * 
-     * @param window_size Feature extraction window size (10-200 packets)
+     * @param window_size Feature extraction window size in the inclusive range
+     *        defined by DETECTOR_MIN_WINDOW_SIZE and DETECTOR_MAX_WINDOW_SIZE
      * @param threshold Motion detection threshold (0.0-1.0 on the ML probability scale)
-     */
-    /**
      * @param lag Profile-displacement distance in packets. Production uses the
      *        nominal-rate default. Alternate values are for replay experiments
      *        and require retraining before deployment.
@@ -81,6 +80,7 @@ public:
     void update_state() override;
     void clear_buffer() override;
     bool is_ready() const override;
+    bool is_valid() const override;
     bool set_threshold(float threshold) override;
     float get_threshold() const override { return threshold_; }
     const char* get_name() const override { return "High Accuracy"; }

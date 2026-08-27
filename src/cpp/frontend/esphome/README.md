@@ -29,6 +29,10 @@ The maintained examples provision Wi-Fi through Improv Serial or the `ESPectre F
 
 Once Wi-Fi is configured, the device is discovered automatically by Home Assistant through ESPHome.
 
+## Integration Surface
+
+The frontend maps runtime state and controls into the ESPHome entities listed under [Integrated Entities](#integrated-entities). Those entities are created automatically when the `espectre:` component is declared.
+
 ESPHome continues to advertise its native API as `_esphomelib._tcp.local.`. ESPectre also publishes the canonical `_espectre._tcp.local.` record for its Direct HTTP endpoint on the shared port `62587`. Run `./espectre devices --frontend esphome` to list that record with the standard ESPectre `device_id`.
 
 The CLI does not inspect or depend on ESPHome's upstream TXT schema. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) owns the shared discovery contract.
@@ -45,12 +49,6 @@ espectre:
 This disables Direct HTTP requests, SSE telemetry, raw CSI streaming, `_espectre._tcp.local.` discovery, and the peer-assisted browser bootstrap responder. It does not disable ESPHome's native API or ESPectre entities.
 
 A successful Direct mutation republishes the affected number or select state, so Home Assistant and Direct clients observe the same runtime configuration. Wi-Fi credentials, OTA, and ESPHome API encryption remain owned by ESPHome. Changing the ESPectre label does not alter the ESPHome hostname, adopted YAML, or entity IDs.
-
-The `release`, `preview`, and `develop` channels publish one full-flash image and one OTA image per supported chip, with `lightweight` as the initial detector. Both `lightweight` and `high_accuracy` are available in the image and can be selected through the persisted runtime detector entity. After adoption, ESPHome Device Builder can compile and install updates wirelessly from the device YAML; `detection_algorithm` sets the initial detector for a fresh configuration rather than limiting which detector the firmware supports.
-
-## Integration Surface
-
-The frontend maps runtime state and controls into the ESPHome entities listed under [Integrated Entities](#integrated-entities). Those entities are created automatically when the `espectre:` component is declared.
 
 ## Configuration Surface
 
@@ -269,6 +267,8 @@ For raw collection, use `./espectre collect` with this device's IP, hostname, Di
 
 ## Build and Consumption
 
+The `release`, `preview`, and `develop` channels publish one full-flash image and one OTA image per supported chip, with `lightweight` as the initial detector. Both `lightweight` and `high_accuracy` are available in the image and can be selected through the persisted runtime detector entity. After adoption, ESPHome Device Builder can compile and install updates wirelessly from the device YAML; `detection_algorithm` sets the initial detector for a fresh configuration rather than limiting which detector the firmware supports.
+
 ### As an ESPHome external component
 
 Each maintained chip has one canonical example. By default it includes `espectre-source-github.yaml`, which resolves the component from GitHub:
@@ -311,7 +311,7 @@ The repository CLI keeps the selected canonical YAML and loads the ESPectre comp
 
 ### Build Toolchain
 
-The ESPHome examples use ESPHome 2026.7's native ESP-IDF backend. The external component registers the shared sensing tree as a local ESP-IDF component, so no toolchain override or separate library package is required.
+The ESPHome examples use ESPHome 2026.7's native ESP-IDF backend. [`__init__.py`](components/espectre/__init__.py) registers this component directory with ESP-IDF's component manager. Its [`CMakeLists.txt`](components/espectre/CMakeLists.txt) reuses the canonical SDK build definition at [`CMakeLists.txt`](../../CMakeLists.txt), so ESPHome compiles `src/cpp/core/` and `src/cpp/runtime/esp_idf/` directly. No toolchain override or separate library package is required.
 
 ### Automatic SDK Configuration
 
@@ -373,7 +373,3 @@ This map is for component maintainers; it is not required for normal installatio
 - [`recalibrate_button.cpp`](components/espectre/recalibrate_button.cpp): runtime recalibration action
 - [`traffic_mode_select.cpp`](components/espectre/traffic_mode_select.cpp): runtime CSI traffic ownership and generator control
 - [`examples/`](examples/): production and local-development configurations for ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, plus the Home Assistant dashboard
-
-## Packaging Notes
-
-[`__init__.py`](components/espectre/__init__.py) registers this component directory with ESP-IDF's component manager. Its [`CMakeLists.txt`](components/espectre/CMakeLists.txt) reuses the canonical SDK build definition at [`CMakeLists.txt`](../../CMakeLists.txt), so ESPHome compiles `src/cpp/core/` and `src/cpp/runtime/esp_idf/` directly through the native ESP-IDF backend.

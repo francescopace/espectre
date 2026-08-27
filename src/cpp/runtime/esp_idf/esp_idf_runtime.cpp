@@ -147,8 +147,11 @@ bool EspIdfRuntime::setup() {
 
   csi_pipeline_.init(detector_.get());
   csi_pipeline_.set_evaluation_interval_ms(config_.evaluation_interval_ms);
-  csi_pipeline_.set_csi_target_pps(config_.csi_target_pps);
-  csi_pipeline_.set_segmentation_window_size_ms(config_.segmentation_window_size_ms);
+  if (!csi_pipeline_.set_csi_target_pps(config_.csi_target_pps) ||
+      !csi_pipeline_.set_segmentation_window_size_ms(config_.segmentation_window_size_ms)) {
+    notify_fault_("Failed to allocate temporal CSI sampler");
+    return false;
+  }
   csi_pipeline_.set_motion_hit_thresholds(config_.motion_on_hits, config_.motion_off_hits);
   csi_pipeline_.set_channel_change_callback([this](uint8_t previous_channel, uint8_t current_channel) {
     on_csi_channel_changed_(previous_channel, current_channel);
@@ -585,9 +588,12 @@ std::unique_ptr<BaseDetector> EspIdfRuntime::make_detector_(DetectionAlgorithm a
                                                             uint16_t window_packets) {
   std::unique_ptr<BaseDetector> detector;
   if (algorithm == DetectionAlgorithm::HIGH_ACCURACY) {
-    detector = std::make_unique<HighAccuracyDetector>(window_packets, threshold);
+    detector.reset(new (std::nothrow) HighAccuracyDetector(window_packets, threshold));
   } else if (algorithm == DetectionAlgorithm::LIGHTWEIGHT) {
-    detector = std::make_unique<LightweightDetector>(window_packets, threshold);
+    detector.reset(new (std::nothrow) LightweightDetector(window_packets, threshold));
+  }
+  if (detector != nullptr && !detector->is_valid()) {
+    detector.reset();
   }
   if (detector != nullptr) {
     detector->configure_lowpass(config_.lowpass_enabled, config_.lowpass_cutoff);

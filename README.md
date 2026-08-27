@@ -9,7 +9,7 @@
 
 When someone moves through a room, they change the way Wi-Fi signals travel through it. ESPectre reads those changes and reports motion in real time. No camera, no microphone, no wearable, and no dedicated radar hardware: just a supported ESP32 and the Wi-Fi network already in the room.
 
-**ESPectre** is an open-source platform, not only a firmware image. It brings together ready-to-flash firmware, an embeddable C++ SDK, a MicroPython implementation, browser tools, a host CLI, an open dataset, open model weights, and the research workflow used to build and validate the detectors.
+**ESPectre** is an open-source platform that brings together ready-to-flash firmware, an embeddable C++ SDK, a MicroPython implementation, browser tools, a host CLI, an open dataset, open model weights, and the research workflow used to build and validate the detectors.
 
 [**Flash from your browser**](https://espectre.dev/tools/flash/) · [See the live tools](https://espectre.dev/tools/) · [Read the documentation](https://espectre.dev/guides/) · [Explore the SDK](https://espectre.dev/sdk/)
 
@@ -64,7 +64,7 @@ The repository wrapper exposes the available workflows through:
 | Path | Best for | Start here |
 |---|---|---|
 | **Native Direct/MQTT** | Standalone sensors, browser-local sensing, Home Assistant MQTT Discovery, and custom applications | [Native frontend](src/cpp/frontend/native/README.md) |
-| **ESPHome** | Home Assistant users who want the most polished production path | [ESPHome frontend](src/cpp/frontend/esphome/README.md) |
+| **ESPHome** | Home Assistant users who want native entities, ESPHome provisioning, and Device Builder updates | [ESPHome frontend](src/cpp/frontend/esphome/README.md) |
 | **Matter** | Matter controllers with occupancy-sensor support; controller validation is still limited | [Matter frontend](src/cpp/frontend/matter/README.md) |
 | **Micro-ESPectre** | Lightweight sensing in MicroPython with local, read-only Direct HTTP monitoring | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
 
@@ -72,11 +72,11 @@ ESPHome, Native, and Matter can choose between a `lightweight` detector, which l
 
 ## Research You Can Inspect
 
-ESPectre is also an open research project. Results matter, but so does the evidence behind them. The path from a radio measurement to a production motion event is kept visible:
+ESPectre publishes the research assets and validation evidence behind its detectors:
 
 - The [open CSI dataset](data/) contains real recordings for empty rooms, static presence, and motion, with its catalog and provenance in [dataset_info.json](data/dataset_info.json).
 - The trained model weights are committed in both [C++](src/cpp/core/ml_weights.h) and [Python](src/python/micro_espectre/ml_weights.py), and [ML_TRAINING.md](docs/ML_TRAINING.md) documents how training, export, and validation work.
-- [FEATURES.md](docs/FEATURES.md) records features that were tested, promoted, or rejected instead of hiding unsuccessful experiments.
+- [FEATURES.md](docs/FEATURES.md) records features that were tested, promoted, or rejected, including unsuccessful experiments.
 - [ALGORITHMS.md](docs/ALGORITHMS.md), the generated [performance report](docs/performance/README.md), and the [dataset quality report](data/auto_generated/DATASET_QUALITY_CHECK.md) make detector behavior and current evidence reviewable.
 - [LITERATURE.md](docs/LITERATURE.md), the [architecture decision records](docs/adr/README.md), and the public [roadmap](docs/ROADMAP.md) separate what is shipped, what has been measured, and what remains a direction for future work.
 

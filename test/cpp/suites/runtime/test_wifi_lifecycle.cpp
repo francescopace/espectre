@@ -36,6 +36,9 @@ struct StandaloneWifiServiceTestAccess {
 void setUp(void) {
   esp_event_mock_reset();
   esp_netif_mock_reset();
+  // Most lifecycle tests start before association. Tests for late setup opt
+  // into an already configured station explicitly.
+  g_esp_netif_mock.ip_addr = 0U;
   esp_wifi_mock_reset();
 }
 
@@ -193,6 +196,35 @@ void test_wifi_lifecycle_register_handlers_dispatches_and_unregisters(void) {
   manager.process_pending_events();
   TEST_ASSERT_EQUAL(1, connected_calls);
   TEST_ASSERT_EQUAL(1, disconnected_calls);
+}
+
+void test_wifi_lifecycle_restores_an_already_connected_station(void) {
+  WiFiLifecycleManager manager;
+  int connected_calls = 0;
+  esp_netif_ip_info_t observed_ip_info{};
+  g_esp_netif_mock.ip_addr = 0x3701A8C0U;
+  g_esp_netif_mock.netmask_addr = 0x00FFFFFFU;
+  g_esp_netif_mock.gw_addr = 0x0101A8C0U;
+
+  TEST_ASSERT_EQUAL(
+      ESP_OK, manager.register_handlers([&](const esp_netif_ip_info_t &ip_info) {
+                                          connected_calls++;
+                                          observed_ip_info = ip_info;
+                                        },
+                                        []() {}));
+  TEST_ASSERT_EQUAL(0, connected_calls);
+
+  ip_event_got_ip_t duplicate{};
+  duplicate.ip_info.ip.addr = g_esp_netif_mock.ip_addr;
+  duplicate.ip_info.netmask.addr = g_esp_netif_mock.netmask_addr;
+  duplicate.ip_info.gw.addr = g_esp_netif_mock.gw_addr;
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &duplicate);
+
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(1, connected_calls);
+  TEST_ASSERT_EQUAL(g_esp_netif_mock.ip_addr, observed_ip_info.ip.addr);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_protocol_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_ps_call_count);
 }
 
 void test_wifi_lifecycle_register_handlers_cleans_up_when_second_registration_fails(void) {
@@ -361,6 +393,7 @@ void test_standalone_wifi_service_get_info_reports_station_details(void) {
   TEST_ASSERT_FALSE(service.get_info(nullptr));
   TEST_ASSERT_EQUAL(ESP_OK, service.setup(config));
   ip_event_got_ip_t event{};
+  g_esp_netif_mock.ip_addr = 0x6401A8C0U;
   event.ip_info.ip.addr = g_esp_netif_mock.ip_addr;
   esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
   service.loop();
@@ -544,6 +577,7 @@ int process(void) {
   RUN_TEST(test_wifi_lifecycle_does_not_retry_a_policy_that_actually_failed);
   RUN_TEST(test_wifi_lifecycle_started_policy_skips_matching_radio_settings);
   RUN_TEST(test_wifi_lifecycle_register_handlers_dispatches_and_unregisters);
+  RUN_TEST(test_wifi_lifecycle_restores_an_already_connected_station);
   RUN_TEST(test_wifi_lifecycle_register_handlers_cleans_up_when_second_registration_fails);
   RUN_TEST(test_standalone_wifi_service_configures_fast_scan_bssid_and_channel);
   RUN_TEST(test_standalone_wifi_service_applies_policy_and_connects_on_start);

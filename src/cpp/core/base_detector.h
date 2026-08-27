@@ -43,7 +43,8 @@ public:
     /**
      * Constructor
      * 
-     * @param window_size Buffer window size (10-200 packets)
+     * @param window_size Buffer window size in the inclusive range defined by
+     *        DETECTOR_MIN_WINDOW_SIZE and DETECTOR_MAX_WINDOW_SIZE
      */
     explicit BaseDetector(uint16_t window_size = DETECTOR_DEFAULT_WINDOW_SIZE);
     
@@ -95,6 +96,11 @@ public:
      * Get current motion state
      */
     virtual MotionState get_state() const { return state_; }
+
+    /** Return whether all base detector working storage was allocated. */
+    virtual bool is_valid() const {
+        return turbulence_buffer_ != nullptr && ordered_turbulence_ != nullptr;
+    }
     
     /**
      * Check if detector is ready (buffer filled)

@@ -92,6 +92,8 @@ Your firmware owns boot, provisioning, networking policy, OTA, and the product s
 
 If your firmware already owns Wi-Fi and CSI capture, include `espectre_core_sdk.h` and consume the detectors directly. The `core` detectors accept normalized CSI payloads and expose motion state, movement metric, and threshold control. The same facade exposes `TemporalCsiSampler`, which applies the production fixed-grid admission before `process_packet()`.
 
+Detector and sampler working buffers use non-throwing allocation. Check `detector.is_valid()` after construction and the result of `sampler.configure(...)` before starting a custom pipeline; a false result means the requested bounded storage was unavailable. These objects are movable and intentionally non-copyable because their buffers own live temporal state.
+
 The sampler tracks timing and slots; your integration stores the selected CSI payload. Handle each input in this order:
 
 1. Call `admit()` before replacing the stored payload.
@@ -152,15 +154,16 @@ The control surface is single-owner. Internal bounded mailboxes protect callback
 
 ### Lifecycle
 
-`set_config()` -> `setup(listener)` -> `loop()` repeatedly -> `shutdown()`. The controller is reusable after `shutdown()`: the configuration survives and `set_config()` becomes effective again. `setup()` is idempotent, and a failed `setup()` leaves the controller un-setup so you can fix the config and retry.
+`set_config()` -> `setup(listener)` -> `loop()` repeatedly -> `shutdown()`. Create the default station interface and ESP event loop before `setup()`. Prefer setup before association so the CSI radio policy is applied at `WIFI_EVENT_STA_START`; setup after association is also supported and restores the station's current IPv4 state. The controller is reusable after `shutdown()`: the configuration survives and `set_config()` becomes effective again. `setup()` is idempotent, and a failed `setup()` leaves the controller un-setup so you can fix the config and retry.
 
 ### Errors
 
-The control surface reports failure through `bool` returns and never throws. A `false` means the call was rejected or could not be applied, and the runtime is unchanged. There are three reasons a control call returns false:
+The control surface reports failure through `bool` returns and never throws. Runtime-backend, temporal-sampler, and detector storage allocations are non-throwing; an allocation failure makes `setup()` return false and reports the fault synchronously to the listener. A `false` means the call was rejected or could not be applied, and the runtime is unchanged. There are four reasons a control call returns false:
 
 1. The value is outside the range published in `runtime_sensing_schema.h`.
 2. The active runtime does not advertise the matching capability.
 3. The backend refused the change.
+4. `setup()` could not allocate the runtime's bounded working storage.
 
 Asynchronous failures arrive instead through `IRuntimeListener::on_runtime_fault()`. Calibration outcome is reported by `on_calibration_finished(snapshot, success)`; a `false` there is not fatal, the runtime keeps sensing with the configured threshold.
 
@@ -234,7 +237,7 @@ ESPectre publishes source-first SDK bundles alongside the firmware release chann
 
 | Channel | Source | Intended use |
 |---------|--------|--------------|
-| `release` | semver GitHub Release and `https://espectre.dev/artifacts/sdk/release/` | Production integrations and reproducible open-source or commercial builds |
+| `release` | latest tagged semver GitHub Release and `https://espectre.dev/artifacts/sdk/release/` | Final numeric versions are production candidates; prerelease tags are published explicitly as evaluation builds |
 | `preview` | rolling `snapshot` GitHub prerelease and `https://espectre.dev/artifacts/sdk/preview/` | Validate `main` before the next release |
 | `develop` | rolling `snapshot-dev` GitHub prerelease and `https://espectre.dev/artifacts/sdk/develop/` | Pre-main validation from `develop` |
 

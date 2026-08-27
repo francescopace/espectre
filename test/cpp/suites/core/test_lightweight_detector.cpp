@@ -58,8 +58,9 @@ void test_lightweight_detector_hampel_master_switch_controls_turbulence(void) {
 
 void test_lightweight_detector_owns_aggregated_turbulence_ring(void) {
   LightweightDetector detector;
-  TEST_ASSERT_EQUAL(detector.get_window_size(),
-                    detector.aggregated_turbulence_buffer_.size());
+  TEST_ASSERT_TRUE(detector.is_valid());
+  TEST_ASSERT_NOT_NULL(detector.aggregated_turbulence_buffer_.get());
+  TEST_ASSERT_EQUAL(detector.get_window_size(), detector.aggregated_turbulence_.capacity());
   TEST_ASSERT_EQUAL(0, detector.aggregated_turbulence_.count());
 }
 

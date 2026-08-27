@@ -36,6 +36,7 @@ Set the Wi-Fi credentials in `config_local.py`; do not commit that file.
 WIFI_SSID = "YourWiFiSSID"
 WIFI_PASSWORD = "YourWiFiPassword"
 # WIFI_BSSID = "AA:BB:CC:DD:EE:FF"  # Optional AP lock
+# WIFI_CHANNEL = 6  # Optional known channel used with WIFI_BSSID
 ```
 
 The firmware image freezes only MicroPython's upstream boot and filesystem helpers. The complete ESPectre application is compiled to optimized `.mpy -O3` bytecode and stored on the filesystem, so research changes require only `micro deploy`, not a firmware rebuild and flash. Deployment uploads the complete manifest to a staging directory and atomically activates it, restoring the previous directory after an interrupted swap. The device and `mpy-cross` use MPY ABI 6.3.
@@ -56,13 +57,18 @@ Key settings live in `config.py`:
 DEVICE_LABEL = ""
 CSI_TARGET_PPS = 100
 TRAFFIC_GENERATOR_ENABLED = True
+CSI_LINK_RECOVERY_TIMEOUT_MS = 5000
 SEGMENTATION_WINDOW_SIZE_MS = 1000
 EVALUATION_INTERVAL_MS = 250
 MOTION_ON_HITS = 4
 MOTION_OFF_HITS = 3
 ```
 
-`DEVICE_LABEL` is an optional user-facing label; an empty value keeps the shared generated name. `CSI_TARGET_PPS` defines the detector grid and ICMP target rate. Setting `TRAFFIC_GENERATOR_ENABLED = False` requires an external CSI traffic source. These values are deployment settings rather than runtime mutations. The production `TemporalCsiSampler` retains the packet nearest each slot center, preserves missing slots, and keeps the live detector geometry independent from observed network jitter. See [SETUP.md](../../../docs/SETUP.md#traffic-generation) for shared traffic behavior, [TUNING.md](../../../docs/TUNING.md) for startup and detector operation, and [ALGORITHMS.md](../../../docs/ALGORITHMS.md) for the implementation rationale.
+These `config.py` values are deployment settings rather than runtime mutations. An empty `DEVICE_LABEL` keeps the shared generated name. `CSI_TARGET_PPS` defines the detector grid and ICMP target rate, while setting `TRAFFIC_GENERATOR_ENABLED = False` requires an external CSI traffic source.
+
+In `config_local.py`, `WIFI_CHANNEL` can accompany `WIFI_BSSID` to avoid a scan during association. If no CSI frame arrives for `CSI_LINK_RECOVERY_TIMEOUT_MS`, the runtime first rearms CSI. If the stall persists, it reconnects Wi-Fi, recalibrates, and republishes Direct discovery.
+
+The production `TemporalCsiSampler` retains the packet nearest each slot center, preserves missing slots, and keeps the live detector geometry independent from observed network jitter. See [SETUP.md](../../../docs/SETUP.md#traffic-generation) for shared traffic behavior, [TUNING.md](../../../docs/TUNING.md) for startup and detector operation, and [ALGORITHMS.md](../../../docs/ALGORITHMS.md) for the implementation rationale.
 
 ## Direct HTTP surface
 
