@@ -33,6 +33,9 @@ namespace {
 
 class MockPeerDiscoveryService final : public IPeerDiscoveryService {
  public:
+  void set_local_candidate(PeerDiscoveryCandidate candidate) override {
+    local_candidate = std::move(candidate);
+  }
   void set_wifi_ready(bool ready) override { wifi_ready = ready; }
   bool ready() const override { return wifi_ready && !query_active; }
   bool active() const override { return query_active; }
@@ -61,6 +64,7 @@ class MockPeerDiscoveryService final : public IPeerDiscoveryService {
   bool start_result{true};
   size_t start_calls{0U};
   size_t shutdown_calls{0U};
+  PeerDiscoveryCandidate local_candidate{};
   Completion completion{};
 };
 
@@ -1474,11 +1478,17 @@ void test_native_frontend_peer_discovery_is_capability_gated_correlated_and_boun
   MockPeerDiscoveryService peers;
   NativeFrontend frontend(nullptr, nullptr, &direct);
   frontend.set_peer_discovery_service(&peers);
+  EspectreDeviceConfig config;
+  config.device_id = 0x0123456789abcdefULL;
+  frontend.set_device_config(config);
   EspectreDeviceInfo info;
   info.frontend = "native";
+  info.chip = "esp32c3";
   info.network.ip_address = "192.168.1.42";
   frontend.set_device_info(info);
   TEST_ASSERT_TRUE(frontend.setup());
+  TEST_ASSERT_EQUAL_STRING("ESPectre C3 abcdef", peers.local_candidate.name.c_str());
+  TEST_ASSERT_EQUAL_STRING("ESPectre 0123456789abcdef", peers.local_candidate.instance.c_str());
   direct.emit_client_count(1U);
 
   auto capabilities = direct.emit_deferred_request(

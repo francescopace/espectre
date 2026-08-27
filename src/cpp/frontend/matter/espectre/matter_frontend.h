@@ -64,7 +64,7 @@ class MatterFrontend : public IRuntimeListener {
   RuntimeDiagnosticsSampler diagnostics_sampler_;
   RuntimeDiagnosticsSample latest_diagnostics_{};
   bool live_telemetry_enabled_{true};
-  std::string fallback_device_label_{"ESPectre Matter"};
+  std::string fallback_device_label_{};
 };
 
 }  // namespace espectre

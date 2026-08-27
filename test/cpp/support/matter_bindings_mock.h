@@ -26,7 +26,7 @@ struct MotionPublish {
 struct State {
   std::vector<MotionPublish> motion_events;
   std::vector<std::string> faults;
-  std::string node_label{"ESPectre Matter"};
+  std::string node_label{};
 };
 
 extern State state;

@@ -10,6 +10,7 @@ import sys
 # WiFi Configuration
 WIFI_SSID = "YourSSID"
 WIFI_PASSWORD = "YourPassword"
+DEVICE_LABEL = ""  # Optional user-facing label; empty uses the generated device name
 # Optional AP lock for mesh/repeater environments.
 # Format: "AA:BB:CC:DD:EE:FF" (or without separators).
 # WIFI_BSSID = "AA:BB:CC:DD:EE:FF"

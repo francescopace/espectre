@@ -66,10 +66,23 @@ const char *native_capabilities() {
   return "config,monitor,ota,peer_discovery,raw_csi";
 }
 
+std::string native_generated_name(const espectre::EspectreDeviceConfig &config) {
+  return espectre::espectre_device_name(config.device_id, CONFIG_IDF_TARGET);
+}
+
+std::string native_display_name(const espectre::EspectreDeviceConfig &config) {
+  return config.device_label.empty() ? native_generated_name(config) : config.device_label;
+}
+
+std::string native_instance_name(const espectre::EspectreDeviceConfig &config) {
+  const std::string device_id = espectre::format_espectre_device_id(config.device_id);
+  return config.device_label.empty() ? "ESPectre " + device_id : config.device_label + " " + device_id;
+}
+
 espectre::MdnsTxtRecords native_mdns_txt(const espectre::EspectreDeviceConfig &config) {
   return {
       {"device_id", espectre::format_espectre_device_id(config.device_id)},
-      {"name", config.device_label},
+      {"name", native_display_name(config)},
       {"frontend", "native"},
       {"txtvers", espectre::ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION},
       {"protovers", espectre::ESPECTRE_PROTOCOL_VERSION},
@@ -84,13 +97,14 @@ espectre::MdnsTxtRecords native_mdns_txt(const espectre::EspectreDeviceConfig &c
 
 espectre::PeerDiscoveryCandidate native_peer_candidate(
     const espectre::EspectreDeviceConfig &config,
-    const std::string &instance_name) {
+    const std::string &instance_name,
+    const std::string &display_name) {
   const std::string device_id = espectre::format_espectre_device_id(config.device_id);
   espectre::PeerDiscoveryCandidate candidate;
   candidate.instance = instance_name;
   candidate.hostname = "espectre-" + device_id;
   candidate.device_id = device_id;
-  candidate.name = instance_name;
+  candidate.name = display_name;
   candidate.frontend = "native";
   candidate.txt_version = espectre::ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION;
   candidate.protocol_version = espectre::ESPECTRE_PROTOCOL_VERSION;
@@ -297,10 +311,11 @@ extern "C" void app_main() {
   static espectre::NativeFrontend frontend(&mqtt_transport, &ota_service, &direct_service);
   const espectre::EspectreDeviceConfig device_config = make_device_config();
   const std::string device_id = espectre::format_espectre_device_id(device_config.device_id);
-  const std::string mdns_name = device_config.device_label.empty() ? "ESPectre " + device_id : device_config.device_label;
+  const std::string display_name = native_display_name(device_config);
+  const std::string instance_name = native_instance_name(device_config);
   if (!mdns_discovery.setup(espectre::MdnsDiscoveryServiceConfig{
           "espectre-" + device_id,
-          mdns_name,
+          instance_name,
           "_espectre",
           "_tcp",
           espectre::ESPECTRE_DIRECT_HTTP_PORT,
@@ -315,7 +330,7 @@ extern "C" void app_main() {
     return;
   }
   g_mdns_bootstrap_responder = &mdns_bootstrap_responder;
-  peer_discovery.set_local_candidate(native_peer_candidate(device_config, mdns_name));
+  peer_discovery.set_local_candidate(native_peer_candidate(device_config, instance_name, display_name));
   frontend.set_peer_discovery_service(&peer_discovery);
   frontend.set_runtime_config(make_runtime_config());
   frontend.set_device_config(device_config);
@@ -354,14 +369,11 @@ extern "C" void app_main() {
   g_wifi_provisioning.set_apply_completed_callback([]() { g_restart_after_wifi_apply = true; });
 
   static espectre::ImprovSerialService improv_serial(&g_wifi_provisioning, &g_wifi_manager);
-  const std::string improv_device_name = device_config.device_label.empty()
-                                             ? espectre::espectre_device_name(device_config.device_id, CONFIG_IDF_TARGET)
-                                             : device_config.device_label;
   if (!improv_serial.setup(espectre::ImprovSerialServiceConfig{
           "ESPectre Native",
           espectre::espectre_firmware_version(),
           CONFIG_IDF_TARGET,
-          improv_device_name,
+          display_name,
           improv_device_url,
       })) {
     ESP_LOGE(TAG, "Failed to initialize Improv Serial");

@@ -208,7 +208,21 @@ void test_esphome_direct_exposes_common_wifi_and_label_capabilities(void) {
   component.runtime_.config().device_id = 0x112233445566ULL;
   component.setup();
   TEST_ASSERT_FALSE(component.is_failed());
+  const std::string device_id = format_espectre_device_id(component.runtime_.config().device_id);
+  const std::string generated_name = espectre_device_name(component.runtime_.config().device_id, CONFIG_IDF_TARGET);
+  TEST_ASSERT_EQUAL_STRING(generated_name.c_str(), component.device_name_().c_str());
+  TEST_ASSERT_TRUE(component.device_label_().empty());
+  TEST_ASSERT_EQUAL_STRING(generated_name.c_str(), component.display_name_().c_str());
+  TEST_ASSERT_EQUAL_STRING(("ESPectre " + device_id).c_str(), component.mdns_instance_name_().c_str());
   TEST_ASSERT_EQUAL_STRING("espectre", component.peer_discovery_.local_candidate_.hostname.c_str());
+  TEST_ASSERT_EQUAL_STRING(generated_name.c_str(), component.peer_discovery_.local_candidate_.name.c_str());
+  TEST_ASSERT_EQUAL_STRING(("ESPectre " + device_id).c_str(),
+                           component.peer_discovery_.local_candidate_.instance.c_str());
+
+  const std::string default_info = component.direct_bridge_.handle_request_(
+      DirectRequest{"default-info", "info", "{}"});
+  TEST_ASSERT_TRUE(default_info.find("\"device_name\":\"" + generated_name + "\"") != std::string::npos);
+  TEST_ASSERT_TRUE(default_info.find("\"device_label\":\"\"") != std::string::npos);
 
   const std::string capabilities = component.direct_bridge_.handle_request_(
       DirectRequest{"capabilities", "capabilities", "{}"});
@@ -240,13 +254,21 @@ void test_esphome_direct_exposes_common_wifi_and_label_capabilities(void) {
   const std::string label = component.direct_bridge_.handle_request_(
       DirectRequest{"label", "set_device_label", "{\"device_label\":\"Kitchen ESPHome\"}"});
   TEST_ASSERT_TRUE(label.find("\"accepted\":true") != std::string::npos);
-  TEST_ASSERT_EQUAL_STRING("Kitchen ESPHome", component.device_name_().c_str());
+  TEST_ASSERT_EQUAL_STRING(generated_name.c_str(), component.device_name_().c_str());
+  TEST_ASSERT_EQUAL_STRING("Kitchen ESPHome", component.device_label_().c_str());
+  TEST_ASSERT_EQUAL_STRING("Kitchen ESPHome", component.display_name_().c_str());
   const std::string info = component.direct_bridge_.handle_request_(
       DirectRequest{"info", "info", "{}"});
   const std::string config = component.direct_bridge_.handle_request_(
       DirectRequest{"config", "config", "{}"});
   TEST_ASSERT_TRUE(info.find("\"device_label\":\"Kitchen ESPHome\"") != std::string::npos);
   TEST_ASSERT_TRUE(config.find("\"device_label\":\"Kitchen ESPHome\"") != std::string::npos);
+
+  const std::string cleared = component.direct_bridge_.handle_request_(
+      DirectRequest{"clear-label", "set_device_label", "{\"device_label\":\"\"}"});
+  TEST_ASSERT_TRUE(cleared.find("\"accepted\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(component.device_label_().empty());
+  TEST_ASSERT_EQUAL_STRING(generated_name.c_str(), component.display_name_().c_str());
 }
 
 void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {

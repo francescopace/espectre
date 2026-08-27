@@ -4,8 +4,8 @@ menu "ESPectre Matter"
 
 config ESPECTRE_MATTER_NODE_LABEL
     string "Matter node label"
-    default "ESPectre Matter"
+    default ""
     help
-        Node label exposed through the Matter Basic Information cluster.
+        Optional user-facing label exposed through the Matter Basic Information cluster.
 
 endmenu

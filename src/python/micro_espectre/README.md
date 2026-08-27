@@ -53,6 +53,7 @@ Wi-Fi -> native managed traffic -> CSI temporal sampler -> Lightweight calibrati
 Key settings live in `config.py`:
 
 ```python
+DEVICE_LABEL = ""
 CSI_TARGET_PPS = 100
 TRAFFIC_GENERATOR_ENABLED = True
 SEGMENTATION_WINDOW_SIZE_MS = 1000
@@ -61,7 +62,7 @@ MOTION_ON_HITS = 4
 MOTION_OFF_HITS = 3
 ```
 
-`CSI_TARGET_PPS` defines the detector grid and ICMP target rate. Setting `TRAFFIC_GENERATOR_ENABLED = False` requires an external CSI traffic source. These values are deployment settings rather than runtime mutations. The production `TemporalCsiSampler` retains the packet nearest each slot center, preserves missing slots, and keeps the live detector geometry independent from observed network jitter. See [SETUP.md](../../../docs/SETUP.md#traffic-generation) for shared traffic behavior, [TUNING.md](../../../docs/TUNING.md) for startup and detector operation, and [ALGORITHMS.md](../../../docs/ALGORITHMS.md) for the implementation rationale.
+`DEVICE_LABEL` is an optional user-facing label; an empty value keeps the shared generated name. `CSI_TARGET_PPS` defines the detector grid and ICMP target rate. Setting `TRAFFIC_GENERATOR_ENABLED = False` requires an external CSI traffic source. These values are deployment settings rather than runtime mutations. The production `TemporalCsiSampler` retains the packet nearest each slot center, preserves missing slots, and keeps the live detector geometry independent from observed network jitter. See [SETUP.md](../../../docs/SETUP.md#traffic-generation) for shared traffic behavior, [TUNING.md](../../../docs/TUNING.md) for startup and detector operation, and [ALGORITHMS.md](../../../docs/ALGORITHMS.md) for the implementation rationale.
 
 ## Direct HTTP surface
 

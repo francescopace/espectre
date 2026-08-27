@@ -909,14 +909,19 @@ std::string NativeFrontend::direct_diagnostics_payload_() const {
 void NativeFrontend::refresh_peer_candidate_() {
   if (peer_discovery_ == nullptr) return;
   const std::string device_id = espectre_effective_device_id(device_config_);
-  const std::string name = device_config_.device_label.empty()
-                               ? "ESPectre " + device_id
-                               : device_config_.device_label;
+  const std::string generated_name = espectre_device_name(
+      espectre_effective_device_id_u64(device_config_),
+      device_info_.chip.empty() ? nullptr : device_info_.chip.c_str());
+  const std::string display_name = device_config_.device_label.empty()
+                                       ? generated_name
+                                       : device_config_.device_label;
   PeerDiscoveryCandidate candidate;
-  candidate.instance = name;
+  candidate.instance = device_config_.device_label.empty()
+                           ? "ESPectre " + device_id
+                           : device_config_.device_label + " " + device_id;
   candidate.hostname = "espectre-" + device_id;
   candidate.device_id = device_id;
-  candidate.name = name;
+  candidate.name = display_name;
   candidate.frontend = "native";
   candidate.txt_version = ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION;
   candidate.protocol_version = ESPECTRE_PROTOCOL_VERSION;

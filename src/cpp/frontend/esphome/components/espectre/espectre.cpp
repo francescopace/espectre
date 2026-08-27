@@ -90,9 +90,9 @@ void ESpectreComponent::setup() {
               espectre::ESPECTRE_DIRECT_HTTP_PORT,
               true,
               false,
-              [this]() { return this->device_name_(); },
+              [this]() { return this->device_label_(); },
               [this](const std::string &label, std::string *message) {
-                return this->set_device_name_(label, message);
+                return this->set_device_label_(label, message);
               },
               {},
               &this->peer_discovery_,
@@ -151,14 +151,28 @@ void ESpectreComponent::update_live_telemetry_enabled_() {
 }
 
 std::string ESpectreComponent::device_name_() const {
-  if (!this->device_label_override_.empty()) return this->device_label_override_;
-  return "ESPectre ESPHome " + format_espectre_device_id(this->runtime_.config().device_id);
+  return espectre_device_name(this->runtime_.config().device_id, CONFIG_IDF_TARGET);
+}
+
+const std::string &ESpectreComponent::device_label_() const {
+  return this->device_label_override_;
+}
+
+std::string ESpectreComponent::display_name_() const {
+  return this->device_label_override_.empty() ? this->device_name_() : this->device_label_override_;
+}
+
+std::string ESpectreComponent::mdns_instance_name_() const {
+  const std::string device_id = format_espectre_device_id(this->runtime_.config().device_id);
+  return this->device_label_override_.empty()
+             ? "ESPectre " + device_id
+             : this->device_label_override_ + " " + device_id;
 }
 
 MdnsTxtRecords ESpectreComponent::mdns_txt_records_() const {
   return {
       {"device_id", format_espectre_device_id(this->runtime_.config().device_id)},
-      {"name", this->device_name_()},
+      {"name", this->display_name_()},
       {"frontend", "esphome"},
       {"txtvers", ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION},
       {"protovers", ESPECTRE_PROTOCOL_VERSION},
@@ -171,19 +185,19 @@ MdnsTxtRecords ESpectreComponent::mdns_txt_records_() const {
   };
 }
 
-bool ESpectreComponent::set_device_name_(const std::string &device_name, std::string *message) {
-  if (device_name.size() > ESPECTRE_DEVICE_LABEL_MAX_LENGTH ||
-      device_name.find_first_of("\r\n") != std::string::npos) {
+bool ESpectreComponent::set_device_label_(const std::string &device_label, std::string *message) {
+  if (device_label.size() > ESPECTRE_DEVICE_LABEL_MAX_LENGTH ||
+      device_label.find_first_of("\r\n") != std::string::npos) {
     if (message != nullptr) *message = "device label must be at most 32 bytes and one line";
     return false;
   }
   StoredDeviceLabel stored;
-  std::copy(device_name.begin(), device_name.end(), stored.value.begin());
+  std::copy(device_label.begin(), device_label.end(), stored.value.begin());
   if (!this->device_label_preference_.save(&stored)) {
     if (message != nullptr) *message = "device label could not be persisted";
     return false;
   }
-  this->device_label_override_ = device_name;
+  this->device_label_override_ = device_label;
   if (this->mdns_discovery_.initialized()) {
     (void) this->mdns_discovery_.update_txt(this->mdns_txt_records_());
   }
@@ -194,11 +208,10 @@ bool ESpectreComponent::set_device_name_(const std::string &device_name, std::st
 void ESpectreComponent::setup_mdns_discovery_() {
   if (!this->direct_api_enabled_) return;
 
-  const std::string device_id = format_espectre_device_id(this->runtime_.config().device_id);
   const MdnsTxtRecords txt_records = this->mdns_txt_records_();
   if (!this->mdns_discovery_.setup(MdnsDiscoveryServiceConfig{
           "",
-          this->device_name_() + " " + device_id,
+          this->mdns_instance_name_(),
           "_espectre",
           "_tcp",
           espectre::ESPECTRE_DIRECT_HTTP_PORT,

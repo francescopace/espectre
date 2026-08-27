@@ -623,11 +623,12 @@ void RuntimeDirectHttpBridge::refresh_peer_candidate_() {
   if (config_.peer_discovery == nullptr) return;
   const std::string device_id = format_espectre_device_id(config_.device_id);
   const std::string device_label = device_label_();
+  const std::string display_name = device_label.empty() ? config_.device_name : device_label;
   PeerDiscoveryCandidate local;
-  local.instance = device_label + " " + device_id;
+  local.instance = device_label.empty() ? "ESPectre " + device_id : device_label + " " + device_id;
   local.hostname = config_.hostname;
   local.device_id = device_id;
-  local.name = device_label;
+  local.name = display_name;
   local.frontend = config_.frontend;
   local.txt_version = ESPECTRE_DNS_SD_TXT_SCHEMA_VERSION;
   local.protocol_version = ESPECTRE_PROTOCOL_VERSION;

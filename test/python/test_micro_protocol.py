@@ -151,8 +151,11 @@ def test_direct_facade_starts_and_publishes_canonical_telemetry(monkeypatch):
         "capabilities", "info", "status", "config", "diagnostics"
     }
     assert start_args["hostname"].startswith("espectre-micro-")
+    assert start_args["instance"] == info["device_name"]
     assert start_args["protocol_version"] == protocol.PROTOCOL_VERSION
     assert start_args["dns_sd_schema_version"] == protocol.DNS_SD_TXT_SCHEMA_VERSION
+    assert info["device_name"].startswith("ESPectre C3 ")
+    assert info["device_label"] == ""
     assert info["csi_traffic_mode"] == "internal"
     assert info["traffic_mode"] == "ping"
     traffic.is_running.return_value = False

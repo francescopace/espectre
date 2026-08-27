@@ -233,6 +233,13 @@ void test_matter_direct_exposes_common_wifi_and_node_label_capabilities(void) {
   frontend.set_runtime_config(config);
   TEST_ASSERT_TRUE(frontend.setup());
 
+  const std::string default_info = direct.emit_request(DirectRequest{"default-info", "info", "{}"});
+  TEST_ASSERT_TRUE(default_info.find("\"device_name\":\"ESPectre ESP32 abcdef\"") != std::string::npos);
+  TEST_ASSERT_TRUE(default_info.find("\"device_label\":\"\"") != std::string::npos);
+  TEST_ASSERT_EQUAL_STRING("ESPectre ESP32 abcdef", frontend.peer_discovery_.local_candidate_.name.c_str());
+  TEST_ASSERT_EQUAL_STRING("ESPectre 0123456789abcdef",
+                           frontend.peer_discovery_.local_candidate_.instance.c_str());
+
   const std::string capabilities = direct.emit_request(
       DirectRequest{"capabilities", "capabilities", "{}"});
   TEST_ASSERT_TRUE(capabilities.find("\"config_sections\":[\"runtime\",\"device\",\"wifi\"]") !=

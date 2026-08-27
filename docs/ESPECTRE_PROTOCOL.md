@@ -13,7 +13,8 @@ This is an implementation reference for firmware, client, and integration develo
 - Direct HTTP is the common local configuration, control, and monitoring plane for the first-party C++ frontends.
 - MQTT is the operational plane for telemetry, status, commands, dashboards, history, and alerts.
 - Web orchestration profiles add identity, credentials, tenancy, retention, and fleet management; they do not redefine device telemetry.
-- `device_id` is a logical protocol identifier. Native, Matter, and Micro-ESPectre derive it once per boot as the first 64 bits of `SHA-256("espectre-device-id-v1" || station_mac_bytes)` and cache the result. This hides the MAC from routine inspection, but the stable pseudonym remains linkable and is not anonymous.
+- `device_id` is a logical protocol identifier. Native, ESPHome, Matter, and Micro-ESPectre derive it once per boot as the first 64 bits of `SHA-256("espectre-device-id-v1" || station_mac_bytes)` and cache the result. This hides the MAC from routine inspection, but the stable pseudonym remains linkable and is not anonymous.
+- `device_name` is the immutable generated name `ESPectre <chip> <last-six-device-id-characters>` on every frontend. `device_label` is empty by default and contains only an optional user-provided label; clients display the label when non-empty and otherwise fall back to the generated name. The separate `frontend` field identifies Native, ESPHome, Matter, or Micro-ESPectre without changing device identity.
 - Privacy-sensitive values such as SSID, BSSID, local IP address, packet-level radio traces, and serial logs must not be sent to managed services by default.
 
 ## mDNS/DNS-SD Discovery
@@ -61,9 +62,9 @@ The CLI accepts a record only when it resolves to IPv4, has a valid SRV port and
 
 ### Frontend-specific behavior
 
-- Native owns its responder, uses the stable hostname `espectre-<device_id>.local`, and updates the TXT `name` after a saved label change.
-- ESPHome adds `_espectre._tcp` to the responder already owned by ESPHome and advertises Direct on the shared port `62587`. Direct mutations update the shared runtime first, then republish the corresponding ESPHome number and select entities so Home Assistant stays aligned.
-- Matter adds `_espectre._tcp` to the responder already owned by the Matter stack and advertises Direct on the shared port `62587`. The service remains available after commissioning and provides detector selection and tuning that the standard Matter occupancy surface does not expose.
+- Native owns its responder, uses the stable hostname `espectre-<device_id>.local`, publishes the generated name when its label is empty, and updates the TXT `name` after a saved label change.
+- ESPHome adds `_espectre._tcp` to the responder already owned by ESPHome, publishes the generated name when its ESPectre-only label override is empty, and advertises Direct on the shared port `62587`. Direct mutations update the shared runtime first, then republish the corresponding ESPHome number and select entities so Home Assistant stays aligned.
+- Matter adds `_espectre._tcp` to the responder already owned by the Matter stack, initializes the Basic Information `NodeLabel` as empty unless configured otherwise, and advertises Direct on the shared port `62587`. The service remains available after commissioning and provides detector selection and tuning that the standard Matter occupancy surface does not expose.
 - Micro-ESPectre owns a single `_espectre._tcp` advertisement for its bounded, read-only Direct surface. It exposes monitoring queries and telemetry, but no configuration mutations, raw CSI stream, or peer-discovery responder.
 
 Services are enabled only while the station interface has a usable IPv4 address. A frontend that owns its responder sends a best-effort goodbye on a clean disconnect and reannounces after reconnect or an IP-address change; ESPHome and Matter retain responder lifecycle ownership and ESPectre only adds or removes its own service.
