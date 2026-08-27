@@ -1,6 +1,7 @@
 # ESPectre - Doxygen configuration for the embeddable C++ SDK
 #
-# Generates a browsable reference for the supported integration surface only.
+# Generates XML for the supported integration surface only. The repository
+# generator renders that XML through m.css into fragments owned by the SPA.
 # Internal headers are excluded on purpose: shipping them in the reference
 # would present the whole bundle as public API, which is the opposite of the
 # stability tiers documented in docs/SDK.md.
@@ -9,26 +10,27 @@
 #   python3 .github/scripts/generate_sdk_api.py
 #
 # That script stamps PROJECT_NUMBER from git describe, the same identity as
-# SDK bundles, and writes docs/web/artifacts/sdk/api/. The committed
-# PROJECT_NUMBER is a placeholder and is not current.
+# SDK bundles, and writes SPA fragments under docs/web/artifacts/sdk/api/.
+# The committed PROJECT_NUMBER is a placeholder and is not current.
 #
 # SDK bundles rewrite OUTPUT_DIRECTORY to output and stamp PROJECT_NUMBER, so
-# `doxygen src/cpp/Doxyfile` from an unpacked bundle rebuilds a matching
-# reference without the website tree; see .github/scripts/build_sdk_package.py.
+# `doxygen src/cpp/Doxyfile` from an unpacked bundle emits matching XML without
+# the website tree; see .github/scripts/build_sdk_package.py.
 
 PROJECT_NAME           = "ESPectre SDK"
 PROJECT_BRIEF          = "Wi-Fi CSI motion sensing for ESP32 firmware"
 PROJECT_NUMBER         = UNSTAMPED
 
-# Create docs/web/artifacts/sdk before running Doxygen. OUTPUT_DIRECTORY is nested
-# under the committed docs/web/ tree, and Doxygen only creates the final segment.
-# HTML_OUTPUT stays a single segment under that directory.
+# The repository generator replaces this with an isolated temporary directory.
+# Direct Doxygen runs write ignored XML under the website artifact tree.
 OUTPUT_DIRECTORY       = docs/web/artifacts/sdk
-HTML_OUTPUT            = api
+HTML_OUTPUT            = rendered
+XML_OUTPUT             = xml
 CREATE_SUBDIRS         = NO
-GENERATE_HTML          = YES
+GENERATE_HTML          = NO
+GENERATE_XML           = YES
 GENERATE_LATEX         = NO
-GENERATE_TREEVIEW      = YES
+XML_PROGRAMLISTING     = NO
 
 # The landing page lives in espectre_sdk.h itself, so the entry point of the
 # reference is the entry point of the code. docs/SDK.md is deliberately
@@ -79,9 +81,9 @@ AUTOLINK_SUPPORT       = YES
 SORT_MEMBER_DOCS       = NO
 SORT_BRIEF_DOCS        = NO
 
-# Members are documented in a deliberate reading order, and the source view is
-# where an integrator checks an assumption the prose did not answer.
-SOURCE_BROWSER         = YES
+# Members are documented in a deliberate reading order. Full source listings
+# are excluded from the published reference; the SDK bundle contains them.
+SOURCE_BROWSER         = NO
 INLINE_SOURCES         = NO
 STRIP_CODE_COMMENTS    = NO
 

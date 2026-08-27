@@ -38,6 +38,10 @@ runs:
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends doxygen graphviz
 
+    - name: Install SDK API renderer dependencies
+      shell: bash
+      run: python3 -m pip install Jinja2==3.1.6 Pygments==2.20.0
+
     - name: Generate SDK API reference
       shell: bash
       run: python3 .github/scripts/generate_sdk_api.py

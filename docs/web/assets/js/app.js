@@ -458,6 +458,10 @@
                     || (conn.mode !== 'demo' && !hasLiveDetection());
             });
         });
+        $$('.live-sensing-controls details.config-advanced').forEach((details) => {
+            details.hidden = ![...details.querySelectorAll('[data-device-command]')]
+                .some((panel) => !panel.hidden);
+        });
     }
 
     function setCalibrationBusy(busy) {
@@ -468,7 +472,7 @@
         }
         const button = $('.js-sense-recalibrate');
         if (button) {
-            button.textContent = monitor.calibrating ? 'Calibrating…' : 'Recalibrate';
+            button.textContent = monitor.calibrating ? 'Calibrating…' : 'Calibrate';
             button.setAttribute('aria-busy', monitor.calibrating ? 'true' : 'false');
         }
         syncSensingControls();
@@ -578,17 +582,17 @@
         if (nameNote) {
             nameNote.hidden = conn.status !== 'connected' || conn.mode === 'demo'
                 || conn.deviceConfigSupported;
-            nameNote.textContent = 'This firmware exposes its device name as read-only in Direct Configure.';
+            nameNote.textContent = 'The installed firmware does not allow the device name to be changed here.';
         }
         if (wifiNote) {
             wifiNote.textContent = esphome || matter
-                ? 'This firmware exposes Wi-Fi status and access-point pinning, but its owner manages network credentials.'
-                : 'This firmware does not expose Wi-Fi details through Direct Configure.';
+                ? 'You can view Wi-Fi status and choose an access point here, but this firmware manages the network name and password elsewhere.'
+                : 'The installed firmware does not make Wi-Fi details available here.';
         }
         if (mqttNote) {
             mqttNote.textContent = esphome
-                ? 'This ESPHome firmware does not expose MQTT configuration through Direct Configure. Use the native ESPHome API, or configure MQTT in the adopted YAML.'
-                : 'This firmware does not expose MQTT configuration through Direct Configure.';
+                ? 'This ESPHome firmware manages MQTT in its ESPHome configuration. Change it through the ESPHome API or the adopted YAML file.'
+                : 'The installed firmware does not allow MQTT settings to be changed here.';
         }
     }
 
@@ -766,14 +770,14 @@
 
     function commitThreshold(threshold) {
         if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
-            toast('Threshold must be between 0 and 1.');
+            toast('Motion threshold must be between 0 and 1.');
             return;
         }
         applyLocalThreshold(threshold);
         runSensingCommand(
             { command: 'set_threshold', threshold },
-            'Applying threshold…',
-            'Threshold updated.',
+            'Saving motion threshold…',
+            'Motion threshold updated.',
             () => { conn.threshold = threshold; renderTelemetry(); }
         );
     }
@@ -852,7 +856,7 @@
 
     function parseDirectTarget(value) {
         const input = String(value || '').trim().toLowerCase();
-        if (!input) throw new Error('Enter a private IP address or device ID.');
+        if (!input) throw new Error('Enter a device IP address, ID, or name.');
         if (DIRECT_FULL_DEVICE_ID.test(input)) {
             return {
                 display: input,
@@ -881,12 +885,12 @@
         } catch (_error) {
             if (/^[a-z][a-z0-9+.-]*:\/\//i.test(input)
                 || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(input)) {
-                throw new Error('Use a private device IP address on the current LAN.');
+                throw new Error('Enter a private device IP address from the same Wi-Fi network.');
             }
             if (input.length <= 63 && [...input].every((character) => character >= ' ')) {
                 return { display: input, endpoint: '', deviceId: '', search: input, shortId: '' };
             }
-            throw new Error('Enter a private IP address, device ID, or device name.');
+            throw new Error('Enter a device IP address, ID, or name.');
         }
     }
 
@@ -1053,10 +1057,10 @@
         if (browserSupport.hostedDirect === 'targeted'
             && ['windows', 'linux'].includes(browserSupport.operatingSystem)) {
             const platform = browserSupport.operatingSystem === 'windows' ? 'Windows' : 'Linux';
-            return `Direct is supported on ${platform} desktop Chrome. Automatic discovery depends on the operating system's mDNS configuration; if it fails, connect using the device's current private IP address.`;
+            return `Local connections are supported in desktop Chrome on ${platform}. If search does not find the device, enter its current IP address.`;
         }
         if (browserSupport.hostedDirect === 'targeted') return '';
-        return 'Direct compatibility is not guaranteed in this browser. Use Chrome 151 or later on macOS, Windows, or native Linux, and connect by private IP where available.';
+        return 'This browser may not connect to local devices. Use Chrome 151 or later on macOS, Windows, or native Linux.';
     }
 
     function renderDirectBrowserGuidance() {
@@ -1074,16 +1078,16 @@
         const localName = Boolean(url?.hostname.endsWith('.local'));
         const hostedCleartext = location.protocol === 'https:' && url?.protocol === 'http:';
         if (code === 'local_network_denied' || permissionState === 'denied') {
-            return 'Local network access is blocked for this site. Open the browser site settings, allow Local network access, and retry. If it is already allowed there, also allow Chrome in the operating system Local Network privacy settings.';
+            return 'Local network access is blocked. Allow it for this site in Chrome settings, then try again. On macOS, you may also need to allow Chrome in System Settings > Privacy & Security > Local Network.';
         }
         if (code === 'timeout') {
             return localName
-                ? 'The device did not answer in time. Confirm it is online and on this LAN, then retry Auto-discovery or enter its current IP address.'
-                : 'The device did not answer in time. Confirm it is online, on this LAN, and that the IP address is current.';
+                ? 'The device did not respond. Make sure it is powered on and connected to the same Wi-Fi network, then search again or enter its IP address.'
+                : 'The device did not respond. Make sure it is powered on, connected to the same Wi-Fi network, and still uses this IP address.';
         }
         if (code === 'subprotocol_mismatch' || code === 'unsupported_version'
             || code === 'invalid_capabilities' || code === 'invalid_envelope') {
-            return 'The device answered with an incompatible Direct protocol. Confirm that the portal and Native firmware belong to the same supported release.';
+            return 'This device is not compatible with the current browser tools. Update its firmware, then try again.';
         }
         if (code === 'connection_failed' || code === 'closed') {
             if (directPageOriginKind() === 'other') {
@@ -1093,17 +1097,18 @@
                 return 'A local HTTP portal does not require a Local network access prompt. Confirm that this is a development firmware with loopback Origins enabled, reflash if it predates any-port localhost support, close other ESPectre tabs, and retry.';
             }
             if (hostedCleartext && browserSupport.hostedDirect === 'unsupported') {
-                return 'This browser blocks a hosted HTTPS page from opening the device cleartext HTTP. Open this portal in supported desktop Chrome.';
+                return 'This browser cannot connect to ESPectre on your local network. Open this page in supported desktop Chrome.';
             }
             if (hostedCleartext && permissionState === 'prompt') {
-                return 'The browser is waiting for Local network access. Retry, allow the permission prompt for this site, and keep the device on the same LAN.';
+                return 'Chrome is waiting for local network permission. Try again, allow access for this site, and keep the device on the same Wi-Fi network.';
             }
             const addressHelp = localName
-                ? 'Retry Auto-discovery or enter the device IP address. '
-                : 'Confirm the device IP address. ';
-            return `The browser could not open the local Direct connection. ${addressHelp}Close other ESPectre tabs, allow Local network access when prompted, and retry. The device may be offline or at its two-client limit.`;
+                ? 'Search again or enter the device IP address. '
+                : 'Check the device IP address. ';
+            return `The browser could not connect to ESPectre. ${addressHelp}Make sure the device is powered on and connected to the same Wi-Fi network, close other ESPectre tabs, and try again.`;
         }
-        return error?.message || 'Direct HTTP connection failed.';
+        console.warn('Local device connection failed:', error);
+        return 'The browser could not connect to ESPectre. Check the device and try again.';
     }
 
     function setDirectConnectionHelp(message = '') {
@@ -1231,27 +1236,27 @@
 
     function directDiscoveryFailureMessage(error, permissionState) {
         if (error?.code === 'local_network_denied' || permissionState === 'denied') {
-            return 'Local network access is blocked for this site. Allow it in the browser site settings, then retry. If it is already allowed there, also allow Chrome in the operating system Local Network privacy settings.';
+            return 'Local network access is blocked. Allow it for this site in Chrome settings, then search again.';
         }
         if (error?.code === 'unsupported_crypto') {
-            return 'Auto-discovery requires Web Crypto, which is unavailable in this browser. Enter the device\'s current private IP address.';
+            return 'This browser cannot search for local devices. Enter the device IP address instead.';
         }
         if (error?.code === 'unsupported_capability') {
-            return 'The responder does not support Auto-discovery. Enter the device\'s current private IP address.';
+            return 'This device does not support browser search. Enter its IP address instead.';
         }
         if (error?.code === 'timeout') {
-            return 'Auto-discovery timed out. mDNS may be disabled, or multicast may be filtered or isolated. Enter the current private IP address from the Improv link or router lease table.';
+            return 'No device responded in time. Make sure ESPectre is powered on and connected to the same Wi-Fi network, then search again or enter its IP address.';
         }
         if (error?.code === 'invalid_envelope' || error?.code === 'unsupported_version') {
-            return 'Auto-discovery reached an incompatible responder. Update that device, or enter the target device\'s current private IP address.';
+            return 'Search found an incompatible device. Update its firmware, or enter the IP address of another ESPectre device.';
         }
         if (error?.code === 'invalid_peer_result' || error?.code === 'frame_too_large') {
-            return 'The responder returned an invalid discovery result, so no device was used. Enter the target device\'s trusted private IP address.';
+            return 'Search found a device it could not recognize. Enter the IP address of the ESPectre device you trust.';
         }
         if (error?.code === 'connection_failed') {
-            return 'Auto-discovery could not reach a responder. Multicast may be isolated, or mDNS may be disabled. Enter the current private IP address from the Improv link or router lease table.';
+            return 'Search could not reach any devices. Make sure ESPectre is on the same Wi-Fi network, or enter its IP address.';
         }
-        return 'Auto-discovery is unavailable on this network. Enter the device\'s current private IP address; device IDs and names still depend on mDNS.';
+        return 'Device search is unavailable on this network. Enter the ESPectre IP address instead.';
     }
 
     async function queryLocalPeers(onProgress = () => {}) {
@@ -1277,7 +1282,7 @@
         if (!panel) return;
         const generation = directDiscoveryGeneration;
         panel.hidden = false;
-        panel.textContent = 'Starting Auto-discovery…';
+        panel.textContent = 'Starting device search…';
         button.disabled = true;
         button.setAttribute('aria-disabled', 'true');
         track('local_discovery', { tool_name: activeToolName(), result: 'attempt' });
@@ -1325,7 +1330,7 @@
         if (directReconnectAttempt >= DIRECT_RECONNECT_DELAYS_MS.length) {
             directClient = null;
             teardownConnection('reconnect_failed');
-            toast('Direct HTTP disconnected. Enter the device address to reconnect.');
+            toast('The device disconnected. Enter its address to reconnect.');
             return;
         }
         const delay = DIRECT_RECONNECT_DELAYS_MS[directReconnectAttempt++];
@@ -1343,7 +1348,7 @@
                 await refreshDirectDevice();
                 directReconnectAttempt = 0;
                 setStatus('connected');
-                toast('Direct HTTP reconnected.');
+                toast('Device reconnected.');
                 if (pendingConfigVerification) requestConfigVerification();
             } catch (error) {
                 client.close();
@@ -1389,7 +1394,7 @@
             ? `device ID ${target.deviceId}`
             : target.shortId ? `device ID …${target.shortId}` : `device name “${target.search}”`;
         setDirectConnectionHelp();
-        setDirectConnectionStatus(`Looking for ${description} on this LAN.`);
+        setDirectConnectionStatus(`Looking for ${description} on this Wi-Fi network.`);
         track('local_discovery', { tool_name: activeToolName(), result: 'attempt' });
         let result;
         try {
@@ -1410,7 +1415,7 @@
             device_count: result.devices.length, truncated: result.truncated
         });
         if (matches.length === 0) {
-            throw new Error(`No matching ${description} was found. Retry Auto-discovery, or use the device's current private IP address.`);
+            throw new Error(`No matching ${description} was found. Search again, or enter the device IP address.`);
         }
         if (matches.length > 1) {
             const panel = directDiscoveryPanel(input);
@@ -1453,7 +1458,8 @@
         try {
             normalizedEndpoint = DirectProtocolClient.normalizeEndpoint(target.endpoint);
         } catch (error) {
-            toast(error.message);
+            console.warn('Invalid local device endpoint:', error);
+            toast('This device address is not valid. Enter a private IP address, device ID, or device name.');
             input?.setAttribute('aria-invalid', 'true');
             return;
         }
@@ -1525,9 +1531,8 @@
                 ...connectionParams(), transport: 'direct_http', result: 'failure',
                 error_type: errorType(error)
             });
-            const message = error?.code
-                ? directConnectionErrorMessage(error, normalizedEndpoint, await localNetworkAccessState())
-                : error.message;
+            const message = directConnectionErrorMessage(
+                error, normalizedEndpoint, await localNetworkAccessState());
             setDirectConnectionHelp(message);
             toast(message);
         }
@@ -1631,9 +1636,10 @@
                 }
                 setDeviceView('live');
                 completeLiveConnectionNavigation();
-                toast('Sensing is live over Direct HTTP.');
+                toast('Live motion started.');
             } catch (error) {
-                toast(error.message);
+                console.warn('Could not start live motion:', error);
+                toast('Live motion could not start. Check the connection and try again.');
             }
             return;
         }
@@ -1995,7 +2001,7 @@
         $$('.js-flash-chip').forEach((chip) => {
             chip.classList.toggle('unavailable', !browserSupport.flash);
             chip.textContent = browserSupport.flash
-                ? 'WEB SERIAL'
+                ? 'USB'
                 : browserSupport.mobile ? 'DESKTOP ONLY' : 'UNAVAILABLE';
         });
         const flashRequirement = $('.js-flash-requirement');
@@ -2069,7 +2075,7 @@
         if (edit) {
             edit.hidden = false;
             edit.disabled = false;
-            edit.textContent = 'Edit connectivity';
+            edit.textContent = 'Wi-Fi and integrations';
         }
 
         $$('.js-device-name').forEach((el) => { el.textContent = conn.deviceName || 'ESPectre'; });
@@ -2094,7 +2100,6 @@
         if (disconnectButton) disconnectButton.hidden = usbConnected;
         $$('.js-direct-chip').forEach((chip) => {
             chip.classList.toggle('ready', connected && conn.mode === 'direct');
-            chip.textContent = connected && conn.mode === 'direct' ? 'HTTP · READY' : 'HTTP';
         });
 
         syncSensingControls();
@@ -2113,7 +2118,7 @@
             el.style.width = pct;
         });
         $$('.js-motion-label').forEach((el) => {
-            el.textContent = conn.motion ? 'MOTION' : 'IDLE';
+            el.textContent = conn.motion ? 'MOTION' : 'NO MOTION';
             el.classList.toggle('motion', conn.motion);
         });
         renderGameMotionGauge();
@@ -2211,7 +2216,10 @@
                     '/vendor/esp-web-tools-10.4.0/install-button.js',
                     'https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module',
                     { module: true }
-                ).catch((error) => flashStatus(error.message, 'is-error'));
+                ).catch((error) => {
+                    console.warn('USB installer could not be loaded:', error);
+                    flashStatus('The USB installer could not be loaded. Refresh the page and try again.', 'is-error');
+                });
             }
             flashRefresh();
         }
@@ -2284,9 +2292,11 @@
             container.dataset.loaded = 'true';
             if (route === 'tools') renderConnection();
             if (window.initPageTocs) window.initPageTocs(container);
+            if (window.initPagePaths) window.initPagePaths(container);
             if (window.initSdkDownloadVersions) window.initSdkDownloadVersions(container);
             if (window.initPublishedReleaseTags) window.initPublishedReleaseTags(container);
             if (window.initCodeTabs) window.initCodeTabs(container);
+            if (window.initApiReferenceBrowsers) window.initApiReferenceBrowsers(container);
         } catch (error) {
             console.warn('Static content fetch failed:', error);
             container.innerHTML = '<p class="guide-loading">This page could not be loaded. '
@@ -2677,8 +2687,8 @@
             installButton.removeAttribute('manifest');
             if (!artifacts.length) {
                 flashSetFrontendActions(frontendSel.value);
-                summary.textContent = 'No matching firmware was found for the selected combination.';
-                flashStatus('Change the frontend or channel.', 'is-error');
+                summary.textContent = 'No firmware matches these options.';
+                flashStatus('Choose another firmware type or version.', 'is-error');
                 return;
             }
 
@@ -2703,7 +2713,8 @@
             const detail = document.createTextNode(manifest.release_tag + ' ');
             const channel = document.createElement('span');
             channel.className = 'mono-sub';
-            channel.textContent = '(' + manifest.channel + ')';
+            channel.textContent = channelSel.options[channelSel.selectedIndex]?.textContent
+                || manifest.channel;
             summary.append(title, document.createElement('br'), detail, channel);
             flashSetFrontendActions(frontendSel.value);
 
@@ -2721,8 +2732,9 @@
             }
             installButton.removeAttribute('manifest');
             flashSetFrontendActions('');
-            summary.textContent = 'Firmware metadata is currently unavailable.';
-            flashStatus(error.message, 'is-error');
+            summary.textContent = 'Firmware information is unavailable right now.';
+            console.warn('Firmware catalog could not be loaded:', error);
+            flashStatus('Check your connection, then try again.', 'is-error');
             const failureKey = selectedChannel + ':failure';
             if (!flash.catalogReports.has(failureKey)) {
                 const reported = track('firmware_catalog', {
@@ -2787,7 +2799,7 @@
             );
         } catch (error) {
             status.hidden = false;
-            status.textContent = 'The QR renderer could not be loaded.';
+            status.textContent = 'The Matter setup code could not be displayed. Refresh the page and try again.';
             track('matter_qr_read', { result: 'failure', error_type: 'QrRendererMissing' });
             return;
         }
@@ -2798,7 +2810,7 @@
         }
         result.hidden = true;
         status.hidden = false;
-        status.textContent = 'Choose the ESPectre serial port, then wait for the device to restart.';
+        status.textContent = 'Choose the ESPectre USB device, then wait for it to restart.';
         try {
             port = await navigator.serial.requestPort();
             await port.open({ baudRate: 115200 });
@@ -2817,11 +2829,14 @@
             $('.js-matter-payload').textContent = codes.qr;
             $('.js-matter-manual').textContent = codes.manual;
             result.hidden = false;
-            status.textContent = 'Onboarding codes read from the device.';
+            status.textContent = 'Matter setup codes read from the device.';
             matterOpen(trigger);
             track('matter_qr_read', { result: 'success' });
         } catch (error) {
-            status.textContent = error.message || 'Unable to read the Matter QR code.';
+            console.warn('Matter setup code could not be read:', error);
+            status.textContent = error?.name === 'NotFoundError'
+                ? 'No USB device was selected.'
+                : 'The Matter setup code could not be read. Reset the board, then try again.';
             track('matter_qr_read', { result: 'failure', error_type: errorType(error) });
         } finally {
             if (port && (port.readable || port.writable)) {
@@ -2938,8 +2953,8 @@
             if (document.getElementById('flash-frontend').value !== 'native' || !dialog.shadowRoot) return;
             dialog.shadowRoot.querySelectorAll('[slot="headline"]').forEach((headline) => {
                 const label = headline.textContent.trim();
-                if (label !== 'Visit Device' && label !== 'Configure Device') return;
-                if (label === 'Visit Device') headline.textContent = 'Configure Device';
+                if (!['Visit Device', 'Configure Device', 'Open device settings'].includes(label)) return;
+                if (label !== 'Open device settings') headline.textContent = 'Open device settings';
                 const item = headline.closest('ew-list-item');
                 if (!item || !item.href) return;
                 try {
@@ -3174,7 +3189,7 @@
             monitor.points.shift();
         }
         const stateEl = $('.js-mon-state');
-        stateEl.textContent = motion ? 'MOTION' : 'IDLE';
+        stateEl.textContent = motion ? 'MOTION DETECTED' : 'NO MOTION';
         stateEl.classList.toggle('motion', motion);
         $('.js-mon-move').textContent = movement.toFixed(3);
         monitorQueueChart();
@@ -3312,7 +3327,7 @@
     }
 
     function monitorPublishCommand(fields, {
-        pendingMessage = 'Sending command…',
+        pendingMessage = 'Saving setting…',
         statusFn = monitorStatus,
         timeoutMs = 8000
     } = {}) {
@@ -3321,7 +3336,7 @@
             statusFn(pendingMessage);
             return directClient.request(command, params, { timeoutMs });
         }
-        const error = new Error('Connect through Direct HTTP before changing the device.');
+        const error = new Error('Connect to the device before changing its settings.');
         statusFn(error.message);
         return Promise.reject(error);
     }
@@ -3420,10 +3435,11 @@
                 pendingMessage: 'Starting calibration…',
                 statusFn: toast
             });
-            toast(result.message || 'Calibration started.');
+            toast(result.message || 'Calibration started. Keep the room still.');
             scheduleCalibrationIdle(MONITOR_CALIBRATION_FALLBACK_MS);
         } catch (error) {
-            toast(error.message);
+            console.warn('Calibration failed:', error);
+            toast('Calibration could not start. Check the connection and try again.');
             setCalibrationBusy(false);
         }
     }
@@ -3438,7 +3454,8 @@
             const result = await monitorPublishCommand(fields, { pendingMessage, statusFn: toast });
             toast(result.message || successMessage);
         } catch (error) {
-            toast(error.message);
+            console.warn('Sensing setting update failed:', error);
+            toast('The setting could not be saved. Check the connection and try again.');
         }
     }
 
@@ -3473,21 +3490,21 @@
             syncSensingControls();
             runSensingCommand(
                 { command: 'set_detector', detector },
-                'Applying detection profile…',
-                'Detection profile updated.'
+                'Changing detection mode…',
+                'Detection mode updated.'
             );
         });
         const applyMotionHits = () => {
             const motionOnHits = Number(document.getElementById('sense-motion-on').value);
             const motionOffHits = Number(document.getElementById('sense-motion-off').value);
             if (![motionOnHits, motionOffHits].every((value) => Number.isInteger(value) && value >= 1 && value <= 20)) {
-                toast('Motion stability values must be whole numbers from 1 to 20.');
+                toast('Use a whole number from 1 to 20 for each advanced motion setting.');
                 return;
             }
             runSensingCommand(
                 { command: 'set_motion_hits', motion_on_hits: motionOnHits, motion_off_hits: motionOffHits },
-                'Applying motion stability…',
-                'Motion stability updated.'
+                'Saving advanced motion settings…',
+                'Advanced motion settings updated.'
             );
         };
         document.getElementById('sense-motion-on').addEventListener('change', applyMotionHits);
@@ -3497,16 +3514,16 @@
             const csiTrafficMode = document.getElementById('sense-csi-mode').value;
             runSensingCommand(
                 { command: 'set_csi_traffic_mode', csi_traffic_mode: csiTrafficMode },
-                'Applying traffic ownership…',
-                'Traffic ownership updated.'
+                'Changing the Wi-Fi traffic source…',
+                'Wi-Fi traffic source updated.'
             );
         });
         document.getElementById('sense-generator-mode').addEventListener('change', () => {
             const trafficGeneratorMode = document.getElementById('sense-generator-mode').value;
             runSensingCommand(
                 { command: 'set_traffic_generator_mode', traffic_generator_mode: trafficGeneratorMode },
-                'Applying traffic generator…',
-                'Traffic generator updated.'
+                'Changing the built-in traffic type…',
+                'Built-in traffic type updated.'
             );
         });
         window.addEventListener('resize', monitorResizeChart);
@@ -3684,7 +3701,8 @@
             if (verify) beginConfigVerification(action, verify);
             return true;
         } catch (error) {
-            toast('Update failed: ' + (error.message || error));
+            console.warn('Device setting update failed:', error);
+            toast('The setting could not be saved. Check the values and try again.');
             track('configure_change', { action, result: 'failure', error_type: errorType(error) });
             return false;
         }
@@ -3720,7 +3738,7 @@
             options.push(new Option(`${bssid} · ${rssi} dBm`, bssid));
         });
         if (currentWifiBssid && !options.some((option) => option.value === currentWifiBssid)) {
-            options.push(new Option(`${currentWifiBssid} · pinned`, currentWifiBssid));
+            options.push(new Option(`${currentWifiBssid} · preferred`, currentWifiBssid));
         }
         select.replaceChildren(...options);
         select.value = currentWifiBssid;
@@ -3730,7 +3748,7 @@
         if (status) {
             status.textContent = snapshot.message
                 || (accessPoints.length ? `${accessPoints.length} access point${accessPoints.length === 1 ? '' : 's'} found.`
-                    : 'No matching access points found. Automatic selection remains available.');
+                    : 'No access points found. You can keep automatic selection.');
         }
     }
 
@@ -3748,7 +3766,7 @@
         }
         const client = directClient;
         if (!client?.connected || !monitor.commands.has('scan_wifi_access_points')) return;
-        renderWifiAccessPoints({ scanning: true, message: 'Scanning access points…' });
+        renderWifiAccessPoints({ scanning: true, message: 'Scanning for nearby access points…' });
         try {
             await client.request('scan_wifi_access_points');
             for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -3760,12 +3778,13 @@
                 if (!snapshot.scanning) return;
             }
             if (directClient !== client || !client.connected) return;
-            renderWifiAccessPoints({ scanning: false, message: 'Access point scan timed out. Try again.' });
+            renderWifiAccessPoints({ scanning: false, message: 'The scan took too long. Try again.' });
         } catch (error) {
             if (directClient !== client || !client.connected) return;
+            console.warn('Access point scan failed:', error);
             renderWifiAccessPoints({
                 scanning: false,
-                message: 'Access point scan failed: ' + (error.message || error)
+                message: 'The scan failed. Check the connection and try again.'
             });
         }
     }
@@ -3776,17 +3795,17 @@
         const params = bssid ? { bssid } : {};
         await cfgApply(
             method,
-            bssid ? 'Access point saved; station reconnecting.' : 'Automatic access-point selection saved; station reconnecting.',
+            bssid ? 'Wi-Fi preference saved. The device is reconnecting.' : 'Automatic Wi-Fi selection saved. The device is reconnecting.',
             method, params,
             (snapshot) => String(snapshot.wifi_bssid || '').toUpperCase() === bssid);
     }
 
     const CONFIG_CLEAR_DIALOGS = Object.freeze({
         wifi: Object.freeze({
-            kicker: 'Primary connection',
+            kicker: 'Wi-Fi connection',
             title: 'Reset Wi-Fi configuration?',
-            description: 'This removes the provisioned Wi-Fi network and password from the device.',
-            warning: 'The device will disconnect. Provision it again over Improv Serial to restore network access.',
+            description: 'This removes the saved Wi-Fi network and password from the device.',
+            warning: 'The device will disconnect. Connect it to Wi-Fi again over USB to restore network access.',
             confirm: 'Reset Wi-Fi'
         }),
         mqtt: Object.freeze({
@@ -3841,19 +3860,20 @@
             return;
         }
         let result = 'accepted';
-        let message = 'Wi-Fi configuration removed. Provision the device again via Improv Serial.';
+        let message = 'Wi-Fi settings removed. Connect the device to Wi-Fi again over USB.';
         try {
             await directClient.request('clear_wifi_config', {}, { timeoutMs: 3000 });
         } catch (error) {
             if (error?.code !== 'timeout' && error?.code !== 'closed') {
-                toast('Update failed: ' + (error.message || error));
+                console.warn('Wi-Fi reset failed:', error);
+                toast('Wi-Fi settings could not be removed. Check the connection and try again.');
                 track('configure_change', {
                     action: 'clear_wifi', result: 'failure', error_type: errorType(error)
                 });
                 return;
             }
             result = 'unconfirmed';
-            message = 'Wi-Fi removal sent. The device disconnected as expected; provision it again via Improv Serial.';
+            message = 'Wi-Fi reset sent. The device disconnected as expected; connect it to Wi-Fi again over USB.';
         }
         ['cfg-ssid', 'cfg-wifi-band', 'cfg-channel', 'cfg-bssid'].forEach((id) => {
             document.getElementById(id).value = '';
@@ -3922,7 +3942,7 @@
 
     async function cfgSaveDeviceLabel(label) {
         if (typeof label !== 'string' || /[\r\n\0]/.test(label) || utf8Length(label) > 32) {
-            cfgValidationFailed('set_device', 'Device name must be one line and at most 32 UTF-8 bytes.');
+            cfgValidationFailed('set_device', 'Use a single-line device name that fits within the 32-byte limit. Shorten names with accented or non-Latin characters if needed.');
             return false;
         }
         return cfgApply('set_device', 'Device name saved.', 'set_device_label',
@@ -4042,6 +4062,21 @@
         if (el) el.value = otaDefaultChannel;
     }
 
+    function otaStateLabel(state) {
+        const value = String(state || '').toLowerCase();
+        const labels = {
+            idle: 'Ready',
+            checking: 'Checking',
+            update_available: 'Update available',
+            up_to_date: 'Up to date',
+            downloading: 'Downloading',
+            applying: 'Installing',
+            reboot_scheduled: 'Restarting',
+            error: 'Error'
+        };
+        return labels[value] || String(state || '—').replaceAll('_', ' ');
+    }
+
     function otaCommandFields(command) {
         const channel = selectedOtaChannel();
         return channel ? { command, channel } : { command };
@@ -4098,7 +4133,7 @@
         };
         const state = status.state;
         if (state) {
-            write('cfg-ota-state', state);
+            write('cfg-ota-state', otaStateLabel(state));
             otaState = String(state).toLowerCase();
         }
         if (status.current_version) write('cfg-ota-current', status.current_version);
@@ -4114,13 +4149,13 @@
         const normalizedState = String(state || '').toLowerCase();
         if (status.update_available !== undefined) {
             otaUpdateAvailable = sysinfoBoolean(status.update_available) || normalizedState === 'update_available';
-            write('cfg-ota-available', otaUpdateAvailable ? 'yes' : 'no');
+            write('cfg-ota-available', otaUpdateAvailable ? 'Yes' : 'No');
         } else if (normalizedState === 'update_available') {
             otaUpdateAvailable = true;
-            write('cfg-ota-available', 'yes');
+            write('cfg-ota-available', 'Yes');
         } else if (normalizedState === 'up_to_date') {
             otaUpdateAvailable = false;
-            write('cfg-ota-available', 'no');
+            write('cfg-ota-available', 'No');
         }
         if (status.busy !== undefined) otaBusy = sysinfoBoolean(status.busy);
         if (normalizedState === 'reboot_scheduled') {
@@ -4217,9 +4252,10 @@
             });
             otaBusy = true;
             beginOtaTracking();
-            toast('OTA update started.');
+            toast('Firmware update started.');
         } catch (error) {
-            toast(error.message);
+            console.warn('Firmware update failed to start:', error);
+            toast('The firmware update could not start. Check the connection and try again.');
         }
         otaActionPending = false;
         syncOtaUpdateButton();
@@ -5375,19 +5411,19 @@
     const RAW_CSI_VISUALIZATIONS = Object.freeze({
         'channel-heatmap': Object.freeze({
             title: 'Channel heatmap',
-            description: 'Brightness shows normalized amplitude; cyan and coral reveal movement around the slow baseline.',
+            description: 'Brightness shows signal strength. Cyan and coral show changes around the recent baseline.',
             badge: 'LIVE',
             ariaLabel: 'Combined CSI amplitude and motion heatmap over time'
         }),
         'rf-waterfall': Object.freeze({
             title: 'RF waterfall',
-            description: 'Recent channel profiles recede through time while movement disturbs the surface.',
+            description: 'Recent signal profiles move into the distance while movement changes the surface.',
             badge: 'LIVE',
             ariaLabel: 'Perspective waterfall of recent CSI channel profiles'
         }),
         'channel-ghost': Object.freeze({
             title: 'Channel ghost',
-            description: 'The current channel departs from its slow baseline with 5× visual gain; color preserves the deviation sign.',
+            description: 'The current signal is compared with its recent baseline. Changes are enlarged 5× so they are easier to see.',
             badge: 'LIVE',
             ariaLabel: 'Current normalized CSI channel profile compared with its baseline'
         }),
@@ -5479,7 +5515,7 @@
         if (conn.mode === 'demo') {
             if (externalHint) externalHint.hidden = true;
             rawCsiSetAvailable(true);
-            rawCsiStatus('Demo connected. Start the simulated CSI stream when ready.');
+            rawCsiStatus('Demo ready. Start the simulated signal stream when you are ready.');
             return true;
         }
         const rawCapability = directClient?.capabilities?.raw_csi;
@@ -5490,8 +5526,8 @@
         if (externalHint) externalHint.hidden = !available || conn.csiTrafficMode !== 'external';
         if (available) {
             rawCsiStatus(conn.csiTrafficMode === 'external'
-                ? 'Connected in external traffic mode. The stream stays idle until UDP marker traffic reaches the device.'
-                : 'Connected. Start the ephemeral stream when ready.');
+                ? 'Connected. This device is waiting for its external Wi-Fi traffic source before data appears.'
+                : 'Connected. Start the temporary signal stream when you are ready. Nothing is uploaded or stored.');
         }
         return available;
     }
@@ -6301,7 +6337,7 @@
         rawCsiResetVisualization();
         rawCsiStartMetrics();
         rawCsiSetState('running');
-        rawCsiStatus(`Streaming simulated CSI at ${targetPps} target packets/s.`);
+        rawCsiStatus(`Simulated signal stream running at a target of ${targetPps} packets per second.`);
         rawCsiDemoFrame(targetPps, intervalMs, startedAtMs);
         rawCsi.demoTimer = setInterval(
             () => rawCsiDemoFrame(targetPps, intervalMs, startedAtMs), intervalMs);
@@ -6346,7 +6382,7 @@
         if (!rawCsiDirectReady() || client.capabilities?.features?.raw_csi !== true) return;
         rawCsiSetState('starting');
         rawCsi.sessionClient = client;
-        rawCsiStatus('Starting raw CSI stream…');
+        rawCsiStatus('Starting the signal stream…');
         try {
             const startRequest = client.request('start_raw_stream');
             rawCsi.startRequest = startRequest;
@@ -6371,7 +6407,7 @@
             if (!response.ok || !response.body) throw new Error(`Raw stream returned HTTP ${response.status}.`);
             rawCsiStartMetrics();
             rawCsiSetState('running');
-            rawCsiStatus('Streaming every classified CSI frame received from the configured traffic generator.');
+            rawCsiStatus('Live signal data is arriving. Normal motion sensing will resume when you stop the stream.');
             const reader = response.body.getReader();
             while (rawCsi.generation === generation && !controller.signal.aborted) {
                 const { value, done } = await reader.read();
@@ -6384,7 +6420,8 @@
             }
         } catch (error) {
             if (rawCsi.generation === generation && !rawCsi.controller?.signal.aborted) {
-                rawCsiStatus(error.message, true);
+                console.warn('Raw CSI stream failed:', error);
+                rawCsiStatus('The signal stream stopped unexpectedly. Stop it, then try again.', true);
             }
         } finally {
             if (rawCsi.generation === generation

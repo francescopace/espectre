@@ -2,7 +2,7 @@
   SPDX-License-Identifier: GPL-3.0-only
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
-<article class="article">
+<article class="article guide-article" data-page-toc data-page-path="guides">
     <span class="guide-tag">THEORY · 3 MIN READ</span>
     <h1>How Wi-Fi sensing detects movement</h1>
     <p class="article-lead">Wi-Fi signals do more than carry data. As they cross a room, their reflections change whenever people move. ESPectre measures those changes with a low-cost ESP32, without cameras, microphones, or cloud processing.</p>
@@ -32,17 +32,14 @@
     <p>ESPectre follows CSI over a sequence of packets. A quiet room produces a comparatively repeatable pattern; movement produces wider, coordinated changes across several subcarriers. The detector filters ordinary radio noise, combines the useful changes over time, and turns them into a movement score and a motion state. The score describes how strongly the channel is changing in that room; it is not a physical unit or a universal measurement.</p>
     <p>Supported ESP32 chips expose CSI through their Wi-Fi stack and have enough processing capacity to run the detector locally. ESPectre can therefore add Wi-Fi motion sensing without a separate radar module or a service that receives raw measurements.</p>
 
-    <div class="note">Wi-Fi sensing detects changes in the radio environment. It does not identify people, count them, reconstruct their exact movement, or replace a safety-certified presence sensor.</div>
-
     <figure>
       <img src="/assets/images/guides/csi-iq-motion.svg" alt="Simplified I and Q plots showing dense, narrow subcarrier orbits in a quiet room and thicker, overlapping orbits during movement" width="1068" height="400" loading="lazy">
       <figcaption>Each dot is one I/Q measurement for one subcarrier, and dots of the same color are successive measurements of that same subcarrier. Every CSI packet adds one dot to each colored orbit: at 100 packets per second, each orbit gains about 100 dots in one second. A dot’s distance from the center is the subcarrier amplitude. In a quiet room, repeated samples form dense, narrow orbits. During movement, the amplitudes oscillate, so those orbits become thicker and can overlap. ESPectre combines that evidence across selected subcarriers and over time instead of relying on a single point.</figcaption>
     </figure>
 
+    <div class="note">Wi-Fi sensing detects changes in the radio environment. It does not identify people, count them, reconstruct their exact movement, or replace a safety-certified presence sensor.</div>
+
     <h2 id="detection-deeper">Going deeper</h2>
     <p>The <a href="https://github.com/francescopace/espectre/blob/main/docs/ALGORITHMS.md" target="_blank" rel="noopener">algorithm reference</a> documents the signal processing, feature definitions, and detector behavior in detail.</p>
 
-    <div class="article-nav">
-      <a href="/guides/hardware/" class="doc-link doc-link-next"><div class="doc-link-title">Next: Choose your hardware →</div><div class="doc-link-sub">Pick a supported ESP32, antenna, cable, and power supply.</div></a>
-    </div>
   </article>

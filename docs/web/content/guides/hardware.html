@@ -2,47 +2,39 @@
   SPDX-License-Identifier: GPL-3.0-only
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
-<article class="article">
+<article class="article guide-article" data-page-toc data-page-path="guides">
     <span class="guide-tag">HARDWARE · 3 MIN READ</span>
     <h1>Choose your hardware</h1>
-    <p class="article-lead">ESPectre supports six ESP32 chip families. This guide explains how to choose among them.</p>
+    <p class="article-lead">ESPectre supports six ESP32 chip families. A compact board is usually enough for a dedicated sensor.</p>
     <figure>
-      <img src="/assets/images/guides/esp32-chip-family-card.avif" alt="Six ESP32 development boards arranged in a row" width="1068" height="600" loading="eager">
-      <figcaption>Choose a board that fits the installation. Antenna design, power quality, and placement all affect the radio link.</figcaption>
+      <img src="/assets/images/guides/esp32-chip-family-card.avif" alt="Six supported ESP32 boards arranged in a row" width="1068" height="600" loading="eager">
+      <figcaption>Choose the smallest board that provides the radio, antenna, power, and programming connection your installation needs.</figcaption>
     </figure>
 
     <h2 id="hardware-chips">Supported chips</h2>
     <p>All chips below use the same detection pipeline. ESP32-S2 runs ESPHome and Native but not Matter; the other listed chips also have a Matter image.</p>
+    <div class="note"><strong>Short answer:</strong> for a new build, start with a compact ESP32-S3 board. It offers the most compute headroom without requiring a full-size development kit. Choose ESP32-C6 when the wider product needs 2.4&nbsp;GHz Wi-Fi&nbsp;6, Thread, or Zigbee, and ESP32-C5 when dual-band or 5&nbsp;GHz work is the reason for the hardware choice.</div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Chip</th><th>Practical notes</th></tr></thead>
+      <caption class="sr-only">Supported ESP32 chip families and practical selection notes</caption>
+      <thead><tr><th scope="col">Chip</th><th scope="col">Practical notes</th></tr></thead>
       <tbody>
-        <tr><td><strong>ESP32-C3</strong></td><td>Small, inexpensive, and widely available. A C3 devkit or super-mini board is a practical starting point.</td></tr>
-        <tr><td><strong>ESP32-C6</strong></td><td>A practical 2.4&nbsp;GHz option for a new installation.</td></tr>
-        <tr><td><strong>ESP32-S3</strong></td><td>Offers additional compute headroom when the board will also do other work. Many S3 devkits expose an external antenna connector.</td></tr>
+        <tr><td><strong>ESP32-S3</strong></td><td>The general recommendation for a new sensor. Its dual-core CPU runs at up to 240&nbsp;MHz, and its 128-bit vector instructions include multiplication operations that can accelerate optimized signal-processing and ML code. ESPectre does not require that acceleration, but the extra headroom is useful when the board also runs product logic or future processing workloads.</td></tr>
+        <tr><td><strong>ESP32-C6</strong></td><td>Choose it when the wider product benefits from 2.4&nbsp;GHz Wi-Fi&nbsp;6, Thread, or Zigbee. ESPectre currently pins sensing traffic to the validated HT20 802.11n profile, so the detector does not yet use 802.11ax.</td></tr>
+        <tr><td><strong>ESP32-C5</strong></td><td>The choice for dual-band Wi-Fi&nbsp;6 or 5&nbsp;GHz development. Native firmware defaults to 2.4&nbsp;GHz; ESPHome defaults to automatic band selection when <code>wifi.band_mode</code> is omitted, although the maintained examples select 2.4&nbsp;GHz. Device settings does not change the band. ESPectre can use 5&nbsp;GHz HT20, but detection quality on 5&nbsp;GHz is not yet characterized.</td></tr>
+        <tr><td><strong>ESP32-C3</strong></td><td>Small, inexpensive, and widely available. A Mini or SuperMini-style board is sufficient for a dedicated ESPectre sensor when its antenna and power supply suit the installation.</td></tr>
         <tr><td><strong>ESP32-S2</strong></td><td>A single-core Wi-Fi option with no Bluetooth radio. Use Improv Serial or the ESPHome fallback access point for provisioning; Matter is not available.</td></tr>
-        <tr><td><strong>ESP32</strong> (classic)</td><td>Widely available and well supported. Fine for reusing boards you already own.</td></tr>
-        <tr><td><strong>ESP32-C5</strong></td><td>Dual-band capable. Native firmware defaults to 2.4&nbsp;GHz; ESPHome defaults to automatic band selection when <code>wifi.band_mode</code> is omitted, although the maintained examples select 2.4&nbsp;GHz. Direct Configure does not change the band. Detection quality on 5&nbsp;GHz is not yet characterized.</td></tr>
+        <tr><td><strong>ESP32</strong></td><td>Widely available and well supported. Fine for reusing boards you already own.</td></tr>
       </tbody>
     </table></div>
 
     <h2 id="hardware-details">What matters</h2>
     <ul class="checklist">
       <li><strong>The antenna:</strong> an external antenna connector (U.FL/IPEX) lets you choose and position the antenna independently of the board. This can help when the enclosure, mounting position, or link distance makes the built-in PCB antenna difficult to place.</li>
-      <li><strong>The power supply:</strong> use a stable 5&nbsp;V USB supply. If readings remain erratic in an otherwise good position, compare them with another power adapter.</li>
+      <li><strong>The power supply:</strong> use a stable supply rated for the board; USB-powered boards normally expect 5&nbsp;V. If readings remain erratic in an otherwise good position, compare them with another power adapter.</li>
       <li><strong>The placement:</strong> keep the sensor out of metal cabinets and, when the room allows it, start 3–8&nbsp;m from the access point. The <a href="/guides/placement/">placement guide</a> covers distance, orientation, obstacles, and room testing in detail.</li>
-      <li><strong>The USB cable:</strong> for flashing you need a data cable; for permanent installs any power-only cable is fine.</li>
+      <li><strong>The programming connection:</strong> if the board exposes USB, use a data cable for flashing. Smaller boards may instead require a compatible serial or JTAG adapter.</li>
     </ul>
-    <h2 id="hardware-shopping">Shopping checklist</h2>
-    <ul class="checklist">
-      <li>A devkit-style board with native USB for one of the chips above (search for "<em>chip name</em> devkit").</li>
-      <li>Optionally, a version with an external antenna connector plus a 2.4&nbsp;GHz antenna.</li>
-      <li>A known-good USB data cable and a decent 5&nbsp;V power supply.</li>
-      <li>No other sensors, shields, or modules: the Wi-Fi radio is the sensor.</li>
-    </ul>
+    
     <div class="note">Treat one board per room as a starting point, then test the actual coverage boundary. Every published firmware can operate alongside other ESPectre devices.</div>
 
-    <div class="article-nav">
-      <a href="/guides/detection/" class="doc-link"><div class="doc-link-title">← Previous: How Wi-Fi sensing works</div><div class="doc-link-sub">Understand packets, CSI, multipath, and how channel changes reveal movement.</div></a>
-      <a href="/guides/setup/" class="doc-link doc-link-next"><div class="doc-link-title">Next: Flash &amp; Wi-Fi setup →</div><div class="doc-link-sub">From blank board to working sensor, in the browser.</div></a>
-    </div>
   </article>

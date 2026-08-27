@@ -18,8 +18,9 @@
  * may change in any release.
  *
  * Start at espectre_sdk.h for the integration model, the threading contract,
- * and a working example. The repository guide `docs/SDK.md` covers build
- * integration, install surfaces, and release channels.
+ * and a working example. The
+ * [full SDK guide](https://github.com/francescopace/espectre/blob/main/docs/SDK.md)
+ * covers build integration, install surfaces, and release channels.
  */
 
 /**

@@ -80,8 +80,8 @@ SDK_TOP_LEVEL_FILES = (
     Path("src/cpp/Doxyfile"),
     # The integration guide travels with the sources so a bundle is
     # self-contained: `doxygen src/cpp/Doxyfile` from the bundle root rebuilds
-    # the API reference offline. Packaging rewrites OUTPUT_DIRECTORY to output
-    # because the repo Doxyfile targets docs/web/artifacts/sdk.
+    # the API XML offline. Packaging rewrites OUTPUT_DIRECTORY to output because
+    # the repo Doxyfile targets docs/web/artifacts/sdk.
     Path("docs/SDK.md"),
     Path("LICENSE"),
     Path("LICENSING.md"),
@@ -279,7 +279,7 @@ def stamp_idf_component_manifest(path: Path, sdk_package_version: str) -> None:
 
 
 def rewrite_bundle_doxyfile(path: Path, sdk_package_version: str) -> None:
-    """Point the bundled Doxyfile at output/api and stamp the bundle identity."""
+    """Point the bundled Doxyfile at output and stamp the bundle identity."""
     text = path.read_text(encoding="utf-8")
     if not re.search(r"(?m)^OUTPUT_DIRECTORY\s*=", text):
         raise ValueError(f"Unable to rewrite OUTPUT_DIRECTORY in {path}")
@@ -291,7 +291,7 @@ def rewrite_bundle_doxyfile(path: Path, sdk_package_version: str) -> None:
             "# Usage, from the unpacked SDK bundle root:\n"
             "#   doxygen src/cpp/Doxyfile\n"
             "#\n"
-            "# Output is written to output/api/. Packaging rewrote OUTPUT_DIRECTORY\n"
+            "# Doxygen XML is written to output/xml/. Packaging rewrote OUTPUT_DIRECTORY\n"
             "# away from the repository website path so this works without docs/web/.\n"
         ),
         text,
@@ -310,14 +310,12 @@ def rewrite_bundle_doxyfile(path: Path, sdk_package_version: str) -> None:
     if output_count != 1:
         raise ValueError(f"Unable to rewrite OUTPUT_DIRECTORY in {path}")
 
-    # Drop the repository-only mkdir guidance that follows OUTPUT_DIRECTORY.
+    # Replace repository-only output guidance with the bundle location.
     text, mkdir_count = re.subn(
-        r"(?m)^# Create docs/web/artifacts/sdk before running Doxygen\..*\n"
-        r"# under the committed docs/web/ tree, and Doxygen only creates the final segment\.\n"
-        r"# HTML_OUTPUT stays a single segment under that directory\.\n",
+        r"(?m)^# The repository generator replaces this with an isolated temporary directory\.\n"
+        r"# Direct Doxygen runs write ignored XML under the website artifact tree\.\n",
         (
-            "# Doxygen creates OUTPUT_DIRECTORY only one level deep, so this stays a\n"
-            "# single segment and the nesting happens through HTML_OUTPUT.\n"
+            "# The bundled configuration writes tool-neutral XML below output/.\n"
         ),
         text,
         count=1,

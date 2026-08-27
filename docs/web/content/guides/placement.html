@@ -2,14 +2,19 @@
   SPDX-License-Identifier: GPL-3.0-only
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
-<article class="article">
+<article class="article guide-article" data-page-toc data-page-path="guides">
     <span class="guide-tag">INSTALLATION · 5 MIN READ</span>
     <h1>Place your ESPectre sensor</h1>
-    <p class="article-lead">Distance, antenna orientation, obstacles, and a repeatable room test for finding a placement that detects movement without chasing noise.</p>
+    <p class="article-lead">Distance, antenna orientation, obstacles, and a room test for finding a placement that detects movement without chasing noise.</p>
     <figure>
       <img src="/assets/images/guides/sensor-placement-card.avif" alt="Top-down room showing a router, an ESP32, a walking person, and reflected Wi-Fi paths" width="1068" height="600" loading="eager">
       <figcaption>A useful starting geometry: keep the endpoints apart, the antenna clear, and normal movement crossing several radio paths.</figcaption>
     </figure>
+
+    <details class="page-toc">
+      <summary>Sections</summary>
+      <nav aria-label="Guide sections"><strong>On this page</strong><a href="#placement-link">The sensing link</a><a href="#placement-start">Starting position</a><a href="#placement-distance">Distance and RSSI</a><a href="#placement-orientation">Orientation</a><a href="#placement-layouts">Room layouts</a><a href="#placement-avoid">Placements to avoid</a><a href="#placement-test">Ten-minute test</a></nav>
+    </details>
 
     <h2 id="placement-link">Think of a radio link, not a detection cone</h2>
     <p>ESPectre does not watch a circular area around the board. The access point sends Wi-Fi packets to the ESP32 over a direct path and many reflections from walls, furniture, and people. Motion is easiest to distinguish when it changes several of those paths, so the access point, the sensor, and the route people take through the room all matter.</p>
@@ -25,9 +30,10 @@
     </ul>
 
     <h2 id="placement-distance">Distance: use RSSI as the final check</h2>
-    <p>Metres are only a starting point: walls, access-point power, antennas, and furniture change the link. When your frontend exposes Wi-Fi RSSI, use it to confirm the result. ESPHome publishes a diagnostic <strong>WiFi RSSI</strong> sensor, and Monitor displays the value in Diagnostics.</p>
+    <p>Metres are only a starting point: walls, access-point power, antennas, and furniture change the link. When the installed firmware exposes Wi-Fi RSSI, use it to confirm the result. ESPHome publishes a diagnostic <strong>WiFi RSSI</strong> sensor, and Live motion displays the value in Diagnostics.</p>
     <div class="table-wrap"><table>
-      <thead><tr><th>Observed RSSI</th><th>What it suggests</th><th>What to do</th></tr></thead>
+      <caption class="sr-only">How to interpret the Wi-Fi RSSI observed at the sensor</caption>
+      <thead><tr><th scope="col">Observed RSSI</th><th scope="col">What it suggests</th><th scope="col">What to do</th></tr></thead>
       <tbody>
         <tr><td>Above <code>-40 dBm</code></td><td>The receiver may be too close to the access point.</td><td>Move the sensor farther away before raising thresholds.</td></tr>
         <tr><td><code>-40</code> to <code>-70 dBm</code></td><td>Good CSI headroom for a first installation.</td><td>Run the quiet-and-motion test below.</td></tr>
@@ -74,8 +80,4 @@
     </ol>
     <div class="note">ESPectre detects changes in the radio environment. It does not identify people, guarantee an exact boundary, or replace a safety-certified presence sensor.</div>
 
-    <div class="article-nav">
-      <a href="/guides/setup/" class="doc-link"><div class="doc-link-title">← Previous: Flash &amp; Wi-Fi setup</div><div class="doc-link-sub">Install a frontend and connect the sensor to your network.</div></a>
-      <a href="/guides/home-assistant/" class="doc-link doc-link-next"><div class="doc-link-title">Next: Build your Home Assistant dashboard →</div><div class="doc-link-sub">Arrange live sensing, controls, history, and diagnostics.</div></a>
-    </div>
   </article>

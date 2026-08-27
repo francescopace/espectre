@@ -2,14 +2,19 @@
   SPDX-License-Identifier: GPL-3.0-only
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
-<article class="article">
+<article class="article guide-article" data-page-toc data-page-path="guides">
     <span class="guide-tag">DETECTION PROFILES · 4 MIN READ</span>
     <h1>Choose your detection profile</h1>
     <p class="article-lead">ESPectre includes two built-in production motion detectors: Lightweight Detection and High-Accuracy Detection. Both analyze the same Wi-Fi CSI stream and expose the same motion state. Lightweight is the published default and leaves more CPU and working memory available; High Accuracy uses a compact pretrained model to improve detection quality and generalization on the maintained corpus.</p>
     <figure>
       <img src="/assets/images/guides/detection-profiles-card.avif" alt="An ESP32 branching one Wi-Fi signal into short and deep processing paths" width="1068" height="600" loading="eager">
-      <figcaption>One CSI stream feeds two built-in detectors. Native and ESPHome can switch between them at runtime, while Matter selects one at build time.</figcaption>
+      <figcaption>One CSI stream feeds two built-in detectors. Native, ESPHome, and Matter can switch between them at runtime through the controls each firmware exposes.</figcaption>
     </figure>
+
+    <details class="page-toc">
+      <summary>Sections</summary>
+      <nav aria-label="Guide sections"><strong>On this page</strong><a href="#detectors-two">Two detectors</a><a href="#detectors-choose">Choose a profile</a><a href="#detectors-difference">Compare profiles</a><a href="#detectors-controls">Select a profile</a><a href="#detectors-evidence">Evidence</a></nav>
+    </details>
 
     <h2 id="detectors-two">Two built-in detectors</h2>
     <div class="mini-cards profile-choice-cards">
@@ -31,7 +36,7 @@
     <ul class="checklist">
       <li><strong>Choose Lightweight</strong> when sensing shares a smaller chip with displays, connectivity, Matter, OTA, or other application services.</li>
       <li><strong>Choose High Accuracy</strong> when false-positive control, transfer across rooms, and detection quality are the priority.</li>
-      <li><strong>Keep the Lightweight default when you are unsure</strong>, then compare High Accuracy in the same installed position if your frontend supports runtime switching.</li>
+      <li><strong>Keep the Lightweight default when you are unsure</strong>, then compare High Accuracy in the same installed position.</li>
     </ul>
 
     <h2 id="detectors-difference">What changes</h2>
@@ -67,7 +72,7 @@
     <p class="article-footnote"><strong>These are detector choices, not power modes.</strong> ESPectre benchmarks detector CPU and memory separately and makes no whole-device energy-saving claim for either profile.</p>
 
     <h2 id="detectors-controls">How to select it</h2>
-    <p>Choose the frontend or integration you use. Native and ESPHome persist a runtime selection; Matter makes the choice at build time.</p>
+    <p>Choose the firmware type or integration you use. ESPectre can apply and save a new profile while running. Matter exposes this specific control through Direct HTTP rather than through its standard occupancy cluster.</p>
     <div class="code-tabs" data-code-tabs>
       <div class="code-tabs-list" role="tablist" aria-label="Detection profile interface">
         <button type="button" role="tab" id="detectors-native-tab" aria-controls="detectors-native-panel" aria-selected="true">Native</button>
@@ -89,7 +94,7 @@ espectre&gt; info</code></pre>
   detection_algorithm: lightweight  # or high_accuracy</code></pre>
       </div>
       <div class="code-tab-panel" id="detectors-matter-panel" role="tabpanel" aria-labelledby="detectors-matter-tab" data-detector-interface="matter" hidden>
-        <p>Matter supports both detectors as build-time choices. Published images use Lightweight, and the frontend does not currently expose a runtime profile control. Select High Accuracy through the shared ESP-IDF sensing configuration when building a local image.</p>
+        <p>Published Matter images start with Lightweight. Open <a href="/tools/monitor/">Live motion</a> over Direct HTTP to select High Accuracy or switch back; the accepted profile takes effect immediately and persists across reboots. A local build can also choose the initial profile through the shared ESP-IDF sensing configuration. Standard Matter occupancy controls do not expose this setting.</p>
       </div>
       <div class="code-tab-panel" id="detectors-sdk-panel" role="tabpanel" aria-labelledby="detectors-sdk-tab" data-detector-interface="sdk" hidden>
         <p>Set the detector in the runtime configuration before starting an embedded integration:</p>
@@ -101,8 +106,4 @@ config.detection_algorithm = espectre::DetectionAlgorithm::HIGH_ACCURACY;</code>
     <h2 id="detectors-evidence">Evidence and deeper reference</h2>
     <p>The <a href="/sdk/detectors/">SDK detector reference</a> follows CSI through temporal admission, subcarrier processing, feature extraction, and on-device inference. It also covers the performance evidence available for both profiles.</p>
 
-    <div class="article-nav">
-      <a href="/guides/home-assistant/" class="doc-link"><div class="doc-link-title">← Previous: Build your Home Assistant dashboard</div><div class="doc-link-sub">Bring sensing, controls, history, and diagnostics into one view.</div></a>
-      <a href="/guides/micropython/" class="doc-link doc-link-next"><div class="doc-link-title">Next: Run ESPectre on MicroPython →</div><div class="doc-link-sub">Use upstream ESP32 CSI support and run sensing in Python.</div></a>
-    </div>
   </article>

@@ -23,13 +23,13 @@
 <meta name="twitter:image" content="https://espectre.dev/assets/images/brand/espectre-og.jpg">
 <link rel="icon" type="image/svg+xml" href="/assets/images/brand/espectre-logo.svg?v=5c234009f6c5">
 <link rel="alternate icon" type="image/png" href="/assets/images/brand/favicon.png">
-<link rel="stylesheet" href="/assets/css/styles.css?v=c7ea19a33860">
+<link rel="stylesheet" href="/assets/css/styles.css?v=10e1ba28acf9">
 <script src="/assets/js/espectre-direct.js?v=9359fea8bf00" defer></script>
 <script src="/assets/js/browser-support.js?v=ac4ba70c7f17" defer></script>
-<script src="/assets/js/route-registry.js?v=4526f65d0bd1" defer></script>
-<script src="/assets/js/navigation.js?v=bb0a8a4fb938" defer></script>
+<script src="/assets/js/route-registry.js?v=ff497c9837f5" defer></script>
+<script src="/assets/js/navigation.js?v=6abcd0e77230" defer></script>
 <script src="/assets/js/analytics.js?v=1ba5c2cbf44c" defer></script>
-<script src="/assets/js/app.js?v=664b523ccf3a" defer></script>
+<script src="/assets/js/app.js?v=569cd1478553" defer></script>
 </head>
 <body>
 
@@ -45,9 +45,9 @@
       <a href="#home" class="nav-link" data-route-link="home">Home</a>
       <a href="/tools/" class="nav-link" data-route-link="tools">Tools</a>
       <a href="/guides/" class="nav-link" data-route-link="guides">Guides</a>
-      <a href="/media/" class="nav-link" data-route-link="media">Media</a>
       <a href="/sdk/" class="nav-link" data-route-link="sdk">SDK</a>
       <a href="/roadmap/" class="nav-link" data-route-link="roadmap">Roadmap</a>
+      <a href="/media/" class="nav-link" data-route-link="media">Media</a>
       <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener" class="nav-link">GitHub ↗</a>
     </nav>
     <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="main-navigation">
@@ -103,7 +103,7 @@
         </dl>
         <p class="conn-dropdown-note js-usb-port-note" hidden>The USB port stays reserved until the installer closes.</p>
         <div class="energy-block js-live-energy" hidden>
-          <div class="energy-head"><span class="energy-title">CURRENT STATE</span><span class="mono js-motion-label">IDLE</span></div>
+          <div class="energy-head"><span class="energy-title">CURRENT STATE</span><span class="mono js-motion-label">NO MOTION</span></div>
           <div class="meter"><span class="js-energy-fill"></span></div>
         </div>
         <button class="btn-disconnect js-disconnect">Disconnect</button>
@@ -160,7 +160,7 @@
           <h1>Sense motion with the Wi-Fi already there.</h1>
           <p class="hero-sub">When people move, they change the Wi-Fi signal. ESPectre reads those changes and reports motion. You just need an ESP32 and the router you already own.</p>
           <div class="hero-actions">
-            <a href="/tools/flash/" class="hero-cta hero-cta-primary">Flash from browser</a>
+            <a href="/tools/flash/" class="hero-cta hero-cta-primary">Install from browser</a>
             <a href="/sdk/" class="hero-cta hero-cta-secondary">Explore the SDK</a>
           </div>
         </div>
@@ -249,28 +249,28 @@
         <span class="home-kicker">START HERE</span>
         <div class="home-tool-grid" aria-label="Browser tools">
           <a href="/tools/flash/" class="home-tool-card home-tool-card-primary">
-            <span class="home-card-label">FLASH</span>
-            <h3>Install firmware.</h3>
+            <span class="home-card-label">INSTALL</span>
+            <h3>Install ESPectre.</h3>
             <p>Turn a supported ESP32 into a Wi-Fi motion sensor over USB.</p>
-            <span class="home-card-action">Open Flash →</span>
+            <span class="home-card-action">Install ESPectre →</span>
           </a>
           <a href="/guides/setup/#setup-native-discovery" class="home-tool-card">
             <span class="home-card-label">DISCOVER</span>
-            <h3>Find devices on LAN.</h3>
-            <p>Find compatible devices from the browser. No mobile app, extension, or address-range scan.</p>
-            <span class="home-card-action">See how discovery works →</span>
+            <h3>Find your device.</h3>
+            <p>Search for compatible devices on the same Wi-Fi network. No app or browser extension is required.</p>
+            <span class="home-card-action">See how device search works →</span>
           </a>
           <a href="/tools/configure/" class="home-tool-card">
-            <span class="home-card-label">CONFIGURE</span>
-            <h3>Set up your sensor.</h3>
-            <p>Configure the device over its Local Direct API.</p>
-            <span class="home-card-action">Open Configure →</span>
+            <span class="home-card-label">SETTINGS</span>
+            <h3>Manage your sensor.</h3>
+            <p>Rename the device, check Wi-Fi, or connect it to Home Assistant.</p>
+            <span class="home-card-action">Open device settings →</span>
           </a>
           <a href="/tools/monitor/" class="home-tool-card">
-            <span class="home-card-label">MONITOR</span>
+            <span class="home-card-label">LIVE MOTION</span>
             <h3>Watch motion live.</h3>
-            <p>Use Local Direct API to inspect motion, tune detection, and view diagnostics.</p>
-            <span class="home-card-action">Open Monitor →</span>
+            <p>See motion as it happens, adjust detection, and check device health.</p>
+            <span class="home-card-action">View live motion →</span>
           </a>
         </div>
       </div>
@@ -290,7 +290,7 @@
         <span class="home-kicker">EXPLORE</span>
         <div class="home-resource-strip" aria-label="Explore ESPectre">
           <div class="home-resource-links">
-            <a href="/tools/"><strong>Tools</strong><span>Flash, configure, and monitor →</span></a>
+            <a href="/tools/"><strong>Tools</strong><span>Install, manage, and explore →</span></a>
             <a href="/guides/"><strong>Guides</strong><span>Setup, placement, and detection →</span></a>
             <a href="/media/"><strong>Media</strong><span>Demos, articles, and coverage →</span></a>
             <a href="/sdk/"><strong>SDK</strong><span>Integration, API, and examples →</span></a>
@@ -306,30 +306,30 @@
 
 <!-- ============================== Tools ============================== -->
 <main class="js-page page-narrow" data-page="tools" hidden>
-  <div class="js-static-content" data-content-url="content/tools.html?v=6711bf845586" data-static-url="/tools/">
+  <div class="js-static-content" data-content-url="content/tools.html?v=1409a164e262" data-static-url="/tools/">
     <p class="guide-loading">Loading tools…</p>
   </div>
 </main>
 
 <!-- ============================== Flash ============================== -->
-<main class="js-page page-narrow page-tool" data-page="tool-flash" data-static-url="/tools/flash/" hidden>
-  <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Flash</span></div>
-  <h1 class="page-title">Flash firmware</h1>
-  <p class="page-sub">Pick a firmware, plug the board into USB, and install. The installer detects the chip over serial. <br>To clear saved Wi-Fi, hold the <strong>BOOT/FLASH</strong> button for 3 seconds.</p>
+<main class="js-page page-narrow page-tool" data-page="tool-flash" data-static-url="/tools/flash/" data-page-path="tools" hidden>
+  <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Install ESPectre</span></div>
+  <h1 class="page-title">Install ESPectre</h1>
+  <p class="page-sub">Connect your board over USB, choose a firmware type, and start the installation. <br>To erase saved Wi-Fi settings, hold the <strong>BOOT/FLASH</strong> button for 3 seconds.</p>
   <div class="config-grid">
     <section class="panel">
-      <h2>Firmware</h2>
+      <h2>Choose firmware</h2>
       <div class="fields">
-        <div class="field"><label for="flash-frontend">Frontend</label><select id="flash-frontend"></select></div>
-        <div class="field"><label for="flash-channel">Channel</label>
+        <div class="field"><label for="flash-frontend">Firmware type</label><select id="flash-frontend"></select></div>
+        <div class="field"><label for="flash-channel">Version</label>
           <select id="flash-channel">
-            <option value="release">Latest Release</option>
-            <option value="preview">Release Preview</option>
-            <option value="develop">Development</option>
+            <option value="release">Stable — recommended</option>
+            <option value="preview">Preview — for testing</option>
+            <option value="develop">Development — may be unstable</option>
           </select>
         </div>
       </div>
-      <p class="tool-note">After flashing, follow the <a href="/guides/setup/">setup guide</a> for provisioning and next steps.</p>
+      <p class="tool-note">Use the stable version unless you are testing an upcoming change. After installation, follow the <a href="/guides/setup/">setup guide</a> to connect the board to Wi-Fi.</p>
     </section>
     <section class="panel">
       <h2>Install</h2>
@@ -339,7 +339,7 @@
         <esp-web-install-button class="js-flash-install">
           <button slot="activate" class="btn-primary btn-sm">Connect via USB</button>
         </esp-web-install-button>
-        <button type="button" class="btn-secondary btn-sm js-matter-read" hidden>Read QR via USB</button>
+        <button type="button" class="btn-secondary btn-sm js-matter-read" hidden>Device QR code</button>
         <a class="btn-secondary btn-sm js-firmware-releases" href="https://github.com/francescopace/espectre/releases" target="_blank" rel="noopener">Browse GitHub releases</a>
       </div>
       <p class="tool-note js-matter-status" role="status" hidden></p>
@@ -348,10 +348,10 @@
 </main>
 
 <!-- ============================== Configure ============================== -->
-<main class="js-page page-narrow page-tool" data-page="tool-configure" data-static-url="/tools/configure/" hidden>
-  <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Configure</span></div>
-  <h1 class="page-title">Configure</h1>
-  <p class="page-sub">Connect to a device on this LAN. Available identity, Wi-Fi, and MQTT settings depend on its firmware.</p>
+<main class="js-page page-narrow page-tool" data-page="tool-configure" data-static-url="/tools/configure/" data-page-path="tools" hidden>
+  <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Device settings</span></div>
+  <h1 class="page-title">Device settings</h1>
+  <p class="page-sub">Connect to an ESPectre on the same Wi-Fi network to rename it, check its connection, or set up Home Assistant.</p>
 
   <div class="js-configure-onboarding">
     <espectre-connection-picker data-surface="configure"></espectre-connection-picker>
@@ -389,21 +389,21 @@
       <div class="config-grid connectivity-grid js-connectivity-setup" hidden>
       <section class="panel">
         <div class="panel-heading">
-          <div><span class="panel-eyebrow">Primary connection</span><h2>Wi-Fi</h2></div>
+          <div><span class="panel-eyebrow">Device connection</span><h2>Wi-Fi</h2></div>
           <span class="config-status js-wifi-status" role="status" data-capability="supports_wifi_status"><span class="dot dot-idle js-wifi-status-dot" aria-hidden="true"></span><span class="js-wifi-status-text">Checking…</span></span>
         </div>
         <div data-capability="supports_wifi_status">
-        <p class="panel-intro">Optionally lock ESPectre to one access point. Use <a href="/tools/flash/">Flash</a> to change the network or its password.</p>
+        <p class="panel-intro">If your home has more than one access point or mesh node, you can choose which one ESPectre should use. Reconnect over <a href="/tools/flash/">USB</a> to change the Wi-Fi network or password.</p>
         <div class="fields">
-          <div class="field"><label for="cfg-ssid">Current SSID</label><input type="text" id="cfg-ssid" readonly></div>
+          <div class="field"><label for="cfg-ssid">Wi-Fi network</label><input type="text" id="cfg-ssid" readonly></div>
           <div class="field-row">
             <div class="field"><label for="cfg-wifi-band">Current band</label><input type="text" id="cfg-wifi-band" readonly></div>
             <div class="field"><label for="cfg-channel">Current channel</label><input type="text" id="cfg-channel" readonly></div>
           </div>
-          <div class="field" data-capability="supports_wifi_bssid"><label for="cfg-bssid">Access point (BSSID)</label><div class="wifi-bssid-control"><select id="cfg-bssid" aria-describedby="cfg-bssid-help"><option value="">Automatic (strongest available)</option></select><button type="button" class="wifi-refresh-button js-wifi-scan" aria-label="Refresh access points" title="Refresh access points"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 12a9 9 0 0 0-15.74-6L3 9M3 3v6h6M3 12a9 9 0 0 0 15.74 6L21 15M15 15h6v6"/></svg></button></div><small class="field-help js-wifi-scan-status" id="cfg-bssid-help" role="status" aria-live="polite">Refresh to list access-point BSSIDs.</small></div>
+          <div class="field" data-capability="supports_wifi_bssid"><label for="cfg-bssid">Preferred access point</label><div class="wifi-bssid-control"><select id="cfg-bssid" aria-describedby="cfg-bssid-help"><option value="">Automatic (strongest available)</option></select><button type="button" class="wifi-refresh-button js-wifi-scan" aria-label="Scan for access points" title="Scan for access points"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 12a9 9 0 0 0-15.74-6L3 9M3 3v6h6M3 12a9 9 0 0 0 15.74 6L21 15M15 15h6v6"/></svg></button></div><small class="field-help js-wifi-scan-status" id="cfg-bssid-help" role="status" aria-live="polite">Select scan to list nearby access points.</small></div>
         </div>
         <div class="panel-actions wifi-panel-actions">
-          <button class="btn-primary btn-sm js-wifi-save" data-capability="supports_wifi_bssid">Save Access Point</button>
+          <button class="btn-primary btn-sm js-wifi-save" data-capability="supports_wifi_bssid">Save Wi-Fi preference</button>
           <button class="btn-danger-ghost btn-sm js-wifi-clear" data-capability="supports_wifi_clear" hidden>Reset Wi-Fi</button>
         </div>
         </div>
@@ -416,7 +416,7 @@
           <span class="config-status js-mqtt-status" role="status" data-capability="supports_mqtt_config"><span class="dot dot-idle js-mqtt-status-dot" aria-hidden="true"></span><span class="js-mqtt-status-text">Checking…</span></span>
         </div>
         <div data-capability="supports_mqtt_config">
-        <p class="panel-intro">MQTT is optional and can stay empty. Connect to Home Assistant to publish MQTT Discovery so the device, sensors, and controls appear there automatically, or use a LAN or supported cloud broker.</p>
+        <p class="panel-intro">Use MQTT to add ESPectre to Home Assistant or another automation system. Leave this section empty if you do not need it.</p>
         <div class="fields">
           <div class="field-row mqtt-host-port-row">
             <div class="field">
@@ -449,7 +449,7 @@
           </details>
         </div>
         <div class="panel-actions">
-          <button class="btn-primary btn-sm js-mqtt-save">Save MQTT</button>
+          <button class="btn-primary btn-sm js-mqtt-save">Save MQTT settings</button>
           <button class="btn-danger-ghost btn-sm js-mqtt-clear">Remove MQTT configuration</button>
         </div>
         </div>
@@ -462,10 +462,10 @@
 </main>
 
 <!-- ============================== Monitor ============================== -->
-<main class="js-page page-narrow page-tool" data-page="tool-monitor" data-static-url="/tools/monitor/" hidden>
-  <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Monitor</span></div>
-  <h1 class="page-title">Monitor</h1>
-  <p class="page-sub">Monitor one device through local HTTP or simulated data.</p>
+<main class="js-page page-narrow page-tool" data-page="tool-monitor" data-static-url="/tools/monitor/" data-page-path="tools" hidden>
+  <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Live motion</span></div>
+  <h1 class="page-title">Live motion</h1>
+  <p class="page-sub">See motion as it happens, adjust detection, and check that the device is working. You can also explore with simulated data.</p>
   <div class="js-monitor-onboarding">
     <espectre-connection-picker data-surface="monitor" data-open-view="live"></espectre-connection-picker>
   </div>
@@ -493,7 +493,7 @@
         </div>
       </div>
       <div class="device-banner-actions">
-        <button class="btn-secondary btn-sm js-device-edit-connectivity">Edit connectivity</button>
+        <button class="btn-secondary btn-sm js-device-edit-connectivity">Wi-Fi and integrations</button>
       </div>
     </div>
 
@@ -505,37 +505,43 @@
             <div class="device-motion-score"><span class="stat-label">Movement score</span><strong class="js-mon-move">—</strong></div>
           </div>
           <canvas class="mon-chart js-mon-chart" height="210"></canvas>
-          <p class="tool-note">Movement score versus threshold, last 60 seconds.</p>
+          <p class="tool-note">The line shows the last 60 seconds. Motion starts when the movement score crosses the threshold.</p>
         </section>
         <section class="panel">
           <div class="live-sensing-controls">
-            <h2>Sensing controls</h2>
-            <p>Changes are sent to the device immediately.</p>
+            <h2>Motion settings</h2>
+            <p>Changes are saved to the device immediately.</p>
             <div class="live-controls-grid">
               <div class="field" data-device-command="set_threshold">
-                <label for="sense-threshold">Detection threshold</label>
+                <label for="sense-threshold">Motion threshold</label>
                 <input type="number" id="sense-threshold" min="0" max="1" step="0.01" value="0.5">
+                <small class="field-help">Lower values react to smaller changes.</small>
               </div>
               <div class="field" data-device-command="set_detector">
-                <label for="sense-detector">Detection profile</label>
-                <select id="sense-detector"><option value="lightweight">Lightweight</option><option value="high_accuracy">High Accuracy</option></select>
+                <label for="sense-detector">Detection mode</label>
+                <select id="sense-detector"><option value="lightweight">Lightweight</option><option value="high_accuracy">High accuracy</option></select>
               </div>
               <div class="live-control-wide live-calibration" data-device-command="recalibrate">
-                <div><strong>Lightweight Calibration</strong><p>Keep the room quiet while the detector establishes a new baseline.</p></div>
-                <button class="btn-secondary btn-sm js-sense-recalibrate">Recalibrate</button>
+                <div><strong>Calibrate the room</strong><p>Keep the room still while ESPectre learns the normal Wi-Fi signal.</p></div>
+                <button class="btn-secondary btn-sm js-sense-recalibrate">Calibrate</button>
               </div>
-              <div class="field-row live-control-wide" data-device-command="set_motion_hits">
-                <div class="field"><label for="sense-motion-on">Motion on hits</label><input type="number" id="sense-motion-on" min="1" max="20" value="3"></div>
-                <div class="field"><label for="sense-motion-off">Motion off hits</label><input type="number" id="sense-motion-off" min="1" max="20" value="3"></div>
-              </div>
-              <div class="field" data-device-command="set_csi_traffic_mode">
-                <label for="sense-csi-mode">CSI traffic ownership</label>
-                <select id="sense-csi-mode"><option value="internal">Internal</option><option value="external">External</option></select>
-              </div>
-              <div class="field" data-device-command="set_traffic_generator_mode">
-                <label for="sense-generator-mode">Internal generator</label>
-                <select id="sense-generator-mode"><option value="ping">Ping</option><option value="dns">DNS</option></select>
-              </div>
+              <details class="config-advanced live-control-wide">
+                <summary>Advanced sensing settings</summary>
+                <div class="config-advanced-body fields">
+                  <div class="field-row" data-device-command="set_motion_hits">
+                    <div class="field"><label for="sense-motion-on">Readings to turn motion on</label><input type="number" id="sense-motion-on" min="1" max="20" value="3"></div>
+                    <div class="field"><label for="sense-motion-off">Readings to turn motion off</label><input type="number" id="sense-motion-off" min="1" max="20" value="3"></div>
+                  </div>
+                  <div class="field" data-device-command="set_csi_traffic_mode">
+                    <label for="sense-csi-mode">Wi-Fi traffic source</label>
+                    <select id="sense-csi-mode"><option value="internal">Generated by ESPectre</option><option value="external">External device</option></select>
+                  </div>
+                  <div class="field" data-device-command="set_traffic_generator_mode">
+                    <label for="sense-generator-mode">Built-in traffic type</label>
+                    <select id="sense-generator-mode"><option value="ping">Ping</option><option value="dns">DNS</option></select>
+                  </div>
+                </div>
+              </details>
             </div>
           </div>
         </section>
@@ -560,19 +566,19 @@
 </main>
 
 <!-- ============================== Raw CSI ============================== -->
-<main class="js-page page-narrow page-tool" data-page="tool-raw-csi" data-static-url="/tools/raw-csi/" hidden>
-  <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Raw CSI</span></div>
-  <h1 class="page-title">Raw CSI</h1>
-  <p class="page-sub">Visualize raw Wi-Fi channel data as it changes over time, compare signal views, and inspect stream health. Starting the raw stream pauses standard sensing until the stream stops.</p>
+<main class="js-page page-narrow page-tool" data-page="tool-raw-csi" data-static-url="/tools/raw-csi/" data-page-path="tools" hidden>
+  <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Raw Wi-Fi signal</span></div>
+  <h1 class="page-title">Raw Wi-Fi signal</h1>
+  <p class="page-sub">Explore how the Wi-Fi signal changes over time. This advanced view pauses normal motion sensing while the signal stream is running.</p>
 
   <div class="js-raw-csi-onboarding">
     <espectre-connection-picker data-surface="raw-csi"></espectre-connection-picker>
   </div>
 
   <section class="device-connect-card connection-card empty-state js-raw-csi-unavailable" hidden>
-    <span class="connection-card-eyebrow">Raw-capable firmware required</span>
-    <h2>Raw CSI is unavailable on this device</h2>
-    <p>The active Direct HTTP device does not advertise the raw CSI stream.</p>
+    <span class="connection-card-eyebrow">Compatible firmware required</span>
+    <h2>This device cannot open the signal viewer</h2>
+    <p>The installed firmware does not support the Raw CSI viewer.</p>
     <div class="panel-actions">
       <button type="button" class="btn-primary js-raw-csi-choose-device">Choose another device</button>
     </div>
@@ -586,7 +592,7 @@
             <h2 class="js-raw-visualization-title">Channel heatmap</h2>
             <span class="chip js-raw-visualization-badge">LIVE</span>
           </div>
-          <p class="tool-note raw-csi-visualization-description js-raw-visualization-description">Brightness shows normalized amplitude; cyan and coral reveal movement around the slow baseline.</p>
+          <p class="tool-note raw-csi-visualization-description js-raw-visualization-description">Brightness shows signal strength. Cyan and coral show changes around the recent baseline.</p>
         </div>
         <div class="raw-csi-visualization-actions">
           <button type="button" class="btn-primary btn-sm js-raw-csi-toggle">Start</button>
@@ -604,8 +610,8 @@
       <div class="raw-csi-visualization-stage">
         <canvas class="js-raw-visualization" width="960" height="420" aria-label="Combined CSI amplitude and motion heatmap over time"></canvas>
       </div>
-      <p class="tool-note js-raw-csi-status" role="status" aria-live="polite">Connected. Start the ephemeral stream when ready.</p>
-      <p class="tool-note js-raw-csi-external-hint" hidden>External traffic mode is active. If no packets arrive, <a href="/tools/configure/">configure the device traffic source</a>.</p>
+      <p class="tool-note js-raw-csi-status" role="status" aria-live="polite">Connected. Start the temporary signal stream when ready. Nothing is uploaded or stored.</p>
+      <p class="tool-note js-raw-csi-external-hint" hidden>This device is waiting for an external Wi-Fi traffic source. If the view stays empty, <a href="/tools/configure/">change the traffic source</a>.</p>
     </section>
 
     <details class="device-live-diagnostics raw-csi-diagnostics">
@@ -624,10 +630,10 @@
 </main>
 
 <!-- ============================== Theremin ============================== -->
-<main class="js-page page-narrow page-tool" data-page="tool-theremin" data-static-url="/tools/theremin/" hidden>
+<main class="js-page page-narrow page-tool" data-page="tool-theremin" data-static-url="/tools/theremin/" data-page-path="tools" hidden>
   <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Theremin</span></div>
   <h1 class="page-title">Motion theremin</h1>
-  <p class="page-sub">Turn live motion energy from Direct HTTP into sound, or explore the interaction in demo mode.</p>
+  <p class="page-sub">Connect a device and turn movement into sound, or try the instrument in demo mode.</p>
 
   <espectre-connection-picker class="js-needs-live" data-surface="theremin" data-open-view="live"></espectre-connection-picker>
 
@@ -655,7 +661,7 @@
 </main>
 
 <!-- ============================== Game ============================== -->
-<main class="js-page page-narrow page-tool" data-page="tool-game" data-static-url="/tools/game/" hidden>
+<main class="js-page page-narrow page-tool" data-page="tool-game" data-static-url="/tools/game/" data-page-path="tools" hidden>
   <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Game</span></div>
   <h1 class="page-title">Run with the Spectre</h1>
   <p class="page-sub">Move to fly, stay quiet to descend, and steer the Spectre through the course.</p>
@@ -665,7 +671,7 @@
   <div class="js-has-live" hidden>
     <div class="game-stage panel">
       <div class="game-screen">
-        <canvas class="game-canvas js-game-canvas" width="840" height="340" tabindex="0" role="img" aria-label="The Spectre flies through a course with high and low obstacles and collectible golden orbs. In demo mode, hold Space, Arrow Up, or the course to fly."></canvas>
+        <canvas class="game-canvas js-game-canvas" width="840" height="340" tabindex="0" role="img" aria-label="The Spectre flies through a course with high and low obstacles and collectible golden orbs. In demo mode, hold Space, Arrow Up, or press and hold the game to fly."></canvas>
         <div class="game-status" role="group" aria-label="Game status">
           <div class="game-status-head">
             <div class="game-screen-badge js-game-badge">READY</div>
@@ -683,7 +689,7 @@
             <span class="game-motion-threshold js-game-motion-threshold"></span>
           </div>
           <span class="game-motion-label">Movement</span>
-          <input type="range" id="game-fullscreen-threshold" class="game-motion-threshold-input js-game-fullscreen-threshold" min="0" max="1" step="0.01" value="0.5" aria-label="Drag vertically to adjust the game flight threshold" aria-valuetext="0.50">
+          <input type="range" id="game-fullscreen-threshold" class="game-motion-threshold-input js-game-fullscreen-threshold" min="0" max="1" step="0.01" value="0.5" aria-label="Movement needed to fly" aria-valuetext="0.50">
         </div>
         <div class="game-screen-controls">
           <button type="button" class="game-sound js-game-sound" aria-label="Mute game audio" aria-pressed="true">Sound on</button>
@@ -695,8 +701,8 @@
       <div class="game-meter-block">
         <div class="meter meter-lg game-meter"><span class="js-energy-fill"></span></div>
         <div class="game-threshold-control">
-          <input type="range" id="game-threshold" class="game-threshold-slider js-game-threshold" min="0" max="1" step="0.01" value="0.5" aria-label="Game flight threshold" aria-valuetext="0.50">
-          <p class="tool-note">Flight line <strong class="js-game-threshold-value">0.50</strong>. It starts at 0.50 whenever you open the game. Drag to retune this game only; the device threshold does not change.</p>
+          <input type="range" id="game-threshold" class="game-threshold-slider js-game-threshold" min="0" max="1" step="0.01" value="0.5" aria-label="Movement needed to fly" aria-valuetext="0.50">
+          <p class="tool-note">Movement needed to fly: <strong class="js-game-threshold-value">0.50</strong>. Raise it if the Spectre flies too easily, or lower it if the Spectre will not take off. This setting affects only the game.</p>
         </div>
       </div>
     </div>
@@ -705,63 +711,63 @@
 
 <!-- ============================== Guides ============================== -->
 <main class="js-page page-narrow" data-page="guides" hidden>
-  <div class="js-static-content" data-content-url="content/guides.html?v=c26dabcd319a" data-static-url="/guides/">
+  <div class="js-static-content" data-content-url="content/guides.html?v=ef14693153c7" data-static-url="/guides/">
     <p class="guide-loading">Loading guides…</p>
   </div>
 </main>
 
 <!-- ============================== SDK ============================== -->
 <main class="js-page page-narrow" data-page="sdk" hidden>
-  <div class="js-static-content" data-content-url="content/sdk.html?v=8e677830605f" data-static-url="/sdk/">
+  <div class="js-static-content" data-content-url="content/sdk.html?v=13f326641432" data-static-url="/sdk/">
     <p class="guide-loading">Loading SDK…</p>
   </div>
 </main>
 
 <!-- ============================== Media ============================== -->
 <main class="js-page page-narrow" data-page="media" hidden>
-  <div class="js-static-content" data-content-url="content/media.html?v=f3388ac9f4e3" data-static-url="/media/">
+  <div class="js-static-content" data-content-url="content/media.html?v=dc5b76922630" data-static-url="/media/">
     <p class="guide-loading">Loading media…</p>
   </div>
 </main>
 
 <!-- ============================== Roadmap ============================== -->
 <main class="js-page page-narrow" data-page="roadmap" hidden>
-  <div class="js-static-content" data-content-url="content/roadmap.html?v=aded89cf5365" data-static-url="/roadmap/">
+  <div class="js-static-content" data-content-url="content/roadmap.html?v=5a52ca7a835b" data-static-url="/roadmap/">
     <p class="guide-loading">Loading roadmap…</p>
   </div>
 </main>
 
 <!-- ============================== Privacy ============================== -->
 <main class="js-page page-narrow" data-page="privacy" hidden>
-  <div class="js-static-content" data-content-url="content/privacy.html?v=a1f3d4d3e9f2" data-static-url="/privacy/">
+  <div class="js-static-content" data-content-url="content/privacy.html?v=173ce189d0d8" data-static-url="/privacy/">
     <p class="guide-loading">Loading privacy notice…</p>
   </div>
 </main>
 
 <!-- ============================== Commercial Licensing ============================== -->
 <main class="js-page page-narrow" data-page="licensing" hidden>
-  <div class="js-static-content" data-content-url="content/licensing.html?v=6b0178a098aa" data-static-url="/licensing/">
+  <div class="js-static-content" data-content-url="content/licensing.html?v=f1e741092432" data-static-url="/licensing/">
     <p class="guide-loading">Loading licensing information…</p>
   </div>
 </main>
 
 <!-- ============================== Terms ============================== -->
 <main class="js-page page-narrow" data-page="terms" hidden>
-  <div class="js-static-content" data-content-url="content/terms.html?v=14ab33bbcc1d" data-static-url="/terms/">
+  <div class="js-static-content" data-content-url="content/terms.html?v=d0998385a4cc" data-static-url="/terms/">
     <p class="guide-loading">Loading terms of use…</p>
   </div>
 </main>
 
 <!-- ============================== Legal Information ============================== -->
 <main class="js-page page-narrow" data-page="legal" hidden>
-  <div class="js-static-content" data-content-url="content/legal.html?v=efde4a95c94f" data-static-url="/legal/">
+  <div class="js-static-content" data-content-url="content/legal.html?v=1fbbe48417ba" data-static-url="/legal/">
     <p class="guide-loading">Loading legal information…</p>
   </div>
 </main>
 
 <!-- ============================== Security ============================== -->
 <main class="js-page page-narrow" data-page="security" hidden>
-  <div class="js-static-content" data-content-url="content/security.html?v=1dcda9362b3f" data-static-url="/security/">
+  <div class="js-static-content" data-content-url="content/security.html?v=f26e547262f8" data-static-url="/security/">
     <p class="guide-loading">Loading security information…</p>
   </div>
 </main>
@@ -775,48 +781,48 @@
 
 <!-- ============================== Guide: Hardware ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-hardware" hidden>
-  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Hardware</span></div>
-  <div class="js-static-content" data-content-url="content/guides/hardware.html?v=abe0120d25e9" data-static-url="/guides/hardware/">
+  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Choose your hardware</span></div>
+  <div class="js-static-content" data-content-url="content/guides/hardware.html?v=654f07b137e8" data-static-url="/guides/hardware/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
 
 <!-- ============================== Guide: Setup ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-setup" hidden>
-  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Flash &amp; Wi-Fi setup</span></div>
-  <div class="js-static-content" data-content-url="content/guides/setup.html?v=26d9b70c31ec" data-static-url="/guides/setup/">
+  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Flash and set up your device</span></div>
+  <div class="js-static-content" data-content-url="content/guides/setup.html?v=a963bcec41d9" data-static-url="/guides/setup/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
 
 <!-- ============================== Guide: Home Assistant dashboard ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-home-assistant" hidden>
-  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Home Assistant dashboard</span></div>
-  <div class="js-static-content" data-content-url="content/guides/home-assistant.html?v=5ffaa7b1083f" data-static-url="/guides/home-assistant/">
+  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Build your Home Assistant dashboard</span></div>
+  <div class="js-static-content" data-content-url="content/guides/home-assistant.html?v=b7c12f105f64" data-static-url="/guides/home-assistant/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
 
 <!-- ============================== Guide: Placement ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-placement" hidden>
-  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Place your sensor</span></div>
-  <div class="js-static-content" data-content-url="content/guides/placement.html?v=9fcd20692460" data-static-url="/guides/placement/">
+  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Place your ESPectre sensor</span></div>
+  <div class="js-static-content" data-content-url="content/guides/placement.html?v=f9e75767bf55" data-static-url="/guides/placement/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
 
 <!-- ============================== Guide: Detection ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-detection" hidden>
-  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">How Wi-Fi sensing works</span></div>
-  <div class="js-static-content" data-content-url="content/guides/detection.html?v=3180e0ee74cb" data-static-url="/guides/detection/">
+  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">How Wi-Fi sensing detects movement</span></div>
+  <div class="js-static-content" data-content-url="content/guides/detection.html?v=f19eb314e017" data-static-url="/guides/detection/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
 
 <!-- ============================== Guide: Detection profiles ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-detectors" hidden>
-  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Choose a detection profile</span></div>
-  <div class="js-static-content" data-content-url="content/guides/detectors.html?v=824cbe1ef561" data-static-url="/guides/detectors/">
+  <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Choose your detection profile</span></div>
+  <div class="js-static-content" data-content-url="content/guides/detectors.html?v=7fa17f4c578d" data-static-url="/guides/detectors/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -824,7 +830,7 @@
 <!-- ============================== Guide: MicroPython ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-micropython" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Run ESPectre on MicroPython</span></div>
-  <div class="js-static-content" data-content-url="content/guides/micropython.html?v=f6f5a2f22f3d" data-static-url="/guides/micropython/">
+  <div class="js-static-content" data-content-url="content/guides/micropython.html?v=d0618c67d789" data-static-url="/guides/micropython/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -832,15 +838,15 @@
 <!-- ============================== Guide: Future Wi-Fi sensing ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-future-wifi-sensing" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">The future of Wi-Fi sensing</span></div>
-  <div class="js-static-content" data-content-url="content/guides/future-wifi-sensing.html?v=64eaaee7e7ee" data-static-url="/guides/future-wifi-sensing/">
+  <div class="js-static-content" data-content-url="content/guides/future-wifi-sensing.html?v=c71dc985ad3b" data-static-url="/guides/future-wifi-sensing/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
 
 <!-- ============================== SDK: API ============================== -->
 <main class="js-page page-narrow page-article" data-page="sdk-api" hidden>
-  <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">API orientation</span></div>
-  <div class="js-static-content" data-content-url="content/sdk/api.html?v=70600d2a1f2a" data-static-url="/sdk/api/">
+  <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">API reference</span></div>
+  <div class="js-static-content" data-content-url="content/sdk/api.html?v=d381046fc76d" data-static-url="/sdk/api/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -848,7 +854,7 @@
 <!-- ============================== SDK: Detectors ============================== -->
 <main class="js-page page-narrow page-article" data-page="sdk-detectors" hidden>
   <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">Detector architecture</span></div>
-  <div class="js-static-content" data-content-url="content/sdk/detectors.html?v=f2d1a77e22ab" data-static-url="/sdk/detectors/">
+  <div class="js-static-content" data-content-url="content/sdk/detectors.html?v=56b92870757f" data-static-url="/sdk/detectors/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -856,7 +862,7 @@
 <!-- ============================== SDK: Examples ============================== -->
 <main class="js-page page-narrow page-article" data-page="sdk-examples" hidden>
   <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">Examples</span></div>
-  <div class="js-static-content" data-content-url="content/sdk/examples.html?v=e08b8e9494c0" data-static-url="/sdk/examples/">
+  <div class="js-static-content" data-content-url="content/sdk/examples.html?v=ad2bee4f52f2" data-static-url="/sdk/examples/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -864,7 +870,7 @@
 <!-- ============================== SDK: Architecture ============================== -->
 <main class="js-page page-narrow page-article" data-page="sdk-architecture" hidden>
   <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">Architecture</span></div>
-  <div class="js-static-content" data-content-url="content/sdk/architecture.html?v=0b030c2030b8" data-static-url="/sdk/architecture/">
+  <div class="js-static-content" data-content-url="content/sdk/architecture.html?v=18b1551a4036" data-static-url="/sdk/architecture/">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -875,31 +881,31 @@
   <fieldset class="transport-choice">
     <label for="connection-picker-direct" data-connection-label="direct"><input type="radio" id="connection-picker-direct" name="connection-picker" data-connection-mode="direct" value="direct" checked> Local connection <small>recommended</small></label>
     <label for="connection-picker-demo" data-connection-label="demo"><input type="radio" id="connection-picker-demo" name="connection-picker" data-connection-mode="demo" value="demo"> Demo <small>simulation</small></label>
-    <label for="connection-picker-relay" data-connection-label="relay"><input type="radio" id="connection-picker-relay" name="connection-picker" data-connection-mode="relay" value="relay"> Remote connection <small>coming soon</small></label>
+    <label for="connection-picker-relay" data-connection-label="relay"><input type="radio" id="connection-picker-relay" name="connection-picker" data-connection-mode="relay" value="relay"> Remote connection <small>planned</small></label>
   </fieldset>
   <espectre-direct-connect data-connection-panel="direct" data-transport="direct"></espectre-direct-connect>
   <section class="device-connect-card connection-card demo-connect-card empty-state" data-connection-panel="demo" data-transport="demo" hidden>
     <span class="connection-card-eyebrow">Demo</span>
     <h2>Explore without a device</h2>
-    <p>Preview ESPectre browser tools without a device.</p>
+    <p>Try the browser tools with simulated motion. The demo does not connect to a device.</p>
     <div class="demo-connect-summary">
       <ul class="demo-connect-list">
         <li>Move the pointer to generate simulated motion.</li>
-        <li>Try sensing controls, visualizations, and diagnostics.</li>
-        <li>All simulated values stay in this browser.</li>
+        <li>Try motion settings, signal views, and diagnostics.</li>
+        <li>The demo does not read data from a device or local network.</li>
       </ul>
     </div>
     <button type="button" class="btn-primary js-demo">Start demo</button>
   </section>
   <section class="device-connect-card connection-card relay-connect-card empty-state" data-connection-panel="relay" data-transport="relay" hidden>
     <span class="connection-card-eyebrow">Remote connection</span>
-    <h2>Connect through Relay</h2>
-    <p>Reach an ESPectre device beyond the local network without exposing it directly.</p>
+    <h2>Remote connection is planned</h2>
+    <p>Relay is not available yet. The planned connection will reach a device outside your local network.</p>
     <div class="demo-connect-summary">
       <ul class="demo-connect-list">
-        <li>Encrypted, device-initiated connections.</li>
-        <li>Remote live sensing, controls, and diagnostics.</li>
-        <li>No inbound port forwarding.</li>
+        <li>Connections would be encrypted and started by the device.</li>
+        <li>Remote sensing, controls, and diagnostics would be available.</li>
+        <li>No inbound port forwarding would be required.</li>
       </ul>
     </div>
     <button type="button" class="btn-primary" disabled>Coming soon</button>
@@ -910,21 +916,21 @@
   <section class="device-connect-card connection-card direct-connect-card empty-state" data-transport="direct">
     <span class="connection-card-eyebrow">Local connection</span>
     <h2>Find your ESPectre</h2>
-    <p>Find compatible ESPectre devices on this LAN without looking up or entering an IP address. Discovery stays local; Chrome may ask for Local Network Access.</p>
-    <p class="tool-note js-direct-browser-note" role="status">Your browser may ask for Local network access. Allow it only for this site and the LAN you intend to manage.</p>
+    <p>Search for ESPectre devices on the same Wi-Fi network. Chrome may ask for permission to access local devices.</p>
+    <p class="tool-note js-direct-browser-note" role="status">If Chrome asks for local network access, allow it only for this site and the network you want to manage.</p>
     <button type="button" class="btn-primary js-direct-discover">Find devices</button>
     <div class="direct-discovery js-direct-discovery" role="status" aria-live="polite" hidden></div>
     <div class="direct-connection-help js-direct-help" role="alert" hidden>
       <strong>Could not connect to the device</strong>
       <p class="js-direct-help-copy"></p>
-      <p><a href="/security/#local-access-title">Browser and local-network help</a></p>
+      <p><a href="/security/#local-access-title">Open connection help</a></p>
     </div>
-    <div class="direct-connect-divider"><span>or connect manually</span></div>
+    <div class="direct-connect-divider"><span>or enter an address</span></div>
     <div class="direct-connect-manual">
-      <div class="field"><label for="direct-endpoint" class="js-direct-endpoint-label">Device IP, ID, or name</label><input type="text" id="direct-endpoint" class="mono-input js-direct-endpoint" list="direct-remembered-endpoints" placeholder="192.168.1.42, abcdef, or Kitchen" autocomplete="off" spellcheck="false"></div>
+      <div class="field"><label for="direct-endpoint" class="js-direct-endpoint-label">Device address, ID, or name</label><input type="text" id="direct-endpoint" class="mono-input js-direct-endpoint" list="direct-remembered-endpoints" placeholder="192.168.1.42, abcdef, or Kitchen" autocomplete="off" spellcheck="false"></div>
       <button class="btn-secondary btn-sm js-connect-direct"><span class="js-connect-label">Connect</span></button>
     </div>
-    <p class="tool-note">If mDNS is unavailable, use the private IP address of the ESPectre device. <a href="/guides/setup/#setup-native-discovery">See the browser and operating-system support matrix.</a></p>
+    <p class="tool-note">If search cannot find the device, enter the IP address shown during Wi-Fi setup or in your router. <a href="/guides/setup/#setup-native-discovery">See connection help.</a></p>
     <p class="tool-note direct-connection-status js-direct-status" role="status" aria-live="polite" hidden></p>
     <p class="direct-connect-recovery">Not on the network yet? Complete Wi-Fi setup over <a href="/tools/flash/">USB</a>.</p>
   </section>
@@ -952,14 +958,14 @@
   <section class="modal-card matter-modal-card" role="dialog" aria-modal="true" aria-labelledby="matter-modal-title" aria-describedby="matter-modal-description" tabindex="-1">
     <div class="modal-head">
       <div>
-        <span class="modal-kicker">Matter onboarding</span>
-        <h2 id="matter-modal-title">Commission this device</h2>
+        <span class="modal-kicker">Matter setup</span>
+        <h2 id="matter-modal-title">Add this device to Matter</h2>
       </div>
-      <button type="button" class="modal-close js-matter-close" aria-label="Close Matter onboarding dialog">×</button>
+      <button type="button" class="modal-close js-matter-close" aria-label="Close Matter setup dialog">×</button>
     </div>
-    <p class="modal-description" id="matter-modal-description">Scan the QR code with your Matter controller, or enter the manual code.</p>
+    <p class="modal-description" id="matter-modal-description">Scan the QR code in your Matter app, or enter the manual setup code.</p>
     <div class="matter-result js-matter-result" hidden>
-      <div class="matter-qr js-matter-canvas" role="img" aria-label="Matter commissioning QR code"></div>
+      <div class="matter-qr js-matter-canvas" role="img" aria-label="Matter setup QR code"></div>
       <dl class="matter-codes">
         <div><dt>QR payload</dt><dd><code class="js-matter-payload"></code></dd></div>
         <div><dt>Manual code</dt><dd><code class="js-matter-manual"></code></dd></div>
@@ -994,17 +1000,17 @@
     <div class="modal-head">
       <div>
         <span class="modal-kicker">Device update</span>
-        <h2 id="ota-modal-title">OTA update</h2>
+        <h2 id="ota-modal-title">Update firmware</h2>
       </div>
       <button type="button" class="modal-close js-ota-close" aria-label="Close update dialog">×</button>
     </div>
-    <p class="modal-description" id="ota-modal-description">Update information reported by the connected device.</p>
+    <p class="modal-description" id="ota-modal-description">Check the installed version and choose which type of update to install.</p>
     <div class="field ota-channel-field">
-      <label for="ota-channel">Channel</label>
+      <label for="ota-channel">Update type</label>
       <select id="ota-channel">
-        <option value="release" selected>Latest Release</option>
-        <option value="preview">Release Preview</option>
-        <option value="develop">Development</option>
+        <option value="release" selected>Stable — recommended</option>
+        <option value="preview">Preview — for testing</option>
+        <option value="develop">Development — may be unstable</option>
       </select>
     </div>
     <div class="ota-details-grid">
@@ -1037,6 +1043,6 @@
 </div>
 
 <div class="toast js-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
-<div class="toast toast-sticky js-demo-toast" role="status" aria-live="polite" hidden>Demo mode - Motion is simulated by moving the mouse.</div>
+<div class="toast toast-sticky js-demo-toast" role="status" aria-live="polite" hidden>Demo mode — move the pointer to simulate motion.</div>
 </body>
 </html>

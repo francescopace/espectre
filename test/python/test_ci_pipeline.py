@@ -99,6 +99,9 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
         bundled_doxyfile = archive.read(doxy_name).decode("utf-8")
     assert re.search(r"(?m)^OUTPUT_DIRECTORY\s*=\s*output\s*$", bundled_doxyfile)
     assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*3\.0\.0\s*$", bundled_doxyfile)
+    assert re.search(r"(?m)^GENERATE_HTML\s*=\s*NO\s*$", bundled_doxyfile)
+    assert re.search(r"(?m)^GENERATE_XML\s*=\s*YES\s*$", bundled_doxyfile)
+    assert not any("/src/cpp/doxygen/" in path for path in archived)
     assert "docs/web/artifacts/sdk" not in bundled_doxyfile
     repo_doxyfile = (REPO_ROOT / "src" / "cpp" / "Doxyfile").read_text(encoding="utf-8")
     assert re.search(r"(?m)^OUTPUT_DIRECTORY\s*=\s*docs/web/artifacts/sdk\s*$", repo_doxyfile)
@@ -320,24 +323,76 @@ def test_generate_sdk_api_stamps_a_working_copy_without_mutating_the_repo(
     stale_page = api_output / "stale-internal-type.html"
     stale_page.write_text("stale", encoding="utf-8")
 
-    def fake_run(cmd, *, cwd, check):
-        assert cmd[0] == "doxygen"
-        assert len(cmd) == 2
-        assert check is True
-        assert cwd == generator.REPO_ROOT
-        stamped = Path(cmd[1]).read_text(encoding="utf-8")
+    def stamped_output(path: Path) -> Path:
+        source = path.read_text(encoding="utf-8")
+        match = re.search(r"(?m)^OUTPUT_DIRECTORY\s*=\s*(\S+)\s*$", source)
+        assert match is not None
+        return Path(match.group(1))
+
+    def fake_doxygen(path: Path) -> None:
+        stamped = path.read_text(encoding="utf-8")
         match = re.search(r"(?m)^PROJECT_NUMBER\s*=\s*(\S+)\s*$", stamped)
         assert match is not None
         stamped_versions.append(match.group(1))
-        return subprocess.CompletedProcess(cmd, 0)
+        xml = stamped_output(path) / "xml"
+        xml.mkdir(parents=True)
+        (xml / "index.xml").write_text(
+            '<doxygenindex version="1.17">'
+            '<compound refid="classespectre_1_1_runtime_frontend_controller" kind="class"><name>espectre::RuntimeFrontendController</name></compound>'
+            '<compound refid="espectre__sdk__version_8h" kind="file"><name>espectre_sdk_version.h</name></compound>'
+            "</doxygenindex>",
+            encoding="utf-8",
+        )
+        (xml / "classespectre_1_1_runtime_frontend_controller.xml").write_text(
+            '<doxygen><compounddef><sectiondef kind="private-func"><memberdef prot="private" kind="function"/></sectiondef></compounddef></doxygen>',
+            encoding="utf-8",
+        )
 
-    monkeypatch.setattr(generator.subprocess, "run", fake_run)
-    monkeypatch.setattr(generator, "API_OUTPUT_DIR", api_output.parent)
-    monkeypatch.setattr(generator, "API_HTML_OUTPUT_DIR", api_output)
+    def fake_mcss(path: Path, _root: Path | None) -> None:
+        output = stamped_output(path)
+        assert 'prot="private"' not in (
+            output / "xml" / "classespectre_1_1_runtime_frontend_controller.xml"
+        ).read_text(encoding="utf-8")
+        rendered = output / "rendered"
+        rendered.mkdir()
+        (rendered / "index.html").write_text(
+            '<article data-api-reference-fragment="index"><a href="classespectre_1_1_runtime_frontend_controller.html">Controller</a></article>',
+            encoding="utf-8",
+        )
+        (rendered / "classespectre_1_1_runtime_frontend_controller.html").write_text(
+            '<article data-api-reference-fragment="classespectre_1_1_runtime_frontend_controller"><h1>Controller</h1><nav class="m-block m-default"><h3>Local navigation</h3></nav><section id="members"><h2>Members</h2></section></article>',
+            encoding="utf-8",
+        )
+        (rendered / "files.html").write_text(
+            '<article data-api-reference-fragment="files"><h1>Files</h1></article>',
+            encoding="utf-8",
+        )
+        (rendered / "espectre__sdk__version_8h.html").write_text(
+            '<article data-api-reference-fragment="espectre__sdk__version_8h"><section class="m-doc-details">Version defines</section></article>',
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(generator, "run_doxygen", fake_doxygen)
+    monkeypatch.setattr(generator, "run_mcss", fake_mcss)
+    monkeypatch.setattr(generator, "API_OUTPUT_DIR", api_output)
     version = generator.generate_sdk_api("3.0.0-12-gabcdef1")
     assert version == "3.0.0-12-gabcdef1"
     assert stamped_versions == ["3.0.0-12-gabcdef1"]
     assert not stale_page.exists()
+    manifest = json.loads((api_output / "api-index.json").read_text(encoding="utf-8"))
+    assert manifest["sdk_version"] == "3.0.0-12-gabcdef1"
+    assert manifest["renderer"] == "m.css"
+    entries = {entry["refid"]: entry for entry in manifest["entries"]}
+    assert entries["index"]["discoverable"] is True
+    assert entries["classespectre_1_1_runtime_frontend_controller"]["discoverable"] is True
+    assert entries["files"]["discoverable"] is False
+    assert entries["espectre__sdk__version_8h"]["discoverable"] is True
+    controller_fragment = (
+        api_output / "fragments" / "classespectre_1_1_runtime_frontend_controller.html"
+    ).read_text(encoding="utf-8")
+    assert '<nav class="m-block' not in controller_fragment
+    assert '<section id="members">' in controller_fragment
+    assert (api_output / "fragments" / "index.html").is_file()
     assert (REPO_ROOT / "src" / "cpp" / "Doxyfile").read_text(encoding="utf-8") == repo_doxyfile
     assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*UNSTAMPED\s*$", repo_doxyfile)
 
@@ -416,7 +471,7 @@ def test_sitemap_builder_uses_git_and_sdk_manifest_dates(
     def fake_git_date(paths):
         if paths == (sitemap_builder.SDK_PAGE_BUILDER,):
             return "2026-08-10"
-        if paths == sitemap_builder.doxygen_sources():
+        if sitemap_builder.DOXYFILE in paths:
             return "2026-08-08"
         return "2026-08-09"
 
@@ -425,7 +480,7 @@ def test_sitemap_builder_uses_git_and_sdk_manifest_dates(
     sitemap.write_text(
         '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
         "<url><loc>https://espectre.dev/</loc><changefreq>daily</changefreq></url>"
-        "<url><loc>https://espectre.dev/artifacts/sdk/api/</loc></url>"
+        "<url><loc>https://espectre.dev/sdk/api/</loc></url>"
         "<url><loc>https://espectre.dev/artifacts/sdk/release/</loc></url>"
         "<url><loc>https://espectre.dev/artifacts/sdk/preview/</loc></url>"
         "<url><loc>https://espectre.dev/artifacts/sdk/develop/</loc></url>"
@@ -443,7 +498,7 @@ def test_sitemap_builder_uses_git_and_sdk_manifest_dates(
     }
     assert entries == {
         "https://espectre.dev/": "2026-08-09",
-        "https://espectre.dev/artifacts/sdk/api/": "2026-08-08",
+        "https://espectre.dev/sdk/api/": "2026-08-08",
         "https://espectre.dev/artifacts/sdk/release/": "2026-08-10",
         "https://espectre.dev/artifacts/sdk/preview/": "2026-08-12",
         "https://espectre.dev/artifacts/sdk/develop/": "2026-08-14",
@@ -523,16 +578,29 @@ def test_pages_verifier_requires_api_reference_to_show_sdk_version(
     version = "2.8.0-237-g7439944"
     monkeypatch.setattr(verifier, "detect_git_version", lambda: version)
     api = tmp_path / "artifacts" / "sdk" / "api"
-    api.mkdir(parents=True)
-    (api / "index.html").write_text(
-        f'<span id="projectnumber">&#160;{version}</span>',
-        encoding="utf-8",
+    fragments = api / "fragments"
+    fragments.mkdir(parents=True)
+    refids = (
+        "classespectre_1_1_runtime_frontend_controller",
+        "structespectre_1_1_runtime_config",
+        "classespectre_1_1_i_runtime_listener",
     )
+    entries = []
+    for refid in refids:
+        fragment = f"fragments/{refid}.html"
+        (api / fragment).write_text("<article>API reference</article>", encoding="utf-8")
+        entries.append({"refid": refid, "fragment": fragment, "discoverable": True})
+    manifest = {
+        "sdk_version": version,
+        "renderer": "m.css",
+        "renderer_revision": "0123456789abcdef",
+        "entries": entries,
+    }
+    manifest_path = api / "api-index.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     verifier.verify_sdk_api_version()
-    (api / "index.html").write_text(
-        '<span id="projectnumber">UNSTAMPED</span>',
-        encoding="utf-8",
-    )
+    manifest["sdk_version"] = "UNSTAMPED"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(ValueError, match="does not show version"):
         verifier.verify_sdk_api_version()
 
@@ -775,7 +843,7 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
         assert "--backend local" in source
 
 
-def test_website_sources_distinguish_sdk_api_orientation_from_reference() -> None:
+def test_website_sources_integrate_sdk_api_fragments_in_portal_page() -> None:
     sdk_landing = (REPO_ROOT / "docs" / "web" / "content" / "sdk.html").read_text(
         encoding="utf-8"
     )
@@ -784,5 +852,15 @@ def test_website_sources_distinguish_sdk_api_orientation_from_reference() -> Non
     ).read_text(encoding="utf-8")
 
     assert 'href="/sdk/api/" class="doc-link"' in sdk_landing
-    assert 'href="/artifacts/sdk/api/" class="btn-secondary"' in sdk_landing
-    assert 'href="/artifacts/sdk/api/" class="api-reference-cta"' in api_orientation
+    assert 'href="/sdk/api/" class="btn-secondary"' in sdk_landing
+    assert 'data-api-reference-browser' in api_orientation
+    assert 'data-api-index="/artifacts/sdk/api/api-index.json"' in api_orientation
+    assert 'data-api-reference-content' in api_orientation
+    assert 'data-api-reference-picker' in api_orientation
+    assert 'data-api-reference-filter' in api_orientation
+    assert 'data-api-reference-results' in api_orientation
+    assert 'data-api-reference-toggle' not in api_orientation
+    assert 'data-page-toc' in api_orientation
+    assert 'data-page-path="sdk"' in api_orientation
+    assert 'api-reference-index' not in api_orientation
+    assert '<iframe' not in api_orientation

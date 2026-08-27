@@ -130,10 +130,10 @@ def lastmod_for_url(url: str) -> str | None:
     parsed = urlparse(url)
     if parsed.scheme != "https" or parsed.hostname != SITE_HOST:
         raise ValueError(f"Sitemap URL must use https://{SITE_HOST}: {url}")
+    if parsed.path == "/sdk/api/":
+        return latest_git_date((*ROUTE_SOURCES[parsed.path], *doxygen_sources()))
     if parsed.path in ROUTE_SOURCES:
         return latest_git_date(ROUTE_SOURCES[parsed.path])
-    if parsed.path == "/artifacts/sdk/api/":
-        return latest_git_date(doxygen_sources())
     if parsed.path == "/artifacts/sdk/release/":
         return sdk_channel_date("release")
     if parsed.path == "/artifacts/sdk/preview/":

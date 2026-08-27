@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="534" height="300" viewBox="0 0 534 300" role="img" aria-labelledby="title desc">
+  <title id="title">LinkedIn</title>
+  <desc id="desc">LinkedIn blue cover for the original ESPectre launch conversation</desc>
+  <rect width="534" height="300" fill="#0a66c2"/>
+  <circle cx="454" cy="50" r="144" fill="#ffffff" opacity="0.05"/>
+  <circle cx="78" cy="272" r="116" fill="#ffffff" opacity="0.04"/>
+  <g transform="translate(126 92)" fill="#ffffff">
+    <rect width="56" height="56" rx="7"/>
+    <circle cx="15" cy="16" r="5" fill="#0a66c2"/>
+    <rect x="10" y="25" width="10" height="22" rx="1" fill="#0a66c2"/>
+    <path d="M27 25h10v3.2c2.3-2.8 5.4-4.4 9.2-4.4 8.2 0 10.8 5.4 10.8 13.7V47H46.5v-8.4c0-4.5-.8-6.8-4.3-6.8-3.8 0-5.2 2.6-5.2 7.4V47H27V25z" fill="#0a66c2"/>
+    <text x="74" y="44" font-family="Arial, Helvetica, sans-serif" font-size="45" font-weight="700" letter-spacing="-1.5">LinkedIn</text>
+  </g>
+  <text x="267" y="193" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="600" text-anchor="middle">Original launch conversation</text>
+  <text x="267" y="222" fill="#ffffff" opacity="0.82" font-family="Arial, Helvetica, sans-serif" font-size="14" text-anchor="middle">ESPectre · Wi-Fi sensing · Home Assistant</text>
+</svg>

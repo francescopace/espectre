@@ -27,6 +27,10 @@ ESP-IDF and esp-matter contain additional permissively licensed components. Each
 
 `cnpy` is used only by host-side C++ tests and is not linked into production firmware.
 
+## Documentation build tooling
+
+The SDK API generator fetches m.css at the revision pinned in `.github/scripts/generate_sdk_api.py`. m.css is MIT-licensed build-time tooling; its source is not included in SDK bundles or the deployed website. Jinja2 and Pygments are installed from `requirements.txt` to run its templates and syntax highlighting.
+
 ## Browser dependencies
 
 The production site stages only pinned direct browser assets. `.github/scripts/stage_web_vendor.py` copies each asset together with its upstream license file.

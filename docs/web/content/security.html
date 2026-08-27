@@ -2,14 +2,14 @@
   SPDX-License-Identifier: GPL-3.0-only
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
-<div class="security-page">
+<div class="security-page" data-page-toc>
   <h1 class="page-title">Security and responsible use</h1>
   <p class="page-sub">Wi-Fi sensing avoids collecting images or audio, but presence and movement data can still expose people’s routines. Use ESPectre only with proper authority, clear notice, and a proportionate purpose.</p>
 
   <section class="docs-section" aria-labelledby="security-model-title">
     <div class="docs-section-head">
       <span class="guide-tag">SECURITY MODEL</span>
-      <h2 id="security-model-title">Built to sense on a network you control.</h2>
+      <h2 id="security-model-title" data-toc-label="Security model">Built to sense on a network you control.</h2>
       <p>ESPectre deliberately keeps the supported sensing path associated with a Wi-Fi network and limits normal operation to derived motion information.</p>
     </div>
     <div class="docs-paths">
@@ -38,7 +38,7 @@
   <section class="docs-section" aria-labelledby="local-access-title">
     <div class="docs-section-head">
       <span class="guide-tag">LOCAL ACCESS</span>
-      <h2 id="local-access-title">Direct HTTP stays inside the trusted LAN.</h2>
+      <h2 id="local-access-title" data-toc-label="Local access">Direct HTTP stays inside the trusted LAN.</h2>
       <p>The hosted portal uses HTTP POST and streaming <code>fetch()</code> to the selected local device with <code>targetAddressSpace: "local"</code>. Chrome prompts before a public site can reach a local address. Allow that permission only when you intend to manage a device on the current network. If Chrome reports that access is denied, enable Local network access in the site's settings; on operating systems with an app-level Local Network privacy control, Chrome must be allowed there too.</p>
     </div>
     <div class="security-guidelines">
@@ -56,7 +56,7 @@
   <section class="docs-section" aria-labelledby="responsible-deployment-title">
     <div class="docs-section-head">
       <span class="guide-tag">RESPONSIBLE DEPLOYMENT</span>
-      <h2 id="responsible-deployment-title">Use the minimum sensing needed.</h2>
+      <h2 id="responsible-deployment-title" data-toc-label="Responsible deployment">Use the minimum sensing needed.</h2>
       <p>Before deploying ESPectre, consider the people, place, purpose, and data path involved.</p>
     </div>
     <div class="security-guidelines">
@@ -74,7 +74,7 @@
   <section class="docs-start" aria-labelledby="abuse-title">
     <div class="docs-start-copy">
       <span class="guide-tag">ABUSE</span>
-      <h2 id="abuse-title">Illegal or unethical use is not acceptable.</h2>
+      <h2 id="abuse-title" data-toc-label="Abuse prevention">Illegal or unethical use is not acceptable.</h2>
       <p>ESPectre rejects covert surveillance, stalking, coercion, discrimination, monitoring without legitimate authority, using occupancy patterns to facilitate intrusion, and any other illegal or unethical use of Wi-Fi sensing.</p>
       <p>If you believe ESPectre or related Wi-Fi sensing is being used to harm people or violate the law, report the concern to us and, when appropriate, to the competent law enforcement, regulatory, or data protection authority. Contact local emergency services when someone may be in immediate danger.</p>
       <p>Do not obtain evidence unlawfully or publish credentials, private telemetry, personal data, or details that could put someone at further risk. Reporting to the project does not replace reporting to the competent authorities.</p>
@@ -88,7 +88,7 @@
   <section class="docs-section" aria-labelledby="vulnerability-title">
     <div class="docs-section-head">
       <span class="guide-tag">VULNERABILITIES</span>
-      <h2 id="vulnerability-title">Report security issues privately.</h2>
+      <h2 id="vulnerability-title" data-toc-label="Report a vulnerability">Report security issues privately.</h2>
       <p>Do not disclose suspected vulnerabilities in public issues. Use GitHub’s private reporting flow, or email the security address if you cannot use GitHub Security Advisories.</p>
     </div>
     <div class="docs-paths security-reporting-paths">

@@ -63,7 +63,7 @@ PAGES = (
     {
         "source": "content/guides/hardware.html",
         "output": "guides/hardware",
-        "title": "Choosing an ESP32 board | ESPectre",
+        "title": "Choose your hardware | ESPectre",
         "description": (
             "Which ESP32 board to buy for Wi-Fi motion sensing, what actually "
             "affects detection quality, and how products can embed ESPectre."
@@ -75,7 +75,7 @@ PAGES = (
     {
         "source": "content/guides/setup.html",
         "output": "guides/setup",
-        "title": "Flash & Wi-Fi setup | ESPectre",
+        "title": "Flash and set up your device | ESPectre",
         "description": (
             "From a blank ESP32 board to a working Wi-Fi motion sensor, "
             "entirely from the browser: flashing, provisioning, and calibration."
@@ -90,7 +90,7 @@ PAGES = (
         "title": "Build your Home Assistant dashboard | ESPectre",
         "description": (
             "Build the maintained ESPectre Home Assistant dashboard for motion, "
-            "movement history, runtime controls, and on-demand diagnostics."
+            "movement history, and runtime controls."
         ),
         "parent_href": "/guides/",
         "parent_label": "Guides",
@@ -99,7 +99,7 @@ PAGES = (
     {
         "source": "content/guides/placement.html",
         "output": "guides/placement",
-        "title": "Sensor placement guide | ESPectre",
+        "title": "Place your ESPectre sensor | ESPectre",
         "description": (
             "Place an ESPectre Wi-Fi motion sensor using practical distance, "
             "RSSI, antenna orientation, obstacle, and room-testing guidance."
@@ -123,7 +123,7 @@ PAGES = (
     {
         "source": "content/guides/detectors.html",
         "output": "guides/detectors",
-        "title": "Choose a detection profile | ESPectre",
+        "title": "Choose your detection profile | ESPectre",
         "description": (
             "Compare ESPectre Lightweight and High-Accuracy Detection by CPU, "
             "memory, startup behavior, detection quality, and product fit."
@@ -183,10 +183,10 @@ PAGES = (
     {
         "source": "content/sdk/api.html",
         "output": "sdk/api",
-        "title": "API orientation | ESPectre",
+        "title": "API reference | ESPectre",
         "description": (
             "Find the main ESPectre SDK types, understand the runtime lifecycle, "
-            "and continue to the generated Doxygen API reference."
+            "and browse the generated API reference in the shared portal."
         ),
         "parent_href": "/sdk/",
         "parent_label": "SDK",
@@ -361,9 +361,9 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
       <a href="/" class="nav-link">Home</a>
       <a href="/tools/" class="nav-link{tools_active}"{tools_current}>Tools</a>
       <a href="/guides/" class="nav-link{guides_active}"{guides_current}>Guides</a>
-      <a href="/media/" class="nav-link{media_active}"{media_current}>Media</a>
       <a href="/sdk/" class="nav-link{sdk_active}"{sdk_current}>SDK</a>
       <a href="/roadmap/" class="nav-link{roadmap_active}"{roadmap_current}>Roadmap</a>
+      <a href="/media/" class="nav-link{media_active}"{media_current}>Media</a>
       <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener" class="nav-link">GitHub ↗</a>
     </nav>
   </div>
@@ -409,12 +409,12 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 """
 
 TOOL_ENTRIES = (
-    ("flash", "Flash firmware"),
-    ("configure", "Configure"),
-    ("monitor", "Monitor"),
-    ("raw-csi", "Raw CSI"),
+    ("flash", "Install ESPectre"),
+    ("configure", "Device settings"),
+    ("monitor", "Live motion"),
+    ("raw-csi", "Raw Wi-Fi signal"),
     ("theremin", "Motion theremin"),
-    ("game", "Motion game"),
+    ("game", "Run with the Spectre"),
 )
 
 TOOL_ENTRY_TEMPLATE = """<!DOCTYPE html>

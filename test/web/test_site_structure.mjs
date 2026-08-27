@@ -29,6 +29,40 @@ const GPL_HTML_HEADER = `<!--
 `;
 
 describe('website security and asset policy', () => {
+    it('embeds the generated SDK reference inside the shared website shell', () => {
+        const doxyfile = read('src/cpp/Doxyfile');
+        const apiContent = read('docs/web/content/sdk/api.html');
+        assert.match(doxyfile, /^GENERATE_HTML\s*=\s*NO$/m);
+        assert.match(doxyfile, /^GENERATE_XML\s*=\s*YES$/m);
+        assert.match(apiContent, /data-api-reference-browser/);
+        assert.match(apiContent, /data-api-index="\/artifacts\/sdk\/api\/api-index\.json"/);
+        assert.match(apiContent, /data-api-reference-content/);
+        assert.match(apiContent, /data-api-reference-picker/);
+        assert.match(apiContent, /data-api-reference-filter/);
+        assert.match(apiContent, /data-api-reference-results/);
+        assert.doesNotMatch(apiContent, /data-api-reference-toggle/);
+        assert.match(apiContent, /data-page-toc/);
+        assert.match(apiContent, /data-page-path="sdk"/);
+        assert.doesNotMatch(apiContent, /<iframe/);
+        assert.doesNotMatch(apiContent, /api-reference-index|api-reference-layout|api-reference-browser-head/);
+        assert.match(styles, /\.api-reference-controls \{[\s\S]*?display: flex;[\s\S]*?justify-content: flex-end;/);
+        assert.match(styles, /\.api-reference-picker \{ position: relative; flex: 0 1 440px;/);
+        assert.match(styles, /\.api-reference-picker-field input \{/);
+        assert.doesNotMatch(styles, /\.api-reference-search/);
+        assert.match(styles, /\.api-map \{[\s\S]*?display: grid;/);
+        assert.doesNotMatch(styles, /nav\.m-block/);
+        assert.equal((styles.match(/\{/g) || []).length, (styles.match(/\}/g) || []).length);
+        const navigation = read('docs/web/assets/js/navigation.js');
+        assert.match(navigation, /function initApiReferenceBrowsers/);
+        assert.match(navigation, /function renderApiReferencePicker/);
+        assert.match(navigation, /function setApiReferencePickerOpen/);
+        assert.match(navigation, /candidate\.discoverable === false/);
+        assert.match(navigation, /function refreshApiReferenceToc/);
+        assert.match(navigation, /\/artifacts\/sdk\/api\/\$\{entry\.fragment\}/);
+        assert.match(navigation, /browser\.apiReferenceOverview = content\.innerHTML/);
+        assert.match(app, /window\.initApiReferenceBrowsers\(container\)/);
+    });
+
     it('renders the brand face in white instead of exposing the background', () => {
         const logo = read('docs/web/assets/images/brand/espectre-logo.svg');
         const staticPageBuilder = read('.github/scripts/build_static_pages.py');
@@ -717,13 +751,13 @@ describe('website UX contracts', () => {
         const licensingContent = read('docs/web/content/licensing.html');
         const contactContent = read('docs/web/content/contact.html');
         const staticPageBuilder = read('.github/scripts/build_static_pages.py');
-        assert.ok(sdkContent.startsWith(`${GPL_HTML_HEADER}<div class="docs-quickstart">`));
-        assert.ok(roadmapContent.startsWith(`${GPL_HTML_HEADER}<div class="roadmap-page">`));
-        assert.ok(privacyContent.startsWith(`${GPL_HTML_HEADER}<div class="privacy-page">`));
-        assert.ok(termsContent.startsWith(`${GPL_HTML_HEADER}<div class="terms-page">`));
-        assert.ok(legalContent.startsWith(`${GPL_HTML_HEADER}<div class="legal-page">`));
-        assert.ok(securityContent.startsWith(`${GPL_HTML_HEADER}<div class="security-page">`));
-        assert.ok(licensingContent.startsWith(`${GPL_HTML_HEADER}<div class="licensing-page">`));
+        assert.ok(sdkContent.startsWith(`${GPL_HTML_HEADER}<div class="docs-quickstart" data-page-toc data-page-path="sdk">`));
+        assert.ok(roadmapContent.startsWith(`${GPL_HTML_HEADER}<div class="roadmap-page" data-page-toc>`));
+        assert.ok(privacyContent.startsWith(`${GPL_HTML_HEADER}<div class="privacy-page" data-page-toc>`));
+        assert.ok(termsContent.startsWith(`${GPL_HTML_HEADER}<div class="terms-page" data-page-toc>`));
+        assert.ok(legalContent.startsWith(`${GPL_HTML_HEADER}<div class="legal-page" data-page-toc>`));
+        assert.ok(securityContent.startsWith(`${GPL_HTML_HEADER}<div class="security-page" data-page-toc>`));
+        assert.ok(licensingContent.startsWith(`${GPL_HTML_HEADER}<div class="licensing-page" data-page-toc>`));
         assert.ok(contactContent.startsWith(`${GPL_HTML_HEADER}<div class="contact-page">`));
         assert.match(index, /<main class="js-page page-narrow" data-page="roadmap"/);
         assert.match(index, /<main class="js-page page-narrow" data-page="privacy"/);
@@ -773,12 +807,15 @@ describe('website UX contracts', () => {
         const sdkContent = read('docs/web/content/sdk.html');
         assert.match(sdkContent, /<h1 class="page-title">/);
         assert.match(sdkContent, /<section class="docs-start" aria-labelledby="docs-start-title">/);
+        assert.match(sdkContent, /<section class="docs-section sdk-fit" aria-labelledby="sdk-fit-title">/);
         assert.match(sdkContent, /<section class="docs-section" aria-labelledby="docs-paths-title">/);
         assert.match(sdkContent, /<section class="docs-section" aria-labelledby="docs-quick-start-title">/);
         assert.match(sdkContent, /<section class="docs-next" aria-labelledby="docs-next-title">/);
         assert.match(sdkContent, /class="docs-cover"[\s\S]*?sdk-firmware-pipeline\.avif/);
-        assert.ok(sdkContent.indexOf('class="docs-start"') < sdkContent.indexOf('class="docs-paths"'));
-        assert.ok(sdkContent.indexOf('class="docs-paths"') < sdkContent.indexOf('class="docs-steps"'));
+        assert.match(sdkContent, /href="\/licensing\/"/);
+        assert.ok(sdkContent.indexOf('class="docs-start"') < sdkContent.indexOf('class="sdk-fit-grid"'));
+        assert.ok(sdkContent.indexOf('class="sdk-fit-grid"') < sdkContent.indexOf('class="docs-steps"'));
+        assert.ok(sdkContent.indexOf('class="docs-steps"') < sdkContent.indexOf('class="docs-paths"'));
         assert.ok(sdkContent.indexOf('class="docs-steps"') < sdkContent.indexOf('class="docs-next"'));
         const sdkIndexLinks = [...sdkContent.matchAll(/<a href="(\/sdk\/(?:api|examples|architecture|detectors)\/)" class="doc-link">/g)].map((match) => match[1]);
         assert.deepEqual(sdkIndexLinks, ['/sdk/architecture/', '/sdk/api/', '/sdk/detectors/', '/sdk/examples/']);
@@ -791,34 +828,22 @@ describe('website UX contracts', () => {
 
     it('documents both public SDK facades and their compatibility boundary', () => {
         const apiContent = read('docs/web/content/sdk/api.html');
-        assert.match(apiContent, /href="\/artifacts\/sdk\/api\/espectre__sdk_8h\.html"/);
-        assert.match(apiContent, /href="\/artifacts\/sdk\/api\/espectre__core__sdk_8h\.html"/);
+        assert.match(apiContent, /href="\/sdk\/api\/\?api=espectre__sdk_8h" data-api-reference-ref="espectre__sdk_8h"/);
+        assert.match(apiContent, /href="\/sdk\/api\/\?api=espectre__core__sdk_8h" data-api-reference-ref="espectre__core__sdk_8h"/);
     });
 
-    it('links the SDK pages in one previous and next sequence', () => {
-        const sdkPages = [
-            { file: 'architecture', previous: null, next: '/sdk/api/' },
-            { file: 'api', previous: '/sdk/architecture/', next: '/sdk/detectors/' },
-            { file: 'detectors', previous: '/sdk/api/', next: '/sdk/examples/' },
-            { file: 'examples', previous: '/sdk/detectors/', next: 'https://github.com/francescopace/espectre/blob/main/docs/SDK.md' },
-        ];
-        for (const page of sdkPages) {
-            const content = read(`docs/web/content/sdk/${page.file}.html`);
-            const articleNav = content.slice(content.lastIndexOf('<div class="article-nav">'));
-            assert.match(articleNav, /^<div class="article-nav">/);
-            const links = [...articleNav.matchAll(/<a href="([^"]+)" class="doc-link(?: doc-link-next)?"[^>]*>/g)].map((match) => match[1]);
-            assert.deepEqual(links, [page.previous, page.next].filter(Boolean), `${page.file} follows the SDK page order`);
-            if (page.next) {
-                assert.match(articleNav, new RegExp(`<a href="${page.next}" class="doc-link doc-link-next"`), `${page.file} identifies its next page`);
-            }
+    it('uses the shared SDK path instead of duplicate previous and next cards', () => {
+        for (const page of ['architecture', 'api', 'detectors', 'examples']) {
+            const content = read(`docs/web/content/sdk/${page}.html`);
+            assert.match(content, /data-page-path="sdk"/);
+            assert.doesNotMatch(content, /class="article-nav"|doc-link-next/);
         }
-        assert.match(read('docs/web/content/sdk/examples.html'), /docs\/SDK\.md/);
     });
 
     it('publishes the detector architecture through SDK SPA and static routes', () => {
         const detectors = read('docs/web/content/sdk/detectors.html');
         assert.match(detectors, /<h1>/);
-        assert.match(detectors, /<h2 id="sdk-detectors-performance">/);
+        assert.match(detectors, /<h2 id="sdk-detectors-performance"[^>]*>/);
         assert.match(detectors, /DetectionAlgorithm::HIGH_ACCURACY/);
         const detectorGuide = read('docs/web/content/guides/detectors.html');
         assert.match(detectorGuide, /href="\/sdk\/detectors\/"/);
@@ -872,21 +897,25 @@ describe('website UX contracts', () => {
         assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/guides\/future-wifi-sensing\//);
     });
 
-    it('publishes the Home Assistant dashboard guide with a distinct cover and an in-guide dashboard screenshot', () => {
+    it('publishes the Home Assistant dashboard guide with a distinct cover and collapsible recovery guidance', () => {
         const guide = read('docs/web/content/guides/home-assistant.html');
         const guideIndex = read('docs/web/content/guides.html');
         assert.match(guide, /<h1>/);
         assert.match(guide, /home-assistant-dashboard\.yaml/);
-        assert.match(guide, /home-assistant-dashboard\.png/);
         assert.match(guide, /home-assistant-dashboard-card\.avif/);
-        assert.ok(guide.indexOf('home-assistant-dashboard-card.avif') < guide.indexOf('id="ha-before"'));
-        assert.ok(guide.indexOf('id="ha-result"') < guide.indexOf('home-assistant-dashboard.png'));
+        assert.ok(guide.indexOf('id="ha-before"') < guide.indexOf('home-assistant-dashboard-card.avif'));
+        assert.ok(guide.indexOf('home-assistant-dashboard-card.avif') < guide.indexOf('id="ha-prefix"'));
         assert.match(guide, /sensor\.espectre_c3_f61093_movement_score/);
         assert.match(guide, /sensor\.espectre_c3_f61093_movement_score_2/);
-        assert.match(guide, /id="ha-recreate-ids"/);
+        assert.match(guide, /<details class="article-details" id="ha-recreate-ids">/);
         assert.match(guide, /homeassistant\/#/);
         assert.match(guideIndex, /href="\/guides\/home-assistant\/"/);
         assert.match(guideIndex, /home-assistant-dashboard-card\.avif/);
+        for (const sectionId of ['official-guides', 'external-guides']) {
+            assert.match(guideIndex, new RegExp(`<section class="guide-section" aria-labelledby="${sectionId}">`));
+            assert.match(guideIndex, new RegExp(`<h2 id="${sectionId}">`));
+        }
+        assert.equal((guideIndex.match(/class="guides-grid"/g) || []).length, 2);
         assert.ok(guideIndex.indexOf('href="/guides/detection/"') < guideIndex.indexOf('href="/guides/hardware/"'));
         assert.ok(guideIndex.indexOf('href="/guides/placement/"') < guideIndex.indexOf('href="/guides/home-assistant/"'));
         assert.ok(guideIndex.indexOf('href="/guides/home-assistant/"') < guideIndex.indexOf('href="/guides/detectors/"'));
@@ -897,23 +926,54 @@ describe('website UX contracts', () => {
         assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/guides\/home-assistant\//);
     });
 
-    it('uses one cover, practical CLI sections, and a previous/next sequence across the official guides', () => {
+    it('builds complementary side rails from the shared route groups', () => {
+        assert.match(read('docs/web/content/sdk.html'), /data-page-toc data-page-path="sdk"/);
+        for (const page of ['architecture', 'api', 'detectors', 'examples']) {
+            const content = read(`docs/web/content/sdk/${page}.html`);
+            assert.match(content, /<article class="article(?: [^"]*)?"[^>]*data-page-toc[^>]*data-page-path="sdk">/);
+            assert.doesNotMatch(content, /class="sdk-local-nav"/);
+            assert.doesNotMatch(content, /class="page-path"/);
+        }
+        for (const page of ['detection', 'hardware', 'setup', 'placement', 'home-assistant', 'detectors', 'micropython', 'future-wifi-sensing']) {
+            assert.match(read(`docs/web/content/guides/${page}.html`), /data-page-path="guides"/);
+        }
+        for (const page of ['flash', 'configure', 'monitor', 'raw-csi', 'theremin', 'game']) {
+            assert.match(index, new RegExp(`data-page="tool-${page}"[^>]*data-page-path="tools"`));
+        }
+        assert.match(styles, /@media \(min-width: 1440px\) \{[\s\S]*?\.page-toc \{[\s\S]*?position: fixed;[\s\S]*?left: max\(/);
+        assert.match(styles, /@media \(min-width: 1440px\) \{[\s\S]*?\.page-path \{[\s\S]*?position: fixed;[\s\S]*?right: max\([\s\S]*?left: auto;/);
+        assert.match(styles, /\.page-path a\[aria-current="page"\]::before/);
+        const navigation = read('docs/web/assets/js/navigation.js');
+        assert.match(navigation, /function buildPagePath\(container\)/);
+        assert.match(navigation, /ESPectreRoutes\?\.membersOf\(group\)/);
+        assert.match(navigation, /details\.page-toc, details\.page-path/);
+        assert.match(routeRegistry, /membersOf: \(group\) => byGroup\.get\(group\) \|\| emptyGroup/);
+    });
+
+    it('uses one cover, practical CLI sections, and the shared path across the official guides', () => {
         const guides = [
-            { file: 'detection', cover: 'csi-multipath-room.avif', cli: null, previous: null, next: '/guides/hardware/' },
-            { file: 'hardware', cover: 'esp32-chip-family-card.avif', cli: null, previous: '/guides/detection/', next: '/guides/setup/' },
-            { file: 'setup', cover: 'flash-connect-usb-card.avif', cli: 'setup-cli', previous: '/guides/hardware/', next: '/guides/placement/' },
-            { file: 'placement', cover: 'sensor-placement-card.avif', cli: null, previous: '/guides/setup/', next: '/guides/home-assistant/' },
-            { file: 'home-assistant', cover: 'home-assistant-dashboard-card.avif', cli: null, previous: '/guides/placement/', next: '/guides/detectors/' },
-            { file: 'detectors', cover: 'detection-profiles-card.avif', cli: 'detectors-cli', previous: '/guides/home-assistant/', next: '/guides/micropython/' },
-            { file: 'micropython', cover: 'micropython-csi-runtime-card.avif', cli: 'micropython-cli', previous: '/guides/detectors/', next: '/guides/future-wifi-sensing/' },
-            { file: 'future-wifi-sensing', cover: 'future-wifi-sensing-card.avif', cli: null, previous: '/guides/micropython/', next: null },
+            { file: 'detection', cover: 'csi-multipath-room.avif', cli: null, coverAfter: null, coverBefore: 'detection-room', toc: false },
+            { file: 'hardware', cover: 'esp32-chip-family-card.avif', cli: null, coverAfter: null, coverBefore: 'hardware-chips', toc: false },
+            { file: 'setup', cover: 'flash-connect-usb-card.avif', cli: 'setup-cli', coverAfter: 'setup-requirements', coverBefore: 'setup-firmware', toc: true },
+            { file: 'placement', cover: 'sensor-placement-card.avif', cli: null, coverAfter: null, coverBefore: 'placement-link', toc: true },
+            { file: 'home-assistant', cover: 'home-assistant-dashboard-card.avif', cli: null, coverAfter: 'ha-before', coverBefore: 'ha-prefix', toc: true },
+            { file: 'detectors', cover: 'detection-profiles-card.avif', cli: 'detectors-cli', coverAfter: null, coverBefore: 'detectors-two', toc: true },
+            { file: 'micropython', cover: 'micropython-csi-runtime-card.avif', cli: 'micropython-cli', coverAfter: null, coverBefore: 'micropython-upstream', toc: true },
+            { file: 'future-wifi-sensing', cover: 'future-wifi-sensing-card.avif', cli: null, coverAfter: null, coverBefore: 'future-origin', toc: true },
         ];
         for (const guide of guides) {
             const path = `docs/web/content/guides/${guide.file}.html`;
             const content = read(path);
+            assert.match(content, /<article class="article guide-article" data-page-toc data-page-path="guides">/);
             const firstImage = content.match(/<img\b[^>]*>/)?.[0] || '';
             assert.ok(firstImage.includes(guide.cover), `${guide.file} starts with its guide-card cover`);
-            assert.ok(content.indexOf(guide.cover) < content.indexOf('<h2'), `${guide.file} cover precedes its sections`);
+            if (guide.coverAfter) {
+                assert.ok(content.indexOf(`id="${guide.coverAfter}"`) < content.indexOf(guide.cover), `${guide.file} introduces requirements before its cover`);
+            }
+            assert.ok(content.indexOf(guide.cover) < content.indexOf(`id="${guide.coverBefore}"`), `${guide.file} positions its cover before the main guide sections`);
+            if (guide.toc) {
+                assert.match(content, /<details class="page-toc">/);
+            }
             if (guide.cli) {
                 assert.match(content, new RegExp(`<h[23][^>]*\\bid="${guide.cli}"`), `${guide.file} documents its CLI equivalent`);
             }
@@ -922,22 +982,41 @@ describe('website UX contracts', () => {
                 assert.match(image, /\bwidth="\d+"/);
                 assert.match(image, /\bheight="\d+"/);
             }
-            const articleNav = content.slice(content.lastIndexOf('<div class="article-nav">'));
-            assert.match(articleNav, /^<div class="article-nav">/);
-            const links = [...articleNav.matchAll(/<a href="([^"]+)" class="doc-link(?: doc-link-next)?">/g)].map((match) => match[1]);
-            assert.deepEqual(links, [guide.previous, guide.next].filter(Boolean), `${guide.file} follows the official guide order`);
-            if (guide.next) {
-                assert.match(articleNav, new RegExp(`<a href="${guide.next}" class="doc-link doc-link-next">`), `${guide.file} identifies its next guide`);
-            }
+            assert.doesNotMatch(content, /class="article-nav"|doc-link-next/);
         }
         assert.match(styles, /\.page-toc \{/);
-        assert.match(styles, /\.article-nav \{[\s\S]*?display: flex;[\s\S]*?gap: 16px;/);
-        assert.match(styles, /\.article-nav \.doc-link \{ flex: 1 1 0; min-width: 0; \}/);
-        assert.match(styles, /\.article-nav \.doc-link-next \{ text-align: right; \}/);
-        assert.match(styles, /\.article-nav \.doc-link:only-child \{[\s\S]*?flex: 0 0 calc\(50% - 8px\);/);
-        assert.match(styles, /\.article-nav \.doc-link-next:only-child \{ margin-left: auto; \}/);
-        assert.match(styles, /@media \(max-width: 720px\) \{[\s\S]*?\.article-nav \{ flex-direction: column; gap: 12px; \}/);
-        assert.match(styles, /@media \(max-width: 720px\) \{[\s\S]*?\.article-nav \.doc-link:only-child \{ flex-basis: auto; \}/);
+        assert.match(styles, /@media \(min-width: 1440px\) \{[\s\S]*?\.page-toc \{[\s\S]*?position: fixed;[\s\S]*?left: max\(/);
+        assert.match(styles, /\.page-toc a\[aria-current="location"\]/);
+        assert.match(styles, /@media \(max-width: 720px\) \{[\s\S]*?\.page-toc \{ display: none; \}/);
+        assert.doesNotMatch(styles, /\.page-toc, \.page-path \{ display: none; \}/);
+        const navigation = read('docs/web/assets/js/navigation.js');
+        assert.match(navigation, /matchMedia\('\(max-width: 1439px\)'\)/);
+        assert.match(navigation, /function buildPageToc\(container\)/);
+        assert.match(navigation, /querySelectorAll\('h2:not\(\[data-toc-exclude\]\)'\)/);
+        assert.match(navigation, /heading\.dataset\.tocLabel/);
+        assert.match(navigation, /requestAnimationFrame/);
+        assert.match(navigation, /const remainingArticleScroll = Math\.max\(0, articleRect\.bottom - window\.innerHeight\);/);
+        assert.match(navigation, /Math\.max\(railTop \+ 24, endAwareLine\)/);
+        assert.doesNotMatch(navigation, /railFits/);
+        assert.match(navigation, /setAttribute\('aria-current', 'location'\)/);
+        for (const page of [
+            'legal.html',
+            'licensing.html',
+            'privacy.html',
+            'roadmap.html',
+            'sdk.html',
+            'security.html',
+            'terms.html',
+            'sdk/api.html',
+            'sdk/architecture.html',
+            'sdk/detectors.html',
+            'sdk/examples.html',
+        ]) {
+            assert.match(read(`docs/web/content/${page}`), /data-page-toc/, `${page} enables section navigation`);
+        }
+        assert.match(styles, /\.article-details \{[\s\S]*?border: 1px solid var\(--border\);/);
+        assert.match(styles, /\.guide-card img \{[\s\S]*?aspect-ratio: 16 \/ 9;[\s\S]*?object-fit: cover;/);
+        assert.doesNotMatch(styles, /\.article-nav/);
         const detectionGuide = read('docs/web/content/guides/detection.html');
         assert.match(detectionGuide, /csi-multipath-room\.avif/);
         assert.match(detectionGuide, /csi-iq-motion\.svg/);
@@ -1048,7 +1127,7 @@ describe('website UX contracts', () => {
         assert.match(read('docs/web/assets/js/navigation.js'), /sdk-manifest-\$\{channel\}\.json/);
         assert.match(read('docs/web/assets/js/navigation.js'), /details\.sdk-download\[open\][\s\S]*?!menu\.contains\(event\.target\)[\s\S]*?menu\.open = false/);
         assert.match(app, /window\.initSdkDownloadVersions\(container\)/);
-        assert.match(sdkContent, /href="\/artifacts\/sdk\/api\/"/);
+        assert.match(read('docs/web/content/sdk/api.html'), /data-api-index="\/artifacts\/sdk\/api\/api-index\.json"/);
         assert.match(sdkContent, /href="\/sdk\/api\/" class="doc-link"/);
         assert.match(read('docs/web/.gitignore'), /^\/artifacts\/$/m);
     });

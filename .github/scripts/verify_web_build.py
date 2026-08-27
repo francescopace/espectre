@@ -57,7 +57,6 @@ EXPECTED_SITEMAP_PATHS = {
     "/sdk/api/",
     "/sdk/examples/",
     "/sdk/architecture/",
-    "/artifacts/sdk/api/",
     "/artifacts/sdk/release/",
     "/artifacts/sdk/preview/",
     "/artifacts/sdk/develop/",
@@ -233,11 +232,32 @@ def verify_firmware_channel(channel: str) -> None:
 
 def verify_sdk_api_version() -> None:
     version = detect_git_version()
-    html = require_file("artifacts/sdk/api/index.html").read_text(encoding="utf-8")
-    if 'id="projectnumber"' not in html or version not in html:
-        raise ValueError(
-            f"Generated SDK API reference does not show version {version!r}"
-        )
+    manifest = json.loads(require_file("artifacts/sdk/api/api-index.json").read_text(encoding="utf-8"))
+    if manifest.get("sdk_version") != version:
+        raise ValueError(f"Generated SDK API reference does not show version {version!r}")
+    if manifest.get("renderer") != "m.css" or not manifest.get("renderer_revision"):
+        raise ValueError("Generated SDK API reference has no pinned m.css renderer identity")
+    entries = manifest.get("entries", [])
+    if not entries or any(not isinstance(entry.get("discoverable"), bool) for entry in entries):
+        raise ValueError("Generated SDK API reference has no picker discoverability metadata")
+    required = {
+        "classespectre_1_1_runtime_frontend_controller",
+        "structespectre_1_1_runtime_config",
+        "classespectre_1_1_i_runtime_listener",
+    }
+    available = {entry.get("refid") for entry in entries}
+    if not required <= available:
+        raise ValueError(f"Generated SDK API reference is missing public types: {sorted(required - available)}")
+    discoverable = {entry.get("refid") for entry in entries if entry["discoverable"]}
+    if not required <= discoverable:
+        raise ValueError(f"Generated SDK API picker is missing public types: {sorted(required - discoverable)}")
+    for entry in entries:
+        fragment = require_file(f"artifacts/sdk/api/{entry.get('fragment', '')}")
+        source = fragment.read_text(encoding="utf-8")
+        if "<html" in source.lower() or "<iframe" in source.lower():
+            raise ValueError(f"Generated SDK API fragment is not portal-native: {fragment}")
+        if re.search(r'<nav\b[^>]*class="[^"]*\bm-block\b', source):
+            raise ValueError(f"Generated SDK API fragment still contains duplicate local navigation: {fragment}")
 
 
 def verify_sdk_channel(channel: str) -> None:
@@ -267,7 +287,7 @@ def verify(args: argparse.Namespace) -> None:
         "assets/css/styles.css",
         "vendor/qrcodejs-1.0.0/qrcode.min.js",
         "vendor/esp-web-tools-10.4.0/install-button.js",
-        "artifacts/sdk/api/index.html",
+        "artifacts/sdk/api/api-index.json",
     ):
         require_file(path)
     verify_spa_routes()

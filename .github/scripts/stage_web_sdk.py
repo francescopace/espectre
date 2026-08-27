@@ -128,9 +128,9 @@ def render_page(manifest: dict, channel: str) -> str:
       <a href="/" class="nav-link">Home</a>
       <a href="/tools/" class="nav-link">Tools</a>
       <a href="/guides/" class="nav-link">Guides</a>
-      <a href="/media/" class="nav-link">Media</a>
       <a href="/sdk/" class="nav-link active" aria-current="page">SDK</a>
       <a href="/roadmap/" class="nav-link">Roadmap</a>
+      <a href="/media/" class="nav-link">Media</a>
       <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener" class="nav-link">GitHub ↗</a>
     </nav>
   </div>

@@ -25,5 +25,9 @@ pytest-cov==7.1.0       # Python coverage
 pytest-xdist==3.8.0     # parallel Python test execution
 gcovr==8.6              # C++ coverage reports
 
+# Documentation build dependencies
+Jinja2==3.1.6           # m.css SDK API fragment templates
+Pygments==2.20.0        # m.css SDK API syntax highlighting
+
 # Local analysis extras
 matplotlib==3.11.1      # Plotting and visualization

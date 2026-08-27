@@ -2,39 +2,46 @@
   SPDX-License-Identifier: GPL-3.0-only
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
-<article class="article">
-  <h1>API orientation</h1>
-  <p class="article-lead">Most full-runtime integrations need four public types. Use this page to choose the right facade, then use the generated Doxygen reference for signatures, defaults, ranges, and member-level documentation.</p>
+<article class="article api-reference-page" data-api-reference-browser data-api-index="/artifacts/sdk/api/api-index.json" data-page-toc data-page-path="sdk">
+  <div class="api-reference-heading">
+    <h1>API reference</h1>
+    <span class="api-reference-version" data-api-reference-version>loading version…</span>
+  </div>
+  <p class="article-lead">Search a published type, method, or header. A full-runtime integration starts with four types: controller, config, listener, and snapshot.</p>
 
-  <a href="/artifacts/sdk/api/" class="api-reference-cta">
-    <span>
-      <strong>Open the generated API reference</strong>
-      <small>Built from the current public headers on every deploy.</small>
-    </span>
-    <span aria-hidden="true">→</span>
-  </a>
+  <div class="api-reference-controls">
+    <div class="api-reference-picker" data-api-reference-picker>
+      <div class="api-reference-picker-field">
+        <input type="search" data-api-reference-filter value="Loading symbols…" autocomplete="off" aria-label="Filter API symbols" aria-expanded="false" aria-haspopup="listbox" aria-controls="api-reference-results">
+        <span class="api-reference-picker-chevron" aria-hidden="true"></span>
+      </div>
+      <div class="api-reference-picker-popover" data-api-reference-popover hidden>
+        <div id="api-reference-results" class="api-reference-results" data-api-reference-results role="listbox" aria-label="API symbols"></div>
+      </div>
+    </div>
+  </div>
 
+  <div class="api-reference-content" data-api-reference-content data-api-reference-overview>
+  <h1 class="api-reference-overview-title">Overview</h1>
   <h2>Full-runtime types to know</h2>
   <div class="api-map">
-    <a href="/artifacts/sdk/api/classespectre_1_1_runtime_frontend_controller.html">
+    <a href="/sdk/api/?api=classespectre_1_1_runtime_frontend_controller" data-api-reference-ref="classespectre_1_1_runtime_frontend_controller">
       <code>RuntimeFrontendController</code>
       <span>Owns setup, the work loop, shutdown, cached state, and validated runtime controls.</span>
     </a>
-    <a href="/artifacts/sdk/api/structespectre_1_1_runtime_config.html">
+    <a href="/sdk/api/?api=structespectre_1_1_runtime_config" data-api-reference-ref="structespectre_1_1_runtime_config">
       <code>RuntimeConfig</code>
       <span>Defines detector, traffic, cadence, filtering, and other startup settings.</span>
     </a>
-    <a href="/artifacts/sdk/api/classespectre_1_1_i_runtime_listener.html">
+    <a href="/sdk/api/?api=classespectre_1_1_i_runtime_listener" data-api-reference-ref="classespectre_1_1_i_runtime_listener">
       <code>IRuntimeListener</code>
-      <span>Delivers motion, threshold, periodic status, calibration, telemetry, and fault events.</span>
+      <span>Delivers motion, threshold, status, calibration, telemetry, and fault events.</span>
     </a>
-    <a href="/artifacts/sdk/api/structespectre_1_1_runtime_snapshot.html">
+    <a href="/sdk/api/?api=structespectre_1_1_runtime_snapshot" data-api-reference-ref="structespectre_1_1_runtime_snapshot">
       <code>RuntimeSnapshot</code>
       <span>Carries motion state, movement score, threshold, link state, and readiness.</span>
     </a>
   </div>
-
-  <div class="note"><strong>Treat the detection profile as a product-budget choice.</strong> Lightweight uses less active CPU and working memory; High Accuracy improves accuracy and generalization with additional feature state and inference work. Lightweight calibrates for up to about 10 seconds at startup and can still lower its threshold after a later quiet stretch; override <code>on_threshold_changed()</code> if you publish that control. High Accuracy skips threshold calibration but still waits for CSI readiness and feature-window warmup. See the <a href="/sdk/detectors/">detector architecture</a>.</div>
 
   <h2>Lifecycle at a glance</h2>
   <div class="pipeline api-lifecycle" aria-label="Runtime lifecycle">
@@ -43,32 +50,38 @@
     <div><strong><code>loop()</code></strong><span>deliver events</span></div>
     <div><strong><code>shutdown()</code></strong><span>release runtime</span></div>
   </div>
+  <p>On ESP-IDF, build the initial configuration with <code>make_runtime_sensing_config_from_kconfig()</code> unless the product deliberately supplies every sensing setting itself. Call the lifecycle and control methods from one owner task.</p>
 
-  <div class="note"><strong>Raw CSI callbacks use a different threading contract.</strong> Listener events arrive from the owner task, but a callback passed to <code>start_raw_collection()</code> runs synchronously in Wi-Fi capture context. Keep it bounded, non-blocking, and allocation-free, and copy accepted packets into a preallocated queue for later work.</div>
+  <h2>Errors and optional controls</h2>
+  <p>Control methods return <code>false</code> when a value is outside its published range, the active backend does not advertise the capability, or the backend refuses the change. A rejected call leaves the runtime unchanged. Runtime-owned asynchronous failures arrive through <code>on_runtime_fault()</code>.</p>
+  <p><code>RuntimeCapabilities</code> defaults every flag to false. Read <code>capabilities()</code> after setup and expose only the controls that the active runtime reports.</p>
 
-  <h2>Two public facades</h2>
+  <div class="note"><strong>Raw CSI callbacks have a stricter threading contract.</strong> Listener events arrive from the owner task, but a callback passed to <code>start_raw_collection()</code> runs synchronously in Wi-Fi capture context. Keep it bounded, non-blocking, and allocation-free, and copy accepted packets into a preallocated queue for later work.</div>
+
+  <h2 data-toc-label="Detector budget">Choose the detector as a product budget</h2>
+  <p>Lightweight keeps less feature state and performs less active work. High Accuracy adds feature tracking and neural inference; in the current maintained selection + holdout diagnostic, it produces higher recall and F1 and a lower false-positive rate. That evidence compares the two profiles under the same replay contract, but it is not a sealed blind generalization result. Power has not yet been measured. See the <a href="/sdk/detectors/">profile measurements and validation limits</a>.</p>
+  <p>Lightweight calibrates from up to ten seconds of clean, ready slot coverage and can later lower its threshold after a quiet stretch. High Accuracy skips threshold calibration but still waits for CSI readiness and feature-window warmup.</p>
+
+  <h2 data-toc-label="Public facades">Two public facades</h2>
   <div class="api-map">
-    <a href="/artifacts/sdk/api/espectre__sdk_8h.html">
+    <a href="/sdk/api/?api=espectre__sdk_8h" data-api-reference-ref="espectre__sdk_8h">
       <code>espectre_sdk.h</code>
-      <span>The recommended facade for ESP-IDF products. Its runtime contracts, controller, configuration, events, diagnostics, and boundary interfaces form the stable full-runtime API.</span>
+      <span>The recommended facade for ESP-IDF products. Runtime contracts, configuration, events, diagnostics, and boundary interfaces form the stable full-runtime API.</span>
     </a>
-    <a href="/artifacts/sdk/api/espectre__core__sdk_8h.html">
+    <a href="/sdk/api/?api=espectre__core__sdk_8h" data-api-reference-ref="espectre__core__sdk_8h">
       <code>espectre_core_sdk.h</code>
-      <span>The core-only facade for firmware that already captures and normalizes CSI. It exposes the detector classes and their documented public methods without the ESP-IDF runtime.</span>
+      <span>The advanced facade for firmware that already captures and normalizes CSI. It exposes detector classes without the ESP-IDF runtime.</span>
     </a>
   </div>
 
-  <div class="note"><strong>The two facades have explicit support boundaries.</strong> Everything reachable from <code>espectre_sdk.h</code> belongs to the stable runtime surface. The detector classes and documented public methods exposed by <code>espectre_core_sdk.h</code> follow the source-compatibility contract; feature trackers, generated weights, and other implementation dependencies are not independent extension points.</div>
+  <div class="note"><strong>The facades define separate support boundaries.</strong> Everything reachable from <code>espectre_sdk.h</code> belongs to the stable runtime surface. Detector classes and documented public methods exposed by <code>espectre_core_sdk.h</code> follow the source-compatibility contract; feature trackers, generated weights, and other implementation dependencies are not independent extension points.</div>
 
   <h2>Compatibility</h2>
   <p>Final numeric releases follow Semantic Versioning for C++ source compatibility. Patch releases preserve documented behavior, minor releases may add compatible declarations, and breaking changes require a major release. Preview and develop bundles may change before the corresponding final release.</p>
   <p>The SDK ships as source and does not promise a stable binary ABI. Rebuild the SDK and your integration together, and initialize public structs with their defaults before assigning named fields. The complete contract, including detector-output limits and deprecation rules, lives in the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md" target="_blank" rel="noopener">SDK guide</a>.</p>
 
   <h2>Replacing the runtime</h2>
-  <p>A platform port implements <a href="/artifacts/sdk/api/classespectre_1_1_i_espectre_runtime.html"><code>IEspectreRuntime</code></a>. The interface covers lifecycle, state, controls, diagnostics, capabilities, and listener delivery; the existing <code>RuntimeFrontendController</code> remains ESP-IDF-specific and does not inject an arbitrary backend.</p>
+  <p>A platform port implements <a href="/sdk/api/?api=classespectre_1_1_i_espectre_runtime" data-api-reference-ref="classespectre_1_1_i_espectre_runtime"><code>IEspectreRuntime</code></a>. The interface covers lifecycle, state, controls, diagnostics, capabilities, and listener delivery; the existing <code>RuntimeFrontendController</code> remains ESP-IDF-specific and does not inject an arbitrary backend.</p>
 
-  <div class="article-nav">
-    <a href="/sdk/architecture/" class="doc-link"><div class="doc-link-title">← Previous: Architecture</div><div class="doc-link-sub">Understand the shared layers, data flow, and platform boundaries.</div></a>
-    <a href="/sdk/detectors/" class="doc-link doc-link-next"><div class="doc-link-title">Next: Detector architecture →</div><div class="doc-link-sub">Follow CSI from temporal admission to an on-device motion decision.</div></a>
   </div>
 </article>

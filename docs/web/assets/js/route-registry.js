@@ -42,26 +42,26 @@
     const definitions = [
         { name: 'home', title: 'ESPectre — Wi-Fi motion sensing' },
         { name: 'tools', title: 'Browser tools | ESPectre', staticPath: '/tools/' },
-        { name: 'tool-flash', group: 'tools', title: 'Flash firmware | ESPectre', staticPath: '/tools/flash/', analyticsName: 'flash' },
-        { name: 'tool-configure', group: 'tools', title: 'Configure | ESPectre', staticPath: '/tools/configure/', analyticsName: 'configure' },
-        { name: 'tool-monitor', group: 'tools', title: 'Monitor | ESPectre', staticPath: '/tools/monitor/', analyticsName: 'monitor' },
-        { name: 'tool-raw-csi', group: 'tools', title: 'Raw CSI | ESPectre', staticPath: '/tools/raw-csi/', analyticsName: 'raw-csi' },
-        { name: 'tool-theremin', group: 'tools', title: 'Motion theremin | ESPectre', staticPath: '/tools/theremin/', analyticsName: 'theremin' },
-        { name: 'tool-game', group: 'tools', title: 'Motion game | ESPectre', staticPath: '/tools/game/', analyticsName: 'game' },
+        { name: 'tool-flash', group: 'tools', pathLabel: 'Install', title: 'Install ESPectre | ESPectre', staticPath: '/tools/flash/', analyticsName: 'flash' },
+        { name: 'tool-configure', group: 'tools', pathLabel: 'Configure', title: 'Device settings | ESPectre', staticPath: '/tools/configure/', analyticsName: 'configure' },
+        { name: 'tool-monitor', group: 'tools', pathLabel: 'Monitor', title: 'Live motion | ESPectre', staticPath: '/tools/monitor/', analyticsName: 'monitor' },
+        { name: 'tool-raw-csi', group: 'tools', pathLabel: 'Raw CSI', title: 'Raw Wi-Fi signal | ESPectre', staticPath: '/tools/raw-csi/', analyticsName: 'raw-csi' },
+        { name: 'tool-game', group: 'tools', pathLabel: 'Game', title: 'Run with the Spectre | ESPectre', staticPath: '/tools/game/', analyticsName: 'game' },
+        { name: 'tool-theremin', group: 'tools', pathLabel: 'Theremin', title: 'Motion theremin | ESPectre', staticPath: '/tools/theremin/', analyticsName: 'theremin' },
         { name: 'guides', title: 'Guides | ESPectre', staticPath: '/guides/', analyticsName: 'overview' },
-        { name: 'guide-hardware', group: 'guides', title: 'Choosing an ESP32 board | ESPectre', staticPath: '/guides/hardware/' },
-        { name: 'guide-setup', group: 'guides', title: 'Flash & Wi-Fi setup | ESPectre', staticPath: '/guides/setup/' },
-        { name: 'guide-home-assistant', group: 'guides', title: 'Build your Home Assistant dashboard | ESPectre', staticPath: '/guides/home-assistant/' },
-        { name: 'guide-placement', group: 'guides', title: 'Sensor placement guide | ESPectre', staticPath: '/guides/placement/' },
-        { name: 'guide-detection', group: 'guides', title: 'How Wi-Fi sensing detects movement | ESPectre', staticPath: '/guides/detection/' },
-        { name: 'guide-detectors', group: 'guides', title: 'Detection profiles | ESPectre', staticPath: '/guides/detectors/' },
-        { name: 'guide-micropython', group: 'guides', title: 'Run ESPectre on MicroPython | ESPectre', staticPath: '/guides/micropython/' },
-        { name: 'guide-future-wifi-sensing', group: 'guides', title: 'The future of Wi-Fi sensing | ESPectre', staticPath: '/guides/future-wifi-sensing/', analyticsName: 'future-wifi-sensing' },
-        { name: 'sdk', title: 'ESPectre SDK quick guide | ESPectre', staticPath: '/sdk/', analyticsName: 'overview' },
-        { name: 'sdk-architecture', group: 'sdk', title: 'Architecture | ESPectre', staticPath: '/sdk/architecture/' },
-        { name: 'sdk-api', group: 'sdk', title: 'API orientation | ESPectre', staticPath: '/sdk/api/' },
-        { name: 'sdk-detectors', group: 'sdk', title: 'Detector architecture | ESPectre', staticPath: '/sdk/detectors/' },
-        { name: 'sdk-examples', group: 'sdk', title: 'Examples | ESPectre', staticPath: '/sdk/examples/' },
+        { name: 'guide-detection', group: 'guides', pathLabel: 'Detection', title: 'How Wi-Fi sensing detects movement | ESPectre', staticPath: '/guides/detection/' },
+        { name: 'guide-hardware', group: 'guides', pathLabel: 'Hardware', title: 'Choose your hardware | ESPectre', staticPath: '/guides/hardware/' },
+        { name: 'guide-setup', group: 'guides', pathLabel: 'Setup', title: 'Flash and set up your device | ESPectre', staticPath: '/guides/setup/' },
+        { name: 'guide-placement', group: 'guides', pathLabel: 'Placement', title: 'Place your ESPectre sensor | ESPectre', staticPath: '/guides/placement/' },
+        { name: 'guide-home-assistant', group: 'guides', pathLabel: 'Home Assistant', title: 'Build your Home Assistant dashboard | ESPectre', staticPath: '/guides/home-assistant/' },
+        { name: 'guide-detectors', group: 'guides', pathLabel: 'Detector profiles', title: 'Choose your detection profile | ESPectre', staticPath: '/guides/detectors/' },
+        { name: 'guide-micropython', group: 'guides', pathLabel: 'MicroPython', title: 'Run ESPectre on MicroPython | ESPectre', staticPath: '/guides/micropython/' },
+        { name: 'guide-future-wifi-sensing', group: 'guides', pathLabel: 'Future Wi-Fi sensing', title: 'The future of Wi-Fi sensing | ESPectre', staticPath: '/guides/future-wifi-sensing/', analyticsName: 'future-wifi-sensing' },
+        { name: 'sdk', pathLabel: 'SDK', title: 'ESPectre SDK quick guide | ESPectre', staticPath: '/sdk/', analyticsName: 'overview' },
+        { name: 'sdk-architecture', group: 'sdk', pathLabel: 'Architecture', title: 'Architecture | ESPectre', staticPath: '/sdk/architecture/' },
+        { name: 'sdk-api', group: 'sdk', pathLabel: 'API', title: 'API reference | ESPectre', staticPath: '/sdk/api/' },
+        { name: 'sdk-detectors', group: 'sdk', pathLabel: 'Detectors', title: 'Detector architecture | ESPectre', staticPath: '/sdk/detectors/' },
+        { name: 'sdk-examples', group: 'sdk', pathLabel: 'Examples', title: 'Examples | ESPectre', staticPath: '/sdk/examples/' },
         { name: 'media', title: 'Media | ESPectre', staticPath: '/media/' },
         { name: 'roadmap', title: 'Roadmap | ESPectre', staticPath: '/roadmap/' },
         { name: 'privacy', title: 'Website privacy and analytics | ESPectre', staticPath: '/privacy/' },
@@ -75,11 +75,22 @@
     const documentPathNames = new Map([
         ['/artifacts/sdk/release/', 'sdk_release'],
         ['/artifacts/sdk/preview/', 'sdk_preview'],
-        ['/artifacts/sdk/develop/', 'sdk_develop'],
-        ['/artifacts/sdk/api/', 'api_reference']
+        ['/artifacts/sdk/develop/', 'sdk_develop']
     ]);
 
     const byName = new Map(definitions.map((definition) => [definition.name, definition]));
+    const emptyGroup = Object.freeze([]);
+    const byGroup = new Map();
+    definitions.forEach((definition) => {
+        if (!definition.group) return;
+        if (!byGroup.has(definition.group)) byGroup.set(definition.group, []);
+        byGroup.get(definition.group).push(definition);
+    });
+    byGroup.forEach((members, group) => {
+        const root = byName.get(group);
+        if (root?.pathLabel) members.unshift(root);
+        byGroup.set(group, Object.freeze(members));
+    });
     const byStaticPath = new Map(
         definitions
             .filter((definition) => definition.staticPath)
@@ -141,6 +152,7 @@
         groupOf: (name) => byName.get(name)?.group || '',
         guideNameForPath: (path) => contentNameForPath(path, 'guide-', 'guides'),
         has: (name) => byName.has(name),
+        membersOf: (group) => byGroup.get(group) || emptyGroup,
         routeForPath: (path) => byStaticPath.get(path) || '',
         staticTargetForHref,
         title: (name) => byName.get(name)?.title || ''

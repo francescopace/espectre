@@ -255,7 +255,7 @@ Each SDK bundle includes:
 - generated `src/cpp/core/ml_weights.h`
 - `LICENSE`, `LICENSING.md`, and `THIRD_PARTY_NOTICES.md`
 
-The published bundle is not a chip-specific binary library. It is a versioned source package with stamped packaging metadata, suitable for vendoring or unpacking into your own firmware tree. Its `.tar.gz` and `.zip` archives are generated deterministically from the source commit timestamp, and the accompanying SDK manifest records a SHA-256 digest for each archive so consumers can verify downloaded bytes.
+The published bundle is a versioned C++ source SDK with stamped packaging metadata, ready to vendor or unpack into your firmware tree. ESPectre is compiled together with the product firmware; the bundle does not include chip-specific precompiled libraries or promise binary ABI compatibility. Its `.tar.gz` and `.zip` archives are generated deterministically from the source commit timestamp, and the accompanying SDK manifest records a SHA-256 digest for each archive so consumers can verify downloaded bytes.
 
 ## Validation assets
 
@@ -267,15 +267,15 @@ The published bundle is not a chip-specific binary library. It is a versioned so
 
 ## Generated API reference
 
-The headers carry Doxygen-compatible documentation. Generate a browsable reference for the supported surface from the repository root with:
+The headers carry Doxygen-compatible documentation. Generate the portal-ready reference for the supported surface from the repository root with:
 
 ```bash
 python3 .github/scripts/generate_sdk_api.py
 ```
 
-The generator stamps Doxygen `PROJECT_NUMBER` from the same `git describe` identity used by SDK bundles, then writes `docs/web/artifacts/sdk/api/`. The output is not committed, so it never drifts from the headers.
+The generator stamps Doxygen `PROJECT_NUMBER` from the same `git describe` identity used by SDK bundles, generates XML in an isolated build directory, and renders it through a pinned m.css revision. Only an index manifest and HTML fragments are written to `docs/web/artifacts/sdk/api/`; the existing `/sdk/api/` SPA owns navigation, search, styling, header, and footer. The generated output is not committed, so it never drifts from the headers.
 
-An unpacked SDK bundle ships this guide and `src/cpp/Doxyfile` rewritten to write `output/api/` and stamped with that bundle's version, so `doxygen src/cpp/Doxyfile` from the bundle root rebuilds a matching reference without the website tree. The published reference for the current site commit is at `https://espectre.dev/artifacts/sdk/api/`, rebuilt from source on every deploy.
+An unpacked SDK bundle ships this guide and `src/cpp/Doxyfile` rewritten to write `output/xml/` and stamped with that bundle's version. Running `doxygen src/cpp/Doxyfile` from the bundle root therefore produces a tool-neutral XML reference without shipping the website or a second HTML shell. The browsable reference is integrated at `https://espectre.dev/sdk/api/` and rebuilt from source on every deploy.
 
 ## Licensing
 
