@@ -605,6 +605,38 @@ def verify_installation(args) -> None:
         all_ok = False
     print()
 
+    print(f"{Fore.YELLOW}🔍 Checking ESPectre core module...{Style.RESET_ALL}")
+    try:
+        result = subprocess.run(
+            [
+                "mpremote",
+                "connect",
+                port,
+                "exec",
+                "import espectre_native_features as core; "
+                "print(core.BACKEND, hasattr(core, 'Detector'), "
+                "hasattr(core, 'TemporalCsiSampler'))",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        if result.stdout.strip() != "espectre_core True True":
+            raise subprocess.CalledProcessError(
+                result.returncode,
+                result.args,
+                output=result.stdout,
+                stderr="incompatible espectre core module",
+            )
+        print(f"{Fore.GREEN}✅ ESPectre core detector and sampler available{Style.RESET_ALL}")
+    except subprocess.CalledProcessError as e:
+        detail = (e.stderr or "").strip()
+        print(f"{Fore.RED}❌ ESPectre core module unavailable or incompatible{Style.RESET_ALL}")
+        if detail:
+            print(f"{Fore.YELLOW}   {detail}{Style.RESET_ALL}")
+        all_ok = False
+    print()
+
     print(f"{Fore.YELLOW}🔍 Checking MicroPython version...{Style.RESET_ALL}")
     try:
         result = subprocess.run(

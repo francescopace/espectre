@@ -426,14 +426,46 @@ def test_project_boards_use_one_shared_profile_and_only_esp32_override() -> None
 
     common_header = (boards_dir / "mpconfigboard_common.h").read_text(encoding="utf-8")
     assert "MICROPY_HW_ENABLE_MDNS_RESPONDER (1)" in common_header
+    assert "MICROPY_PY_ARRAY (1)" in common_header
 
     native_cmake = (
         micro.PYTHON_SRC_DIR / "firmware" / "native_components" / "micropython.cmake"
     ).read_text(encoding="utf-8")
     assert "native_direct.c" in native_cmake
+    assert "native_features.cpp" in native_cmake
+    assert "native_features_module.c" in native_cmake
+    assert "shared_core" not in native_cmake
+    assert "idf::espectre_core" in native_cmake
     assert "native_traffic.c" in native_cmake
     assert "native_mqtt.c" not in native_cmake
     assert "idf::mqtt" not in native_cmake
+
+    core_component = (
+        micro.PYTHON_SRC_DIR / "firmware" / "components" / "espectre_core"
+    )
+    component_cmake = (core_component / "CMakeLists.txt").read_text(encoding="utf-8")
+    assert "ESPECTRE_CORE_SOURCES" in component_cmake
+    assert "idf_component_register" in component_cmake
+
+    native_cpp = (
+        micro.PYTHON_SRC_DIR
+        / "firmware"
+        / "native_components"
+        / "native_features.cpp"
+    ).read_text(encoding="utf-8")
+    assert '#include "espectre_core_sdk.h"' in native_cpp
+    assert '#include "core/' not in native_cpp
+
+    native_module = (
+        micro.PYTHON_SRC_DIR
+        / "firmware"
+        / "native_components"
+        / "native_features_module.c"
+    ).read_text(encoding="utf-8")
+    assert native_module.count("mp_obj_malloc_with_finaliser") == 2
+    assert native_module.count("MP_QSTR___del__") == 2
+    assert "MP_QSTR_Detector" in native_module
+    assert "MP_QSTR_TemporalCsiSampler" in native_module
 
 
 def test_device_manifest_is_lightweight_direct_only() -> None:
@@ -664,6 +696,7 @@ def test_verify_installation_passes_when_all_checks_succeed(monkeypatch) -> None
     ]
     results = [
         SimpleNamespace(stdout="csi_start,csi_stop\n", stderr=""),
+        SimpleNamespace(stdout="espectre_core True True\n", stderr=""),
         SimpleNamespace(stdout="(1, 24, 0)\n", stderr=""),
         SimpleNamespace(stdout=f"{src_listing!r}\n", stderr=""),
         SimpleNamespace(stdout="True\n", stderr=""),
@@ -681,6 +714,7 @@ def test_verify_installation_passes_when_all_checks_succeed(monkeypatch) -> None
 def test_verify_installation_raises_when_required_checks_fail(monkeypatch) -> None:
     calls = [
         SimpleNamespace(stdout="NONE\n", stderr=""),
+        subprocess.CalledProcessError(1, ["mpremote"], stderr="missing core"),
         subprocess.CalledProcessError(1, ["mpremote"], stderr="version error"),
         subprocess.CalledProcessError(1, ["mpremote"], stderr="missing src"),
         subprocess.CalledProcessError(1, ["mpremote"], stderr="config missing"),

@@ -547,6 +547,16 @@ class SegmentationContext:
                 print(f"[ERROR] LowPass filter failed and was disabled: {e}")
                 self.lowpass_filter = None
 
+        self.add_filtered_turbulence(filtered_turbulence)
+
+    def add_filtered_turbulence(self, filtered_turbulence):
+        """Append a value after the configured filter chain has run.
+
+        The MicroPython firmware uses this entry point when its native packet
+        processor has already applied the canonical C++ Hampel filter. Host
+        builds and unsupported configurations continue through
+        :meth:`add_turbulence`.
+        """
         self.last_turbulence = filtered_turbulence
 
         # Store value in circular buffer

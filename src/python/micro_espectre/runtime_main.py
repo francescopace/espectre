@@ -65,7 +65,7 @@ def create_detector(detection_algorithm, window_packets):
         raise ValueError(f"Unsupported Micro detector: {detection_algorithm}")
 
     print(f'Detection algorithm: {get_detector_label(detection_algorithm)}')
-    return detector_class(
+    detector = detector_class(
         window_size=window_packets,
         threshold=1.0,
         enable_lowpass=config.ENABLE_LOWPASS_FILTER,
@@ -74,6 +74,14 @@ def create_detector(detection_algorithm, window_packets):
         hampel_window=config.HAMPEL_WINDOW,
         hampel_threshold=config.HAMPEL_THRESHOLD,
     )
+    get_backend = getattr(detector, "get_backend", None)
+    backend = get_backend() if callable(get_backend) else None
+    if backend != "espectre_core":
+        raise RuntimeError(
+            "Micro-ESPectre requires the espectre_core detector backend"
+        )
+    print(f'Detector backend: {backend}')
+    return detector
 
 
 def run_startup_calibration(wlan, detector, traffic_gen):
@@ -822,6 +830,9 @@ def main(wlan=None):
         direct_api.stop()
         if traffic_gen.is_running():
             traffic_gen.stop()
+        close_detector = getattr(detector, 'close', None)
+        if callable(close_detector):
+            close_detector()
         cleanup_wifi(wlan)
 
 if __name__ == '__main__':

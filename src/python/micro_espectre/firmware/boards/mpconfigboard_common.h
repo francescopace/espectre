@@ -10,7 +10,7 @@
 
 // Keep only the generic modules used by the filesystem-deployed sensing
 // runtime. These are public MicroPython build options, not port patches.
-#define MICROPY_PY_ARRAY (0)
+#define MICROPY_PY_ARRAY (1)
 #define MICROPY_PY_BINASCII (0)
 #define MICROPY_PY_BUILTINS_HELP (0)
 #define MICROPY_PY_CMATH (0)

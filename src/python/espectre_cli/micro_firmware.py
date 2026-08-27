@@ -179,7 +179,7 @@ def _write_manifest(manifest_path: Path) -> None:
 
 
 def _stage_firmware_support(source_dir: Path, destination: Path) -> None:
-    """Stage the custom board and native modules used by the project image."""
+    """Stage the firmware build support used by the project image."""
     support_dir = source_dir / "firmware"
     if not support_dir.is_dir():
         raise RuntimeError(f"Project firmware support directory is missing: {support_dir}")
@@ -259,8 +259,13 @@ def build_project_firmware(
     jobs = str(max(1, min(8, os.cpu_count() or 1)))
     if resolved_backend.mode == "docker":
         build_root = Path("/work") / workspace.resolve().relative_to(REPO_ROOT.resolve())
+        core_sdk_root = Path("/work/src/cpp")
     else:
         build_root = workspace.resolve()
+        core_sdk_root = (REPO_ROOT / "src" / "cpp").resolve()
+    core_component_dir = (
+        build_root / "firmware-support" / "components" / "espectre_core"
+    )
     commands = [
         ["make", "-C", "micropython/mpy-cross", f"-j{jobs}"],
         [
@@ -276,6 +281,8 @@ def build_project_firmware(
             f"-DMICROPY_FROZEN_MANIFEST={build_root / 'manifest.py'}",
             f"-DMICROPY_LIB_DIR={build_root / 'micropython-lib'}",
             f"-DUSER_C_MODULES={build_root / 'firmware-support' / 'native_components' / 'micropython.cmake'}",
+            f"-DESPECTRE_CORE_SDK_ROOT={core_sdk_root}",
+            f"-DEXTRA_COMPONENT_DIRS={core_component_dir}",
             "-DMICROPY_PY_BTREE=0",
         ],
         [

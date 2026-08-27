@@ -41,7 +41,7 @@ WIFI_PASSWORD = "YourWiFiPassword"
 
 The firmware image freezes only MicroPython's upstream boot and filesystem helpers. The complete ESPectre application is compiled to optimized `.mpy -O3` bytecode and stored on the filesystem, so research changes require only `micro deploy`, not a firmware rebuild and flash. Deployment uploads the complete manifest to a staging directory and atomically activates it, restoring the previous directory after an interrupted swap. The device and `mpy-cross` use MPY ABI 6.3.
 
-The native firmware components are the ICMP traffic generator and the Direct HTTP/mDNS service. Bluetooth, ESP-NOW, asyncio, Ethernet, unused peripheral bindings, and unused generic Python modules remain disabled.
+The firmware links the core-only ESPectre SDK as an ESP-IDF component. Its MicroPython binding exposes finalizable `Detector` and `TemporalCsiSampler` objects through the public `espectre_core_sdk.h` facade. The production Lightweight detector and temporal admission hot paths therefore run in C++, while MicroPython owns orchestration, calibration policy, diagnostics, and delivery. The application fails at startup if the core module is absent or incompatible; it does not silently fall back to the Python detector on the device. The same Python implementation remains available under CPython for replay, training, and host-side experimentation. The other native components are the ICMP traffic generator and the Direct HTTP/mDNS service. Bluetooth, ESP-NOW, asyncio, Ethernet, unused peripheral bindings, and unused generic Python modules remain disabled.
 
 ## Runtime behavior
 

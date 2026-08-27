@@ -9,6 +9,18 @@ robust spread of a five-bin aggregated turbulence stream.
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
 import math
+import sys
+
+try:
+    from array import array
+    import espectre_native_features as _native_features
+except ImportError:
+    array = None
+    _native_features = None
+    if getattr(sys.implementation, "name", "") == "micropython":
+        raise RuntimeError(
+            "Micro-ESPectre requires the espectre_native_features core module"
+        )
 
 try:
     from src.detector_interface import IDetector, MotionState
@@ -67,30 +79,65 @@ class LightweightDetector(IDetector):
                  enable_hampel=True, hampel_window=7, hampel_threshold=5.0,
                  autocorr_lag=1):
         self._autocorr_lag = max(1, int(autocorr_lag))
-        self._context = SegmentationContext(
-            window_size=window_size,
-            enable_lowpass=enable_lowpass,
-            lowpass_cutoff=lowpass_cutoff,
-            enable_hampel=enable_hampel,
-            hampel_window=hampel_window,
-            hampel_threshold=hampel_threshold,
-            track_lag1_autocorrelation=(self._autocorr_lag == 1),
+        self._window_size = int(window_size)
+        use_native_detector = (
+            array is not None
+            and _native_features is not None
+            and hasattr(_native_features, "Detector")
         )
-        self._aggregated_context = SegmentationContext(
-            window_size=window_size,
-            enable_lowpass=enable_lowpass,
-            lowpass_cutoff=lowpass_cutoff,
-            enable_hampel=enable_hampel,
-            hampel_window=hampel_window,
-            hampel_threshold=hampel_threshold,
-            adjacent_aggregation_width=TURB_IQR_AGGREGATION_WIDTH,
-        )
+        if (
+            getattr(sys.implementation, "name", "") == "micropython"
+            and not use_native_detector
+        ):
+            raise RuntimeError(
+                "Micro-ESPectre requires a compatible espectre core module"
+            )
+        if use_native_detector:
+            self._context = None
+            self._aggregated_context = None
+        else:
+            self._context = SegmentationContext(
+                window_size=window_size,
+                enable_lowpass=enable_lowpass,
+                lowpass_cutoff=lowpass_cutoff,
+                enable_hampel=enable_hampel,
+                hampel_window=hampel_window,
+                hampel_threshold=hampel_threshold,
+                track_lag1_autocorrelation=(self._autocorr_lag == 1),
+            )
+            self._aggregated_context = SegmentationContext(
+                window_size=window_size,
+                enable_lowpass=enable_lowpass,
+                lowpass_cutoff=lowpass_cutoff,
+                enable_hampel=enable_hampel,
+                hampel_window=hampel_window,
+                hampel_threshold=hampel_threshold,
+                adjacent_aggregation_width=TURB_IQR_AGGREGATION_WIDTH,
+            )
         self._selected_subcarriers = DEFAULT_SUBCARRIERS
         self._amplitude_plan, self._amplitude_plan_max_offset = (
             self._build_amplitude_plan(self._selected_subcarriers)
         )
         self._csi_values_signed = None
-        self._valid_turbulence_scratch = [0.0] * window_size
+        self._native_detector_state = None
+        self._native_detector_output = None
+        if use_native_detector:
+            self._native_detector_output = array("f", (0.0,) * 6)
+            self._native_detector_state = _native_features.Detector(
+                "lightweight",
+                window_size=window_size,
+                threshold=threshold,
+                lag=self._autocorr_lag,
+                enable_hampel=enable_hampel,
+                hampel_window=hampel_window,
+                hampel_threshold=hampel_threshold,
+                enable_lowpass=enable_lowpass,
+                lowpass_cutoff=lowpass_cutoff,
+                subcarriers=self._selected_subcarriers,
+            )
+        self._valid_turbulence_scratch = (
+            None if use_native_detector else [0.0] * window_size
+        )
         self._minimum_valid_samples = window_size
         self._threshold = self._clamp_probability(threshold)
         self._state = MotionState.IDLE
@@ -182,7 +229,6 @@ class LightweightDetector(IDetector):
         """Process one CSI packet. ``rssi_dbm`` is accepted for interface parity
         and ignored: both Lightweight features are already invariant to link gain."""
         self._packet_count += 1
-        del timestamp_us
         if selected_subcarriers is None:
             selected_subcarriers = DEFAULT_SUBCARRIERS
         if selected_subcarriers is not self._selected_subcarriers:
@@ -192,7 +238,18 @@ class LightweightDetector(IDetector):
                 self._amplitude_plan, self._amplitude_plan_max_offset = (
                     self._build_amplitude_plan(selected_subcarriers)
                 )
+                if self._native_detector_state is not None:
+                    self._native_detector_state.set_subcarriers(
+                        selected_subcarriers
+                    )
         if len(csi_data) <= self._amplitude_plan_max_offset:
+            return
+
+        if self._native_detector_state is not None:
+            self._native_detector_state.process(
+                csi_data,
+                0 if timestamp_us is None else timestamp_us,
+            )
             return
 
         normal_values = self._context._amplitude_buffer
@@ -270,12 +327,19 @@ class LightweightDetector(IDetector):
 
     def advance_missing_slots(self, count):
         """Preserve missing temporal slots in both feature rings."""
+        if self._native_detector_state is not None:
+            self._native_detector_state.advance_missing(max(0, int(count)))
+            return
         for _ in range(max(0, int(count))):
             self._context.add_missing_slot()
             self._aggregated_context.add_missing_slot()
 
     def set_minimum_valid_samples(self, count):
-        self._minimum_valid_samples = max(1, min(int(count), self._context.window_size))
+        self._minimum_valid_samples = max(1, min(int(count), self._window_size))
+        if self._native_detector_state is not None:
+            self._native_detector_state.set_minimum_valid(
+                self._minimum_valid_samples,
+            )
 
     def _turb_autocorr(self):
         ctx = self._context
@@ -369,6 +433,23 @@ class LightweightDetector(IDetector):
         )
 
     def update_state(self):
+        if self._native_detector_state is not None:
+            self._native_detector_state.update(self._native_detector_output)
+            output = self._native_detector_output
+            self._state = MotionState.MOTION if output[0] >= 0.5 else MotionState.IDLE
+            self._current_probability = output[1]
+            self._threshold = output[2]
+            self._current_turb_autocorr = output[3]
+            self._current_turb_iqr_over_mean_aggr = output[4]
+            self._current_logit = output[5]
+            return {
+                "state": self._state,
+                "motion_metric": self._current_probability,
+                "probability": self._current_probability,
+                "turb_autocorr": self._current_turb_autocorr,
+                "turb_iqr_over_mean_aggr": self._current_turb_iqr_over_mean_aggr,
+                "threshold": self._threshold,
+            }
         if not self.is_ready():
             self._current_probability = 0.0
             self._state = MotionState.IDLE
@@ -441,6 +522,11 @@ class LightweightDetector(IDetector):
         self._settle_block_count = 0
 
     def set_adaptive_threshold(self, _shared_threshold):
+        if self._native_detector_state is not None:
+            self._native_detector_state.calibration_complete()
+            self._native_detector_state.apply_adaptive_threshold()
+            self._threshold = self._native_detector_state.get_threshold()
+            return
         self._reset_settled_level()
         self._adapted_threshold_ready = True
         session_q95 = self._quantile(self._startup_logits, self.STARTUP_QUANTILE)
@@ -455,6 +541,8 @@ class LightweightDetector(IDetector):
 
     def on_startup_calibration_begin(self):
         """Discard stale runtime logits before a fresh calibration session."""
+        if self._native_detector_state is not None:
+            self._native_detector_state.calibration_begin()
         self._startup_logits = []
         self._adapted_threshold_ready = False
         self._settle_blocks = []
@@ -465,19 +553,30 @@ class LightweightDetector(IDetector):
         value = float(threshold)
         if value < 0.0 or value > 1.0:
             return False
+        if self._native_detector_state is not None:
+            try:
+                self._native_detector_state.set_threshold(value)
+            except ValueError:
+                return False
         self._threshold = value
         return True
 
     def get_threshold(self):
+        if self._native_detector_state is not None:
+            self._threshold = self._native_detector_state.get_threshold()
         return self._threshold
 
     def get_motion_metric(self):
+        if self._native_detector_state is not None:
+            return self._native_detector_state.get_metric()
         return self._current_probability
 
     def get_state(self):
         return self._state
 
     def is_ready(self):
+        if self._native_detector_state is not None:
+            return self._native_detector_state.is_ready()
         return (
             self._context.buffer_count >= self._context.window_size
             and self._context.valid_count >= self._minimum_valid_samples
@@ -487,8 +586,11 @@ class LightweightDetector(IDetector):
         )
 
     def reset(self):
-        self._context.reset(full=True)
-        self._aggregated_context.reset(full=True)
+        if self._native_detector_state is not None:
+            self._native_detector_state.reset()
+        if self._context is not None:
+            self._context.reset(full=True)
+            self._aggregated_context.reset(full=True)
         self._state = MotionState.IDLE
         self._packet_count = 0
         self._current_probability = 0.0
@@ -501,10 +603,25 @@ class LightweightDetector(IDetector):
     def get_name(self):
         return "Lightweight"
 
+    def get_backend(self):
+        return "espectre_core" if self._native_detector_state is not None else "python"
+
     def get_window_size(self):
         """Return the resolved detector window in samples."""
-        return self._context.window_size
+        return self._window_size
 
     @property
     def total_packets(self):
+        if self._native_detector_state is not None:
+            return self._native_detector_state.get_total_packets()
         return self._packet_count
+
+    def close(self):
+        """Release native detector storage before a MicroPython soft reset."""
+        native_detector = getattr(self, "_native_detector_state", None)
+        if native_detector is not None:
+            native_detector.deinit()
+            self._native_detector_state = None
+
+    def __del__(self):
+        self.close()

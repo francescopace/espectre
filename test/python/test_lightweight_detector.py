@@ -3,9 +3,12 @@
 """Tests for the production Lightweight detector."""
 
 import math
+from types import SimpleNamespace
+from array import array
 
 import pytest
 
+import lightweight_detector as lightweight_module
 from lightweight_detector import LightweightDetector
 from detector_interface import (
     MotionState,
@@ -49,6 +52,105 @@ def test_hampel_master_switch_controls_turbulence_stream() -> None:
     assert enabled._aggregated_context.hampel_filter is not None
     assert disabled._context.hampel_filter is None
     assert disabled._aggregated_context.hampel_filter is None
+
+
+def test_native_detector_caches_subcarrier_plan(monkeypatch) -> None:
+    calls = []
+
+    class NativeFeatures:
+        class Detector:
+            def __init__(self, algorithm, **kwargs):
+                calls.append(("init", algorithm, tuple(kwargs["subcarriers"])))
+
+            def set_subcarriers(self, subcarriers):
+                calls.append(("set", tuple(subcarriers)))
+
+            def process(self, csi, timestamp_us):
+                calls.append(("process", len(csi), timestamp_us))
+
+            def deinit(self):
+                calls.append(("deinit",))
+
+    monkeypatch.setattr(lightweight_module, "_native_features", NativeFeatures)
+    monkeypatch.setattr(lightweight_module, "array", array)
+    detector = LightweightDetector(enable_hampel=False)
+    payload = bytearray(128)
+
+    detector.process_packet(payload)
+    changed_plan = tuple(detector._selected_subcarriers[:-1])
+    detector.process_packet(payload, changed_plan)
+
+    assert calls[0] == (
+        "init",
+        "lightweight",
+        tuple(lightweight_module.DEFAULT_SUBCARRIERS),
+    )
+    assert calls.count(("set", changed_plan)) == 1
+    assert [call[0] for call in calls].count("process") == 2
+    assert detector._context is None
+    assert detector._aggregated_context is None
+
+
+def test_full_native_detector_owns_device_hot_path(monkeypatch) -> None:
+    calls = []
+
+    class NativeDetector:
+        class Detector:
+            def __init__(self, algorithm, **kwargs):
+                calls.append(("init", kwargs["window_size"], tuple(kwargs["subcarriers"])))
+
+            def process(self, csi, timestamp_us):
+                calls.append(("process", len(csi), timestamp_us))
+
+            def update(self, output):
+                output[:] = array("f", (1.0, 0.75, 0.6, 0.2, 0.3, 1.1))
+
+            def set_minimum_valid(self, count):
+                calls.append(("minimum", count))
+
+            def is_ready(self):
+                return True
+
+            def get_total_packets(self):
+                return 1
+
+            def get_threshold(self):
+                return 0.6
+
+            def get_metric(self):
+                return 0.75
+
+            def deinit(self):
+                calls.append(("deinit",))
+
+    monkeypatch.setattr(lightweight_module, "_native_features", NativeDetector)
+    monkeypatch.setattr(lightweight_module, "array", array)
+    detector = LightweightDetector(enable_hampel=False)
+
+    detector.set_minimum_valid_samples(70)
+    detector.process_packet(bytearray(128), timestamp_us=1234)
+    metrics = detector.update_state()
+
+    assert detector._context is None
+    assert detector._aggregated_context is None
+    assert calls[0][0] == "init"
+    assert ("minimum", 70) in calls
+    assert ("process", 128, 1234) in calls
+    assert metrics["state"] is MotionState.MOTION
+    assert metrics["motion_metric"] == pytest.approx(0.75)
+    assert detector.total_packets == 1
+
+
+def test_micropython_requires_compatible_core_module(monkeypatch) -> None:
+    monkeypatch.setattr(
+        lightweight_module,
+        "sys",
+        SimpleNamespace(implementation=SimpleNamespace(name="micropython")),
+    )
+    monkeypatch.setattr(lightweight_module, "_native_features", None)
+
+    with pytest.raises(RuntimeError, match="compatible espectre core module"):
+        LightweightDetector(enable_hampel=False)
 
 
 def test_fused_packet_path_matches_shared_turbulence_helpers() -> None:
