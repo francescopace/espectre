@@ -33,6 +33,7 @@ espectre:
   csi_traffic_mode: internal # internal (default) or external
   traffic_generator_mode: ping # ping (default) or dns; used in internal mode
   evaluation_interval_ms: 250 # 250-1000 recommended; detector and live telemetry interval
+  direct_api: true # Set false to disable Direct HTTP, SSE, raw CSI, and Direct mDNS discovery
 
 wifi:
   ap:

@@ -71,6 +71,12 @@ void ESpectreComponent::setup() {
         ->update_detector_range(this->runtime_.config().detection_algorithm);
   }
 
+  if (!this->direct_api_enabled_) {
+    ESP_LOGI(TAG, "Direct API disabled by ESPHome configuration");
+    ESP_LOGI(TAG, "ESPectre initialized successfully");
+    return;
+  }
+
   if (!this->direct_bridge_.setup(
           &this->direct_service_,
           &this->runtime_,
@@ -118,8 +124,10 @@ ESpectreComponent::~ESpectreComponent() {
 
 void ESpectreComponent::loop() {
   this->runtime_.loop();
-  this->direct_bridge_.loop();
   this->update_live_telemetry_enabled_();
+  if (!this->direct_api_enabled_) return;
+
+  this->direct_bridge_.loop();
   esp_netif_ip_info_t ip_info{};
   esp_netif_t *station = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
   (void) this->mdns_bootstrap_responder_.update(
@@ -134,7 +142,7 @@ void ESpectreComponent::loop() {
 
 void ESpectreComponent::update_live_telemetry_enabled_() {
   const bool enabled = this->sensor_publisher_.has_movement_sensor() ||
-                       this->direct_bridge_.event_client_count() > 0U;
+                       (this->direct_api_enabled_ && this->direct_bridge_.event_client_count() > 0U);
   if (enabled == this->live_telemetry_enabled_) {
     return;
   }
@@ -184,6 +192,8 @@ bool ESpectreComponent::set_device_name_(const std::string &device_name, std::st
 }
 
 void ESpectreComponent::setup_mdns_discovery_() {
+  if (!this->direct_api_enabled_) return;
+
   const std::string device_id = format_espectre_device_id(this->runtime_.config().device_id);
   const MdnsTxtRecords txt_records = this->mdns_txt_records_();
   if (!this->mdns_discovery_.setup(MdnsDiscoveryServiceConfig{
@@ -621,6 +631,9 @@ void ESpectreComponent::dump_config() {
                 this->sensor_publisher_.has_movement_sensor() ? "[OK]" : "[--]");
   ESP_LOGCONFIG(TAG, " └─ Motion Binary ...... %s",
                 this->sensor_publisher_.has_motion_binary_sensor() ? "[OK]" : "[--]");
+  ESP_LOGCONFIG(TAG, " ");
+  ESP_LOGCONFIG(TAG, " DIRECT API ............ %s",
+                this->direct_api_enabled_ ? "[ENABLED]" : "[DISABLED]");
   ESP_LOGCONFIG(TAG, " ");
 }
 

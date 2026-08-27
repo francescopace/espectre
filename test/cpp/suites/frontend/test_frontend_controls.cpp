@@ -27,6 +27,7 @@
 #include "direct_http_protocol.h"
 #include "esp_http_server.h"
 #include "frontend_runtime_shim.h"
+#include "mdns.h"
 
 using namespace esphome::espectre_component;
 
@@ -84,6 +85,7 @@ class DiagnosticsButtonProbe : public ESpectreDiagnosticsButton {
 void setUp(void) {
   frontend_runtime_shim::reset();
   httpd_mock_reset();
+  mdns_mock_reset();
   esphome::reset_mock_millis();
 }
 
@@ -100,6 +102,23 @@ void test_espectre_component_setup_uses_mock_runtime_snapshot(void) {
   TEST_ASSERT_NOT_NULL(frontend_runtime_shim::state.last_instance);
   TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
   TEST_ASSERT_EQUAL_FLOAT(4.5f, component.get_threshold());
+  TEST_ASSERT_EQUAL(1, g_httpd_mock.start_calls);
+}
+
+void test_espectre_component_direct_api_can_be_disabled(void) {
+  ESpectreComponentProbe component;
+  component.set_direct_api(false);
+  component.setup();
+
+  TEST_ASSERT_FALSE(component.is_failed());
+  TEST_ASSERT_EQUAL(0, g_httpd_mock.start_calls);
+  TEST_ASSERT_FALSE(component.mdns_bootstrap_responder_.configured_.load());
+
+  component.loop();
+
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.loop_calls);
+  TEST_ASSERT_EQUAL(0, g_mdns_mock.service_add_call_count);
+  TEST_ASSERT_EQUAL(0, g_mdns_mock.async_new_call_count);
 }
 
 void test_espectre_component_setup_marks_failed_when_runtime_setup_fails(void) {
@@ -329,6 +348,7 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   SensingSwitchProbe sensing_switch;
 
   component.set_segmentation_window_size_ms(1500);
+  component.set_direct_api(false);
   component.set_csi_target_pps(94);
   component.set_csi_traffic_mode("external");
   component.set_traffic_generator_mode("dns");
@@ -336,6 +356,8 @@ void test_espectre_component_configuration_setters_update_runtime_config(void) {
   component.set_traffic_generator_mode("ping");
   TEST_ASSERT_TRUE(component.runtime_.config().traffic_generator_mode == RuntimeTrafficMode::PING);
   component.set_detection_algorithm("high_accuracy");
+
+  TEST_ASSERT_FALSE(component.direct_api_enabled_);
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::HIGH_ACCURACY);
   component.set_detection_algorithm("lightweight");
   TEST_ASSERT_TRUE(component.runtime_.config().detection_algorithm == DetectionAlgorithm::LIGHTWEIGHT);
@@ -582,6 +604,7 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_espectre_component_setup_uses_mock_runtime_snapshot);
+  RUN_TEST(test_espectre_component_direct_api_can_be_disabled);
   RUN_TEST(test_espectre_component_setup_marks_failed_when_runtime_setup_fails);
   RUN_TEST(test_espectre_component_loop_and_destructor_forward_to_runtime);
   RUN_TEST(test_espectre_component_loop_does_not_poll_wifi_without_peer_discovery);

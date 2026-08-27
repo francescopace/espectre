@@ -64,6 +64,7 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   float get_setup_priority() const override { return 275.0f; }
 
   // Setters for YAML configuration
+  void set_direct_api(bool enabled) { this->direct_api_enabled_ = enabled; }
   void set_segmentation_window_size_ms(uint32_t size_ms) {
     this->runtime_.config().segmentation_window_size_ms = size_ms;
   }
@@ -205,6 +206,7 @@ class ESpectreComponent : public Component, public IRuntimeListener {
 
   RuntimeDiagnosticsSampler diagnostics_sampler_;
   RuntimeDiagnosticsSample latest_diagnostics_{};
+  bool direct_api_enabled_{true};
   bool live_telemetry_enabled_{true};
 
   bool threshold_republished_{false};

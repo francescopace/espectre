@@ -35,6 +35,15 @@ The CLI does not inspect or depend on ESPHome's upstream TXT schema. [`ESPECTRE_
 
 Direct HTTP and the ESPHome entities use the same command engine for the runtime controls advertised by the device. Direct also exposes shared local-management features such as Wi-Fi association inspection, BSSID selection, device labels, peer discovery, and raw CSI. The capability response is authoritative; [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md) owns the shared method catalog and [peer-assisted browser discovery](../../../../docs/ESPECTRE_PROTOCOL.md#peer-assisted-browser-discovery).
 
+Direct API is enabled by default. To expose only ESPHome's native API and Home Assistant entities, disable it in the component configuration:
+
+```yaml
+espectre:
+  direct_api: false
+```
+
+This disables Direct HTTP requests, SSE telemetry, raw CSI streaming, `_espectre._tcp.local.` discovery, and the peer-assisted browser bootstrap responder. It does not disable ESPHome's native API or ESPectre entities.
+
 A successful Direct mutation republishes the affected number or select state, so Home Assistant and Direct clients observe the same runtime configuration. Wi-Fi credentials, OTA, and ESPHome API encryption remain owned by ESPHome. Changing the ESPectre label does not alter the ESPHome hostname, adopted YAML, or entity IDs.
 
 The `release`, `preview`, and `develop` channels publish one full-flash image and one OTA image per supported chip, with `lightweight` as the initial detector. Both `lightweight` and `high_accuracy` are available in the image and can be selected through the persisted runtime detector entity. After adoption, ESPHome Device Builder can compile and install updates wirelessly from the device YAML; `detection_algorithm` sets the initial detector for a fresh configuration rather than limiting which detector the firmware supports.
@@ -104,6 +113,7 @@ espectre:
   segmentation_window_size_ms: 1000
   motion_on_hits: 4
   motion_off_hits: 3
+  direct_api: true
 ```
 
 ## Entity Customization

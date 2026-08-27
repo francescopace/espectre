@@ -47,6 +47,7 @@ DEPENDENCIES = ["wifi"]
 AUTO_LOAD = ["sensor", "binary_sensor", "button", "number", "select", "switch", "mdns"]
 
 # Configuration parameters
+CONF_DIRECT_API = "direct_api"
 CONF_SEGMENTATION_WINDOW_SIZE_MS = "segmentation_window_size_ms"
 CONF_CSI_TARGET_PPS = "csi_target_pps"
 CONF_CSI_TRAFFIC_MODE = "csi_traffic_mode"
@@ -272,6 +273,9 @@ def validate_csi_traffic_multicast_group(value):
 
 CONFIG_SCHEMA = cv.Schema({
     cv.GenerateID(): cv.declare_id(ESpectreComponent),
+
+    # Keep the local Direct HTTP/SSE/raw CSI surface enabled for compatibility.
+    cv.Optional(CONF_DIRECT_API, default=True): cv.boolean,
     
     # Motion detection parameters
     cv.Optional(CONF_SEGMENTATION_WINDOW_SIZE_MS, default=SEGMENTATION_WINDOW_SIZE_MS_DEFAULT): cv.int_range(
@@ -518,6 +522,7 @@ async def to_code(config):
     
     # Threshold is selected automatically at startup and remains adjustable
     # through the runtime number control.
+    cg.add(var.set_direct_api(config[CONF_DIRECT_API]))
     cg.add(var.set_segmentation_window_size_ms(config[CONF_SEGMENTATION_WINDOW_SIZE_MS]))
     # ESPHome owns association policy through wifi.band_mode. Mirror that
     # validated choice into the shared runtime so its HT20 radio setup uses the
