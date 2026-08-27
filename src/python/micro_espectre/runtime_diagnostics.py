@@ -29,6 +29,19 @@ def _ticks_diff(new, old):
     return diff_fn(new, old) if diff_fn is not None else new - old
 
 
+def advance_periodic_anchor(previous_ms, completed_ms, interval_ms):
+    """Advance a periodic anchor without accumulating routine work time."""
+    add_fn = getattr(time, "ticks_add", None)
+    scheduled_ms = (
+        add_fn(previous_ms, interval_ms)
+        if add_fn is not None
+        else previous_ms + interval_ms
+    )
+    if _ticks_diff(completed_ms, scheduled_ms) >= interval_ms:
+        return completed_ms
+    return scheduled_ms
+
+
 def _counter_delta(current, previous):
     current = int(current)
     previous = int(previous)

@@ -580,6 +580,7 @@ def main(wlan=None):
     from src.runtime_diagnostics import (
         RuntimeDiagnosticsSampler,
         RuntimePerformanceDiagnostics,
+        advance_periodic_anchor,
         collect_runtime_diagnostics_snapshot,
         wifi_csi_dropped,
         wifi_rssi_dbm,
@@ -666,7 +667,11 @@ def main(wlan=None):
                     effective_state=latest_effective_state,
                 ))
                 direct_api.refresh_snapshots(current_time, diagnostics)
-                last_heartbeat_time = current_time
+                last_heartbeat_time = advance_periodic_anchor(
+                    last_heartbeat_time,
+                    time.ticks_ms(),
+                    HEARTBEAT_INTERVAL_MS,
+                )
 
             frame = csi_read_frame(wlan, frame_result)
 

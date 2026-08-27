@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 
 import protocol
 from console_output import format_detection_publish_line
+from src.python.micro_espectre.runtime_diagnostics import advance_periodic_anchor
 
 
 def test_micro_heartbeat_uses_the_shared_runtime_status_format():
@@ -37,6 +38,36 @@ def test_micro_heartbeat_uses_the_shared_runtime_status_format():
         "[#####|#########-----] | mvmt:0.750000 thr:0.250000 | MOTION | "
         "csi:99/100 tx:101 occ:80% miss:1 excess:2 stale:3 ooo:4 | ch:6 rssi:-50"
     )
+
+
+def test_micro_heartbeat_schedule_does_not_accumulate_maintenance_time():
+    assert advance_periodic_anchor(10_000, 11_040, 1_000) == 11_000
+    assert advance_periodic_anchor(11_000, 12_075, 1_000) == 12_000
+
+
+def test_micro_heartbeat_schedule_reanchors_after_a_missed_interval():
+    assert advance_periodic_anchor(10_000, 12_100, 1_000) == 12_100
+
+
+def test_micro_heartbeat_schedule_handles_tick_wrap(monkeypatch):
+    tick_period = 1 << 30
+    half_period = tick_period // 2
+    monkeypatch.setattr(
+        time,
+        "ticks_add",
+        lambda value, delta: (value + delta) % tick_period,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        time,
+        "ticks_diff",
+        lambda current, previous: (
+            (current - previous + half_period) % tick_period
+        ) - half_period,
+        raising=False,
+    )
+
+    assert advance_periodic_anchor(tick_period - 500, 540, 1_000) == 500
 
 
 def test_device_id_matches_native_sha256_pseudonym():
