@@ -76,6 +76,7 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 - Add an Arduino-facing runtime adapter that reuses `RuntimeFrontendController`, `EspIdfRuntime`, and the shared detector implementation
 - Keep Wi-Fi startup, reconnect policy, and product integration under the consuming sketch's control
+- Reassess whether `RuntimeEventMailbox` should become public SDK API only after an external integration demonstrates the need and its event coverage, capacity, overflow, and threading semantics are stable
 - Publish a clean installation path and focused examples for the supported Arduino-ESP32 target matrix
 
 **Exit criteria**: a clean Arduino project can install, build, and run the SDK on every selected target through Arduino CLI, with sensing startup, events, reset behavior, and Wi-Fi reconnect lifecycle validated against the shared runtime contract.

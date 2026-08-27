@@ -31,6 +31,8 @@ MCSS_TEMPLATES = REPO_ROOT / ".github" / "mcss" / "templates"
 API_OUTPUT_DIR = REPO_ROOT / "docs" / "web" / "artifacts" / "sdk" / "api"
 MCSS_REPOSITORY = "https://github.com/mosra/m.css.git"
 MCSS_COMMIT = "0a460a7a9973a41db48f735e7b49e4da9a876325"
+REQUIRED_DOXYGEN_VERSION = "1.17.0"
+DOXYGEN_VERSION_RE = re.compile(r"^(\d+\.\d+\.\d+)")
 HTML_LINK_RE = re.compile(r'href="(?P<href>[^"]+)"')
 MCSS_CONTENTS_NAV_RE = re.compile(
     r'\s*<nav class="m-block m-default">.*?</nav>',
@@ -74,11 +76,33 @@ def stamp_doxyfile_output_directory(path: Path, output_directory: Path) -> None:
     path.write_text(source, encoding="utf-8")
 
 
-def run_doxygen(doxyfile: Path) -> None:
+def detect_doxygen_version() -> str:
     try:
-        subprocess.run(["doxygen", str(doxyfile)], cwd=REPO_ROOT, check=True)
+        completed = subprocess.run(
+            ["doxygen", "-v"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
     except FileNotFoundError as error:
         raise FileNotFoundError("doxygen is not installed or not on PATH") from error
+    match = DOXYGEN_VERSION_RE.match(completed.stdout.strip())
+    if match is None:
+        raise ValueError(f"Unable to parse Doxygen version from {completed.stdout!r}")
+    return match.group(1)
+
+
+def require_doxygen_version() -> None:
+    installed = detect_doxygen_version()
+    if installed != REQUIRED_DOXYGEN_VERSION:
+        raise ValueError(
+            f"Doxygen {REQUIRED_DOXYGEN_VERSION} is required, found {installed}"
+        )
+
+
+def run_doxygen(doxyfile: Path) -> None:
+    require_doxygen_version()
+    subprocess.run(["doxygen", str(doxyfile)], cwd=REPO_ROOT, check=True)
 
 
 def prune_private_members(xml_directory: Path) -> None:

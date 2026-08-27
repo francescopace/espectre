@@ -125,16 +125,11 @@ Use ESPectre only in spaces and networks where you have the right to deploy it. 
   - [CONTRIBUTING.md](CONTRIBUTING.md)
   - [GitHub Discussions](https://github.com/francescopace/espectre/discussions)
 
-## Related Projects
-
-- [radio-presence-scanner](https://github.com/francescopace/radio-presence-scanner): complementary BLE radio presence sensing from host devices, with an optional HTTP dashboard.
-- [micropython-esp32-csi](https://github.com/francescopace/micropython-esp32-csi): the historical development fork that led to upstream MicroPython ESP32 CSI support.
-
 ## Acknowledgments
 
 - Thanks to [Espressif](https://www.espressif.com/) for making CSI accessible in ESP-IDF and for recognizing ESPectre as a [community project](https://github.com/espressif/esp-csi#6-related-resources) in [esp-csi](https://github.com/espressif/esp-csi).
+- Thanks to the [MicroPython](https://github.com/micropython/micropython) maintainers for reviewing, testing, and merging [ESPectre's upstream CSI contribution](https://github.com/micropython/micropython/pull/18460).
 - Thanks to the TOMMY team for the constructive public discussion around Wi-Fi sensing approaches, including their [TOMMY vs ESPectre](https://www.tommysense.com/docs/comparisons/espectre-comparison) comparison page.
-- Thanks to the [MicroPython](https://github.com/micropython/micropython) maintainers for reviewing, testing, and merging ESPectre's upstream CSI contribution.
 
 ## License
 

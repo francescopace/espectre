@@ -173,9 +173,15 @@ enum class SocketDrainResult {
   ERROR,
 };
 
+constexpr uint8_t MAX_DRAINED_PACKETS_PER_SEND = 16U;
+
 SocketDrainResult drain_socket(int sock) {
   uint8_t buffer[128];
-  while (true) {
+  // The raw ICMP socket can receive replies as fast as the generator sends.
+  // Bound each drain so a backlog cannot monopolize the single-core C3 (or a
+  // frontend loop sharing the same core). Remaining replies are consumed on
+  // the next paced iteration.
+  for (uint8_t drained = 0U; drained < MAX_DRAINED_PACKETS_PER_SEND; ++drained) {
     const ssize_t received = recv(sock, buffer, sizeof(buffer), MSG_DONTWAIT);
     if (received > 0) {
       continue;
@@ -188,6 +194,7 @@ SocketDrainResult drain_socket(int sock) {
     }
     return SocketDrainResult::ERROR;
   }
+  return SocketDrainResult::READY;
 }
 
 enum class TcpConnectionState {

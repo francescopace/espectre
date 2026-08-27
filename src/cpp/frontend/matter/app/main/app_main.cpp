@@ -12,6 +12,7 @@
 #include <esp_log.h>
 #include <esp_netif.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <sdkconfig.h>
 
 #include <cstdio>
@@ -39,6 +40,7 @@
 #include "mdns_discovery_service.h"
 #include "mdns_bootstrap_responder.h"
 #include "nvs_helpers.h"
+#include "pending_event.h"
 #include "runtime_config_utils.h"
 #include "runtime_sensing_kconfig.h"
 
@@ -59,6 +61,18 @@ espectre::MdnsBootstrapResponder *g_mdns_bootstrap_responder = nullptr;
 espectre::MdnsDiscoveryServiceConfig g_mdns_config;
 uint16_t g_motion_endpoint_id = 0;
 uint64_t g_device_id = 0U;
+espectre::PendingEvent<bool> g_commissioned_event;
+espectre::PendingEvent<> g_dnssd_initialized_event;
+espectre::PendingEvent<uint32_t> g_station_ipv4_event;
+espectre::PendingEvent<> g_node_label_event;
+bool g_commissioned = false;
+bool g_dnssd_initialized = false;
+bool g_bootstrap_configured = false;
+uint32_t g_station_ipv4 = 0U;
+bool g_operational_start_pending = false;
+TickType_t g_operational_start_retry_at = 0U;
+
+constexpr TickType_t kOperationalStartRetryDelay = pdMS_TO_TICKS(1000);
 
 espectre::RuntimeConfig build_runtime_config() {
   espectre::RuntimeConfig config = espectre::make_runtime_sensing_config_from_kconfig();
@@ -96,8 +110,7 @@ espectre::MdnsTxtRecords matter_mdns_txt(uint64_t device_id, const std::string &
   };
 }
 
-bool has_commissioned_fabric() {
-  lock::ScopedChipStackLock chip_stack_lock(portMAX_DELAY);
+bool has_commissioned_fabric_on_chip_thread() {
   return chip::Server::GetInstance().GetFabricTable().FabricCount() != 0;
 }
 
@@ -108,7 +121,6 @@ void configure_log_levels() {
 }
 
 void open_commissioning_window_if_necessary() {
-  lock::ScopedChipStackLock chip_stack_lock(portMAX_DELAY);
   if (chip::Server::GetInstance().GetFabricTable().FabricCount() != 0) {
     return;
   }
@@ -150,16 +162,9 @@ void log_onboarding_codes() {
 void sync_post_start_state_on_chip_thread(intptr_t arg) {
   (void) arg;
 
-  bool commissioned = false;
-  {
-    lock::ScopedChipStackLock chip_stack_lock(portMAX_DELAY);
-    commissioned = has_commissioned_fabric();
-    log_onboarding_codes();
-  }
-
-  if (g_frontend != nullptr) {
-    g_frontend->set_runtime_services_armed(commissioned);
-  }
+  const bool commissioned = has_commissioned_fabric_on_chip_thread();
+  log_onboarding_codes();
+  g_commissioned_event.post(commissioned);
 
   ESP_LOGI(TAG, "ESPectre Matter CSI services: %s", commissioned ? "armed" : "waiting for commissioning");
 }
@@ -167,27 +172,19 @@ void sync_post_start_state_on_chip_thread(intptr_t arg) {
 void app_event_cb(const ChipDeviceEvent *event, intptr_t arg) {
   switch (event->Type) {
     case chip::DeviceLayer::DeviceEventType::kDnssdInitialized:
-      if (g_mdns_discovery != nullptr && !g_mdns_discovery->initialized()) {
-        if (g_mdns_discovery->setup(g_mdns_config)) {
-          ESP_LOGI(TAG, "ESPectre Direct discovery registered with Matter mDNS");
-        } else {
-          ESP_LOGE(TAG, "Failed to register ESPectre Direct discovery with Matter mDNS");
-        }
-      }
+      g_dnssd_initialized_event.post();
       break;
     case chip::DeviceLayer::DeviceEventType::kCommissioningComplete:
       ESP_LOGI(TAG, "Commissioning complete");
-      if (g_frontend != nullptr) {
-        g_frontend->set_runtime_services_armed(true);
-      }
+      g_commissioned_event.post(true);
       break;
     case chip::DeviceLayer::DeviceEventType::kFailSafeTimerExpired:
       ESP_LOGW(TAG, "Commissioning failed, fail safe timer expired");
       break;
     case chip::DeviceLayer::DeviceEventType::kFabricRemoved:
       ESP_LOGI(TAG, "Fabric removed");
-      if (g_frontend != nullptr && !has_commissioned_fabric()) {
-        g_frontend->set_runtime_services_armed(false);
+      if (!has_commissioned_fabric_on_chip_thread()) {
+        g_commissioned_event.post(false);
       }
       open_commissioning_window_if_necessary();
       break;
@@ -209,16 +206,114 @@ esp_err_t app_attribute_update_cb(attribute::callback_type_t type, uint16_t endp
       cluster_id == BasicInformation::Id &&
       attribute_id == BasicInformation::Attributes::NodeLabel::Id && val != nullptr &&
       val->type == ESP_MATTER_VAL_TYPE_CHAR_STRING) {
-    const std::string label(reinterpret_cast<const char *>(val->val.a.b), val->val.a.s);
-    if (g_frontend != nullptr) g_frontend->sync_device_label();
-    for (auto &record : g_mdns_config.txt_records) {
-      if (record.first == "name") record.second = matter_display_name(g_device_id, label);
-    }
-    if (g_mdns_discovery != nullptr && g_mdns_discovery->initialized()) {
-      (void) g_mdns_discovery->update_txt(g_mdns_config.txt_records);
-    }
+    g_node_label_event.post();
   }
   return ESP_OK;
+}
+
+void ip_event_cb(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
+  (void) arg;
+  (void) event_base;
+  if (event_id == IP_EVENT_STA_GOT_IP && event_data != nullptr) {
+    const auto *event = static_cast<const ip_event_got_ip_t *>(event_data);
+    g_station_ipv4_event.post(event->ip_info.ip.addr);
+  } else if (event_id == IP_EVENT_STA_LOST_IP) {
+    g_station_ipv4_event.post(0U);
+  }
+}
+
+bool start_operational_services() {
+  if (g_frontend == nullptr || !g_frontend->set_runtime_services_armed(true)) {
+    return false;
+  }
+  if (!g_bootstrap_configured && g_mdns_bootstrap_responder != nullptr) {
+    if (!g_mdns_bootstrap_responder->setup()) {
+      ESP_LOGE(TAG, "Failed to initialize the mDNS bootstrap responder");
+      (void) g_frontend->set_runtime_services_armed(false);
+      return false;
+    }
+    g_bootstrap_configured = true;
+    (void) g_mdns_bootstrap_responder->update(g_station_ipv4);
+  }
+  if (g_dnssd_initialized && g_mdns_discovery != nullptr && !g_mdns_discovery->initialized()) {
+    if (g_mdns_discovery->setup(g_mdns_config)) {
+      ESP_LOGI(TAG, "ESPectre Direct discovery registered with Matter mDNS");
+    } else {
+      ESP_LOGE(TAG, "Failed to register ESPectre Direct discovery with Matter mDNS");
+      return false;
+    }
+  }
+  return true;
+}
+
+void start_operational_services_or_schedule_retry() {
+  if (start_operational_services()) {
+    g_operational_start_pending = false;
+    return;
+  }
+  g_operational_start_pending = true;
+  g_operational_start_retry_at = xTaskGetTickCount() + kOperationalStartRetryDelay;
+}
+
+void retry_operational_services_if_due() {
+  if (!g_operational_start_pending) return;
+  const TickType_t now = xTaskGetTickCount();
+  if (static_cast<int32_t>(now - g_operational_start_retry_at) < 0) return;
+  start_operational_services_or_schedule_retry();
+}
+
+void stop_operational_services() {
+  g_operational_start_pending = false;
+  if (g_frontend != nullptr) {
+    (void) g_frontend->set_runtime_services_armed(false);
+  }
+  if (g_mdns_discovery != nullptr) {
+    g_mdns_discovery->shutdown();
+  }
+  if (g_mdns_bootstrap_responder != nullptr && g_bootstrap_configured) {
+    g_mdns_bootstrap_responder->shutdown();
+    g_bootstrap_configured = false;
+  }
+}
+
+void process_pending_platform_events() {
+  bool operational_state_changed = false;
+  bool commissioned = false;
+  if (g_commissioned_event.take(commissioned)) {
+    g_commissioned = commissioned;
+    operational_state_changed = true;
+  }
+  if (g_dnssd_initialized_event.take()) {
+    g_dnssd_initialized = true;
+    operational_state_changed = true;
+  }
+  uint32_t ipv4 = 0U;
+  if (g_station_ipv4_event.take(ipv4)) {
+    g_station_ipv4 = ipv4;
+    if (g_bootstrap_configured && g_mdns_bootstrap_responder != nullptr) {
+      (void) g_mdns_bootstrap_responder->update(g_station_ipv4);
+    }
+  }
+  if (g_node_label_event.take()) {
+    std::string label;
+    if (g_bindings.get_node_label(&label)) {
+      for (auto &record : g_mdns_config.txt_records) {
+        if (record.first == "name") record.second = matter_display_name(g_device_id, label);
+      }
+      if (g_frontend != nullptr) g_frontend->sync_device_label();
+      if (g_mdns_discovery != nullptr && g_mdns_discovery->initialized()) {
+        (void) g_mdns_discovery->update_txt(g_mdns_config.txt_records);
+      }
+    }
+  }
+  if (operational_state_changed) {
+    if (g_commissioned) {
+      start_operational_services_or_schedule_retry();
+    } else {
+      stop_operational_services();
+    }
+  }
+  retry_operational_services_if_due();
 }
 
 void espectre_loop_task(void *arg) {
@@ -227,13 +322,8 @@ void espectre_loop_task(void *arg) {
     if (g_frontend != nullptr) {
       g_frontend->loop();
     }
-    if (g_mdns_bootstrap_responder != nullptr) {
-      esp_netif_ip_info_t ip_info{};
-      esp_netif_t *station = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-      (void) g_mdns_bootstrap_responder->update(
-          station != nullptr && esp_netif_get_ip_info(station, &ip_info) == ESP_OK
-              ? ip_info.ip.addr
-              : 0U);
+    process_pending_platform_events();
+    if (g_mdns_bootstrap_responder != nullptr && g_bootstrap_configured) {
       g_mdns_bootstrap_responder->loop();
     }
     vTaskDelay(pdMS_TO_TICKS(10));
@@ -289,10 +379,6 @@ extern "C" void app_main() {
   frontend.set_runtime_services_armed(false);
   g_frontend = &frontend;
   g_mdns_discovery = &mdns_discovery;
-  if (!mdns_bootstrap_responder.setup()) {
-    ESP_LOGE(TAG, "Failed to initialize the mDNS bootstrap responder");
-    return;
-  }
   g_mdns_bootstrap_responder = &mdns_bootstrap_responder;
   const std::string initial_device_label = CONFIG_ESPECTRE_MATTER_NODE_LABEL;
   g_mdns_config = espectre::MdnsDiscoveryServiceConfig{
@@ -309,12 +395,32 @@ extern "C" void app_main() {
     ESP_LOGE(TAG, "Failed to create default event loop (%d)", err);
     return;
   }
+  esp_event_handler_instance_t got_ip_instance = nullptr;
+  esp_event_handler_instance_t lost_ip_instance = nullptr;
+  err = esp_event_handler_instance_register(
+      IP_EVENT, IP_EVENT_STA_GOT_IP, &ip_event_cb, nullptr, &got_ip_instance);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to register the station IPv4 handler (%d)", err);
+    return;
+  }
+  err = esp_event_handler_instance_register(
+      IP_EVENT, IP_EVENT_STA_LOST_IP, &ip_event_cb, nullptr, &lost_ip_instance);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to register the station IPv4 loss handler (%d)", err);
+    (void) esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, got_ip_instance);
+    return;
+  }
   err = esp_matter::start(app_event_cb);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to start Matter (%d)", err);
     return;
   }
-  chip::DeviceLayer::PlatformMgr().ScheduleWork(sync_post_start_state_on_chip_thread, 0);
+  const CHIP_ERROR sync_error = chip::DeviceLayer::PlatformMgr().ScheduleWork(
+      sync_post_start_state_on_chip_thread, 0);
+  if (sync_error != CHIP_NO_ERROR) {
+    ESP_LOGE(TAG, "Failed to schedule Matter post-start synchronization: %s", sync_error.AsString());
+    return;
+  }
 
   if (!frontend.setup()) {
     ESP_LOGE(TAG, "Failed to initialize ESPectre Matter frontend");

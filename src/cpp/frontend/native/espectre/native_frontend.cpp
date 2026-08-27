@@ -251,8 +251,7 @@ void NativeFrontend::loop() {
 }
 
 void NativeFrontend::shutdown() {
-  live_telemetry_pending_ = false;
-  motion_state_pending_ = false;
+  runtime_events_.clear();
   mqtt_connected_ = false;
   mqtt_ha_online_ = false;
   pending_ha_discovery_.clear();
@@ -280,8 +279,7 @@ void NativeFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
       !snapshot.ready_to_publish) {
     return;
   }
-  pending_motion_state_ = snapshot;
-  motion_state_pending_ = true;
+  (void) runtime_events_.post_motion_state(snapshot);
 }
 
 void NativeFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
@@ -349,28 +347,23 @@ void NativeFrontend::on_live_telemetry(float movement, float threshold) {
   RuntimeSnapshot snapshot = runtime_.snapshot();
   snapshot.movement_metric = movement;
   snapshot.threshold = threshold;
-  pending_live_telemetry_ = snapshot;
-  live_telemetry_pending_ = true;
+  runtime_events_.post_live_telemetry(snapshot);
 }
 
 void NativeFrontend::drain_pending_runtime_events_() {
   if (runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION) {
-    motion_state_pending_ = false;
-    live_telemetry_pending_ = false;
+    runtime_events_.clear();
     return;
   }
-  if (motion_state_pending_) {
-    const RuntimeSnapshot snapshot = pending_motion_state_;
-    motion_state_pending_ = false;
+  RuntimeSnapshot snapshot;
+  while (runtime_events_.take_motion_state(snapshot)) {
     publish_ha_motion_(snapshot.motion_state);
     const uint32_t now = now_ms_();
     const std::string payload =
         espectre_telemetry_payload(device_config_, snapshot, now, now / 1000U, "native");
     fan_out_payload_(nullptr, "telemetry", payload, false, true);
   }
-  if (live_telemetry_pending_) {
-    const RuntimeSnapshot snapshot = pending_live_telemetry_;
-    live_telemetry_pending_ = false;
+  if (runtime_events_.take_live_telemetry(snapshot)) {
     const uint32_t now = now_ms_();
     const char *frontend = device_info_.frontend.empty() ? "native" : device_info_.frontend.c_str();
     const std::string payload =
@@ -869,6 +862,14 @@ std::string NativeFrontend::direct_diagnostics_payload_() const {
          std::to_string(runtime_diagnostics.csi_classified_total);
   out += ",\"csi_provenance_rejected_total\":" +
          std::to_string(runtime_diagnostics.csi_provenance_rejected_total);
+  out += ",\"csi_pending_frame_drops_total\":" +
+         std::to_string(runtime_diagnostics.csi_pending_frame_drops_total);
+  out += ",\"csi_pending_frames\":" +
+         std::to_string(runtime_diagnostics.csi_pending_frames);
+  out += ",\"csi_pending_frame_capacity\":" +
+         std::to_string(runtime_diagnostics.csi_pending_frame_capacity);
+  out += ",\"runtime_motion_event_drops_total\":" +
+         std::to_string(runtime_events_.motion_state_drops_total());
   append_runtime_performance_diagnostics_json(&out, runtime_diagnostics, false);
   out += ",\"task_stack_high_water_bytes\":" + std::to_string(current_task_stack_high_water_bytes());
   out += ",\"direct_http\":{\"event_clients\":" + std::to_string(direct_client_count_);
@@ -949,15 +950,13 @@ bool NativeFrontend::handle_raw_stream_command_(const EspectreCommand &command,
   raw_session_controller_.configure(
       direct_service_, &runtime_, device_id, device_info_.chip,
       [this](RawCsiStopReason) {
-        this->live_telemetry_pending_ = false;
-        this->motion_state_pending_ = false;
+        this->runtime_events_.clear();
         this->pending_ha_state_ = false;
       });
   const bool accepted = raw_session_controller_.handle_command(
       command, context, code, message, data_json);
   if (accepted && command.command == "start_raw_stream") {
-    live_telemetry_pending_ = false;
-    motion_state_pending_ = false;
+    runtime_events_.clear();
     pending_ha_state_ = false;
   }
   return accepted;

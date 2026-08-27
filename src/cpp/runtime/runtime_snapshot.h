@@ -52,6 +52,8 @@ struct RuntimeDiagnosticsSnapshot {
   uint64_t csi_admitted_total{0U};
   /** CSI packets rejected by capture-level validation. */
   uint64_t csi_filtered_total{0U};
+  /** Valid CSI callbacks dropped because the callback-to-runtime queue was full. */
+  uint64_t csi_pending_frame_drops_total{0U};
   /** Empty temporal detector slots observed before admitted packets. */
   uint64_t csi_missing_slots_total{0U};
   /** Valid packets dropped because their temporal slot was already occupied. */
@@ -64,6 +66,10 @@ struct RuntimeDiagnosticsSnapshot {
   uint32_t csi_occupancy_slots{0U};
   /** Total slots in the configured detector window. */
   uint32_t csi_window_slots{0U};
+  /** Frames currently waiting in the callback-to-runtime queue. */
+  uint32_t csi_pending_frames{0U};
+  /** Fixed capacity of the callback-to-runtime queue. */
+  uint32_t csi_pending_frame_capacity{0U};
   /** Current free heap in bytes. Zero when unavailable. */
   uint32_t free_memory_bytes{0U};
   /** Minimum free heap observed since boot, in bytes. Zero when unavailable. */

@@ -19,6 +19,9 @@
 #include "esphome/components/number/number.h"
 #include "esphome/components/select/select.h"
 #include "esphome/components/switch/switch.h"
+#if defined(USE_WIFI_IP_STATE_LISTENERS) || defined(USE_WIFI_CONNECT_STATE_LISTENERS)
+#include "esphome/components/wifi/wifi_component.h"
+#endif
 
 #include <algorithm>
 #include <array>
@@ -34,6 +37,7 @@
 #include "runtime_config_utils.h"
 #include "runtime_direct_http_bridge.h"
 #include "runtime_diagnostics.h"
+#include "runtime_event_mailbox.h"
 #include "runtime_events.h"
 #include "runtime_frontend_controller.h"
 #include "sdkconfig.h"
@@ -45,7 +49,14 @@ using namespace ::espectre;
 
 static const char *const TAG = "espectre";
 
-class ESpectreComponent : public Component, public IRuntimeListener {
+class ESpectreComponent : public Component, public IRuntimeListener
+#ifdef USE_WIFI_IP_STATE_LISTENERS
+    , public wifi::WiFiIPStateListener
+#endif
+#ifdef USE_WIFI_CONNECT_STATE_LISTENERS
+    , public wifi::WiFiConnectStateListener
+#endif
+{
   friend class ESpectreDetectorSelect;
   friend class ESpectreTrafficModeSelect;
  public:
@@ -154,23 +165,35 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   void on_calibration_started(const RuntimeSnapshot &snapshot) override;
   void on_calibration_finished(const RuntimeSnapshot &snapshot, bool success) override;
   void on_runtime_fault(const char *message) override;
+#ifdef USE_WIFI_IP_STATE_LISTENERS
+  void on_ip_state(const network::IPAddresses &ips,
+                   const network::IPAddress &dns1,
+                   const network::IPAddress &dns2) override;
+#endif
+#ifdef USE_WIFI_CONNECT_STATE_LISTENERS
+  void on_wifi_connect_state(StringRef ssid, std::span<const uint8_t, 6> bssid) override;
+#endif
   void sample_diagnostics_();
   void publish_cached_diagnostics_();
+  void drain_pending_runtime_events_();
   void update_live_telemetry_enabled_();
   FrontendCommandResult execute_entity_command_(const EspectreCommand &command);
   void sync_direct_config_();
   void setup_mdns_discovery_();
   std::string device_name_() const;
-  MdnsTxtRecords mdns_txt_records_() const;
   const std::string &device_label_() const;
   std::string display_name_() const;
   std::string mdns_instance_name_() const;
+  MdnsTxtRecords mdns_txt_records_() const;
   bool set_device_label_(const std::string &device_label, std::string *message);
 
   RuntimeFrontendController runtime_;
   FrontendCommandEngine command_engine_;
-  EspIdfDirectHttpService direct_service_;
+  // Keep the bridge alive while the service drains deferred callbacks during
+  // destruction. The component destructor disconnects the bridge explicitly
+  // before reverse member destruction begins.
   RuntimeDirectHttpBridge direct_bridge_;
+  EspIdfDirectHttpService direct_service_;
   MdnsDiscoveryService mdns_discovery_;
   MdnsBootstrapResponder mdns_bootstrap_responder_;
   EspIdfPeerDiscoveryService peer_discovery_;
@@ -209,6 +232,7 @@ class ESpectreComponent : public Component, public IRuntimeListener {
 
   RuntimeDiagnosticsSampler diagnostics_sampler_;
   RuntimeDiagnosticsSample latest_diagnostics_{};
+  RuntimeEventMailbox runtime_events_{};
   bool direct_api_enabled_{true};
   bool live_telemetry_enabled_{true};
 
@@ -216,7 +240,9 @@ class ESpectreComponent : public Component, public IRuntimeListener {
   bool detector_republished_{false};
   bool motion_hits_republished_{false};
   bool traffic_mode_republished_{false};
+  uint32_t pending_mdns_ipv4_{0U};
   uint32_t next_mdns_setup_ms_{0U};
+  bool mdns_ipv4_pending_{false};
 };
 
 }  // namespace espectre_component

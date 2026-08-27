@@ -27,6 +27,11 @@ OUTPUT_DIRECTORY       = docs/web/artifacts/sdk
 HTML_OUTPUT            = rendered
 XML_OUTPUT             = xml
 CREATE_SUBDIRS         = NO
+# Portal links and the website verifier pin the underscore-separated IDs
+# Doxygen emits when this is NO. The Unix default keeps mixed-case names
+# (`classespectre_1_1RuntimeFrontendController`), which breaks those links
+# on Linux CI.
+CASE_SENSE_NAMES       = NO
 GENERATE_HTML          = NO
 GENERATE_XML           = YES
 GENERATE_LATEX         = NO

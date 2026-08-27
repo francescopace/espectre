@@ -257,12 +257,15 @@ bool EspIdfDirectHttpService::complete_deferred_response(uint64_t request_token,
   deferred_.erase(stored);
   enqueue_completed_response_locked_(std::move(pending), std::move(response));
   unlock_();
+#if defined(ESP_PLATFORM)
+  if (worker_task_ != nullptr) xTaskNotifyGive(worker_task_);
+#endif
   return true;
 }
 
 void EspIdfDirectHttpService::loop() {
-  if (server_ == nullptr) return;
   dispatch_pending_callbacks_();
+  if (server_ == nullptr) return;
   service_raw_timeouts_();
 
   PendingRequest pending;
@@ -325,6 +328,7 @@ void EspIdfDirectHttpService::shutdown() {
   worker_running_.store(false, std::memory_order_release);
   raw_worker_running_.store(false, std::memory_order_release);
 #if defined(ESP_PLATFORM)
+  if (worker_task_ != nullptr) xTaskNotifyGive(worker_task_);
   if (raw_worker_task_ != nullptr) xTaskNotifyGive(raw_worker_task_);
 #endif
   (void) stop_raw_session(RawCsiStopReason::SHUTDOWN);
@@ -377,6 +381,7 @@ void EspIdfDirectHttpService::shutdown() {
   deferred_request_handler_ = {};
   notify_client_count_(0U);
   dispatch_pending_callbacks_();
+  client_count_callback_ = {};
 }
 
 bool EspIdfDirectHttpService::running() const { return server_ != nullptr; }
@@ -407,6 +412,9 @@ bool EspIdfDirectHttpService::publish_event(const std::string &event_name,
     }
     unlock_();
   }
+#if defined(ESP_PLATFORM)
+  if (accepted && worker_task_ != nullptr) xTaskNotifyGive(worker_task_);
+#endif
   return accepted;
 }
 
@@ -555,7 +563,15 @@ void EspIdfDirectHttpService::worker_entry_(void *context) {
   auto *service = static_cast<EspIdfDirectHttpService *>(context);
   while (service != nullptr && service->worker_running_.load(std::memory_order_acquire)) {
     service->worker_loop_();
-    vTaskDelay(pdMS_TO_TICKS(1));
+    // Event publication and completed requests wake the worker immediately;
+    // the timeout keeps SSE heartbeats progressing without a 1 ms busy poll.
+#if defined(ESP_PLATFORM)
+    // Consume one wake-up per bounded worker iteration. Clearing the entire
+    // count here can strand burst backlog until successive 100 ms timeouts.
+    (void) ulTaskNotifyTake(pdFALSE, pdMS_TO_TICKS(100));
+#else
+    vTaskDelay(pdMS_TO_TICKS(100));
+#endif
   }
   if (service != nullptr) service->worker_task_ = nullptr;
   vTaskDelete(nullptr);
@@ -936,6 +952,9 @@ bool EspIdfDirectHttpService::enqueue_completed_response_(PendingRequest request
   }
   enqueue_completed_response_locked_(std::move(request), std::move(response));
   unlock_();
+#if defined(ESP_PLATFORM)
+  if (worker_task_ != nullptr) xTaskNotifyGive(worker_task_);
+#endif
   return true;
 }
 

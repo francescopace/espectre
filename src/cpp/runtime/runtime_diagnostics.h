@@ -44,6 +44,8 @@ struct RuntimeDiagnosticsSample {
   float csi_admitted_pps{0.0f};
   /** CSI packets per second rejected by capture-level validation. */
   float csi_filtered_pps{0.0f};
+  /** Valid CSI callbacks per second dropped because the pending queue was full. */
+  float csi_pending_frame_drop_pps{0.0f};
   /** Missing detector slots per second. */
   float csi_missing_slots_pps{0.0f};
   /** Same-slot excess drops per second. */

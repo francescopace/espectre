@@ -10,19 +10,35 @@
  */
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <string>
 
 #include "matter_bindings.h"
+#include "pending_queue.h"
 
 namespace espectre {
 
 class MatterEspBindings : public IMatterBindings {
  public:
   void publish_motion(uint16_t endpoint_id, bool motion_detected) override;
+  void flush_pending() override;
   void report_fault(const char *message) override;
   bool get_node_label(std::string *label) override;
   bool set_node_label(const std::string &label) override;
+
+ private:
+  struct PendingMotionPublish {
+    uint16_t endpoint_id{0U};
+    bool motion_detected{false};
+  };
+
+  static void publish_motion_on_chip_thread_(intptr_t context);
+  void drain_motion_queue_on_chip_thread_();
+  void schedule_motion_publish_();
+
+  PendingQueue<PendingMotionPublish, 8U> pending_motion_{};
+  std::atomic<bool> motion_work_scheduled_{false};
 };
 
 }  // namespace espectre

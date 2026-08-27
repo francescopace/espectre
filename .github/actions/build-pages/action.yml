@@ -35,8 +35,20 @@ runs:
     - name: Install Doxygen
       shell: bash
       run: |
+        set -euo pipefail
+        version="1.17.0"
+        archive="doxygen-${version}.linux.bin.tar.gz"
+        url="https://github.com/doxygen/doxygen/releases/download/Release_${version//./_}/${archive}"
+        tmp="$(mktemp -d)"
+        curl -fsSL -o "${tmp}/${archive}" "$url"
+        tar -xzf "${tmp}/${archive}" -C "$tmp"
+        binary="$(find "$tmp" -type f -path '*/bin/doxygen' -print -quit)"
+        test -n "$binary"
+        sudo install -m 0755 "$binary" /usr/local/bin/doxygen
+        installed="$(doxygen -v | awk '{print $1}')"
+        test "$installed" = "$version"
         sudo apt-get update
-        sudo apt-get install -y --no-install-recommends doxygen graphviz
+        sudo apt-get install -y --no-install-recommends graphviz
 
     - name: Install SDK API renderer dependencies
       shell: bash

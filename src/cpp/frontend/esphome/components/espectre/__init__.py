@@ -17,7 +17,7 @@ import subprocess
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import sensor, binary_sensor, button, number, select, switch
+from esphome.components import sensor, binary_sensor, button, number, select, switch, wifi
 from esphome.components.esp32 import (
     add_idf_component,
     add_idf_sdkconfig_option,
@@ -485,6 +485,8 @@ def _runtime_wifi_band_policy():
 async def to_code(config):
     _export_espectre_git_version()
     add_idf_component(name="espectre", path=str(_COMPONENT_ROOT))
+    wifi.request_wifi_ip_state_listener()
+    wifi.request_wifi_connect_state_listener()
 
     # The shared ESP-IDF component does not depend on the higher-level ESPHome
     # component, so expose the generated source tree only for the portable
@@ -493,6 +495,9 @@ async def to_code(config):
 
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
+    wifi_var = await cg.get_variable(CORE.config[CONF_WIFI][CONF_ID])
+    cg.add(wifi_var.add_ip_state_listener(var))
+    cg.add(wifi_var.add_connect_state_listener(var))
 
     # Set required sdkconfig options for CSI functionality
     # These are automatically applied - user doesn't need to specify them in YAML

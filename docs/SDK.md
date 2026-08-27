@@ -183,7 +183,7 @@ sampler_.reset(runtime_.diagnostics(), now_ms);
 latest_ = sampler_.sample(runtime_.diagnostics(), now_ms);
 ```
 
-`RuntimeDiagnosticsSample::csi_admitted_pps` is the detector input rate after temporal admission. `csi_accepted_pps` is the identity-accepted supply. Compare admitted PPS with `RuntimeConfig::csi_target_pps` together with `csi_occupancy_ratio`, same-slot excess, missing-slot, stale, and out-of-order rates when a deployment underperforms. Occupancy is diagnostic telemetry and does not change the device send rate. [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md#diagnostics) owns the corresponding wire field names, units, and optionality.
+`RuntimeDiagnosticsSample::csi_admitted_pps` is the detector input rate after temporal admission. `csi_accepted_pps` is the identity-accepted supply. Compare admitted PPS with `RuntimeConfig::csi_target_pps` together with `csi_occupancy_ratio`, callback-queue overflow, same-slot excess, missing-slot, stale, and out-of-order rates when a deployment underperforms. `RuntimeDiagnosticsSnapshot` exposes the cumulative callback-queue drop counter and its current occupancy and capacity; `RuntimeDiagnosticsSample::csi_pending_frame_drop_pps` derives the overflow rate. Occupancy is diagnostic telemetry and does not change the device send rate. [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md#diagnostics) owns the corresponding wire field names, units, and optionality.
 
 SDK transport adapters should pass parsed requests through `FrontendCommandEngine` and preserve the canonical distinction between requester-scoped query results and state changes published to active transports. [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md#one-message-model-multiple-transports) owns the message fields and cross-transport semantics; [ARCHITECTURE.md](ARCHITECTURE.md#shared-protocol-and-transport-services) owns command-engine and adapter placement.
 
@@ -276,7 +276,7 @@ The headers carry Doxygen-compatible documentation. Generate the portal-ready re
 python3 .github/scripts/generate_sdk_api.py
 ```
 
-The generator stamps Doxygen `PROJECT_NUMBER` from the same `git describe` identity used by SDK bundles, generates XML in an isolated build directory, and renders it through a pinned m.css revision. Only an index manifest and HTML fragments are written to `docs/web/artifacts/sdk/api/`; the existing `/sdk/api/` SPA owns navigation, search, styling, header, and footer. The generated output is not committed, so it never drifts from the headers.
+The generator requires Doxygen 1.17.0, stamps `PROJECT_NUMBER` from the same `git describe` identity used by SDK bundles, generates XML in an isolated build directory, and renders it through a pinned m.css revision. Only an index manifest and HTML fragments are written to `docs/web/artifacts/sdk/api/`; the existing `/sdk/api/` SPA owns navigation, search, styling, header, and footer. The generated output is not committed, so it never drifts from the headers.
 
 An unpacked SDK bundle ships this guide and `src/cpp/Doxyfile` rewritten to write `output/xml/` and stamped with that bundle's version. Running `doxygen src/cpp/Doxyfile` from the bundle root therefore produces a tool-neutral XML reference without shipping the website or a second HTML shell. The browsable reference is integrated at `https://espectre.dev/sdk/api/` and rebuilt from source on every deploy.
 

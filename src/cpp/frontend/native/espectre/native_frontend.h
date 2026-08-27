@@ -23,6 +23,7 @@
 #include "ota_service.h"
 #include "peer_discovery.h"
 #include "runtime_diagnostics.h"
+#include "runtime_event_mailbox.h"
 #include "runtime_events.h"
 #include "runtime_frontend_controller.h"
 
@@ -190,10 +191,7 @@ class NativeFrontend : public IRuntimeListener {
   WifiProvisioningInfo wifi_info_{};
   RuntimeDiagnosticsSampler diagnostics_sampler_;
   RuntimeDiagnosticsSample latest_diagnostics_{};
-  RuntimeSnapshot pending_live_telemetry_{};
-  RuntimeSnapshot pending_motion_state_{};
-  bool live_telemetry_pending_{false};
-  bool motion_state_pending_{false};
+  RuntimeEventMailbox runtime_events_{};
   bool mqtt_connected_{false};
   bool mqtt_ha_online_{false};
   bool pending_ha_state_{false};

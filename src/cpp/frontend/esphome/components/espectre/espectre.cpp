@@ -29,8 +29,6 @@
 #include "protocol_json.h"
 #include "sdkconfig.h"
 
-#include <esp_netif.h>
-
 #include <cmath>
 
 namespace esphome {
@@ -97,6 +95,7 @@ void ESpectreComponent::setup() {
               {},
               &this->peer_discovery_,
               [this]() { return &this->latest_diagnostics_; },
+              &this->runtime_events_,
           },
           [this]() { this->sync_direct_config_(); })) {
     ESP_LOGE(TAG, "ESPHome Direct HTTP setup failed");
@@ -119,21 +118,21 @@ ESpectreComponent::~ESpectreComponent() {
   this->mdns_bootstrap_responder_.shutdown();
   this->mdns_discovery_.shutdown();
   this->direct_bridge_.shutdown();
+  this->direct_service_.shutdown();
   this->runtime_.shutdown();
 }
 
 void ESpectreComponent::loop() {
   this->runtime_.loop();
+  this->drain_pending_runtime_events_();
   this->update_live_telemetry_enabled_();
   if (!this->direct_api_enabled_) return;
 
   this->direct_bridge_.loop();
-  esp_netif_ip_info_t ip_info{};
-  esp_netif_t *station = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-  (void) this->mdns_bootstrap_responder_.update(
-      station != nullptr && esp_netif_get_ip_info(station, &ip_info) == ESP_OK
-          ? ip_info.ip.addr
-          : 0U);
+  if (this->mdns_ipv4_pending_) {
+    this->mdns_ipv4_pending_ = false;
+    (void) this->mdns_bootstrap_responder_.update(this->pending_mdns_ipv4_);
+  }
   this->mdns_bootstrap_responder_.loop();
   if (!this->mdns_discovery_.service_enabled() && millis() >= this->next_mdns_setup_ms_) {
     this->setup_mdns_discovery_();
@@ -486,8 +485,7 @@ void ESpectreComponent::on_motion_state_changed(const RuntimeSnapshot &snapshot)
     this->traffic_mode_republished_ = false;
   }
   if (snapshot.ready_to_publish) {
-    this->sensor_publisher_.publish_motion_binary(snapshot.motion_state);
-    (void) this->direct_bridge_.publish_telemetry(snapshot);
+    (void) this->runtime_events_.post_motion_state(snapshot);
   }
 }
 
@@ -536,21 +534,65 @@ void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint
 }
 
 void ESpectreComponent::on_live_telemetry(float movement, float threshold) {
-  if (!this->runtime_.snapshot().ready_to_publish) {
+  RuntimeSnapshot snapshot = this->runtime_.snapshot();
+  if (!snapshot.ready_to_publish) {
     return;
   }
-  this->sensor_publisher_.publish_movement_metric(movement);
-  (void) movement;
-  (void) threshold;
-  (void) this->direct_bridge_.publish_telemetry(this->runtime_.snapshot());
+  snapshot.movement_metric = movement;
+  snapshot.threshold = threshold;
+  this->runtime_events_.post_live_telemetry(snapshot);
+}
+
+void ESpectreComponent::drain_pending_runtime_events_() {
+  RuntimeSnapshot snapshot;
+  while (this->runtime_events_.take_motion_state(snapshot)) {
+    this->sensor_publisher_.publish_motion_binary(snapshot.motion_state);
+    (void) this->direct_bridge_.publish_telemetry(snapshot);
+  }
+  if (this->runtime_events_.take_live_telemetry(snapshot)) {
+    this->sensor_publisher_.publish_movement_metric(snapshot.movement_metric);
+    (void) this->direct_bridge_.publish_telemetry(snapshot);
+  }
+  float threshold = 0.0f;
+  if (this->runtime_events_.take_threshold(threshold)) {
+    if (this->threshold_number_ != nullptr) {
+      this->threshold_number_->publish_state(threshold);
+    }
+    (void) this->direct_bridge_.publish_changes(FrontendCommandChange::CONFIG);
+  }
 }
 
 void ESpectreComponent::on_threshold_changed(const RuntimeSnapshot &snapshot) {
-  if (this->threshold_number_ != nullptr) {
-    this->threshold_number_->publish_state(snapshot.threshold);
-  }
-  (void) this->direct_bridge_.publish_changes(FrontendCommandChange::CONFIG);
+  this->runtime_events_.post_threshold(snapshot.threshold);
 }
+
+#ifdef USE_WIFI_IP_STATE_LISTENERS
+void ESpectreComponent::on_ip_state(const network::IPAddresses &ips,
+                                    const network::IPAddress &dns1,
+                                    const network::IPAddress &dns2) {
+  (void) dns1;
+  (void) dns2;
+  uint32_t ipv4 = 0U;
+  for (const network::IPAddress &address : ips) {
+    if (!address.is_set() || !address.is_ip4()) continue;
+    ipv4 = static_cast<esp_ip4_addr_t>(address).addr;
+    break;
+  }
+  this->pending_mdns_ipv4_ = ipv4;
+  this->mdns_ipv4_pending_ = true;
+}
+#endif
+
+#ifdef USE_WIFI_CONNECT_STATE_LISTENERS
+void ESpectreComponent::on_wifi_connect_state(StringRef ssid,
+                                              std::span<const uint8_t, 6> bssid) {
+  (void) bssid;
+  if (ssid.size() == 0U) {
+    this->pending_mdns_ipv4_ = 0U;
+    this->mdns_ipv4_pending_ = true;
+  }
+}
+#endif
 
 void ESpectreComponent::on_detector_changed(const RuntimeSnapshot &snapshot) {
   if (this->detector_select_ != nullptr) {

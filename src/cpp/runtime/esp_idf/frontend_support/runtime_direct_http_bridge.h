@@ -19,7 +19,10 @@
 #include "peer_discovery.h"
 #include "raw_csi_session_controller.h"
 #include "runtime_diagnostics.h"
+#include "runtime_event_mailbox.h"
 #include "runtime_frontend_controller.h"
+
+#include <atomic>
 
 namespace espectre {
 
@@ -38,6 +41,7 @@ struct RuntimeDirectHttpBridgeConfig {
   std::function<DirectWifiSnapshot()> wifi_snapshot_getter;
   IPeerDiscoveryService *peer_discovery{nullptr};
   std::function<const RuntimeDiagnosticsSample *()> diagnostics_sample_getter;
+  const RuntimeEventMailbox *runtime_events{nullptr};
 };
 
 /**
@@ -91,6 +95,7 @@ class RuntimeDirectHttpBridge {
   RuntimeDirectHttpBridgeConfig config_{};
   ConfigChangedCallback config_changed_{};
   RawCsiSessionController raw_session_controller_{};
+  std::atomic<size_t> event_client_count_{0U};
   bool deferred_requests_enabled_{false};
 };
 

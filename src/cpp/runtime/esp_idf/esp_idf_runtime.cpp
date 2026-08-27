@@ -235,12 +235,16 @@ RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {
   diagnostics.csi_accepted_total = csi_pipeline_.accepted_packets_total();
   diagnostics.csi_admitted_total = csi_pipeline_.detector_admitted_packets_total();
   diagnostics.csi_filtered_total = csi_pipeline_.capture_filtered_packets_total();
+  diagnostics.csi_pending_frame_drops_total = csi_pipeline_.pending_frame_drops_total();
   diagnostics.csi_missing_slots_total = csi_pipeline_.detector_missing_slots_total();
   diagnostics.csi_excess_total = csi_pipeline_.detector_excess_packets_total();
   diagnostics.csi_stale_total = csi_pipeline_.detector_stale_packets_total();
   diagnostics.csi_out_of_order_total = csi_pipeline_.detector_out_of_order_packets_total();
   diagnostics.csi_occupancy_slots = csi_pipeline_.detector_window_occupancy_slots();
   diagnostics.csi_window_slots = csi_pipeline_.detector_window_slots();
+  diagnostics.csi_pending_frames = static_cast<uint32_t>(csi_pipeline_.pending_frame_count());
+  diagnostics.csi_pending_frame_capacity =
+      static_cast<uint32_t>(csi_pipeline_.pending_frame_capacity());
   return diagnostics;
 }
 

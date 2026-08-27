@@ -286,7 +286,7 @@ def rewrite_bundle_doxyfile(path: Path, sdk_package_version: str) -> None:
 
     # Replace the repository usage/output preamble with bundle-oriented guidance.
     text, preamble_count = re.subn(
-        r"# Usage, from the repository root:.*?(?=\nPROJECT_NAME)",
+        r"# Usage, from the repository root.*?(?=\nPROJECT_NAME)",
         (
             "# Usage, from the unpacked SDK bundle root:\n"
             "#   doxygen src/cpp/Doxyfile\n"

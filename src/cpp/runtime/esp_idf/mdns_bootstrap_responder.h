@@ -49,15 +49,21 @@ class MdnsBootstrapResponder {
     uint32_t destination_ipv4{0U};
     uint16_t destination_port{0U};
     int64_t due_us{0};
+    uint32_t generation{0U};
     bool used{false};
   };
 
+  bool begin_send_(uint32_t generation);
+  void end_send_();
+  void wait_for_sends_();
   void clear_pending_();
 
   std::array<PendingResponse, MAX_PENDING_RESPONSES> pending_{};
   std::array<int64_t, MAX_RESPONSES_PER_SECOND> response_times_{};
   void *mutex_{nullptr};
   std::atomic<uint32_t> ipv4_address_{0U};
+  std::atomic<uint32_t> generation_{0U};
+  std::atomic<uint32_t> sends_in_flight_{0U};
   size_t response_time_count_{0U};
   std::atomic<bool> configured_{false};
 };

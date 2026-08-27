@@ -232,6 +232,11 @@ class CsiPipeline {
   uint64_t capture_filtered_packets_total() const {
     return capture_service_.filtered_packets();
   }
+  uint64_t pending_frame_drops_total() const {
+    return pending_frame_drops_.load(std::memory_order_relaxed);
+  }
+  size_t pending_frame_count() const { return pending_frames_.size(); }
+  static constexpr size_t pending_frame_capacity() { return kPendingCsiFrameCapacity; }
   uint64_t traffic_classified_packets_total() const {
     return traffic_classified_packets_total_.load(std::memory_order_relaxed);
   }

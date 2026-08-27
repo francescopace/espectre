@@ -92,6 +92,39 @@ void test_matter_frontend_loop_and_shutdown_forward_to_runtime(void) {
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.shutdown_called);
 }
 
+void test_matter_frontend_defers_direct_until_runtime_services_are_armed(void) {
+  MockMatterBindings bindings;
+  MockDirectHttpService direct;
+  MatterFrontend frontend(&bindings, 2, &direct);
+  TEST_ASSERT_TRUE(frontend.set_runtime_services_armed(false));
+  TEST_ASSERT_TRUE(frontend.setup());
+  TEST_ASSERT_FALSE(frontend.runtime_services_armed());
+  TEST_ASSERT_EQUAL(0, direct_http_service_mock::state.setup_calls);
+
+  TEST_ASSERT_TRUE(frontend.set_runtime_services_armed(true));
+  TEST_ASSERT_TRUE(frontend.runtime_services_armed());
+  TEST_ASSERT_EQUAL(1, direct_http_service_mock::state.setup_calls);
+  TEST_ASSERT_TRUE(direct_http_service_mock::state.running);
+
+  TEST_ASSERT_TRUE(frontend.set_runtime_services_armed(false));
+  TEST_ASSERT_FALSE(frontend.runtime_services_armed());
+  TEST_ASSERT_TRUE(direct_http_service_mock::state.shutdown_called);
+  TEST_ASSERT_FALSE(direct_http_service_mock::state.running);
+}
+
+void test_matter_frontend_keeps_runtime_disarmed_when_deferred_direct_setup_fails(void) {
+  MockMatterBindings bindings;
+  MockDirectHttpService direct;
+  MatterFrontend frontend(&bindings, 2, &direct);
+  TEST_ASSERT_TRUE(frontend.set_runtime_services_armed(false));
+  TEST_ASSERT_TRUE(frontend.setup());
+  direct_http_service_mock::state.setup_result = false;
+
+  TEST_ASSERT_FALSE(frontend.set_runtime_services_armed(true));
+  TEST_ASSERT_FALSE(frontend.runtime_services_armed());
+  TEST_ASSERT_EQUAL(2, direct_http_service_mock::state.setup_calls);
+}
+
 void test_matter_frontend_motion_and_periodic_callbacks_publish_bindings(void) {
   MockMatterBindings bindings;
   MatterFrontend frontend(&bindings, 3);
@@ -104,12 +137,36 @@ void test_matter_frontend_motion_and_periodic_callbacks_publish_bindings(void) {
 
   RuntimeSnapshot ready_motion = make_ready_snapshot(true);
   frontend.on_motion_state_changed(ready_motion);
+  TEST_ASSERT_EQUAL(0, matter_bindings_mock::state.motion_events.size());
+  frontend.loop();
   TEST_ASSERT_EQUAL(1, matter_bindings_mock::state.motion_events.size());
   TEST_ASSERT_TRUE(matter_bindings_mock::state.motion_events[0].motion_detected);
 
   RuntimeSnapshot ready_idle = make_ready_snapshot(false);
   frontend.on_periodic_update(ready_idle, 128);
   TEST_ASSERT_EQUAL(1, matter_bindings_mock::state.motion_events.size());
+}
+
+void test_matter_frontend_defers_live_telemetry_serialization_until_after_runtime_loop(void) {
+  RuntimeConfig config;
+  config.device_id = 0x0123456789abcdefULL;
+  MockMatterBindings bindings;
+  MockDirectHttpService direct;
+  MatterFrontend frontend(&bindings, 3, &direct);
+  frontend.set_runtime_config(config);
+  TEST_ASSERT_TRUE(frontend.setup());
+  direct.emit_client_count(1U);
+  frontend.loop();
+
+  frontend.on_live_telemetry(7.5f, 2.25f);
+  TEST_ASSERT_EQUAL(0, direct_http_service_mock::state.published_events.size());
+  frontend.loop();
+  TEST_ASSERT_EQUAL(1, direct_http_service_mock::state.published_events.size());
+  TEST_ASSERT_TRUE(direct_http_service_mock::state.published_events[0].replaceable_telemetry);
+  TEST_ASSERT_TRUE(direct_http_service_mock::state.published_events[0].data_json.find(
+                       "\"movement_score\":7.5") != std::string::npos);
+  TEST_ASSERT_TRUE(direct_http_service_mock::state.published_events[0].data_json.find(
+                       "\"threshold\":2.25") != std::string::npos);
 }
 
 void test_matter_frontend_threshold_and_calibration_callbacks_update_runtime_snapshot(void) {
@@ -291,7 +348,10 @@ int main(int argc, char **argv) {
   RUN_TEST(test_matter_frontend_setup_fails_without_bindings);
   RUN_TEST(test_matter_frontend_setup_fails_when_runtime_setup_fails);
   RUN_TEST(test_matter_frontend_loop_and_shutdown_forward_to_runtime);
+  RUN_TEST(test_matter_frontend_defers_direct_until_runtime_services_are_armed);
+  RUN_TEST(test_matter_frontend_keeps_runtime_disarmed_when_deferred_direct_setup_fails);
   RUN_TEST(test_matter_frontend_motion_and_periodic_callbacks_publish_bindings);
+  RUN_TEST(test_matter_frontend_defers_live_telemetry_serialization_until_after_runtime_loop);
   RUN_TEST(test_matter_frontend_threshold_and_calibration_callbacks_update_runtime_snapshot);
   RUN_TEST(test_matter_frontend_runtime_fault_is_reported);
   RUN_TEST(test_matter_frontend_exposes_runtime_tuning_over_direct_http);

@@ -831,7 +831,8 @@ std::string espectre_diagnostics_payload(const EspectreDeviceConfig &config,
                 "\"uptime\":%u,\"free_memory_kb\":%.6g,\"loop_time_ms\":%.6g,"
                 "\"traffic_tx_pps\":%.6g,\"csi_callback_pps\":%.6g,"
                 "\"csi_accepted_pps\":%.6g,\"csi_admitted_pps\":%.6g,"
-                "\"csi_filtered_pps\":%.6g,\"csi_missing_slots_pps\":%.6g,"
+                "\"csi_filtered_pps\":%.6g,\"csi_pending_frame_drop_pps\":%.6g,"
+                "\"csi_missing_slots_pps\":%.6g,"
                 "\"csi_excess_pps\":%.6g,\"csi_stale_pps\":%.6g,"
                 "\"csi_out_of_order_pps\":%.6g,\"csi_occupancy\":%.6g,"
                 "\"wifi_channel\":%u,\"wifi_rssi_dbm\":%s}",
@@ -846,6 +847,7 @@ std::string espectre_diagnostics_payload(const EspectreDeviceConfig &config,
                 static_cast<double>(diagnostics->csi_accepted_pps),
                 static_cast<double>(diagnostics->csi_admitted_pps),
                 static_cast<double>(diagnostics->csi_filtered_pps),
+                static_cast<double>(diagnostics->csi_pending_frame_drop_pps),
                 static_cast<double>(diagnostics->csi_missing_slots_pps),
                 static_cast<double>(diagnostics->csi_excess_pps),
                 static_cast<double>(diagnostics->csi_stale_pps),

@@ -82,6 +82,32 @@ void test_setup_registers_http_post_sse_raw_and_preflight() {
   TEST_ASSERT_EQUAL(1, g_httpd_mock.stop_calls);
 }
 
+void test_shutdown_releases_the_client_count_callback_before_reuse() {
+  httpd_mock_reset();
+  EspIdfDirectHttpService service;
+  size_t first_callback_calls = 0U;
+  size_t second_callback_calls = 0U;
+
+  TEST_ASSERT_TRUE(service.setup(
+      config(),
+      [](const auto &) { return std::string{"{}"}; },
+      [&first_callback_calls](size_t) { ++first_callback_calls; }));
+  service.shutdown();
+  TEST_ASSERT_EQUAL(1U, first_callback_calls);
+
+  TEST_ASSERT_TRUE(service.setup(
+      config(),
+      [](const auto &) { return std::string{"{}"}; },
+      [&second_callback_calls](size_t) { ++second_callback_calls; }));
+  TEST_ASSERT_EQUAL(1U, first_callback_calls);
+  service.shutdown();
+  TEST_ASSERT_EQUAL(1U, second_callback_calls);
+
+  service.shutdown();
+  TEST_ASSERT_EQUAL(1U, first_callback_calls);
+  TEST_ASSERT_EQUAL(1U, second_callback_calls);
+}
+
 void test_post_validates_origin_content_type_size_and_dispatches_on_loop() {
   httpd_mock_reset();
   EspIdfDirectHttpService service;
@@ -515,6 +541,7 @@ void test_raw_assigns_sequence_before_rejecting_an_invalid_offer() {
 int main() {
   espectre::test::begin_suite();
   RUN_TEST(test_setup_registers_http_post_sse_raw_and_preflight);
+  RUN_TEST(test_shutdown_releases_the_client_count_callback_before_reuse);
   RUN_TEST(test_post_validates_origin_content_type_size_and_dispatches_on_loop);
   RUN_TEST(test_options_returns_private_network_cors_headers);
   RUN_TEST(test_post_distinguishes_queue_saturation_from_mutation_rate_limit);

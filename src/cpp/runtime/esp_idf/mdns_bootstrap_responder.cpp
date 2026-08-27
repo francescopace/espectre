@@ -279,13 +279,18 @@ bool MdnsBootstrapResponder::setup() {
 
 bool MdnsBootstrapResponder::update(uint32_t ipv4_address) {
   if (!configured_ || mutex_ == nullptr) return false;
+  if (ipv4_address_.load(std::memory_order_acquire) == ipv4_address) return true;
+  bool changed = false;
   xSemaphoreTake(static_cast<SemaphoreHandle_t>(mutex_), portMAX_DELAY);
-  if (ipv4_address_.load() != ipv4_address) {
+  if (ipv4_address_.load(std::memory_order_relaxed) != ipv4_address) {
     clear_pending_();
-    ipv4_address_ = ipv4_address;
+    generation_.fetch_add(1U, std::memory_order_acq_rel);
+    ipv4_address_.store(ipv4_address, std::memory_order_release);
     response_time_count_ = 0U;
+    changed = true;
   }
   xSemaphoreGive(static_cast<SemaphoreHandle_t>(mutex_));
+  if (changed) wait_for_sends_();
   return true;
 }
 
@@ -340,6 +345,7 @@ void MdnsBootstrapResponder::ingest_query(const uint8_t *packet,
   }
   if (unicast_response) {
     std::array<uint8_t, MAX_RESPONSE_BYTES> response{};
+    const uint32_t response_generation = generation_.load(std::memory_order_acquire);
     const size_t response_length = build_response(match,
                                                   read_u16(packet),
                                                   ipv4_address_.load(),
@@ -347,6 +353,10 @@ void MdnsBootstrapResponder::ingest_query(const uint8_t *packet,
                                                   response.data(),
                                                   response.size());
     if (response_length != 0U) {
+      response_times_[response_time_count_++] = now_us;
+    }
+    xSemaphoreGive(static_cast<SemaphoreHandle_t>(mutex_));
+    if (response_length != 0U && begin_send_(response_generation)) {
       esp_ip_addr_t destination{};
       destination.type = ESP_IPADDR_TYPE_V4;
       destination.u_addr.ip4.addr = source_ipv4;
@@ -356,9 +366,8 @@ void MdnsBootstrapResponder::ingest_query(const uint8_t *packet,
                                 source_port,
                                 response.data(),
                                 response_length);
-      response_times_[response_time_count_++] = now_us;
+      end_send_();
     }
-    xSemaphoreGive(static_cast<SemaphoreHandle_t>(mutex_));
     return;
   }
   const auto available = std::find_if(pending_.begin(), pending_.end(), [](const auto &response) {
@@ -383,6 +392,7 @@ void MdnsBootstrapResponder::ingest_query(const uint8_t *packet,
   available->destination_ipv4 = MDNS_MULTICAST_IPV4;
   available->destination_port = MDNS_PORT;
   available->due_us = now_us + (static_cast<int64_t>(slot) + 1) * RESPONSE_DELAY_STEP_US;
+  available->generation = generation_.load(std::memory_order_relaxed);
   available->used = true;
   response_times_[response_time_count_++] = now_us;
   xSemaphoreGive(static_cast<SemaphoreHandle_t>(mutex_));
@@ -391,26 +401,34 @@ void MdnsBootstrapResponder::ingest_query(const uint8_t *packet,
 void MdnsBootstrapResponder::loop() {
   if (mutex_ == nullptr) return;
   const int64_t now_us = esp_timer_get_time();
-  xSemaphoreTake(static_cast<SemaphoreHandle_t>(mutex_), portMAX_DELAY);
-  if (!active()) {
-    clear_pending_();
+  while (true) {
+    PendingResponse due{};
+    if (xSemaphoreTake(static_cast<SemaphoreHandle_t>(mutex_), 0U) != pdTRUE) return;
+    if (!active()) {
+      clear_pending_();
+      xSemaphoreGive(static_cast<SemaphoreHandle_t>(mutex_));
+      return;
+    }
+    for (auto &response : pending_) {
+      if (!response.used || response.due_us > now_us) continue;
+      due = response;
+      response = {};
+      break;
+    }
     xSemaphoreGive(static_cast<SemaphoreHandle_t>(mutex_));
-    return;
-  }
-  for (auto &response : pending_) {
-    if (!response.used || response.due_us > now_us) continue;
+    if (!due.used) return;
+    if (!begin_send_(due.generation)) continue;
     esp_ip_addr_t destination{};
     destination.type = ESP_IPADDR_TYPE_V4;
-    destination.u_addr.ip4.addr = response.destination_ipv4;
-    (void) mdns_priv_if_write(static_cast<mdns_if_t>(response.interface),
+    destination.u_addr.ip4.addr = due.destination_ipv4;
+    (void) mdns_priv_if_write(static_cast<mdns_if_t>(due.interface),
                               MDNS_IP_PROTOCOL_V4,
                               &destination,
-                              response.destination_port,
-                              response.bytes.data(),
-                              response.length);
-    response = {};
+                              due.destination_port,
+                              due.bytes.data(),
+                              due.length);
+    end_send_();
   }
-  xSemaphoreGive(static_cast<SemaphoreHandle_t>(mutex_));
 }
 
 void MdnsBootstrapResponder::shutdown() {
@@ -425,14 +443,35 @@ void MdnsBootstrapResponder::shutdown() {
 
   if (mutex_ != nullptr) {
     xSemaphoreTake(static_cast<SemaphoreHandle_t>(mutex_), portMAX_DELAY);
+    generation_.fetch_add(1U, std::memory_order_acq_rel);
     clear_pending_();
     ipv4_address_ = 0U;
     response_time_count_ = 0U;
     configured_ = false;
     xSemaphoreGive(static_cast<SemaphoreHandle_t>(mutex_));
+    wait_for_sends_();
   } else {
     configured_ = false;
     ipv4_address_ = 0U;
+  }
+}
+
+bool MdnsBootstrapResponder::begin_send_(uint32_t generation) {
+  sends_in_flight_.fetch_add(1U, std::memory_order_acq_rel);
+  if (!active() || generation_.load(std::memory_order_acquire) != generation) {
+    end_send_();
+    return false;
+  }
+  return true;
+}
+
+void MdnsBootstrapResponder::end_send_() {
+  sends_in_flight_.fetch_sub(1U, std::memory_order_release);
+}
+
+void MdnsBootstrapResponder::wait_for_sends_() {
+  while (sends_in_flight_.load(std::memory_order_acquire) != 0U) {
+    vTaskDelay(1U);
   }
 }
 

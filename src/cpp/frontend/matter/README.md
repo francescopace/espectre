@@ -76,14 +76,16 @@ The Matter frontend keeps ownership boundaries explicit:
 - the shared ESPectre runtime is initialized after `esp_matter::start()`
 - Wi-Fi ownership remains with `esp-matter`
 - the firmware keeps the standalone sensing Wi-Fi transport baseline active during commissioning, including disabled TX and RX AMPDU, Wi-Fi buffer counts `10/32/48`, and the enlarged lwIP queues
-- CSI services remain disarmed until commissioning completes
-- after commissioning, the reused runtime layers CSI Wi-Fi policy and capture setup on top of the initialized station stack
+- CSI, Direct HTTP, ESPectre DNS-SD, and the one-shot bootstrap responder remain stopped until commissioning completes
+- commissioning and fabric events cross into the ESPectre loop through pending events, so the CHIP task never starts, stops, or reconfigures the sensing runtime directly
+- after commissioning, the ESPectre loop starts the operational services and layers the reused runtime's CSI Wi-Fi policy and capture setup on top of the initialized station stack
+- station IPv4 changes reach the bootstrap responder through IP events instead of polling `esp_netif_get_ip_info()` every 10 ms
 
 That ordering is visible in [`app_main.cpp`](app/main/app_main.cpp).
 
 The Matter frontend uses the shared periodic progress-bar sensing status helper, as do ESPHome and Native. The same one-second heartbeat caches the CSI and Wi-Fi rate sample returned by Direct diagnostics.
 
-High-rate telemetry follows the detector evaluation cadence only while a Direct SSE client is connected. The Matter occupancy attribute remains edge-triggered.
+High-rate telemetry follows the detector evaluation cadence only while a Direct SSE client is connected. Runtime callbacks retain snapshots only; Direct serialization happens after the CSI drain, and edge-triggered occupancy updates are scheduled onto the CHIP work queue.
 
 ### Commissioning Window Behavior
 
@@ -97,10 +99,10 @@ Current behavior from the firmware app:
 - the browser and CLI read those markers rather than generating competing codes
 - an uncommissioned device opens a `300` second commissioning window
 - the commissioning window advertises all supported discovery transports, including BLE
-- DNS-SD includes the standard commissionable device type for an occupancy sensor, while the separate `_espectre._tcp.local.` service advertises the Direct HTTP endpoint used by `./espectre devices --frontend matter`
+- DNS-SD includes the standard commissionable device type for an occupancy sensor, while the separate `_espectre._tcp.local.` service advertises the Direct HTTP endpoint used by `./espectre devices --frontend matter` after commissioning
 - commissioning completion is logged
 - a failed commissioning attempt is logged when the fail-safe timer expires
-- removing the last fabric re-opens the commissioning window automatically
+- removing the last fabric stops the ESPectre operational services and re-opens the commissioning window automatically
 
 Only the firmware-owned behavior is documented here. The exact controller UX, QR/manual-pairing presentation, and fabric-management screens depend on the Matter controller you use.
 

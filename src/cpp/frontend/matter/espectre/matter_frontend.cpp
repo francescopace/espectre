@@ -30,8 +30,18 @@ MatterFrontend::MatterFrontend(IMatterBindings *bindings,
 
 void MatterFrontend::set_runtime_config(const RuntimeConfig &config) { runtime_.set_config(config); }
 
-void MatterFrontend::set_runtime_services_armed(bool armed) {
-  runtime_.set_services_armed(armed);
+bool MatterFrontend::set_runtime_services_armed(bool armed) {
+  if (!armed) {
+    runtime_.set_services_armed(false);
+    stop_direct_service_();
+    return true;
+  }
+  if (runtime_.is_setup_complete() && !start_direct_service_()) {
+    ESP_LOGE(TAG, "Matter operational services remain disarmed because Direct HTTP failed to start");
+    return false;
+  }
+  runtime_.set_services_armed(true);
+  return true;
 }
 
 bool MatterFrontend::setup() {
@@ -50,14 +60,27 @@ bool MatterFrontend::setup() {
     return false;
   }
 
-  const uint64_t device_id = runtime_.config().device_id != 0U
-                                 ? runtime_.config().device_id
-                                 : derive_runtime_device_id();
   const uint32_t diagnostics_now_ms = monotonic_now_ms();
   const RuntimeDiagnosticsSnapshot diagnostics = runtime_.diagnostics();
   diagnostics_sampler_.reset(diagnostics, diagnostics_now_ms);
   latest_diagnostics_ = diagnostics_sampler_.sample(diagnostics, diagnostics_now_ms);
-  if (direct_service_ != nullptr && !direct_bridge_.setup(
+  if (runtime_.services_armed() && !start_direct_service_()) {
+    runtime_.shutdown();
+    return false;
+  }
+
+  ESP_LOGI(TAG, "Matter frontend initialized on endpoint %u", endpoint_id_);
+  return true;
+}
+
+bool MatterFrontend::start_direct_service_() {
+  if (direct_service_ == nullptr || direct_bridge_.running()) {
+    return true;
+  }
+  const uint64_t device_id = runtime_.config().device_id != 0U
+                                 ? runtime_.config().device_id
+                                 : derive_runtime_device_id();
+  if (!direct_bridge_.setup(
           direct_service_,
           &runtime_,
           RuntimeDirectHttpBridgeConfig{
@@ -84,14 +107,19 @@ bool MatterFrontend::setup() {
               {},
               &peer_discovery_,
               [this]() { return &this->latest_diagnostics_; },
+              &runtime_events_,
           })) {
     ESP_LOGE(TAG, "Matter Direct HTTP setup failed");
-    runtime_.shutdown();
     return false;
   }
-
-  ESP_LOGI(TAG, "Matter frontend initialized on endpoint %u", endpoint_id_);
+  update_live_telemetry_enabled_();
   return true;
+}
+
+void MatterFrontend::stop_direct_service_() {
+  direct_bridge_.shutdown();
+  runtime_events_.clear();
+  update_live_telemetry_enabled_();
 }
 
 void MatterFrontend::sync_device_label() {
@@ -100,7 +128,7 @@ void MatterFrontend::sync_device_label() {
 }
 
 void MatterFrontend::shutdown() {
-  direct_bridge_.shutdown();
+  stop_direct_service_();
   runtime_.shutdown();
 }
 
@@ -108,8 +136,21 @@ MatterFrontend::~MatterFrontend() { shutdown(); }
 
 void MatterFrontend::loop() {
   runtime_.loop();
+  drain_pending_runtime_events_();
+  bindings_->flush_pending();
   direct_bridge_.loop();
   update_live_telemetry_enabled_();
+}
+
+void MatterFrontend::drain_pending_runtime_events_() {
+  RuntimeSnapshot snapshot;
+  while (runtime_events_.take_motion_state(snapshot)) {
+    bindings_->publish_motion(endpoint_id_, snapshot_to_motion_detected(snapshot));
+    (void) direct_bridge_.publish_telemetry(snapshot);
+  }
+  if (runtime_events_.take_live_telemetry(snapshot)) {
+    (void) direct_bridge_.publish_telemetry(snapshot);
+  }
 }
 
 void MatterFrontend::update_live_telemetry_enabled_() {
@@ -126,8 +167,7 @@ void MatterFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
     return;
   }
 
-  bindings_->publish_motion(endpoint_id_, snapshot_to_motion_detected(snapshot));
-  (void) direct_bridge_.publish_telemetry(snapshot);
+  (void) runtime_events_.post_motion_state(snapshot);
 }
 
 void MatterFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
@@ -162,9 +202,10 @@ void MatterFrontend::on_calibration_finished(const RuntimeSnapshot &snapshot, bo
 }
 
 void MatterFrontend::on_live_telemetry(float movement, float threshold) {
-  (void) movement;
-  (void) threshold;
-  (void) direct_bridge_.publish_telemetry(runtime_.snapshot());
+  RuntimeSnapshot snapshot = runtime_.snapshot();
+  snapshot.movement_metric = movement;
+  snapshot.threshold = threshold;
+  runtime_events_.post_live_telemetry(snapshot);
 }
 
 void MatterFrontend::on_runtime_fault(const char *message) {

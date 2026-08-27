@@ -448,6 +448,28 @@ def test_generate_sdk_api_stamps_a_working_copy_without_mutating_the_repo(
     assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*UNSTAMPED\s*$", repo_doxyfile)
 
 
+def test_sdk_bundle_rewrites_the_repo_doxyfile_preamble(tmp_path: Path) -> None:
+    packager = load_script("build_sdk_package")
+    bundled = tmp_path / "Doxyfile"
+    bundled.write_text((REPO_ROOT / "src" / "cpp" / "Doxyfile").read_text(encoding="utf-8"))
+    packager.rewrite_bundle_doxyfile(bundled, "3.0.0")
+    rewritten = bundled.read_text(encoding="utf-8")
+    assert "# Usage, from the unpacked SDK bundle root:" in rewritten
+    assert re.search(r"(?m)^OUTPUT_DIRECTORY\s*=\s*output\s*$", rewritten)
+    assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*3\.0\.0\s*$", rewritten)
+
+
+def test_generate_sdk_api_requires_the_pinned_doxygen_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    generator = load_script("generate_sdk_api")
+    monkeypatch.setattr(generator, "detect_doxygen_version", lambda: "1.9.8")
+    with pytest.raises(ValueError, match="1.17.0"):
+        generator.require_doxygen_version()
+    monkeypatch.setattr(generator, "detect_doxygen_version", lambda: "1.17.0")
+    generator.require_doxygen_version()
+
+
 def test_indexnow_retries_transient_failures_and_sends_the_sitemap(tmp_path: Path) -> None:
     indexnow = load_script("notify_indexnow")
     sitemap = tmp_path / "sitemap.xml"
@@ -880,6 +902,11 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     assert ".github/scripts/build_sitemap.py" in pages_action
     assert ".github/scripts/generate_sdk_api.py" in pages_action
     assert "doxygen src/cpp/Doxyfile" not in pages_action
+    generator = load_script("generate_sdk_api")
+    assert generator.REQUIRED_DOXYGEN_VERSION == "1.17.0"
+    assert f'version="{generator.REQUIRED_DOXYGEN_VERSION}"' in pages_action
+    assert "doxygen-${version}.linux.bin.tar.gz" in pages_action
+    assert "apt-get install -y --no-install-recommends doxygen" not in pages_action
 
     for script_name in (
         "build_matter_firmware.sh",

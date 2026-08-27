@@ -161,11 +161,13 @@ void test_espectre_component_direct_client_enables_live_telemetry(void) {
   component.setup();
   TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
 
-  component.direct_service_.event_clients_.push_back({});
+  component.direct_service_.notify_client_count_(1U);
+  component.loop();
   component.loop();
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.live_telemetry_enabled);
 
-  component.direct_service_.event_clients_.clear();
+  component.direct_service_.notify_client_count_(0U);
+  component.loop();
   component.loop();
   TEST_ASSERT_FALSE(frontend_runtime_shim::state.live_telemetry_enabled);
 }
@@ -304,6 +306,7 @@ void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {
   frontend_runtime_shim::state.diagnostics.csi_accepted_total = 90U;
   frontend_runtime_shim::state.diagnostics.csi_admitted_total = 80U;
   frontend_runtime_shim::state.diagnostics.csi_filtered_total = 10U;
+  frontend_runtime_shim::state.diagnostics.csi_pending_frame_drops_total = 5U;
   frontend_runtime_shim::state.diagnostics.csi_missing_slots_total = 20U;
   frontend_runtime_shim::state.diagnostics.csi_excess_total = 10U;
   frontend_runtime_shim::state.diagnostics.csi_stale_total = 2U;
@@ -325,6 +328,7 @@ void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {
   frontend_runtime_shim::state.diagnostics.csi_accepted_total = 540U;
   frontend_runtime_shim::state.diagnostics.csi_admitted_total = 480U;
   frontend_runtime_shim::state.diagnostics.csi_filtered_total = 40U;
+  frontend_runtime_shim::state.diagnostics.csi_pending_frame_drops_total = 15U;
   frontend_runtime_shim::state.diagnostics.csi_missing_slots_total = 120U;
   frontend_runtime_shim::state.diagnostics.csi_excess_total = 60U;
   frontend_runtime_shim::state.diagnostics.csi_stale_total = 7U;
@@ -339,6 +343,10 @@ void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {
       DirectRequest{"diagnostics", "diagnostics", "{}"});
   TEST_ASSERT_TRUE(direct_diagnostics.find("\"traffic_tx_pps\":100") != std::string::npos);
   TEST_ASSERT_TRUE(direct_diagnostics.find("\"csi_callback_pps\":96") != std::string::npos);
+  TEST_ASSERT_TRUE(direct_diagnostics.find("\"csi_pending_frame_drops_total\":15") !=
+                   std::string::npos);
+  TEST_ASSERT_TRUE(direct_diagnostics.find("\"csi_pending_frame_drop_pps\":2") !=
+                   std::string::npos);
 
   DiagnosticsButtonProbe diagnostics_button;
   diagnostics_button.press_action();
@@ -590,7 +598,7 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   motion_snapshot.threshold = 5.5f;
   motion_snapshot.movement_metric = 7.25f;
   frontend_runtime_shim::state.last_listener->on_motion_state_changed(motion_snapshot);
-  TEST_ASSERT_TRUE(binary_sensor.get_state());
+  TEST_ASSERT_FALSE(binary_sensor.has_state());
   TEST_ASSERT_EQUAL(0, movement_sensor.get_publish_count());
 
   frontend_runtime_shim::state.last_listener->on_periodic_update(idle_snapshot, 42);
@@ -609,11 +617,14 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   TEST_ASSERT_EQUAL(1, movement_sensor.get_publish_count());
   TEST_ASSERT_EQUAL_FLOAT(7.25f, movement_sensor.get_state());
   TEST_ASSERT_EQUAL(1, binary_sensor.get_publish_count());
+  TEST_ASSERT_TRUE(binary_sensor.get_state());
 
   RuntimeSnapshot threshold_snapshot = motion_snapshot;
   threshold_snapshot.threshold = 6.75f;
   frontend_runtime_shim::state.last_listener->on_threshold_changed(threshold_snapshot);
   TEST_ASSERT_EQUAL_FLOAT(6.75f, component.runtime_.config().segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(5.5f, threshold_number.get_state());
+  component.loop();
   TEST_ASSERT_EQUAL_FLOAT(6.75f, threshold_number.get_state());
   TEST_ASSERT_EQUAL(1, movement_sensor.get_publish_count());
 

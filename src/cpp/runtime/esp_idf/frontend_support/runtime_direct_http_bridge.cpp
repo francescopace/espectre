@@ -85,6 +85,10 @@ bool RuntimeDirectHttpBridge::setup(IDirectHttpService *service,
   service_config.allow_http_loopback_origins = true;
 #endif
   deferred_requests_enabled_ = false;
+  const IDirectHttpService::ClientCountCallback client_count_changed =
+      [this](size_t client_count) {
+        this->event_client_count_.store(client_count, std::memory_order_relaxed);
+      };
   bool setup = false;
   if (config_.peer_discovery != nullptr) {
     setup = service_->setup_deferred(
@@ -92,19 +96,20 @@ bool RuntimeDirectHttpBridge::setup(IDirectHttpService *service,
         [this](uint64_t token, const DirectRequest &request) {
           return this->handle_deferred_request_(token, request);
         },
-        [](size_t client_count) { (void) client_count; });
+        client_count_changed);
     deferred_requests_enabled_ = setup;
   }
   if (!setup) {
     setup = service_->setup(
         service_config,
         [this](const DirectRequest &request) { return this->handle_request_(request); },
-        [](size_t client_count) { (void) client_count; });
+        client_count_changed);
   }
   if (!setup) {
     service_ = nullptr;
     runtime_ = nullptr;
     config_changed_ = {};
+    event_client_count_.store(0U, std::memory_order_relaxed);
     deferred_requests_enabled_ = false;
     return false;
   }
@@ -112,7 +117,8 @@ bool RuntimeDirectHttpBridge::setup(IDirectHttpService *service,
 }
 
 void RuntimeDirectHttpBridge::loop() {
-  if (service_ != nullptr && service_->running()) {
+  if (service_ == nullptr) return;
+  if (service_->running()) {
     raw_session_controller_.ensure_runtime_consistency();
     if (config_.peer_discovery != nullptr && config_.peer_discovery->active()) {
       // Refresh link readiness only while discovery is active. Even the cheap
@@ -121,26 +127,27 @@ void RuntimeDirectHttpBridge::loop() {
       config_.peer_discovery->set_wifi_ready(read_direct_wifi_connected());
       config_.peer_discovery->loop();
     }
-    service_->loop();
   }
+  service_->loop();
 }
 
 void RuntimeDirectHttpBridge::shutdown() {
   raw_session_controller_.shutdown();
   if (config_.peer_discovery != nullptr) config_.peer_discovery->shutdown();
-  if (service_ != nullptr && service_->running()) {
+  if (service_ != nullptr) {
     service_->shutdown();
   }
   service_ = nullptr;
   runtime_ = nullptr;
   config_changed_ = {};
+  event_client_count_.store(0U, std::memory_order_relaxed);
   deferred_requests_enabled_ = false;
 }
 
 bool RuntimeDirectHttpBridge::running() const { return service_ != nullptr && service_->running(); }
 
 size_t RuntimeDirectHttpBridge::event_client_count() const {
-  return service_ != nullptr ? service_->event_client_count() : 0U;
+  return event_client_count_.load(std::memory_order_relaxed);
 }
 
 bool RuntimeDirectHttpBridge::publish_event(const char *event_name,
@@ -555,12 +562,19 @@ std::string RuntimeDirectHttpBridge::diagnostics_payload_() const {
   append_uint(&out, "csi_accepted_total", diagnostics.csi_accepted_total);
   append_uint(&out, "csi_admitted_total", diagnostics.csi_admitted_total);
   append_uint(&out, "csi_filtered_total", diagnostics.csi_filtered_total);
+  append_uint(&out,
+              "csi_pending_frame_drops_total",
+              diagnostics.csi_pending_frame_drops_total);
   append_uint(&out, "csi_missing_slots_total", diagnostics.csi_missing_slots_total);
   append_uint(&out, "csi_excess_total", diagnostics.csi_excess_total);
   append_uint(&out, "csi_stale_total", diagnostics.csi_stale_total);
   append_uint(&out, "csi_out_of_order_total", diagnostics.csi_out_of_order_total);
   append_uint(&out, "csi_occupancy_slots", diagnostics.csi_occupancy_slots);
   append_uint(&out, "csi_window_slots", diagnostics.csi_window_slots);
+  append_uint(&out, "csi_pending_frames", diagnostics.csi_pending_frames);
+  append_uint(&out,
+              "csi_pending_frame_capacity",
+              diagnostics.csi_pending_frame_capacity);
   const RuntimeDiagnosticsSample *sample = config_.diagnostics_sample_getter
                                                ? config_.diagnostics_sample_getter()
                                                : nullptr;
@@ -570,6 +584,9 @@ std::string RuntimeDirectHttpBridge::diagnostics_payload_() const {
     append_float(&out, "csi_accepted_pps", sample->csi_accepted_pps);
     append_float(&out, "csi_admitted_pps", sample->csi_admitted_pps);
     append_float(&out, "csi_filtered_pps", sample->csi_filtered_pps);
+    append_float(&out,
+                 "csi_pending_frame_drop_pps",
+                 sample->csi_pending_frame_drop_pps);
     append_float(&out, "csi_missing_slots_pps", sample->csi_missing_slots_pps);
     append_float(&out, "csi_excess_pps", sample->csi_excess_pps);
     append_float(&out, "csi_stale_pps", sample->csi_stale_pps);
@@ -587,11 +604,17 @@ std::string RuntimeDirectHttpBridge::diagnostics_payload_() const {
   append_runtime_performance_diagnostics_json(&out, diagnostics);
   if (service_ != nullptr) {
     const DirectHttpServiceDiagnostics direct = service_->diagnostics();
-    append_uint(&out, "direct_event_clients", service_->event_client_count());
+    const size_t event_client_count = event_client_count_.load(std::memory_order_relaxed);
+    append_uint(&out, "direct_event_clients", event_client_count);
     append_uint(&out, "direct_rejected_connections", direct.rejected_connections);
     append_uint(&out, "direct_dropped_telemetry_events", direct.dropped_telemetry_events);
+    if (config_.runtime_events != nullptr) {
+      append_uint(&out,
+                  "runtime_motion_event_drops_total",
+                  config_.runtime_events->motion_state_drops_total());
+    }
     out += ",\"direct_http\":{";
-    append_uint(&out, "event_clients", service_->event_client_count(), true);
+    append_uint(&out, "event_clients", event_client_count, true);
     append_uint(&out, "event_client_limit", direct.event_client_limit);
     append_uint(&out, "queue_capacity", direct.queue_capacity);
     append_uint(&out, "queued_messages", direct.queued_messages);

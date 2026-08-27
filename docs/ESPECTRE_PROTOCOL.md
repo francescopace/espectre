@@ -64,7 +64,7 @@ The CLI accepts a record only when it resolves to IPv4, has a valid SRV port and
 
 - Native owns its responder, uses the stable hostname `espectre-<device_id>.local`, publishes the generated name when its label is empty, and updates the TXT `name` after a saved label change.
 - ESPHome adds `_espectre._tcp` to the responder already owned by ESPHome, publishes the generated name when its ESPectre-only label override is empty, and advertises Direct on the shared port `62587`. Direct mutations update the shared runtime first, then republish the corresponding ESPHome number and select entities so Home Assistant stays aligned.
-- Matter adds `_espectre._tcp` to the responder already owned by the Matter stack, initializes the Basic Information `NodeLabel` as empty unless configured otherwise, and advertises Direct on the shared port `62587`. The service remains available after commissioning and provides detector selection and tuning that the standard Matter occupancy surface does not expose.
+- Matter adds `_espectre._tcp` to the responder already owned by the Matter stack only after a fabric has been commissioned, initializes the Basic Information `NodeLabel` as empty unless configured otherwise, and advertises Direct on the shared port `62587`. Removing the last fabric removes the ESPectre service and stops Direct; commissioning it again restores both. Direct provides detector selection and tuning that the standard Matter occupancy surface does not expose.
 - Micro-ESPectre owns a single `_espectre._tcp` advertisement for its bounded, read-only Direct surface. It exposes monitoring queries and telemetry, but no configuration mutations, raw CSI stream, or peer-discovery responder.
 
 Services are enabled only while the station interface has a usable IPv4 address. A frontend that owns its responder sends a best-effort goodbye on a clean disconnect and reannounces after reconnect or an IP-address change; ESPHome and Matter retain responder lifecycle ownership and ESPectre only adds or removes its own service.
@@ -377,6 +377,10 @@ Diagnostics are returned only as `data` in the correlated response to an explici
   "csi_accepted_pps": 90,
   "csi_admitted_pps": 84,
   "csi_filtered_pps": 6,
+  "csi_pending_frame_drops_total": 0,
+  "csi_pending_frames": 0,
+  "csi_pending_frame_capacity": 8,
+  "csi_pending_frame_drop_pps": 0,
   "csi_missing_slots_pps": 10,
   "csi_excess_pps": 6,
   "csi_stale_pps": 0,
@@ -384,6 +388,7 @@ Diagnostics are returned only as `data` in the correlated response to an explici
   "csi_occupancy": 0.84,
   "wifi_channel": 10,
   "wifi_rssi_dbm": -55,
+  "runtime_motion_event_drops_total": 0,
   "task_stack_high_water_bytes": 2876,
   "direct_http": {
     "event_clients": 1,
@@ -430,7 +435,9 @@ Diagnostics are returned only as `data` in the correlated response to an explici
 | `loop_samples`, `loop_avg_us`, `loop_max_us` | Runtime loop sample count, average duration, and maximum duration for the complete window |
 | `detection_timing_supported` | Whether the selected runtime evaluates a detector |
 | `detection_samples`, `detection_sum_us`, `detection_avg_us`, `detection_min_us`, `detection_max_us` | Detector evaluation aggregates for the complete window, or `null` when unsupported or not ready |
-| `traffic_packets_total`, `csi_callbacks_total`, `csi_classified_total`, `csi_provenance_rejected_total`, `csi_accepted_total`, `csi_admitted_total`, `csi_filtered_total`, `csi_missing_slots_total`, `csi_excess_total`, `csi_stale_total`, `csi_out_of_order_total`, `csi_occupancy_slots`, `csi_window_slots` | Supported cumulative runtime counters and slot counts used to derive rates, provenance rejection, and window occupancy |
+| `traffic_packets_total`, `csi_callbacks_total`, `csi_classified_total`, `csi_provenance_rejected_total`, `csi_accepted_total`, `csi_admitted_total`, `csi_filtered_total`, `csi_pending_frame_drops_total`, `csi_missing_slots_total`, `csi_excess_total`, `csi_stale_total`, `csi_out_of_order_total`, `csi_occupancy_slots`, `csi_window_slots` | Supported cumulative runtime counters and slot counts used to derive rates, provenance rejection, queue overflow, and window occupancy |
+| `csi_pending_frames`, `csi_pending_frame_capacity` | Current occupancy and fixed capacity of the callback-to-runtime CSI queue |
+| `runtime_motion_event_drops_total` | Cumulative ordered motion-state publications overwritten in the bounded runtime-to-frontend mailbox |
 | CSI and traffic fields ending in `_pps`, plus `csi_occupancy` | Cached traffic and CSI rates in packets per second, plus the active detector-window occupancy ratio |
 | `wifi_channel`, `wifi_rssi_dbm` | Current Wi-Fi channel and RSSI; unavailable RSSI is `null` |
 | `task_stack_high_water_bytes` | Native frontend-task stack headroom; omitted by frontends without an equivalent measurement |
@@ -440,7 +447,7 @@ Diagnostics are returned only as `data` in the correlated response to an explici
 
 Memory values use KiB, timings use microseconds unless the field ends in `_ms`, and rates use packets per second. `runtime_load_percent` is runtime-loop wall time divided by the complete aggregation window. C++ runtimes keep the latest complete bounded 10-second performance window available between boundaries; collection does not depend on a build option or periodic debug logger. Unsupported values are `null`, or are omitted when the owning frontend cannot expose that optional measurement. Clients must not synthesize zero for a missing measurement.
 
-Rate fields derive from cumulative counters on the fixed one-second sensing heartbeat. `traffic_tx_pps` is the traffic-generator transmit rate; `csi_callback_pps` is the raw CSI callback rate; `csi_accepted_pps` is the identity-accepted rate; `csi_admitted_pps` is detector input after temporal admission; and `csi_filtered_pps` is the capture-filter drop rate. The temporal drop fields distinguish missing slots, same-slot excess, stale packets, and out-of-order packets. `csi_occupancy` is the valid fraction of the active detector window and does not change the device send rate. Before the first sample completes, rate fields are zero.
+Rate fields derive from cumulative counters on the fixed one-second sensing heartbeat. `traffic_tx_pps` is the traffic-generator transmit rate; `csi_callback_pps` is the raw CSI callback rate; `csi_accepted_pps` is the identity-accepted rate; `csi_admitted_pps` is detector input after temporal admission; `csi_filtered_pps` is the capture-filter drop rate; and `csi_pending_frame_drop_pps` is callback-to-runtime queue overflow. The temporal drop fields distinguish missing slots, same-slot excess, stale packets, and out-of-order packets. `csi_occupancy` is the valid fraction of the active detector window and does not change the device send rate. Before the first sample completes, rate fields are zero.
 
 Diagnostics are on-demand, and product dashboards should prefer telemetry, status, and info for normal operation. Motion state, movement score, threshold, detector selection, and turbulence belong to telemetry or live config and info surfaces. Native adds `task_stack_high_water_bytes`, `direct_http`, `raw_csi`, and `mqtt`; ESPHome and Matter return their supported shared measurements through Direct; and Micro-ESPectre returns its canonical subset without transport-specific objects. The extra fields are additive on protocol `1.0`, and consumers may ignore unknown keys. The SDK sample uses `csi_occupancy_ratio` for the same occupancy value exposed as `csi_occupancy` on the wire.
 

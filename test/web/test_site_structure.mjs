@@ -401,7 +401,7 @@ describe('website accessibility and navigation', () => {
     it('has a responsive navigation control and a live status region', () => {
         assert.match(index, /class="nav-toggle"[^>]+aria-controls="main-navigation"/);
         assert.match(index, /id="main-navigation"/);
-        assert.match(styles, /@media \(max-width: 720px\) \{[\s\S]*?\.conn \{ margin-left: auto; min-width: 0; order: 2; \}/);
+        assert.match(styles, /@media \(max-width: 840px\) \{[\s\S]*?\.conn \{ margin-left: auto; min-width: 0; order: 2; \}/);
         assert.match(styles, /\.conn-connected \.js-device-name \{ min-width: 0; overflow: hidden; text-overflow: ellipsis; \}/);
         assert.match(index, /class="toast js-toast"[^>]+role="status"[^>]+aria-live="polite"/);
         assert.doesNotMatch(index, /js-demo-toast|toast-sticky/);

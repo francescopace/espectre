@@ -140,6 +140,10 @@ RuntimeDiagnosticsSample RuntimeDiagnosticsSampler::sample(const RuntimeDiagnost
       counter_delta(snapshot.csi_admitted_total, previous_.csi_admitted_total), elapsed_ms);
   result.csi_filtered_pps = packets_per_second(
       counter_delta(snapshot.csi_filtered_total, previous_.csi_filtered_total), elapsed_ms);
+  result.csi_pending_frame_drop_pps = packets_per_second(
+      counter_delta(snapshot.csi_pending_frame_drops_total,
+                    previous_.csi_pending_frame_drops_total),
+      elapsed_ms);
   result.csi_missing_slots_pps = packets_per_second(
       counter_delta(snapshot.csi_missing_slots_total, previous_.csi_missing_slots_total), elapsed_ms);
   result.csi_excess_pps = packets_per_second(

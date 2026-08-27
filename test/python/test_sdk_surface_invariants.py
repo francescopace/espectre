@@ -174,6 +174,11 @@ def test_generated_reference_uses_consumer_include_paths() -> None:
     assert re.search(r"(?m)^STRIP_FROM_INC_PATH\s*=\s*src/cpp\s*$", source)
 
 
+def test_generated_reference_uses_stable_symbol_ids() -> None:
+    source = DOXYFILE.read_text(encoding="utf-8")
+    assert re.search(r"(?m)^CASE_SENSE_NAMES\s*=\s*NO\s*$", source)
+
+
 def test_runtime_facade_does_not_reach_detector_implementation_headers() -> None:
     """The recommended include must stay free of the advanced detector implementation."""
     leaked = sorted(facade_reachable_header_names() & RUNTIME_INTERNAL_HEADERS)

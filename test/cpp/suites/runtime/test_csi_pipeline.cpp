@@ -1083,6 +1083,27 @@ void test_csi_pipeline_callback_wrapper_null_data(void) {
     TEST_ASSERT_EQUAL(packets_before, detector.get_total_packets());
 }
 
+void test_csi_pipeline_counts_callback_queue_overflow(void) {
+    LightweightDetector detector(50, 1.0f);
+    CsiPipeline manager;
+    manager.init(&detector, &g_wifi_mock);
+    TEST_ASSERT_EQUAL(ESP_OK, manager.enable(nullptr));
+
+    int8_t csi_buf[128] = {0};
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf);
+    const size_t capacity = manager.pending_frame_capacity();
+    for (size_t frame = 0U; frame < capacity + 2U; ++frame) {
+        csi_info.rx_ctrl.timestamp = 100000U + static_cast<uint32_t>(frame * 10000U);
+        g_wifi_mock.trigger_callback(&csi_info);
+    }
+
+    TEST_ASSERT_EQUAL(capacity, manager.pending_frame_count());
+    TEST_ASSERT_EQUAL(2U, manager.pending_frame_drops_total());
+    manager.loop();
+    TEST_ASSERT_EQUAL(0U, manager.pending_frame_count());
+}
+
 namespace {
 
 struct RawCaptureProbe {
@@ -1388,6 +1409,7 @@ int process(void) {
     // Callback wrapper tests
     RUN_TEST(test_csi_pipeline_callback_wrapper_triggered);
     RUN_TEST(test_csi_pipeline_callback_wrapper_null_data);
+    RUN_TEST(test_csi_pipeline_counts_callback_queue_overflow);
     RUN_TEST(test_csi_pipeline_raw_branch_runs_before_sampler_and_resets_cleanly);
     RUN_TEST(test_csi_pipeline_measures_queue_age_in_the_callback_clock_domain);
     RUN_TEST(test_csi_pipeline_loop_defers_callback_refill_to_next_iteration);

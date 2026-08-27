@@ -17,6 +17,7 @@
 #include "runtime_events.h"
 #include "runtime_direct_http_bridge.h"
 #include "runtime_diagnostics.h"
+#include "runtime_event_mailbox.h"
 #include "runtime_frontend_controller.h"
 
 namespace espectre {
@@ -28,7 +29,7 @@ class MatterFrontend : public IRuntimeListener {
                  IDirectHttpService *direct_service = nullptr);
 
   void set_runtime_config(const RuntimeConfig &config);
-  void set_runtime_services_armed(bool armed);
+  bool set_runtime_services_armed(bool armed);
   const RuntimeConfig &runtime_config() const { return runtime_.config(); }
   bool runtime_services_armed() const { return runtime_.services_armed(); }
 
@@ -53,6 +54,9 @@ class MatterFrontend : public IRuntimeListener {
   void on_runtime_fault(const char *message) override;
 
  private:
+  bool start_direct_service_();
+  void stop_direct_service_();
+  void drain_pending_runtime_events_();
   void update_live_telemetry_enabled_();
 
   IMatterBindings *bindings_;
@@ -63,6 +67,7 @@ class MatterFrontend : public IRuntimeListener {
   EspIdfPeerDiscoveryService peer_discovery_;
   RuntimeDiagnosticsSampler diagnostics_sampler_;
   RuntimeDiagnosticsSample latest_diagnostics_{};
+  RuntimeEventMailbox runtime_events_{};
   bool live_telemetry_enabled_{true};
   std::string fallback_device_label_{};
 };

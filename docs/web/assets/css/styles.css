@@ -868,7 +868,7 @@ a.hero-badge:hover {
 .home-action-head :is(.page-sub) { max-width: 720px; margin-bottom: 0; }
 .home-tool-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
 }
 .home-tool-card {
@@ -3691,21 +3691,8 @@ ewt-install-dialog {
   .home-license-cta h3 { font-size: 21px; }
 }
 
-@media (max-width: 720px) {
-  .page-title { font-size: 36px; }
-  .page-sub { font-size: 17px; }
-  .page-toc { display: none; }
-  .contact-team-media { aspect-ratio: 4 / 3; margin-bottom: 40px; border-radius: 16px; }
-  .profile-comparison-row { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .profile-choice-cards { grid-template-columns: minmax(0, 1fr); }
-  .profile-comparison-row h3 { padding-bottom: 8px; border-bottom: 1px solid var(--border); }
-  .multipath-sequence { grid-template-columns: minmax(0, 1fr); gap: 16px; }
-  .tools-grid, .config-grid { grid-template-columns: minmax(0, 1fr); }
-  .tool-card, .panel { min-width: 0; }
-  html[data-static-page] .tool-static-entry { padding: 22px; }
-  .tool-static-actions { flex-direction: column; }
-  .tool-static-actions > a { width: 100%; box-sizing: border-box; text-align: center; }
-  .site-header-inner { gap: 8px; padding: 0 14px; }
+@media (max-width: 840px) {
+  .site-header-inner { gap: 8px; padding: 0 14px; justify-content: space-between; }
   .main-nav {
     display: none;
     position: absolute;
@@ -3722,13 +3709,27 @@ ewt-install-dialog {
   .main-nav.is-open { display: flex; }
   .main-nav .nav-link { padding: 11px 12px; font-size: 15px; }
   .nav-toggle { display: inline-flex; order: 3; min-width: 44px; min-height: 44px; }
-  .site-header-inner { justify-content: space-between; }
   .conn { margin-left: auto; min-width: 0; order: 2; }
   .site-header .brand { order: 1; min-height: 44px; }
   .conn-pill { min-height: 44px; padding: 7px 10px; font-size: 12px; }
   .conn-connected { box-sizing: border-box; max-width: 100%; }
   .conn-connected .js-device-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+}
 
+@media (max-width: 720px) {
+  .page-title { font-size: 36px; }
+  .page-sub { font-size: 17px; }
+  .page-toc { display: none; }
+  .contact-team-media { aspect-ratio: 4 / 3; margin-bottom: 40px; border-radius: 16px; }
+  .profile-comparison-row { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .profile-choice-cards { grid-template-columns: minmax(0, 1fr); }
+  .profile-comparison-row h3 { padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  .multipath-sequence { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .tools-grid, .config-grid { grid-template-columns: minmax(0, 1fr); }
+  .tool-card, .panel { min-width: 0; }
+  html[data-static-page] .tool-static-entry { padding: 22px; }
+  .tool-static-actions { flex-direction: column; }
+  .tool-static-actions > a { width: 100%; box-sizing: border-box; text-align: center; }
   .field input:not([type="checkbox"]):not([type="range"]),
   .field select,
   .field select.mono-input,
