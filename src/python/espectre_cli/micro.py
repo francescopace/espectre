@@ -217,6 +217,22 @@ def _require_mpy_cross() -> None:
         raise SystemExit(1)
 
 
+def _subprocess_error_detail(exc: BaseException) -> str:
+    """Return readable captured output from a subprocess exception."""
+    parts = []
+    for attribute in ("stderr", "stdout"):
+        value = getattr(exc, attribute, None)
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", errors="replace")
+        if value:
+            text = "\n".join(
+                str(value).replace("\x00", "").splitlines()
+            ).strip()
+            if text and text not in parts:
+                parts.append(text)
+    return "\n".join(parts) or str(exc).strip()
+
+
 def _reset_device(port: str) -> bool:
     """Reset one MicroPython device and report whether the command succeeded."""
     time.sleep(0.5)
@@ -230,9 +246,21 @@ def _reset_device(port: str) -> bool:
         )
         print(f"{Fore.GREEN}ESP32 reset completed{Style.RESET_ALL}")
         return True
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        detail = getattr(exc, "stderr", None) or getattr(exc, "stdout", None) or str(exc)
-        print(f"{Fore.RED}❌ ESP32 reset failed: {str(detail).strip()}{Style.RESET_ALL}")
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        # A hard reset can leave mpremote attached to the newly booted REPL
+        # until its command times out. Treat a reachable REPL as success.
+        ready, readiness_detail = _wait_for_micropython(port)
+        if ready:
+            print(f"{Fore.GREEN}ESP32 reset completed{Style.RESET_ALL}")
+            return True
+        detail = readiness_detail or _subprocess_error_detail(exc)
+        print(f"{Fore.RED}❌ ESP32 reset failed{Style.RESET_ALL}")
+        if detail:
+            print(detail)
+        return False
+    except OSError as exc:
+        print(f"{Fore.RED}❌ ESP32 reset failed{Style.RESET_ALL}")
+        print(str(exc).strip())
         return False
 
 

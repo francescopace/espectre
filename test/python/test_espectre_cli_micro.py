@@ -138,6 +138,11 @@ def test_require_mpy_cross_exits_when_binary_missing(monkeypatch) -> None:
 def test_reset_device_reports_command_result(monkeypatch) -> None:
     calls: list[list[str]] = []
     monkeypatch.setattr(micro.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        micro,
+        "_wait_for_micropython",
+        lambda _port: (False, "device unavailable"),
+    )
 
     def fake_run(cmd, timeout, capture_output, text, check):
         calls.append(cmd)
@@ -153,6 +158,54 @@ def test_reset_device_reports_command_result(monkeypatch) -> None:
     assert micro._reset_device("/dev/cu.usbmodem1") is False
 
     assert calls == [["mpremote", "connect", "/dev/cu.usbmodem1", "exec", "import machine; machine.reset()"]]
+
+
+def test_reset_device_accepts_timeout_when_repl_is_ready(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(micro.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        micro,
+        "_wait_for_micropython",
+        lambda _port: (True, ""),
+    )
+
+    def fake_run(cmd, timeout, capture_output, text, check):
+        raise subprocess.TimeoutExpired(
+            cmd,
+            timeout,
+            output=b"\x00ESP-ROM:esp32s3\r\nMicroPython\r\n>>> ",
+        )
+
+    monkeypatch.setattr(micro.subprocess, "run", fake_run)
+
+    assert micro._reset_device("/dev/cu.usbmodem1") is True
+    output = capsys.readouterr().out
+    assert "ESP32 reset completed" in output
+    assert "ESP-ROM" not in output
+    assert "b'" not in output
+
+
+def test_reset_device_decodes_bytes_when_repl_is_unavailable(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(micro.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        micro,
+        "_wait_for_micropython",
+        lambda _port: (False, ""),
+    )
+
+    def fake_run(cmd, timeout, capture_output, text, check):
+        raise subprocess.TimeoutExpired(
+            cmd,
+            timeout,
+            output=b"\x00boot output\r\nreset did not complete\r\n",
+        )
+
+    monkeypatch.setattr(micro.subprocess, "run", fake_run)
+
+    assert micro._reset_device("/dev/cu.usbmodem1") is False
+    output = capsys.readouterr().out
+    assert "boot output\nreset did not complete" in output
+    assert "b'" not in output
+    assert "\\r\\n" not in output
 
 
 def test_flash_firmware_raises_when_esptool_missing(monkeypatch) -> None:
