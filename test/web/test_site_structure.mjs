@@ -289,6 +289,7 @@ describe('website accessibility and navigation', () => {
             assert.ok(source.indexOf('href="/sdk/" class="nav-link') < source.indexOf('href="/roadmap/" class="nav-link'));
         }
         assert.match(app, /const staticTarget = routeRegistry\.staticTargetForHref\(href, location\.href\);[\s\S]*?location\.hash = routeHash;/);
+        assert.match(app, /previousRoute !== 'sdk-api' \|\| nextRoute === 'sdk-api'[\s\S]*?searchParams\.delete\('api'\)[\s\S]*?searchParams\.delete\('member'\)[\s\S]*?history\.replaceState/);
     });
 
     it('resolves canonical page anchors before entering the SPA', () => {
@@ -398,10 +399,14 @@ describe('website accessibility and navigation', () => {
         assert.match(styles, /@media \(max-width: 720px\) \{[\s\S]*?\.conn \{ margin-left: auto; min-width: 0; order: 2; \}/);
         assert.match(styles, /\.conn-connected \.js-device-name \{ min-width: 0; overflow: hidden; text-overflow: ellipsis; \}/);
         assert.match(index, /class="toast js-toast"[^>]+role="status"[^>]+aria-live="polite"/);
-        assert.match(index, /class="toast toast-sticky js-demo-toast"[^>]+role="status"/);
-        assert.match(app, /function syncDemoToast/);
-        assert.match(app, /el\.hidden = !\(conn\.mode === 'demo' && conn\.status === 'connected'\)/);
-        assert.match(styles, /\.toast\.js-toast:not\(\[hidden\]\) ~ \.toast-sticky:not\(\[hidden\]\)/);
+        assert.doesNotMatch(index, /js-demo-toast|toast-sticky/);
+        assert.match(index, /class="connection-callout js-connection-callout"[^>]+role="status"[^>]+hidden/);
+        assert.match(app, /const DIRECT_CALLOUT_DURATION_MS = 4000;/);
+        assert.match(app, /function setStatus\(status\) \{[\s\S]*?enteringDirectConnection[\s\S]*?showDirectConnectionCallout\(\)/);
+        assert.match(app, /function showDirectConnectionCallout\(\) \{[\s\S]*?setTimeout\([\s\S]*?directCalloutVisible = false;[\s\S]*?syncConnectionCallout\(\);[\s\S]*?DIRECT_CALLOUT_DURATION_MS/);
+        assert.match(app, /function syncConnectionCallout\(\) \{[\s\S]*?const demo =[\s\S]*?const direct =[\s\S]*?dropdownOpen/);
+        assert.match(styles, /\.connection-callout \{[\s\S]*?position: absolute;[\s\S]*?pointer-events: none;/);
+        assert.match(styles, /\.connection-callout::before \{[\s\S]*?transform: rotate\(45deg\);/);
     });
 
     it('provides skip navigation, tool page titles, and route focus management', () => {
@@ -453,11 +458,13 @@ describe('website UX contracts', () => {
         assert.match(styles, /\.btn-secondary:hover,\s*\.btn-ghost:hover \{ color: var\(--text\); \}/);
         assert.match(styles, /\.btn-ghost:hover \{ background: var\(--surface2\); \}/);
         assert.match(styles, /\.btn-primary:hover,\s*\.hero-cta-primary:hover \{ filter: brightness\(1\.08\); \}/);
-        assert.match(toolContent.monitor, /class="btn-secondary btn-sm js-device-edit-connectivity"/);
+        assert.match(toolContent.monitor, /class="btn-primary btn-sm js-device-edit-connectivity"/);
         assert.match(toolContent.monitor, /class="btn-secondary btn-sm js-sense-recalibrate"/);
         assert.match(toolContent.configure, /class="wifi-bssid-control">[\s\S]*?<select id="cfg-bssid"[\s\S]*?<button type="button" class="wifi-refresh-button js-wifi-scan" aria-label="[^"]+"[^>]*><svg[^>]*aria-hidden="true"/);
         assert.doesNotMatch(toolContent.configure, /class="panel-actions wifi-panel-actions">[\s\S]*?js-wifi-scan/);
         assert.match(styles, /\.wifi-bssid-control \{[\s\S]*?display: flex;[\s\S]*?gap: 8px;[\s\S]*?\.wifi-refresh-button \{[\s\S]*?flex: 0 0 30px;/);
+        assert.match(styles, /\.wifi-refresh-button\.is-scanning svg \{[\s\S]*?animation: espSpin \.7s linear infinite;/);
+        assert.match(app, /scanButton\.classList\.toggle\('is-scanning', scanning\);\s*scanButton\.setAttribute\('aria-busy', String\(scanning\)\);/);
         assert.match(styles, /\.wifi-panel-actions \{ flex-wrap: nowrap; \}/);
         const contactContent = read('docs/web/content/contact.html');
         assert.equal((contactContent.match(/class="btn-primary"/g) || []).length, 1);
@@ -835,7 +842,7 @@ describe('website UX contracts', () => {
         assert.ok(sdkContent.indexOf('class="docs-steps"') < sdkContent.indexOf('class="docs-paths"'));
         assert.ok(sdkContent.indexOf('class="docs-steps"') < sdkContent.indexOf('class="docs-next"'));
         const sdkIndexLinks = [...sdkContent.matchAll(/<a href="(\/sdk\/(?:api|examples|architecture|detectors)\/)" class="doc-link">/g)].map((match) => match[1]);
-        assert.deepEqual(sdkIndexLinks, ['/sdk/architecture/', '/sdk/api/', '/sdk/detectors/', '/sdk/examples/']);
+        assert.deepEqual(sdkIndexLinks, ['/sdk/architecture/', '/sdk/detectors/', '/sdk/api/', '/sdk/examples/']);
         const pathCards = sdkContent.match(/<div class="docs-path(?: docs-path-recommended)?">[\s\S]*?<\/div>/g) || [];
         assert.equal(pathCards.length, 3);
         for (const card of pathCards) {
@@ -1182,12 +1189,13 @@ describe('website UX contracts', () => {
         assert.match(configure, /<div class="field-row">\s*<div class="field">[\s\S]*?id="cfg-wifi-band"[\s\S]*?id="cfg-channel"/);
         assert.match(configure, /<input type="text" id="cfg-channel" readonly>/);
         assert.match(configure, /<select id="cfg-bssid"[\s\S]*?<option value="">/);
-        assert.match(configure, /id="cfg-bssid-help"[^>]*role="status"[^>]*aria-live="polite"/);
+        assert.match(configure, /id="cfg-bssid-help"[^>]*aria-live="polite"/);
         assert.doesNotMatch(configure, /id="cfg-wifi-pass"/);
         assert.match(app, /activeToolName\(\) === 'configure'[\s\S]*?directClient\.request\('diagnostics'\)/);
         assert.match(app, /snapshot\.wifi_channel[\s\S]*?set\('cfg-channel'/);
         assert.match(app, /const client = directClient[\s\S]*client\.request\('scan_wifi_access_points'\)/);
         assert.match(app, /client\.request\('wifi_access_points'\)/);
+        assert.match(app, /if \(conn\.mode === 'demo'\) \{\s*renderWifiAccessPoints\(\{ scanning: true \}\);\s*await new Promise[\s\S]*?renderWifiAccessPoints\(\{\s*scanning: false,[\s\S]*?access_points:/);
         assert.match(app, /if \(directClient !== client \|\| !client\.connected\) return;/);
         assert.match(app, /const method = bssid \? 'set_wifi_bssid' : 'clear_wifi_bssid'/);
         assert.match(app, /new Option\(`\$\{bssid\} · \$\{rssi\} dBm`, bssid\)/);
@@ -1411,6 +1419,7 @@ describe('website UX contracts', () => {
         assert.doesNotMatch(demoConnection, /'ota_status'|'ota_check'|ota_state:|ota_update_available:/);
         assert.match(app, /otaTransportReady = conn\.mode === 'direct'/);
         assert.match(app, /el\.hidden = conn\.mode === 'demo' \|\| Boolean\(flash\.usbDialog\) \|\| otaSupported === false/);
+        assert.match(app, /function renderConnection\(\) \{[\s\S]*?syncFirmwareUpdateNotice\(\);/);
         assert.match(app, /if \(!currentOtaCheckTransport\(\)\) return;/);
         assert.match(app, /monitorPublishCommand\(otaCommandFields\('ota_start'\)/);
         assert.match(app, /OTA_TRACKING_TIMEOUT_MS/);
@@ -1462,7 +1471,10 @@ describe('website UX contracts', () => {
         assert.match(app, /function applyDirectConfig\(config\) \{[\s\S]*?const device = config\.device \|\| \{\};[\s\S]*?device_label: config\.device_label \?\? device\.device_label[\s\S]*?applySensingSnapshot\(runtime\);/);
         assert.match(app, /function applyRuntimeStatus\(status\) \{[\s\S]*?setCalibrationBusy\(calibrating\);/);
         assert.match(app, /if \(name === 'status'\) applyRuntimeStatus\(data\);/);
-        assert.match(app, /if \(detector\) \{[\s\S]*?syncSensingControls\(\);/);
+        assert.match(app, /const mqttPresetSelect = document\.getElementById\('cfg-mqtt-preset'\);[\s\S]*?if \(mqttPresetSelect\) \{/);
+        assert.match(app, /if \(conn\.mode === 'demo' && demoSysinfoSnapshot\) \{[\s\S]*?applySysinfo\(demoSysinfoSnapshot\);/);
+        assert.match(app, /if \(detector && detectorSelect\) \{[\s\S]*?syncSensingControls\(\);/);
+        assert.match(app, /if \(stateEl\) \{[\s\S]*?stateEl\.classList\.toggle\('motion', motion\);/);
         assert.match(app, /function directConfigSnapshot\(config\) \{[\s\S]*?device_label: config\.device_label \?\? device\.device_label \?\? ''/);
         assert.match(app, /MONITOR_CHART_WINDOW_MS = 60 \* 1000/);
         assert.match(app, /function monitorResetChart/);

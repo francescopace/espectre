@@ -3,7 +3,7 @@
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
 <h1 class="page-title">Device settings</h1>
-<p class="page-sub">Connect to an ESPectre on the same Wi-Fi network to rename it, check its connection, or set up Home Assistant.</p>
+<p class="page-sub">Connect to an ESPectre on the same Wi-Fi network to rename it, pin to an access point, or set up Home Assistant.</p>
 
 <section class="tool-static-entry" aria-labelledby="configure-static-title">
   <h2 id="configure-static-title">Manage a device on your local network</h2>
@@ -56,14 +56,19 @@
           <span class="config-status js-wifi-status" role="status" data-capability="supports_wifi_status"><span class="dot dot-idle js-wifi-status-dot" aria-hidden="true"></span><span class="js-wifi-status-text">Checking…</span></span>
         </div>
         <div data-capability="supports_wifi_status">
-        <p class="panel-intro">If your home has more than one access point or mesh node, you can choose which one ESPectre should use. Reconnect over <a href="/tools/flash/">USB</a> to change the Wi-Fi network or password.</p>
+        <p class="panel-intro">Reconnect over <a href="/tools/flash/">USB</a> to change Wi-Fi network.</p>
         <div class="fields">
           <div class="field"><label for="cfg-ssid">Wi-Fi network</label><input type="text" id="cfg-ssid" readonly></div>
           <div class="field-row">
             <div class="field"><label for="cfg-wifi-band">Current band</label><input type="text" id="cfg-wifi-band" readonly></div>
             <div class="field"><label for="cfg-channel">Current channel</label><input type="text" id="cfg-channel" readonly></div>
           </div>
-          <div class="field" data-capability="supports_wifi_bssid"><label for="cfg-bssid">Preferred access point</label><div class="wifi-bssid-control"><select id="cfg-bssid" aria-describedby="cfg-bssid-help"><option value="">Automatic (strongest available)</option></select><button type="button" class="wifi-refresh-button js-wifi-scan" aria-label="Scan for access points" title="Scan for access points"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 12a9 9 0 0 0-15.74-6L3 9M3 3v6h6M3 12a9 9 0 0 0 15.74 6L21 15M15 15h6v6"/></svg></button></div><small class="field-help js-wifi-scan-status" id="cfg-bssid-help" role="status" aria-live="polite">Select scan to list nearby access points.</small></div>
+
+          <div class="field" data-capability="supports_wifi_bssid">
+            <label for="cfg-bssid">Preferred access point</label>
+            <div class="wifi-bssid-control"><select id="cfg-bssid" aria-describedby="cfg-bssid-help"><option value="">Automatic (strongest available)</option></select><button type="button" class="wifi-refresh-button js-wifi-scan" aria-label="Scan for access points" title="Scan for access points"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 0 1 15.74-6L21 9M21 3v6h-6M21 12a9 9 0 0 1-15.74 6L3 15M9 15H3v6"/></svg></button></div>
+            <small class="field-help" id="cfg-bssid-help" aria-live="polite">If several access points share this network, choose the one ESPectre should stay connected to.</small>
+          </div>
         </div>
         <div class="panel-actions wifi-panel-actions">
           <button class="btn-primary btn-sm js-wifi-save" data-capability="supports_wifi_bssid">Save Wi-Fi preference</button>
@@ -79,7 +84,7 @@
           <span class="config-status js-mqtt-status" role="status" data-capability="supports_mqtt_config"><span class="dot dot-idle js-mqtt-status-dot" aria-hidden="true"></span><span class="js-mqtt-status-text">Checking…</span></span>
         </div>
         <div data-capability="supports_mqtt_config">
-        <p class="panel-intro">Use MQTT to add ESPectre to Home Assistant or another automation system. Leave this section empty if you do not need it.</p>
+        <p class="panel-intro">Use MQTT to add ESPectre to Home Assistant or another automation system. Leave it empty if not need it.</p>
         <div class="fields">
           <div class="field-row mqtt-host-port-row">
             <div class="field">

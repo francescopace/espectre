@@ -357,6 +357,35 @@ button.conn-pill:hover { border-color: var(--accent-line); }
   padding: 16px;
   z-index: 400;
 }
+.connection-callout {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  z-index: 390;
+  width: max-content;
+  max-width: min(280px, calc(100vw - 28px));
+  box-sizing: border-box;
+  padding: 10px 13px;
+  border-radius: 11px;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .22);
+  font-size: 12.5px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+.connection-callout::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: 28px;
+  width: 10px;
+  height: 10px;
+  background: var(--accent);
+  transform: rotate(45deg);
+}
+.connection-callout strong { display: block; font-size: 12px; letter-spacing: .02em; }
+.connection-callout[hidden] { display: none; }
 .conn-dropdown-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .conn-dropdown-head .dot { width: 9px; height: 9px; }
 .conn-dropdown-name { font-weight: 600; font-size: 14px; color: var(--text); }
@@ -981,7 +1010,6 @@ a.hero-badge:hover {
 html[data-static-page] .tool-interactive { display: none; }
 html[data-static-page] .tool-static-entry {
   display: block;
-  max-width: 780px;
   padding: 28px 30px;
   border: 1px solid var(--border);
   border-radius: 18px;
@@ -1847,6 +1875,10 @@ body.modal-open { overflow: hidden; }
   stroke-linejoin: round;
   stroke-width: 1.8;
 }
+.wifi-refresh-button.is-scanning svg {
+  animation: espSpin .7s linear infinite;
+  transform-origin: center;
+}
 .broker-host-control {
   display: grid;
   grid-template-columns: 170px minmax(0, 1fr);
@@ -2113,7 +2145,6 @@ ewt-install-dialog {
 .device-console-banner { align-items: center; }
 .device-view[hidden] { display: none; }
 .device-live-grid { grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); }
-.device-motion-panel { min-height: 390px; }
 .device-motion-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 18px; }
 .device-motion-state { font-family: var(--font-display); font-size: 42px; font-weight: 700; line-height: 1; }
 .device-motion-state.motion { color: var(--accent); }
@@ -3593,9 +3624,6 @@ ewt-install-dialog {
   max-width: min(90vw, 480px);
   text-align: center;
 }
-.toast-sticky { z-index: 790; }
-.toast.js-toast:not([hidden]) ~ .toast-sticky:not([hidden]) { bottom: 84px; }
-
 /* Consent */
 
 .consent-banner {
@@ -3875,5 +3903,6 @@ ewt-install-dialog {
   .scene-ui-dot,
   .pulse,
   .spinner,
+  .wifi-refresh-button.is-scanning svg,
   .field input[aria-invalid="true"] { animation: none !important; }
 }

@@ -23,13 +23,13 @@
 <meta name="twitter:image" content="https://espectre.dev/assets/images/brand/espectre-og.jpg">
 <link rel="icon" type="image/svg+xml" href="/assets/images/brand/espectre-logo.svg?v=5c234009f6c5">
 <link rel="alternate icon" type="image/png" href="/assets/images/brand/favicon.png">
-<link rel="stylesheet" href="/assets/css/styles.css?v=bd99f365ce8f">
+<link rel="stylesheet" href="/assets/css/styles.css?v=b4891108dc84">
 <script src="/assets/js/espectre-direct.js?v=9359fea8bf00" defer></script>
 <script src="/assets/js/browser-support.js?v=ac4ba70c7f17" defer></script>
-<script src="/assets/js/route-registry.js?v=ff497c9837f5" defer></script>
+<script src="/assets/js/route-registry.js?v=78606ac2999b" defer></script>
 <script src="/assets/js/navigation.js?v=6abcd0e77230" defer></script>
 <script src="/assets/js/analytics.js?v=1ba5c2cbf44c" defer></script>
-<script src="/assets/js/app.js?v=5ea4102ffb48" defer></script>
+<script src="/assets/js/app.js?v=5c8c5906f7ec" defer></script>
 </head>
 <body>
 
@@ -107,6 +107,10 @@
           <div class="meter"><span class="js-energy-fill"></span></div>
         </div>
         <button class="btn-disconnect js-disconnect">Disconnect</button>
+      </div>
+      <div class="connection-callout js-connection-callout" role="status" aria-live="polite" aria-atomic="true" hidden>
+        <strong class="js-connection-callout-title">Demo mode</strong>
+        <span class="js-connection-callout-message">Move the pointer to simulate motion.</span>
       </div>
     </div>
   </div>
@@ -322,7 +326,7 @@
 <!-- ============================== Configure ============================== -->
 <main class="js-page page-narrow page-tool" data-page="tool-configure" data-page-path="tools" hidden>
   <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Device settings</span></div>
-  <div class="js-static-content" data-content-url="content/tools/configure.html?v=0e3c719f08b5" data-static-url="/tools/configure/">
+  <div class="js-static-content" data-content-url="content/tools/configure.html?v=ef29460e2bdf" data-static-url="/tools/configure/">
     <p class="guide-loading">Loading device settings…</p>
   </div>
 </main>
@@ -330,7 +334,7 @@
 <!-- ============================== Monitor ============================== -->
 <main class="js-page page-narrow page-tool" data-page="tool-monitor" data-page-path="tools" hidden>
   <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Live motion</span></div>
-  <div class="js-static-content" data-content-url="content/tools/monitor.html?v=aacd29d6f71b" data-static-url="/tools/monitor/">
+  <div class="js-static-content" data-content-url="content/tools/monitor.html?v=eb0183d3fdac" data-static-url="/tools/monitor/">
     <p class="guide-loading">Loading live motion…</p>
   </div>
 </main>
@@ -368,7 +372,7 @@
 
 <!-- ============================== SDK ============================== -->
 <main class="js-page page-narrow" data-page="sdk" hidden>
-  <div class="js-static-content" data-content-url="content/sdk.html?v=13f326641432" data-static-url="/sdk/">
+  <div class="js-static-content" data-content-url="content/sdk.html?v=e6bcf9f62cc3" data-static-url="/sdk/">
     <p class="guide-loading">Loading SDK…</p>
   </div>
 </main>
@@ -537,7 +541,7 @@
   <section class="device-connect-card connection-card demo-connect-card empty-state" data-connection-panel="demo" data-transport="demo" hidden>
     <span class="connection-card-eyebrow">Demo</span>
     <h2>Explore without a device</h2>
-    <p>Try the browser tools with simulated motion. The demo does not connect to a device.</p>
+    <p>Try the browser tools with simulated motion. <br>The demo does not connect to a device.</p>
     <div class="demo-connect-summary">
       <ul class="demo-connect-list">
         <li>Move the pointer to generate simulated motion.</li>
@@ -549,8 +553,8 @@
   </section>
   <section class="device-connect-card connection-card relay-connect-card empty-state" data-connection-panel="relay" data-transport="relay" hidden>
     <span class="connection-card-eyebrow">Remote connection</span>
-    <h2>Remote connection is planned</h2>
-    <p>Relay is not available yet. The planned connection will reach a device outside your local network.</p>
+    <h2>Coming soon!</h2>
+    <p>Reach a device outside your local network using a relay service.</p>
     <div class="demo-connect-summary">
       <ul class="demo-connect-list">
         <li>Connections would be encrypted and started by the device.</li>
@@ -558,7 +562,7 @@
         <li>No inbound port forwarding would be required.</li>
       </ul>
     </div>
-    <button type="button" class="btn-primary" disabled>Coming soon</button>
+    <button type="button" class="btn-primary" disabled>Connect to relay</button>
   </section>
 </template>
 
@@ -566,7 +570,7 @@
   <section class="device-connect-card connection-card direct-connect-card empty-state" data-transport="direct">
     <span class="connection-card-eyebrow">Local connection</span>
     <h2>Find your ESPectre</h2>
-    <p>Search for ESPectre devices on the same Wi-Fi network. Chrome may ask for permission to access local devices.</p>
+    <p>Search for ESPectre devices on the same Wi-Fi network. <br>Chrome may ask for permission to access local devices.</p>
     <p class="tool-note js-direct-browser-note" role="status">If Chrome asks for local network access, allow it only for this site and the network you want to manage.</p>
     <button type="button" class="btn-primary js-direct-discover">Find devices</button>
     <div class="direct-discovery js-direct-discovery" role="status" aria-live="polite" hidden></div>
@@ -580,9 +584,8 @@
       <div class="field"><label for="direct-endpoint" class="js-direct-endpoint-label">Device address, ID, or name</label><input type="text" id="direct-endpoint" class="mono-input js-direct-endpoint" list="direct-remembered-endpoints" placeholder="192.168.1.42, abcdef, or Kitchen" autocomplete="off" spellcheck="false"></div>
       <button class="btn-secondary btn-sm js-connect-direct"><span class="js-connect-label">Connect</span></button>
     </div>
-    <p class="tool-note">If search cannot find the device, enter the IP address shown during Wi-Fi setup or in your router. <a href="/guides/setup/#setup-native-discovery">See connection help.</a></p>
     <p class="tool-note direct-connection-status js-direct-status" role="status" aria-live="polite" hidden></p>
-    <p class="direct-connect-recovery">Not on the network yet? Complete Wi-Fi setup over <a href="/tools/flash/">USB</a>.</p>
+    <p class="direct-connect-recovery">Not on the network yet? Complete Wi-Fi setup over <a href="/tools/flash/">USB or <a href="/guides/setup/#setup-native-discovery">See connection help.</a></a>.</p>
   </section>
 </template>
 
@@ -693,6 +696,5 @@
 </div>
 
 <div class="toast js-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
-<div class="toast toast-sticky js-demo-toast" role="status" aria-live="polite" hidden>Demo mode — move the pointer to simulate motion.</div>
 </body>
 </html>

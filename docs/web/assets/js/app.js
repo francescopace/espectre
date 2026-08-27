@@ -239,7 +239,11 @@
     let configClearReturnFocus = null;
     let configClearResolve = null;
     let demoTimer = null;
+    let demoSysinfoSnapshot = null;
     let demoInputEnergy = 0;
+    let connectionCalloutTimer = null;
+    let directCalloutVisible = false;
+    const DIRECT_CALLOUT_DURATION_MS = 4000;
     const demoPointer = { x: null, y: null, t: 0 };
     let route = 'home';
     const LIVE_EXPERIENCE_ROUTES = new Set(['tool-game', 'tool-theremin']);
@@ -297,7 +301,12 @@
     }
 
     function setStatus(status) {
+        const enteringDirectConnection = status === 'connected'
+            && conn.status !== 'connected'
+            && conn.mode === 'direct';
+        if (status !== 'connected') clearDirectConnectionCallout();
         conn.status = status;
+        if (enteringDirectConnection) showDirectConnectionCallout();
         renderConnection();
     }
 
@@ -389,30 +398,33 @@
         const detector = snapshot.detector || detection.algorithm;
         const threshold = Number(snapshot.threshold ?? detection.threshold);
         const motionHits = String(snapshot.motion_hits || '').split('/');
+        const detectorSelect = document.getElementById('sense-detector');
+        const motionOnInput = document.getElementById('sense-motion-on');
+        const motionOffInput = document.getElementById('sense-motion-off');
+        const trafficGeneratorSelect = document.getElementById('sense-generator-mode');
         if (Number.isFinite(threshold)) {
             applyRemoteThreshold(threshold);
         }
-        if (detector) {
-            document.getElementById('sense-detector').value = detector;
+        if (detector && detectorSelect) {
+            detectorSelect.value = detector;
             syncSensingControls();
         }
-        if (motionHits.length === 2) {
-            document.getElementById('sense-motion-on').value = motionHits[0];
-            document.getElementById('sense-motion-off').value = motionHits[1];
+        if (motionHits.length === 2 && motionOnInput && motionOffInput) {
+            motionOnInput.value = motionHits[0];
+            motionOffInput.value = motionHits[1];
         }
-        if (snapshot.motion_on_hits !== undefined) {
-            document.getElementById('sense-motion-on').value = snapshot.motion_on_hits;
+        if (snapshot.motion_on_hits !== undefined && motionOnInput) {
+            motionOnInput.value = snapshot.motion_on_hits;
         }
-        if (snapshot.motion_off_hits !== undefined) {
-            document.getElementById('sense-motion-off').value = snapshot.motion_off_hits;
+        if (snapshot.motion_off_hits !== undefined && motionOffInput) {
+            motionOffInput.value = snapshot.motion_off_hits;
         }
         if (snapshot.csi_traffic_mode) {
             conn.csiTrafficMode = snapshot.csi_traffic_mode;
             applyCsiTrafficModeSelect(snapshot.csi_traffic_mode);
         }
-        if (snapshot.traffic_mode || snapshot.traffic_generator_mode) {
-            document.getElementById('sense-generator-mode').value =
-                snapshot.traffic_mode || snapshot.traffic_generator_mode;
+        if ((snapshot.traffic_mode || snapshot.traffic_generator_mode) && trafficGeneratorSelect) {
+            trafficGeneratorSelect.value = snapshot.traffic_mode || snapshot.traffic_generator_mode;
         }
         applySensingCadence(snapshot);
     }
@@ -1728,9 +1740,12 @@
             set('cfg-mqtt-host', snapshot.mqtt_host);
             set('cfg-mqtt-port', snapshot.mqtt_port);
             const mqttPreset = configuredBrokerPreset(snapshot.mqtt_host, snapshot.mqtt_port);
-            document.getElementById('cfg-mqtt-preset').value = mqttPreset;
-            applyMqttPresetFieldLocks('configure', MQTT_PRESETS[mqttPreset].configure);
-            applyConfigureMqttCredentialPolicy(mqttPreset);
+            const mqttPresetSelect = document.getElementById('cfg-mqtt-preset');
+            if (mqttPresetSelect) {
+                mqttPresetSelect.value = mqttPreset;
+                applyMqttPresetFieldLocks('configure', MQTT_PRESETS[mqttPreset].configure);
+                applyConfigureMqttCredentialPolicy(mqttPreset);
+            }
             set('cfg-topic-prefix', snapshot.mqtt_topic_prefix || snapshot.topic_prefix || MQTT_FORM_DEFAULTS.topicPrefix);
             const mqttPass = document.getElementById('cfg-mqtt-pass');
             if (mqttPass) mqttPass.value = '';
@@ -1786,7 +1801,7 @@
                 'set_device_label'
             ]);
             monitor.commandCatalogReady = true;
-            applySysinfo({
+            demoSysinfoSnapshot = {
                 chip: 'esp32-c5',
                 frontend: 'native',
                 proto_version: '1.0',
@@ -1823,7 +1838,8 @@
                 device_name: 'Demo Device',
                 device_label: 'Demo Device',
                 motion_hits: '4/3'
-            });
+            };
+            applySysinfo(demoSysinfoSnapshot);
             if (openView === 'live') completeLiveConnectionNavigation();
             monitorResetChart();
             let t = 0;
@@ -1924,6 +1940,7 @@
         demoTimer = null;
         directClient?.close();
         directClient = null;
+        demoSysinfoSnapshot = null;
         demoInputEnergy = 0;
         demoPointer.x = null;
         demoPointer.y = null;
@@ -2075,7 +2092,7 @@
         if (edit) {
             edit.hidden = false;
             edit.disabled = false;
-            edit.textContent = 'Wi-Fi and integrations';
+            edit.textContent = 'Device settings';
         }
 
         $$('.js-device-name').forEach((el) => { el.textContent = conn.deviceName || 'ESPectre'; });
@@ -2104,9 +2121,10 @@
 
         syncSensingControls();
         syncDiagnosticsPolling();
+        syncFirmwareUpdateNotice();
         renderBrowserSupport();
         renderTelemetry();
-        syncDemoToast();
+        syncConnectionCallout();
         if (live && route === 'tool-game' && !game.ctx) requestAnimationFrame(gameResizeCanvas);
     }
 
@@ -2240,6 +2258,15 @@
         if (window.trackRouteView) window.trackRouteView(route);
     }
 
+    function clearApiReferenceLocation(previousRoute, nextRoute) {
+        if (previousRoute !== 'sdk-api' || nextRoute === 'sdk-api') return;
+        const url = new URL(location.href);
+        if (!url.searchParams.has('api') && !url.searchParams.has('member')) return;
+        url.searchParams.delete('api');
+        url.searchParams.delete('member');
+        history.replaceState(history.state, '', url.pathname + url.search + url.hash);
+    }
+
     /**
      * Single entry point for navigation. `force` applies the current route on
      * startup; without it a repeated route is ignored so one navigation never
@@ -2251,6 +2278,7 @@
         if (!force && target === route) return;
         cancelDirectDiscovery({ clear: true });
         const previousRoute = route;
+        clearApiReferenceLocation(previousRoute, target);
         if (previousRoute === 'tool-raw-csi' && target !== 'tool-raw-csi') {
             void rawCsiStop();
         }
@@ -2332,6 +2360,9 @@
         if (!ready || !initializer || initializedToolRoutes.has(route)) return ready;
         initializer();
         initializedToolRoutes.add(route);
+        if (conn.mode === 'demo' && demoSysinfoSnapshot) {
+            applySysinfo(demoSysinfoSnapshot);
+        }
         return true;
     }
 
@@ -2395,10 +2426,36 @@
         toastTimer = setTimeout(() => { el.hidden = true; }, 3200);
     }
 
-    function syncDemoToast() {
-        const el = $('.js-demo-toast');
+    function clearDirectConnectionCallout() {
+        clearTimeout(connectionCalloutTimer);
+        connectionCalloutTimer = null;
+        directCalloutVisible = false;
+    }
+
+    function showDirectConnectionCallout() {
+        clearDirectConnectionCallout();
+        directCalloutVisible = true;
+        connectionCalloutTimer = setTimeout(() => {
+            connectionCalloutTimer = null;
+            directCalloutVisible = false;
+            syncConnectionCallout();
+        }, DIRECT_CALLOUT_DURATION_MS);
+    }
+
+    function syncConnectionCallout() {
+        const el = $('.js-connection-callout');
         if (!el) return;
-        el.hidden = !(conn.mode === 'demo' && conn.status === 'connected');
+        const demo = conn.mode === 'demo' && conn.status === 'connected';
+        const direct = conn.mode === 'direct' && conn.status === 'connected' && directCalloutVisible;
+        const title = $('.js-connection-callout-title');
+        const message = $('.js-connection-callout-message');
+        if (title) title.textContent = demo ? 'Demo mode' : 'Device connected';
+        if (message) {
+            message.textContent = demo
+                ? 'Move the pointer to simulate motion.'
+                : 'ESPectre is ready to use.';
+        }
+        el.hidden = (!demo && !direct) || dropdownOpen;
     }
 
     /* ====================================================== scroll narrative */
@@ -3214,9 +3271,12 @@
             monitor.points.shift();
         }
         const stateEl = $('.js-mon-state');
-        stateEl.textContent = motion ? 'MOTION DETECTED' : 'NO MOTION';
-        stateEl.classList.toggle('motion', motion);
-        $('.js-mon-move').textContent = movement.toFixed(3);
+        if (stateEl) {
+            stateEl.textContent = motion ? 'MOTION DETECTED' : 'NO MOTION';
+            stateEl.classList.toggle('motion', motion);
+        }
+        const movementEl = $('.js-mon-move');
+        if (movementEl) movementEl.textContent = movement.toFixed(3);
         monitorQueueChart();
     }
 
@@ -3747,7 +3807,6 @@
 
     function renderWifiAccessPoints(snapshot = {}) {
         const select = document.getElementById('cfg-bssid');
-        const status = $('.js-wifi-scan-status');
         const scanButton = $('.js-wifi-scan');
         if (!select || !scanButton) return;
         const accessPoints = Array.isArray(snapshot.access_points) ? snapshot.access_points : [];
@@ -3767,15 +3826,15 @@
         const scanning = snapshot.scanning === true;
         select.disabled = scanning;
         scanButton.disabled = scanning;
-        if (status) {
-            status.textContent = snapshot.message
-                || (accessPoints.length ? `${accessPoints.length} access point${accessPoints.length === 1 ? '' : 's'} found.`
-                    : 'No access points found. You can keep automatic selection.');
-        }
+        scanButton.classList.toggle('is-scanning', scanning);
+        scanButton.setAttribute('aria-busy', String(scanning));
     }
 
     async function cfgRefreshWifiAccessPoints() {
         if (conn.mode === 'demo') {
+            renderWifiAccessPoints({ scanning: true });
+            await new Promise((resolve) => setTimeout(resolve, 700));
+            if (conn.mode !== 'demo') return;
             renderWifiAccessPoints({
                 scanning: false,
                 message: '2 access points found. (demo)',

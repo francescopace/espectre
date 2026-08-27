@@ -3,7 +3,7 @@
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
 <h1 class="page-title">Live motion</h1>
-<p class="page-sub">See motion as it happens, adjust detection, and check that the device is working. You can also explore with simulated data.</p>
+<p class="page-sub">See motion as it happens, adjust detection, and check that the device is working.</p>
 
 <section class="tool-static-entry" aria-labelledby="monitor-static-title">
   <h2 id="monitor-static-title">Inspect motion and sensing health</h2>
@@ -43,7 +43,7 @@
         </div>
       </div>
       <div class="device-banner-actions">
-        <button class="btn-secondary btn-sm js-device-edit-connectivity">Wi-Fi and integrations</button>
+        <button class="btn-primary btn-sm js-device-edit-connectivity">Device settings</button>
       </div>
     </div>
 
@@ -65,7 +65,7 @@
               <div class="field" data-device-command="set_threshold">
                 <label for="sense-threshold">Motion threshold</label>
                 <input type="number" id="sense-threshold" min="0" max="1" step="0.01" value="0.5">
-                <small class="field-help">Lower values react to smaller changes.</small>
+                <small class="field-help">Lower is more sensitive.</small>
               </div>
               <div class="field" data-device-command="set_detector">
                 <label for="sense-detector">Detection mode</label>

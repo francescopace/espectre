@@ -582,6 +582,8 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   TEST_ASSERT_EQUAL(0, movement_sensor.get_publish_count());
 
   frontend_runtime_shim::state.last_listener->on_live_telemetry(7.25f, 5.5f);
+  TEST_ASSERT_EQUAL(0, movement_sensor.get_publish_count());
+  component.loop();
   TEST_ASSERT_EQUAL(1, movement_sensor.get_publish_count());
   TEST_ASSERT_EQUAL_FLOAT(7.25f, movement_sensor.get_state());
   TEST_ASSERT_EQUAL(1, binary_sensor.get_publish_count());
