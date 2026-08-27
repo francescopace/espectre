@@ -1,0 +1,48 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<h1 class="page-title">Install ESPectre</h1>
+<p class="page-sub">Connect your board over USB, choose a firmware type, and start the installation. <br>To erase saved Wi-Fi settings, hold the <strong>BOOT/FLASH</strong> button for 3 seconds.</p>
+
+<section class="tool-static-entry" aria-labelledby="flash-static-title">
+  <h2 id="flash-static-title">Install from your browser</h2>
+  <p>The installer detects a supported ESP32 over USB, matches it to the selected ESPectre frontend, and writes the corresponding factory image. Stable, preview, and development channels remain separate, so you can choose between a published release and an upcoming build.</p>
+  <p>Use a Chromium-based browser and a USB data cable. The serial connection stays open only while the installer is active; after installation, continue with the setup guide to connect the device to Wi-Fi.</p>
+  <div class="tool-static-actions">
+    <a href="/#tool-flash" class="btn-primary">Open the browser installer</a>
+    <a href="/guides/setup/" class="btn-secondary">Read the setup guide</a>
+  </div>
+</section>
+
+<div class="tool-interactive">
+  <div class="config-grid">
+    <section class="panel">
+      <h2>Choose firmware</h2>
+      <div class="fields">
+        <div class="field"><label for="flash-frontend">Firmware type</label><select id="flash-frontend"></select></div>
+        <div class="field"><label for="flash-channel">Version</label>
+          <select id="flash-channel">
+            <option value="release">Stable — recommended</option>
+            <option value="preview">Preview — for testing</option>
+            <option value="develop">Development — may be unstable</option>
+          </select>
+        </div>
+      </div>
+      <p class="tool-note">Use the stable version unless you are testing an upcoming change. After installation, follow the <a href="/guides/setup/">setup guide</a> to connect the board to Wi-Fi.</p>
+    </section>
+    <section class="panel">
+      <h2>Install</h2>
+      <div class="flash-summary js-flash-summary">Loading firmware metadata…</div>
+      <div class="flash-status js-flash-status"></div>
+      <div class="panel-actions">
+        <esp-web-install-button class="js-flash-install">
+          <button slot="activate" class="btn-primary btn-sm">Connect via USB</button>
+        </esp-web-install-button>
+        <button type="button" class="btn-secondary btn-sm js-matter-read" hidden>Device QR code</button>
+        <a class="btn-secondary btn-sm js-firmware-releases" href="https://github.com/francescopace/espectre/releases" target="_blank" rel="noopener">Browse GitHub releases</a>
+      </div>
+      <p class="tool-note js-matter-status" role="status" hidden></p>
+    </section>
+  </div>
+</div>

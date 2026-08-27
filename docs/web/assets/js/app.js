@@ -2196,41 +2196,46 @@
             : 'ESPectre — Wi-Fi motion sensing';
         window.scrollTo(0, 0);
         if (route !== 'tool-theremin') thereminStop();
-        if (route === 'tool-monitor') monitorResizeChart();
-        if (route === 'tool-raw-csi') rawCsiUseConnection();
-        if (route === 'tool-game') {
-            void gameLoadFactoryImage();
-            requestAnimationFrame(() => {
-                gameResizeCanvas();
-                gameSetFlight(gameSensingActive());
-                gameStartPreview();
-            });
-        }
         const contentPromise = $(`[data-page="${routeAtStart}"] .js-static-content`)
-            ? loadStaticContent(routeAtStart)
-            : Promise.resolve();
+            ? prepareRouteContent(routeAtStart)
+            : Promise.resolve(true);
         if (route === 'home') updateReleaseBadge();
-        if (route === 'tool-flash') {
-            if (browserSupport.flash) {
-                loadBrowserDependency(
-                    '/vendor/esp-web-tools-10.4.0/install-button.js',
-                    'https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module',
-                    { module: true }
-                ).catch((error) => {
-                    console.warn('USB installer could not be loaded:', error);
-                    flashStatus('The USB installer could not be loaded. Refresh the page and try again.', 'is-error');
+        contentPromise.then((ready) => {
+            if (!ready || route !== routeAtStart) return;
+            renderBrowserSupport();
+            renderDirectBrowserGuidance();
+            renderStoredDirectEndpoints();
+            renderConnection();
+            consumeDirectHandoff();
+            if (routeAtStart === 'tool-monitor') monitorResizeChart();
+            if (routeAtStart === 'tool-raw-csi') rawCsiUseConnection();
+            if (routeAtStart === 'tool-game') {
+                void gameLoadFactoryImage();
+                requestAnimationFrame(() => {
+                    gameResizeCanvas();
+                    gameSetFlight(gameSensingActive());
+                    gameStartPreview();
                 });
             }
-            flashRefresh();
-        }
-        if (focus || anchorAtStart) {
-            contentPromise.finally(() => {
-                if (route !== routeAtStart) return;
+            if (routeAtStart === 'tool-flash') {
+                if (browserSupport.flash) {
+                    loadBrowserDependency(
+                        '/vendor/esp-web-tools-10.4.0/install-button.js',
+                        'https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module',
+                        { module: true }
+                    ).catch((error) => {
+                        console.warn('USB installer could not be loaded:', error);
+                        flashStatus('The USB installer could not be loaded. Refresh the page and try again.', 'is-error');
+                    });
+                }
+                flashRefresh();
+            }
+            if (focus || anchorAtStart) {
                 if (!anchorAtStart || !focusRouteAnchor(routeAtStart, anchorAtStart)) {
                     focusRouteContent(routeAtStart);
                 }
-            });
-        }
+            }
+        });
         // The router owns navigation, so it reports it.
         if (window.trackRouteView) window.trackRouteView(route);
     }
@@ -2271,37 +2276,63 @@
     /* ======================================================= static content */
 
     /*
-     * Guides, docs, media, and the roadmap live in shared HTML fragments,
-     * which also build their canonical static pages. The SPA fetches each
-     * fragment on first visit so text is not duplicated and the device
-     * connection survives.
-     */
+     * Tools, guides, docs, media, and the roadmap live in shared HTML
+     * fragments, which also build their canonical static pages. The SPA
+     * fetches each fragment on first visit so content is not duplicated and
+     * the device connection survives.
+    */
     const staticContentCache = new Map();
+    const staticContentLoads = new Map();
+    const initializedToolRoutes = new Set();
+    const toolInitializers = Object.freeze({
+        'tool-flash': flashInit,
+        'tool-configure': configureInit,
+        'tool-monitor': monitorInit,
+        'tool-raw-csi': rawCsiInit,
+        'tool-theremin': thereminInit,
+        'tool-game': gameInit
+    });
 
-    async function loadStaticContent(route) {
+    function loadStaticContent(route) {
         const container = $(`[data-page="${route}"] .js-static-content`);
-        if (!container || container.dataset.loaded === 'true') return;
+        if (!container || container.dataset.loaded === 'true') return Promise.resolve(true);
+        if (staticContentLoads.has(route)) return staticContentLoads.get(route);
         const contentUrl = container.dataset.contentUrl;
-        try {
-            if (!staticContentCache.has(contentUrl)) {
-                const response = await fetch(contentUrl);
-                if (!response.ok) throw new Error('HTTP ' + response.status);
-                staticContentCache.set(contentUrl, await response.text());
+        const load = (async () => {
+            try {
+                if (!staticContentCache.has(contentUrl)) {
+                    const response = await fetch(contentUrl);
+                    if (!response.ok) throw new Error('HTTP ' + response.status);
+                    staticContentCache.set(contentUrl, await response.text());
+                }
+                container.innerHTML = staticContentCache.get(contentUrl);
+                if (window.initPageTocs) window.initPageTocs(container);
+                if (window.initPagePaths) window.initPagePaths(container);
+                if (window.initSdkDownloadVersions) window.initSdkDownloadVersions(container);
+                if (window.initPublishedReleaseTags) window.initPublishedReleaseTags(container);
+                if (window.initCodeTabs) window.initCodeTabs(container);
+                if (window.initApiReferenceBrowsers) window.initApiReferenceBrowsers(container);
+                container.dataset.loaded = 'true';
+                return true;
+            } catch (error) {
+                console.warn('Static content fetch failed:', error);
+                container.innerHTML = '<p class="guide-loading">This page could not be loaded. '
+                    + '<a href="' + container.dataset.staticUrl + '">Open the standalone page</a>.</p>';
+                return false;
             }
-            container.innerHTML = staticContentCache.get(contentUrl);
-            container.dataset.loaded = 'true';
-            if (route === 'tools') renderConnection();
-            if (window.initPageTocs) window.initPageTocs(container);
-            if (window.initPagePaths) window.initPagePaths(container);
-            if (window.initSdkDownloadVersions) window.initSdkDownloadVersions(container);
-            if (window.initPublishedReleaseTags) window.initPublishedReleaseTags(container);
-            if (window.initCodeTabs) window.initCodeTabs(container);
-            if (window.initApiReferenceBrowsers) window.initApiReferenceBrowsers(container);
-        } catch (error) {
-            console.warn('Static content fetch failed:', error);
-            container.innerHTML = '<p class="guide-loading">This page could not be loaded. '
-                + '<a href="' + container.dataset.staticUrl + '">Open the standalone page</a>.</p>';
-        }
+        })();
+        staticContentLoads.set(route, load);
+        load.finally(() => staticContentLoads.delete(route));
+        return load;
+    }
+
+    async function prepareRouteContent(route) {
+        const ready = await loadStaticContent(route);
+        const initializer = toolInitializers[route];
+        if (!ready || !initializer || initializedToolRoutes.has(route)) return ready;
+        initializer();
+        initializedToolRoutes.add(route);
+        return true;
     }
 
     /*
@@ -3070,12 +3101,6 @@
             });
         });
         $('.js-matter-read').addEventListener('click', matterReadQr);
-        $$('.js-matter-close').forEach((button) => {
-            button.addEventListener('click', () => matterClose());
-        });
-        $('.js-matter-modal').addEventListener('click', (event) => {
-            if (event.target === event.currentTarget) matterClose();
-        });
         if (browserSupport.flash) observeFirmwareInstaller();
     }
 
@@ -3480,9 +3505,6 @@
                 event.preventDefault();
                 cancelMonitorDeviceNameEdit();
             }
-        });
-        $$('.js-firmware-update-notice').forEach((button) => {
-            button.addEventListener('click', (event) => otaOpen(event.currentTarget));
         });
         bindThresholdControls();
         document.getElementById('sense-detector').addEventListener('change', () => {
@@ -4275,13 +4297,6 @@
         document.getElementById('cfg-mqtt-preset').addEventListener('change', (event) => {
             applyConfigureMqttPreset(event.currentTarget.value);
         });
-        $$('.js-config-clear-cancel').forEach((button) => {
-            button.addEventListener('click', () => closeConfigClearDialog(false));
-        });
-        $('.js-config-clear-confirm').addEventListener('click', () => closeConfigClearDialog(true));
-        $('.js-config-clear-modal').addEventListener('click', (event) => {
-            if (event.target === event.currentTarget) closeConfigClearDialog(false);
-        });
         $('.js-configure-name-trigger').addEventListener('click', startConfigureDeviceNameEdit);
         const nameInput = $('.js-configure-name-input');
         nameInput.addEventListener('blur', () => { saveConfigureDeviceNameOnBlur(); });
@@ -4293,27 +4308,6 @@
                 event.preventDefault();
                 cancelConfigureDeviceNameEdit();
             }
-        });
-        $('.js-ota-start').addEventListener('click', cfgOtaStart);
-        const otaChannel = document.getElementById('ota-channel');
-        if (otaChannel) {
-            otaChannel.addEventListener('change', () => {
-                if (conn.mode === null) return;
-                otaChannelChanged = true;
-                startManualOtaCheck();
-            });
-        }
-        $$('.js-ota-close').forEach((button) => {
-            button.addEventListener('click', () => otaClose());
-        });
-        $('.js-ota-modal').addEventListener('click', (event) => {
-            if (event.target === event.currentTarget) otaClose();
-        });
-        document.addEventListener('keydown', (event) => {
-            if (event.key !== 'Escape') return;
-            if (!$('.js-matter-modal').hidden) matterClose();
-            else if (!$('.js-config-clear-modal').hidden) closeConfigClearDialog(false);
-            else if (!$('.js-ota-modal').hidden) otaClose();
         });
     }
 
@@ -5503,12 +5497,14 @@
 
     function rawCsiUseConnection() {
         const onboarding = $('.js-raw-csi-onboarding');
+        const unavailable = $('.js-raw-csi-unavailable');
+        const workspace = $('.js-raw-csi-workspace');
         const externalHint = $('.js-raw-csi-external-hint');
         if (conn.status !== 'connected' || !['direct', 'demo'].includes(conn.mode)) {
             if (externalHint) externalHint.hidden = true;
             if (onboarding) onboarding.hidden = false;
-            $('.js-raw-csi-unavailable').hidden = true;
-            $('.js-raw-csi-workspace').hidden = true;
+            if (unavailable) unavailable.hidden = true;
+            if (workspace) workspace.hidden = true;
             return false;
         }
         if (onboarding) onboarding.hidden = true;
@@ -6488,6 +6484,82 @@
         gameResetPlayer();
     }
 
+    function sharedDialogsInit() {
+        $$('.js-matter-close').forEach((button) => {
+            button.addEventListener('click', () => matterClose());
+        });
+        $('.js-matter-modal').addEventListener('click', (event) => {
+            if (event.target === event.currentTarget) matterClose();
+        });
+        $$('.js-config-clear-cancel').forEach((button) => {
+            button.addEventListener('click', () => closeConfigClearDialog(false));
+        });
+        $('.js-config-clear-confirm').addEventListener('click', () => closeConfigClearDialog(true));
+        $('.js-config-clear-modal').addEventListener('click', (event) => {
+            if (event.target === event.currentTarget) closeConfigClearDialog(false);
+        });
+        $('.js-ota-start').addEventListener('click', cfgOtaStart);
+        document.getElementById('ota-channel').addEventListener('change', () => {
+            if (conn.mode === null) return;
+            otaChannelChanged = true;
+            startManualOtaCheck();
+        });
+        $$('.js-ota-close').forEach((button) => {
+            button.addEventListener('click', () => otaClose());
+        });
+        $('.js-ota-modal').addEventListener('click', (event) => {
+            if (event.target === event.currentTarget) otaClose();
+        });
+        document.addEventListener('keydown', (event) => {
+            if (event.key !== 'Escape') return;
+            if (!$('.js-matter-modal').hidden) matterClose();
+            else if (!$('.js-config-clear-modal').hidden) closeConfigClearDialog(false);
+            else if (!$('.js-ota-modal').hidden) otaClose();
+        });
+    }
+
+    function sharedToolControlsInit() {
+        document.addEventListener('click', (event) => {
+            if (!(event.target instanceof Element)) return;
+            const connectButton = event.target.closest('.js-connect-direct');
+            if (connectButton) {
+                void connectDirect({
+                    openView: connectButton.closest('espectre-direct-connect')?.dataset.openView
+                });
+                return;
+            }
+            const discoveryButton = event.target.closest('.js-direct-discover');
+            if (discoveryButton) {
+                void discoverLocalPeers(discoveryButton);
+                return;
+            }
+            const discoveredDevice = event.target.closest('.direct-discovery-device');
+            if (discoveredDevice?.dataset.endpoint) {
+                const input = discoveredDevice.closest('.device-connect-card')
+                    ?.querySelector('input[list="direct-remembered-endpoints"]');
+                if (input) input.value = discoveredDevice.dataset.deviceId;
+                void connectDirect({
+                    endpoint: discoveredDevice.dataset.endpoint,
+                    deviceId: discoveredDevice.dataset.deviceId,
+                    openView: discoveredDevice.closest('espectre-direct-connect')?.dataset.openView
+                });
+                return;
+            }
+            const startButton = event.target.closest('.js-start-detection');
+            if (startButton) {
+                void startDetection(startButton.dataset.liveTransport || '');
+                return;
+            }
+            const demoButton = event.target.closest('.js-demo');
+            if (demoButton) {
+                connectDemo(demoButton.closest('espectre-connection-picker')?.dataset.openView || '');
+                return;
+            }
+            const firmwareButton = event.target.closest('.js-firmware-update-notice');
+            if (firmwareButton) otaOpen(firmwareButton);
+        });
+    }
+
     /* ================================================================ init */
 
     function init() {
@@ -6497,26 +6569,8 @@
         renderDirectBrowserGuidance();
         renderStoredDirectEndpoints();
         consumeRouteAnchorHandoff();
-        consumeDirectHandoff();
-
-        $$('.js-connect-direct').forEach((btn) => btn.addEventListener('click', () => connectDirect({
-            openView: btn.closest('espectre-direct-connect')?.dataset.openView
-        })));
-        $$('.js-direct-discover').forEach((btn) => btn.addEventListener('click', () => discoverLocalPeers(btn)));
-        $$('.js-direct-discovery').forEach((panel) => panel.addEventListener('click', (event) => {
-            const button = event.target.closest('.direct-discovery-device');
-            if (!button?.dataset.endpoint) return;
-            const input = button.closest('.device-connect-card')?.querySelector('input[list="direct-remembered-endpoints"]');
-            if (input) input.value = button.dataset.deviceId;
-            connectDirect({
-                endpoint: button.dataset.endpoint,
-                deviceId: button.dataset.deviceId,
-                openView: button.closest('espectre-direct-connect')?.dataset.openView
-            });
-        }));
-        $$('.js-start-detection').forEach((btn) => btn.addEventListener('click', () => {
-            startDetection(btn.dataset.liveTransport || '');
-        }));
+        sharedDialogsInit();
+        sharedToolControlsInit();
         $('.js-header-connect').addEventListener('click', () => {
             selectMonitorTransport('direct');
             if (route === 'tool-monitor') {
@@ -6526,9 +6580,6 @@
             pendingLiveDestination = '';
             location.hash = '#tool-monitor';
         });
-        $$('.js-demo').forEach((btn) => btn.addEventListener('click', () => {
-            connectDemo(btn.closest('espectre-connection-picker')?.dataset.openView || '');
-        }));
         $('.js-disconnect').addEventListener('click', disconnect);
         $('.js-dropdown-toggle').addEventListener('click', (event) => {
             event.stopPropagation();
@@ -6541,13 +6592,6 @@
                 renderConnection();
             }
         });
-        configureInit();
-        flashInit();
-        monitorInit();
-        thereminInit();
-        gameInit();
-        rawCsiInit();
-
         document.addEventListener('click', interceptCanonicalLinks);
         $('.skip-link').addEventListener('click', (event) => {
             event.preventDefault();
@@ -6563,7 +6607,11 @@
         if (conn.readyState) markToolReady(conn.readyState);
         if (monitor.readyState) markMonitorReady(monitor.readyState);
         if (conn.mode === 'direct' && directClient) cfgRefreshDevice();
-        if (route === 'tool-flash') flashRefresh();
+        if (route === 'tool-flash') {
+            void prepareRouteContent(route).then((ready) => {
+                if (ready && route === 'tool-flash') flashRefresh();
+            });
+        }
     });
     window.addEventListener('pagehide', (event) => {
         if (event.persisted) return;

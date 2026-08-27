@@ -32,13 +32,13 @@ The wrapper calls `.github/scripts/stage_web_firmware.py --from-local-builds` wi
 
 ## Static content pages
 
-Guides, docs, media, the roadmap, privacy, terms, legal, security, licensing, and contact content use shared HTML fragments for both SPA hash routes and canonical, indexable paths. Generate the standalone pages before previewing their direct URLs:
+Tools, guides, docs, media, the roadmap, privacy, terms, legal, security, licensing, and contact content use shared HTML fragments for both SPA hash routes and canonical, indexable paths. Generate the standalone pages before previewing their direct URLs:
 
 ```bash
 python3 .github/scripts/build_static_pages.py
 ```
 
-Edit shared fragments under `content/`, including `content/guides.html`, `content/guides/*.html`, `content/sdk.html`, `content/sdk/*.html`, `content/media.html`, `content/roadmap.html`, `content/privacy.html`, `content/terms.html`, `content/legal.html`, `content/security.html`, `content/licensing.html`, and `content/contact.html`. Keep stylesheets under `assets/css/`, public images under `assets/images/`, and first-party scripts under `assets/js/`. Do not edit generated route `index.html` pages.
+Edit shared fragments under `content/`, including `content/tools.html`, `content/tools/*.html`, `content/guides.html`, `content/guides/*.html`, `content/sdk.html`, `content/sdk/*.html`, `content/media.html`, `content/roadmap.html`, `content/privacy.html`, `content/terms.html`, `content/legal.html`, `content/security.html`, `content/licensing.html`, and `content/contact.html`. Keep stylesheets under `assets/css/`, public images under `assets/images/`, and first-party scripts under `assets/js/`. Do not edit generated route `index.html` pages.
 
 ## Browser dependencies
 
@@ -62,7 +62,7 @@ npm --prefix docs/web run stage:vendor
 
 Guide and SDK analytics are convention-based: same-origin `/guides/<slug>/` and `/sdk/<slug>/` links report their registered route name as `guide_name` and `document_name`, while otherwise unmapped `guide-<slug>` and `sdk-<slug>` SPA routes receive human-readable page titles automatically. Route-registry metadata preserves established titles, historical parameter values, the SDK root, and artifact names; `analytics.js` contains no path maps. Tool analytics remain explicit because each tool owns distinct capabilities, events, and funnels.
 
-`content/tools.html` owns the shared Tools catalog rendered by both the `/tools/` static page and the `#tools` SPA route. Interactive entry points use `/tools/<name>/` publicly and `#tool-<name>` inside the persistent app shell; `build_static_pages.py` generates the entry pages that preserve query parameters before handing off to the corresponding SPA route.
+`content/tools.html` owns the shared Tools catalog rendered by both the `/tools/` static page and the `#tools` SPA route. Each `content/tools/*.html` fragment owns one tool's heading, indexable explanation, and interactive interface. `build_static_pages.py` renders the explanation at `/tools/<name>/`, while the static call to action opens `#tool-<name>` inside the persistent app shell. The SPA loads and initializes each interactive fragment on first use so an active device connection survives navigation between tools.
 
 `assets/js/route-registry.js` is the single source of truth for deployment host roles, SPA route membership, navigation groups, page titles, canonical static paths, analytics content groups, and content-event names. `app.js` and `analytics.js` consume the same production, validation, and loopback classification. Register a new SPA page there once; the registry is also loaded by generated static pages, and structural tests require it to match every `main[data-page]` and `data-static-url` entry in `index.html`.
 

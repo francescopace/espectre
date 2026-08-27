@@ -49,6 +49,96 @@ PAGES = (
         "og_type": "website",
     },
     {
+        "source": "content/tools/flash.html",
+        "output": "tools/flash",
+        "title": "Install ESPectre | ESPectre",
+        "description": (
+            "Install ESPectre firmware on a supported ESP32 over USB from a "
+            "Chromium-based browser."
+        ),
+        "parent_href": "/tools/",
+        "parent_label": "Tools",
+        "active_nav": "tools",
+        "content_group": "flash",
+        "main_class": "page-narrow page-tool page-tool-static",
+        "og_type": "website",
+    },
+    {
+        "source": "content/tools/configure.html",
+        "output": "tools/configure",
+        "title": "Device settings | ESPectre",
+        "description": (
+            "Connect directly to a local ESPectre device to manage its name, "
+            "Wi-Fi link, MQTT integration, and firmware updates."
+        ),
+        "parent_href": "/tools/",
+        "parent_label": "Tools",
+        "active_nav": "tools",
+        "content_group": "configure",
+        "main_class": "page-narrow page-tool page-tool-static",
+        "og_type": "website",
+    },
+    {
+        "source": "content/tools/monitor.html",
+        "output": "tools/monitor",
+        "title": "Live motion | ESPectre",
+        "description": (
+            "View ESPectre motion live, adjust detection settings, recalibrate "
+            "the room, and inspect device diagnostics."
+        ),
+        "parent_href": "/tools/",
+        "parent_label": "Tools",
+        "active_nav": "tools",
+        "content_group": "monitor",
+        "main_class": "page-narrow page-tool page-tool-static",
+        "og_type": "website",
+    },
+    {
+        "source": "content/tools/raw-csi.html",
+        "output": "tools/raw-csi",
+        "title": "Raw Wi-Fi signal | ESPectre",
+        "description": (
+            "Explore a temporary ESPectre CSI stream through amplitude, phase, "
+            "I/Q, delivery, and signal-health views."
+        ),
+        "parent_href": "/tools/",
+        "parent_label": "Tools",
+        "active_nav": "tools",
+        "content_group": "raw-csi",
+        "main_class": "page-narrow page-tool page-tool-static",
+        "og_type": "website",
+    },
+    {
+        "source": "content/tools/theremin.html",
+        "output": "tools/theremin",
+        "title": "Motion theremin | ESPectre",
+        "description": (
+            "Turn an ESPectre movement score into sound with a local device or "
+            "simulated motion in the browser."
+        ),
+        "parent_href": "/tools/",
+        "parent_label": "Tools",
+        "active_nav": "tools",
+        "content_group": "theremin",
+        "main_class": "page-narrow page-tool page-tool-static",
+        "og_type": "website",
+    },
+    {
+        "source": "content/tools/game.html",
+        "output": "tools/game",
+        "title": "Run with the Spectre | ESPectre",
+        "description": (
+            "Control an endless flight game with ESPectre motion sensing or a "
+            "pointer-driven browser demo."
+        ),
+        "parent_href": "/tools/",
+        "parent_label": "Tools",
+        "active_nav": "tools",
+        "content_group": "game",
+        "main_class": "page-narrow page-tool page-tool-static",
+        "og_type": "website",
+    },
+    {
         "source": "content/guides.html",
         "output": "guides",
         "title": "Guides | ESPectre",
@@ -408,40 +498,6 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 </html>
 """
 
-TOOL_ENTRIES = (
-    ("flash", "Install ESPectre"),
-    ("configure", "Device settings"),
-    ("monitor", "Live motion"),
-    ("raw-csi", "Raw Wi-Fi signal"),
-    ("theremin", "Motion theremin"),
-    ("game", "Run with the Spectre"),
-)
-
-TOOL_ENTRY_TEMPLATE = """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{tool_title} | ESPectre</title>
-<link rel="canonical" href="https://espectre.dev/tools/{tool_slug}/">
-<script>
-(() => {
-    const destination = new URL('/', location.origin);
-    destination.search = location.search;
-    destination.hash = '#tool-{tool_slug}';
-    location.replace(destination);
-})();
-</script>
-</head>
-<body>
-<p>Opening <a id="tool-link" href="/#tool-{tool_slug}">ESPectre {tool_title}</a>…</p>
-<script>
-document.getElementById('tool-link').href = `/${location.search}#tool-{tool_slug}`;
-</script>
-</body>
-</html>
-"""
-
 def crumb_from_title(title: str) -> str:
     return title.split(" | ")[0]
 
@@ -499,16 +555,6 @@ def build() -> None:
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "index.html").write_text(page)
         print(f"wrote {spec['output']}/index.html")
-
-    for tool_slug, tool_title in TOOL_ENTRIES:
-        tool_dir = WEB_ROOT / "tools" / tool_slug
-        tool_dir.mkdir(parents=True, exist_ok=True)
-        tool_page = TOOL_ENTRY_TEMPLATE.replace("{tool_slug}", tool_slug).replace(
-            "{tool_title}", tool_title
-        )
-        (tool_dir / "index.html").write_text(tool_page)
-        print(f"wrote tools/{tool_slug}/index.html")
-
 
 if __name__ == "__main__":
     build()

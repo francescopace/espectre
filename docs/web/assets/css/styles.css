@@ -977,6 +977,20 @@ a.hero-badge:hover {
 .tool-head h2 { font-size: 18px; margin: 0; }
 .tool-card p { margin: 0; font-size: 13.5px; color: var(--dim); flex: 1; }
 .tool-open { font-size: 13.5px; font-weight: 600; color: var(--accent); }
+.tool-static-entry { display: none; }
+html[data-static-page] .tool-interactive { display: none; }
+html[data-static-page] .tool-static-entry {
+  display: block;
+  max-width: 780px;
+  padding: 28px 30px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.tool-static-entry h2 { margin: 0 0 14px; font-size: 25px; letter-spacing: -.02em; }
+.tool-static-entry p { margin: 0 0 14px; color: var(--dim); line-height: 1.65; }
+.tool-static-actions { display: flex; flex-wrap: wrap; gap: 10px; padding-top: 10px; }
 /* Configure */
 
 .breadcrumb { font-size: 13px; color: var(--dim); margin-bottom: 18px; }
@@ -3649,6 +3663,9 @@ ewt-install-dialog {
   .multipath-sequence { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .tools-grid, .config-grid { grid-template-columns: minmax(0, 1fr); }
   .tool-card, .panel { min-width: 0; }
+  html[data-static-page] .tool-static-entry { padding: 22px; }
+  .tool-static-actions { flex-direction: column; }
+  .tool-static-actions > a { width: 100%; box-sizing: border-box; text-align: center; }
   .site-header-inner { gap: 8px; padding: 0 14px; }
   .main-nav {
     display: none;

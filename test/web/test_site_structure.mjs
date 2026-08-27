@@ -21,6 +21,11 @@ const routeRegistry = read('docs/web/assets/js/route-registry.js');
 const styles = read('docs/web/assets/css/styles.css');
 const security = read('docs/web/content/security.html');
 const toolsContent = read('docs/web/content/tools.html');
+const toolContent = Object.fromEntries(
+    ['flash', 'configure', 'monitor', 'raw-csi', 'theremin', 'game']
+        .map((slug) => [slug, read(`docs/web/content/tools/${slug}.html`)])
+);
+const toolFragments = Object.values(toolContent).join('\n');
 const roadmapContent = read('docs/web/content/roadmap.html');
 const GPL_HTML_HEADER = `<!--
   SPDX-License-Identifier: GPL-3.0-only
@@ -246,12 +251,22 @@ describe('website accessibility and navigation', () => {
         assert.match(index, /data-page="tools"[\s\S]*data-content-url="content\/tools\.html\?v=[0-9a-f]{12}" data-static-url="\/tools\/"/);
         assert.doesNotMatch(index.match(/data-page="tools"[\s\S]*?<\/main>/)?.[0] || '', /class="tools-grid"/);
         assert.match(toolsContent, /class="tools-grid"/);
-        for (const tool of ['flash', 'configure', 'monitor', 'theremin', 'game']) {
+        for (const tool of ['flash', 'configure', 'monitor', 'raw-csi', 'theremin', 'game']) {
             assert.match(toolsContent, new RegExp(`href="/tools/${tool}/"`));
+            assert.match(
+                index,
+                new RegExp(`data-page="tool-${tool}"[\\s\\S]*?data-content-url="content/tools/${tool}\\.html\\?v=[0-9a-f]{12}" data-static-url="/tools/${tool}/"`)
+            );
+            assert.match(toolContent[tool], /class="tool-static-entry"/);
+            assert.match(toolContent[tool], /class="tool-interactive"/);
         }
         assert.equal((toolsContent.match(/href="\/roadmap\/#roadmap-research-title"/g) || []).length, 2);
         assert.match(roadmapContent, /id="roadmap-research-title"/);
-        assert.match(app, /if \(route === 'tools'\) renderConnection\(\)/);
+        assert.match(app, /prepareRouteContent\(routeAtStart\)[\s\S]*?renderConnection\(\)/);
+        assert.match(app, /const staticContentLoads = new Map\(\)/);
+        assert.match(app, /if \(staticContentLoads\.has\(route\)\) return staticContentLoads\.get\(route\)/);
+        assert.match(app, /load\.finally\(\(\) => staticContentLoads\.delete\(route\)\)/);
+        assert.match(app, /const toolInitializers = Object\.freeze\([\s\S]*?'tool-game': gameInit/);
         assert.match(read('.github/scripts/build_static_pages.py'), /route-registry\.js\?v=\{route_registry_version\}" defer>/);
         assert.match(read('.github/scripts/stage_web_sdk.py'), /route-registry\.js\?v=\{route_registry_version\}" defer>/);
     });
@@ -373,7 +388,8 @@ describe('website accessibility and navigation', () => {
             '/#contact',
             '/?anchor=roadmap-research-title#roadmap'
         ]);
-        assert.match(app, /consumeRouteAnchorHandoff\(\);[\s\S]*?consumeDirectHandoff\(\);/);
+        assert.match(app, /consumeRouteAnchorHandoff\(\);/);
+        assert.match(app, /prepareRouteContent\(routeAtStart\)[\s\S]*?consumeDirectHandoff\(\);/);
     });
 
     it('has a responsive navigation control and a live status region', () => {
@@ -391,14 +407,15 @@ describe('website accessibility and navigation', () => {
     it('provides skip navigation, tool page titles, and route focus management', () => {
         assert.match(index, /<a class="skip-link" href="#main-content"/);
         assert.match(index, /data-page="home" id="main-content" tabindex="-1"/);
-        for (const page of ['tool-configure', 'tool-monitor', 'tool-raw-csi', 'tool-theremin', 'tool-game']) {
-            assert.match(index, new RegExp(`data-page="${page}"[\\s\\S]*?<h1 class="page-title">`));
+        for (const tool of ['flash', 'configure', 'monitor', 'raw-csi', 'theremin', 'game']) {
+            assert.match(index, new RegExp(`data-page="tool-${tool}"[\\s\\S]*?content/tools/${tool}\\.html`));
+            assert.match(toolContent[tool], /<h1 class="page-title">/);
         }
         assert.match(app, /link\.setAttribute\('aria-current', 'page'\)/);
         assert.match(app, /target\.focus\(\{ preventScroll: true \}\)/);
         assert.match(app, /page\.id = 'main-content'/);
         assert.match(app, /const routeAtStart = route;/);
-        assert.match(app, /if \(route !== routeAtStart\) return;[\s\S]*?focusRouteContent\(routeAtStart\);/);
+        assert.match(app, /if \(!ready \|\| route !== routeAtStart\) return;[\s\S]*?focusRouteContent\(routeAtStart\);/);
         assert.match(styles, /h1\[tabindex="-1"\]:focus \{ outline: none; \}/);
         for (const path of [
             '.github/scripts/build_static_pages.py',
@@ -419,7 +436,7 @@ describe('website accessibility and navigation', () => {
     });
 
     it('associates every form label with a control', () => {
-        const labels = [...index.matchAll(/<label\b([^>]*)>/g)];
+        const labels = [...`${index}\n${toolFragments}`.matchAll(/<label\b([^>]*)>/g)];
         assert.ok(labels.length > 10);
         for (const [, attributes] of labels) assert.match(attributes, /\bfor="[^"]+"/);
     });
@@ -436,10 +453,10 @@ describe('website UX contracts', () => {
         assert.match(styles, /\.btn-secondary:hover,\s*\.btn-ghost:hover \{ color: var\(--text\); \}/);
         assert.match(styles, /\.btn-ghost:hover \{ background: var\(--surface2\); \}/);
         assert.match(styles, /\.btn-primary:hover,\s*\.hero-cta-primary:hover \{ filter: brightness\(1\.08\); \}/);
-        assert.match(index, /class="btn-secondary btn-sm js-device-edit-connectivity"/);
-        assert.match(index, /class="btn-secondary btn-sm js-sense-recalibrate"/);
-        assert.match(index, /class="wifi-bssid-control">[\s\S]*?<select id="cfg-bssid"[\s\S]*?<button type="button" class="wifi-refresh-button js-wifi-scan" aria-label="[^"]+"[^>]*><svg[^>]*aria-hidden="true"/);
-        assert.doesNotMatch(index, /class="panel-actions wifi-panel-actions">[\s\S]*?js-wifi-scan/);
+        assert.match(toolContent.monitor, /class="btn-secondary btn-sm js-device-edit-connectivity"/);
+        assert.match(toolContent.monitor, /class="btn-secondary btn-sm js-sense-recalibrate"/);
+        assert.match(toolContent.configure, /class="wifi-bssid-control">[\s\S]*?<select id="cfg-bssid"[\s\S]*?<button type="button" class="wifi-refresh-button js-wifi-scan" aria-label="[^"]+"[^>]*><svg[^>]*aria-hidden="true"/);
+        assert.doesNotMatch(toolContent.configure, /class="panel-actions wifi-panel-actions">[\s\S]*?js-wifi-scan/);
         assert.match(styles, /\.wifi-bssid-control \{[\s\S]*?display: flex;[\s\S]*?gap: 8px;[\s\S]*?\.wifi-refresh-button \{[\s\S]*?flex: 0 0 30px;/);
         assert.match(styles, /\.wifi-panel-actions \{ flex-wrap: nowrap; \}/);
         const contactContent = read('docs/web/content/contact.html');
@@ -1027,7 +1044,7 @@ describe('website UX contracts', () => {
     });
 
     it('keeps Flash guidance and actions aligned with the selected frontend', () => {
-        const flashPage = index.match(/data-page="tool-flash"[\s\S]*?<\/main>/)?.[0] || '';
+        const flashPage = toolContent.flash;
         assert.match(flashPage, /id="flash-frontend"[\s\S]*?href="\/guides\/setup\/"/);
         assert.match(flashPage, /<button slot="activate" class="btn-primary btn-sm">[\s\S]*?<\/button>[\s\S]*class="btn-secondary btn-sm js-matter-read" hidden>[\s\S]*?<\/button>[\s\S]*class="btn-secondary btn-sm js-firmware-releases" href="https:\/\/github\.com\/francescopace\/espectre\/releases"/);
         assert.match(app, /matterReadButton\.hidden = frontendKey !== 'matter'/);
@@ -1036,10 +1053,10 @@ describe('website UX contracts', () => {
 
     it('loads generated firmware and SDK output from the shared artifacts tree', () => {
         assert.match(app, /\/artifacts\/firmware\//);
-        assert.match(index, /id="flash-channel"/);
-        assert.match(index, /<option value="release"/);
-        assert.match(index, /<option value="preview"/);
-        assert.match(index, /<option value="develop"/);
+        assert.match(toolContent.flash, /id="flash-channel"/);
+        assert.match(toolContent.flash, /<option value="release"/);
+        assert.match(toolContent.flash, /<option value="preview"/);
+        assert.match(toolContent.flash, /<option value="develop"/);
         assert.match(app, /updateReleaseBadge[\s\S]*flashLoadManifest\('release'\)/);
         assert.match(app, /builds: artifacts\.map\(\(artifact\) => \(\{/);
         assert.match(app, /chipFamily: artifact\.chip_family/);
@@ -1133,13 +1150,14 @@ describe('website UX contracts', () => {
     });
 
     it('maps Direct capabilities, runtime controls, and Wi-Fi access points safely', () => {
-        const configure = index.match(/data-page="tool-configure"[\s\S]*?<\/main>/)?.[0] || '';
-        const mqtt = index.match(/data-page="tool-monitor"[\s\S]*?<\/main>/)?.[0] || '';
+        const configure = toolContent.configure;
+        const mqtt = toolContent.monitor;
+        const game = toolContent.game;
         const connectionTemplate = index.match(/<template id="connection-picker-template">[\s\S]*?<\/template>/)?.[0] || '';
         const directTemplate = index.match(/<template id="direct-connect-template">[\s\S]*?<\/template>/)?.[0] || '';
         const configureBanner = configure.match(/class="device-banner-actions"[\s\S]*?<\/div>/)?.[0] || '';
         const mqttBanner = mqtt.match(/class="device-banner-actions"[\s\S]*?<\/div>/)?.[0] || '';
-        assert.match(index, /data-capability="supports_wifi_bssid"/);
+        assert.match(configure, /data-capability="supports_wifi_bssid"/);
         assert.match(configure, /data-capability-unavailable="supports_wifi_status"/);
         assert.match(configure, /data-capability-unavailable="supports_mqtt_config"/);
         assert.match(configure, /class="device-name-availability js-configure-name-unavailable" hidden/);
@@ -1159,13 +1177,13 @@ describe('website UX contracts', () => {
         assert.match(app, /if \(!Object\.prototype\.hasOwnProperty\.call\(snapshot, capability\)\) return;/);
         assert.match(app, /\$\$\('\[data-capability-unavailable\]'\)[\s\S]*?element\.hidden = sysinfoBoolean\(snapshot\[capability\]\)/);
         assert.match(app, /if \(!capabilities\.some\(\(key\) => Object\.prototype\.hasOwnProperty\.call\(snapshot, key\)\)\) return;/);
-        assert.match(index, /<input type="text" id="cfg-ssid" readonly>/);
-        assert.match(index, /<input type="text" id="cfg-wifi-band" readonly>/);
-        assert.match(index, /<div class="field-row">\s*<div class="field">[\s\S]*?id="cfg-wifi-band"[\s\S]*?id="cfg-channel"/);
-        assert.match(index, /<input type="text" id="cfg-channel" readonly>/);
-        assert.match(index, /<select id="cfg-bssid"[\s\S]*?<option value="">/);
-        assert.match(index, /id="cfg-bssid-help"[^>]*role="status"[^>]*aria-live="polite"/);
-        assert.doesNotMatch(index, /id="cfg-wifi-pass"/);
+        assert.match(configure, /<input type="text" id="cfg-ssid" readonly>/);
+        assert.match(configure, /<input type="text" id="cfg-wifi-band" readonly>/);
+        assert.match(configure, /<div class="field-row">\s*<div class="field">[\s\S]*?id="cfg-wifi-band"[\s\S]*?id="cfg-channel"/);
+        assert.match(configure, /<input type="text" id="cfg-channel" readonly>/);
+        assert.match(configure, /<select id="cfg-bssid"[\s\S]*?<option value="">/);
+        assert.match(configure, /id="cfg-bssid-help"[^>]*role="status"[^>]*aria-live="polite"/);
+        assert.doesNotMatch(configure, /id="cfg-wifi-pass"/);
         assert.match(app, /activeToolName\(\) === 'configure'[\s\S]*?directClient\.request\('diagnostics'\)/);
         assert.match(app, /snapshot\.wifi_channel[\s\S]*?set\('cfg-channel'/);
         assert.match(app, /const client = directClient[\s\S]*client\.request\('scan_wifi_access_points'\)/);
@@ -1176,13 +1194,13 @@ describe('website UX contracts', () => {
         assert.match(app, /if \(!select \|\| !scanButton\) return;/);
         assert.match(index, /class="conn-dropdown-meta"/);
         assert.match(index, /js-menu-frontend[\s\S]*js-menu-chip[\s\S]*js-menu-device-id[\s\S]*js-menu-firmware/);
-        assert.match(index, /class="mono-sub device-banner-identity"/);
-        assert.match(index, /js-device-banner-sub[\s\S]*js-firmware-update-notice/);
-        assert.match(index, /class="device-banner-name-editor js-configure-name-editor"[\s\S]*?js-configure-name-trigger[\s\S]*?js-configure-name-display[\s\S]*?class="device-banner-name-icon"[\s\S]*?aria-hidden="true"[\s\S]*?js-configure-name-input/);
-        assert.match(index, /class="device-banner-name-editor js-monitor-name-editor"[\s\S]*?js-monitor-name-trigger[\s\S]*?js-monitor-name-display[\s\S]*?class="device-banner-name-icon"[\s\S]*?aria-hidden="true"[\s\S]*?js-monitor-name-input/);
+        assert.match(toolFragments, /class="mono-sub device-banner-identity"/);
+        assert.match(mqtt, /js-device-banner-sub[\s\S]*js-firmware-update-notice/);
+        assert.match(configure, /class="device-banner-name-editor js-configure-name-editor"[\s\S]*?js-configure-name-trigger[\s\S]*?js-configure-name-display[\s\S]*?class="device-banner-name-icon"[\s\S]*?aria-hidden="true"[\s\S]*?js-configure-name-input/);
+        assert.match(mqtt, /class="device-banner-name-editor js-monitor-name-editor"[\s\S]*?js-monitor-name-trigger[\s\S]*?js-monitor-name-display[\s\S]*?class="device-banner-name-icon"[\s\S]*?aria-hidden="true"[\s\S]*?js-monitor-name-input/);
         assert.match(configure, /class="config-grid connectivity-grid js-connectivity-setup"/);
         assert.match(styles, /\.connectivity-grid \{ grid-template-columns: minmax\(320px, 1fr\) minmax\(0, 2fr\); \}/);
-        assert.equal([...index.matchAll(/class="device-firmware-update js-firmware-update-notice"/g)].length, 3);
+        assert.equal([...`${index}\n${toolFragments}`.matchAll(/class="device-firmware-update js-firmware-update-notice"/g)].length, 3);
         assert.match(index, /class="conn-dropdown-name js-device-name js-connection-device-name"/);
         assert.match(app, /function formatDeviceIdentityLine/);
         assert.match(app, /function renderConfigureDeviceNameEditor/);
@@ -1222,7 +1240,7 @@ describe('website UX contracts', () => {
         assert.match(app, /statusFn: toast/);
         assert.match(app, /deviceCommand === 'recalibrate' && detector !== 'lightweight'/);
         assert.match(app, /function beginCalibration/);
-        assert.match(index, /js-sense-recalibrate/);
+        assert.match(mqtt, /js-sense-recalibrate/);
         assert.match(mqtt, /<details class="device-live-diagnostics">/);
         assert.doesNotMatch(mqtt, /<details class="device-live-diagnostics" open/);
         assert.match(app, /const showLiveEnergy = live/);
@@ -1249,16 +1267,16 @@ describe('website UX contracts', () => {
         assert.match(app, /const applyFullscreenPointerThreshold = \(event\) =>/);
         assert.match(app, /\(bounds\.bottom - event\.clientY\) \/ bounds\.height/);
         assert.match(app, /getElementById\('game-threshold'\)/);
-        assert.match(index, /id="game-threshold"/);
-        assert.match(index, /<div class="game-screen">[\s\S]*<div class="game-status"[\s\S]*js-game-score[\s\S]*js-game-best[\s\S]*js-game-fullscreen/);
-        assert.equal((index.match(/class="js-game-score"/g) || []).length, 1);
+        assert.match(game, /id="game-threshold"/);
+        assert.match(game, /<div class="game-screen">[\s\S]*<div class="game-status"[\s\S]*js-game-score[\s\S]*js-game-best[\s\S]*js-game-fullscreen/);
+        assert.equal((game.match(/class="js-game-score"/g) || []).length, 1);
         assert.match(app, /function gameToggleFullscreen/);
         assert.match(app, /requestFullscreen \|\| screen\.webkitRequestFullscreen/);
         assert.match(app, /document\.addEventListener\('fullscreenchange', gameOnFullscreenChange\)/);
         assert.match(styles, /\.game-screen:fullscreen/);
         assert.match(styles, /\.game-screen:fullscreen \.game-canvas/);
         assert.match(styles, /\.game-screen:fullscreen \.game-motion-gauge/);
-        assert.match(index, /class="game-motion-threshold-input js-game-fullscreen-threshold"/);
+        assert.match(game, /class="game-motion-threshold-input js-game-fullscreen-threshold"/);
         assert.match(styles, /\.game-motion-threshold-input \{[\s\S]*?cursor: ns-resize;/);
         assert.match(styles, /\.game-status \{[\s\S]*?right: 14px;/);
         assert.match(styles, /\.game-motion-gauge \{[\s\S]*?top: 0;[\s\S]*?bottom: 0;/);
@@ -1268,15 +1286,15 @@ describe('website UX contracts', () => {
         assert.match(app, /getElementById\('sense-motion-on'\)\.addEventListener\('change'/);
         assert.match(app, /getElementById\('sense-motion-off'\)\.addEventListener\('change'/);
         assert.match(app, /getElementById\('sense-csi-mode'\)\.addEventListener\('change'/);
-        assert.match(index, /<select id="sense-csi-mode">[\s\S]*?<option value="internal"[\s\S]*?<option value="external"[\s\S]*?<\/select>/);
+        assert.match(mqtt, /<select id="sense-csi-mode">[\s\S]*?<option value="internal"[\s\S]*?<option value="external"[\s\S]*?<\/select>/);
         assert.match(app, /getElementById\('sense-generator-mode'\)\.addEventListener\('change'/);
-        assert.match(index, /class="js-configure-onboarding"/);
-        assert.match(index, /class="js-monitor-onboarding"/);
+        assert.match(configure, /class="js-configure-onboarding"/);
+        assert.match(mqtt, /class="js-monitor-onboarding"/);
         assert.match(index, /data-transport="direct"/);
-        assert.equal((index.match(/<espectre-connection-picker /g) || []).length, 5);
+        assert.equal((toolFragments.match(/<espectre-connection-picker /g) || []).length, 5);
         assert.equal((connectionTemplate.match(/<espectre-direct-connect /g) || []).length, 1);
         for (const surface of ['configure', 'monitor', 'raw-csi', 'theremin', 'game']) {
-            assert.match(index, new RegExp(`<espectre-connection-picker[^>]*data-surface="${surface}"`));
+            assert.match(toolFragments, new RegExp(`<espectre-connection-picker[^>]*data-surface="${surface}"`));
         }
         assert.match(connectionTemplate, /data-connection-mode="direct"[\s\S]*data-connection-mode="demo"[\s\S]*data-connection-mode="relay"/);
         assert.match(connectionTemplate, /data-connection-panel="direct"[\s\S]*data-connection-panel="demo"[\s\S]*data-connection-panel="relay"/);
@@ -1354,10 +1372,12 @@ describe('website UX contracts', () => {
         assert.match(app, /const observedRoots = new WeakSet\(\)/);
         assert.match(app, /observeRoot\(dialog\.shadowRoot\);[\s\S]*flashDialogText\(dialog\.shadowRoot\)/);
         assert.match(routeRegistry, /name: 'tool-configure'.*staticPath: '\/tools\/configure\/'/);
-        assert.match(index, /data-page="tool-configure" data-static-url="\/tools\/configure\/"/);
+        assert.match(index, /data-page="tool-configure"[\s\S]*?data-content-url="content\/tools\/configure\.html\?v=[0-9a-f]{12}" data-static-url="\/tools\/configure\/"/);
         assert.match(app, /const configureUrl = new URL\('\/tools\/configure\/', location\.origin\)[\s\S]*configureUrl\.search = returnedUrl\.search/);
         const staticPageBuilder = read('.github/scripts/build_static_pages.py');
-        assert.match(staticPageBuilder, /destination\.search = location\.search;[\s\S]*destination\.hash = '#tool-\{tool_slug\}';[\s\S]*location\.replace\(destination\)/);
+        assert.match(staticPageBuilder, /"source": "content\/tools\/configure\.html"/);
+        assert.match(staticPageBuilder, /"output": "tools\/configure"/);
+        assert.doesNotMatch(staticPageBuilder, /location\.replace\(destination\)/);
         assert.match(app, /if \(item\.href !== destination\) item\.href = destination[\s\S]*if \(item\.target !== '_self'\) item\.target = '_self'/);
         assert.match(app, /const method = bssid \? 'set_wifi_bssid' : 'clear_wifi_bssid'/);
         assert.match(app, /const params = bssid \? \{ bssid \} : \{\}/);
@@ -1400,8 +1420,8 @@ describe('website UX contracts', () => {
         assert.match(app, /otaAwaitingReconnect &&[\s\S]*normalizedState === 'idle'[\s\S]*completeOtaReconnect\(\)/);
         assert.match(index, /js-menu-firmware[\s\S]*js-firmware-update-notice[\s\S]*js-disconnect/);
         assert.match(index, /class="conn-firmware-row"/);
-        assert.match(app, /\$\$\('\.js-firmware-update-notice'\)\.forEach\(\(button\) => \{/);
-        assert.match(app, /button\.addEventListener\('click', \(event\) => otaOpen\(event\.currentTarget\)\)/);
+        assert.match(app, /function sharedToolControlsInit\(\)/);
+        assert.match(app, /const firmwareButton = event\.target\.closest\('\.js-firmware-update-notice'\);[\s\S]*?if \(firmwareButton\) otaOpen\(firmwareButton\)/);
         assert.match(app, /status = 'error'/);
         assert.match(app, /function otaOpen\(returnFocus\) \{\s*if \(conn\.mode === 'demo'\) return;/);
         assert.match(index, /id="ota-channel"/);
@@ -1412,15 +1432,15 @@ describe('website UX contracts', () => {
         assert.match(app, /otaChannelChanged = true/);
         assert.match(app, /return channel \? \{ command, channel \} : \{ command \}/);
         assert.match(app, /if \(conn\.mode === 'demo'\) return;/);
-        assert.match(index, /class="config-status js-wifi-status" role="status"[\s\S]*?js-wifi-status-text/);
-        assert.match(index, /class="config-status js-mqtt-status" role="status"[\s\S]*?js-mqtt-status-text/);
+        assert.match(configure, /class="config-status js-wifi-status" role="status"[\s\S]*?js-wifi-status-text/);
+        assert.match(configure, /class="config-status js-mqtt-status" role="status"[\s\S]*?js-mqtt-status-text/);
         assert.match(app, /setConfigurationStatus\('wifi', snapshot\.wifi_connected, snapshot\.wifi_configured\)/);
         assert.match(app, /setConfigurationStatus\('mqtt', snapshot\.mqtt_connected, snapshot\.mqtt_configured\)/);
         assert.match(styles, /\.dot-error \{ background: var\(--danger\); \}/);
     });
 
     it('keeps Direct HTTP diagnostics and presents Relay as unavailable', () => {
-        const mqttPage = index.match(/data-page="tool-monitor"[\s\S]*?<\/main>/)?.[0] || '';
+        const mqttPage = toolContent.monitor;
         const connectionTemplate = index.match(/<template id="connection-picker-template">[\s\S]*?<\/template>/)?.[0] || '';
         const broker = connectionTemplate.match(/<section class="device-connect-card[^"]*"[^>]*data-connection-panel="relay"[^>]*>[\s\S]*?<\/section>/)?.[0] || '';
         const diagnostics = mqttPage.match(/<details class="device-live-diagnostics">[\s\S]*?<\/details>/)?.[0] || '';
@@ -1454,14 +1474,15 @@ describe('website UX contracts', () => {
     });
 
     it('keeps MQTT configuration in Configure while browser tools use HTTP', () => {
-        assert.match(index, /id="cfg-mqtt-preset"[\s\S]*?value="home_assistant" selected[\s\S]*?value="lan_broker"[\s\S]*?value="emqx_cloud"[\s\S]*?value="hivemq_cloud"[\s\S]*?value="flespi"[\s\S]*?value="cloud_broker"/);
-        assert.match(index, /class="field-row mqtt-host-port-row">[\s\S]*?id="cfg-mqtt-host"[\s\S]*?id="cfg-mqtt-port"/);
-        assert.match(index, /id="cfg-mqtt-host"[^>]*value="homeassistant.local"/);
-        assert.match(index, /id="cfg-mqtt-port"[^>]*value="1883"/);
-        assert.doesNotMatch(index, /id="cfg-mqtt-user"[^>]*value=/);
-        assert.doesNotMatch(index, /id="cfg-mqtt-pass"[^>]*value=/);
-        assert.match(index, /id="cfg-topic-prefix"[^>]*value="espectre\/v1\/devices"/);
-        const mqttPage = index.match(/data-page="tool-monitor"[\s\S]*?<\/main>/)?.[0] || '';
+        const configurePage = toolContent.configure;
+        const mqttPage = toolContent.monitor;
+        assert.match(configurePage, /id="cfg-mqtt-preset"[\s\S]*?value="home_assistant" selected[\s\S]*?value="lan_broker"[\s\S]*?value="emqx_cloud"[\s\S]*?value="hivemq_cloud"[\s\S]*?value="flespi"[\s\S]*?value="cloud_broker"/);
+        assert.match(configurePage, /class="field-row mqtt-host-port-row">[\s\S]*?id="cfg-mqtt-host"[\s\S]*?id="cfg-mqtt-port"/);
+        assert.match(configurePage, /id="cfg-mqtt-host"[^>]*value="homeassistant.local"/);
+        assert.match(configurePage, /id="cfg-mqtt-port"[^>]*value="1883"/);
+        assert.doesNotMatch(configurePage, /id="cfg-mqtt-user"[^>]*value=/);
+        assert.doesNotMatch(configurePage, /id="cfg-mqtt-pass"[^>]*value=/);
+        assert.match(configurePage, /id="cfg-topic-prefix"[^>]*value="espectre\/v1\/devices"/);
         const onboardingHtml = mqttPage.match(/class="js-monitor-onboarding"[\s\S]*?<div class="js-monitor-workspace"/)?.[0] || '';
         const connectionTemplate = index.match(/<template id="connection-picker-template">[\s\S]*?<\/template>/)?.[0] || '';
         const broker = connectionTemplate.match(/<section class="device-connect-card[^"]*"[^>]*data-connection-panel="relay"[^>]*>[\s\S]*?<\/section>/)?.[0] || '';
@@ -1499,21 +1520,21 @@ describe('website UX contracts', () => {
         assert.match(app, /SECURE_CLOUD_MQTT_PRESETS\.has\(presetName\)[\s\S]*?'mqtts:\/\/' \+ enteredHost/);
         assert.match(app, /function startDetection/);
         assert.match(app, /selectMonitorTransport\('direct'\);[\s\S]*?location\.hash = '#tool-monitor'/);
-        assert.match(index, /js-start-detection/);
+        assert.match(configurePage, /js-start-detection/);
         assert.match(index, /js-connect-direct/);
         assert.match(index, /class="conn-pill conn-disconnected js-header-connect"/);
         assert.match(
             app,
             /\$\('\.js-header-connect'\)\.addEventListener\('click', \(\) => \{\s*selectMonitorTransport\('direct'\);[\s\S]*?if \(route === 'tool-monitor'\)[\s\S]*?location\.hash = '#tool-monitor';/
         );
-        assert.match(index, /js-has-live/);
+        assert.match(toolFragments, /js-has-live/);
         assert.match(app, /input_mode: connectionInputMode\(\)/);
     });
 
     it('preserves write-only MQTT credentials and confirms destructive MQTT removal', () => {
-        assert.doesNotMatch(index, /id="cfg-wifi-pass"|id="cfg-wifi-pass-clear"/);
-        assert.match(index, /id="cfg-mqtt-credentials-clear"/);
-        assert.ok((index.match(/class="config-advanced"/g) || []).length >= 1);
+        assert.doesNotMatch(toolContent.configure, /id="cfg-wifi-pass"|id="cfg-wifi-pass-clear"/);
+        assert.match(toolContent.configure, /id="cfg-mqtt-credentials-clear"/);
+        assert.ok((toolContent.configure.match(/class="config-advanced"/g) || []).length >= 1);
         assert.match(styles, /\[data-page="tool-configure"\] \.field-row \{ grid-template-columns: minmax\(0, 1fr\); \}/);
         assert.match(app, /function syncConfigureMqttCredentialMode\(\) \{[\s\S]*?username\.disabled = clear;[\s\S]*?password\.disabled = clear \|\| isFlespi;[\s\S]*?username\.value = '';[\s\S]*?password\.value = '';/);
         assert.match(app, /const mqttParams = \{ host, port, topic_prefix: topicPrefix \};[\s\S]*?if \(username \|\| clearCredentials\)[\s\S]*?if \(password \|\| clearCredentials\)/);
@@ -1526,7 +1547,7 @@ describe('website UX contracts', () => {
     });
 
     it('keeps Game and Theremin demo sessions on the current tool', () => {
-        assert.equal((index.match(/data-open-view="live"/g) || []).length, 3);
+        assert.equal((toolFragments.match(/data-open-view="live"/g) || []).length, 3);
         assert.match(app, /function connectDemo\(openView = ''\)[\s\S]*?if \(openView === 'live'\) rememberLiveDestination\(\)/);
         assert.match(app, /if \(openView === 'live'\) completeLiveConnectionNavigation\(\)/);
         assert.match(app, /const selectedMode = \['direct', 'demo', 'relay'\]\.includes\(mode\) \? mode : 'direct'/);
@@ -1534,11 +1555,10 @@ describe('website UX contracts', () => {
     });
 
     it('offers the shared connection picker from every connected browser tool', () => {
-        for (const page of ['tool-configure', 'tool-monitor', 'tool-raw-csi', 'tool-theremin', 'tool-game']) {
-            const experience = index.match(new RegExp(`data-page="${page}"[\\s\\S]*?<\\/main>`))?.[0] || '';
-            assert.match(experience, new RegExp(`<espectre-connection-picker[^>]*data-surface="${page.replace('tool-', '')}"`));
+        for (const tool of ['configure', 'monitor', 'raw-csi', 'theremin', 'game']) {
+            assert.match(toolContent[tool], new RegExp(`<espectre-connection-picker[^>]*data-surface="${tool}"`));
         }
-        assert.match(app, /openView: btn\.closest\('espectre-direct-connect'\)\?\.dataset\.openView/);
+        assert.match(app, /openView: connectButton\.closest\('espectre-direct-connect'\)\?\.dataset\.openView/);
         assert.match(app, /else if \(!LIVE_EXPERIENCE_ROUTES\.has\(route\)\)/);
     });
 
@@ -1556,7 +1576,7 @@ describe('website UX contracts', () => {
     });
 
     it('reuses active Direct HTTP and Demo sessions for Raw CSI', () => {
-        const rawPage = index.match(/data-page="tool-raw-csi"[\s\S]*?<\/main>/)?.[0] || '';
+        const rawPage = toolContent['raw-csi'];
         const rawClient = app.match(/\/\* =+ raw CSI \*\/[\s\S]*?function gameInit/)?.[0] || '';
         assert.match(rawPage, /class="js-raw-csi-onboarding"[\s\S]*?<espectre-connection-picker data-surface="raw-csi"/);
         assert.match(rawPage, /js-raw-csi-unavailable/);
@@ -1593,7 +1613,7 @@ describe('website UX contracts', () => {
     });
 
     it('shows one selectable Raw CSI visualization at a time', () => {
-        const rawPage = index.match(/data-page="tool-raw-csi"[\s\S]*?<\/main>/)?.[0] || '';
+        const rawPage = toolContent['raw-csi'];
         const rawClient = app.match(/\/\* =+ raw CSI \*\/[\s\S]*?function gameInit/)?.[0] || '';
         const visualizationValues = [
             'channel-heatmap',
@@ -1649,16 +1669,16 @@ describe('website UX contracts', () => {
     });
 
     it('runs Game as a binary motion-flight endless runner', () => {
-        const gameScreen = index.match(/<div class="game-screen">[\s\S]*?<\/div>\s*<div class="game-msg/)?.[0] || '';
+        const gameScreen = toolContent.game.match(/<div class="game-screen">[\s\S]*?<\/div>\s*<div class="game-msg/)?.[0] || '';
         const gameFinish = app.slice(app.indexOf('function gameFinish'), app.indexOf('function gameSetFlight'));
         const gameUpdate = app.slice(app.indexOf('function gameUpdate(dt)'), app.indexOf('function gameSensingActive'));
-        assert.match(index, /class="game-canvas js-game-canvas"/);
+        assert.match(toolContent.game, /class="game-canvas js-game-canvas"/);
         assert.match(styles, /\.game-stage \{[\s\S]*?width: 100%;[\s\S]*?max-width: none;/);
         assert.match(styles, /\.game-canvas \{[\s\S]*?height: clamp\(250px, 40vw, 440px\);/);
         assert.match(gameScreen, /class="game-status"[\s\S]*js-game-score[\s\S]*js-game-orbs[\s\S]*js-game-distance[\s\S]*js-game-best/);
         assert.match(gameScreen, /class="game-play js-game-start"/);
         assert.match(gameScreen, /class="game-sound js-game-sound"[\s\S]*?aria-pressed="true"/);
-        assert.equal((index.match(/js-game-start/g) || []).length, 1);
+        assert.equal((toolContent.game.match(/js-game-start/g) || []).length, 1);
         assert.match(gameScreen, /js-game-motion-fill[\s\S]*js-game-motion-threshold/);
         assert.match(app, /function renderGameMotionGauge/);
         assert.match(app, /fill\.style\.height = Math\.round\(energyFraction\(\) \* 100\) \+ '%'/);
@@ -1712,7 +1732,7 @@ describe('website UX contracts', () => {
         assert.match(app, /- game\.scrollX\) % width/);
         assert.match(app, /const GAME_FACTORY_IMAGE_SOURCES = Object\.freeze\(\[[\s\S]*hardware-factory\.avif[\s\S]*hardware-factory\.webp/);
         assert.match(app, /function gameLoadFactoryImage\(\)/);
-        assert.match(app, /if \(route === 'tool-game'\) \{\s*void gameLoadFactoryImage\(\)/);
+        assert.match(app, /if \(routeAtStart === 'tool-game'\) \{\s*void gameLoadFactoryImage\(\)/);
         assert.match(app, /function gameDrawFactoryBackdrop/);
         assert.match(app, /function gameDrawFactoryParallax/);
         assert.match(app, /game\.scrollX \* 0\.12/);

@@ -1,0 +1,116 @@
+<!--
+  SPDX-License-Identifier: GPL-3.0-only
+  Commercial licensing available under separate agreement; see LICENSING.md.
+-->
+<h1 class="page-title">Live motion</h1>
+<p class="page-sub">See motion as it happens, adjust detection, and check that the device is working. You can also explore with simulated data.</p>
+
+<section class="tool-static-entry" aria-labelledby="monitor-static-title">
+  <h2 id="monitor-static-title">Inspect motion and sensing health</h2>
+  <p>Live motion plots the latest movement score against the active threshold and shows whether the detector currently reports motion. Connect a local device to tune the threshold, choose a detection profile, recalibrate the room, and inspect CSI and runtime diagnostics.</p>
+  <p>Demo mode provides simulated movement without contacting a device or local network. Device mode receives events directly from ESPectre over the local connection.</p>
+  <div class="tool-static-actions">
+    <a href="/#tool-monitor" class="btn-primary">Open live motion</a>
+    <a href="/guides/detectors/" class="btn-secondary">Compare detector profiles</a>
+  </div>
+</section>
+
+<div class="tool-interactive">
+  <div class="js-monitor-onboarding">
+    <espectre-connection-picker data-surface="monitor" data-open-view="live"></espectre-connection-picker>
+  </div>
+
+  <div class="js-monitor-workspace" hidden>
+    <div class="device-banner device-console-banner">
+      <div class="device-banner-id">
+        <div>
+          <h2 class="device-banner-name-editor js-monitor-name-editor">
+            <button type="button" class="device-banner-name-trigger js-monitor-name-trigger" aria-label="Set device name">
+              <span class="js-monitor-name-display">ESPectre</span>
+              <svg class="device-banner-name-icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M3 21l3.75-.75L19.5 7.5a2.12 2.12 0 0 0-3-3L3.75 17.25 3 21zM14.5 6.5l3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <input type="text" class="device-banner-name-input js-monitor-name-input" aria-label="Device name" maxlength="32" autocomplete="off" hidden>
+          </h2>
+          <div class="mono-sub device-banner-identity">
+            <span class="js-device-banner-sub">—</span>
+            <button type="button" class="device-firmware-update js-firmware-update-notice"
+              data-ota-status="idle" aria-label="Open firmware update">
+              <span class="js-firmware-update-copy">Checking for updates…</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="device-banner-actions">
+        <button class="btn-secondary btn-sm js-device-edit-connectivity">Wi-Fi and integrations</button>
+      </div>
+    </div>
+
+    <section class="device-view" data-device-view="live">
+      <div class="config-grid device-live-grid">
+        <section class="panel device-motion-panel">
+          <div class="device-motion-head">
+            <div><span class="stat-label">Current state</span><div class="device-motion-state js-mon-state">—</div></div>
+            <div class="device-motion-score"><span class="stat-label">Movement score</span><strong class="js-mon-move">—</strong></div>
+          </div>
+          <canvas class="mon-chart js-mon-chart" height="210"></canvas>
+          <p class="tool-note">The line shows the last 60 seconds. Motion starts when the movement score crosses the threshold.</p>
+        </section>
+        <section class="panel">
+          <div class="live-sensing-controls">
+            <h2>Motion settings</h2>
+            <p>Changes are saved to the device immediately.</p>
+            <div class="live-controls-grid">
+              <div class="field" data-device-command="set_threshold">
+                <label for="sense-threshold">Motion threshold</label>
+                <input type="number" id="sense-threshold" min="0" max="1" step="0.01" value="0.5">
+                <small class="field-help">Lower values react to smaller changes.</small>
+              </div>
+              <div class="field" data-device-command="set_detector">
+                <label for="sense-detector">Detection mode</label>
+                <select id="sense-detector"><option value="lightweight">Lightweight</option><option value="high_accuracy">High accuracy</option></select>
+              </div>
+              <div class="live-control-wide live-calibration" data-device-command="recalibrate">
+                <div><strong>Calibrate the room</strong><p>Keep the room still while ESPectre learns the normal Wi-Fi signal.</p></div>
+                <button class="btn-secondary btn-sm js-sense-recalibrate">Calibrate</button>
+              </div>
+              <details class="config-advanced live-control-wide">
+                <summary>Advanced sensing settings</summary>
+                <div class="config-advanced-body fields">
+                  <div class="field-row" data-device-command="set_motion_hits">
+                    <div class="field"><label for="sense-motion-on">Readings to turn motion on</label><input type="number" id="sense-motion-on" min="1" max="20" value="3"></div>
+                    <div class="field"><label for="sense-motion-off">Readings to turn motion off</label><input type="number" id="sense-motion-off" min="1" max="20" value="3"></div>
+                  </div>
+                  <div class="field" data-device-command="set_csi_traffic_mode">
+                    <label for="sense-csi-mode">Wi-Fi traffic source</label>
+                    <select id="sense-csi-mode"><option value="internal">Generated by ESPectre</option><option value="external">External device</option></select>
+                  </div>
+                  <div class="field" data-device-command="set_traffic_generator_mode">
+                    <label for="sense-generator-mode">Built-in traffic type</label>
+                    <select id="sense-generator-mode"><option value="ping">Ping</option><option value="dns">DNS</option></select>
+                  </div>
+                </div>
+              </details>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <details class="device-live-diagnostics">
+        <summary><span>Diagnostics</span><small>CSI pipeline, Wi-Fi, and runtime health</small></summary>
+        <div class="diag-grid mon-stats-tiles">
+          <div class="stat"><div class="stat-label">Traffic TX</div><div class="stat-value js-mon-traffic">—</div></div>
+          <div class="stat"><div class="stat-label">CSI callbacks</div><div class="stat-value js-mon-callbacks">—</div></div>
+          <div class="stat"><div class="stat-label">CSI filtered</div><div class="stat-value js-mon-filtered">—</div></div>
+          <div class="stat"><div class="stat-label">CSI admitted</div><div class="stat-value js-mon-admitted">—</div></div>
+          <div class="stat"><div class="stat-label">Wi-Fi channel</div><div class="stat-value js-mon-channel">—</div></div>
+          <div class="stat"><div class="stat-label">Wi-Fi RSSI</div><div class="stat-value js-mon-rssi">—</div></div>
+          <div class="stat"><div class="stat-label">Free heap</div><div class="stat-value js-mon-heap">—</div></div>
+          <div class="stat"><div class="stat-label">Loop time</div><div class="stat-value js-mon-loop">—</div></div>
+        </div>
+        <p class="tool-note js-mon-diag-status" role="status" hidden></p>
+      </details>
+    </section>
+  </div>
+</div>
