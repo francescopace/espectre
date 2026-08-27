@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 from .common import FIRMWARE_CACHE_DIR, MICROPYTHON_FIRMWARE_BUILD, REPO_ROOT
@@ -266,6 +267,9 @@ def build_project_firmware(
     core_component_dir = (
         build_root / "firmware-support" / "components" / "espectre_core"
     )
+    core_build_environment = {
+        "ESPECTRE_CORE_SDK_ROOT": str(core_sdk_root),
+    }
     commands = [
         ["make", "-C", "micropython/mpy-cross", f"-j{jobs}"],
         [
@@ -310,13 +314,22 @@ def build_project_firmware(
             repo_root=REPO_ROOT,
             pull_policy=pull_policy,
             docker=resolved_backend.docker,
+            environment=core_build_environment,
         )
     else:
         assert resolved_backend.idf_environment is not None
+        process_env = dict(
+            resolved_backend.idf_environment.process_env or os.environ
+        )
+        process_env.update(core_build_environment)
+        idf_environment = replace(
+            resolved_backend.idf_environment,
+            process_env=process_env,
+        )
         for command in commands:
             run_in_idf_environment(
                 command,
-                resolved_backend.idf_environment,
+                idf_environment,
                 cwd=workspace,
             )
 

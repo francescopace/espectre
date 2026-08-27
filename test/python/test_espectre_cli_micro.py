@@ -499,6 +499,7 @@ def test_project_boards_use_one_shared_profile_and_only_esp32_override() -> None
     component_cmake = (core_component / "CMakeLists.txt").read_text(encoding="utf-8")
     assert "ESPECTRE_CORE_SOURCES" in component_cmake
     assert "idf_component_register" in component_cmake
+    assert "$ENV{ESPECTRE_CORE_SDK_ROOT}" in component_cmake
 
     native_cpp = (
         micro.PYTHON_SRC_DIR
