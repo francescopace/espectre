@@ -30,6 +30,7 @@ from src.python.espectre_cli.device_transport import (
     encode_improv_rpc,
     parse_improv_rpc_response,
 )
+from src.python.espectre_cli import device_transport
 from src.python.micro_espectre import protocol
 from src.python.micro_espectre.runtime_diagnostics import RuntimePerformanceDiagnostics
 
@@ -180,6 +181,48 @@ def test_improv_client_handles_multiple_frames_in_one_serial_read():
     assert result.device_info == ("ESPectre", "1", "c3", "Native")
     assert len(serial.writes) == 3
     assert serial.closed
+
+
+def test_improv_client_retries_initial_state_query_after_flash(monkeypatch):
+    class FakeClock:
+        now = 0.0
+
+        def monotonic(self):
+            self.now += 0.75
+            return self.now
+
+    class FakeSerial:
+        def __init__(self):
+            self.writes: list[bytes] = []
+            self.responses_sent = False
+
+        def read(self, _size: int = 1) -> bytes:
+            if len(self.writes) < 2 or self.responses_sent:
+                return b""
+            self.responses_sent = True
+            return (
+                encode_improv_frame(ImprovPacketType.CURRENT_STATE, b"\x02")
+                + _improv_rpc_response(ImprovCommand.GET_DEVICE_INFO, ["ESPectre", "1", "s3", "Native"])
+                + encode_improv_frame(ImprovPacketType.CURRENT_STATE, b"\x04")
+                + _improv_rpc_response(ImprovCommand.WIFI_SETTINGS, ["http://192.0.2.10"])
+            )
+
+        def write(self, data: bytes) -> int:
+            self.writes.append(data)
+            return len(data)
+
+        def close(self) -> None:
+            pass
+
+    clock = FakeClock()
+    serial = FakeSerial()
+    monkeypatch.setattr(device_transport.time, "monotonic", clock.monotonic)
+
+    with ImprovSerialClient("/dev/fake", serial_factory=lambda **_kwargs: serial) as client:
+        result = client.provision("Lab", "secret", timeout=10.0)
+
+    assert result.endpoint == "http://192.0.2.10"
+    assert len(serial.writes) == 4
 
 
 def test_improv_client_ignores_current_state_url_before_device_info():

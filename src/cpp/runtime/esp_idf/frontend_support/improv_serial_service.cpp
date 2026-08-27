@@ -65,6 +65,10 @@ bool ImprovSerialService::setup(ImprovSerialServiceConfig config) {
     // The default polling VFS can lose host-to-device packets while the main
     // loop is busy. The interrupt-driven driver buffers complete Improv RPCs.
     usb_serial_jtag_vfs_use_driver();
+    // Improv is a binary protocol. The console VFS defaults to CRLF output and
+    // would expand a checksum byte equal to LF into CRLF, corrupting the frame.
+    usb_serial_jtag_vfs_set_tx_line_endings(ESP_LINE_ENDINGS_LF);
+    usb_serial_jtag_vfs_set_rx_line_endings(ESP_LINE_ENDINGS_LF);
   }
 #endif
 

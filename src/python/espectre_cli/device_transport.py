@@ -287,8 +287,20 @@ class ImprovSerialClient:
             states.append(state.name.lower())
             return state.name.lower()
 
-        self._send_rpc(ImprovCommand.GET_CURRENT_STATE)
-        self._read_until(current_state, deadline)
+        while True:
+            self._send_rpc(ImprovCommand.GET_CURRENT_STATE)
+            try:
+                self._read_until(
+                    current_state,
+                    min(deadline, time.monotonic() + 2.0),
+                )
+                break
+            except TimeoutError:
+                if time.monotonic() >= deadline:
+                    raise
+                # The native USB console may still be re-enumerating after a
+                # flash. Retry the idempotent state query instead of waiting
+                # for the entire provisioning deadline on a lost first frame.
         device_info = self._rpc(ImprovCommand.GET_DEVICE_INFO, deadline)
         self._send_rpc(ImprovCommand.WIFI_SETTINGS, (ssid, password))
 
