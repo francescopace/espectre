@@ -23,13 +23,13 @@
 <meta name="twitter:image" content="https://espectre.dev/assets/images/brand/espectre-og.jpg">
 <link rel="icon" type="image/svg+xml" href="/assets/images/brand/espectre-logo.svg?v=5c234009f6c5">
 <link rel="alternate icon" type="image/png" href="/assets/images/brand/favicon.png">
-<link rel="stylesheet" href="/assets/css/styles.css?v=b4891108dc84">
+<link rel="stylesheet" href="/assets/css/styles.css?v=8df320459ba0">
 <script src="/assets/js/espectre-direct.js?v=9359fea8bf00" defer></script>
 <script src="/assets/js/browser-support.js?v=ac4ba70c7f17" defer></script>
 <script src="/assets/js/route-registry.js?v=78606ac2999b" defer></script>
 <script src="/assets/js/navigation.js?v=6abcd0e77230" defer></script>
 <script src="/assets/js/analytics.js?v=1ba5c2cbf44c" defer></script>
-<script src="/assets/js/app.js?v=5c8c5906f7ec" defer></script>
+<script src="/assets/js/app.js?v=8fcb5d207c12" defer></script>
 </head>
 <body>
 
@@ -103,7 +103,7 @@
         </dl>
         <p class="conn-dropdown-note js-usb-port-note" hidden>The USB port stays reserved until the installer closes.</p>
         <div class="energy-block js-live-energy" hidden>
-          <div class="energy-head"><span class="energy-title">CURRENT STATE</span><span class="mono js-motion-label">NO MOTION</span></div>
+          <div class="energy-head"><span class="energy-title">CURRENT STATE</span><span class="mono js-motion-label">IDLE</span></div>
           <div class="meter"><span class="js-energy-fill"></span></div>
         </div>
         <button class="btn-disconnect js-disconnect">Disconnect</button>
@@ -210,11 +210,11 @@
         <article class="scrolly-caption js-scrolly-caption" data-scene="4" aria-hidden="true" inert>
           <div class="scrolly-kicker">Matter · Limited validation</div>
           <h2>Share motion<br>through Matter.</h2>
-          <p>Expose motion through Matter’s standard occupancy sensor and use it with Home Assistant, Google Home, Apple Home, or Amazon Alexa.</p>
+          <p>ESPectre exposes motion as a standard Matter occupancy sensor. <br>End-to-end validation with specific controller ecosystems is still limited. <a href="/guides/setup/#setup-matter-compatibility" class="scene-roadmap-link">Check Matter compatibility →</a></p>
           <div class="scene-ui scene-ui-integration">
             <span class="scene-ui-dot"></span>
             <span><small>Living room</small><strong>Motion sensor shared</strong></span>
-            <span class="scene-ui-action">Connected</span>
+            <span class="scene-ui-action">Validation limited</span>
           </div>
         </article>
 
@@ -318,7 +318,7 @@
 <!-- ============================== Flash ============================== -->
 <main class="js-page page-narrow page-tool" data-page="tool-flash" data-page-path="tools" hidden>
   <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Install ESPectre</span></div>
-  <div class="js-static-content" data-content-url="content/tools/flash.html?v=442f55794c8f" data-static-url="/tools/flash/">
+  <div class="js-static-content" data-content-url="content/tools/flash.html?v=c946e86543e8" data-static-url="/tools/flash/">
     <p class="guide-loading">Loading installer…</p>
   </div>
 </main>
@@ -365,14 +365,14 @@
 
 <!-- ============================== Guides ============================== -->
 <main class="js-page page-narrow" data-page="guides" hidden>
-  <div class="js-static-content" data-content-url="content/guides.html?v=ef14693153c7" data-static-url="/guides/">
+  <div class="js-static-content" data-content-url="content/guides.html?v=3ff1885ff6ad" data-static-url="/guides/">
     <p class="guide-loading">Loading guides…</p>
   </div>
 </main>
 
 <!-- ============================== SDK ============================== -->
 <main class="js-page page-narrow" data-page="sdk" hidden>
-  <div class="js-static-content" data-content-url="content/sdk.html?v=e6bcf9f62cc3" data-static-url="/sdk/">
+  <div class="js-static-content" data-content-url="content/sdk.html?v=8cfd88e8436e" data-static-url="/sdk/">
     <p class="guide-loading">Loading SDK…</p>
   </div>
 </main>
@@ -386,7 +386,7 @@
 
 <!-- ============================== Roadmap ============================== -->
 <main class="js-page page-narrow" data-page="roadmap" hidden>
-  <div class="js-static-content" data-content-url="content/roadmap.html?v=5a52ca7a835b" data-static-url="/roadmap/">
+  <div class="js-static-content" data-content-url="content/roadmap.html?v=52df2d929e78" data-static-url="/roadmap/">
     <p class="guide-loading">Loading roadmap…</p>
   </div>
 </main>
@@ -421,7 +421,7 @@
 
 <!-- ============================== Security ============================== -->
 <main class="js-page page-narrow" data-page="security" hidden>
-  <div class="js-static-content" data-content-url="content/security.html?v=f26e547262f8" data-static-url="/security/">
+  <div class="js-static-content" data-content-url="content/security.html?v=f2a24f645694" data-static-url="/security/">
     <p class="guide-loading">Loading security information…</p>
   </div>
 </main>
@@ -444,7 +444,7 @@
 <!-- ============================== Guide: Setup ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-setup" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Flash and set up your device</span></div>
-  <div class="js-static-content" data-content-url="content/guides/setup.html?v=a963bcec41d9" data-static-url="/guides/setup/">
+  <div class="js-static-content" data-content-url="content/guides/setup.html?v=1c3128537b27" data-static-url="/guides/setup/">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -661,7 +661,7 @@
     <div class="field ota-channel-field">
       <label for="ota-channel">Update type</label>
       <select id="ota-channel">
-        <option value="release" selected>Stable — recommended</option>
+        <option value="release" selected>Release</option>
         <option value="preview">Preview — for testing</option>
         <option value="develop">Development — may be unstable</option>
       </select>

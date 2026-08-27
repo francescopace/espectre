@@ -27,7 +27,7 @@ The quickest path uses the browser and requires no local build environment:
 
 1. Open [Flash](https://espectre.dev/tools/flash/) in a Chromium-based browser.
 2. Connect a supported ESP32 over USB, then choose a firmware and release channel.
-3. Complete on-screen Wi-Fi provisioning, or commission Matter firmware with a controller that supports Matter occupancy sensors.
+3. Complete on-screen Wi-Fi provisioning, or commission Matter with a supported controller.
 4. Open [Monitor](https://espectre.dev/tools/monitor/) to watch motion, tune detection, and inspect the device.
 
 ![ESPectre Monitor](docs/web/assets/images/guides/sensing-dashboard.png)
@@ -46,7 +46,7 @@ The repository wrapper exposes the available workflows through:
 ## Supported hardware
 
 - ESP32-C6, ESP32-C5, ESP32-C3, ESP32-S3, ESP32-S2, and classic ESP32
-- a normal Wi-Fi network: 2.4 GHz on every supported board, plus 5 GHz on the ESP32-C5
+- a normal Wi-Fi 4 (802.11n) network on 2.4 GHz
 
 ## One Platform, Several Ways to Use It
 
@@ -63,13 +63,12 @@ The repository wrapper exposes the available workflows through:
 
 | Path | Best for | Start here |
 |---|---|---|
-| **ESPHome** | Home Assistant users who want the most polished production path | [ESPHome frontend](src/cpp/frontend/esphome/README.md) |
 | **Native Direct/MQTT** | Standalone sensors, browser-local sensing, Home Assistant MQTT Discovery, and custom applications | [Native frontend](src/cpp/frontend/native/README.md) |
+| **ESPHome** | Home Assistant users who want the most polished production path | [ESPHome frontend](src/cpp/frontend/esphome/README.md) |
 | **Matter** | Matter controllers with occupancy-sensor support; controller validation is still limited | [Matter frontend](src/cpp/frontend/matter/README.md) |
 | **Micro-ESPectre** | Lightweight sensing in MicroPython with local, read-only Direct HTTP monitoring | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
-| **SDK** | Custom firmware, connected products, and OEM evaluation | [SDK.md](docs/SDK.md) |
 
-ESPHome, Native, and Matter can choose between a `lightweight` detector, which learns a room-specific threshold at startup and leaves more resources to the rest of the application, and a `high_accuracy` detector, which runs the trained model included in the repository. Micro-ESPectre currently deploys the lightweight detector; its High Accuracy implementation remains available for research and parity validation. Their behavior and measured trade-offs are documented in [SETUP.md](docs/SETUP.md#detection-profiles-and-startup), [ALGORITHMS.md](docs/ALGORITHMS.md), and the [performance report](docs/performance/README.md).
+ESPHome, Native, and Matter can choose between a `lightweight` detector, which learns a room-specific threshold at startup and leaves more resources to the rest of the application, and a `high_accuracy` detector, which runs the trained model included in the repository. Micro-ESPectre currently deploys only the lightweight detector. Their behavior and measured trade-offs are documented in [SETUP.md](docs/SETUP.md#detection-profiles-and-startup), [ALGORITHMS.md](docs/ALGORITHMS.md), and the [performance report](docs/performance/README.md).
 
 ## Research You Can Inspect
 
@@ -98,12 +97,33 @@ Use ESPectre only in spaces and networks where you have the right to deploy it. 
 
 ## Documentation
 
-- **Install and operate:** [SETUP.md](docs/SETUP.md), [CLI.md](docs/CLI.md), and [TUNING.md](docs/TUNING.md)
-- **Understand and integrate:** [ARCHITECTURE.md](docs/ARCHITECTURE.md), [SDK.md](docs/SDK.md), [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md), and [ALGORITHMS.md](docs/ALGORITHMS.md)
-- **Collect and train:** [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md), [ML_TRAINING.md](docs/ML_TRAINING.md), [FEATURES.md](docs/FEATURES.md), and the generated [performance report](docs/performance/README.md)
-- **Research and direction:** [LITERATURE.md](docs/LITERATURE.md), [ROADMAP.md](docs/ROADMAP.md), the [ADR index](docs/adr/README.md), and [CHANGELOG.md](docs/CHANGELOG.md)
-- **Frontend reference:** [ESPHome](src/cpp/frontend/esphome/README.md), [Native](src/cpp/frontend/native/README.md), and [Matter](src/cpp/frontend/matter/README.md)
-- **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md) and [GitHub Discussions](https://github.com/francescopace/espectre/discussions)
+- **Install and operate**
+  - [SETUP.md](docs/SETUP.md)
+  - [CLI.md](docs/CLI.md)
+  - [TUNING.md](docs/TUNING.md)
+- **Understand and integrate**
+  - [ARCHITECTURE.md](docs/ARCHITECTURE.md)
+  - [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md)
+  - [ALGORITHMS.md](docs/ALGORITHMS.md)
+  - [SDK.md](docs/SDK.md)
+- **Collect and train**
+  - [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md)
+  - [ML_TRAINING.md](docs/ML_TRAINING.md)
+  - [FEATURES.md](docs/FEATURES.md)
+  - [performance report](docs/performance/README.md)
+  - [LITERATURE.md](docs/LITERATURE.md)
+- **Research and direction**
+  - [ROADMAP.md](docs/ROADMAP.md)
+  - [ADR index](docs/adr/README.md)
+  - [CHANGELOG.md](docs/CHANGELOG.md)
+- **Frontend reference**
+  - [ESPHome](src/cpp/frontend/esphome/README.md)
+  - [Native](src/cpp/frontend/native/README.md)
+  - [Matter](src/cpp/frontend/matter/README.md)
+  - [Micro](src/python/micro_espectre/README.md)
+- **Contributing**
+  - [CONTRIBUTING.md](CONTRIBUTING.md)
+  - [GitHub Discussions](https://github.com/francescopace/espectre/discussions)
 
 ## Related Projects
 

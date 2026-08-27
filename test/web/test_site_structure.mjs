@@ -123,13 +123,16 @@ describe('website security and asset policy', () => {
 
     it('keeps first-party cache-busting hashes in lockstep with file contents', () => {
         const stamper = read('.github/scripts/web_asset_versions.py');
+        const stampCommand = 'python3 .github/scripts/web_asset_versions.py';
         assert.match(stamper, /HASH_LENGTH = 12/);
+        assert.match(stamper, /python3 \.github\/scripts\/web_asset_versions\.py/);
         const hashLength = 12;
         const assetVersion = (relativePath) => createHash('sha256')
             .update(readFileSync(new URL(`../../docs/web/${relativePath}`, import.meta.url)))
             .digest('hex')
             .slice(0, hashLength);
-        const assertStamped = (html, label) => {
+        const mismatches = [];
+        const collectStamped = (html, label) => {
             const refs = [...html.matchAll(
                 /(?:href|src|data-content-url)="((?:\/assets\/(?:css|js)\/|\/assets\/images\/brand\/espectre-logo\.svg|content\/)[^"]*)"/g
             )];
@@ -138,15 +141,17 @@ describe('website security and asset policy', () => {
                 const [assetPath, query = ''] = url.split('?');
                 const version = new URLSearchParams(query).get('v');
                 const relativePath = assetPath.replace(/^\//, '');
-                assert.equal(
-                    version,
-                    assetVersion(relativePath),
-                    `${label} ${assetPath}`
-                );
+                if (version !== assetVersion(relativePath)) {
+                    mismatches.push(`${label} ${assetPath}`);
+                }
             }
         };
-        assertStamped(index, 'index.html');
-        assertStamped(read('docs/web/404.html'), '404.html');
+        collectStamped(index, 'index.html');
+        collectStamped(read('docs/web/404.html'), '404.html');
+        assert.ok(
+            mismatches.length === 0,
+            `${mismatches.join(', ')}; run ${stampCommand}`
+        );
         assert.match(stamper, /--check-current/);
     });
 });

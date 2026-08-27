@@ -7,7 +7,7 @@
 
 <section class="tool-static-entry" aria-labelledby="flash-static-title">
   <h2 id="flash-static-title">Install from your browser</h2>
-  <p>The installer detects a supported ESP32 over USB, matches it to the selected ESPectre frontend, and writes the corresponding factory image. Stable, preview, and development channels remain separate, so you can choose between a published release and an upcoming build.</p>
+  <p>The installer detects a supported ESP32 over USB, matches it to the selected ESPectre frontend, and writes the corresponding factory image. Release, preview, and development channels remain separate, so you can choose between a published version and an upcoming build.</p>
   <p>Use a Chromium-based browser and a USB data cable. The serial connection stays open only while the installer is active; after installation, continue with the setup guide to connect the device to Wi-Fi.</p>
   <div class="tool-static-actions">
     <a href="/#tool-flash" class="btn-primary">Open the browser installer</a>
@@ -23,13 +23,13 @@
         <div class="field"><label for="flash-frontend">Firmware type</label><select id="flash-frontend"></select></div>
         <div class="field"><label for="flash-channel">Version</label>
           <select id="flash-channel">
-            <option value="release">Stable — recommended</option>
+            <option value="release">Release</option>
             <option value="preview">Preview — for testing</option>
             <option value="develop">Development — may be unstable</option>
           </select>
         </div>
       </div>
-      <p class="tool-note">Use the stable version unless you are testing an upcoming change. After installation, follow the <a href="/guides/setup/">setup guide</a> to connect the board to Wi-Fi.</p>
+      <p class="tool-note">Use the published release unless you are testing an upcoming change. After installation, follow the <a href="/guides/setup/">setup guide</a> to connect the board to Wi-Fi.</p>
     </section>
     <section class="panel">
       <h2>Install</h2>

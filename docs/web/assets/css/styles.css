@@ -1540,6 +1540,17 @@ body.modal-open { overflow: hidden; }
 .guide-body h2,
 .guide-body h3 { font-size: 16.5px; margin: 0; }
 .guide-body p { margin: 0; font-size: 13px; color: var(--dim); flex: 1; }
+.guide-compat {
+  align-self: flex-start;
+  padding: 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--danger) 6%, var(--surface));
+  color: color-mix(in srgb, var(--danger) 82%, var(--text));
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+}
 .guide-meta { font-size: 12px; color: var(--dim); }
 
 /* Docs */

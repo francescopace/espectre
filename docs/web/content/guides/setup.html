@@ -9,7 +9,7 @@
 
     <details class="page-toc">
       <summary>Sections</summary>
-      <nav aria-label="Guide sections"><strong>On this page</strong><a href="#setup-requirements">Requirements</a><a href="#setup-firmware">Choose firmware</a><a href="#setup-flash">Install</a><a href="#setup-network">Connect to Wi-Fi</a><a href="#setup-test">Test sensing</a><a href="#setup-troubleshooting">Troubleshooting</a></nav>
+      <nav aria-label="Guide sections"><strong>On this page</strong><a href="#setup-requirements">Requirements</a><a href="#setup-firmware">Choose firmware</a><a href="#setup-flash">Install</a><a href="#setup-network">Connect to Wi-Fi</a><a href="#setup-matter-compatibility">Matter compatibility</a><a href="#setup-test">Test sensing</a><a href="#setup-troubleshooting">Troubleshooting</a></nav>
     </details>
 
     <h2 id="setup-requirements">What you need</h2>
@@ -32,7 +32,7 @@
       <tbody>
         <tr><td>Want a standalone sensor, browser tools, MQTT, or Home Assistant through an existing broker</td><td><strong>Native</strong></td><td>Improv Serial setup, broker-free Direct monitoring, optional MQTT, Home Assistant MQTT Discovery, and browser games</td></tr>
         <tr><td>Want the most complete Home Assistant integration and YAML configuration</td><td><strong>ESPHome</strong></td><td>Auto-discovered device with motion, movement level, threshold slider, and recalibrate button</td></tr>
-        <tr><td>Use a controller that supports Matter occupancy sensors</td><td><strong>Matter</strong></td><td>A standard occupancy sensor; controller validation is still limited, so check the <a href="https://github.com/francescopace/espectre/blob/main/src/cpp/frontend/matter/README.md" target="_blank" rel="noopener">current validation notes</a></td></tr>
+        <tr><td>Use a controller that supports Matter occupancy sensors</td><td><strong>Matter</strong></td><td>A standard occupancy sensor; controller validation is still limited, so check the <a href="#setup-matter-compatibility">current compatibility status</a></td></tr>
         <tr><td>Want raw CSI data for research</td><td><strong>Native, ESPHome, or Matter</strong></td><td>Raw HTTP v2 capture through the browser tool or <code>./espectre collect</code></td></tr>
       </tbody>
     </table></div>
@@ -42,7 +42,7 @@
     <h3 class="subheading">Recommended: install a published image</h3>
     <ol class="steps-list">
       <li><h3>Plug the board in</h3><p>Connect the ESP32 to your computer over USB. Close anything that may be using the serial port, such as a previous flasher tab, the Arduino IDE, or a serial monitor.</p></li>
-      <li><h3>Open the installer</h3><p>Go to <a href="/tools/flash/">Install ESPectre</a>, keep <em>Stable — recommended</em> selected, and choose the firmware type from Step&nbsp;1. The installer detects the chip over USB and selects the matching image. Preview and development versions are intended for testing.</p></li>
+      <li><h3>Open the installer</h3><p>Go to <a href="/tools/flash/">Install ESPectre</a> and choose the firmware type from Step&nbsp;1. The installer detects the chip over USB and selects the matching image. Preview and development versions are intended for testing.</p></li>
       <li><h3>Connect</h3><p>Click <em>Connect via USB</em>. The browser shows a list of serial ports: pick the one that appears when you plug the board in (on Windows a <code>COMx</code> port, on macOS/Linux something like <code>usbserial</code>, <code>usbmodem</code>, or <code>ttyACM</code>).</p></li>
       <li><h3>Install</h3><p>Choose <em>Install</em>, confirm, and wait. Flashing takes one to three minutes; do not unplug the cable. When it finishes, the device reboots into ESPectre.</p></li>
     </ol>
@@ -137,6 +137,10 @@ espectre&gt; recalibrate</code></pre>
       </div>
     </div>
 
+    <h3 id="setup-matter-compatibility" class="subheading">Matter controller compatibility</h3>
+    <p>ESPectre publishes motion through Matter's standard occupancy sensor. For v3.0.0-rc1, no reproducible end-to-end validation is recorded yet for Google Home, Amazon Alexa, Apple Home, Samsung SmartThings, or Home Assistant. Support for an occupancy sensor in a controller does not by itself confirm that ESPectre will commission, report motion, and trigger an automation correctly. Broader controller validation is planned for v3.1.0; follow it on the <a href="/roadmap/#roadmap-v3-1">roadmap</a>.</p>
+    <div class="note"><strong>Before choosing Matter:</strong> the current firmware uses a development vendor and product ID plus example device-attestation credentials. A controller may require its developer workflow or an explicit acknowledgement for an uncertified accessory.</div>
+
     <details class="article-details">
       <summary>For integrators: how browser discovery works</summary>
       <div class="article-details-body">
@@ -144,13 +148,13 @@ espectre&gt; recalibrate</code></pre>
       <p>Browsers can resolve individual <code>.local</code> names, but ordinary web applications cannot enumerate DNS-SD services. The portal resolves a hostname containing a new 96-bit nonce to reach one eligible ESPectre device. That device performs the bounded <code>_espectre._tcp.local.</code> browse on the browser's behalf and returns validated endpoints. The new hostname also prevents resolver caches from satisfying the lookup with a positive or negative result from an earlier attempt.</p>
       <p>The discovery exchange stays on the LAN and uses no mobile app, browser extension, or address-range scan. Discovery is optional and IPv4-only. At least one eligible responder must be reachable, even if you then select a different device. Manual private IP entry remains available when multicast, resolver, or browser policy blocks discovery.</p>
       <div class="table-wrap"><table>
-        <caption class="sr-only">Supported browser environments for automatic LAN discovery</caption>
+        <caption class="sr-only">Browser compatibility and validation status for automatic LAN discovery</caption>
         <thead><tr><th scope="col">Browser environment</th><th scope="col">Status</th><th scope="col">Discovery requirements</th></tr></thead>
         <tbody>
-          <tr><td>Chrome 151 or later on macOS</td><td><strong>Supported</strong></td><td>Tested end to end against physical hardware, including multiple responders and responder failover.</td></tr>
-          <tr><td>Chrome 151 or later on Windows 10/11</td><td><strong>Supported</strong></td><td>Physical test coverage is pending. Windows must resolve <code>.local</code> through mDNS, the LAN and firewall must pass multicast UDP port 5353, and Local Network Access must be allowed for the portal.</td></tr>
-          <tr><td>Chrome 151 or later on native Linux</td><td><strong>Supported</strong></td><td>Physical test coverage is pending. The system resolver must route <code>.local</code> to mDNS through a configured service such as systemd-resolved or Avahi/NSS, the active interface and firewall must pass multicast UDP port 5353, and Local Network Access must be allowed.</td></tr>
-          <tr><td>Edge, Firefox, Safari, mobile Chrome, and WSL browser environments</td><td><strong>Compatibility not guaranteed</strong></td><td>Use a supported desktop Chrome path or connect with the current private IP address.</td></tr>
+          <tr><td>Chrome 151 or later on macOS</td><td><strong>Validated</strong></td><td>Tested end to end against physical hardware, including multiple responders and responder failover.</td></tr>
+          <tr><td>Chrome 151 or later on Windows 10/11</td><td><strong>Validation pending</strong></td><td>Windows must resolve <code>.local</code> through mDNS, the LAN and firewall must pass multicast UDP port 5353, and Local Network Access must be allowed for the portal.</td></tr>
+          <tr><td>Chrome 151 or later on native Linux</td><td><strong>Validation pending</strong></td><td>The system resolver must route <code>.local</code> to mDNS through a configured service such as systemd-resolved or Avahi/NSS, the active interface and firewall must pass multicast UDP port 5353, and Local Network Access must be allowed.</td></tr>
+          <tr><td>Edge, Firefox, Safari, mobile Chrome, and WSL browser environments</td><td><strong>Compatibility not guaranteed</strong></td><td>Use Chrome 151 or later on desktop, or connect with the current private IP address.</td></tr>
         </tbody>
       </table></div>
       <aside class="note"><strong>If mDNS is disabled or unreliable:</strong> enter the device's current private IPv4 address from the Improv Serial completion link or the router's DHCP client/lease list. A full device ID is converted to <code>espectre-&lt;device-id&gt;.local</code>, while a device name or 6-character ID starts Auto-discovery, so none of those references is an mDNS-free fallback. From a repository checkout, run <code>./espectre devices --frontend native</code> on macOS/Linux or <code>espectre.cmd devices --frontend native</code> on Windows and copy the returned IP endpoint; this fresh host-side browse may still work when only the operating system's <code>.local</code> resolver is disabled, but it cannot cross multicast filtering, client isolation, or VLAN boundaries. You do not need to enable mDNS to configure a device by IP.</aside>

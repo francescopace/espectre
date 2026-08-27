@@ -2136,7 +2136,7 @@
             el.style.width = pct;
         });
         $$('.js-motion-label').forEach((el) => {
-            el.textContent = conn.motion ? 'MOTION' : 'NO MOTION';
+            el.textContent = conn.motion ? 'MOTION' : 'IDLE';
             el.classList.toggle('motion', conn.motion);
         });
         renderGameMotionGauge();
@@ -2686,6 +2686,19 @@
         return manifest;
     }
 
+    function flashReleaseChannelLabel(manifest) {
+        const version = String(manifest?.release_tag || manifest?.version || '').replace(/^v/, '');
+        return /(?:^|[-.])rc(?:[.-]?\d+)(?:$|[-.])/i.test(version)
+            ? 'Release candidate'
+            : 'Stable — recommended';
+    }
+
+    function flashUpdateReleaseChannelLabel(manifest) {
+        const select = document.getElementById('flash-channel');
+        const option = select?.querySelector('option[value="release"]');
+        if (option) option.textContent = flashReleaseChannelLabel(manifest);
+    }
+
     function flashStatus(message, kind) {
         const el = $('.js-flash-status');
         el.textContent = message;
@@ -2737,6 +2750,7 @@
         try {
             const manifest = await flashLoadManifest(selectedChannel);
             if (requestId !== flash.refreshRequest) return;
+            if (selectedChannel === 'release') flashUpdateReleaseChannelLabel(manifest);
             const frontendsMap = flashManifestFrontends(manifest);
 
             const frontends = Object.entries(frontendsMap)
@@ -3272,7 +3286,7 @@
         }
         const stateEl = $('.js-mon-state');
         if (stateEl) {
-            stateEl.textContent = motion ? 'MOTION DETECTED' : 'NO MOTION';
+            stateEl.textContent = motion ? 'MOTION' : 'IDLE';
             stateEl.classList.toggle('motion', motion);
         }
         const movementEl = $('.js-mon-move');
