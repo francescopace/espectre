@@ -1307,6 +1307,7 @@ def test_resolve_idf_environment_reuses_esphome_native_toolchain(monkeypatch, tm
     python_executable.parent.mkdir(parents=True)
     idf_py.write_text("", encoding="utf-8")
     python_executable.write_text("", encoding="utf-8")
+    (python_env_path / idf.ESPHOME_IDF_STAMP_FILE).write_text("{}", encoding="utf-8")
     process_env = {"IDF_PATH": str(framework_path)}
 
     monkeypatch.delenv("IDF_PATH", raising=False)
@@ -1324,6 +1325,44 @@ def test_resolve_idf_environment_reuses_esphome_native_toolchain(monkeypatch, tm
     assert env.mode == "esphome"
     assert env.install_dir == framework_path
     assert env.idf_path_entry == str(idf_py)
+    assert env.python_executable == python_executable
+    assert env.process_env == process_env
+
+
+def test_resolve_idf_environment_repairs_incomplete_esphome_python_env(
+    monkeypatch, tmp_path: Path
+) -> None:
+    tools_path = tmp_path / "idf"
+    framework_path = tools_path / "frameworks" / idf_container.IDF_VERSION
+    python_env_path = tools_path / "penvs" / idf_container.IDF_VERSION
+    idf_py = framework_path / "tools" / "idf.py"
+    python_executable = python_env_path / "bin" / "python"
+    idf_py.parent.mkdir(parents=True)
+    idf_py.write_text("", encoding="utf-8")
+    repaired: list[bool] = []
+    process_env = {"IDF_PATH": str(framework_path)}
+
+    def repair_install() -> tuple[Path, Path]:
+        repaired.append(True)
+        python_executable.parent.mkdir(parents=True)
+        python_executable.write_text("", encoding="utf-8")
+        return framework_path, python_env_path
+
+    monkeypatch.delenv("IDF_PATH", raising=False)
+    monkeypatch.setattr(idf.Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(idf.shutil, "which", lambda _binary: None)
+    monkeypatch.setattr(idf, "get_esphome_idf_tools_path", lambda: tools_path)
+    monkeypatch.setattr(idf, "repair_esphome_managed_idf_install", repair_install)
+    monkeypatch.setattr(
+        idf,
+        "build_esphome_idf_process_environment",
+        lambda framework, python_env: process_env,
+    )
+
+    env = idf.resolve_idf_environment()
+
+    assert repaired == [True]
+    assert env.mode == "esphome"
     assert env.python_executable == python_executable
     assert env.process_env == process_env
 

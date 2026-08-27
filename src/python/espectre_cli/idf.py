@@ -27,6 +27,7 @@ from .targets import IDF_FRONTENDS, resolve_idf_target
 MATTER_QR_PATTERN = re.compile(r"MATTER_QR=(MT:[A-Z0-9.\-]+)")
 MATTER_MANUAL_CODE_PATTERN = re.compile(r"MATTER_MANUAL_CODE=([0-9]+)")
 IDF_TARGET_CONFIG_PATTERN = re.compile(r'^CONFIG_IDF_TARGET="([^"]+)"$', re.MULTILINE)
+ESPHOME_IDF_STAMP_FILE = ".esphome.stamp.json"
 
 
 @dataclass(frozen=True)
@@ -290,6 +291,14 @@ def build_esphome_idf_process_environment(
         CORE.build_path = previous_build_path
 
 
+def repair_esphome_managed_idf_install() -> tuple[Path, Path]:
+    """Complete an interrupted ESPHome-managed ESP-IDF installation."""
+    from esphome.espidf.framework import check_esp_idf_install
+
+    framework_path, python_env_path = check_esp_idf_install(IDF_VERSION)
+    return Path(framework_path), Path(python_env_path)
+
+
 def resolve_esphome_managed_idf_environment() -> ResolvedIdfEnvironment | None:
     """Resolve the pinned native ESP-IDF toolchain already managed by ESPHome."""
     tools_path = get_esphome_idf_tools_path()
@@ -300,8 +309,23 @@ def resolve_esphome_managed_idf_environment() -> ResolvedIdfEnvironment | None:
     python_env_path = tools_path / "penvs" / IDF_VERSION
     idf_py = framework_path / "tools" / "idf.py"
     python_executable = python_env_path / ("Scripts/python.exe" if is_windows_host() else "bin/python")
-    if not idf_py.is_file() or not python_executable.is_file():
+    if not idf_py.is_file():
         return None
+
+    environment_complete = python_executable.is_file() and (
+        python_env_path / ESPHOME_IDF_STAMP_FILE
+    ).is_file()
+    if not environment_complete:
+        try:
+            framework_path, python_env_path = repair_esphome_managed_idf_install()
+        except (ImportError, OSError, RuntimeError, ValueError):
+            return None
+        idf_py = framework_path / "tools" / "idf.py"
+        python_executable = python_env_path / (
+            "Scripts/python.exe" if is_windows_host() else "bin/python"
+        )
+        if not idf_py.is_file() or not python_executable.is_file():
+            return None
 
     try:
         process_env = build_esphome_idf_process_environment(framework_path, python_env_path)
