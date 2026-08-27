@@ -24,6 +24,10 @@ namespace {
 static const char *const TAG = "CsiCapture";
 static constexpr uint32_t DETECTOR_RESET_DROP_STREAK = 8U;
 
+bool is_quiescent_csi_disable_result(esp_err_t err) {
+  return err == ESP_OK || err == ESP_ERR_INVALID_ARG;
+}
+
 }  // namespace
 
 void CsiCaptureService::init(IWiFiCSI *wifi_csi) {
@@ -170,10 +174,14 @@ esp_err_t CsiCaptureService::disable() {
   rx_timestamp_tracker_.reset();
   reset_channel_tracking_();
   last_disable_err_.store(disable_err, std::memory_order_relaxed);
-  if (disable_err != ESP_OK) {
+  if (!is_quiescent_csi_disable_result(disable_err)) {
     ESP_LOGE(TAG, "Failed to disable CSI after unregistering its callback: %s",
              esp_err_to_name(disable_err));
     return disable_err;
+  }
+  if (disable_err != ESP_OK) {
+    ESP_LOGW(TAG, "CSI callback detached; accepting quiescent driver result: %s",
+             esp_err_to_name(disable_err));
   }
   ESP_LOGI(TAG, "CSI disabled attempt=%" PRIu32 " disable=%s", attempt, esp_err_to_name(last_disable_err()));
   return ESP_OK;

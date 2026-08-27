@@ -1017,6 +1017,24 @@ void test_csi_pipeline_disable_error(void) {
     TEST_ASSERT_FALSE(g_wifi_mock.has_callback());
 }
 
+void test_csi_pipeline_disable_accepts_documented_invalid_arg_after_callback_detach(void) {
+    LightweightDetector detector(50, 1.0f);
+    CsiPipeline manager;
+    manager.init(&detector, &g_wifi_mock);
+
+    TEST_ASSERT_EQUAL(ESP_OK, manager.enable(nullptr));
+    g_wifi_mock.set_csi_error(ESP_ERR_INVALID_ARG);
+
+    TEST_ASSERT_EQUAL(ESP_OK, manager.disable());
+    TEST_ASSERT_FALSE(manager.is_enabled());
+    TEST_ASSERT_FALSE(g_wifi_mock.has_callback());
+
+    g_wifi_mock.reset_errors();
+    TEST_ASSERT_EQUAL(ESP_OK, manager.enable(nullptr));
+    TEST_ASSERT_TRUE(manager.is_enabled());
+    TEST_ASSERT_TRUE(g_wifi_mock.has_callback());
+}
+
 void test_csi_pipeline_disable_retries_callback_unregister_after_stopping_capture(void) {
     LightweightDetector detector(50, 1.0f);
     CsiPipeline manager;
@@ -1403,6 +1421,7 @@ int process(void) {
     RUN_TEST(test_csi_pipeline_enable_callback_error);
     RUN_TEST(test_csi_pipeline_enable_csi_error);
     RUN_TEST(test_csi_pipeline_disable_error);
+    RUN_TEST(test_csi_pipeline_disable_accepts_documented_invalid_arg_after_callback_detach);
     RUN_TEST(test_csi_pipeline_disable_retries_callback_unregister_after_stopping_capture);
     RUN_TEST(test_csi_pipeline_disable_replaces_a_callback_that_cannot_be_unregistered);
     
