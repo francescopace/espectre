@@ -369,6 +369,70 @@ def test_direct_retry_performs_a_capabilities_request(monkeypatch):
     assert clients[0].closed is True
 
 
+def test_direct_discovery_ignores_matching_frontend_on_another_chip(monkeypatch):
+    calls = 0
+    wrong = SimpleNamespace(chip="esp32", endpoint="http://192.0.2.10/espectre/v1/request")
+    expected = SimpleNamespace(chip="esp32-s3", endpoint="http://192.0.2.11/espectre/v1/request")
+
+    def fake_discover_devices(**_kwargs):
+        nonlocal calls
+        calls += 1
+        return [wrong] if calls == 1 else [expected]
+
+    monkeypatch.setattr(bench, "discover_devices", fake_discover_devices)
+    monkeypatch.setattr(bench.time, "sleep", lambda _seconds: None)
+
+    discovered = bench.discover_direct_device("esphome", chip="s3", timeout_seconds=1.0)
+
+    assert discovered is expected
+    assert calls == 2
+
+
+def test_failed_direct_results_preserve_bootstrap_evidence():
+    bootstrap_case = bench.BenchmarkCase("native", "lightweight")
+    bootstrap = bench.BenchmarkResult(
+        case=bootstrap_case,
+        build=bench.CommandResult(["build"], 0, 1.0, "built"),
+        flash=bench.CommandResult(["flash"], 0, 2.0, "flashed"),
+    )
+
+    results = bench._failed_direct_results(
+        [bootstrap_case, bench.BenchmarkCase("native", "high_accuracy")],
+        bootstrap,
+        "provisioning failed",
+    )
+
+    assert [result.status for result in results] == ["FAIL", "FAIL"]
+    assert all(result.build is bootstrap.build for result in results)
+    assert all(result.flash is bootstrap.flash for result in results)
+    assert all(result.reasons == ["provisioning failed"] for result in results)
+
+
+def test_micro_direct_preparation_reconnects_after_transient_timeout(monkeypatch):
+    clients = [SimpleNamespace(close=lambda: None), SimpleNamespace(close=lambda: None)]
+    prepared = []
+
+    monkeypatch.setattr(bench, "_connect_direct_with_retry", lambda *_args, **_kwargs: clients.pop(0))
+    monkeypatch.setattr(bench.time, "sleep", lambda _seconds: None)
+
+    def fake_prepare(client, *_args, **_kwargs):
+        prepared.append(client)
+        if len(prepared) == 1:
+            raise TimeoutError("transient")
+
+    monkeypatch.setattr(bench, "prepare_micro_direct_runtime", fake_prepare)
+    monkeypatch.setattr(bench, "wait_for_direct_runtime_ready", lambda *_args, **_kwargs: None)
+
+    client = bench.connect_and_prepare_micro_runtime(
+        "http://192.0.2.10/espectre/v1/request",
+        bench.BenchmarkCase("micro", "lightweight"),
+        chip="c3",
+    )
+
+    assert client is prepared[1]
+    assert len(prepared) == 2
+
+
 def test_direct_capture_opens_and_closes_event_collection():
     class FakeClient:
         def __init__(self):
@@ -526,6 +590,61 @@ def test_direct_evidence_fails_when_transport_health_counters_increase():
     )
 
     assert "Direct transport recorded a send failure during the scored window" in reasons
+
+
+def test_direct_evidence_uses_device_time_when_host_clock_hides_a_gap():
+    samples = [
+        {"host_elapsed_seconds": 0.0, "timestamp_ms": 1_000, "uptime": 1},
+        {"host_elapsed_seconds": 1.0, "timestamp_ms": 31_000, "uptime": 31},
+    ]
+
+    metrics, reasons = bench.analyze_direct_evidence(
+        samples,
+        [],
+        duration_seconds=2,
+        require_telemetry=False,
+        require_detection_timing=False,
+    )
+
+    assert metrics.status_interval_max_ms == 30_000
+    assert metrics.status_gap_count == 1
+    assert "Direct diagnostics gap reached 30.00s" in reasons
+
+
+def test_direct_evidence_does_not_treat_host_latency_as_a_runtime_gap():
+    samples = [
+        {"host_elapsed_seconds": 0.0, "timestamp_ms": 1_000, "uptime": 1},
+        {"host_elapsed_seconds": 3.0, "timestamp_ms": 2_000, "uptime": 2},
+    ]
+
+    metrics, reasons = bench.analyze_direct_evidence(
+        samples,
+        [],
+        duration_seconds=2,
+        require_telemetry=False,
+        require_detection_timing=False,
+    )
+
+    assert metrics.status_interval_max_ms == 1_000
+    assert metrics.status_gap_count == 0
+    assert not any("diagnostics gap" in reason for reason in reasons)
+
+
+def test_direct_evidence_rejects_a_frozen_device_timestamp():
+    samples = [
+        {"host_elapsed_seconds": 0.0, "timestamp_ms": 1_000, "uptime": 1},
+        {"host_elapsed_seconds": 1.0, "timestamp_ms": 1_000, "uptime": 1},
+    ]
+
+    _metrics, reasons = bench.analyze_direct_evidence(
+        samples,
+        [],
+        duration_seconds=2,
+        require_telemetry=False,
+        require_detection_timing=False,
+    )
+
+    assert "Direct diagnostics timestamp did not advance in 1 sampled interval(s)" in reasons
 
 
 def _status_line(timestamp_ms: int, state: str = "IDLE") -> str:
@@ -763,10 +882,105 @@ def test_runtime_status_real_device_gap_remains_a_failure():
     assert "detector status logging gap reached 2.00s" in reasons
 
 
-def test_cases_include_esphome_high_accuracy_after_lightweight():
-    labels = [case.label for case in bench.CASES]
+def test_cases_run_frontends_in_hardware_benchmark_order():
+    frontends = [case.frontend for case in bench.CASES]
 
-    assert labels.index("ESPHome Lightweight") < labels.index("ESPHome High Accuracy")
+    assert frontends == ["native", "native", "esphome", "esphome", "matter", "micro"]
+
+
+def test_main_executes_frontends_in_hardware_benchmark_order(tmp_path, monkeypatch):
+    observed: list[str] = []
+    state = bench.RepositoryState("revision", False, "fingerprint")
+
+    def run_direct(cases, _chip, _port, *, on_result):
+        observed.append(cases[0].frontend)
+        direct_results = [bench.BenchmarkResult(case=case, status="PASS") for case in cases]
+        for result in direct_results:
+            on_result(result)
+        return direct_results
+
+    def run_matter(case, _chip, _port):
+        observed.append(case.frontend)
+        return bench.BenchmarkResult(case=case, status="PASS")
+
+    def run_micro(case, _chip, _port, **_kwargs):
+        observed.append(case.frontend)
+        return bench.BenchmarkResult(case=case, status="PASS")
+
+    monkeypatch.setattr(sys, "argv", ["benchmark_firmware.py", "--chip", "c5"])
+    monkeypatch.setattr(bench, "get_serial_port", lambda _port: "/dev/fake")
+    monkeypatch.setattr(bench, "detect_chip_type", lambda _port: "c5")
+    monkeypatch.setattr(bench, "repository_state", lambda: state)
+    monkeypatch.setattr(bench, "benchmark_artifact_dir", lambda *_args: tmp_path / "artifacts")
+    monkeypatch.setattr(bench, "require_benchmark_prerequisites", lambda _cases: None)
+    monkeypatch.setattr(bench, "run_direct_frontend_cases_safely", run_direct)
+    monkeypatch.setattr(bench, "run_cpp_build_flash_case", run_matter)
+    monkeypatch.setattr(bench, "run_micro_case", run_micro)
+    monkeypatch.setattr(bench, "write_report", lambda *_args, **_kwargs: tmp_path / "report.md")
+    monkeypatch.setattr(bench, "write_benchmark_artifacts", lambda *_args, **_kwargs: None)
+
+    assert bench.main() == 0
+    assert observed == ["native", "esphome", "matter", "micro"]
+
+
+def test_main_warns_but_passes_when_sources_change_on_same_revision(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    state_start = bench.RepositoryState("revision", True, "source-start")
+    state_end = bench.RepositoryState("revision", True, "source-end")
+    states = iter((state_start, state_end, state_end, state_end, state_end))
+    reports: list[tuple[list[str], bool, str]] = []
+
+    def run_direct(cases, _chip, _port, *, on_result):
+        direct_results = [bench.BenchmarkResult(case=case, status="PASS") for case in cases]
+        for result in direct_results:
+            on_result(result)
+        return direct_results
+
+    def write_report(_chip, _port, _started_at, results, _expected_cases, **kwargs):
+        rendered = bench.render_report(
+            _chip,
+            _port,
+            _started_at,
+            results,
+            _expected_cases,
+            **kwargs,
+        )
+        reports.append(
+            (
+                [result.status for result in results],
+                kwargs["source_changed_during_run"],
+                rendered,
+            )
+        )
+        return tmp_path / "report.md"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["benchmark_firmware.py", "--chip", "c5", "--frontend", "native"],
+    )
+    monkeypatch.setattr(bench, "get_serial_port", lambda _port: "/dev/fake")
+    monkeypatch.setattr(bench, "detect_chip_type", lambda _port: "c5")
+    monkeypatch.setattr(bench, "repository_state", lambda: next(states))
+    monkeypatch.setattr(bench, "benchmark_artifact_dir", lambda *_args: tmp_path / "artifacts")
+    monkeypatch.setattr(bench, "require_benchmark_prerequisites", lambda _cases: None)
+    monkeypatch.setattr(bench, "run_direct_frontend_cases_safely", run_direct)
+    monkeypatch.setattr(bench, "write_report", write_report)
+    monkeypatch.setattr(bench, "write_benchmark_artifacts", lambda *_args, **_kwargs: None)
+
+    assert bench.main() == 0
+    assert [(statuses, changed) for statuses, changed, _rendered in reports] == [
+        (["PASS"], True),
+        (["PASS", "PASS"], True),
+        (["PASS", "PASS"], True),
+        (["PASS", "PASS"], True),
+    ]
+    assert all("Source consistency: **WARNING**" in rendered for _, _, rendered in reports)
+    assert all("Source fingerprint: `source-start` → `source-end`" in rendered for _, _, rendered in reports)
+    assert capsys.readouterr().err.count("WARNING: firmware or benchmark sources changed") == 1
 
 
 def test_cases_include_micro_espectre_lightweight_only():
@@ -860,6 +1074,7 @@ def test_micro_benchmark_config_overrides_lab_wifi(monkeypatch):
     assert "WIFI_SSID = 'lab'" in content
     assert "WIFI_PASSWORD = 'secret'" in content
     assert "TRAFFIC_GENERATOR_ENABLED = True" in content
+    assert bench.MICRO_BENCHMARK_PPS == 100
     assert f"CSI_TARGET_PPS = {bench.MICRO_BENCHMARK_PPS}" in content
     assert assignment_names == {
         "WIFI_SSID",
@@ -916,7 +1131,7 @@ def test_native_idf_environment_applies_explicit_csi_target_pps(tmp_path, monkey
     app_dir = tmp_path / "native"
     app_dir.mkdir()
     (app_dir / "sdkconfig.defaults").write_text("", encoding="utf-8")
-    monkeypatch.setenv("ESPECTRE_BENCHMARK_CSI_TARGET_PPS", "80")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_CSI_TARGET_PPS", "100")
     monkeypatch.setattr(
         bench,
         "IDF_FRONTENDS",
@@ -934,8 +1149,15 @@ def test_native_idf_environment_applies_explicit_csi_target_pps(tmp_path, monkey
         override_path = bench.Path(env["SDKCONFIG_DEFAULTS"].split(";")[-1])
         override = override_path.read_text(encoding="utf-8")
 
-    assert "CONFIG_ESPECTRE_CSI_TARGET_PPS=80" in override
+    assert "CONFIG_ESPECTRE_CSI_TARGET_PPS=100" in override
     assert not override_path.exists()
+
+
+def test_benchmark_rejects_a_subproduction_csi_target(monkeypatch):
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_CSI_TARGET_PPS", "99")
+
+    with pytest.raises(RuntimeError, match="must be 100..1000"):
+        bench.benchmark_csi_target_pps()
 
 
 def test_micro_benchmark_config_reads_shared_local_env_not_developer_config(monkeypatch):
@@ -1103,6 +1325,7 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, chip):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
     commands: list[list[str]] = []
     connections: list[tuple[str, float]] = []
+    sleeps: list[float] = []
 
     def fake_run_command(command, **_kwargs):
         resolved = list(command)
@@ -1126,15 +1349,17 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, chip):
 
     monkeypatch.setattr(bench, "run_command", fake_run_command)
     monkeypatch.setattr(bench, "_run_background_command", fake_background)
+    monkeypatch.setattr(bench.time, "sleep", sleeps.append)
     client = SimpleNamespace(close=lambda: None)
 
     def fake_connect(endpoint, **kwargs):
         connections.append((endpoint, kwargs["timeout_seconds"]))
         return client
 
-    monkeypatch.setattr(bench, "_connect_direct_with_retry", fake_connect)
-    monkeypatch.setattr(bench, "prepare_micro_direct_runtime", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(bench, "wait_for_direct_runtime_ready", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(bench, "connect_and_prepare_micro_runtime", lambda endpoint, *_args, **_kwargs: fake_connect(
+        endpoint,
+        timeout_seconds=bench.WIFI_CONNECT_WAIT_SECONDS + bench.DIRECT_DISCOVERY_TIMEOUT_SECONDS,
+    ))
     monkeypatch.setattr(bench, "capture_direct_window", lambda *_args, **_kwargs: ([{"uptime": 1}], [{"event": "telemetry"}]))
     monkeypatch.setattr(bench, "analyze_direct_evidence", lambda *_args, **_kwargs: (bench.RuntimeMetrics(), []))
     monkeypatch.setattr(bench, "_terminate_process", lambda target: setattr(target, "returncode", 0))
@@ -1161,6 +1386,7 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, chip):
         )
     ]
     assert result.transport_evidence["serial_scored"] is False
+    assert sleeps == []
     assert [command[1:3] for command in commands] == [
         ["micro", "flash"],
         ["micro", "deploy"],
@@ -1196,15 +1422,20 @@ api:
     assert "level: INFO" in content
     assert 'ssid: "lab"' in content
     assert 'password: "secret"' in content
+    assert "post_connect_roaming: false" in content
     assert "csi_target_pps: 100" in content
     assert "name: espectre-benchmark-s3" in content
+    assert "api:" in content
     assert "encryption:" in content
-    assert "key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" in content
+    assert "on_boot:" in content
+    assert "priority: 150" in content
+    assert "global_api_server->on_shutdown()" in content
+    assert "dashboard_import: !remove" not in content
     assert "debug_telemetry" not in content
     assert not config_path.exists()
 
 
-def test_esphome_bootstrap_build_cleans_shared_component_caches(tmp_path):
+def test_esphome_bootstrap_build_preserves_shared_toolchain_cache(tmp_path):
     case = bench.BenchmarkCase("esphome", "lightweight")
     config = tmp_path / "espectre-c3.yaml"
 
@@ -1216,11 +1447,11 @@ def test_esphome_bootstrap_build_cleans_shared_component_caches(tmp_path):
         clean=True,
     )
 
-    assert build[-1] == "--clean-all"
-    assert "--clean" not in build
+    assert build[-1] == "--clean"
+    assert "--clean-all" not in build
 
 
-def test_esphome_case_config_can_keep_api_compiled_without_listener(tmp_path, monkeypatch):
+def test_esphome_case_config_can_explicitly_keep_api_compiled_without_listener(tmp_path, monkeypatch):
     source_path = tmp_path / "espectre-c3.yaml"
     source_path.write_text(
         """esphome:
@@ -1238,6 +1469,7 @@ api:
     )
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_REMOVE_ESPHOME_API", "0")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_DISABLE_ESPHOME_API_LISTENER", "1")
     monkeypatch.setattr(bench, "ESPHOME_CONFIGS", {"c3": str(source_path)})
 
@@ -1247,6 +1479,7 @@ api:
     assert "api:" in content
     assert "encryption:" in content
     assert "on_boot:" in content
+    assert "priority: 150" in content
     assert "global_api_server->on_shutdown()" in content
 
 
@@ -1507,17 +1740,71 @@ def test_benchmark_artifacts_preserve_starting_source_provenance(tmp_path, monke
     assert manifest["git_worktree_dirty_end"] is False
 
 
-def test_benchmark_source_provenance_detects_revision_and_source_changes():
+def test_benchmark_source_provenance_only_invalidates_revision_changes():
     state_start = bench.RepositoryState("aaaaaaaaaaaa", False, "source-start")
 
-    assert bench.benchmark_source_provenance_reason(state_start, state_start) is None
-    assert bench.benchmark_source_provenance_reason(
+    assert bench.benchmark_revision_provenance_reason(state_start, state_start) is None
+    assert bench.benchmark_revision_provenance_reason(
+        state_start,
+        bench.RepositoryState("aaaaaaaaaaaa", True, "source-end"),
+    ) is None
+    assert bench.benchmark_revision_provenance_reason(
         state_start,
         bench.RepositoryState("bbbbbbbbbbbb", False, "source-end"),
     ) == (
         "benchmark source provenance is invalid: Git revision changed from aaaaaaaaaaaa to "
-        "bbbbbbbbbbbb and firmware or benchmark sources changed during the run"
+        "bbbbbbbbbbbb during the run"
     )
+
+
+def test_benchmark_source_changes_are_reported_as_warnings():
+    state_start = bench.RepositoryState("aaaaaaaaaaaa", True, "source-start")
+    state_end = bench.RepositoryState("aaaaaaaaaaaa", True, "source-end")
+    case = bench.BenchmarkCase("esphome", "lightweight")
+    result = bench.BenchmarkResult(case=case, status="PASS")
+
+    assert bench.benchmark_source_change_warning(state_start, state_start) is None
+    assert bench.benchmark_source_change_warning(state_start, state_end) == (
+        "firmware or benchmark sources changed during the run"
+    )
+
+    bench.render_report(
+        "c3",
+        "/dev/cu.test",
+        datetime.fromisoformat("2026-08-26T12:49:37+02:00"),
+        [result],
+        [case],
+        repository_state_start=state_start,
+        repository_state_end=state_end,
+        source_changed_during_run=True,
+    )
+
+
+def test_capture_direct_window_retries_initial_event_reset(monkeypatch):
+    class EventClient:
+        events = []
+
+        def __init__(self):
+            self.start_attempts = 0
+            self.stop_calls = 0
+
+        def start_events(self):
+            self.start_attempts += 1
+            if self.start_attempts == 1:
+                raise DirectProtocolError("Direct event stream failed: connection reset")
+
+        def stop_events(self):
+            self.stop_calls += 1
+
+    client = EventClient()
+    monkeypatch.setattr(bench.time, "sleep", lambda _seconds: None)
+
+    samples, events = bench.capture_direct_window(client, duration_seconds=0)
+
+    assert samples == []
+    assert events == []
+    assert client.start_attempts == 2
+    assert client.stop_calls == 1
 
 
 def test_cpp_artifacts_store_only_normalized_direct_evidence(tmp_path):

@@ -63,6 +63,7 @@ from src.python.espectre_cli.device_transport import (
     DIRECT_PATH,
     DirectClient,
     DirectEvent,
+    DirectProtocolError,
     ImprovProvisioningResult,
     ImprovSerialClient,
     direct_endpoint_from_device_url,
@@ -78,6 +79,8 @@ WIFI_CONNECT_WAIT_SECONDS = 60
 DIRECT_DISCOVERY_TIMEOUT_SECONDS = 45
 DIRECT_SAMPLE_INTERVAL_SECONDS = 1.0
 DIRECT_STABLE_SAMPLE_COUNT = 5
+DIRECT_EVENT_OPEN_ATTEMPTS = 3
+MICRO_DIRECT_PREPARE_ATTEMPTS = 3
 DIRECT_ORIGIN = DEFAULT_DIRECT_ORIGIN
 MINIMUM_OCCUPANCY_PERCENT = 100.0 * MINIMUM_COVERAGE_NUMERATOR / MINIMUM_COVERAGE_DENOMINATOR
 STARTUP_GRACE_SECONDS = 10
@@ -96,7 +99,8 @@ STATUS_STABLE_WAIT_SECONDS = 30
 BENCHMARK_CONTROL_TIMEOUT_SECONDS = 30.0
 RUNTIME_STATUS_GAP_TOLERANCE_MS = 500
 RUNTIME_STATUS_BOUNDARY_TOLERANCE_SAMPLES = 1
-MICRO_BENCHMARK_PPS = 40
+MINIMUM_BENCHMARK_CSI_TARGET_PPS = 100
+MICRO_BENCHMARK_PPS = MINIMUM_BENCHMARK_CSI_TARGET_PPS
 CPP_BENCHMARK_UDP_PORT = 5555
 CPP_BENCHMARK_TRAFFIC_MARKER = b"\xf0\x9f\x91\xbb"
 BENCHMARK_SOURCE_PATHS = (
@@ -336,10 +340,10 @@ CASES = tuple(
     [
         BenchmarkCase("native", "lightweight"),
         BenchmarkCase("native", "high_accuracy"),
-        BenchmarkCase("micro", "lightweight"),
         BenchmarkCase("esphome", "lightweight"),
         BenchmarkCase("esphome", "high_accuracy"),
         BenchmarkCase("matter", "default", benchmark_mode="smoke"),
+        BenchmarkCase("micro", "lightweight"),
     ]
 )
 
@@ -437,12 +441,14 @@ def benchmark_setting_int(name: str, default: int) -> int:
 
 
 def benchmark_csi_target_pps() -> int:
-    """Return an optional benchmark cadence override."""
-    target_pps = benchmark_setting_int("ESPECTRE_BENCHMARK_CSI_TARGET_PPS", 0)
-    if target_pps < 0 or target_pps > 1000:
+    """Return a production-representative benchmark cadence."""
+    target_pps = benchmark_setting_int(
+        "ESPECTRE_BENCHMARK_CSI_TARGET_PPS",
+        MINIMUM_BENCHMARK_CSI_TARGET_PPS,
+    )
+    if target_pps < MINIMUM_BENCHMARK_CSI_TARGET_PPS or target_pps > 1000:
         raise RuntimeError(
-            "ESPECTRE_BENCHMARK_CSI_TARGET_PPS must be 1..1000, "
-            "or 0 to keep the frontend default"
+            "ESPECTRE_BENCHMARK_CSI_TARGET_PPS must be 100..1000"
         )
     return target_pps
 
@@ -1388,6 +1394,7 @@ def apply_esphome_benchmark_wifi(content: str) -> str:
         entry_indent = f"{wifi_field_indent}  "
         network_lines = [
             f"{wifi_field_indent}fast_connect: true",
+            f"{wifi_field_indent}post_connect_roaming: false",
             f"{wifi_field_indent}networks:",
             f"{entry_indent}- ssid: {quote_yaml_string(ssid)}",
             f"{entry_indent}  password: {quote_yaml_string(password)}",
@@ -1447,6 +1454,12 @@ def apply_esphome_benchmark_wifi(content: str) -> str:
     )
     if not has_fast_connect:
         updated_lines.insert(wifi_index + 1, f"{wifi_field_indent}fast_connect: true")
+    has_post_connect_roaming = any(
+        re.match(rf"^{re.escape(wifi_field_indent)}post_connect_roaming:\s*", line)
+        for line in updated_lines[wifi_index + 1 : wifi_index + 16]
+    )
+    if not has_post_connect_roaming:
+        updated_lines.insert(wifi_index + 2, f"{wifi_field_indent}post_connect_roaming: false")
     return "\n".join(updated_lines) + ("\n" if content.endswith("\n") else "")
 
 
@@ -1463,13 +1476,14 @@ def apply_esphome_benchmark_identity(content: str, chip: str) -> str:
         raise RuntimeError("could not set ESPHome benchmark node name")
     remove_api = benchmark_setting("ESPECTRE_BENCHMARK_REMOVE_ESPHOME_API", "") == "1"
     disable_api_listener = (
-        benchmark_setting("ESPECTRE_BENCHMARK_DISABLE_ESPHOME_API_LISTENER", "") == "1"
+        not remove_api
+        and benchmark_setting("ESPECTRE_BENCHMARK_DISABLE_ESPHOME_API_LISTENER", "1") != "0"
     )
-    if remove_api and disable_api_listener:
-        raise RuntimeError("ESPHome benchmark API removal and listener isolation are mutually exclusive")
-    # This fixed lab-only key keeps the API in the normal benchmark image while
-    # preventing an existing Home Assistant entry from injecting uncontrolled
-    # traffic into the scored window. Full removal is a diagnostic-only option.
+    # Keep the production API component in the benchmark image so firmware
+    # size and memory metrics remain representative. Stop its listener before
+    # the scored window because Home Assistant identifies the board by MAC and
+    # would otherwise reconnect to the temporary node. Full API removal remains
+    # available only as an explicit diagnostic option.
     api_replacement = (
         ""
         if remove_api
@@ -1497,7 +1511,7 @@ def apply_esphome_benchmark_identity(content: str, chip: str) -> str:
             (
                 r"\1\n"
                 "  on_boot:\n"
-                "    - priority: -100\n"
+                "    - priority: 150\n"
                 "      then:\n"
                 "        - lambda: |-\n"
                 "            if (esphome::api::global_api_server != nullptr) {\n"
@@ -1514,10 +1528,11 @@ def apply_esphome_benchmark_identity(content: str, chip: str) -> str:
 
 
 def render_micro_benchmark_config() -> str:
-    """Configure Micro laboratory Wi-Fi and native ping traffic."""
+    """Configure Micro laboratory Wi-Fi and the production traffic path."""
     values: list[tuple[str, object]] = [
         ("WIFI_SSID", require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID")),
         ("WIFI_PASSWORD", require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD")),
+        # Pin the station to the laboratory AP selected for repeatable measurements.
         ("WIFI_BSSID", benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "")),
         ("WIFI_CHANNEL", benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)),
         ("CSI_TARGET_PPS", MICRO_BENCHMARK_PPS),
@@ -1716,7 +1731,7 @@ def _commands_for_case(
         config_value = str(config)
         build_command = [launcher, "esphome", "build", "--config", config_value]
         if clean:
-            build_command.append("--clean-all")
+            build_command.append("--clean")
         return (
             build_command,
             [launcher, "esphome", "flash", "--config", config_value, "--device", port],
@@ -2043,13 +2058,28 @@ def analyze_direct_evidence(
         metrics.status_last_timestamp_ms = timestamps[-1]
     host_times = [float(sample["host_elapsed_seconds"]) for sample in samples]
     if len(host_times) > 1:
-        gaps = [(right - left) * 1000.0 for left, right in zip(host_times, host_times[1:])]
+        host_gaps = [(right - left) * 1000.0 for left, right in zip(host_times, host_times[1:])]
+        gaps = []
+        stale_timestamps = 0
+        for index, host_gap in enumerate(host_gaps):
+            left = _integer(samples[index].get("timestamp_ms"))
+            right = _integer(samples[index + 1].get("timestamp_ms"))
+            if left is not None and right is not None and right > left:
+                gaps.append(right - left)
+            else:
+                gaps.append(host_gap)
+                if left is not None and right == left:
+                    stale_timestamps += 1
         metrics.status_interval_mean_ms = statistics.fmean(gaps)
         metrics.status_interval_max_ms = int(max(gaps))
         max_gap_ms = max_runtime_status_gap_ms()
         metrics.status_gap_count = sum(gap > max_gap_ms for gap in gaps)
         if metrics.status_gap_count:
             reasons.append(f"Direct diagnostics gap reached {max(gaps) / 1000.0:.2f}s")
+        if stale_timestamps:
+            reasons.append(
+                f"Direct diagnostics timestamp did not advance in {stale_timestamps} sampled interval(s)"
+            )
     if len(samples) < max(1, metrics.status_expected_samples - RUNTIME_STATUS_BOUNDARY_TOLERANCE_SAMPLES):
         reasons.append(
             f"only {len(samples)}/{metrics.status_expected_samples} expected Direct diagnostics samples were received"
@@ -2166,9 +2196,24 @@ def analyze_direct_evidence(
     return metrics, reasons
 
 
-def discover_direct_device(frontend: str, *, timeout_seconds: float = DIRECT_DISCOVERY_TIMEOUT_SECONDS) -> DiscoveredDevice:
+def _normalized_chip_name(chip: object) -> str:
+    value = str(chip or "").strip().lower().replace("-", "").replace("_", "")
+    if value == "esp32":
+        return value
+    if value.startswith("esp32"):
+        value = value.removeprefix("esp32")
+    return value
+
+
+def discover_direct_device(
+    frontend: str,
+    *,
+    chip: str | None = None,
+    timeout_seconds: float = DIRECT_DISCOVERY_TIMEOUT_SECONDS,
+) -> DiscoveredDevice:
     deadline = time.monotonic() + timeout_seconds
     last_error: Exception | None = None
+    observed_chips: set[str] = set()
     while time.monotonic() < deadline:
         try:
             records = discover_devices(frontend=frontend, timeout_s=min(2.5, max(0.2, deadline - time.monotonic())))
@@ -2176,13 +2221,21 @@ def discover_direct_device(frontend: str, *, timeout_seconds: float = DIRECT_DIS
             last_error = exc
             time.sleep(1.0)
             continue
+        if chip is not None:
+            observed_chips.update(str(record.chip) for record in records if record.chip)
+            expected_chip = _normalized_chip_name(chip)
+            records = [record for record in records if _normalized_chip_name(record.chip) == expected_chip]
         if len(records) == 1:
             return records[0]
         if len(records) > 1:
-            raise RuntimeError(f"discovered multiple {FRONTEND_LABELS[frontend]} devices; target is ambiguous")
+            target = f" {chip}" if chip is not None else ""
+            raise RuntimeError(f"discovered multiple{target} {FRONTEND_LABELS[frontend]} devices; target is ambiguous")
         time.sleep(1.0)
     detail = f": {last_error}" if last_error is not None else ""
-    raise RuntimeError(f"timed out discovering {FRONTEND_LABELS[frontend]} Direct endpoint{detail}")
+    target = f" for {chip}" if chip is not None else ""
+    if observed_chips:
+        detail = f"; observed chips: {', '.join(sorted(observed_chips))}{detail}"
+    raise RuntimeError(f"timed out discovering {FRONTEND_LABELS[frontend]} Direct endpoint{target}{detail}")
 
 
 def direct_handshake(client: DirectClient, *, frontend: str, chip: str) -> dict[str, dict[str, object]]:
@@ -2194,8 +2247,8 @@ def direct_handshake(client: DirectClient, *, frontend: str, chip: str) -> dict[
     info = responses["info"]
     if info.get("frontend") != frontend:
         raise RuntimeError(f"Direct endpoint frontend mismatch: {info.get('frontend')!r}")
-    reported_chip = str(info.get("chip", "")).lower().replace("esp32-", "").replace("esp32", "esp32")
-    if chip and chip not in reported_chip:
+    reported_chip = _normalized_chip_name(info.get("chip"))
+    if chip and _normalized_chip_name(chip) != reported_chip:
         raise RuntimeError(f"Direct endpoint chip mismatch: {info.get('chip')!r}")
     return responses
 
@@ -2302,6 +2355,34 @@ def prepare_micro_direct_runtime(
     return handshake
 
 
+def connect_and_prepare_micro_runtime(
+    endpoint: str,
+    case: BenchmarkCase,
+    *,
+    chip: str,
+) -> DirectClient:
+    last_error: Exception | None = None
+    for attempt in range(MICRO_DIRECT_PREPARE_ATTEMPTS):
+        client: DirectClient | None = None
+        try:
+            client = _connect_direct_with_retry(
+                endpoint,
+                frontend="micro",
+                chip=chip,
+                timeout_seconds=WIFI_CONNECT_WAIT_SECONDS + DIRECT_DISCOVERY_TIMEOUT_SECONDS,
+            )
+            prepare_micro_direct_runtime(client, case, chip=chip)
+            wait_for_direct_runtime_ready(client, require_publish_ready=True)
+            return client
+        except (OSError, RuntimeError, TimeoutError) as exc:
+            if client is not None:
+                client.close()
+            last_error = exc
+            if attempt + 1 < MICRO_DIRECT_PREPARE_ATTEMPTS:
+                time.sleep(0.5)
+    raise RuntimeError(f"Micro Direct preparation failed after retries: {last_error}")
+
+
 def capture_direct_window(
     client: DirectClient,
     *,
@@ -2310,7 +2391,14 @@ def capture_direct_window(
     samples: list[dict[str, object]] = []
     previous_raw: dict[str, object] | None = None
     events_start = len(client.events)
-    client.start_events()
+    for attempt in range(DIRECT_EVENT_OPEN_ATTEMPTS):
+        try:
+            client.start_events()
+            break
+        except DirectProtocolError:
+            if attempt + 1 == DIRECT_EVENT_OPEN_ATTEMPTS:
+                raise
+            time.sleep(0.5)
     started = time.monotonic()
     deadline = started + duration_seconds
     next_sample = started
@@ -2367,6 +2455,7 @@ def _connect_direct_with_retry(
     endpoint: str,
     *,
     frontend: str,
+    chip: str | None = None,
     timeout_seconds: float = DIRECT_DISCOVERY_TIMEOUT_SECONDS,
 ) -> DirectClient:
     deadline = time.monotonic() + timeout_seconds
@@ -2389,7 +2478,11 @@ def _connect_direct_with_retry(
             last_error = exc
             time.sleep(1.0)
             try:
-                candidate = discover_direct_device(frontend, timeout_seconds=min(3.0, max(0.2, deadline - time.monotonic()))).endpoint
+                candidate = discover_direct_device(
+                    frontend,
+                    chip=chip,
+                    timeout_seconds=min(3.0, max(0.2, deadline - time.monotonic())),
+                ).endpoint
             except RuntimeError:
                 pass
     raise RuntimeError(f"timed out connecting to {FRONTEND_LABELS[frontend]} Direct endpoint: {last_error}")
@@ -2448,6 +2541,20 @@ def _clone_direct_result(case: BenchmarkCase, source: BenchmarkResult) -> Benchm
     cloned = clone_prebuilt_result(case, source)
     cloned.flash = source.flash
     return cloned
+
+
+def _failed_direct_results(
+    selected_cases: Sequence[BenchmarkCase],
+    bootstrap: BenchmarkResult,
+    reason: str,
+) -> list[BenchmarkResult]:
+    results = []
+    for case in selected_cases:
+        result = _clone_direct_result(case, bootstrap)
+        result.status = "FAIL"
+        result.reasons.append(reason)
+        results.append(result)
+    return results
 
 
 def run_cpp_build_flash_case(case: BenchmarkCase, chip: str, port: str) -> BenchmarkResult:
@@ -2536,6 +2643,8 @@ def run_direct_frontend_cases(
     selected_cases: Sequence[BenchmarkCase],
     chip: str,
     port: str,
+    *,
+    on_result: Callable[[BenchmarkResult], None] | None = None,
 ) -> list[BenchmarkResult]:
     if not selected_cases:
         return []
@@ -2567,7 +2676,7 @@ def run_direct_frontend_cases(
     except (OSError, RuntimeError) as exc:
         bootstrap = BenchmarkResult(case=bootstrap_case, status="FAIL", reasons=[str(exc)])
     if bootstrap.build is None or bootstrap.build.returncode != 0:
-        return [
+        failed_results = [
             BenchmarkResult(
                 case=case,
                 status="FAIL",
@@ -2577,8 +2686,12 @@ def run_direct_frontend_cases(
             )
             for case in selected_cases
         ]
+        if on_result is not None:
+            for result in failed_results:
+                on_result(result)
+        return failed_results
     if bootstrap.flash is None or bootstrap.flash.returncode != 0:
-        return [
+        failed_results = [
             BenchmarkResult(
                 case=case,
                 status="FAIL",
@@ -2589,19 +2702,29 @@ def run_direct_frontend_cases(
             )
             for case in selected_cases
         ]
+        if on_result is not None:
+            for result in failed_results:
+                on_result(result)
+        return failed_results
 
     endpoint: str
     provisioning: ImprovProvisioningResult | None = None
-    if frontend == "native":
-        with ImprovSerialClient(port) as improv:
-            provisioning = improv.provision(
-                require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID"),
-                require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD"),
-                timeout=WIFI_CONNECT_WAIT_SECONDS,
-            )
-        endpoint = direct_endpoint_from_device_url(provisioning.endpoint)
-    else:
-        endpoint = discover_direct_device(frontend).endpoint
+    endpoint_override = benchmark_setting("ESPECTRE_BENCHMARK_DIRECT_ENDPOINT", "") or ""
+    try:
+        if frontend == "native":
+            with ImprovSerialClient(port) as improv:
+                provisioning = improv.provision(
+                    require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID"),
+                    require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD"),
+                    timeout=WIFI_CONNECT_WAIT_SECONDS,
+                )
+            endpoint = direct_endpoint_from_device_url(endpoint_override or provisioning.endpoint)
+        elif endpoint_override:
+            endpoint = direct_endpoint_from_device_url(endpoint_override)
+        else:
+            endpoint = discover_direct_device(frontend, chip=chip).endpoint
+    except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
+        return _failed_direct_results(selected_cases, bootstrap, str(exc))
 
     monitor_command = [str(REPO_ROOT / "espectre"), "monitor", "--port", port]
     (
@@ -2618,20 +2741,23 @@ def run_direct_frontend_cases(
     client: DirectClient | None = None
     results: list[BenchmarkResult] = []
     try:
-        client = _connect_direct_with_retry(endpoint, frontend=frontend)
+        client = _connect_direct_with_retry(endpoint, frontend=frontend, chip=chip)
         baseline = direct_handshake(client, frontend=frontend, chip=chip)
         if frontend == "native":
             _verify_native_baseline(baseline)
             radio_pin_applied = _apply_native_radio_pin(client)
             if radio_pin_applied:
                 client.close()
-                endpoint = discover_direct_device("native").endpoint
-                client = _connect_direct_with_retry(endpoint, frontend="native")
+                endpoint = (
+                    direct_endpoint_from_device_url(endpoint_override)
+                    if endpoint_override
+                    else discover_direct_device("native", chip=chip).endpoint
+                )
+                client = _connect_direct_with_retry(endpoint, frontend="native", chip=chip)
                 baseline = direct_handshake(client, frontend="native", chip=chip)
                 _verify_native_baseline(baseline)
             if benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", ""):
                 _verify_native_radio_pin(client)
-
         for case in selected_cases:
             result = _clone_direct_result(case, bootstrap)
             traffic_source: _BenchmarkUdpTrafficSource | None = None
@@ -2692,10 +2818,20 @@ def run_direct_frontend_cases(
                 if traffic_source is not None:
                     traffic_source.stop()
             results.append(result)
+            if on_result is not None:
+                on_result(result)
         try:
             client.request("set_sensing", {"enabled": False})
         except (OSError, RuntimeError, TimeoutError):
             pass
+        return results
+    except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
+        remaining_cases = selected_cases[len(results):]
+        failed_results = _failed_direct_results(remaining_cases, bootstrap, str(exc))
+        results.extend(failed_results)
+        if on_result is not None:
+            for result in failed_results:
+                on_result(result)
         return results
     finally:
         if client is not None:
@@ -2724,11 +2860,17 @@ def run_direct_frontend_cases_safely(
     selected_cases: Sequence[BenchmarkCase],
     chip: str,
     port: str,
+    *,
+    on_result: Callable[[BenchmarkResult], None] | None = None,
 ) -> list[BenchmarkResult]:
     try:
-        return run_direct_frontend_cases(selected_cases, chip, port)
+        return run_direct_frontend_cases(selected_cases, chip, port, on_result=on_result)
     except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
-        return [BenchmarkResult(case=case, status="FAIL", reasons=[str(exc)]) for case in selected_cases]
+        failed_results = [BenchmarkResult(case=case, status="FAIL", reasons=[str(exc)]) for case in selected_cases]
+        if on_result is not None:
+            for result in failed_results:
+                on_result(result)
+        return failed_results
 
 
 def run_case(
@@ -2896,13 +3038,7 @@ def run_micro_case(
         client: DirectClient | None = None
         try:
             endpoint = wait_for_micro_direct_endpoint(process, output_lines)
-            client = _connect_direct_with_retry(
-                endpoint,
-                frontend="micro",
-                timeout_seconds=WIFI_CONNECT_WAIT_SECONDS + DIRECT_DISCOVERY_TIMEOUT_SECONDS,
-            )
-            prepare_micro_direct_runtime(client, case, chip=chip)
-            wait_for_direct_runtime_ready(client, require_publish_ready=True)
+            client = connect_and_prepare_micro_runtime(endpoint, case, chip=chip)
             result.direct_samples, result.direct_events = capture_direct_window(
                 client,
                 duration_seconds=MONITOR_DURATION_SECONDS,
@@ -3042,13 +3178,29 @@ def _git_worktree_dirty() -> bool:
 def _git_source_fingerprint() -> str:
     digest = hashlib.sha256()
     diff = subprocess.run(
-        ["git", "diff", "--binary", "--no-ext-diff", "HEAD", "--", *BENCHMARK_SOURCE_PATHS],
+        [
+            "git",
+            "diff",
+            "--binary",
+            "--no-ext-diff",
+            "HEAD",
+            "--",
+            *BENCHMARK_SOURCE_PATHS,
+        ],
         cwd=REPO_ROOT,
         capture_output=True,
         check=False,
     )
     untracked = subprocess.run(
-        ["git", "ls-files", "--others", "--exclude-standard", "-z", "--", *BENCHMARK_SOURCE_PATHS],
+        [
+            "git",
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            *BENCHMARK_SOURCE_PATHS,
+        ],
         cwd=REPO_ROOT,
         capture_output=True,
         check=False,
@@ -3075,18 +3227,25 @@ def repository_state() -> RepositoryState:
     )
 
 
-def benchmark_source_provenance_reason(
+def benchmark_revision_provenance_reason(
     state_start: RepositoryState,
     state_end: RepositoryState,
 ) -> str | None:
-    changes: list[str] = []
-    if state_end.revision != state_start.revision:
-        changes.append(f"Git revision changed from {state_start.revision} to {state_end.revision}")
-    if state_end.source_fingerprint != state_start.source_fingerprint:
-        changes.append("firmware or benchmark sources changed")
-    if not changes:
+    if state_end.revision == state_start.revision:
         return None
-    return f"benchmark source provenance is invalid: {' and '.join(changes)} during the run"
+    return (
+        "benchmark source provenance is invalid: Git revision changed from "
+        f"{state_start.revision} to {state_end.revision} during the run"
+    )
+
+
+def benchmark_source_change_warning(
+    state_start: RepositoryState,
+    state_end: RepositoryState,
+) -> str | None:
+    if state_end.source_fingerprint == state_start.source_fingerprint:
+        return None
+    return "firmware or benchmark sources changed during the run"
 
 
 def benchmark_artifact_dir(started_at: datetime, chip: str, revision: str | None = None) -> Path:
@@ -3172,10 +3331,11 @@ def write_benchmark_artifacts(
     started_at: datetime,
     results: Sequence[BenchmarkResult],
     repository_state_start: RepositoryState | None = None,
+    repository_state_end: RepositoryState | None = None,
     source_changed_during_run: bool = False,
 ) -> None:
     state_start = repository_state_start or repository_state()
-    state_end = repository_state()
+    state_end = repository_state_end or repository_state()
     destination.mkdir(parents=True, exist_ok=True)
     manifest_cases: list[dict[str, object]] = []
     for result in results:
@@ -3237,6 +3397,10 @@ def render_report(
     started_at: datetime,
     results: Sequence[BenchmarkResult],
     expected_cases: Sequence[BenchmarkCase] = CASES,
+    *,
+    repository_state_start: RepositoryState | None = None,
+    repository_state_end: RepositoryState | None = None,
+    source_changed_during_run: bool = False,
 ) -> str:
     chip_label = CHIP_LABELS[chip]
     overall = (
@@ -3262,26 +3426,53 @@ def render_report(
             formatted += f" ({percent_value:.1f}%)"
         return formatted
 
+    revision = repository_state_start.revision if repository_state_start is not None else _git_revision()
     lines = [
         "<!-- Generated file. Do not edit manually. -->",
         "",
         f"# {chip_label} Firmware Performance",
         "",
         f"Generated by: `tools/benchmark_firmware.py --chip {chip}`",
-        f"Git revision: `{_git_revision()}`",
+        f"Git revision: `{revision}`",
         f"Run started: `{started_at.astimezone().isoformat(timespec='seconds')}`",
         f"Selected monitor duration: `{MONITOR_DURATION_SECONDS} seconds`",
         f"Overall result: **{overall}**",
-        "",
-        REPORT_SNAPSHOT_SCOPE,
-        "",
-        REPORT_DETECTOR_SCOPE,
-        "",
-        "## Summary",
-        "",
-        "| Frontend | Detection profile | Result | Occupancy | Binary size | Partition free | CPU load | Min free heap |",
-        "|---|---|---:|---:|---:|---:|---:|---:|",
     ]
+    if repository_state_start is not None and repository_state_end is not None:
+        if source_changed_during_run:
+            source_consistency = (
+                "Source consistency: **WARNING** — firmware or benchmark sources changed during the run; "
+                "results remain valid because the Git revision did not change."
+                if repository_state_start.revision == repository_state_end.revision
+                else "Source consistency: changed during a run invalidated by a Git revision change."
+            )
+        else:
+            source_consistency = "Source consistency: stable"
+        lines.extend(
+            [
+                f"Git revision at completion: `{repository_state_end.revision}`",
+                "Worktree dirty: "
+                f"`{'yes' if repository_state_start.worktree_dirty else 'no'}` → "
+                f"`{'yes' if repository_state_end.worktree_dirty else 'no'}`",
+                "Source fingerprint: "
+                f"`{repository_state_start.source_fingerprint}` → "
+                f"`{repository_state_end.source_fingerprint}`",
+                source_consistency,
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            REPORT_SNAPSHOT_SCOPE,
+            "",
+            REPORT_DETECTOR_SCOPE,
+            "",
+            "## Summary",
+            "",
+            "| Frontend | Detection profile | Result | Occupancy | Binary size | Partition free | CPU load | Min free heap |",
+            "|---|---|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
     for result in results:
         build = result.build_metrics
         runtime = result.runtime_metrics
@@ -3817,11 +4008,24 @@ def write_report(
     started_at: datetime,
     results: Sequence[BenchmarkResult],
     expected_cases: Sequence[BenchmarkCase] = CASES,
+    *,
+    repository_state_start: RepositoryState | None = None,
+    repository_state_end: RepositoryState | None = None,
+    source_changed_during_run: bool = False,
 ) -> Path:
     destination = report_path_for_chip(chip)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(
-        render_report(chip, port, started_at, results, expected_cases),
+        render_report(
+            chip,
+            port,
+            started_at,
+            results,
+            expected_cases,
+            repository_state_start=repository_state_start,
+            repository_state_end=repository_state_end,
+            source_changed_during_run=source_changed_during_run,
+        ),
         encoding="utf-8",
     )
     return destination
@@ -3833,8 +4037,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Build, flash, and benchmark Native Lightweight/High Accuracy, "
-            "Micro-ESPectre Lightweight, ESPHome Lightweight/High Accuracy, "
-            "and Matter smoke for one chip."
+            "ESPHome Lightweight/High Accuracy, Matter smoke, and "
+            "Micro-ESPectre Lightweight for one chip."
         ),
     )
     parser.add_argument("--chip", required=True, choices=SUPPORTED_CHIPS, help="Connected ESP32 target")
@@ -3915,7 +4119,8 @@ def main() -> int:
     )
     results: list[BenchmarkResult] = []
     source_changed_during_run = False
-    provenance_reason: str | None = None
+    source_change_warning_printed = False
+    revision_provenance_reason: str | None = None
     print(f"Chip:     {CHIP_LABELS[args.chip]}")
     print(f"Port:     {port}")
     print(f"Report:   {report_path.relative_to(REPO_ROOT)}")
@@ -3923,16 +4128,21 @@ def main() -> int:
     print(f"Matrix:   {', '.join(case.label for case in selected_cases)}")
 
     def write_current_report() -> Path:
-        nonlocal provenance_reason, source_changed_during_run
+        nonlocal revision_provenance_reason
+        nonlocal source_changed_during_run, source_change_warning_printed
         state_now = repository_state()
-        current_provenance_reason = benchmark_source_provenance_reason(repository_state_start, state_now)
-        source_changed_during_run = source_changed_during_run or current_provenance_reason is not None
-        if source_changed_during_run and provenance_reason is None:
-            provenance_reason = current_provenance_reason
-        if provenance_reason is not None:
+        current_revision_reason = benchmark_revision_provenance_reason(repository_state_start, state_now)
+        current_source_warning = benchmark_source_change_warning(repository_state_start, state_now)
+        source_changed_during_run = source_changed_during_run or current_source_warning is not None
+        if current_source_warning is not None and not source_change_warning_printed:
+            print(f"WARNING: {current_source_warning}", file=sys.stderr)
+            source_change_warning_printed = True
+        if revision_provenance_reason is None:
+            revision_provenance_reason = current_revision_reason
+        if revision_provenance_reason is not None:
             for result in results:
-                if provenance_reason not in result.reasons:
-                    result.reasons.append(provenance_reason)
+                if revision_provenance_reason not in result.reasons:
+                    result.reasons.append(revision_provenance_reason)
                     result.status = "FAIL"
         if preserve_existing:
             report_results = merge_report_results(existing_results, results)
@@ -3941,9 +4151,27 @@ def main() -> int:
                 if args.resume
                 else tuple(result.case for result in report_results)
             )
-            destination = write_report(args.chip, port, started_at, report_results, expected_cases)
+            destination = write_report(
+                args.chip,
+                port,
+                started_at,
+                report_results,
+                expected_cases,
+                repository_state_start=repository_state_start,
+                repository_state_end=state_now,
+                source_changed_during_run=source_changed_during_run,
+            )
         else:
-            destination = write_report(args.chip, port, started_at, results, selected_cases)
+            destination = write_report(
+                args.chip,
+                port,
+                started_at,
+                results,
+                selected_cases,
+                repository_state_start=repository_state_start,
+                repository_state_end=state_now,
+                source_changed_during_run=source_changed_during_run,
+            )
         write_benchmark_artifacts(
             artifact_dir,
             chip=args.chip,
@@ -3951,6 +4179,7 @@ def main() -> int:
             started_at=started_at,
             results=results,
             repository_state_start=repository_state_start,
+            repository_state_end=state_now,
             source_changed_during_run=source_changed_during_run,
         )
         return destination
@@ -3958,9 +4187,33 @@ def main() -> int:
     try:
         require_benchmark_prerequisites(selected_cases)
 
+        def record_direct_result(result: BenchmarkResult) -> None:
+            results.append(result)
+            write_current_report()
+
         native_cases = tuple(case for case in selected_cases if case.frontend == "native")
         if native_cases:
-            results.extend(run_direct_frontend_cases_safely(native_cases, args.chip, port))
+            run_direct_frontend_cases_safely(
+                native_cases,
+                args.chip,
+                port,
+                on_result=record_direct_result,
+            )
+            write_current_report()
+
+        esphome_cases = tuple(case for case in selected_cases if case.frontend == "esphome")
+        if esphome_cases:
+            run_direct_frontend_cases_safely(
+                esphome_cases,
+                args.chip,
+                port,
+                on_result=record_direct_result,
+            )
+            write_current_report()
+
+        matter_cases = tuple(case for case in selected_cases if case.frontend == "matter")
+        for matter_case in matter_cases:
+            results.append(run_cpp_build_flash_case(matter_case, args.chip, port))
             write_current_report()
 
         micro_cases = tuple(case for case in selected_cases if case.frontend == "micro")
@@ -3976,17 +4229,6 @@ def main() -> int:
             if micro_result.flash is not None and micro_result.flash.returncode == 0:
                 shared_micro_flash = micro_result.flash
             write_current_report()
-
-        matter_cases = tuple(case for case in selected_cases if case.frontend == "matter")
-        for matter_case in matter_cases:
-            results.append(run_cpp_build_flash_case(matter_case, args.chip, port))
-            write_current_report()
-
-        for direct_frontend in ("esphome",):
-            frontend_cases = tuple(case for case in selected_cases if case.frontend == direct_frontend)
-            if frontend_cases:
-                results.extend(run_direct_frontend_cases_safely(frontend_cases, args.chip, port))
-                write_current_report()
     except KeyboardInterrupt:
         print("\nBenchmark interrupted; writing the partial report.", file=sys.stderr)
         write_current_report()

@@ -2,7 +2,7 @@
 
 This directory contains host-side Python tools for CSI inspection, dataset validation, detector research, model training, and firmware benchmarking. It is written for contributors who already understand the basic ESPectre workflow; start with [ML_DATA_COLLECTION.md](../docs/ML_DATA_COLLECTION.md) if you need to collect data, or [ALGORITHMS.md](../docs/ALGORITHMS.md) if you need the detector concepts first.
 
-Run commands from the repository root through the project virtual environment. Use `python tools/<tool>.py --help` for the complete and current option reference; this README explains which tool to choose and the safe mainline workflows.
+Run commands from the repository root through the project virtual environment. Use `python tools/<tool>.py --help` for the complete and current option reference; this README explains which tool to choose and the recommended mainline workflows.
 
 ## Common Terms
 
@@ -22,7 +22,7 @@ python -m pip install -r requirements.txt
 
 Install `requirements-ml.txt` only for training and ML-specific analysis. The main repository workflow targets Python `3.14`.
 
-The tools support the original ESP32, ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3 when the required datasets or connected hardware are available. A missing dataset or hardware report does not mean that a chip is unsupported.
+The tools support the original ESP32, ESP32-C3, ESP32-C5, ESP32-C6, ESP32-S2, and ESP32-S3 when the required datasets or connected hardware are available. A missing dataset or hardware report does not mean that a chip is unsupported.
 
 ## Tool Index
 
@@ -77,7 +77,7 @@ The validator checks catalog metadata, NPZ integrity, CSI shape, packet timing, 
 
 ## ML Training
 
-Read [ML_TRAINING.md](../docs/ML_TRAINING.md) before running a promotion workflow. The safe progression is:
+Read [ML_TRAINING.md](../docs/ML_TRAINING.md) before running a promotion workflow. Use this promotion sequence:
 
 ```bash
 python tools/train_ml_model.py --info
@@ -117,7 +117,11 @@ Do not edit `docs/performance/README.md` manually. `--check-current` is a lightw
 
 This matrix is not a capability table. ESPHome, Native, and Matter support persisted runtime switching between Lightweight and High Accuracy. Micro-ESPectre deploys Lightweight only, and the Matter smoke case does not commission the device or exercise runtime switching.
 
-The benchmark reads laboratory settings from `tools/benchmark_firmware.local.env`, with exported `ESPECTRE_BENCHMARK_*` variables taking precedence. Native compiles with empty Wi-Fi, device-label, and MQTT defaults, erases NVS, provisions the SSID and password at runtime through standard Improv Serial, and applies an optional BSSID pin through Direct after the first connection. When `ESPECTRE_BENCHMARK_WIFI_CHANNEL` is set alongside the BSSID, the benchmark also verifies that the connected access point uses that channel; a channel without a BSSID is rejected before hardware access. Native and ESPHome reuse one flashed Lightweight image and select both scored detectors through Direct. Matter is a build-and-flash smoke case: it stops after a successful flash and requires neither commissioning nor benchmark Wi-Fi settings. Micro-ESPectre copies the laboratory Wi-Fi settings into an isolated temporary `config_local.py`, explicitly enables the native ICMP generator, and connects Direct through the Wi-Fi address reported by its serial launcher. Copy `tools/benchmark_firmware.local.env.example` to `tools/benchmark_firmware.local.env`, fill in the laboratory values required by the selected frontends, connect the target board, and run:
+The benchmark reads laboratory settings from `tools/benchmark_firmware.local.env`, with exported `ESPECTRE_BENCHMARK_*` variables taking precedence.
+
+Native compiles with empty Wi-Fi, device-label, and MQTT defaults, erases NVS, provisions the SSID and password at runtime through standard Improv Serial, and applies an optional BSSID pin through Direct after the first connection. When `ESPECTRE_BENCHMARK_WIFI_CHANNEL` is set alongside the BSSID, the benchmark also verifies that the connected access point uses that channel; a channel without a BSSID is rejected before hardware access.
+
+Native and ESPHome reuse one flashed Lightweight image and select both scored detectors through Direct. Matter is a build-and-flash smoke case: it stops after a successful flash and requires neither commissioning nor benchmark Wi-Fi settings. Micro-ESPectre copies the laboratory Wi-Fi settings into an isolated temporary `config_local.py`, explicitly enables the native ICMP generator, and connects Direct through the Wi-Fi address reported by its serial launcher. Copy `tools/benchmark_firmware.local.env.example` to `tools/benchmark_firmware.local.env`, fill in the laboratory values required by the selected frontends, connect the target board, and run:
 
 ```bash
 python tools/benchmark_firmware.py --chip c3 --port /dev/cu.usbmodem01
@@ -137,11 +141,17 @@ Use `--resume` to keep passing results from the chip report and rerun only faile
 python tools/benchmark_firmware.py --chip c3 --resume
 ```
 
-The command writes a partial report when a case fails and returns success only when every selected case passes. It stores normalized Direct samples and events, transport outcomes, firmware hashes, structured analysis, and a run manifest under `data/untracked/firmware_benchmarks/<run-id>/`; runtime artifacts exclude raw serial output, raw Direct payloads, credentials, device identity, and local addresses. Matter artifacts contain only build-and-flash evidence. Every sensing case waits for five consecutive ready, non-zero Direct diagnostics samples before scoring. Native, ESPHome, and Micro confirm their fixed or requested detector and traffic profile through production responses. The Native and ESPHome runtime cases use `ping` traffic and each frontend's configured CSI rate by default. Set `ESPECTRE_BENCHMARK_TRAFFIC_GENERATOR_MODE=dns` when the laboratory gateway rate-limits sustained ICMP replies. `ESPECTRE_BENCHMARK_CSI_TARGET_PPS` overrides the compiled Native and ESPHome rate; in external mode, it also sets the host traffic rate. Heap-decline scoring begins 10 seconds into the scored window, device uptime must remain monotonic, Direct transport failure counters must not increase when available, detector timing must be present, and telemetry events are collected from Direct SSE. ESPHome bootstrap builds use `--clean-all` so shared component caches cannot reuse stale objects. The manifest records the starting and ending Git revisions, worktree states, and firmware-source fingerprints; a revision or source change during the run invalidates every executed case. Each report is therefore a snapshot of one stable source state, hardware, environment, and run time; it does not certify later source revisions. Do not edit or reformat generated chip reports separately from a hardware benchmark run.
+The command writes a partial report when a case fails and returns success only when every case in the resulting report passes. Native and ESPHome refresh that report and their structured artifacts after each detector completes, while retaining their shared build, flash, and serial-monitor session. It stores normalized Direct samples and events, transport outcomes, firmware hashes, structured analysis, and a run manifest under `data/untracked/firmware_benchmarks/<run-id>/`. Runtime artifacts exclude raw serial output, raw Direct payloads, credentials, device identity, and local addresses. Matter artifacts contain only build-and-flash evidence.
+
+Every sensing case waits for five consecutive ready, non-zero Direct diagnostics samples before scoring. Native, ESPHome, and Micro confirm their fixed or requested detector and traffic profile through production responses. The Native and ESPHome runtime cases use `ping` traffic and each frontend's configured CSI rate by default. Set `ESPECTRE_BENCHMARK_TRAFFIC_GENERATOR_MODE=dns` when the laboratory gateway rate-limits sustained ICMP replies. `ESPECTRE_BENCHMARK_CSI_TARGET_PPS` overrides the compiled Native and ESPHome rate; in external mode, it also sets the host traffic rate.
+
+Heap-decline scoring begins 10 seconds into the scored window, device uptime must remain monotonic, Direct transport failure counters must not increase when available, detector timing must be present, and telemetry events are collected from Direct SSE. ESPHome bootstrap builds use `--clean-all` so shared component caches cannot reuse stale objects.
+
+The manifest and generated report record the starting and ending Git revisions, worktree states, and firmware-source fingerprints. A revision change during the run invalidates every executed case; a source-fingerprint change on the same revision is reported as a warning without invalidating results. Each report therefore identifies its source state, hardware, environment, and run time; it does not certify later source revisions. Do not edit or reformat generated chip reports separately from a hardware benchmark run.
 
 Expected sample counts tolerate one sample at the scored-window boundary. Direct cadence uses host-monotonic receive times and device uptime for every sensing frontend; any real gap over the cadence tolerance fails the case.
 
-When `--update` or `--resume` preserves cases from an existing report, the report header identifies the updating run, not the provenance of every preserved case. Use that run's structured artifacts for the exact revision, duration, and raw evidence of each case that was actually executed.
+When `--update` or `--resume` preserves cases from an existing report, the report header identifies the updating run, not the provenance of every preserved case. Use the matching per-run artifact directory for the exact revision, duration, and structured evidence of each executed case.
 
 ## Research-Only Detector Experiments
 
@@ -182,7 +192,11 @@ Plots help diagnose signal structure; they do not establish detector quality by 
 
 ## Cache Maintenance
 
-Training and replay tools share a persistent NPZ cache. Normal runs validate cache provenance automatically. Runtime-supported features use complete replay matrices; host-only experiments use one row-spine artifact plus one column artifact per feature. Adding a variant to an existing provider family leaves sibling columns valid, so later model comparisons compute only columns that are actually missing. Reordering or selecting a subset reads the same columns without rebuilding packet rows. Cold producers serialize on a per-key process lock and recheck the cache after acquiring it. Long fills emit periodic `[npz-cache]` lines on stderr for hits, misses, in-progress builds, and writes when stderr is a TTY; `ESPECTRE_NPZ_CACHE_PROGRESS=0` disables that output, `=1` forces it, and `ESPECTRE_NPZ_CACHE_PROGRESS_INTERVAL_S` overrides the default `10` second heartbeat.
+Training and replay tools share a persistent NPZ cache. Normal runs validate cache provenance automatically. Runtime-supported features use complete replay matrices; host-only experiments use one row-spine artifact plus one column artifact per feature.
+
+Adding a variant to an existing provider family leaves sibling columns valid, so later model comparisons compute only columns that are actually missing. Reordering or selecting a subset reads the same columns without rebuilding packet rows.
+
+Cold producers serialize on a per-key process lock and recheck the cache after acquiring it. Long fills emit periodic `[npz-cache]` lines on stderr for hits, misses, in-progress builds, and writes when stderr is a TTY; `ESPECTRE_NPZ_CACHE_PROGRESS=0` disables that output, `=1` forces it, and `ESPECTRE_NPZ_CACHE_PROGRESS_INTERVAL_S` overrides the default `10` second heartbeat.
 
 Pruning removes only artifacts that can no longer be used because their capture, implementation dependencies, layout, or artifact version changed. Historical but still reachable feature columns remain until an explicit age or size policy is requested:
 
