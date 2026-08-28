@@ -171,11 +171,6 @@ def release_asset_stem(channel: str, version: str) -> str:
     return "espectre-sdk-develop"
 
 
-def package_version(version: str) -> str:
-    parse_version_core(version)
-    return version
-
-
 def collect_bundle_files() -> list[Path]:
     files: list[Path] = []
     for root in SDK_ROOTS:
@@ -204,11 +199,11 @@ def detect_doxyfile_project_number(path: Path) -> str:
     return match.group(1)
 
 
-def stamp_doxyfile_project_number(path: Path, sdk_package_version: str) -> None:
-    parse_version_core(sdk_package_version)
+def stamp_doxyfile_project_number(path: Path, version: str) -> None:
+    parse_version_core(version)
     text, count = re.subn(
         r"(?m)^PROJECT_NUMBER\s*=\s*.*$",
-        f"PROJECT_NUMBER         = {sdk_package_version}",
+        f"PROJECT_NUMBER         = {version}",
         path.read_text(encoding="utf-8"),
         count=1,
     )
@@ -217,8 +212,8 @@ def stamp_doxyfile_project_number(path: Path, sdk_package_version: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def validate_stamped_sdk_identity(destination_root: Path, sdk_package_version: str) -> None:
-    """Require stamped header macros, idf_component.yml, and Doxygen to match the package version."""
+def validate_stamped_sdk_identity(destination_root: Path, version: str) -> None:
+    """Require stamped header macros, idf_component.yml, and Doxygen to match the SDK version."""
     header = destination_root / "src" / "cpp" / "runtime" / "espectre_sdk_version.h"
     manifest = destination_root / "src" / "cpp" / "idf_component.yml"
     doxyfile = destination_root / "src" / "cpp" / "Doxyfile"
@@ -232,23 +227,23 @@ def validate_stamped_sdk_identity(destination_root: Path, sdk_package_version: s
             (str(manifest.relative_to(destination_root)), yml_version),
             (str(doxyfile.relative_to(destination_root)), project_number),
         )
-        if value != sdk_package_version
+        if value != version
     }
     if mismatched:
         raise ValueError(
-            f"Stamped SDK identity is {sdk_package_version!r} but packaging metadata disagrees: {mismatched}"
+            f"Stamped SDK identity is {version!r} but packaging metadata disagrees: {mismatched}"
         )
 
 
-def stamp_sdk_version_header(path: Path, sdk_package_version: str) -> None:
-    major, minor, patch = parse_version_core(sdk_package_version)
+def stamp_sdk_version_header(path: Path, version: str) -> None:
+    major, minor, patch = parse_version_core(version)
     source = path.read_text(encoding="utf-8")
     stamped = (
         "/* ESPECTRE_SDK_VERSION_VALUES_BEGIN */\n"
         f"#define ESPECTRE_SDK_VERSION_MAJOR {major}\n"
         f"#define ESPECTRE_SDK_VERSION_MINOR {minor}\n"
         f"#define ESPECTRE_SDK_VERSION_PATCH {patch}\n"
-        f'#define ESPECTRE_SDK_VERSION_STRING "{sdk_package_version}"\n'
+        f'#define ESPECTRE_SDK_VERSION_STRING "{version}"\n'
         "/* ESPECTRE_SDK_VERSION_VALUES_END */"
     )
     source, count = re.subn(
@@ -263,22 +258,22 @@ def stamp_sdk_version_header(path: Path, sdk_package_version: str) -> None:
     path.write_text(source, encoding="utf-8")
 
 
-def stamp_idf_component_manifest(path: Path, sdk_package_version: str) -> None:
+def stamp_idf_component_manifest(path: Path, version: str) -> None:
     lines = path.read_text(encoding="utf-8").splitlines()
     replaced = False
     output_lines: list[str] = []
     for line in lines:
         if line.startswith("version: "):
-            output_lines.append(f'version: "{sdk_package_version}"')
+            output_lines.append(f'version: "{version}"')
             replaced = True
         else:
             output_lines.append(line)
     if not replaced:
-        output_lines.insert(0, f'version: "{sdk_package_version}"')
+        output_lines.insert(0, f'version: "{version}"')
     path.write_text("\n".join(output_lines) + "\n", encoding="utf-8")
 
 
-def rewrite_bundle_doxyfile(path: Path, sdk_package_version: str) -> None:
+def rewrite_bundle_doxyfile(path: Path, version: str) -> None:
     """Point the bundled Doxyfile at output and stamp the bundle identity."""
     text = path.read_text(encoding="utf-8")
     if not re.search(r"(?m)^OUTPUT_DIRECTORY\s*=", text):
@@ -324,23 +319,23 @@ def rewrite_bundle_doxyfile(path: Path, sdk_package_version: str) -> None:
         raise ValueError(f"Unable to rewrite Doxyfile OUTPUT_DIRECTORY comments in {path}")
 
     path.write_text(text, encoding="utf-8")
-    stamp_doxyfile_project_number(path, sdk_package_version)
+    stamp_doxyfile_project_number(path, version)
 
 
-def stage_bundle_tree(destination_root: Path, sdk_package_version: str, bundle_files: list[Path]) -> int:
+def stage_bundle_tree(destination_root: Path, version: str, bundle_files: list[Path]) -> int:
     for relative_path in bundle_files:
         source = REPO_ROOT / relative_path
         target = destination_root / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
 
-    stamp_idf_component_manifest(destination_root / "src" / "cpp" / "idf_component.yml", sdk_package_version)
+    stamp_idf_component_manifest(destination_root / "src" / "cpp" / "idf_component.yml", version)
     stamp_sdk_version_header(
         destination_root / "src" / "cpp" / "runtime" / "espectre_sdk_version.h",
-        sdk_package_version,
+        version,
     )
-    rewrite_bundle_doxyfile(destination_root / "src" / "cpp" / "Doxyfile", sdk_package_version)
-    validate_stamped_sdk_identity(destination_root, sdk_package_version)
+    rewrite_bundle_doxyfile(destination_root / "src" / "cpp" / "Doxyfile", version)
+    validate_stamped_sdk_identity(destination_root, version)
     return len(bundle_files)
 
 
@@ -429,7 +424,6 @@ def build_manifest(
     *,
     channel: str,
     version: str,
-    sdk_package_version: str,
     release_tag: str,
     commit: str | None,
     tarball_name: str,
@@ -442,16 +436,14 @@ def build_manifest(
     zip_sha256: str,
 ) -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "artifact_kind": "sdk",
         "channel": channel,
         "version": version,
-        "package_version": sdk_package_version,
         "release_tag": release_tag,
         "generated_at": generated_at,
         "commit": commit,
         "protocol_version": detect_protocol_version(),
-        "sdk_version": sdk_package_version,
         "supported_esp_idf": SDK_SUPPORTED_ESP_IDF,
         "bundle": {
             "root_dir": bundle_root,
@@ -490,13 +482,19 @@ def build_manifest(
 
 
 def build_sdk_package(args: argparse.Namespace) -> dict:
+    if args.channel == "release" and args.version != args.release_tag:
+        raise ValueError(
+            "Release SDK version and release tag must match: "
+            f"{args.version!r} != {args.release_tag!r}"
+        )
+
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     bundle_files = collect_bundle_files()
     validate_layout(bundle_files)
 
-    sdk_package_version = package_version(args.version)
+    parse_version_core(args.version)
     asset_stem = release_asset_stem(args.channel, args.version)
     bundle_root = asset_stem
     tarball_name = f"{asset_stem}.tar.gz"
@@ -509,14 +507,13 @@ def build_sdk_package(args: argparse.Namespace) -> dict:
 
     with tempfile.TemporaryDirectory(prefix="espectre-sdk-") as tmp_dir:
         staged_root = Path(tmp_dir) / bundle_root
-        file_count = stage_bundle_tree(staged_root, sdk_package_version, bundle_files)
+        file_count = stage_bundle_tree(staged_root, args.version, bundle_files)
         write_tarball(staged_root, tarball_path, bundle_root, source_date_epoch)
         write_zipfile(staged_root, zip_path, bundle_root, source_date_epoch)
 
     manifest = build_manifest(
         channel=args.channel,
         version=args.version,
-        sdk_package_version=sdk_package_version,
         release_tag=args.release_tag,
         commit=args.commit,
         tarball_name=tarball_name,

@@ -188,6 +188,8 @@ def verify_firmware_channel(channel: str) -> None:
             f"Firmware manifest channel mismatch: expected {channel!r}, "
             f"found {manifest.get('channel')!r}"
         )
+    if channel == "release" and manifest.get("version") != manifest.get("release_tag"):
+        raise ValueError("Release firmware version and release tag do not match")
 
     frontends = manifest.get("frontends", {})
     if set(frontends) != EXPECTED_FRONTENDS:
@@ -268,6 +270,13 @@ def verify_sdk_channel(channel: str) -> None:
         raise ValueError(
             f"SDK manifest channel mismatch: expected {channel!r}, found {manifest.get('channel')!r}"
         )
+    if manifest.get("schema_version") != 2:
+        raise ValueError(f"Invalid {channel} SDK manifest schema")
+    redundant = {"package_version", "sdk_version"}.intersection(manifest)
+    if redundant:
+        raise ValueError(f"Redundant {channel} SDK version fields: {sorted(redundant)}")
+    if channel == "release" and manifest.get("version") != manifest.get("release_tag"):
+        raise ValueError("Release SDK version and release tag do not match")
     artifacts = manifest.get("artifacts", [])
     if {artifact.get("format") for artifact in artifacts} != {"tar.gz", "zip"}:
         raise ValueError(f"Invalid {channel} SDK artifact formats")

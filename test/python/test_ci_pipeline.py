@@ -124,7 +124,7 @@ def test_web_sdk_rejects_a_channel_mismatch_before_cleaning(tmp_path: Path) -> N
     sdk_dir.mkdir()
     output_dir.mkdir()
     (sdk_dir / "sdk-manifest-release.json").write_text(
-        json.dumps({"channel": "release"}), encoding="utf-8"
+        json.dumps({"schema_version": 2, "channel": "release"}), encoding="utf-8"
     )
     sentinel = output_dir / "index.html"
     sentinel.write_text("keep", encoding="utf-8")
@@ -138,6 +138,37 @@ def test_web_sdk_rejects_a_channel_mismatch_before_cleaning(tmp_path: Path) -> N
             )
         )
     assert sentinel.read_text(encoding="utf-8") == "keep"
+
+
+def test_web_sdk_normalizes_matching_legacy_version_aliases() -> None:
+    stage = load_script("stage_web_sdk")
+    manifest = {
+        "schema_version": 1,
+        "version": "3.0.0-rc1",
+        "package_version": "3.0.0-rc1",
+        "sdk_version": "3.0.0-rc1",
+    }
+
+    normalized = stage.normalize_sdk_manifest(manifest)
+
+    assert normalized["schema_version"] == 2
+    assert normalized["version"] == "3.0.0-rc1"
+    assert "package_version" not in normalized
+    assert "sdk_version" not in normalized
+    assert manifest["schema_version"] == 1
+
+
+def test_web_sdk_rejects_conflicting_legacy_version_aliases() -> None:
+    stage = load_script("stage_web_sdk")
+    manifest = {
+        "schema_version": 1,
+        "version": "3.0.0-rc1",
+        "package_version": "2.8.0",
+        "sdk_version": "3.0.0-rc1",
+    }
+
+    with pytest.raises(ValueError, match="Legacy SDK version aliases disagree"):
+        stage.normalize_sdk_manifest(manifest)
 
 
 @pytest.mark.parametrize(
@@ -154,7 +185,6 @@ def test_release_sdk_page_exposes_version_stability(
     manifest = {
         "channel": "release",
         "version": version,
-        "package_version": version,
         "release_tag": version,
         "protocol_version": 1,
         "supported_esp_idf": ">=5.5.0",
@@ -321,9 +351,10 @@ def test_sdk_snapshot_stamps_git_describe_identity(tmp_path: Path) -> None:
         url_prefix=None,
     )
     manifest = builder.build_sdk_package(args)
+    assert manifest["schema_version"] == 2
     assert manifest["version"] == "2.8.0-237-g7439944"
-    assert manifest["package_version"] == "2.8.0-237-g7439944"
-    assert manifest["sdk_version"] == "2.8.0-237-g7439944"
+    assert "package_version" not in manifest
+    assert "sdk_version" not in manifest
     assert manifest["release_tag"] == develop_tag
     assert manifest["supported_esp_idf"] == ">=5.5.0"
     assert manifest["artifacts"][0]["filename"] == "espectre-sdk-develop.tar.gz"
@@ -360,6 +391,42 @@ def test_sdk_snapshot_stamps_git_describe_identity(tmp_path: Path) -> None:
     assert "https://github.com/improv-wifi/sdk-cpp.git" in native_manifest
     assert "version: 17898613a1c17062ca5af295ceb639b16b4930bf" in native_manifest
     assert 'espressif/mdns:\n    version: "^1.9.0"' in native_manifest
+
+
+def test_release_sdk_rejects_a_version_tag_mismatch(tmp_path: Path) -> None:
+    builder = load_script("build_sdk_package")
+    args = argparse.Namespace(
+        channel="release",
+        version="3.0.0-rc1",
+        release_tag="3.0.0",
+        output_dir=str(tmp_path),
+        commit="0123456789abcdef",
+        source_date_epoch=1_800_000_000,
+        url_prefix=None,
+    )
+
+    with pytest.raises(ValueError, match="Release SDK version and release tag must match"):
+        builder.build_sdk_package(args)
+
+
+def test_release_firmware_rejects_a_version_tag_mismatch(tmp_path: Path) -> None:
+    builder = load_script("build_firmware_manifest")
+    firmware_dir = tmp_path / "firmware"
+    output = tmp_path / "firmware-manifest-release.json"
+    firmware_dir.mkdir()
+    args = argparse.Namespace(
+        firmware_dir=str(firmware_dir),
+        output=str(output),
+        channel="release",
+        version="3.0.0-rc1",
+        release_tag="3.0.0",
+        commit="0123456789abcdef",
+        url_prefix=None,
+    )
+
+    with pytest.raises(ValueError, match="Release firmware version and release tag must match"):
+        builder.build_manifest(args)
+    assert not output.exists()
 
 
 def test_generate_sdk_api_stamps_a_working_copy_without_mutating_the_repo(
@@ -828,7 +895,10 @@ def test_pages_verifier_enforces_exact_artifact_contracts(
     (sdk_dir / "index.html").write_text("SDK", encoding="utf-8")
     sdk_manifest_path = sdk_dir / "sdk-manifest-preview.json"
     sdk_manifest = {
+        "schema_version": 2,
         "channel": "preview",
+        "version": "3.0.0-rc1-12-gabcdef1",
+        "release_tag": "snapshot",
         "artifacts": [
             {"format": "tar.gz", "sha256": "a" * 64},
             {"format": "zip", "sha256": "b" * 64},

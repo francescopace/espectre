@@ -203,6 +203,12 @@ def validate_complete_matrix(manifest: dict) -> None:
 
 
 def build_manifest(args: argparse.Namespace) -> dict:
+    if args.channel == "release" and args.version != args.release_tag:
+        raise ValueError(
+            "Release firmware version and release tag must match: "
+            f"{args.version!r} != {args.release_tag!r}"
+        )
+
     firmware_dir = Path(args.firmware_dir)
     output_path = Path(args.output)
 

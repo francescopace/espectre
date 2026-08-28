@@ -262,7 +262,7 @@
         root.querySelectorAll('[data-published-release-tag]:not([data-published-release-tag-initialized])').forEach((label) => {
             label.dataset.publishedReleaseTagInitialized = 'true';
             publishedReleaseTag().then((tag) => {
-                label.textContent = `Latest release · ${tag}`;
+                label.textContent = `${tag} available`;
             }).catch(() => {
                 label.title = 'Published release unavailable';
             });

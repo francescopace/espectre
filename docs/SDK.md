@@ -206,7 +206,7 @@ Everything reachable from `espectre_sdk.h` belongs to the stable runtime surface
 
 First-party firmware, host tests, and CMake configuration resolve the string from `git describe` on numeric tags. The result is either the tag or a moving identity such as `<tag>-<commit-count>-g<hash>`. A checkout without usable Git history must pass `-DESPECTRE_GIT_VERSION=...` or set `ESPECTRE_GIT_VERSION`; ESPHome GitHub clones use this override.
 
-Published SDK bundles stamp the same identity into `espectre_sdk_version.h` and `idf_component.yml`, so an unpacked archive compiles without `.git`. There is no in-tree numeric fallback. Rolling GitHub tags remain `snapshot` for `preview` and `snapshot-dev` for `develop`. SDK identity is separate from `espectre_firmware_version()`, which reports the application version, and `ESPECTRE_PROTOCOL_VERSION`, which versions the wire format.
+Published SDK bundles stamp the same identity into `espectre_sdk_version.h` and `idf_component.yml`, so an unpacked archive compiles without `.git`. The SDK manifest exposes that identity once as `version`; `release_tag` names the GitHub release that carries the assets and may differ for rolling channels. The generated API index keeps `sdk_version` because it identifies the source revision used to build that reference. There is no in-tree numeric fallback. Rolling GitHub tags remain `snapshot` for `preview` and `snapshot-dev` for `develop`. SDK identity is separate from `espectre_firmware_version()`, which reports the application version, and `ESPECTRE_PROTOCOL_VERSION`, which versions the wire format.
 
 ## Build integration
 

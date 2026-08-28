@@ -24,6 +24,7 @@ from web_asset_versions import asset_version
 from validate_release import SEMVER_PATTERN
 
 WEB_ROOT = Path(__file__).resolve().parents[2] / "docs" / "web"
+SDK_MANIFEST_SCHEMA_VERSION = 2
 
 
 def parse_args() -> argparse.Namespace:
@@ -46,6 +47,46 @@ def load_sdk_manifest(sdk_dir: Path) -> dict:
     if len(matches) != 1:
         raise ValueError(f"Expected exactly one SDK manifest in {sdk_dir}, found {len(matches)}")
     return json.loads(matches[0].read_text(encoding="utf-8"))
+
+
+def normalize_sdk_manifest(manifest: dict) -> dict:
+    normalized = dict(manifest)
+    if normalized.get("schema_version") != 1:
+        return normalized
+
+    version = normalized.get("version")
+    aliases = {
+        field: normalized.get(field)
+        for field in ("package_version", "sdk_version")
+        if field in normalized
+    }
+    mismatched = {field: value for field, value in aliases.items() if value != version}
+    if mismatched:
+        raise ValueError(
+            f"Legacy SDK version aliases disagree with version {version!r}: {mismatched}"
+        )
+    for field in aliases:
+        normalized.pop(field)
+    normalized["schema_version"] = SDK_MANIFEST_SCHEMA_VERSION
+    return normalized
+
+
+def validate_sdk_manifest(manifest: dict, channel: str) -> None:
+    if manifest.get("channel") != channel:
+        raise ValueError(
+            f"SDK manifest channel mismatch: expected {channel!r}, "
+            f"found {manifest.get('channel')!r}"
+        )
+    if manifest.get("schema_version") != SDK_MANIFEST_SCHEMA_VERSION:
+        raise ValueError(
+            f"SDK manifest schema must be {SDK_MANIFEST_SCHEMA_VERSION}, "
+            f"found {manifest.get('schema_version')!r}"
+        )
+    redundant = {"package_version", "sdk_version"}.intersection(manifest)
+    if redundant:
+        raise ValueError(f"SDK manifest contains redundant version fields: {sorted(redundant)}")
+    if channel == "release" and manifest.get("version") != manifest.get("release_tag"):
+        raise ValueError("Release SDK version and release tag must match")
 
 
 def release_is_final(manifest: dict) -> bool:
@@ -169,7 +210,6 @@ def render_page(manifest: dict, channel: str) -> str:
       <tbody>
         <tr><td>Channel</td><td><code>{manifest["channel"]}</code></td></tr>
         <tr><td>Version label</td><td><code>{manifest["version"]}</code></td></tr>
-        <tr><td>Package version</td><td><code>{manifest["package_version"]}</code></td></tr>
         <tr><td>Release tag</td><td><code>{manifest["release_tag"]}</code></td></tr>
         <tr><td>Protocol version</td><td><code>{manifest["protocol_version"]}</code></td></tr>
         <tr><td>ESP-IDF baseline</td><td><code>{manifest["supported_esp_idf"]}</code></td></tr>
@@ -230,12 +270,8 @@ def render_page(manifest: dict, channel: str) -> str:
 def stage_web_sdk(args: argparse.Namespace) -> Path:
     sdk_dir = Path(args.sdk_dir)
     output_dir = Path(args.output_dir)
-    manifest = load_sdk_manifest(sdk_dir)
-    if manifest.get("channel") != args.channel:
-        raise ValueError(
-            f"SDK manifest channel mismatch: expected {args.channel!r}, "
-            f"found {manifest.get('channel')!r}"
-        )
+    manifest = normalize_sdk_manifest(load_sdk_manifest(sdk_dir))
+    validate_sdk_manifest(manifest, args.channel)
 
     clean_output_dir(output_dir)
 
