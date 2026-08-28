@@ -26,11 +26,11 @@ globalThis.__analyticsTest = {
 
 function analyticsContext({
     hostname = 'espectre.dev', path = '/', hash = '', staticPage = false,
-    navigatorValues = {}
+    navigatorValues = {}, storedConsent = null
 } = {}) {
     const appendedScripts = [];
     const listeners = new Map();
-    const storage = new Map();
+    let consentValue = storedConsent;
     const consentBanner = { hidden: true };
     const document = {
         cookie: '',
@@ -55,8 +55,8 @@ function analyticsContext({
     const window = {
         location,
         localStorage: {
-            getItem: (key) => storage.get(key) ?? null,
-            setItem: (key, value) => storage.set(key, value)
+            getItem: () => consentValue,
+            setItem: (_key, value) => { consentValue = value; }
         }
     };
     const context = vm.createContext({
@@ -159,6 +159,20 @@ describe('analytics privacy boundary', () => {
             (entry) => entry[0] === 'event' && entry[1] === 'page_view'
         );
         assert.equal(pageViews.length, 1);
+    });
+
+    it('leaves the returning visitor page view to the SPA router', () => {
+        const spa = analyticsContext({ storedConsent: 'granted' });
+        spa.api.initializeConsentControls();
+        assert.equal(spa.window.dataLayer.filter(
+            (entry) => entry[0] === 'event' && entry[1] === 'page_view'
+        ).length, 0);
+
+        const staticPage = analyticsContext({ storedConsent: 'granted', staticPage: true });
+        staticPage.api.initializeConsentControls();
+        assert.equal(staticPage.window.dataLayer.filter(
+            (entry) => entry[0] === 'event' && entry[1] === 'page_view'
+        ).length, 1);
     });
 
     it('grants consent again and sends one page view after a withdrawal', () => {

@@ -353,7 +353,7 @@ PAGES = (
             "open-source software, and the current commercial boundary."
         ),
         "active_nav": "terms",
-        "content_group": "legal",
+        "content_group": "terms",
         "main_class": "page-narrow",
         "og_type": "website",
     },

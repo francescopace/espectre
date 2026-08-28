@@ -247,7 +247,7 @@ function initializeConsentControls() {
     }
 
     const consent = storedConsent();
-    if (consent === 'granted') enableAnalytics();
+    if (consent === 'granted') enableAnalytics({ sendPageView: IS_STATIC_PAGE });
     else if (consent !== 'denied') showConsentBanner();
 }
 
