@@ -12,7 +12,6 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 import argparse
-import csv
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
@@ -42,7 +41,7 @@ REPO_ROOT = SCRIPT_DIR.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.python.espectre_cli.common import FIRMWARE_CACHE_DIR, detect_chip_type, get_serial_port
+from src.python.espectre_cli.common import FIRMWARE_CACHE_DIR
 from src.python.espectre_cli.idf import prebuilt_idf_flasher_args_path, resolve_idf_build_dir_name
 from src.python.espectre_cli.micro import deployment_files
 from src.python.espectre_cli.micro_firmware import PROJECT_FIRMWARE_NAMES
@@ -64,8 +63,6 @@ from src.python.espectre_cli.device_transport import (
     DirectClient,
     DirectEvent,
     DirectProtocolError,
-    ImprovProvisioningResult,
-    ImprovSerialClient,
     direct_endpoint_from_device_url,
 )
 
@@ -612,6 +609,18 @@ def run_command(
         reached_timeout=reached_timeout,
         line_elapsed_seconds=line_elapsed_seconds,
     )
+
+
+def parse_json_object_from_output(output: str) -> dict[str, object]:
+    """Return the final JSON object emitted by a delegated CLI command."""
+    for line in reversed(strip_ansi(output).splitlines()):
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    raise RuntimeError("delegated CLI command did not emit a JSON object")
 
 
 def parse_build_metrics(output: str, firmware_path: Path | None = None) -> BuildMetrics:
@@ -1708,21 +1717,20 @@ def idf_case_environment(frontend: str, chip: str, detector: str) -> Iterator[di
 
     override = render_idf_benchmark_override(frontend, chip, detector)
     temporary_path = app_dir / f".espectre-benchmark-{chip}-{detector}.defaults"
-    temporary_sdkconfig = app_dir / f".espectre-benchmark-{chip}-{detector}.sdkconfig"
-    temporary_sdkconfig_old = temporary_sdkconfig.with_name(f"{temporary_sdkconfig.name}.old")
-    if temporary_path.exists() or temporary_sdkconfig.exists():
+    generated_sdkconfig = benchmark_build_dir(frontend, chip) / f"sdkconfig.{detector}"
+    generated_sdkconfig_old = generated_sdkconfig.with_name(f"{generated_sdkconfig.name}.old")
+    if temporary_path.exists():
         raise RuntimeError(f"temporary benchmark configuration already exists for {frontend} {chip} {detector}")
     try:
         temporary_path.write_text(override, encoding="utf-8")
         defaults.append(temporary_path)
         env = os.environ.copy()
         env["SDKCONFIG_DEFAULTS"] = ";".join(str(path.resolve()) for path in defaults)
-        env["ESPECTRE_IDF_SDKCONFIG"] = str(temporary_sdkconfig.resolve())
+        env["ESPECTRE_IDF_SDKCONFIG"] = str(generated_sdkconfig.resolve())
         yield env
     finally:
         temporary_path.unlink(missing_ok=True)
-        temporary_sdkconfig.unlink(missing_ok=True)
-        temporary_sdkconfig_old.unlink(missing_ok=True)
+        generated_sdkconfig_old.unlink(missing_ok=True)
 
 
 def _hash_text(value: str) -> str:
@@ -1828,7 +1836,7 @@ def should_clean_benchmark_build(frontend: str, chip: str, detector: str) -> boo
 def _commands_for_case(
     case: BenchmarkCase,
     chip: str,
-    port: str,
+    port: str | None,
     config: Path | None = None,
     *,
     clean: bool,
@@ -1836,59 +1844,52 @@ def _commands_for_case(
     launcher = str(REPO_ROOT / "espectre")
     # Always use the shared serial monitor and request an explicit hard reset so
     # one-shot boot markers (especially Matter smoke) are captured.
-    monitor_command = [launcher, "monitor", "--port", port, "--reset"]
+    monitor_command = [
+        launcher,
+        "monitor",
+        "--chip",
+        chip,
+        "--frontend",
+        case.frontend,
+        "--reset",
+    ]
+    if port:
+        monitor_command.extend(["--port", port])
     if case.frontend == "esphome":
         assert config is not None
         config_value = str(config)
-        build_command = [launcher, "esphome", "build", "--config", config_value]
+        build_command = [
+            launcher,
+            "esphome",
+            "build",
+            "--chip",
+            chip,
+            "--config",
+            config_value,
+        ]
         if clean:
             build_command.append("--clean")
-        return (
-            build_command,
-            [launcher, "esphome", "flash", "--config", config_value, "--device", port],
-            monitor_command,
-        )
+        flash_command = [
+            launcher,
+            "esphome",
+            "flash",
+            "--chip",
+            chip,
+            "--config",
+            config_value,
+        ]
+        if port:
+            flash_command.extend(["--device", port])
+        return build_command, flash_command, monitor_command
     build_command = [launcher, case.frontend, "build", "--chip", chip, "--backend", "local"]
     if clean:
         build_command.append("--clean")
-    return (
-        build_command,
-        [launcher, case.frontend, "flash", "--port", port],
-        monitor_command,
-    )
-
-
-def _partition_region_from_csv(partition_table: Path, label: str) -> tuple[str, str]:
-    try:
-        with partition_table.open("r", encoding="utf-8", newline="") as handle:
-            reader = csv.reader(handle)
-            for row in reader:
-                if not row:
-                    continue
-                name = row[0].strip()
-                if not name or name.startswith("#"):
-                    continue
-                if name != label:
-                    continue
-                if len(row) < 5:
-                    break
-                offset = row[3].strip()
-                size = row[4].strip()
-                if offset and size:
-                    return offset, size
-                break
-    except OSError as exc:
-        raise RuntimeError(f"failed to read partition table {partition_table}: {exc}") from exc
-    raise RuntimeError(f"partition {label!r} not found in {partition_table}")
-
-
-def _pre_flash_command_for_case(case: BenchmarkCase, port: str) -> list[str] | None:
-    if case.frontend != "native":
-        return None
-
-    partition_table = REPO_ROOT / "src/cpp/frontend/native/app/partitions.csv"
-    offset, size = _partition_region_from_csv(partition_table, "nvs")
-    return [sys.executable, "-m", "esptool", "--port", port, "erase-region", offset, size]
+    flash_command = [launcher, case.frontend, "flash", "--chip", chip]
+    if case.frontend == "native":
+        flash_command.append("--erase-nvs")
+    if port:
+        flash_command.extend(["--port", port])
+    return build_command, flash_command, monitor_command
 
 
 @contextmanager
@@ -2634,14 +2635,6 @@ def _flash_prebuilt_cpp_case_in_context(
         config,
         clean=False,
     )
-    pre_flash_command = _pre_flash_command_for_case(case, port)
-    if pre_flash_command is not None:
-        nvs_reset = run_command(pre_flash_command, env=env)
-        if nvs_reset.returncode != 0:
-            result.flash = nvs_reset
-            result.reasons.append(f"NVS erase exited with status {nvs_reset.returncode}")
-            result.status = "FAIL"
-            return False
     result.flash = run_command(flash_command, env=env)
     if result.flash.returncode != 0:
         result.reasons.append(f"flash exited with status {result.flash.returncode}")
@@ -2831,25 +2824,64 @@ def run_direct_frontend_cases(
         return failed_results
 
     endpoint: str
-    provisioning: ImprovProvisioningResult | None = None
+    provisioning: dict[str, object] | None = None
     endpoint_override = benchmark_setting("ESPECTRE_BENCHMARK_DIRECT_ENDPOINT", "") or ""
     try:
         if frontend == "native":
-            with ImprovSerialClient(port) as improv:
-                provisioning = improv.provision(
-                    require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID"),
-                    require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD"),
-                    timeout=WIFI_CONNECT_WAIT_SECONDS,
+            provision_command = [
+                str(REPO_ROOT / "espectre"),
+                "provision",
+                "--chip",
+                chip,
+                "--frontend",
+                "native",
+                "--ssid",
+                require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID"),
+                "--password-env",
+                "ESPECTRE_BENCHMARK_WIFI_PASSWORD",
+                "--timeout",
+                str(WIFI_CONNECT_WAIT_SECONDS),
+                "--json",
+            ]
+            provision_port = benchmark_setting("ESPECTRE_BENCHMARK_IMPROV_PORT", "") or port
+            if provision_port:
+                provision_command.extend(["--port", provision_port])
+            provision_env = os.environ.copy()
+            provision_env["ESPECTRE_BENCHMARK_WIFI_PASSWORD"] = require_benchmark_setting(
+                "ESPECTRE_BENCHMARK_WIFI_PASSWORD"
+            )
+            provision_result = run_command(provision_command, env=provision_env)
+            if provision_result.returncode != 0:
+                raise RuntimeError(
+                    f"Native provisioning exited with status {provision_result.returncode}"
                 )
-            endpoint = direct_endpoint_from_device_url(endpoint_override or provisioning.endpoint)
+            provisioning = parse_json_object_from_output(provision_result.output)
+            provisioned_endpoint = provisioning.get("endpoint")
+            if not isinstance(provisioned_endpoint, str) or not provisioned_endpoint:
+                raise RuntimeError("Native provision JSON did not contain an endpoint")
+            endpoint = direct_endpoint_from_device_url(endpoint_override or provisioned_endpoint)
         elif endpoint_override:
             endpoint = direct_endpoint_from_device_url(endpoint_override)
         else:
             endpoint = discover_direct_device(frontend, chip=chip).endpoint
     except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
-        return _failed_direct_results(selected_cases, bootstrap, str(exc))
+        failed_results = _failed_direct_results(selected_cases, bootstrap, str(exc))
+        if on_result is not None:
+            for result in failed_results:
+                on_result(result)
+        return failed_results
 
-    monitor_command = [str(REPO_ROOT / "espectre"), "monitor", "--port", port]
+    monitor_command = [
+        str(REPO_ROOT / "espectre"),
+        "monitor",
+        "--chip",
+        chip,
+        "--frontend",
+        frontend,
+    ]
+    monitor_port = provisioning.get("port") if provisioning is not None else port
+    if isinstance(monitor_port, str) and monitor_port:
+        monitor_command.extend(["--port", monitor_port])
     (
         monitor_process,
         monitor_output,
@@ -2931,7 +2963,7 @@ def run_direct_frontend_cases(
                     "origin": DIRECT_ORIGIN,
                     "request_path": "/espectre/v1/request",
                     "events_path": "/espectre/v1/events",
-                    "improv_states": list(provisioning.states) if provisioning is not None else [],
+                    "improv_states": list(provisioning.get("states", [])) if provisioning is not None else [],
                 }
                 result.status = "PASS" if not result.reasons else "FAIL"
             except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
@@ -3022,14 +3054,6 @@ def run_case(
                 config,
                 clean=clean,
             )
-            pre_flash_command = _pre_flash_command_for_case(case, port)
-            if pre_flash_command is not None:
-                nvs_reset = run_command(pre_flash_command, env=env)
-                if nvs_reset.returncode != 0:
-                    result.flash = nvs_reset
-                    result.status = "FAIL"
-                    result.reasons.append(f"NVS erase exited with status {nvs_reset.returncode}")
-                    return result, None
             result.flash = run_command(flash_command, env=env)
             if result.flash.returncode != 0:
                 result.status = "FAIL"
@@ -3123,10 +3147,10 @@ def run_micro_case(
                 "flash",
                 "--chip",
                 chip,
-                "--port",
-                port,
                 "--erase",
             ]
+            if port:
+                flash_command.extend(["--port", port])
             result.flash = run_command(
                 flash_command,
             )
@@ -3140,23 +3164,18 @@ def run_micro_case(
             return result
         with micro_case_config(chip, case.detector) as config_path:
             result.build_metrics.deployed_source_bytes = micro_deployed_source_size(config_path)
-            result.deploy = run_command(
-                [
-                    launcher,
-                    "micro",
-                    "deploy",
-                    "--port",
-                    port,
-                    "--config",
-                    str(config_path),
-                ],
-            )
+            deploy_command = [launcher, "micro", "deploy", "--config", str(config_path)]
+            if port:
+                deploy_command.extend(["--port", port])
+            result.deploy = run_command(deploy_command)
             if result.deploy.returncode != 0:
                 result.status = "FAIL"
                 result.reasons.append(f"deploy exited with status {result.deploy.returncode}")
                 return result
 
-        run_command_line = [launcher, "micro", "run", "--port", port]
+        run_command_line = [launcher, "micro", "run"]
+        if port:
+            run_command_line.extend(["--port", port])
         process, output_lines, line_times, relay_thread, started = _run_background_command(run_command_line)
         client: DirectClient | None = None
         try:
@@ -4226,13 +4245,7 @@ def main() -> int:
         print(f"Overall result: {'PASS' if passed else 'FAIL'}")
         return 0 if passed else 1
 
-    port = get_serial_port(args.port)
-    detected_chip = detect_chip_type(port)
-    if detected_chip is not None and detected_chip != args.chip:
-        parser.error(
-            f"connected device is {CHIP_LABELS.get(detected_chip, detected_chip)}, "
-            f"but --chip selects {CHIP_LABELS[args.chip]}"
-        )
+    port = args.port or ""
     started_at = datetime.now().astimezone()
     repository_state_start = repository_state()
     artifact_dir = (
@@ -4245,7 +4258,7 @@ def main() -> int:
     source_change_warning_printed = False
     revision_provenance_reason: str | None = None
     print(f"Chip:     {CHIP_LABELS[args.chip]}")
-    print(f"Port:     {port}")
+    print(f"Port:     {port or 'auto via ./espectre'}")
     print(f"Report:   {report_path.relative_to(REPO_ROOT)}")
     print(f"Artifacts:{' ' * 2}{artifact_dir}")
     print(f"Matrix:   {', '.join(case.label for case in selected_cases)}")

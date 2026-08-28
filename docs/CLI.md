@@ -91,7 +91,7 @@ Local builds enable `ccache` automatically when the binary is on `PATH`. Docker 
 
 Docker builds use a separate directory such as `build-esp32c3-docker`, which prevents host and container CMake caches from sharing incompatible absolute paths. Docker is a build backend only; `flash` continues to use the detected local ESP-IDF environment and host serial port.
 
-For `flash`, `--chip` selects that chip's build directory, such as `build-esp32c5` for `--chip c5`, without probing the serial device. Without `--chip`, the wrapper selects the serial port first, then prefers the build directory that matches the connected chip detected on that port. Without a match, it falls back to the local configured target or the legacy `build/` layout.
+For `flash`, `--chip` selects that chip's build directory, such as `build-esp32c5` for `--chip c5`, and verifies that the selected serial device contains the requested chip before erasing or writing flash. Without `--chip`, the wrapper selects the serial port first, then prefers the build directory that matches the connected chip detected on that port. Without a match, it falls back to the local configured target or the legacy `build/` layout. Native also accepts `--erase-nvs` to erase only the configured NVS partition before flashing.
 
 When the current `sdkconfig` already matches the selected chip, `flash` delegates to `idf.py flash`, so ESP-IDF may configure CMake or complete a missing build inside that directory before writing the firmware. When `sdkconfig` belongs to a different chip, `flash` writes the already-built image from the selected directory and does not rebuild. Rebuilds still share one `sdkconfig`, so `native build --chip c5` after an S3 build overwrites that file.
 
@@ -147,22 +147,24 @@ Notes:
 Common flags:
 
 - `--port`
+- `--chip`
+- `--frontend`
 - `--baud`
 - `--raw`
 - `--reset`
 
-By default, `monitor` attaches without resetting the device. Add `--reset` when you want a hard reset on open, for example to capture boot-time logs from the beginning.
+When `--chip` is supplied, the CLI filters serial candidates by the console capabilities of that chip. One compatible port is selected automatically; multiple compatible ports produce a prompt containing only valid candidates. An explicit incompatible `--port` is rejected. Without `--chip`, the same selection flow uses all ports compatible with the requested action. By default, `monitor` attaches without resetting the device. Add `--reset` when you want a hard reset on open, for example to capture boot-time logs from the beginning.
 
 Example:
 
 ```bash
-./espectre monitor --port /dev/cu.usbmodemXXXX
+./espectre monitor --chip c3 --frontend native --port /dev/cu.usbmodemXXXX
 ```
 
 Reset on open:
 
 ```bash
-./espectre monitor --port /dev/cu.usbmodemXXXX --reset
+./espectre monitor --chip c3 --frontend native --port /dev/cu.usbmodemXXXX --reset
 ```
 
 ### `devices`
@@ -190,10 +192,10 @@ The command uses the repository `zeroconf` dependency and requires the host and 
 
 ### `provision`
 
-`provision` uses the shared Improv Serial v1 client to configure a clean Native or ESPHome device over USB. The Wi-Fi password is read from `ESPECTRE_WIFI_PASSWORD` by default, or from the variable named by `--password-env`; when the variable is unset, the CLI prompts without echoing the password. The command validates framing, checksums, state transitions, correlated RPC results, UTF-8 strings, and the returned device URL.
+`provision` uses the shared Improv Serial v1 client to configure a clean Native or ESPHome device over USB. It accepts the same optional `--chip`, `--frontend`, and `--port` capability-aware selection used by `monitor`. The Wi-Fi password is read from `ESPECTRE_WIFI_PASSWORD` by default, or from the variable named by `--password-env`; when the variable is unset, the CLI prompts without echoing the password. The command validates framing, checksums, state transitions, correlated RPC results, UTF-8 strings, and the returned device URL. Add `--json` to return the selected port, endpoint, and provisioning evidence to another tool.
 
 ```bash
-ESPECTRE_WIFI_PASSWORD='secret' ./espectre provision --port /dev/cu.usbmodemXXXX --ssid MyNetwork
+ESPECTRE_WIFI_PASSWORD='secret' ./espectre provision --chip c3 --frontend native --port /dev/cu.usbmodemXXXX --ssid MyNetwork
 ```
 
 The password is never accepted as a command-line value, printed, or included in the returned endpoint. `--timeout` bounds the complete state, device-info, and Wi-Fi provisioning exchange.

@@ -10,6 +10,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 import json
 import os
@@ -20,7 +21,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from .common import Fore, REPO_ROOT, Style, cli_command, detect_chip_type, get_serial_port
+from .common import Fore, REPO_ROOT, Style, cli_command, detect_chip_type, get_serial_port, resolve_serial_port
 from .idf_container import DockerBackendError, IDF_VERSION, ensure_docker_backend, run_idf_container
 from .targets import IDF_FRONTENDS, resolve_idf_target
 
@@ -145,6 +146,19 @@ def cached_sdkconfig_path(app_path: Path, build_dir_name: str | None) -> Path | 
                 return None
             path = Path(value)
             return path.resolve() if path.is_absolute() else (app_path / path).resolve()
+    return None
+
+
+def cached_idf_target(app_path: Path, build_dir_name: str | None) -> str | None:
+    """Return the target retained by one CMake build cache, if any."""
+    cache_path = app_path / (build_dir_name or "build") / "CMakeCache.txt"
+    try:
+        lines = cache_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        if line.startswith("IDF_TARGET:") and "=" in line:
+            return line.split("=", 1)[1].strip() or None
     return None
 
 
@@ -282,9 +296,44 @@ def run_esptool_main(args: list[str]) -> None:
     esptool.main(args)
 
 
-def flash_prebuilt_idf_image(app_path: Path, build_dir_name: str, port: str, idf_target: str) -> None:
+def partition_region_from_csv(partition_table: Path, label: str) -> tuple[str, str]:
+    """Return the configured offset and size for one partition label."""
+    try:
+        with partition_table.open("r", encoding="utf-8", newline="") as handle:
+            for row in csv.reader(handle):
+                if not row or row[0].strip().startswith("#"):
+                    continue
+                if row[0].strip() == label and len(row) >= 5:
+                    offset, size = row[3].strip(), row[4].strip()
+                    if offset and size:
+                        return offset, size
+    except OSError as exc:
+        raise ValueError(f"failed to read partition table {partition_table}: {exc}") from exc
+    raise ValueError(f"partition {label!r} not found in {partition_table}")
+
+
+def erase_idf_partition(app_path: Path, port: str, label: str) -> None:
+    """Erase one partition through the same selected serial port as flash."""
+    offset, size = partition_region_from_csv(app_path / "partitions.csv", label)
+    command = ["--port", port, "erase-region", offset, size]
+    print(f"{Fore.CYAN}Command: esptool {' '.join(command)}{Style.RESET_ALL}")
+    try:
+        run_esptool_main(command)
+    except SystemExit as exc:
+        if exc.code not in (0, None):
+            raise
+
+
+def flash_prebuilt_idf_image(
+    app_path: Path,
+    build_dir_name: str,
+    port: str,
+    idf_target: str,
+    *,
+    command: list[str] | None = None,
+) -> None:
     """Flash an already-built ESP-IDF image without reconfiguring CMake."""
-    command = build_prebuilt_idf_esptool_command(app_path / build_dir_name, port, idf_target)
+    command = command or build_prebuilt_idf_esptool_command(app_path / build_dir_name, port, idf_target)
     print(f"{Fore.CYAN}Command: esptool {' '.join(command)}{Style.RESET_ALL}")
     try:
         run_esptool_main(command)
@@ -793,13 +842,36 @@ def run_idf_command(frontend: str, args) -> None:
         if sdkconfig_path is None and cached_sdkconfig not in {None, (app_path / "sdkconfig").resolve()}:
             cmake_args.append(f"-DSDKCONFIG={(app_path / 'sdkconfig').resolve()}")
         commands = []
-        if clean_requested or not sdkconfig_matches_target(app_path, idf_target, sdkconfig_path):
+        target_matches = sdkconfig_matches_target(app_path, idf_target, sdkconfig_path)
+        selected_sdkconfig = sdkconfig_path or app_path / "sdkconfig"
+        if not selected_sdkconfig.is_file():
+            target_matches = cached_idf_target(app_path, build_dir_name) == idf_target
+        if clean_requested or not target_matches:
             commands.append([*base_command, *cmake_args, "set-target", idf_target])
         commands.append([*base_command, *cmake_args, "build"])
     elif args.idf_command == "flash":
-        port = get_serial_port(args.port)
-        flash_port = port
         flash_chip = getattr(args, "chip", None)
+        port = resolve_serial_port(
+            args.port,
+            chip=flash_chip,
+            frontend=frontend,
+            purpose="flash",
+        )
+        flash_port = port
+        if flash_chip:
+            detected_chip = detect_chip_type(port)
+            if detected_chip is None:
+                print(
+                    f"{Fore.RED}❌ Could not verify that {port} is an ESP32-{flash_chip.upper()} device.{Style.RESET_ALL}"
+                )
+                raise SystemExit(1)
+            if detected_chip != flash_chip:
+                print(
+                    f"{Fore.RED}❌ Serial port {port} contains ESP32-{detected_chip.upper()}, "
+                    f"not the requested ESP32-{flash_chip.upper()}.{Style.RESET_ALL}"
+                )
+                raise SystemExit(1)
+        erase_nvs_requested = frontend == "native" and bool(getattr(args, "erase_nvs", False))
         idf_target, build_dir_name = resolve_flash_idf_selection(frontend, app_path, port, flash_chip)
         if idf_target:
             print(f"{Fore.CYAN}Target:   {idf_target}{Style.RESET_ALL}")
@@ -831,7 +903,16 @@ def run_idf_command(frontend: str, args) -> None:
                 f"{Fore.CYAN}Flashing existing {idf_target} image from {image_dir}{current_note}.{Style.RESET_ALL}"
             )
             try:
-                flash_prebuilt_idf_image(app_path, image_dir, port, idf_target)
+                flash_command = build_prebuilt_idf_esptool_command(app_path / image_dir, port, idf_target)
+                if erase_nvs_requested:
+                    erase_idf_partition(app_path, port, "nvs")
+                flash_prebuilt_idf_image(
+                    app_path,
+                    image_dir,
+                    port,
+                    idf_target,
+                    command=flash_command,
+                )
             except (OSError, ValueError, json.JSONDecodeError) as exc:
                 print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
                 raise SystemExit(1) from exc
@@ -876,6 +957,12 @@ def run_idf_command(frontend: str, args) -> None:
     process_env = idf_subprocess_env(env)
     if (process_env or os.environ).get("IDF_CCACHE_ENABLE") == "1":
         print(f"{Fore.CYAN}Compiler cache: ccache{Style.RESET_ALL}")
+    if args.idf_command == "flash" and erase_nvs_requested:
+        try:
+            erase_idf_partition(app_path, flash_port, "nvs")
+        except (OSError, ValueError) as exc:
+            print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
+            raise SystemExit(1) from exc
     try:
         if env.mode == "export" and len(commands) > 1:
             for command in commands:

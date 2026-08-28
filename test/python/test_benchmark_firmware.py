@@ -408,6 +408,68 @@ def test_failed_direct_results_preserve_bootstrap_evidence():
     assert all(result.reasons == ["provisioning failed"] for result in results)
 
 
+def test_native_provisioning_failure_is_reported_through_callback(monkeypatch):
+    case = bench.BenchmarkCase("native", "lightweight")
+
+    class FakeContext:
+        def __enter__(self):
+            return {}, object()
+
+        def __exit__(self, *_args):
+            return False
+
+    bootstrap = bench.BenchmarkResult(
+        case=case,
+        build=bench.CommandResult(["build"], 0, 1.0, ""),
+    )
+
+    def fake_flash(_case, _chip, _port, result, **_kwargs):
+        result.flash = bench.CommandResult(["flash"], 0, 1.0, "")
+        return True
+
+    recorded = []
+    monkeypatch.setattr(bench, "should_clean_benchmark_build", lambda *_args: False)
+    monkeypatch.setattr(bench, "case_context", lambda *_args, **_kwargs: FakeContext())
+    monkeypatch.setattr(bench, "_build_case_in_context", lambda *_args, **_kwargs: bootstrap)
+    monkeypatch.setattr(bench, "_flash_prebuilt_cpp_case_in_context", fake_flash)
+    monkeypatch.setattr(
+        bench,
+        "run_command",
+        lambda command, **_kwargs: bench.CommandResult(
+            list(command),
+            1,
+            1.0,
+            "Improv provisioning failed: provisioning timed out",
+        ),
+    )
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
+
+    results = bench.run_direct_frontend_cases(
+        [case],
+        "s3",
+        "/dev/cu.test",
+        on_result=recorded.append,
+    )
+
+    assert recorded == results
+    assert results[0].status == "FAIL"
+    assert results[0].reasons == ["Native provisioning exited with status 1"]
+
+
+def test_parse_json_object_from_output_uses_final_json_line():
+    parsed = bench.parse_json_object_from_output(
+        'Selected serial port /dev/cu.valid\n{"state":"ready"}\n'
+        '{"chip":"s3","endpoint":"http://192.0.2.5","port":"/dev/cu.valid"}\n'
+    )
+
+    assert parsed == {
+        "chip": "s3",
+        "endpoint": "http://192.0.2.5",
+        "port": "/dev/cu.valid",
+    }
+
+
 def test_micro_direct_preparation_reconnects_after_transient_timeout(monkeypatch):
     clients = [SimpleNamespace(close=lambda: None), SimpleNamespace(close=lambda: None)]
     prepared = []
@@ -908,8 +970,6 @@ def test_main_executes_frontends_in_hardware_benchmark_order(tmp_path, monkeypat
         return bench.BenchmarkResult(case=case, status="PASS")
 
     monkeypatch.setattr(sys, "argv", ["benchmark_firmware.py", "--chip", "c5"])
-    monkeypatch.setattr(bench, "get_serial_port", lambda _port: "/dev/fake")
-    monkeypatch.setattr(bench, "detect_chip_type", lambda _port: "c5")
     monkeypatch.setattr(bench, "repository_state", lambda: state)
     monkeypatch.setattr(bench, "benchmark_artifact_dir", lambda *_args: tmp_path / "artifacts")
     monkeypatch.setattr(bench, "require_benchmark_prerequisites", lambda _cases: None)
@@ -962,8 +1022,6 @@ def test_main_warns_but_passes_when_sources_change_on_same_revision(
         "argv",
         ["benchmark_firmware.py", "--chip", "c5", "--frontend", "native"],
     )
-    monkeypatch.setattr(bench, "get_serial_port", lambda _port: "/dev/fake")
-    monkeypatch.setattr(bench, "detect_chip_type", lambda _port: "c5")
     monkeypatch.setattr(bench, "repository_state", lambda: next(states))
     monkeypatch.setattr(bench, "benchmark_artifact_dir", lambda *_args: tmp_path / "artifacts")
     monkeypatch.setattr(bench, "require_benchmark_prerequisites", lambda _cases: None)
@@ -1045,11 +1103,6 @@ Result: **PASS**
     )
     monkeypatch.setattr(bench, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(bench, "report_path_for_chip", lambda _chip: report_path)
-    monkeypatch.setattr(
-        bench,
-        "get_serial_port",
-        lambda _port: pytest.fail("resume should not access hardware when no selected case needs rerun"),
-    )
     monkeypatch.setattr(
         sys,
         "argv",
@@ -1147,10 +1200,17 @@ def test_native_idf_environment_applies_explicit_csi_target_pps(tmp_path, monkey
 
     with bench.idf_case_environment("native", "c3", "lightweight") as env:
         override_path = bench.Path(env["SDKCONFIG_DEFAULTS"].split(";")[-1])
+        generated_sdkconfig = bench.Path(env["ESPECTRE_IDF_SDKCONFIG"])
         override = override_path.read_text(encoding="utf-8")
+        generated_sdkconfig.parent.mkdir(parents=True)
+        generated_sdkconfig.write_text('CONFIG_IDF_TARGET="esp32c3"\n', encoding="utf-8")
 
     assert "CONFIG_ESPECTRE_CSI_TARGET_PPS=100" in override
     assert not override_path.exists()
+    assert generated_sdkconfig.exists()
+
+    with bench.idf_case_environment("native", "c3", "lightweight") as reused_env:
+        assert bench.Path(reused_env["ESPECTRE_IDF_SDKCONFIG"]) == generated_sdkconfig
 
 
 def test_benchmark_rejects_a_subproduction_csi_target(monkeypatch):
@@ -1447,6 +1507,7 @@ def test_esphome_bootstrap_build_preserves_shared_toolchain_cache(tmp_path):
         clean=True,
     )
 
+    assert build[2:5] == ["build", "--chip", "c3"]
     assert build[-1] == "--clean"
     assert "--clean-all" not in build
 

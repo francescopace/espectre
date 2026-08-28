@@ -141,6 +141,13 @@ def _add_provision_parser(subparsers) -> None:
         help="Provision a clean Native or ESPHome device through standard Improv Serial",
     )
     provision_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
+    provision_parser.add_argument("--chip", choices=MICRO_CHIP_CHOICES, help="Target chip used to filter compatible ports")
+    provision_parser.add_argument(
+        "--frontend",
+        choices=("native", "esphome"),
+        default="native",
+        help="Firmware frontend that owns the Improv console (default: native)",
+    )
     provision_parser.add_argument("--ssid", required=True, help="Wi-Fi network name")
     provision_parser.add_argument(
         "--password-env",
@@ -152,6 +159,11 @@ def _add_provision_parser(subparsers) -> None:
         type=float,
         default=60.0,
         help="Maximum provisioning time in seconds (default: 60)",
+    )
+    provision_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable provisioning evidence",
     )
     provision_parser.set_defaults(handler=run_improv_provision_command)
 
@@ -200,6 +212,13 @@ def _add_mqtt_parser(subparsers, *, name: str = "mqtt", help_text: str | None = 
 def _add_monitor_parser(subparsers) -> None:
     monitor_parser = subparsers.add_parser("monitor", help="Attach to a serial port and stream logs")
     monitor_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
+    monitor_parser.add_argument("--chip", choices=MICRO_CHIP_CHOICES, help="Target chip used to filter compatible ports")
+    monitor_parser.add_argument(
+        "--frontend",
+        choices=("native", "esphome", "matter", "micro"),
+        default="native",
+        help="Firmware frontend that owns the serial console (default: native)",
+    )
     monitor_parser.add_argument("--baud", type=int, default=115200, help="Serial baud rate (default: 115200)")
     monitor_parser.add_argument("--raw", action="store_true", help="Write raw serial bytes without text decoding")
     monitor_parser.add_argument(
@@ -353,6 +372,12 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
                 choices=sorted(IDF_FRONTENDS[frontend]["targets"].keys()),
                 help="Target chip whose existing build directory should be flashed (auto-detected if omitted)",
             )
+            if frontend == "native":
+                command_parser.add_argument(
+                    "--erase-nvs",
+                    action="store_true",
+                    help="Erase the Native NVS partition before flashing",
+                )
         if command_name in {"flash", "qr"}:
             command_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
         command_parser.set_defaults(handler=lambda args, current_frontend=frontend: run_idf_command(current_frontend, args))

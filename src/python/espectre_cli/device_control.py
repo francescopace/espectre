@@ -7,8 +7,10 @@ from __future__ import annotations
 import getpass
 import json
 import os
+import sys
+from contextlib import nullcontext, redirect_stdout
 
-from .common import get_serial_port
+from .common import resolve_serial_port
 from .device_discovery import choose_device_interactively, discover_devices
 from .device_transport import (
     DEFAULT_DIRECT_ORIGIN,
@@ -19,18 +21,45 @@ from .device_transport import (
 
 
 def run_improv_provision_command(args) -> int:
+    json_output = bool(getattr(args, "json", False))
+    diagnostic_stream = sys.stderr if json_output else sys.stdout
     password = os.environ.get(args.password_env)
     if password is None:
         password = getpass.getpass(f"Wi-Fi password ({args.password_env} is unset): ")
-    port = get_serial_port(args.port)
+    chip = getattr(args, "chip", None)
+    frontend = getattr(args, "frontend", "native")
     try:
+        output_context = redirect_stdout(diagnostic_stream) if json_output else nullcontext()
+        with output_context:
+            port = resolve_serial_port(
+                args.port,
+                chip=chip,
+                frontend=frontend,
+                purpose="improv",
+            )
         with ImprovSerialClient(port) as client:
             result = client.provision(args.ssid, password, timeout=args.timeout)
     except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
-        print(f"Improv provisioning failed: {exc}")
+        print(f"Improv provisioning failed: {exc}", file=diagnostic_stream)
         return 1
+    endpoint = direct_endpoint_from_device_url(result.endpoint)
+    if json_output:
+        print(
+            json.dumps(
+                {
+                    "chip": chip,
+                    "device_info": list(result.device_info),
+                    "endpoint": endpoint,
+                    "frontend": frontend,
+                    "port": port,
+                    "states": list(result.states),
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
     print("Improv provisioning completed.")
-    print(f"Device endpoint: {direct_endpoint_from_device_url(result.endpoint)}")
+    print(f"Device endpoint: {endpoint}")
     return 0
 
 

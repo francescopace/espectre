@@ -70,8 +70,8 @@ python -m pip install -r requirements.txt</code></pre>
       <div class="code-tab-panel" id="setup-native-panel" role="tabpanel" aria-labelledby="setup-native-tab" data-frontend="native">
         <p>Native uses the shared ESP-IDF build environment. Flashing starts the application; the top-level monitor follows its serial output:</p>
         <pre class="code"><code>./espectre native build --chip c3 --clean
-./espectre native flash
-./espectre monitor --reset</code></pre>
+./espectre native flash --chip c3
+./espectre monitor --chip c3 --frontend native --reset</code></pre>
       </div>
       <div class="code-tab-panel" id="setup-esphome-panel" role="tabpanel" aria-labelledby="setup-esphome-tab" data-frontend="esphome" hidden>
         <p>ESPHome selects the maintained YAML for the target chip and manages its own build toolchain. Use the same chip when building, flashing, and monitoring:</p>
@@ -87,9 +87,9 @@ python -m pip install -r requirements.txt</code></pre>
       <div class="code-tab-panel" id="setup-matter-panel" role="tabpanel" aria-labelledby="setup-matter-tab" data-frontend="matter" hidden>
         <p>Matter uses the shared ESP-IDF build environment. After flashing, retrieve the device-specific onboarding code and use the serial monitor while commissioning:</p>
         <pre class="code"><code>./espectre matter build --chip c3 --clean
-./espectre matter flash
+./espectre matter flash --chip c3
 ./espectre matter qr
-./espectre monitor --reset</code></pre>
+./espectre monitor --chip c3 --frontend matter --reset</code></pre>
       </div>
     </div>
     <p>Run <code>./espectre devices</code> to list ESPectre devices on the local network. Native, ESPHome, Matter, and Micro-ESPectre publish the same <code>_espectre._tcp.local.</code> service. Use <code>--frontend</code> when you need only one firmware type.</p>

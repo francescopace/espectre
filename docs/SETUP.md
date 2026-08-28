@@ -92,7 +92,7 @@ Confirm the binary is on `PATH`:
 ccache --version
 ```
 
-`./espectre native build`, `./espectre matter build`, `./espectre micro build`, and `./espectre doctor` then print `Compiler cache: ccache` when the cache is active. Set `IDF_CCACHE_ENABLE=0` to disable it for one shell. An explicit `IDF_CCACHE_ENABLE=1` remains supported for toolchains that do not go through the repository wrapper.
+`./espectre native build --chip c3`, `./espectre matter build --chip c3`, `./espectre micro build --chip c3`, and `./espectre doctor` then print `Compiler cache: ccache` when the cache is active. Replace `c3` with the selected chip. Set `IDF_CCACHE_ENABLE=0` to disable it for one shell. An explicit `IDF_CCACHE_ENABLE=1` remains supported for toolchains that do not go through the repository wrapper.
 
 Use the equivalent PowerShell environment variable on Windows to disable the cache:
 

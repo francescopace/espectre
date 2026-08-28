@@ -127,7 +127,7 @@ Native and ESPHome reuse one flashed Lightweight image and select both scored de
 python tools/benchmark_firmware.py --chip c3 --port /dev/cu.usbmodem01
 ```
 
-Pass `--port` when more than one serial device is connected; otherwise, the command auto-detects the only available port. Matter is omitted automatically for ESP32-S2 because the supported commissioning flow requires Bluetooth.
+The benchmark always passes `--chip` to `./espectre` and delegates serial selection, chip verification, Native NVS erasure, provisioning, and monitoring to the repository CLI. Omit `--port` to auto-select a single compatible device or choose interactively among multiple compatible candidates; pass `--port` to require that exact compatible device. Matter is omitted automatically for ESP32-S2 because the supported commissioning flow requires Bluetooth.
 
 Use `--duration SECONDS` for a longer scored window, such as a five-minute Micro-ESPectre heap soak:
 

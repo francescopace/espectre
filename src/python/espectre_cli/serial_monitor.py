@@ -13,7 +13,7 @@ from __future__ import annotations
 import sys
 import time
 
-from .common import Fore, Style, get_serial_port
+from .common import Fore, Style, resolve_serial_port
 
 try:
     import serial
@@ -56,13 +56,29 @@ def run_serial_monitor(args) -> None:
     baud = int(args.baud)
     reset_on_open = bool(getattr(args, "reset", False))
     reconnect_attempt = 0
-    selected_port: str | None = None
+    chip = getattr(args, "chip", None)
+    frontend = getattr(args, "frontend", "native")
+    selected_port: str | None = (
+        resolve_serial_port(
+            getattr(args, "port", None),
+            chip=chip,
+            frontend=frontend,
+            purpose="monitor",
+        )
+        if getattr(args, "port", None) is not None
+        else None
+    )
 
     while True:
-        port = args.port or selected_port
+        port = selected_port
         if port is None:
             try:
-                port = get_serial_port(None)
+                port = resolve_serial_port(
+                    None,
+                    chip=chip,
+                    frontend=frontend,
+                    purpose="monitor",
+                )
             except SystemExit:
                 if reconnect_attempt >= MAX_RECONNECT_ATTEMPTS:
                     raise

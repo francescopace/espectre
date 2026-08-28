@@ -40,6 +40,15 @@ for path in (str(REPO_ROOT), str(PYTHON_ROOT_DIR), str(PYTHON_SRC_DIR), str(TOOL
 
 MICROPYTHON_FIRMWARE_BUILD = "20260818-v1.29.0-preview.731.g1c3c201149"
 MICRO_CHIP_CHOICES = ["esp32", "c3", "s2", "s3", "c5", "c6"]
+ESPRESSIF_USB_VENDOR_ID = 0x303A
+NATIVE_CONSOLE_BY_CHIP = {
+    "esp32": "uart",
+    "s2": "usb_cdc",
+    "c3": "usb_serial_jtag",
+    "c5": "usb_serial_jtag",
+    "c6": "usb_serial_jtag",
+    "s3": "usb_serial_jtag",
+}
 
 init()
 load_dotenv()
@@ -103,6 +112,85 @@ def get_serial_port(port_arg: str | None) -> str:
     except (ValueError, KeyboardInterrupt):
         print(f"\n{Fore.RED}Cancelled{Style.RESET_ALL}")
         raise SystemExit(1)
+
+
+def compatible_serial_ports(*, chip: str | None, frontend: str, purpose: str) -> list[str]:
+    """Return serial ports compatible with a frontend operation."""
+    if (
+        chip is None
+        or frontend != "native"
+        or purpose not in {"improv", "monitor"}
+    ):
+        return detect_serial_ports()
+    console = NATIVE_CONSOLE_BY_CHIP[chip]
+    if console == "uart":
+        return detect_serial_ports()
+    try:
+        import serial.tools.list_ports
+    except ImportError:
+        print(f"{Fore.RED}❌ pyserial not found. Install it with:{Style.RESET_ALL}")
+        print("   pip install -r requirements.txt")
+        raise SystemExit(1)
+    return [
+        port.device
+        for port in serial.tools.list_ports.comports()
+        if port.vid == ESPRESSIF_USB_VENDOR_ID
+    ]
+
+
+def _serial_ports_match(requested: str, candidate: str) -> bool:
+    """Return whether two serial-port names identify the same device."""
+    if os.name == "nt":
+        return os.path.normcase(requested) == os.path.normcase(candidate)
+    return os.path.realpath(requested) == os.path.realpath(candidate)
+
+
+def resolve_serial_port(
+    port_arg: str | None,
+    *,
+    chip: str | None,
+    frontend: str,
+    purpose: str,
+) -> str:
+    """Resolve one compatible port, prompting only among valid candidates."""
+    if port_arg is not None and (
+        chip is None
+        or frontend != "native"
+        or purpose == "flash"
+        or NATIVE_CONSOLE_BY_CHIP[chip] == "uart"
+    ):
+        return port_arg
+
+    ports = compatible_serial_ports(chip=chip, frontend=frontend, purpose=purpose)
+    if port_arg is not None:
+        if any(_serial_ports_match(port_arg, candidate) for candidate in ports):
+            return port_arg
+        print(
+            f"{Fore.RED}❌ Serial port {port_arg} is not compatible with "
+            f"{purpose}{Style.RESET_ALL}"
+        )
+        raise SystemExit(1)
+    if len(ports) == 0:
+        print(f"{Fore.RED}❌ No compatible serial ports found{Style.RESET_ALL}")
+        raise SystemExit(1)
+    if len(ports) == 1:
+        selected = ports[0]
+        print(f"{Fore.GREEN}✅ Auto-detected compatible port: {selected}{Style.RESET_ALL}\n")
+        return selected
+
+    print(f"{Fore.YELLOW}Multiple compatible serial ports found:{Style.RESET_ALL}")
+    for index, port in enumerate(ports, 1):
+        print(f"  {index}. {port}")
+    try:
+        choice = int(input(f"{Fore.CYAN}Select port (1-{len(ports)}): {Style.RESET_ALL}"))
+        if 1 <= choice <= len(ports):
+            selected = ports[choice - 1]
+            print(f"{Fore.GREEN}✅ Selected: {selected}{Style.RESET_ALL}\n")
+            return selected
+    except (ValueError, KeyboardInterrupt):
+        pass
+    print(f"{Fore.RED}Invalid selection{Style.RESET_ALL}")
+    raise SystemExit(1)
 
 
 def detect_chip_type(port: str) -> str | None:

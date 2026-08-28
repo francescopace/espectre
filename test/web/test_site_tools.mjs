@@ -54,11 +54,12 @@ describe('website tool contracts', () => {
         assert.match(setupGuide, /\.\/espectre mqtt/);
         for (const frontend of ['esphome', 'native', 'matter']) {
             assert.match(setupGuide, new RegExp(`\\.\\/espectre ${frontend} build`));
-            assert.match(setupGuide, new RegExp(`\\.\\/espectre ${frontend} flash`));
+            assert.match(setupGuide, new RegExp(`\\.\\/espectre ${frontend} flash --chip c3`));
         }
         assert.match(setupGuide, /\.\/espectre esphome monitor/);
         assert.match(setupGuide, /<code>--config path\/to\/espectre\.yaml<\/code>/);
-        assert.match(setupGuide, /\.\/espectre monitor --reset/);
+        assert.match(setupGuide, /\.\/espectre monitor --chip c3 --frontend native --reset/);
+        assert.match(setupGuide, /\.\/espectre monitor --chip c3 --frontend matter --reset/);
         assert.match(setupGuide, /\.\/espectre devices --frontend native/);
         assert.equal((setupGuide.match(/class="code-tabs" data-code-tabs/g) || []).length, 2);
         assert.match(setupGuide, /role="tablist"/);
@@ -74,10 +75,10 @@ describe('website tool contracts', () => {
             const panel = setupGuide.match(new RegExp(`<div class="code-tab-panel"[^>]*data-frontend="${frontend}"[^>]*>([\\s\\S]*?)<\\/div>`));
             assert.ok(panel, `${frontend} CLI tab exists`);
             assert.match(panel[1], new RegExp(`\\.\\/espectre ${frontend} build --chip c3 --clean`));
-            assert.match(panel[1], new RegExp(`\\.\\/espectre ${frontend} flash`));
+            assert.match(panel[1], new RegExp(`\\.\\/espectre ${frontend} flash --chip c3`));
             assert.match(panel[1], frontend === 'esphome'
                 ? /\.\/espectre esphome monitor --chip c3/
-                : /\.\/espectre monitor --reset/);
+                : new RegExp(`\\.\\/espectre monitor --chip c3 --frontend ${frontend} --reset`));
         }
         const esphomePanel = setupGuide.match(/<div class="code-tab-panel"[^>]*data-frontend="esphome"[^>]*>([\s\S]*?)<\/div>/)[1];
         assert.match(esphomePanel, /--config path\/to\/espectre\.yaml/);
