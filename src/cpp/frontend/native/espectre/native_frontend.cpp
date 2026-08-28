@@ -207,10 +207,6 @@ bool NativeFrontend::setup() {
     ESP_LOGE(TAG, "ESPectre runtime setup failed");
     return false;
   }
-  const uint32_t diagnostics_now_ms = now_ms_();
-  const RuntimeDiagnosticsSnapshot diagnostics = runtime_.diagnostics();
-  diagnostics_sampler_.reset(diagnostics, diagnostics_now_ms);
-  latest_diagnostics_ = diagnostics_sampler_.sample(diagnostics, diagnostics_now_ms);
 
   if (ota_service_ != nullptr) {
     ota_service_->set_prepare_for_update_callback([this]() { this->prepare_for_ota_(); });
@@ -296,7 +292,6 @@ void NativeFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
 void NativeFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
   (void) packets_received;
   if (runtime_.operation_state() == RuntimeOperationState::RAW_COLLECTION) return;
-  sample_diagnostics_(now_ms_());
   if (!snapshot.ready_to_publish) {
     return;
   }
@@ -444,7 +439,12 @@ FrontendCommandResult NativeFrontend::dispatch_command_(const EspectreCommand &c
         if (read.command == "wifi_access_points" && allow_local_config) {
           return this->direct_wifi_access_points_payload_();
         }
-        if (read.command == "diagnostics") return this->direct_diagnostics_payload_();
+        if (read.command == "diagnostics") {
+          // Keep the generic engine responsible for capability and read-command
+          // validation, then build this large payload after its stack frame has
+          // unwound.
+          return std::string{"{}"};
+        }
         if (read.command == "ota_status" && this->ota_service_ != nullptr) {
           return espectre_ota_status_payload(this->device_config_, this->current_ota_status_(), this->now_ms_());
         }
@@ -594,6 +594,9 @@ FrontendCommandResult NativeFrontend::dispatch_command_(const EspectreCommand &c
         return this->handle_raw_stream_command_(
             raw_command, context, code, message, data_json);
       });
+  if (result.accepted && result.command.command == "diagnostics") {
+    result.data_json = direct_diagnostics_payload_();
+  }
   if (result.accepted) {
     if (command.command != "start_raw_stream" &&
         (static_cast<uint8_t>(result.changes) & static_cast<uint8_t>(FrontendCommandChange::STATUS)) != 0U) {
@@ -854,67 +857,77 @@ std::string NativeFrontend::direct_wifi_access_points_payload_() const {
 
 std::string NativeFrontend::direct_diagnostics_payload_() const {
   const uint32_t now = now_ms_();
-  const RuntimeDiagnosticsSnapshot runtime_diagnostics = runtime_.diagnostics();
   std::string out = espectre_diagnostics_payload(device_config_,
                                                  runtime_.snapshot(),
                                                  now,
                                                  now / 1000U,
                                                  current_free_memory_kb(),
                                                  last_loop_time_ms_,
-                                                 &latest_diagnostics_);
+                                                 runtime_.diagnostics_sample());
   if (!out.empty() && out.back() == '}') {
     out.pop_back();
   }
-  const DirectHttpServiceDiagnostics direct =
-      direct_service_ != nullptr ? direct_service_->diagnostics() : DirectHttpServiceDiagnostics{};
-  const MqttTransportDiagnostics mqtt =
-      mqtt_transport_ != nullptr ? mqtt_transport_->diagnostics() : MqttTransportDiagnostics{};
-  out += ",\"csi_classified_total\":" +
-         std::to_string(runtime_diagnostics.csi_classified_total);
-  out += ",\"csi_provenance_rejected_total\":" +
-         std::to_string(runtime_diagnostics.csi_provenance_rejected_total);
-  out += ",\"csi_pending_frame_drops_total\":" +
-         std::to_string(runtime_diagnostics.csi_pending_frame_drops_total);
-  out += ",\"csi_pending_frames\":" +
-         std::to_string(runtime_diagnostics.csi_pending_frames);
-  out += ",\"csi_pending_frame_capacity\":" +
-         std::to_string(runtime_diagnostics.csi_pending_frame_capacity);
-  out += ",\"runtime_motion_event_drops_total\":" +
-         std::to_string(runtime_events_.motion_state_drops_total());
-  append_runtime_performance_diagnostics_json(&out, runtime_diagnostics, false);
-  out += ",\"task_stack_high_water_bytes\":" + std::to_string(current_task_stack_high_water_bytes());
-  out += ",\"direct_http\":{\"event_clients\":" + std::to_string(direct_client_count_);
-  out += ",\"event_client_limit\":" + std::to_string(direct.event_client_limit);
-  out += ",\"queue_capacity\":" + std::to_string(direct.queue_capacity);
-  out += ",\"queued_messages\":" + std::to_string(direct.queued_messages);
-  out += ",\"accepted_connections\":" + std::to_string(direct.accepted_connections);
-  out += ",\"rejected_connections\":" + std::to_string(direct.rejected_connections);
-  out += ",\"malformed_requests\":" + std::to_string(direct.malformed_requests);
-  out += ",\"oversized_requests\":" + std::to_string(direct.oversized_requests);
-  out += ",\"rate_limited_requests\":" + std::to_string(direct.rate_limited_requests);
-  out += ",\"dropped_telemetry_events\":" + std::to_string(direct.dropped_telemetry_events);
-  out += ",\"send_failures\":" + std::to_string(direct.send_failures);
-  out += ",\"slow_client_disconnects\":" + std::to_string(direct.slow_client_disconnects) + "}";
-  const RawCsiSessionDiagnostics raw =
-      direct_service_ != nullptr ? direct_service_->raw_diagnostics()
-                                 : RawCsiSessionDiagnostics{};
-  out += ",\"raw_csi\":{\"active\":";
-  out += raw.active ? "true" : "false";
-  out += ",\"binary_bound\":";
-  out += raw.binary_bound ? "true" : "false";
-  out += ",\"raw_drop_total\":" + std::to_string(raw.raw_drop_total);
-  out += ",\"send_backpressure_total\":" +
-         std::to_string(raw.raw_send_backpressure_total);
-  out += ",\"fresh_record_total\":" + std::to_string(raw.fresh_record_total);
-  out += ",\"stream_sequence\":" + std::to_string(raw.stream_sequence) + "}";
-  out += ",\"mqtt\":{\"connected\":";
-  out += mqtt_transport_ != nullptr && mqtt_transport_->connected() ? "true" : "false";
-  out += ",\"queue_capacity\":" + std::to_string(mqtt.queue_capacity);
-  out += ",\"outbox_capacity_bytes\":" + std::to_string(mqtt.outbox_capacity_bytes);
-  out += ",\"queued_publishes\":" + std::to_string(mqtt.queued_publishes);
-  out += ",\"dropped_publishes\":" + std::to_string(mqtt.dropped_publishes);
-  out += ",\"publish_failures\":" + std::to_string(mqtt.publish_failures);
-  out += ",\"reconnects\":" + std::to_string(mqtt.reconnects) + "}}";
+  {
+    const RuntimeDiagnosticsSnapshot runtime_diagnostics = runtime_.diagnostics();
+    out += ",\"csi_classified_total\":" +
+           std::to_string(runtime_diagnostics.csi_classified_total);
+    out += ",\"csi_provenance_rejected_total\":" +
+           std::to_string(runtime_diagnostics.csi_provenance_rejected_total);
+    out += ",\"csi_pending_frame_drops_total\":" +
+           std::to_string(runtime_diagnostics.csi_pending_frame_drops_total);
+    out += ",\"csi_pending_frames\":" +
+           std::to_string(runtime_diagnostics.csi_pending_frames);
+    out += ",\"csi_pending_frame_capacity\":" +
+           std::to_string(runtime_diagnostics.csi_pending_frame_capacity);
+    out += ",\"runtime_motion_event_drops_total\":" +
+           std::to_string(runtime_events_.motion_state_drops_total());
+    append_runtime_performance_diagnostics_json(&out, runtime_diagnostics, false);
+  }
+  out += ",\"task_stack_high_water_bytes\":" +
+         std::to_string(current_task_stack_high_water_bytes());
+  {
+    const DirectHttpServiceDiagnostics direct =
+        direct_service_ != nullptr ? direct_service_->diagnostics() : DirectHttpServiceDiagnostics{};
+    out += ",\"direct_http\":{\"event_clients\":" + std::to_string(direct_client_count_);
+    out += ",\"event_client_limit\":" + std::to_string(direct.event_client_limit);
+    out += ",\"queue_capacity\":" + std::to_string(direct.queue_capacity);
+    out += ",\"queued_messages\":" + std::to_string(direct.queued_messages);
+    out += ",\"accepted_connections\":" + std::to_string(direct.accepted_connections);
+    out += ",\"rejected_connections\":" + std::to_string(direct.rejected_connections);
+    out += ",\"malformed_requests\":" + std::to_string(direct.malformed_requests);
+    out += ",\"oversized_requests\":" + std::to_string(direct.oversized_requests);
+    out += ",\"rate_limited_requests\":" + std::to_string(direct.rate_limited_requests);
+    out += ",\"dropped_telemetry_events\":" + std::to_string(direct.dropped_telemetry_events);
+    out += ",\"send_failures\":" + std::to_string(direct.send_failures);
+    out += ",\"slow_client_disconnects\":" +
+           std::to_string(direct.slow_client_disconnects) + "}";
+  }
+  {
+    const RawCsiSessionDiagnostics raw =
+        direct_service_ != nullptr ? direct_service_->raw_diagnostics()
+                                   : RawCsiSessionDiagnostics{};
+    out += ",\"raw_csi\":{\"active\":";
+    out += raw.active ? "true" : "false";
+    out += ",\"binary_bound\":";
+    out += raw.binary_bound ? "true" : "false";
+    out += ",\"raw_drop_total\":" + std::to_string(raw.raw_drop_total);
+    out += ",\"send_backpressure_total\":" +
+           std::to_string(raw.raw_send_backpressure_total);
+    out += ",\"fresh_record_total\":" + std::to_string(raw.fresh_record_total);
+    out += ",\"stream_sequence\":" + std::to_string(raw.stream_sequence) + "}";
+  }
+  {
+    const MqttTransportDiagnostics mqtt =
+        mqtt_transport_ != nullptr ? mqtt_transport_->diagnostics() : MqttTransportDiagnostics{};
+    out += ",\"mqtt\":{\"connected\":";
+    out += mqtt_transport_ != nullptr && mqtt_transport_->connected() ? "true" : "false";
+    out += ",\"queue_capacity\":" + std::to_string(mqtt.queue_capacity);
+    out += ",\"outbox_capacity_bytes\":" + std::to_string(mqtt.outbox_capacity_bytes);
+    out += ",\"queued_publishes\":" + std::to_string(mqtt.queued_publishes);
+    out += ",\"dropped_publishes\":" + std::to_string(mqtt.dropped_publishes);
+    out += ",\"publish_failures\":" + std::to_string(mqtt.publish_failures);
+    out += ",\"reconnects\":" + std::to_string(mqtt.reconnects) + "}}";
+  }
   return out;
 }
 
@@ -1429,8 +1442,12 @@ void NativeFrontend::publish_ha_diagnostics_() {
   if (!ha_mqtt_ready_()) {
     return;
   }
+  const RuntimeDiagnosticsSample *sample = runtime_.diagnostics_sample();
+  if (sample == nullptr) {
+    return;
+  }
   for (const FrontendHaDiagnosticSensor &sensor : ha_settings_.diagnostic_sensors) {
-    const std::string payload = diagnostic_state_payload(sensor.key, latest_diagnostics_);
+    const std::string payload = diagnostic_state_payload(sensor.key, *sample);
     if (payload.empty()) {
       continue;
     }
@@ -1550,10 +1567,6 @@ void NativeFrontend::publish_ota_status_(const EspectreOtaStatus &status) {
   }
   const std::string payload = espectre_ota_status_payload(device_config_, normalized, now_ms_());
   fan_out_payload_("ota_status", "ota_status", payload, true);
-}
-
-void NativeFrontend::sample_diagnostics_(uint32_t now_ms) {
-  latest_diagnostics_ = diagnostics_sampler_.sample(runtime_.diagnostics(), now_ms);
 }
 
 void NativeFrontend::publish_mqtt_ota_status_(const EspectreOtaStatus &status) {

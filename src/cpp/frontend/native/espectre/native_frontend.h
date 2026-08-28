@@ -171,7 +171,6 @@ class NativeFrontend : public IRuntimeListener {
   void publish_mqtt_command_result_(const FrontendCommandResult &result);
   void prepare_for_ota_();
   void resume_after_ota_error_();
-  void sample_diagnostics_(uint32_t now_ms);
   uint32_t now_ms_() const;
 
   IMqttTransport *mqtt_transport_{nullptr};
@@ -189,8 +188,6 @@ class NativeFrontend : public IRuntimeListener {
   std::vector<FrontendHaDiscoveryMessage> pending_ha_discovery_{};
   size_t pending_ha_discovery_index_{0U};
   WifiProvisioningInfo wifi_info_{};
-  RuntimeDiagnosticsSampler diagnostics_sampler_;
-  RuntimeDiagnosticsSample latest_diagnostics_{};
   RuntimeEventMailbox runtime_events_{};
   bool mqtt_connected_{false};
   bool mqtt_ha_online_{false};

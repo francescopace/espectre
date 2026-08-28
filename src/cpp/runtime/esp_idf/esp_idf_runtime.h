@@ -35,6 +35,7 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   /** Configuration actually applied after persisted overrides are loaded. */
   const RuntimeConfig &effective_config() const { return config_; }
   RuntimeDiagnosticsSnapshot get_diagnostics() const override;
+  const RuntimeDiagnosticsSample *get_diagnostics_sample() const override;
 
   bool setup() override;
   void shutdown() override;
@@ -96,7 +97,8 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   CsiTrafficService csi_traffic_service_;
 
   PeriodicSensingStatusLogger status_logger_{};
-  RuntimeDiagnosticsSampler status_diagnostics_sampler_{};
+  RuntimeDiagnosticsSampler diagnostics_sampler_{};
+  RuntimeDiagnosticsSample latest_diagnostics_{};
   std::unique_ptr<StartupThresholdCalibrator> threshold_calibrator_;
   std::atomic<bool> threshold_calibration_active_{false};
   // Posted from the CSI callback with the outcome, completed from the loop.

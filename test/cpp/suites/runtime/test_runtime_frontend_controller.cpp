@@ -196,6 +196,20 @@ void test_runtime_frontend_controller_reads_diagnostics_from_backend(void) {
   TEST_ASSERT_EQUAL(123U, diagnostics.csi_callbacks_total);
 }
 
+void test_runtime_frontend_controller_exposes_runtime_owned_diagnostics_sample(void) {
+  RuntimeFrontendController controller;
+  TEST_ASSERT_NULL(controller.diagnostics_sample());
+
+  DummyRuntimeListener listener;
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+  frontend_runtime_shim::state.diagnostics_sample.csi_admitted_pps = 84.0f;
+
+  const RuntimeDiagnosticsSample *sample = controller.diagnostics_sample();
+  TEST_ASSERT_NOT_NULL(sample);
+  TEST_ASSERT_TRUE(sample == &frontend_runtime_shim::state.diagnostics_sample);
+  TEST_ASSERT_EQUAL_FLOAT(84.0f, sample->csi_admitted_pps);
+}
+
 void test_runtime_frontend_controller_threshold_runtime_updates_config_and_snapshot(void) {
   RuntimeFrontendController controller;
   DummyRuntimeListener listener;
@@ -397,6 +411,7 @@ int process(void) {
   RUN_TEST(test_runtime_frontend_controller_adopts_backend_effective_config);
   RUN_TEST(test_runtime_frontend_controller_loop_shutdown_and_runtime_toggles_forward);
   RUN_TEST(test_runtime_frontend_controller_reads_diagnostics_from_backend);
+  RUN_TEST(test_runtime_frontend_controller_exposes_runtime_owned_diagnostics_sample);
   RUN_TEST(test_runtime_frontend_controller_threshold_runtime_updates_config_and_snapshot);
   RUN_TEST(test_runtime_frontend_controller_threshold_requires_capability);
   RUN_TEST(test_runtime_frontend_controller_motion_hits_runtime_updates_config);

@@ -37,6 +37,29 @@ double json_finite(float value) {
   return std::isfinite(value) ? static_cast<double>(value) : 0.0;
 }
 
+void append_json_field_prefix(std::string *out, const char *key) {
+  out->append(",\"");
+  out->append(key);
+  out->append("\":");
+}
+
+void append_json_uint_field(std::string *out, const char *key, uint64_t value) {
+  append_json_field_prefix(out, key);
+  out->append(std::to_string(value));
+}
+
+void append_json_float_field(std::string *out, const char *key, float value) {
+  char text[32];
+  std::snprintf(text, sizeof(text), "%.6g", static_cast<double>(value));
+  append_json_field_prefix(out, key);
+  out->append(text);
+}
+
+void append_json_null_field(std::string *out, const char *key) {
+  append_json_field_prefix(out, key);
+  out->append("null");
+}
+
 bool command_id_accepted(const std::string &value) {
   if (value.empty() || value.size() > ESPECTRE_COMMAND_ID_MAX_LENGTH) return false;
   return std::all_of(value.begin(), value.end(), [](unsigned char character) {
@@ -804,58 +827,39 @@ std::string espectre_diagnostics_payload(const EspectreDeviceConfig &config,
                                          float loop_time_ms,
                                          const RuntimeDiagnosticsSample *diagnostics) {
   (void) snapshot;
-  char line[640];
   const std::string device_id = espectre_effective_device_id(config);
-  if (diagnostics == nullptr) {
-    std::snprintf(line,
-                  sizeof(line),
-                  "{\"protocol_version\":\"%s\",\"device_id\":\"%s\",\"timestamp_ms\":%u,"
-                  "\"uptime\":%u,\"free_memory_kb\":%.6g,\"loop_time_ms\":%.6g}",
-                  ESPECTRE_PROTOCOL_VERSION,
-                  device_id.c_str(),
-                  static_cast<unsigned>(timestamp_ms),
-                  static_cast<unsigned>(uptime_s),
-                  static_cast<double>(free_memory_kb),
-                  static_cast<double>(loop_time_ms));
-    return line;
+  std::string out;
+  out.reserve(diagnostics != nullptr ? 640U : 160U);
+  out = "{";
+  append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
+  append_json_pair(&out, "device_id", device_id.c_str());
+  append_json_uint_field(&out, "timestamp_ms", timestamp_ms);
+  append_json_uint_field(&out, "uptime", uptime_s);
+  append_json_float_field(&out, "free_memory_kb", free_memory_kb);
+  append_json_float_field(&out, "loop_time_ms", loop_time_ms);
+  if (diagnostics != nullptr) {
+    append_json_float_field(&out, "traffic_tx_pps", diagnostics->traffic_tx_pps);
+    append_json_float_field(&out, "csi_callback_pps", diagnostics->csi_callback_pps);
+    append_json_float_field(&out, "csi_accepted_pps", diagnostics->csi_accepted_pps);
+    append_json_float_field(&out, "csi_admitted_pps", diagnostics->csi_admitted_pps);
+    append_json_float_field(&out, "csi_filtered_pps", diagnostics->csi_filtered_pps);
+    append_json_float_field(
+        &out, "csi_pending_frame_drop_pps", diagnostics->csi_pending_frame_drop_pps);
+    append_json_float_field(&out, "csi_missing_slots_pps", diagnostics->csi_missing_slots_pps);
+    append_json_float_field(&out, "csi_excess_pps", diagnostics->csi_excess_pps);
+    append_json_float_field(&out, "csi_stale_pps", diagnostics->csi_stale_pps);
+    append_json_float_field(&out, "csi_out_of_order_pps", diagnostics->csi_out_of_order_pps);
+    append_json_float_field(&out, "csi_occupancy", diagnostics->csi_occupancy_ratio);
+    append_json_uint_field(&out, "wifi_channel", diagnostics->wifi_channel);
+    if (diagnostics->wifi_rssi_dbm == INT8_MIN) {
+      append_json_null_field(&out, "wifi_rssi_dbm");
+    } else {
+      append_json_field_prefix(&out, "wifi_rssi_dbm");
+      out.append(std::to_string(diagnostics->wifi_rssi_dbm));
+    }
   }
-  const char *wifi_rssi = diagnostics->wifi_rssi_dbm == INT8_MIN ? "null" : nullptr;
-  char wifi_rssi_value[16];
-  if (wifi_rssi == nullptr) {
-    std::snprintf(wifi_rssi_value, sizeof(wifi_rssi_value), "%d", diagnostics->wifi_rssi_dbm);
-    wifi_rssi = wifi_rssi_value;
-  }
-  std::snprintf(line,
-                sizeof(line),
-                "{\"protocol_version\":\"%s\",\"device_id\":\"%s\",\"timestamp_ms\":%u,"
-                "\"uptime\":%u,\"free_memory_kb\":%.6g,\"loop_time_ms\":%.6g,"
-                "\"traffic_tx_pps\":%.6g,\"csi_callback_pps\":%.6g,"
-                "\"csi_accepted_pps\":%.6g,\"csi_admitted_pps\":%.6g,"
-                "\"csi_filtered_pps\":%.6g,\"csi_pending_frame_drop_pps\":%.6g,"
-                "\"csi_missing_slots_pps\":%.6g,"
-                "\"csi_excess_pps\":%.6g,\"csi_stale_pps\":%.6g,"
-                "\"csi_out_of_order_pps\":%.6g,\"csi_occupancy\":%.6g,"
-                "\"wifi_channel\":%u,\"wifi_rssi_dbm\":%s}",
-                ESPECTRE_PROTOCOL_VERSION,
-                device_id.c_str(),
-                static_cast<unsigned>(timestamp_ms),
-                static_cast<unsigned>(uptime_s),
-                static_cast<double>(free_memory_kb),
-                static_cast<double>(loop_time_ms),
-                static_cast<double>(diagnostics->traffic_tx_pps),
-                static_cast<double>(diagnostics->csi_callback_pps),
-                static_cast<double>(diagnostics->csi_accepted_pps),
-                static_cast<double>(diagnostics->csi_admitted_pps),
-                static_cast<double>(diagnostics->csi_filtered_pps),
-                static_cast<double>(diagnostics->csi_pending_frame_drop_pps),
-                static_cast<double>(diagnostics->csi_missing_slots_pps),
-                static_cast<double>(diagnostics->csi_excess_pps),
-                static_cast<double>(diagnostics->csi_stale_pps),
-                static_cast<double>(diagnostics->csi_out_of_order_pps),
-                static_cast<double>(diagnostics->csi_occupancy_ratio),
-                static_cast<unsigned>(diagnostics->wifi_channel),
-                wifi_rssi);
-  return line;
+  out += "}";
+  return out;
 }
 
 std::string espectre_command_result_payload(const EspectreDeviceConfig &config,

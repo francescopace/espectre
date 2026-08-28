@@ -83,7 +83,7 @@ The Matter frontend keeps ownership boundaries explicit:
 
 That ordering is visible in [`app_main.cpp`](app/main/app_main.cpp).
 
-The Matter frontend uses the shared periodic progress-bar sensing status helper, as do ESPHome and Native. The same one-second heartbeat caches the CSI and Wi-Fi rate sample returned by Direct diagnostics.
+The Matter frontend uses the shared periodic progress-bar sensing status helper, as do ESPHome and Native. The runtime uses that same one-second heartbeat to cache one CSI and Wi-Fi rate sample consumed by every C++ frontend and returned by Direct diagnostics.
 
 High-rate telemetry follows the detector evaluation cadence only while a Direct SSE client is connected. Runtime callbacks retain snapshots only; Direct serialization happens after the CSI drain, and edge-triggered occupancy updates are scheduled onto the CHIP work queue.
 

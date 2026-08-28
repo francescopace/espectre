@@ -152,6 +152,11 @@ void test_status_telemetry_and_diagnostics_payloads_include_expected_fields(void
   const std::string telemetry_nan = espectre_telemetry_payload(config, snapshot, 222, 33, "native");
   TEST_ASSERT_TRUE(telemetry_nan.find("nan") == std::string::npos);
   TEST_ASSERT_TRUE(telemetry_nan.find("\"movement_score\":0") != std::string::npos);
+  TEST_ASSERT_EQUAL_STRING(
+      "{\"protocol_version\":\"1.0\",\"device_id\":\"0000000000000007\","
+      "\"timestamp_ms\":333,\"uptime\":44,\"free_memory_kb\":128.5,"
+      "\"loop_time_ms\":6.25}",
+      diagnostics.c_str());
   TEST_ASSERT_TRUE(diagnostics.find("\"uptime\":44") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"free_memory_kb\":128.5") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"loop_time_ms\":6.25") != std::string::npos);
@@ -190,6 +195,11 @@ void test_diagnostics_payload_includes_enabled_runtime_sample(void) {
   TEST_ASSERT_TRUE(payload.find("\"csi_occupancy\":0.84") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"wifi_channel\":10") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"wifi_rssi_dbm\":-55") != std::string::npos);
+
+  diagnostics.wifi_rssi_dbm = INT8_MIN;
+  const std::string payload_without_rssi =
+      espectre_diagnostics_payload(config, snapshot, 333, 44, 128.5f, 6.25f, &diagnostics);
+  TEST_ASSERT_TRUE(payload_without_rssi.find("\"wifi_rssi_dbm\":null") != std::string::npos);
 }
 
 void test_info_payload_uses_defaults_and_optional_sections(void) {

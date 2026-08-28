@@ -31,6 +31,8 @@
 
 namespace espectre {
 
+struct RuntimeDiagnosticsSample;
+
 /** Wi-Fi band selection requested by the embedding frontend. */
 enum class WifiBandPolicy : uint8_t {
   /** Restrict association to 2.4 GHz. This is the validated production default. */
@@ -266,6 +268,15 @@ class IEspectreRuntime {
    * is what a frontend reads as "no counters from this backend".
    */
   virtual RuntimeDiagnosticsSnapshot get_diagnostics() const { return {}; }
+  /**
+   * Latest rate sample derived by the runtime on its sensing heartbeat.
+   *
+   * The pointed-to sample remains owned by the runtime. Backends that do not
+   * provide periodic diagnostics may return `nullptr`.
+   */
+  virtual const RuntimeDiagnosticsSample *get_diagnostics_sample() const {
+    return nullptr;
+  }
   /** What this backend actually supports. Stable after `setup()`. */
   virtual RuntimeCapabilities get_capabilities() const = 0;
 

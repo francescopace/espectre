@@ -270,6 +270,10 @@ RuntimeDiagnosticsSnapshot EspIdfRuntime::get_diagnostics() const {
   return diagnostics;
 }
 
+const RuntimeDiagnosticsSample *EspIdfRuntime::get_diagnostics_sample() const {
+  return &latest_diagnostics_;
+}
+
 void EspIdfRuntime::set_services_armed(bool armed) {
   if (services_armed_ == armed) {
     return;
@@ -1026,14 +1030,16 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
 }
 
 void EspIdfRuntime::log_periodic_status_(uint32_t packets_received) {
-  const RuntimeDiagnosticsSample sample =
-      status_diagnostics_sampler_.sample(get_diagnostics(), monotonic_now_ms());
-  status_logger_.log_status(RUNTIME_TAG, snapshot_, packets_received, &sample);
+  latest_diagnostics_ = diagnostics_sampler_.sample(get_diagnostics(), monotonic_now_ms());
+  status_logger_.log_status(RUNTIME_TAG, snapshot_, packets_received, &latest_diagnostics_);
 }
 
 void EspIdfRuntime::reset_periodic_status_logger_() {
   status_logger_.reset();
-  status_diagnostics_sampler_.reset(get_diagnostics(), monotonic_now_ms());
+  const RuntimeDiagnosticsSnapshot diagnostics = get_diagnostics();
+  const uint32_t now_ms = monotonic_now_ms();
+  diagnostics_sampler_.reset(diagnostics, now_ms);
+  latest_diagnostics_ = diagnostics_sampler_.sample(diagnostics, now_ms);
 }
 
 void EspIdfRuntime::refresh_csi_local_identity_(uint32_t local_ip_addr) {

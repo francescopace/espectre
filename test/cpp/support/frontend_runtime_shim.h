@@ -10,6 +10,7 @@
 #pragma once
 
 #include "runtime_capabilities.h"
+#include "runtime_diagnostics.h"
 #include "runtime_events.h"
 #include "runtime_interface.h"
 #include "runtime_snapshot.h"
@@ -46,6 +47,7 @@ struct State {
   RuntimeConfig setup_config{};
   RuntimeSnapshot snapshot{};
   RuntimeDiagnosticsSnapshot diagnostics{};
+  RuntimeDiagnosticsSample diagnostics_sample{};
   RuntimeCapabilities capabilities{sensing_runtime_capabilities()};
   bool shutdown_called{false};
   int loop_calls{0};

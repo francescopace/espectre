@@ -353,6 +353,20 @@ void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {
   frontend_runtime_shim::state.diagnostics.csi_stale_total = 7U;
   frontend_runtime_shim::state.diagnostics.csi_out_of_order_total = 3U;
   frontend_runtime_shim::state.diagnostics.csi_occupancy_slots = 85U;
+  RuntimeDiagnosticsSample &sample = frontend_runtime_shim::state.diagnostics_sample;
+  sample.traffic_tx_pps = 100.0f;
+  sample.csi_callback_pps = 96.0f;
+  sample.csi_accepted_pps = 90.0f;
+  sample.csi_admitted_pps = 80.0f;
+  sample.csi_filtered_pps = 6.0f;
+  sample.csi_pending_frame_drop_pps = 2.0f;
+  sample.csi_missing_slots_pps = 20.0f;
+  sample.csi_excess_pps = 10.0f;
+  sample.csi_stale_pps = 1.0f;
+  sample.csi_out_of_order_pps = 0.4f;
+  sample.csi_occupancy_ratio = 0.85f;
+  sample.wifi_channel = 10U;
+  sample.wifi_rssi_dbm = -55;
   esphome::advance_mock_millis(5000U);
   component.on_periodic_update(snapshot, 100U);
 

@@ -65,8 +65,6 @@ class MatterFrontend : public IRuntimeListener {
   IDirectHttpService *direct_service_{nullptr};
   RuntimeDirectHttpBridge direct_bridge_;
   EspIdfPeerDiscoveryService peer_discovery_;
-  RuntimeDiagnosticsSampler diagnostics_sampler_;
-  RuntimeDiagnosticsSample latest_diagnostics_{};
   RuntimeEventMailbox runtime_events_{};
   bool live_telemetry_enabled_{true};
   std::string fallback_device_label_{};

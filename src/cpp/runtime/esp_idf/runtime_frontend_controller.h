@@ -102,6 +102,8 @@ class RuntimeFrontendController : private IRuntimeListener {
    * zeroed snapshot before `setup()`.
    */
   RuntimeDiagnosticsSnapshot diagnostics() const;
+  /** Latest runtime-owned rate sample, or `nullptr` before setup. */
+  const RuntimeDiagnosticsSample *diagnostics_sample() const;
   /**
    * What the active backend supports. Meaningful only after `setup()`.
    *

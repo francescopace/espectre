@@ -62,7 +62,7 @@ These options are applied from YAML during firmware configuration. The [Integrat
 
 ### Diagnostic Telemetry
 
-Diagnostic entities are always available in production builds. ESPectre refreshes their cached rate sample from the existing sensing update that also feeds the periodic status log, without adding a diagnostic timer or periodically publishing new Home Assistant states. Direct returns the same cached rate sample. Press `Refresh Diagnostics` to publish it to Home Assistant on demand:
+Diagnostic entities are always available in production builds. The shared runtime refreshes one cached rate sample from the existing sensing update that also feeds the periodic status log, without adding a diagnostic timer or periodically publishing new Home Assistant states. ESPHome, Direct, and the other C++ frontends read that same runtime-owned sample. Press `Refresh Diagnostics` to publish it to Home Assistant on demand:
 
 | Entity | Meaning |
 |--------|---------|

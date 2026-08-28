@@ -60,10 +60,6 @@ bool MatterFrontend::setup() {
     return false;
   }
 
-  const uint32_t diagnostics_now_ms = monotonic_now_ms();
-  const RuntimeDiagnosticsSnapshot diagnostics = runtime_.diagnostics();
-  diagnostics_sampler_.reset(diagnostics, diagnostics_now_ms);
-  latest_diagnostics_ = diagnostics_sampler_.sample(diagnostics, diagnostics_now_ms);
   if (runtime_.services_armed() && !start_direct_service_()) {
     runtime_.shutdown();
     return false;
@@ -106,7 +102,7 @@ bool MatterFrontend::start_direct_service_() {
               },
               {},
               &peer_discovery_,
-              [this]() { return &this->latest_diagnostics_; },
+              [this]() { return this->runtime_.diagnostics_sample(); },
               &runtime_events_,
           })) {
     ESP_LOGE(TAG, "Matter Direct HTTP setup failed");
@@ -173,7 +169,6 @@ void MatterFrontend::on_motion_state_changed(const RuntimeSnapshot &snapshot) {
 void MatterFrontend::on_periodic_update(const RuntimeSnapshot &snapshot, uint32_t packets_received) {
   (void) snapshot;
   (void) packets_received;
-  latest_diagnostics_ = diagnostics_sampler_.sample(runtime_.diagnostics(), monotonic_now_ms());
 }
 
 void MatterFrontend::on_threshold_changed(const RuntimeSnapshot &snapshot) {

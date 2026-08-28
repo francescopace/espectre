@@ -90,10 +90,6 @@ void ESpectreComponent::setup() {
     this->mark_failed();
     return;
   }
-  const uint32_t diagnostics_now_ms = millis();
-  const RuntimeDiagnosticsSnapshot diagnostics = this->runtime_.diagnostics();
-  this->diagnostics_sampler_.reset(diagnostics, diagnostics_now_ms);
-  this->latest_diagnostics_ = this->diagnostics_sampler_.sample(diagnostics, diagnostics_now_ms);
   if (this->threshold_number_ != nullptr) {
     static_cast<ESpectreThresholdNumber *>(this->threshold_number_)
         ->update_detector_range(this->runtime_.config().detection_algorithm);
@@ -124,7 +120,7 @@ void ESpectreComponent::setup() {
               },
               {},
               &this->peer_discovery_,
-              [this]() { return &this->latest_diagnostics_; },
+              [this]() { return this->runtime_.diagnostics_sample(); },
               &this->runtime_events_,
               [this](const std::string &bssid, std::string *message) {
                 return this->begin_wifi_bssid_pin_update_(bssid, message);
@@ -500,13 +496,12 @@ void ESpectreComponent::sync_direct_config_() {
   }
 }
 
-void ESpectreComponent::sample_diagnostics_() {
-  const uint32_t now_ms = millis();
-  this->latest_diagnostics_ = this->diagnostics_sampler_.sample(this->runtime_.diagnostics(), now_ms);
-}
-
 void ESpectreComponent::publish_cached_diagnostics_() {
-  const RuntimeDiagnosticsSample &sample = this->latest_diagnostics_;
+  const RuntimeDiagnosticsSample *latest = this->runtime_.diagnostics_sample();
+  if (latest == nullptr) {
+    return;
+  }
+  const RuntimeDiagnosticsSample &sample = *latest;
 
   if (this->traffic_rate_sensor_ != nullptr) {
     this->traffic_rate_sensor_->publish_state(sample.traffic_tx_pps);
@@ -602,7 +597,7 @@ FrontendCommandResult ESpectreComponent::execute_entity_command_(const EspectreC
                                                millis() / 1000U,
                                                0.0f,
                                                0.0f,
-                                               &this->latest_diagnostics_);
+                                               this->runtime_.diagnostics_sample());
         }
         if (read.command == "status") {
           const RuntimeSnapshot &snapshot = this->runtime_.snapshot();
@@ -746,7 +741,6 @@ void ESpectreComponent::on_periodic_update(const RuntimeSnapshot &snapshot, uint
     this->motion_hits_republished_ = false;
     this->traffic_mode_republished_ = false;
   }
-  this->sample_diagnostics_();
   if (!snapshot.ready_to_publish) {
     return;
   }

@@ -21,9 +21,9 @@ namespace espectre {
 /**
  * Rate and link diagnostics derived from cumulative runtime counters.
  *
- * Produced by `RuntimeDiagnosticsSampler`, never by the runtime directly: the
- * runtime only exposes monotonic totals, and the rates here are what those
- * totals moved by between two periodic sensing updates.
+ * Produced by the runtime-owned `RuntimeDiagnosticsSampler`. The rates are
+ * what the runtime's monotonic totals moved by between two periodic sensing
+ * updates, and every frontend reads the same latest sample.
  *
  * A zero rate means the counter did not move over the interval, and the first
  * sample after `RuntimeDiagnosticsSampler::reset()` reports zero rates because
@@ -65,14 +65,14 @@ struct RuntimeDiagnosticsSample {
 /**
  * Converts cumulative diagnostics into rates over the interval between reads.
  *
- * Call `reset()` when the owning frontend starts. Counter resets are treated
- * as a new epoch, so rearming a traffic source cannot underflow a rate.
+ * Call `reset()` when the owning runtime starts. Counter resets are treated as
+ * a new epoch, so rearming a traffic source cannot underflow a rate.
  *
  * @code
- * // once, at frontend startup:
- * sampler.reset(controller.diagnostics(), now_ms);
- * // whenever the owning frontend already produces a sensing update:
- * latest = sampler.sample(controller.diagnostics(), now_ms);
+ * // once, when the runtime starts sensing:
+ * sampler.reset(runtime.get_diagnostics(), now_ms);
+ * // on the runtime's existing sensing heartbeat:
+ * latest = sampler.sample(runtime.get_diagnostics(), now_ms);
  * @endcode
  *
  * @par Threading

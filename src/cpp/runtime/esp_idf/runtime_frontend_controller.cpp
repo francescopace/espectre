@@ -293,6 +293,10 @@ RuntimeDiagnosticsSnapshot RuntimeFrontendController::diagnostics() const {
   return runtime_ != nullptr ? runtime_->get_diagnostics() : RuntimeDiagnosticsSnapshot{};
 }
 
+const RuntimeDiagnosticsSample *RuntimeFrontendController::diagnostics_sample() const {
+  return runtime_ != nullptr ? runtime_->get_diagnostics_sample() : nullptr;
+}
+
 void RuntimeFrontendController::cache_snapshot_(const RuntimeSnapshot &snapshot) {
   snapshot_ = snapshot;
 }

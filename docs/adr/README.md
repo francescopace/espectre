@@ -45,6 +45,7 @@ Use `FEATURES.md` for detector-feature evidence and baseline lineage, `LITERATUR
 - [`2026-08-13-use-aggregated-turbulence-iqr-for-lightweight.md`](2026-08-13-use-aggregated-turbulence-iqr-for-lightweight.md)
 - [`2026-08-15-use-fixed-temporal-csi-admission.md`](2026-08-15-use-fixed-temporal-csi-admission.md)
 - [`2026-08-23-standardize-managed-csi-traffic-sources.md`](2026-08-23-standardize-managed-csi-traffic-sources.md)
+- [`2026-08-28-retain-provenance-filtered-csi-admission.md`](2026-08-28-retain-provenance-filtered-csi-admission.md)
 
 ### ML And Validation
 

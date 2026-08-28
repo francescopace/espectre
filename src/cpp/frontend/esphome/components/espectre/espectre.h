@@ -173,7 +173,6 @@ class ESpectreComponent : public Component, public IRuntimeListener
 #ifdef USE_WIFI_CONNECT_STATE_LISTENERS
   void on_wifi_connect_state(StringRef ssid, std::span<const uint8_t, 6> bssid) override;
 #endif
-  void sample_diagnostics_();
   void publish_cached_diagnostics_();
   void drain_pending_runtime_events_();
   void update_live_telemetry_enabled_();
@@ -263,8 +262,6 @@ class ESpectreComponent : public Component, public IRuntimeListener
   sensor::Sensor *wifi_rssi_sensor_{nullptr};
   binary_sensor::BinarySensor *calibration_active_sensor_{nullptr};
 
-  RuntimeDiagnosticsSampler diagnostics_sampler_;
-  RuntimeDiagnosticsSample latest_diagnostics_{};
   RuntimeEventMailbox runtime_events_{};
   bool direct_api_enabled_{true};
   bool live_telemetry_enabled_{true};

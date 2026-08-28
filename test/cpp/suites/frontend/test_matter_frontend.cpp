@@ -239,6 +239,8 @@ void test_matter_frontend_exposes_runtime_tuning_over_direct_http(void) {
 
   frontend_runtime_shim::state.diagnostics.traffic_packets_total = 10U;
   frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 8U;
+  frontend_runtime_shim::state.diagnostics_sample.traffic_tx_pps = 10.0f;
+  frontend_runtime_shim::state.diagnostics_sample.csi_callback_pps = 8.0f;
   frontend.on_periodic_update(make_ready_snapshot(false), 8U);
   const std::string sampled_diagnostics = direct.emit_request(
       DirectRequest{"diagnostics-2", "diagnostics", "{}"});
