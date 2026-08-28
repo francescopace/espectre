@@ -1806,7 +1806,7 @@ def compute_ml_empty_fp_result(
     threshold: float,
 ) -> Dict[str, float]:
     """Run empty-room ML inference over canonical runtime-tick rows."""
-    from tools.train_ml_model import (
+    from tools.lib.ml_training.export import (
         load_exported_ml_weights,
         predict_exported_probabilities_from_weights,
     )
@@ -2028,7 +2028,7 @@ def _evaluate_ml_long_cached_rows(
     threshold: float = 0.5,
 ) -> Dict[str, float]:
     """Evaluate one long capture from canonical runtime-tick rows."""
-    from tools.train_ml_model import (
+    from tools.lib.ml_training.export import (
         load_exported_ml_weights,
         predict_exported_probabilities_from_weights,
     )

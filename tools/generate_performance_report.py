@@ -95,7 +95,7 @@ def _report_input_paths() -> tuple[Path, ...]:
         path
         for root in roots
         for pattern in ("*.py", "*.h", "*.cpp")
-        for path in root.glob(pattern)
+        for path in root.rglob(pattern)
         if path.is_file()
     }
     paths.add(Path(__file__).resolve())

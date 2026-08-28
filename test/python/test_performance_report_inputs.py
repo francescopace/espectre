@@ -221,19 +221,19 @@ def test_reserved_diagnostic_uses_only_reserved_roles_and_two_seed_mix(monkeypat
     monkeypatch.setattr(performance_report_inputs, "_paired_records", lambda: records)
     monkeypatch.setattr("tools.lib.csi_io.load_npz_packet_view", lambda path: [{"path": path}])
     monkeypatch.setattr(
-        "tools.train_ml_model.resolve_training_augmentation",
+        "tools.lib.ml_training.augmentation.resolve_training_augmentation",
         lambda components: (True, {}, {"components": list(components)}),
     )
     monkeypatch.setattr(
-        "tools.train_ml_model.training_packet_augmentation_seeds",
+        "tools.lib.ml_training.augmentation.training_packet_augmentation_seeds",
         lambda _config: (101, 202),
     )
     monkeypatch.setattr(
-        "tools.train_ml_model._packet_augmentation_stream_provenance",
+        "tools.lib.ml_training.augmentation._packet_augmentation_stream_provenance",
         lambda _config, seed: {"seed": seed},
     )
     monkeypatch.setattr(
-        "tools.train_ml_model._prepare_feature_packets_for_record",
+        "tools.lib.ml_training.augmentation._prepare_feature_packets_for_record",
         lambda record, **kwargs: [{"path": record["path"], "seed": kwargs["augmentation_seed"]}],
     )
 

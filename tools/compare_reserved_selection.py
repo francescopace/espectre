@@ -27,7 +27,6 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import sys
 from pathlib import Path
 
@@ -38,9 +37,7 @@ from tools.lib.bootstrap import setup_paths  # noqa: E402
 
 setup_paths()
 
-_spec = importlib.util.spec_from_file_location("tmm", REPO_ROOT / "tools" / "train_ml_model.py")
-tmm = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(tmm)
+from tools.lib.ml_training import augmentation, evaluation, training  # noqa: E402
 
 
 def _row(name, metrics, module):
@@ -120,7 +117,7 @@ def main() -> int:
         "--augment",
         nargs="?",
         const="base",
-        type=tmm.parse_augmentation_components,
+        type=augmentation.parse_augmentation_components,
         default=None,
         metavar="COMPONENTS",
         help="candidate augmentation components; --augment alone means base",
@@ -135,14 +132,17 @@ def main() -> int:
     if "holdout" in roles:
         print("WARNING: 'holdout' opens the reserved holdout for this run", file=sys.stderr)
 
-    baseline = tmm.run_exported_ml_gates(roles=roles, allow_legacy_fallback=False)
+    baseline = evaluation.run_exported_ml_gates(
+        roles=roles,
+        allow_legacy_fallback=False,
+    )
 
     print(
         f"\nTraining candidate seed={args.seed} "
-        f"augment={tmm.format_augmentation_components(args.augment)}"
+        f"augment={augmentation.format_augmentation_components(args.augment)}"
     )
     print(f"Features: {', '.join(feature_names)}\n")
-    _status, _seed, cv_results = tmm.train_all(
+    _status, _seed, cv_results = training.train_all(
         seed=args.seed,
         feature_names=feature_names,
         export_artifacts=False,
@@ -160,8 +160,8 @@ def main() -> int:
     print("=" * len(header))
     print(header)
     print("-" * len(header))
-    print(_row("exported", baseline.paired_metrics, tmm))
-    print(_row(f"candidate {args.seed}", paired, tmm))
+    print(_row("exported", baseline.paired_metrics, evaluation))
+    print(_row(f"candidate {args.seed}", paired, evaluation))
 
     _print_per_row_regressions(baseline.paired_metrics, paired)
     if "holdout" not in roles:

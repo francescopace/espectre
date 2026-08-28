@@ -45,7 +45,15 @@ from tools.lib.bootstrap import setup_paths  # noqa: E402
 setup_paths()
 
 import config  # noqa: E402
-import tools.train_ml_model as train_ml_model  # noqa: E402
+from tools.lib.ml_training import (
+    augmentation,
+    dataset,
+    evaluation,
+    export,
+    feature_cache,
+    preprocessing,
+    training,
+)
 from tools.lib.lightweight_detector import LightweightDetector  # noqa: E402
 from tools.lib.ml_weights import FEATURE_NAMES  # noqa: E402
 from tools.fit_lightweight_detector import (  # noqa: E402
@@ -425,15 +433,15 @@ def extract_window_features(
 ) -> Tuple[np.ndarray, np.ndarray]:
     window_packets = detector_window_packets(packets)
     interval_us = measure_packet_interval_us(packets)
-    extractor = train_ml_model.StreamingFeatureExtractor(
+    extractor = feature_cache.StreamingFeatureExtractor(
         feature_names,
         window_packets=window_packets,
         packet_interval_us=interval_us,
     )
     target_pps = target_pps_for_packets(packets, interval_us)
     cadence = RuntimeMotionPolicy(
-        evaluation_interval_ms=train_ml_model.EVALUATION_INTERVAL_MS,
-        segmentation_window_size_ms=train_ml_model.SEGMENTATION_WINDOW_SIZE_MS,
+        evaluation_interval_ms=feature_cache.EVALUATION_INTERVAL_MS,
+        segmentation_window_size_ms=feature_cache.SEGMENTATION_WINDOW_SIZE_MS,
     )
     rows: List[Sequence[float]] = []
     deoverlapped: List[bool] = []
@@ -441,12 +449,12 @@ def extract_window_features(
     for admission in iter_temporal_admissions(
         packets,
         target_pps=target_pps,
-        window_size_ms=train_ml_model.SEGMENTATION_WINDOW_SIZE_MS,
+        window_size_ms=feature_cache.SEGMENTATION_WINDOW_SIZE_MS,
         fallback_interval_us=interval_us,
     ):
         packet = admission.packet
         if admission.reset_required:
-            extractor = train_ml_model.StreamingFeatureExtractor(
+            extractor = feature_cache.StreamingFeatureExtractor(
                 feature_names,
                 window_packets=window_packets,
                 packet_interval_us=interval_us,
@@ -516,14 +524,14 @@ def build_replay_cache(
                         else load_npz_as_packets(source_path)
                     ),
                 }
-                prepared_packets = train_ml_model._prepare_feature_packets_for_record(
+                prepared_packets = augmentation._prepare_feature_packets_for_record(
                     record,
                     packet_augmentation=packet_augmentation,
                     augmentation_seed=augmentation_seed,
                 )
                 return prepared_packets
 
-            packet_stream_provenance = train_ml_model._packet_augmentation_stream_provenance(
+            packet_stream_provenance = augmentation._packet_augmentation_stream_provenance(
                 packet_augmentation,
                 augmentation_seed,
             )
@@ -552,7 +560,7 @@ def build_replay_cache(
                 stream_provenance=packet_stream_provenance,
             )
         else:
-            host_stream_provenance = train_ml_model._host_feature_stream_provenance(
+            host_stream_provenance = feature_cache._host_feature_stream_provenance(
                 feature_names,
                 packet_augmentation=packet_augmentation,
                 augmentation_seed=augmentation_seed,
@@ -560,7 +568,7 @@ def build_replay_cache(
             if keep_all_phy:
                 host_stream_provenance = dict(host_stream_provenance)
                 host_stream_provenance["packet_view"] = "all_explicit_phy"
-            replay_rows = train_ml_model.load_or_compute_host_feature_rows(
+            replay_rows = feature_cache.load_or_compute_host_feature_rows(
                 path,
                 packets_factory=packets_factory,
                 feature_names=feature_names,
@@ -1919,7 +1927,7 @@ def main() -> int:
     candidate_set = {tuple(candidate) for candidate in candidates}
     if not args.no_baseline:
         candidate_set.add(CURRENT_CLASSIC_COMBINATION)
-    available = set(train_ml_model.selectable_features())
+    available = set(feature_cache.selectable_features())
     unknown = sorted(
         {name for candidate in candidate_set for name in candidate}.difference(available)
     )
@@ -2022,7 +2030,7 @@ def main() -> int:
             components = STRESS_SCENARIOS[scenario_name]
             scenario = "+".join(components)
             _active, _feature_config, packet_config = (
-                train_ml_model.resolve_training_augmentation(components)
+                augmentation.resolve_training_augmentation(components)
             )
             stress_scenarios[scenario] = packet_config
 
@@ -2040,7 +2048,7 @@ def main() -> int:
                     runtime_surface,
                     quiet=args.quiet,
                     packet_augmentation=packet_config,
-                    augmentation_seed=train_ml_model.training_packet_augmentation_seed(
+                    augmentation_seed=augmentation.training_packet_augmentation_seed(
                         packet_config
                     ),
                 )
@@ -2052,7 +2060,7 @@ def main() -> int:
                     quiet=args.quiet,
                     packet_augmentation=packet_config,
                     augmentation_seed=(
-                        train_ml_model.training_packet_augmentation_seed(
+                        augmentation.training_packet_augmentation_seed(
                             packet_config
                         )
                     ),

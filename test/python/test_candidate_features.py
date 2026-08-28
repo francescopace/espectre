@@ -10,7 +10,15 @@ import pytest
 sys.path.insert(0, "src/python/micro_espectre")
 
 from csi_features import ALL_FEATURES
-from tools import train_ml_model
+from tools.lib.ml_training import (
+    augmentation,
+    dataset,
+    evaluation,
+    export,
+    feature_cache,
+    preprocessing,
+    training,
+)
 from tools.lib.candidate_features import CANDIDATE_FEATURES, candidate_values
 from tools.lib.host_feature_trackers import AmplitudeProfileTracker
 
@@ -24,20 +32,20 @@ def test_host_candidates_stay_out_of_the_runtime_surface() -> None:
         "chan_freq_coh_curve_std",
     ):
         with pytest.raises(ValueError, match=r"no C\+\+ extractor id"):
-            train_ml_model.resolve_cpp_feature_ids([feature_name])
-    assert train_ml_model.resolve_cpp_feature_ids(
+            export.resolve_cpp_feature_ids([feature_name])
+    assert export.resolve_cpp_feature_ids(
         ["chan_shape_spread_subband"]
     ) == [48]
-    assert train_ml_model.resolve_cpp_feature_ids(
+    assert export.resolve_cpp_feature_ids(
         ["chan_shape_subband_kendall_lag_excess"]
     ) == [49]
 
 
 def test_subband_rank_tracking_is_enabled_only_for_the_candidate() -> None:
-    production = train_ml_model.StreamingFeatureExtractor(
+    production = feature_cache.StreamingFeatureExtractor(
         ["chan_shape_spread_subband"]
     )
-    candidate = train_ml_model.StreamingFeatureExtractor(
+    candidate = feature_cache.StreamingFeatureExtractor(
         ["chan_shape_subband_rank_gap"]
     )
 
@@ -47,10 +55,10 @@ def test_subband_rank_tracking_is_enabled_only_for_the_candidate() -> None:
 
 
 def test_promoted_subband_kendall_tracking_uses_production_extractor() -> None:
-    production = train_ml_model.StreamingFeatureExtractor(
+    production = feature_cache.StreamingFeatureExtractor(
         ["chan_shape_spread_subband"]
     )
-    candidate = train_ml_model.StreamingFeatureExtractor(
+    candidate = feature_cache.StreamingFeatureExtractor(
         ["chan_shape_subband_kendall_lag_excess"]
     )
 
@@ -123,7 +131,7 @@ def test_amplitude_profile_candidates_ignore_packet_gain() -> None:
 
 
 def test_streaming_extractor_evaluates_every_host_candidate() -> None:
-    extractor = train_ml_model.StreamingFeatureExtractor(
+    extractor = feature_cache.StreamingFeatureExtractor(
         CANDIDATE_FEATURES,
         window_packets=12,
         packet_interval_us=80_000,

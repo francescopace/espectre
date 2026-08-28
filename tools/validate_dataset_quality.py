@@ -170,7 +170,7 @@ def _report_input_paths():
     paths = {
         path
         for root in roots
-        for path in root.glob("*.py")
+        for path in root.rglob("*.py")
         if path.is_file()
     }
     paths.add(Path(__file__).resolve())

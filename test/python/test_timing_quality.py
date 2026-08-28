@@ -1,10 +1,19 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
-import tools.train_ml_model as trainer
+from tools.lib.ml_training import (
+    augmentation,
+    dataset,
+    evaluation,
+    export,
+    feature_cache,
+    preprocessing,
+    training,
+)
 from tools import replay_lightweight_candidates
 from tools.lib import performance_report
 from tools.lib.timing_quality import merge_timing_summaries, summarize_capture_timing
@@ -79,12 +88,12 @@ def test_merge_timing_summaries_keeps_the_worst_bucket():
 def test_build_ml_replay_rows_preserves_subwindow_missing_slots_without_reset():
     rows = performance_report.build_ml_replay_rows(
         _timed_packets(count=256, gap_index=128, gap_us=400_000, missing_seq_step=40),
-        trainer.DEFAULT_SUBCARRIERS,
-        trainer.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
-        trainer.EXPORTED_FEATURE_NAMES,
+        feature_cache.DEFAULT_SUBCARRIERS,
+        feature_cache.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
+        feature_cache.EXPORTED_FEATURE_NAMES,
     )
 
-    assert rows["X"].shape[1] == len(trainer.EXPORTED_FEATURE_NAMES)
+    assert rows["X"].shape[1] == len(feature_cache.EXPORTED_FEATURE_NAMES)
     assert len(rows["packet_index"]) == len(rows["evaluation_index"]) == len(rows["reset_index"])
     assert np.all(rows["reset_index"] == 0)
     assert rows["evaluation_index"][0] == 0
@@ -96,14 +105,14 @@ def test_ml_replay_rows_keep_caller_window_rate_on_mismatched_capture():
     packets = _timed_packets(count=256)
     native = performance_report.build_ml_replay_rows(
         packets,
-        trainer.DEFAULT_SUBCARRIERS,
-        feature_names=trainer.EXPORTED_FEATURE_NAMES,
+        feature_cache.DEFAULT_SUBCARRIERS,
+        feature_names=feature_cache.EXPORTED_FEATURE_NAMES,
     )
     forced = performance_report.build_ml_replay_rows(
         packets,
-        trainer.DEFAULT_SUBCARRIERS,
+        feature_cache.DEFAULT_SUBCARRIERS,
         90,
-        trainer.EXPORTED_FEATURE_NAMES,
+        feature_cache.EXPORTED_FEATURE_NAMES,
     )
 
     assert native["target_pps"] == 100
@@ -130,14 +139,14 @@ def test_host_candidate_rows_match_runtime_temporal_readiness():
 
     runtime_rows = performance_report.build_ml_replay_rows(
         packets,
-        trainer.DEFAULT_SUBCARRIERS,
-        feature_names=trainer.EXPORTED_FEATURE_NAMES,
+        feature_cache.DEFAULT_SUBCARRIERS,
+        feature_names=feature_cache.EXPORTED_FEATURE_NAMES,
         sample_contract="stream_dense",
     )
-    host_rows = trainer.build_host_feature_rows(
+    host_rows = feature_cache.build_host_feature_rows(
         packets,
         [
-            *trainer.EXPORTED_FEATURE_NAMES[:-1],
+            *feature_cache.EXPORTED_FEATURE_NAMES[:-1],
             "chan_shape_subband_rank_gap",
         ],
         sample_contract="stream_dense",
@@ -150,7 +159,7 @@ def test_host_candidate_rows_match_runtime_temporal_readiness():
     np.testing.assert_array_equal(
         host_rows["reset_index"], runtime_rows["reset_index"]
     )
-    shared = len(trainer.EXPORTED_FEATURE_NAMES) - 1
+    shared = len(feature_cache.EXPORTED_FEATURE_NAMES) - 1
     np.testing.assert_allclose(
         host_rows["X"][:, :shared],
         runtime_rows["X"][:, :shared],
@@ -167,14 +176,14 @@ def test_host_candidate_rows_match_runtime_temporal_readiness():
 
     sparse_runtime = performance_report.build_ml_replay_rows(
         sparse_packets,
-        trainer.DEFAULT_SUBCARRIERS,
-        feature_names=trainer.EXPORTED_FEATURE_NAMES,
+        feature_cache.DEFAULT_SUBCARRIERS,
+        feature_names=feature_cache.EXPORTED_FEATURE_NAMES,
         sample_contract="stream_dense",
     )
-    sparse_host = trainer.build_host_feature_rows(
+    sparse_host = feature_cache.build_host_feature_rows(
         sparse_packets,
         [
-            *trainer.EXPORTED_FEATURE_NAMES[:-1],
+            *feature_cache.EXPORTED_FEATURE_NAMES[:-1],
             "chan_shape_subband_rank_gap",
         ],
         sample_contract="stream_dense",
@@ -188,27 +197,27 @@ def test_stream_dense_emits_every_packet_after_warmup_on_clean_stream():
     packets = _timed_packets(count=256)
     replay_rows = performance_report.build_ml_replay_rows(
         packets,
-        trainer.DEFAULT_SUBCARRIERS,
-        trainer.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
-        trainer.EXPORTED_FEATURE_NAMES,
+        feature_cache.DEFAULT_SUBCARRIERS,
+        feature_cache.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
+        feature_cache.EXPORTED_FEATURE_NAMES,
         sample_contract="replay_tick",
     )
     stream_dense_rows = performance_report.build_ml_replay_rows(
         packets,
-        trainer.DEFAULT_SUBCARRIERS,
-        trainer.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
-        trainer.EXPORTED_FEATURE_NAMES,
+        feature_cache.DEFAULT_SUBCARRIERS,
+        feature_cache.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
+        feature_cache.EXPORTED_FEATURE_NAMES,
         sample_contract="stream_dense",
     )
 
     assert (
         len(stream_dense_rows["X"])
-        == len(packets) - trainer.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE + 1
+        == len(packets) - feature_cache.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE + 1
     )
     assert len(stream_dense_rows["X"]) > len(replay_rows["X"])
     assert (
         stream_dense_rows["packet_index"][0]
-        == trainer.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE - 1
+        == feature_cache.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE - 1
     )
     assert np.all(stream_dense_rows["reset_index"] == 0)
 
@@ -216,7 +225,7 @@ def test_stream_dense_emits_every_packet_after_warmup_on_clean_stream():
 def test_load_training_matrix_preserves_timing_context_and_weights(monkeypatch):
     records = [
         {
-            "path": trainer.Path("clean.npz"),
+            "path": Path("clean.npz"),
             "packets": (),
             "label_name": "empty",
             "is_motion": False,
@@ -236,7 +245,7 @@ def test_load_training_matrix_preserves_timing_context_and_weights(monkeypatch):
             "timing_weight": 1.0,
         },
         {
-            "path": trainer.Path("warn.npz"),
+            "path": Path("warn.npz"),
             "packets": (),
             "label_name": "motion",
             "is_motion": True,
@@ -288,24 +297,24 @@ def test_load_training_matrix_preserves_timing_context_and_weights(monkeypatch):
         value = 1.0 if record["label_name"] == "empty" else 2.0
         return {
             "X": np.asarray([[value]], dtype=np.float32),
-            "feature_names": [trainer.EXPORTED_FEATURE_NAMES[0]],
+            "feature_names": [feature_cache.EXPORTED_FEATURE_NAMES[0]],
             "packet_index": np.asarray(
-                [trainer.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE - 1], dtype=np.int32
+                [feature_cache.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE - 1], dtype=np.int32
             ),
             "evaluation_index": np.asarray([0], dtype=np.int32),
             "reset_index": np.asarray([0], dtype=np.int32),
             "cache_hit": True,
         }
 
-    monkeypatch.setattr(trainer, "_load_training_file_records", fake_load_training_file_records)
+    monkeypatch.setattr(dataset, "_load_training_file_records", fake_load_training_file_records)
     monkeypatch.setattr(
-        trainer,
+        dataset,
         "load_or_compute_ml_replay_rows",
         fake_load_or_compute_ml_replay_rows,
     )
 
-    matrix, _ = trainer.load_training_matrix(
-        feature_names=[trainer.EXPORTED_FEATURE_NAMES[0]],
+    matrix, _ = dataset.load_training_matrix(
+        feature_names=[feature_cache.EXPORTED_FEATURE_NAMES[0]],
         timing_quality_policy="downweight-warn",
         timing_warn_weight=0.25,
     )
@@ -335,9 +344,9 @@ def test_load_or_compute_ml_replay_rows_reuses_full_runtime_cache(monkeypatch, t
     )
     cached_rows = performance_report.build_ml_replay_rows(
         packets,
-        trainer.DEFAULT_SUBCARRIERS,
-        trainer.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
-        trainer.EXPORTED_FEATURE_NAMES,
+        feature_cache.DEFAULT_SUBCARRIERS,
+        feature_cache.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
+        feature_cache.EXPORTED_FEATURE_NAMES,
         sample_contract="stream_dense",
     )
     load_calls = []
@@ -347,7 +356,7 @@ def test_load_or_compute_ml_replay_rows_reuses_full_runtime_cache(monkeypatch, t
         return cached_rows
 
     monkeypatch.setattr(
-        trainer.npz_cache,
+        feature_cache.npz_cache,
         "load_ml_replay_row_artifact",
         fake_load,
     )
@@ -359,25 +368,25 @@ def test_load_or_compute_ml_replay_rows_reuses_full_runtime_cache(monkeypatch, t
 
     rows = performance_report.load_or_compute_ml_replay_rows(
         source_path,
-        selected_subcarriers=trainer.DEFAULT_SUBCARRIERS,
-        window_size=trainer.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
-        feature_names=trainer.EXPORTED_FEATURE_NAMES[:2],
+        selected_subcarriers=feature_cache.DEFAULT_SUBCARRIERS,
+        window_size=feature_cache.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
+        feature_names=feature_cache.EXPORTED_FEATURE_NAMES[:2],
         sample_contract="stream_dense",
         use_cache=True,
     )
     replay_rows = performance_report.load_or_compute_ml_replay_rows(
         source_path,
-        selected_subcarriers=trainer.DEFAULT_SUBCARRIERS,
-        window_size=trainer.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
-        feature_names=trainer.EXPORTED_FEATURE_NAMES[:2],
+        selected_subcarriers=feature_cache.DEFAULT_SUBCARRIERS,
+        window_size=feature_cache.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
+        feature_names=feature_cache.EXPORTED_FEATURE_NAMES[:2],
         sample_contract="replay_tick",
         use_cache=True,
     )
     selected_rows = performance_report.load_or_compute_ml_replay_rows(
         source_path,
-        selected_subcarriers=trainer.DEFAULT_SUBCARRIERS,
-        window_size=trainer.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
-        feature_names=trainer.EXPORTED_FEATURE_NAMES[:2],
+        selected_subcarriers=feature_cache.DEFAULT_SUBCARRIERS,
+        window_size=feature_cache.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
+        feature_names=feature_cache.EXPORTED_FEATURE_NAMES[:2],
         sample_contract="stream_dense",
         use_cache=True,
         cache_write=False,
@@ -386,9 +395,9 @@ def test_load_or_compute_ml_replay_rows_reuses_full_runtime_cache(monkeypatch, t
     )
 
     assert len(load_calls) == 3
-    assert tuple(load_calls[0]) == tuple(trainer.EXPORTED_FEATURE_NAMES)
+    assert tuple(load_calls[0]) == tuple(feature_cache.EXPORTED_FEATURE_NAMES)
     assert load_calls[0] == load_calls[1]
-    assert rows["feature_names"] == list(trainer.EXPORTED_FEATURE_NAMES[:2])
+    assert rows["feature_names"] == list(feature_cache.EXPORTED_FEATURE_NAMES[:2])
     np.testing.assert_allclose(rows["X"], cached_rows["X"][:, :2])
     evaluation_due = np.asarray(cached_rows["evaluation_due"], dtype=bool)
     np.testing.assert_allclose(
@@ -437,17 +446,17 @@ def test_host_feature_cache_hit_does_not_materialize_packets(monkeypatch, tmp_pa
         return cached_rows["X"][:, cached_rows["feature_names"].index(name)]
 
     monkeypatch.setattr(
-        trainer.npz_cache,
+        feature_cache.npz_cache,
         "load_host_feature_row_spine_artifact",
         fake_load_spine,
     )
     monkeypatch.setattr(
-        trainer.npz_cache,
+        feature_cache.npz_cache,
         "load_host_feature_column_artifact",
         fake_load_column,
     )
 
-    rows = trainer.load_or_compute_host_feature_rows(
+    rows = feature_cache.load_or_compute_host_feature_rows(
         source_path,
         packets_factory=lambda: pytest.fail("cache hit must not build packets"),
         feature_names=["turb_autocorr", "turb_zcr"],
@@ -463,7 +472,7 @@ def test_host_feature_cache_hit_does_not_materialize_packets(monkeypatch, tmp_pa
 
 def test_host_feature_cache_computes_only_new_columns(monkeypatch, tmp_path):
     cache_root = tmp_path / "cache"
-    monkeypatch.setenv(trainer.npz_cache.NPZ_CACHE_DIR_ENV, str(cache_root))
+    monkeypatch.setenv(feature_cache.npz_cache.NPZ_CACHE_DIR_ENV, str(cache_root))
     source_path = tmp_path / "host_feature_columns.npz"
     np.savez(source_path, csi_data=np.zeros((4, 128), dtype=np.int8))
     calls = []
@@ -483,21 +492,21 @@ def test_host_feature_cache_computes_only_new_columns(monkeypatch, tmp_path):
             "evaluation_due": np.asarray([True, False]),
         }
 
-    monkeypatch.setattr(trainer, "build_host_feature_rows", fake_build)
+    monkeypatch.setattr(feature_cache, "build_host_feature_rows", fake_build)
 
-    first = trainer.load_or_compute_host_feature_rows(
+    first = feature_cache.load_or_compute_host_feature_rows(
         source_path,
         packets=[object()],
         feature_names=["turb_cv"],
         sample_contract="stream_dense",
     )
-    extended = trainer.load_or_compute_host_feature_rows(
+    extended = feature_cache.load_or_compute_host_feature_rows(
         source_path,
         packets=[object()],
         feature_names=["turb_cv", "turb_mad_over_mean"],
         sample_contract="stream_dense",
     )
-    warm = trainer.load_or_compute_host_feature_rows(
+    warm = feature_cache.load_or_compute_host_feature_rows(
         source_path,
         packets_factory=lambda: pytest.fail("warm columns must not build packets"),
         feature_names=["turb_mad_over_mean", "turb_cv"],
@@ -516,17 +525,17 @@ def test_build_ml_replay_rows_selects_before_materializing_dense_features():
     packets = _timed_packets(count=256)
     full_rows = performance_report.build_ml_replay_rows(
         packets,
-        trainer.DEFAULT_SUBCARRIERS,
-        trainer.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
-        trainer.EXPORTED_FEATURE_NAMES,
+        feature_cache.DEFAULT_SUBCARRIERS,
+        feature_cache.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
+        feature_cache.EXPORTED_FEATURE_NAMES,
         sample_contract="stream_dense",
     )
 
     selected_rows = performance_report.build_ml_replay_rows(
         packets,
-        trainer.DEFAULT_SUBCARRIERS,
-        trainer.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
-        trainer.EXPORTED_FEATURE_NAMES,
+        feature_cache.DEFAULT_SUBCARRIERS,
+        feature_cache.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
+        feature_cache.EXPORTED_FEATURE_NAMES,
         sample_contract="stream_dense",
         row_stride=2,
         row_offset=1,
@@ -547,7 +556,7 @@ def test_augmented_replay_rows_persist_only_for_matching_provenance(
     tmp_path,
 ):
     cache_root = tmp_path / "cache"
-    monkeypatch.setenv(trainer.npz_cache.NPZ_CACHE_DIR_ENV, str(cache_root))
+    monkeypatch.setenv(feature_cache.npz_cache.NPZ_CACHE_DIR_ENV, str(cache_root))
     source_path = tmp_path / "capture.npz"
     packets = _timed_packets(count=128)
     np.savez(
@@ -582,9 +591,9 @@ def test_augmented_replay_rows_persist_only_for_matching_provenance(
     first = performance_report.load_or_compute_ml_replay_rows(
         source_path,
         packets_factory=packet_factory,
-        selected_subcarriers=trainer.DEFAULT_SUBCARRIERS,
-        window_size=trainer.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
-        feature_names=trainer.EXPORTED_FEATURE_NAMES[:2],
+        selected_subcarriers=feature_cache.DEFAULT_SUBCARRIERS,
+        window_size=feature_cache.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
+        feature_names=feature_cache.EXPORTED_FEATURE_NAMES[:2],
         sample_contract="stream_dense",
         stream_provenance=provenance,
     )
@@ -593,18 +602,18 @@ def test_augmented_replay_rows_persist_only_for_matching_provenance(
         packets_factory=lambda: pytest.fail(
             "matching persisted provenance must not rebuild packets"
         ),
-        selected_subcarriers=trainer.DEFAULT_SUBCARRIERS,
-        window_size=trainer.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
-        feature_names=trainer.EXPORTED_FEATURE_NAMES[:2],
+        selected_subcarriers=feature_cache.DEFAULT_SUBCARRIERS,
+        window_size=feature_cache.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
+        feature_names=feature_cache.EXPORTED_FEATURE_NAMES[:2],
         sample_contract="stream_dense",
         stream_provenance=provenance,
     )
     different_seed = performance_report.load_or_compute_ml_replay_rows(
         source_path,
         packets_factory=packet_factory,
-        selected_subcarriers=trainer.DEFAULT_SUBCARRIERS,
-        window_size=trainer.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
-        feature_names=trainer.EXPORTED_FEATURE_NAMES[:2],
+        selected_subcarriers=feature_cache.DEFAULT_SUBCARRIERS,
+        window_size=feature_cache.DEFAULT_WINDOW_PACKETS_AT_NOMINAL_RATE,
+        feature_names=feature_cache.EXPORTED_FEATURE_NAMES[:2],
         sample_contract="stream_dense",
         stream_provenance={**provenance, "seed": 124},
     )
@@ -619,7 +628,7 @@ def test_augmented_replay_rows_persist_only_for_matching_provenance(
 def test_load_training_matrix_stream_dense_uses_stream_dense_rows(monkeypatch):
     records = [
         {
-            "path": trainer.Path("clean.npz"),
+            "path": Path("clean.npz"),
             "packets": _timed_packets(count=96),
             "label_name": "empty",
             "is_motion": False,
@@ -664,7 +673,7 @@ def test_load_training_matrix_stream_dense_uses_stream_dense_rows(monkeypatch):
     }
     replay_rows = {
         "X": np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
-        "feature_names": list(trainer.EXPORTED_FEATURE_NAMES[:2]),
+        "feature_names": list(feature_cache.EXPORTED_FEATURE_NAMES[:2]),
         "packet_index": np.asarray([99, 100], dtype=np.int32),
         "evaluation_index": np.asarray([0, 1], dtype=np.int32),
         "reset_index": np.asarray([0, 0], dtype=np.int32),
@@ -678,28 +687,28 @@ def test_load_training_matrix_stream_dense_uses_stream_dense_rows(monkeypatch):
         seen_calls.append(_kwargs)
         return replay_rows
 
-    monkeypatch.setattr(trainer, "_load_training_file_records", fake_load_training_file_records)
+    monkeypatch.setattr(dataset, "_load_training_file_records", fake_load_training_file_records)
     monkeypatch.setattr(
-        trainer,
+        dataset,
         "load_or_compute_ml_replay_rows",
         fake_load_or_compute_ml_replay_rows,
     )
     monkeypatch.setattr(
-        trainer.npz_cache,
+        feature_cache.npz_cache,
         "load_ml_replay_row_artifact",
         lambda *_args, **_kwargs: None,
     )
 
-    matrix, _ = trainer.load_training_matrix(
-        feature_names=list(trainer.EXPORTED_FEATURE_NAMES[:2]),
+    matrix, _ = dataset.load_training_matrix(
+        feature_names=list(feature_cache.EXPORTED_FEATURE_NAMES[:2]),
     )
 
     assert [call["sample_contract"] for call in seen_calls] == ["stream_dense"]
     np.testing.assert_allclose(matrix["X"], replay_rows["X"])
     assert matrix["sample_context"]["packet_index"].tolist() == [99, 100]
 
-    trainer.load_training_matrix(
-        feature_names=list(trainer.EXPORTED_FEATURE_NAMES[:2]),
+    dataset.load_training_matrix(
+        feature_names=list(feature_cache.EXPORTED_FEATURE_NAMES[:2]),
         packet_augmentation={"packet_loss": 0.05},
         augmentation_seed=123,
     )
@@ -741,8 +750,8 @@ def test_classic_candidate_replay_reuses_time_aware_runtime_rows(monkeypatch):
     )
 
     cache = replay_lightweight_candidates.build_replay_cache(
-        [trainer.Path("runtime.npz")],
-        [trainer.EXPORTED_FEATURE_NAMES[0]],
+        [Path("runtime.npz")],
+        [feature_cache.EXPORTED_FEATURE_NAMES[0]],
         quiet=True,
     )
 
@@ -791,13 +800,13 @@ def test_classic_candidate_replay_can_retain_external_diagnostic_phy(monkeypatch
     )
 
     replay_lightweight_candidates.build_replay_cache(
-        [trainer.Path("diagnostic.npz")],
-        [trainer.EXPORTED_FEATURE_NAMES[0]],
+        [Path("diagnostic.npz")],
+        [feature_cache.EXPORTED_FEATURE_NAMES[0]],
         quiet=True,
         keep_all_phy=True,
     )
 
-    assert seen["packet_path"] == trainer.Path("diagnostic.npz")
+    assert seen["packet_path"] == Path("diagnostic.npz")
     assert seen["keep_all_phy"] is True
     assert seen["stream_provenance"] == {"packet_view": "all_explicit_phy"}
 
@@ -872,12 +881,12 @@ def test_classic_candidate_replay_persists_host_feature_rows(monkeypatch):
         }
 
     monkeypatch.setattr(
-        replay_lightweight_candidates.train_ml_model,
+        replay_lightweight_candidates.feature_cache,
         "load_or_compute_host_feature_rows",
         fake_load_rows,
     )
     monkeypatch.setattr(
-        replay_lightweight_candidates.train_ml_model,
+        replay_lightweight_candidates.feature_cache,
         "_host_feature_stream_provenance",
         lambda names, **_kwargs: {"features": list(names)},
     )
@@ -893,7 +902,7 @@ def test_classic_candidate_replay_persists_host_feature_rows(monkeypatch):
     )
 
     cache = replay_lightweight_candidates.build_replay_cache(
-        [trainer.Path("host.npz")],
+        [Path("host.npz")],
         ["chan_freq_coh_curve_std"],
         quiet=True,
     )
@@ -921,12 +930,12 @@ def test_classic_candidate_packet_stress_has_distinct_cache_provenance(monkeypat
         return packets
 
     monkeypatch.setattr(
-        replay_lightweight_candidates.train_ml_model,
+        replay_lightweight_candidates.augmentation,
         "_prepare_feature_packets_for_record",
         fake_prepare_packets,
     )
     monkeypatch.setattr(
-        replay_lightweight_candidates.train_ml_model,
+        replay_lightweight_candidates.augmentation,
         "_packet_augmentation_stream_provenance",
         lambda config, seed: {"config": dict(config), "seed": seed},
     )
@@ -947,8 +956,8 @@ def test_classic_candidate_packet_stress_has_distinct_cache_provenance(monkeypat
     )
 
     replay_lightweight_candidates.build_replay_cache(
-        [trainer.Path("runtime.npz")],
-        [trainer.EXPORTED_FEATURE_NAMES[0]],
+        [Path("runtime.npz")],
+        [feature_cache.EXPORTED_FEATURE_NAMES[0]],
         quiet=True,
         packet_augmentation={"packet_loss": 0.05},
         augmentation_seed=123,

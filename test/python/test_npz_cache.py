@@ -255,7 +255,7 @@ def test_packet_view_cache_does_not_pin_raw_arrays(tmp_path):
 
 
 def test_packet_csi_data_accepts_read_only_packet_views(tmp_path):
-    import tools.train_ml_model as trainer
+    from tools.lib.ml_training import feature_cache
 
     source_path = tmp_path / "packet_view_mapping.npz"
     np.savez(
@@ -268,7 +268,7 @@ def test_packet_csi_data_accepts_read_only_packet_views(tmp_path):
 
     packet_view = csi_io.load_npz_packet_view(source_path)
 
-    csi_data = trainer.packet_csi_data(packet_view[0])
+    csi_data = feature_cache.packet_csi_data(packet_view[0])
 
     assert isinstance(csi_data, np.ndarray)
     np.testing.assert_array_equal(csi_data, packet_view[0]["csi_data"])

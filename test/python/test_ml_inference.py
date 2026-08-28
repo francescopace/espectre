@@ -14,7 +14,7 @@ import pytest
 from tools.lib.repo_paths import generated_data_dir
 
 from high_accuracy_detector import predict, HIGH_ACCURACY_METRIC_SCALE
-from tools.train_ml_model import (
+from tools.lib.ml_training.export import (
     predict_probabilities_from_arrays,
     render_micropython_weights,
 )

@@ -44,9 +44,9 @@ from tools.lib.dataset_metadata import (
     detector_window_packets,
     derive_detector_timing,
 )
-from tools.train_ml_model import (
+from tools.lib.ml_training.augmentation import _load_npz_packets_cached
+from tools.lib.ml_training.evaluation import (
     _load_exported_model_arrays,
-    _load_npz_packets_cached,
     ArrayStreamingEvaluator,
     evaluate_array_split,
     evaluate_cached_array_split,

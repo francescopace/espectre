@@ -145,12 +145,14 @@ def compute_reserved_augmentation_diagnostic() -> Optional[dict[str, Any]]:
         load_or_compute_classic_replay_rows,
         load_or_compute_ml_replay_rows,
     )
-    from tools.train_ml_model import (
-        _mix_packet_augmentation_replay_rows,
+    from tools.lib.ml_training.augmentation import (
         _packet_augmentation_stream_provenance,
         _prepare_feature_packets_for_record,
         resolve_training_augmentation,
         training_packet_augmentation_seeds,
+    )
+    from tools.lib.ml_training.feature_cache import (
+        _mix_packet_augmentation_replay_rows,
     )
 
     components = ("base", "drift", "burst-loss")
@@ -259,9 +261,12 @@ def collect_extended_report_inputs(
     resources = run_current_resource_benchmark()
     if progress:
         progress("loading the cached reserved augmentation diagnostic")
+    from tools.lib.ml_training import implementation_paths
+
     diagnostic_implementations = (
         Path(__file__),
         REPO_ROOT / "tools" / "train_ml_model.py",
+        *implementation_paths(),
         REPO_ROOT / "tools" / "lib" / "performance_report.py",
         REPO_ROOT / "tools" / "lib" / "lightweight_detector.py",
         REPO_ROOT / "tools" / "lib" / "csi_features.py",

@@ -27,7 +27,7 @@ constexpr float L1_DELTA_STARTUP_THRESHOLD_FACTOR = 1.1f;
 constexpr uint8_t TURB_IQR_AGGREGATION_WIDTH = 5U;
 
 // Canonical ML feature identifiers, shared with the exporter in
-// tools/train_ml_model.py (CPP_FEATURE_IDS).
+// tools/lib/ml_training/export.py (CPP_FEATURE_IDS).
 enum MLFeatureId : uint8_t {
     ML_FEAT_TURB_AUTOCORR = 6,
     ML_FEAT_TURB_ZCR = 14,

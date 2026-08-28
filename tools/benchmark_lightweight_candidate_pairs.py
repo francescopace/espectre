@@ -48,7 +48,15 @@ from tools.lib.bootstrap import setup_paths  # noqa: E402
 
 setup_paths()
 
-import tools.train_ml_model as train_ml_model  # noqa: E402
+from tools.lib.ml_training import (
+    augmentation,
+    dataset,
+    evaluation,
+    export,
+    feature_cache,
+    preprocessing,
+    training,
+)
 from tools import replay_lightweight_candidates as candidate_replay  # noqa: E402
 from tools.lib.ml_weights import FEATURE_NAMES  # noqa: E402
 from tools.lib.candidate_features import CANDIDATE_FEATURES  # noqa: E402
@@ -71,7 +79,7 @@ DEFAULT_TRIPLETS = (
 CURRENT_CLASSIC_COMBINATION = ("turb_autocorr", "turb_iqr_over_mean_aggr")
 RUNTIME_READY_FEATURES = tuple(FEATURE_NAMES)
 HOST_ONLY_FEATURES = tuple(
-    name for name in train_ml_model.selectable_features() if name not in FEATURE_NAMES
+    name for name in feature_cache.selectable_features() if name not in FEATURE_NAMES
 )
 
 
@@ -154,7 +162,7 @@ def runtime_triplets() -> List[Tuple[str, str, str]]:
 
 
 def host_triplets() -> List[Tuple[str, str, str]]:
-    searchable = tuple(train_ml_model.selectable_features())
+    searchable = tuple(feature_cache.selectable_features())
     host_feature_set = set(HOST_ONLY_FEATURES)
     return [
         triplet
@@ -209,7 +217,7 @@ def load_feature_matrix(
     requested_names = sorted(
         {name for combination in requested_combinations for name in combination}
     )
-    records, stats = train_ml_model._load_training_file_records(
+    records, stats = dataset._load_training_file_records(
         dataset_roles=("train", "selection", "holdout", "exclude"),
     )
     replay_cache = candidate_replay.build_replay_cache(
@@ -581,7 +589,7 @@ def main() -> int:
     if args.top_k < 1:
         raise BenchmarkError("--top-k must be at least 1")
     candidate_combinations = resolve_candidate_combinations(args)
-    available = set(train_ml_model.selectable_features())
+    available = set(feature_cache.selectable_features())
     requested = set(
         name for combination in candidate_combinations for name in combination
     )
@@ -614,7 +622,7 @@ def main() -> int:
         row["rank"] = rank
 
     payload = {
-        "feature_surface": list(train_ml_model.selectable_features()),
+        "feature_surface": list(feature_cache.selectable_features()),
         "runtime_ready_feature_surface": list(RUNTIME_READY_FEATURES),
         "host_only_feature_surface": list(HOST_ONLY_FEATURES),
         "training_sample_contract": str(matrix.get("training_sample_contract")),
