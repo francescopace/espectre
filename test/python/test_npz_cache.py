@@ -415,9 +415,9 @@ def test_trainer_and_validator_address_the_same_time_aware_artifact(
     monkeypatch, tmp_path
 ):
     """Training and quality validation must share the canonical row artifact."""
-    import tools.validate_dataset_quality as validator
+    from tools.lib.dataset_quality import metrics, severity
 
-    feature_names = tuple(validator.VALIDATION_FEATURE_NAMES)
+    feature_names = tuple(severity.VALIDATION_FEATURE_NAMES)
     calls = []
 
     def fake_load_rows(_source_path, **kwargs):
@@ -428,11 +428,11 @@ def test_trainer_and_validator_address_the_same_time_aware_artifact(
         }
 
     monkeypatch.setattr(
-        validator,
+        metrics,
         "load_or_compute_ml_replay_rows",
         fake_load_rows,
     )
-    validator._load_or_compute_validation_feature_matrix(
+    metrics._load_or_compute_validation_feature_matrix(
         tmp_path / "shared.npz",
         feature_names=feature_names,
     )
@@ -446,7 +446,7 @@ def test_trainer_and_validator_address_the_same_time_aware_artifact(
         feature_names=calls[0]["feature_names"],
     )
     expected_parameters = npz_cache.ml_replay_row_parameters(
-        selected_subcarriers=validator.DEFAULT_SUBCARRIERS,
+        selected_subcarriers=metrics.DEFAULT_SUBCARRIERS,
         window_size=resolved_window_size,
         feature_names=feature_names,
     )

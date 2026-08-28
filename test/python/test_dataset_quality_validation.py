@@ -9,6 +9,18 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from tools.lib.dataset_quality import (
+    capture,
+    catalog,
+    core,
+    metrics,
+    pairing,
+    references,
+    rendering,
+    replay,
+    severity,
+)
+
 
 VALIDATOR_PATH = Path(__file__).resolve().parents[2] / "tools" / "validate_dataset_quality.py"
 
@@ -21,6 +33,26 @@ def _load_validator_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.fixture(autouse=True)
+def _restore_validator_context(monkeypatch):
+    """Keep shared dataset-quality configuration isolated between tests."""
+    monkeypatch.setattr(core, "DATA_DIR", core.DATA_DIR)
+    monkeypatch.setattr(core, "DATASET_INFO", core.DATASET_INFO)
+    monkeypatch.setattr(core, "REPORT_OUTPUT", core.REPORT_OUTPUT)
+    monkeypatch.setattr(core, "DIAGNOSTIC_ALL_PHY", core.DIAGNOSTIC_ALL_PHY)
+    monkeypatch.setattr(core.dataset_metadata, "DATA_DIR", core.dataset_metadata.DATA_DIR)
+    monkeypatch.setattr(
+        core.dataset_metadata,
+        "DATASET_INFO_FILE",
+        core.dataset_metadata.DATASET_INFO_FILE,
+    )
+    monkeypatch.setattr(
+        core.performance_report,
+        "DATA_DIR",
+        core.performance_report.DATA_DIR,
+    )
 
 
 class _Capture:
@@ -37,7 +69,6 @@ def _by_name(results):
 
 
 def test_feature_blocks_preserve_missing_sampler_slots() -> None:
-    module = _load_validator_module()
     slot_index = np.arange(0, 1001, 2, dtype=np.int64)
     values = np.where(slot_index < 500, 1.0, 3.0).reshape(-1, 1)
     timing = {
@@ -46,14 +77,13 @@ def test_feature_blocks_preserve_missing_sampler_slots() -> None:
         "target_pps": 100,
     }
 
-    blocks = module._feature_block_medians(values, timing)
+    blocks = metrics._feature_block_medians(values, timing)
 
     np.testing.assert_array_equal(blocks, np.asarray([[1.0], [3.0]]))
-    assert module._temporal_coverage_seconds(timing, len(values)) == pytest.approx(10.01)
+    assert metrics._temporal_coverage_seconds(timing, len(values)) == pytest.approx(10.01)
 
 
 def test_agnostic_baseline_uses_sampler_grid_for_elapsed_time() -> None:
-    module = _load_validator_module()
     slot_index = np.arange(0, 1001, 2, dtype=np.int64)
     evidence = np.linspace(0.0, 1.0, len(slot_index))
     timing = {
@@ -62,7 +92,7 @@ def test_agnostic_baseline_uses_sampler_grid_for_elapsed_time() -> None:
         "target_pps": 100,
     }
 
-    baseline = module._agnostic_baseline_stats_from_series(evidence, timing)
+    baseline = metrics._agnostic_baseline_stats_from_series(evidence, timing)
 
     assert baseline is not None
     assert baseline["packet_rate_pps"] == 100.0
@@ -71,34 +101,32 @@ def test_agnostic_baseline_uses_sampler_grid_for_elapsed_time() -> None:
 
 
 def test_temporal_occupancy_uses_complete_production_windows() -> None:
-    module = _load_validator_module()
     packets = [
         {"wifi_rx_ts_us": index * 200_000}
         for index in range(11)
     ]
 
-    occupancy = module._mean_temporal_occupancy(packets, target_pps=10)
+    occupancy = metrics._mean_temporal_occupancy(packets, target_pps=10)
 
     assert occupancy == pytest.approx(0.5)
-    assert module._format_occupancy_cell(occupancy, markdown=True) == (
+    assert rendering._format_occupancy_cell(occupancy, markdown=True) == (
         "**50.0% ❌**"
     )
-    assert module._format_occupancy_cell(0.7, markdown=True) == "**70.0% ⚠️**"
-    assert module._format_occupancy_cell(0.85, markdown=True) == "85.0%"
+    assert rendering._format_occupancy_cell(0.7, markdown=True) == "**70.0% ⚠️**"
+    assert rendering._format_occupancy_cell(0.85, markdown=True) == "85.0%"
 
 
 def test_post_collect_temporal_occupancy_uses_recorded_detector_grid(monkeypatch) -> None:
-    module = _load_validator_module()
     packets = ({"csi_target_pps": 100},)
     observed = {"occupancy": 0.69}
-    monkeypatch.setattr(module, "_load_validation_packet_view", lambda filepath: packets)
+    monkeypatch.setattr(capture, "_load_validation_packet_view", lambda filepath: packets)
     monkeypatch.setattr(
-        module,
+        capture,
         "_mean_temporal_occupancy",
         lambda values, target_pps: observed["occupancy"],
     )
 
-    result = module.validate_temporal_occupancy(Path("capture.npz"))[0]
+    result = capture.validate_temporal_occupancy(Path("capture.npz"))[0]
 
     assert result.name == "temporal_occupancy"
     assert result.status == "FAIL"
@@ -106,38 +134,37 @@ def test_post_collect_temporal_occupancy_uses_recorded_detector_grid(monkeypatch
     assert "69.0%" in result.message
 
     observed["occupancy"] = 0.70
-    assert module.validate_temporal_occupancy(Path("capture.npz"))[0].status == "WARN"
+    assert capture.validate_temporal_occupancy(Path("capture.npz"))[0].status == "WARN"
     observed["occupancy"] = 0.85
-    assert module.validate_temporal_occupancy(Path("capture.npz"))[0].status == "PASS"
+    assert capture.validate_temporal_occupancy(Path("capture.npz"))[0].status == "PASS"
 
 
 def test_capture_file_centralizes_canonical_admission_checks(monkeypatch) -> None:
-    module = _load_validator_module()
     data = {"csi_data": np.zeros((4, 128), dtype=np.int8)}
     calls = []
     monkeypatch.setattr(
-        module,
+        capture,
         "validate_file_integrity",
-        lambda filepath: ([module.ValidationResult("file_load", "PASS", "ok")], data),
+        lambda filepath: ([core.ValidationResult("file_load", "PASS", "ok")], data),
     )
     monkeypatch.setattr(
-        module,
+        capture,
         "validate_signal_quality",
-        lambda csi_data: [module.ValidationResult("signal", "PASS", "ok")],
+        lambda csi_data: [core.ValidationResult("signal", "PASS", "ok")],
     )
 
     def validate_occupancy(filepath, *, target_pps=None):
         calls.append(("occupancy", target_pps))
-        return [module.ValidationResult("temporal_occupancy", "PASS", "ok")]
+        return [core.ValidationResult("temporal_occupancy", "PASS", "ok")]
 
     def validate_continuity(data, csi_data, **kwargs):
         calls.append(("continuity", kwargs))
-        return [module.ValidationResult("stream", "PASS", "ok")]
+        return [core.ValidationResult("stream", "PASS", "ok")]
 
-    monkeypatch.setattr(module, "validate_temporal_occupancy", validate_occupancy)
-    monkeypatch.setattr(module, "validate_capture_continuity", validate_continuity)
+    monkeypatch.setattr(capture, "validate_temporal_occupancy", validate_occupancy)
+    monkeypatch.setattr(capture, "validate_capture_continuity", validate_continuity)
 
-    results = module.validate_capture_file(
+    results = capture.validate_capture_file(
         Path("capture.npz"),
         low_rssi=True,
         include_packet_rate=False,
@@ -157,28 +184,25 @@ def test_capture_file_centralizes_canonical_admission_checks(monkeypatch) -> Non
 
 
 def test_occupancy_caps_quality_score() -> None:
-    module = _load_validator_module()
 
-    assert module.cap_quality_score_by_occupancy(100.0, 0.82) == 82.0
-    assert module.cap_quality_score_by_occupancy(90.0, 0.95, 0.88) == 88.0
-    assert module.cap_quality_score_by_occupancy(65.0, 0.95) == 65.0
+    assert metrics.cap_quality_score_by_occupancy(100.0, 0.82) == 82.0
+    assert metrics.cap_quality_score_by_occupancy(90.0, 0.95, 0.88) == 88.0
+    assert metrics.cap_quality_score_by_occupancy(65.0, 0.95) == 65.0
 
 
 def test_occupancy_target_prefers_recorded_grid_over_legacy_fallback() -> None:
-    module = _load_validator_module()
 
-    assert module._resolve_temporal_occupancy_target_pps(
+    assert metrics._resolve_temporal_occupancy_target_pps(
         ({"csi_target_pps": 120},),
         fallback=100,
     ) == 120
-    assert module._resolve_temporal_occupancy_target_pps(
+    assert metrics._resolve_temporal_occupancy_target_pps(
         ({"csi_target_pps": None},),
         fallback=100,
     ) == 100
 
 
 def test_pair_score_table_replaces_composite_columns_with_occupancy() -> None:
-    module = _load_validator_module()
     row = {
         "chip": "C6",
         "environment": "bedroom",
@@ -206,26 +230,25 @@ def test_pair_score_table_replaces_composite_columns_with_occupancy() -> None:
     }
 
     table = "\n".join(
-        module._render_score_table(
+        rendering._render_score_table(
             [row],
-            module._PAIR_SCORE_TABLE,
+            rendering._PAIR_SCORE_TABLE,
             markdown=True,
         )
     )
 
-    header = module._PAIR_SCORE_TABLE["header"]
+    header = rendering._PAIR_SCORE_TABLE["header"]
     assert "| PPS | Occ | Ref |" in header
     assert "| Pair |" not in header
     assert "| Clean |" not in header
     assert "**80.0% ⚠️** / **60.0% ❌**" in table
     assert "| 60.0 |" in table
-    assert "| PPS | Occ | Exc |" in module._PRESENCE_SCORE_TABLE["header"]
-    assert "| PPS | Occ | Exc |" in module._EMPTY_SCORE_TABLE["header"]
-    assert "| PPS | Occ | Exc |" in module._LONG_TEST_SCORE_TABLE["header"]
+    assert "| PPS | Occ | Exc |" in rendering._PRESENCE_SCORE_TABLE["header"]
+    assert "| PPS | Occ | Exc |" in rendering._EMPTY_SCORE_TABLE["header"]
+    assert "| PPS | Occ | Exc |" in rendering._LONG_TEST_SCORE_TABLE["header"]
 
 
 def test_classic_replay_consumes_selected_packet_rssi_and_flushes_final_slot() -> None:
-    module = _load_validator_module()
 
     class RecordingDetector:
         def __init__(self):
@@ -247,7 +270,7 @@ def test_classic_replay_consumes_selected_packet_rssi_and_flushes_final_slot() -
             return False
 
         def get_state(self):
-            return module.MotionState.IDLE
+            return core.MotionState.IDLE
 
         def get_threshold(self):
             return 0.5
@@ -257,7 +280,7 @@ def test_classic_replay_consumes_selected_packet_rssi_and_flushes_final_slot() -
         np.full(128, value, dtype=np.int8) for value in (1, 2, 3)
     ])
 
-    module._replay_classic_metrics(
+    replay._replay_classic_metrics(
         csi_data,
         detector,
         rssi_dbm=np.asarray([-41, -42, -43]),
@@ -269,63 +292,60 @@ def test_classic_replay_consumes_selected_packet_rssi_and_flushes_final_slot() -
 
 
 def test_configure_dataset_paths_updates_shared_roots(tmp_path, monkeypatch) -> None:
-    module = _load_validator_module()
     dataset_root = tmp_path / "external_dataset"
     monkeypatch.setattr(
-        module.dataset_metadata, "DATA_DIR", module.dataset_metadata.DATA_DIR
+        core.dataset_metadata, "DATA_DIR", core.dataset_metadata.DATA_DIR
     )
     monkeypatch.setattr(
-        module.dataset_metadata,
+        core.dataset_metadata,
         "DATASET_INFO_FILE",
-        module.dataset_metadata.DATASET_INFO_FILE,
+        core.dataset_metadata.DATASET_INFO_FILE,
     )
     monkeypatch.setattr(
-        module.performance_report, "DATA_DIR", module.performance_report.DATA_DIR
+        core.performance_report, "DATA_DIR", core.performance_report.DATA_DIR
     )
 
-    module.configure_dataset_paths(dataset_root)
+    core.configure_dataset_paths(dataset_root)
 
-    assert module.DATA_DIR == dataset_root
-    assert module.DATASET_INFO == dataset_root / "dataset_info.json"
-    assert module.REPORT_OUTPUT == (
+    assert core.DATA_DIR == dataset_root
+    assert core.DATASET_INFO == dataset_root / "dataset_info.json"
+    assert core.REPORT_OUTPUT == (
         dataset_root / "auto_generated" / "DATASET_QUALITY_CHECK.md"
     )
-    assert module.dataset_metadata.DATA_DIR == dataset_root
-    assert module.performance_report.DATA_DIR == dataset_root
-    assert module._dataset_file_href("motion", "sample.npz") == (
+    assert core.dataset_metadata.DATA_DIR == dataset_root
+    assert core.performance_report.DATA_DIR == dataset_root
+    assert rendering._dataset_file_href("motion", "sample.npz") == (
         "../motion/sample.npz"
     )
-    assert module._report_source_path() == str(dataset_root / "dataset_info.json")
+    assert rendering._report_source_path() == str(dataset_root / "dataset_info.json")
 
 
 def test_configure_dataset_paths_accepts_custom_report_output(
     tmp_path, monkeypatch
 ) -> None:
-    module = _load_validator_module()
     dataset_root = tmp_path / "external_dataset"
     report_output = tmp_path / "reports" / "quality.md"
     monkeypatch.setattr(
-        module.dataset_metadata, "DATA_DIR", module.dataset_metadata.DATA_DIR
+        core.dataset_metadata, "DATA_DIR", core.dataset_metadata.DATA_DIR
     )
     monkeypatch.setattr(
-        module.dataset_metadata,
+        core.dataset_metadata,
         "DATASET_INFO_FILE",
-        module.dataset_metadata.DATASET_INFO_FILE,
+        core.dataset_metadata.DATASET_INFO_FILE,
     )
     monkeypatch.setattr(
-        module.performance_report, "DATA_DIR", module.performance_report.DATA_DIR
+        core.performance_report, "DATA_DIR", core.performance_report.DATA_DIR
     )
 
-    module.configure_dataset_paths(dataset_root, report_output)
+    core.configure_dataset_paths(dataset_root, report_output)
 
-    assert module.REPORT_OUTPUT == report_output
-    assert module._dataset_file_href("empty", "quiet.npz") == (
+    assert core.REPORT_OUTPUT == report_output
+    assert rendering._dataset_file_href("empty", "quiet.npz") == (
         "../external_dataset/empty/quiet.npz"
     )
 
 
 def test_dataset_file_href_uses_catalog_relative_path(tmp_path, monkeypatch) -> None:
-    module = _load_validator_module()
     dataset_root = tmp_path / "external_dataset"
     report_output = dataset_root / "auto_generated" / "quality.md"
     dataset_root.mkdir()
@@ -335,20 +355,20 @@ def test_dataset_file_href_uses_catalog_relative_path(tmp_path, monkeypatch) -> 
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        module.dataset_metadata, "DATA_DIR", module.dataset_metadata.DATA_DIR
+        core.dataset_metadata, "DATA_DIR", core.dataset_metadata.DATA_DIR
     )
     monkeypatch.setattr(
-        module.dataset_metadata,
+        core.dataset_metadata,
         "DATASET_INFO_FILE",
-        module.dataset_metadata.DATASET_INFO_FILE,
+        core.dataset_metadata.DATASET_INFO_FILE,
     )
     monkeypatch.setattr(
-        module.performance_report, "DATA_DIR", module.performance_report.DATA_DIR
+        core.performance_report, "DATA_DIR", core.performance_report.DATA_DIR
     )
 
-    module.configure_dataset_paths(dataset_root, report_output)
+    core.configure_dataset_paths(dataset_root, report_output)
 
-    assert module._dataset_file_href("motion", "logical.npz") == (
+    assert rendering._dataset_file_href("motion", "logical.npz") == (
         "../jump/canonical.npz"
     )
 
@@ -356,7 +376,6 @@ def test_dataset_file_href_uses_catalog_relative_path(tmp_path, monkeypatch) -> 
 def test_relative_path_catalog_does_not_scan_source_directory_for_orphans(
     tmp_path, monkeypatch
 ) -> None:
-    module = _load_validator_module()
     dataset_root = tmp_path / "external_dataset"
     source_dir = dataset_root / "empty"
     source_dir.mkdir(parents=True)
@@ -372,10 +391,10 @@ def test_relative_path_catalog_does_not_scan_source_directory_for_orphans(
         "environment": "external",
         "dataset_role": "holdout",
     }
-    monkeypatch.setattr(module, "DATA_DIR", dataset_root)
-    monkeypatch.setattr(module.dataset_metadata, "DATA_DIR", dataset_root)
+    monkeypatch.setattr(core, "DATA_DIR", dataset_root)
+    monkeypatch.setattr(core.dataset_metadata, "DATA_DIR", dataset_root)
 
-    results = module.validate_metadata_completeness(
+    results = catalog.validate_metadata_completeness(
         {"files": {"empty": [entry], "static_presence": [], "motion": []}}
     )
 
@@ -385,40 +404,111 @@ def test_relative_path_catalog_does_not_scan_source_directory_for_orphans(
 def test_logical_pair_aliases_are_deduplicated_for_per_file_evidence(
     tmp_path, monkeypatch
 ) -> None:
-    module = _load_validator_module()
     dataset_root = tmp_path / "external_dataset"
-    monkeypatch.setattr(module.dataset_metadata, "DATA_DIR", dataset_root)
+    monkeypatch.setattr(core.dataset_metadata, "DATA_DIR", dataset_root)
     entries = [
         {"filename": "idle_for_jump.npz", "relative_path": "idle/canonical.npz"},
         {"filename": "idle_for_walk.npz", "relative_path": "idle/canonical.npz"},
     ]
 
-    unique = module._unique_entries_by_resolved_path("static_presence", entries)
+    unique = references._unique_entries_by_resolved_path("static_presence", entries)
 
     assert unique == entries[:1]
 
 
-def test_report_current_check_includes_evaluation_view(tmp_path, monkeypatch) -> None:
-    module = _load_validator_module()
-    report = tmp_path / "quality.md"
-    monkeypatch.setattr(module, "DATA_DIR", module.DATA_DIR)
-    monkeypatch.setattr(module, "DATASET_INFO", module.DATASET_INFO)
-    monkeypatch.setattr(module, "REPORT_OUTPUT", module.REPORT_OUTPUT)
-    monkeypatch.setattr(module, "DIAGNOSTIC_ALL_PHY", module.DIAGNOSTIC_ALL_PHY)
-    monkeypatch.setattr(module.dataset_metadata, "DATA_DIR", module.dataset_metadata.DATA_DIR)
-    monkeypatch.setattr(
-        module.dataset_metadata,
-        "DATASET_INFO_FILE",
-        module.dataset_metadata.DATASET_INFO_FILE,
+def test_pair_refresh_is_reciprocal_and_keeps_unselected_chips() -> None:
+    files = {
+        "static_presence": [
+            {
+                "filename": "static_c6.npz",
+                "chip": "C6",
+                "subcarriers": 64,
+                "collected_at": "2026-08-28T12:00:00+00:00",
+                "device_id": "c6-a",
+                "environment": "lab",
+                "dataset_role": "train",
+                "optimal_pair_motion_file": "stale.npz",
+            },
+            {
+                "filename": "static_s3.npz",
+                "chip": "S3",
+                "subcarriers": 64,
+                "collected_at": "2026-08-28T12:00:00+00:00",
+                "dataset_role": "train",
+                "optimal_pair_motion_file": "motion_s3.npz",
+            },
+        ],
+        "motion": [
+            {
+                "filename": "wrong_environment.npz",
+                "chip": "C6",
+                "subcarriers": 64,
+                "collected_at": "2026-08-28T12:01:00+00:00",
+                "device_id": "c6-a",
+                "environment": "hall",
+                "dataset_role": "train",
+            },
+            {
+                "filename": "motion_c6.npz",
+                "chip": "C6",
+                "subcarriers": 64,
+                "collected_at": "2026-08-28T12:02:00+00:00",
+                "device_id": "c6-a",
+                "environment": "lab",
+                "dataset_role": "train",
+            },
+            {
+                "filename": "motion_s3.npz",
+                "chip": "S3",
+                "subcarriers": 64,
+                "collected_at": "2026-08-28T12:02:00+00:00",
+                "dataset_role": "train",
+                "optimal_pair_static_presence_file": "static_s3.npz",
+            },
+        ],
+    }
+
+    rows = pairing.refresh_pair_metadata(files, selected_chips={"C6"})
+
+    assert rows == [
+        {
+            "static_presence": "static_c6.npz",
+            "motion": "motion_c6.npz",
+            "delta_seconds": 120.0,
+        }
+    ]
+    assert files["static_presence"][0]["optimal_pair_motion_file"] == "motion_c6.npz"
+    assert (
+        files["motion"][1]["optimal_pair_static_presence_file"]
+        == "static_c6.npz"
     )
-    monkeypatch.setattr(module.performance_report, "DATA_DIR", module.performance_report.DATA_DIR)
-    module.configure_dataset_paths(tmp_path / "dataset", report)
+    assert files["static_presence"][1]["optimal_pair_motion_file"] == "motion_s3.npz"
+    assert (
+        files["motion"][2]["optimal_pair_static_presence_file"]
+        == "static_s3.npz"
+    )
+
+
+def test_report_current_check_includes_evaluation_view(tmp_path, monkeypatch) -> None:
+    report = tmp_path / "quality.md"
+    monkeypatch.setattr(core, "DATA_DIR", core.DATA_DIR)
+    monkeypatch.setattr(core, "DATASET_INFO", core.DATASET_INFO)
+    monkeypatch.setattr(core, "REPORT_OUTPUT", core.REPORT_OUTPUT)
+    monkeypatch.setattr(core, "DIAGNOSTIC_ALL_PHY", core.DIAGNOSTIC_ALL_PHY)
+    monkeypatch.setattr(core.dataset_metadata, "DATA_DIR", core.dataset_metadata.DATA_DIR)
+    monkeypatch.setattr(
+        core.dataset_metadata,
+        "DATASET_INFO_FILE",
+        core.dataset_metadata.DATASET_INFO_FILE,
+    )
+    monkeypatch.setattr(core.performance_report, "DATA_DIR", core.performance_report.DATA_DIR)
+    core.configure_dataset_paths(tmp_path / "dataset", report)
     report.write_text("Evaluation view: `HT20/HT-LTF`\n", encoding="utf-8")
 
-    assert module._report_evaluation_view_is_current()
+    assert rendering._report_evaluation_view_is_current()
 
-    module.configure_validation_mode(diagnostic_all_phy=True)
-    assert not module._report_evaluation_view_is_current()
+    core.configure_validation_mode(diagnostic_all_phy=True)
+    assert not rendering._report_evaluation_view_is_current()
 
 
 def test_main_forwards_external_dataset_options(tmp_path, monkeypatch) -> None:
@@ -426,15 +516,15 @@ def test_main_forwards_external_dataset_options(tmp_path, monkeypatch) -> None:
     dataset_root = tmp_path / "external_dataset"
     captured = {}
     monkeypatch.setattr(
-        module.dataset_metadata, "DATA_DIR", module.dataset_metadata.DATA_DIR
+        core.dataset_metadata, "DATA_DIR", core.dataset_metadata.DATA_DIR
     )
     monkeypatch.setattr(
-        module.dataset_metadata,
+        core.dataset_metadata,
         "DATASET_INFO_FILE",
-        module.dataset_metadata.DATASET_INFO_FILE,
+        core.dataset_metadata.DATASET_INFO_FILE,
     )
     monkeypatch.setattr(
-        module.performance_report, "DATA_DIR", module.performance_report.DATA_DIR
+        core.performance_report, "DATA_DIR", core.performance_report.DATA_DIR
     )
     monkeypatch.setattr(
         module,
@@ -459,7 +549,7 @@ def test_main_forwards_external_dataset_options(tmp_path, monkeypatch) -> None:
         module.main()
 
     assert exit_info.value.code == 0
-    assert module.DATA_DIR == dataset_root
+    assert core.DATA_DIR == dataset_root
     assert captured == {
         "chip_filter": "ESP32",
         "generate_report": True,
@@ -470,7 +560,6 @@ def test_main_forwards_external_dataset_options(tmp_path, monkeypatch) -> None:
 
 
 def test_validate_file_integrity_rejects_object_arrays(tmp_path) -> None:
-    module = _load_validator_module()
     filepath = tmp_path / "malicious_dataset.npz"
     np.savez_compressed(
         filepath,
@@ -480,7 +569,7 @@ def test_validate_file_integrity_rejects_object_arrays(tmp_path) -> None:
         label="motion",
     )
 
-    results, data = module.validate_file_integrity(filepath)
+    results, data = capture.validate_file_integrity(filepath)
 
     assert data is None
     assert results[0].name == "file_load"
@@ -489,7 +578,6 @@ def test_validate_file_integrity_rejects_object_arrays(tmp_path) -> None:
 
 
 def test_file_integrity_rejects_subcarrier_shape_mismatch(tmp_path) -> None:
-    module = _load_validator_module()
     path = tmp_path / "bad.npz"
     np.savez(
         path,
@@ -497,7 +585,7 @@ def test_file_integrity_rejects_subcarrier_shape_mismatch(tmp_path) -> None:
         num_subcarriers=np.array(52),
     )
 
-    results, data = module.validate_file_integrity(path)
+    results, data = capture.validate_file_integrity(path)
     shape = _by_name(results)["csi_shape"]
 
     assert data is not None
@@ -506,7 +594,6 @@ def test_file_integrity_rejects_subcarrier_shape_mismatch(tmp_path) -> None:
 
 
 def test_file_integrity_returns_ht20_sensing_view(tmp_path) -> None:
-    module = _load_validator_module()
     path = tmp_path / "mixed_phy.npz"
     np.savez(
         path,
@@ -519,7 +606,7 @@ def test_file_integrity_returns_ht20_sensing_view(tmp_path) -> None:
         stream_seq_num=np.array([1, 2, 3, 4, 5], dtype=np.uint32),
     )
 
-    results, data = module.validate_file_integrity(path)
+    results, data = capture.validate_file_integrity(path)
 
     assert _by_name(results)["file_load"].status == "PASS"
     assert data is not None
@@ -531,7 +618,6 @@ def test_file_integrity_returns_ht20_sensing_view(tmp_path) -> None:
 
 
 def test_file_integrity_diagnostic_mode_keeps_nonstandard_phy(tmp_path) -> None:
-    module = _load_validator_module()
     path = tmp_path / "lltf_ht40.npz"
     np.savez(
         path,
@@ -542,24 +628,23 @@ def test_file_integrity_diagnostic_mode_keeps_nonstandard_phy(tmp_path) -> None:
         ltf_type=np.array(["lltf"] * 5),
         channel_width=np.array(["40"] * 5),
     )
-    module.configure_validation_mode(diagnostic_all_phy=True)
+    core.configure_validation_mode(diagnostic_all_phy=True)
 
-    results, data = module.validate_file_integrity(path)
+    results, data = capture.validate_file_integrity(path)
 
     assert _by_name(results)["sensing_contract"].status == "FAIL"
     assert data is not None
     assert data["csi_data"].shape[0] == 5
-    assert module._report_evaluation_view() == "all explicit PHY rows (diagnostic)"
+    assert core._report_evaluation_view() == "all explicit PHY rows (diagnostic)"
 
 
 def test_signal_quality_checks_packet_count_zero_packets_and_amplitude() -> None:
-    module = _load_validator_module()
     strong_packet = np.tile(np.array([30, 40], dtype=np.int8), 64)
-    healthy = np.tile(strong_packet, (module.MIN_PACKETS, 1))
+    healthy = np.tile(strong_packet, (severity.MIN_PACKETS, 1))
 
-    healthy_results = _by_name(module.validate_signal_quality(healthy))
+    healthy_results = _by_name(capture.validate_signal_quality(healthy))
     empty_results = _by_name(
-        module.validate_signal_quality(np.zeros((1, 128), dtype=np.int8))
+        capture.validate_signal_quality(np.zeros((1, 128), dtype=np.int8))
     )
 
     assert healthy_results["packet_count"].status == "PASS"
@@ -571,7 +656,6 @@ def test_signal_quality_checks_packet_count_zero_packets_and_amplitude() -> None
 
 
 def test_capture_continuity_sees_gaps_after_ht20_filter(tmp_path) -> None:
-    module = _load_validator_module()
     path = tmp_path / "legacy_heavy.npz"
     np.savez(
         path,
@@ -585,25 +669,24 @@ def test_capture_continuity_sees_gaps_after_ht20_filter(tmp_path) -> None:
         stream_seq_num=np.arange(1, 41, dtype=np.uint32),
     )
 
-    _, data = module.validate_file_integrity(path)
+    _, data = capture.validate_file_integrity(path)
     assert data is not None
 
     continuity = _by_name(
-        module.validate_capture_continuity(data, data["csi_data"])
+        capture.validate_capture_continuity(data, data["csi_data"])
     )
     assert continuity["stream_seq_gaps"].status in {"WARN", "FAIL"}
     assert continuity["stream_seq_gaps"].value > 0.0
 
 
 def test_capture_continuity_flags_low_rate_and_stream_gaps() -> None:
-    module = _load_validator_module()
     data = _Capture(
         duration_ms=1000.0,
         stream_seq_num=np.array([10, 11, 12, 60], dtype=np.uint32),
     )
 
     results = _by_name(
-        module.validate_capture_continuity(
+        capture.validate_capture_continuity(
             data,
             np.zeros((4, 128), dtype=np.int8),
         )
@@ -616,7 +699,6 @@ def test_capture_continuity_flags_low_rate_and_stream_gaps() -> None:
 
 
 def test_capture_continuity_uses_low_rssi_loss_ceiling() -> None:
-    module = _load_validator_module()
     bounded = _Capture(
         duration_ms=960.0,
         stream_seq_num=np.delete(
@@ -633,20 +715,20 @@ def test_capture_continuity_uses_low_rssi_loss_ceiling() -> None:
     )
 
     normal = _by_name(
-        module.validate_capture_continuity(
+        capture.validate_capture_continuity(
             bounded,
             np.zeros((96, 128), dtype=np.int8),
         )
     )
     low_rssi = _by_name(
-        module.validate_capture_continuity(
+        capture.validate_capture_continuity(
             bounded,
             np.zeros((96, 128), dtype=np.int8),
             low_rssi=True,
         )
     )
     rejected = _by_name(
-        module.validate_capture_continuity(
+        capture.validate_capture_continuity(
             excessive,
             np.zeros((94, 128), dtype=np.int8),
             low_rssi=True,
@@ -661,7 +743,6 @@ def test_capture_continuity_uses_low_rssi_loss_ceiling() -> None:
 
 
 def test_capture_continuity_accepts_supported_boundaries() -> None:
-    module = _load_validator_module()
     data = _Capture(
         duration_ms=1000.0,
         stream_seq_num=np.arange(95, dtype=np.uint32),
@@ -674,7 +755,7 @@ def test_capture_continuity_accepts_supported_boundaries() -> None:
     )
 
     results = _by_name(
-        module.validate_capture_continuity(
+        capture.validate_capture_continuity(
             data,
             np.zeros((95, 128), dtype=np.int8),
         )
@@ -687,7 +768,6 @@ def test_capture_continuity_accepts_supported_boundaries() -> None:
 
 
 def test_capture_continuity_rejects_large_inter_packet_gap() -> None:
-    module = _load_validator_module()
     data = _Capture(
         duration_ms=1000.0,
         stream_seq_num=np.array([1, 2, 3, 4], dtype=np.uint32),
@@ -695,7 +775,7 @@ def test_capture_continuity_rejects_large_inter_packet_gap() -> None:
     )
 
     results = _by_name(
-        module.validate_capture_continuity(
+        capture.validate_capture_continuity(
             data,
             np.zeros((4, 128), dtype=np.int8),
         )
@@ -707,7 +787,6 @@ def test_capture_continuity_rejects_large_inter_packet_gap() -> None:
 
 
 def test_excluded_idle_unusable_rows_are_marked_and_listed() -> None:
-    module = _load_validator_module()
     rows = [
         {
             "label": "empty",
@@ -739,23 +818,23 @@ def test_excluded_idle_unusable_rows_are_marked_and_listed() -> None:
         },
     ]
 
-    results = module._excluded_idle_unusable_results(rows)
+    results = pairing._excluded_idle_unusable_results(rows)
     assert len(results) == 1
     assert results[0].status == "WARN"
     assert results[0].name == "excluded_idle_unusable/empty_c3_zero.npz"
 
-    rendered = module._format_excluded_idle_row(rows[1], markdown=True)
+    rendered = rendering._format_excluded_idle_row(rows[1], markdown=True)
     assert rendered.count("**n/a ⚠️**") == 4
 
-    section = "\n".join(module._render_unusable_excluded_idle_section(rows))
+    section = "\n".join(rendering._render_unusable_excluded_idle_section(rows))
     assert "## Unscorable excluded idle" in section
     assert "empty_c3_zero.npz" in section
     assert "empty_c6.npz" not in section
 
     table = "\n".join(
-        module._render_score_table(
+        rendering._render_score_table(
             rows,
-            module._EXCLUDED_IDLE_SCORE_TABLE,
+            rendering._EXCLUDED_IDLE_SCORE_TABLE,
             markdown=True,
         )
     )
