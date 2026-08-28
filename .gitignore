@@ -77,7 +77,7 @@ src/cpp/frontend/*/app/dependencies.lock
 tools/benchmark_firmware.local.env
 
 # MicroPython firmware cache
-.firmware/
+/src/python/micro_espectre/.firmware/
 
 # Documentation
 .papers/

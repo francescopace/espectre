@@ -84,7 +84,10 @@ def connect_wifi():
 
     print_wifi_status(wlan)
     wlan.config(pm=wlan.PM_NONE)
-    wlan.csi_enable(buffer_size=config.CSI_BUFFER_SIZE)
+    wlan.csi_enable(
+        buffer_size=config.CSI_BUFFER_SIZE,
+        max_data_len=getattr(config, "CSI_CAPTURE_MAX_DATA_LEN", 256),
+    )
     time.sleep(1)
     return wlan
 

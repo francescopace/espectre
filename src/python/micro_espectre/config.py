@@ -27,6 +27,9 @@ MOTION_OFF_HITS = 3           # Consecutive evaluated hits required for MOTION -
 
 # CSI Configuration
 CSI_BUFFER_SIZE = 8  # Circular buffer size (used to store csi packets until processed)
+# HT20 can produce the canonical 128-byte payload or a 256-byte doubled layout.
+# This runtime bound selects the native ring's fixed record stride without a rebuild.
+CSI_CAPTURE_MAX_DATA_LEN = 256
 
 # Fixed subcarriers used by the Lightweight detector.
 # Subcarriers +/-4, +/-9, +/-14, +/-19, +/-24, +/-28. Spans the full usable range

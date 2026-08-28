@@ -58,13 +58,14 @@ DEVICE_LABEL = ""
 CSI_TARGET_PPS = 100
 TRAFFIC_GENERATOR_ENABLED = True
 CSI_LINK_RECOVERY_TIMEOUT_MS = 5000
+CSI_CAPTURE_MAX_DATA_LEN = 256
 SEGMENTATION_WINDOW_SIZE_MS = 1000
 EVALUATION_INTERVAL_MS = 250
 MOTION_ON_HITS = 4
 MOTION_OFF_HITS = 3
 ```
 
-These `config.py` values are deployment settings rather than runtime mutations. An empty `DEVICE_LABEL` keeps the shared generated name. `CSI_TARGET_PPS` defines the detector grid and ICMP target rate, while setting `TRAFFIC_GENERATOR_ENABLED = False` requires an external CSI traffic source.
+These `config.py` values are deployment settings rather than runtime mutations. An empty `DEVICE_LABEL` keeps the shared generated name. `CSI_TARGET_PPS` defines the detector grid and ICMP target rate, while setting `TRAFFIC_GENERATOR_ENABLED = False` requires an external CSI traffic source. `CSI_CAPTURE_MAX_DATA_LEN` selects the fixed native ring-record stride: 256 supports the doubled HT20 layout, while 128 is suitable only when every captured frame uses the canonical payload because larger frames are truncated.
 
 In `config_local.py`, `WIFI_CHANNEL` can accompany `WIFI_BSSID` to avoid a scan during association. If no CSI frame arrives for `CSI_LINK_RECOVERY_TIMEOUT_MS`, the runtime first rearms CSI. If the stall persists, it reconnects Wi-Fi, recalibrates, and republishes Direct discovery.
 

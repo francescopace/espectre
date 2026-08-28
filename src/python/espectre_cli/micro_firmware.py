@@ -24,6 +24,7 @@ MICROPYTHON_REPOSITORY = "https://github.com/micropython/micropython.git"
 MICROPYTHON_COMMIT = "1c3c201149f37fe8d81246191b3127bb198d6306"
 MICROPYTHON_LIB_REPOSITORY = "https://github.com/micropython/micropython-lib.git"
 MICROPYTHON_LIB_COMMIT = "ee4bb8ff139e24c42b739935fbd8ec7c4d061e02"
+MICROPYTHON_PATCH_REVISION = "fixed-csi-records-v1"
 PROJECT_FIRMWARE_BOARDS = {
     "esp32": "ESP32_MICRO_ESPECTRE",
     "c3": "ESP32C3_MICRO_ESPECTRE",
@@ -70,6 +71,47 @@ def _checkout_pinned_repository(url: str, commit: str, destination: Path) -> Non
         ["git", "-C", str(destination), "checkout", "--detach", commit],
         check=True,
     )
+
+
+def _prepare_micropython_patch_revision(micropython_dir: Path) -> Path:
+    """Restore the pinned sources once when the project patch set changes."""
+    stamp_path = micropython_dir / ".espectre-patch-revision"
+    if (
+        stamp_path.is_file()
+        and stamp_path.read_text(encoding="utf-8").strip()
+        == MICROPYTHON_PATCH_REVISION
+    ):
+        return stamp_path
+
+    source_diff = subprocess.run(
+        ["git", "-C", str(micropython_dir), "diff", "--binary", "--", "."],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    if source_diff:
+        backup_path = (
+            micropython_dir.parent
+            / f"micropython-before-{MICROPYTHON_PATCH_REVISION}.patch"
+        )
+        if not backup_path.exists():
+            backup_path.write_text(source_diff, encoding="utf-8")
+
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(micropython_dir),
+            "restore",
+            "--worktree",
+            "--source=HEAD",
+            "--",
+            ".",
+        ],
+        check=True,
+    )
+    stamp_path.unlink(missing_ok=True)
+    return stamp_path
 
 
 def _read_idf_version(idf_path: Path) -> str:
@@ -124,6 +166,148 @@ def _configure_project_csi_capture(micropython_dir: Path) -> None:
         raise RuntimeError(
             f"MicroPython CSI legacy-capture setting is missing: {source_path}"
         )
+
+
+def _configure_project_csi_fixed_records(micropython_dir: Path) -> None:
+    """Use one fixed ring stride selected by the runtime payload bound."""
+    source_path = micropython_dir / "ports" / "esp32" / "network_wlan_csi.c"
+    source = source_path.read_text(encoding="utf-8")
+    required = (
+        "static size_t wifi_csi_record_size(const csi_state_t *state)",
+        "offsetof(csi_frame_t, data) + state->max_data_len",
+        "MP_QSTR_max_data_len",
+        "wifi_csi_record_size(state) * state->buffer_size + 1",
+        "ringbuf_put_bytes(&state->ringbuffer, (uint8_t *)&frame, wifi_csi_record_size(state))",
+        "ringbuf_get_bytes(&state->ringbuffer, (uint8_t *)frame, wifi_csi_record_size(state))",
+        "available / wifi_csi_record_size(state)",
+    )
+    if all(token in source for token in required):
+        return
+    if "csi_frame_header_t" in source:
+        raise RuntimeError(
+            f"variable-record CSI source cannot be configured as fixed records: {source_path}"
+        )
+
+    native_allocation = (
+        "size_t ring_size = sizeof(csi_frame_t) * state->buffer_size + 1;"
+    )
+    managed_allocation = (
+        "ringbuf_alloc(&state->ringbuffer, sizeof(csi_frame_t) * state->buffer_size);"
+    )
+    if native_allocation in source:
+        source = source.replace(
+            native_allocation,
+            "size_t ring_size = wifi_csi_record_size(state) * state->buffer_size + 1;",
+            1,
+        )
+    elif managed_allocation in source:
+        source = source.replace(
+            managed_allocation,
+            "ringbuf_alloc(&state->ringbuffer, "
+            "wifi_csi_record_size(state) * state->buffer_size + 1);",
+            1,
+        )
+    else:
+        raise RuntimeError(
+            f"MicroPython fixed-record CSI allocation anchor is missing: {source_path}"
+        )
+
+    replacements = (
+        (
+            '#include "modnetwork.h"\n#include <stdint.h>',
+            '#include "modnetwork.h"\n#include <stddef.h>\n#include <stdint.h>',
+        ),
+        (
+            "// ringbuf_t uses uint16_t for the byte size, so keep the Python-visible limit\n"
+            "// within the maximum addressable ringbuffer capacity.\n"
+            "#define CSI_MAX_BUFFER_SIZE ((UINT16_MAX - 1) / sizeof(csi_frame_t))\n\n",
+            "",
+        ),
+        (
+            "    uint16_t buffer_size;\n"
+            "    volatile uint32_t dropped;",
+            "    uint16_t buffer_size;\n"
+            "    uint16_t max_data_len;\n"
+            "    volatile uint32_t dropped;",
+        ),
+        (
+            "} csi_state_t;\n\n"
+            "static csi_state_t *wifi_csi_get_state(void) {",
+            "} csi_state_t;\n\n"
+            "static size_t wifi_csi_record_size(const csi_state_t *state) {\n"
+            "    return offsetof(csi_frame_t, data) + state->max_data_len;\n"
+            "}\n\n"
+            "static csi_state_t *wifi_csi_get_state(void) {",
+        ),
+        (
+            "        state->buffer_size = MICROPY_PY_NETWORK_WLAN_CSI_DEFAULT_BUFFER_SIZE;",
+            "        state->buffer_size = MICROPY_PY_NETWORK_WLAN_CSI_DEFAULT_BUFFER_SIZE;\n"
+            "        state->max_data_len = CSI_MAX_DATA_LEN;",
+        ),
+        (
+            "frame.len = info->len > CSI_MAX_DATA_LEN ? CSI_MAX_DATA_LEN : info->len;",
+            "frame.len = info->len > state->max_data_len ? state->max_data_len : info->len;",
+        ),
+        (
+            "ringbuf_put_bytes(&state->ringbuffer, (uint8_t *)&frame, sizeof(frame))",
+            "ringbuf_put_bytes(&state->ringbuffer, (uint8_t *)&frame, wifi_csi_record_size(state))",
+        ),
+        (
+            "ringbuf_get_bytes(&state->ringbuffer, (uint8_t *)frame, sizeof(*frame))",
+            "ringbuf_get_bytes(&state->ringbuffer, (uint8_t *)frame, wifi_csi_record_size(state))",
+        ),
+        (
+            "    static const mp_arg_t allowed_args[] = {\n"
+            "        { MP_QSTR_buffer_size, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = MICROPY_PY_NETWORK_WLAN_CSI_DEFAULT_BUFFER_SIZE} },\n"
+            "    };",
+            "    enum { ARG_buffer_size, ARG_max_data_len };\n"
+            "    static const mp_arg_t allowed_args[] = {\n"
+            "        { MP_QSTR_buffer_size, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = MICROPY_PY_NETWORK_WLAN_CSI_DEFAULT_BUFFER_SIZE} },\n"
+            "        { MP_QSTR_max_data_len, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = CSI_MAX_DATA_LEN} },\n"
+            "    };",
+        ),
+        (
+            "    mp_int_t buffer_size = parsed_args[0].u_int;\n"
+            "    if (buffer_size < 1 || buffer_size > CSI_MAX_BUFFER_SIZE) {\n"
+            "        mp_raise_ValueError(MP_ERROR_TEXT(\"buffer_size out of range\"));\n"
+            "    }",
+            "    mp_int_t max_data_len = parsed_args[ARG_max_data_len].u_int;\n"
+            "    if (max_data_len < 1 || max_data_len > CSI_MAX_DATA_LEN) {\n"
+            "        mp_raise_ValueError(MP_ERROR_TEXT(\"max_data_len out of range\"));\n"
+            "    }\n\n"
+            "    size_t record_size = offsetof(csi_frame_t, data) + max_data_len;\n"
+            "    size_t max_buffer_size = (UINT16_MAX - 1) / record_size;\n"
+            "    mp_int_t buffer_size = parsed_args[ARG_buffer_size].u_int;\n"
+            "    if (buffer_size < 1 || (size_t)buffer_size > max_buffer_size) {\n"
+            "        mp_raise_ValueError(MP_ERROR_TEXT(\"buffer_size out of range\"));\n"
+            "    }",
+        ),
+        (
+            "    state->buffer_size = buffer_size;\n"
+            "    esp_exceptions(wifi_csi_enable(state));",
+            "    state->buffer_size = buffer_size;\n"
+            "    state->max_data_len = max_data_len;\n"
+            "    esp_exceptions(wifi_csi_enable(state));",
+        ),
+        (
+            "return MP_OBJ_NEW_SMALL_INT(available / sizeof(csi_frame_t));",
+            "return MP_OBJ_NEW_SMALL_INT(available / wifi_csi_record_size(state));",
+        ),
+    )
+    for original, replacement in replacements:
+        if original not in source:
+            raise RuntimeError(
+                f"MicroPython fixed-record CSI anchor is missing: {source_path}"
+            )
+        source = source.replace(original, replacement, 1)
+
+    if not all(token in source for token in required):
+        raise RuntimeError(
+            f"MicroPython fixed-record CSI layout is incomplete: {source_path}"
+        )
+    source_path.write_text(source, encoding="utf-8")
+
+
 
 
 def _configure_project_wifi_band_mode(micropython_dir: Path) -> None:
@@ -230,9 +414,12 @@ def build_project_firmware(
         MICROPYTHON_LIB_COMMIT,
         micropython_lib_dir,
     )
+    patch_stamp_path = _prepare_micropython_patch_revision(micropython_dir)
     _configure_project_csi_capture(micropython_dir)
+    _configure_project_csi_fixed_records(micropython_dir)
     if chip == "c5":
         _configure_project_wifi_band_mode(micropython_dir)
+    patch_stamp_path.write_text(MICROPYTHON_PATCH_REVISION + "\n", encoding="utf-8")
     _stage_firmware_support(source_dir, support_root)
     _write_manifest(manifest_path)
 

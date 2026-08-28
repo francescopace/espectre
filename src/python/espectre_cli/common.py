@@ -32,7 +32,7 @@ MICRO_ESPECTRE_SRC_DIR = PYTHON_ROOT_DIR / "micro_espectre"
 # Backward-compatible alias used by existing host-side helpers/tests.
 PYTHON_SRC_DIR = MICRO_ESPECTRE_SRC_DIR
 TOOLS_DIR = REPO_ROOT / "tools"
-FIRMWARE_CACHE_DIR = REPO_ROOT / ".firmware"
+FIRMWARE_CACHE_DIR = MICRO_ESPECTRE_SRC_DIR / ".firmware"
 
 for path in (str(REPO_ROOT), str(PYTHON_ROOT_DIR), str(PYTHON_SRC_DIR), str(TOOLS_DIR)):
     if path not in sys.path:

@@ -22,6 +22,52 @@ import pytest
 
 from espectre_cli import micro
 from espectre_cli import micro_firmware
+from espectre_cli.common import FIRMWARE_CACHE_DIR, MICRO_ESPECTRE_SRC_DIR
+
+
+def test_firmware_cache_is_scoped_to_micro_espectre_project() -> None:
+    assert FIRMWARE_CACHE_DIR == MICRO_ESPECTRE_SRC_DIR / ".firmware"
+
+
+def test_project_firmware_preserves_and_refreshes_stale_pinned_sources(
+    tmp_path: Path,
+) -> None:
+    micropython_dir = tmp_path / "micro-esp32" / "micropython"
+    source_path = micropython_dir / "ports" / "esp32" / "network_wlan_csi.c"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text("pinned\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(micropython_dir)], check=True)
+    subprocess.run(
+        ["git", "-C", str(micropython_dir), "add", str(source_path)], check=True
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(micropython_dir),
+            "-c",
+            "user.name=ESPectre Tests",
+            "-c",
+            "user.email=tests@espectre.local",
+            "commit",
+            "-qm",
+            "fixture",
+        ],
+        check=True,
+    )
+    source_path.write_text("variable prototype\n", encoding="utf-8")
+
+    stamp_path = micro_firmware._prepare_micropython_patch_revision(micropython_dir)
+
+    assert source_path.read_text(encoding="utf-8") == "pinned\n"
+    assert not stamp_path.exists()
+    backup_path = (
+        micropython_dir.parent
+        / f"micropython-before-{micro_firmware.MICROPYTHON_PATCH_REVISION}.patch"
+    )
+    assert "variable prototype" in backup_path.read_text(encoding="utf-8")
+
+
 
 
 def _make_args(**overrides) -> argparse.Namespace:
@@ -438,6 +484,89 @@ def test_project_firmware_disables_legacy_csi_capture(tmp_path: Path) -> None:
     source = source_path.read_text(encoding="utf-8")
     assert ".acquire_csi_legacy = 0," in source
     assert ".acquire_csi_legacy = 1," not in source
+
+
+def test_project_firmware_uses_configurable_fixed_csi_records(tmp_path: Path) -> None:
+    source_path = tmp_path / "ports" / "esp32" / "network_wlan_csi.c"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text(
+        """#include "modnetwork.h"
+#include <stdint.h>
+
+#define CSI_MAX_DATA_LEN (512)
+
+typedef struct {
+    uint16_t len;
+    int8_t data[CSI_MAX_DATA_LEN];
+} csi_frame_t;
+
+// ringbuf_t uses uint16_t for the byte size, so keep the Python-visible limit
+// within the maximum addressable ringbuffer capacity.
+#define CSI_MAX_BUFFER_SIZE ((UINT16_MAX - 1) / sizeof(csi_frame_t))
+
+typedef struct {
+    ringbuf_t ringbuffer;
+    uint16_t buffer_size;
+    volatile uint32_t dropped;
+} csi_state_t;
+
+static csi_state_t *wifi_csi_get_state(void) {
+    csi_state_t *state;
+    if (state == NULL) {
+        state->buffer_size = MICROPY_PY_NETWORK_WLAN_CSI_DEFAULT_BUFFER_SIZE;
+    }
+    return state;
+}
+
+static void wifi_csi_rx_cb(wifi_csi_info_t *info, csi_state_t *state) {
+    static csi_frame_t frame;
+    frame.len = info->len > CSI_MAX_DATA_LEN ? CSI_MAX_DATA_LEN : info->len;
+    ringbuf_put_bytes(&state->ringbuffer, (uint8_t *)&frame, sizeof(frame));
+}
+
+static void wifi_csi_enable(csi_state_t *state) {
+    ringbuf_alloc(&state->ringbuffer, sizeof(csi_frame_t) * state->buffer_size);
+}
+
+static bool wifi_csi_read_frame(csi_frame_t *frame, csi_state_t *state) {
+    return ringbuf_get_bytes(&state->ringbuffer, (uint8_t *)frame, sizeof(*frame));
+}
+
+static mp_obj_t network_wlan_csi_enable(size_t n_args, const mp_obj_t *args, mp_map_t *kw_args) {
+    static const mp_arg_t allowed_args[] = {
+        { MP_QSTR_buffer_size, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = MICROPY_PY_NETWORK_WLAN_CSI_DEFAULT_BUFFER_SIZE} },
+    };
+    mp_arg_val_t parsed_args[MP_ARRAY_SIZE(allowed_args)];
+    mp_int_t buffer_size = parsed_args[0].u_int;
+    if (buffer_size < 1 || buffer_size > CSI_MAX_BUFFER_SIZE) {
+        mp_raise_ValueError(MP_ERROR_TEXT("buffer_size out of range"));
+    }
+    csi_state_t *state;
+    state->buffer_size = buffer_size;
+    esp_exceptions(wifi_csi_enable(state));
+}
+
+static mp_obj_t network_wlan_csi_available(csi_state_t *state) {
+    size_t available = ringbuf_avail(&state->ringbuffer);
+    return MP_OBJ_NEW_SMALL_INT(available / sizeof(csi_frame_t));
+}
+""",
+        encoding="utf-8",
+    )
+
+    micro_firmware._configure_project_csi_fixed_records(tmp_path)
+    micro_firmware._configure_project_csi_fixed_records(tmp_path)
+
+    source = source_path.read_text(encoding="utf-8")
+    assert "offsetof(csi_frame_t, data) + state->max_data_len" in source
+    assert "frame.len = info->len > state->max_data_len" in source
+    assert "MP_QSTR_max_data_len" in source
+    assert "max_data_len < 1 || max_data_len > CSI_MAX_DATA_LEN" in source
+    assert "wifi_csi_record_size(state) * state->buffer_size + 1" in source
+    assert "available / wifi_csi_record_size(state)" in source
+    assert source.count("static size_t wifi_csi_record_size") == 1
+
+
 
 
 def test_project_firmware_exposes_dual_band_mode_configuration(tmp_path: Path) -> None:
