@@ -868,13 +868,37 @@ def test_run_idf_command_flash_keeps_legacy_build_dir_when_target_build_is_missi
     assert calls == [["idf.py", "-p", "/dev/cu.auto", "flash"]]
 
 
+def _write_flasher_args(build_dir: Path, chip: str) -> None:
+    build_dir.mkdir(parents=True, exist_ok=True)
+    (build_dir / "flasher_args.json").write_text(
+        json.dumps(
+            {
+                "write_flash_args": ["--flash-mode", "dio", "--flash-freq", "80m", "--flash-size", "2MB"],
+                "flash_files": {
+                    "0x0": "bootloader/bootloader.bin",
+                    "0x8000": "partition_table/partition-table.bin",
+                    "0x10000": "espectre.bin",
+                },
+                "extra_esptool_args": {
+                    "after": "hard_reset",
+                    "before": "default_reset",
+                    "chip": chip,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_run_idf_command_flash_prefers_connected_chip_build_dir(monkeypatch, tmp_path: Path) -> None:
     app_dir = tmp_path / "app"
     app_dir.mkdir()
     (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c6"\n', encoding="utf-8")
     (app_dir / "build-esp32c6").mkdir()
-    (app_dir / "build-esp32s3").mkdir()
-    calls: list[list[str]] = []
+    s3_build = app_dir / "build-esp32s3"
+    _write_flasher_args(s3_build, "esp32s3")
+    idf_calls: list[list[str]] = []
+    esptool_calls: list[list[str]] = []
 
     monkeypatch.setitem(
         idf.IDF_FRONTENDS,
@@ -883,6 +907,81 @@ def test_run_idf_command_flash_prefers_connected_chip_build_dir(monkeypatch, tmp
     )
     monkeypatch.setattr(idf, "get_serial_port", lambda port: port or "/dev/cu.auto")
     monkeypatch.setattr(idf, "detect_chip_type", lambda _port: "s3")
+    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: idf_calls.append(cmd))
+    monkeypatch.setattr(idf, "run_esptool_main", lambda cmd: esptool_calls.append(cmd))
+
+    idf.run_idf_command("native", argparse.Namespace(idf_command="flash", port=None))
+
+    assert idf_calls == []
+    assert esptool_calls == [
+        [
+            "--chip",
+            "esp32s3",
+            "--port",
+            "/dev/cu.auto",
+            "--baud",
+            "460800",
+            "--before",
+            "default-reset",
+            "--after",
+            "hard-reset",
+            "write-flash",
+            "--flash-mode",
+            "dio",
+            "--flash-freq",
+            "80m",
+            "--flash-size",
+            "2MB",
+            "0x0",
+            str(s3_build / "bootloader" / "bootloader.bin"),
+            "0x8000",
+            str(s3_build / "partition_table" / "partition-table.bin"),
+            "0x10000",
+            str(s3_build / "espectre.bin"),
+        ]
+    ]
+
+
+def test_run_idf_command_flash_uses_requested_chip_build_dir(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32s3"\n', encoding="utf-8")
+    (app_dir / "build-esp32s3").mkdir()
+    c5_build = app_dir / "build-esp32c5"
+    _write_flasher_args(c5_build, "esp32c5")
+    idf_calls: list[list[str]] = []
+    esptool_calls: list[list[str]] = []
+    detected: list[str] = []
+
+    monkeypatch.setitem(
+        idf.IDF_FRONTENDS,
+        "native",
+        {"app_dir": app_dir, "targets": {"c5": "esp32c5", "s3": "esp32s3"}},
+    )
+    monkeypatch.setattr(idf, "get_serial_port", lambda port: port or "/dev/cu.auto")
+    monkeypatch.setattr(idf, "detect_chip_type", lambda port: detected.append(port) or "s3")
+    monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: idf_calls.append(cmd))
+    monkeypatch.setattr(idf, "run_esptool_main", lambda cmd: esptool_calls.append(cmd))
+
+    idf.run_idf_command("native", argparse.Namespace(idf_command="flash", port=None, chip="c5"))
+
+    assert detected == []
+    assert idf_calls == []
+    assert esptool_calls[0][:6] == ["--chip", "esp32c5", "--port", "/dev/cu.auto", "--baud", "460800"]
+    assert str(c5_build / "espectre.bin") in esptool_calls[0]
+
+
+def test_run_idf_command_flash_chip_uses_idf_when_sdkconfig_matches(monkeypatch, tmp_path: Path) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c5"\n', encoding="utf-8")
+    (app_dir / "build-esp32c5").mkdir()
+    calls: list[list[str]] = []
+    detected: list[str] = []
+
+    monkeypatch.setitem(idf.IDF_FRONTENDS, "native", {"app_dir": app_dir, "targets": {"c5": "esp32c5"}})
+    monkeypatch.setattr(idf, "get_serial_port", lambda port: port or "/dev/cu.auto")
+    monkeypatch.setattr(idf, "detect_chip_type", lambda port: detected.append(port) or "s3")
     monkeypatch.setattr(idf.shutil, "which", lambda binary: "/usr/bin/idf.py" if binary == "idf.py" else None)
     monkeypatch.setattr(
         idf,
@@ -891,9 +990,56 @@ def test_run_idf_command_flash_prefers_connected_chip_build_dir(monkeypatch, tmp
     )
     monkeypatch.setattr(idf.subprocess, "run", lambda cmd, cwd, check: calls.append(cmd))
 
-    idf.run_idf_command("native", argparse.Namespace(idf_command="flash", port=None))
+    idf.run_idf_command("native", argparse.Namespace(idf_command="flash", port=None, chip="c5"))
 
-    assert calls == [["idf.py", "-B", "build-esp32s3", "-p", "/dev/cu.auto", "flash"]]
+    assert detected == []
+    assert calls == [["idf.py", "-B", "build-esp32c5", "-p", "/dev/cu.auto", "flash"]]
+
+
+def test_run_idf_command_flash_chip_requires_existing_image_when_sdkconfig_mismatches(
+    monkeypatch, tmp_path: Path
+) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32s3"\n', encoding="utf-8")
+    (app_dir / "build-esp32c5").mkdir()
+
+    monkeypatch.setitem(
+        idf.IDF_FRONTENDS,
+        "native",
+        {"app_dir": app_dir, "targets": {"c5": "esp32c5", "s3": "esp32s3"}},
+    )
+    monkeypatch.setattr(idf, "get_serial_port", lambda port: port or "/dev/cu.auto")
+    monkeypatch.setattr(idf, "detect_chip_type", lambda _port: "s3")
+
+    with pytest.raises(SystemExit, match="1"):
+        idf.run_idf_command("native", argparse.Namespace(idf_command="flash", port=None, chip="c5"))
+
+
+def test_build_prebuilt_idf_esptool_command_uses_flash_file_offsets(tmp_path: Path) -> None:
+    build_dir = tmp_path / "build-esp32c5"
+    _write_flasher_args(build_dir, "esp32c5")
+
+    command = idf.build_prebuilt_idf_esptool_command(build_dir, "/dev/cu.auto", "esp32c5")
+
+    assert command[:8] == [
+        "--chip",
+        "esp32c5",
+        "--port",
+        "/dev/cu.auto",
+        "--baud",
+        "460800",
+        "--before",
+        "default-reset",
+    ]
+    assert command[command.index("write-flash") + 1 : command.index("write-flash") + 7] == [
+        "--flash-mode",
+        "dio",
+        "--flash-freq",
+        "80m",
+        "--flash-size",
+        "2MB",
+    ]
 
 
 def test_run_matter_qr_reads_without_idf_environment(monkeypatch, tmp_path: Path) -> None:
@@ -1094,6 +1240,17 @@ def test_idf_build_parser_accepts_clean_flag() -> None:
     assert args.idf_command == "build"
     assert args.chip == "c6"
     assert args.clean is True
+
+
+def test_idf_flash_parser_accepts_chip() -> None:
+    parser = app.build_parser()
+
+    args = parser.parse_args(["native", "flash", "--chip", "c5"])
+
+    assert args.namespace == "native"
+    assert args.idf_command == "flash"
+    assert args.chip == "c5"
+    assert args.port is None
 
 
 def test_idf_build_parser_accepts_backend_and_pull_policy(monkeypatch) -> None:

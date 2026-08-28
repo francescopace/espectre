@@ -347,6 +347,12 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
                 action="store_true",
                 help="Clean all ESP-IDF build directories and shared frontend artifacts before building",
             )
+        if command_name == "flash":
+            command_parser.add_argument(
+                "--chip",
+                choices=sorted(IDF_FRONTENDS[frontend]["targets"].keys()),
+                help="Target chip whose existing build directory should be flashed (auto-detected if omitted)",
+            )
         if command_name in {"flash", "qr"}:
             command_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
         command_parser.set_defaults(handler=lambda args, current_frontend=frontend: run_idf_command(current_frontend, args))
@@ -375,6 +381,7 @@ def build_parser() -> argparse.ArgumentParser:
             f"  {cli_command('esphome', 'build', '--chip', 'c3', '--clean-all')}",
             f"  {cli_command('esphome', 'monitor', '--chip', 'c3', '--device', serial_port_example())}",
             f"  {cli_command('native', 'build', '--chip', 'c3')}",
+            f"  {cli_command('native', 'flash', '--chip', 'c3')}",
             f"  {cli_command('matter', 'build', '--chip', 'c3')}",
         ]
     )

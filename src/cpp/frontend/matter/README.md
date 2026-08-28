@@ -43,7 +43,7 @@ Repository CLI:
 
 ```bash
 ./espectre matter build --chip c3
-./espectre matter flash --port /dev/cu.usbmodemXXXX
+./espectre matter flash --chip c3 --port /dev/cu.usbmodemXXXX
 ./espectre matter qr --port /dev/cu.usbmodemXXXX
 ./espectre monitor --port /dev/cu.usbmodemXXXX
 ```

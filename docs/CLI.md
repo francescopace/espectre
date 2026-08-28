@@ -89,9 +89,9 @@ Build environment flags are:
 
 Docker builds use a separate directory such as `build-esp32c3-docker`, which prevents host and container CMake caches from sharing incompatible absolute paths. Docker is a build backend only; `flash` continues to use the detected local ESP-IDF environment and host serial port.
 
-For `flash`, the wrapper selects the serial port first, then prefers the build directory that matches the connected chip detected on that port. Without a match, it falls back to the local configured target or the legacy `build/` layout.
+For `flash`, `--chip` selects that chip's build directory, such as `build-esp32c5` for `--chip c5`, without probing the serial device. Without `--chip`, the wrapper selects the serial port first, then prefers the build directory that matches the connected chip detected on that port. Without a match, it falls back to the local configured target or the legacy `build/` layout.
 
-`flash` still delegates to `idf.py flash`, so ESP-IDF may configure CMake or complete a missing build inside that selected directory before writing the firmware. The important guarantee is that the wrapper now prefers the chip-matched build directory first.
+When the current `sdkconfig` already matches the selected chip, `flash` delegates to `idf.py flash`, so ESP-IDF may configure CMake or complete a missing build inside that directory before writing the firmware. When `sdkconfig` belongs to a different chip, `flash` writes the already-built image from the selected directory and does not rebuild. Rebuilds still share one `sdkconfig`, so `native build --chip c5` after an S3 build overwrites that file.
 
 Matter also exposes:
 
@@ -106,10 +106,11 @@ Examples:
 ./espectre native build --chip c3 --backend docker
 ./espectre native build --chip c3 --clean
 ./espectre native build --chip c3 --clean-all
+./espectre native flash --chip c5
 ./espectre esphome build --chip c3 --clean
 ./espectre esphome build --chip c3 --clean-all
 ./espectre matter build --chip c6
-./espectre matter flash --port /dev/cu.usbmodemXXXX
+./espectre matter flash --chip c6 --port /dev/cu.usbmodemXXXX
 ./espectre matter qr --port /dev/cu.usbmodemXXXX
 ```
 

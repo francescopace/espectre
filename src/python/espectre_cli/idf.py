@@ -11,6 +11,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import os
 import re
 import shlex
@@ -186,10 +187,26 @@ def resolve_idf_build_dir_name(
     return None
 
 
-def resolve_flash_idf_build_dir_name(frontend: str, app_path: Path, port: str) -> str | None:
-    """Resolve the ESP-IDF build directory for flashing, preferring the connected chip."""
-    if build_dir_name := os.environ.get("ESPECTRE_IDF_BUILD_DIR"):
-        return build_dir_name
+def resolve_flash_idf_selection(
+    frontend: str,
+    app_path: Path,
+    port: str,
+    chip: str | None = None,
+) -> tuple[str | None, str | None]:
+    """Return (idf_target, build_dir_name) for flashing."""
+    env_build_dir = os.environ.get("ESPECTRE_IDF_BUILD_DIR")
+    if chip:
+        try:
+            _, idf_target = resolve_idf_target(frontend, chip)
+        except ValueError as exc:
+            print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
+            raise SystemExit(1) from exc
+        if env_build_dir:
+            return idf_target, env_build_dir
+        return idf_target, resolve_idf_build_dir_name(app_path, idf_target)
+
+    if env_build_dir:
+        return None, env_build_dir
 
     detected_chip = detect_chip_type(port)
     if detected_chip:
@@ -200,9 +217,80 @@ def resolve_flash_idf_build_dir_name(frontend: str, app_path: Path, port: str) -
                 f"{Fore.RED}❌ Connected chip {detected_chip} is not supported by the {frontend} frontend.{Style.RESET_ALL}"
             )
             raise SystemExit(1)
-        return resolve_idf_build_dir_name(app_path, detected_target, prefer_existing_default=True)
+        return detected_target, resolve_idf_build_dir_name(
+            app_path,
+            detected_target,
+            prefer_existing_default=True,
+        )
 
-    return resolve_idf_build_dir_name(app_path, prefer_existing_default=True)
+    configured_target = resolve_configured_idf_target(app_path)
+    return configured_target, resolve_idf_build_dir_name(app_path, prefer_existing_default=True)
+
+
+def chip_alias_for_idf_target(frontend: str, idf_target: str) -> str | None:
+    """Return the CLI chip alias for an ESP-IDF target name."""
+    for alias, target in IDF_FRONTENDS[frontend]["targets"].items():
+        if target == idf_target:
+            return alias
+    return None
+
+
+def prebuilt_idf_flasher_args_path(app_path: Path, build_dir_name: str | None) -> Path | None:
+    """Return the ESP-IDF flasher args path when a complete image is present."""
+    if not build_dir_name:
+        return None
+    flasher_args = app_path / build_dir_name / "flasher_args.json"
+    return flasher_args if flasher_args.is_file() else None
+
+
+def build_prebuilt_idf_esptool_command(build_dir: Path, port: str, idf_target: str) -> list[str]:
+    """Build an esptool write-flash command from an ESP-IDF flasher_args.json file."""
+    payload = json.loads((build_dir / "flasher_args.json").read_text(encoding="utf-8"))
+    extra = payload.get("extra_esptool_args") or {}
+    chip = str(extra.get("chip") or idf_target)
+    before = str(extra.get("before") or "default_reset").replace("_", "-")
+    after = str(extra.get("after") or "hard_reset").replace("_", "-")
+    write_args = [str(arg) for arg in (payload.get("write_flash_args") or [])]
+    flash_files = payload.get("flash_files") or {}
+    if not flash_files:
+        raise ValueError(f"flasher_args.json in {build_dir} does not list flash files")
+    command = [
+        "--chip",
+        chip,
+        "--port",
+        port,
+        "--baud",
+        "460800",
+        "--before",
+        before,
+        "--after",
+        after,
+    ]
+    if extra.get("stub") is False:
+        command.append("--no-stub")
+    command.append("write-flash")
+    command.extend(write_args)
+    for offset, relative_path in sorted(flash_files.items(), key=lambda item: int(str(item[0]), 0)):
+        command.extend([str(offset), str(build_dir / relative_path)])
+    return command
+
+
+def run_esptool_main(args: list[str]) -> None:
+    """Invoke esptool with the given argument list."""
+    import esptool
+
+    esptool.main(args)
+
+
+def flash_prebuilt_idf_image(app_path: Path, build_dir_name: str, port: str, idf_target: str) -> None:
+    """Flash an already-built ESP-IDF image without reconfiguring CMake."""
+    command = build_prebuilt_idf_esptool_command(app_path / build_dir_name, port, idf_target)
+    print(f"{Fore.CYAN}Command: esptool {' '.join(command)}{Style.RESET_ALL}")
+    try:
+        run_esptool_main(command)
+    except SystemExit as exc:
+        if exc.code not in (0, None):
+            raise
 
 
 def is_windows_host() -> bool:
@@ -664,7 +752,48 @@ def run_idf_command(frontend: str, args) -> None:
     elif args.idf_command == "flash":
         port = get_serial_port(args.port)
         flash_port = port
-        build_dir_name = resolve_flash_idf_build_dir_name(frontend, app_path, port)
+        flash_chip = getattr(args, "chip", None)
+        idf_target, build_dir_name = resolve_flash_idf_selection(frontend, app_path, port, flash_chip)
+        if idf_target:
+            print(f"{Fore.CYAN}Target:   {idf_target}{Style.RESET_ALL}")
+        if idf_target and not sdkconfig_matches_target(app_path, idf_target, sdkconfig_path):
+            image_dir = build_dir_name
+            if image_dir is None or prebuilt_idf_flasher_args_path(app_path, image_dir) is None:
+                current_target = resolve_configured_idf_target(app_path)
+                build_label = image_dir or "build"
+                print(
+                    f"{Fore.RED}❌ No complete {idf_target} image in {build_label}.{Style.RESET_ALL}"
+                )
+                if current_target and current_target != idf_target:
+                    print(
+                        f"{Fore.RED}   Current sdkconfig selects {current_target}, so flash cannot rebuild {idf_target}.{Style.RESET_ALL}"
+                    )
+                chip_alias = flash_chip or chip_alias_for_idf_target(frontend, idf_target)
+                if chip_alias:
+                    print(
+                        f"  Build it first with: {Fore.GREEN}{cli_command(frontend, 'build', '--chip', chip_alias)}{Style.RESET_ALL}"
+                    )
+                raise SystemExit(1)
+            current_target = resolve_configured_idf_target(app_path)
+            current_note = (
+                f"; sdkconfig currently selects {current_target}"
+                if current_target and current_target != idf_target
+                else ""
+            )
+            print(
+                f"{Fore.CYAN}Flashing existing {idf_target} image from {image_dir}{current_note}.{Style.RESET_ALL}"
+            )
+            try:
+                flash_prebuilt_idf_image(app_path, image_dir, port, idf_target)
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
+                raise SystemExit(1) from exc
+            except Exception as exc:
+                print(f"{Fore.RED}❌ Error flashing firmware: {exc}{Style.RESET_ALL}")
+                raise SystemExit(1) from exc
+            if frontend == "matter":
+                read_matter_onboarding(flash_port)
+            return
         base_command = build_idf_base_command(build_dir_name)
         cached_sdkconfig = cached_sdkconfig_path(app_path, build_dir_name)
         if sdkconfig_path is None and cached_sdkconfig not in {None, (app_path / "sdkconfig").resolve()}:
