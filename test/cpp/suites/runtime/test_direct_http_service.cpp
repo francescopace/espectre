@@ -24,6 +24,7 @@ DirectHttpServiceConfig config() {
   value.max_event_clients = 2U;
   value.max_pending_requests = 2U;
   value.outbound_queue_depth = 2U;
+  value.max_requests_per_second = 20U;
   value.max_mutations_per_minute = 2U;
   value.allow_http_loopback_origins = true;
   return value;
@@ -61,6 +62,10 @@ void test_setup_registers_http_post_sse_raw_and_preflight() {
   EspIdfDirectHttpService service;
   DirectHttpServiceConfig invalid;
   TEST_ASSERT_FALSE(service.setup(invalid, [](const auto &) { return std::string{"{}"}; }, {}));
+  DirectHttpServiceConfig zero_request_budget = config();
+  zero_request_budget.max_requests_per_second = 0U;
+  TEST_ASSERT_FALSE(service.setup(
+      zero_request_budget, [](const auto &) { return std::string{"{}"}; }, {}));
   TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
   TEST_ASSERT_TRUE(service.running());
   TEST_ASSERT_EQUAL(6, g_httpd_mock.register_calls);
@@ -76,6 +81,7 @@ void test_setup_registers_http_post_sse_raw_and_preflight() {
   TEST_ASSERT_EQUAL(7U, g_httpd_mock.last_config.max_open_sockets);
   TEST_ASSERT_EQUAL(8U, g_httpd_mock.last_config.max_uri_handlers);
   TEST_ASSERT_EQUAL(ESPECTRE_DIRECT_HTTP_PORT, g_httpd_mock.last_config.server_port);
+  TEST_ASSERT_EQUAL(1U, g_httpd_mock.last_config.task_priority);
   TEST_ASSERT_EQUAL(5U, g_httpd_mock.last_config.recv_wait_timeout);
   TEST_ASSERT_EQUAL(1U, g_httpd_mock.last_config.send_wait_timeout);
   service.shutdown();
@@ -106,6 +112,43 @@ void test_shutdown_releases_the_client_count_callback_before_reuse() {
   service.shutdown();
   TEST_ASSERT_EQUAL(1U, first_callback_calls);
   TEST_ASSERT_EQUAL(1U, second_callback_calls);
+}
+
+void test_post_does_not_enqueue_after_shutdown_starts() {
+  httpd_mock_reset();
+  EspIdfDirectHttpService service;
+  TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
+
+  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"late\",\"command\":\"status\"}");
+  g_httpd_mock.async_begin_callback_context = &service;
+  g_httpd_mock.async_begin_callback = [](void *context) {
+    static_cast<EspIdfDirectHttpService *>(context)->shutdown();
+  };
+
+  httpd_req_t request = request_for(0U, 40);
+  TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[0].handler(&request));
+  TEST_ASSERT_FALSE(service.running());
+  TEST_ASSERT_EQUAL_STRING(HTTPD_503_SERVICE_UNAVAILABLE, g_httpd_mock.response_status);
+  TEST_ASSERT_EQUAL(1, g_httpd_mock.async_complete_calls);
+  TEST_ASSERT_EQUAL(0U, service.diagnostics().queued_messages);
+}
+
+void test_sse_does_not_register_after_shutdown_starts() {
+  httpd_mock_reset();
+  EspIdfDirectHttpService service;
+  TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
+
+  httpd_mock_set_header("Origin", "https://espectre.dev");
+  g_httpd_mock.async_begin_callback_context = &service;
+  g_httpd_mock.async_begin_callback = [](void *context) {
+    static_cast<EspIdfDirectHttpService *>(context)->shutdown();
+  };
+
+  httpd_req_t request = request_for(1U, 41);
+  TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[1].handler(&request));
+  TEST_ASSERT_FALSE(service.running());
+  TEST_ASSERT_EQUAL(1, g_httpd_mock.async_complete_calls);
+  TEST_ASSERT_EQUAL(0U, service.event_client_count());
 }
 
 void test_post_validates_origin_content_type_size_and_dispatches_on_loop() {
@@ -209,6 +252,37 @@ void test_post_distinguishes_queue_saturation_from_mutation_rate_limit() {
   TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[0].handler(&limited));
   TEST_ASSERT_EQUAL_STRING(HTTPD_429_TOO_MANY_REQUESTS, g_httpd_mock.response_status);
   TEST_ASSERT_EQUAL(1U, service.diagnostics().rate_limited_requests);
+}
+
+void test_post_limits_total_request_rate_before_parsing() {
+  httpd_mock_reset();
+  esp_timer_mock::reset(100000U, 0U);
+  EspIdfDirectHttpService service;
+  DirectHttpServiceConfig limits = config();
+  limits.max_requests_per_second = 2U;
+  TEST_ASSERT_TRUE(service.setup(
+      limits, [](const DirectRequest &request) { return command_result(request); }, {}));
+
+  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"q1\",\"command\":\"status\"}");
+  httpd_req_t first = request_for(0U, 30);
+  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&first));
+  service.loop();
+  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"q2\",\"command\":\"diagnostics\"}");
+  httpd_req_t second = request_for(0U, 31);
+  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&second));
+  service.loop();
+
+  prepare_json("not-json");
+  httpd_req_t limited = request_for(0U, 32);
+  TEST_ASSERT_EQUAL(ESP_FAIL, g_httpd_mock.registered_uris[0].handler(&limited));
+  TEST_ASSERT_EQUAL_STRING(HTTPD_429_TOO_MANY_REQUESTS, g_httpd_mock.response_status);
+  TEST_ASSERT_EQUAL(1U, service.diagnostics().rate_limited_requests);
+  TEST_ASSERT_EQUAL(0U, service.diagnostics().malformed_requests);
+
+  esp_timer_mock::advance(1000000U);
+  prepare_json("{\"protocol_version\":\"1.0\",\"command_id\":\"q3\",\"command\":\"info\"}");
+  httpd_req_t next_window = request_for(0U, 33);
+  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[0].handler(&next_window));
 }
 
 void test_sse_limits_clients_frames_events_coalesces_and_heartbeats() {
@@ -542,9 +616,12 @@ int main() {
   espectre::test::begin_suite();
   RUN_TEST(test_setup_registers_http_post_sse_raw_and_preflight);
   RUN_TEST(test_shutdown_releases_the_client_count_callback_before_reuse);
+  RUN_TEST(test_post_does_not_enqueue_after_shutdown_starts);
+  RUN_TEST(test_sse_does_not_register_after_shutdown_starts);
   RUN_TEST(test_post_validates_origin_content_type_size_and_dispatches_on_loop);
   RUN_TEST(test_options_returns_private_network_cors_headers);
   RUN_TEST(test_post_distinguishes_queue_saturation_from_mutation_rate_limit);
+  RUN_TEST(test_post_limits_total_request_rate_before_parsing);
   RUN_TEST(test_sse_limits_clients_frames_events_coalesces_and_heartbeats);
   RUN_TEST(test_deferred_post_completes_only_once);
   RUN_TEST(test_raw_get_requires_bearer_and_emits_v2_frame);

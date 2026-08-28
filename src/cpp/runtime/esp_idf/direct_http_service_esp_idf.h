@@ -123,6 +123,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
                         const std::string &origin) const;
   bool read_header_(httpd_req_t *request, const char *name, std::string *value) const;
   bool read_bearer_(httpd_req_t *request, std::string *value) const;
+  bool request_allowed_locked_(uint64_t now_us);
   bool mutation_allowed_locked_(const std::string &method, uint64_t now_us);
   bool enqueue_event_locked_(EventClient *client, OutboundEvent event);
   void enqueue_completed_response_locked_(PendingRequest request, std::string response);
@@ -137,6 +138,8 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   bool pop_raw_sample_(RawSampleSlot *sample);
   void reset_raw_session_locked_();
   void notify_client_count_(size_t count);
+  void notify_worker_();
+  void notify_raw_worker_();
   bool lock_() const;
   void unlock_() const;
 
@@ -155,13 +158,18 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   std::deque<CompletedResponse> completed_;
   DirectHttpServiceDiagnostics diagnostics_{};
   uint64_t next_request_token_{1U};
+  uint64_t request_window_started_us_{0U};
+  uint16_t request_count_{0U};
   uint64_t mutation_window_started_us_{0U};
   uint16_t mutation_count_{0U};
   uint64_t next_raw_session_generation_{1U};
+  std::atomic<bool> stopping_{true};
   std::atomic<bool> worker_running_{false};
-  TaskHandle_t worker_task_{nullptr};
+  std::atomic<TaskHandle_t> worker_task_{nullptr};
+  std::atomic<uint32_t> worker_notifications_active_{0U};
   std::atomic<bool> raw_worker_running_{false};
-  [[maybe_unused]] TaskHandle_t raw_worker_task_{nullptr};
+  [[maybe_unused]] std::atomic<TaskHandle_t> raw_worker_task_{nullptr};
+  std::atomic<uint32_t> raw_worker_notifications_active_{0U};
 
   static constexpr size_t kRawQueueDepth = 16U;
   static constexpr size_t kRawBatchRecords = 4U;

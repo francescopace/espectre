@@ -38,6 +38,7 @@ typedef struct httpd_req {
 } httpd_req_t;
 
 typedef struct {
+  uint32_t task_priority;
   uint16_t server_port;
   uint16_t ctrl_port;
   uint16_t max_open_sockets;
@@ -48,9 +49,9 @@ typedef struct {
 } httpd_config_t;
 
 #ifdef __cplusplus
-#define HTTPD_DEFAULT_CONFIG() (httpd_config_t{80U, 32768U, 7U, 8U, false, 5U, 5U})
+#define HTTPD_DEFAULT_CONFIG() (httpd_config_t{5U, 80U, 32768U, 7U, 8U, false, 5U, 5U})
 #else
-#define HTTPD_DEFAULT_CONFIG() ((httpd_config_t){80U, 32768U, 7U, 8U, false, 5U, 5U})
+#define HTTPD_DEFAULT_CONFIG() ((httpd_config_t){5U, 80U, 32768U, 7U, 8U, false, 5U, 5U})
 #endif
 
 typedef esp_err_t (*httpd_uri_func_t)(httpd_req_t *request);

@@ -38,6 +38,7 @@ struct DirectHttpServiceConfig {
   size_t max_event_clients{2U};
   size_t max_pending_requests{4U};
   size_t outbound_queue_depth{8U};
+  uint16_t max_requests_per_second{20U};
   uint16_t max_mutations_per_minute{60U};
   bool allow_missing_origin{false};
   bool allow_http_loopback_origins{false};

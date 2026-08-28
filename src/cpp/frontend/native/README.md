@@ -39,7 +39,7 @@ Direct mode provides:
 - processed movement, state, calibration, diagnostics, and lifecycle events
 - supported OTA status and control operations
 
-The endpoints never return stored Wi-Fi or MQTT passwords. They cap request and response size, mutation rate, queued messages, and concurrent SSE subscribers. Telemetry may replace an older queued sample, while state transitions are preserved. MQTT uses its own 16-message frontend queue and bounded ESP-IDF outbox.
+The endpoints never return stored Wi-Fi or MQTT passwords. They cap request and response size, total request rate, mutation rate, queued messages, and concurrent SSE subscribers. Telemetry may replace an older queued sample, while state transitions are preserved. MQTT uses its own 16-message frontend queue and bounded ESP-IDF outbox.
 
 The high-rate telemetry callback runs only while MQTT is connected or a Direct SSE client is present. Runtime callbacks stage numeric sensing state; serialization and transport work run after detector evaluation returns.
 

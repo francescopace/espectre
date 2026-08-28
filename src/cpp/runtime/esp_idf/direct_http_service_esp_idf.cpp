@@ -38,6 +38,7 @@ constexpr uint64_t kMutationWindowUs = 60ULL * 1000ULL * 1000ULL;
 constexpr uint64_t kEventHeartbeatUs = 10ULL * 1000ULL * 1000ULL;
 constexpr uint64_t kRawBindTimeoutUs = 5ULL * 1000ULL * 1000ULL;
 constexpr uint8_t kMaxConsecutiveSendFailures = 3U;
+constexpr uint64_t kRequestWindowUs = 1000000U;
 constexpr const char *kHttp400 = "400 Bad Request";
 constexpr const char *kHttp401 = "401 Unauthorized";
 constexpr const char *kHttp403 = "403 Forbidden";
@@ -143,13 +144,15 @@ bool EspIdfDirectHttpService::setup(const DirectHttpServiceConfig &config,
       (config.allowed_origins.empty() && !config.allow_missing_origin) ||
       config.max_event_clients == 0U ||
       config.max_event_clients > 2U || config.max_pending_requests == 0U ||
-      config.outbound_queue_depth == 0U) {
+      config.outbound_queue_depth == 0U || config.max_requests_per_second == 0U) {
     return false;
   }
   shutdown();
   if (lock_()) {
     diagnostics_ = {};
     next_request_token_ = 1U;
+    request_window_started_us_ = 0U;
+    request_count_ = 0U;
     mutation_window_started_us_ = 0U;
     mutation_count_ = 0U;
     pending_event_connections_ = 0U;
@@ -161,6 +164,9 @@ bool EspIdfDirectHttpService::setup(const DirectHttpServiceConfig &config,
   client_count_callback_ = std::move(client_count_callback);
 
   httpd_config_t http_config = HTTPD_DEFAULT_CONFIG();
+  // Keep the HTTP server at the same priority as the lowest-priority frontend
+  // loop. A continuously readable socket must not starve ESPHome's CSI drain.
+  http_config.task_priority = tskIDLE_PRIORITY + 1U;
   http_config.server_port = config_.port;
   http_config.ctrl_port = static_cast<uint16_t>(http_config.ctrl_port + 1U);
   http_config.max_open_sockets = static_cast<uint16_t>(config_.max_event_clients + 5U);
@@ -202,27 +208,32 @@ bool EspIdfDirectHttpService::setup(const DirectHttpServiceConfig &config,
 
   worker_running_.store(true, std::memory_order_release);
 #if defined(ESP_PLATFORM)
+  TaskHandle_t worker_task = nullptr;
   if (xTaskCreate(&worker_entry_, "espectre_http", 4096U, this,
-                  tskIDLE_PRIORITY + 2U, &worker_task_) != pdPASS) {
+                  tskIDLE_PRIORITY + 2U, &worker_task) != pdPASS) {
     worker_running_.store(false, std::memory_order_release);
     httpd_stop(server_);
     server_ = nullptr;
     ESP_LOGE(TAG, "Failed to start Direct HTTP streaming worker");
     return false;
   }
+  worker_task_.store(worker_task, std::memory_order_release);
   raw_worker_running_.store(true, std::memory_order_release);
+  TaskHandle_t raw_worker_task = nullptr;
   if (xTaskCreate(&raw_worker_entry_, "espectre_raw", 4096U, this,
-                  tskIDLE_PRIORITY + 3U, &raw_worker_task_) != pdPASS) {
+                  tskIDLE_PRIORITY + 3U, &raw_worker_task) != pdPASS) {
     raw_worker_running_.store(false, std::memory_order_release);
     worker_running_.store(false, std::memory_order_release);
-    vTaskDelete(worker_task_);
-    worker_task_ = nullptr;
+    vTaskDelete(worker_task);
+    worker_task_.store(nullptr, std::memory_order_release);
     httpd_stop(server_);
     server_ = nullptr;
     ESP_LOGE(TAG, "Failed to start Direct raw CSI worker");
     return false;
   }
+  raw_worker_task_.store(raw_worker_task, std::memory_order_release);
 #endif
+  stopping_.store(false, std::memory_order_release);
   ESP_LOGI(TAG, "Direct HTTP listening on port %u", static_cast<unsigned>(config_.port));
   return true;
 }
@@ -245,6 +256,10 @@ bool EspIdfDirectHttpService::complete_deferred_response(uint64_t request_token,
   if (response.empty() || response.size() > ESPECTRE_DIRECT_MAX_RESPONSE_SIZE || !lock_()) {
     return false;
   }
+  if (stopping_.load(std::memory_order_acquire)) {
+    unlock_();
+    return false;
+  }
   const auto stored = std::find_if(deferred_.begin(), deferred_.end(),
                                    [request_token](const PendingRequest &request) {
                                      return request.token == request_token;
@@ -257,15 +272,13 @@ bool EspIdfDirectHttpService::complete_deferred_response(uint64_t request_token,
   deferred_.erase(stored);
   enqueue_completed_response_locked_(std::move(pending), std::move(response));
   unlock_();
-#if defined(ESP_PLATFORM)
-  if (worker_task_ != nullptr) xTaskNotifyGive(worker_task_);
-#endif
+  notify_worker_();
   return true;
 }
 
 void EspIdfDirectHttpService::loop() {
   dispatch_pending_callbacks_();
-  if (server_ == nullptr) return;
+  if (stopping_.load(std::memory_order_acquire)) return;
   service_raw_timeouts_();
 
   PendingRequest pending;
@@ -325,31 +338,39 @@ void EspIdfDirectHttpService::loop() {
 }
 
 void EspIdfDirectHttpService::shutdown() {
+  stopping_.store(true, std::memory_order_release);
+  (void) stop_raw_session(RawCsiStopReason::SHUTDOWN);
+#if defined(ESP_PLATFORM)
+  while (worker_notifications_active_.load(std::memory_order_acquire) != 0U ||
+         raw_worker_notifications_active_.load(std::memory_order_acquire) != 0U) {
+    vTaskDelay(kWorkerShutdownPollTicks);
+  }
+#endif
   worker_running_.store(false, std::memory_order_release);
   raw_worker_running_.store(false, std::memory_order_release);
 #if defined(ESP_PLATFORM)
-  if (worker_task_ != nullptr) xTaskNotifyGive(worker_task_);
-  if (raw_worker_task_ != nullptr) xTaskNotifyGive(raw_worker_task_);
-#endif
-  (void) stop_raw_session(RawCsiStopReason::SHUTDOWN);
-#if defined(ESP_PLATFORM)
+  TaskHandle_t worker_task = worker_task_.load(std::memory_order_acquire);
+  TaskHandle_t raw_worker_task = raw_worker_task_.load(std::memory_order_acquire);
+  if (worker_task != nullptr) xTaskNotifyGive(worker_task);
+  if (raw_worker_task != nullptr) xTaskNotifyGive(raw_worker_task);
   uint32_t waited_ms = 0U;
-  while ((worker_task_ != nullptr || raw_worker_task_ != nullptr) &&
+  while ((worker_task_.load(std::memory_order_acquire) != nullptr ||
+          raw_worker_task_.load(std::memory_order_acquire) != nullptr) &&
          waited_ms < kWorkerShutdownTimeoutMs) {
     vTaskDelay(kWorkerShutdownPollTicks);
     waited_ms += 1U;
   }
-  if (worker_task_ != nullptr) {
+  worker_task = worker_task_.exchange(nullptr, std::memory_order_acq_rel);
+  if (worker_task != nullptr) {
     ESP_LOGW(TAG, "Direct HTTP worker did not stop within %u ms",
              static_cast<unsigned>(kWorkerShutdownTimeoutMs));
-    vTaskDelete(worker_task_);
-    worker_task_ = nullptr;
+    vTaskDelete(worker_task);
   }
-  if (raw_worker_task_ != nullptr) {
+  raw_worker_task = raw_worker_task_.exchange(nullptr, std::memory_order_acq_rel);
+  if (raw_worker_task != nullptr) {
     ESP_LOGW(TAG, "Direct raw worker did not stop within %u ms",
              static_cast<unsigned>(kWorkerShutdownTimeoutMs));
-    vTaskDelete(raw_worker_task_);
-    raw_worker_task_ = nullptr;
+    vTaskDelete(raw_worker_task);
   }
 #endif
 
@@ -384,7 +405,9 @@ void EspIdfDirectHttpService::shutdown() {
   client_count_callback_ = {};
 }
 
-bool EspIdfDirectHttpService::running() const { return server_ != nullptr; }
+bool EspIdfDirectHttpService::running() const {
+  return !stopping_.load(std::memory_order_acquire);
+}
 
 size_t EspIdfDirectHttpService::event_client_count() const {
   size_t count = 0U;
@@ -398,7 +421,9 @@ size_t EspIdfDirectHttpService::event_client_count() const {
 bool EspIdfDirectHttpService::publish_event(const std::string &event_name,
                                             const std::string &data_json,
                                             bool replaceable_telemetry) {
-  if (server_ == nullptr || event_name.empty()) return false;
+  if (stopping_.load(std::memory_order_acquire) || event_name.empty()) {
+    return false;
+  }
   std::vector<JsonObjectField> fields;
   if (!parse_json_object_fields(data_json, &fields, nullptr) ||
       data_json.size() > ESPECTRE_DIRECT_MAX_RESPONSE_SIZE) {
@@ -407,14 +432,14 @@ bool EspIdfDirectHttpService::publish_event(const std::string &event_name,
   const OutboundEvent event{sse_payload(event_name, data_json), event_name, replaceable_telemetry};
   bool accepted = false;
   if (lock_()) {
-    for (EventClient &client : event_clients_) {
-      accepted = enqueue_event_locked_(&client, event) || accepted;
+    if (!stopping_.load(std::memory_order_acquire)) {
+      for (EventClient &client : event_clients_) {
+        accepted = enqueue_event_locked_(&client, event) || accepted;
+      }
     }
     unlock_();
   }
-#if defined(ESP_PLATFORM)
-  if (accepted && worker_task_ != nullptr) xTaskNotifyGive(worker_task_);
-#endif
+  if (accepted) notify_worker_();
   return accepted;
 }
 
@@ -432,10 +457,12 @@ DirectHttpServiceDiagnostics EspIdfDirectHttpService::diagnostics() const {
 bool EspIdfDirectHttpService::start_raw_session(
     const RawCsiSessionConfig &config,
     RawSessionStoppedCallback stopped_callback) {
-  if (server_ == nullptr || !session_id_present(config.session_id) || !lock_()) {
+  if (stopping_.load(std::memory_order_acquire) ||
+      !session_id_present(config.session_id) || !lock_()) {
     return false;
   }
-  if (raw_session_active_.load(std::memory_order_acquire)) {
+  if (stopping_.load(std::memory_order_acquire) ||
+      raw_session_active_.load(std::memory_order_acquire)) {
     unlock_();
     return false;
   }
@@ -492,9 +519,11 @@ bool EspIdfDirectHttpService::stop_raw_session(RawCsiStopReason reason) {
 }
 
 bool EspIdfDirectHttpService::offer_raw_packet(const RawCsiPacketView &packet) {
-  if (!raw_session_active_.load(std::memory_order_acquire)) return false;
+  if (stopping_.load(std::memory_order_acquire) ||
+      !raw_session_active_.load(std::memory_order_acquire)) return false;
   raw_producer_active_.fetch_add(1U, std::memory_order_acq_rel);
-  if (!raw_session_active_.load(std::memory_order_acquire)) {
+  if (stopping_.load(std::memory_order_acquire) ||
+      !raw_session_active_.load(std::memory_order_acquire)) {
     raw_producer_active_.fetch_sub(1U, std::memory_order_release);
     return false;
   }
@@ -518,10 +547,8 @@ bool EspIdfDirectHttpService::offer_raw_packet(const RawCsiPacketView &packet) {
   slot.metadata.csi = slot.csi.data();
   slot.stream_sequence = sequence;
   raw_sample_tail_.store(tail + 1U, std::memory_order_release);
+  notify_raw_worker_();
   raw_producer_active_.fetch_sub(1U, std::memory_order_release);
-#if defined(ESP_PLATFORM)
-  if (raw_worker_task_ != nullptr) xTaskNotifyGive(raw_worker_task_);
-#endif
   return true;
 }
 
@@ -573,7 +600,7 @@ void EspIdfDirectHttpService::worker_entry_(void *context) {
     vTaskDelay(pdMS_TO_TICKS(100));
 #endif
   }
-  if (service != nullptr) service->worker_task_ = nullptr;
+  if (service != nullptr) service->worker_task_.store(nullptr, std::memory_order_release);
   vTaskDelete(nullptr);
 }
 
@@ -586,7 +613,7 @@ void EspIdfDirectHttpService::raw_worker_entry_(void *context) {
            service->service_raw_stream_()) {
     }
   }
-  if (service != nullptr) service->raw_worker_task_ = nullptr;
+  if (service != nullptr) service->raw_worker_task_.store(nullptr, std::memory_order_release);
   vTaskDelete(nullptr);
 #else
   (void) context;
@@ -596,6 +623,23 @@ void EspIdfDirectHttpService::raw_worker_entry_(void *context) {
 esp_err_t EspIdfDirectHttpService::handle_request_(httpd_req_t *request) {
   std::string origin;
   if (!validate_origin_(request, &origin)) return ESP_FAIL;
+  bool service_available = false;
+  bool request_allowed = false;
+  if (lock_()) {
+    service_available = !stopping_.load(std::memory_order_acquire);
+    request_allowed = service_available &&
+                      request_allowed_locked_(static_cast<uint64_t>(esp_timer_get_time()));
+    if (service_available && !request_allowed) diagnostics_.rate_limited_requests += 1U;
+    unlock_();
+  }
+  if (!service_available) {
+    (void) send_error_(request, kHttp503, "Direct service is stopping", origin);
+    return ESP_FAIL;
+  }
+  if (!request_allowed) {
+    (void) send_error_(request, kHttp429, "Direct request rate limit reached", origin);
+    return ESP_FAIL;
+  }
   std::string content_type;
   if (!read_header_(request, "Content-Type", &content_type) ||
       content_type.compare(0U, std::strlen("application/json"), "application/json") != 0) {
@@ -640,8 +684,10 @@ esp_err_t EspIdfDirectHttpService::handle_request_(httpd_req_t *request) {
   bool queue_full = false;
   uint64_t token = 0U;
   if (lock_()) {
+    service_available = !stopping_.load(std::memory_order_acquire);
     const uint64_t now_us = static_cast<uint64_t>(esp_timer_get_time());
-    const bool mutation_allowed = mutation_allowed_locked_(direct.command, now_us);
+    const bool mutation_allowed = service_available &&
+                                  mutation_allowed_locked_(direct.command, now_us);
     queue_full = inbound_.size() + deferred_.size() + completed_.size() >=
                  config_.max_pending_requests;
     if (mutation_allowed && !queue_full) {
@@ -649,15 +695,17 @@ esp_err_t EspIdfDirectHttpService::handle_request_(httpd_req_t *request) {
       if (next_request_token_ == 0U) next_request_token_ = 1U;
       accepted = true;
     } else {
-      rate_limited = !mutation_allowed;
+      rate_limited = service_available && !mutation_allowed;
       if (rate_limited) diagnostics_.rate_limited_requests += 1U;
     }
     unlock_();
   }
   if (!accepted) {
-    (void) send_error_(request, rate_limited ? kHttp429 : kHttp503,
-                       queue_full ? "Direct request queue is full"
-                                  : "Direct request rate limit reached", origin);
+    const char *message = !service_available
+                              ? "Direct service is stopping"
+                              : queue_full ? "Direct request queue is full"
+                                           : "Direct request rate limit reached";
+    (void) send_error_(request, rate_limited ? kHttp429 : kHttp503, message, origin);
     return ESP_FAIL;
   }
   httpd_req_t *async_request = nullptr;
@@ -670,6 +718,12 @@ esp_err_t EspIdfDirectHttpService::handle_request_(httpd_req_t *request) {
     (void) httpd_req_async_handler_complete(async_request);
     return ESP_FAIL;
   }
+  if (stopping_.load(std::memory_order_acquire)) {
+    unlock_();
+    (void) send_error_(async_request, kHttp503, "Direct service is stopping", origin);
+    (void) httpd_req_async_handler_complete(async_request);
+    return ESP_FAIL;
+  }
   inbound_.push_back(PendingRequest{token, async_request, std::move(direct), std::move(origin)});
   unlock_();
   return ESP_OK;
@@ -679,8 +733,10 @@ esp_err_t EspIdfDirectHttpService::handle_events_(httpd_req_t *request) {
   std::string origin;
   if (!validate_origin_(request, &origin)) return ESP_FAIL;
   if (!lock_()) return ESP_FAIL;
-  const bool available = event_clients_.size() + pending_event_connections_ <
-                         config_.max_event_clients;
+  const bool service_available = !stopping_.load(std::memory_order_acquire);
+  const bool available = service_available &&
+                         event_clients_.size() + pending_event_connections_ <
+                             config_.max_event_clients;
   if (available) {
     pending_event_connections_ += 1U;
   } else {
@@ -688,7 +744,9 @@ esp_err_t EspIdfDirectHttpService::handle_events_(httpd_req_t *request) {
   }
   unlock_();
   if (!available) {
-    (void) send_error_(request, kHttp503, "Direct event client limit reached", origin);
+    (void) send_error_(request, kHttp503,
+                       service_available ? "Direct event client limit reached"
+                                         : "Direct service is stopping", origin);
     return ESP_FAIL;
   }
   (void) httpd_resp_set_type(request, "text/event-stream; charset=utf-8");
@@ -702,6 +760,19 @@ esp_err_t EspIdfDirectHttpService::handle_events_(httpd_req_t *request) {
       unlock_();
     }
     (void) send_error_(request, kHttp503, "Direct event stream unavailable", origin);
+    return ESP_FAIL;
+  }
+  bool connection_available = false;
+  if (lock_()) {
+    connection_available = !stopping_.load(std::memory_order_acquire);
+    if (!connection_available) {
+      if (pending_event_connections_ > 0U) pending_event_connections_ -= 1U;
+      diagnostics_.rejected_connections += 1U;
+    }
+    unlock_();
+  }
+  if (!connection_available) {
+    (void) httpd_req_async_handler_complete(async_request);
     return ESP_FAIL;
   }
   set_response_headers_(async_request, origin);
@@ -718,21 +789,35 @@ esp_err_t EspIdfDirectHttpService::handle_events_(httpd_req_t *request) {
   }
   const int fd = httpd_req_to_sockfd(async_request);
   size_t count = 0U;
+  bool registered = false;
   if (lock_()) {
     if (pending_event_connections_ > 0U) pending_event_connections_ -= 1U;
-    event_clients_.push_back(EventClient{async_request, fd, 0U,
-                                         static_cast<uint64_t>(esp_timer_get_time()), {}});
-    diagnostics_.accepted_connections += 1U;
-    count = event_clients_.size();
+    if (!stopping_.load(std::memory_order_acquire)) {
+      event_clients_.push_back(EventClient{async_request, fd, 0U,
+                                           static_cast<uint64_t>(esp_timer_get_time()), {}});
+      diagnostics_.accepted_connections += 1U;
+      count = event_clients_.size();
+      registered = true;
+      notify_client_count_(count);
+    } else {
+      diagnostics_.rejected_connections += 1U;
+    }
     unlock_();
   }
-  notify_client_count_(count);
+  if (!registered) {
+    (void) httpd_req_async_handler_complete(async_request);
+    return ESP_FAIL;
+  }
   return ESP_OK;
 }
 
 esp_err_t EspIdfDirectHttpService::handle_raw_(httpd_req_t *request) {
   std::string origin;
   if (!validate_origin_(request, &origin)) return ESP_FAIL;
+  if (stopping_.load(std::memory_order_acquire)) {
+    (void) send_error_(request, kHttp503, "Direct service is stopping", origin);
+    return ESP_FAIL;
+  }
   std::string bearer;
   if (!read_bearer_(request, &bearer)) {
     (void) send_error_(request, kHttp401, "raw CSI bearer required", origin);
@@ -741,7 +826,8 @@ esp_err_t EspIdfDirectHttpService::handle_raw_(httpd_req_t *request) {
   bool accepted = false;
   uint64_t session_generation = 0U;
   if (lock_()) {
-    accepted = raw_session_active_.load(std::memory_order_acquire) &&
+    accepted = !stopping_.load(std::memory_order_acquire) &&
+               raw_session_active_.load(std::memory_order_acquire) &&
                !raw_session_.binary_bound &&
                bearer == session_id_hex(raw_session_.config.session_id);
     if (accepted) session_generation = raw_session_.generation;
@@ -763,13 +849,18 @@ esp_err_t EspIdfDirectHttpService::handle_raw_(httpd_req_t *request) {
     return ESP_FAIL;
   }
   const bool session_still_available =
+      !stopping_.load(std::memory_order_acquire) &&
       raw_session_active_.load(std::memory_order_acquire) &&
       !raw_session_.binary_bound &&
       raw_session_.generation == session_generation &&
       bearer == session_id_hex(raw_session_.config.session_id);
   if (!session_still_available) {
     unlock_();
-    (void) send_error_(async_request, kHttp403, "raw CSI session unavailable", origin);
+    (void) send_error_(async_request,
+                       stopping_.load(std::memory_order_acquire) ? kHttp503 : kHttp403,
+                       stopping_.load(std::memory_order_acquire)
+                           ? "Direct service is stopping"
+                           : "raw CSI session unavailable", origin);
     (void) httpd_req_async_handler_complete(async_request);
     return ESP_FAIL;
   }
@@ -795,15 +886,17 @@ esp_err_t EspIdfDirectHttpService::handle_raw_(httpd_req_t *request) {
   (void) setsockopt(raw_session_.fd, IPPROTO_TCP, TCP_KEEPCNT, &keepcount, sizeof(keepcount));
 #endif
   unlock_();
-#if defined(ESP_PLATFORM)
-  if (raw_worker_task_ != nullptr) xTaskNotifyGive(raw_worker_task_);
-#endif
+  notify_raw_worker_();
   return ESP_OK;
 }
 
 esp_err_t EspIdfDirectHttpService::handle_options_(httpd_req_t *request) {
   std::string origin;
   if (!validate_origin_(request, &origin)) return ESP_FAIL;
+  if (stopping_.load(std::memory_order_acquire)) {
+    (void) send_error_(request, kHttp503, "Direct service is stopping", origin);
+    return ESP_FAIL;
+  }
   set_response_headers_(request, origin);
   (void) httpd_resp_set_hdr(request, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   (void) httpd_resp_set_hdr(request, "Access-Control-Allow-Headers", "Authorization, Content-Type");
@@ -883,6 +976,17 @@ bool EspIdfDirectHttpService::read_bearer_(httpd_req_t *request, std::string *va
   return true;
 }
 
+bool EspIdfDirectHttpService::request_allowed_locked_(uint64_t now_us) {
+  if (request_window_started_us_ == 0U ||
+      now_us - request_window_started_us_ >= kRequestWindowUs) {
+    request_window_started_us_ = now_us;
+    request_count_ = 0U;
+  }
+  if (request_count_ >= config_.max_requests_per_second) return false;
+  request_count_ += 1U;
+  return true;
+}
+
 bool EspIdfDirectHttpService::mutation_allowed_locked_(const std::string &method, uint64_t now_us) {
   if (read_only_method(method)) return true;
   if (mutation_window_started_us_ == 0U || now_us - mutation_window_started_us_ >= kMutationWindowUs) {
@@ -952,9 +1056,7 @@ bool EspIdfDirectHttpService::enqueue_completed_response_(PendingRequest request
   }
   enqueue_completed_response_locked_(std::move(request), std::move(response));
   unlock_();
-#if defined(ESP_PLATFORM)
-  if (worker_task_ != nullptr) xTaskNotifyGive(worker_task_);
-#endif
+  notify_worker_();
   return true;
 }
 
@@ -989,6 +1091,7 @@ void EspIdfDirectHttpService::service_event_streams_() {
   size_t previous_count = event_client_count();
   for (const Send &send : sends) {
     const esp_err_t result = httpd_resp_send_chunk(send.request, send.payload.data(), send.payload.size());
+    httpd_req_t *request_to_complete = nullptr;
     if (lock_()) {
       const auto client = std::find_if(event_clients_.begin(), event_clients_.end(),
                                        [&send](const EventClient &candidate) {
@@ -1003,12 +1106,15 @@ void EspIdfDirectHttpService::service_event_streams_() {
           client->consecutive_send_failures += 1U;
           if (client->consecutive_send_failures >= kMaxConsecutiveSendFailures) {
             diagnostics_.slow_client_disconnects += 1U;
-            (void) httpd_req_async_handler_complete(client->request);
+            request_to_complete = client->request;
             event_clients_.erase(client);
           }
         }
       }
       unlock_();
+    }
+    if (request_to_complete != nullptr) {
+      (void) httpd_req_async_handler_complete(request_to_complete);
     }
   }
   const size_t current_count = event_client_count();
@@ -1185,6 +1291,28 @@ void EspIdfDirectHttpService::reset_raw_session_locked_() {
 
 void EspIdfDirectHttpService::notify_client_count_(size_t count) {
   pending_client_count_event_.post(count);
+}
+
+void EspIdfDirectHttpService::notify_worker_() {
+#if defined(ESP_PLATFORM)
+  worker_notifications_active_.fetch_add(1U, std::memory_order_acq_rel);
+  if (!stopping_.load(std::memory_order_acquire)) {
+    TaskHandle_t task = worker_task_.load(std::memory_order_acquire);
+    if (task != nullptr) xTaskNotifyGive(task);
+  }
+  worker_notifications_active_.fetch_sub(1U, std::memory_order_release);
+#endif
+}
+
+void EspIdfDirectHttpService::notify_raw_worker_() {
+#if defined(ESP_PLATFORM)
+  raw_worker_notifications_active_.fetch_add(1U, std::memory_order_acq_rel);
+  if (!stopping_.load(std::memory_order_acquire)) {
+    TaskHandle_t task = raw_worker_task_.load(std::memory_order_acquire);
+    if (task != nullptr) xTaskNotifyGive(task);
+  }
+  raw_worker_notifications_active_.fetch_sub(1U, std::memory_order_release);
+#endif
 }
 
 bool EspIdfDirectHttpService::lock_() const {
