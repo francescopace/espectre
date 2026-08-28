@@ -27,6 +27,7 @@
 
 #include "protocol_json.h"
 #include "espectre_protocol.h"
+#include "task_scheduling_config.h"
 
 namespace espectre {
 
@@ -164,9 +165,7 @@ bool EspIdfDirectHttpService::setup(const DirectHttpServiceConfig &config,
   client_count_callback_ = std::move(client_count_callback);
 
   httpd_config_t http_config = HTTPD_DEFAULT_CONFIG();
-  // Keep the HTTP server at the same priority as the lowest-priority frontend
-  // loop. A continuously readable socket must not starve ESPHome's CSI drain.
-  http_config.task_priority = tskIDLE_PRIORITY + 1U;
+  http_config.task_priority = task_scheduling::kDirectHttpdPriority;
   http_config.server_port = config_.port;
   http_config.ctrl_port = static_cast<uint16_t>(http_config.ctrl_port + 1U);
   http_config.max_open_sockets = static_cast<uint16_t>(config_.max_event_clients + 5U);
@@ -210,7 +209,7 @@ bool EspIdfDirectHttpService::setup(const DirectHttpServiceConfig &config,
 #if defined(ESP_PLATFORM)
   TaskHandle_t worker_task = nullptr;
   if (xTaskCreate(&worker_entry_, "espectre_http", 4096U, this,
-                  tskIDLE_PRIORITY + 2U, &worker_task) != pdPASS) {
+                  task_scheduling::kDirectWorkerPriority, &worker_task) != pdPASS) {
     worker_running_.store(false, std::memory_order_release);
     httpd_stop(server_);
     server_ = nullptr;
@@ -221,7 +220,7 @@ bool EspIdfDirectHttpService::setup(const DirectHttpServiceConfig &config,
   raw_worker_running_.store(true, std::memory_order_release);
   TaskHandle_t raw_worker_task = nullptr;
   if (xTaskCreate(&raw_worker_entry_, "espectre_raw", 4096U, this,
-                  tskIDLE_PRIORITY + 3U, &raw_worker_task) != pdPASS) {
+                  task_scheduling::kRawWorkerPriority, &raw_worker_task) != pdPASS) {
     raw_worker_running_.store(false, std::memory_order_release);
     worker_running_.store(false, std::memory_order_release);
     vTaskDelete(worker_task);
@@ -234,7 +233,13 @@ bool EspIdfDirectHttpService::setup(const DirectHttpServiceConfig &config,
   raw_worker_task_.store(raw_worker_task, std::memory_order_release);
 #endif
   stopping_.store(false, std::memory_order_release);
-  ESP_LOGI(TAG, "Direct HTTP listening on port %u", static_cast<unsigned>(config_.port));
+  ESP_LOGI(TAG,
+           "Direct HTTP listening on port %u (httpd=%u worker=%u raw=%u core=%d)",
+           static_cast<unsigned>(config_.port),
+           static_cast<unsigned>(http_config.task_priority),
+           static_cast<unsigned>(task_scheduling::kDirectWorkerPriority),
+           static_cast<unsigned>(task_scheduling::kRawWorkerPriority),
+           http_config.core_id);
   return true;
 }
 

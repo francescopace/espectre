@@ -165,7 +165,7 @@ The bundle is source-first. It includes:
 - `src/cpp/espectre_sources.cmake` for CMake / ESP-IDF integration
 - a component-shaped `src/cpp/` root with `CMakeLists.txt`, `espectre_git_version.cmake`, `idf_component.yml`, and `Kconfig.projbuild`, where the optional MQTT, provisioning, OTA, and stream-runtime groups are selected under the "ESPectre SDK" menuconfig menu
 
-Use [SDK.md](SDK.md) for the actual integration model and runtime contracts.
+Use [SDK.md](SDK.md) for the integration model, runtime contracts, optional capability groups, and task scheduling policies.
 
 ## After Installation
 
@@ -220,15 +220,6 @@ Frontend coverage:
 | `hampel_threshold` | float | `5.0` | `1.0-10.0` MAD units |
 
 Migration from earlier v3 snapshots: replace `traffic_generator_rate: N` with `csi_target_pps: N` plus `csi_traffic_mode: internal`. Persisted `pacing` and `disabled` values are migrated once to `internal`; runtime requests using those removed values fail with `invalid_params`.
-
-See [TUNING.md](TUNING.md) for how evaluation cadence, tick alignment, and hit filtering set the expected publish delay.
-
-Use the frontend README for the exact syntax and local workflow:
-
-- [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md)
-- [`README.md` (native)](../src/cpp/frontend/native/README.md)
-- [`README.md` (matter)](../src/cpp/frontend/matter/README.md)
-- [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md)
 
 ### Detection Profile Availability
 

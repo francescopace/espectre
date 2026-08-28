@@ -219,6 +219,25 @@ Both surfaces are distributed as source, but they compile different source sets.
 
 `ESPECTRE_SHARED_INCLUDE_DIRS` puts the SDK root on the include path, so both the flat form (`#include "runtime_interface.h"`) and the layer-prefixed form (`#include "runtime/runtime_interface.h"`) work. Prefer the prefixed form: the shared tree contains generic basenames such as `utils.h` and `filters.h`, and the prefix keeps them from colliding with headers of your own.
 
+### Advanced task scheduling
+
+Full-runtime ESP-IDF integrations expose ESPectre-owned FreeRTOS priorities under the `Advanced task scheduling` menu. These settings are compile-time policies, not runtime controls. Values range from `1` to `10`; higher-priority tasks preempt lower-priority work. Change them only with workload-specific validation because an unsuitable priority can starve sensing, Direct delivery, managed traffic, or system networking. ESP-IDF continues to own the internal Wi-Fi and lwIP task priorities.
+
+The shared runtime defines these priorities:
+
+| Kconfig option | Default | Owner |
+|----------------|---------|-------|
+| `CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY` | `1` | Direct HTTP server |
+| `CONFIG_ESPECTRE_DIRECT_WORKER_TASK_PRIORITY` | `2` | Direct control responses and SSE delivery |
+| `CONFIG_ESPECTRE_RAW_WORKER_TASK_PRIORITY` | `3` | Raw CSI HTTP delivery |
+| `CONFIG_ESPECTRE_TRAFFIC_TASK_PRIORITY` | `1` | Managed PING or DNS traffic |
+
+The Native frontend separately defines `CONFIG_ESPECTRE_NATIVE_LOOP_TASK_PRIORITY`, with a default of `5`, for its frontend and sensing loop. A custom integration owns the task that calls `RuntimeFrontendController::loop()` and must select that task's priority as part of its own scheduling policy.
+
+The validated classic ESP32 Native and Matter profiles override the Direct HTTP server priority to `4` in their `app/sdkconfig.defaults.esp32` files. The shipped classic ESP32 ESPHome example applies the same override through `sdkconfig_options`. Other targets and custom integrations retain the shared default unless they provide an explicit override; the classic ESP32 value is not a universal recommendation.
+
+See [TUNING.md](TUNING.md) for how evaluation cadence, tick alignment, and hit filtering determine expected publish delay.
+
 ### Optional capability groups
 
 | Menuconfig option | `espectre_sources.cmake` variable | Adds | Additional source-list requirements |

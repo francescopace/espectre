@@ -15,6 +15,7 @@
 #include "mdns.h"
 #include "py/mperrno.h"
 #include "py/runtime.h"
+#include "sdkconfig.h"
 
 #define DIRECT_REQUEST_PATH "/espectre/v1/request"
 #define DIRECT_EVENTS_PATH "/espectre/v1/events"
@@ -616,6 +617,7 @@ static mp_obj_t native_direct_start(
 
     httpd_config_t server_config = HTTPD_DEFAULT_CONFIG();
     server_config.server_port = (uint16_t)port;
+    server_config.task_priority = CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY;
     server_config.max_open_sockets = 4;
     server_config.lru_purge_enable = true;
     server_config.enable_so_linger = true;

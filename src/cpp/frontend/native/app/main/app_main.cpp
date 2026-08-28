@@ -37,6 +37,7 @@
 #include "runtime_sensing_kconfig.h"
 #include "standalone_wifi_service.h"
 #include "runtime_log_helpers.h"
+#include "task_scheduling_config.h"
 #include "wifi_provisioning_service.h"
 
 static const char *TAG = "espectre.native.app";
@@ -399,6 +400,8 @@ extern "C" void app_main() {
 #endif
 
   ESP_ERROR_CHECK(g_wifi_manager.start());
-  xTaskCreate(espectre_loop_task, "espectre_native_loop", 8192, nullptr, 5, nullptr);
-  ESP_LOGI(TAG, "ESPectre native firmware started");
+  xTaskCreate(espectre_loop_task, "espectre_native_loop", 8192, nullptr,
+              espectre::task_scheduling::kNativeLoopPriority, nullptr);
+  ESP_LOGI(TAG, "ESPectre native firmware started (loop priority=%u)",
+           static_cast<unsigned>(espectre::task_scheduling::kNativeLoopPriority));
 }

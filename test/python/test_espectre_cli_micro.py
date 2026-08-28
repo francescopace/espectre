@@ -527,6 +527,10 @@ def test_generated_sdkconfig_is_reused_when_kconfig_profile_matches(tmp_path: Pa
     boards = source_dir / "firmware" / "boards"
     boards.mkdir(parents=True)
     (boards / "sdkconfig.micro_espectre").write_text("CONFIG_A=y\n", encoding="utf-8")
+    component = source_dir / "firmware" / "components" / "espectre_core"
+    component.mkdir(parents=True)
+    scheduling_kconfig = component / "Kconfig.projbuild"
+    scheduling_kconfig.write_text("config ESPECTRE_PRIORITY\n", encoding="utf-8")
     build_dir = tmp_path / "build-esp32c3"
     build_dir.mkdir()
     (build_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c3"\n', encoding="utf-8")
@@ -538,6 +542,13 @@ def test_generated_sdkconfig_is_reused_when_kconfig_profile_matches(tmp_path: Pa
     (boards / "sdkconfig.micro_espectre").write_text("CONFIG_A=n\n", encoding="utf-8")
     changed = micro_firmware._firmware_kconfig_profile(source_dir, "c3")
     assert not micro_firmware._generated_sdkconfig_is_current(build_dir, changed)
+
+    (boards / "sdkconfig.micro_espectre").write_text("CONFIG_A=y\n", encoding="utf-8")
+    restored = micro_firmware._firmware_kconfig_profile(source_dir, "c3")
+    micro_firmware._write_kconfig_profile(build_dir, restored)
+    scheduling_kconfig.write_text("config ESPECTRE_OTHER_PRIORITY\n", encoding="utf-8")
+    changed_kconfig = micro_firmware._firmware_kconfig_profile(source_dir, "c3")
+    assert not micro_firmware._generated_sdkconfig_is_current(build_dir, changed_kconfig)
 
 
 def test_project_firmware_configures_csi_phy_without_rebuilding_payload_bound(
@@ -936,9 +947,12 @@ def test_project_boards_use_one_shared_profile_and_only_esp32_override() -> None
         micro.PYTHON_SRC_DIR / "firmware" / "components" / "espectre_core"
     )
     component_cmake = (core_component / "CMakeLists.txt").read_text(encoding="utf-8")
+    component_kconfig = (core_component / "Kconfig.projbuild").read_text(encoding="utf-8")
     assert "ESPECTRE_CORE_SOURCES" in component_cmake
     assert "idf_component_register" in component_cmake
     assert "$ENV{ESPECTRE_CORE_SDK_ROOT}" in component_cmake
+    assert "ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY" in component_kconfig
+    assert "ESPECTRE_TRAFFIC_TASK_PRIORITY" in component_kconfig
 
     native_cpp = (
         micro.PYTHON_SRC_DIR

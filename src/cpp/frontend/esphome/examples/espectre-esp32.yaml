@@ -31,6 +31,9 @@ esp32:
   cpu_frequency: 240MHz
   framework:
     type: esp-idf
+    sdkconfig_options:
+      # Validated classic ESP32 profile; other ESPHome targets retain priority 1.
+      CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY: "4"
 
 # ESPectre - WiFi CSI Motion Detection
 espectre:

@@ -12,7 +12,7 @@
 | **v3.3.0** | After v3.2.0 | Planned | Add a dedicated Apple Home frontend based on Espressif's HomeKit SDK |
 | **v3.4.0** | After v3.3.0 and the presence research gate | Research-gated | Add validated stationary-presence detection as a distinct sensing output |
 | **v3.5.0** | After v3.4.0 and candidate evaluation | Research-gated | Evaluate brief gestures and non-medical breathing-related micro-motion |
-| **v4.0.0** | After v3.5.0 | Planned | Coordinate multiple sensing nodes locally and manage them through an optional web layer |
+| **v4.0.0** | After v3.5.0 | Planned | Coordinate sensing nodes locally, evaluate chip-specific acceleration, and manage deployments through an optional web layer |
 | **v5.0.0** | Hardware-triggered | Exploratory | Adopt IEEE 802.11bf or equivalent sensing on practical future hardware |
 
 ## v3.0.0-rc1 - First Release Candidate
@@ -119,9 +119,9 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 **Exit criteria**: each candidate has a measured promotion, rejection, or deferral decision in [FEATURES.md](FEATURES.md). Release production behavior under `3.5.0` only if at least one candidate passes its declared sensing, resource, privacy, and parity gates.
 
-## v4.0.0 - Cooperative Sensing and Web Orchestration
+## v4.0.0 - Cooperative Sensing, Hardware Acceleration, and Web Orchestration
 
-**Product outcome**: make multiple ESPectre nodes cooperate as one local sensing system and present them through an optional web layer for onboarding, visibility, management, history, and alerting.
+**Product outcome**: make ESPectre nodes cooperate as one local sensing system, use validated chip-specific acceleration where it improves sensing capacity, and manage deployments through an optional web layer.
 
 **Product boundary**: local sensing and node coordination must not depend on the managed service. The web layer supports local, self-hosted, and managed deployment profiles. Raw CSI and unnecessary radio identifiers remain outside the default service boundary, and cooperative nodes exchange only the minimum derived state required by the supported coordination contract.
 
@@ -139,7 +139,19 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 | **4. Product plane** | `relay.espectre.dev`, tenant, location, room, device ownership, roles, accounts, derived telemetry and status ingestion, supported remote settings, signed artifact storage, OTA workflows, room views, history with retention controls, and email alerts | A user can onboard, observe, configure, and update a multi-node deployment without exporting raw CSI or requiring the managed relay for local operation |
 | **5. Launch gate** | Security, abuse resistance, privacy, tenant isolation, resilience, backup, recovery, deployment, self-hosting, and service responsibilities | Operational and security reviews pass, and every deployment profile has complete operator documentation |
 
-**Exit criteria**: all five stages meet their completion conditions, cooperative sensing remains functional without the web layer, the privacy boundary is enforced by default, and local or self-hosted operation does not depend on the managed service.
+### Hardware Acceleration Gate
+
+The portable sensing path remains the baseline, with ESP32-S3 as the first acceleration candidate.
+
+- Profile the pipeline at declared CSI rates, and optimize only measured compute or memory bottlenecks
+- Compare optimized and portable paths with the same captures, detector gates, traffic profiles, and benchmark method
+- Preserve detector semantics, calibration, protocol and frontend compatibility, and a supported fallback path
+- Keep accelerated backends within the existing dual-distribution model, without proprietary-only modules or chip-specific protocol variants
+- Claim processing or airtime gains only when end-to-end measurements support them
+
+**Track exit criteria**: the accelerated backend demonstrates a reproducible improvement in processing rate, detector capacity, analysis-window length, or operational headroom while passing the shared sensing, compatibility, and reliability gates. A failed gate is recorded in the owning ledger and does not block the portable v4 release.
+
+**Release exit criteria**: all five delivery stages meet their completion conditions, cooperative sensing remains functional without the web layer, the privacy boundary is enforced by default, and local or self-hosted operation does not depend on the managed service.
 
 ### Post-Launch Candidates
 

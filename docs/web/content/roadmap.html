@@ -80,10 +80,11 @@
           <div class="roadmap-chapter-meta">
             <span class="roadmap-status status-planned">Next major · v4.0.0</span>
           </div>
-          <h3>Let nearby nodes cooperate as one sensing system.</h3>
-          <p>The planned v4 platform combines local node coordination with an optional, self-hostable WebSocket relay. Devices connect outward through authenticated WSS, browsers use WSS to the same service, and local Direct HTTP remains the independent default.</p>
+          <h3>Accelerate sensing and let nearby nodes work as one system.</h3>
+          <p>The planned v4 platform combines local node coordination, hardware-accelerated sensing, and an optional, self-hostable WebSocket relay. Devices connect outward through authenticated WSS, browsers use WSS to the same service, and local Direct HTTP remains the independent default.</p>
           <ul class="roadmap-chapter-points">
             <li>Discover peers, coordinate traffic, and degrade cleanly when a node disappears.</li>
+            <li>Use hardware acceleration to process more CSI, run more detectors at once, and preserve headroom for networking and coordination.</li>
             <li>Claim and manage rooms and devices, view live and historical state, and configure alerts.</li>
             <li>Choose local, self-hosted, or managed <code>relay.espectre.dev</code> deployment without exporting raw CSI.</li>
             <li>Gate relay launch on pairing, per-device credentials, revocation, tenant isolation, bounded queues, heartbeat, reconnect, rate limits, and a reviewed threat model.</li>

@@ -30,6 +30,7 @@
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
 #include "sta_socket_helpers.h"
+#include "task_scheduling_config.h"
 
 namespace espectre {
 
@@ -306,11 +307,8 @@ bool TrafficGeneratorManager::start(uint32_t gateway_addr) {
   reset_runtime_state_();
   running_.store(true, std::memory_order_relaxed);
   task_exited_.store(false, std::memory_order_relaxed);
-  // The generator is best-effort sensing stimulus. Keeping it above the
-  // frontend loop can starve the single-core C3 while lwIP drains a burst,
-  // preventing the loop watchdog from being serviced.
   const BaseType_t result = xTaskCreate(traffic_task_, "traffic_gen", 3072, this,
-                                        tskIDLE_PRIORITY + 1U, &task_handle_);
+                                        task_scheduling::kTrafficPriority, &task_handle_);
   if (result != pdPASS) {
     running_.store(false, std::memory_order_relaxed);
     task_exited_.store(true, std::memory_order_relaxed);
@@ -325,11 +323,12 @@ bool TrafficGeneratorManager::start(uint32_t gateway_addr) {
   snprintf(gateway, sizeof(gateway), IPSTR, IP2STR(&gateway_ip));
   ESP_LOGI(TAG,
            "Traffic generator started (mode=%s, target=%" PRIu32 " CSI pps, send=%" PRIu32
-           " pps, gateway=%s)",
+           " pps, gateway=%s, priority=%u)",
            traffic_mode_name(mode_),
            target_pps_,
            current_rate_pps(),
-           gateway);
+           gateway,
+           static_cast<unsigned>(task_scheduling::kTrafficPriority));
   return true;
 }
 

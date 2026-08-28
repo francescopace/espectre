@@ -94,4 +94,17 @@ menu "ESPectre Native Frontend"
         string "Home Assistant MQTT discovery prefix"
         default "homeassistant"
 
+    menu "Advanced task scheduling"
+
+        config ESPECTRE_NATIVE_LOOP_TASK_PRIORITY
+            int "Native frontend loop task priority"
+            range 1 10
+            default 5
+            help
+                FreeRTOS priority for the Native frontend and sensing loop.
+                Lowering it can delay CSI processing; raising it can starve
+                Direct, managed traffic, and other lower-priority tasks.
+
+    endmenu
+
 endmenu

@@ -1079,10 +1079,21 @@ def _hash_file_tree(root: Path, extra: bytes = b"") -> str:
 
 def _firmware_kconfig_profile(source_dir: Path, chip: str) -> str:
     """Identify the MicroPython board Kconfig inputs used for generated sdkconfig."""
-    return _hash_file_tree(
+    board_profile = _hash_file_tree(
         source_dir / "firmware" / "boards",
         extra=f"{chip}\n{MICROPYTHON_PATCH_REVISION}\n".encode("utf-8"),
     )
+    scheduling_kconfig = (
+        source_dir
+        / "firmware"
+        / "components"
+        / "espectre_core"
+        / "Kconfig.projbuild"
+    )
+    digest = hashlib.sha256(board_profile.encode("ascii"))
+    if scheduling_kconfig.is_file():
+        digest.update(scheduling_kconfig.read_bytes())
+    return digest.hexdigest()
 
 
 def _generated_sdkconfig_is_current(build_dir: Path, profile: str) -> bool:

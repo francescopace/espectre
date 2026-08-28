@@ -132,4 +132,44 @@ config ESPECTRE_HAMPEL_THRESHOLD
     help
         Hampel threshold as a decimal string in the 1.0-10.0 range.
 
+menu "Advanced task scheduling"
+
+config ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY
+    int "Direct HTTPD task priority"
+    range 1 10
+    default 1
+    help
+        FreeRTOS priority for the ESP-IDF HTTP server task used by Direct.
+        Higher values preempt lower-priority ESPectre work. Target profiles
+        may override this default after validation; excessive values can
+        starve sensing, transport workers, and system networking.
+
+config ESPECTRE_DIRECT_WORKER_TASK_PRIORITY
+    int "Direct response and SSE worker priority"
+    range 1 10
+    default 2
+    help
+        FreeRTOS priority for completed Direct responses and SSE delivery.
+        Raising it can reduce response latency but can starve sensing and
+        increase concurrent pressure on lwIP buffers.
+
+config ESPECTRE_RAW_WORKER_TASK_PRIORITY
+    int "Direct raw CSI worker priority"
+    range 1 10
+    default 3
+    help
+        FreeRTOS priority for raw CSI HTTP streaming. Raising it can starve
+        the frontend loop or Direct control traffic when a raw client is slow.
+
+config ESPECTRE_TRAFFIC_TASK_PRIORITY
+    int "Managed traffic generator priority"
+    range 1 10
+    default 1
+    help
+        FreeRTOS priority for managed PING or DNS sensing traffic. This task
+        is best effort; raising it can starve single-core frontend loops while
+        Wi-Fi and lwIP drain bursts.
+
+endmenu
+
 endmenu

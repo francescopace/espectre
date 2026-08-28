@@ -9,6 +9,11 @@ CONFIG_FREERTOS_HZ=1000
 CONFIG_ESP_WIFI_CSI_ENABLED=y
 CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE=n
 
+# ESPectre-owned native task scheduling defaults. Target profiles may override
+# these values after validation without modifying the native component sources.
+CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY=1
+CONFIG_ESPECTRE_TRAFFIC_TASK_PRIORITY=1
+
 # CSI sensing consumes individual HT20 frames, not aggregated receive bursts.
 CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n
 CONFIG_ESP_WIFI_AMPDU_RX_ENABLED=n

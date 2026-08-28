@@ -19,9 +19,9 @@
 #include "py/mperrno.h"
 #include "py/mphal.h"
 #include "py/runtime.h"
+#include "sdkconfig.h"
 
 #define NATIVE_TRAFFIC_TASK_STACK_SIZE (3072)
-#define NATIVE_TRAFFIC_TASK_PRIORITY (5)
 #define NATIVE_TRAFFIC_REOPEN_ERROR_COUNT (8)
 #define NATIVE_TRAFFIC_STOP_TIMEOUT_MS (1000)
 
@@ -301,7 +301,7 @@ static mp_obj_t native_traffic_start(size_t n_args, const mp_obj_t *args) {
         "espectre_traffic",
         NATIVE_TRAFFIC_TASK_STACK_SIZE,
         self,
-        NATIVE_TRAFFIC_TASK_PRIORITY,
+        CONFIG_ESPECTRE_TRAFFIC_TASK_PRIORITY,
         &self->task
     );
     if (result != pdPASS) {
