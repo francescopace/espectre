@@ -66,11 +66,13 @@ std::vector<CapturedImprovFrame> parse_improv_frames(const std::vector<uint8_t> 
       checksum = static_cast<uint8_t>(checksum + bytes[index]);
     }
     TEST_ASSERT_EQUAL_UINT8(checksum, bytes[position + frame_length - 1U]);
+    TEST_ASSERT_TRUE(position + frame_length < bytes.size());
+    TEST_ASSERT_EQUAL_UINT8('\n', bytes[position + frame_length]);
     frames.push_back(CapturedImprovFrame{
         bytes[position + 7U],
         std::vector<uint8_t>(bytes.begin() + position + 9U, bytes.begin() + position + 9U + payload_length),
     });
-    position += frame_length;
+    position += frame_length + 1U;
   }
   return frames;
 }

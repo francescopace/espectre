@@ -18,6 +18,8 @@
 - Exclude build trees, vendored code, generated pages, datasets, and generated reports from discovery unless the task explicitly targets them.
 - For broad reviews, group files by subsystem and finish one group before loading the next. Do not expand a review into implementation, hardware diagnosis, release work, or Git operations unless the user requests that phase.
 - Prefer concise test output. Run the narrow owner check with quiet or short-traceback options where supported, and rerun only failures verbosely. For noisy builds or hardware workflows, keep successful output to the summary and expose bounded diagnostic tails on failure.
+- Redirect verbose build, test, benchmark, and hardware output to a temporary log. On success, report only the exit status and summary. On failure, read at most the final 120 lines, then inspect narrower sections only as needed.
+- Never run an unbounded serial monitor in the foreground. Use a fixed duration, an event filter, or a temporary log, and read only the relevant interval.
 
 ## Source Of Truth
 

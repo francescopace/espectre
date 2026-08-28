@@ -301,6 +301,9 @@ bool ImprovSerialService::send_frame_(uint8_t type, const uint8_t *data, size_t 
     checksum = static_cast<uint8_t>(checksum + frame[index]);
   }
   frame[position++] = checksum;
+  // ESP Web Tools uses LF to recover framing after console output or a
+  // partial packet that was already buffered when the serial client attached.
+  frame[position++] = static_cast<uint8_t>('\n');
   const size_t pending = transmit_length_ - transmit_position_;
   if (pending + position > transmit_buffer_.size()) {
     return false;
