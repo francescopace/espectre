@@ -68,8 +68,6 @@ def test_project_firmware_preserves_and_refreshes_stale_pinned_sources(
     assert "variable prototype" in backup_path.read_text(encoding="utf-8")
 
 
-
-
 def _make_args(**overrides) -> argparse.Namespace:
     args = {
         "port": None,
@@ -310,18 +308,18 @@ def test_flash_firmware_rejects_missing_custom_firmware(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize(
-    ("chip", "esptool_chip", "offset"),
+    ("chip", "esptool_chip", "baud", "offset"),
     (
-        ("esp32", "esp32", "0x1000"),
-        ("c3", "esp32c3", "0x0"),
-        ("s2", "esp32s2", "0x1000"),
-        ("c5", "esp32c5", "0x2000"),
-        ("c6", "esp32c6", "0x0"),
-        ("s3", "esp32s3", "0x0"),
+        ("esp32", "esp32", "115200", "0x1000"),
+        ("c3", "esp32c3", "460800", "0x0"),
+        ("s2", "esp32s2", "460800", "0x1000"),
+        ("c5", "esp32c5", "460800", "0x2000"),
+        ("c6", "esp32c6", "460800", "0x0"),
+        ("s3", "esp32s3", "460800", "0x0"),
     ),
 )
 def test_flash_firmware_uses_project_build_for_supported_chips(
-    chip: str, esptool_chip: str, offset: str, tmp_path: Path, monkeypatch
+    chip: str, esptool_chip: str, baud: str, offset: str, tmp_path: Path, monkeypatch
 ) -> None:
     firmware = tmp_path / "project.bin"
     firmware.write_bytes(b"project")
@@ -342,6 +340,7 @@ def test_flash_firmware_uses_project_build_for_supported_chips(
     micro.flash_firmware(_make_args(chip=chip))
 
     assert calls[-1][:2] == ["--chip", esptool_chip]
+    assert calls[-1][5] == baud
     assert calls[-1][-2:] == [offset, str(firmware)]
 
 
@@ -446,6 +445,18 @@ def test_project_manifest_does_not_freeze_application(tmp_path: Path) -> None:
     )
 
 
+def test_project_firmware_stages_only_micropython_support(tmp_path: Path) -> None:
+    destination = tmp_path / "firmware-support"
+
+    micro_firmware._stage_firmware_support(micro.PYTHON_SRC_DIR, destination)
+
+    assert not (destination / "shared_core").exists()
+    assert (
+        destination / "components" / "espectre_core" / "CMakeLists.txt"
+    ).is_file()
+    assert (destination / "native_components" / "micropython.cmake").is_file()
+
+
 def test_project_firmware_rejects_unsupported_chip(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="Unsupported project firmware chip: h2"):
         micro_firmware.build_project_firmware(tmp_path, chip="h2", cache_dir=tmp_path)
@@ -470,11 +481,80 @@ def test_project_firmware_aligns_idf_55_lockfile(tmp_path: Path) -> None:
     assert "    version: 5.5.5\n" in lockfile.read_text(encoding="utf-8")
 
 
-def test_project_firmware_disables_legacy_csi_capture(tmp_path: Path) -> None:
+def test_project_firmware_rejects_bootloader_cache_from_another_idf(tmp_path: Path) -> None:
+    build_dir = tmp_path / "build-s3"
+    bootloader_cache = build_dir / "bootloader" / "CMakeCache.txt"
+    bootloader_cache.parent.mkdir(parents=True)
+    bootloader_cache.write_text(
+        "IDF_PATH:UNINITIALIZED=/opt/old-idf\n"
+        "CMAKE_HOME_DIRECTORY:INTERNAL=/opt/old-idf/components/bootloader/subproject\n",
+        encoding="utf-8",
+    )
+
+    assert not micro_firmware._local_build_cache_matches_toolchain(
+        build_dir,
+        tmp_path / "micropython",
+        tmp_path / "current-idf",
+    )
+
+
+def test_project_firmware_accepts_matching_local_cmake_cache(tmp_path: Path) -> None:
+    build_dir = tmp_path / "build-s3"
+    micropython_dir = tmp_path / "micropython"
+    idf_path = tmp_path / "idf"
+    build_dir.mkdir()
+    (build_dir / "CMakeCache.txt").write_text(
+        f"CMAKE_HOME_DIRECTORY:INTERNAL={micropython_dir / 'ports' / 'esp32'}\n",
+        encoding="utf-8",
+    )
+    bootloader_cache = build_dir / "bootloader" / "CMakeCache.txt"
+    bootloader_cache.parent.mkdir()
+    bootloader_cache.write_text(
+        f"IDF_PATH:UNINITIALIZED={idf_path}\n"
+        f"CMAKE_HOME_DIRECTORY:INTERNAL={idf_path / 'components' / 'bootloader' / 'subproject'}\n",
+        encoding="utf-8",
+    )
+
+    assert micro_firmware._local_build_cache_matches_toolchain(
+        build_dir,
+        micropython_dir,
+        idf_path,
+    )
+
+
+def test_generated_sdkconfig_is_reused_when_kconfig_profile_matches(tmp_path: Path) -> None:
+    source_dir = tmp_path / "micro"
+    boards = source_dir / "firmware" / "boards"
+    boards.mkdir(parents=True)
+    (boards / "sdkconfig.micro_espectre").write_text("CONFIG_A=y\n", encoding="utf-8")
+    build_dir = tmp_path / "build-esp32c3"
+    build_dir.mkdir()
+    (build_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c3"\n', encoding="utf-8")
+    profile = micro_firmware._firmware_kconfig_profile(source_dir, "c3")
+    micro_firmware._write_kconfig_profile(build_dir, profile)
+
+    assert micro_firmware._generated_sdkconfig_is_current(build_dir, profile)
+
+    (boards / "sdkconfig.micro_espectre").write_text("CONFIG_A=n\n", encoding="utf-8")
+    changed = micro_firmware._firmware_kconfig_profile(source_dir, "c3")
+    assert not micro_firmware._generated_sdkconfig_is_current(build_dir, changed)
+
+
+def test_project_firmware_configures_csi_phy_without_rebuilding_payload_bound(
+    tmp_path: Path,
+) -> None:
     source_path = tmp_path / "ports" / "esp32" / "network_wlan_csi.c"
     source_path.parent.mkdir(parents=True)
     source_path.write_text(
-        "wifi_csi_config_t config = {\n    .acquire_csi_legacy = 1,\n};\n",
+        "#define CSI_MAX_DATA_LEN (512)\n"
+        "wifi_csi_config_t wifi_6 = {\n"
+        "    .acquire_csi_legacy = 1,\n"
+        "    .acquire_csi_ht20 = 1,\n"
+        "};\n"
+        "wifi_csi_config_t legacy = {\n"
+        "    .lltf_en = 1,\n"
+        "    .htltf_en = 1,\n"
+        "};\n",
         encoding="utf-8",
     )
 
@@ -484,6 +564,11 @@ def test_project_firmware_disables_legacy_csi_capture(tmp_path: Path) -> None:
     source = source_path.read_text(encoding="utf-8")
     assert ".acquire_csi_legacy = 0," in source
     assert ".acquire_csi_legacy = 1," not in source
+    assert ".lltf_en = 0," in source
+    assert ".lltf_en = 1," not in source
+    assert ".htltf_en = 1," in source
+    assert "#define CSI_MAX_DATA_LEN (512)" in source
+    assert "#define CSI_MAX_DATA_LEN (256)" not in source
 
 
 def test_project_firmware_uses_configurable_fixed_csi_records(tmp_path: Path) -> None:
@@ -567,6 +652,210 @@ static mp_obj_t network_wlan_csi_available(csi_state_t *state) {
     assert source.count("static size_t wifi_csi_record_size") == 1
 
 
+def test_project_firmware_hardens_and_observes_csi_ring(tmp_path: Path) -> None:
+    esp32_dir = tmp_path / "ports" / "esp32"
+    esp32_dir.mkdir(parents=True)
+    implementation_path = esp32_dir / "network_wlan_csi.c"
+    implementation_path.write_text(
+        """#include "esp_timer.h"
+
+typedef struct {
+    ringbuf_t ringbuffer;
+    uint16_t buffer_size;
+    volatile uint32_t dropped;
+} csi_state_t;
+
+static csi_state_t *wifi_csi_get_state(void) {
+    csi_state_t *state = MP_STATE_PORT(csi_state);
+    if (state == NULL) {
+        state = m_new_obj(csi_state_t);
+        memset(state, 0, sizeof(*state));
+        state->buffer_size = MICROPY_PY_NETWORK_WLAN_CSI_DEFAULT_BUFFER_SIZE;
+    }
+    return state;
+}
+
+static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info) {
+    csi_state_t *state = MP_STATE_PORT(csi_state);
+    if (state == NULL || state->ringbuffer.buf == NULL) {
+        return;
+    }
+    csi_frame_t frame;
+    if (ringbuf_put_bytes(&state->ringbuffer, (uint8_t *)&frame, sizeof(frame)) != 0) {
+        state->dropped++;
+    }
+}
+
+static esp_err_t wifi_csi_enable(csi_state_t *state) {
+    ringbuf_alloc(&state->ringbuffer, sizeof(csi_frame_t) * state->buffer_size);
+    state->dropped = 0;
+}
+
+static esp_err_t wifi_csi_disable(csi_state_t *state) {
+    esp_err_t err = esp_wifi_set_csi(false);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = esp_wifi_set_csi_rx_cb(NULL, NULL);
+    m_del(uint8_t, state->ringbuffer.buf, state->ringbuffer.size);
+    state->dropped = 0;
+    return ESP_OK;
+}
+
+void wifi_csi_deinit(void) {
+    csi_state_t *state = (csi_state_t *)MP_STATE_PORT(csi_state);
+    if (state == NULL) {
+        return;
+    }
+
+    if (state->ringbuffer.buf != NULL) {
+        esp_wifi_set_csi(false);
+        esp_wifi_set_csi_rx_cb(NULL, NULL);
+        m_del(uint8_t, state->ringbuffer.buf, state->ringbuffer.size);
+    }
+
+    m_del_obj(csi_state_t, state);
+    MP_STATE_PORT(csi_state) = NULL;
+}
+
+static bool wifi_csi_read_frame(csi_frame_t *frame) {
+    csi_state_t *state = (csi_state_t *)MP_STATE_PORT(csi_state);
+    mp_uint_t atomic_state = MICROPY_BEGIN_ATOMIC_SECTION();
+    int result = ringbuf_get_bytes(&state->ringbuffer, (uint8_t *)frame, sizeof(*frame));
+    MICROPY_END_ATOMIC_SECTION(atomic_state);
+    return result == 0;
+}
+
+static mp_obj_t network_wlan_csi_read(size_t n_args, const mp_obj_t *args) {
+    mp_obj_list_t *result;
+    csi_frame_t frame;
+    result->items[2] = mp_obj_new_bytes(frame.mac, sizeof(frame.mac));
+}
+
+static mp_obj_t network_wlan_csi_disable(mp_obj_t self_in) {
+}
+
+static mp_obj_t network_wlan_csi_dropped(mp_obj_t self_in) {
+    (void)self_in;
+    csi_state_t *state = (csi_state_t *)MP_STATE_PORT(csi_state);
+    return mp_obj_new_int(state == NULL ? 0 : state->dropped);
+}
+MP_DEFINE_CONST_FUN_OBJ_1(network_wlan_csi_dropped_obj, network_wlan_csi_dropped);
+
+static mp_obj_t network_wlan_csi_available(mp_obj_t self_in) {
+    csi_state_t *state = (csi_state_t *)MP_STATE_PORT(csi_state);
+    mp_uint_t atomic_state = MICROPY_BEGIN_ATOMIC_SECTION();
+    size_t available = ringbuf_avail(&state->ringbuffer);
+    MICROPY_END_ATOMIC_SECTION(atomic_state);
+    return MP_OBJ_NEW_SMALL_INT(available / sizeof(csi_frame_t));
+}
+""",
+        encoding="utf-8",
+    )
+    header_path = esp32_dir / "network_wlan_csi.h"
+    header_path.write_text(
+        "MP_DECLARE_CONST_FUN_OBJ_1(network_wlan_csi_disable_obj);\n"
+        "MP_DECLARE_CONST_FUN_OBJ_1(network_wlan_csi_dropped_obj);\n",
+        encoding="utf-8",
+    )
+    wlan_path = esp32_dir / "network_wlan.c"
+    wlan_path.write_text(
+        "    { MP_ROM_QSTR(MP_QSTR_csi_disable), MP_ROM_PTR(&network_wlan_csi_disable_obj) },\n"
+        "    { MP_ROM_QSTR(MP_QSTR_csi_dropped), MP_ROM_PTR(&network_wlan_csi_dropped_obj) },\n",
+        encoding="utf-8",
+    )
+
+    micro_firmware._configure_project_csi_rearm(tmp_path)
+    micro_firmware._configure_project_csi_rearm(tmp_path)
+
+    implementation = implementation_path.read_text(encoding="utf-8")
+    assert implementation.count("network_wlan_csi_rearm_obj") == 1
+    assert "volatile uint32_t callbacks;" in implementation
+    assert "portMUX_TYPE lock;" in implementation
+    assert "portMUX_INITIALIZE(&state->lock);" in implementation
+    assert "__atomic_fetch_add(&state->callbacks, 1" in implementation
+    assert "portENTER_CRITICAL(&state->lock);" in implementation
+    assert "MICROPY_BEGIN_ATOMIC_SECTION" not in implementation
+    assert '#include "esp_heap_caps.h"' in implementation
+    assert "MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT" in implementation
+    assert "IRAM_ATTR wifi_csi_rx_cb" not in implementation
+    assert "serialized Wi-Fi task, not an ISR" in implementation
+    assert "network_wlan_csi_update_mac(&result->items[2], frame.mac);" in implementation
+    assert implementation.count("mp_obj_new_bytes(mac, 6)") == 1
+    assert "mp_obj_new_bytes(frame.mac, sizeof(frame.mac))" not in implementation
+    assert "heap_caps_malloc" in implementation
+    assert "heap_caps_free" in implementation
+    assert "m_del(uint8_t, state->ringbuffer.buf, state->ringbuffer.size);" not in implementation
+    assert "wifi_csi_disable(state) != ESP_OK" in implementation
+    assert "intentionally retain the" in implementation
+    assert "sizeof(csi_frame_t) * state->buffer_size + 1" in implementation
+    assert implementation.index(
+        "esp_wifi_set_csi_rx_cb(NULL, NULL)"
+    ) < implementation.index("esp_wifi_set_csi(false)")
+    assert "state->ringbuffer.iget = 0;" in implementation
+    assert "state->callbacks = 0;" in implementation
+    assert implementation.count("network_wlan_csi_callbacks_obj") == 1
+    assert header_path.read_text(encoding="utf-8").count("network_wlan_csi_rearm_obj") == 1
+    assert header_path.read_text(encoding="utf-8").count("network_wlan_csi_callbacks_obj") == 1
+    assert wlan_path.read_text(encoding="utf-8").count("MP_QSTR_csi_rearm") == 1
+    assert wlan_path.read_text(encoding="utf-8").count("MP_QSTR_csi_callbacks") == 1
+
+
+def test_project_firmware_rejects_stale_variable_csi_records(tmp_path: Path) -> None:
+    esp32_dir = tmp_path / "ports" / "esp32"
+    esp32_dir.mkdir(parents=True)
+    implementation_path = esp32_dir / "network_wlan_csi.c"
+    implementation = """typedef struct {} csi_frame_header_t;
+typedef struct {
+    ringbuf_t ringbuffer;
+} csi_state_t;
+ringbuf_alloc(&state->ringbuffer, ring_size);
+MICROPY_BEGIN_ATOMIC_SECTION();
+wifi_csi_release_ring(state);
+network_wlan_csi_callbacks_obj;
+MP_REGISTER_ROOT_POINTER(void *csi_state);
+    if (disable_err == ESP_ERR_WIFI_NOT_STARTED || disable_err == ESP_ERR_WIFI_NOT_INIT) {
+}
+"""
+    implementation_path.write_text(implementation, encoding="utf-8")
+    (esp32_dir / "network_wlan_csi.h").write_text(
+        "network_wlan_csi_callbacks_obj;\n",
+        encoding="utf-8",
+    )
+    (esp32_dir / "network_wlan.c").write_text(
+        "MP_QSTR_csi_callbacks;\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="stale variable-record CSI source"):
+        micro_firmware._configure_project_csi_rearm(tmp_path)
+
+
+def test_project_firmware_reserves_native_heap_from_gc_growth(tmp_path: Path) -> None:
+    source_path = tmp_path / "ports" / "esp32" / "gccollect.c"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text(
+        """// The largest new region that is available to become Python heap is the largest
+// free block in the ESP-IDF system heap.
+size_t gc_get_max_new_split(void) {
+    return heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
+}
+""",
+        encoding="utf-8",
+    )
+
+    micro_firmware._configure_project_gc_heap_reserve(tmp_path)
+    micro_firmware._configure_project_gc_heap_reserve(tmp_path)
+
+    source = source_path.read_text(encoding="utf-8")
+    assert source.count("ESPECTRE_GC_MAX_NEW_SPLIT_SIZE") == 4
+    assert source.count("ESPECTRE_GC_NATIVE_HEAP_RESERVE") == 4
+    assert "#define ESPECTRE_GC_MAX_NEW_SPLIT_SIZE (56 * 1024)" in source
+    assert "#define ESPECTRE_GC_NATIVE_HEAP_RESERVE (32 * 1024)" in source
+    assert "largest - ESPECTRE_GC_NATIVE_HEAP_RESERVE" in source
+    assert "MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT" in source
+    assert "heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT)" not in source
 
 
 def test_project_firmware_exposes_dual_band_mode_configuration(tmp_path: Path) -> None:
@@ -589,6 +878,27 @@ def test_project_firmware_exposes_dual_band_mode_configuration(tmp_path: Path) -
     assert source.count("case MP_QSTR_band_mode:") == 1
     assert source.count("esp_wifi_set_band_mode") == 1
     assert source.count("MP_QSTR_BAND_MODE_2G_ONLY") == 1
+
+
+def test_project_firmware_exposes_bssid_channel_pin(tmp_path: Path) -> None:
+    source_path = tmp_path / "ports" / "esp32" / "network_wlan.c"
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text(
+        """    enum { ARG_ssid, ARG_key, ARG_bssid };
+        { MP_QSTR_bssid, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },
+            memcpy(wifi_sta_config.sta.bssid, p, sizeof(wifi_sta_config.sta.bssid));
+        }
+""",
+        encoding="utf-8",
+    )
+
+    micro_firmware._configure_project_wifi_channel_pin(tmp_path)
+    micro_firmware._configure_project_wifi_channel_pin(tmp_path)
+
+    source = source_path.read_text(encoding="utf-8")
+    assert source.count("ARG_channel") == 4
+    assert source.count("MP_QSTR_channel") == 1
+    assert source.count("wifi_sta_config.sta.channel") == 1
 
 
 def test_project_boards_use_one_shared_profile_and_only_esp32_override() -> None:

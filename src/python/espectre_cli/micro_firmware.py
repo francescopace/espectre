@@ -4,12 +4,23 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
 import subprocess
 from dataclasses import replace
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - exercised on Windows
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:  # pragma: no cover - exercised on POSIX
+    msvcrt = None
 
 from .common import FIRMWARE_CACHE_DIR, MICROPYTHON_FIRMWARE_BUILD, REPO_ROOT
 from .idf import (
@@ -151,20 +162,555 @@ def _align_idf_lockfile(micropython_dir: Path, chip: str, idf_version: str) -> N
 
 
 def _configure_project_csi_capture(micropython_dir: Path) -> None:
-    """Restrict the project firmware's Wi-Fi 6 CSI capture to HT20 frames."""
+    """Match the production Native PHY profile."""
     source_path = micropython_dir / "ports" / "esp32" / "network_wlan_csi.c"
     source = source_path.read_text(encoding="utf-8")
-    upstream_setting = ".acquire_csi_legacy = 1,"
-    project_setting = ".acquire_csi_legacy = 0,"
-    if upstream_setting in source:
-        source_path.write_text(
-            source.replace(upstream_setting, project_setting, 1),
-            encoding="utf-8",
-        )
-        return
-    if project_setting not in source:
+    source = source.replace(".acquire_csi_legacy = 1,", ".acquire_csi_legacy = 0,", 1)
+    source = source.replace(".lltf_en = 1,", ".lltf_en = 0,", 1)
+    source_path.write_text(source, encoding="utf-8")
+
+    has_wifi_6_profile = ".acquire_csi_legacy" in source
+    has_legacy_profile = ".lltf_en" in source
+    if has_wifi_6_profile and ".acquire_csi_legacy = 0," not in source:
         raise RuntimeError(
             f"MicroPython CSI legacy-capture setting is missing: {source_path}"
+        )
+    if has_legacy_profile and (
+        ".lltf_en = 0," not in source or ".htltf_en = 1," not in source
+    ):
+        raise RuntimeError(
+            f"MicroPython CSI HT20 LTF profile is missing: {source_path}"
+        )
+    if not has_wifi_6_profile and not has_legacy_profile:
+        raise RuntimeError(f"MicroPython CSI PHY profile is missing: {source_path}")
+
+
+def _configure_project_csi_rearm(micropython_dir: Path) -> None:
+    """Harden the CSI ring and expose native callback observability."""
+    esp32_dir = micropython_dir / "ports" / "esp32"
+    implementation_path = esp32_dir / "network_wlan_csi.c"
+    header_path = esp32_dir / "network_wlan_csi.h"
+    wlan_path = esp32_dir / "network_wlan.c"
+
+    implementation = implementation_path.read_text(encoding="utf-8")
+    documented_disable_errors = (
+        "    if (disable_err == ESP_ERR_WIFI_NOT_STARTED || "
+        "disable_err == ESP_ERR_WIFI_NOT_INIT) {"
+    )
+    normalized_disable_errors = (
+        "    if (disable_err == ESP_ERR_INVALID_ARG ||\n"
+        "        disable_err == ESP_ERR_WIFI_NOT_STARTED || "
+        "disable_err == ESP_ERR_WIFI_NOT_INIT) {"
+    )
+    if documented_disable_errors in implementation:
+        implementation = implementation.replace(
+            documented_disable_errors,
+            normalized_disable_errors,
+            1,
+        )
+        implementation_path.write_text(implementation, encoding="utf-8")
+    # The variable-record prototype was benchmarked and rejected. A patch
+    # revision refresh must restore the pinned fixed-record source before this
+    # hardening runs, otherwise an old cache could silently select that layout.
+    if "csi_frame_header_t" in implementation:
+        raise RuntimeError(
+            f"stale variable-record CSI source survived the patch refresh: {implementation_path}"
+        )
+
+    # Newer CSI sources own their state and receive ring in native memory and
+    # already provide the hardened lifecycle. Do not rewrite that upstreamable
+    # implementation with the compatibility transforms below.
+    if "static csi_state_t *wifi_csi_state;" in implementation:
+        header = header_path.read_text(encoding="utf-8")
+        wlan = wlan_path.read_text(encoding="utf-8")
+        required_implementation = (
+            "heap_caps_calloc",
+            "heap_caps_malloc",
+            "wifi_csi_release_ring",
+            "network_wlan_csi_rearm_obj",
+            "network_wlan_csi_callbacks_obj",
+        )
+        required_header = (
+            "network_wlan_csi_rearm_obj",
+            "network_wlan_csi_callbacks_obj",
+        )
+        required_wlan = (
+            "MP_QSTR_csi_rearm",
+            "MP_QSTR_csi_callbacks",
+        )
+        if (
+            any(token not in implementation for token in required_implementation)
+            or any(token not in header for token in required_header)
+            or any(token not in wlan for token in required_wlan)
+        ):
+            raise RuntimeError(
+                f"MicroPython native CSI lifecycle is incomplete: {implementation_path}"
+            )
+        return
+
+    implementation = implementation.replace(
+        "static void IRAM_ATTR wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info) {",
+        "static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info) {",
+        1,
+    ).replace(
+        "        const byte *current = mp_obj_str_get_data(*mac_obj, &current_length);",
+        "        const char *current = mp_obj_str_get_data(*mac_obj, &current_length);",
+        1,
+    ).replace(
+        "    // Keep this static to avoid putting a large frame on the ISR stack.\n",
+        "    // The ESP-IDF Wi-Fi task serializes callback invocations. Keep the\n"
+        "    // frame static to avoid consuming that task's limited stack.\n",
+        1,
+    )
+    callback_signature = (
+        "static void wifi_csi_rx_cb(void *ctx, wifi_csi_info_t *info) {\n"
+    )
+    if "ESP-IDF Wi-Fi task serializes callback invocations" not in implementation:
+        implementation = implementation.replace(
+            callback_signature,
+            callback_signature
+            + "    // ESP-IDF invokes CSI from its serialized Wi-Fi task, not an ISR.\n",
+            1,
+        )
+    mac_allocation = (
+        "    result->items[2] = mp_obj_new_bytes(frame.mac, sizeof(frame.mac));\n"
+    )
+    if mac_allocation in implementation:
+        read_anchor = (
+            "static mp_obj_t network_wlan_csi_read(size_t n_args, "
+            "const mp_obj_t *args) {\n"
+        )
+        if read_anchor not in implementation:
+            raise RuntimeError(
+                f"MicroPython CSI reusable-MAC read anchor is missing: {implementation_path}"
+            )
+        mac_helper = """static void network_wlan_csi_update_mac(mp_obj_t *mac_obj, const uint8_t *mac) {
+    bool unchanged = false;
+    if (*mac_obj != MP_OBJ_NULL && mp_obj_is_type(*mac_obj, &mp_type_bytes)) {
+        size_t current_length = 0;
+        const char *current = mp_obj_str_get_data(*mac_obj, &current_length);
+        unchanged = current_length == 6 && memcmp(current, mac, 6) == 0;
+    }
+    if (!unchanged) {
+        *mac_obj = mp_obj_new_bytes(mac, 6);
+    }
+}
+
+"""
+        implementation = implementation.replace(
+            read_anchor,
+            mac_helper + read_anchor,
+            1,
+        ).replace(
+            mac_allocation,
+            "    network_wlan_csi_update_mac(&result->items[2], frame.mac);\n",
+            1,
+        )
+    # Persist the independent callback/MAC hot-path updates before the
+    # idempotent hardening blocks reread the generated source below.  Without
+    # this write, an already-hardened checkout silently lost these two updates.
+    implementation_path.write_text(implementation, encoding="utf-8")
+    if "volatile uint32_t callbacks;" not in implementation:
+        replacements = (
+            (
+                "    if (state == NULL || state->ringbuffer.buf == NULL) {\n"
+                "        return;\n"
+                "    }",
+                "    if (info == NULL || state == NULL || state->ringbuffer.buf == NULL) {\n"
+                "        return;\n"
+                "    }",
+            ),
+            (
+                "    volatile uint32_t dropped;\n} csi_state_t;",
+                "    volatile uint32_t dropped;\n"
+                "    volatile uint32_t callbacks;\n"
+                "} csi_state_t;",
+            ),
+            (
+                "    if (ringbuf_put_bytes(&state->ringbuffer, (uint8_t *)&frame, sizeof(frame)) != 0) {\n"
+                "        state->dropped++;\n"
+                "    }",
+                "    mp_uint_t atomic_state = MICROPY_BEGIN_ATOMIC_SECTION();\n"
+                "    state->callbacks++;\n"
+                "    if (ringbuf_put_bytes(&state->ringbuffer, (uint8_t *)&frame, sizeof(frame)) != 0) {\n"
+                "        state->dropped++;\n"
+                "    }\n"
+                "    MICROPY_END_ATOMIC_SECTION(atomic_state);",
+            ),
+            (
+                "    ringbuf_alloc(&state->ringbuffer, sizeof(csi_frame_t) * state->buffer_size);\n"
+                "    state->dropped = 0;",
+                "    // ringbuf_t reserves one byte to distinguish full from empty.\n"
+                "    ringbuf_alloc(&state->ringbuffer, sizeof(csi_frame_t) * state->buffer_size + 1);\n"
+                "    state->dropped = 0;\n"
+                "    state->callbacks = 0;",
+            ),
+            (
+                "    state->dropped = 0;\n"
+                "    return ESP_OK;",
+                "    state->dropped = 0;\n"
+                "    state->callbacks = 0;\n"
+                "    return ESP_OK;",
+            ),
+            (
+                "    esp_err_t err = esp_wifi_set_csi(false);\n"
+                "    if (err != ESP_OK) {\n"
+                "        return err;\n"
+                "    }\n"
+                "\n"
+                "    err = esp_wifi_set_csi_rx_cb(NULL, NULL);",
+                "    // Detach the callback before disabling capture so no producer can\n"
+                "    // retain a reference to the ring while it is being released.\n"
+                "    esp_err_t err = esp_wifi_set_csi_rx_cb(NULL, NULL);\n"
+                "    if (err != ESP_OK) {\n"
+                "        return err;\n"
+                "    }\n"
+                "\n"
+                "    err = esp_wifi_set_csi(false);",
+            ),
+            (
+                "        esp_wifi_set_csi(false);\n"
+                "        esp_wifi_set_csi_rx_cb(NULL, NULL);",
+                "        esp_wifi_set_csi_rx_cb(NULL, NULL);\n"
+                "        esp_wifi_set_csi(false);",
+            ),
+            (
+                "static mp_obj_t network_wlan_csi_dropped(mp_obj_t self_in) {\n"
+                "    (void)self_in;\n"
+                "    csi_state_t *state = (csi_state_t *)MP_STATE_PORT(csi_state);\n"
+                "    return mp_obj_new_int(state == NULL ? 0 : state->dropped);\n"
+                "}\n"
+                "MP_DEFINE_CONST_FUN_OBJ_1(network_wlan_csi_dropped_obj, network_wlan_csi_dropped);",
+                "static mp_obj_t network_wlan_csi_dropped(mp_obj_t self_in) {\n"
+                "    (void)self_in;\n"
+                "    csi_state_t *state = (csi_state_t *)MP_STATE_PORT(csi_state);\n"
+                "    mp_uint_t atomic_state = MICROPY_BEGIN_ATOMIC_SECTION();\n"
+                "    uint32_t dropped = state == NULL ? 0 : state->dropped;\n"
+                "    MICROPY_END_ATOMIC_SECTION(atomic_state);\n"
+                "    return mp_obj_new_int_from_uint(dropped);\n"
+                "}\n"
+                "MP_DEFINE_CONST_FUN_OBJ_1(network_wlan_csi_dropped_obj, network_wlan_csi_dropped);\n"
+                "\n"
+                "static mp_obj_t network_wlan_csi_callbacks(mp_obj_t self_in) {\n"
+                "    (void)self_in;\n"
+                "    csi_state_t *state = (csi_state_t *)MP_STATE_PORT(csi_state);\n"
+                "    mp_uint_t atomic_state = MICROPY_BEGIN_ATOMIC_SECTION();\n"
+                "    uint32_t callbacks = state == NULL ? 0 : state->callbacks;\n"
+                "    MICROPY_END_ATOMIC_SECTION(atomic_state);\n"
+                "    return mp_obj_new_int_from_uint(callbacks);\n"
+                "}\n"
+                "MP_DEFINE_CONST_FUN_OBJ_1(network_wlan_csi_callbacks_obj, network_wlan_csi_callbacks);",
+            ),
+        )
+        for original, replacement in replacements:
+            if original not in implementation:
+                raise RuntimeError(
+                    f"MicroPython CSI hardening anchor is missing: {implementation_path}"
+                )
+            implementation = implementation.replace(original, replacement, 1)
+        implementation_path.write_text(implementation, encoding="utf-8")
+
+    implementation = implementation_path.read_text(encoding="utf-8")
+    if "portMUX_TYPE lock;" not in implementation:
+        lock_replacements = (
+            (
+                "    volatile uint32_t callbacks;\n} csi_state_t;",
+                "    volatile uint32_t callbacks;\n"
+                "    portMUX_TYPE lock;\n"
+                "} csi_state_t;",
+            ),
+            (
+                "        memset(state, 0, sizeof(*state));\n"
+                "        state->buffer_size = MICROPY_PY_NETWORK_WLAN_CSI_DEFAULT_BUFFER_SIZE;",
+                "        memset(state, 0, sizeof(*state));\n"
+                "        portMUX_INITIALIZE(&state->lock);\n"
+                "        state->buffer_size = MICROPY_PY_NETWORK_WLAN_CSI_DEFAULT_BUFFER_SIZE;",
+            ),
+            (
+                "    mp_uint_t atomic_state = MICROPY_BEGIN_ATOMIC_SECTION();\n"
+                "    state->callbacks++;\n"
+                "    if (ringbuf_put_bytes(&state->ringbuffer, (uint8_t *)&frame, sizeof(frame)) != 0) {\n"
+                "        state->dropped++;\n"
+                "    }\n"
+                "    MICROPY_END_ATOMIC_SECTION(atomic_state);",
+                "    portENTER_CRITICAL(&state->lock);\n"
+                "    if (ringbuf_put_bytes(&state->ringbuffer, (uint8_t *)&frame, sizeof(frame)) != 0) {\n"
+                "        __atomic_fetch_add(&state->dropped, 1, __ATOMIC_RELAXED);\n"
+                "    }\n"
+                "    portEXIT_CRITICAL(&state->lock);",
+            ),
+            (
+                "    mp_uint_t atomic_state = MICROPY_BEGIN_ATOMIC_SECTION();\n"
+                "    int result = ringbuf_get_bytes(&state->ringbuffer, (uint8_t *)frame, sizeof(*frame));\n"
+                "    MICROPY_END_ATOMIC_SECTION(atomic_state);",
+                "    portENTER_CRITICAL(&state->lock);\n"
+                "    int result = ringbuf_get_bytes(&state->ringbuffer, (uint8_t *)frame, sizeof(*frame));\n"
+                "    portEXIT_CRITICAL(&state->lock);",
+            ),
+            (
+                "    mp_uint_t atomic_state = MICROPY_BEGIN_ATOMIC_SECTION();\n"
+                "    uint32_t dropped = state == NULL ? 0 : state->dropped;\n"
+                "    MICROPY_END_ATOMIC_SECTION(atomic_state);",
+                "    uint32_t dropped = state == NULL\n"
+                "        ? 0\n"
+                "        : __atomic_load_n(&state->dropped, __ATOMIC_RELAXED);",
+            ),
+            (
+                "    mp_uint_t atomic_state = MICROPY_BEGIN_ATOMIC_SECTION();\n"
+                "    uint32_t callbacks = state == NULL ? 0 : state->callbacks;\n"
+                "    MICROPY_END_ATOMIC_SECTION(atomic_state);",
+                "    uint32_t callbacks = state == NULL\n"
+                "        ? 0\n"
+                "        : __atomic_load_n(&state->callbacks, __ATOMIC_RELAXED);",
+            ),
+            (
+                "    mp_uint_t atomic_state = MICROPY_BEGIN_ATOMIC_SECTION();\n"
+                "    size_t available = ringbuf_avail(&state->ringbuffer);\n"
+                "    MICROPY_END_ATOMIC_SECTION(atomic_state);",
+                "    portENTER_CRITICAL(&state->lock);\n"
+                "    size_t available = ringbuf_avail(&state->ringbuffer);\n"
+                "    portEXIT_CRITICAL(&state->lock);",
+            ),
+        )
+        for original, replacement in lock_replacements:
+            if original not in implementation:
+                raise RuntimeError(
+                    f"MicroPython CSI dedicated-lock anchor is missing: {implementation_path}"
+                )
+            implementation = implementation.replace(original, replacement, 1)
+        callback_anchor = (
+            "    if (info == NULL || state == NULL || state->ringbuffer.buf == NULL) {\n"
+            "        return;\n"
+            "    }\n"
+        )
+        if callback_anchor not in implementation:
+            raise RuntimeError(
+                f"MicroPython CSI callback-counter anchor is missing: {implementation_path}"
+            )
+        implementation = implementation.replace(
+            callback_anchor,
+            callback_anchor
+            + "\n    __atomic_fetch_add(&state->callbacks, 1, __ATOMIC_RELAXED);\n",
+            1,
+        )
+        implementation_path.write_text(implementation, encoding="utf-8")
+
+    implementation = implementation_path.read_text(encoding="utf-8")
+    if "heap_caps_malloc" not in implementation:
+        # The Wi-Fi task owns the producer side of this ring. Keep its opaque CSI
+        # bytes out of the conservative MicroPython collector so they cannot be
+        # scanned as false object roots or mutate while a dual-core GC scans them.
+        native_allocation = (
+            "    // The Wi-Fi task writes this ring concurrently with MicroPython GC.\n"
+            "    // Keep it outside the GC heap so collection cannot scan or reclaim it.\n"
+            "    size_t ring_size = sizeof(csi_frame_t) * state->buffer_size + 1;\n"
+            "    state->ringbuffer.buf = heap_caps_malloc(\n"
+            "        ring_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);\n"
+            "    if (state->ringbuffer.buf == NULL) {\n"
+            "        return ESP_ERR_NO_MEM;\n"
+            "    }\n"
+            "    state->ringbuffer.size = ring_size;\n"
+            "    state->ringbuffer.iget = 0;\n"
+            "    state->ringbuffer.iput = 0;"
+        )
+        gc_allocation = (
+            "    // ringbuf_t reserves one byte to distinguish full from empty.\n"
+            "    ringbuf_alloc(&state->ringbuffer, sizeof(csi_frame_t) * state->buffer_size + 1);"
+        )
+        if gc_allocation not in implementation:
+            raise RuntimeError(
+                f"MicroPython CSI native-ring allocation anchor is missing: {implementation_path}"
+            )
+        implementation = implementation.replace(gc_allocation, native_allocation, 1)
+        implementation = implementation.replace(
+            "m_del(uint8_t, state->ringbuffer.buf, state->ringbuffer.size);",
+            "heap_caps_free(state->ringbuffer.buf);",
+        )
+        implementation = implementation.replace(
+            '#include "esp_timer.h"\n',
+            '#include "esp_heap_caps.h"\n#include "esp_timer.h"\n',
+            1,
+        )
+        implementation_path.write_text(implementation, encoding="utf-8")
+
+    implementation = implementation_path.read_text(encoding="utf-8")
+    unsafe_deinit = """    if (state->ringbuffer.buf != NULL) {
+        esp_wifi_set_csi_rx_cb(NULL, NULL);
+        esp_wifi_set_csi(false);
+        heap_caps_free(state->ringbuffer.buf);
+    }
+
+    m_del_obj(csi_state_t, state);
+    MP_STATE_PORT(csi_state) = NULL;"""
+    safe_deinit = """    if (state->ringbuffer.buf != NULL && wifi_csi_disable(state) != ESP_OK) {
+        // A callback that raced with this teardown resolves the root on entry.
+        // Clear it before GC can reclaim the state, and intentionally retain the
+        // native ring rather than exposing the Wi-Fi task to freed memory.
+        MP_STATE_PORT(csi_state) = NULL;
+        return;
+    }
+
+    m_del_obj(csi_state_t, state);
+    MP_STATE_PORT(csi_state) = NULL;"""
+    if unsafe_deinit in implementation:
+        implementation = implementation.replace(unsafe_deinit, safe_deinit, 1)
+        implementation_path.write_text(implementation, encoding="utf-8")
+    elif safe_deinit not in implementation:
+        raise RuntimeError(
+            f"MicroPython CSI safe-deinit anchor is missing: {implementation_path}"
+        )
+
+    if "network_wlan_csi_rearm_obj" not in implementation:
+        anchor = "static mp_obj_t network_wlan_csi_disable(mp_obj_t self_in) {\n"
+        addition = """static mp_obj_t network_wlan_csi_rearm(mp_obj_t self_in) {
+    (void)self_in;
+    csi_state_t *state = (csi_state_t *)MP_STATE_PORT(csi_state);
+    if (state == NULL || state->ringbuffer.buf == NULL) {
+        esp_exceptions(ESP_ERR_INVALID_STATE);
+    }
+
+    esp_exceptions(esp_wifi_set_csi_rx_cb(NULL, NULL));
+    esp_exceptions(esp_wifi_set_csi(false));
+
+    wifi_csi_config_t config;
+    wifi_csi_build_config(&config);
+    esp_exceptions(esp_wifi_set_csi_config(&config));
+
+    mp_uint_t atomic_state = MICROPY_BEGIN_ATOMIC_SECTION();
+    state->ringbuffer.iget = 0;
+    state->ringbuffer.iput = 0;
+    state->dropped = 0;
+    state->callbacks = 0;
+    MICROPY_END_ATOMIC_SECTION(atomic_state);
+
+    esp_exceptions(esp_wifi_set_csi_rx_cb(wifi_csi_rx_cb, NULL));
+    esp_exceptions(esp_wifi_set_csi(true));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(network_wlan_csi_rearm_obj, network_wlan_csi_rearm);
+
+"""
+        if anchor not in implementation:
+            raise RuntimeError(
+                f"MicroPython CSI rearm implementation anchor is missing: {implementation_path}"
+            )
+        implementation_path.write_text(
+            implementation.replace(anchor, addition + anchor, 1),
+            encoding="utf-8",
+        )
+
+    implementation = implementation_path.read_text(encoding="utf-8")
+    old_rearm_lock = (
+        "    mp_uint_t atomic_state = MICROPY_BEGIN_ATOMIC_SECTION();\n"
+        "    state->ringbuffer.iget = 0;\n"
+        "    state->ringbuffer.iput = 0;\n"
+        "    state->dropped = 0;\n"
+        "    state->callbacks = 0;\n"
+        "    MICROPY_END_ATOMIC_SECTION(atomic_state);"
+    )
+    if old_rearm_lock in implementation:
+        implementation = implementation.replace(
+            old_rearm_lock,
+            "    portENTER_CRITICAL(&state->lock);\n"
+            "    state->ringbuffer.iget = 0;\n"
+            "    state->ringbuffer.iput = 0;\n"
+            "    state->dropped = 0;\n"
+            "    state->callbacks = 0;\n"
+            "    portEXIT_CRITICAL(&state->lock);",
+            1,
+        )
+    old_rearm_order = "    esp_exceptions(esp_wifi_set_csi(false));\n    esp_exceptions(esp_wifi_set_csi_rx_cb(NULL, NULL));"
+    if old_rearm_order in implementation:
+        implementation = implementation.replace(
+            old_rearm_order,
+            "    esp_exceptions(esp_wifi_set_csi_rx_cb(NULL, NULL));\n    esp_exceptions(esp_wifi_set_csi(false));",
+            1,
+        )
+    old_rearm_reset = "    state->dropped = 0;\n    MICROPY_END_ATOMIC_SECTION(atomic_state);"
+    rearm_start = implementation.find("static mp_obj_t network_wlan_csi_rearm(")
+    rearm_end = implementation.find("MP_DEFINE_CONST_FUN_OBJ_1(network_wlan_csi_rearm_obj", rearm_start)
+    if rearm_start < 0 or rearm_end < 0:
+        raise RuntimeError(
+            f"MicroPython CSI rearm implementation is missing: {implementation_path}"
+        )
+    rearm_implementation = implementation[rearm_start:rearm_end]
+    if "state->callbacks = 0;" not in rearm_implementation:
+        if old_rearm_reset not in rearm_implementation:
+            raise RuntimeError(
+                f"MicroPython CSI rearm reset anchor is missing: {implementation_path}"
+            )
+        rearm_implementation = rearm_implementation.replace(
+            old_rearm_reset,
+            "    state->dropped = 0;\n    state->callbacks = 0;\n    MICROPY_END_ATOMIC_SECTION(atomic_state);",
+            1,
+        )
+        implementation = (
+            implementation[:rearm_start]
+            + rearm_implementation
+            + implementation[rearm_end:]
+        )
+    implementation_path.write_text(implementation, encoding="utf-8")
+
+    header = header_path.read_text(encoding="utf-8")
+    if "network_wlan_csi_rearm_obj" not in header:
+        anchor = "MP_DECLARE_CONST_FUN_OBJ_1(network_wlan_csi_disable_obj);\n"
+        if anchor not in header:
+            raise RuntimeError(
+                f"MicroPython CSI rearm header anchor is missing: {header_path}"
+            )
+        header_path.write_text(
+            header.replace(
+                anchor,
+                anchor + "MP_DECLARE_CONST_FUN_OBJ_1(network_wlan_csi_rearm_obj);\n",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        header = header_path.read_text(encoding="utf-8")
+    if "network_wlan_csi_callbacks_obj" not in header:
+        anchor = "MP_DECLARE_CONST_FUN_OBJ_1(network_wlan_csi_dropped_obj);\n"
+        if anchor not in header:
+            raise RuntimeError(
+                f"MicroPython CSI callback-counter header anchor is missing: {header_path}"
+            )
+        header_path.write_text(
+            header.replace(
+                anchor,
+                anchor + "MP_DECLARE_CONST_FUN_OBJ_1(network_wlan_csi_callbacks_obj);\n",
+                1,
+            ),
+            encoding="utf-8",
+        )
+
+    wlan = wlan_path.read_text(encoding="utf-8")
+    if "MP_QSTR_csi_rearm" not in wlan:
+        anchor = "    { MP_ROM_QSTR(MP_QSTR_csi_disable), MP_ROM_PTR(&network_wlan_csi_disable_obj) },\n"
+        if anchor not in wlan:
+            raise RuntimeError(
+                f"MicroPython CSI rearm WLAN anchor is missing: {wlan_path}"
+            )
+        wlan_path.write_text(
+            wlan.replace(
+                anchor,
+                anchor + "    { MP_ROM_QSTR(MP_QSTR_csi_rearm), MP_ROM_PTR(&network_wlan_csi_rearm_obj) },\n",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        wlan = wlan_path.read_text(encoding="utf-8")
+    if "MP_QSTR_csi_callbacks" not in wlan:
+        anchor = "    { MP_ROM_QSTR(MP_QSTR_csi_dropped), MP_ROM_PTR(&network_wlan_csi_dropped_obj) },\n"
+        if anchor not in wlan:
+            raise RuntimeError(
+                f"MicroPython CSI callback-counter WLAN anchor is missing: {wlan_path}"
+            )
+        wlan_path.write_text(
+            wlan.replace(
+                anchor,
+                anchor + "    { MP_ROM_QSTR(MP_QSTR_csi_callbacks), MP_ROM_PTR(&network_wlan_csi_callbacks_obj) },\n",
+                1,
+            ),
+            encoding="utf-8",
         )
 
 
@@ -308,6 +854,90 @@ def _configure_project_csi_fixed_records(micropython_dir: Path) -> None:
     source_path.write_text(source, encoding="utf-8")
 
 
+def _configure_project_gc_heap_reserve(micropython_dir: Path) -> None:
+    """Keep split-heap growth from starving Wi-Fi and lwIP native memory."""
+    source_path = micropython_dir / "ports" / "esp32" / "gccollect.c"
+    source = source_path.read_text(encoding="utf-8")
+    if "ESPECTRE_GC_NATIVE_HEAP_RESERVE" in source:
+        old_cap = "#define ESPECTRE_GC_MAX_NEW_SPLIT_SIZE (48 * 1024)"
+        if old_cap in source:
+            source = source.replace(
+                old_cap,
+                "#define ESPECTRE_GC_MAX_NEW_SPLIT_SIZE (56 * 1024)",
+                1,
+            )
+        previous_reserve = "#define ESPECTRE_GC_NATIVE_HEAP_RESERVE (44 * 1024)"
+        if previous_reserve in source:
+            source = source.replace(
+                previous_reserve,
+                "#define ESPECTRE_GC_NATIVE_HEAP_RESERVE (32 * 1024)",
+                1,
+            )
+        if "#ifndef ESPECTRE_GC_MAX_NEW_SPLIT_SIZE" not in source:
+            source = source.replace(
+                "#define ESPECTRE_GC_MAX_NEW_SPLIT_SIZE (56 * 1024)",
+                "#ifndef ESPECTRE_GC_MAX_NEW_SPLIT_SIZE\n"
+                "#define ESPECTRE_GC_MAX_NEW_SPLIT_SIZE (56 * 1024)\n"
+                "#endif",
+                1,
+            )
+        if "#ifndef ESPECTRE_GC_NATIVE_HEAP_RESERVE" not in source:
+            source = source.replace(
+                "#define ESPECTRE_GC_NATIVE_HEAP_RESERVE (32 * 1024)",
+                "#ifndef ESPECTRE_GC_NATIVE_HEAP_RESERVE\n"
+                "#define ESPECTRE_GC_NATIVE_HEAP_RESERVE (32 * 1024)\n"
+                "#endif",
+                1,
+            )
+        source = source.replace(
+            "size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);",
+            "const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;\n"
+            "    size_t largest = heap_caps_get_largest_free_block(caps);",
+            1,
+        )
+        source_path.write_text(source, encoding="utf-8")
+        if (
+            "#define ESPECTRE_GC_MAX_NEW_SPLIT_SIZE (56 * 1024)" not in source
+            or "#define ESPECTRE_GC_NATIVE_HEAP_RESERVE (32 * 1024)" not in source
+            or "MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT" not in source
+        ):
+            raise RuntimeError(
+                f"MicroPython GC heap-reserve profile is inconsistent: {source_path}"
+            )
+        return
+
+    original = """// The largest new region that is available to become Python heap is the largest
+// free block in the ESP-IDF system heap.
+size_t gc_get_max_new_split(void) {
+    return heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
+}
+"""
+    replacement = """// Grow the Python heap in bounded regions while retaining one contiguous block
+// for Wi-Fi, lwIP, the Direct HTTP server, and its command/SSE sockets.
+#ifndef ESPECTRE_GC_MAX_NEW_SPLIT_SIZE
+#define ESPECTRE_GC_MAX_NEW_SPLIT_SIZE (56 * 1024)
+#endif
+#ifndef ESPECTRE_GC_NATIVE_HEAP_RESERVE
+#define ESPECTRE_GC_NATIVE_HEAP_RESERVE (32 * 1024)
+#endif
+
+size_t gc_get_max_new_split(void) {
+    const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    size_t largest = heap_caps_get_largest_free_block(caps);
+    if (largest <= ESPECTRE_GC_NATIVE_HEAP_RESERVE) {
+        return 0;
+    }
+    size_t available = largest - ESPECTRE_GC_NATIVE_HEAP_RESERVE;
+    return available < ESPECTRE_GC_MAX_NEW_SPLIT_SIZE
+        ? available
+        : ESPECTRE_GC_MAX_NEW_SPLIT_SIZE;
+}
+"""
+    if original not in source:
+        raise RuntimeError(
+            f"MicroPython split-heap growth anchor is missing: {source_path}"
+        )
+    source_path.write_text(source.replace(original, replacement, 1), encoding="utf-8")
 
 
 def _configure_project_wifi_band_mode(micropython_dir: Path) -> None:
@@ -355,6 +985,34 @@ def _configure_project_wifi_band_mode(micropython_dir: Path) -> None:
     source_path.write_text(source, encoding="utf-8")
 
 
+def _configure_project_wifi_channel_pin(micropython_dir: Path) -> None:
+    """Allow a BSSID pin to carry its known channel into ESP-IDF."""
+    source_path = micropython_dir / "ports" / "esp32" / "network_wlan.c"
+    source = source_path.read_text(encoding="utf-8")
+    enum_original = "enum { ARG_ssid, ARG_key, ARG_bssid };"
+    enum_patched = "enum { ARG_ssid, ARG_key, ARG_bssid, ARG_channel };"
+    bssid_arg = "        { MP_QSTR_bssid, MP_ARG_KW_ONLY | MP_ARG_OBJ, {.u_obj = mp_const_none} },\n"
+    channel_arg = "        { MP_QSTR_channel, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0} },\n"
+    bssid_block_end = """            memcpy(wifi_sta_config.sta.bssid, p, sizeof(wifi_sta_config.sta.bssid));
+        }
+"""
+    channel_block = """        if (args[ARG_channel].u_int < 0 || args[ARG_channel].u_int > 14) {
+            mp_raise_ValueError(MP_ERROR_TEXT("channel out of range"));
+        }
+        wifi_sta_config.sta.channel = args[ARG_channel].u_int;
+"""
+    if enum_patched in source and channel_arg in source and channel_block in source:
+        return
+    if enum_original not in source or bssid_arg not in source or bssid_block_end not in source:
+        raise RuntimeError(
+            f"MicroPython WLAN channel-pin anchor is missing: {source_path}"
+        )
+    source = source.replace(enum_original, enum_patched, 1)
+    source = source.replace(bssid_arg, bssid_arg + channel_arg, 1)
+    source = source.replace(bssid_block_end, bssid_block_end + channel_block, 1)
+    source_path.write_text(source, encoding="utf-8")
+
+
 def _write_manifest(manifest_path: Path) -> None:
     """Freeze only the ESP32 boot and filesystem helpers, never the application."""
     manifest_path.write_text(
@@ -373,6 +1031,78 @@ def _stage_firmware_support(source_dir: Path, destination: Path) -> None:
     shutil.copytree(support_dir, destination)
 
 
+def _cmake_cache_value(cache_path: Path, name: str) -> str | None:
+    """Return one value from a CMake cache without interpreting its type."""
+    if not cache_path.is_file():
+        return None
+    prefix = f"{name}:"
+    for line in cache_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith(prefix) and "=" in line:
+            return line.split("=", 1)[1]
+    return None
+
+
+def _local_build_cache_matches_toolchain(
+    build_dir: Path,
+    micropython_dir: Path,
+    idf_path: Path,
+) -> bool:
+    """Reject incremental CMake state created with another source or ESP-IDF."""
+    expected_project = (micropython_dir / "ports" / "esp32").resolve()
+    expected_bootloader = (idf_path / "components" / "bootloader" / "subproject").resolve()
+    checks = (
+        (build_dir / "CMakeCache.txt", "CMAKE_HOME_DIRECTORY", expected_project),
+        (build_dir / "bootloader" / "CMakeCache.txt", "CMAKE_HOME_DIRECTORY", expected_bootloader),
+        (build_dir / "bootloader" / "CMakeCache.txt", "IDF_PATH", idf_path.resolve()),
+    )
+    for cache_path, name, expected in checks:
+        cached = _cmake_cache_value(cache_path, name)
+        if cached is not None and Path(cached).expanduser().resolve() != expected:
+            return False
+    return True
+
+
+def _hash_file_tree(root: Path, extra: bytes = b"") -> str:
+    """Return a stable digest of every file under one firmware support tree."""
+    digest = hashlib.sha256()
+    digest.update(extra)
+    if root.is_dir():
+        for path in sorted(root.rglob("*")):
+            if not path.is_file():
+                continue
+            digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(path.read_bytes())
+            digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _firmware_kconfig_profile(source_dir: Path, chip: str) -> str:
+    """Identify the MicroPython board Kconfig inputs used for generated sdkconfig."""
+    return _hash_file_tree(
+        source_dir / "firmware" / "boards",
+        extra=f"{chip}\n{MICROPYTHON_PATCH_REVISION}\n".encode("utf-8"),
+    )
+
+
+def _generated_sdkconfig_is_current(build_dir: Path, profile: str) -> bool:
+    """Return whether the CMake sdkconfig already matches the current board defaults."""
+    sdkconfig = build_dir / "sdkconfig"
+    stamp_path = build_dir / ".espectre-kconfig-profile"
+    if not sdkconfig.is_file() or not stamp_path.is_file():
+        return False
+    try:
+        return stamp_path.read_text(encoding="utf-8").strip() == profile
+    except OSError:
+        return False
+
+
+def _write_kconfig_profile(build_dir: Path, profile: str) -> None:
+    """Record the board Kconfig digest after a successful firmware configure."""
+    build_dir.mkdir(parents=True, exist_ok=True)
+    (build_dir / ".espectre-kconfig-profile").write_text(profile + "\n", encoding="utf-8")
+
+
 def build_project_firmware(
     source_dir: Path,
     *,
@@ -383,6 +1113,48 @@ def build_project_firmware(
     pull_policy: str = "ask",
 ) -> Path:
     """Build a lean project firmware used with filesystem bytecode."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = cache_dir / "micro-esp32.lock"
+    with lock_path.open("a+", encoding="utf-8") as lock_file:
+        # The checkout, staged support tree, and CMake directory are shared by
+        # every MicroPython build. Serialise them so parallel chip benchmarks
+        # cannot remove inputs while another compiler is reading them.
+        if fcntl is not None:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        elif msvcrt is not None:  # pragma: no cover - exercised on Windows
+            lock_file.seek(0, os.SEEK_END)
+            if lock_file.tell() == 0:
+                lock_file.write("\0")
+                lock_file.flush()
+            lock_file.seek(0)
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+        try:
+            return _build_project_firmware_locked(
+                source_dir,
+                chip=chip,
+                clean=clean,
+                cache_dir=cache_dir,
+                backend=backend,
+                pull_policy=pull_policy,
+            )
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            elif msvcrt is not None:  # pragma: no cover - exercised on Windows
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def _build_project_firmware_locked(
+    source_dir: Path,
+    *,
+    chip: str,
+    clean: bool,
+    cache_dir: Path,
+    backend: str,
+    pull_policy: str,
+) -> Path:
+    """Build while holding the shared MicroPython workspace lock."""
     board = PROJECT_FIRMWARE_BOARDS.get(chip)
     firmware_name = PROJECT_FIRMWARE_NAMES.get(chip)
     if board is None or firmware_name is None:
@@ -390,7 +1162,6 @@ def build_project_firmware(
 
     resolved_backend = resolve_idf_build_backend(backend, pull_policy)
 
-    cache_dir.mkdir(parents=True, exist_ok=True)
     workspace = cache_dir / "micro-esp32"
     micropython_dir = workspace / "micropython"
     micropython_lib_dir = workspace / "micropython-lib"
@@ -416,22 +1187,17 @@ def build_project_firmware(
     )
     patch_stamp_path = _prepare_micropython_patch_revision(micropython_dir)
     _configure_project_csi_capture(micropython_dir)
+    _configure_project_csi_rearm(micropython_dir)
     _configure_project_csi_fixed_records(micropython_dir)
+    _configure_project_gc_heap_reserve(micropython_dir)
+    _configure_project_wifi_channel_pin(micropython_dir)
     if chip == "c5":
         _configure_project_wifi_band_mode(micropython_dir)
     patch_stamp_path.write_text(MICROPYTHON_PATCH_REVISION + "\n", encoding="utf-8")
     _stage_firmware_support(source_dir, support_root)
     _write_manifest(manifest_path)
 
-    if clean and build_dir.exists():
-        shutil.rmtree(build_dir)
-    else:
-        # sdkconfig defaults are copied from the repository support tree. Force
-        # CMake to resolve them again so an incremental build cannot silently
-        # retain an older firmware profile.
-        for generated_config in ("sdkconfig", "sdkconfig.old"):
-            (build_dir / generated_config).unlink(missing_ok=True)
-
+    idf_path: Path | None = None
     if resolved_backend.mode == "local":
         idf_environment = resolved_backend.idf_environment
         assert idf_environment is not None
@@ -443,6 +1209,26 @@ def build_project_firmware(
         idf_version = _read_idf_version(idf_path)
     else:
         idf_version = IDF_VERSION
+
+    incompatible_cache = False
+    if resolved_backend.mode == "local" and build_dir.exists():
+        assert idf_path is not None
+        incompatible_cache = not _local_build_cache_matches_toolchain(
+            build_dir,
+            micropython_dir,
+            idf_path,
+        )
+    kconfig_profile = _firmware_kconfig_profile(source_dir, chip)
+    if (clean or incompatible_cache) and build_dir.exists():
+        shutil.rmtree(build_dir)
+    elif not _generated_sdkconfig_is_current(build_dir, kconfig_profile):
+        # sdkconfig defaults are copied from the repository support tree. Refresh
+        # the generated file only when those defaults changed, so an incremental
+        # CMake build can reuse a matching configuration.
+        for generated_config in ("sdkconfig", "sdkconfig.old"):
+            (build_dir / generated_config).unlink(missing_ok=True)
+        (build_dir / ".espectre-kconfig-profile").unlink(missing_ok=True)
+
     _align_idf_lockfile(micropython_dir, chip, idf_version)
     jobs = str(max(1, min(8, os.cpu_count() or 1)))
     if resolved_backend.mode == "docker":
@@ -522,4 +1308,5 @@ def build_project_firmware(
 
     firmware_path = cache_dir / firmware_name
     shutil.copy2(build_dir / "firmware.bin", firmware_path)
+    _write_kconfig_profile(build_dir, kconfig_profile)
     return firmware_path

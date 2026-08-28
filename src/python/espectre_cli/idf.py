@@ -473,6 +473,56 @@ def describe_idf_environment(env: ResolvedIdfEnvironment) -> str:
     return f"using idf.py from PATH at {env.idf_path_entry}"
 
 
+def ccache_binary(path: str | None = None) -> str | None:
+    """Return the ccache executable when it is available on PATH."""
+    if path is None:
+        return shutil.which("ccache")
+    return shutil.which("ccache", path=path)
+
+
+def apply_local_ccache(env: dict[str, str]) -> bool:
+    """Enable ESP-IDF ccache when the binary exists and the caller did not set a policy."""
+    current = env.get("IDF_CCACHE_ENABLE")
+    if current is not None and current != "":
+        return current not in {"0", "false", "False", "no", "No"}
+    if ccache_binary(env.get("PATH")) is None:
+        return False
+    env["IDF_CCACHE_ENABLE"] = "1"
+    return True
+
+
+def idf_subprocess_env(env: ResolvedIdfEnvironment) -> dict[str, str] | None:
+    """Return an explicit subprocess environment when local ccache must be injected."""
+    if env.process_env is not None:
+        process_env = dict(env.process_env)
+        apply_local_ccache(process_env)
+        return process_env
+    if os.environ.get("IDF_CCACHE_ENABLE"):
+        return None
+    if ccache_binary() is None:
+        return None
+    process_env = os.environ.copy()
+    process_env["IDF_CCACHE_ENABLE"] = "1"
+    return process_env
+
+
+def run_idf_subprocess(
+    command: list[str],
+    env: ResolvedIdfEnvironment,
+    *,
+    cwd: Path | None = None,
+    check: bool = True,
+) -> None:
+    """Run one toolchain command, enabling local ccache when available."""
+    extra: dict[str, object] = {}
+    if cwd is not None:
+        extra["cwd"] = cwd
+    process_env = idf_subprocess_env(env)
+    if process_env is not None:
+        extra["env"] = process_env
+    subprocess.run(command, check=check, **extra)
+
+
 def resolve_idf_build_backend(
     requested_backend: str = "auto",
     pull_policy: str = "ask",
@@ -557,10 +607,7 @@ def run_in_idf_environment(
         subprocess_command, _ = prepare_idf_subprocess_command(command, env)
     else:
         subprocess_command = command
-    if env.process_env is None:
-        subprocess.run(subprocess_command, cwd=cwd, check=True)
-    else:
-        subprocess.run(subprocess_command, cwd=cwd, check=True, env=env.process_env)
+    run_idf_subprocess(subprocess_command, env, cwd=cwd)
 
 
 def prepare_idf_subprocess_command_sequence(
@@ -613,11 +660,11 @@ def run_idf_doctor(_args) -> int:
     if export_script is not None:
         print(f"{Fore.CYAN}Export:   {export_script}{Style.RESET_ALL}")
     print(f"{Fore.CYAN}Command:  {' '.join(command)}{Style.RESET_ALL}")
+    process_env = idf_subprocess_env(env)
+    if (process_env or os.environ).get("IDF_CCACHE_ENABLE") == "1":
+        print(f"{Fore.CYAN}Compiler cache: ccache{Style.RESET_ALL}")
     try:
-        if env.process_env is None:
-            subprocess.run(subprocess_command, check=True)
-        else:
-            subprocess.run(subprocess_command, check=True, env=env.process_env)
+        run_idf_subprocess(subprocess_command, env)
     except FileNotFoundError:
         print(f"{Fore.RED}❌ The resolved ESP-IDF launcher could not be started.{Style.RESET_ALL}")
         print_idf_recovery_instructions()
@@ -826,6 +873,9 @@ def run_idf_command(frontend: str, args) -> None:
         raise SystemExit(1)
 
     print(f"{Fore.CYAN}ESP-IDF: {describe_idf_environment(env)}{Style.RESET_ALL}")
+    process_env = idf_subprocess_env(env)
+    if (process_env or os.environ).get("IDF_CCACHE_ENABLE") == "1":
+        print(f"{Fore.CYAN}Compiler cache: ccache{Style.RESET_ALL}")
     try:
         if env.mode == "export" and len(commands) > 1:
             for command in commands:
@@ -833,10 +883,7 @@ def run_idf_command(frontend: str, args) -> None:
             subprocess_command, export_script = prepare_idf_subprocess_command_sequence(commands, env)
             assert export_script is not None
             print(f"{Fore.CYAN}Export:  {export_script}{Style.RESET_ALL}")
-            if env.process_env is None:
-                subprocess.run(subprocess_command, cwd=app_dir, check=True)
-            else:
-                subprocess.run(subprocess_command, cwd=app_dir, check=True, env=env.process_env)
+            run_idf_subprocess(subprocess_command, env, cwd=app_dir)
         else:
             fallback_notice_printed = False
             for command in commands:
@@ -845,10 +892,7 @@ def run_idf_command(frontend: str, args) -> None:
                 if export_script is not None and not fallback_notice_printed:
                     print(f"{Fore.CYAN}Export:  {export_script}{Style.RESET_ALL}")
                     fallback_notice_printed = True
-                if env.process_env is None:
-                    subprocess.run(subprocess_command, cwd=app_dir, check=True)
-                else:
-                    subprocess.run(subprocess_command, cwd=app_dir, check=True, env=env.process_env)
+                run_idf_subprocess(subprocess_command, env, cwd=app_dir)
         if frontend == "matter" and args.idf_command == "flash" and flash_port is not None:
             read_matter_onboarding(flash_port)
     except FileNotFoundError:

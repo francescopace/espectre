@@ -78,7 +78,7 @@ Docker covers firmware compilation only; flashing still uses host serial tooling
 
 #### Optional Compiler Cache
 
-`ccache` is optional. It shortens repeat ESP-IDF builds, especially Matter builds, by reusing unchanged compiler output across build directories. Repository Docker builds enable a persistent cache automatically, so the Docker backend needs no host installation.
+`ccache` is optional. It shortens repeat ESP-IDF builds, especially Matter builds, by reusing unchanged compiler output across build directories. The local `./espectre` backend enables it automatically when `ccache` is on `PATH`. Repository Docker builds enable a persistent cache automatically, so the Docker backend needs no host installation.
 
 Install `ccache` for the local backend:
 
@@ -86,21 +86,20 @@ Install `ccache` for the local backend:
 - Debian or Ubuntu Linux: `sudo apt update && sudo apt install ccache`; on other distributions, install the `ccache` package with the system package manager
 - Windows: the official ESP-IDF Tools installation includes `ccache`; verify it from an ESP-IDF PowerShell with `ccache --version`. For a manually managed toolchain, install the [official Windows release](https://ccache.dev/download.html) or run `choco install ccache` when Chocolatey is available
 
-Enable it in the current macOS or Linux shell before building:
+Confirm the binary is on `PATH`:
 
 ```bash
-export IDF_CCACHE_ENABLE=1
 ccache --version
 ```
 
-Use the equivalent PowerShell environment variable on Windows:
+`./espectre native build`, `./espectre matter build`, `./espectre micro build`, and `./espectre doctor` then print `Compiler cache: ccache` when the cache is active. Set `IDF_CCACHE_ENABLE=0` to disable it for one shell. An explicit `IDF_CCACHE_ENABLE=1` remains supported for toolchains that do not go through the repository wrapper.
+
+Use the equivalent PowerShell environment variable on Windows to disable the cache:
 
 ```powershell
-$env:IDF_CCACHE_ENABLE = "1"
+$env:IDF_CCACHE_ENABLE = "0"
 ccache --version
 ```
-
-Add the environment variable to the shell profile or user environment to enable it in future terminals. ESP-IDF also accepts `idf.py --ccache` for an individual raw ESP-IDF invocation.
 
 Build cleanup, chip-matched flash selection, and namespace-specific flags are documented in [CLI.md](CLI.md#frontend-workflow-commands).
 

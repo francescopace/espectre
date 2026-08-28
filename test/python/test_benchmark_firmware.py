@@ -1451,6 +1451,47 @@ def test_esphome_bootstrap_build_preserves_shared_toolchain_cache(tmp_path):
     assert "--clean-all" not in build
 
 
+def test_benchmark_reuses_idf_build_when_stamp_and_target_match(tmp_path, monkeypatch):
+    app_dir = tmp_path / "native-app"
+    build_dir = app_dir / "build-esp32c3"
+    build_dir.mkdir(parents=True)
+    (build_dir / "flasher_args.json").write_text("{}\n", encoding="utf-8")
+    (build_dir / "CMakeCache.txt").write_text("IDF_TARGET:STRING=esp32c3\n", encoding="utf-8")
+    (app_dir / "sdkconfig.defaults").write_text("CONFIG_X=y\n", encoding="utf-8")
+    monkeypatch.setattr(
+        bench,
+        "IDF_FRONTENDS",
+        {"native": {"app_dir": app_dir, "targets": {"c3": "esp32c3"}}},
+    )
+    monkeypatch.setattr(bench, "append_benchmark_frontend_defaults", lambda _frontend, _lines: None)
+    monkeypatch.setattr(bench, "benchmark_csi_target_pps", lambda: 0)
+
+    bench.record_benchmark_build_profile("native", "c3", "lightweight")
+
+    assert bench.benchmark_build_is_reusable("native", "c3", "lightweight")
+    assert not bench.should_clean_benchmark_build("native", "c3", "lightweight")
+
+
+def test_benchmark_cleans_idf_build_when_override_changes(tmp_path, monkeypatch):
+    app_dir = tmp_path / "native-app"
+    build_dir = app_dir / "build-esp32c3"
+    build_dir.mkdir(parents=True)
+    (build_dir / "flasher_args.json").write_text("{}\n", encoding="utf-8")
+    (build_dir / "CMakeCache.txt").write_text("IDF_TARGET:STRING=esp32c3\n", encoding="utf-8")
+    (app_dir / "sdkconfig.defaults").write_text("CONFIG_X=y\n", encoding="utf-8")
+    monkeypatch.setattr(
+        bench,
+        "IDF_FRONTENDS",
+        {"native": {"app_dir": app_dir, "targets": {"c3": "esp32c3"}}},
+    )
+    monkeypatch.setattr(bench, "append_benchmark_frontend_defaults", lambda _frontend, _lines: None)
+    monkeypatch.setattr(bench, "benchmark_csi_target_pps", lambda: 0)
+    bench.record_benchmark_build_profile("native", "c3", "lightweight")
+    monkeypatch.setattr(bench, "benchmark_csi_target_pps", lambda: 100)
+
+    assert bench.should_clean_benchmark_build("native", "c3", "lightweight")
+
+
 def test_esphome_case_config_can_explicitly_keep_api_compiled_without_listener(tmp_path, monkeypatch):
     source_path = tmp_path / "espectre-c3.yaml"
     source_path.write_text(

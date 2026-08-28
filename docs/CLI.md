@@ -87,6 +87,8 @@ Build environment flags are:
 - `--backend docker`: require the pinned ESP-IDF Docker image.
 - `--pull ask|missing|never`: ask before downloading a missing Docker image, download it automatically, or require it to be cached. The default is `ask`; non-interactive jobs should use `missing` or `never` explicitly.
 
+Local builds enable `ccache` automatically when the binary is on `PATH`. Docker builds already keep a persistent compiler cache. Set `IDF_CCACHE_ENABLE=0` to disable the local cache.
+
 Docker builds use a separate directory such as `build-esp32c3-docker`, which prevents host and container CMake caches from sharing incompatible absolute paths. Docker is a build backend only; `flash` continues to use the detected local ESP-IDF environment and host serial port.
 
 For `flash`, `--chip` selects that chip's build directory, such as `build-esp32c5` for `--chip c5`, without probing the serial device. Without `--chip`, the wrapper selects the serial port first, then prefers the build directory that matches the connected chip detected on that port. Without a match, it falls back to the local configured target or the legacy `build/` layout.

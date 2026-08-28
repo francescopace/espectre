@@ -43,7 +43,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.python.espectre_cli.common import FIRMWARE_CACHE_DIR, detect_chip_type, get_serial_port
-from src.python.espectre_cli.idf import resolve_idf_build_dir_name
+from src.python.espectre_cli.idf import prebuilt_idf_flasher_args_path, resolve_idf_build_dir_name
 from src.python.espectre_cli.micro import deployment_files
 from src.python.espectre_cli.micro_firmware import PROJECT_FIRMWARE_NAMES
 from src.python.espectre_cli.device_discovery import (
@@ -74,6 +74,7 @@ BENCHMARK_LOCAL_ENV_PATH = SCRIPT_DIR / "benchmark_firmware.local.env"
 BENCHMARK_LOCAL_ENV = dotenv_values(BENCHMARK_LOCAL_ENV_PATH) if BENCHMARK_LOCAL_ENV_PATH.is_file() else {}
 BENCHMARK_ARTIFACT_ROOT = REPO_ROOT / "data" / "untracked" / "firmware_benchmarks"
 BENCHMARK_ARTIFACT_SCHEMA_VERSION = 3
+BENCHMARK_BUILD_STAMP_NAME = ".espectre-benchmark.stamp"
 MONITOR_DURATION_SECONDS = 60
 WIFI_CONNECT_WAIT_SECONDS = 60
 DIRECT_DISCOVERY_TIMEOUT_SECONDS = 45
@@ -1618,6 +1619,20 @@ def micro_deployed_source_size(config_path: Path) -> int:
 def esphome_case_config(chip: str, detector: str, port: str | None = None) -> Iterator[Path]:
     del port
     source_path = Path(ESPHOME_CONFIGS[chip])
+    updated = render_esphome_benchmark_yaml(chip, detector)
+    temporary_path = source_path.parent / f".espectre-benchmark-{chip}-{detector}.yaml"
+    if temporary_path.exists():
+        raise RuntimeError(f"temporary benchmark config already exists: {temporary_path}")
+    try:
+        temporary_path.write_text(updated, encoding="utf-8")
+        yield temporary_path
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
+def render_esphome_benchmark_yaml(chip: str, detector: str) -> str:
+    """Return the isolated ESPHome YAML used for one firmware benchmark case."""
+    source_path = Path(ESPHOME_CONFIGS[chip])
     content = source_path.read_text(encoding="utf-8")
     updated, replacements = re.subn(
         r"^(\s*detection_algorithm:\s*)(?:lightweight|high_accuracy)(\s*(?:#.*)?)$",
@@ -1648,27 +1663,11 @@ def esphome_case_config(chip: str, detector: str, port: str | None = None) -> It
         if target_replacements != 1:
             raise RuntimeError(f"could not set CSI target in {source_path}")
     updated = apply_esphome_benchmark_wifi(updated)
-    updated = apply_esphome_benchmark_identity(updated, chip)
-
-    temporary_path = source_path.parent / f".espectre-benchmark-{chip}-{detector}.yaml"
-    if temporary_path.exists():
-        raise RuntimeError(f"temporary benchmark config already exists: {temporary_path}")
-    try:
-        temporary_path.write_text(updated, encoding="utf-8")
-        yield temporary_path
-    finally:
-        temporary_path.unlink(missing_ok=True)
+    return apply_esphome_benchmark_identity(updated, chip)
 
 
-@contextmanager
-def idf_case_environment(frontend: str, chip: str, detector: str) -> Iterator[dict[str, str]]:
-    app_dir = Path(IDF_FRONTENDS[frontend]["app_dir"])
-    idf_target = IDF_FRONTENDS[frontend]["targets"][chip]
-    defaults = [app_dir / "sdkconfig.defaults"]
-    target_defaults = app_dir / f"sdkconfig.defaults.{idf_target}"
-    if target_defaults.is_file():
-        defaults.append(target_defaults)
-
+def render_idf_benchmark_override(frontend: str, chip: str, detector: str) -> str:
+    """Return the temporary SDKCONFIG defaults overlay for one IDF benchmark case."""
     lightweight_enabled = detector == "lightweight"
     override_lines = [
         "# Generated temporary firmware benchmark overrides.",
@@ -1695,7 +1694,19 @@ def idf_case_environment(frontend: str, chip: str, detector: str) -> Iterator[di
         if target_pps > 0:
             override_lines.append(f"CONFIG_ESPECTRE_CSI_TARGET_PPS={target_pps}")
     override_lines.append("")
-    override = "\n".join(override_lines)
+    return "\n".join(override_lines)
+
+
+@contextmanager
+def idf_case_environment(frontend: str, chip: str, detector: str) -> Iterator[dict[str, str]]:
+    app_dir = Path(IDF_FRONTENDS[frontend]["app_dir"])
+    idf_target = IDF_FRONTENDS[frontend]["targets"][chip]
+    defaults = [app_dir / "sdkconfig.defaults"]
+    target_defaults = app_dir / f"sdkconfig.defaults.{idf_target}"
+    if target_defaults.is_file():
+        defaults.append(target_defaults)
+
+    override = render_idf_benchmark_override(frontend, chip, detector)
     temporary_path = app_dir / f".espectre-benchmark-{chip}-{detector}.defaults"
     temporary_sdkconfig = app_dir / f".espectre-benchmark-{chip}-{detector}.sdkconfig"
     temporary_sdkconfig_old = temporary_sdkconfig.with_name(f"{temporary_sdkconfig.name}.old")
@@ -1712,6 +1723,106 @@ def idf_case_environment(frontend: str, chip: str, detector: str) -> Iterator[di
         temporary_path.unlink(missing_ok=True)
         temporary_sdkconfig.unlink(missing_ok=True)
         temporary_sdkconfig_old.unlink(missing_ok=True)
+
+
+def _hash_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _hash_existing_files(paths: Sequence[Path]) -> str:
+    digest = hashlib.sha256()
+    for path in paths:
+        digest.update(path.as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        if path.is_file():
+            digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _cmake_cache_idf_target(build_dir: Path) -> str | None:
+    cache_path = build_dir / "CMakeCache.txt"
+    if not cache_path.is_file():
+        return None
+    prefix = "IDF_TARGET:"
+    try:
+        for line in cache_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith(prefix) and "=" in line:
+                return line.split("=", 1)[1].strip() or None
+    except OSError:
+        return None
+    return None
+
+
+def benchmark_build_dir(frontend: str, chip: str) -> Path:
+    """Return the on-disk build directory reused across firmware benchmark runs."""
+    if frontend == "esphome":
+        return REPO_ROOT / ".esphome" / "build" / f"espectre-benchmark-{chip}"
+    app_dir = Path(IDF_FRONTENDS[frontend]["app_dir"])
+    idf_target = IDF_FRONTENDS[frontend]["targets"][chip]
+    return app_dir / f"build-{idf_target}"
+
+
+def benchmark_build_profile(frontend: str, chip: str, detector: str) -> str:
+    """Identify the configuration that must match before an incremental rebuild."""
+    if frontend == "esphome":
+        return _hash_text(render_esphome_benchmark_yaml(chip, detector))
+    app_dir = Path(IDF_FRONTENDS[frontend]["app_dir"])
+    idf_target = IDF_FRONTENDS[frontend]["targets"][chip]
+    defaults = [app_dir / "sdkconfig.defaults", app_dir / f"sdkconfig.defaults.{idf_target}"]
+    if (app_dir / "sdkconfig.wifi").is_file():
+        defaults.append(app_dir / "sdkconfig.wifi")
+    return _hash_text(
+        "\n".join(
+            [
+                frontend,
+                chip,
+                detector,
+                render_idf_benchmark_override(frontend, chip, detector),
+                _hash_existing_files(defaults),
+            ]
+        )
+    )
+
+
+def _benchmark_build_has_image(frontend: str, chip: str, build_dir: Path) -> bool:
+    if frontend == "esphome":
+        return any(path.is_file() and path.suffix == ".bin" for path in build_dir.rglob("*"))
+    app_dir = Path(IDF_FRONTENDS[frontend]["app_dir"])
+    return prebuilt_idf_flasher_args_path(app_dir, build_dir.name) is not None
+
+
+def benchmark_build_is_reusable(frontend: str, chip: str, detector: str) -> bool:
+    """Return whether the selected chip build already matches this benchmark case."""
+    build_dir = benchmark_build_dir(frontend, chip)
+    stamp_path = build_dir / BENCHMARK_BUILD_STAMP_NAME
+    if not _benchmark_build_has_image(frontend, chip, build_dir) or not stamp_path.is_file():
+        return False
+    if frontend != "esphome":
+        expected_target = IDF_FRONTENDS[frontend]["targets"][chip]
+        cached_target = _cmake_cache_idf_target(build_dir)
+        if cached_target != expected_target:
+            return False
+    try:
+        recorded = stamp_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return False
+    return recorded == benchmark_build_profile(frontend, chip, detector)
+
+
+def record_benchmark_build_profile(frontend: str, chip: str, detector: str) -> None:
+    """Persist the configuration digest after a successful benchmark firmware build."""
+    build_dir = benchmark_build_dir(frontend, chip)
+    build_dir.mkdir(parents=True, exist_ok=True)
+    (build_dir / BENCHMARK_BUILD_STAMP_NAME).write_text(
+        benchmark_build_profile(frontend, chip, detector) + "\n",
+        encoding="utf-8",
+    )
+
+
+def should_clean_benchmark_build(frontend: str, chip: str, detector: str) -> bool:
+    """Wipe the chip build directory only when the previous image cannot be reused."""
+    return not benchmark_build_is_reusable(frontend, chip, detector)
 
 
 def _commands_for_case(
@@ -1873,6 +1984,8 @@ def _build_case_in_context(
     if result.build.returncode != 0:
         result.status = "FAIL"
         result.reasons.append(f"build exited with status {result.build.returncode}")
+        return result
+    record_benchmark_build_profile(case.frontend, chip, case.detector)
     return result
 
 
@@ -2561,12 +2674,15 @@ def run_cpp_build_flash_case(case: BenchmarkCase, chip: str, port: str) -> Bench
     """Build and flash one C++ smoke case without opening a scored transport."""
     print(f"\n{'=' * 72}\n{case.label}\n{'=' * 72}", flush=True)
     try:
-        with case_context(case, chip, port, clean=True) as (env, config):
+        clean = should_clean_benchmark_build(case.frontend, chip, case.detector)
+        if not clean:
+            print(f"Reusing existing {benchmark_build_dir(case.frontend, chip).name} build.", flush=True)
+        with case_context(case, chip, port, clean=clean) as (env, config):
             result = _build_case_in_context(
                 case,
                 chip,
                 port,
-                clean=True,
+                clean=clean,
                 env=env,
                 config=config,
             )
@@ -2655,12 +2771,19 @@ def run_direct_frontend_cases(
         else selected_cases[0]
     )
     try:
-        with case_context(bootstrap_case, chip, port, clean=True) as (env, config):
+        clean = should_clean_benchmark_build(bootstrap_case.frontend, chip, bootstrap_case.detector)
+        if not clean:
+            print(
+                f"Reusing existing {benchmark_build_dir(bootstrap_case.frontend, chip).name} "
+                f"build for {bootstrap_case.label}.",
+                flush=True,
+            )
+        with case_context(bootstrap_case, chip, port, clean=clean) as (env, config):
             bootstrap = _build_case_in_context(
                 bootstrap_case,
                 chip,
                 port,
-                clean=True,
+                clean=clean,
                 env=env,
                 config=config,
             )
