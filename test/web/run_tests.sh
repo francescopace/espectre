@@ -6,7 +6,7 @@
 #
 # Usage:
 #   ./run_tests.sh
-#   ./run_tests.sh test_site_structure.mjs
+#   ./run_tests.sh test_site_tools.mjs
 
 set -euo pipefail
 
