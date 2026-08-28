@@ -398,27 +398,17 @@ std::string RuntimeDirectHttpBridge::wifi_access_points_payload_() const {
   return out;
 }
 
-bool RuntimeDirectHttpBridge::handle_wifi_control_(const EspectreCommand &command,
-                                                    std::string *message) {
+bool apply_wifi_bssid_pin(const std::string &bssid, std::string *message) {
 #if defined(ESP_PLATFORM)
-  if (command.command == "scan_wifi_access_points") {
-    wifi_scan_config_t scan{};
-    const esp_err_t result = esp_wifi_scan_start(&scan, false);
-    if (message != nullptr) {
-      *message = result == ESP_OK ? "Wi-Fi access point scan started"
-                                  : "Wi-Fi access point scan could not be started";
-    }
-    return result == ESP_OK;
-  }
   wifi_config_t config{};
   if (esp_wifi_get_config(WIFI_IF_STA, &config) != ESP_OK) return false;
-  if (command.command == "clear_wifi_bssid") {
+  if (bssid.empty()) {
     config.sta.bssid_set = false;
     std::memset(config.sta.bssid, 0, sizeof(config.sta.bssid));
     config.sta.channel = 0U;
-  } else if (command.command == "set_wifi_bssid" && command.has_wifi_bssid) {
+  } else {
     unsigned int octets[6]{};
-    if (std::sscanf(command.wifi_bssid.c_str(),
+    if (std::sscanf(bssid.c_str(),
                     "%2x:%2x:%2x:%2x:%2x:%2x",
                     &octets[0],
                     &octets[1],
@@ -432,8 +422,7 @@ bool RuntimeDirectHttpBridge::handle_wifi_control_(const EspectreCommand &comman
       config.sta.bssid[index] = static_cast<uint8_t>(octets[index]);
     }
     config.sta.bssid_set = true;
-  } else {
-    return false;
+    config.sta.channel = 0U;
   }
   const bool updated = esp_wifi_set_config(WIFI_IF_STA, &config) == ESP_OK;
   bool reconnect_started = false;
@@ -443,16 +432,41 @@ bool RuntimeDirectHttpBridge::handle_wifi_control_(const EspectreCommand &comman
   }
   if (message != nullptr) {
     *message = updated && reconnect_started
-                   ? (command.command == "clear_wifi_bssid" ? "Wi-Fi BSSID pin cleared"
-                                                             : "Wi-Fi BSSID pin updated")
+                   ? (bssid.empty() ? "Wi-Fi BSSID pin cleared" : "Wi-Fi BSSID pin updated")
                    : "Wi-Fi BSSID pin update failed";
   }
   return updated && reconnect_started;
 #else
-  (void) command;
+  (void) bssid;
   if (message != nullptr) *message = "Wi-Fi control accepted by host test adapter";
   return true;
 #endif
+}
+
+bool RuntimeDirectHttpBridge::handle_wifi_control_(const EspectreCommand &command,
+                                                    std::string *message) {
+  if (command.command == "scan_wifi_access_points") {
+#if defined(ESP_PLATFORM)
+    wifi_scan_config_t scan{};
+    const esp_err_t result = esp_wifi_scan_start(&scan, false);
+    if (message != nullptr) {
+      *message = result == ESP_OK ? "Wi-Fi access point scan started"
+                                  : "Wi-Fi access point scan could not be started";
+    }
+    return result == ESP_OK;
+#else
+    if (message != nullptr) *message = "Wi-Fi control accepted by host test adapter";
+    return true;
+#endif
+  }
+  if (command.command != "set_wifi_bssid" && command.command != "clear_wifi_bssid") {
+    return false;
+  }
+  const std::string pin = command.command == "clear_wifi_bssid" ? std::string{} : command.wifi_bssid;
+  if (config_.wifi_bssid_pin_setter) {
+    return config_.wifi_bssid_pin_setter(pin, message);
+  }
+  return apply_wifi_bssid_pin(pin, message);
 }
 
 std::string RuntimeDirectHttpBridge::capabilities_payload_() const {

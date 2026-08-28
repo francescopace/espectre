@@ -150,6 +150,29 @@ void test_native_frontend_loop_and_shutdown_forward_to_runtime(void) {
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.shutdown_called);
 }
 
+void test_native_frontend_defers_wifi_reconfigure_resume_until_after_runtime_loop(
+    void) {
+  NativeFrontend frontend;
+  NativeFrontend::WifiProvisioningInfo wifi;
+  wifi.ssid = "Lab";
+  frontend.set_wifi_provisioning_info(wifi);
+  TEST_ASSERT_TRUE(frontend.setup());
+
+  frontend.prepare_for_wifi_reconfigure();
+  TEST_ASSERT_TRUE(frontend.wifi_reconfigure_quiesced_);
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
+
+  frontend.resume_after_wifi_reconfigure();
+  TEST_ASSERT_TRUE(frontend.wifi_reconfigure_resume_pending_);
+  TEST_ASSERT_FALSE(frontend_runtime_shim::state.services_armed);
+
+  frontend.loop();
+  TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.loop_calls);
+  TEST_ASSERT_FALSE(frontend.wifi_reconfigure_resume_pending_);
+  TEST_ASSERT_FALSE(frontend.wifi_reconfigure_quiesced_);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.services_armed);
+}
+
 void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_birth_topics(void) {
   frontend_runtime_shim::state.snapshot = make_ready_snapshot();
   MockMqttTransport mqtt;
@@ -1987,6 +2010,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_native_frontend_setup_registers_runtime_listener);
   RUN_TEST(test_native_frontend_setup_fails_when_runtime_setup_fails);
   RUN_TEST(test_native_frontend_loop_and_shutdown_forward_to_runtime);
+  RUN_TEST(
+      test_native_frontend_defers_wifi_reconfigure_resume_until_after_runtime_loop);
   RUN_TEST(test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_birth_topics);
   RUN_TEST(test_native_frontend_ha_birth_message_republishes_discovery_and_state);
   RUN_TEST(test_native_frontend_retries_the_complete_ha_snapshot_after_queue_backpressure);

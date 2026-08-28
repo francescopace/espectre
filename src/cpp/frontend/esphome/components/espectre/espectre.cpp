@@ -29,7 +29,9 @@
 #include "protocol_json.h"
 #include "sdkconfig.h"
 
+#include <cctype>
 #include <cmath>
+#include <cstdio>
 
 namespace esphome {
 namespace espectre_component {
@@ -37,6 +39,23 @@ namespace espectre_component {
 namespace {
 
 constexpr uint32_t kMdnsRetryIntervalMs = 5000U;
+constexpr uint8_t kWifiBssidPinMaxAttempts = 3U;
+constexpr uint32_t kWifiBssidPinCooldownMs = 10000U;
+constexpr uint32_t kWifiBssidPinApplyTimeoutMs = 35000U;
+constexpr uint32_t kWifiBssidPinEnforceRetryMs = 60000U;
+
+bool bssid_equals(const std::string &left, const std::string &right) {
+  if (left.size() != right.size()) {
+    return false;
+  }
+  for (size_t index = 0U; index < left.size(); ++index) {
+    if (std::tolower(static_cast<unsigned char>(left[index])) !=
+        std::tolower(static_cast<unsigned char>(right[index]))) {
+      return false;
+    }
+  }
+  return true;
+}
 
 }  // namespace
 
@@ -51,6 +70,17 @@ void ESpectreComponent::setup() {
     if (this->device_label_preference_.load(&stored) && stored.version == 1U) {
       stored.value.back() = '\0';
       this->device_label_override_ = stored.value.data();
+    }
+    this->wifi_bssid_preference_ =
+        global_preferences->make_preference<StoredWifiBssid>(fnv1_hash("espectre_wifi_bssid"));
+    StoredWifiBssid wifi_bssid;
+    if (this->wifi_bssid_preference_.load(&wifi_bssid) && wifi_bssid.version == 1U &&
+        wifi_bssid.pinned == 1U) {
+      wifi_bssid.value.back() = '\0';
+      const std::string pin = wifi_bssid.value.data();
+      if (pin.size() == 17U) {
+        this->wifi_bssid_pin_ = pin;
+      }
     }
   }
 
@@ -96,6 +126,9 @@ void ESpectreComponent::setup() {
               &this->peer_discovery_,
               [this]() { return &this->latest_diagnostics_; },
               &this->runtime_events_,
+              [this](const std::string &bssid, std::string *message) {
+                return this->begin_wifi_bssid_pin_update_(bssid, message);
+              },
           },
           [this]() { this->sync_direct_config_(); })) {
     ESP_LOGE(TAG, "ESPHome Direct HTTP setup failed");
@@ -124,6 +157,7 @@ ESpectreComponent::~ESpectreComponent() {
 
 void ESpectreComponent::loop() {
   this->runtime_.loop();
+  this->process_wifi_bssid_apply_();
   this->drain_pending_runtime_events_();
   this->update_live_telemetry_enabled_();
   if (!this->direct_api_enabled_) return;
@@ -202,6 +236,221 @@ bool ESpectreComponent::set_device_label_(const std::string &device_label, std::
   }
   if (message != nullptr) *message = "ESPectre label updated";
   return true;
+}
+
+bool ESpectreComponent::persist_wifi_bssid_pin_(const std::string &bssid, std::string *message) {
+  StoredWifiBssid stored;
+  stored.pinned = bssid.empty() ? 0U : 1U;
+  if (!bssid.empty()) {
+    if (bssid.size() >= stored.value.size()) {
+      if (message != nullptr) *message = "Wi-Fi BSSID pin could not be persisted";
+      return false;
+    }
+    std::copy(bssid.begin(), bssid.end(), stored.value.begin());
+  }
+  if (!this->wifi_bssid_preference_.save(&stored)) {
+    if (message != nullptr) *message = "Wi-Fi BSSID pin could not be persisted";
+    return false;
+  }
+  this->wifi_bssid_pin_ = bssid;
+  this->wifi_bssid_enforce_last_failure_ms_ = 0U;
+  this->wifi_bssid_enforce_backoff_active_ = false;
+  if (message != nullptr) {
+    *message = bssid.empty() ? "Wi-Fi BSSID pin cleared" : "Wi-Fi BSSID pin persisted";
+  }
+  return true;
+}
+
+bool ESpectreComponent::begin_wifi_bssid_pin_update_(const std::string &bssid,
+                                                     std::string *message) {
+  if (this->wifi_bssid_apply_mode_ != WifiBssidApplyMode::NONE ||
+      this->wifi_bssid_recovery_pending_) {
+    if (message != nullptr) *message = "Wi-Fi BSSID update already in progress";
+    return false;
+  }
+  if (!bssid.empty() && bssid_equals(this->wifi_associated_bssid_, bssid)) {
+    return this->persist_wifi_bssid_pin_(bssid, message);
+  }
+  if (!bssid.empty() && bssid_equals(this->wifi_bssid_pin_, bssid)) {
+    this->wifi_bssid_apply_mode_ = WifiBssidApplyMode::ENFORCE;
+  } else {
+    this->wifi_bssid_apply_mode_ = WifiBssidApplyMode::UPDATE;
+  }
+  this->wifi_bssid_apply_target_ = bssid;
+  this->wifi_bssid_apply_previous_pin_ = this->wifi_bssid_pin_;
+  this->wifi_bssid_apply_attempts_ = 1U;
+  this->wifi_bssid_apply_started_ms_ = millis();
+  this->wifi_bssid_apply_last_attempt_ms_ = this->wifi_bssid_apply_started_ms_;
+  this->wifi_bssid_apply_saw_disconnect_ = false;
+  this->wifi_bssid_apply_resume_sensing_ = this->runtime_.services_armed();
+  this->runtime_.set_services_armed(false);
+
+  std::string apply_message;
+  if (!apply_wifi_bssid_pin(bssid, &apply_message)) {
+    this->fail_wifi_bssid_apply_(apply_message.c_str());
+    if (message != nullptr) *message = apply_message;
+    return false;
+  }
+  if (message != nullptr) {
+    *message = bssid.empty() ? "Wi-Fi BSSID clear started" : "Wi-Fi BSSID update started";
+  }
+  return true;
+}
+
+void ESpectreComponent::finish_wifi_bssid_apply_() {
+  const bool resume_sensing = this->wifi_bssid_apply_resume_sensing_;
+  this->wifi_bssid_apply_mode_ = WifiBssidApplyMode::NONE;
+  this->wifi_bssid_apply_target_.clear();
+  this->wifi_bssid_apply_previous_pin_.clear();
+  this->wifi_bssid_apply_attempts_ = 0U;
+  this->wifi_bssid_apply_started_ms_ = 0U;
+  this->wifi_bssid_apply_last_attempt_ms_ = 0U;
+  this->wifi_bssid_apply_saw_disconnect_ = false;
+  this->wifi_bssid_apply_resume_sensing_ = false;
+  this->wifi_bssid_enforce_last_failure_ms_ = 0U;
+  this->wifi_bssid_enforce_backoff_active_ = false;
+  if (resume_sensing) this->runtime_.set_services_armed(true);
+}
+
+void ESpectreComponent::fail_wifi_bssid_apply_(const char *reason) {
+  const WifiBssidApplyMode mode = this->wifi_bssid_apply_mode_;
+  const std::string recovery_pin =
+      mode == WifiBssidApplyMode::UPDATE ? this->wifi_bssid_apply_previous_pin_ : std::string{};
+  ESP_LOGW(TAG,
+           "Wi-Fi BSSID %s failed: %s; restoring %s association",
+           mode == WifiBssidApplyMode::UPDATE ? "update" : "enforcement",
+           reason != nullptr ? reason : "unknown error",
+           recovery_pin.empty() ? "automatic" : "the previous pinned");
+  std::string recovery_message;
+  const bool recovery_started = apply_wifi_bssid_pin(recovery_pin, &recovery_message);
+  if (!recovery_started) {
+    ESP_LOGW(TAG, "Wi-Fi BSSID recovery could not be started: %s", recovery_message.c_str());
+  }
+  if (mode == WifiBssidApplyMode::ENFORCE) {
+    this->wifi_bssid_enforce_last_failure_ms_ = millis();
+    this->wifi_bssid_enforce_backoff_active_ = true;
+  }
+  const bool resume_sensing = this->wifi_bssid_apply_resume_sensing_;
+  this->wifi_bssid_apply_mode_ = WifiBssidApplyMode::NONE;
+  this->wifi_bssid_apply_target_.clear();
+  this->wifi_bssid_apply_previous_pin_.clear();
+  this->wifi_bssid_apply_attempts_ = 0U;
+  this->wifi_bssid_apply_started_ms_ = 0U;
+  this->wifi_bssid_apply_last_attempt_ms_ = 0U;
+  this->wifi_bssid_apply_saw_disconnect_ = false;
+  this->wifi_bssid_apply_resume_sensing_ = false;
+  if (!recovery_started) {
+    if (resume_sensing) this->runtime_.set_services_armed(true);
+  } else {
+    this->wifi_bssid_recovery_pending_ = true;
+    this->wifi_bssid_recovery_resume_sensing_ = resume_sensing;
+    this->wifi_bssid_recovery_started_ms_ = millis();
+  }
+}
+
+void ESpectreComponent::process_wifi_bssid_apply_() {
+  if (this->wifi_bssid_apply_mode_ == WifiBssidApplyMode::NONE) {
+    if (this->wifi_bssid_recovery_pending_ &&
+        !this->wifi_associated_bssid_.empty() && this->wifi_has_ipv4_) {
+      const bool resume_sensing = this->wifi_bssid_recovery_resume_sensing_;
+      this->wifi_bssid_recovery_pending_ = false;
+      this->wifi_bssid_recovery_resume_sensing_ = false;
+      this->wifi_bssid_recovery_started_ms_ = 0U;
+      if (resume_sensing)
+        this->runtime_.set_services_armed(true);
+      return;
+    }
+    if (this->wifi_bssid_recovery_pending_ &&
+        millis() - this->wifi_bssid_recovery_started_ms_ >= kWifiBssidPinApplyTimeoutMs) {
+      ESP_LOGW(TAG, "Wi-Fi BSSID recovery timed out; restoring automatic association");
+      std::string recovery_message;
+      (void) apply_wifi_bssid_pin({}, &recovery_message);
+      const bool resume_sensing = this->wifi_bssid_recovery_resume_sensing_;
+      this->wifi_bssid_recovery_pending_ = false;
+      this->wifi_bssid_recovery_resume_sensing_ = false;
+      this->wifi_bssid_recovery_started_ms_ = 0U;
+      if (resume_sensing) this->runtime_.set_services_armed(true);
+    }
+    return;
+  }
+
+  const bool associated_after_reconnect =
+      this->wifi_bssid_apply_saw_disconnect_ && !this->wifi_associated_bssid_.empty();
+  const bool target_matches = this->wifi_bssid_apply_target_.empty() ||
+                              bssid_equals(this->wifi_associated_bssid_,
+                                           this->wifi_bssid_apply_target_);
+  if (associated_after_reconnect && target_matches && this->wifi_has_ipv4_) {
+    if (this->wifi_bssid_apply_mode_ == WifiBssidApplyMode::UPDATE) {
+      std::string persist_message;
+      if (!this->persist_wifi_bssid_pin_(this->wifi_bssid_apply_target_, &persist_message)) {
+        this->fail_wifi_bssid_apply_(persist_message.c_str());
+        return;
+      }
+    }
+    ESP_LOGI(TAG,
+             "Wi-Fi BSSID %s completed on %s",
+             this->wifi_bssid_apply_mode_ == WifiBssidApplyMode::UPDATE ? "update" : "enforcement",
+             this->wifi_associated_bssid_.c_str());
+    this->finish_wifi_bssid_apply_();
+    return;
+  }
+
+  const uint32_t now_ms = millis();
+  if (now_ms - this->wifi_bssid_apply_started_ms_ >= kWifiBssidPinApplyTimeoutMs) {
+    this->fail_wifi_bssid_apply_("association verification timed out");
+    return;
+  }
+  if (!associated_after_reconnect || target_matches ||
+      this->wifi_bssid_apply_attempts_ >= kWifiBssidPinMaxAttempts ||
+      now_ms - this->wifi_bssid_apply_last_attempt_ms_ < kWifiBssidPinCooldownMs) {
+    return;
+  }
+
+  this->wifi_bssid_apply_attempts_++;
+  this->wifi_bssid_apply_last_attempt_ms_ = now_ms;
+  this->wifi_bssid_apply_saw_disconnect_ = false;
+  std::string apply_message;
+  if (!apply_wifi_bssid_pin(this->wifi_bssid_apply_target_, &apply_message)) {
+    ESP_LOGW(TAG, "Wi-Fi BSSID retry could not be started: %s", apply_message.c_str());
+  }
+}
+
+void ESpectreComponent::handle_wifi_bssid_association_(const std::string &associated_bssid) {
+  this->wifi_associated_bssid_ = associated_bssid;
+  if (this->wifi_bssid_recovery_pending_) {
+    // Wait for the component loop to drain the runtime's Wi-Fi transition and
+    // observe IPv4 before rearming CSI.
+    return;
+  }
+  if (this->wifi_bssid_apply_mode_ != WifiBssidApplyMode::NONE) {
+    this->process_wifi_bssid_apply_();
+    return;
+  }
+  if (this->wifi_bssid_pin_.empty() ||
+      bssid_equals(this->wifi_associated_bssid_, this->wifi_bssid_pin_)) {
+    this->wifi_bssid_enforce_last_failure_ms_ = 0U;
+    this->wifi_bssid_enforce_backoff_active_ = false;
+    return;
+  }
+  const uint32_t now_ms = millis();
+  if (this->wifi_bssid_enforce_backoff_active_ &&
+      now_ms - this->wifi_bssid_enforce_last_failure_ms_ < kWifiBssidPinEnforceRetryMs) {
+    return;
+  }
+
+  std::string apply_message;
+  this->wifi_bssid_apply_mode_ = WifiBssidApplyMode::ENFORCE;
+  this->wifi_bssid_apply_target_ = this->wifi_bssid_pin_;
+  this->wifi_bssid_apply_previous_pin_ = this->wifi_bssid_pin_;
+  this->wifi_bssid_apply_attempts_ = 1U;
+  this->wifi_bssid_apply_started_ms_ = now_ms;
+  this->wifi_bssid_apply_last_attempt_ms_ = now_ms;
+  this->wifi_bssid_apply_saw_disconnect_ = false;
+  this->wifi_bssid_apply_resume_sensing_ = this->runtime_.services_armed();
+  this->runtime_.set_services_armed(false);
+  if (!apply_wifi_bssid_pin(this->wifi_bssid_pin_, &apply_message)) {
+    this->fail_wifi_bssid_apply_(apply_message.c_str());
+  }
 }
 
 void ESpectreComponent::setup_mdns_discovery_() {
@@ -580,17 +829,34 @@ void ESpectreComponent::on_ip_state(const network::IPAddresses &ips,
   }
   this->pending_mdns_ipv4_ = ipv4;
   this->mdns_ipv4_pending_ = true;
+  this->wifi_has_ipv4_ = ipv4 != 0U;
 }
 #endif
 
 #ifdef USE_WIFI_CONNECT_STATE_LISTENERS
 void ESpectreComponent::on_wifi_connect_state(StringRef ssid,
                                               std::span<const uint8_t, 6> bssid) {
-  (void) bssid;
   if (ssid.size() == 0U) {
     this->pending_mdns_ipv4_ = 0U;
     this->mdns_ipv4_pending_ = true;
+    this->wifi_associated_bssid_.clear();
+    this->wifi_has_ipv4_ = false;
+    if (this->wifi_bssid_apply_mode_ != WifiBssidApplyMode::NONE) {
+      this->wifi_bssid_apply_saw_disconnect_ = true;
+    }
+    return;
   }
+  char associated[18]{};
+  std::snprintf(associated,
+                sizeof(associated),
+                "%02X:%02X:%02X:%02X:%02X:%02X",
+                bssid[0],
+                bssid[1],
+                bssid[2],
+                bssid[3],
+                bssid[4],
+                bssid[5]);
+  this->handle_wifi_bssid_association_(associated);
 }
 #endif
 

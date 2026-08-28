@@ -24,6 +24,7 @@
 #undef private
 
 #include "esphome/core/hal.h"
+#include "esphome/core/preferences.h"
 #include "direct_http_protocol.h"
 #include "esp_http_server.h"
 #include "frontend_runtime_shim.h"
@@ -80,6 +81,14 @@ class DiagnosticsButtonProbe : public ESpectreDiagnosticsButton {
   using ESpectreDiagnosticsButton::press_action;
 };
 
+void complete_wifi_bssid_reconnect(ESpectreComponentProbe *component,
+                                   const std::string &associated_bssid) {
+  component->wifi_associated_bssid_.clear();
+  component->wifi_has_ipv4_ = true;
+  component->wifi_bssid_apply_saw_disconnect_ = true;
+  component->handle_wifi_bssid_association_(associated_bssid);
+}
+
 }  // namespace
 
 void setUp(void) {
@@ -87,6 +96,8 @@ void setUp(void) {
   httpd_mock_reset();
   mdns_mock_reset();
   esphome::reset_mock_millis();
+  esphome::reset_preference_store();
+  esphome::global_preferences = nullptr;
 }
 
 void tearDown(void) {}
@@ -206,6 +217,8 @@ void test_espectre_component_raw_session_uses_shared_controller_and_recovers(voi
 }
 
 void test_esphome_direct_exposes_common_wifi_and_label_capabilities(void) {
+  esphome::ESPPreferences preferences;
+  esphome::global_preferences = &preferences;
   ESpectreComponentProbe component;
   component.runtime_.config().device_id = 0x112233445566ULL;
   component.setup();
@@ -244,13 +257,19 @@ void test_esphome_direct_exposes_common_wifi_and_label_capabilities(void) {
       DirectRequest{"scan", "scan_wifi_access_points", "{}"});
   const std::string pin = component.direct_bridge_.handle_request_(
       DirectRequest{"pin", "set_wifi_bssid", "{\"bssid\":\"E6:FA:C4:20:19:DE\"}"});
+  TEST_ASSERT_TRUE(pin.find("\"accepted\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(component.wifi_bssid_pin_.empty());
+  complete_wifi_bssid_reconnect(&component, "E6:FA:C4:20:19:DE");
+  TEST_ASSERT_EQUAL_STRING("E6:FA:C4:20:19:DE", component.wifi_bssid_pin_.c_str());
   const std::string unpin = component.direct_bridge_.handle_request_(
       DirectRequest{"unpin", "clear_wifi_bssid", "{}"});
+  complete_wifi_bssid_reconnect(&component, "11:22:33:44:55:66");
   const std::string credential_reset = component.direct_bridge_.handle_request_(
       DirectRequest{"reset", "clear_wifi_config", "{}"});
   TEST_ASSERT_TRUE(scan.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(pin.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(unpin.find("\"accepted\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(component.wifi_bssid_pin_.empty());
   TEST_ASSERT_TRUE(credential_reset.find("\"code\":\"unsupported\"") != std::string::npos);
 
   const std::string label = component.direct_bridge_.handle_request_(
@@ -636,6 +655,111 @@ void test_motion_threshold_and_calibration_callbacks_publish_expected_state(void
   TEST_ASSERT_FALSE(calibration_active_sensor.get_state());
 }
 
+void test_esphome_wifi_bssid_pin_persists_across_setup(void) {
+  esphome::ESPPreferences preferences;
+  esphome::global_preferences = &preferences;
+
+  {
+    ESpectreComponentProbe first;
+    first.runtime_.config().device_id = 0x112233445566ULL;
+    first.setup();
+    TEST_ASSERT_FALSE(first.is_failed());
+    const std::string pin = first.direct_bridge_.handle_request_(
+        DirectRequest{"pin", "set_wifi_bssid", "{\"bssid\":\"E6:FA:C4:20:19:DE\"}"});
+    TEST_ASSERT_TRUE(pin.find("\"accepted\":true") != std::string::npos);
+    TEST_ASSERT_TRUE(first.wifi_bssid_pin_.empty());
+    TEST_ASSERT_FALSE(first.runtime_.services_armed());
+    first.wifi_bssid_apply_saw_disconnect_ = true;
+    first.handle_wifi_bssid_association_("E6:FA:C4:20:19:DE");
+    TEST_ASSERT_TRUE(first.wifi_bssid_pin_.empty());
+    esphome::advance_mock_millis(10000U);
+    first.process_wifi_bssid_apply_();
+    TEST_ASSERT_EQUAL(1, first.wifi_bssid_apply_attempts_);
+    first.wifi_has_ipv4_ = true;
+    first.process_wifi_bssid_apply_();
+    TEST_ASSERT_EQUAL_STRING("E6:FA:C4:20:19:DE", first.wifi_bssid_pin_.c_str());
+    TEST_ASSERT_TRUE(first.runtime_.services_armed());
+  }
+
+  ESpectreComponentProbe reboot;
+  reboot.runtime_.config().device_id = 0x112233445566ULL;
+  reboot.setup();
+  TEST_ASSERT_FALSE(reboot.is_failed());
+  TEST_ASSERT_EQUAL_STRING("E6:FA:C4:20:19:DE", reboot.wifi_bssid_pin_.c_str());
+}
+
+void test_esphome_wifi_bssid_pin_retries_after_bounded_enforcement_failure(void) {
+  esphome::ESPPreferences preferences;
+  esphome::global_preferences = &preferences;
+  ESpectreComponentProbe component;
+  component.runtime_.config().device_id = 0x112233445566ULL;
+  component.setup();
+  component.handle_wifi_bssid_association_("E6:FA:C4:20:19:DE");
+  const std::string pin = component.direct_bridge_.handle_request_(
+      DirectRequest{"pin", "set_wifi_bssid", "{\"bssid\":\"E6:FA:C4:20:19:DE\"}"});
+  TEST_ASSERT_TRUE(pin.find("\"accepted\":true") != std::string::npos);
+  TEST_ASSERT_EQUAL_STRING("E6:FA:C4:20:19:DE", component.wifi_bssid_pin_.c_str());
+
+  component.handle_wifi_bssid_association_("11:22:33:44:55:66");
+  TEST_ASSERT_EQUAL(1, component.wifi_bssid_apply_attempts_);
+  TEST_ASSERT_FALSE(component.runtime_.services_armed());
+  component.wifi_bssid_apply_saw_disconnect_ = true;
+  component.handle_wifi_bssid_association_("11:22:33:44:55:66");
+  TEST_ASSERT_EQUAL(1, component.wifi_bssid_apply_attempts_);
+  esphome::advance_mock_millis(10000);
+  component.process_wifi_bssid_apply_();
+  TEST_ASSERT_EQUAL(2, component.wifi_bssid_apply_attempts_);
+  esphome::advance_mock_millis(25000);
+  component.process_wifi_bssid_apply_();
+  TEST_ASSERT_EQUAL(ESpectreComponent::WifiBssidApplyMode::NONE,
+                    component.wifi_bssid_apply_mode_);
+  TEST_ASSERT_TRUE(component.wifi_bssid_enforce_backoff_active_);
+  TEST_ASSERT_TRUE(component.wifi_bssid_recovery_pending_);
+
+  esphome::advance_mock_millis(35000);
+  component.process_wifi_bssid_apply_();
+  TEST_ASSERT_FALSE(component.wifi_bssid_recovery_pending_);
+  TEST_ASSERT_TRUE(component.runtime_.services_armed());
+  component.handle_wifi_bssid_association_("11:22:33:44:55:66");
+  TEST_ASSERT_EQUAL(ESpectreComponent::WifiBssidApplyMode::NONE,
+                    component.wifi_bssid_apply_mode_);
+  esphome::advance_mock_millis(25000);
+  component.handle_wifi_bssid_association_("11:22:33:44:55:66");
+  TEST_ASSERT_EQUAL(ESpectreComponent::WifiBssidApplyMode::ENFORCE,
+                    component.wifi_bssid_apply_mode_);
+}
+
+void test_esphome_wifi_bssid_pin_rolls_back_when_persistence_fails(void) {
+  esphome::ESPPreferences preferences;
+  esphome::global_preferences = &preferences;
+  {
+    ESpectreComponentProbe component;
+    component.setup();
+    component.handle_wifi_bssid_association_("AA:BB:CC:DD:EE:FF");
+    TEST_ASSERT_TRUE(component.begin_wifi_bssid_pin_update_("AA:BB:CC:DD:EE:FF", nullptr));
+    TEST_ASSERT_EQUAL_STRING("AA:BB:CC:DD:EE:FF", component.wifi_bssid_pin_.c_str());
+
+    component.handle_wifi_bssid_association_("AA:BB:CC:DD:EE:FF");
+    TEST_ASSERT_TRUE(component.begin_wifi_bssid_pin_update_("11:22:33:44:55:66", nullptr));
+    esphome::g_esphome_preference_save_success = false;
+    complete_wifi_bssid_reconnect(&component, "11:22:33:44:55:66");
+    TEST_ASSERT_EQUAL_STRING("AA:BB:CC:DD:EE:FF", component.wifi_bssid_pin_.c_str());
+    TEST_ASSERT_TRUE(component.wifi_bssid_recovery_pending_);
+    TEST_ASSERT_FALSE(component.runtime_.services_armed());
+
+    component.handle_wifi_bssid_association_("AA:BB:CC:DD:EE:FF");
+    TEST_ASSERT_FALSE(component.runtime_.services_armed());
+    component.wifi_has_ipv4_ = true;
+    component.loop();
+    TEST_ASSERT_TRUE(component.runtime_.services_armed());
+  }
+  esphome::g_esphome_preference_save_success = true;
+  ESpectreComponentProbe reboot;
+  reboot.setup();
+  TEST_ASSERT_FALSE(reboot.is_failed());
+  TEST_ASSERT_EQUAL_STRING("AA:BB:CC:DD:EE:FF", reboot.wifi_bssid_pin_.c_str());
+}
+
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_espectre_component_setup_uses_mock_runtime_snapshot);
@@ -646,6 +770,9 @@ int process(void) {
   RUN_TEST(test_espectre_component_direct_client_enables_live_telemetry);
   RUN_TEST(test_espectre_component_raw_session_uses_shared_controller_and_recovers);
   RUN_TEST(test_esphome_direct_exposes_common_wifi_and_label_capabilities);
+  RUN_TEST(test_esphome_wifi_bssid_pin_persists_across_setup);
+  RUN_TEST(test_esphome_wifi_bssid_pin_retries_after_bounded_enforcement_failure);
+  RUN_TEST(test_esphome_wifi_bssid_pin_rolls_back_when_persistence_fails);
   RUN_TEST(test_espectre_component_publishes_cached_csi_diagnostics_on_demand);
   RUN_TEST(test_espectre_component_configuration_setters_update_runtime_config);
   RUN_TEST(test_threshold_number_behaviors_cover_parent_and_no_parent_paths);

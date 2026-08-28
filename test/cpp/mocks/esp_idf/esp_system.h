@@ -27,6 +27,8 @@ static inline size_t esp_get_minimum_free_heap_size(void) { return 180000; }
 
 static inline const char *esp_get_idf_version(void) { return "5.5.5-test"; }
 
+static inline void esp_restart(void) {}
+
 // Mock heap info structure
 typedef struct {
   size_t total_free_bytes;

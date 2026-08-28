@@ -198,6 +198,7 @@ class NativeFrontend : public IRuntimeListener {
   size_t direct_client_count_{0U};
   bool ota_frontend_quiesced_{false};
   bool wifi_reconfigure_quiesced_{false};
+  bool wifi_reconfigure_resume_pending_{false};
   bool peer_discovery_enabled_{false};
   bool direct_session_tokens_enabled_{false};
   bool protocol_recalibration_command_active_{false};

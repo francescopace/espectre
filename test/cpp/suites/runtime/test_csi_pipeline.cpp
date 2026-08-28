@@ -114,6 +114,7 @@ class WiFiCSIMock : public IWiFiCSI {
     return config_error_;
   }
   esp_err_t set_csi_rx_cb(wifi_csi_cb_t cb, void* ctx) override {
+    calls_.push_back(cb != nullptr ? 'R' : 'U');
     if (callback_failures_remaining_ > 0U) {
       --callback_failures_remaining_;
       return callback_failure_error_;
@@ -124,6 +125,7 @@ class WiFiCSIMock : public IWiFiCSI {
     return ESP_OK;
   }
   esp_err_t set_csi(bool enable) override {
+    calls_.push_back(enable ? 'E' : 'D');
     if (csi_error_ != ESP_OK) return csi_error_;
     enabled_ = enable;
     return ESP_OK;
@@ -131,7 +133,9 @@ class WiFiCSIMock : public IWiFiCSI {
   bool is_enabled() const { return enabled_; }
   bool has_callback() const { return callback_ != nullptr; }
   bool callback_has_context() const { return callback_ctx_ != nullptr; }
-  
+  const std::vector<char> &calls() const { return calls_; }
+  void clear_calls() { calls_.clear(); }
+
   void set_config_error(esp_err_t err) { config_error_ = err; }
   void set_callback_error(esp_err_t err) { callback_error_ = err; }
   void fail_next_callback_calls(size_t count, esp_err_t err) {
@@ -145,6 +149,7 @@ class WiFiCSIMock : public IWiFiCSI {
     csi_error_ = ESP_OK;
     callback_failure_error_ = ESP_OK;
     callback_failures_remaining_ = 0U;
+    calls_.clear();
   }
   
   void trigger_callback(wifi_csi_info_t* data) {
@@ -162,6 +167,7 @@ class WiFiCSIMock : public IWiFiCSI {
   esp_err_t csi_error_{ESP_OK};
   wifi_csi_cb_t callback_{nullptr};
   void* callback_ctx_{nullptr};
+  std::vector<char> calls_;
 };
 
 static WiFiCSIMock g_wifi_mock;
@@ -1013,26 +1019,36 @@ void test_csi_pipeline_disable_error(void) {
     esp_err_t result = manager.disable();
     
     TEST_ASSERT_EQUAL(ESP_FAIL, result);
-    TEST_ASSERT_FALSE(manager.is_enabled());
+    TEST_ASSERT_TRUE(manager.is_enabled());
     TEST_ASSERT_FALSE(g_wifi_mock.has_callback());
 }
 
-void test_csi_pipeline_disable_accepts_documented_invalid_arg_after_callback_detach(void) {
-    LightweightDetector detector(50, 1.0f);
-    CsiPipeline manager;
-    manager.init(&detector, &g_wifi_mock);
+void test_csi_pipeline_disable_rejects_invalid_arg_without_claiming_a_clean_rearm(
+    void) {
+  LightweightDetector detector(50, 1.0f);
+  CsiPipeline manager;
+  manager.init(&detector, &g_wifi_mock);
 
-    TEST_ASSERT_EQUAL(ESP_OK, manager.enable(nullptr));
-    g_wifi_mock.set_csi_error(ESP_ERR_INVALID_ARG);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.enable(nullptr));
+  g_wifi_mock.set_csi_error(ESP_ERR_INVALID_ARG);
 
-    TEST_ASSERT_EQUAL(ESP_OK, manager.disable());
-    TEST_ASSERT_FALSE(manager.is_enabled());
-    TEST_ASSERT_FALSE(g_wifi_mock.has_callback());
+  TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, manager.disable());
+  TEST_ASSERT_TRUE(manager.is_enabled());
+  TEST_ASSERT_FALSE(g_wifi_mock.has_callback());
+}
 
-    g_wifi_mock.reset_errors();
-    TEST_ASSERT_EQUAL(ESP_OK, manager.enable(nullptr));
-    TEST_ASSERT_TRUE(manager.is_enabled());
-    TEST_ASSERT_TRUE(g_wifi_mock.has_callback());
+void test_csi_pipeline_disable_stops_capture_before_detaching_callback(void) {
+  LightweightDetector detector(50, 1.0f);
+  CsiPipeline manager;
+  manager.init(&detector, &g_wifi_mock);
+
+  TEST_ASSERT_EQUAL(ESP_OK, manager.enable(nullptr));
+  g_wifi_mock.clear_calls();
+
+  TEST_ASSERT_EQUAL(ESP_OK, manager.disable());
+  TEST_ASSERT_EQUAL(2U, g_wifi_mock.calls().size());
+  TEST_ASSERT_EQUAL('D', g_wifi_mock.calls()[0]);
+  TEST_ASSERT_EQUAL('U', g_wifi_mock.calls()[1]);
 }
 
 void test_csi_pipeline_disable_retries_callback_unregister_after_stopping_capture(void) {
@@ -1421,7 +1437,9 @@ int process(void) {
     RUN_TEST(test_csi_pipeline_enable_callback_error);
     RUN_TEST(test_csi_pipeline_enable_csi_error);
     RUN_TEST(test_csi_pipeline_disable_error);
-    RUN_TEST(test_csi_pipeline_disable_accepts_documented_invalid_arg_after_callback_detach);
+    RUN_TEST(
+        test_csi_pipeline_disable_rejects_invalid_arg_without_claiming_a_clean_rearm);
+    RUN_TEST(test_csi_pipeline_disable_stops_capture_before_detaching_callback);
     RUN_TEST(test_csi_pipeline_disable_retries_callback_unregister_after_stopping_capture);
     RUN_TEST(test_csi_pipeline_disable_replaces_a_callback_that_cannot_be_unregistered);
     

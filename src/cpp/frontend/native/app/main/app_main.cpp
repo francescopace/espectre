@@ -13,7 +13,6 @@
 #include <esp_err.h>
 #include <esp_log.h>
 #include <esp_netif.h>
-#include <esp_system.h>
 #include <esp_timer.h>
 #include <driver/gpio.h>
 
@@ -59,7 +58,6 @@ espectre::RecoveryButtonService *g_recovery_button = nullptr;
 espectre::ImprovSerialService *g_improv_serial = nullptr;
 espectre::MdnsDiscoveryService *g_mdns_discovery = nullptr;
 espectre::MdnsBootstrapResponder *g_mdns_bootstrap_responder = nullptr;
-bool g_restart_after_wifi_apply = false;
 espectre::StandaloneWifiService g_wifi_manager;
 espectre::WifiProvisioningService g_wifi_provisioning(&g_wifi_manager);
 
@@ -211,10 +209,6 @@ void espectre_loop_task(void *arg) {
   while (true) {
     g_wifi_manager.loop();
     g_wifi_provisioning.loop();
-    if (g_restart_after_wifi_apply) {
-      ESP_LOGI(TAG, "Restarting after verified Wi-Fi configuration change");
-      esp_restart();
-    }
     if (g_improv_serial != nullptr) {
       g_improv_serial->loop();
     }
@@ -367,8 +361,6 @@ extern "C" void app_main() {
       []() {
         if (g_frontend != nullptr) g_frontend->resume_after_wifi_reconfigure();
       });
-  g_wifi_provisioning.set_apply_completed_callback([]() { g_restart_after_wifi_apply = true; });
-
   static espectre::ImprovSerialService improv_serial(&g_wifi_provisioning, &g_wifi_manager);
   if (!improv_serial.setup(espectre::ImprovSerialServiceConfig{
           "ESPectre Native",

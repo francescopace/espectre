@@ -65,6 +65,9 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   void refresh_wifi_association_from_csi_();
   void start_sensing_services_(const esp_netif_ip_info_t &ip_info);
   void stop_sensing_services_();
+  void begin_csi_rearm_verification_();
+  void cancel_csi_rearm_verification_();
+  void process_csi_rearm_verification_();
   void on_csi_channel_changed_(uint8_t previous_channel, uint8_t current_channel);
   bool apply_traffic_runtime_config_(bool restart_service, bool recalibrate_if_active);
   void restore_traffic_runtime_config_(const RuntimeConfig &previous_config);
@@ -103,6 +106,16 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   int8_t wifi_rssi_dbm_{INT8_MIN};
   uint8_t wifi_channel_{0U};
   std::atomic<RuntimeOperationState> operation_state_{RuntimeOperationState::SENSING};
+  using RestartCallback = void (*)();
+  RestartCallback restart_callback_{nullptr};
+  bool csi_session_started_once_{false};
+  bool csi_rearm_verification_pending_{false};
+  bool csi_rearm_traffic_observed_{false};
+  bool csi_rearm_restart_pending_{false};
+  uint64_t csi_rearm_traffic_baseline_{0U};
+  uint64_t csi_rearm_traffic_observed_total_{0U};
+  uint64_t csi_rearm_callback_baseline_{0U};
+  uint32_t csi_rearm_traffic_observed_ms_{0U};
 };
 
 }  // namespace espectre

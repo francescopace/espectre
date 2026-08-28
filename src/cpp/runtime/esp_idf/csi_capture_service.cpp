@@ -24,10 +24,6 @@ namespace {
 static const char *const TAG = "CsiCapture";
 static constexpr uint32_t DETECTOR_RESET_DROP_STREAK = 8U;
 
-bool is_quiescent_csi_disable_result(esp_err_t err) {
-  return err == ESP_OK || err == ESP_ERR_INVALID_ARG;
-}
-
 }  // namespace
 
 void CsiCaptureService::init(IWiFiCSI *wifi_csi) {
@@ -147,13 +143,14 @@ esp_err_t CsiCaptureService::disable() {
   }
 
   const uint32_t attempt = disable_attempts_.fetch_add(1U, std::memory_order_relaxed) + 1U;
-  // Unregister first, but still disable CSI if the driver rejects that call.
-  // Once capture is off, retrying the unregister gives the driver a safe
-  // quiescent point and avoids retaining a callback to an object being torn
-  // down.
-  esp_err_t callback_err = wifi_csi_->set_csi_rx_cb(nullptr, nullptr);
+  // Stop capture before detaching the callback. In particular, the classic
+  // ESP32 driver may accept a later re-enable without rebuilding its RX path
+  // when callback removal made the preceding disable return INVALID_ARG.
+  // The object remains alive throughout this method, so a final in-flight
+  // callback is safe while the driver reaches its quiescent state.
   const esp_err_t disable_err = wifi_csi_->set_csi(false);
-  if (callback_err != ESP_OK && disable_err == ESP_OK) {
+  esp_err_t callback_err = wifi_csi_->set_csi_rx_cb(nullptr, nullptr);
+  if (callback_err != ESP_OK) {
     callback_err = wifi_csi_->set_csi_rx_cb(nullptr, nullptr);
     if (callback_err != ESP_OK) {
       callback_err = wifi_csi_->set_csi_rx_cb(
@@ -170,19 +167,16 @@ esp_err_t CsiCaptureService::disable() {
     return callback_err;
   }
 
-  enabled_ = false;
-  rx_timestamp_tracker_.reset();
-  reset_channel_tracking_();
   last_disable_err_.store(disable_err, std::memory_order_relaxed);
-  if (!is_quiescent_csi_disable_result(disable_err)) {
-    ESP_LOGE(TAG, "Failed to disable CSI after unregistering its callback: %s",
+  if (disable_err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to disable CSI before unregistering its callback: %s",
              esp_err_to_name(disable_err));
     return disable_err;
   }
-  if (disable_err != ESP_OK) {
-    ESP_LOGW(TAG, "CSI callback detached; accepting quiescent driver result: %s",
-             esp_err_to_name(disable_err));
-  }
+
+  enabled_ = false;
+  rx_timestamp_tracker_.reset();
+  reset_channel_tracking_();
   ESP_LOGI(TAG, "CSI disabled attempt=%" PRIu32 " disable=%s", attempt, esp_err_to_name(last_disable_err()));
   return ESP_OK;
 }

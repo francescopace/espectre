@@ -185,6 +185,7 @@ void NativeFrontend::prepare_for_wifi_reconfigure() {
     return;
   }
   wifi_reconfigure_quiesced_ = true;
+  wifi_reconfigure_resume_pending_ = false;
   runtime_.set_services_armed(false);
 }
 
@@ -192,10 +193,11 @@ void NativeFrontend::resume_after_wifi_reconfigure() {
   if (!wifi_reconfigure_quiesced_) {
     return;
   }
-  wifi_reconfigure_quiesced_ = false;
-  if (!ota_frontend_quiesced_ && wifi_configured_()) {
-    runtime_.set_services_armed(true);
-  }
+  // StandaloneWifiService and the runtime receive the same GOT_IP transition
+  // through separate queues. Defer the resume until loop() has drained the
+  // runtime queue, otherwise Native can arm CSI against the old association
+  // and immediately disable and rearm it a second time.
+  wifi_reconfigure_resume_pending_ = true;
 }
 
 bool NativeFrontend::setup() {
@@ -232,6 +234,13 @@ bool NativeFrontend::setup() {
 void NativeFrontend::loop() {
   const int64_t loop_started_us = esp_timer_get_time();
   runtime_.loop();
+  if (wifi_reconfigure_resume_pending_) {
+    wifi_reconfigure_resume_pending_ = false;
+    wifi_reconfigure_quiesced_ = false;
+    if (!ota_frontend_quiesced_ && wifi_configured_()) {
+      runtime_.set_services_armed(true);
+    }
+  }
   drain_pending_runtime_events_();
   if (mqtt_transport_ != nullptr) {
     mqtt_transport_->loop();
@@ -252,6 +261,8 @@ void NativeFrontend::loop() {
 
 void NativeFrontend::shutdown() {
   runtime_events_.clear();
+  wifi_reconfigure_resume_pending_ = false;
+  wifi_reconfigure_quiesced_ = false;
   mqtt_connected_ = false;
   mqtt_ha_online_ = false;
   pending_ha_discovery_.clear();

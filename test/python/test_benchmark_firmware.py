@@ -1167,7 +1167,8 @@ def test_micro_benchmark_prerequisites_are_wifi_only(monkeypatch):
     )
 
 
-def test_native_benchmark_rejects_channel_without_bssid(monkeypatch):
+@pytest.mark.parametrize("frontend", ["native", "esphome"])
+def test_direct_benchmark_rejects_channel_without_bssid(monkeypatch, frontend):
     monkeypatch.setattr(bench, "BENCHMARK_LOCAL_ENV", {})
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
@@ -1176,7 +1177,7 @@ def test_native_benchmark_rejects_channel_without_bssid(monkeypatch):
 
     with pytest.raises(RuntimeError, match="WIFI_CHANNEL requires.*WIFI_BSSID"):
         bench.require_benchmark_prerequisites(
-            [bench.BenchmarkCase("native", "lightweight")]
+            [bench.BenchmarkCase(frontend, "lightweight")]
         )
 
 
@@ -1289,7 +1290,7 @@ def test_native_radio_pin_accepts_committed_values_after_reboot(monkeypatch):
                 }
             }
 
-    bench._verify_native_radio_pin(FakeClient())
+    bench._verify_direct_radio_pin(FakeClient())
 
 
 def test_native_radio_pin_uses_canonical_bssid_command(monkeypatch):
@@ -1334,6 +1335,39 @@ def test_native_radio_pin_preserves_matching_connection(monkeypatch):
 
     assert bench._apply_native_radio_pin(FakeClient()) is False
     assert requests == [("config", None)]
+
+
+def test_esphome_radio_pin_sends_command_even_when_already_associated(monkeypatch):
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_BSSID", "AA:BB:CC:DD:EE:FF")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_CHANNEL", "6")
+    requests = []
+
+    class FakeClient:
+        def request(self, method, params=None):
+            requests.append((method, params))
+            return {
+                "wifi": {
+                    "configured": True,
+                    "bssid": "aa:bb:cc:dd:ee:ff",
+                    "channel": 6,
+                }
+            }
+
+    assert bench._apply_direct_radio_pin(FakeClient(), skip_if_associated=False) is True
+    assert requests == [
+        ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF"}),
+    ]
+
+
+def test_direct_radio_pin_treats_dropped_response_as_applied(monkeypatch):
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_BSSID", "AA:BB:CC:DD:EE:FF")
+
+    class FakeClient:
+        def request(self, method, params=None):
+            assert method == "set_wifi_bssid"
+            raise DirectProtocolError("Direct HTTP request failed: connection reset")
+
+    assert bench._apply_direct_radio_pin(FakeClient(), skip_if_associated=False) is True
 
 
 def test_cpp_flash_only_runner_reuses_one_build_context(monkeypatch):
@@ -1473,6 +1507,8 @@ api:
     )
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_BSSID", "AA:BB:CC:DD:EE:FF")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_CHANNEL", "6")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_CSI_TARGET_PPS", "100")
     monkeypatch.setattr(bench, "ESPHOME_CONFIGS", {"s3": str(source_path)})
     with bench.esphome_case_config("s3", "lightweight", "/dev/cu.bridge") as config_path:
@@ -1482,6 +1518,8 @@ api:
     assert "level: INFO" in content
     assert 'ssid: "lab"' in content
     assert 'password: "secret"' in content
+    assert "AA:BB:CC:DD:EE:FF" not in content
+    assert "bssid:" not in content
     assert "post_connect_roaming: false" in content
     assert "csi_target_pps: 100" in content
     assert "name: espectre-benchmark-s3" in content

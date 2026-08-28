@@ -186,6 +186,12 @@ class ESpectreComponent : public Component, public IRuntimeListener
   std::string mdns_instance_name_() const;
   MdnsTxtRecords mdns_txt_records_() const;
   bool set_device_label_(const std::string &device_label, std::string *message);
+  bool begin_wifi_bssid_pin_update_(const std::string &bssid, std::string *message);
+  bool persist_wifi_bssid_pin_(const std::string &bssid, std::string *message);
+  void handle_wifi_bssid_association_(const std::string &associated_bssid);
+  void process_wifi_bssid_apply_();
+  void finish_wifi_bssid_apply_();
+  void fail_wifi_bssid_apply_(const char *reason);
 
   RuntimeFrontendController runtime_;
   FrontendCommandEngine command_engine_;
@@ -203,6 +209,33 @@ class ESpectreComponent : public Component, public IRuntimeListener
   };
   ESPPreferenceObject device_label_preference_;
   std::string device_label_override_;
+  struct StoredWifiBssid {
+    uint8_t version{1U};
+    uint8_t pinned{0U};
+    std::array<char, 18> value{};
+  };
+  ESPPreferenceObject wifi_bssid_preference_;
+  std::string wifi_bssid_pin_;
+  enum class WifiBssidApplyMode : uint8_t {
+    NONE = 0U,
+    UPDATE,
+    ENFORCE,
+  };
+  WifiBssidApplyMode wifi_bssid_apply_mode_{WifiBssidApplyMode::NONE};
+  std::string wifi_bssid_apply_target_;
+  std::string wifi_bssid_apply_previous_pin_;
+  std::string wifi_associated_bssid_;
+  bool wifi_has_ipv4_{false};
+  uint8_t wifi_bssid_apply_attempts_{0U};
+  uint32_t wifi_bssid_apply_started_ms_{0U};
+  uint32_t wifi_bssid_apply_last_attempt_ms_{0U};
+  uint32_t wifi_bssid_enforce_last_failure_ms_{0U};
+  bool wifi_bssid_enforce_backoff_active_{false};
+  bool wifi_bssid_apply_saw_disconnect_{false};
+  bool wifi_bssid_apply_resume_sensing_{false};
+  bool wifi_bssid_recovery_pending_{false};
+  bool wifi_bssid_recovery_resume_sensing_{false};
+  uint32_t wifi_bssid_recovery_started_ms_{0U};
 
   SensorPublisher sensor_publisher_;
 

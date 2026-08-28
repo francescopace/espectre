@@ -42,7 +42,14 @@ struct RuntimeDirectHttpBridgeConfig {
   IPeerDiscoveryService *peer_discovery{nullptr};
   std::function<const RuntimeDiagnosticsSample *()> diagnostics_sample_getter;
   const RuntimeEventMailbox *runtime_events{nullptr};
+  // Empty BSSID clears the pin. Frontends that provide this callback own the
+  // complete live-apply and persistence transaction; frontends that omit it
+  // apply the pin to the current station session only.
+  std::function<bool(const std::string &bssid, std::string *message)> wifi_bssid_pin_setter;
 };
+
+/** Apply or clear the live ESP-IDF station BSSID pin and reconnect. */
+bool apply_wifi_bssid_pin(const std::string &bssid, std::string *message);
 
 /**
  * Exposes the common runtime controls over the versioned Direct HTTP API.

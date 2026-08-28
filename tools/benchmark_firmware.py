@@ -490,7 +490,7 @@ def require_benchmark_prerequisites(cases: Sequence[BenchmarkCase]) -> None:
         require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID")
         require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD")
     if (
-        any(case.frontend == "native" for case in cases)
+        any(case.frontend in {"native", "esphome"} for case in cases)
         and benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0) > 0
         and not benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "")
     ):
@@ -1385,8 +1385,6 @@ def _latest_firmware_artifact(frontend: str, chip: str | None = None) -> Path | 
 def apply_esphome_benchmark_wifi(content: str) -> str:
     ssid = require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID")
     password = require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD")
-    bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "") or ""
-    channel = benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)
 
     lines = content.splitlines()
     wifi_index = next((index for index, line in enumerate(lines) if re.match(r"^\s*wifi:\s*$", line)), None)
@@ -1409,10 +1407,6 @@ def apply_esphome_benchmark_wifi(content: str) -> str:
             f"{entry_indent}- ssid: {quote_yaml_string(ssid)}",
             f"{entry_indent}  password: {quote_yaml_string(password)}",
         ]
-        if bssid:
-            network_lines.append(f"{entry_indent}  bssid: {quote_yaml_string(bssid)}")
-        if channel > 0:
-            network_lines.append(f"{entry_indent}  channel: {channel}")
         lines[wifi_index + 1 : wifi_index + 1] = network_lines
         networks_index = wifi_index + 2
 
@@ -1448,10 +1442,6 @@ def apply_esphome_benchmark_wifi(content: str) -> str:
         f"{entry_indent}- ssid: {quote_yaml_string(ssid)}",
         f"{field_indent}password: {quote_yaml_string(password)}",
     ]
-    if bssid:
-        replacement_lines.append(f"{field_indent}bssid: {quote_yaml_string(bssid)}")
-    if channel > 0:
-        replacement_lines.append(f"{field_indent}channel: {channel}")
     replacement_lines.extend(preserved_lines)
 
     updated_lines = [*lines[:entry_start], *replacement_lines, *lines[entry_end:]]
@@ -2697,20 +2687,30 @@ def run_cpp_build_flash_case(case: BenchmarkCase, chip: str, port: str) -> Bench
     return result
 
 
-def _apply_native_radio_pin(client: DirectClient) -> bool:
+def _apply_direct_radio_pin(client: DirectClient, *, skip_if_associated: bool) -> bool:
     bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "") or ""
     if not bssid:
         return False
     requested_channel = benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)
-    config = client.request("config")
-    wifi = config.get("wifi") if isinstance(config.get("wifi"), dict) else {}
-    if isinstance(wifi, dict):
-        bssid_matches = str(wifi.get("bssid", "")).casefold() == bssid.casefold()
-        channel_matches = requested_channel <= 0 or _integer(wifi.get("channel")) == requested_channel
-        if wifi.get("configured") is True and bssid_matches and channel_matches:
-            return False
-    client.request("set_wifi_bssid", {"bssid": bssid})
+    if skip_if_associated:
+        config = client.request("config")
+        wifi = config.get("wifi") if isinstance(config.get("wifi"), dict) else {}
+        if isinstance(wifi, dict):
+            bssid_matches = str(wifi.get("bssid", "")).casefold() == bssid.casefold()
+            channel_matches = requested_channel <= 0 or _integer(wifi.get("channel")) == requested_channel
+            if wifi.get("configured") is True and bssid_matches and channel_matches:
+                return False
+    # ESPHome disconnects the station before the HTTP response can complete, so
+    # a dropped request is still treated as an applied pin.
+    try:
+        client.request("set_wifi_bssid", {"bssid": bssid})
+    except DirectProtocolError:
+        pass
     return True
+
+
+def _apply_native_radio_pin(client: DirectClient) -> bool:
+    return _apply_direct_radio_pin(client, skip_if_associated=True)
 
 
 def _verify_native_baseline(handshake: dict[str, dict[str, object]]) -> None:
@@ -2725,7 +2725,7 @@ def _verify_native_baseline(handshake: dict[str, dict[str, object]]) -> None:
         raise RuntimeError("Native benchmark configuration unexpectedly contains MQTT settings")
 
 
-def _verify_native_radio_pin(client: DirectClient) -> None:
+def _verify_direct_radio_pin(client: DirectClient) -> None:
     requested_bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "") or ""
     requested_channel = benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)
     deadline = time.monotonic() + WIFI_CONNECT_WAIT_SECONDS
@@ -2737,15 +2737,15 @@ def _verify_native_radio_pin(client: DirectClient) -> None:
             continue
         bssid_matches = not requested_bssid or str(wifi.get("bssid", "")).casefold() == requested_bssid.casefold()
         channel_matches = requested_channel <= 0 or _integer(wifi.get("channel")) == requested_channel
-        # Applying a radio pin restarts Native. The new provisioning-service
-        # instance reports an idle transaction while retaining the committed
-        # values, so those persisted values are the post-reboot contract.
+        # A successful reconnect must expose the requested active association.
+        # Native may additionally report a staged-apply state while ESPHome
+        # keeps its persisted pin outside the shared Wi-Fi snapshot.
         if wifi.get("configured") is True and bssid_matches and channel_matches:
             return
         if wifi.get("apply_state") in {"rolled_back", "recovery_required"}:
             raise RuntimeError(f"Native rejected staged Wi-Fi configuration: {wifi.get('apply_message', '')}")
         time.sleep(1.0)
-    raise RuntimeError("Native committed Wi-Fi configuration did not match the benchmark request")
+    raise RuntimeError("Direct Wi-Fi configuration did not match the benchmark radio pin")
 
 
 def run_direct_frontend_cases(
@@ -2900,19 +2900,24 @@ def run_direct_frontend_cases(
         baseline = direct_handshake(client, frontend=frontend, chip=chip)
         if frontend == "native":
             _verify_native_baseline(baseline)
-            radio_pin_applied = _apply_native_radio_pin(client)
+        if frontend in {"native", "esphome"}:
+            radio_pin_applied = _apply_direct_radio_pin(
+                client,
+                skip_if_associated=frontend == "native",
+            )
             if radio_pin_applied:
                 client.close()
                 endpoint = (
                     direct_endpoint_from_device_url(endpoint_override)
                     if endpoint_override
-                    else discover_direct_device("native", chip=chip).endpoint
+                    else discover_direct_device(frontend, chip=chip).endpoint
                 )
-                client = _connect_direct_with_retry(endpoint, frontend="native", chip=chip)
-                baseline = direct_handshake(client, frontend="native", chip=chip)
-                _verify_native_baseline(baseline)
+                client = _connect_direct_with_retry(endpoint, frontend=frontend, chip=chip)
+                baseline = direct_handshake(client, frontend=frontend, chip=chip)
+                if frontend == "native":
+                    _verify_native_baseline(baseline)
             if benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", ""):
-                _verify_native_radio_pin(client)
+                _verify_direct_radio_pin(client)
         for case in selected_cases:
             result = _clone_direct_result(case, bootstrap)
             traffic_source: _BenchmarkUdpTrafficSource | None = None

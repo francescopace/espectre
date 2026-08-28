@@ -10,30 +10,37 @@
  */
 #include "esp_idf_runtime.h"
 
+#include "csi_format.h"
+#include "esp_err.h"
+#include "esp_netif.h"
+#include "esp_system.h"
+#include "esp_wifi.h"
+#include "espectre_log.h"
+#include "high_accuracy_detector.h"
+#include "lightweight_detector.h"
+#include "lwip/inet.h"
+#include "runtime_config_utils.h"
+#include "runtime_detector_store.h"
+#include "runtime_motion_hits_store.h"
+#include "runtime_time.h"
+#include "runtime_traffic_mode_store.h"
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <memory>
 #include <new>
-#include "espectre_log.h"
-#include "esp_err.h"
-#include "esp_wifi.h"
-#include "esp_netif.h"
-#include "lightweight_detector.h"
-#include "csi_format.h"
-#include "high_accuracy_detector.h"
-#include "runtime_config_utils.h"
-#include "runtime_detector_store.h"
-#include "runtime_motion_hits_store.h"
-#include "runtime_traffic_mode_store.h"
-#include "runtime_time.h"
-#include "lwip/inet.h"
 
 namespace espectre {
 
 namespace {
 
 static const char *const RUNTIME_TAG = "espectre.runtime";
+static constexpr uint64_t CSI_REARM_MIN_TRAFFIC_PACKETS = 10U;
+static constexpr uint32_t CSI_REARM_CALLBACK_TIMEOUT_MS = 3000U;
+
+uint64_t counter_delta(uint64_t current, uint64_t baseline) {
+  return current >= baseline ? current - baseline : current;
+}
 
 }  // namespace
 
@@ -63,6 +70,7 @@ void EspIdfRuntime::update_live_telemetry_callback_() {
 
 EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
     : EspIdfRuntimeBase(config, RUNTIME_TAG, "Unknown runtime fault") {
+  restart_callback_ = &esp_restart;
   detection_timing_supported_ = true;
   snapshot_.threshold = config_.segmentation_threshold;
   snapshot_.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
@@ -83,6 +91,10 @@ bool EspIdfRuntime::setup() {
   if (setup_complete_) {
     return true;
   }
+
+  csi_session_started_once_ = false;
+  csi_rearm_restart_pending_ = false;
+  cancel_csi_rearm_verification_();
 
   const RuntimeConfigError config_error = validate_runtime_config(config_);
   if (config_error != RuntimeConfigError::NONE) {
@@ -185,11 +197,20 @@ void EspIdfRuntime::shutdown() {
     (void) stop_raw_collection(RawCsiStopReason::SHUTDOWN);
   }
   on_wifi_disconnected_();
+  cancel_csi_rearm_verification_();
+  csi_rearm_restart_pending_ = false;
   wifi_lifecycle_.unregister_handlers();
   setup_complete_ = false;
 }
 
 void EspIdfRuntime::loop() {
+  if (csi_rearm_restart_pending_) {
+    csi_rearm_restart_pending_ = false;
+    if (restart_callback_ != nullptr) {
+      restart_callback_();
+      return;
+    }
+  }
   RuntimePerformanceLoopScope performance_scope(performance_diagnostics_);
   if (wifi_lifecycle_.process_pending_events() != ESP_OK) {
     notify_fault_("Wi-Fi lifecycle init failed");
@@ -211,6 +232,7 @@ void EspIdfRuntime::loop() {
   // otherwise its receive queue fills during long raw sessions and the marker
   // traffic path cannot recover cleanly.
   csi_traffic_service_.loop();
+  process_csi_rearm_verification_();
   if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
     return;
   }
@@ -664,6 +686,8 @@ void EspIdfRuntime::refresh_wifi_association_from_csi_() {
 }
 
 void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) {
+  const bool verify_rearm =
+      csi_session_started_once_ && restart_callback_ != nullptr;
   snapshot_.motion_state = MotionState::IDLE;
   snapshot_.ready_to_publish = false;
 
@@ -705,12 +729,20 @@ void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) 
     return;
   }
 
+  if (verify_rearm) {
+    begin_csi_rearm_verification_();
+  } else {
+    cancel_csi_rearm_verification_();
+  }
+  csi_session_started_once_ = true;
+
   start_calibration_();
   snapshot_.ready_to_publish = true;
   reset_periodic_status_logger_();
 }
 
 void EspIdfRuntime::stop_sensing_services_() {
+  cancel_csi_rearm_verification_();
   cancel_calibration_(false);
   csi_pipeline_.set_traffic_filter({});
   csi_pipeline_.disable();
@@ -720,6 +752,75 @@ void EspIdfRuntime::stop_sensing_services_() {
   if (listener_ != nullptr) {
     listener_->on_motion_state_changed(snapshot_);
   }
+}
+
+void EspIdfRuntime::begin_csi_rearm_verification_() {
+  csi_rearm_traffic_baseline_ =
+      csi_traffic_service_.get_traffic_packets_total();
+  csi_rearm_traffic_observed_total_ = csi_rearm_traffic_baseline_;
+  csi_rearm_callback_baseline_ =
+      csi_pipeline_.capture_callback_invocations_total();
+  csi_rearm_traffic_observed_ms_ = 0U;
+  csi_rearm_traffic_observed_ = false;
+  csi_rearm_verification_pending_ = true;
+  ESP_LOGI(RUNTIME_TAG, "Verifying live CSI rearm from managed traffic");
+}
+
+void EspIdfRuntime::cancel_csi_rearm_verification_() {
+  csi_rearm_verification_pending_ = false;
+  csi_rearm_traffic_observed_ = false;
+  csi_rearm_traffic_observed_total_ = 0U;
+  csi_rearm_traffic_observed_ms_ = 0U;
+}
+
+void EspIdfRuntime::process_csi_rearm_verification_() {
+  if (!csi_rearm_verification_pending_) {
+    return;
+  }
+
+  const uint64_t callback_delta =
+      counter_delta(csi_pipeline_.capture_callback_invocations_total(),
+                    csi_rearm_callback_baseline_);
+  if (callback_delta > 0U) {
+    ESP_LOGI(RUNTIME_TAG, "Live CSI rearm verified after %llu callback(s)",
+             static_cast<unsigned long long>(callback_delta));
+    cancel_csi_rearm_verification_();
+    return;
+  }
+
+  const uint64_t traffic_total =
+      csi_traffic_service_.get_traffic_packets_total();
+  const uint64_t traffic_delta =
+      counter_delta(traffic_total, csi_rearm_traffic_baseline_);
+  const uint32_t now_ms = monotonic_now_ms();
+  if (!csi_rearm_traffic_observed_) {
+    if (traffic_delta < CSI_REARM_MIN_TRAFFIC_PACKETS) {
+      return;
+    }
+    csi_rearm_traffic_observed_ = true;
+    csi_rearm_traffic_observed_total_ = traffic_total;
+    csi_rearm_traffic_observed_ms_ = now_ms;
+    return;
+  }
+  if (now_ms - csi_rearm_traffic_observed_ms_ < CSI_REARM_CALLBACK_TIMEOUT_MS) {
+    return;
+  }
+  if (counter_delta(traffic_total, csi_rearm_traffic_observed_total_) <
+      CSI_REARM_MIN_TRAFFIC_PACKETS) {
+    csi_rearm_traffic_baseline_ = traffic_total;
+    csi_rearm_traffic_observed_ = false;
+    csi_rearm_traffic_observed_ms_ = 0U;
+    return;
+  }
+
+  ESP_LOGE(RUNTIME_TAG,
+           "Live CSI rearm produced no callbacks after %llu managed traffic "
+           "packets; restarting",
+           static_cast<unsigned long long>(traffic_delta));
+  notify_fault_("Live CSI rearm stalled; restarting the device");
+  cancel_csi_rearm_verification_();
+  set_services_armed(false);
+  csi_rearm_restart_pending_ = true;
 }
 
 void EspIdfRuntime::on_csi_channel_changed_(uint8_t previous_channel, uint8_t current_channel) {

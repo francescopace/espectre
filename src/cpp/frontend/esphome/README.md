@@ -25,7 +25,7 @@ After flashing, configure Wi-Fi with one of these provisioning paths:
 
 All maintained ESPHome example configurations enable Improv Serial.
 
-The maintained examples provision Wi-Fi through Improv Serial or the `ESPectre Fallback` captive portal and do not embed SSID, password, or BSSID in YAML. After the device is on the LAN, use the mesh Wi-Fi procedure in [`TUNING.md`](../../../../docs/TUNING.md#mesh-wi-fi-instability) if its access-point association is unstable.
+The maintained examples provision Wi-Fi through Improv Serial or the `ESPectre Fallback` captive portal and do not embed SSID, password, or BSSID in YAML. After the device is on the LAN, use the mesh Wi-Fi procedure in [`TUNING.md`](../../../../docs/TUNING.md#mesh-wi-fi-instability) if its access-point association is unstable. Direct `set_wifi_bssid` suspends sensing, verifies the selected association and IPv4 acquisition, persists the ESPectre-only pin, and starts a fresh calibration after reconnecting. The runtime verifies that managed traffic produces CSI callbacks after the live rearm and restarts once into the persisted configuration if the driver remains silent. A failed update restores the previous pin. The command does not rewrite the ESPHome YAML or saved SSID and password.
 
 Once Wi-Fi is configured, the device is discovered automatically by Home Assistant through ESPHome.
 
