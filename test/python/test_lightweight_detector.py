@@ -3,13 +3,16 @@
 """Tests for the production Lightweight detector."""
 
 import math
-from types import SimpleNamespace
 from array import array
 
 import pytest
 
 import lightweight_detector as lightweight_module
 from lightweight_detector import LightweightDetector
+import micro_espectre.lightweight_detector as micro_lightweight_module
+from micro_espectre.lightweight_detector import (
+    LightweightDetector as MicroLightweightDetector,
+)
 from detector_interface import (
     MotionState,
     detector_needs_startup_calibration,
@@ -71,9 +74,9 @@ def test_native_detector_caches_subcarrier_plan(monkeypatch) -> None:
             def deinit(self):
                 calls.append(("deinit",))
 
-    monkeypatch.setattr(lightweight_module, "_native_features", NativeFeatures)
-    monkeypatch.setattr(lightweight_module, "array", array)
-    detector = LightweightDetector(enable_hampel=False)
+    monkeypatch.setattr(micro_lightweight_module, "_native_features", NativeFeatures)
+    monkeypatch.setattr(micro_lightweight_module, "array", array)
+    detector = MicroLightweightDetector(enable_hampel=False)
     payload = bytearray(128)
 
     detector.process_packet(payload)
@@ -83,7 +86,7 @@ def test_native_detector_caches_subcarrier_plan(monkeypatch) -> None:
     assert calls[0] == (
         "init",
         "lightweight",
-        tuple(lightweight_module.DEFAULT_SUBCARRIERS),
+        tuple(micro_lightweight_module.DEFAULT_SUBCARRIERS),
     )
     assert calls.count(("set", changed_plan)) == 1
     assert [call[0] for call in calls].count("process") == 2
@@ -123,9 +126,9 @@ def test_full_native_detector_owns_device_hot_path(monkeypatch) -> None:
             def deinit(self):
                 calls.append(("deinit",))
 
-    monkeypatch.setattr(lightweight_module, "_native_features", NativeDetector)
-    monkeypatch.setattr(lightweight_module, "array", array)
-    detector = LightweightDetector(enable_hampel=False)
+    monkeypatch.setattr(micro_lightweight_module, "_native_features", NativeDetector)
+    monkeypatch.setattr(micro_lightweight_module, "array", array)
+    detector = MicroLightweightDetector(enable_hampel=False)
 
     detector.set_minimum_valid_samples(70)
     detector.process_packet(bytearray(128), timestamp_us=1234)
@@ -142,15 +145,10 @@ def test_full_native_detector_owns_device_hot_path(monkeypatch) -> None:
 
 
 def test_micropython_requires_compatible_core_module(monkeypatch) -> None:
-    monkeypatch.setattr(
-        lightweight_module,
-        "sys",
-        SimpleNamespace(implementation=SimpleNamespace(name="micropython")),
-    )
-    monkeypatch.setattr(lightweight_module, "_native_features", None)
+    monkeypatch.setattr(micro_lightweight_module, "_native_features", None)
 
     with pytest.raises(RuntimeError, match="compatible espectre core module"):
-        LightweightDetector(enable_hampel=False)
+        MicroLightweightDetector(enable_hampel=False)
 
 
 def test_fused_packet_path_matches_shared_turbulence_helpers() -> None:

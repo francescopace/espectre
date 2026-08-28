@@ -46,8 +46,8 @@ setup_paths()
 
 import config  # noqa: E402
 import tools.train_ml_model as train_ml_model  # noqa: E402
-from lightweight_detector import LightweightDetector  # noqa: E402
-from ml_weights import FEATURE_NAMES  # noqa: E402
+from tools.lib.lightweight_detector import LightweightDetector  # noqa: E402
+from tools.lib.ml_weights import FEATURE_NAMES  # noqa: E402
 from tools.fit_lightweight_detector import (  # noqa: E402
     IDLE_LABEL,
     MOTION_LABEL,
@@ -72,7 +72,7 @@ from tools.lib.temporal_replay import (  # noqa: E402
     iter_temporal_admissions,
     target_pps_for_packets,
 )
-from runtime_policy import RuntimeMotionPolicy  # noqa: E402
+from tools.lib.runtime_policy import RuntimeMotionPolicy  # noqa: E402
 
 DISCOVERY_ROLES = ("train", "selection")
 HOLDOUT_ROLE = "holdout"

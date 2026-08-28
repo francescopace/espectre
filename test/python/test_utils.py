@@ -11,8 +11,8 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 import pytest
 import math
 import numpy as np
-import device_utils as device_utils_module
-from device_utils import (
+from micro_espectre import device_utils as device_utils_module
+from micro_espectre.device_utils import (
     CsiPayloadNormalizationState,
     HT20_CENTERED_ONLY_NULL_BINS,
     HT20_CLASSIC_ONLY_NULL_BINS,

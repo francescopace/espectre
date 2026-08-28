@@ -959,6 +959,8 @@ def test_project_boards_use_one_shared_profile_and_only_esp32_override() -> None
     assert native_module.count("MP_QSTR___del__") == 2
     assert "MP_QSTR_Detector" in native_module
     assert "MP_QSTR_TemporalCsiSampler" in native_module
+    assert "high_accuracy" not in native_module
+    assert "HighAccuracyDetector" not in native_cpp
 
 
 def test_device_manifest_is_lightweight_direct_only() -> None:
@@ -968,6 +970,10 @@ def test_device_manifest_is_lightweight_direct_only() -> None:
     assert "high_accuracy_detector.py" not in deployed
     assert "ml_feature_trackers.py" not in deployed
     assert "ml_weights.py" not in deployed
+    assert "utils.py" not in deployed
+    assert "filters.py" not in deployed
+    assert "csi_features.py" not in deployed
+    assert "segmentation.py" not in deployed
     assert not any(path.startswith("mqtt/") for path in deployed)
 
 

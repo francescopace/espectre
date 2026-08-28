@@ -32,8 +32,8 @@ from tools.lib.dataset_metadata import (
     resolve_explicit_pair,
     select_dataset_interactively,
 )
-from lightweight_detector import LightweightDetector
-from temporal_csi_sampler import minimum_valid_slots
+from tools.lib.lightweight_detector import LightweightDetector
+from tools.lib.temporal_csi_sampler import minimum_valid_slots
 from config import (
     DEFAULT_SUBCARRIERS,
     ENABLE_HAMPEL_FILTER,

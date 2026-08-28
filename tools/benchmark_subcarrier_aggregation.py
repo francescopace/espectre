@@ -53,10 +53,10 @@ from tools.lib.bootstrap import setup_paths  # noqa: E402
 setup_paths()
 
 import config  # noqa: E402
-from lightweight_detector import LightweightDetector  # noqa: E402
-from high_accuracy_detector import HighAccuracyDetector  # noqa: E402
-from temporal_csi_sampler import minimum_valid_slots, temporal_window_slots  # noqa: E402
-from ml_weights import FEATURE_NAMES  # noqa: E402
+from tools.lib.lightweight_detector import LightweightDetector  # noqa: E402
+from tools.lib.high_accuracy_detector import HighAccuracyDetector  # noqa: E402
+from tools.lib.temporal_csi_sampler import minimum_valid_slots, temporal_window_slots  # noqa: E402
+from tools.lib.ml_weights import FEATURE_NAMES  # noqa: E402
 from tools.fit_lightweight_detector import (  # noqa: E402
     balanced_sample_weights,
     build_corpus,

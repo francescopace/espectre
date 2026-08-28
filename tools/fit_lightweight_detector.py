@@ -58,8 +58,8 @@ from tools.lib.bootstrap import setup_paths  # noqa: E402
 setup_paths()
 
 import config  # noqa: E402
-from lightweight_detector import LightweightDetector  # noqa: E402
-from temporal_csi_sampler import minimum_valid_slots, temporal_window_slots  # noqa: E402
+from tools.lib.lightweight_detector import LightweightDetector  # noqa: E402
+from tools.lib.temporal_csi_sampler import minimum_valid_slots, temporal_window_slots  # noqa: E402
 from tools.lib.csi_io import load_npz_as_packets  # noqa: E402
 from tools.lib.dataset_metadata import (  # noqa: E402
     derive_detector_timing,
@@ -74,7 +74,7 @@ from tools.lib.performance_report import (  # noqa: E402
 from tools.lib.temporal_replay import target_pps_for_packets  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PYTHON_SOURCE = REPO_ROOT / "src" / "python" / "micro_espectre" / "lightweight_detector.py"
+PYTHON_SOURCE = REPO_ROOT / "tools" / "lib" / "lightweight_detector.py"
 CPP_SOURCE = REPO_ROOT / "src" / "cpp" / "core" / "lightweight_detector.h"
 
 FITTED_ROLES = ("train",)

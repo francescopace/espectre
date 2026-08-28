@@ -20,10 +20,7 @@ from .bootstrap import setup_paths
 
 setup_paths()
 
-try:
-    from csi_features import L1_DELTA_LAG  # pyright: ignore[reportMissingImports]
-except ImportError:  # pragma: no cover
-    from src.csi_features import L1_DELTA_LAG  # pyright: ignore[reportMissingImports]
+from tools.lib.csi_features import L1_DELTA_LAG  # pyright: ignore[reportMissingImports]
 
 # HT20 data and pilot bins in the centered convention the loaders normalize to:
 # DC sits at bin 32 and the guard bands at 0..3 and 61..63. Coherence reads the

@@ -309,7 +309,7 @@ void test_candidate_feature_python_parity(void) {
                               selected_ids, 2, features, scratch, 1.75f,
                               0.0f, 0.0f, 0.0f, 0.0f);
 
-    // Expected values computed by src/python/micro_espectre/csi_features.py.
+    // Expected values computed by tools/lib/csi_features.py.
     TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.3877551f, features[0]);
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.75f, features[1]);
 }

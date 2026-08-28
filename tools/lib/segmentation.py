@@ -1,21 +1,17 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
 """
-Micro-ESPectre - Shared Turbulence Context
+ESPectre - Reference Turbulence Context
 
-Pure Python implementation compatible with both MicroPython and standard Python.
-Provides the shared turbulence buffer, amplitude scratch, and filters used by
-LightweightDetector and ML feature extraction.
+Pure-Python turbulence buffers, amplitude scratch, and filters used by host-side
+detector replay and ML feature extraction.
 Uses two-pass variance helpers for numerical stability (matches C++).
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
 import math
 
-try:
-    from src.device_utils import to_signed_int8, calculate_variance
-except ImportError:
-    from device_utils import to_signed_int8, calculate_variance
+from micro_espectre.device_utils import calculate_variance, to_signed_int8
 
 
 class SegmentationContext:
@@ -31,8 +27,8 @@ class SegmentationContext:
 
     Two-pass variance formula: Var(X) = Σ(x - μ)² / n
 
-    All configuration is passed as parameters (dependency injection),
-    making this class usable in both MicroPython and standard Python.
+    All configuration is passed as parameters, making the reference behavior
+    reusable across host-side replay and validation workflows.
     """
 
     # Pre-allocated amplitude scratch (12 selected subcarriers, matches C++ path)
@@ -95,9 +91,8 @@ class SegmentationContext:
         self.lowpass_filter = None
         if enable_lowpass:
             try:
-                # Try MicroPython path first, then standard Python path
                 try:
-                    from src.filters import LowPassFilter
+                    from .filters import LowPassFilter
                 except ImportError:
                     from filters import LowPassFilter
                 self.lowpass_filter = LowPassFilter(
@@ -113,9 +108,8 @@ class SegmentationContext:
         self.hampel_filter = None
         if enable_hampel:
             try:
-                # Try MicroPython path first, then standard Python path
                 try:
-                    from src.filters import HampelFilter
+                    from .filters import HampelFilter
                 except ImportError:
                     from filters import HampelFilter
                 self.hampel_filter = HampelFilter(
@@ -547,16 +541,6 @@ class SegmentationContext:
                 print(f"[ERROR] LowPass filter failed and was disabled: {e}")
                 self.lowpass_filter = None
 
-        self.add_filtered_turbulence(filtered_turbulence)
-
-    def add_filtered_turbulence(self, filtered_turbulence):
-        """Append a value after the configured filter chain has run.
-
-        The MicroPython firmware uses this entry point when its native packet
-        processor has already applied the canonical C++ Hampel filter. Host
-        builds and unsupported configurations continue through
-        :meth:`add_turbulence`.
-        """
         self.last_turbulence = filtered_turbulence
 
         # Store value in circular buffer

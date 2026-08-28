@@ -33,7 +33,18 @@ from .bootstrap import setup_paths
 from . import dataset_metadata
 from . import npz_cache
 from .atomic_io import atomic_savez_compressed
+from .detector_loader import load_detector_class
 from .temporal_replay import TemporalReplayController
+from tools.lib.high_accuracy_detector import HIGH_ACCURACY_DEFAULT_THRESHOLD
+from tools.lib.runtime_policy import (
+    make_evaluation_cadence,
+    nominal_packet_interval_us,
+)
+from tools.lib.temporal_csi_sampler import (
+    TemporalCsiSampler,
+    minimum_valid_slots,
+    temporal_window_slots,
+)
 
 setup_paths()
 
@@ -65,18 +76,7 @@ except ImportError:
 try:
     from detector_interface import (
         detector_needs_startup_calibration,
-        load_detector_class,
         normalize_detector_algorithm,
-    )
-    from high_accuracy_detector import HIGH_ACCURACY_DEFAULT_THRESHOLD
-    from runtime_policy import (
-        make_evaluation_cadence,
-        nominal_packet_interval_us,
-    )
-    from temporal_csi_sampler import (
-        TemporalCsiSampler,
-        minimum_valid_slots,
-        temporal_window_slots,
     )
     from threshold import (
         StartupThresholdCalibrator,
@@ -86,18 +86,7 @@ try:
 except ImportError:
     from src.detector_interface import (
         detector_needs_startup_calibration,
-        load_detector_class,
         normalize_detector_algorithm,
-    )
-    from src.high_accuracy_detector import HIGH_ACCURACY_DEFAULT_THRESHOLD
-    from src.runtime_policy import (
-        make_evaluation_cadence,
-        nominal_packet_interval_us,
-    )
-    from src.temporal_csi_sampler import (
-        TemporalCsiSampler,
-        minimum_valid_slots,
-        temporal_window_slots,
     )
     from src.threshold import (
         StartupThresholdCalibrator,

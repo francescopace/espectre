@@ -19,7 +19,7 @@ from .bootstrap import setup_paths
 
 setup_paths()
 
-from segmentation import SegmentationContext  # noqa: E402
+from tools.lib.segmentation import SegmentationContext  # noqa: E402
 
 # Guard-band and DC limits of the centered HT20 convention. Clamping matters:
 # bins 3 and 61 are guard nulls, so an unclamped 3-wide window around the edge

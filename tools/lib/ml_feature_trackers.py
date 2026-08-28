@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
 """
-Micro-ESPectre - Production ML Feature Trackers
+ESPectre - Reference Production ML Feature Trackers
 
-Allocation-aware, MicroPython-friendly trackers for the promoted production ML
-features that go beyond turbulence and L1-delta statistics.
+Allocation-aware reference trackers for the promoted production ML features
+that go beyond turbulence and L1-delta statistics.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
@@ -13,7 +13,7 @@ import math
 import time
 
 try:
-    from src.csi_features import L1_DELTA_LAG
+    from .csi_features import L1_DELTA_LAG
 except ImportError:
     from csi_features import L1_DELTA_LAG
 

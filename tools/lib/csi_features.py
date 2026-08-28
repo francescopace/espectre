@@ -1,22 +1,20 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
 """
-Micro-ESPectre - Production Feature Helpers
+ESPectre - Reference Production Feature Helpers
 
-Pure Python implementation for MicroPython.
-Provides the production ML feature extraction helpers plus the allocation-free
-L1-delta tracker shared by both detectors.
+Pure-Python production feature extraction used by host replay and validation.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
 import math
 
+from micro_espectre.detector_interface import MotionState
+
 try:
-    from src.detector_interface import MotionState
-    from src.filters import HampelFilter
-    from src.segmentation import SegmentationContext
+    from .filters import HampelFilter
+    from .segmentation import SegmentationContext
 except ImportError:
-    from detector_interface import MotionState
     from filters import HampelFilter
     from segmentation import SegmentationContext
 

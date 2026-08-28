@@ -26,7 +26,7 @@ from typing import Any, Callable, Dict, Iterator, Mapping, MutableMapping, Optio
 
 import numpy as np
 
-from .repo_paths import cpp_core_dir, python_src_dir, repo_root
+from .repo_paths import cpp_core_dir, tools_lib_dir, python_src_dir, repo_root
 
 CACHE_LAYOUT_VERSION = 2
 CLASSIC_REPLAY_ROW_ARTIFACT_VERSION = 2
@@ -483,13 +483,13 @@ def _ml_feature_source_manifests() -> dict[str, Any]:
     manifests: dict[str, Any] = {}
     sources = {
         "python_config": python_src_dir() / "config.py",
-        "python_csi_features": python_src_dir() / "csi_features.py",
+        "python_csi_features": tools_lib_dir() / "csi_features.py",
         "python_device_utils": python_src_dir() / "device_utils.py",
-        "python_filters": python_src_dir() / "filters.py",
-        "python_high_accuracy_detector": python_src_dir() / "high_accuracy_detector.py",
-        "python_ml_feature_trackers": python_src_dir() / "ml_feature_trackers.py",
-        "python_runtime_policy": python_src_dir() / "runtime_policy.py",
-        "python_segmentation": python_src_dir() / "segmentation.py",
+        "python_filters": tools_lib_dir() / "filters.py",
+        "python_high_accuracy_detector": tools_lib_dir() / "high_accuracy_detector.py",
+        "python_ml_feature_trackers": tools_lib_dir() / "ml_feature_trackers.py",
+        "python_runtime_policy": tools_lib_dir() / "runtime_policy.py",
+        "python_segmentation": tools_lib_dir() / "segmentation.py",
         "host_csi_io": repo_root() / "tools" / "lib" / "csi_io.py",
         "host_dataset_metadata": repo_root() / "tools" / "lib" / "dataset_metadata.py",
         "host_ml_replay": repo_root() / "tools" / "lib" / "performance_report.py",
@@ -504,8 +504,8 @@ def _replay_policy_source_manifests() -> dict[str, Any]:
     """Return identities for shared replay timing and calibration policy."""
     manifests: dict[str, Any] = {}
     sources = {
-        "python_runtime_policy": python_src_dir() / "runtime_policy.py",
-        "python_temporal_csi_sampler": python_src_dir() / "temporal_csi_sampler.py",
+        "python_runtime_policy": tools_lib_dir() / "runtime_policy.py",
+        "python_temporal_csi_sampler": tools_lib_dir() / "temporal_csi_sampler.py",
         "host_dataset_metadata": repo_root() / "tools" / "lib" / "dataset_metadata.py",
         "host_classic_replay": repo_root() / "tools" / "lib" / "performance_report.py",
         "host_temporal_replay": repo_root() / "tools" / "lib" / "temporal_replay.py",
@@ -520,7 +520,7 @@ def _lightweight_detector_source_manifests() -> dict[str, Any]:
     """Return stable identities for the current Lightweight detector sources."""
     manifests: dict[str, Any] = {}
     sources = {
-        "python_lightweight_detector": python_src_dir() / "lightweight_detector.py",
+        "python_lightweight_detector": tools_lib_dir() / "lightweight_detector.py",
         "cpp_lightweight_detector_header": cpp_core_dir() / "lightweight_detector.h",
         "cpp_lightweight_detector_impl": cpp_core_dir() / "lightweight_detector.cpp",
     }

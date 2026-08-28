@@ -3,7 +3,7 @@
  *
  * Vote-free weighted fusion of turbulence autocorrelation and aggregated
  * turbulence IQR. Mirrors
- * src/python/micro_espectre/lightweight_detector.py.
+ * tools/lib/lightweight_detector.py.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only

@@ -53,7 +53,7 @@ from src.python.espectre_cli.device_discovery import (
     discover_devices,
 )
 from src.python.espectre_cli.targets import ESPHOME_CONFIGS, ESPHOME_EXAMPLES_DIR, IDF_FRONTENDS
-from src.python.micro_espectre.temporal_csi_sampler import (
+from tools.lib.temporal_csi_sampler import (
     MINIMUM_COVERAGE_DENOMINATOR,
     MINIMUM_COVERAGE_NUMERATOR,
 )

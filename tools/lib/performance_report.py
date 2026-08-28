@@ -49,14 +49,14 @@ from config import (
 )
 
 from detector_interface import MotionState
-from csi_features import FEATURE_NAMES as RUNTIME_FEATURE_NAMES
-from runtime_policy import (
+from tools.lib.csi_features import FEATURE_NAMES as RUNTIME_FEATURE_NAMES
+from tools.lib.runtime_policy import (
     PacketTimingTracker,
     RuntimeMotionPolicy,
     make_evaluation_cadence as _make_evaluation_cadence,
     nominal_packet_interval_us,
 )
-from temporal_csi_sampler import minimum_valid_slots, temporal_window_slots
+from tools.lib.temporal_csi_sampler import minimum_valid_slots, temporal_window_slots
 from tools.lib.csi_io import load_npz_arrays, load_npz_packet_view, load_npz_sensing_arrays
 from tools.lib.temporal_replay import (
     apply_temporal_admission,
@@ -554,7 +554,7 @@ def _resolve_ml_replay_feature_names(feature_names: Sequence[str] = ()) -> tuple
     requested = tuple(str(name) for name in (feature_names or tuple(RUNTIME_FEATURE_NAMES)))
     supported = set(RUNTIME_FEATURE_NAMES)
     try:
-        from high_accuracy_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES
+        from tools.lib.high_accuracy_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES
         supported.update(str(name) for name in EXPORTED_FEATURE_NAMES)
     except (ImportError, AttributeError):
         pass
@@ -687,7 +687,7 @@ def build_ml_replay_rows(
     target_pps: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Build reset-aware ML rows and project them onto one sampling contract."""
-    from high_accuracy_detector import HighAccuracyDetector, FEATURE_NAMES as EXPORTED_FEATURE_NAMES
+    from tools.lib.high_accuracy_detector import HighAccuracyDetector, FEATURE_NAMES as EXPORTED_FEATURE_NAMES
 
     requested_feature_names = _resolve_ml_replay_feature_names(feature_names)
     missing = [
@@ -821,7 +821,7 @@ def load_or_compute_ml_replay_rows(
         raise ValueError("dense row selection requires sample_contract='stream_dense'")
     if stride is not None and use_cache and cache_write:
         raise ValueError("selected rows cannot be written under a full-row cache key")
-    from high_accuracy_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES
+    from tools.lib.high_accuracy_detector import FEATURE_NAMES as EXPORTED_FEATURE_NAMES
     cached_feature_names = tuple(EXPORTED_FEATURE_NAMES)
     packet_stream: Optional[Sequence[dict[str, Any]]] = None
     resolved_window_size = window_size
@@ -1207,7 +1207,7 @@ def _calibrate_classic_replay_rows(
     timing: Mapping[str, int],
 ) -> Optional[float]:
     """Reproduce Lightweight startup calibration from cached evaluation rows."""
-    from lightweight_detector import LightweightDetector
+    from tools.lib.lightweight_detector import LightweightDetector
     from threshold import (
         StartupThresholdCalibrator,
         get_detector_auto_factor,
@@ -1598,7 +1598,7 @@ def _compute_ml_row_result(
     feature_names: Sequence[str] = (),
 ) -> tuple[Dict[str, float], Dict[str, Dict[str, tuple[float, ...]]]]:
     """Evaluate canonical runtime-tick rows with the exported inference path."""
-    from high_accuracy_detector import predict as predict_runtime_probability
+    from tools.lib.high_accuracy_detector import predict as predict_runtime_probability
 
     runtime_feature_names = tuple(RUNTIME_FEATURE_NAMES)
     requested_feature_names = _resolve_ml_replay_feature_names(feature_names)
@@ -2132,7 +2132,7 @@ def evaluate_ml_long_recording(
     if source_path is not None and motion_start_packet is not None:
         return _evaluate_ml_long_cached_rows(source_path, motion_start_packet)
 
-    from high_accuracy_detector import HighAccuracyDetector
+    from tools.lib.high_accuracy_detector import HighAccuracyDetector
 
     interval_us = measure_packet_interval_us(baseline_packets)
     target_pps = target_pps_for_packets(baseline_packets, interval_us)

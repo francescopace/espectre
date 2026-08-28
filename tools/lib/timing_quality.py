@@ -20,7 +20,7 @@ from .bootstrap import setup_paths
 setup_paths()
 
 import config
-from runtime_policy import PacketTimingTracker, nominal_packet_interval_us
+from tools.lib.runtime_policy import PacketTimingTracker, nominal_packet_interval_us
 
 
 MIN_CAPTURE_PACKET_RATE_PPS = 95.0

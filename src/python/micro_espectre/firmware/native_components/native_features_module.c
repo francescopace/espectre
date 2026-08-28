@@ -98,8 +98,6 @@ static mp_obj_t native_detector_make_new(
     espectre_native_detector_kind_t kind;
     if (strcmp(algorithm, "lightweight") == 0) {
         kind = ESPECTRE_NATIVE_DETECTOR_LIGHTWEIGHT;
-    } else if (strcmp(algorithm, "high_accuracy") == 0) {
-        kind = ESPECTRE_NATIVE_DETECTOR_HIGH_ACCURACY;
     } else {
         mp_raise_ValueError(MP_ERROR_TEXT("unsupported detector algorithm"));
     }

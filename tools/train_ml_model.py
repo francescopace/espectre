@@ -80,6 +80,7 @@ from tools.lib.dataset_metadata import (
 from tools.lib.repo_paths import (
     cpp_core_dir,
     generated_data_dir,
+    tools_lib_dir,
     python_src_dir,
 )
 from tools.lib import npz_cache
@@ -374,17 +375,17 @@ from config import (
     SEGMENTATION_WINDOW_SIZE_MS,
 )
 from detector_interface import MotionState
-from runtime_policy import (
+from tools.lib.runtime_policy import (
     RuntimeMotionPolicy,
     derive_detector_timing,
     nominal_packet_interval_us,
 )
-from temporal_csi_sampler import (
+from tools.lib.temporal_csi_sampler import (
     TemporalCsiSampler,
     minimum_valid_slots,
     temporal_window_slots,
 )
-from ml_feature_trackers import (
+from tools.lib.ml_feature_trackers import (
     ChannelShapeTrajectoryTracker as ProductionChannelShapeTrajectoryTracker,
 )
 from tools.lib.performance_report import (
@@ -407,7 +408,7 @@ from tools.lib.occupancy_thinning import (
     thin_packets,
     thin_to_occupancy,
 )
-from csi_features import (
+from tools.lib.csi_features import (
     AGGREGATED_TURBULENCE_FEATURES,
     ALL_FEATURES,
     DEFAULT_FEATURES,
@@ -447,7 +448,7 @@ from tools.lib.host_feature_trackers import (
     ChannelShapeTracker,
     PhaseResidualTracker,
 )
-from high_accuracy_detector import (  # noqa: F401 (re-exported for tests)
+from tools.lib.high_accuracy_detector import (  # noqa: F401 (re-exported for tests)
     FEATURE_NAMES as EXPORTED_FEATURE_NAMES,
     HighAccuracyDetector,
     ProductionFeatureExtractor,
@@ -476,7 +477,7 @@ def _needs_l1_series(feature_names):
 # ============================================================================
 #
 # Production MLP uses the promoted Subband 8F feature set in
-# src/python/micro_espectre/csi_features.py DEFAULT_FEATURES.
+# tools/lib/csi_features.py DEFAULT_FEATURES.
 # See ALGORITHMS.md "Feature Importance" for SHAP/correlation rankings.
 # ============================================================================
 
@@ -523,6 +524,7 @@ BINARY_TRAINING_LABELS = ('empty', 'static_presence', 'motion')
 # Directories
 GENERATED_DATA_DIR = generated_data_dir()
 SRC_DIR = python_src_dir()
+REFERENCE_SRC_DIR = tools_lib_dir()
 CPP_DIR = cpp_core_dir()
 
 # Default training/evaluation configuration
@@ -1167,7 +1169,7 @@ def _training_source_metadata_parameters():
                 python_src_dir() / 'config.py'
             ),
             'python_runtime_policy': npz_cache.source_manifest(
-                python_src_dir() / 'runtime_policy.py'
+                tools_lib_dir() / 'runtime_policy.py'
             ),
         },
     }
@@ -1558,10 +1560,10 @@ def _host_feature_base_stream_provenance(feature_names, trajectory_bin_us):
             'contract': 'host_feature_row_spine_v1',
             'timing_sources': {
                 'runtime_policy': npz_cache.source_manifest(
-                    python_src_dir() / 'runtime_policy.py'
+                    tools_lib_dir() / 'runtime_policy.py'
                 ),
                 'temporal_csi_sampler': npz_cache.source_manifest(
-                    python_src_dir() / 'temporal_csi_sampler.py'
+                    tools_lib_dir() / 'temporal_csi_sampler.py'
                 ),
                 'config': npz_cache.source_manifest(
                     python_src_dir() / 'config.py'
@@ -2840,8 +2842,8 @@ def build_group_report(y_true, y_prob, group_values):
 
 
 def load_exported_ml_weights():
-    """Load the currently exported MicroPython ML weights module."""
-    weights_path = SRC_DIR / 'ml_weights.py'
+    """Load the currently exported Python reference ML weights module."""
+    weights_path = REFERENCE_SRC_DIR / 'ml_weights.py'
     if not weights_path.exists():
         raise FileNotFoundError(f"Exported ML weights not found: {weights_path}")
     spec = importlib.util.spec_from_file_location("exported_ml_weights", weights_path)
@@ -2864,7 +2866,7 @@ def exported_weight_matrices(weights_module):
 
 
 def predict_exported_probabilities_from_weights(weights_module, X_raw):
-    """Vectorized inference matching src/python/micro_espectre/high_accuracy_detector.py for exported weights."""
+    """Vectorized inference matching the Python reference High Accuracy detector."""
     center = np.asarray(weights_module.FEATURE_MEAN, dtype=np.float32)
     scale = np.asarray(weights_module.FEATURE_SCALE, dtype=np.float32)
     scale[scale < 1e-6] = 1.0
@@ -4198,7 +4200,7 @@ def render_micropython_weights(weights, center, scale, architecture, seed=None,
     code = f'''# SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
 """
-Micro-ESPectre - ML Model Weights
+ESPectre - Reference ML Model Weights
 
 Auto-generated neural network weights for motion detection.
 Architecture: {architecture_text}
@@ -4567,7 +4569,7 @@ def print_candidate_redundancy(X, feature_names, baseline_features=None):
 
 def print_correlation_table(correlations, current_features=None):
     """Print correlation results in a nice table."""
-    from csi_features import DEFAULT_FEATURES
+    from tools.lib.csi_features import DEFAULT_FEATURES
     
     if current_features is None:
         current_features = DEFAULT_FEATURES
@@ -4944,7 +4946,7 @@ def select_regression_subset_indices(
 
 def read_exported_seed():
     """Read the seed embedded in generated weight files."""
-    for path in (SRC_DIR / 'ml_weights.py', CPP_DIR / 'ml_weights.h'):
+    for path in (REFERENCE_SRC_DIR / 'ml_weights.py', CPP_DIR / 'ml_weights.h'):
         if not path.exists():
             continue
         try:
@@ -5548,7 +5550,7 @@ def train_all(fp_weight=DEFAULT_FP_WEIGHT, seed=None, feature_names=None,
     print("\nExporting model artifacts...")
     export_start = perf_counter()
 
-    mp_path = SRC_DIR / 'ml_weights.py'
+    mp_path = REFERENCE_SRC_DIR / 'ml_weights.py'
     cpp_path = CPP_DIR / 'ml_weights.h'
     test_data_path = GENERATED_DATA_DIR / 'ml_test_data.npz'
     with tempfile.TemporaryDirectory(prefix='espectre_model_export_') as staging:
@@ -7467,7 +7469,7 @@ def _search_candidate_key(cv_metrics, gate=None):
 def _model_artifact_paths():
     """Return paths of generated model artifacts."""
     return [
-        SRC_DIR / 'ml_weights.py',
+        REFERENCE_SRC_DIR / 'ml_weights.py',
         CPP_DIR / 'ml_weights.h',
         GENERATED_DATA_DIR / 'ml_test_data.npz',
     ]

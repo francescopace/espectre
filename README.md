@@ -75,7 +75,7 @@ ESPHome, Native, and Matter can choose between a `lightweight` detector, which l
 ESPectre publishes the research assets and validation evidence behind its detectors:
 
 - The [open CSI dataset](data/) contains real recordings for empty rooms, static presence, and motion, with its catalog and provenance in [dataset_info.json](data/dataset_info.json).
-- The trained model weights are committed in both [C++](src/cpp/core/ml_weights.h) and [Python](src/python/micro_espectre/ml_weights.py), and [ML_TRAINING.md](docs/ML_TRAINING.md) documents how training, export, and validation work.
+- The trained model weights are committed in both [C++](src/cpp/core/ml_weights.h) and [Python](tools/lib/ml_weights.py), and [ML_TRAINING.md](docs/ML_TRAINING.md) documents how training, export, and validation work.
 - [FEATURES.md](docs/FEATURES.md) records features that were tested, promoted, or rejected, including unsuccessful experiments.
 - [ALGORITHMS.md](docs/ALGORITHMS.md), the generated [performance report](docs/performance/README.md), and the [dataset quality report](data/auto_generated/DATASET_QUALITY_CHECK.md) make detector behavior and current evidence reviewable.
 - [LITERATURE.md](docs/LITERATURE.md), the [architecture decision records](docs/adr/README.md), and the public [roadmap](docs/ROADMAP.md) separate what is shipped, what has been measured, and what remains a direction for future work.

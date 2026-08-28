@@ -49,7 +49,7 @@ from tools.lib.temporal_replay import (
     apply_temporal_admission,
     target_pps_for_packets,
 )
-from temporal_csi_sampler import minimum_valid_slots
+from tools.lib.temporal_csi_sampler import minimum_valid_slots
 from tools.lib.ui import show_plot_window
 from config import (
     SEGMENTATION_WINDOW_SIZE_MS,
@@ -57,15 +57,15 @@ from config import (
     ENABLE_LOWPASS_FILTER, LOWPASS_CUTOFF,
     DEFAULT_SUBCARRIERS,
 )
-from filters import HampelFilter, LowPassFilter
+from tools.lib.filters import HampelFilter, LowPassFilter
 from threshold import DEFAULT_ADAPTIVE_FACTOR, calculate_startup_threshold_from_max
-from lightweight_detector import LightweightDetector
-from csi_features import L1_DELTA_STARTUP_THRESHOLD_FACTOR
+from tools.lib.lightweight_detector import LightweightDetector
+from tools.lib.csi_features import L1_DELTA_STARTUP_THRESHOLD_FACTOR
 
 # Check if ML model is available (production implementation).
 ML_AVAILABLE = False
 try:
-    from high_accuracy_detector import HighAccuracyDetector as ProdHighAccuracyDetector, HIGH_ACCURACY_DEFAULT_THRESHOLD
+    from tools.lib.high_accuracy_detector import HighAccuracyDetector as ProdHighAccuracyDetector, HIGH_ACCURACY_DEFAULT_THRESHOLD
     ML_AVAILABLE = True
 except ImportError:
     ProdHighAccuracyDetector = None

@@ -24,13 +24,23 @@ def micro_espectre_root() -> Path:
     return repo_root() / "micro-espectre"
 
 
+def python_root_dir() -> Path:
+    """Return the repository Python source root."""
+    return repo_root() / "src" / "python"
+
+
 def python_src_dir() -> Path:
-    """Return the current host-side Python source directory."""
+    """Return the current MicroPython device source directory."""
     root = repo_root()
     new_layout = root / "src" / "python" / "micro_espectre"
     if new_layout.exists():
         return new_layout
     return micro_espectre_root() / "src"
+
+
+def tools_lib_dir() -> Path:
+    """Return the host-side tools library directory."""
+    return tools_dir() / "lib"
 
 
 def python_tests_dir() -> Path:
@@ -81,4 +91,3 @@ def requirements_file() -> Path:
     if new_layout.exists():
         return new_layout
     return micro_espectre_root() / "requirements.txt"
-

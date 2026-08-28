@@ -34,9 +34,9 @@ setup_paths()
 
 import tools.lib.dataset_metadata as dataset_metadata  # noqa: E402
 import tools.lib.performance_report as performance_report  # noqa: E402
-import temporal_csi_sampler as temporal_csi_sampler  # noqa: E402
+from tools.lib import temporal_csi_sampler as temporal_csi_sampler  # noqa: E402
 from config import DEFAULT_SUBCARRIERS, SEGMENTATION_WINDOW_SIZE_MS  # noqa: E402
-from temporal_csi_sampler import temporal_window_slots  # noqa: E402
+from tools.lib.temporal_csi_sampler import temporal_window_slots  # noqa: E402
 from tools.lib.performance_report import (  # noqa: E402
     REPORT_DATASET_ROLES,
     _compute_ml_row_result,

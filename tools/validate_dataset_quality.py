@@ -28,10 +28,10 @@ Checks performed:
 SOURCE CODE ALIGNMENT:
   This script reuses production and shared tooling code instead of local copies:
   - src/python/micro_espectre/config.py: SEGMENTATION_WINDOW_SIZE_MS, DEFAULT_SUBCARRIERS
-  - src/python/micro_espectre/csi_features.py: shared invariant feature semantics
+  - tools/lib/csi_features.py: shared invariant feature semantics
   - tools/lib/dataset_metadata.py: dataset_info I/O and entry paths
   - tools/lib/csi_analysis.py: vectorized amplitude extraction (int8 → int16 to
-    avoid overflow; src/micro_espectre/utils.py works on Python int lists, but
+    avoid overflow; tools/lib/utils.py works on Python int lists, but
     NPZ stores numpy int8)
 
 Usage:
@@ -101,12 +101,12 @@ from config import (  # noqa: E402
     EVALUATION_INTERVAL_MS,
     SEGMENTATION_WINDOW_SIZE_MS,
 )
-from csi_features import DEFAULT_FEATURES  # noqa: E402
-from temporal_csi_sampler import (  # noqa: E402
+from tools.lib.csi_features import DEFAULT_FEATURES  # noqa: E402
+from tools.lib.temporal_csi_sampler import (  # noqa: E402
     MINIMUM_COVERAGE_DENOMINATOR,
     MINIMUM_COVERAGE_NUMERATOR,
 )
-from runtime_policy import (  # noqa: E402
+from tools.lib.runtime_policy import (  # noqa: E402
     derive_detector_timing,
     make_evaluation_cadence,
     nominal_packet_interval_us,

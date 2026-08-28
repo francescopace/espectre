@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
 """
-Micro-ESPectre - Utility Functions
+ESPectre - Reference Utility Functions
 
 Shared utility functions used across multiple modules.
 Mirrors utils.h from ESPectre C++ implementation.
@@ -10,8 +10,8 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
 import math
-try:
-    from src.device_utils import (
+
+from micro_espectre.device_utils import (
         CsiFrameTimestampFilter as CsiFrameTimestampFilter,
         DETECTOR_RESET_DROP_STREAK,
         DISPOSITION_DROP,
@@ -47,45 +47,7 @@ try:
         normalize_ht20_csi_payload as normalize_ht20_csi_payload,
         rotate_ht20_classic_to_centered as rotate_ht20_classic_to_centered,
         to_signed_int8,
-    )
-except ImportError:
-    from device_utils import (
-        CsiFrameTimestampFilter as CsiFrameTimestampFilter,
-        DETECTOR_RESET_DROP_STREAK,
-        DISPOSITION_DROP,
-        DISPOSITION_SENSE,
-        FORMAT_ID_HT20,
-        FORMAT_ID_UNKNOWN,
-        LAYOUT_ID_HT20_57,
-        LAYOUT_ID_HT20_57_DOUBLE,
-        LAYOUT_ID_HT20_64,
-        LAYOUT_ID_HT20_64_DOUBLE,
-        LAYOUT_ID_UNKNOWN,
-        LAYOUT_BINS_CENTERED,
-        LAYOUT_BINS_CLASSIC,
-        LAYOUT_BINS_UNKNOWN,
-        NORMALIZATION_DOUBLE_HT20,
-        NORMALIZATION_DOUBLE_HT57_TO_64,
-        NORMALIZATION_HT57_TO_64,
-        REASON_BAD_LENGTH,
-        REASON_MISSING_METADATA,
-        REASON_NONE,
-        REASON_NULL_OR_EMPTY,
-        REASON_UNEXPECTED_LTF,
-        REASON_UNKNOWN_LAYOUT,
-        REASON_UNSUPPORTED_PHY,
-        REASON_UNSUPPORTED_WIDTH,
-        assess_ht20_payload_layout as assess_ht20_payload_layout,
-        assess_ht20_sensing_frame as assess_ht20_sensing_frame,
-        calculate_variance,
-        csi_read_frame as csi_read_frame,
-        detect_ht20_bin_layout as detect_ht20_bin_layout,
-        insertion_sort as insertion_sort,
-        is_ht20_sensing_frame as is_ht20_sensing_frame,
-        normalize_ht20_csi_payload as normalize_ht20_csi_payload,
-        rotate_ht20_classic_to_centered as rotate_ht20_classic_to_centered,
-        to_signed_int8,
-    )
+)
 
 
 def calculate_median(values):

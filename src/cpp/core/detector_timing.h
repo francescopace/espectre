@@ -3,7 +3,7 @@
  *
  * Effective packet-cadence estimation and the shared duration-to-sample-count
  * contract used by the detectors. Counterpart of the same helpers in
- * src/python/micro_espectre/runtime_policy.py; keep the two aligned, because a
+ * tools/lib/runtime_policy.py; keep the two aligned, because a
  * detector fitted under one resolution and run under another is measuring a
  * different feature.
  *

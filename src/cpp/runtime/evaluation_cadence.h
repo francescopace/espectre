@@ -11,7 +11,7 @@
  * different feature resolution than the one it was applied at.
  *
  * Keep aligned with RuntimeMotionPolicy in
- * src/python/micro_espectre/runtime_policy.py.
+ * tools/lib/runtime_policy.py.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only

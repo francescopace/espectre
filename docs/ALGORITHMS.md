@@ -133,7 +133,7 @@ The 12-tone set is a sampling of the spectrum, and it serves the features that b
 
 The split follows from what each family measures rather than from independent band choices. Historical frequency-coherence candidates remain host-only because they need live-bin pairs at fixed separations; production no longer pays that complex full-band cost.
 
-Both runtimes use the same guard-band, DC-null, and adjacent-bin aggregation rules in [`csi_format.h`](../src/cpp/core/csi_format.h) and [`segmentation.py`](../src/python/micro_espectre/segmentation.py). The ML channel-shape live band remains defined identically in [`ml_feature_trackers.h`](../src/cpp/core/ml_feature_trackers.h) and [`ml_feature_trackers.py`](../src/python/micro_espectre/ml_feature_trackers.py).
+Both runtimes use the same guard-band, DC-null, and adjacent-bin aggregation rules in [`csi_format.h`](../src/cpp/core/csi_format.h) and [`segmentation.py`](../tools/lib/segmentation.py). The ML channel-shape live band remains defined identically in [`ml_feature_trackers.h`](../src/cpp/core/ml_feature_trackers.h) and [`ml_feature_trackers.py`](../tools/lib/ml_feature_trackers.py).
 
 HT20 is the enforced detector input contract on both supported bands, while the current detection corpus validates only 2.4 GHz operation. VHT20, HE20, and wider layouts are not accepted by the production detectors. Band-selection behavior lives in [SETUP.md](SETUP.md), and the PHY rationale lives in the [HT20 ADR](adr/2026-07-23-adopt-classifier-first-ht20-sensing-contract.md).
 
@@ -250,7 +250,7 @@ Its limit is the mirror of its safety. A room that grows genuinely noisier after
 
 Current aligned implementations:
 
-- `src/python/micro_espectre/lightweight_detector.py`
+- `tools/lib/lightweight_detector.py`
 - `src/cpp/core/lightweight_detector.*`
 
 ## High-Accuracy Implementation: HighAccuracyDetector
@@ -313,7 +313,7 @@ CSI packet
 
 The same production feature set is used by:
 
-- `src/python/micro_espectre/csi_features.py`
+- `tools/lib/csi_features.py`
 - `src/cpp/core/ml_*`
 - `tools/train_ml_model.py` exports
 

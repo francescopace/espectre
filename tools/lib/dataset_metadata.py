@@ -32,6 +32,14 @@ from typing import (
 from .atomic_io import atomic_write_text
 from .bootstrap import setup_paths
 from .repo_paths import data_dir
+from tools.lib.lightweight_detector import LightweightDetector
+from tools.lib.runtime_policy import (
+    PacketTimingTracker,
+    RuntimeMotionPolicy,
+    derive_detector_timing,
+    nominal_packet_interval_us,
+)
+from tools.lib.temporal_csi_sampler import minimum_valid_slots, temporal_window_slots
 
 setup_paths()
 
@@ -41,28 +49,12 @@ except ImportError:
     import src.config as config
 
 try:
-    from lightweight_detector import LightweightDetector
-    from runtime_policy import (
-        PacketTimingTracker,
-        RuntimeMotionPolicy,
-        derive_detector_timing,
-        nominal_packet_interval_us,
-    )
-    from temporal_csi_sampler import minimum_valid_slots, temporal_window_slots
     from threshold import (
         StartupThresholdCalibrator,
         get_detector_auto_factor,
         get_detector_startup_gate,
     )
 except ImportError:  # pragma: no cover
-    from src.lightweight_detector import LightweightDetector
-    from src.runtime_policy import (
-        PacketTimingTracker,
-        RuntimeMotionPolicy,
-        derive_detector_timing,
-        nominal_packet_interval_us,
-    )
-    from src.temporal_csi_sampler import minimum_valid_slots, temporal_window_slots
     from src.threshold import (
         StartupThresholdCalibrator,
         get_detector_auto_factor,

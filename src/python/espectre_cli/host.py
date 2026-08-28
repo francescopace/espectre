@@ -358,6 +358,20 @@ def collect_csi_data(args) -> None:
 
 def _run_live_collect(args) -> None:
     """Run the host-side live collect pipeline."""
+    from tools.lib.detector_loader import load_detector_class
+    from tools.lib.high_accuracy_detector import HIGH_ACCURACY_DEFAULT_THRESHOLD
+    from tools.lib.runtime_policy import (
+        PacketTimingTracker,
+        RuntimeMotionPolicy,
+        derive_detector_timing,
+        duration_packet_count,
+        nominal_packet_interval_us,
+    )
+    from tools.lib.temporal_csi_sampler import (
+        minimum_valid_slots,
+        temporal_window_slots,
+    )
+
     try:
         from tools.lib.csi_io import (
             CSICollector,
@@ -371,23 +385,10 @@ def _run_live_collect(args) -> None:
         from detector_interface import (
             detector_needs_startup_calibration,
             get_detector_label,
-            load_detector_class,
             normalize_detector_algorithm,
             supported_detector_algorithms,
         )
-        from high_accuracy_detector import HIGH_ACCURACY_DEFAULT_THRESHOLD
         from runtime_diagnostics import RuntimeDiagnosticsSampler, empty_diagnostics_sample
-        from runtime_policy import (
-            PacketTimingTracker,
-            RuntimeMotionPolicy,
-            derive_detector_timing,
-            duration_packet_count,
-            nominal_packet_interval_us,
-        )
-        from temporal_csi_sampler import (
-            minimum_valid_slots,
-            temporal_window_slots,
-        )
         from threshold import (
             StartupThresholdCalibrator,
             get_detector_auto_factor,
@@ -407,23 +408,10 @@ def _run_live_collect(args) -> None:
             from src.detector_interface import (
                 detector_needs_startup_calibration,
                 get_detector_label,
-                load_detector_class,
                 normalize_detector_algorithm,
                 supported_detector_algorithms,
             )
-            from src.high_accuracy_detector import HIGH_ACCURACY_DEFAULT_THRESHOLD
             from src.runtime_diagnostics import RuntimeDiagnosticsSampler, empty_diagnostics_sample
-            from src.runtime_policy import (
-                PacketTimingTracker,
-                RuntimeMotionPolicy,
-                derive_detector_timing,
-                duration_packet_count,
-                nominal_packet_interval_us,
-            )
-            from src.temporal_csi_sampler import (
-                minimum_valid_slots,
-                temporal_window_slots,
-            )
             from src.threshold import (
                 StartupThresholdCalibrator,
                 get_detector_auto_factor,

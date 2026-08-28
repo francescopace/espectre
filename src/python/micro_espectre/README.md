@@ -15,7 +15,7 @@ The deployed runtime intentionally contains only:
 - mDNS/DNS-SD advertisement and a unique `.local` hostname; and
 - serial logging and the MicroPython REPL.
 
-The device does not deploy the High Accuracy ML detector, ML weights, MQTT, Home Assistant discovery, the shared C++ DNS-over-TCP generator, runtime detector switching, raw CSI streaming, OTA, or configuration mutations. The High Accuracy Python sources remain in the repository for host-side research and C++/Python validation, but `micro deploy` does not copy them to the device.
+The device does not deploy the High Accuracy ML detector, ML weights, MQTT, Home Assistant discovery, the shared C++ DNS-over-TCP generator, runtime detector switching, raw CSI streaming, OTA, or configuration mutations. The High Accuracy and pure-Python Lightweight implementations live under `tools/lib/` for host-side research and C++/Python validation; `micro deploy` does not copy them to the device.
 
 ESPectre contributed direct ESP32 Wi-Fi CSI access to mainline MicroPython through [micropython/micropython#18460](https://github.com/micropython/micropython/pull/18460). Micro-ESPectre builds a pinned mainline revision with a lean ESPectre board profile rather than using the earlier CSI fork.
 
@@ -41,7 +41,7 @@ WIFI_PASSWORD = "YourWiFiPassword"
 
 The firmware image freezes only MicroPython's upstream boot and filesystem helpers. The complete ESPectre application is compiled to optimized `.mpy -O3` bytecode and stored on the filesystem, so research changes require only `micro deploy`, not a firmware rebuild and flash. Deployment uploads the complete manifest to a staging directory and atomically activates it, restoring the previous directory after an interrupted swap. The device and `mpy-cross` use MPY ABI 6.3.
 
-The firmware links the core-only ESPectre SDK as an ESP-IDF component. Its MicroPython binding exposes finalizable `Detector` and `TemporalCsiSampler` objects through the public `espectre_core_sdk.h` facade. The production Lightweight detector and temporal admission hot paths therefore run in C++, while MicroPython owns orchestration, calibration policy, diagnostics, and delivery. The application fails at startup if the core module is absent or incompatible; it does not silently fall back to the Python detector on the device. The same Python implementation remains available under CPython for replay, training, and host-side experimentation. The other native components are the ICMP traffic generator and the Direct HTTP/mDNS service. Bluetooth, ESP-NOW, asyncio, Ethernet, unused peripheral bindings, and unused generic Python modules remain disabled.
+The firmware links the core-only ESPectre SDK as an ESP-IDF component. Its MicroPython binding exposes finalizable Lightweight `Detector` and `TemporalCsiSampler` objects through the public `espectre_core_sdk.h` facade. The production Lightweight detector and temporal admission hot paths therefore run in C++, while MicroPython owns orchestration, calibration policy, diagnostics, and delivery. The application fails at startup if the core module is absent or incompatible; it does not silently fall back to the Python detector on the device. Equivalent Python implementations remain available under `tools/lib/` for replay, training, and host-side experimentation. The other native components are the ICMP traffic generator and the Direct HTTP/mDNS service. Bluetooth, ESP-NOW, asyncio, Ethernet, unused peripheral bindings, and unused generic Python modules remain disabled.
 
 ## Runtime behavior
 

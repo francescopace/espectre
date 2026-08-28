@@ -12,7 +12,7 @@ from .bootstrap import setup_paths
 setup_paths()
 
 from config import CSI_TARGET_PPS, SEGMENTATION_WINDOW_SIZE_MS  # noqa: E402
-from temporal_csi_sampler import (  # noqa: E402
+from tools.lib.temporal_csi_sampler import (  # noqa: E402
     MINIMUM_COVERAGE_DENOMINATOR,
     MINIMUM_COVERAGE_NUMERATOR,
     TemporalCsiSampler,

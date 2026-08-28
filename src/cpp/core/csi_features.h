@@ -6,7 +6,7 @@
  * reads directly. Every feature is a ratio, a correlation, or a crossing rate:
  * the per-packet CSI scaling factor is never recorded, so anything carrying
  * absolute magnitude carries the link's noise floor with it.
- * Port of src/python/micro_espectre/csi_features.py.
+ * Port of tools/lib/csi_features.py.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only

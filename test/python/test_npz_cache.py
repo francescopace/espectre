@@ -796,6 +796,7 @@ def test_ml_replay_row_key_tracks_features_but_not_numeric_weights(
     feature_source.write_text("FEATURE_NAMES = ['f0']\n")
     weights_source.write_text("W1 = [1.0]\n")
     monkeypatch.setattr(npz_cache, "python_src_dir", lambda: python_dir)
+    monkeypatch.setattr(npz_cache, "tools_lib_dir", lambda: python_dir)
 
     first = npz_cache.ml_replay_row_parameters(
         selected_subcarriers=(1, 2),
@@ -835,6 +836,7 @@ def test_classic_replay_row_parameters_change_when_detector_changes(
     cpp_impl.write_text("// classic impl v1\n")
 
     monkeypatch.setattr(npz_cache, "python_src_dir", lambda: python_dir)
+    monkeypatch.setattr(npz_cache, "tools_lib_dir", lambda: python_dir)
     monkeypatch.setattr(npz_cache, "cpp_core_dir", lambda: cpp_dir)
 
     timing = {
@@ -880,6 +882,7 @@ def test_classic_replay_row_parameters_change_when_temporal_policy_changes(
     (tools_dir / "temporal_replay.py").write_text("# temporal adapter\n")
 
     monkeypatch.setattr(npz_cache, "python_src_dir", lambda: python_dir)
+    monkeypatch.setattr(npz_cache, "tools_lib_dir", lambda: python_dir)
     monkeypatch.setattr(npz_cache, "repo_root", lambda: tmp_path)
 
     timing = {

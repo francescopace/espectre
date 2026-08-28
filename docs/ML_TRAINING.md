@@ -224,7 +224,7 @@ The gain-stress gate measures sensitivity to explicit amplitude-gain dimensions.
 
 A successful promotion updates:
 
-- `src/python/micro_espectre/ml_weights.py`;
+- `tools/lib/ml_weights.py`;
 - `src/cpp/core/ml_weights.h`; and
 - `data/auto_generated/ml_test_data.npz`.
 

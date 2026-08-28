@@ -13,7 +13,6 @@ extern "C" {
 
 typedef enum {
     ESPECTRE_NATIVE_DETECTOR_LIGHTWEIGHT = 0,
-    ESPECTRE_NATIVE_DETECTOR_HIGH_ACCURACY = 1,
 } espectre_native_detector_kind_t;
 
 void *espectre_native_detector_create(

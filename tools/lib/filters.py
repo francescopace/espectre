@@ -1,19 +1,15 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Commercial licensing available under separate agreement; see LICENSING.md.
 """
-Micro-ESPectre - Signal Filters
+ESPectre - Reference Signal Filters
 
-Optimized Python implementation for MicroPython.
-Uses pre-allocated buffers and insertion sort for efficiency.
+Pure-Python implementation used by host-side replay and validation.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
 import math
 
-try:
-    from src.device_utils import insertion_sort
-except ImportError:
-    from device_utils import insertion_sort
+from micro_espectre.device_utils import insertion_sort
 
 
 class LowPassFilter:

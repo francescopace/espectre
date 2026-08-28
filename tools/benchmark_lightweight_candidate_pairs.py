@@ -50,7 +50,7 @@ setup_paths()
 
 import tools.train_ml_model as train_ml_model  # noqa: E402
 from tools import replay_lightweight_candidates as candidate_replay  # noqa: E402
-from ml_weights import FEATURE_NAMES  # noqa: E402
+from tools.lib.ml_weights import FEATURE_NAMES  # noqa: E402
 from tools.lib.candidate_features import CANDIDATE_FEATURES  # noqa: E402
 from tools.lib.dataset_metadata import load_dataset_info  # noqa: E402
 

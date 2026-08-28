@@ -2,7 +2,7 @@
  * ESPectre - Temporal CSI Sampler
  *
  * Fixed-grid CSI admission shared by production runtime and host-side C++
- * validation. Mirrors src/python/micro_espectre/temporal_csi_sampler.py.
+ * validation. Mirrors tools/lib/temporal_csi_sampler.py.
  *
  * SPDX-License-Identifier: GPL-3.0-only
  * Commercial licensing available under separate agreement; see LICENSING.md.

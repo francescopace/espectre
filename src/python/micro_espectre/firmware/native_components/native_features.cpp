@@ -71,19 +71,15 @@ extern "C" void *espectre_native_detector_create(
         delete handle;
         return nullptr;
     }
-    if (kind == ESPECTRE_NATIVE_DETECTOR_LIGHTWEIGHT) {
-        handle->detector = new (std::nothrow) espectre::LightweightDetector(
-            window_size,
-            threshold,
-            lag
-        );
-    } else if (kind == ESPECTRE_NATIVE_DETECTOR_HIGH_ACCURACY) {
-        handle->detector = new (std::nothrow) espectre::HighAccuracyDetector(
-            window_size,
-            threshold,
-            lag
-        );
+    if (kind != ESPECTRE_NATIVE_DETECTOR_LIGHTWEIGHT) {
+        delete handle;
+        return nullptr;
     }
+    handle->detector = new (std::nothrow) espectre::LightweightDetector(
+        window_size,
+        threshold,
+        lag
+    );
     if (handle->detector == nullptr || !handle->detector->is_valid()) {
         delete handle->detector;
         delete handle;

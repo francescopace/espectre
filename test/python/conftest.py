@@ -9,6 +9,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
 import sys
+import importlib
 import math
 import os
 import hashlib
@@ -39,7 +40,7 @@ from tools.lib.performance_report import (
     get_available_long_test_datasets as _shared_get_available_long_test_datasets,
     load_long_test_dataset as _shared_load_long_test_dataset,
 )
-from tools.lib.repo_paths import data_dir, python_src_dir
+from tools.lib.repo_paths import data_dir, tools_lib_dir, python_src_dir
 
 # Add both the Python root and the Micro-ESPectre runtime source dir.
 # The runtime dir is inserted last (position 0) so it takes precedence for
@@ -47,6 +48,27 @@ from tools.lib.repo_paths import data_dir, python_src_dir
 # `src/python/`.
 SRC_PATH = python_src_dir()
 _prepend_sys_path(SRC_PATH)
+REFERENCE_PATH = tools_lib_dir()
+_prepend_sys_path(REFERENCE_PATH)
+
+# Historical tests import reference algorithms as flat modules. Bind those
+# names once to the canonical package so test order cannot accidentally select
+# the MicroPython facade with the same basename.
+for _module_name in (
+    "filters",
+    "csi_features",
+    "segmentation",
+    "high_accuracy_detector",
+    "lightweight_detector",
+    "ml_feature_trackers",
+    "ml_weights",
+    "runtime_policy",
+    "temporal_csi_sampler",
+    "utils",
+):
+    sys.modules[_module_name] = importlib.import_module(
+        f"tools.lib.{_module_name}"
+    )
 
 from config import (
     DEFAULT_SUBCARRIERS,

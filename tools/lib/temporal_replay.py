@@ -8,10 +8,7 @@ from .bootstrap import setup_paths
 
 setup_paths()
 
-try:
-    from temporal_csi_sampler import TemporalCsiSampler
-except ImportError:
-    from src.temporal_csi_sampler import TemporalCsiSampler
+from tools.lib.temporal_csi_sampler import TemporalCsiSampler
 
 
 @dataclass(frozen=True)

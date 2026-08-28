@@ -6,7 +6,7 @@ except ImportError:
     MappingABC = dict
 
 """
-Micro-ESPectre - Runtime Policy
+ESPectre - Reference Runtime Policy
 
 Keeps detector evaluation cadence and motion hit filtering aligned with the
 ESPHome/C++ runtime behavior.
@@ -14,35 +14,18 @@ ESPHome/C++ runtime behavior.
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
 
-try:
-    from src.runtime_motion_policy import (
-        UINT32_MODULUS as _UINT32_MODULUS,
-        RuntimeMotionPolicy,
-        equivalent_packet_weight,
-        make_evaluation_cadence,
-    )
-except ImportError:
-    from runtime_motion_policy import (
-        UINT32_MODULUS as _UINT32_MODULUS,
-        RuntimeMotionPolicy,
-        equivalent_packet_weight,
-        make_evaluation_cadence,
-    )
-
-try:
-    from src.config import (
-        L1_DELTA_LAG_MAX,
-        SEG_WINDOW_MAX,
-        SEG_WINDOW_MIN,
-        SEGMENTATION_WINDOW_SIZE_MS,
-    )
-except ImportError:
-    from config import (
-        L1_DELTA_LAG_MAX,
-        SEG_WINDOW_MAX,
-        SEG_WINDOW_MIN,
-        SEGMENTATION_WINDOW_SIZE_MS,
-    )
+from micro_espectre.config import (
+    L1_DELTA_LAG_MAX,
+    SEG_WINDOW_MAX,
+    SEG_WINDOW_MIN,
+    SEGMENTATION_WINDOW_SIZE_MS,
+)
+from micro_espectre.runtime_motion_policy import (
+    UINT32_MODULUS as _UINT32_MODULUS,
+    RuntimeMotionPolicy,
+    equivalent_packet_weight,
+    make_evaluation_cadence,
+)
 
 DEFAULT_GAP_RESET_RATIO = 4.0
 # Medians are refreshed on this stride instead of on every packet.

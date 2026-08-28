@@ -21,10 +21,7 @@ try:
 except ImportError:
     import src.config as config
 
-try:
-    from segmentation import SegmentationContext
-except ImportError:  # pragma: no cover
-    from src.segmentation import SegmentationContext
+from tools.lib.segmentation import SegmentationContext
 
 
 def calculate_spatial_turbulence(csi_data, selected_subcarriers=None) -> float:
