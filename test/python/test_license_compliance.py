@@ -385,10 +385,12 @@ def test_source_files_have_consistent_license_headers():
         for path in web_sources.stdout.splitlines()
         if Path(path).suffix in (".css", ".html", ".js", ".mjs")
     )
+    relative_paths = {
+        path for path in relative_paths if not path.startswith("test/hardware/")
+    }
     license_exceptions = {
         "test/cpp/support/cnpy.cpp": "MIT",
         "test/cpp/support/cnpy.h": "MIT",
-        "test/hardware/esp_idf/classic_esp32_csi_tx_stall/main/main.c": "Apache-2.0",
     }
     missing = []
     for relative_path in sorted(relative_paths):

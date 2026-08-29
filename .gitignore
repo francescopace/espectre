@@ -85,3 +85,6 @@ tools/benchmark_firmware.local.env
 
 # MQTT broker configuration
 mosquitto.conf
+
+# Hardware validation
+test/hardware/
