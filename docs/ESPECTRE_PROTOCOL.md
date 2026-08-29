@@ -586,7 +586,14 @@ Update CSI traffic ownership on frontends that advertise traffic control:
 }
 ```
 
-Accepted values are `internal` and `external`. ESPectre frontends persist the accepted value across reboot. Micro-ESPectre advertises no traffic-control mutation; its deployment configuration selects native ICMP traffic or external traffic for the current boot. Runtime requests using removed `pacing` or `disabled` values receive `invalid_params`; persisted legacy values migrate once to `internal`. On ESP-IDF sensing frontends, `external` opens the UDP listener on port `5555`, joins multicast group `239.255.0.1` unless `csi_traffic_multicast_group` is empty, and accepts only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`) addressed to the device or configured group. A period payload, truncated or malformed UTF-8, and any payload with additional bytes are rejected fail-closed.
+Accepted values are `internal` and `external`. ESPectre frontends persist the accepted value across reboot. Micro-ESPectre advertises no traffic-control mutation; its deployment configuration selects native ICMP traffic or external traffic for the current boot. Runtime requests using removed `pacing` or `disabled` values receive `invalid_params`; persisted legacy values migrate once to `internal`.
+
+On ESP-IDF sensing frontends, `external` stops the internal generator and accepts either of these externally supplied packet shapes:
+
+- UDP addressed to the device or configured multicast group, on port `5555`, with exactly the four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`); or
+- an ICMP Echo Request with type `8` and code `0`, addressed unicast to the device IPv4 and station MAC.
+
+The UDP listener joins multicast group `239.255.0.1` unless `csi_traffic_multicast_group` is empty. UDP payloads that are truncated, malformed, or contain additional bytes are rejected fail-closed. ICMP Echo Replies, non-zero codes, multicast destinations, fragments, and packets addressed to another IP or MAC are also rejected. The normal IP stack sends Echo Replies, so external ping needs no ESPectre-specific host service. `traffic_tx_pps` remains the managed generator or UDP-listener rate; use `csi_classified_pps` and `csi_admitted_pps` to observe an ICMP-supplied stream.
 
 Update the internal traffic generator type on frontends that advertise traffic control:
 

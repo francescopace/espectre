@@ -263,7 +263,7 @@ espectre:
   evaluation_interval_ms: 250
 ```
 
-For raw collection, use `./espectre collect` with this device's IP, hostname, Direct endpoint, or device ID. ESPHome exposes Direct and raw HTTP on the shared port `62587`; [`CLI.md`](../../../../docs/CLI.md#collect) owns the collector workflow, including its persistent external-traffic selection.
+For raw collection, use `./espectre collect` with this device's IP, hostname, Direct endpoint, or device ID. ESPHome exposes Direct and raw HTTP on the shared port `62587`; [`CLI.md`](../../../../docs/CLI.md#collect) owns the collector workflow, including its persistent external-traffic selection. External mode also accepts ordinary unicast ICMP Echo Requests addressed to the device, which provides a dependency-free diagnostic source without changing the UDP collection workflow.
 
 ## Build and Consumption
 

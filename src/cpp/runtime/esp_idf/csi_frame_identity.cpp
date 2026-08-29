@@ -114,7 +114,7 @@ bool destination_ip_matches(const ParsedIpv4 &packet,
          packet.destination == host_ip(config.multicast_ip_addr);
 }
 
-bool matches_external(const ParsedIpv4 &packet, const CsiFrameFilterConfig &config) {
+bool matches_external_udp(const ParsedIpv4 &packet, const CsiFrameFilterConfig &config) {
   if (packet.protocol != kIpProtoUdp || !destination_ip_matches(packet, config, true) ||
       packet.transport_len < kTransportMinimumHeaderBytes + RUNTIME_CSI_TRAFFIC_MARKER_LENGTH) {
     return false;
@@ -126,6 +126,12 @@ bool matches_external(const ParsedIpv4 &packet, const CsiFrameFilterConfig &conf
          std::memcmp(packet.transport + kTransportMinimumHeaderBytes,
                      RUNTIME_CSI_TRAFFIC_MARKER_BYTES,
                      RUNTIME_CSI_TRAFFIC_MARKER_LENGTH) == 0;
+}
+
+bool matches_external_ping(const ParsedIpv4 &packet, const CsiFrameFilterConfig &config) {
+  return packet.protocol == kIpProtoIcmp && destination_ip_matches(packet, config, false) &&
+         packet.transport_len >= kTransportMinimumHeaderBytes &&
+         packet.transport[0] == 8U && packet.transport[1] == 0U;
 }
 
 bool matches_internal_ping(const ParsedIpv4 &packet, const CsiFrameFilterConfig &config) {
@@ -157,7 +163,9 @@ bool csi_frame_matches_traffic(const wifi_csi_info_t *info,
   ParsedIpv4 packet;
   if (!parse_bounded_payload(info, &packet) ||
       !destination_mac_matches(packet, config, info->dmac)) return false;
-  if (config.traffic_mode == CsiTrafficMode::EXTERNAL) return matches_external(packet, config);
+  if (config.traffic_mode == CsiTrafficMode::EXTERNAL) {
+    return matches_external_udp(packet, config) || matches_external_ping(packet, config);
+  }
   return config.internal_mode == RuntimeTrafficMode::DNS
              ? matches_internal_dns(packet, config)
              : matches_internal_ping(packet, config);

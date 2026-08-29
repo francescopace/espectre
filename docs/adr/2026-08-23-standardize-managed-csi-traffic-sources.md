@@ -2,13 +2,13 @@
 
 - Status: Accepted
 - Date: 2026-08-23
-- Updated: 2026-08-25
+- Updated: 2026-08-29
 
 ## Context
 
 ESPectre needs a regular supply of HT20/HT-LTF packets so motion detection can cover its fixed temporal grid. Runtime diagnostics repeatedly showed average occupancy around 85% even when a traffic generator reported approximately `100 pps`. Raw callback rate alone could not distinguish missing packets from AP scheduling bursts, device-side send bursts, retransmissions, legacy-PHY delivery, same-slot excess, or processing backlog.
 
-The project supports internal ICMP ping, internal DNS, and external UDP delivered through the AP. These paths initially differed in protocol, QoS treatment, and missed-deadline behavior. DNS originally used UDP port `53`; the standalone external tool also lacked the fixed-phase behavior used by the internal generator.
+The project supports internal ICMP ping, internal DNS, external UDP delivered through the AP, and unicast ICMP Echo Requests supplied by an external host. These paths initially differed in protocol, QoS treatment, and missed-deadline behavior. DNS originally used UDP port `53`; the standalone external tool also lacked the fixed-phase behavior used by the internal generator.
 
 Motion sensing also requires a precise definition of packet time. The CSI delivered by the Wi-Fi callback is estimated by the PHY from the packet training field at RF reception. Later callback or loop handling does not move that channel observation forward in time. The fixed admission grid must therefore use the Wi-Fi RX timestamp carried with the frame, while software clocks may measure only processing backlog.
 
@@ -81,6 +81,7 @@ Standardize managed CSI traffic as follows:
 - preserve the configured send phase through ordinary scheduler jitter, but restart from the actual send time when the next phase deadline would be less than half a period away, so no generator emits a close catch-up pair;
 - apply that fixed-phase rule in the shared C++ generator, the Micro-ESPectre native generator, and `tools/espectre_traffic_generator.py`;
 - limit pacing multicast to the local link and prefer unicast or the joined multicast group over subnet or limited broadcast;
+- in ESP-IDF `external` mode, admit unicast ICMP Echo Requests addressed to the device as well as canonical UDP markers, while keeping the internal generator stopped;
 - keep occupancy diagnostic-only and never make device send rate chase admitted occupancy;
 - place CSI on the detector grid using the device Wi-Fi RX timestamp, with processing time used only for same-domain queue-age measurement; and
 - keep raw HTTP records even when the sensing view classifies additional same-slot records as excess.
@@ -96,6 +97,7 @@ Internal DNS/TCP requires a gateway resolver that accepts TCP queries on port `5
 | 2026-08-23 | Skip only deadlines already fully missed on host pacing | Replaced by the half-period reset rule so late wake-up cannot produce a close packet pair |
 | 2026-08-23 | Compare Wi-Fi RX time directly with the processing wall clock on selected targets | Replaced by measuring queue age in `esp_timer` and translating only that duration into the MAC timestamp domain |
 | 2026-08-23 | Use persistent non-blocking DNS/TCP and one pacing policy across firmware and host tools | Accepted |
+| 2026-08-29 | Admit external ICMP as a separate traffic-mode value | Rejected; `external` already denotes external ownership and now accepts either canonical UDP markers or unicast Echo Requests |
 
 ## Alternatives Considered
 
@@ -129,7 +131,7 @@ Benefits:
 
 - the accepted sources avoid the measured C3 DNS/UDP legacy-PHY failure mode;
 - generator-side scheduler delay no longer creates avoidable catch-up bursts;
-- ping, DNS/TCP, and external UDP have explicit and comparable roles;
+- ping, DNS/TCP, external UDP, and external ICMP have explicit and comparable roles;
 - all production paths use the same physical-time interpretation for motion sensing;
 - DNS/TCP avoids the measured UDP/53 failure mode while preserving the AP as the downlink packet source; and
 - raw HTTP capture remains lossless with respect to temporal admission decisions, except for explicitly counted bounded-ring drops.
@@ -139,6 +141,7 @@ Trade-offs and limits:
 - DNS/TCP maintains socket state and reconnect logic and depends on gateway TCP/53 support;
 - TCP acknowledgments and DNS responses may create harmless same-slot excess even when occupancy improves;
 - DSCP-to-WMM mapping is direction-, sender-, AP-, and driver-dependent;
+- external ICMP requires no ESPectre-specific host service, but its Echo Replies add device-originated traffic and host pacing remains outside the firmware;
 - the AP may still queue, aggregate, retry, or burst frames after the generator has paced them;
 - monitor-mode Retry shares are observer measurements, not authoritative device or AP counters;
 - pcap gap statistics use the monitor's observation timestamps, not the device's authoritative `rx_ctrl.timestamp`;
@@ -148,6 +151,7 @@ Trade-offs and limits:
 ## Related
 
 - [`2026-08-15-use-fixed-temporal-csi-admission.md`](2026-08-15-use-fixed-temporal-csi-admission.md)
+- [`../review/2026-08-29-classic-esp32-native-managed-traffic-stability.md`](../review/2026-08-29-classic-esp32-native-managed-traffic-stability.md)
 - [`../TUNING.md`](../TUNING.md)
 - [`../SETUP.md`](../SETUP.md)
 - [`../ALGORITHMS.md`](../ALGORITHMS.md)

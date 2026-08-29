@@ -722,6 +722,8 @@ def test_direct_diagnostics_normalization_derives_shared_rates_and_occupancy():
     current = {
         "timestamp_ms": 2_000,
         "uptime": 2,
+        "wifi_channel": 10,
+        "wifi_rssi_dbm": -57,
         "csi_admitted_total": 184,
         "csi_occupancy_slots": 84,
         "csi_window_slots": 100,
@@ -736,6 +738,8 @@ def test_direct_diagnostics_normalization_derives_shared_rates_and_occupancy():
 
     assert normalized["csi_admitted_pps"] == 84.0
     assert normalized["csi_occupancy_percent"] == 84.0
+    assert normalized["wifi_channel"] == 10
+    assert normalized["wifi_rssi_dbm"] == -57
     assert normalized["free_memory_kb"] == 120.0
     assert normalized["direct_send_failures"] == 0
 

@@ -79,6 +79,16 @@ std::vector<uint8_t> ping_reply(uint32_t source, uint16_t identifier) {
   return ipv4_frame(1U, source, kLocal, icmp);
 }
 
+std::vector<uint8_t> ping_request(uint32_t source,
+                                  uint32_t destination = kLocal,
+                                  uint8_t code = 0U) {
+  std::vector<uint8_t> icmp(8U, 0U);
+  icmp[0] = 8U;
+  icmp[1] = code;
+  write_be16(icmp.data() + 4U, 0x4321U);
+  return ipv4_frame(1U, source, destination, icmp);
+}
+
 std::vector<uint8_t> dns_reply(bool with_payload = true) {
   std::vector<uint8_t> tcp(with_payload ? 34U : 20U, 0U);
   write_be16(tcp.data(), 53U);
@@ -195,6 +205,21 @@ void test_external_accepts_bounded_shifted_llc_frame(void) {
   TEST_ASSERT_FALSE(matches(beyond_scan, config));
 }
 
+void test_external_accepts_unicast_ping_requests(void) {
+  const CsiFrameFilterConfig config = filter(CsiTrafficMode::EXTERNAL);
+  TEST_ASSERT_TRUE(matches(ping_request(kGateway), config));
+  TEST_ASSERT_TRUE(matches(ping_request(kOther), config));
+}
+
+void test_external_rejects_other_icmp_traffic(void) {
+  const CsiFrameFilterConfig config = filter(CsiTrafficMode::EXTERNAL);
+  TEST_ASSERT_FALSE(matches(ping_reply(kOther, 0x4321U), config));
+  TEST_ASSERT_FALSE(matches(ping_request(kOther, kLocal, 1U), config));
+  TEST_ASSERT_FALSE(matches(ping_request(kOther, kOther), config));
+  TEST_ASSERT_FALSE(matches(ping_request(kOther), config, kOtherMac));
+  TEST_ASSERT_FALSE(matches(ping_request(kOther, kMulticast), config, kMulticastMac));
+}
+
 void test_internal_ping_requires_gateway_echo_reply_and_active_identifier(void) {
   const CsiFrameFilterConfig config = filter(CsiTrafficMode::INTERNAL, RuntimeTrafficMode::PING);
   const auto valid = ping_reply(kGateway, 0x1234U);
@@ -232,6 +257,8 @@ int main() {
   RUN_TEST(test_external_rejects_other_mac_fragments_and_truncation);
   RUN_TEST(test_external_rejects_udp_length_mismatch_and_data_after_marker);
   RUN_TEST(test_external_accepts_bounded_shifted_llc_frame);
+  RUN_TEST(test_external_accepts_unicast_ping_requests);
+  RUN_TEST(test_external_rejects_other_icmp_traffic);
   RUN_TEST(test_internal_ping_requires_gateway_echo_reply_and_active_identifier);
   RUN_TEST(test_internal_dns_requires_gateway_tcp_53_payload_and_rejects_ack_only);
   return end_suite();

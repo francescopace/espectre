@@ -24,7 +24,10 @@ enum class CsiTrafficMode {
    * Default, and the only self-sufficient mode.
    */
   INTERNAL,
-  /** Another device supplies the traffic; the runtime only listens. */
+  /**
+   * Another device supplies exact UDP markers or unicast ICMP Echo Requests;
+   * the runtime does not start its internal generator.
+   */
   EXTERNAL,
 };
 

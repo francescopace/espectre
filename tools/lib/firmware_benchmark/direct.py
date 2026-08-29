@@ -142,6 +142,8 @@ def normalize_direct_diagnostics(
         "host_elapsed_seconds": round(host_elapsed_seconds, 6),
         "timestamp_ms": timestamp_ms,
         "uptime": _integer(payload.get("uptime")),
+        "wifi_channel": _integer(payload.get("wifi_channel")),
+        "wifi_rssi_dbm": _integer(payload.get("wifi_rssi_dbm")),
         "csi_admitted_pps": admitted_pps,
         "csi_occupancy_percent": occupancy,
         "free_memory_kb": _numeric(payload.get("free_memory_kb")),

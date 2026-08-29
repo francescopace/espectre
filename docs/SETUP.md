@@ -207,7 +207,7 @@ Frontend coverage:
 | Runtime threshold | probability | detector-specific | Selected automatically at startup; session-adjustable through ESPHome entities, Native Direct HTTP or MQTT, and Matter Direct HTTP when advertised |
 | `segmentation_window_size_ms` | int | `1000` | `1000-2000` milliseconds; combined with `csi_target_pps` to define a fixed temporal slot window |
 | `csi_target_pps` | int | `100` | `1-500`; defines detector slot cadence and the managed-traffic target, but never enables or disables traffic |
-| `csi_traffic_mode` | `internal` or `external` | `internal` | Selects the configured traffic source independently from `csi_target_pps`; persisted legacy `pacing` or `disabled` values migrate once to `internal` |
+| `csi_traffic_mode` | `internal` or `external` | `internal` | Selects device-generated traffic or externally supplied UDP markers and ICMP Echo Requests independently from `csi_target_pps`; persisted legacy `pacing` or `disabled` values migrate once to `internal` |
 | `csi_traffic_multicast_group` | IPv4 multicast address, or empty | `239.255.0.1` | Joined by the UDP listener in `external`. Empty disables the join. Unicast to the device IP still works |
 | `traffic_generator_mode` | `ping` or `dns` | `ping` | Shared internal traffic generator mode |
 | `evaluation_interval_ms` | int | `250` | `10-10000` milliseconds between detector evaluations |
@@ -240,7 +240,7 @@ Motion detection frontends depend on CSI packets. For the shared detection runti
 
 Raw HTTP collection is available on supported ESPectre frontends. [`CLI.md`](CLI.md#collect) owns the collection workflow, and [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#direct-raw-csi) owns session behavior and framing.
 
-External UDP traffic can be unicast to each device IP, or sent to multicast group `239.255.0.1`. ESP-IDF frontends join that group automatically in `external`. Empty `csi_traffic_multicast_group` disables the join. Subnet and limited broadcast (`x.x.x.255`, `255.255.255.255`) do not produce reliable HT20 CSI. ESPHome, Native, and Matter listen on port `5555` and accept only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`); use [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) standalone or through `./espectre collect`.
+In `external`, ESP-IDF frontends accept either paced UDP markers or ordinary ICMP Echo Requests sent to the device. UDP traffic can be unicast to each device IP, or sent to multicast group `239.255.0.1`; the frontends join that group automatically, unless `csi_traffic_multicast_group` is empty. Subnet and limited broadcast (`x.x.x.255`, `255.255.255.255`) do not produce reliable HT20 CSI. ESPHome, Native, and Matter listen on port `5555` and accept only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`); use [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) standalone or through `./espectre collect`. For a dependency-free diagnostic, send unicast ping requests directly to the device IP; Echo Requests become CSI candidates, and the normal IP stack sends the replies. Ping pacing remains the external host's responsibility.
 
 Micro-ESPectre selects traffic ownership at deployment through `TRAFFIC_GENERATOR_ENABLED`. When enabled, its native component sends ICMP echo requests to the station gateway. When disabled, another source must generate usable traffic. Micro has no runtime traffic mutation, DNS generator, external UDP listener, or multicast join.
 

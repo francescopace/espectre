@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-28
+- Updated: 2026-08-29
 
 ## Context
 
@@ -36,7 +37,7 @@ These results show that incidental Direct, SSE, and ambient packets do not relia
 
 Keep configured traffic provenance as a live detector admission gate:
 
-- in external mode, admit only traffic matching the configured UDP marker and destination identity;
+- in external mode, admit only a canonical UDP marker or a unicast ICMP Echo Request matching the device destination identity;
 - in internal mode, admit only traffic matching the configured managed ping or DNS source;
 - reject otherwise valid incidental Direct, SSE, and ambient traffic before temporal detector admission;
 - keep `csi_target_pps=100`, the `100 pps` detector grid, and a fixed `100 pps` external generator for the current ESP32-S3 setup; and
@@ -53,6 +54,7 @@ Local raw samples, manifests, analyses, and summaries remain under `data/untrack
 | 2026-08-28 | Admit every valid local IPv4 CSI callback after RF and destination validation | Rejected; the 100 pps run mostly increased same-slot excess and exposed an intermittent stability risk |
 | 2026-08-28 | Reduce the external generator to 90 pps, then 85 pps, while incidental traffic fills the grid | Rejected; 90 pps reached only 70.73 admitted pps and 70.95% occupancy, so 85 pps was not run |
 | 2026-08-28 | Retain provenance-filtered detector admission and the fixed 100 pps external source | Accepted |
+| 2026-08-29 | Add bounded ICMP Echo Requests to the explicit external provenance set | Accepted; unlike the rejected open filter, this admits one exact diagnostic packet shape rather than incidental local traffic |
 
 ## Alternatives Considered
 
@@ -70,7 +72,7 @@ Rejected. It missed both acceptance criteria by roughly 9 pps and 9 percentage p
 
 ## Consequences
 
-The live detector receives a homogeneous, explicitly managed traffic source with deterministic provenance. Direct and SSE activity remains observable through transport diagnostics but cannot silently change sensing coverage or detector load. The external generator continues to cost `100 pps` on this setup, and future reductions require a managed replacement source or new evidence rather than relying on ambient traffic.
+The live detector receives an explicitly managed traffic source with bounded, deterministic provenance. Direct and SSE activity remains observable through transport diagnostics but cannot silently change sensing coverage or detector load. An operator can supply UDP markers or unicast Echo Requests in `external`; mixing them remains the external sender's responsibility. The external generator continues to cost `100 pps` on this setup, and future reductions require a managed replacement source or new evidence rather than relying on ambient traffic.
 
 ## Related
 
