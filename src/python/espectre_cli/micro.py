@@ -285,7 +285,12 @@ def flash_firmware(args) -> None:
         print("   pip install esptool")
         raise SystemExit(1)
 
-    port = get_serial_port(args.port, chip=getattr(args, "chip", None))
+    port = get_serial_port(
+        args.port,
+        chip=getattr(args, "chip", None),
+        frontend="micro",
+        purpose="flash",
+    )
     chip = args.chip
     if not chip:
         chip = detect_chip_type(port)
@@ -420,7 +425,12 @@ def flash_firmware(args) -> None:
 def deploy_code(args) -> None:
     """Compile and deploy optimized MicroPython bytecode using mpremote."""
     _require_mpremote()
-    port = get_serial_port(args.port, chip=getattr(args, "chip", None))
+    port = get_serial_port(
+        args.port,
+        chip=getattr(args, "chip", None),
+        frontend="micro",
+        purpose="deploy",
+    )
 
     config_local_path = _resolve_config_local_path(getattr(args, "config", None))
     if not config_local_path.exists():
@@ -581,7 +591,12 @@ def deploy_code(args) -> None:
 def run_application(args) -> None:
     """Run the MicroPython application on ESP32."""
     _require_mpremote()
-    port = get_serial_port(args.port, chip=getattr(args, "chip", None))
+    port = get_serial_port(
+        args.port,
+        chip=getattr(args, "chip", None),
+        frontend="micro",
+        purpose="run",
+    )
 
     print_box_banner("Running MicroPython Application")
     print()
@@ -661,7 +676,12 @@ def run_application(args) -> None:
 
 def verify_installation(args) -> None:
     """Verify MicroPython firmware and deployed code."""
-    port = get_serial_port(args.port, chip=getattr(args, "chip", None))
+    port = get_serial_port(
+        args.port,
+        chip=getattr(args, "chip", None),
+        frontend="micro",
+        purpose="verify",
+    )
     print_box_banner("Verifying Installation")
     print()
 

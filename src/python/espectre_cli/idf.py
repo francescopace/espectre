@@ -307,6 +307,43 @@ def erase_idf_flash(port: str) -> None:
             raise
 
 
+def reset_residual_idf_flasher(port: str) -> bool:
+    """Exit a flasher that remains active after the flash command returns."""
+    try:
+        import esptool
+    except ImportError:
+        return False
+
+    esp = None
+    try:
+        # Do not toggle the boot pins here. If firmware is already running, the
+        # non-resetting probe simply receives no reply. If a ROM loader or stub
+        # is still active, a watchdog reset reliably starts the flashed image,
+        # including on native USB devices without usable DTR/RTS wiring.
+        esp = esptool.get_default_connected_device(
+            serial_list=[port],
+            port=port,
+            connect_attempts=1,
+            initial_baud=115200,
+            before="no-reset",
+        )
+        if esp is None:
+            return False
+        print(f"{Fore.CYAN}Starting flashed firmware with a watchdog reset...{Style.RESET_ALL}")
+        esp.watchdog_reset()
+        return True
+    except Exception:
+        return False
+    finally:
+        if esp and hasattr(esp, "_port") and esp._port:
+            try:
+                esp._port.close()
+            except Exception:
+                pass
+        if esp is not None:
+            time.sleep(1.0)
+
+
 def flash_prebuilt_idf_image(
     app_path: Path,
     build_dir_name: str,
@@ -812,7 +849,12 @@ def run_idf_command(frontend: str, args) -> None:
     app_path = Path(app_dir)
     build_dir_name = None
     if args.idf_command == "qr":
-        port = get_serial_port(args.port, chip=getattr(args, "chip", None))
+        port = get_serial_port(
+            args.port,
+            chip=getattr(args, "chip", None),
+            frontend=frontend,
+            purpose="onboarding",
+        )
         if not read_matter_onboarding_for_command(port, args):
             raise SystemExit(1)
         return
@@ -888,7 +930,11 @@ def run_idf_command(frontend: str, args) -> None:
         )
         flash_port = port
         if flash_chip:
-            detected_chip = detect_chip_type(port)
+            # Keep an already connected ROM bootloader or flasher stub alive
+            # for the erase/flash operation. Resetting after identification can
+            # return to firmware whose USB CDC cannot drive the hardware boot
+            # pins, making the immediately following flash unreachable.
+            detected_chip = detect_chip_type(port, reset_after=False)
             if detected_chip is None:
                 print(
                     f"{Fore.RED}❌ Could not verify that {port} is an ESP32-{flash_chip.upper()} device.{Style.RESET_ALL}"
@@ -942,6 +988,8 @@ def run_idf_command(frontend: str, args) -> None:
                     idf_target,
                     command=flash_command,
                 )
+                if flash_chip:
+                    reset_residual_idf_flasher(flash_port)
             except (OSError, ValueError, json.JSONDecodeError) as exc:
                 print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
                 raise SystemExit(1) from exc
@@ -1012,6 +1060,8 @@ def run_idf_command(frontend: str, args) -> None:
                     print(f"{Fore.CYAN}Export:  {export_script}{Style.RESET_ALL}")
                     fallback_notice_printed = True
                 run_idf_subprocess(subprocess_command, env, cwd=app_dir)
+        if args.idf_command == "flash" and flash_chip and flash_port is not None:
+            reset_residual_idf_flasher(flash_port)
         if frontend == "matter" and args.idf_command == "flash" and flash_port is not None:
             read_matter_onboarding_for_command(flash_port, args)
     except FileNotFoundError:

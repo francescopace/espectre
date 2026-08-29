@@ -211,12 +211,26 @@ void test_matter_frontend_threshold_and_calibration_callbacks_update_runtime_sna
 
 void test_matter_frontend_runtime_fault_is_reported(void) {
   MockMatterBindings bindings;
-  MatterFrontend frontend(&bindings, 8);
+  MockDirectHttpService direct;
+  MatterFrontend frontend(&bindings, 8, &direct);
+  RuntimeConfig config;
+  config.device_id = 0x0123456789abcdefULL;
+  frontend.set_runtime_config(config);
   TEST_ASSERT_TRUE(frontend.setup());
+  direct.emit_client_count(1U);
 
   frontend.on_runtime_fault("wifi disconnected");
   TEST_ASSERT_EQUAL(1, matter_bindings_mock::state.faults.size());
   TEST_ASSERT_EQUAL_STRING("wifi disconnected", matter_bindings_mock::state.faults[0].c_str());
+  TEST_ASSERT_EQUAL(1, direct_http_service_mock::state.published_events.size());
+  const auto &event = direct_http_service_mock::state.published_events[0];
+  TEST_ASSERT_EQUAL_STRING("fault", event.event_name.c_str());
+  TEST_ASSERT_TRUE(event.data_json.find("\"protocol_version\":\"1.0\"") !=
+                   std::string::npos);
+  TEST_ASSERT_TRUE(event.data_json.find("\"device_id\":\"0123456789abcdef\"") !=
+                   std::string::npos);
+  TEST_ASSERT_TRUE(event.data_json.find("\"message\":\"wifi disconnected\"") !=
+                   std::string::npos);
 }
 
 void test_matter_frontend_exposes_runtime_tuning_over_direct_http(void) {

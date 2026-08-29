@@ -24,7 +24,7 @@ from tools.lib.firmware_benchmark.settings import (
 )
 
 
-CONNECTEDHOMEIP_REVISION_PATTERN = re.compile(r"works with commit \[([0-9a-f]{10,40})\]")
+CONNECTEDHOMEIP_REVISION_PATTERN = re.compile(r"works with commit \[([0-9a-f]{7,40})\]")
 DEFAULT_MATTER_NODE_ID = 0xE5C30001
 DEFAULT_MATTER_COMMISSIONING_TIMEOUT_SECONDS = 180
 DEFAULT_MATTER_COMMISSIONING_ATTEMPTS = 2

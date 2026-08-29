@@ -16,6 +16,7 @@ REPO_ROOT = SCRIPT_DIR.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from src.python.espectre_cli.common import resolve_serial_port
 from src.python.espectre_cli.targets import IDF_FRONTENDS
 from tools.lib.firmware_benchmark import settings
 from tools.lib.firmware_benchmark.models import (
@@ -158,7 +159,14 @@ def main() -> int:
         print(f"Overall result: {'PASS' if passed else 'FAIL'}")
         return 0 if passed else 1
 
-    port = args.port or ""
+    require_benchmark_prerequisites(selected_cases)
+    port = resolve_serial_port(
+        args.port,
+        chip=args.chip,
+        frontend=selected_cases[0].frontend,
+        purpose="flash",
+        require_canonical_console=True,
+    )
     started_at = datetime.now().astimezone()
     repository_state_start = repository_state()
     artifact_dir = (
@@ -234,8 +242,6 @@ def main() -> int:
         return destination
 
     try:
-        require_benchmark_prerequisites(selected_cases)
-
         def record_direct_result(result: BenchmarkResult) -> None:
             results.append(result)
             write_current_report()

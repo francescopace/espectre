@@ -100,7 +100,6 @@ def run_serial_monitor(args) -> None:
             connection = serial.Serial(port, baudrate=baud, timeout=1.0)
             if reset_on_open:
                 hard_reset_serial(connection)
-            selected_port = port
             reconnect_attempt = 0
             while True:
                 pending = connection.in_waiting
@@ -111,6 +110,9 @@ def run_serial_monitor(args) -> None:
         except KeyboardInterrupt:
             return
         except (OSError, serial.SerialException) as exc:
+            # USB console paths can change when the device re-enumerates.
+            # Re-run chip-aware discovery instead of pinning the stale path.
+            selected_port = None
             if reconnect_attempt >= MAX_RECONNECT_ATTEMPTS:
                 print(f"{Fore.RED}❌ Serial monitor disconnected: {exc}{Style.RESET_ALL}")
                 raise SystemExit(1)

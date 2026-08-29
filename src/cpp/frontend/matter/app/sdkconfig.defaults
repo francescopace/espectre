@@ -41,6 +41,8 @@ CONFIG_ENABLE_WIFI_AP=n
 CONFIG_ESP_WIFI_SOFTAP_SUPPORT=n
 
 # Matter identity and discovery
+# Use ESP-IDF mDNS so Matter and ESPectre publish through one responder.
+# CONFIG_USE_MINIMAL_MDNS is not set
 CONFIG_DEVICE_VENDOR_ID=0xFFF1
 CONFIG_DEVICE_PRODUCT_ID=0x8000
 CONFIG_DEVICE_TYPE=0x0107

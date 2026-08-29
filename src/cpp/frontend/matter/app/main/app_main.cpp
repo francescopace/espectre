@@ -315,6 +315,9 @@ bool start_operational_services() {
   }
   if (g_dnssd_initialized && g_mdns_discovery != nullptr && !g_mdns_discovery->initialized()) {
     if (g_mdns_discovery->setup(g_mdns_config)) {
+      if (g_station_ipv4 != 0U) {
+        g_mdns_discovery->on_wifi_connected();
+      }
       ESP_LOGI(TAG, "ESPectre Direct discovery registered with Matter mDNS");
     } else {
       ESP_LOGE(TAG, "Failed to register ESPectre Direct discovery with Matter mDNS");
@@ -370,6 +373,13 @@ void process_pending_platform_events() {
     g_station_ipv4 = ipv4;
     if (g_bootstrap_configured && g_mdns_bootstrap_responder != nullptr) {
       (void) g_mdns_bootstrap_responder->update(g_station_ipv4);
+    }
+    if (g_mdns_discovery != nullptr && g_mdns_discovery->initialized()) {
+      if (g_station_ipv4 != 0U) {
+        g_mdns_discovery->on_wifi_connected();
+      } else {
+        g_mdns_discovery->on_wifi_disconnected();
+      }
     }
   }
   if (g_node_label_event.take()) {

@@ -112,8 +112,10 @@ void test_attaches_without_mutating_existing_responder_identity() {
   TEST_ASSERT_EQUAL_INT(0, g_mdns_mock.instance_name_set_call_count);
   TEST_ASSERT_TRUE(service.service_enabled());
   service.on_wifi_connected();
+  TEST_ASSERT_EQUAL_INT(1, g_mdns_mock.netif_action_call_count);
+  TEST_ASSERT_EQUAL_INT(MDNS_EVENT_ANNOUNCE_IP4, g_mdns_mock.last_netif_action);
   service.on_wifi_disconnected();
-  TEST_ASSERT_EQUAL_INT(0, g_mdns_mock.netif_action_call_count);
+  TEST_ASSERT_EQUAL_INT(1, g_mdns_mock.netif_action_call_count);
   service.shutdown();
   TEST_ASSERT_EQUAL_INT(0, g_mdns_mock.free_call_count);
 }

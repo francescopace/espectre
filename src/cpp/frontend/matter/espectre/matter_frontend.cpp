@@ -250,10 +250,10 @@ void MatterFrontend::on_runtime_fault(const char *message) {
   if (message != nullptr) {
     bindings_->report_fault(message);
   }
-  std::string data{"{"};
-  append_json_pair(&data, "message", message != nullptr ? message : "runtime fault", true);
-  data += "}";
-  (void) direct_bridge_.publish_event("fault", data);
+  EspectreDeviceConfig device;
+  device.device_id = runtime_.config().device_id;
+  (void) direct_bridge_.publish_event(
+      "fault", espectre_fault_payload(device, message, monotonic_now_ms()));
 }
 
 }  // namespace espectre

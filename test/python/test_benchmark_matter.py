@@ -54,6 +54,21 @@ def test_resolve_chip_tool_requires_matching_revision(tmp_path, monkeypatch):
     assert revision == "cf84d0360c48dbc194c48b47b09169f302a9745b"
 
 
+def test_expected_connectedhomeip_revision_accepts_upstream_short_hash(tmp_path, monkeypatch):
+    readme = (
+        tmp_path
+        / "src/cpp/frontend/matter/app/managed_components/espressif__esp_matter/README.md"
+    )
+    readme.parent.mkdir(parents=True)
+    readme.write_text(
+        "This SDK currently works with commit [93abd8e68] of connectedhomeip.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(bench, "REPO_ROOT", tmp_path)
+
+    assert bench.expected_connectedhomeip_revision() == "93abd8e68"
+
+
 def test_commission_matter_device_uses_ephemeral_storage_and_redactions(
     tmp_path, monkeypatch
 ):

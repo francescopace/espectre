@@ -86,7 +86,14 @@ bool MdnsDiscoveryService::update_txt(const MdnsTxtRecords &txt_records) {
 }
 
 void MdnsDiscoveryService::on_wifi_connected() {
-  if (!mdns_initialized_ || config_.responder_mode == MdnsResponderMode::USE_EXISTING_RESPONDER) {
+  if (!mdns_initialized_) {
+    return;
+  }
+  if (config_.responder_mode == MdnsResponderMode::USE_EXISTING_RESPONDER) {
+    // A shared responder may already have announced its original services
+    // before this service was added. Explicitly announce the current service
+    // set after late registration and after every station reconnect.
+    apply_netif_action_(MDNS_EVENT_ANNOUNCE_IP4);
     return;
   }
   if (service_enabled_) {

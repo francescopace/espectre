@@ -130,6 +130,20 @@ def test_direct_retry_uses_timed_nonpersistent_client_when_requested(monkeypatch
 
     assert isinstance(client, FakeTimedClient)
 
+def test_direct_benchmark_uses_keep_alive_by_default(monkeypatch):
+    monkeypatch.setattr(benchmark_settings, "BENCHMARK_LOCAL_ENV", {})
+    monkeypatch.delenv(
+        "ESPECTRE_BENCHMARK_DIRECT_TIMED_NONPERSISTENT",
+        raising=False,
+    )
+
+    assert bench._timed_nonpersistent_direct_enabled() is False
+
+def test_direct_benchmark_allows_nonpersistent_probe_opt_in(monkeypatch):
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_DIRECT_TIMED_NONPERSISTENT", "1")
+
+    assert bench._timed_nonpersistent_direct_enabled() is True
+
 def test_timed_nonpersistent_direct_client_records_tcp_phases(monkeypatch):
     body = json.dumps(
         protocol.build_command_result(
@@ -488,13 +502,17 @@ def test_direct_capture_opens_and_closes_event_collection():
         def __init__(self):
             self.events = []
             self.started = False
-            self.stopped = False
+            self.stop_calls = 0
 
         def start_events(self):
             self.started = True
 
         def stop_events(self):
-            self.stopped = True
+            self.stop_calls += 1
+
+        def request(self, method):
+            assert method == "diagnostics"
+            return {"direct_http": {"event_clients": 0}}
 
     client = FakeClient()
 
@@ -504,7 +522,47 @@ def test_direct_capture_opens_and_closes_event_collection():
     assert events == []
     assert attempts == []
     assert client.started is True
-    assert client.stopped is True
+    assert client.stop_calls == 2
+
+def test_direct_capture_waits_for_closed_readiness_stream(monkeypatch):
+    class FakeClock:
+        now = 0.0
+
+        @classmethod
+        def monotonic(cls):
+            return cls.now
+
+        @classmethod
+        def sleep(cls, seconds):
+            cls.now += seconds
+
+    class FakeClient:
+        def __init__(self):
+            self.events = []
+            self.event_clients = iter((1, 1, 0))
+            self.started_at = None
+
+        def start_events(self):
+            self.started_at = FakeClock.now
+
+        def stop_events(self):
+            pass
+
+        def request(self, method):
+            assert method == "diagnostics"
+            return {"direct_http": {"event_clients": next(self.event_clients)}}
+
+    monkeypatch.setattr(bench.time, "monotonic", FakeClock.monotonic)
+    monkeypatch.setattr(bench.time, "sleep", FakeClock.sleep)
+    client = FakeClient()
+
+    bench.capture_direct_window(
+        client,
+        duration_seconds=0,
+        settle_event_disconnect=True,
+    )
+
+    assert client.started_at == pytest.approx(0.1)
 
 def test_direct_capture_can_leave_event_collection_closed():
     class FakeClient:
@@ -716,6 +774,46 @@ def test_direct_runtime_readiness_waits_for_cpp_startup_warmup(monkeypatch):
     assert client.diagnostics_calls == 7
 
 
+def test_direct_runtime_readiness_reserves_stable_samples_after_minimum_uptime(monkeypatch):
+    class FakeClock:
+        now = 0.0
+
+        @classmethod
+        def monotonic(cls):
+            return cls.now
+
+        @classmethod
+        def sleep(cls, seconds):
+            cls.now += seconds
+
+    class FakeClient:
+        diagnostics_calls = 0
+
+        def request(self, command):
+            if command == "status":
+                return {"sensing_enabled": True, "ready_to_publish": True}
+            assert command == "diagnostics"
+            self.diagnostics_calls += 1
+            return {
+                "timestamp_ms": self.diagnostics_calls * 1_000,
+                "uptime": self.diagnostics_calls,
+                "csi_admitted_pps": 95.0,
+            }
+
+    client = FakeClient()
+    monkeypatch.setattr(bench.time, "monotonic", FakeClock.monotonic)
+    monkeypatch.setattr(bench.time, "sleep", FakeClock.sleep)
+
+    reboot_observed = bench.wait_for_direct_runtime_ready(
+        client,
+        timeout_seconds=30,
+        minimum_uptime_seconds=30,
+    )
+
+    assert reboot_observed is False
+    assert client.diagnostics_calls == 34
+
+
 def test_direct_runtime_readiness_recovers_once_after_bssid_reboot(monkeypatch):
     class FakeClock:
         now = 0.0
@@ -837,6 +935,7 @@ def test_direct_benchmark_rejects_channel_without_bssid(monkeypatch, frontend):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_CHANNEL", "6")
+    monkeypatch.delenv("ESPECTRE_BENCHMARK_WIFI_INITIAL_BSSID", raising=False)
     monkeypatch.delenv("ESPECTRE_BENCHMARK_WIFI_BSSID", raising=False)
 
     with pytest.raises(RuntimeError, match="WIFI_CHANNEL requires.*WIFI_BSSID"):
@@ -844,10 +943,31 @@ def test_direct_benchmark_rejects_channel_without_bssid(monkeypatch, frontend):
             [BenchmarkCase(frontend, "lightweight")]
         )
 
-def test_native_radio_pin_accepts_committed_values_after_reboot(monkeypatch):
+@pytest.mark.parametrize("frontend", ["native", "esphome", "matter"])
+def test_cpp_radio_pin_requires_distinct_initial_and_final_bssids(monkeypatch, frontend):
+    monkeypatch.setattr(benchmark_settings, "BENCHMARK_LOCAL_ENV", {})
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_BSSID", "AA:BB:CC:DD:EE:FF")
-    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_CHANNEL", "6")
+    monkeypatch.delenv("ESPECTRE_BENCHMARK_WIFI_INITIAL_BSSID", raising=False)
 
+    with pytest.raises(RuntimeError, match="WIFI_INITIAL_BSSID.*real reassociation"):
+        benchmark_settings.require_benchmark_prerequisites(
+            [BenchmarkCase(frontend, "lightweight")]
+        )
+
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_INITIAL_BSSID", "aa:bb:cc:dd:ee:ff")
+    with pytest.raises(RuntimeError, match="must identify different access points"):
+        benchmark_settings.require_benchmark_prerequisites(
+            [BenchmarkCase(frontend, "lightweight")]
+        )
+
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_INITIAL_BSSID", "11:22:33:44:55:66")
+    benchmark_settings.require_benchmark_prerequisites(
+        [BenchmarkCase(frontend, "lightweight")]
+    )
+
+def test_native_radio_pin_accepts_committed_values_after_reboot():
     class FakeClient:
         def request(self, method: str):
             assert method == "config"
@@ -860,7 +980,11 @@ def test_native_radio_pin_accepts_committed_values_after_reboot(monkeypatch):
                 }
             }
 
-    bench._verify_direct_radio_pin(FakeClient())
+    bench._verify_direct_radio_pin(
+        FakeClient(),
+        "AA:BB:CC:DD:EE:FF",
+        requested_channel=6,
+    )
 
 def test_direct_radio_pin_uses_canonical_bssid_command(monkeypatch):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_BSSID", "AA:BB:CC:DD:EE:FF")
@@ -879,7 +1003,12 @@ def test_direct_radio_pin_uses_canonical_bssid_command(monkeypatch):
                     }
                 }
 
-    assert bench._apply_direct_radio_pin(FakeClient(), skip_if_associated=True) is True
+    assert bench._apply_direct_radio_pin(
+        FakeClient(),
+        "AA:BB:CC:DD:EE:FF",
+        requested_channel=6,
+        skip_if_associated=True,
+    ) is True
     assert requests == [
         ("config", None),
         ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF"}),
@@ -901,7 +1030,12 @@ def test_direct_radio_pin_preserves_matching_connection(monkeypatch):
                 }
             }
 
-    assert bench._apply_direct_radio_pin(FakeClient(), skip_if_associated=True) is False
+    assert bench._apply_direct_radio_pin(
+        FakeClient(),
+        "AA:BB:CC:DD:EE:FF",
+        requested_channel=6,
+        skip_if_associated=True,
+    ) is False
     assert requests == [("config", None)]
 
 def test_esphome_radio_pin_sends_command_even_when_already_associated(monkeypatch):
@@ -920,7 +1054,12 @@ def test_esphome_radio_pin_sends_command_even_when_already_associated(monkeypatc
                 }
             }
 
-    assert bench._apply_direct_radio_pin(FakeClient(), skip_if_associated=False) is True
+    assert bench._apply_direct_radio_pin(
+        FakeClient(),
+        "AA:BB:CC:DD:EE:FF",
+        requested_channel=6,
+        skip_if_associated=False,
+    ) is True
     assert requests == [
         ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF"}),
     ]
@@ -933,7 +1072,42 @@ def test_direct_radio_pin_treats_dropped_response_as_applied(monkeypatch):
             assert method == "set_wifi_bssid"
             raise DirectProtocolError("Direct HTTP request failed: connection reset")
 
-    assert bench._apply_direct_radio_pin(FakeClient(), skip_if_associated=False) is True
+    assert bench._apply_direct_radio_pin(
+        FakeClient(),
+        "AA:BB:CC:DD:EE:FF",
+        skip_if_associated=False,
+    ) is True
+
+
+def test_radio_pin_reconnect_reuses_known_endpoint(monkeypatch):
+    endpoint = "http://192.0.2.10/espectre/v1/request"
+    expected_client = object()
+    calls = []
+
+    def fake_connect(candidate, **kwargs):
+        calls.append((candidate, kwargs))
+        return expected_client
+
+    monkeypatch.setattr(bench, "_connect_direct_with_retry", fake_connect)
+
+    client = bench._reconnect_direct_after_radio_pin(
+        endpoint,
+        frontend="matter",
+        chip="s3",
+        timed_nonpersistent=False,
+    )
+
+    assert client is expected_client
+    assert calls == [
+        (
+            endpoint,
+            {
+                "frontend": "matter",
+                "chip": "s3",
+                "timed_nonpersistent": False,
+            },
+        )
+    ]
 
 
 def test_bssid_reboot_check_observes_uptime_regression():
@@ -943,11 +1117,11 @@ def test_bssid_reboot_check_observes_uptime_regression():
     assert bench._bssid_reboot_observed(before, after) is True
 
 
-def test_bssid_reboot_check_reports_no_observed_reboot():
+def test_bssid_reboot_check_is_unknown_without_uptime_regression():
     before = {"diagnostics": {"uptime": 120, "timestamp_ms": 120_000}}
     after = {"diagnostics": {"uptime": 126, "timestamp_ms": 126_000}}
 
-    assert bench._bssid_reboot_observed(before, after) is False
+    assert bench._bssid_reboot_observed(before, after) is None
 
 
 def test_bssid_reboot_check_is_unknown_without_direct_uptime():
@@ -965,6 +1139,7 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, tmp_path, chip
     sleeps: list[float] = []
     firmware = tmp_path / f"micro-{chip}.bin"
     firmware.write_bytes(b"firmware")
+    flashed_port = "/dev/cu.usbmodem1"
 
     def fake_run_command(command, **_kwargs):
         resolved = list(command)
@@ -979,6 +1154,7 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, tmp_path, chip
                     "firmware_sha256": "unused-by-this-test",
                     "firmware_size_bytes": firmware.stat().st_size,
                     "frontend": "micro",
+                    "port": flashed_port,
                     "schema_version": 1,
                 }
             )
@@ -1032,7 +1208,7 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, tmp_path, chip
     result = bench.run_micro_case(
         BenchmarkCase("micro", "lightweight"),
         chip,
-        "/dev/cu.usbmodem1",
+        "",
     )
 
     assert result.status == "PASS"
@@ -1058,6 +1234,8 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, tmp_path, chip
         ["micro", "run"],
     ]
     assert all(command[command.index("--chip") + 1] == chip for command in commands)
+    assert "--port" not in commands[0]
+    assert all(command[command.index("--port") + 1] == flashed_port for command in commands[1:])
     assert "--frozen" not in commands[0]
 
 def test_capture_direct_window_retries_initial_event_reset(monkeypatch):
@@ -1085,4 +1263,4 @@ def test_capture_direct_window_retries_initial_event_reset(monkeypatch):
     assert events == []
     assert attempts == []
     assert client.start_attempts == 2
-    assert client.stop_calls == 1
+    assert client.stop_calls == 2

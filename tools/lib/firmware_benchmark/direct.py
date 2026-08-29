@@ -243,6 +243,7 @@ def discover_direct_device(
         detail = f"; observed chips: {', '.join(sorted(observed_chips))}{detail}"
     raise RuntimeError(f"timed out discovering {FRONTEND_LABELS[frontend]} Direct endpoint{target}{detail}")
 
+
 def direct_handshake(client: DirectClient, *, frontend: str, chip: str) -> dict[str, dict[str, object]]:
     responses = {method: client.request(method) for method in ("capabilities", "info", "status", "config", "diagnostics")}
     capabilities = responses["capabilities"]
@@ -405,6 +406,21 @@ def _exception_is_timeout(error: Exception | None) -> bool:
         current = current.__cause__ or current.__context__
     return False
 
+def _wait_for_direct_event_stream_closed(
+    client: DirectClient,
+    *,
+    timeout_seconds: float = 5.0,
+) -> None:
+    """Wait until the device has accounted for the closed SSE subscriber."""
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        diagnostics = client.request("diagnostics")
+        direct_http = diagnostics.get("direct_http")
+        if isinstance(direct_http, dict) and _integer(direct_http.get("event_clients")) == 0:
+            return
+        time.sleep(0.05)
+    raise RuntimeError("Direct event stream did not close before the scored window")
+
 def capture_direct_window(
     client: DirectClient,
     *,
@@ -413,6 +429,7 @@ def capture_direct_window(
     initial_sample_delay_seconds: float = 0.0,
     require_fresh_timestamp: bool = False,
     open_event_stream: bool = True,
+    settle_event_disconnect: bool = False,
 ) -> tuple[
     list[dict[str, object]],
     list[dict[str, object]],
@@ -423,6 +440,15 @@ def capture_direct_window(
     previous_raw: dict[str, object] | None = None
     events_start = len(client.events)
     if open_event_stream:
+        # A stream opened during runtime readiness can remain connected without
+        # receiving events on some frontends. Reopen it at the scored-window
+        # boundary so telemetry evidence always comes from a fresh subscriber.
+        # Wait for the device to account for that expected disconnect before
+        # transport counters establish the scored-window baseline.
+        client.stop_events()
+        if settle_event_disconnect:
+            _wait_for_direct_event_stream_closed(client)
+        events_start = len(client.events)
         for attempt in range(DIRECT_EVENT_OPEN_ATTEMPTS):
             try:
                 client.start_events()
@@ -523,6 +549,7 @@ def wait_for_direct_runtime_ready(
     previous: dict[str, object] | None = None
     previous_uptime = initial_uptime_seconds
     reboot_count = 1 if reboot_observed_before_wait else 0
+    startup_window_extended = False
     extend_for_observed_reboot = reboot_observed_before_wait
     reboot_recovery_extended = False
     last_sensing_enabled = False
@@ -543,6 +570,18 @@ def wait_for_direct_runtime_ready(
         last_publish_ready = publish_ready
         last_admitted_pps = admitted_pps
         last_uptime = uptime
+        if not startup_window_extended and sampled_uptime is not None:
+            # The readiness timeout can begin before the runtime reaches its
+            # minimum uptime. Reserve enough time for that prerequisite and
+            # the required stable samples, regardless of frontend or chip.
+            remaining_uptime_seconds = max(0, minimum_uptime_seconds - sampled_uptime)
+            startup_seconds = (
+                remaining_uptime_seconds
+                + DIRECT_STABLE_SAMPLE_COUNT * DIRECT_SAMPLE_INTERVAL_SECONDS
+                + DIRECT_READINESS_REBOOT_MARGIN_SECONDS
+            )
+            deadline = max(deadline, time.monotonic() + startup_seconds)
+            startup_window_extended = True
         if (
             previous_uptime is not None
             and sampled_uptime is not None
@@ -740,6 +779,17 @@ class _TimedNonPersistentDirectClient(DirectClient):
             if connection is not None:
                 connection.close()
 
+def _timed_nonpersistent_direct_enabled() -> bool:
+    setting = benchmark_setting(
+        "ESPECTRE_BENCHMARK_DIRECT_TIMED_NONPERSISTENT",
+        "0",
+    )
+    if setting not in {"0", "1"}:
+        raise RuntimeError(
+            "ESPECTRE_BENCHMARK_DIRECT_TIMED_NONPERSISTENT must be 0 or 1"
+        )
+    return setting == "1"
+
 def _connect_direct_with_retry(
     endpoint: str,
     *,
@@ -827,19 +877,33 @@ def _apply_serial_monitor_evidence(
         if fatal_reasons:
             result.status = "FAIL"
 
-def _apply_direct_radio_pin(client: DirectClient, *, skip_if_associated: bool) -> bool:
-    bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "") or ""
+def _direct_radio_pin_matches(
+    config: dict[str, object],
+    bssid: str,
+    *,
+    requested_channel: int = 0,
+) -> bool:
+    wifi = config.get("wifi") if isinstance(config.get("wifi"), dict) else {}
+    if not isinstance(wifi, dict):
+        return False
+    bssid_matches = str(wifi.get("bssid", "")).casefold() == bssid.casefold()
+    channel_matches = requested_channel <= 0 or _integer(wifi.get("channel")) == requested_channel
+    return wifi.get("configured") is True and bssid_matches and channel_matches
+
+
+def _apply_direct_radio_pin(
+    client: DirectClient,
+    bssid: str,
+    *,
+    requested_channel: int = 0,
+    skip_if_associated: bool,
+) -> bool:
     if not bssid:
         return False
-    requested_channel = benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)
     if skip_if_associated:
         config = client.request("config")
-        wifi = config.get("wifi") if isinstance(config.get("wifi"), dict) else {}
-        if isinstance(wifi, dict):
-            bssid_matches = str(wifi.get("bssid", "")).casefold() == bssid.casefold()
-            channel_matches = requested_channel <= 0 or _integer(wifi.get("channel")) == requested_channel
-            if wifi.get("configured") is True and bssid_matches and channel_matches:
-                return False
+        if _direct_radio_pin_matches(config, bssid, requested_channel=requested_channel):
+            return False
     # ESPHome disconnects the station before the HTTP response can complete, so
     # a dropped request is still treated as an applied pin.
     try:
@@ -847,6 +911,22 @@ def _apply_direct_radio_pin(client: DirectClient, *, skip_if_associated: bool) -
     except DirectProtocolError:
         pass
     return True
+
+
+def _reconnect_direct_after_radio_pin(
+    endpoint: str,
+    *,
+    frontend: str,
+    chip: str,
+    timed_nonpersistent: bool,
+) -> DirectClient:
+    """Reconnect through the known address before falling back to discovery."""
+    return _connect_direct_with_retry(
+        endpoint,
+        frontend=frontend,
+        chip=chip,
+        timed_nonpersistent=timed_nonpersistent,
+    )
 
 def _verify_native_baseline(handshake: dict[str, dict[str, object]]) -> None:
     status = handshake["status"]
@@ -886,21 +966,26 @@ def _bssid_reboot_observed(
     before: dict[str, dict[str, object]],
     after: dict[str, dict[str, object]],
 ) -> bool | None:
-    """Return whether Direct uptime evidence observed a reboot during BSSID apply."""
+    """Return true only when Direct uptime evidence proves a BSSID-apply reboot."""
     comparisons = []
     for field in ("uptime", "timestamp_ms"):
         before_value = _integer(before["diagnostics"].get(field))
         after_value = _integer(after["diagnostics"].get(field))
         if before_value is not None and after_value is not None:
             comparisons.append(after_value < before_value)
-    if not comparisons:
-        return None
-    return any(comparisons)
+    # A regression proves that the monotonic device clock restarted. The
+    # converse is unsafe: when a pin is applied at low uptime, the device can
+    # reboot and recover past the pre-apply value before Direct reconnects.
+    # Without a boot identifier, non-regression must remain unknown.
+    return True if any(comparisons) else None
 
 
-def _verify_direct_radio_pin(client: DirectClient) -> None:
-    requested_bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "") or ""
-    requested_channel = benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)
+def _verify_direct_radio_pin(
+    client: DirectClient,
+    requested_bssid: str,
+    *,
+    requested_channel: int = 0,
+) -> None:
     deadline = time.monotonic() + WIFI_CONNECT_WAIT_SECONDS
     while time.monotonic() < deadline:
         config = client.request("config")
@@ -908,12 +993,14 @@ def _verify_direct_radio_pin(client: DirectClient) -> None:
         if not isinstance(wifi, dict):
             time.sleep(1.0)
             continue
-        bssid_matches = not requested_bssid or str(wifi.get("bssid", "")).casefold() == requested_bssid.casefold()
-        channel_matches = requested_channel <= 0 or _integer(wifi.get("channel")) == requested_channel
         # A successful reconnect must expose the requested active association.
         # Native may additionally report a staged-apply state while ESPHome
         # and Matter keep their persisted pins outside the shared Wi-Fi snapshot.
-        if wifi.get("configured") is True and bssid_matches and channel_matches:
+        if _direct_radio_pin_matches(
+            config,
+            requested_bssid,
+            requested_channel=requested_channel,
+        ):
             return
         if wifi.get("apply_state") in {"rolled_back", "recovery_required"}:
             raise RuntimeError(
@@ -1129,15 +1216,7 @@ def run_direct_frontend_cases(
     client: DirectClient | None = None
     results: list[BenchmarkResult] = []
     try:
-        timed_nonpersistent_setting = benchmark_setting(
-            "ESPECTRE_BENCHMARK_DIRECT_TIMED_NONPERSISTENT",
-            "1",
-        )
-        if timed_nonpersistent_setting not in {"0", "1"}:
-            raise RuntimeError(
-                "ESPECTRE_BENCHMARK_DIRECT_TIMED_NONPERSISTENT must be 0 or 1"
-            )
-        timed_nonpersistent = timed_nonpersistent_setting == "1"
+        timed_nonpersistent = _timed_nonpersistent_direct_enabled()
         if timed_nonpersistent:
             print(
                 "Direct control: timed non-persistent TCP requests "
@@ -1162,30 +1241,80 @@ def run_direct_frontend_cases(
         _verify_default_runtime_baseline(baseline)
         if frontend == "native":
             _verify_native_baseline(baseline)
-        requested_bssid = bool(benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", ""))
+        initial_bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_INITIAL_BSSID", "") or ""
+        final_bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "") or ""
+        final_channel = benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0)
+        requested_bssid = bool(final_bssid)
         bssid_evidence: dict[str, object] = {
             "requested": requested_bssid,
+            "initial_requested": bool(initial_bssid),
+            "initial_applied": False,
+            "initial_already_associated": False,
+            "initial_verified": False,
+            "initial_reboot_observed": None,
             "applied": False,
             "already_associated": False,
+            "reassociation_exercised": False,
             "verified": False,
             "reboot_observed": None,
         }
         if frontend in {"native", "esphome", "matter"}:
+            if initial_bssid:
+                baseline_before_initial_pin = baseline
+                bssid_evidence["initial_already_associated"] = _direct_radio_pin_matches(
+                    baseline["config"],
+                    initial_bssid,
+                )
+                initial_pin_applied = _apply_direct_radio_pin(
+                    client,
+                    initial_bssid,
+                    skip_if_associated=False,
+                )
+                bssid_evidence["initial_applied"] = initial_pin_applied
+                if initial_pin_applied:
+                    client.close()
+                    # Retry the known endpoint first. The reassociation may
+                    # retain its address while mDNS is still recovering; the
+                    # shared connector falls back to fresh discovery when the
+                    # address actually changes.
+                    client = _reconnect_direct_after_radio_pin(
+                        endpoint,
+                        frontend=frontend,
+                        chip=chip,
+                        timed_nonpersistent=timed_nonpersistent,
+                    )
+                    baseline = direct_handshake(client, frontend=frontend, chip=chip)
+                    initial_reboot_observed = _bssid_reboot_observed(
+                        baseline_before_initial_pin,
+                        baseline,
+                    )
+                    bssid_evidence["initial_reboot_observed"] = initial_reboot_observed
+                    if frontend == "native":
+                        _verify_native_baseline(baseline)
+                _verify_direct_radio_pin(client, initial_bssid)
+                bssid_evidence["initial_verified"] = True
+
             baseline_before_radio_pin = baseline
+            bssid_evidence["already_associated"] = requested_bssid and _direct_radio_pin_matches(
+                baseline["config"],
+                final_bssid,
+                requested_channel=final_channel,
+            )
             radio_pin_applied = _apply_direct_radio_pin(
                 client,
+                final_bssid,
+                requested_channel=final_channel,
                 skip_if_associated=False,
             )
             bssid_evidence["applied"] = radio_pin_applied
-            bssid_evidence["already_associated"] = requested_bssid and not radio_pin_applied
             if radio_pin_applied:
                 client.close()
-                endpoint = (
-                    direct_endpoint_from_device_url(endpoint_override)
-                    if endpoint_override
-                    else discover_direct_device(frontend, chip=chip).endpoint
+                client = _reconnect_direct_after_radio_pin(
+                    endpoint,
+                    frontend=frontend,
+                    chip=chip,
+                    timed_nonpersistent=timed_nonpersistent,
                 )
-                client = _connect_direct_with_retry(endpoint, frontend=frontend, chip=chip)
                 baseline = direct_handshake(client, frontend=frontend, chip=chip)
                 bssid_evidence["reboot_observed"] = _bssid_reboot_observed(
                     baseline_before_radio_pin,
@@ -1194,8 +1323,21 @@ def run_direct_frontend_cases(
                 if frontend == "native":
                     _verify_native_baseline(baseline)
             if requested_bssid:
-                _verify_direct_radio_pin(client)
+                _verify_direct_radio_pin(
+                    client,
+                    final_bssid,
+                    requested_channel=final_channel,
+                )
                 bssid_evidence["verified"] = True
+                bssid_evidence["reassociation_exercised"] = (
+                    bssid_evidence["initial_verified"] is True
+                    and bssid_evidence["already_associated"] is False
+                    and _direct_radio_pin_matches(
+                        baseline["config"],
+                        final_bssid,
+                        requested_channel=final_channel,
+                    )
+                )
         for case in selected_cases:
             result = _clone_direct_result(case, bootstrap)
             result.transport_evidence = {
@@ -1275,6 +1417,7 @@ def run_direct_frontend_cases(
                     duration_seconds=settings.MONITOR_DURATION_SECONDS,
                     initial_sample_delay_seconds=DIRECT_SAMPLE_PHASE_OFFSET_SECONDS,
                     open_event_stream=sse_enabled,
+                    settle_event_disconnect=sse_enabled,
                 )
                 result.runtime_metrics, result.reasons = analyze_direct_evidence(
                     result.direct_samples,
@@ -1375,11 +1518,14 @@ def run_micro_case(
             )
             flash_result = result.flash
         assert flash_result is not None
-        firmware_path, _firmware_metadata = build_artifact_from_output(
+        firmware_path, firmware_metadata = build_artifact_from_output(
             flash_result.output,
             frontend="micro",
             chip=chip,
         )
+        flashed_port = firmware_metadata.get("port")
+        if not isinstance(flashed_port, str) or not flashed_port:
+            raise RuntimeError("delegated Micro flash metadata did not contain a serial port")
         result.build_metrics = parse_build_metrics(flash_result.output, firmware_path)
         if flash_result.returncode != 0:
             result.status = "FAIL"
@@ -1396,8 +1542,7 @@ def run_micro_case(
                 "--config",
                 str(config_path),
             ]
-            if port:
-                deploy_command.extend(["--port", port])
+            deploy_command.extend(["--port", flashed_port])
             result.deploy = run_command(deploy_command)
             if result.deploy.returncode != 0:
                 result.status = "FAIL"
@@ -1405,8 +1550,7 @@ def run_micro_case(
                 return result
 
         run_command_line = [launcher, "micro", "run", "--chip", chip, "--json"]
-        if port:
-            run_command_line.extend(["--port", port])
+        run_command_line.extend(["--port", flashed_port])
         process, output_lines, line_times, relay_thread, started = _run_background_command(run_command_line)
         client: DirectClient | None = None
         try:

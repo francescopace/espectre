@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import sys
 
+import pytest
+
 from tools import benchmark_firmware as bench
 from tools.lib.firmware_benchmark import report as benchmark_report
 from tools.lib.firmware_benchmark.models import (
@@ -15,6 +17,17 @@ from tools.lib.firmware_benchmark.models import (
     CommandResult,
     RepositoryState,
 )
+
+
+@pytest.fixture(autouse=True)
+def resolve_benchmark_port(monkeypatch):
+    monkeypatch.setattr(
+        bench,
+        "resolve_serial_port",
+        lambda *_args, **_kwargs: "/dev/cu.resolved",
+    )
+
+
 def test_cases_run_frontends_in_hardware_benchmark_order():
     frontends = [case.frontend for case in CASES]
 
@@ -30,23 +43,32 @@ def test_cases_run_frontends_in_hardware_benchmark_order():
 
 def test_main_executes_frontends_in_hardware_benchmark_order(tmp_path, monkeypatch):
     observed: list[str] = []
+    observed_ports: list[str] = []
+    resolution_requests: list[tuple[object, dict[str, object]]] = []
     state = RepositoryState("revision", False, "fingerprint")
 
-    def run_direct(cases, _chip, _port, *, on_result):
+    def resolve_port(port_arg, **kwargs):
+        resolution_requests.append((port_arg, kwargs))
+        return "/dev/cu.resolved"
+
+    def run_direct(cases, _chip, port, *, on_result):
         observed.append(cases[0].frontend)
+        observed_ports.append(port)
         direct_results = [BenchmarkResult(case=case, status="PASS") for case in cases]
         for result in direct_results:
             on_result(result)
         return direct_results
 
-    def run_micro(case, _chip, _port, **_kwargs):
+    def run_micro(case, _chip, port, **_kwargs):
         observed.append(case.frontend)
+        observed_ports.append(port)
         return BenchmarkResult(case=case, status="PASS")
 
     monkeypatch.setattr(sys, "argv", ["benchmark_firmware.py", "--chip", "c5"])
     monkeypatch.setattr(bench, "repository_state", lambda: state)
     monkeypatch.setattr(bench, "benchmark_artifact_dir", lambda *_args: tmp_path / "artifacts")
     monkeypatch.setattr(bench, "require_benchmark_prerequisites", lambda _cases: None)
+    monkeypatch.setattr(bench, "resolve_serial_port", resolve_port)
     monkeypatch.setattr(bench, "run_direct_frontend_cases_safely", run_direct)
     monkeypatch.setattr(bench, "run_micro_case", run_micro)
     monkeypatch.setattr(bench, "write_report", lambda *_args, **_kwargs: tmp_path / "report.md")
@@ -54,6 +76,61 @@ def test_main_executes_frontends_in_hardware_benchmark_order(tmp_path, monkeypat
 
     assert bench.main() == 0
     assert observed == ["native", "esphome", "matter", "micro"]
+    assert observed_ports == ["/dev/cu.resolved"] * 4
+    assert resolution_requests == [
+        (
+            None,
+            {
+                "chip": "c5",
+                "frontend": "native",
+                "purpose": "flash",
+                "require_canonical_console": True,
+            },
+        )
+    ]
+
+
+def test_main_resolves_an_explicit_port_through_the_shared_path(tmp_path, monkeypatch):
+    resolution_requests: list[tuple[object, dict[str, object]]] = []
+    state = RepositoryState("revision", False, "fingerprint")
+
+    def resolve_port(port_arg, **kwargs):
+        resolution_requests.append((port_arg, kwargs))
+        return "/dev/cu.reenumerated"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "benchmark_firmware.py",
+            "--chip",
+            "c5",
+            "--frontend",
+            "native",
+            "--port",
+            "/dev/cu.requested",
+        ],
+    )
+    monkeypatch.setattr(bench, "repository_state", lambda: state)
+    monkeypatch.setattr(bench, "benchmark_artifact_dir", lambda *_args: tmp_path / "artifacts")
+    monkeypatch.setattr(bench, "require_benchmark_prerequisites", lambda _cases: None)
+    monkeypatch.setattr(bench, "resolve_serial_port", resolve_port)
+    monkeypatch.setattr(bench, "run_direct_frontend_cases_safely", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(bench, "write_report", lambda *_args, **_kwargs: tmp_path / "report.md")
+    monkeypatch.setattr(bench, "write_benchmark_artifacts", lambda *_args, **_kwargs: None)
+
+    assert bench.main() == 1
+    assert resolution_requests == [
+        (
+            "/dev/cu.requested",
+            {
+                "chip": "c5",
+                "frontend": "native",
+                "purpose": "flash",
+                "require_canonical_console": True,
+            },
+        )
+    ]
 
 def test_main_stops_after_flash_failure(tmp_path, monkeypatch, capsys):
     observed: list[str] = []

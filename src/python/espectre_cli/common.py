@@ -102,17 +102,28 @@ def detect_serial_ports() -> list[str]:
     ports: list[str] = []
     for port in serial.tools.list_ports.comports():
         desc_lower = port.description.lower()
-        if any(keyword in desc_lower for keyword in ["usb", "serial", "uart", "cp210", "ch340", "ftdi"]):
+        if getattr(port, "vid", None) == ESPRESSIF_USB_VENDOR_ID or any(
+            keyword in desc_lower
+            for keyword in ["usb", "serial", "uart", "cp210", "ch340", "ftdi"]
+        ):
             ports.append(port.device)
     return ports
 
 
-def compatible_serial_ports(*, chip: str | None, frontend: str, purpose: str) -> list[str]:
+def compatible_serial_ports(
+    *,
+    chip: str | None,
+    frontend: str,
+    purpose: str,
+    require_canonical_console: bool = False,
+) -> list[str]:
     """Return serial ports compatible with a frontend operation."""
     if (
         chip is None
-        or frontend != "native"
-        or purpose not in {"improv", "monitor"}
+        or (
+            not require_canonical_console
+            and (frontend != "native" or purpose not in {"improv", "monitor"})
+        )
     ):
         return detect_serial_ports()
     console = NATIVE_CONSOLE_BY_CHIP[chip]
@@ -138,23 +149,57 @@ def _serial_ports_match(requested: str, candidate: str) -> bool:
     return os.path.realpath(requested) == os.path.realpath(candidate)
 
 
+def _wait_for_compatible_serial_ports(
+    port_arg: str | None,
+    *,
+    chip: str | None,
+    frontend: str,
+    purpose: str,
+    require_canonical_console: bool,
+) -> list[str]:
+    """Wait briefly for USB serial re-enumeration after a device reset."""
+    ports: list[str] = []
+    for attempt in range(SERIAL_REENUMERATION_ATTEMPTS):
+        ports = compatible_serial_ports(
+            chip=chip,
+            frontend=frontend,
+            purpose=purpose,
+            require_canonical_console=require_canonical_console,
+        )
+        if port_arg is None:
+            if ports:
+                return ports
+        elif any(_serial_ports_match(port_arg, candidate) for candidate in ports):
+            return ports
+
+        if attempt == SERIAL_REENUMERATION_ATTEMPTS - 1:
+            break
+        if attempt == 0:
+            target = f"serial port {port_arg}" if port_arg is not None else "a serial port"
+            print(
+                f"{Fore.YELLOW}⏳ Waiting for {target} to become available "
+                f"for {frontend} {purpose}...{Style.RESET_ALL}"
+            )
+        time.sleep(SERIAL_REENUMERATION_DELAY_S)
+    return ports
+
+
 def resolve_serial_port(
     port_arg: str | None,
     *,
     chip: str | None,
     frontend: str,
     purpose: str,
+    require_canonical_console: bool = False,
 ) -> str:
-    """Resolve one compatible port, prompting only among valid candidates."""
-    if port_arg is not None and (
-        chip is None
-        or frontend != "native"
-        or purpose == "flash"
-        or NATIVE_CONSOLE_BY_CHIP[chip] == "uart"
-    ):
-        return port_arg
-
-    ports = compatible_serial_ports(chip=chip, frontend=frontend, purpose=purpose)
+    """Resolve one compatible port after bounded USB re-enumeration."""
+    ports = _wait_for_compatible_serial_ports(
+        port_arg,
+        chip=chip,
+        frontend=frontend,
+        purpose=purpose,
+        require_canonical_console=require_canonical_console,
+    )
     if port_arg is not None:
         if any(_serial_ports_match(port_arg, candidate) for candidate in ports):
             return port_arg
@@ -171,7 +216,7 @@ def resolve_serial_port(
             if not matches:
                 _reject_missing_chip(chip, candidates)
             candidates = matches
-        if frontend == "native" and purpose == "flash" and chip is not None:
+        if chip is not None:
             expected_console = NATIVE_CONSOLE_BY_CHIP[chip]
             preferred = [
                 candidate
@@ -211,13 +256,19 @@ def resolve_serial_port(
     raise SystemExit(1)
 
 
-def get_serial_port(port_arg: str | None, *, chip: str | None = None) -> str:
+def get_serial_port(
+    port_arg: str | None,
+    *,
+    chip: str | None = None,
+    frontend: str = "native",
+    purpose: str = "flash",
+) -> str:
     """Resolve a serial port through the shared selection path."""
     return resolve_serial_port(
         port_arg,
         chip=chip,
-        frontend="native",
-        purpose="flash",
+        frontend=frontend,
+        purpose=purpose,
     )
 
 
@@ -243,6 +294,7 @@ def detect_chip_type(
     *,
     announce: bool = True,
     settle_s: float = 1.0,
+    reset_after: bool = True,
 ) -> str | None:
     """Auto-detect ESP32 chip type."""
     try:
@@ -264,16 +316,19 @@ def detect_chip_type(
                 )
                 break
             except Exception as exc:
-                missing_port = (
-                    getattr(exc, "errno", None) == errno.ENOENT
-                    or "no such file or directory" in str(exc).lower()
+                error_text = str(exc).lower()
+                transient_port_error = (
+                    getattr(exc, "errno", None) in {errno.ENOENT, errno.EBUSY}
+                    or "no such file or directory" in error_text
+                    or "port is busy" in error_text
+                    or "resource busy" in error_text
                 )
-                if not missing_port or attempt == SERIAL_REENUMERATION_ATTEMPTS - 1:
+                if not transient_port_error or attempt == SERIAL_REENUMERATION_ATTEMPTS - 1:
                     raise
                 if announce and attempt == 0:
                     print(
-                        f"{Fore.YELLOW}⏳ Serial port disappeared after reset; "
-                        f"waiting for {port} to reappear...{Style.RESET_ALL}"
+                        f"{Fore.YELLOW}⏳ Serial port temporarily unavailable after reset; "
+                        f"waiting for {port}...{Style.RESET_ALL}"
                     )
                 time.sleep(SERIAL_REENUMERATION_DELAY_S)
         assert esp is not None
@@ -283,7 +338,8 @@ def detect_chip_type(
                 print(f"{Fore.YELLOW}⚠️  Unknown chip: {esp.CHIP_NAME}{Style.RESET_ALL}\n")
             else:
                 print(f"{Fore.GREEN}✅ Detected: {CHIP_LABELS[alias]}{Style.RESET_ALL}\n")
-        esp.hard_reset()
+        if reset_after:
+            esp.hard_reset()
         return alias
     except Exception as e:
         if announce:

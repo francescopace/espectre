@@ -884,10 +884,10 @@ void ESpectreComponent::on_calibration_finished(const RuntimeSnapshot &snapshot,
 }
 
 void ESpectreComponent::on_runtime_fault(const char *message) {
-  std::string data{"{"};
-  append_json_pair(&data, "message", message != nullptr ? message : "runtime fault", true);
-  data += "}";
-  (void) this->direct_bridge_.publish_event("fault", data);
+  EspectreDeviceConfig device;
+  device.device_id = this->runtime_.config().device_id;
+  (void) this->direct_bridge_.publish_event(
+      "fault", espectre_fault_payload(device, message, millis()));
 }
 
 void ESpectreComponent::dump_config() {

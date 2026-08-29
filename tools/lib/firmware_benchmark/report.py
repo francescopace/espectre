@@ -99,19 +99,20 @@ def format_bssid_provisioning_summary(result: BenchmarkResult) -> str:
         return "N/A"
     if evidence.get("requested") is not True:
         return "Not requested"
-    if evidence.get("already_associated") is True:
-        return "Already associated"
     if evidence.get("applied") is not True:
         return "Not applied"
-    applied = "Verified" if evidence.get("verified") is True else "Applied"
+    applied = "Setup verified" if evidence.get("verified") is True else "Setup applied"
+    if evidence.get("reassociation_exercised") is not True:
+        if "reassociation_exercised" in evidence:
+            return f"{applied}; rearm not exercised"
+        if evidence.get("already_associated") is True:
+            return "Already associated"
     reboot_observed = evidence.get("reboot_observed")
     if reboot_observed is True:
         reboot = "reboot observed"
-    elif reboot_observed is False:
-        reboot = "no reboot observed"
     else:
         reboot = "reboot unknown"
-    return f"{applied}; {reboot}"
+    return f"{applied}; rearm exercised; {reboot}"
 
 def format_duration(seconds: float) -> str:
     minutes, remaining = divmod(seconds, 60.0)
@@ -244,6 +245,7 @@ def _redact_benchmark_text(text: str) -> str:
     for name in (
         "ESPECTRE_BENCHMARK_WIFI_SSID",
         "ESPECTRE_BENCHMARK_WIFI_PASSWORD",
+        "ESPECTRE_BENCHMARK_WIFI_INITIAL_BSSID",
         "ESPECTRE_BENCHMARK_WIFI_BSSID",
     ):
         value = benchmark_setting(name)
@@ -446,7 +448,7 @@ def render_report(
             "",
             "## Summary",
             "",
-            "| Frontend | Detection profile | Result | BSSID provisioning | Occupancy | Binary size | Partition free | CPU load | Min free heap |",
+            "| Frontend | Detection profile | Result | Frontend BSSID setup | Occupancy | Binary size | Partition free | CPU load | Min free heap |",
             "|---|---|---:|---|---:|---:|---:|---:|---:|",
         ]
     )
@@ -506,24 +508,39 @@ def render_report(
         bssid_evidence = _bssid_provisioning_evidence(result)
         if bssid_evidence is not None:
             detail_rows.append(
-                "| BSSID requested | "
+                "| Frontend setup final BSSID requested | "
                 f"{'yes' if bssid_evidence.get('requested') is True else 'no'} |"
             )
             if bssid_evidence.get("requested") is True:
                 detail_rows.extend(
                     [
-                        "| BSSID applied through Direct | "
+                        "| Frontend setup initial BSSID requested | "
+                        f"{'yes' if bssid_evidence.get('initial_requested') is True else 'no'} |",
+                        "| Frontend setup initial BSSID applied through Direct | "
+                        f"{'yes' if bssid_evidence.get('initial_applied') is True else 'no'} |",
+                        "| Frontend setup initial BSSID already associated | "
+                        f"{'yes' if bssid_evidence.get('initial_already_associated') is True else 'no'} |",
+                        "| Frontend setup initial BSSID association verified | "
+                        f"{'yes' if bssid_evidence.get('initial_verified') is True else 'no'} |",
+                        "| Frontend setup initial BSSID reboot observed | "
+                        + (
+                            "yes"
+                            if bssid_evidence.get("initial_reboot_observed") is True
+                            else "unknown"
+                        )
+                        + " |",
+                        "| Frontend setup final BSSID applied through Direct | "
                         f"{'yes' if bssid_evidence.get('applied') is True else 'no'} |",
-                        "| BSSID already associated | "
+                        "| Frontend setup final BSSID already associated | "
                         f"{'yes' if bssid_evidence.get('already_associated') is True else 'no'} |",
-                        "| BSSID association verified | "
+                        "| Frontend setup final BSSID reassociation exercised | "
+                        f"{'yes' if bssid_evidence.get('reassociation_exercised') is True else 'no'} |",
+                        "| Frontend setup final BSSID association verified | "
                         f"{'yes' if bssid_evidence.get('verified') is True else 'no'} |",
-                        "| BSSID apply reboot observed | "
+                        "| Frontend setup final BSSID reboot observed | "
                         + (
                             "yes"
                             if bssid_evidence.get("reboot_observed") is True
-                            else "no"
-                            if bssid_evidence.get("reboot_observed") is False
                             else "unknown"
                         )
                         + " |",
@@ -827,18 +844,78 @@ def parse_report_results(text: str) -> list[BenchmarkResult]:
             runtime.startup_state = metric("Startup state")
         if "Verified detector" in metric_rows:
             runtime.verified_detector = metric("Verified detector")
-        if "BSSID requested" in metric_rows:
-            requested = metric("BSSID requested") == "yes"
-            reboot_value = metric("BSSID apply reboot observed", "unknown")
-            result.transport_evidence["bssid_provisioning"] = {
+        new_bssid_metrics = "Frontend setup final BSSID requested" in metric_rows
+        if new_bssid_metrics or "BSSID requested" in metric_rows:
+            requested_label = (
+                "Frontend setup final BSSID requested" if new_bssid_metrics else "BSSID requested"
+            )
+            applied_label = (
+                "Frontend setup final BSSID applied through Direct"
+                if new_bssid_metrics
+                else "BSSID applied through Direct"
+            )
+            already_label = (
+                "Frontend setup final BSSID already associated"
+                if new_bssid_metrics
+                else "BSSID already associated"
+            )
+            verified_label = (
+                "Frontend setup final BSSID association verified"
+                if new_bssid_metrics
+                else "BSSID association verified"
+            )
+            reboot_label = (
+                "Frontend setup final BSSID reboot observed"
+                if new_bssid_metrics
+                else "BSSID apply reboot observed"
+            )
+            requested = metric(requested_label) == "yes"
+            reboot_value = metric(reboot_label, "unknown")
+            bssid_evidence: dict[str, object] = {
                 "requested": requested,
-                "applied": metric("BSSID applied through Direct", "no") == "yes",
-                "already_associated": metric("BSSID already associated", "no") == "yes",
-                "verified": metric("BSSID association verified", "no") == "yes",
-                "reboot_observed": (
-                    True if reboot_value == "yes" else False if reboot_value == "no" else None
-                ),
+                "applied": metric(applied_label, "no") == "yes",
+                "already_associated": metric(already_label, "no") == "yes",
+                "verified": metric(verified_label, "no") == "yes",
+                "reboot_observed": True if reboot_value == "yes" else None,
             }
+            if new_bssid_metrics:
+                initial_reboot_value = metric(
+                    "Frontend setup initial BSSID reboot observed",
+                    "unknown",
+                )
+                bssid_evidence.update(
+                    {
+                        "initial_requested": metric(
+                            "Frontend setup initial BSSID requested",
+                            "no",
+                        )
+                        == "yes",
+                        "initial_applied": metric(
+                            "Frontend setup initial BSSID applied through Direct",
+                            "no",
+                        )
+                        == "yes",
+                        "initial_already_associated": metric(
+                            "Frontend setup initial BSSID already associated",
+                            "no",
+                        )
+                        == "yes",
+                        "initial_verified": metric(
+                            "Frontend setup initial BSSID association verified",
+                            "no",
+                        )
+                        == "yes",
+                        "initial_reboot_observed": (
+                            True if initial_reboot_value == "yes" else None
+                        ),
+                        "reassociation_exercised": metric(
+                            "Frontend setup final BSSID reassociation exercised",
+                            "no",
+                        )
+                        == "yes",
+                    }
+                )
+            result.transport_evidence["bssid_provisioning"] = bssid_evidence
         if "Direct control attempts" in metric_rows:
             match = REPORT_SUCCESS_COUNT_RE.fullmatch(metric("Direct control attempts"))
             if match is None:
