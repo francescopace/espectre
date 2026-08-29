@@ -28,7 +28,7 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 **Release tasks**:
 
 - [ ] Run a classic ESP32 DNS/UDP A/B with Direct HTTPD task priorities 1 and 4 across ESPHome, Native, and Matter; remove the target-specific priority overrides if priority 1 preserves Direct availability, response latency, and CSI occupancy
-- [ ] Restore live CSI callbacks on ESP32-S3 after CSI suspend/resume across a managed Wi-Fi reconnect from a BSSID update so sensing resumes without a reboot, and keep the existing one-shot fallback reboot as a watchdog even after that path passes repeated hardware validation
+- [ ] Investigate a driver-level CSI recovery after a managed Wi-Fi reconnect, validate it on every supported chip before adding it to the runtime, and keep the existing one-shot fallback reboot as the production watchdog
 - [ ] Re-run the on-device firmware benchmark on every supported chip and refresh the published performance reports
 
 **Exit criteria**:
