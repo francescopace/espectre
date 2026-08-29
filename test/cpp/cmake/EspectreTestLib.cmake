@@ -116,6 +116,7 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/device_config_store.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/improv_serial_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/wifi_provisioning_service.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/wifi_bssid_pin_service.cpp"
 )
 target_link_libraries(espectre_runtime_testlib
     PUBLIC

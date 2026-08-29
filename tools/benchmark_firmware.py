@@ -29,9 +29,6 @@ from tools.lib.firmware_benchmark.settings import (
     SUPPORTED_CHIPS,
     require_benchmark_prerequisites,
 )
-from tools.lib.firmware_benchmark.build import (
-    run_cpp_build_flash_case,
-)
 from tools.lib.firmware_benchmark.direct import (
     run_direct_frontend_cases_safely,
     run_micro_case,
@@ -95,7 +92,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Build, flash, and benchmark Native Lightweight/High Accuracy, "
-            "ESPHome Lightweight/High Accuracy, Matter smoke, and "
+            "ESPHome Lightweight/High Accuracy, Matter Lightweight/High Accuracy, and "
             "Micro-ESPectre Lightweight for one chip."
         ),
     )
@@ -108,7 +105,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--detector",
-        choices=("lightweight", "high_accuracy", "default"),
+        choices=("lightweight", "high_accuracy"),
         help="Run only cases for one detector",
     )
     report_mode = parser.add_mutually_exclusive_group()
@@ -264,8 +261,13 @@ def main() -> int:
             write_current_report()
 
         matter_cases = tuple(case for case in selected_cases if case.frontend == "matter")
-        for matter_case in matter_cases:
-            results.append(run_cpp_build_flash_case(matter_case, args.chip, port))
+        if matter_cases:
+            run_direct_frontend_cases_safely(
+                matter_cases,
+                args.chip,
+                port,
+                on_result=record_direct_result,
+            )
             write_current_report()
 
         micro_cases = tuple(case for case in selected_cases if case.frontend == "micro")

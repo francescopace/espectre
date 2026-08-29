@@ -39,23 +39,26 @@ bool MdnsDiscoveryService::setup(const MdnsDiscoveryServiceConfig &config) {
   }
   config_ = config;
 
-  if (config_.responder_mode == MdnsResponderMode::OWN_RESPONDER) {
-    const esp_err_t init_err = mdns_init();
-    if (init_err != ESP_OK && init_err != ESP_ERR_INVALID_STATE) {
-      ESP_LOGE(TAG, "mdns_init failed: %s", esp_err_to_name(init_err));
-      return false;
-    }
-    mdns_initialized_ = true;
-    owns_mdns_ = init_err == ESP_OK;
+  const esp_err_t init_err = mdns_init();
+  if (init_err != ESP_OK && init_err != ESP_ERR_INVALID_STATE) {
+    ESP_LOGE(TAG, "mdns_init failed: %s", esp_err_to_name(init_err));
+    return false;
+  }
+  mdns_initialized_ = true;
+  owns_mdns_ = config_.responder_mode == MdnsResponderMode::OWN_RESPONDER && init_err == ESP_OK;
 
+  if (config_.responder_mode == MdnsResponderMode::OWN_RESPONDER) {
     if (mdns_hostname_set(config_.hostname.c_str()) != ESP_OK ||
         mdns_instance_name_set(config_.instance_name.c_str()) != ESP_OK) {
       ESP_LOGE(TAG, "Failed to configure mDNS identity");
       shutdown();
       return false;
     }
-  } else {
-    mdns_initialized_ = true;
+  } else if (init_err == ESP_OK && !config_.hostname.empty() &&
+             mdns_hostname_set(config_.hostname.c_str()) != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to configure shared mDNS hostname");
+    shutdown();
+    return false;
   }
   const esp_err_t service_err = mdns_service_add(config_.instance_name.c_str(),
                                                  config_.service_type.c_str(),

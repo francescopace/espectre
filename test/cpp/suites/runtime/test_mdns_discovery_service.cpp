@@ -107,13 +107,27 @@ void test_attaches_without_mutating_existing_responder_identity() {
   config.responder_mode = MdnsResponderMode::USE_EXISTING_RESPONDER;
   MdnsDiscoveryService service;
   TEST_ASSERT_TRUE(service.setup(config));
-  TEST_ASSERT_EQUAL_INT(0, g_mdns_mock.init_call_count);
+  TEST_ASSERT_EQUAL_INT(1, g_mdns_mock.init_call_count);
   TEST_ASSERT_EQUAL_INT(0, g_mdns_mock.hostname_set_call_count);
   TEST_ASSERT_EQUAL_INT(0, g_mdns_mock.instance_name_set_call_count);
   TEST_ASSERT_TRUE(service.service_enabled());
   service.on_wifi_connected();
   service.on_wifi_disconnected();
   TEST_ASSERT_EQUAL_INT(0, g_mdns_mock.netif_action_call_count);
+  service.shutdown();
+  TEST_ASSERT_EQUAL_INT(0, g_mdns_mock.free_call_count);
+}
+
+void test_initializes_missing_shared_responder_with_fallback_hostname() {
+  reset_mocks();
+  MdnsDiscoveryServiceConfig config = direct_config();
+  config.responder_mode = MdnsResponderMode::USE_EXISTING_RESPONDER;
+  MdnsDiscoveryService service;
+  TEST_ASSERT_TRUE(service.setup(config));
+  TEST_ASSERT_EQUAL_INT(1, g_mdns_mock.init_call_count);
+  TEST_ASSERT_EQUAL_INT(1, g_mdns_mock.hostname_set_call_count);
+  TEST_ASSERT_EQUAL_STRING("espectre-0123456789abcdef", g_mdns_mock.hostname);
+  TEST_ASSERT_EQUAL_INT(0, g_mdns_mock.instance_name_set_call_count);
   service.shutdown();
   TEST_ASSERT_EQUAL_INT(0, g_mdns_mock.free_call_count);
 }
@@ -726,6 +740,7 @@ int main() {
   RUN_TEST(test_follows_wifi_lifecycle_and_updates_txt_atomically);
   RUN_TEST(test_does_not_free_mdns_owned_by_another_component);
   RUN_TEST(test_attaches_without_mutating_existing_responder_identity);
+  RUN_TEST(test_initializes_missing_shared_responder_with_fallback_hostname);
   RUN_TEST(test_bootstrap_answers_multicast_a_after_bounded_delay);
   RUN_TEST(test_bootstrap_handles_qu_and_legacy_unicast);
   RUN_TEST(test_bootstrap_answers_chrome_a_with_compressed_aaaa_question);

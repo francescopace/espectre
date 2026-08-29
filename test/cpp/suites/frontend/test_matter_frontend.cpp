@@ -9,6 +9,8 @@
  */
 #include "test_harness.h"
 
+#include <vector>
+
 #define private public
 #define protected public
 #include "matter_frontend.h"
@@ -110,6 +112,23 @@ void test_matter_frontend_defers_direct_until_runtime_services_are_armed(void) {
   TEST_ASSERT_FALSE(frontend.runtime_services_armed());
   TEST_ASSERT_TRUE(direct_http_service_mock::state.shutdown_called);
   TEST_ASSERT_FALSE(direct_http_service_mock::state.running);
+}
+
+void test_matter_frontend_defers_runtime_allocation_until_services_are_armed(void) {
+  MockMatterBindings bindings;
+  MockDirectHttpService direct;
+  MatterFrontend frontend(&bindings, 2, &direct);
+
+  TEST_ASSERT_TRUE(frontend.set_runtime_services_armed(false));
+  TEST_ASSERT_FALSE(frontend.is_setup_complete());
+  TEST_ASSERT_NULL(frontend_runtime_shim::state.last_listener);
+  TEST_ASSERT_EQUAL(0, direct_http_service_mock::state.setup_calls);
+
+  TEST_ASSERT_TRUE(frontend.set_runtime_services_armed(true));
+  TEST_ASSERT_TRUE(frontend.is_setup_complete());
+  TEST_ASSERT_NOT_NULL(frontend_runtime_shim::state.last_listener);
+  TEST_ASSERT_EQUAL(1, direct_http_service_mock::state.setup_calls);
+  TEST_ASSERT_TRUE(direct_http_service_mock::state.running);
 }
 
 void test_matter_frontend_keeps_runtime_disarmed_when_deferred_direct_setup_fails(void) {
@@ -290,6 +309,13 @@ void test_matter_direct_exposes_common_wifi_and_node_label_capabilities(void) {
   MockDirectHttpService direct;
   MatterFrontend frontend(&bindings, 11, &direct);
   frontend.set_runtime_config(config);
+  std::vector<std::string> bssid_updates;
+  frontend.set_wifi_bssid_pin_setter(
+      [&bssid_updates](const std::string &bssid, std::string *message) {
+        bssid_updates.push_back(bssid);
+        if (message != nullptr) *message = "Matter BSSID transaction started";
+        return true;
+      });
   TEST_ASSERT_TRUE(frontend.setup());
 
   const std::string default_info = direct.emit_request(DirectRequest{"default-info", "info", "{}"});
@@ -324,6 +350,9 @@ void test_matter_direct_exposes_common_wifi_and_node_label_capabilities(void) {
   TEST_ASSERT_TRUE(scan.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(pin.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(unpin.find("\"accepted\":true") != std::string::npos);
+  TEST_ASSERT_EQUAL(2, static_cast<int>(bssid_updates.size()));
+  TEST_ASSERT_EQUAL_STRING("E6:FA:C4:20:19:DE", bssid_updates[0].c_str());
+  TEST_ASSERT_TRUE(bssid_updates[1].empty());
   TEST_ASSERT_TRUE(credential_reset.find("\"code\":\"unsupported\"") != std::string::npos);
 
   const std::string label = direct.emit_request(
@@ -334,6 +363,30 @@ void test_matter_direct_exposes_common_wifi_and_node_label_capabilities(void) {
   const std::string visible_config = direct.emit_request(DirectRequest{"config", "config", "{}"});
   TEST_ASSERT_TRUE(info.find("\"device_label\":\"Kitchen Matter\"") != std::string::npos);
   TEST_ASSERT_TRUE(visible_config.find("\"device_label\":\"Kitchen Matter\"") != std::string::npos);
+}
+
+void test_matter_frontend_quiesces_sensing_while_wifi_is_reconfigured(void) {
+  MockMatterBindings bindings;
+  MockDirectHttpService direct;
+  MatterFrontend frontend(&bindings, 12, &direct);
+  TEST_ASSERT_TRUE(frontend.setup());
+  TEST_ASSERT_TRUE(frontend.runtime_services_armed());
+  TEST_ASSERT_TRUE(direct_http_service_mock::state.running);
+
+  frontend.prepare_for_wifi_reconfigure();
+  TEST_ASSERT_FALSE(frontend.runtime_services_armed());
+  TEST_ASSERT_TRUE(direct_http_service_mock::state.running);
+
+  frontend.resume_after_wifi_reconfigure();
+  TEST_ASSERT_FALSE(frontend.runtime_services_armed());
+  frontend.loop();
+  TEST_ASSERT_TRUE(frontend.runtime_services_armed());
+
+  TEST_ASSERT_TRUE(frontend.set_runtime_services_armed(false));
+  frontend.prepare_for_wifi_reconfigure();
+  frontend.resume_after_wifi_reconfigure();
+  frontend.loop();
+  TEST_ASSERT_FALSE(frontend.runtime_services_armed());
 }
 
 void test_matter_surface_mapping_helpers(void) {
@@ -351,6 +404,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_matter_frontend_setup_fails_when_runtime_setup_fails);
   RUN_TEST(test_matter_frontend_loop_and_shutdown_forward_to_runtime);
   RUN_TEST(test_matter_frontend_defers_direct_until_runtime_services_are_armed);
+  RUN_TEST(test_matter_frontend_defers_runtime_allocation_until_services_are_armed);
   RUN_TEST(test_matter_frontend_keeps_runtime_disarmed_when_deferred_direct_setup_fails);
   RUN_TEST(test_matter_frontend_motion_and_periodic_callbacks_publish_bindings);
   RUN_TEST(test_matter_frontend_defers_live_telemetry_serialization_until_after_runtime_loop);
@@ -359,6 +413,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_matter_frontend_exposes_runtime_tuning_over_direct_http);
   RUN_TEST(test_matter_frontend_raw_session_uses_shared_controller_and_recovers);
   RUN_TEST(test_matter_direct_exposes_common_wifi_and_node_label_capabilities);
+  RUN_TEST(test_matter_frontend_quiesces_sensing_while_wifi_is_reconfigured);
   RUN_TEST(test_matter_surface_mapping_helpers);
   return UNITY_END();
 }

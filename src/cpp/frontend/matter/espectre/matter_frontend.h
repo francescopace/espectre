@@ -9,6 +9,7 @@
  */
 #pragma once
 
+#include <functional>
 #include <memory>
 
 #include "direct_http_service.h"
@@ -24,12 +25,18 @@ namespace espectre {
 
 class MatterFrontend : public IRuntimeListener {
  public:
+  using WifiBssidPinSetter =
+      std::function<bool(const std::string &bssid, std::string *message)>;
+
   MatterFrontend(IMatterBindings *bindings,
                  uint16_t endpoint_id,
                  IDirectHttpService *direct_service = nullptr);
 
   void set_runtime_config(const RuntimeConfig &config);
+  void set_wifi_bssid_pin_setter(WifiBssidPinSetter setter);
   bool set_runtime_services_armed(bool armed);
+  void prepare_for_wifi_reconfigure();
+  void resume_after_wifi_reconfigure();
   const RuntimeConfig &runtime_config() const { return runtime_.config(); }
   bool runtime_services_armed() const { return runtime_.services_armed(); }
 
@@ -66,7 +73,11 @@ class MatterFrontend : public IRuntimeListener {
   RuntimeDirectHttpBridge direct_bridge_;
   EspIdfPeerDiscoveryService peer_discovery_;
   RuntimeEventMailbox runtime_events_{};
+  WifiBssidPinSetter wifi_bssid_pin_setter_{};
   bool live_telemetry_enabled_{true};
+  bool operational_services_armed_{true};
+  bool wifi_reconfigure_quiesced_{false};
+  bool wifi_reconfigure_resume_pending_{false};
   std::string fallback_device_label_{};
 };
 

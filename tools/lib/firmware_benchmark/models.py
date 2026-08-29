@@ -157,7 +157,8 @@ CASES = tuple(
         BenchmarkCase("native", "high_accuracy"),
         BenchmarkCase("esphome", "lightweight"),
         BenchmarkCase("esphome", "high_accuracy"),
-        BenchmarkCase("matter", "default", benchmark_mode="smoke"),
+        BenchmarkCase("matter", "lightweight"),
+        BenchmarkCase("matter", "high_accuracy"),
         BenchmarkCase("micro", "lightweight"),
     ]
 )

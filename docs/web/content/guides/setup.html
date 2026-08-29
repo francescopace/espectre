@@ -132,12 +132,14 @@ espectre&gt; recalibrate</code></pre>
         <ol class="steps-list">
           <li><h3>Get the QR code</h3><p>After flashing, use <em>Show Matter setup code</em> on the <a href="/tools/flash/">Install ESPectre</a> page, or run <code>./espectre matter qr</code>. Each device has its own code, and reflashing does not change it, so you can save it.</p></li>
           <li><h3>Add the device in your app</h3><p>In a controller that supports Matter occupancy sensors, choose its add-device flow and scan the QR code. The exact UI varies by controller. Keep the phone near the board: commissioning starts over Bluetooth, then the device joins your Wi-Fi.</p></li>
+          <li><h3>Choose an access point, if needed</h3><p>After commissioning, open <a href="/tools/configure/">Device settings</a> over Direct HTTP. If several access points share the commissioned network name, choose the one ESPectre should use. Matter stores this BSSID preference separately from its credentials and reapplies it after restart only while the commissioned network matches. Select <em>Automatic (strongest available)</em> to remove the preference without changing the Matter fabric or Wi-Fi credentials.</p></li>
           <li><h3>Place it in a room</h3><p>The device appears as an occupancy sensor. Use it in automations exactly like any other motion sensor.</p></li>
         </ol>
       </div>
     </div>
 
     <h3 id="setup-matter-compatibility" class="subheading">Matter controller compatibility</h3>
+<p>The hardware benchmark commissions the firmware with a CHIP Tool build from the firmware's <code>connectedhomeip</code> revision. The run establishes operational CASE, reaches Direct, confirms the BSSID preference after restart, and scores both detector profiles. It covers the commissioning and sensing runtime used by the benchmark, but does not test occupancy reports or automations in a consumer controller.</p>
     <p>ESPectre publishes motion through Matter's standard occupancy sensor. For v3.0.0-rc1, no reproducible end-to-end validation is recorded yet for Google Home, Amazon Alexa, Apple Home, Samsung SmartThings, or Home Assistant. Support for an occupancy sensor in a controller does not by itself confirm that ESPectre will commission, report motion, and trigger an automation correctly. Broader controller validation is planned for v3.1.0; follow it on the <a href="/roadmap/#roadmap-v3-1">roadmap</a>.</p>
     <div class="note"><strong>Before choosing Matter:</strong> the current firmware uses a development vendor and product ID plus example device-attestation credentials. A controller may require its developer workflow or an explicit acknowledgement for an uncertified accessory.</div>
 

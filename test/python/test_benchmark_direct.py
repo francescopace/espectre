@@ -278,6 +278,85 @@ def test_improv_provisioning_failure_is_reported_through_callback(monkeypatch, f
     assert results[0].reasons == [f"{label} provisioning exited with status 1"]
     assert ["--frontend", frontend] == commands[0][4:6]
 
+
+def test_matter_commissioning_uses_captured_onboarding_data(monkeypatch):
+    case = BenchmarkCase("matter", "lightweight")
+
+    class FakeContext:
+        def __enter__(self):
+            return {}, object()
+
+        def __exit__(self, *_args):
+            return False
+
+    bootstrap = BenchmarkResult(
+        case=case,
+        build=CommandResult(["build"], 0, 1.0, ""),
+    )
+
+    def fake_flash(_case, _chip, _port, result, **kwargs):
+        callback = kwargs["line_callback"]
+        callback("I app: MATTER_QR=MT:TESTPAYLOAD\n")
+        callback("I app: MATTER_MANUAL_CODE=12704227053\n")
+        result.flash = CommandResult(["flash"], 0, 1.0, "")
+        return True
+
+    observed = []
+    monitor_commands = []
+    monitor_process = SimpleNamespace(poll=lambda: None)
+
+    def start_monitor(command, **_kwargs):
+        monitor_commands.append(list(command))
+        return monitor_process, ["Matter monitor active\n"], [0.1], object(), 1.0
+
+    def fail_after_capture(onboarding):
+        assert monitor_commands
+        observed.append(onboarding)
+        raise RuntimeError("commissioning stopped after capture")
+
+    monkeypatch.setattr(bench, "case_context", lambda *_args, **_kwargs: FakeContext())
+    monkeypatch.setattr(bench, "_build_case_in_context", lambda *_args, **_kwargs: bootstrap)
+    monkeypatch.setattr(bench, "_flash_prebuilt_cpp_case_in_context", fake_flash)
+    monkeypatch.setattr(bench, "_run_background_command", start_monitor)
+    monkeypatch.setattr(bench, "_terminate_process", lambda _process: None)
+    monkeypatch.setattr(
+        bench,
+        "_finalize_background_command",
+        lambda *_args: CommandResult(
+            ["espectre", "monitor"],
+            0,
+            1.0,
+            "Matter monitor active\n",
+        ),
+    )
+    monkeypatch.setattr(bench.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(bench, "commission_matter_device", fail_after_capture)
+
+    results = bench.run_direct_frontend_cases(
+        [case],
+        "c3",
+        "/dev/cu.test",
+    )
+
+    assert len(observed) == 1
+    assert observed[0].qr_payload == "MT:TESTPAYLOAD"
+    assert observed[0].manual_code == "12704227053"
+    assert monitor_commands == [
+        [
+            str(bench.REPO_ROOT / "espectre"),
+            "monitor",
+            "--chip",
+            "c3",
+            "--frontend",
+            "matter",
+            "--port",
+            "/dev/cu.test",
+        ]
+    ]
+    assert results[0].status == "FAIL"
+    assert results[0].reasons == ["commissioning stopped after capture"]
+    assert results[0].monitor is not None
+
 def test_parse_json_object_from_output_uses_final_json_line():
     parsed = bench.parse_json_object_from_output(
         'Selected serial port /dev/cu.valid\n{"state":"ready"}\n'

@@ -75,9 +75,16 @@ The Matter frontend keeps ownership boundaries explicit:
 - the Matter stack starts first
 - the shared ESPectre runtime is initialized after `esp_matter::start()`
 - Wi-Fi ownership remains with `esp-matter`
-- the firmware keeps the standalone sensing Wi-Fi transport baseline active during commissioning, including disabled TX and RX AMPDU, Wi-Fi buffer counts `10/32/48`, and the enlarged lwIP queues
+- the firmware keeps the standalone sensing Wi-Fi transport baseline active during commissioning, including disabled TX and RX AMPDU, Wi-Fi buffer counts `10/32/32`, and the enlarged lwIP queues
 - CSI, Direct HTTP, ESPectre DNS-SD, and the one-shot bootstrap responder remain stopped until commissioning completes
 - commissioning and fabric events cross into the ESPectre loop through pending events, so the CHIP task never starts, stops, or reconfigures the sensing runtime directly
+- a newly commissioned device gives the controller a 10-second completion grace before the sensing runtime can reconfigure Wi-Fi; an already commissioned boot starts without that grace
+- the ESPectre runtime allocation is deferred until a fabric exists, preserving heap for SPAKE2+ and operational-certificate validation on constrained targets
+- Matter reserves two dynamic endpoints and two device types, matching the root and occupancy endpoint instead of the framework defaults of 16 each
+- event history and event queues are sized for the attribute-only occupancy application, and non-ISR FreeRTOS helpers reside in flash to preserve heap during CASE
+- Direct discovery idempotently joins the Matter-owned ESP-IDF mDNS responder and never frees that shared responder
+- Matter packet buffers use on-demand lwIP RAM allocation, and the station retains the ESP-IDF default dynamic RX count so operational mDNS and CASE do not exhaust the fixed packet pool during commissioning
+- the commissionee-only NimBLE profile keeps one peripheral connection, omits unused central and observer roles, preserves BLE security defaults, and releases BLE memory before operational CASE
 - after commissioning, the ESPectre loop starts the operational services and layers the reused runtime's CSI Wi-Fi policy and capture setup on top of the initialized station stack
 - station IPv4 changes reach the bootstrap responder through IP events instead of polling `esp_netif_get_ip_info()` every 10 ms
 
@@ -128,6 +135,8 @@ The standard Matter surface remains intentionally narrow. It does not expose:
 The firmware exposes `http://<device>:62587/espectre/v1/request` as its local tuning plane. Direct HTTP provides the shared runtime controls, diagnostics, Wi-Fi association inspection, BSSID selection, Basic Information `NodeLabel` editing, peer discovery, and raw CSI advertised by the capability catalog. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md) owns the method catalog and [peer-assisted browser discovery](../../../../docs/ESPECTRE_PROTOCOL.md#peer-assisted-browser-discovery).
 
 Matter still owns Wi-Fi credentials, commissioning, and fabric access. Direct cannot reset the Wi-Fi configuration or replace the read-only Matter occupancy attribute. It remains available after commissioning, while `_matterc` is advertised only to Matter controllers during an open commissioning window.
+
+ESPectre stores the Direct BSSID preference separately from Matter credentials and binds it to the current Matter-provisioned SSID. It commits a candidate only after the station associates with that BSSID and obtains IPv4; otherwise, it restores the previous preference. The apply step uses RAM-backed ESP-IDF Wi-Fi configuration, so Matter-owned credentials remain unchanged. After restart, ESPectre reapplies the preference only when the commissioned SSID matches. The preference remains dormant while Matter uses another SSID, and an explicit BSSID clear removes it.
 
 The Direct adapter uses the same `FrontendCommandEngine` as the other C++ frontends; only frontend-owned operations differ.
 

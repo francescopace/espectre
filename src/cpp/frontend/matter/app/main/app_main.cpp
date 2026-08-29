@@ -10,12 +10,16 @@
 #include <esp_err.h>
 #include <esp_event.h>
 #include <esp_log.h>
+#include <esp_mac.h>
 #include <esp_netif.h>
+#include <esp_wifi.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <sdkconfig.h>
 
 #include <cstdio>
+#include <string>
+#include <utility>
 
 #include <app/server/CommissioningWindowManager.h>
 #include <app/server/Server.h>
@@ -32,6 +36,7 @@
 #include "device_identity.h"
 #include "direct_http_protocol.h"
 #include "direct_http_service_esp_idf.h"
+#include "direct_wifi_snapshot_esp_idf.h"
 #include "espectre_protocol.h"
 #include "firmware_version.h"
 #include "matter_bindings_esp_matter.h"
@@ -42,7 +47,9 @@
 #include "nvs_helpers.h"
 #include "pending_event.h"
 #include "runtime_config_utils.h"
+#include "runtime_direct_http_bridge.h"
 #include "runtime_sensing_kconfig.h"
+#include "wifi_bssid_pin_service.h"
 
 static const char *TAG = "espectre.matter.app";
 
@@ -58,12 +65,14 @@ espectre::MatterCommissioningDataProvider g_commissioning_data;
 espectre::MatterFrontend *g_frontend = nullptr;
 espectre::MdnsDiscoveryService *g_mdns_discovery = nullptr;
 espectre::MdnsBootstrapResponder *g_mdns_bootstrap_responder = nullptr;
+espectre::WifiBssidPinService *g_wifi_bssid_pin_service = nullptr;
 espectre::MdnsDiscoveryServiceConfig g_mdns_config;
 uint16_t g_motion_endpoint_id = 0;
 uint64_t g_device_id = 0U;
 espectre::PendingEvent<bool> g_commissioned_event;
 espectre::PendingEvent<> g_dnssd_initialized_event;
 espectre::PendingEvent<uint32_t> g_station_ipv4_event;
+espectre::PendingEvent<> g_wifi_station_state_event;
 espectre::PendingEvent<> g_node_label_event;
 bool g_commissioned = false;
 bool g_dnssd_initialized = false;
@@ -71,8 +80,48 @@ bool g_bootstrap_configured = false;
 uint32_t g_station_ipv4 = 0U;
 bool g_operational_start_pending = false;
 TickType_t g_operational_start_retry_at = 0U;
+TickType_t g_operational_start_not_before = 0U;
 
 constexpr TickType_t kOperationalStartRetryDelay = pdMS_TO_TICKS(1000);
+constexpr TickType_t kPostCommissioningRuntimeGrace = pdMS_TO_TICKS(10000);
+
+espectre::WifiBssidPinStationState matter_wifi_station_state() {
+  const espectre::DirectWifiSnapshot snapshot = espectre::read_direct_wifi_snapshot();
+  return espectre::WifiBssidPinStationState{
+      snapshot.configured,
+      snapshot.connected,
+      espectre::read_direct_wifi_connected(),
+      snapshot.ssid,
+      snapshot.bssid,
+  };
+}
+
+bool apply_matter_wifi_bssid_pin(const std::string &bssid, std::string *message) {
+  const esp_err_t ram_err = esp_wifi_set_storage(WIFI_STORAGE_RAM);
+  if (ram_err != ESP_OK) {
+    if (message != nullptr) *message = esp_err_to_name(ram_err);
+    return false;
+  }
+
+  const bool applied = espectre::apply_wifi_bssid_pin(bssid, message);
+  const esp_err_t flash_err = esp_wifi_set_storage(WIFI_STORAGE_FLASH);
+  if (flash_err != ESP_OK) {
+    if (message != nullptr) {
+      *message = std::string("Wi-Fi storage policy could not be restored: ") +
+                 esp_err_to_name(flash_err);
+    }
+    return false;
+  }
+  return applied;
+}
+
+bool handle_wifi_bssid_pin_update(const std::string &bssid, std::string *message) {
+  if (g_wifi_bssid_pin_service == nullptr) {
+    if (message != nullptr) *message = "Wi-Fi BSSID persistence is unavailable";
+    return false;
+  }
+  return g_wifi_bssid_pin_service->request_update(bssid, message);
+}
 
 espectre::RuntimeConfig build_runtime_config() {
   espectre::RuntimeConfig config = espectre::make_runtime_sensing_config_from_kconfig();
@@ -92,6 +141,22 @@ std::string matter_display_name(uint64_t device_id, const std::string &device_la
 std::string matter_instance_name(uint64_t device_id, const std::string &device_label) {
   const std::string formatted_id = espectre::format_espectre_device_id(device_id);
   return device_label.empty() ? "ESPectre " + formatted_id : device_label + " " + formatted_id;
+}
+
+std::string matter_mdns_hostname() {
+  uint8_t mac[6]{};
+  if (esp_read_mac(mac, ESP_MAC_WIFI_STA) != ESP_OK) return {};
+  char hostname[13]{};
+  std::snprintf(hostname,
+                sizeof(hostname),
+                "%02X%02X%02X%02X%02X%02X",
+                mac[0],
+                mac[1],
+                mac[2],
+                mac[3],
+                mac[4],
+                mac[5]);
+  return hostname;
 }
 
 espectre::MdnsTxtRecords matter_mdns_txt(uint64_t device_id, const std::string &device_label) {
@@ -176,10 +241,13 @@ void app_event_cb(const ChipDeviceEvent *event, intptr_t arg) {
       break;
     case chip::DeviceLayer::DeviceEventType::kCommissioningComplete:
       ESP_LOGI(TAG, "Commissioning complete");
+      g_operational_start_not_before = xTaskGetTickCount() + kPostCommissioningRuntimeGrace;
       g_commissioned_event.post(true);
+      g_wifi_station_state_event.post();
       break;
     case chip::DeviceLayer::DeviceEventType::kFailSafeTimerExpired:
       ESP_LOGW(TAG, "Commissioning failed, fail safe timer expired");
+      g_wifi_station_state_event.post();
       break;
     case chip::DeviceLayer::DeviceEventType::kFabricRemoved:
       ESP_LOGI(TAG, "Fabric removed");
@@ -187,6 +255,10 @@ void app_event_cb(const ChipDeviceEvent *event, intptr_t arg) {
         g_commissioned_event.post(false);
       }
       open_commissioning_window_if_necessary();
+      g_wifi_station_state_event.post();
+      break;
+    case chip::DeviceLayer::DeviceEventType::kWiFiConnectivityChange:
+      g_wifi_station_state_event.post();
       break;
     default:
       break;
@@ -217,12 +289,18 @@ void ip_event_cb(void *arg, esp_event_base_t event_base, int32_t event_id, void 
   if (event_id == IP_EVENT_STA_GOT_IP && event_data != nullptr) {
     const auto *event = static_cast<const ip_event_got_ip_t *>(event_data);
     g_station_ipv4_event.post(event->ip_info.ip.addr);
+    g_wifi_station_state_event.post();
   } else if (event_id == IP_EVENT_STA_LOST_IP) {
     g_station_ipv4_event.post(0U);
+    g_wifi_station_state_event.post();
   }
 }
 
 bool start_operational_services() {
+  const TickType_t now = xTaskGetTickCount();
+  if (static_cast<int32_t>(now - g_operational_start_not_before) < 0) {
+    return false;
+  }
   if (g_frontend == nullptr || !g_frontend->set_runtime_services_armed(true)) {
     return false;
   }
@@ -306,6 +384,9 @@ void process_pending_platform_events() {
       }
     }
   }
+  if (g_wifi_station_state_event.take() && g_wifi_bssid_pin_service != nullptr) {
+    g_wifi_bssid_pin_service->notify_station_changed();
+  }
   if (operational_state_changed) {
     if (g_commissioned) {
       start_operational_services_or_schedule_retry();
@@ -319,6 +400,9 @@ void process_pending_platform_events() {
 void espectre_loop_task(void *arg) {
   (void) arg;
   while (true) {
+    if (g_wifi_bssid_pin_service != nullptr) {
+      g_wifi_bssid_pin_service->loop();
+    }
     if (g_frontend != nullptr) {
       g_frontend->loop();
     }
@@ -378,11 +462,24 @@ extern "C" void app_main() {
   frontend.set_runtime_config(runtime_config);
   frontend.set_runtime_services_armed(false);
   g_frontend = &frontend;
+  static espectre::WifiBssidPinService wifi_bssid_pin_service;
+  espectre::WifiBssidPinServiceConfig wifi_bssid_pin_config;
+  wifi_bssid_pin_config.apply_callback = apply_matter_wifi_bssid_pin;
+  wifi_bssid_pin_config.station_state_getter = matter_wifi_station_state;
+  wifi_bssid_pin_config.prepare_callback = []() {
+    if (g_frontend != nullptr) g_frontend->prepare_for_wifi_reconfigure();
+  };
+  wifi_bssid_pin_config.resume_callback = []() {
+    if (g_frontend != nullptr) g_frontend->resume_after_wifi_reconfigure();
+  };
+  ESP_ERROR_CHECK(wifi_bssid_pin_service.setup(std::move(wifi_bssid_pin_config)));
+  g_wifi_bssid_pin_service = &wifi_bssid_pin_service;
+  frontend.set_wifi_bssid_pin_setter(handle_wifi_bssid_pin_update);
   g_mdns_discovery = &mdns_discovery;
   g_mdns_bootstrap_responder = &mdns_bootstrap_responder;
   const std::string initial_device_label = CONFIG_ESPECTRE_MATTER_NODE_LABEL;
   g_mdns_config = espectre::MdnsDiscoveryServiceConfig{
-      "",
+      matter_mdns_hostname(),
       matter_instance_name(runtime_config.device_id, initial_device_label),
       "_espectre",
       "_tcp",
@@ -415,6 +512,7 @@ extern "C" void app_main() {
     ESP_LOGE(TAG, "Failed to start Matter (%d)", err);
     return;
   }
+  g_wifi_station_state_event.post();
   const CHIP_ERROR sync_error = chip::DeviceLayer::PlatformMgr().ScheduleWork(
       sync_post_start_state_on_chip_thread, 0);
   if (sync_error != CHIP_NO_ERROR) {
@@ -422,12 +520,8 @@ extern "C" void app_main() {
     return;
   }
 
-  if (!frontend.setup()) {
-    ESP_LOGE(TAG, "Failed to initialize ESPectre Matter frontend");
-    return;
-  }
-
   ESP_LOGI(TAG, "ESPectre Matter detector: %s", espectre::detection_algorithm_name(frontend.runtime_config().detection_algorithm));
+  ESP_LOGI(TAG, "ESPectre runtime initialization deferred until Matter commissioning completes");
 
   xTaskCreate(espectre_loop_task, "espectre_loop", 8192, nullptr, 5, nullptr);
 

@@ -84,6 +84,7 @@ set(ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/peer_discovery_service_esp_idf.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/raw_csi_session_controller.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/runtime_direct_http_bridge.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/wifi_bssid_pin_service.cpp"
 )
 
 set(ESPECTRE_FRONTEND_ESPHOME_SOURCES

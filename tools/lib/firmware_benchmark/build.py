@@ -9,7 +9,7 @@ import hashlib
 import os
 from pathlib import Path
 import re
-from typing import Iterator
+from typing import Callable, Iterator
 from src.python.espectre_cli.common import (
     FIRMWARE_CACHE_DIR,
 )
@@ -159,7 +159,7 @@ def _commands_for_case(
 ) -> tuple[list[str], list[str], list[str]]:
     launcher = str(REPO_ROOT / "espectre")
     # Always use the shared serial monitor and request an explicit hard reset so
-    # one-shot boot markers (especially Matter smoke) are captured.
+    # one-shot boot markers (especially Matter onboarding data) are captured.
     monitor_command = [
         launcher,
         "monitor",
@@ -223,9 +223,14 @@ def validate_idf_benchmark_sdkconfig(frontend: str, chip: str) -> None:
     idf_target = IDF_FRONTENDS[frontend]["targets"][chip]
     build_dir_name = resolve_idf_build_dir_name(app_dir, idf_target)
     path = cached_sdkconfig_path(app_dir, build_dir_name)
+    using_default_sdkconfig = path is None
+    if using_default_sdkconfig:
+        path = app_dir / "sdkconfig"
     if path is None or not path.is_file():
         raise RuntimeError("could not inspect the resolved ESP-IDF configuration")
     content = path.read_text(encoding="utf-8")
+    if using_default_sdkconfig and f'CONFIG_IDF_TARGET="{idf_target}"' not in content:
+        raise RuntimeError("could not inspect the resolved ESP-IDF configuration")
     required_lines = (
         "CONFIG_ESPECTRE_DETECTION_ALGORITHM_LIGHTWEIGHT=y",
         "# CONFIG_ESPECTRE_DETECTION_ALGORITHM_HIGH_ACCURACY is not set",
@@ -290,6 +295,8 @@ def _flash_prebuilt_cpp_case_in_context(
     *,
     env: dict[str, str] | None,
     config: Path | None,
+    line_callback: Callable[[str], None] | None = None,
+    output_redactor: Callable[[str], str] | None = None,
 ) -> bool:
     _build_command, flash_command, _monitor_command = _commands_for_case(
         case,
@@ -297,7 +304,12 @@ def _flash_prebuilt_cpp_case_in_context(
         port,
         config,
     )
-    result.flash = run_command(flash_command, env=env)
+    result.flash = run_command(
+        flash_command,
+        env=env,
+        line_callback=line_callback,
+        output_redactor=output_redactor,
+    )
     if result.flash.returncode != 0:
         result.reasons.append(f"flash exited with status {result.flash.returncode}")
         result.status = "FAIL"

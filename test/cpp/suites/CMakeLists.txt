@@ -102,6 +102,11 @@ add_espectre_test(test_wifi_provisioning_service
     LIBRARIES espectre_runtime_testlib
 )
 
+add_espectre_test(test_wifi_bssid_pin_service
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_wifi_bssid_pin_service.cpp"
+    LIBRARIES espectre_runtime_testlib
+)
+
 add_espectre_test(test_device_config_store
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_device_config_store.cpp"
     LIBRARIES espectre_runtime_testlib

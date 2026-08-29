@@ -17,7 +17,15 @@ from tools.lib.firmware_benchmark.models import (
 def test_cases_run_frontends_in_hardware_benchmark_order():
     frontends = [case.frontend for case in CASES]
 
-    assert frontends == ["native", "native", "esphome", "esphome", "matter", "micro"]
+    assert frontends == [
+        "native",
+        "native",
+        "esphome",
+        "esphome",
+        "matter",
+        "matter",
+        "micro",
+    ]
 
 def test_main_executes_frontends_in_hardware_benchmark_order(tmp_path, monkeypatch):
     observed: list[str] = []
@@ -30,10 +38,6 @@ def test_main_executes_frontends_in_hardware_benchmark_order(tmp_path, monkeypat
             on_result(result)
         return direct_results
 
-    def run_matter(case, _chip, _port):
-        observed.append(case.frontend)
-        return BenchmarkResult(case=case, status="PASS")
-
     def run_micro(case, _chip, _port, **_kwargs):
         observed.append(case.frontend)
         return BenchmarkResult(case=case, status="PASS")
@@ -43,7 +47,6 @@ def test_main_executes_frontends_in_hardware_benchmark_order(tmp_path, monkeypat
     monkeypatch.setattr(bench, "benchmark_artifact_dir", lambda *_args: tmp_path / "artifacts")
     monkeypatch.setattr(bench, "require_benchmark_prerequisites", lambda _cases: None)
     monkeypatch.setattr(bench, "run_direct_frontend_cases_safely", run_direct)
-    monkeypatch.setattr(bench, "run_cpp_build_flash_case", run_matter)
     monkeypatch.setattr(bench, "run_micro_case", run_micro)
     monkeypatch.setattr(bench, "write_report", lambda *_args, **_kwargs: tmp_path / "report.md")
     monkeypatch.setattr(bench, "write_benchmark_artifacts", lambda *_args, **_kwargs: None)
@@ -117,7 +120,8 @@ def test_cases_include_micro_espectre_lightweight_only():
 def test_s2_cases_exclude_matter_without_removing_other_frontends():
     labels = [case.label for case in bench.select_cases(chip="s2")]
 
-    assert "Matter Default" not in labels
+    assert "Matter Lightweight" not in labels
+    assert "Matter High Accuracy" not in labels
     assert "Native Lightweight" in labels
     assert "Micro-ESPectre Lightweight" in labels
     assert "ESPHome Lightweight" in labels

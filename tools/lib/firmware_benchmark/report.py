@@ -55,9 +55,7 @@ REPORT_SNAPSHOT_SCOPE = (
 REPORT_DETECTOR_SCOPE = (
     "Detector coverage: ESPHome, Native, and Matter support Lightweight and High Accuracy. "
     "All three C++ frontends support persisted runtime switching, while Micro-ESPectre deploys "
-    "Lightweight only. The Matter benchmark case is build-and-flash smoke and does not exercise "
-    "runtime switching. The matrix below samples representative cases rather than every supported "
-    "combination."
+    "Lightweight only. The matrix below samples representative cases rather than every supported combination."
 )
 
 REPORT_DURATION_RE = re.compile(r"(?:(?P<minutes>\d+)m\s+)?(?P<seconds>\d+(?:\.\d+)?)s$")
@@ -692,9 +690,10 @@ def render_report(
             "## Pass Criteria",
             "",
             "- all required builds, flashes, and Micro-ESPectre deployments complete successfully",
-            "- Native, ESPHome, and Micro-ESPectre negotiate Direct v1 and sample canonical diagnostics throughout each scored window",
+            "- Native, ESPHome, Matter, and Micro-ESPectre negotiate Direct v1 and sample canonical diagnostics throughout each scored window",
             "- Native and ESPHome use canonical firmware defaults, clear all device data during flash, and provision through Improv Serial",
-            "- Native and ESPHome report Lightweight detection, internal ping traffic, and a 100 pps target before runtime mutations",
+            "- Matter clears all device data, commissions through a revision-compatible CHIP Tool controller over BLE and Wi-Fi, and reaches its Direct endpoint",
+            "- Native, ESPHome, and Matter report Lightweight detection, internal ping traffic, and a 100 pps target before runtime mutations",
             "- Native remains MQTT-unconfigured",
             f"- sensing frontends receive at least {MIN_TELEMETRY_SAMPLES} canonical telemetry events through Direct SSE",
             "- free heap does not decline by more than 5% after startup has settled",
@@ -704,7 +703,6 @@ def render_report(
             f"the {MINIMUM_OCCUPANCY_PERCENT:.0f}% admitted-slot detector-ready floor",
             f"- {english_join(runtime_case_labels())} detector timing is present",
             "- Direct send failures, slow-client disconnects, and unexpected rejected connections do not increase when the frontend exposes those counters",
-            "- Matter smoke benchmarks clear all device data and stop after a successful build and flash, without commissioning, network discovery, Direct, or scored serial monitoring",
             "- the Micro-ESPectre runtime launcher remains active throughout Direct collection",
             "",
         ]

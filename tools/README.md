@@ -112,7 +112,7 @@ The following rules are normative for `benchmark_firmware.py` and its owners und
 
 - Build the canonical frontend configuration in its ordinary build directory, retain production defaults, and allow the normal incremental build system to reuse valid artifacts. Do not generate benchmark-specific YAML, sdkconfig overlays, or dedicated build directories, and do not force a clean build.
 - Clear all device data as part of the frontend's normal `flash --erase` operation. Do not add partial-erasure exceptions.
-- Provision Wi-Fi through standard Improv Serial on Native and ESPHome. Frontends without Improv use their production provisioning path; Micro-ESPectre may inject only connectivity settings, and Matter remains a build-and-flash smoke case until standard Matter commissioning is automated.
+- Provision Wi-Fi through standard Improv Serial on Native and ESPHome. Commission Matter through a revision-compatible CHIP Tool controller over BLE and Wi-Fi. Micro-ESPectre may inject only connectivity settings because it does not support Improv Serial.
 - Apply and verify an optional BSSID through Direct where supported. Record whether Direct uptime evidence observed a reboot during the apply, but keep that observation informational and outside PASS or FAIL.
 - Use Direct responses, diagnostics, and events for runtime configuration, validation, and metrics. Use serial output only to detect fatal firmware errors, unexpected resets, or an unexpectedly terminated monitor.
 - Verify production runtime defaults before applying case-specific mutations. Reuse one canonical Lightweight image and select another supported detector through Direct instead of rebuilding it.
@@ -125,16 +125,21 @@ Behavioral tests under `test/python/test_benchmark_*.py` are the executable enfo
 2. Native High Accuracy by runtime switching of the same Native firmware
 3. ESPHome Lightweight
 4. ESPHome High Accuracy by runtime switching of the same ESPHome firmware
-5. Matter build-and-flash smoke with its initial default detector
-6. Micro-ESPectre Lightweight
+5. Matter Lightweight
+6. Matter High Accuracy by runtime switching of the same Matter firmware
+7. Micro-ESPectre Lightweight
 
-This matrix is not a capability table. ESPHome, Native, and Matter support persisted runtime switching between Lightweight and High Accuracy. Micro-ESPectre deploys Lightweight only, and the Matter smoke case does not commission the device or exercise runtime switching.
+This matrix is not a capability table. ESPHome, Native, and Matter support persisted runtime switching between Lightweight and High Accuracy. Micro-ESPectre deploys Lightweight only.
 
 The benchmark reads laboratory settings from `tools/benchmark_firmware.local.env`, with exported `ESPECTRE_BENCHMARK_*` variables taking precedence.
 
-Native and ESPHome build their canonical configurations without benchmark-specific firmware overrides. Their flash command clears all device data, they provision the SSID and password through standard Improv Serial, and they apply an optional BSSID pin through Direct after the first connection. When `ESPECTRE_BENCHMARK_WIFI_CHANNEL` is set alongside the BSSID, the benchmark also verifies that the connected access point uses that channel; a channel without a BSSID is rejected before hardware access. The report records whether Direct uptime evidence observed a reboot while applying the BSSID. That observation is informational, appears in both the summary and case details, and never changes PASS or FAIL.
+Native, ESPHome, and Matter build their canonical configurations without benchmark-specific firmware overrides. Their flash command clears all device data; Native and ESPHome provision through Improv Serial, while Matter commissions through CHIP Tool. All three apply an optional BSSID pin through Direct after the first connection. When `ESPECTRE_BENCHMARK_WIFI_CHANNEL` is set alongside the BSSID, the benchmark also verifies that the connected access point uses that channel; a channel without a BSSID is rejected before hardware access. The report records whether Direct uptime evidence observed a reboot while applying the BSSID. That observation is informational, appears in both the summary and case details, and never changes PASS or FAIL.
 
-Native and ESPHome reuse one flashed canonical Lightweight image and select both scored detectors through Direct. Matter is a build-and-flash smoke case: it clears all device data, stops after a successful flash, and requires neither commissioning nor benchmark Wi-Fi settings. Micro-ESPectre clears the flash, copies only the laboratory connectivity settings into an isolated temporary `config_local.py`, retains every production sensing default, and connects Direct through the Wi-Fi address reported by its serial launcher. Copy `tools/benchmark_firmware.local.env.example` to `tools/benchmark_firmware.local.env`, fill in the laboratory values required by the selected frontends, connect the target board, and run:
+Native, ESPHome, and Matter reuse one flashed canonical Lightweight image and select both scored detectors through Direct.
+
+Matter reads the onboarding data generated after erase and commissions through CHIP Tool with a temporary controller store created for the run. The benchmark does not write the Wi-Fi password, onboarding payload, setup code, or fabric keys to its artifacts. CHIP Tool must come from the same `connectedhomeip` revision declared by the firmware's `esp-matter` component. Set `ESPECTRE_BENCHMARK_CHIP_TOOL` when it is not available as `chip-tool` on `PATH` or under `~/.local/bin/`. By default, Matter commissioning retries transient BLE failures twice; change the limit with `ESPECTRE_BENCHMARK_MATTER_COMMISSIONING_ATTEMPTS`. On macOS, install Apple's Bluetooth Central Matter Client Developer Mode profile and restart the host before commissioning.
+
+Micro-ESPectre clears the flash, copies only the laboratory connectivity settings into an isolated temporary `config_local.py`, retains every production sensing default, and connects Direct through the Wi-Fi address reported by its serial launcher. Copy `tools/benchmark_firmware.local.env.example` to `tools/benchmark_firmware.local.env`, fill in the laboratory values required by the selected frontends, connect the target board, and run:
 
 ```bash
 python tools/benchmark_firmware.py --chip c3 --port /dev/cu.usbmodem01
@@ -154,9 +159,9 @@ Use `--resume` to keep passing results from the chip report and rerun only faile
 python tools/benchmark_firmware.py --chip c3 --resume
 ```
 
-The command writes a partial report when a case fails and returns success only when every case in the resulting report passes. Native and ESPHome refresh that report and their structured artifacts after each detector completes, while retaining their shared build, flash, and serial-monitor session. It stores normalized Direct samples and events, transport outcomes, firmware hashes, structured analysis, and a run manifest under `data/untracked/firmware_benchmarks/<run-id>/`. Runtime artifacts exclude raw serial output, raw Direct payloads, credentials, device identity, and local addresses. Matter artifacts contain only build-and-flash evidence.
+The command writes a partial report when a case fails and returns success only when every case in the resulting report passes. Native, ESPHome, and Matter refresh that report and their structured artifacts after each detector completes, while retaining their shared build, flash, provisioning, and serial-monitor session. It stores normalized Direct samples and events, transport outcomes, firmware hashes, structured analysis, and a run manifest under `data/untracked/firmware_benchmarks/<run-id>/`. Runtime artifacts exclude raw serial output, raw Direct payloads, credentials, onboarding data, fabric keys, device identity, and local addresses.
 
-Every sensing case waits for five consecutive ready, non-zero Direct diagnostics samples before scoring. Native and ESPHome must first report the production defaults through Direct: Lightweight detection, internal `ping` traffic, and a 100 pps target. The benchmark changes only the detector needed by the scored case. Micro confirms its fixed production profile through Direct.
+Every sensing case waits for five consecutive ready, non-zero Direct diagnostics samples before scoring. Native, ESPHome, and Matter must first report the production defaults through Direct: Lightweight detection, internal `ping` traffic, and a 100 pps target. The benchmark changes only the detector needed by the scored case. Micro confirms its fixed production profile through Direct.
 
 Heap-decline scoring begins 10 seconds into the scored window, device uptime must remain monotonic, Direct transport failure counters must not increase when available, detector timing must be present, and telemetry events are collected from Direct SSE. Native, ESPHome, and Matter use the ordinary frontend build directories and incremental build behavior, so an existing valid firmware build is reused. Micro-ESPectre keeps generated `sdkconfig` when the board Kconfig inputs are unchanged. Serial logs are retained only to fail a case on fatal firmware errors, resets, or an unexpectedly terminated monitor; they are never a source of runtime metrics.
 

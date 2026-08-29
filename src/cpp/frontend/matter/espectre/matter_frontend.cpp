@@ -9,6 +9,8 @@
  */
 #include "matter_frontend.h"
 
+#include <utility>
+
 #include "device_identity.h"
 #include "direct_http_protocol.h"
 #include "espectre_log.h"
@@ -30,18 +32,47 @@ MatterFrontend::MatterFrontend(IMatterBindings *bindings,
 
 void MatterFrontend::set_runtime_config(const RuntimeConfig &config) { runtime_.set_config(config); }
 
+void MatterFrontend::set_wifi_bssid_pin_setter(WifiBssidPinSetter setter) {
+  wifi_bssid_pin_setter_ = std::move(setter);
+}
+
 bool MatterFrontend::set_runtime_services_armed(bool armed) {
+  operational_services_armed_ = armed;
   if (!armed) {
+    wifi_reconfigure_quiesced_ = false;
+    wifi_reconfigure_resume_pending_ = false;
     runtime_.set_services_armed(false);
     stop_direct_service_();
     return true;
   }
+  runtime_.set_services_armed(true);
+  if (!runtime_.is_setup_complete()) {
+    if (!setup()) {
+      operational_services_armed_ = false;
+      runtime_.set_services_armed(false);
+      ESP_LOGE(TAG, "Matter operational services remain disarmed because runtime setup failed");
+      return false;
+    }
+    return true;
+  }
   if (runtime_.is_setup_complete() && !start_direct_service_()) {
+    operational_services_armed_ = false;
+    runtime_.set_services_armed(false);
     ESP_LOGE(TAG, "Matter operational services remain disarmed because Direct HTTP failed to start");
     return false;
   }
-  runtime_.set_services_armed(true);
   return true;
+}
+
+void MatterFrontend::prepare_for_wifi_reconfigure() {
+  if (!operational_services_armed_ || wifi_reconfigure_quiesced_) return;
+  wifi_reconfigure_quiesced_ = true;
+  wifi_reconfigure_resume_pending_ = false;
+  runtime_.set_services_armed(false);
+}
+
+void MatterFrontend::resume_after_wifi_reconfigure() {
+  if (wifi_reconfigure_quiesced_) wifi_reconfigure_resume_pending_ = true;
 }
 
 bool MatterFrontend::setup() {
@@ -104,6 +135,7 @@ bool MatterFrontend::start_direct_service_() {
               &peer_discovery_,
               [this]() { return this->runtime_.diagnostics_sample(); },
               &runtime_events_,
+              wifi_bssid_pin_setter_,
           })) {
     ESP_LOGE(TAG, "Matter Direct HTTP setup failed");
     return false;
@@ -124,6 +156,9 @@ void MatterFrontend::sync_device_label() {
 }
 
 void MatterFrontend::shutdown() {
+  operational_services_armed_ = false;
+  wifi_reconfigure_quiesced_ = false;
+  wifi_reconfigure_resume_pending_ = false;
   stop_direct_service_();
   runtime_.shutdown();
 }
@@ -132,6 +167,11 @@ MatterFrontend::~MatterFrontend() { shutdown(); }
 
 void MatterFrontend::loop() {
   runtime_.loop();
+  if (wifi_reconfigure_resume_pending_) {
+    wifi_reconfigure_resume_pending_ = false;
+    wifi_reconfigure_quiesced_ = false;
+    if (operational_services_armed_) runtime_.set_services_armed(true);
+  }
   drain_pending_runtime_events_();
   bindings_->flush_pending();
   direct_bridge_.loop();

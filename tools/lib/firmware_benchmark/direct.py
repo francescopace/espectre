@@ -51,6 +51,10 @@ from tools.lib.firmware_benchmark.models import (
     FRONTEND_LABELS,
     clone_prebuilt_result,
 )
+from tools.lib.firmware_benchmark.matter import (
+    MatterOnboardingCapture,
+    commission_matter_device,
+)
 from tools.lib.firmware_benchmark.process import (
     _finalize_background_command,
     _run_background_command,
@@ -719,6 +723,7 @@ def _connect_direct_with_retry(
 
 def _clone_direct_result(case: BenchmarkCase, source: BenchmarkResult) -> BenchmarkResult:
     cloned = clone_prebuilt_result(case, source)
+    cloned.deploy = source.deploy
     cloned.flash = source.flash
     return cloned
 
@@ -844,11 +849,14 @@ def _verify_direct_radio_pin(client: DirectClient) -> None:
         channel_matches = requested_channel <= 0 or _integer(wifi.get("channel")) == requested_channel
         # A successful reconnect must expose the requested active association.
         # Native may additionally report a staged-apply state while ESPHome
-        # keeps its persisted pin outside the shared Wi-Fi snapshot.
+        # and Matter keep their persisted pins outside the shared Wi-Fi snapshot.
         if wifi.get("configured") is True and bssid_matches and channel_matches:
             return
         if wifi.get("apply_state") in {"rolled_back", "recovery_required"}:
-            raise RuntimeError(f"Native rejected staged Wi-Fi configuration: {wifi.get('apply_message', '')}")
+            raise RuntimeError(
+                "Direct frontend rejected staged Wi-Fi configuration: "
+                f"{wifi.get('apply_message', '')}"
+            )
         time.sleep(1.0)
     raise RuntimeError("Direct Wi-Fi configuration did not match the benchmark radio pin")
 
@@ -864,9 +872,10 @@ def run_direct_frontend_cases(
     frontend = selected_cases[0].frontend
     bootstrap_case = (
         BenchmarkCase(frontend, "lightweight")
-        if frontend in {"native", "esphome"}
+        if frontend in {"native", "esphome", "matter"}
         else selected_cases[0]
     )
+    onboarding_capture = MatterOnboardingCapture() if frontend == "matter" else None
     try:
         with case_context(bootstrap_case, chip, port) as (env, config):
             bootstrap = _build_case_in_context(
@@ -884,6 +893,10 @@ def run_direct_frontend_cases(
                     bootstrap,
                     env=env,
                     config=config,
+                    line_callback=onboarding_capture.feed if onboarding_capture is not None else None,
+                    output_redactor=(
+                        onboarding_capture.redact if onboarding_capture is not None else None
+                    ),
                 )
     except (OSError, RuntimeError) as exc:
         bootstrap = BenchmarkResult(case=bootstrap_case, status="FAIL", reasons=[str(exc)])
@@ -918,6 +931,24 @@ def run_direct_frontend_cases(
             for result in failed_results:
                 on_result(result)
         return failed_results
+
+    monitor_command = [
+        str(REPO_ROOT / "espectre"),
+        "monitor",
+        "--chip",
+        chip,
+        "--frontend",
+        frontend,
+    ]
+    matter_monitor = None
+    if frontend == "matter":
+        if port:
+            monitor_command.extend(["--port", port])
+        matter_monitor = _run_background_command(
+            monitor_command,
+            output_prefix=f"[{FRONTEND_LABELS[frontend]} serial] ",
+        )
+        time.sleep(1.0)
 
     endpoint: str
     provisioning: dict[str, object] | None = None
@@ -959,39 +990,79 @@ def run_direct_frontend_cases(
                     f"{FRONTEND_LABELS[frontend]} provision JSON did not contain an endpoint"
                 )
             endpoint = direct_endpoint_from_device_url(endpoint_override or provisioned_endpoint)
+        elif frontend == "matter":
+            if onboarding_capture is None:
+                raise RuntimeError("Matter onboarding capture is unavailable")
+            commissioning = commission_matter_device(onboarding_capture.require_data())
+            bootstrap.deploy = commissioning.result
+            provisioning = {
+                "controller": commissioning.controller,
+                "controller_revision": commissioning.controller_revision,
+                "node_id": commissioning.node_id,
+            }
+            endpoint = (
+                direct_endpoint_from_device_url(endpoint_override)
+                if endpoint_override
+                else discover_direct_device(frontend, chip=chip).endpoint
+            )
         elif endpoint_override:
             endpoint = direct_endpoint_from_device_url(endpoint_override)
         else:
             endpoint = discover_direct_device(frontend, chip=chip).endpoint
     except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
         failed_results = _failed_direct_results(selected_cases, bootstrap, str(exc))
+        if matter_monitor is not None:
+            (
+                monitor_process,
+                monitor_output,
+                monitor_line_times,
+                monitor_relay,
+                monitor_started,
+            ) = matter_monitor
+            monitor_exited_early = monitor_process.poll() is not None
+            if not monitor_exited_early:
+                _terminate_process(monitor_process)
+            monitor_result = _finalize_background_command(
+                monitor_process,
+                monitor_output,
+                monitor_line_times,
+                monitor_relay,
+                monitor_started,
+                monitor_command,
+            )
+            _apply_serial_monitor_evidence(
+                failed_results,
+                monitor_result,
+                exited_early=monitor_exited_early,
+            )
         if on_result is not None:
             for result in failed_results:
                 on_result(result)
         return failed_results
 
-    monitor_command = [
-        str(REPO_ROOT / "espectre"),
-        "monitor",
-        "--chip",
-        chip,
-        "--frontend",
-        frontend,
-    ]
     monitor_port = provisioning.get("port") if provisioning is not None else port
-    if isinstance(monitor_port, str) and monitor_port:
-        monitor_command.extend(["--port", monitor_port])
-    (
-        monitor_process,
-        monitor_output,
-        monitor_line_times,
-        monitor_relay,
-        monitor_started,
-    ) = _run_background_command(
-        monitor_command,
-        output_prefix=f"[{FRONTEND_LABELS[frontend]} serial] ",
-    )
-    time.sleep(1.0)
+    if matter_monitor is not None:
+        (
+            monitor_process,
+            monitor_output,
+            monitor_line_times,
+            monitor_relay,
+            monitor_started,
+        ) = matter_monitor
+    else:
+        if isinstance(monitor_port, str) and monitor_port:
+            monitor_command.extend(["--port", monitor_port])
+        (
+            monitor_process,
+            monitor_output,
+            monitor_line_times,
+            monitor_relay,
+            monitor_started,
+        ) = _run_background_command(
+            monitor_command,
+            output_prefix=f"[{FRONTEND_LABELS[frontend]} serial] ",
+        )
+        time.sleep(1.0)
     client: DirectClient | None = None
     results: list[BenchmarkResult] = []
     try:
@@ -1036,7 +1107,7 @@ def run_direct_frontend_cases(
             "verified": False,
             "reboot_observed": None,
         }
-        if frontend in {"native", "esphome"}:
+        if frontend in {"native", "esphome", "matter"}:
             baseline_before_radio_pin = baseline
             radio_pin_applied = _apply_direct_radio_pin(
                 client,
@@ -1071,6 +1142,15 @@ def run_direct_frontend_cases(
                 "events_path": "/espectre/v1/events",
                 "events_enabled": sse_enabled,
                 "improv_states": list(provisioning.get("states", [])) if provisioning is not None else [],
+                "matter_commissioning": (
+                    {
+                        "controller": provisioning.get("controller"),
+                        "controller_revision": provisioning.get("controller_revision"),
+                        "node_id": provisioning.get("node_id"),
+                    }
+                    if frontend == "matter" and provisioning is not None
+                    else None
+                ),
                 "bssid_provisioning": dict(bssid_evidence),
             }
             try:

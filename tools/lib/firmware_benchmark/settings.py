@@ -104,11 +104,11 @@ def require_benchmark_setting(name: str) -> str:
     return value
 
 def require_benchmark_prerequisites(cases: Sequence[BenchmarkCase]) -> None:
-    if any(case.frontend != "matter" for case in cases):
+    if cases:
         require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_SSID")
         require_benchmark_setting("ESPECTRE_BENCHMARK_WIFI_PASSWORD")
     if (
-        any(case.frontend in {"native", "esphome", "micro"} for case in cases)
+        any(case.frontend in {"native", "esphome", "matter", "micro"} for case in cases)
         and benchmark_setting_int("ESPECTRE_BENCHMARK_WIFI_CHANNEL", 0) > 0
         and not benchmark_setting("ESPECTRE_BENCHMARK_WIFI_BSSID", "")
     ):

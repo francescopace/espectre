@@ -67,7 +67,7 @@
           <div class="field" data-capability="supports_wifi_bssid">
             <label for="cfg-bssid">Preferred access point</label>
             <div class="wifi-bssid-control"><select id="cfg-bssid" aria-describedby="cfg-bssid-help"><option value="">Automatic (strongest available)</option></select><button type="button" class="wifi-refresh-button js-wifi-scan" aria-label="Scan for access points" title="Scan for access points"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 0 1 15.74-6L21 9M21 3v6h-6M21 12a9 9 0 0 1-15.74 6L3 15M9 15H3v6"/></svg></button></div>
-            <small class="field-help" id="cfg-bssid-help" aria-live="polite">If several access points share this network, choose the one ESPectre should stay connected to.</small>
+            <small class="field-help" id="cfg-bssid-help" aria-live="polite">If several access points share this network, choose the one ESPectre should stay connected to. The device keeps this preference across restarts. Matter stores it separately from commissioned Wi-Fi credentials.</small>
           </div>
         </div>
         <div class="panel-actions wifi-panel-actions">

@@ -51,8 +51,19 @@ def run_command(
     timeout: float | None = None,
     timeout_is_success: bool = False,
     output_prefix: str = "",
+    line_callback: Callable[[str], None] | None = None,
+    output_redactor: Callable[[str], str] | None = None,
+    redactions: Sequence[str] = (),
 ) -> CommandResult:
-    display_command = " ".join(str(part) for part in command)
+    def redact(value: str) -> str:
+        redacted = output_redactor(value) if output_redactor is not None else value
+        for sensitive in redactions:
+            if sensitive:
+                redacted = redacted.replace(sensitive, "<redacted>")
+        return redacted
+
+    display_parts = [redact(str(part)) for part in command]
+    display_command = " ".join(display_parts)
     print(f"\n{output_prefix}$ {display_command}", flush=True)
     started = time.monotonic()
     process = subprocess.Popen(
@@ -71,9 +82,12 @@ def run_command(
     def _relay_output() -> None:
         assert process.stdout is not None
         for line in process.stdout:
-            output_lines.append(line)
+            if line_callback is not None:
+                line_callback(line)
+            safe_line = redact(line)
+            output_lines.append(safe_line)
             line_elapsed_seconds.append(time.monotonic() - started)
-            print(f"{output_prefix}{line}", end="", flush=True)
+            print(f"{output_prefix}{safe_line}", end="", flush=True)
 
     relay_thread = threading.Thread(target=_relay_output, daemon=True)
     relay_thread.start()
@@ -93,7 +107,7 @@ def run_command(
             process.stdout.close()
 
     return CommandResult(
-        command=[str(part) for part in command],
+        command=display_parts,
         returncode=returncode,
         duration_seconds=time.monotonic() - started,
         output="".join(output_lines),

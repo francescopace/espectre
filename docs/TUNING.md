@@ -211,7 +211,7 @@ Check Wi-Fi connection status, the traffic source, the CSI-enabled build configu
 
 ### Mesh Wi-Fi Instability
 
-If the device roams between access points that share an SSID, the radio path, channel, and packet delivery can change underneath the detector. Pin the device to a specific BSSID when roaming causes unstable occupancy or detection. ESPectre exposes this control when it is advertised in its Direct capability catalog; Micro-ESPectre accepts an optional deployment-time `WIFI_BSSID` setting. Native persists the pin across reboot. ESPHome persists an ESPectre-only pin and reapplies it after reconnect. Matter applies the pin for the current station session.
+If the device roams between access points that share an SSID, the radio path, channel, and packet delivery can change underneath the detector. Pin the device to a specific BSSID when roaming causes unstable occupancy or detection. ESPectre exposes this control when it is advertised in its Direct capability catalog; Micro-ESPectre accepts an optional deployment-time `WIFI_BSSID` setting. Native persists the pin across reboot. ESPHome persists an ESPectre-only pin and reapplies it after reconnect. Matter persists an ESPectre-owned override for the commissioned SSID, reapplies it after restart only while that SSID matches, and leaves Matter-owned credentials unchanged.
 
 In the browser:
 

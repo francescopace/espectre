@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 
+import pytest
 from dotenv import dotenv_values
 from tools.lib.firmware_benchmark import build as bench
 from tools.lib.firmware_benchmark import settings as benchmark_settings
@@ -51,14 +52,15 @@ def test_micro_benchmark_config_overrides_only_connectivity(monkeypatch):
         "WIFI_CHANNEL",
     }
 
-def test_matter_flash_only_benchmark_has_no_network_prerequisite(monkeypatch):
+def test_matter_benchmark_requires_network_credentials(monkeypatch):
     monkeypatch.setattr(benchmark_settings, "BENCHMARK_LOCAL_ENV", {})
     monkeypatch.delenv("ESPECTRE_BENCHMARK_WIFI_SSID", raising=False)
     monkeypatch.delenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", raising=False)
 
-    benchmark_settings.require_benchmark_prerequisites(
-        [BenchmarkCase("matter", "default", benchmark_mode="smoke")]
-    )
+    with pytest.raises(RuntimeError, match="ESPECTRE_BENCHMARK_WIFI_SSID"):
+        benchmark_settings.require_benchmark_prerequisites(
+            [BenchmarkCase("matter", "lightweight")]
+        )
 
 def test_micro_benchmark_prerequisites_are_wifi_only(monkeypatch):
     monkeypatch.setattr(benchmark_settings, "BENCHMARK_LOCAL_ENV", {})
@@ -116,6 +118,36 @@ def test_native_build_validation_accepts_canonical_defaults(tmp_path, monkeypatc
     monkeypatch.setattr(bench, "cached_sdkconfig_path", lambda *_args: sdkconfig)
 
     bench.validate_idf_benchmark_sdkconfig("native", "c3")
+
+
+def test_idf_build_validation_uses_canonical_sdkconfig_when_cache_omits_path(
+    tmp_path, monkeypatch
+):
+    app_dir = tmp_path / "matter" / "app"
+    app_dir.mkdir(parents=True)
+    (app_dir / "sdkconfig").write_text(
+        "\n".join(
+            [
+                'CONFIG_IDF_TARGET="esp32c3"',
+                "CONFIG_ESPECTRE_DETECTION_ALGORITHM_LIGHTWEIGHT=y",
+                "# CONFIG_ESPECTRE_DETECTION_ALGORITHM_HIGH_ACCURACY is not set",
+                "CONFIG_ESPECTRE_CSI_TARGET_PPS=100",
+                "CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_INTERNAL=y",
+                "# CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS is not set",
+                "CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_PING=y",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        bench,
+        "IDF_FRONTENDS",
+        {"matter": {"app_dir": str(app_dir), "targets": {"c3": "esp32c3"}}},
+    )
+    monkeypatch.setattr(bench, "cached_sdkconfig_path", lambda *_args: None)
+
+    bench.validate_idf_benchmark_sdkconfig("matter", "c3")
+
 
 def test_micro_benchmark_config_reads_shared_local_env_not_developer_config(monkeypatch):
     setting_names = (
