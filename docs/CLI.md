@@ -37,6 +37,7 @@ Run the CLI from the repository root.
 - Use `./espectre <namespace> --help` for namespace-specific flags.
 - The wrapper prefers repository defaults and shared host autodetection over long manual setup steps.
 - `Native` and `Matter` prefer the local ESP-IDF environment detected by the wrapper, including the native toolchain managed by the pinned ESPHome installation, and fall back to Docker for builds when no local installation is available. Use `./espectre doctor` to inspect the local ESP-IDF path.
+- When `--chip` is supplied and `--port` is omitted, serial selection is shared across flash, monitor, provision, Micro-ESPectre, and Matter `qr`. The CLI first keeps ports compatible with the action, then identifies connected chips when more than one candidate remains. A single best match is selected automatically; multiple equally suitable matches produce a prompt. Identification uses esptool and resets every probed board. The identification table and the selection prompt list each port with its chip and physical console (`uart`, `usb_cdc`, or `usb_serial_jtag`). Pass `--port` to skip identification and target one device.
 
 ## Frontend Workflow Commands
 
@@ -51,7 +52,7 @@ The `esphome` namespace exposes:
 | `config` | Validate and render the selected config |
 | `monitor` | Open logs for the selected config |
 
-Common flags include `--chip`, `--config`, and `--device`. `esphome flash --firmware <path>` uploads a prebuilt image instead of the most recent local build; use an ESPHome OTA image when `--device` is a hostname or IP address:
+Common flags include `--chip`, `--config`, and `--device`. Serial `flash` and `monitor` follow the shared `--chip` selection rule when `--device` is omitted or names a serial port. `esphome flash --firmware <path>` uploads a prebuilt image instead of the most recent local build; use an ESPHome OTA image when `--device` is a hostname or IP address:
 
 ```bash
 ./espectre esphome flash --chip c6 --device espectre.local --firmware espectre-esphome-3.0.0-esp32c6-ota.bin
@@ -60,6 +61,8 @@ Common flags include `--chip`, `--config`, and `--device`. `esphome flash --firm
 `esphome flash --erase` clears all flash data before a serial upload. It resolves or requires a serial device and cannot be combined with an OTA hostname.
 
 Each chip uses one canonical example. The repository CLI keeps that device configuration and switches the ESPectre component source from GitHub to the local checkout.
+
+`esphome build --json` emits one final JSON object after the normal build log. It identifies the frontend, chip, exact application artifact, byte size, and SHA-256 digest for machine consumers. Omitting `--config` keeps canonical config selection inside the CLI.
 
 The wrapper explicitly selects ESPHome's native `esp-idf` toolchain for every command. It does not use the legacy PlatformIO build backend.
 
@@ -89,11 +92,13 @@ Build environment flags are:
 - `--backend docker`: require the pinned ESP-IDF Docker image.
 - `--pull ask|missing|never`: ask before downloading a missing Docker image, download it automatically, or require it to be cached. The default is `ask`; non-interactive jobs should use `missing` or `never` explicitly.
 
+`native build --json` and `matter build --json` emit the same final build-metadata object as ESPHome, including the exact artifact selected from the resolved chip build directory.
+
 Local builds enable `ccache` automatically when the binary is on `PATH`. Docker builds already keep a persistent compiler cache. Set `IDF_CCACHE_ENABLE=0` to disable the local cache.
 
 Docker builds use a separate directory such as `build-esp32c3-docker`, which prevents host and container CMake caches from sharing incompatible absolute paths. Docker is a build backend only; `flash` continues to use the detected local ESP-IDF environment and host serial port.
 
-For `flash`, `--chip` selects that chip's build directory, such as `build-esp32c5` for `--chip c5`, and verifies that the selected serial device contains the requested chip before erasing or writing flash. Without `--chip`, the wrapper selects the serial port first, then prefers the build directory that matches the connected chip detected on that port. Without a match, it falls back to the local configured target or the legacy `build/` layout. `--erase` clears all flash data before writing the selected Native or Matter image. On Matter, this also removes the persisted onboarding identity, so the next boot generates a new QR code.
+For `flash`, `--chip` selects that chip's build directory, such as `build-esp32c5` for `--chip c5`, and verifies that the selected serial device contains the requested chip before erasing or writing flash. Serial selection follows the shared `--chip` rule above. Without `--chip`, the wrapper selects the serial port first, then prefers the build directory that matches the connected chip detected on that port. Without a match, it falls back to the local configured target or the legacy `build/` layout. `--erase` clears all flash data before writing the selected Native or Matter image. On Matter, this also removes the persisted onboarding identity, so the next boot generates a new QR code.
 
 When the current `sdkconfig` already matches the selected chip, `flash` delegates to `idf.py flash`, so ESP-IDF may configure CMake or complete a missing build inside that directory before writing the firmware. When `sdkconfig` belongs to a different chip, `flash` writes the already-built image from the selected directory and does not rebuild. Rebuilds still share one `sdkconfig`, so `native build --chip c5` after an S3 build overwrites that file.
 
@@ -102,6 +107,10 @@ Matter also exposes:
 | Command | Purpose |
 |---------|---------|
 | `qr` | Reset the connected device and print its persisted QR payload and manual pairing code |
+
+Use `matter qr --json` or `matter flash --json` when another tool must consume onboarding data. The final JSON object contains the selected port, chip, QR payload, and manual code; treat that output as a commissioning secret.
+
+`qr` uses the shared serial selection when `--chip` is supplied.
 
 Examples:
 
@@ -135,9 +144,11 @@ The `micro` namespace owns MicroPython device lifecycle commands:
 
 Notes:
 
-- `--port` is optional; the CLI tries to auto-detect a serial device when possible.
-- `micro flash` also supports `--chip` and `--firmware`. Every supported chip builds the optimized project firmware by default; `--firmware` remains available for an explicitly supplied image.
+- `--port` is optional; the CLI tries to auto-detect a serial device when possible. `flash`, `deploy`, `run`, and `verify` also accept `--chip` and use the shared serial selection rule.
+- `micro flash` also supports `--firmware`. Every supported chip builds the optimized project firmware by default; `--firmware` remains available for an explicitly supplied image.
 - `micro build` and the implicit build performed by `micro flash` accept the shared `--backend auto|local|docker` and `--pull ask|missing|never` flags. `auto` follows the same local-first policy as Native and Matter.
+- `micro build --json` emits final artifact metadata. `micro flash --json` emits the same artifact identity together with the selected port after a successful flash.
+- `micro run --json` continues streaming serial logs and emits a JSON `direct_ready` event when the application reports its Direct endpoint.
 - `micro build` and the default flash path pin one MicroPython revision for every supported chip. The resulting image uses one lean project board profile. It links the core-only ESPectre SDK as an ESP-IDF component and includes a narrow MicroPython feature binding, native ESP-IDF ICMP traffic generation, and a bounded Direct HTTP/mDNS service, but it does not embed the Micro-ESPectre application. MQTT and DNS traffic generation are not built. The deployed application requires those native modules and does not provide Python transport fallbacks, so flash the matching project firmware before deployment. The shared profile prioritizes the Wi-Fi CSI path through performance optimization, balanced queues, a 1 kHz FreeRTOS tick, disabled power management, and Wi-Fi, PHY, and lwIP IRAM placement. Classic ESP32 alone uses reduced Wi-Fi queues and omits lwIP IRAM placement to preserve heap. RX AMPDU remains disabled for individual HT20 CSI delivery. Building requires an ESP-IDF 5.5 host toolchain; cached source, build trees, and firmware images live under `src/python/micro_espectre/.firmware/`.
 - Firmware is normally flashed once. Application changes use `micro deploy`, which compiles the complete device manifest with MPY ABI 6.3 and optimization level `-O3`, uploads it into a staging directory, and atomically activates the complete manifest while retaining rollback protection for interrupted deployments.
 - `micro deploy --config <path>` compiles an alternate local override as device `config_local.mpy`; the firmware benchmark uses this to keep laboratory settings isolated from the developer's normal config.
@@ -155,7 +166,7 @@ Common flags:
 - `--raw`
 - `--reset`
 
-When `--chip` is supplied, the CLI filters serial candidates by the console capabilities of that chip. One compatible port is selected automatically; multiple compatible ports produce a prompt containing only valid candidates. An explicit incompatible `--port` is rejected. Without `--chip`, the same selection flow uses all ports compatible with the requested action. By default, `monitor` attaches without resetting the device. Add `--reset` when you want a hard reset on open, for example to capture boot-time logs from the beginning.
+When `--chip` is supplied, serial selection follows the shared rule above. Native `monitor` and `provision` first keep ports whose USB console matches the chip, then identify connected chips if more than one candidate remains. An explicit incompatible `--port` is rejected. Without `--chip`, the same selection flow uses all ports compatible with the requested action. By default, `monitor` attaches without resetting the device after the port is chosen. Add `--reset` when you want a hard reset on open, for example to capture boot-time logs from the beginning.
 
 Example:
 
@@ -176,6 +187,7 @@ Reset on open:
 | Flag | Purpose |
 |------|---------|
 | `--frontend native|esphome|matter|micro` | Limit discovery to one frontend; omit it to browse every supported service |
+| `--chip esp32|c3|s2|s3|c5|c6` | Limit normalized records to one chip family |
 | `--timeout <seconds>` | Set the maximum one-shot browse duration; the default is 2.5 seconds |
 | `--json` | Emit machine-readable normalized records for scripts and tooling |
 
@@ -185,6 +197,7 @@ Examples:
 ./espectre devices
 ./espectre devices --frontend native
 ./espectre devices --frontend matter --timeout 5
+./espectre devices --frontend matter --chip s3 --json
 ./espectre devices --frontend esphome
 ./espectre devices --frontend matter
 ./espectre devices --json
@@ -204,10 +217,11 @@ The password is never accepted as a command-line value, printed, or included in 
 
 ### `direct`
 
-`direct` sends one correlated ESPectre protocol `1.0` request through HTTP POST. Supply `--endpoint` with an HTTP(S) device URL, or use `--frontend` to discover a device. When discovery returns multiple records, the CLI prompts for an explicit selection.
+`direct` sends one correlated ESPectre protocol `1.0` request through HTTP POST. Supply `--endpoint` with an HTTP(S) device URL, or use `--frontend` to discover a device. Add `--chip` to narrow frontend discovery before selection. When discovery returns multiple matching records, the CLI prompts for an explicit selection.
 
 ```bash
 ./espectre direct status --frontend native
+./espectre direct status --frontend matter --chip s3
 ./espectre direct diagnostics --endpoint http://espectre-0123456789abcdef.local
 ./espectre direct set_detector --frontend esphome --params '{"detector":"high_accuracy"}'
 ```

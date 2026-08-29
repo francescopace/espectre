@@ -388,6 +388,7 @@ def test_source_files_have_consistent_license_headers():
     license_exceptions = {
         "test/cpp/support/cnpy.cpp": "MIT",
         "test/cpp/support/cnpy.h": "MIT",
+        "test/hardware/esp_idf/classic_esp32_csi_tx_stall/main/main.c": "Apache-2.0",
     }
     missing = []
     for relative_path in sorted(relative_paths):

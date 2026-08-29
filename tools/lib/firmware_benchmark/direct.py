@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-import ipaddress
+import json
 import os
 import socket
 import subprocess
@@ -12,10 +12,11 @@ import time
 from typing import Callable, Sequence
 from urllib.parse import urlsplit
 from src.python.espectre_cli.device_discovery import (
-    ESPECTRE_DIRECT_PORT,
     DeviceDiscoveryError,
     DiscoveredDevice,
     discover_devices,
+    normalized_discovery_chip,
+    select_discovered_device,
 )
 from src.python.espectre_cli.device_transport import (
     DIRECT_EVENTS_PATH,
@@ -28,7 +29,6 @@ from src.python.espectre_cli.device_transport import (
 
 from tools.lib.firmware_benchmark import settings
 from tools.lib.firmware_benchmark.analysis import (
-    MICRO_WIFI_IP_RE,
     _counter_rate,
     _integer,
     _numeric,
@@ -38,7 +38,7 @@ from tools.lib.firmware_benchmark.analysis import (
 from tools.lib.firmware_benchmark.build import (
     _build_case_in_context,
     _flash_prebuilt_cpp_case_in_context,
-    _latest_firmware_artifact,
+    build_artifact_from_output,
     case_context,
     micro_case_config,
     micro_deployed_source_size,
@@ -69,6 +69,7 @@ from tools.lib.firmware_benchmark.settings import (
     DIRECT_EVENT_OPEN_ATTEMPTS,
     DIRECT_MINIMUM_REQUEST_INTERVAL_SECONDS,
     DIRECT_ORIGIN,
+    DIRECT_READINESS_REBOOT_MARGIN_SECONDS,
     DIRECT_SAMPLE_INTERVAL_SECONDS,
     DIRECT_SAMPLE_PHASE_OFFSET_SECONDS,
     DIRECT_STABLE_SAMPLE_COUNT,
@@ -100,12 +101,18 @@ def wait_for_micro_direct_endpoint(
     """Return the Direct endpoint reported by the running Micro serial console."""
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline and process.poll() is None:
-        match = MICRO_WIFI_IP_RE.search("".join(output_lines))
-        if match is not None:
-            address = ipaddress.IPv4Address(match.group("ip"))
-            return f"http://{address}:{ESPECTRE_DIRECT_PORT}{DIRECT_PATH}"
+        for line in reversed(output_lines):
+            try:
+                event = json.loads(strip_ansi(line))
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("event") != "direct_ready":
+                continue
+            endpoint = event.get("endpoint")
+            if isinstance(endpoint, str) and endpoint:
+                return direct_endpoint_from_device_url(endpoint)
         time.sleep(0.25)
-    raise RuntimeError("Micro-ESPectre did not report its Wi-Fi address on the serial console")
+    raise RuntimeError("Micro-ESPectre launcher did not report a Direct-ready event")
 
 def normalize_direct_diagnostics(
     payload: dict[str, object],
@@ -190,14 +197,6 @@ def normalize_direct_events(events: Sequence[DirectEvent], *, from_index: int) -
         )
     return normalized
 
-def _normalized_chip_name(chip: object) -> str:
-    value = str(chip or "").strip().lower().replace("-", "").replace("_", "")
-    if value == "esp32":
-        return value
-    if value.startswith("esp32"):
-        value = value.removeprefix("esp32")
-    return value
-
 def discover_direct_device(
     frontend: str,
     *,
@@ -216,13 +215,27 @@ def discover_direct_device(
             continue
         if chip is not None:
             observed_chips.update(str(record.chip) for record in records if record.chip)
-            expected_chip = _normalized_chip_name(chip)
-            records = [record for record in records if _normalized_chip_name(record.chip) == expected_chip]
         if len(records) == 1:
-            return records[0]
-        if len(records) > 1:
-            target = f" {chip}" if chip is not None else ""
-            raise RuntimeError(f"discovered multiple{target} {FRONTEND_LABELS[frontend]} devices; target is ambiguous")
+            try:
+                return select_discovered_device(
+                    records,
+                    frontend_label=FRONTEND_LABELS[frontend],
+                    chip=chip,
+                    interactive=False,
+                )
+            except DeviceDiscoveryError:
+                pass
+        elif len(records) > 1:
+            try:
+                return select_discovered_device(
+                    records,
+                    frontend_label=FRONTEND_LABELS[frontend],
+                    chip=chip,
+                    interactive=False,
+                )
+            except DeviceDiscoveryError as exc:
+                if "Multiple" in str(exc):
+                    raise RuntimeError(str(exc)) from exc
         time.sleep(1.0)
     detail = f": {last_error}" if last_error is not None else ""
     target = f" for {chip}" if chip is not None else ""
@@ -239,8 +252,8 @@ def direct_handshake(client: DirectClient, *, frontend: str, chip: str) -> dict[
     info = responses["info"]
     if info.get("frontend") != frontend:
         raise RuntimeError(f"Direct endpoint frontend mismatch: {info.get('frontend')!r}")
-    reported_chip = _normalized_chip_name(info.get("chip"))
-    if chip and _normalized_chip_name(chip) != reported_chip:
+    reported_chip = normalized_discovery_chip(info.get("chip"))
+    if chip and normalized_discovery_chip(chip) != reported_chip:
         raise RuntimeError(f"Direct endpoint chip mismatch: {info.get('chip')!r}")
     return responses
 
@@ -500,32 +513,80 @@ def wait_for_direct_runtime_ready(
     timeout_seconds: float = STATUS_STABLE_WAIT_SECONDS,
     require_publish_ready: bool = True,
     minimum_uptime_seconds: int = 0,
-) -> None:
+    initial_uptime_seconds: int | None = None,
+    allow_reboot_recovery: bool = False,
+    reboot_observed_before_wait: bool = False,
+) -> bool:
+    """Wait for stable CSI readiness and return whether a reboot was observed."""
     deadline = time.monotonic() + timeout_seconds
     stable_samples = 0
     previous: dict[str, object] | None = None
+    previous_uptime = initial_uptime_seconds
+    reboot_count = 1 if reboot_observed_before_wait else 0
+    extend_for_observed_reboot = reboot_observed_before_wait
+    reboot_recovery_extended = False
+    last_sensing_enabled = False
+    last_publish_ready = False
+    last_admitted_pps = 0.0
+    last_uptime = 0
     while time.monotonic() < deadline:
         status = client.request("status")
         diagnostics = client.request("diagnostics")
         sample = normalize_direct_diagnostics(diagnostics, host_elapsed_seconds=0.0, previous=previous)
         previous = diagnostics
         admitted_pps = _numeric(sample.get("csi_admitted_pps")) or 0.0
-        uptime = _integer(sample.get("uptime")) or 0
+        sampled_uptime = _integer(sample.get("uptime"))
+        uptime = sampled_uptime or 0
+        sensing_enabled = status.get("sensing_enabled") is True
         publish_ready = status.get("ready_to_publish") is True or not require_publish_ready
+        last_sensing_enabled = sensing_enabled
+        last_publish_ready = publish_ready
+        last_admitted_pps = admitted_pps
+        last_uptime = uptime
         if (
-            status.get("sensing_enabled") is True
+            previous_uptime is not None
+            and sampled_uptime is not None
+            and sampled_uptime < previous_uptime
+        ):
+            reboot_count += 1
+            stable_samples = 0
+            extend_for_observed_reboot = (
+                allow_reboot_recovery and not reboot_recovery_extended
+            )
+        if (
+            allow_reboot_recovery
+            and extend_for_observed_reboot
+            and not reboot_recovery_extended
+            and sampled_uptime is not None
+        ):
+            remaining_uptime_seconds = max(0, minimum_uptime_seconds - sampled_uptime)
+            recovery_seconds = (
+                remaining_uptime_seconds
+                + DIRECT_STABLE_SAMPLE_COUNT * DIRECT_SAMPLE_INTERVAL_SECONDS
+                + DIRECT_READINESS_REBOOT_MARGIN_SECONDS
+            )
+            deadline = max(deadline, time.monotonic() + recovery_seconds)
+            extend_for_observed_reboot = False
+            reboot_recovery_extended = True
+        if sampled_uptime is not None:
+            previous_uptime = sampled_uptime
+        if (
+            sensing_enabled
             and publish_ready
             and admitted_pps > 0
             and uptime >= minimum_uptime_seconds
         ):
             stable_samples += 1
             if stable_samples >= DIRECT_STABLE_SAMPLE_COUNT:
-                return
+                return reboot_count > 0
         else:
             stable_samples = 0
         time.sleep(DIRECT_SAMPLE_INTERVAL_SECONDS)
     raise RuntimeError(
-        f"Direct runtime did not produce {DIRECT_STABLE_SAMPLE_COUNT} consecutive ready CSI samples"
+        f"Direct runtime did not produce {DIRECT_STABLE_SAMPLE_COUNT} consecutive ready CSI samples "
+        f"(stable={stable_samples}, sensing_enabled={last_sensing_enabled}, "
+        f"ready_to_publish={last_publish_ready}, admitted_pps={last_admitted_pps:.1f}, "
+        f"uptime={last_uptime}/{minimum_uptime_seconds})"
     )
 
 class _TimedNonPersistentDirectClient(DirectClient):
@@ -972,7 +1033,7 @@ def run_direct_frontend_cases(
                 str(WIFI_CONNECT_WAIT_SECONDS),
                 "--json",
             ]
-            provision_port = benchmark_setting("ESPECTRE_BENCHMARK_IMPROV_PORT", "") or port
+            provision_port = port
             if provision_port:
                 provision_command.extend(["--port", provision_port])
             provision_env = os.environ.copy()
@@ -1182,7 +1243,7 @@ def run_direct_frontend_cases(
                     )
                     time.sleep(fixed_warmup_seconds)
                 else:
-                    wait_for_direct_runtime_ready(
+                    readiness_reboot_observed = wait_for_direct_runtime_ready(
                         client,
                         timeout_seconds=benchmark_setting_int(
                             "ESPECTRE_BENCHMARK_DIRECT_READY_TIMEOUT_SECONDS",
@@ -1190,7 +1251,21 @@ def run_direct_frontend_cases(
                         ),
                         require_publish_ready=True,
                         minimum_uptime_seconds=CPP_DIRECT_RUNTIME_MINIMUM_UPTIME_SECONDS,
+                        initial_uptime_seconds=_integer(
+                            baseline["diagnostics"].get("uptime")
+                        ),
+                        allow_reboot_recovery=radio_pin_applied,
+                        reboot_observed_before_wait=(
+                            bssid_evidence["reboot_observed"] is True
+                        ),
                     )
+                    if readiness_reboot_observed:
+                        bssid_evidence["reboot_observed"] = True
+                        result_bssid_evidence = result.transport_evidence.get(
+                            "bssid_provisioning"
+                        )
+                        if isinstance(result_bssid_evidence, dict):
+                            result_bssid_evidence["reboot_observed"] = True
                 (
                     result.direct_samples,
                     result.direct_events,
@@ -1291,6 +1366,7 @@ def run_micro_case(
                 "--chip",
                 chip,
                 "--erase",
+                "--json",
             ]
             if port:
                 flash_command.extend(["--port", port])
@@ -1299,7 +1375,11 @@ def run_micro_case(
             )
             flash_result = result.flash
         assert flash_result is not None
-        firmware_path = _latest_firmware_artifact("micro", chip)
+        firmware_path, _firmware_metadata = build_artifact_from_output(
+            flash_result.output,
+            frontend="micro",
+            chip=chip,
+        )
         result.build_metrics = parse_build_metrics(flash_result.output, firmware_path)
         if flash_result.returncode != 0:
             result.status = "FAIL"
@@ -1307,7 +1387,15 @@ def run_micro_case(
             return result
         with micro_case_config(chip, case.detector) as config_path:
             result.build_metrics.deployed_source_bytes = micro_deployed_source_size(config_path)
-            deploy_command = [launcher, "micro", "deploy", "--config", str(config_path)]
+            deploy_command = [
+                launcher,
+                "micro",
+                "deploy",
+                "--chip",
+                chip,
+                "--config",
+                str(config_path),
+            ]
             if port:
                 deploy_command.extend(["--port", port])
             result.deploy = run_command(deploy_command)
@@ -1316,7 +1404,7 @@ def run_micro_case(
                 result.reasons.append(f"deploy exited with status {result.deploy.returncode}")
                 return result
 
-        run_command_line = [launcher, "micro", "run"]
+        run_command_line = [launcher, "micro", "run", "--chip", chip, "--json"]
         if port:
             run_command_line.extend(["--port", port])
         process, output_lines, line_times, relay_thread, started = _run_background_command(run_command_line)

@@ -122,6 +122,11 @@ def _add_devices_parser(subparsers) -> None:
         help="Limit discovery to one advertised frontend",
     )
     devices_parser.add_argument(
+        "--chip",
+        choices=MICRO_CHIP_CHOICES,
+        help="Limit discovery to one chip family",
+    )
+    devices_parser.add_argument(
         "--timeout",
         type=float,
         default=DISCOVERY_TIMEOUT_S,
@@ -185,6 +190,11 @@ def _add_direct_parser(subparsers) -> None:
         "--frontend",
         choices=SUPPORTED_DISCOVERY_FRONTENDS,
         help="Discover a device from one frontend via mDNS",
+    )
+    direct_parser.add_argument(
+        "--chip",
+        choices=MICRO_CHIP_CHOICES,
+        help="Limit frontend discovery to one chip family",
     )
     direct_parser.add_argument(
         "--origin",
@@ -274,6 +284,7 @@ def _add_micro_namespace(subparsers) -> None:
     )
     build_parser.add_argument("--chip", choices=MICRO_CHIP_CHOICES, default="esp32")
     build_parser.add_argument("--clean", action="store_true", help="Discard the cached build directory first")
+    build_parser.add_argument("--json", action="store_true", help="Print final machine-readable build metadata")
     _add_idf_build_backend_arguments(build_parser)
     build_parser.set_defaults(handler=build_project_firmware_command)
 
@@ -283,11 +294,13 @@ def _add_micro_namespace(subparsers) -> None:
     flash_parser.add_argument("--erase", action="store_true", help="Erase flash before flashing (recommended)")
     flash_parser.add_argument("--firmware", help="Custom firmware path (optional)")
     flash_parser.add_argument("--clean", action="store_true", help="Discard the cached project build directory first")
+    flash_parser.add_argument("--json", action="store_true", help="Print final machine-readable flash metadata")
     _add_idf_build_backend_arguments(flash_parser)
     flash_parser.set_defaults(handler=flash_firmware)
 
     deploy_parser = micro_subparsers.add_parser("deploy", help="Deploy code to MicroPython device")
     deploy_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
+    deploy_parser.add_argument("--chip", choices=MICRO_CHIP_CHOICES, help="Target chip used to filter compatible ports")
     deploy_parser.add_argument(
         "--config",
         type=Path,
@@ -297,10 +310,13 @@ def _add_micro_namespace(subparsers) -> None:
 
     run_parser = micro_subparsers.add_parser("run", help="Run application on ESP32")
     run_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
+    run_parser.add_argument("--chip", choices=MICRO_CHIP_CHOICES, help="Target chip used to filter compatible ports")
+    run_parser.add_argument("--json", action="store_true", help="Emit a machine-readable Direct-ready event while streaming logs")
     run_parser.set_defaults(handler=run_application)
 
     verify_parser = micro_subparsers.add_parser("verify", help="Verify installation")
     verify_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
+    verify_parser.add_argument("--chip", choices=MICRO_CHIP_CHOICES, help="Target chip used to filter compatible ports")
     verify_parser.set_defaults(handler=verify_installation)
 
 
@@ -326,6 +342,11 @@ def _add_esphome_namespace(subparsers) -> None:
                 help="Erase all flash data before uploading the firmware",
             )
         if command_name == "build":
+            command_parser.add_argument(
+                "--json",
+                action="store_true",
+                help="Print final machine-readable build metadata",
+            )
             clean_group = command_parser.add_mutually_exclusive_group()
             clean_group.add_argument(
                 "--clean",
@@ -360,6 +381,11 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
                     help="Default OTA channel compiled into Native firmware (default: release, or NATIVE_OTA_CHANNEL)",
                 )
             _add_idf_build_backend_arguments(command_parser)
+            command_parser.add_argument(
+                "--json",
+                action="store_true",
+                help="Print final machine-readable build metadata",
+            )
             clean_group = command_parser.add_mutually_exclusive_group()
             clean_group.add_argument(
                 "--clean",
@@ -382,8 +408,20 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
                 action="store_true",
                 help="Erase all flash data before flashing the firmware",
             )
+        if command_name == "qr":
+            command_parser.add_argument(
+                "--chip",
+                choices=sorted(IDF_FRONTENDS[frontend]["targets"].keys()),
+                help="Target chip used to filter compatible ports",
+            )
         if command_name in {"flash", "qr"}:
             command_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
+        if frontend == "matter" and command_name in {"flash", "qr"}:
+            command_parser.add_argument(
+                "--json",
+                action="store_true",
+                help="Print final machine-readable onboarding data",
+            )
         command_parser.set_defaults(handler=lambda args, current_frontend=frontend: run_idf_command(current_frontend, args))
 
 

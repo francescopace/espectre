@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 import re
@@ -23,8 +24,6 @@ from tools.lib.firmware_benchmark.settings import (
 )
 
 
-MATTER_QR_PATTERN = re.compile(r"(?:MATTER_QR=|QR payload:\s*)(MT:[A-Z0-9.\-]+)")
-MATTER_MANUAL_CODE_PATTERN = re.compile(r"(?:MATTER_MANUAL_CODE=|Manual code:\s*)([0-9]{11,21})")
 CONNECTEDHOMEIP_REVISION_PATTERN = re.compile(r"works with commit \[([0-9a-f]{10,40})\]")
 DEFAULT_MATTER_NODE_ID = 0xE5C30001
 DEFAULT_MATTER_COMMISSIONING_TIMEOUT_SECONDS = 180
@@ -53,17 +52,25 @@ class MatterOnboardingCapture:
         self._manual_code = ""
 
     def feed(self, line: str) -> None:
-        if match := MATTER_QR_PATTERN.search(line):
-            self._qr_payload = match.group(1)
-        if match := MATTER_MANUAL_CODE_PATTERN.search(line):
-            self._manual_code = match.group(1)
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            return
+        if not isinstance(event, dict) or event.get("event") != "matter_onboarding":
+            return
+        qr_payload = event.get("qr_payload")
+        manual_code = event.get("manual_code")
+        if isinstance(qr_payload, str):
+            self._qr_payload = qr_payload
+        if isinstance(manual_code, str):
+            self._manual_code = manual_code
 
     def redact(self, line: str) -> str:
-        redacted = MATTER_QR_PATTERN.sub(lambda match: match.group(0).replace(match.group(1), "<redacted>"), line)
-        return MATTER_MANUAL_CODE_PATTERN.sub(
-            lambda match: match.group(0).replace(match.group(1), "<redacted>"),
-            redacted,
-        )
+        redacted = line
+        for sensitive in (self._qr_payload, self._manual_code):
+            if sensitive:
+                redacted = redacted.replace(sensitive, "<redacted>")
+        return redacted
 
     def require_data(self) -> MatterOnboardingData:
         if not self._qr_payload or not self._manual_code:

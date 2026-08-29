@@ -267,6 +267,32 @@ def discover_devices(
     return listener.snapshot(frontend)
 
 
+def normalized_discovery_chip(chip: object) -> str:
+    """Return the canonical short chip name used by CLI filters."""
+    value = str(chip or "").strip().lower().replace("-", "").replace("_", "")
+    if value == "esp32":
+        return value
+    if value.startswith("esp32"):
+        value = value.removeprefix("esp32")
+    return value
+
+
+def filter_discovered_devices(
+    records: list[DiscoveredDevice],
+    *,
+    chip: str | None = None,
+) -> list[DiscoveredDevice]:
+    """Filter discovered devices through shared CLI target semantics."""
+    if chip is None:
+        return list(records)
+    expected = normalized_discovery_chip(chip)
+    return [
+        record
+        for record in records
+        if normalized_discovery_chip(record.chip) == expected
+    ]
+
+
 def choose_device_interactively(
     records: list[DiscoveredDevice],
     *,
@@ -302,6 +328,28 @@ def choose_device_interactively(
         print(f"  {Fore.YELLOW}Choice out of range: 1-{len(records)}.{Style.RESET_ALL}")
 
 
+def select_discovered_device(
+    records: list[DiscoveredDevice],
+    *,
+    frontend_label: str | None = None,
+    chip: str | None = None,
+    interactive: bool = True,
+) -> DiscoveredDevice:
+    """Select one discovered device after applying shared chip filtering."""
+    matches = filter_discovered_devices(records, chip=chip)
+    target = f" {chip}" if chip else ""
+    label = f" {frontend_label}" if frontend_label else ""
+    if not matches:
+        raise DeviceDiscoveryError(f"No discovered{target}{label} device matched")
+    if len(matches) == 1:
+        return matches[0]
+    if not interactive:
+        raise DeviceDiscoveryError(
+            f"Multiple discovered{target}{label} devices matched"
+        )
+    return choose_device_interactively(matches, frontend_label=frontend_label)
+
+
 def print_device_list(
     records: list[DiscoveredDevice],
     *,
@@ -328,6 +376,7 @@ def print_device_list(
 def run_devices_command(args) -> int:
     try:
         records = discover_devices(frontend=args.frontend, timeout_s=args.timeout)
+        records = filter_discovered_devices(records, chip=getattr(args, "chip", None))
     except (DeviceDiscoveryError, ValueError) as exc:
         print(f"{Fore.RED}Discovery failed: {exc}{Style.RESET_ALL}")
         return 1

@@ -20,9 +20,10 @@ import subprocess
 import time
 from pathlib import Path
 
+from .build_artifacts import print_build_artifact_metadata
 from .common import Fore, REPO_ROOT, Style, cli_command, detect_chip_type, get_serial_port, resolve_serial_port
 from .idf_container import DockerBackendError, IDF_VERSION, ensure_docker_backend, run_idf_container
-from .targets import IDF_FRONTENDS, resolve_idf_target
+from .targets import IDF_APP_BIN_NAMES, IDF_FRONTENDS, resolve_idf_target
 
 
 MATTER_QR_PATTERN = re.compile(r"MATTER_QR=(MT:[A-Z0-9.\-]+)")
@@ -708,7 +709,13 @@ def run_idf_doctor(_args) -> int:
     return 0
 
 
-def read_matter_onboarding(port: str, timeout_seconds: float = 20.0) -> bool:
+def read_matter_onboarding(
+    port: str,
+    timeout_seconds: float = 20.0,
+    *,
+    chip: str | None = None,
+    json_output: bool = False,
+) -> bool:
     """Reset a Matter device and print its persisted onboarding codes."""
     try:
         import serial
@@ -733,9 +740,24 @@ def read_matter_onboarding(port: str, timeout_seconds: float = 20.0) -> bool:
                 if manual_match := MATTER_MANUAL_CODE_PATTERN.search(line):
                     manual_code = manual_match.group(1)
                 if qr_payload and manual_code:
-                    print(f"{Fore.GREEN}✅ Matter onboarding data{Style.RESET_ALL}")
-                    print(f"  QR payload:  {qr_payload}")
-                    print(f"  Manual code: {manual_code}")
+                    if json_output:
+                        print(
+                            json.dumps(
+                                {
+                                    "chip": chip,
+                                    "event": "matter_onboarding",
+                                    "frontend": "matter",
+                                    "manual_code": manual_code,
+                                    "port": port,
+                                    "qr_payload": qr_payload,
+                                },
+                                sort_keys=True,
+                            )
+                        )
+                    else:
+                        print(f"{Fore.GREEN}✅ Matter onboarding data{Style.RESET_ALL}")
+                        print(f"  QR payload:  {qr_payload}")
+                        print(f"  Manual code: {manual_code}")
                     return True
     except (OSError, serial.SerialException) as exc:
         print(f"{Fore.RED}❌ Cannot read Matter onboarding data: {exc}{Style.RESET_ALL}")
@@ -744,6 +766,31 @@ def read_matter_onboarding(port: str, timeout_seconds: float = 20.0) -> bool:
     print(f"{Fore.YELLOW}Matter onboarding data was not received. Reset the board and retry with "
           f"{cli_command('matter', 'qr', '--port', port)}.{Style.RESET_ALL}")
     return False
+
+
+def read_matter_onboarding_for_command(port: str, args) -> bool:
+    """Read onboarding data using the command's optional JSON contract."""
+    if bool(getattr(args, "json", False)):
+        return read_matter_onboarding(
+            port,
+            chip=getattr(args, "chip", None),
+            json_output=True,
+        )
+    return read_matter_onboarding(port)
+
+
+def print_idf_build_metadata(
+    frontend: str,
+    chip: str,
+    app_path: Path,
+    build_dir_name: str,
+) -> None:
+    """Print final JSON metadata for a successful ESP-IDF build."""
+    print_build_artifact_metadata(
+        frontend=frontend,
+        chip=chip,
+        artifact=app_path / build_dir_name / IDF_APP_BIN_NAMES[frontend],
+    )
 
 
 def run_idf_command(frontend: str, args) -> None:
@@ -765,8 +812,8 @@ def run_idf_command(frontend: str, args) -> None:
     app_path = Path(app_dir)
     build_dir_name = None
     if args.idf_command == "qr":
-        port = get_serial_port(args.port)
-        if not read_matter_onboarding(port):
+        port = get_serial_port(args.port, chip=getattr(args, "chip", None))
+        if not read_matter_onboarding_for_command(port, args):
             raise SystemExit(1)
         return
     idf_env = None
@@ -902,7 +949,7 @@ def run_idf_command(frontend: str, args) -> None:
                 print(f"{Fore.RED}❌ Error flashing firmware: {exc}{Style.RESET_ALL}")
                 raise SystemExit(1) from exc
             if frontend == "matter":
-                read_matter_onboarding(flash_port)
+                read_matter_onboarding_for_command(flash_port, args)
             return
         base_command = build_idf_base_command(build_dir_name)
         cached_sdkconfig = cached_sdkconfig_path(app_path, build_dir_name)
@@ -926,6 +973,9 @@ def run_idf_command(frontend: str, args) -> None:
         except DockerBackendError as exc:
             print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
             raise SystemExit(1)
+        if bool(getattr(args, "json", False)):
+            assert chip is not None and build_dir_name is not None
+            print_idf_build_metadata(frontend, chip, app_path, build_dir_name)
         return
 
     try:
@@ -963,7 +1013,7 @@ def run_idf_command(frontend: str, args) -> None:
                     fallback_notice_printed = True
                 run_idf_subprocess(subprocess_command, env, cwd=app_dir)
         if frontend == "matter" and args.idf_command == "flash" and flash_port is not None:
-            read_matter_onboarding(flash_port)
+            read_matter_onboarding_for_command(flash_port, args)
     except FileNotFoundError:
         print(f"{Fore.RED}❌ The resolved ESP-IDF launcher could not be started.{Style.RESET_ALL}")
         print_idf_recovery_instructions()
@@ -971,3 +1021,6 @@ def run_idf_command(frontend: str, args) -> None:
     except subprocess.CalledProcessError as e:
         print(f"{Fore.RED}❌ idf.py command failed with exit code {e.returncode}{Style.RESET_ALL}")
         raise SystemExit(e.returncode)
+    if args.idf_command == "build" and bool(getattr(args, "json", False)):
+        assert chip is not None and build_dir_name is not None
+        print_idf_build_metadata(frontend, chip, app_path, build_dir_name)

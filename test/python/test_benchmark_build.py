@@ -221,30 +221,6 @@ def test_cpp_flash_only_runner_reuses_one_build_context(monkeypatch):
     assert result.status == "PASS"
     assert result.transport_evidence == {"transport": "flash-only"}
 
-def test_esphome_case_config_uses_canonical_config_unchanged(tmp_path, monkeypatch):
-    source_path = tmp_path / "espectre-s3.yaml"
-    source_path.write_text(
-        """esphome:
-  name: espectre
-espectre:
-  detection_algorithm: lightweight
-wifi:
-  ap:
-    ssid: fallback
-logger:
-  level: INFO
-api:
-""",
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(bench, "ESPHOME_CONFIGS", {"s3": str(source_path)})
-    with bench.esphome_case_config("s3", "lightweight", "/dev/cu.bridge") as config_path:
-        content = config_path.read_text(encoding="utf-8")
-
-    assert config_path == source_path
-    assert content == source_path.read_text(encoding="utf-8")
-    assert config_path.exists()
-
 def test_esphome_bootstrap_reuses_normal_build_and_erases_during_flash(tmp_path):
     case = BenchmarkCase("esphome", "lightweight")
     config = tmp_path / "espectre-c3.yaml"
@@ -257,6 +233,8 @@ def test_esphome_bootstrap_reuses_normal_build_and_erases_during_flash(tmp_path)
     )
 
     assert build[2:5] == ["build", "--chip", "c3"]
+    assert "--config" not in build
+    assert "--json" in build
     assert "--clean" not in build
     assert "--clean-all" not in build
     _build, flash, _monitor = bench._commands_for_case(
@@ -291,8 +269,16 @@ def test_idf_benchmark_context_does_not_inject_configuration():
         assert env is None
         assert config is None
 
-def test_micro_benchmark_uses_project_firmware_for_every_chip(tmp_path, monkeypatch):
-    monkeypatch.setattr(bench, "FIRMWARE_CACHE_DIR", tmp_path)
+def test_build_artifact_comes_from_delegated_cli_metadata(tmp_path):
+    firmware = tmp_path / "firmware.bin"
+    firmware.write_bytes(b"firmware")
 
-    for chip, firmware_name in bench.PROJECT_FIRMWARE_NAMES.items():
-        assert bench._latest_firmware_artifact("micro", chip) == tmp_path / firmware_name
+    artifact, metadata = bench.build_artifact_from_output(
+        '{"artifact":"' + str(firmware) + '","chip":"s3",'
+        '"command":"build","frontend":"native"}',
+        frontend="native",
+        chip="s3",
+    )
+
+    assert artifact == firmware
+    assert metadata["frontend"] == "native"

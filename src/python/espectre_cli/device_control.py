@@ -11,7 +11,7 @@ import sys
 from contextlib import nullcontext, redirect_stdout
 
 from .common import resolve_serial_port
-from .device_discovery import choose_device_interactively, discover_devices
+from .device_discovery import discover_devices, select_discovered_device
 from .device_transport import (
     DEFAULT_DIRECT_ORIGIN,
     DirectClient,
@@ -65,11 +65,15 @@ def run_improv_provision_command(args) -> int:
 
 def _resolve_direct_endpoint(args) -> str:
     if args.endpoint:
+        if getattr(args, "chip", None):
+            raise ValueError("--chip requires --frontend discovery")
         return direct_endpoint_from_device_url(args.endpoint)
     records = discover_devices(frontend=args.frontend, timeout_s=args.discovery_timeout)
-    if not records:
-        raise RuntimeError("no matching Direct device was discovered")
-    return choose_device_interactively(records, frontend_label=args.frontend).endpoint
+    return select_discovered_device(
+        records,
+        frontend_label=args.frontend,
+        chip=getattr(args, "chip", None),
+    ).endpoint
 
 
 def run_direct_request_command(args) -> int:

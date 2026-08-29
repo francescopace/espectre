@@ -11,6 +11,9 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 import ast
+import ipaddress
+import json
+import re
 import subprocess
 import tempfile
 import time
@@ -29,6 +32,9 @@ from .common import (
     copy_config_command,
     print_box_banner,
 )
+from .build_artifacts import build_artifact_metadata, print_build_artifact_metadata
+from .device_discovery import ESPECTRE_DIRECT_PORT
+from .device_transport import direct_endpoint_from_device_url
 
 
 MICRO_DEVICE_RELATIVE_FILES = [
@@ -52,6 +58,10 @@ MICRO_DEVICE_RELATIVE_FILES = [
     "direct_api.py",
     "main.py",
 ]
+
+MICRO_WIFI_CONNECTED_PATTERN = re.compile(
+    r"WiFi connected - IP:\s*(?P<ip>\d{1,3}(?:\.\d{1,3}){3})\b"
+)
 MPY_CROSS_COMMAND = "mpy-cross-v6.3"
 MPY_OPTIMIZATION_LEVEL = "-O3"
 MICROPYTHON_READY_TIMEOUT_SECONDS = 15.0
@@ -158,6 +168,12 @@ def build_project_firmware_command(args) -> None:
     print()
     print(f"{Fore.GREEN}✅ Project firmware built successfully{Style.RESET_ALL}")
     print(f"{Fore.CYAN}Firmware: {firmware_path}{Style.RESET_ALL}")
+    if bool(getattr(args, "json", False)):
+        print_build_artifact_metadata(
+            frontend="micro",
+            chip=chip,
+            artifact=firmware_path,
+        )
 
 
 def _wait_for_micropython(port: str) -> tuple[bool, str]:
@@ -269,7 +285,7 @@ def flash_firmware(args) -> None:
         print("   pip install esptool")
         raise SystemExit(1)
 
-    port = get_serial_port(args.port)
+    port = get_serial_port(args.port, chip=getattr(args, "chip", None))
     chip = args.chip
     if not chip:
         chip = detect_chip_type(port)
@@ -375,6 +391,14 @@ def flash_firmware(args) -> None:
                 print(f"  3. {Fore.GREEN}{cli_command('micro', 'deploy')}{Style.RESET_ALL}")
                 print(f"  4. {Fore.GREEN}{cli_command('micro', 'run')}{Style.RESET_ALL}")
                 print()
+                if bool(getattr(args, "json", False)):
+                    metadata = build_artifact_metadata(
+                        frontend="micro",
+                        chip=chip,
+                        artifact=firmware_path,
+                    )
+                    metadata.update({"command": "flash", "port": port})
+                    print(json.dumps(metadata, sort_keys=True))
                 return
             except Exception as e:
                 if attempt < max_retries - 1:
@@ -396,7 +420,7 @@ def flash_firmware(args) -> None:
 def deploy_code(args) -> None:
     """Compile and deploy optimized MicroPython bytecode using mpremote."""
     _require_mpremote()
-    port = get_serial_port(args.port)
+    port = get_serial_port(args.port, chip=getattr(args, "chip", None))
 
     config_local_path = _resolve_config_local_path(getattr(args, "config", None))
     if not config_local_path.exists():
@@ -557,7 +581,7 @@ def deploy_code(args) -> None:
 def run_application(args) -> None:
     """Run the MicroPython application on ESP32."""
     _require_mpremote()
-    port = get_serial_port(args.port)
+    port = get_serial_port(args.port, chip=getattr(args, "chip", None))
 
     print_box_banner("Running MicroPython Application")
     print()
@@ -566,15 +590,54 @@ def run_application(args) -> None:
 
     process = None
     try:
+        command = [
+            "mpremote",
+            "connect",
+            port,
+            "exec",
+            "from src.main import main; main()",
+        ]
+        json_output = bool(getattr(args, "json", False))
         process = subprocess.Popen(
-            [
-                "mpremote",
-                "connect",
-                port,
-                "exec",
-                "from src.main import main; main()",
-            ]
+            command,
+            **(
+                {
+                    "stdout": subprocess.PIPE,
+                    "stderr": subprocess.STDOUT,
+                    "text": True,
+                    "bufsize": 1,
+                }
+                if json_output
+                else {}
+            ),
         )
+        if json_output:
+            assert process.stdout is not None
+            endpoint_emitted = False
+            for line in process.stdout:
+                print(line, end="", flush=True)
+                if endpoint_emitted:
+                    continue
+                match = MICRO_WIFI_CONNECTED_PATTERN.search(line)
+                if match is None:
+                    continue
+                address = str(ipaddress.IPv4Address(match.group("ip")))
+                print(
+                    json.dumps(
+                        {
+                            "chip": getattr(args, "chip", None),
+                            "endpoint": direct_endpoint_from_device_url(
+                                f"http://{address}:{ESPECTRE_DIRECT_PORT}"
+                            ),
+                            "event": "direct_ready",
+                            "frontend": "micro",
+                            "port": port,
+                        },
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
+                endpoint_emitted = True
         returncode = process.wait()
         if returncode != 0:
             raise SystemExit(returncode)
@@ -598,7 +661,7 @@ def run_application(args) -> None:
 
 def verify_installation(args) -> None:
     """Verify MicroPython firmware and deployed code."""
-    port = get_serial_port(args.port)
+    port = get_serial_port(args.port, chip=getattr(args, "chip", None))
     print_box_banner("Verifying Installation")
     print()
 

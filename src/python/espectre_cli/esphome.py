@@ -11,7 +11,9 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
+from .build_artifacts import print_build_artifact_metadata
 from .common import Fore, REPO_ROOT, Style, resolve_serial_port
 from .idf import run_esptool_main
 from .targets import resolve_esphome_config
@@ -31,6 +33,31 @@ ESPHOME_COMMAND_PREFIX = [
     "component_source",
     "local",
 ]
+
+
+def resolve_esphome_build_artifact(config_path: Path) -> Path:
+    """Return the application image produced for an ESPHome config."""
+    candidates = [
+        path
+        for path in (config_path.parent / ".esphome" / "build").glob(
+            "*/build/espectre.bin"
+        )
+        if path.is_file()
+    ]
+    if not candidates:
+        raise FileNotFoundError(
+            f"ESPHome build artifact not found for {config_path}"
+        )
+    return max(candidates, key=lambda path: path.stat().st_mtime_ns)
+
+
+def _is_network_device(device: str | None) -> bool:
+    """Return whether --device names a hostname, IP address, or URL rather than a serial port."""
+    if not device:
+        return False
+    if device.startswith("/") or device.lower().startswith("com"):
+        return False
+    return True
 
 
 def run_esphome_command(args) -> None:
@@ -55,13 +82,14 @@ def run_esphome_command(args) -> None:
 
     command = [*ESPHOME_COMMAND_PREFIX, action, str(config_path)]
     device = getattr(args, "device", None)
-    if args.esphome_command == "flash" and getattr(args, "erase", False):
+    if args.esphome_command in {"flash", "monitor"} and not _is_network_device(device):
         device = resolve_serial_port(
             device,
             chip=getattr(args, "chip", None),
             frontend="esphome",
-            purpose="flash",
+            purpose="flash" if args.esphome_command == "flash" else "monitor",
         )
+    if args.esphome_command == "flash" and getattr(args, "erase", False):
         erase_command = ["--port", device, "erase-flash"]
         print(f"{Fore.CYAN}Command: esptool {' '.join(erase_command)}{Style.RESET_ALL}")
         try:
@@ -91,3 +119,14 @@ def run_esphome_command(args) -> None:
     except subprocess.CalledProcessError as e:
         print(f"{Fore.RED}❌ ESPHome command failed with exit code {e.returncode}{Style.RESET_ALL}")
         raise SystemExit(e.returncode)
+    if args.esphome_command == "build" and bool(getattr(args, "json", False)):
+        try:
+            artifact = resolve_esphome_build_artifact(config_path)
+            print_build_artifact_metadata(
+                frontend="esphome",
+                chip=getattr(args, "chip", None),
+                artifact=artifact,
+            )
+        except FileNotFoundError as exc:
+            print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
+            raise SystemExit(1) from exc

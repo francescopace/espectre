@@ -296,8 +296,10 @@ def test_matter_commissioning_uses_captured_onboarding_data(monkeypatch):
 
     def fake_flash(_case, _chip, _port, result, **kwargs):
         callback = kwargs["line_callback"]
-        callback("I app: MATTER_QR=MT:TESTPAYLOAD\n")
-        callback("I app: MATTER_MANUAL_CODE=12704227053\n")
+        callback(
+            '{"event":"matter_onboarding","manual_code":"12704227053",'
+            '"qr_payload":"MT:TESTPAYLOAD"}\n'
+        )
         result.flash = CommandResult(["flash"], 0, 1.0, "")
         return True
 
@@ -704,13 +706,99 @@ def test_direct_runtime_readiness_waits_for_cpp_startup_warmup(monkeypatch):
     monkeypatch.setattr(bench.time, "monotonic", FakeClock.monotonic)
     monkeypatch.setattr(bench.time, "sleep", lambda _seconds: None)
 
-    bench.wait_for_direct_runtime_ready(
+    reboot_observed = bench.wait_for_direct_runtime_ready(
         client,
         timeout_seconds=100,
         minimum_uptime_seconds=30,
     )
 
+    assert reboot_observed is False
     assert client.diagnostics_calls == 7
+
+
+def test_direct_runtime_readiness_recovers_once_after_bssid_reboot(monkeypatch):
+    class FakeClock:
+        now = 0.0
+
+        @classmethod
+        def monotonic(cls):
+            return cls.now
+
+        @classmethod
+        def sleep(cls, seconds):
+            cls.now += seconds
+
+    class FakeClient:
+        diagnostics_calls = 0
+
+        def request(self, command):
+            if command == "status":
+                return {"sensing_enabled": True, "ready_to_publish": True}
+            assert command == "diagnostics"
+            self.diagnostics_calls += 1
+            uptime = self.diagnostics_calls
+            return {
+                "timestamp_ms": uptime * 1_000,
+                "uptime": uptime,
+                "csi_admitted_pps": 95.0,
+            }
+
+    client = FakeClient()
+    monkeypatch.setattr(bench.time, "monotonic", FakeClock.monotonic)
+    monkeypatch.setattr(bench.time, "sleep", FakeClock.sleep)
+
+    reboot_observed = bench.wait_for_direct_runtime_ready(
+        client,
+        timeout_seconds=30,
+        minimum_uptime_seconds=30,
+        initial_uptime_seconds=120,
+        allow_reboot_recovery=True,
+    )
+
+    assert reboot_observed is True
+    assert client.diagnostics_calls == 34
+
+
+def test_direct_runtime_readiness_bounds_recovery_after_repeated_reboots(monkeypatch):
+    class FakeClock:
+        now = 0.0
+
+        @classmethod
+        def monotonic(cls):
+            return cls.now
+
+        @classmethod
+        def sleep(cls, seconds):
+            cls.now += seconds
+
+    class FakeClient:
+        diagnostics_calls = 0
+
+        def request(self, command):
+            if command == "status":
+                return {"sensing_enabled": True, "ready_to_publish": True}
+            assert command == "diagnostics"
+            self.diagnostics_calls += 1
+            uptime = ((self.diagnostics_calls - 1) % 3) + 1
+            return {
+                "timestamp_ms": uptime * 1_000,
+                "uptime": uptime,
+                "csi_admitted_pps": 95.0,
+            }
+
+    monkeypatch.setattr(bench.time, "monotonic", FakeClock.monotonic)
+    monkeypatch.setattr(bench.time, "sleep", FakeClock.sleep)
+
+    with pytest.raises(RuntimeError, match="did not produce 5 consecutive"):
+        bench.wait_for_direct_runtime_ready(
+            FakeClient(),
+            timeout_seconds=30,
+            minimum_uptime_seconds=30,
+            initial_uptime_seconds=120,
+            allow_reboot_recovery=True,
+        )
+
+    assert FakeClock.now == 36.0
 
 def test_direct_diagnostics_normalization_derives_shared_rates_and_occupancy():
     previous = {
@@ -869,17 +957,31 @@ def test_bssid_reboot_check_is_unknown_without_direct_uptime():
     ) is None
 
 @pytest.mark.parametrize("chip", ["c3", "esp32"])
-def test_run_micro_case_uses_production_cli_workflow(monkeypatch, chip):
+def test_run_micro_case_uses_production_cli_workflow(monkeypatch, tmp_path, chip):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
     commands: list[list[str]] = []
     connections: list[tuple[str, float]] = []
     sleeps: list[float] = []
+    firmware = tmp_path / f"micro-{chip}.bin"
+    firmware.write_bytes(b"firmware")
 
     def fake_run_command(command, **_kwargs):
         resolved = list(command)
         commands.append(resolved)
-        output = "MAC: AA:BB:CC:DD:EE:FF\n" if resolved[1:3] == ["micro", "flash"] else ""
+        output = ""
+        if resolved[1:3] == ["micro", "flash"]:
+            output = json.dumps(
+                {
+                    "artifact": str(firmware),
+                    "chip": chip,
+                    "command": "flash",
+                    "firmware_sha256": "unused-by-this-test",
+                    "firmware_size_bytes": firmware.stat().st_size,
+                    "frontend": "micro",
+                    "schema_version": 1,
+                }
+            )
         return CommandResult(resolved, 0, 1.0, output)
 
     class FakeProcess:
@@ -893,7 +995,10 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, chip):
     def fake_background(command, **_kwargs):
         resolved = list(command)
         commands.append(resolved)
-        output_lines = ["WiFi connected - IP: 192.0.2.10, Protocol: 802.11n, Bandwidth: 20MHz\n"]
+        output_lines = [
+            '{"endpoint":"http://192.0.2.10:62587/espectre/v1/request",'
+            '"event":"direct_ready","frontend":"micro"}\n'
+        ]
         return process, output_lines, [], SimpleNamespace(), 0.0
 
     monkeypatch.setattr(bench, "run_command", fake_run_command)
@@ -936,7 +1041,7 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, chip):
     assert result.transport_evidence["transport"] == "direct-http"
     assert connections == [
         (
-            f"http://192.0.2.10:{bench.ESPECTRE_DIRECT_PORT}/espectre/v1/request",
+            "http://192.0.2.10:62587/espectre/v1/request",
             bench.WIFI_CONNECT_WAIT_SECONDS + bench.DIRECT_DISCOVERY_TIMEOUT_SECONDS,
         )
     ]
@@ -952,6 +1057,7 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, chip):
         ["micro", "deploy"],
         ["micro", "run"],
     ]
+    assert all(command[command.index("--chip") + 1] == chip for command in commands)
     assert "--frozen" not in commands[0]
 
 def test_capture_direct_window_retries_initial_event_reset(monkeypatch):

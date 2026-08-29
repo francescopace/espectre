@@ -6,24 +6,17 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import hashlib
-import os
 from pathlib import Path
 import re
 from typing import Callable, Iterator
-from src.python.espectre_cli.common import (
-    FIRMWARE_CACHE_DIR,
-)
 from src.python.espectre_cli.idf import cached_sdkconfig_path, resolve_idf_build_dir_name
 from src.python.espectre_cli.micro import deployment_files
-from src.python.espectre_cli.micro_firmware import PROJECT_FIRMWARE_NAMES
-from src.python.espectre_cli.targets import ESPHOME_CONFIGS, ESPHOME_EXAMPLES_DIR, IDF_FRONTENDS
+from src.python.espectre_cli.targets import IDF_FRONTENDS
 
 from tools.lib.firmware_benchmark.analysis import strip_ansi
 from tools.lib.firmware_benchmark.models import BenchmarkCase, BenchmarkResult, BuildMetrics
-from tools.lib.firmware_benchmark.process import run_command
+from tools.lib.firmware_benchmark.process import parse_json_object_from_output, run_command
 from tools.lib.firmware_benchmark.settings import (
-    IDF_APP_BIN_NAMES,
-    IDF_IGNORED_BIN_NAMES,
     MICRO_SOURCE_DIR,
     REPO_ROOT,
     benchmark_setting,
@@ -82,35 +75,25 @@ def parse_build_metrics(output: str, firmware_path: Path | None = None) -> Build
 
     return metrics
 
-def _latest_firmware_artifact(frontend: str, chip: str | None = None) -> Path | None:
-    if frontend == "micro":
-        if chip is None:
-            return None
-        firmware_name = PROJECT_FIRMWARE_NAMES.get(chip)
-        return FIRMWARE_CACHE_DIR / firmware_name if firmware_name is not None else None
-
-    if frontend == "esphome":
-        candidates = list((ESPHOME_EXAMPLES_DIR / ".esphome").glob("build/*/build/espectre.bin"))
-        existing = [path for path in candidates if path.is_file()]
-        return max(existing, key=lambda path: (path.stat().st_size, path.stat().st_mtime)) if existing else None
-
-    app_dir = Path(IDF_FRONTENDS[frontend]["app_dir"])
-    idf_target = IDF_FRONTENDS[frontend]["targets"].get(chip) if chip is not None else None
-    build_dir_name = resolve_idf_build_dir_name(app_dir, idf_target, prefer_existing_default=True)
-    if not build_dir_name:
-        build_dir_name = os.environ.get("ESPECTRE_IDF_BUILD_DIR", "build")
-    build_dir = app_dir / build_dir_name
-    preferred_name = IDF_APP_BIN_NAMES.get(frontend, f"espectre-{frontend}.bin")
-    preferred = build_dir / preferred_name
-    if preferred.is_file():
-        return preferred
-    candidates = [
-        path
-        for path in build_dir.glob("*.bin")
-        if path.name not in IDF_IGNORED_BIN_NAMES
-    ]
-    existing = [path for path in candidates if path.is_file()]
-    return max(existing, key=lambda path: (path.stat().st_size, path.stat().st_mtime)) if existing else None
+def build_artifact_from_output(
+    output: str,
+    *,
+    frontend: str,
+    chip: str,
+) -> tuple[Path, dict[str, object]]:
+    """Return the artifact declared by a delegated CLI build command."""
+    metadata = parse_json_object_from_output(output)
+    if metadata.get("command") not in {"build", "flash"}:
+        raise RuntimeError("delegated CLI command did not emit build artifact metadata")
+    if metadata.get("frontend") != frontend or metadata.get("chip") != chip:
+        raise RuntimeError("delegated CLI build metadata does not match the benchmark case")
+    artifact_value = metadata.get("artifact")
+    if not isinstance(artifact_value, str) or not artifact_value:
+        raise RuntimeError("delegated CLI build metadata did not contain an artifact")
+    artifact = Path(artifact_value)
+    if not artifact.is_file():
+        raise RuntimeError(f"delegated CLI build artifact does not exist: {artifact}")
+    return artifact, metadata
 
 def render_micro_benchmark_config() -> str:
     """Configure only the connectivity that Micro cannot provision at runtime."""
@@ -146,11 +129,6 @@ def micro_deployed_source_size(config_path: Path) -> int:
     """Return the exact source footprint selected by the production deploy manifest."""
     return sum(Path(source).stat().st_size for source, _destination in deployment_files(config_path))
 
-@contextmanager
-def esphome_case_config(chip: str, detector: str, port: str | None = None) -> Iterator[Path]:
-    del detector, port
-    yield Path(ESPHOME_CONFIGS[chip])
-
 def _commands_for_case(
     case: BenchmarkCase,
     chip: str,
@@ -172,16 +150,13 @@ def _commands_for_case(
     if port:
         monitor_command.extend(["--port", port])
     if case.frontend == "esphome":
-        assert config is not None
-        config_value = str(config)
         build_command = [
             launcher,
             "esphome",
             "build",
             "--chip",
             chip,
-            "--config",
-            config_value,
+            "--json",
         ]
         flash_command = [
             launcher,
@@ -189,16 +164,25 @@ def _commands_for_case(
             "flash",
             "--chip",
             chip,
-            "--config",
-            config_value,
             "--erase",
         ]
         if port:
             flash_command.extend(["--device", port])
         return build_command, flash_command, monitor_command
-    build_command = [launcher, case.frontend, "build", "--chip", chip, "--backend", "local"]
+    build_command = [
+        launcher,
+        case.frontend,
+        "build",
+        "--chip",
+        chip,
+        "--backend",
+        "local",
+        "--json",
+    ]
     flash_command = [launcher, case.frontend, "flash", "--chip", chip]
     flash_command.append("--erase")
+    if case.frontend == "matter":
+        flash_command.append("--json")
     if port:
         flash_command.extend(["--port", port])
     return build_command, flash_command, monitor_command
@@ -209,12 +193,8 @@ def case_context(
     chip: str,
     port: str,
 ) -> Iterator[tuple[dict[str, str] | None, Path | None]]:
-    del port
-    if case.frontend == "esphome":
-        with esphome_case_config(chip, case.detector) as config:
-            yield None, config
-    else:
-        yield None, None
+    del case, chip, port
+    yield None, None
 
 
 def validate_idf_benchmark_sdkconfig(frontend: str, chip: str) -> None:
@@ -275,10 +255,20 @@ def _build_case_in_context(
         config,
     )
     result.build = run_command(build_command, env=env, output_prefix=output_prefix)
-    result.build_metrics = parse_build_metrics(
-        result.build.output,
-        _latest_firmware_artifact(case.frontend, chip),
-    )
+    artifact = None
+    artifact_metadata: dict[str, object] = {}
+    if result.build.returncode == 0:
+        artifact, artifact_metadata = build_artifact_from_output(
+            result.build.output,
+            frontend=case.frontend,
+            chip=chip,
+        )
+    result.build_metrics = parse_build_metrics(result.build.output, artifact)
+    if artifact_metadata:
+        if artifact_metadata.get("firmware_size_bytes") != result.build_metrics.firmware_size_bytes:
+            raise RuntimeError("delegated CLI build size does not match the artifact")
+        if artifact_metadata.get("firmware_sha256") != result.build_metrics.firmware_sha256:
+            raise RuntimeError("delegated CLI build hash does not match the artifact")
     if case.frontend in IDF_FRONTENDS and result.build.returncode == 0:
         validate_idf_benchmark_sdkconfig(case.frontend, chip)
     if result.build.returncode != 0:

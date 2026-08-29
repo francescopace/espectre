@@ -50,6 +50,11 @@ IDF_FRONTENDS = {
     },
 }
 
+IDF_APP_BIN_NAMES = {
+    "native": "espectre-native.bin",
+    "matter": "espectre-matter.bin",
+}
+
 
 def resolve_esphome_config(chip: str | None, config: str | None) -> Path:
     """Resolve the ESPHome config file for a chip or explicit override."""

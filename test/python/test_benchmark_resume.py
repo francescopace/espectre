@@ -12,6 +12,7 @@ from tools.lib.firmware_benchmark.models import (
     BenchmarkCase,
     BenchmarkResult,
     CASES,
+    CommandResult,
     RepositoryState,
 )
 def test_cases_run_frontends_in_hardware_benchmark_order():
@@ -53,6 +54,42 @@ def test_main_executes_frontends_in_hardware_benchmark_order(tmp_path, monkeypat
 
     assert bench.main() == 0
     assert observed == ["native", "esphome", "matter", "micro"]
+
+def test_main_stops_after_flash_failure(tmp_path, monkeypatch, capsys):
+    observed: list[str] = []
+    state = RepositoryState("revision", False, "fingerprint")
+
+    def run_direct(cases, _chip, _port, *, on_result):
+        observed.append(cases[0].frontend)
+        flash = CommandResult(["flash"], 1, 1.0, "No compatible serial ports found")
+        direct_results = [
+            BenchmarkResult(
+                case=case,
+                status="FAIL",
+                reasons=["flash exited with status 1"],
+                flash=flash,
+            )
+            for case in cases
+        ]
+        for result in direct_results:
+            on_result(result)
+        return direct_results
+
+    def fail_micro(*_args, **_kwargs):
+        raise AssertionError("Micro must not run after a flash failure")
+
+    monkeypatch.setattr(sys, "argv", ["benchmark_firmware.py", "--chip", "c5"])
+    monkeypatch.setattr(bench, "repository_state", lambda: state)
+    monkeypatch.setattr(bench, "benchmark_artifact_dir", lambda *_args: tmp_path / "artifacts")
+    monkeypatch.setattr(bench, "require_benchmark_prerequisites", lambda _cases: None)
+    monkeypatch.setattr(bench, "run_direct_frontend_cases_safely", run_direct)
+    monkeypatch.setattr(bench, "run_micro_case", fail_micro)
+    monkeypatch.setattr(bench, "write_report", lambda *_args, **_kwargs: tmp_path / "report.md")
+    monkeypatch.setattr(bench, "write_benchmark_artifacts", lambda *_args, **_kwargs: None)
+
+    assert bench.main() == 1
+    assert observed == ["native"]
+    assert "Flash failed; stopping the benchmark" in capsys.readouterr().err
 
 def test_main_warns_but_passes_when_sources_change_on_same_revision(
     tmp_path,

@@ -281,7 +281,7 @@ def test_flash_firmware_retries_after_failed_write_and_succeeds(tmp_path: Path, 
                 self._attempt += 1
                 raise RuntimeError("temporary failure")
 
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
     monkeypatch.setattr(micro, "detect_chip_type", lambda _port: None)
     monkeypatch.setattr(micro, "prompt_chip_type", lambda: "c5")
     monkeypatch.setattr(
@@ -301,7 +301,7 @@ def test_flash_firmware_retries_after_failed_write_and_succeeds(tmp_path: Path, 
 
 def test_flash_firmware_rejects_missing_custom_firmware(monkeypatch) -> None:
     monkeypatch.setitem(sys.modules, "esptool", SimpleNamespace(main=lambda _cmd: None))
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
 
     with pytest.raises(SystemExit):
         micro.flash_firmware(_make_args(firmware="/tmp/does-not-exist.bin"))
@@ -330,7 +330,7 @@ def test_flash_firmware_uses_project_build_for_supported_chips(
         "esptool",
         SimpleNamespace(main=lambda command: calls.append(command)),
     )
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
     monkeypatch.setattr(
         micro,
         "build_project_firmware_image",
@@ -346,7 +346,7 @@ def test_flash_firmware_uses_project_build_for_supported_chips(
 
 def test_flash_firmware_exits_when_chip_cannot_be_selected(monkeypatch) -> None:
     monkeypatch.setitem(sys.modules, "esptool", SimpleNamespace(main=lambda _cmd: None))
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
     monkeypatch.setattr(micro, "detect_chip_type", lambda _port: None)
     monkeypatch.setattr(micro, "prompt_chip_type", lambda: None)
 
@@ -364,7 +364,7 @@ def test_flash_firmware_exits_after_exhausting_retries(tmp_path: Path, monkeypat
         raise RuntimeError("boom")
 
     monkeypatch.setitem(sys.modules, "esptool", SimpleNamespace(main=always_fail))
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
     monkeypatch.setattr(
         micro,
         "build_project_firmware_image",
@@ -383,7 +383,7 @@ def test_deploy_code_requires_config_local(monkeypatch, tmp_path: Path) -> None:
     src_dir.mkdir()
     monkeypatch.setattr(micro, "PYTHON_SRC_DIR", src_dir)
     monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
 
     with pytest.raises(SystemExit):
         micro.deploy_code(_make_args())
@@ -402,7 +402,7 @@ def test_deploy_code_uploads_files_to_device(monkeypatch, tmp_path: Path) -> Non
 
     monkeypatch.setattr(micro, "PYTHON_SRC_DIR", src_dir)
     monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
     monkeypatch.setattr(micro.subprocess, "run", fake_run)
 
     micro.deploy_code(_make_args())
@@ -1006,7 +1006,7 @@ def test_deploy_code_uses_selected_config_as_device_override(monkeypatch, tmp_pa
 
     monkeypatch.setattr(micro, "PYTHON_SRC_DIR", src_dir)
     monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
     monkeypatch.setattr(micro.subprocess, "run", fake_run)
 
     micro.deploy_code(_make_args(config=benchmark_config))
@@ -1038,7 +1038,7 @@ def test_deploy_code_retries_healthcheck_while_micropython_starts(monkeypatch, t
 
     monkeypatch.setattr(micro, "PYTHON_SRC_DIR", src_dir)
     monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
     monkeypatch.setattr(micro.subprocess, "run", fake_run)
     monkeypatch.setattr(micro.time, "sleep", lambda _seconds: None)
 
@@ -1058,7 +1058,7 @@ def test_deploy_code_rejects_invalid_healthcheck(monkeypatch, tmp_path: Path) ->
 
     monkeypatch.setattr(micro, "PYTHON_SRC_DIR", src_dir)
     monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
     monkeypatch.setattr(micro.subprocess, "run", fake_run)
     monkeypatch.setattr(micro, "MICROPYTHON_READY_TIMEOUT_SECONDS", 0.0)
 
@@ -1074,7 +1074,7 @@ def test_deploy_code_rejects_incomplete_source_tree(monkeypatch, tmp_path: Path)
 
     monkeypatch.setattr(micro, "PYTHON_SRC_DIR", src_dir)
     monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
     monkeypatch.setattr(micro.subprocess, "run", lambda *args, **kwargs: calls.append(args))
 
     with pytest.raises(SystemExit):
@@ -1099,7 +1099,7 @@ def test_deploy_code_exits_on_copy_failure(monkeypatch, tmp_path: Path) -> None:
 
     monkeypatch.setattr(micro, "PYTHON_SRC_DIR", src_dir)
     monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
     monkeypatch.setattr(micro.subprocess, "run", fake_run)
 
     with pytest.raises(SystemExit):
@@ -1117,7 +1117,7 @@ def test_run_application_starts_mpremote_process(monkeypatch) -> None:
             return 0
 
     monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
     monkeypatch.setattr(micro.subprocess, "Popen", lambda cmd: started.append(cmd) or FakeProcess())
 
     micro.run_application(_make_args())
@@ -1137,7 +1137,7 @@ def test_run_application_propagates_mpremote_failure(monkeypatch) -> None:
             return 2
 
     monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
     monkeypatch.setattr(micro.subprocess, "Popen", lambda _cmd: FakeProcess())
 
     with pytest.raises(SystemExit, match="2"):
@@ -1160,7 +1160,7 @@ def test_run_application_handles_keyboard_interrupt_and_resets_device(monkeypatc
             events.append("kill")
 
     monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
     monkeypatch.setattr(micro.subprocess, "Popen", lambda _cmd: FakeProcess())
     monkeypatch.setattr(micro, "_reset_device", lambda port: events.append(f"reset:{port}") or True)
 
@@ -1180,7 +1180,7 @@ def test_run_application_exits_when_interrupt_reset_fails(monkeypatch) -> None:
             return None
 
     monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
     monkeypatch.setattr(micro.subprocess, "Popen", lambda _cmd: FakeProcess())
     monkeypatch.setattr(micro, "_reset_device", lambda _port: False)
 
@@ -1190,7 +1190,7 @@ def test_run_application_exits_when_interrupt_reset_fails(monkeypatch) -> None:
 
 def test_run_application_exits_on_subprocess_error(monkeypatch) -> None:
     monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
     monkeypatch.setattr(
         micro.subprocess,
         "Popen",
@@ -1218,7 +1218,7 @@ def test_verify_installation_passes_when_all_checks_succeed(monkeypatch) -> None
     def fake_run(cmd, capture_output, text, check):
         return results.pop(0)
 
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
     monkeypatch.setattr(micro.subprocess, "run", fake_run)
 
     micro.verify_installation(_make_verify_args())
@@ -1239,7 +1239,7 @@ def test_verify_installation_raises_when_required_checks_fail(monkeypatch) -> No
             raise result
         return result
 
-    monkeypatch.setattr(micro, "get_serial_port", lambda _port: "/dev/cu.usbmodem1")
+    monkeypatch.setattr(micro, "get_serial_port", lambda _port, **_kwargs: "/dev/cu.usbmodem1")
     monkeypatch.setattr(micro.subprocess, "run", fake_run)
 
     with pytest.raises(SystemExit):

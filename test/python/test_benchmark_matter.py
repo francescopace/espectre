@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 
@@ -16,18 +17,23 @@ from tools.lib.firmware_benchmark.process import run_command
 
 def test_onboarding_capture_retains_codes_and_redacts_output():
     capture = bench.MatterOnboardingCapture()
-    qr_line = "  QR payload:  MT:Y.K90-C714FGCO6MZ00\n"
-    manual_line = "  Manual code: 12704227053\n"
+    event_line = json.dumps(
+        {
+            "event": "matter_onboarding",
+            "manual_code": "12704227053",
+            "qr_payload": "MT:Y.K90-C714FGCO6MZ00",
+        }
+    )
 
-    capture.feed(qr_line)
-    capture.feed(manual_line)
+    capture.feed(event_line)
 
     assert capture.require_data() == bench.MatterOnboardingData(
         "MT:Y.K90-C714FGCO6MZ00",
         "12704227053",
     )
-    assert "MT:Y.K90-C714FGCO6MZ00" not in capture.redact(qr_line)
-    assert "12704227053" not in capture.redact(manual_line)
+    redacted = capture.redact(event_line)
+    assert "MT:Y.K90-C714FGCO6MZ00" not in redacted
+    assert "12704227053" not in redacted
 
 
 def test_resolve_chip_tool_requires_matching_revision(tmp_path, monkeypatch):

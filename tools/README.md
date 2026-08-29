@@ -113,7 +113,7 @@ The following rules are normative for `benchmark_firmware.py` and its owners und
 - Build the canonical frontend configuration in its ordinary build directory, retain production defaults, and allow the normal incremental build system to reuse valid artifacts. Do not generate benchmark-specific YAML, sdkconfig overlays, or dedicated build directories, and do not force a clean build.
 - Clear all device data as part of the frontend's normal `flash --erase` operation. Do not add partial-erasure exceptions.
 - Provision Wi-Fi through standard Improv Serial on Native and ESPHome. Commission Matter through a revision-compatible CHIP Tool controller over BLE and Wi-Fi. Micro-ESPectre may inject only connectivity settings because it does not support Improv Serial.
-- Apply and verify an optional BSSID through Direct where supported. Record whether Direct uptime evidence observed a reboot during the apply, but keep that observation informational and outside PASS or FAIL.
+- Apply and verify an optional BSSID through Direct where supported. Record whether Direct uptime evidence observed a reboot during the apply, but keep that observation informational and outside PASS or FAIL. If the firmware uses its single fallback reboot while settling the new association, restart the bounded readiness stabilization from the recovered uptime before opening the scored window.
 - Use Direct responses, diagnostics, and events for runtime configuration, validation, and metrics. Use serial output only to detect fatal firmware errors, unexpected resets, or an unexpectedly terminated monitor.
 - Verify production runtime defaults before applying case-specific mutations. Reuse one canonical Lightweight image and select another supported detector through Direct instead of rebuilding it.
 
@@ -145,7 +145,7 @@ Micro-ESPectre clears the flash, copies only the laboratory connectivity setting
 python tools/benchmark_firmware.py --chip c3 --port /dev/cu.usbmodem01
 ```
 
-The benchmark always passes `--chip` to `./espectre` and delegates serial selection, chip verification, full-data erasure during flash, provisioning, and monitoring to the repository CLI. Omit `--port` to auto-select a single compatible device or choose interactively among multiple compatible candidates; pass `--port` to require that exact compatible device. Matter is omitted automatically for ESP32-S2 because the supported commissioning flow requires Bluetooth.
+The benchmark always passes `--chip` to `./espectre` and delegates canonical config selection, build artifact resolution, serial selection, chip verification, full-data erasure during flash, provisioning, onboarding reads, Direct discovery filtering, and monitoring to the repository CLI. Delegated build, provisioning, Matter onboarding, and Micro Direct-ready events use final machine-readable JSON objects rather than human-output parsing. Omit `--port` to auto-select a single matching device, including the case where several boards are connected and only one has the requested chip; choose interactively when more than one equally suitable match remains. Pass `--port` to require that exact compatible device. Matter is omitted automatically for ESP32-S2 because the supported commissioning flow requires Bluetooth.
 
 Use `--duration SECONDS` for a longer scored window, such as a five-minute Micro-ESPectre heap soak:
 
@@ -159,7 +159,7 @@ Use `--resume` to keep passing results from the chip report and rerun only faile
 python tools/benchmark_firmware.py --chip c3 --resume
 ```
 
-The command writes a partial report when a case fails and returns success only when every case in the resulting report passes. Native, ESPHome, and Matter refresh that report and their structured artifacts after each detector completes, while retaining their shared build, flash, provisioning, and serial-monitor session. It stores normalized Direct samples and events, transport outcomes, firmware hashes, structured analysis, and a run manifest under `data/untracked/firmware_benchmarks/<run-id>/`. Runtime artifacts exclude raw serial output, raw Direct payloads, credentials, onboarding data, fabric keys, device identity, and local addresses.
+The command writes a partial report when a case fails and returns success only when every case in the resulting report passes. A failed flash stops the run because every remaining case depends on the same connected serial target. Native, ESPHome, and Matter refresh that report and their structured artifacts after each detector completes, while retaining their shared build, flash, provisioning, and serial-monitor session. It stores normalized Direct samples and events, transport outcomes, firmware hashes, structured analysis, and a run manifest under `data/untracked/firmware_benchmarks/<run-id>/`. Runtime artifacts exclude raw serial output, raw Direct payloads, credentials, onboarding data, fabric keys, device identity, and local addresses.
 
 Every sensing case waits for five consecutive ready, non-zero Direct diagnostics samples before scoring. Native, ESPHome, and Matter must first report the production defaults through Direct: Lightweight detection, internal `ping` traffic, and a 100 pps target. The benchmark changes only the detector needed by the scored case. Micro confirms its fixed production profile through Direct.
 

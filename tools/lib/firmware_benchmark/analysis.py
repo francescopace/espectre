@@ -25,10 +25,6 @@ ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 LOG_TIMESTAMP_RE = re.compile(r"\((?P<timestamp_ms>\d+)\)")
 
 
-MICRO_WIFI_IP_RE = re.compile(
-    r"WiFi connected - IP:\s*(?P<ip>\d{1,3}(?:\.\d{1,3}){3})\b"
-)
-
 def strip_ansi(text: str) -> str:
     return ANSI_ESCAPE_RE.sub("", text)
 

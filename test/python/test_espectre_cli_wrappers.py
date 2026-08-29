@@ -21,7 +21,20 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from espectre_cli import app, common, device_control, esphome, idf, idf_container, mqtt_shell, serial_monitor, targets
+from espectre_cli import (
+    app,
+    build_artifacts,
+    common,
+    device_control,
+    device_discovery,
+    esphome,
+    idf,
+    idf_container,
+    micro,
+    mqtt_shell,
+    serial_monitor,
+    targets,
+)
 
 
 def _mqtt_args() -> argparse.Namespace:
@@ -95,8 +108,133 @@ def test_detect_serial_ports_filters_usb_like_devices(monkeypatch) -> None:
     assert common.detect_serial_ports() == ["/dev/cu.usbmodem1", "/dev/cu.usbserial2"]
 
 
+def test_build_artifact_metadata_reports_exact_file(tmp_path: Path) -> None:
+    artifact = tmp_path / "firmware.bin"
+    artifact.write_bytes(b"firmware")
+
+    metadata = build_artifacts.build_artifact_metadata(
+        frontend="native",
+        chip="s3",
+        artifact=artifact,
+    )
+
+    assert metadata["artifact"] == str(artifact.resolve())
+    assert metadata["command"] == "build"
+    assert metadata["firmware_size_bytes"] == 8
+    assert len(metadata["firmware_sha256"]) == 64
+
+
+def test_discovered_device_selection_filters_chip_before_ambiguity() -> None:
+    def record(chip: str, address: str) -> device_discovery.DiscoveredDevice:
+        return device_discovery.DiscoveredDevice(
+            service_name=f"{chip}._espectre._tcp.local.",
+            service_type=device_discovery.ESPECTRE_SERVICE_TYPE,
+            frontend="native",
+            device_id=1,
+            device_id_text="0000000000000001",
+            name=chip,
+            chip=chip,
+            ip_address=address,
+            port=device_discovery.ESPECTRE_DIRECT_PORT,
+            transport="direct-http",
+            endpoint=f"http://{address}:62587/espectre/v1/request",
+            protocol="1.0",
+        )
+
+    c3 = record("esp32c3", "192.0.2.10")
+    s3 = record("esp32-s3", "192.0.2.11")
+
+    assert device_discovery.select_discovered_device(
+        [c3, s3],
+        chip="s3",
+        interactive=False,
+    ) is s3
+
+
 def test_get_serial_port_returns_explicit_argument() -> None:
     assert common.get_serial_port("/dev/cu.explicit") == "/dev/cu.explicit"
+
+
+def test_matter_onboarding_json_is_machine_readable(monkeypatch, capsys) -> None:
+    fake_serial = ModuleType("serial")
+
+    class FakeConnection:
+        def __init__(self, *_args, **_kwargs):
+            self.lines = iter(
+                [
+                    b"I app: MATTER_QR=MT:TESTPAYLOAD\n",
+                    b"I app: MATTER_MANUAL_CODE=12704227053\n",
+                ]
+            )
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def readline(self):
+            return next(self.lines, b"")
+
+    fake_serial.Serial = FakeConnection
+    fake_serial.SerialException = OSError
+    monkeypatch.setitem(sys.modules, "serial", fake_serial)
+    monkeypatch.setattr(serial_monitor, "hard_reset_serial", lambda _connection: None)
+
+    assert idf.read_matter_onboarding(
+        "/dev/cu.test",
+        chip="s3",
+        json_output=True,
+    )
+    event = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert event == {
+        "chip": "s3",
+        "event": "matter_onboarding",
+        "frontend": "matter",
+        "manual_code": "12704227053",
+        "port": "/dev/cu.test",
+        "qr_payload": "MT:TESTPAYLOAD",
+    }
+
+
+def test_micro_run_json_emits_direct_ready_event(monkeypatch, capsys) -> None:
+    class FakeProcess:
+        stdout = iter(
+            [
+                "WiFi connected - IP: 192.0.2.10, Protocol: 802.11n, "
+                "Bandwidth: 20MHz\n"
+            ]
+        )
+
+        @staticmethod
+        def wait():
+            return 0
+
+    monkeypatch.setattr(micro, "_require_mpremote", lambda: None)
+    monkeypatch.setattr(micro, "get_serial_port", lambda *_args, **_kwargs: "/dev/cu.test")
+    monkeypatch.setattr(micro.subprocess, "Popen", lambda *_args, **_kwargs: FakeProcess())
+
+    micro.run_application(
+        argparse.Namespace(port=None, chip="s3", json=True)
+    )
+
+    events = []
+    for line in capsys.readouterr().out.splitlines():
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            events.append(value)
+    assert events == [
+        {
+            "chip": "s3",
+            "endpoint": "http://192.0.2.10:62587/espectre/v1/request",
+            "event": "direct_ready",
+            "frontend": "micro",
+            "port": "/dev/cu.test",
+        }
+    ]
 
 
 def test_get_serial_port_auto_detects_single_port(monkeypatch) -> None:
@@ -107,6 +245,7 @@ def test_get_serial_port_auto_detects_single_port(monkeypatch) -> None:
 
 def test_get_serial_port_prompts_for_multiple_ports(monkeypatch) -> None:
     monkeypatch.setattr(common, "detect_serial_ports", lambda: ["/dev/cu.a", "/dev/cu.b"])
+    monkeypatch.setattr(common, "detect_chip_type", lambda port, **_kwargs: "c3" if port.endswith("a") else "s3")
     monkeypatch.setattr("builtins.input", lambda _prompt: "2")
 
     assert common.get_serial_port(None) == "/dev/cu.b"
@@ -114,6 +253,7 @@ def test_get_serial_port_prompts_for_multiple_ports(monkeypatch) -> None:
 
 def test_get_serial_port_rejects_invalid_selection(monkeypatch) -> None:
     monkeypatch.setattr(common, "detect_serial_ports", lambda: ["/dev/cu.a", "/dev/cu.b"])
+    monkeypatch.setattr(common, "detect_chip_type", lambda _port, **_kwargs: "c6")
     monkeypatch.setattr("builtins.input", lambda _prompt: "9")
 
     with pytest.raises(SystemExit):
@@ -133,6 +273,13 @@ def test_get_serial_port_rejects_invalid_selection(monkeypatch) -> None:
 )
 def test_native_console_matches_chip_transport(chip: str, console: str) -> None:
     assert common.NATIVE_CONSOLE_BY_CHIP[chip] == console
+    assert common.serial_console_mode(chip) == console
+
+
+def test_format_serial_candidate_includes_chip_and_console() -> None:
+    candidate = common.SerialCandidate("/dev/cu.usbmodem1", "c6", "usb_serial_jtag")
+
+    assert common.format_serial_candidate(candidate) == "/dev/cu.usbmodem1  ESP32-C6  usb_serial_jtag"
 
 
 def test_resolve_serial_port_rejects_explicit_incompatible_port(monkeypatch) -> None:
@@ -176,6 +323,49 @@ def test_resolve_serial_port_accepts_explicit_flash_port_without_discovery(monke
     ) == "/dev/serial/by-id/espectre"
 
 
+def test_native_flash_prefers_the_canonical_console_for_matching_chips(monkeypatch) -> None:
+    fake_serial = ModuleType("serial")
+    fake_tools = ModuleType("serial.tools")
+    fake_list_ports = ModuleType("serial.tools.list_ports")
+    fake_list_ports.comports = lambda: [
+        SimpleNamespace(
+            device="/dev/cu.bridge",
+            description="USB Single Serial",
+            product="USB Single Serial",
+            interface=None,
+            manufacturer="QinHeng Electronics",
+            vid=0x1A86,
+        ),
+        SimpleNamespace(
+            device="/dev/cu.native",
+            description="USB JTAG/serial debug unit",
+            product="USB JTAG/serial debug unit",
+            interface=None,
+            manufacturer="Espressif",
+            vid=common.ESPRESSIF_USB_VENDOR_ID,
+        ),
+    ]
+    fake_tools.list_ports = fake_list_ports
+    fake_serial.tools = fake_tools
+    monkeypatch.setitem(sys.modules, "serial", fake_serial)
+    monkeypatch.setitem(sys.modules, "serial.tools", fake_tools)
+    monkeypatch.setitem(sys.modules, "serial.tools.list_ports", fake_list_ports)
+    monkeypatch.setattr(
+        common,
+        "compatible_serial_ports",
+        lambda **_kwargs: ["/dev/cu.bridge", "/dev/cu.native"],
+    )
+    monkeypatch.setattr(common, "detect_chip_type", lambda _port, **_kwargs: "s3")
+    monkeypatch.setattr("builtins.input", lambda _prompt: pytest.fail("should not prompt"))
+
+    assert common.resolve_serial_port(
+        None,
+        chip="s3",
+        frontend="native",
+        purpose="flash",
+    ) == "/dev/cu.native"
+
+
 def test_resolve_serial_port_accepts_alias_for_compatible_console(monkeypatch) -> None:
     alias = "/dev/serial/by-id/espectre"
     device = "/dev/ttyACM0"
@@ -200,6 +390,7 @@ def test_resolve_serial_port_prompts_only_among_compatible_candidates(monkeypatc
         "compatible_serial_ports",
         lambda **_kwargs: ["/dev/cu.valid-a", "/dev/cu.valid-b"],
     )
+    monkeypatch.setattr(common, "detect_chip_type", lambda _port, **_kwargs: "s3")
     monkeypatch.setattr("builtins.input", lambda _prompt: "2")
 
     assert common.resolve_serial_port(
@@ -225,6 +416,84 @@ def test_resolve_serial_port_without_chip_uses_action_candidates(monkeypatch) ->
         purpose="flash",
     ) == "/dev/cu.flash"
     assert observed == [{"chip": None, "frontend": "native", "purpose": "flash"}]
+
+
+def test_resolve_serial_port_auto_selects_single_matching_chip(monkeypatch) -> None:
+    ports = {
+        "/dev/cu.esp32": "esp32",
+        "/dev/cu.s3": "s3",
+        "/dev/cu.c3": "c3",
+        "/dev/cu.c6": "c6",
+    }
+    monkeypatch.setattr(common, "compatible_serial_ports", lambda **_kwargs: list(ports))
+    monkeypatch.setattr(common, "detect_chip_type", lambda port, **_kwargs: ports[port])
+    monkeypatch.setattr("builtins.input", lambda _prompt: pytest.fail("should not prompt"))
+
+    assert (
+        common.resolve_serial_port(
+            None,
+            chip="c6",
+            frontend="native",
+            purpose="monitor",
+        )
+        == "/dev/cu.c6"
+    )
+
+
+def test_resolve_serial_port_prompts_among_matching_chips(monkeypatch, capsys) -> None:
+    ports = {
+        "/dev/cu.c6-a": "c6",
+        "/dev/cu.c3": "c3",
+        "/dev/cu.c6-b": "c6",
+    }
+    monkeypatch.setattr(common, "compatible_serial_ports", lambda **_kwargs: list(ports))
+    monkeypatch.setattr(common, "detect_chip_type", lambda port, **_kwargs: ports[port])
+    monkeypatch.setattr("builtins.input", lambda _prompt: "2")
+
+    assert (
+        common.resolve_serial_port(
+            None,
+            chip="c6",
+            frontend="native",
+            purpose="improv",
+        )
+        == "/dev/cu.c6-b"
+    )
+    output = capsys.readouterr().out
+    assert "1. /dev/cu.c6-a  ESP32-C6  usb_serial_jtag" in output
+    assert "2. /dev/cu.c6-b  ESP32-C6  usb_serial_jtag" in output
+    assert "/dev/cu.c3  ESP32-C3  usb_serial_jtag" in output
+
+
+def test_resolve_serial_port_errors_when_requested_chip_not_connected(monkeypatch) -> None:
+    ports = {
+        "/dev/cu.c3": "c3",
+        "/dev/cu.s3": "s3",
+    }
+    monkeypatch.setattr(common, "compatible_serial_ports", lambda **_kwargs: list(ports))
+    monkeypatch.setattr(common, "detect_chip_type", lambda port, **_kwargs: ports[port])
+
+    with pytest.raises(SystemExit):
+        common.resolve_serial_port(
+            None,
+            chip="c6",
+            frontend="native",
+            purpose="flash",
+        )
+
+
+def test_get_serial_port_forwards_chip_to_shared_resolver(monkeypatch) -> None:
+    observed = []
+    monkeypatch.setattr(
+        common,
+        "resolve_serial_port",
+        lambda port_arg, **kwargs: observed.append((port_arg, kwargs)) or "/dev/cu.c6",
+    )
+
+    assert common.get_serial_port(None, chip="c6") == "/dev/cu.c6"
+    assert observed == [
+        (None, {"chip": "c6", "frontend": "native", "purpose": "flash"}),
+    ]
 
 
 def test_improv_provision_json_reports_selected_port(monkeypatch, capsys) -> None:
@@ -292,15 +561,18 @@ def test_detect_chip_type_returns_detected_chip_and_closes_port(
     expected: str,
     monkeypatch,
 ) -> None:
-    closed = {"value": False}
+    lifecycle = []
 
     class FakePort:
         def close(self) -> None:
-            closed["value"] = True
+            lifecycle.append("close")
 
     class FakeDevice:
         CHIP_NAME = chip_name
         _port = FakePort()
+
+        def hard_reset(self) -> None:
+            lifecycle.append("reset")
 
     fake_esptool = ModuleType("esptool")
     fake_esptool.get_default_connected_device = lambda **_kwargs: FakeDevice()
@@ -308,7 +580,7 @@ def test_detect_chip_type_returns_detected_chip_and_closes_port(
     monkeypatch.setattr(common.time, "sleep", lambda _seconds: None)
 
     assert common.detect_chip_type("/dev/cu.test") == expected
-    assert closed["value"] is True
+    assert lifecycle == ["reset", "close"]
 
 
 def test_detect_chip_type_returns_none_when_detection_fails(monkeypatch) -> None:
@@ -322,6 +594,38 @@ def test_detect_chip_type_returns_none_when_detection_fails(monkeypatch) -> None
     monkeypatch.setattr(common.time, "sleep", lambda _seconds: None)
 
     assert common.detect_chip_type("/dev/cu.test") is None
+
+
+def test_detect_chip_type_retries_a_port_that_is_reenumerating(monkeypatch) -> None:
+    calls = 0
+    sleeps = []
+
+    class FakePort:
+        def close(self) -> None:
+            pass
+
+    class FakeDevice:
+        CHIP_NAME = "ESP32-S3"
+        _port = FakePort()
+
+        def hard_reset(self) -> None:
+            pass
+
+    def connect(**_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise FileNotFoundError("No such file or directory: '/dev/cu.test'")
+        return FakeDevice()
+
+    fake_esptool = ModuleType("esptool")
+    fake_esptool.get_default_connected_device = connect
+    monkeypatch.setitem(sys.modules, "esptool", fake_esptool)
+    monkeypatch.setattr(common.time, "sleep", sleeps.append)
+
+    assert common.detect_chip_type("/dev/cu.test") == "s3"
+    assert calls == 2
+    assert sleeps == [common.SERIAL_REENUMERATION_DELAY_S, 1.0]
 
 
 def test_prompt_chip_type_handles_valid_and_invalid_choices(monkeypatch) -> None:
@@ -387,6 +691,48 @@ def test_run_esphome_command_uses_resolved_config_and_device(monkeypatch, tmp_pa
     ]
 
 
+def test_esphome_build_json_reports_the_cli_owned_artifact(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    config_path = tmp_path / "firmware.yaml"
+    config_path.write_text("esphome:", encoding="utf-8")
+    artifact = tmp_path / ".esphome" / "build" / "espectre" / "build" / "espectre.bin"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"firmware")
+    monkeypatch.setattr(esphome, "resolve_esphome_config", lambda *_args: config_path)
+    monkeypatch.setattr(esphome.subprocess, "run", lambda *_args, **_kwargs: None)
+
+    esphome.run_esphome_command(
+        argparse.Namespace(
+            chip="s3",
+            config=None,
+            esphome_command="build",
+            device=None,
+            clean=False,
+            clean_all=False,
+            json=True,
+        )
+    )
+
+    metadata = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert metadata["artifact"] == str(artifact.resolve())
+    assert metadata["frontend"] == "esphome"
+
+
+def test_idf_build_json_reports_the_selected_build_directory(tmp_path: Path, capsys) -> None:
+    artifact = tmp_path / "build-esp32s3" / "espectre-native.bin"
+    artifact.parent.mkdir()
+    artifact.write_bytes(b"firmware")
+
+    idf.print_idf_build_metadata("native", "s3", tmp_path, "build-esp32s3")
+
+    metadata = json.loads(capsys.readouterr().out)
+    assert metadata["artifact"] == str(artifact.resolve())
+    assert metadata["frontend"] == "native"
+
+
 def test_run_esphome_flash_uploads_prebuilt_firmware(monkeypatch, tmp_path: Path) -> None:
     config_path = tmp_path / "firmware.yaml"
     config_path.write_text("esphome:", encoding="utf-8")
@@ -395,6 +741,11 @@ def test_run_esphome_flash_uploads_prebuilt_firmware(monkeypatch, tmp_path: Path
     calls: list[list[str]] = []
 
     monkeypatch.setattr(esphome, "resolve_esphome_config", lambda *_args: config_path)
+    monkeypatch.setattr(
+        esphome,
+        "resolve_serial_port",
+        lambda *_args, **_kwargs: pytest.fail("OTA uploads must not resolve a serial port"),
+    )
     monkeypatch.setattr(esphome.subprocess, "run", lambda cmd, check, **_kwargs: calls.append(cmd))
 
     esphome.run_esphome_command(
@@ -1381,7 +1732,7 @@ def test_run_matter_qr_reads_without_idf_environment(monkeypatch, tmp_path: Path
     ports: list[str] = []
 
     monkeypatch.setitem(idf.IDF_FRONTENDS, "matter", {"app_dir": app_dir, "targets": {"c3": "esp32c3"}})
-    monkeypatch.setattr(idf, "get_serial_port", lambda port: port or "/dev/cu.auto")
+    monkeypatch.setattr(idf, "get_serial_port", lambda port, **_kwargs: port or "/dev/cu.auto")
     monkeypatch.setattr(idf, "read_matter_onboarding", lambda port: ports.append(port) or True)
 
     idf.run_idf_command("matter", argparse.Namespace(idf_command="qr", port=None))
@@ -1575,6 +1926,31 @@ def test_idf_build_parser_accepts_clean_flag() -> None:
     assert args.clean is True
 
 
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["native", "build", "--chip", "s3", "--json"],
+        ["matter", "build", "--chip", "s3", "--json"],
+        ["esphome", "build", "--chip", "s3", "--json"],
+        ["micro", "build", "--chip", "s3", "--json"],
+    ],
+)
+def test_build_parsers_accept_json(arguments) -> None:
+    args = app.build_parser().parse_args(arguments)
+
+    assert args.json is True
+
+
+def test_discovery_parsers_accept_chip_filters() -> None:
+    parser = app.build_parser()
+
+    devices = parser.parse_args(["devices", "--frontend", "matter", "--chip", "s3"])
+    direct = parser.parse_args(["direct", "status", "--frontend", "matter", "--chip", "s3"])
+
+    assert devices.chip == "s3"
+    assert direct.chip == "s3"
+
+
 def test_idf_flash_parser_accepts_chip() -> None:
     parser = app.build_parser()
 
@@ -1611,6 +1987,27 @@ def test_provision_parser_accepts_optional_chip_and_json() -> None:
     assert args.chip == "s3"
     assert args.port is None
     assert args.json is True
+
+
+def test_micro_device_parsers_accept_optional_chip() -> None:
+    parser = app.build_parser()
+
+    deploy_args = parser.parse_args(["micro", "deploy", "--chip", "c6"])
+    run_args = parser.parse_args(["micro", "run", "--chip", "c3"])
+    verify_args = parser.parse_args(["micro", "verify", "--chip", "s3"])
+
+    assert deploy_args.chip == "c6"
+    assert run_args.chip == "c3"
+    assert verify_args.chip == "s3"
+
+
+def test_matter_qr_parser_accepts_optional_chip() -> None:
+    parser = app.build_parser()
+
+    args = parser.parse_args(["matter", "qr", "--chip", "c6"])
+
+    assert args.chip == "c6"
+    assert args.port is None
 
 
 def test_idf_build_parser_accepts_backend_and_pull_policy(monkeypatch) -> None:

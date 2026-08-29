@@ -240,37 +240,37 @@ def main() -> int:
             results.append(result)
             write_current_report()
 
-        native_cases = tuple(case for case in selected_cases if case.frontend == "native")
-        if native_cases:
-            run_direct_frontend_cases_safely(
-                native_cases,
+        flash_failed = False
+        for frontend in ("native", "esphome", "matter"):
+            frontend_cases = tuple(
+                case for case in selected_cases if case.frontend == frontend
+            )
+            if not frontend_cases:
+                continue
+            frontend_results = run_direct_frontend_cases_safely(
+                frontend_cases,
                 args.chip,
                 port,
                 on_result=record_direct_result,
             )
             write_current_report()
-
-        esphome_cases = tuple(case for case in selected_cases if case.frontend == "esphome")
-        if esphome_cases:
-            run_direct_frontend_cases_safely(
-                esphome_cases,
-                args.chip,
-                port,
-                on_result=record_direct_result,
+            flash_failed = any(
+                result.flash is not None and result.flash.returncode != 0
+                for result in frontend_results
             )
-            write_current_report()
+            if flash_failed:
+                print(
+                    "\nFlash failed; stopping the benchmark because the remaining "
+                    "cases use the same serial target.",
+                    file=sys.stderr,
+                )
+                break
 
-        matter_cases = tuple(case for case in selected_cases if case.frontend == "matter")
-        if matter_cases:
-            run_direct_frontend_cases_safely(
-                matter_cases,
-                args.chip,
-                port,
-                on_result=record_direct_result,
-            )
-            write_current_report()
-
-        micro_cases = tuple(case for case in selected_cases if case.frontend == "micro")
+        micro_cases = (
+            ()
+            if flash_failed
+            else tuple(case for case in selected_cases if case.frontend == "micro")
+        )
         shared_micro_flash: CommandResult | None = None
         for micro_case in micro_cases:
             micro_result = run_micro_case(
