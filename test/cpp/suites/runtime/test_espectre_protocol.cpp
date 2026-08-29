@@ -259,6 +259,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"diagnostics\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"set_sensing\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"required\":[\"enabled\"]") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"maxLength\"") == std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"access\":\"network_admin\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"wifi_access_points\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"scan_wifi_access_points\"") != std::string::npos);
@@ -365,6 +366,31 @@ void test_parse_espectre_command_parses_info_and_threshold_commands(void) {
       &error));
   TEST_ASSERT_TRUE(command.has_device_label);
   TEST_ASSERT_TRUE(command.device_label.empty());
+  const std::string ascii_label_at_limit(ESPECTRE_DEVICE_LABEL_MAX_LENGTH, 'a');
+  TEST_ASSERT_TRUE(parse_espectre_command(
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"x-label-ascii\",\"command\":\"set_device_label\",\"device_label\":\"" +
+          ascii_label_at_limit + "\"}",
+      &command,
+      &error));
+  const std::string ascii_label_over_limit = ascii_label_at_limit + "a";
+  TEST_ASSERT_FALSE(parse_espectre_command(
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"x-label-ascii-long\",\"command\":\"set_device_label\",\"device_label\":\"" +
+          ascii_label_over_limit + "\"}",
+      &command,
+      &error));
+  const std::string utf8_label_at_limit = std::string(u8"éééééééééééééééé");
+  TEST_ASSERT_EQUAL(ESPECTRE_DEVICE_LABEL_MAX_LENGTH, utf8_label_at_limit.size());
+  TEST_ASSERT_TRUE(parse_espectre_command(
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"x-label-utf8\",\"command\":\"set_device_label\",\"device_label\":\"" +
+          utf8_label_at_limit + "\"}",
+      &command,
+      &error));
+  const std::string utf8_label_over_limit = utf8_label_at_limit + u8"é";
+  TEST_ASSERT_FALSE(parse_espectre_command(
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"x-label-utf8-long\",\"command\":\"set_device_label\",\"device_label\":\"" +
+          utf8_label_over_limit + "\"}",
+      &command,
+      &error));
 
   TEST_ASSERT_TRUE(
       parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"x2\",\"command\":\"set_threshold\",\"threshold\":2.5}", &command, &error));

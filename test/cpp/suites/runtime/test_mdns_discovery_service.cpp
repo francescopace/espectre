@@ -533,7 +533,8 @@ void test_peer_results_are_bounded_validated_sorted_and_serializable() {
   const uint32_t station = ipv4(192U, 168U, 1U, 100U);
   const uint32_t netmask = ipv4(255U, 255U, 255U, 0U);
   PeerDiscoveryCandidate second = peer("2222222222222222", "espectre-2", station + (2U << 24U));
-  PeerDiscoveryCandidate micro = peer("3333333333333333", "espectre-micro-333333", station + (3U << 24U));
+  PeerDiscoveryCandidate micro = peer(
+      "3333333333333333", "espectre-3333333333333333", station + (3U << 24U));
   micro.frontend = "micro";
   micro.capabilities = "monitor";
   PeerDiscoveryCandidate first = peer("1111111111111111", "espectre-1", station + (1U << 24U));

@@ -26,6 +26,7 @@ int main(int argc, char **argv) {
     capabilities.set(Method::STATUS);
     capabilities.set(Method::CONFIG);
     capabilities.set(Method::DIAGNOSTICS);
+    capabilities.set(Method::RECALIBRATE);
     capabilities.set(espectre::EspectreConfigSection::RUNTIME);
     capabilities.set(espectre::EspectreConfigSection::DEVICE);
     capabilities.set(espectre::EspectreConfigSection::WIFI);

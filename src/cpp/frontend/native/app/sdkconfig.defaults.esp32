@@ -7,6 +7,7 @@
 CONFIG_LWIP_IRAM_OPTIMIZATION=n
 CONFIG_ESP_CONSOLE_UART_DEFAULT=y
 CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=n
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=64
 
 # Validated classic ESP32 scheduling profile. Other targets retain the shared
 # Direct HTTPD priority of 1 unless their target profile overrides it.

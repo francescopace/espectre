@@ -23,7 +23,6 @@ STATS_DIAGNOSTIC_KEYS = (
     "wifi_rssi_dbm",
 )
 
-
 def _ticks_diff(new, old):
     diff_fn = getattr(time, "ticks_diff", None)
     return diff_fn(new, old) if diff_fn is not None else new - old
@@ -42,6 +41,20 @@ def advance_periodic_anchor(previous_ms, completed_ms, interval_ms):
     return scheduled_ms
 
 
+def periodic_maintenance_due(
+    now_ms,
+    previous_ms,
+    interval_ms,
+    resource_ready,
+    max_deferral_ms,
+):
+    """Return whether periodic work may run now, with bounded deferral."""
+    elapsed_ms = _ticks_diff(now_ms, previous_ms)
+    if elapsed_ms < interval_ms:
+        return False
+    return bool(resource_ready) or elapsed_ms >= interval_ms + max_deferral_ms
+
+
 def _counter_delta(current, previous):
     current = int(current)
     previous = int(previous)
@@ -54,22 +67,23 @@ def _packets_per_second(delta, elapsed_ms):
     return (float(delta) * 1000.0) / float(elapsed_ms)
 
 
-def empty_diagnostics_sample(wifi_channel=0, wifi_rssi_dbm=None):
+def empty_diagnostics_sample(wifi_channel=0, wifi_rssi_dbm=None, out=None):
     """Return the CSI/Wi-Fi fields with zero rates."""
-    return {
-        "traffic_tx_pps": 0.0,
-        "csi_callback_pps": 0.0,
-        "csi_accepted_pps": 0.0,
-        "csi_admitted_pps": 0.0,
-        "csi_filtered_pps": 0.0,
-        "csi_missing_slots_pps": 0.0,
-        "csi_excess_pps": 0.0,
-        "csi_stale_pps": 0.0,
-        "csi_out_of_order_pps": 0.0,
-        "csi_occupancy": 0.0,
-        "wifi_channel": int(wifi_channel or 0),
-        "wifi_rssi_dbm": wifi_rssi_dbm,
-    }
+    if out is None:
+        out = {}
+    out["traffic_tx_pps"] = 0.0
+    out["csi_callback_pps"] = 0.0
+    out["csi_accepted_pps"] = 0.0
+    out["csi_admitted_pps"] = 0.0
+    out["csi_filtered_pps"] = 0.0
+    out["csi_missing_slots_pps"] = 0.0
+    out["csi_excess_pps"] = 0.0
+    out["csi_stale_pps"] = 0.0
+    out["csi_out_of_order_pps"] = 0.0
+    out["csi_occupancy"] = 0.0
+    out["wifi_channel"] = int(wifi_channel or 0)
+    out["wifi_rssi_dbm"] = wifi_rssi_dbm
+    return out
 
 
 def wifi_rssi_dbm(wlan):
@@ -104,6 +118,32 @@ def wifi_csi_dropped(wlan):
         return 0
 
 
+def wifi_csi_callbacks(wlan):
+    """Return native CSI callback invocations, or None on older firmware."""
+    if wlan is None:
+        return None
+    try:
+        get_callbacks = getattr(wlan, "csi_callbacks", None)
+        if not callable(get_callbacks):
+            return None
+        return max(0, int(get_callbacks()))
+    except (AttributeError, OSError, TypeError, ValueError):
+        return None
+
+
+def wifi_csi_available(wlan):
+    """Return the number of complete records waiting in the native CSI ring."""
+    if wlan is None:
+        return 0
+    try:
+        get_available = getattr(wlan, "csi_available", None)
+        if not callable(get_available):
+            return 0
+        return max(0, int(get_available()))
+    except (AttributeError, OSError, TypeError, ValueError):
+        return 0
+
+
 def collect_runtime_diagnostics_snapshot(
     traffic_generator=None,
     callback_total=0,
@@ -118,6 +158,7 @@ def collect_runtime_diagnostics_snapshot(
     window_slots=0,
     wifi_channel=0,
     rssi_dbm=None,
+    out=None,
 ):
     """Build the cumulative counter snapshot consumed by the rate sampler."""
     traffic_packets_total = 0
@@ -128,21 +169,22 @@ def collect_runtime_diagnostics_snapshot(
                 traffic_packets_total = int(get_count())
             except (TypeError, ValueError):
                 traffic_packets_total = 0
-    return {
-        "traffic_packets_total": int(traffic_packets_total),
-        "csi_callbacks_total": int(callback_total),
-        "csi_accepted_total": int(accepted_total),
-        "csi_admitted_total": int(admitted_total),
-        "csi_filtered_total": int(filtered_total),
-        "csi_missing_slots_total": int(missing_slots_total),
-        "csi_excess_total": int(excess_total),
-        "csi_stale_total": int(stale_total),
-        "csi_out_of_order_total": int(out_of_order_total),
-        "csi_occupancy_slots": int(occupancy_slots),
-        "csi_window_slots": int(window_slots),
-        "wifi_channel": int(wifi_channel or 0),
-        "wifi_rssi_dbm": rssi_dbm,
-    }
+    if out is None:
+        out = {}
+    out["traffic_packets_total"] = int(traffic_packets_total)
+    out["csi_callbacks_total"] = int(callback_total)
+    out["csi_accepted_total"] = int(accepted_total)
+    out["csi_admitted_total"] = int(admitted_total)
+    out["csi_filtered_total"] = int(filtered_total)
+    out["csi_missing_slots_total"] = int(missing_slots_total)
+    out["csi_excess_total"] = int(excess_total)
+    out["csi_stale_total"] = int(stale_total)
+    out["csi_out_of_order_total"] = int(out_of_order_total)
+    out["csi_occupancy_slots"] = int(occupancy_slots)
+    out["csi_window_slots"] = int(window_slots)
+    out["wifi_channel"] = int(wifi_channel or 0)
+    out["wifi_rssi_dbm"] = rssi_dbm
+    return out
 
 
 def apply_diagnostics_sample(payload, sample, wifi_channel=0, rssi_dbm=None):
@@ -161,20 +203,21 @@ class RuntimeDiagnosticsSampler:
     """Convert cumulative counters into rates over the interval between reads."""
 
     def __init__(self):
-        self._previous = None
+        self._previous = {}
         self._previous_ms = 0
         self._baseline_ready = False
 
     def reset(self, snapshot, now_ms):
-        self._previous = snapshot
+        self._previous.update(snapshot)
         self._previous_ms = int(now_ms)
         self._baseline_ready = True
 
-    def sample(self, snapshot, now_ms):
+    def sample(self, snapshot, now_ms, out=None):
         now_ms = int(now_ms)
         result = empty_diagnostics_sample(
             wifi_channel=snapshot.get("wifi_channel", 0),
             wifi_rssi_dbm=snapshot.get("wifi_rssi_dbm"),
+            out=out,
         )
         if not self._baseline_ready:
             self.reset(snapshot, now_ms)
@@ -234,7 +277,6 @@ class RuntimePerformanceDiagnostics:
     """Aggregate loop, detector, and heap measurements into canonical windows."""
 
     WINDOW_INTERVAL_MS = 10_000
-
     def __init__(self):
         self._minimum_heap_free = None
         self._latest = self._empty_snapshot()
@@ -269,13 +311,14 @@ class RuntimePerformanceDiagnostics:
         self._detection_duration_max_us = 0
         self._detection_samples = 0
 
-    def record_loop_duration(self, duration_us):
+    def record_loop_duration(self, duration_us, weight=1):
         """Record one measured main-loop body duration."""
         duration_us = max(0, int(duration_us))
-        self._loop_busy_us += duration_us
-        self._loop_duration_sum_us += duration_us
+        weight = max(1, int(weight))
+        self._loop_busy_us += duration_us * weight
+        self._loop_duration_sum_us += duration_us * weight
         self._loop_duration_max_us = max(self._loop_duration_max_us, duration_us)
-        self._loop_samples += 1
+        self._loop_samples += weight
 
     def record_detection_duration(self, duration_us):
         """Record one detector evaluation duration."""
@@ -294,7 +337,7 @@ class RuntimePerformanceDiagnostics:
         )
         self._detection_samples += 1
 
-    def update_if_due(self, now_ms, heap_free):
+    def update_if_due(self, now_ms, heap_free, out=None):
         """Complete a window when due and return the current canonical snapshot."""
         now_ms = int(now_ms)
         heap_free = max(0, int(heap_free))
@@ -304,10 +347,10 @@ class RuntimePerformanceDiagnostics:
             self._minimum_heap_free = min(self._minimum_heap_free, heap_free)
         if self._window_start_ms is None:
             self._window_start_ms = now_ms
-            return self.snapshot(heap_free)
+            return self.snapshot(heap_free, out=out)
         elapsed_ms = _ticks_diff(now_ms, self._window_start_ms)
         if elapsed_ms < self.WINDOW_INTERVAL_MS:
-            return self.snapshot(heap_free)
+            return self.snapshot(heap_free, out=out)
 
         elapsed_us = max(1, int(elapsed_ms) * 1000)
         runtime_load = min(100.0, self._loop_busy_us * 100.0 / elapsed_us)
@@ -321,32 +364,31 @@ class RuntimePerformanceDiagnostics:
             if self._detection_samples
             else 0
         )
-        self._latest = {
-            "performance_window_ready": True,
-            "performance_window_ms": elapsed_ms,
-            "runtime_load_percent": runtime_load,
-            "loop_samples": self._loop_samples,
-            "loop_avg_us": loop_average,
-            "loop_max_us": self._loop_duration_max_us,
-            "detection_timing_supported": True,
-            "detection_samples": self._detection_samples,
-            "detection_sum_us": self._detection_duration_sum_us,
-            "detection_avg_us": detection_average,
-            "detection_min_us": self._detection_duration_min_us,
-            "detection_max_us": self._detection_duration_max_us,
-        }
+        self._latest["performance_window_ready"] = True
+        self._latest["performance_window_ms"] = elapsed_ms
+        self._latest["runtime_load_percent"] = runtime_load
+        self._latest["loop_samples"] = self._loop_samples
+        self._latest["loop_avg_us"] = loop_average
+        self._latest["loop_max_us"] = self._loop_duration_max_us
+        self._latest["detection_timing_supported"] = True
+        self._latest["detection_samples"] = self._detection_samples
+        self._latest["detection_sum_us"] = self._detection_duration_sum_us
+        self._latest["detection_avg_us"] = detection_average
+        self._latest["detection_min_us"] = self._detection_duration_min_us
+        self._latest["detection_max_us"] = self._detection_duration_max_us
         self.reset()
         self._window_start_ms = now_ms
-        return self.snapshot(heap_free)
+        return self.snapshot(heap_free, out=out)
 
-    def snapshot(self, heap_free):
+    def snapshot(self, heap_free, out=None):
         """Return the latest window with current and low-water heap values."""
         heap_free = max(0, int(heap_free))
         if self._minimum_heap_free is None:
             self._minimum_heap_free = heap_free
         else:
             self._minimum_heap_free = min(self._minimum_heap_free, heap_free)
-        result = dict(self._latest)
+        result = {} if out is None else out
+        result.update(self._latest)
         result["free_memory_kb"] = heap_free / 1024.0
         result["minimum_free_memory_kb"] = self._minimum_heap_free / 1024.0
         return result

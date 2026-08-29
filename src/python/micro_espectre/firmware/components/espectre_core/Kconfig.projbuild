@@ -1,5 +1,13 @@
 menu "Micro-ESPectre"
 
+config ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED
+    bool "Allow loopback development portal origins"
+    default n
+    help
+        Allow HTTP Origins on any port only when the host is exactly
+        localhost, 127.0.0.1, or [::1]. Published firmware must leave
+        this disabled.
+
 menu "Advanced task scheduling"
 
 config ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY

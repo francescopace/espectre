@@ -14,11 +14,13 @@ DEVICE_LABEL = ""  # Optional user-facing label; empty uses the generated device
 # Optional AP lock for mesh/repeater environments.
 # Format: "AA:BB:CC:DD:EE:FF" (or without separators).
 # WIFI_BSSID = "AA:BB:CC:DD:EE:FF"
+WIFI_CHANNEL = 0  # Optional known 2.4 GHz channel used with WIFI_BSSID
 
 # Traffic Generator Configuration
 # Generates WiFi traffic to ensure continuous CSI data
 CSI_TARGET_PPS = 100  # Requested temporal sensing grid and managed traffic target
 TRAFFIC_GENERATOR_ENABLED = True  # False expects an external CSI traffic source
+CSI_LINK_RECOVERY_TIMEOUT_MS = 5000  # Reconnect when the configured traffic source yields no CSI frames
 EVALUATION_INTERVAL_MS = 250  # Time between internal detector evaluations
 MOTION_HITS_MIN = 1
 MOTION_HITS_MAX = 20
@@ -26,7 +28,9 @@ MOTION_ON_HITS = 4            # Consecutive evaluated hits required for IDLE -> 
 MOTION_OFF_HITS = 3           # Consecutive evaluated hits required for MOTION -> IDLE
 
 # CSI Configuration
-CSI_BUFFER_SIZE = 8  # Circular buffer size (used to store csi packets until processed)
+# Cover bounded Direct/GC maintenance pauses at the production 100 pps rate.
+# Sixteen slots retain 160 ms of CSI without the heap cost of a larger research ring.
+CSI_BUFFER_SIZE = 16
 # HT20 can produce the canonical 128-byte payload or a 256-byte doubled layout.
 # This runtime bound selects the native ring's fixed record stride without a rebuild.
 CSI_CAPTURE_MAX_DATA_LEN = 256

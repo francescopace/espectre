@@ -12,7 +12,7 @@ extern "C" {
 #endif
 
 typedef enum {
-    ESPECTRE_NATIVE_DETECTOR_LIGHTWEIGHT = 0,
+  ESPECTRE_NATIVE_DETECTOR_LIGHTWEIGHT = 0,
 } espectre_native_detector_kind_t;
 
 void *espectre_native_detector_create(
@@ -26,21 +26,18 @@ void *espectre_native_detector_create(
     bool enable_lowpass,
     float lowpass_cutoff,
     const uint8_t *subcarriers,
-    uint8_t subcarrier_count
-);
+    uint8_t subcarrier_count);
 void espectre_native_detector_destroy(void *handle);
 bool espectre_native_detector_process(
     void *handle,
     const int8_t *csi_data,
     size_t csi_length,
-    uint32_t timestamp_us
-);
+    uint32_t timestamp_us);
 bool espectre_native_detector_update(void *handle, float output[6]);
 bool espectre_native_detector_set_subcarriers(
     void *handle,
     const uint8_t *subcarriers,
-    uint8_t subcarrier_count
-);
+    uint8_t subcarrier_count);
 bool espectre_native_detector_advance_missing(void *handle, uint32_t count);
 bool espectre_native_detector_set_minimum_valid(void *handle, uint16_t count);
 bool espectre_native_detector_is_ready(void *handle);
@@ -64,8 +61,7 @@ bool espectre_native_sampler_admit(
     uint32_t timestamp_us,
     bool has_timestamp,
     uint32_t now_us,
-    bool has_now
-);
+    bool has_now);
 bool espectre_native_sampler_flush(void *handle);
 uint32_t espectre_native_sampler_get_u32(void *handle, uint8_t field);
 uint64_t espectre_native_sampler_get_u64(void *handle, uint8_t field);

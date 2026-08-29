@@ -91,6 +91,7 @@ def _format_status_fields(diagnostics, *, placeholders=False):
     placeholder = "--" if placeholders else "0"
     admitted = _lookup_value(diagnostics, "csi_admitted_pps", 0.0)
     accepted = _lookup_value(diagnostics, "csi_accepted_pps", 0.0)
+    callbacks = _lookup_value(diagnostics, "csi_callback_pps", 0.0)
     traffic = _lookup_value(diagnostics, "traffic_tx_pps", 0.0)
     occupancy = _lookup_value(diagnostics, "csi_occupancy", 0.0)
     missing = _lookup_value(diagnostics, "csi_missing_slots_pps", 0.0)
@@ -105,6 +106,7 @@ def _format_status_fields(diagnostics, *, placeholders=False):
         occupancy_text = str(int(float(occupancy) * 100.0 + 0.5))
     admitted_value = None if placeholders else admitted
     accepted_value = None if placeholders else accepted
+    callbacks_value = None if placeholders else callbacks
     traffic_value = None if placeholders else traffic
     missing_value = None if placeholders else missing
     excess_value = None if placeholders else excess
@@ -114,6 +116,7 @@ def _format_status_fields(diagnostics, *, placeholders=False):
     rssi_value = None if placeholders else rssi
     admitted_text = _format_integer_value(admitted_value, placeholder=placeholder)
     accepted_text = _format_integer_value(accepted_value, placeholder=placeholder)
+    callbacks_text = _format_integer_value(callbacks_value, placeholder=placeholder)
     traffic_text = _format_integer_value(traffic_value, placeholder=placeholder)
     missing_text = _format_integer_value(missing_value, placeholder=placeholder)
     excess_text = _format_integer_value(excess_value, placeholder=placeholder)
@@ -123,9 +126,10 @@ def _format_status_fields(diagnostics, *, placeholders=False):
     rssi_text = _format_integer_value(rssi_value, placeholder=placeholder)
 
     return (
-        "csi:{}/{} tx:{} occ:{}% miss:{} excess:{} stale:{} ooo:{} | ch:{} rssi:{}".format(
+        "csi:{}/{} cb:{} tx:{} occ:{}% miss:{} excess:{} stale:{} ooo:{} | ch:{} rssi:{}".format(
             admitted_text,
             accepted_text,
+            callbacks_text,
             traffic_text,
             occupancy_text,
             missing_text,

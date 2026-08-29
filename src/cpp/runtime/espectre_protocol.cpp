@@ -142,7 +142,7 @@ void append_capability_commands(std::string *out,
       "set_device_label",
       "mutation",
       "device_admin",
-      "\"device_label\":{\"type\":\"string\",\"maxLength\":32}",
+      "\"device_label\":{\"type\":\"string\"}",
       "\"device_label\"");
   add(capabilities.supports(Method::SET_THRESHOLD),
       "set_threshold",

@@ -182,7 +182,7 @@ def derive_runtime_device_id(wlan):
 
 
 def command_registry():
-    """Return the exact read-only command registry implemented by Micro."""
+    """Return the exact command registry implemented by Micro."""
     empty = {"additionalProperties": False}
     return [
         {"name": "capabilities", "kind": "query", "access": "read", "params": empty, "result": "capabilities"},
@@ -190,6 +190,7 @@ def command_registry():
         {"name": "status", "kind": "query", "access": "read", "params": empty, "result": "status"},
         {"name": "config", "kind": "query", "access": "read", "params": empty, "result": "config"},
         {"name": "diagnostics", "kind": "query", "access": "read", "params": empty, "result": "diagnostics"},
+        {"name": "recalibrate", "kind": "action", "access": "control", "params": empty},
     ]
 
 
@@ -245,12 +246,14 @@ def build_info_payload(
     global_state=None,
     device_id=None,
     csi_traffic_mode="internal",
+    firmware_version="unknown",
+    chip=None,
 ):
     """Build the current Micro frontend information payload."""
     import sys
 
     channel_primary = 0
-    chip = getattr(global_state, "chip_type", None) or sys.platform
+    chip = chip or getattr(global_state, "chip_type", None) or sys.platform
     if wlan.active():
         try:
             channel_primary = wlan.config("channel")
@@ -266,7 +269,7 @@ def build_info_payload(
         "device_name": _protocol_device_name(device_id, chip),
         "device_label": getattr(config, "DEVICE_LABEL", ""),
         "frontend": "micro",
-        "firmware_version": "micropython",
+        "firmware_version": firmware_version or "unknown",
         "chip": chip,
         "network": {
             "channel": {"primary": channel_primary},

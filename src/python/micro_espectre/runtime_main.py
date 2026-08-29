@@ -29,14 +29,17 @@ from src.detector_interface import (
     load_detector_class,
 )
 from src.runtime_motion_policy import RuntimeMotionPolicy
-from src.wifi_bootstrap import cleanup_wifi, connect_wifi
+from src.wifi_bootstrap import cleanup_wifi, connect_wifi, print_wifi_status, recover_wifi
 
 HEARTBEAT_INTERVAL_MS = 1000
+HEARTBEAT_MAX_DRAIN_DEFERRAL_MS = 100
+DIAGNOSTIC_INTERVAL_MS = 5000
+DIAGNOSTIC_MAX_DRAIN_DEFERRAL_MS = 500
 
 # Global state for calibration mode and performance metrics
 class GlobalState:
     def __init__(self):
-        self.calibration_mode = False  # Flag to suspend main loop during calibration
+        self.calibration_mode = False  # Authoritative calibration status
         self.chip_type = None  # Detected chip type (S3, C6, etc.)
         self.csi_phy_metadata_missing = False  # C5/C6 RX metadata omits legacy PHY fields
         self.current_channel = 0  # Track WiFi channel for change detection
@@ -47,8 +50,35 @@ g_state = GlobalState()
 
 def print_heap(label):
     """Print a compact heap snapshot for boot/runtime profiling."""
+    idf_suffix = ""
+    try:
+        import esp32
+
+        regions = esp32.idf_heap_info(esp32.HEAP_DATA)
+        idf_free = sum(region[1] for region in regions)
+        idf_largest = max((region[2] for region in regions), default=0)
+        idf_minimum = sum(region[3] for region in regions)
+        idf_suffix = " idf_free={} idf_largest={} idf_min={}".format(
+            idf_free,
+            idf_largest,
+            idf_minimum,
+        )
+    except (ImportError, AttributeError, OSError, TypeError, ValueError):
+        pass
+    print(
+        "[MEM] {}: free={} alloc={}{}".format(
+            label,
+            gc.mem_free(),
+            gc.mem_alloc(),
+            idf_suffix,
+        )
+    )
+
+
+def collect_and_print_heap(label):
+    """Collect garbage, then print the resulting compact heap snapshot."""
     gc.collect()
-    print(f"[MEM] {label}: free={gc.mem_free()} alloc={gc.mem_alloc()}")
+    print_heap(label)
 
 
 def create_detector(detection_algorithm, window_packets):
@@ -178,6 +208,7 @@ def run_startup_calibration(wlan, detector, traffic_gen):
     pending_timestamp_us = 0
     # Reused per-frame assessment mapping: keeps this loop allocation-free.
     assessment_result = {}
+    advance_missing = getattr(detector, "advance_missing_slots", None)
     while not calibration_tracker.is_complete():
         frame = csi_read_frame(wlan, frame_result)
         if frame:
@@ -188,6 +219,7 @@ def run_startup_calibration(wlan, detector, traffic_gen):
                 expected_len=EXPECTED_CSI_LEN,
                 metadata_missing=g_state.csi_phy_metadata_missing,
                 out=assessment_result,
+                static_fast_path=True,
             )
             if assessment["disposition"] != DISPOSITION_SENSE:
                 filtered_count += 1
@@ -201,7 +233,6 @@ def run_startup_calibration(wlan, detector, traffic_gen):
                         )
                     )
                 del frame
-                time.sleep_ms(1)
                 if time.ticks_diff(time.ticks_ms(), last_packet_time) >= max_timeout_ms:
                     print(f"Timeout waiting for valid CSI packets (collected {calibration_progress}/{calibration_target_packets})")
                     print("Startup calibration aborted")
@@ -219,7 +250,6 @@ def run_startup_calibration(wlan, detector, traffic_gen):
             if csi_data is None:
                 filtered_count += 1
                 del frame
-                time.sleep_ms(1)
                 if time.ticks_diff(time.ticks_ms(), last_packet_time) >= max_timeout_ms:
                     print(f"Timeout waiting for valid CSI packets (collected {calibration_progress}/{calibration_target_packets})")
                     print("Startup calibration aborted")
@@ -230,7 +260,6 @@ def run_startup_calibration(wlan, detector, traffic_gen):
 
             if not frame_timestamp_filter.accept(frame):
                 del frame
-                time.sleep_ms(1)
                 continue
 
             if remap_tag in (NORMALIZATION_DOUBLE_HT20, NORMALIZATION_DOUBLE_HT57_TO_64) and not collapse_logged:
@@ -262,10 +291,8 @@ def run_startup_calibration(wlan, detector, traffic_gen):
                     if callable(begin_calibration):
                         begin_calibration()
                     packets_since_evaluation = 0
-                if temporal_sampler.missing_slots_before:
-                    advance_missing = getattr(detector, "advance_missing_slots", None)
-                    if callable(advance_missing):
-                        advance_missing(temporal_sampler.missing_slots_before)
+                if temporal_sampler.missing_slots_before and callable(advance_missing):
+                    advance_missing(temporal_sampler.missing_slots_before)
                 detector.process_packet(
                     emitted_csi_data,
                     config.DEFAULT_SUBCARRIERS,
@@ -287,7 +314,6 @@ def run_startup_calibration(wlan, detector, traffic_gen):
                     begin_calibration()
                 packets_since_evaluation = 0
             if not emitted:
-                time.sleep_ms(1)
                 continue
 
             if not calibration_cadence.should_evaluate():
@@ -336,7 +362,7 @@ def run_startup_calibration(wlan, detector, traffic_gen):
                 while next_progress_report <= calibration_progress:
                     next_progress_report += 100
         else:
-            time.sleep_ms(1)
+            time.sleep_us(100)
             if time.ticks_diff(time.ticks_ms(), last_packet_time) >= max_timeout_ms:
                 print(f"Timeout waiting for CSI packets (collected {calibration_progress}/{calibration_target_packets})")
                 print("Startup calibration aborted")
@@ -406,7 +432,7 @@ def restart_traffic_generator(traffic_gen):
 def main(wlan=None):
     """Main application loop"""
     print('Micro-ESPectre starting...')
-    print_heap('boot')
+    collect_and_print_heap('boot')
 
     # Detect chip type
     g_state.chip_type = get_chip_type()
@@ -418,7 +444,7 @@ def main(wlan=None):
     # Connect to WiFi
     if wlan is None:
         wlan = connect_wifi()
-    print_heap('after_connect_wifi')
+    collect_and_print_heap('after_connect_wifi')
 
     # Detector capacity is fixed by the configured temporal grid. Measured
     # delivery rate is diagnostic only and never reconstructs the detector.
@@ -438,7 +464,7 @@ def main(wlan=None):
     gc.collect()  # Free memory before creating socket
     from src.traffic_generator import TrafficGenerator
     traffic_gen = TrafficGenerator()
-    print_heap('after_traffic_gen_init')
+    collect_and_print_heap('after_traffic_gen_init')
     if getattr(config, 'TRAFFIC_GENERATOR_ENABLED', True):
         if not traffic_gen.start(target_pps):
             print("FATAL: Traffic generator failed to start - CSI will not work")
@@ -448,7 +474,7 @@ def main(wlan=None):
             machine.reset()  # Reboot and retry
 
         print(f'Traffic generator started (ping, target={target_pps} CSI pps)')
-        print_heap('after_traffic_gen_start')
+        collect_and_print_heap('after_traffic_gen_start')
 
         # Verify CSI packets are flowing with retry logic
         max_tg_retries = 3
@@ -480,7 +506,7 @@ def main(wlan=None):
                 print('Please check WiFi connection and retry')
                 import sys
                 sys.exit(1)
-        print_heap('after_csi_flow_check')
+        collect_and_print_heap('after_csi_flow_check')
 
     else:
         print('Waiting for external CSI packets...')
@@ -507,7 +533,7 @@ def main(wlan=None):
     if callable(set_minimum_valid):
         set_minimum_valid(minimum_valid_slots(detector_window_packets))
     print(f'Detector window: {detector_window_packets} samples for {getattr(config, "SEGMENTATION_WINDOW_SIZE_MS", 1000)} ms')
-    print_heap('after_detector_init')
+    collect_and_print_heap('after_detector_init')
 
     # Detector allocation can fragment the original ESP32 heap enough that the
     # socket opened during the flow probe starts returning ENOMEM. Reopen it
@@ -537,7 +563,7 @@ def main(wlan=None):
             traffic_gen.stop()
         cleanup_wifi(wlan)
         raise RuntimeError("Startup calibration failed")
-    print_heap('after_calibration')
+    collect_and_print_heap('after_calibration')
 
     # The calibration helper is large and is not needed by the steady-state loop.
     import sys
@@ -562,6 +588,9 @@ def main(wlan=None):
     callback_packet_count = 0
     filtered_count = 0  # Packets with wrong SC count
     last_heartbeat_time = time.ticks_ms()
+    last_diagnostic_time = last_heartbeat_time
+    last_csi_frame_time = last_heartbeat_time
+    csi_recovery_attempts = 0
     collapse_logged = False
     remap_logged = False
     ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
@@ -582,16 +611,26 @@ def main(wlan=None):
         RuntimePerformanceDiagnostics,
         advance_periodic_anchor,
         collect_runtime_diagnostics_snapshot,
+        periodic_maintenance_due,
+        wifi_csi_available,
+        wifi_csi_callbacks,
         wifi_csi_dropped,
         wifi_rssi_dbm,
     )
     from src.console_output import format_detection_publish_line
     diagnostics_sampler = RuntimeDiagnosticsSampler()
     performance_diagnostics = RuntimePerformanceDiagnostics()
+    cumulative_diagnostics = {}
+    diagnostics = {}
+    native_callback_total = wifi_csi_callbacks(wlan)
     diagnostics_sampler.reset(
         collect_runtime_diagnostics_snapshot(
             traffic_generator=traffic_gen,
-            callback_total=wifi_csi_dropped(wlan),
+            callback_total=(
+                native_callback_total
+                if native_callback_total is not None
+                else wifi_csi_dropped(wlan)
+            ),
             accepted_total=0,
             admitted_total=0,
             filtered_total=0,
@@ -603,6 +642,7 @@ def main(wlan=None):
             window_slots=temporal_sampler.window_slots,
             wifi_channel=g_state.current_channel,
             rssi_dbm=wifi_rssi_dbm(wlan),
+            out=cumulative_diagnostics,
         ),
         time.ticks_ms(),
     )
@@ -613,6 +653,7 @@ def main(wlan=None):
     latest_threshold = detector.get_threshold()
     latest_effective_state = runtime_policy.effective_state
     latest_loop_duration_us = 0
+    loop_measurement_counter = 0
     from src.direct_api import DirectApi
     direct_api = DirectApi(
         config,
@@ -622,26 +663,114 @@ def main(wlan=None):
         runtime_policy,
         traffic_gen,
     )
+    advance_missing = getattr(detector, "advance_missing_slots", None)
     try:
         direct_api.start()
-        print_heap('after_direct_http_start')
+        collect_and_print_heap('after_direct_http_start')
         while True:
-            loop_start = time.ticks_us()
-
-            # Suspend main loop during calibration
-            if g_state.calibration_mode:
-                time.sleep_ms(1000) # Sleep for 1 second to yield CPU
-                latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
-                performance_diagnostics.record_loop_duration(latest_loop_duration_us)
-                continue
-
+            loop_measurement_counter = (loop_measurement_counter + 1) & 7
+            measure_loop = loop_measurement_counter == 0
+            loop_start = time.ticks_us() if measure_loop else 0
             current_time = time.ticks_ms()
             time_delta = time.ticks_diff(current_time, last_heartbeat_time)
-            if time_delta >= HEARTBEAT_INTERVAL_MS:
+            status_due = time_delta >= HEARTBEAT_INTERVAL_MS
+            if status_due and direct_api.take_recalibration_request():
+                recalibration_ok = False
+                previous_threshold = detector.get_threshold()
+                try:
+                    g_state.calibration_mode = True
+                    direct_api.refresh_status(current_time)
+                    recalibration_ok = run_startup_calibration(
+                        wlan,
+                        detector,
+                        traffic_gen,
+                    )
+                    # The calibration helper is imported only for calibration;
+                    # release its module mapping again before steady state.
+                    import sys
+                    sys.modules.pop("src.threshold", None)
+                    gc.collect()
+                    detector.reset()
+                    runtime_policy.reset()
+                    temporal_sampler.clear_history()
+                    normalization_state.reset()
+                    frame_timestamp_filter.reset()
+                    pending_timestamp_us = 0
+                    frame_result = None
+                    format_drop_streak = 0
+                    last_normalization_id = None
+                    latest_motion_metric = 0.0
+                    latest_threshold = detector.get_threshold()
+                    latest_effective_state = runtime_policy.effective_state
+                    csi_recovery_attempts = 0
+                    performance_diagnostics.reset()
+                    completed_time = time.ticks_ms()
+                    native_callback_total = wifi_csi_callbacks(wlan)
+                    diagnostics_sampler.reset(
+                        collect_runtime_diagnostics_snapshot(
+                            traffic_generator=traffic_gen,
+                            callback_total=(
+                                native_callback_total
+                                if native_callback_total is not None
+                                else callback_packet_count + wifi_csi_dropped(wlan)
+                            ),
+                            accepted_total=processed_packet_count,
+                            admitted_total=temporal_sampler.accepted_packets,
+                            filtered_total=filtered_count + out_of_order_count,
+                            missing_slots_total=temporal_sampler.missing_slots,
+                            excess_total=temporal_sampler.excess_packets,
+                            stale_total=temporal_sampler.stale_packets,
+                            out_of_order_total=temporal_sampler.out_of_order_packets,
+                            occupancy_slots=temporal_sampler.occupancy_slots,
+                            window_slots=temporal_sampler.window_slots,
+                            wifi_channel=g_state.current_channel,
+                            rssi_dbm=wifi_rssi_dbm(wlan),
+                            out=cumulative_diagnostics,
+                        ),
+                        completed_time,
+                    )
+                    if recalibration_ok:
+                        if detector.get_threshold() != previous_threshold:
+                            direct_api.refresh_config()
+                    else:
+                        print('[WARN] Direct recalibration did not find a stable threshold')
+                    last_heartbeat_time = completed_time
+                    last_diagnostic_time = completed_time
+                    last_csi_frame_time = completed_time
+                finally:
+                    g_state.calibration_mode = False
+                    try:
+                        direct_api.refresh_status(time.ticks_ms())
+                    finally:
+                        direct_api.complete_recalibration()
+                continue
+
+            frame = csi_read_frame(wlan, frame_result)
+            csi_backlog = wifi_csi_available(wlan)
+            # Prefer an empty ring for allocation-heavy maintenance, but bound
+            # that deferral so diagnostics and garbage collection cannot starve.
+            drain_deferral_expired = (
+                time_delta >= HEARTBEAT_INTERVAL_MS + HEARTBEAT_MAX_DRAIN_DEFERRAL_MS
+            )
+            ring_drained = csi_backlog == 0
+            diagnostics_due = periodic_maintenance_due(
+                current_time,
+                last_diagnostic_time,
+                DIAGNOSTIC_INTERVAL_MS,
+                ring_drained,
+                DIAGNOSTIC_MAX_DRAIN_DEFERRAL_MS,
+            )
+            if diagnostics_due:
+                gc.collect()
+                native_callback_total = wifi_csi_callbacks(wlan)
                 diagnostics = diagnostics_sampler.sample(
                     collect_runtime_diagnostics_snapshot(
                         traffic_generator=traffic_gen,
-                        callback_total=callback_packet_count + wifi_csi_dropped(wlan),
+                        callback_total=(
+                            native_callback_total
+                            if native_callback_total is not None
+                            else callback_packet_count + wifi_csi_dropped(wlan)
+                        ),
                         accepted_total=processed_packet_count,
                         admitted_total=temporal_sampler.accepted_packets,
                         filtered_total=filtered_count + out_of_order_count,
@@ -653,11 +782,15 @@ def main(wlan=None):
                         window_slots=temporal_sampler.window_slots,
                         wifi_channel=g_state.current_channel,
                         rssi_dbm=wifi_rssi_dbm(wlan),
+                        out=cumulative_diagnostics,
                     ),
                     current_time,
+                    out=diagnostics,
                 )
-                diagnostics.update(
-                    performance_diagnostics.update_if_due(current_time, gc.mem_free())
+                performance_diagnostics.update_if_due(
+                    current_time,
+                    gc.mem_free(),
+                    out=diagnostics,
                 )
                 diagnostics["loop_time_ms"] = latest_loop_duration_us / 1000.0
                 print(format_detection_publish_line(
@@ -666,16 +799,24 @@ def main(wlan=None):
                     threshold=latest_threshold,
                     effective_state=latest_effective_state,
                 ))
-                direct_api.refresh_snapshots(current_time, diagnostics)
+                direct_api.refresh_diagnostics(current_time, diagnostics)
+                last_diagnostic_time = advance_periodic_anchor(
+                    last_diagnostic_time,
+                    time.ticks_ms(),
+                    DIAGNOSTIC_INTERVAL_MS,
+                )
+
+            if status_due and (ring_drained or drain_deferral_expired):
+                direct_api.refresh_status(current_time)
                 last_heartbeat_time = advance_periodic_anchor(
                     last_heartbeat_time,
                     time.ticks_ms(),
                     HEARTBEAT_INTERVAL_MS,
                 )
 
-            frame = csi_read_frame(wlan, frame_result)
-
             if frame:
+                last_csi_frame_time = current_time
+                csi_recovery_attempts = 0
                 frame_result = frame
                 callback_packet_count += 1
                 assessment = assess_ht20_sensing_frame(
@@ -684,6 +825,7 @@ def main(wlan=None):
                     expected_len=EXPECTED_CSI_LEN,
                     metadata_missing=g_state.csi_phy_metadata_missing,
                     out=assessment_result,
+                    static_fast_path=True,
                 )
                 if assessment["disposition"] != DISPOSITION_SENSE:
                     filtered_count += 1
@@ -698,9 +840,12 @@ def main(wlan=None):
                             )
                         )
                     del frame
-                    latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
-                    performance_diagnostics.record_loop_duration(latest_loop_duration_us)
-                    time.sleep_us(100)
+                    if measure_loop:
+                        latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
+                        performance_diagnostics.record_loop_duration(
+                            latest_loop_duration_us,
+                            weight=8,
+                        )
                     continue
 
                 csi_data, _, remap_tag = normalize_ht20_csi_payload(
@@ -713,9 +858,12 @@ def main(wlan=None):
                     filtered_count += 1
                     format_drop_streak += 1
                     del frame
-                    latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
-                    performance_diagnostics.record_loop_duration(latest_loop_duration_us)
-                    time.sleep_us(100)
+                    if measure_loop:
+                        latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
+                        performance_diagnostics.record_loop_duration(
+                            latest_loop_duration_us,
+                            weight=8,
+                        )
                     continue
 
                 if not frame_timestamp_filter.accept(frame):
@@ -723,9 +871,12 @@ def main(wlan=None):
                     if out_of_order_count % 100 == 1:
                         print(f"[WARN] Filtered {out_of_order_count} duplicate or out-of-order CSI frames")
                     del frame
-                    latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
-                    performance_diagnostics.record_loop_duration(latest_loop_duration_us)
-                    time.sleep_us(100)
+                    if measure_loop:
+                        latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
+                        performance_diagnostics.record_loop_duration(
+                            latest_loop_duration_us,
+                            weight=8,
+                        )
                     continue
 
                 should_reset_detector = (
@@ -777,10 +928,8 @@ def main(wlan=None):
                         runtime_policy.reset()
                         latest_motion_metric = 0.0
                         latest_effective_state = runtime_policy.effective_state
-                    if temporal_sampler.missing_slots_before:
-                        advance_missing = getattr(detector, "advance_missing_slots", None)
-                        if callable(advance_missing):
-                            advance_missing(temporal_sampler.missing_slots_before)
+                    if temporal_sampler.missing_slots_before and callable(advance_missing):
+                        advance_missing(temporal_sampler.missing_slots_before)
 
                     detector.process_packet(
                         emitted_csi_data,
@@ -794,9 +943,12 @@ def main(wlan=None):
                     latest_motion_metric = 0.0
                     latest_effective_state = runtime_policy.effective_state
                 if not emitted:
-                    latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
-                    performance_diagnostics.record_loop_duration(latest_loop_duration_us)
-                    time.sleep_us(100)
+                    if measure_loop:
+                        latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
+                        performance_diagnostics.record_loop_duration(
+                            latest_loop_duration_us,
+                            weight=8,
+                        )
                     continue
 
                 if runtime_policy.should_evaluate():
@@ -817,13 +969,78 @@ def main(wlan=None):
                         current_time,
                     )
 
-                latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
-                performance_diagnostics.record_loop_duration(latest_loop_duration_us)
+                if measure_loop:
+                    latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
+                    performance_diagnostics.record_loop_duration(
+                        latest_loop_duration_us,
+                        weight=8,
+                    )
 
-                time.sleep_us(100)
             else:
-                latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
-                performance_diagnostics.record_loop_duration(latest_loop_duration_us)
+                recovery_recorded = False
+                recovery_timeout_ms = max(
+                    1000,
+                    int(getattr(config, 'CSI_LINK_RECOVERY_TIMEOUT_MS', 5000)),
+                )
+                if time.ticks_diff(current_time, last_csi_frame_time) >= recovery_timeout_ms:
+                    recovery_start_us = time.ticks_us()
+                    print_heap('before_csi_recovery')
+                    traffic_enabled = getattr(config, 'TRAFFIC_GENERATOR_ENABLED', True)
+                    force_reconnect = csi_recovery_attempts > 0
+                    action = 'reconnecting WiFi' if force_reconnect else 'rearming CSI'
+                    print(f'[WARN] CSI link stalled; {action}')
+                    if force_reconnect:
+                        if traffic_enabled:
+                            traffic_gen.stop()
+                        # Tear down sockets and mDNS before cycling the station.
+                        # Keeping Direct alive while its netif disappears can
+                        # retain scarce lwIP and heap resources on small chips.
+                        direct_api.stop()
+                        gc.collect()
+                    if not recover_wifi(wlan, force_reconnect=force_reconnect):
+                        raise RuntimeError('CSI link recovery failed')
+                    if force_reconnect:
+                        print_wifi_status(wlan)
+                    if force_reconnect:
+                        if traffic_enabled and not traffic_gen.start(target_pps):
+                            raise RuntimeError('CSI traffic generator recovery failed')
+                        if not run_startup_calibration(wlan, detector, traffic_gen):
+                            raise RuntimeError('CSI link recovery calibration failed')
+                        import sys
+                        # Release the calibration-only module mapping again.
+                        sys.modules.pop("src.threshold", None)
+                        gc.collect()
+                    detector.reset()
+                    runtime_policy.reset()
+                    temporal_sampler.clear_history()
+                    normalization_state.reset()
+                    frame_timestamp_filter.reset()
+                    pending_timestamp_us = 0
+                    latest_motion_metric = 0.0
+                    latest_effective_state = runtime_policy.effective_state
+                    last_normalization_id = None
+                    csi_recovery_attempts += 1
+                    if force_reconnect:
+                        direct_api.start()
+                        print('[INFO] WiFi, CSI, and Direct link recovered')
+                    # Arm the next stall deadline only after every blocking
+                    # recovery step has completed.
+                    last_csi_frame_time = time.ticks_ms()
+                    latest_loop_duration_us = time.ticks_diff(
+                        time.ticks_us(),
+                        recovery_start_us,
+                    )
+                    performance_diagnostics.record_loop_duration(
+                        latest_loop_duration_us,
+                        weight=1,
+                    )
+                    recovery_recorded = True
+                if measure_loop and not recovery_recorded:
+                    latest_loop_duration_us = time.ticks_diff(time.ticks_us(), loop_start)
+                    performance_diagnostics.record_loop_duration(
+                        latest_loop_duration_us,
+                        weight=8,
+                    )
 
                 time.sleep_us(100)
 

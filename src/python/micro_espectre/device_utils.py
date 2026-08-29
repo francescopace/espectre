@@ -278,11 +278,14 @@ _HT20_FULL_HISTORICAL_ASSESSMENT["metadata_source"] = METADATA_SOURCE_HISTORICAL
 
 
 def assess_ht20_sensing_frame(frame, csi_data, *, expected_len=HT20_CSI_LEN,
-                              metadata_missing=False, out=None):
+                              metadata_missing=False, out=None,
+                              static_fast_path=False):
     """Classify one MicroPython CSI frame before normalization.
 
     Pass a reusable mapping as ``out`` in hot loops to avoid per-frame
-    allocations; the returned assessment is ``out`` itself when provided.
+    allocations. The returned assessment is ``out`` itself unless
+    ``static_fast_path`` selects a private, shared, read-only mapping for a
+    common full-width frame. Callers must never mutate that shared result.
     """
     if frame is None:
         return build_csi_format_assessment(reason_code=REASON_NULL_OR_EMPTY, out=out)
@@ -296,14 +299,18 @@ def assess_ht20_sensing_frame(frame, csi_data, *, expected_len=HT20_CSI_LEN,
         raw_len = 0
 
     # The live device path overwhelmingly receives full-width HT20 frames.
-    # Refill the caller-owned mapping in C instead of rebuilding PHY, layout,
-    # and combined mappings field by field for every CSI callback.
+    # Reuse a private module mapping instead of rebuilding PHY, layout, and
+    # combined mappings field by field for every CSI callback.
     if raw_len == HT20_CSI_LEN and expected_len == HT20_CSI_LEN:
         if frame_len <= 9 or metadata_missing:
+            if static_fast_path:
+                return _HT20_FULL_HISTORICAL_ASSESSMENT
             assessment = out if out is not None else {}
             assessment.update(_HT20_FULL_HISTORICAL_ASSESSMENT)
             return assessment
         if is_ht20_sensing_phy_fields(frame[7], frame[9]):
+            if static_fast_path:
+                return _HT20_FULL_WIFI_ASSESSMENT
             assessment = out if out is not None else {}
             assessment.update(_HT20_FULL_WIFI_ASSESSMENT)
             return assessment

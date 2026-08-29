@@ -2,7 +2,6 @@ set(IDF_TARGET esp32s3)
 
 set(SDKCONFIG_DEFAULTS
     boards/sdkconfig.base
-    boards/sdkconfig.spiram_quad
     boards/sdkconfig.flash_qio_80m
     boards/sdkconfig.csi
 )

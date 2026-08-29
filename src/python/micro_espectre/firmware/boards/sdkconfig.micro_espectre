@@ -13,12 +13,18 @@ CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE=n
 # these values after validation without modifying the native component sources.
 CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY=1
 CONFIG_ESPECTRE_TRAFFIC_TASK_PRIORITY=1
+CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED=n
 
 # CSI sensing consumes individual HT20 frames, not aggregated receive bursts.
 CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=n
 CONFIG_ESP_WIFI_AMPDU_RX_ENABLED=n
+# Keep the static receive pool within the MicroPython memory budget. Raising
+# this toward Native's ten-buffer profile consumes Python heap without
+# improving C3 delivery once Direct is active.
 CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6
-# Preserve enough system heap for the Direct HTTP server after CSI calibration.
+# Keep enough elastic Wi-Fi buffering for the 100 pps sensing stream and
+# concurrent Direct I/O. These are upper bounds; unlike the static RX pool,
+# they do not reserve every buffer at startup.
 CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=32
 CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=32
 CONFIG_ESP_WIFI_IRAM_OPT=y
@@ -38,12 +44,17 @@ CONFIG_LWIP_MAX_ACTIVE_TCP=8
 CONFIG_LWIP_MAX_LISTENING_TCP=2
 CONFIG_LWIP_MAX_UDP_PCBS=6
 CONFIG_LWIP_MAX_RAW_PCBS=4
+# Direct uses one persistent command socket and one SSE socket. Two MSS-sized
+# windows cover its bounded JSON frames without reserving the default four MSS
+# in each direction for every connection on heap-constrained C3 devices.
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=2880
+CONFIG_LWIP_TCP_WND_DEFAULT=2880
 
 # Advertise the bounded Direct HTTP endpoint without unused interfaces.
 CONFIG_MDNS_MAX_INTERFACES=1
 CONFIG_MDNS_MAX_SERVICES=1
 CONFIG_MDNS_ACTION_QUEUE_LEN=8
-CONFIG_MDNS_TASK_STACK_SIZE=2048
+CONFIG_MDNS_TASK_STACK_SIZE=4096
 CONFIG_MDNS_ENABLE_CONSOLE_CLI=n
 CONFIG_MDNS_MULTIPLE_INSTANCE=n
 CONFIG_MDNS_PREDEF_NETIF_AP=n

@@ -13,6 +13,10 @@ mock_network = MagicMock()
 mock_network.STA_IF = 0
 sys.modules["network"] = mock_network
 
+import config as micro_config  # noqa: E402
+
+sys.modules["src.config"] = micro_config
+
 
 class MockNativeTraffic:
     def __init__(self):
@@ -26,6 +30,7 @@ class MockNativeTraffic:
         self.reopen_result = True
         self.sent_packets = 0
         self.send_errors = 0
+        self.last_errno = 0
 
     def start(self, gateway, rate_pps):
         self.start_calls.append((gateway, rate_pps))
@@ -56,6 +61,9 @@ class MockNativeTraffic:
     def error_count(self):
         return self.send_errors
 
+    def last_error(self):
+        return self.last_errno
+
 
 mock_native_traffic = MagicMock()
 mock_native_traffic.TrafficGenerator = MockNativeTraffic
@@ -70,11 +78,15 @@ from traffic_generator import (  # noqa: E402
     TRAFFIC_RATE_MIN,
     TrafficGenerator,
 )
+import wifi_bootstrap  # noqa: E402
 
 
 @pytest.fixture
 def mock_wlan():
     wlan = MagicMock()
+    wlan.active.return_value = True
+    wlan.BAND_MODE_2G_ONLY = 1
+    wlan.BANDWIDTH_20 = 20
     wlan.isconnected.return_value = True
     wlan.ifconfig.return_value = (
         "192.168.1.100",
@@ -90,6 +102,123 @@ def mock_wlan():
 @pytest.fixture
 def traffic_gen():
     return TrafficGenerator()
+
+
+def test_recover_wifi_rebuilds_csi_without_reconnecting_live_station(
+    monkeypatch, mock_wlan
+):
+    monkeypatch.setattr(wifi_bootstrap.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(wifi_bootstrap.config, "WIFI_SSID", "lab-network")
+    monkeypatch.setattr(wifi_bootstrap.config, "WIFI_PASSWORD", "secret")
+    monkeypatch.setattr(
+        wifi_bootstrap.config,
+        "WIFI_BSSID",
+        "E6:FA:C4:20:19:DE",
+        raising=False,
+    )
+    monkeypatch.setattr(wifi_bootstrap.config, "CSI_BUFFER_SIZE", 32)
+    monkeypatch.setattr(wifi_bootstrap.config, "WIFI_CHANNEL", 10)
+    mock_wlan.PM_NONE = 0
+
+    assert wifi_bootstrap.recover_wifi(mock_wlan)
+
+    mock_wlan.csi_disable.assert_called_once_with()
+    mock_wlan.csi_enable.assert_called_once_with(
+        buffer_size=32,
+        max_data_len=256,
+    )
+    mock_wlan.disconnect.assert_not_called()
+    mock_wlan.connect.assert_not_called()
+    mock_wlan.config.assert_called_once_with(pm=mock_wlan.PM_NONE)
+    mock_wlan.csi_rearm.assert_not_called()
+
+
+def test_recover_wifi_reconnects_disconnected_station_to_pinned_bssid(monkeypatch, mock_wlan):
+    monkeypatch.setattr(wifi_bootstrap.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(wifi_bootstrap.config, "WIFI_SSID", "lab-network")
+    monkeypatch.setattr(wifi_bootstrap.config, "WIFI_PASSWORD", "secret")
+    monkeypatch.setattr(
+        wifi_bootstrap.config,
+        "WIFI_BSSID",
+        "E6:FA:C4:20:19:DE",
+        raising=False,
+    )
+    monkeypatch.setattr(wifi_bootstrap.config, "CSI_BUFFER_SIZE", 32)
+    monkeypatch.setattr(wifi_bootstrap.config, "WIFI_CHANNEL", 10)
+    mock_wlan.PM_NONE = 0
+    mock_wlan.isconnected.side_effect = [False, False, True, True]
+
+    assert wifi_bootstrap.recover_wifi(mock_wlan)
+
+    mock_wlan.connect.assert_called_once_with(
+        "lab-network",
+        "secret",
+        bssid=bytes.fromhex("E6FAC42019DE"),
+        channel=10,
+    )
+    assert mock_wlan.config.call_args_list[-1].kwargs == {"pm": mock_wlan.PM_NONE}
+    mock_wlan.csi_disable.assert_called_once_with()
+    mock_wlan.csi_enable.assert_called_once_with(
+        buffer_size=32,
+        max_data_len=256,
+    )
+    mock_wlan.csi_rearm.assert_not_called()
+
+
+def test_recover_wifi_force_resets_live_station(monkeypatch, mock_wlan):
+    monkeypatch.setattr(wifi_bootstrap.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(wifi_bootstrap.config, "WIFI_SSID", "lab-network")
+    monkeypatch.setattr(wifi_bootstrap.config, "WIFI_PASSWORD", "secret")
+    monkeypatch.setattr(wifi_bootstrap.config, "WIFI_BSSID", None, raising=False)
+    monkeypatch.setattr(wifi_bootstrap.config, "WIFI_CHANNEL", 10)
+    monkeypatch.setattr(wifi_bootstrap.config, "CSI_BUFFER_SIZE", 32)
+    monkeypatch.setattr(wifi_bootstrap.config, "CSI_CAPTURE_MAX_DATA_LEN", 256)
+    mock_wlan.PM_NONE = 0
+    mock_wlan.isconnected.side_effect = [True, True, True, True]
+
+    assert wifi_bootstrap.recover_wifi(mock_wlan, force_reconnect=True)
+
+    mock_wlan.disconnect.assert_not_called()
+    assert mock_wlan.active.call_args_list == [
+        ((False,), {}),
+        ((True,), {}),
+        ((), {}),
+    ]
+    mock_wlan.connect.assert_called_once_with(
+        "lab-network",
+        "secret",
+        bssid=None,
+        channel=0,
+    )
+    mock_wlan.csi_disable.assert_called_once_with()
+    mock_wlan.csi_enable.assert_called_once_with(
+        buffer_size=32,
+        max_data_len=256,
+    )
+    mock_wlan.csi_rearm.assert_not_called()
+
+
+def test_recover_wifi_retries_full_station_reset_after_timeout(monkeypatch, mock_wlan):
+    monkeypatch.setattr(wifi_bootstrap.time, "sleep", lambda _seconds: None)
+    connect_station = MagicMock(side_effect=[False, True])
+    monkeypatch.setattr(wifi_bootstrap, "_connect_station", connect_station)
+    mock_wlan.isconnected.return_value = True
+
+    assert wifi_bootstrap.recover_wifi(mock_wlan, timeout_seconds=10, force_reconnect=True)
+
+    assert mock_wlan.active.call_args_list == [
+        ((False,), {}),
+        ((True,), {}),
+        ((), {}),
+        ((False,), {}),
+        ((True,), {}),
+        ((), {}),
+    ]
+    assert connect_station.call_args_list == [
+        ((mock_wlan, 5), {"rearm_csi": False}),
+        ((mock_wlan, 5), {"rearm_csi": False}),
+    ]
+    assert mock_wlan.csi_disable.call_count == 2
 
 
 def test_init_requires_native_backend(traffic_gen):
@@ -219,5 +348,6 @@ def test_metrics_getters(traffic_gen):
     traffic_gen.avg_loop_time_ms = 9.5678
     assert traffic_gen.get_actual_pps() == 99.6
     assert traffic_gen.get_avg_loop_time_ms() == 9.57
+    assert traffic_gen.get_last_error() == 0
     assert TRAFFIC_RATE_MIN == 0
     assert TRAFFIC_RATE_MAX == 1000

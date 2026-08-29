@@ -3,7 +3,7 @@
 """Minimal Direct HTTP facade for the Micro-ESPectre sensing runtime."""
 
 import gc
-import json
+import errno
 import time
 
 import espectre_native_direct as native_direct
@@ -11,6 +11,7 @@ import espectre_native_direct as native_direct
 try:
     from src.protocol import (
         DNS_SD_TXT_SCHEMA_VERSION,
+        DIAGNOSTIC_FIELDS,
         PROTOCOL_VERSION,
         build_capabilities_payload,
         build_diagnostics_payload,
@@ -22,6 +23,7 @@ try:
 except ImportError:
     from protocol import (
         DNS_SD_TXT_SCHEMA_VERSION,
+        DIAGNOSTIC_FIELDS,
         PROTOCOL_VERSION,
         build_capabilities_payload,
         build_diagnostics_payload,
@@ -33,16 +35,22 @@ except ImportError:
 
 
 DIRECT_HTTP_PORT = 62587
-
-
-def _json(payload):
-    return json.dumps(payload)
-
+ERRNO_EBUSY = getattr(errno, "EBUSY", 16)
 
 def _bssid_text(value):
     if not isinstance(value, (bytes, bytearray)) or len(value) < 6:
         return ""
     return ":".join("%02X" % byte for byte in value[:6])
+
+
+def _wifi_band(channel):
+    try:
+        channel = int(channel)
+    except (TypeError, ValueError):
+        return ""
+    if channel <= 0:
+        return ""
+    return "2g" if channel <= 14 else "5g"
 
 
 class DirectApi:
@@ -56,10 +64,51 @@ class DirectApi:
         self.runtime_policy = runtime_policy
         self.traffic_generator = traffic_generator
         self.device_id = derive_runtime_device_id(wlan)
+        self.firmware_version = native_direct.firmware_version()
+        self.chip = native_direct.chip_target()
         self.started_ms = time.ticks_ms()
         self._uptime_last_ms = self.started_ms
         self._uptime_ms = 0
         self.started = False
+        self._status_payload = build_status_payload(
+            self.device_id,
+            True,
+            self.started_ms,
+            sensing_enabled=True,
+            ready_to_publish=False,
+            calibrating=bool(self.global_state.calibration_mode),
+            wifi_connected=self.wlan.isconnected(),
+        )
+        self._diagnostics_payload = build_diagnostics_payload(
+            self.device_id,
+            self.started_ms,
+            0,
+        )
+        self._direct_http_diagnostics = {
+            "event_clients": 0,
+            "event_client_limit": 1,
+            "queue_capacity": 1,
+            "queued_messages": 0,
+            "accepted_connections": 0,
+            "rejected_connections": 0,
+            "malformed_requests": 0,
+            "oversized_requests": 0,
+            "rate_limited_requests": 0,
+            "dropped_telemetry_events": 0,
+            "send_failures": 0,
+            "slow_client_disconnects": 0,
+        }
+        self._diagnostics_payload["direct_http"] = self._direct_http_diagnostics
+        self._telemetry_payload = build_telemetry_payload(
+            self.device_id,
+            "micro",
+            self.started_ms,
+            "idle",
+            0.0,
+            self.detector.get_threshold(),
+            "lightweight",
+            0,
+        )
 
     def _uptime_seconds(self, now_ms):
         """Accumulate uptime across MicroPython's wrapping tick counter."""
@@ -70,7 +119,7 @@ class DirectApi:
         return self._uptime_ms // 1000
 
     def _device_hostname(self):
-        return "espectre-micro-" + self.device_id[-6:]
+        return "espectre-" + self.device_id
 
     def _info(self):
         csi_traffic_mode = "internal" if self.traffic_generator.is_running() else "external"
@@ -81,20 +130,19 @@ class DirectApi:
             global_state=self.global_state,
             device_id=self.device_id,
             csi_traffic_mode=csi_traffic_mode,
+            firmware_version=self.firmware_version,
+            chip=self.chip,
         )
 
     def _status(self, now_ms=None):
         if now_ms is None:
             now_ms = time.ticks_ms()
-        return build_status_payload(
-            self.device_id,
-            True,
-            now_ms,
-            sensing_enabled=True,
-            ready_to_publish=self.detector.is_ready(),
-            calibrating=bool(self.global_state.calibration_mode),
-            wifi_connected=self.wlan.isconnected(),
-        )
+        payload = self._status_payload
+        payload["timestamp_ms"] = now_ms
+        payload["ready_to_publish"] = self.detector.is_ready()
+        payload["calibrating"] = bool(self.global_state.calibration_mode)
+        payload["wifi_connected"] = self.wlan.isconnected()
+        return payload
 
     def _config(self):
         try:
@@ -122,7 +170,7 @@ class DirectApi:
                 "connected": self.wlan.isconnected(),
                 "ssid": ssid,
                 "bssid": bssid,
-                "band": "2.4GHz",
+                "band": _wifi_band(channel),
                 "channel": channel,
                 "rssi_dbm": rssi_dbm,
             },
@@ -140,12 +188,16 @@ class DirectApi:
     def _diagnostics(self, now_ms=None, measurements=None):
         if now_ms is None:
             now_ms = time.ticks_ms()
-        return build_diagnostics_payload(
-            self.device_id,
-            now_ms,
-            self._uptime_seconds(now_ms),
-            measurements,
-        )
+        payload = self._diagnostics_payload
+        payload["timestamp_ms"] = int(now_ms)
+        payload["uptime"] = self._uptime_seconds(now_ms)
+        if isinstance(measurements, dict):
+            for key in DIAGNOSTIC_FIELDS:
+                if key in measurements:
+                    payload[key] = measurements[key]
+        if self.started:
+            native_direct.diagnostics(self._direct_http_diagnostics)
+        return payload
 
     def start(self):
         """Start the native bounded HTTP server and mDNS advertisement."""
@@ -159,38 +211,67 @@ class DirectApi:
             instance=info["device_name"],
             device_id=self.device_id,
             chip=str(info["chip"]),
+            firmware_version=info["firmware_version"],
             protocol_version=PROTOCOL_VERSION,
             dns_sd_schema_version=DNS_SD_TXT_SCHEMA_VERSION,
-            capabilities=_json(capabilities),
-            info=_json(info),
-            config=_json(self._config()),
-            status=_json(self._status()),
-            diagnostics=_json(self._diagnostics()),
+            capabilities=capabilities,
+            info=info,
+            config=self._config(),
+            status=self._status(),
+            diagnostics=self._diagnostics(),
         )
-        for attempt in range(3):
+        max_attempts = 3
+        for attempt in range(max_attempts):
             try:
                 native_direct.start(**arguments)
                 break
-            except OSError:
-                if attempt == 2:
+            except OSError as exc:
+                error_number = exc.args[0] if exc.args else None
+                if error_number != ERRNO_EBUSY or attempt + 1 == max_attempts:
                     raise
                 gc.collect()
                 time.sleep_ms(100)
         self.started = True
 
-    def refresh_snapshots(self, now_ms=None, diagnostics=None):
-        """Refresh the read-only status and diagnostics snapshots."""
+    def refresh_status(self, now_ms=None):
+        """Refresh the lightweight read-only status snapshot."""
         if not self.started:
             return
-        gc.collect()
         if now_ms is None:
             now_ms = time.ticks_ms()
-        status_json = _json(self._status(now_ms))
-        native_direct.update_status(status_json)
-        status_json = None
-        diagnostics_json = _json(self._diagnostics(now_ms, diagnostics))
-        native_direct.update_diagnostics(diagnostics_json)
-        diagnostics_json = None
+        native_direct.update_status(self._status(now_ms))
+
+    def refresh_diagnostics(self, now_ms=None, diagnostics=None):
+        """Refresh the full read-only diagnostics snapshot."""
+        if not self.started:
+            return
+        if now_ms is None:
+            now_ms = time.ticks_ms()
+        # The native module encodes these mappings directly into its bounded
+        # snapshot buffers.  Avoiding json.dumps here removes the largest
+        # contiguous allocation from the periodic C3 diagnostics pass.
+        native_direct.update_diagnostics(self._diagnostics(now_ms, diagnostics))
+
+    def refresh_config(self):
+        """Refresh configuration after a successful runtime recalibration."""
+        if self.started:
+            native_direct.update_config(self._config())
+
+    def refresh_snapshots(self, now_ms=None, diagnostics=None):
+        """Refresh status and diagnostics for compatibility with callers."""
+        self.refresh_diagnostics(now_ms, diagnostics)
+        self.refresh_status(now_ms)
+
+    def take_recalibration_request(self):
+        """Claim one queued Direct recalibration request for the main loop."""
+        if not self.started:
+            return False
+        return bool(native_direct.take_recalibration_request())
+
+    def complete_recalibration(self):
+        """Allow the Direct worker to accept another recalibration request."""
+        if self.started:
+            native_direct.complete_recalibration()
 
     def publish_telemetry(self, movement_score, motion_state, threshold, now_ms=None):
         """Emit one canonical telemetry event after a detector evaluation."""
@@ -198,17 +279,13 @@ class DirectApi:
             return
         if now_ms is None:
             now_ms = time.ticks_ms()
-        payload = build_telemetry_payload(
-            self.device_id,
-            "micro",
-            now_ms,
-            "motion" if motion_state else "idle",
-            movement_score,
-            threshold,
-            "lightweight",
-            self._uptime_seconds(now_ms),
-        )
-        native_direct.publish("telemetry", _json(payload))
+        payload = self._telemetry_payload
+        payload["timestamp_ms"] = now_ms
+        payload["motion_state"] = "motion" if motion_state else "idle"
+        payload["movement_score"] = movement_score
+        payload["threshold"] = threshold
+        payload["health"]["uptime_s"] = self._uptime_seconds(now_ms)
+        native_direct.publish("telemetry", payload)
 
     def stop(self):
         """Stop Direct HTTP and remove its DNS-SD service."""

@@ -2,6 +2,7 @@
 # Commercial licensing available under separate agreement; see LICENSING.md.
 """Micro-ESPectre protocol and read-only Direct facade contracts."""
 
+import errno
 import json
 import subprocess
 import sys
@@ -12,7 +13,11 @@ from unittest.mock import MagicMock
 
 import protocol
 from console_output import format_detection_publish_line
-from src.python.micro_espectre.runtime_diagnostics import advance_periodic_anchor
+from src.python.micro_espectre.runtime_diagnostics import (
+    advance_periodic_anchor,
+    periodic_maintenance_due,
+    wifi_csi_available,
+)
 
 
 def test_micro_heartbeat_uses_the_shared_runtime_status_format():
@@ -20,6 +25,7 @@ def test_micro_heartbeat_uses_the_shared_runtime_status_format():
         diagnostics={
             "csi_admitted_pps": 99.0,
             "csi_accepted_pps": 100.0,
+            "csi_callback_pps": 102.0,
             "traffic_tx_pps": 101.0,
             "csi_occupancy": 0.8,
             "csi_missing_slots_pps": 1.0,
@@ -36,7 +42,7 @@ def test_micro_heartbeat_uses_the_shared_runtime_status_format():
 
     assert line == (
         "[#####|#########-----] | mvmt:0.750000 thr:0.250000 | MOTION | "
-        "csi:99/100 tx:101 occ:80% miss:1 excess:2 stale:3 ooo:4 | ch:6 rssi:-50"
+        "csi:99/100 cb:102 tx:101 occ:80% miss:1 excess:2 stale:3 ooo:4 | ch:6 rssi:-50"
     )
 
 
@@ -70,6 +76,20 @@ def test_micro_heartbeat_schedule_handles_tick_wrap(monkeypatch):
     assert advance_periodic_anchor(tick_period - 500, 540, 1_000) == 500
 
 
+def test_micro_maintenance_waits_for_ring_then_honors_maximum_deferral():
+    assert not periodic_maintenance_due(14_999, 10_000, 5_000, False, 500)
+    assert periodic_maintenance_due(15_000, 10_000, 5_000, True, 500)
+    assert not periodic_maintenance_due(15_499, 10_000, 5_000, False, 500)
+    assert periodic_maintenance_due(15_500, 10_000, 5_000, False, 500)
+
+
+def test_micro_csi_backlog_uses_native_ring_occupancy():
+    wlan = SimpleNamespace(csi_available=lambda: 7)
+
+    assert wifi_csi_available(wlan) == 7
+    assert wifi_csi_available(SimpleNamespace()) == 0
+
+
 def test_device_id_matches_native_sha256_pseudonym():
     assert protocol._derive_device_id_from_mac(bytes.fromhex("7c2c6742bbac")) == "3cf79180d3a0aca4"
 
@@ -100,12 +120,20 @@ def test_cpp_and_python_protocol_catalogs_match():
     assert cpp_catalog == python_catalog
 
 
-def test_micro_capabilities_are_read_only_and_minimal():
+def test_micro_capabilities_are_bounded_and_include_recalibration():
     payload = protocol.build_capabilities_payload("0123456789abcdef")
     commands = {command["name"] for command in payload["commands"]}
 
-    assert commands == {"capabilities", "info", "status", "config", "diagnostics"}
-    assert all(command["access"] == "read" for command in payload["commands"])
+    assert commands == {
+        "capabilities", "info", "status", "config", "diagnostics", "recalibrate"
+    }
+    recalibrate = next(command for command in payload["commands"] if command["name"] == "recalibrate")
+    assert recalibrate == {
+        "name": "recalibrate",
+        "kind": "action",
+        "access": "control",
+        "params": {"additionalProperties": False},
+    }
     assert payload["events"] == ["telemetry"]
     assert payload["config_sections"] == ["runtime", "device", "wifi"]
     assert payload["features"] == {"raw_csi": False}
@@ -132,23 +160,87 @@ def test_micro_diagnostics_payload_keeps_only_canonical_fields():
     assert "gc_pause_us" not in payload
 
 
+def test_native_direct_diagnostics_use_pinned_double_buffer_without_heap_copy():
+    source = (
+        Path(__file__).parents[2]
+        / "src/python/micro_espectre/firmware/native_components/native_direct.c"
+    ).read_text(encoding="utf-8")
+
+    assert (
+        "char diagnostics[DIRECT_DIAGNOSTICS_BUFFER_COUNT]"
+        "[DIRECT_MAX_DIAGNOSTICS_BYTES + 1];"
+    ) in source
+    assert "uint8_t diagnostics_readers[DIRECT_DIAGNOSTICS_BUFFER_COUNT];" in source
+    assert "char status_staging[DIRECT_MAX_STATUS_BYTES + 1];" in source
+    assert "json_staging" not in source
+    assert "snapshot = direct_state.diagnostics" not in source
+    assert "result.data = direct_state.diagnostics[index];" in source
+    assert "result.diagnostics_pinned = true;" in source
+    assert "direct_state.diagnostics_readers[index] -= 1U;" in source
+    assert "free(snapshot);" not in source
+
+
+def test_native_direct_enforces_bounded_secure_sse_profile():
+    source = (
+        Path(__file__).parents[2]
+        / "src/python/micro_espectre/firmware/native_components/native_direct.c"
+    ).read_text(encoding="utf-8")
+
+    assert "#define DIRECT_MAX_REQUEST_BYTES (512)" in source
+    assert "#define DIRECT_MAX_EVENT_BYTES (4096)" in source
+    assert "#define DIRECT_HEARTBEAT_INTERVAL_US (10000000ULL)" in source
+    assert "CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED" in source
+    assert "return origin != NULL && origin[0] != '\\0' &&" in source
+    assert 'strcmp(origin, "https://espectre.dev") == 0' in source
+    assert 'strcmp(origin, "https://www.espectre.dev") == 0' in source
+    assert 'strcmp(origin, "https://test.espectre.dev") == 0' in source
+    assert 'DIRECT_HEARTBEAT_FRAME = ": heartbeat\\n\\n"' in source
+    assert 'httpd_resp_set_hdr(request, "Cache-Control", "no-store")' in source
+    assert "!direct_state.heartbeat_work_pending" in source
+    assert "direct_state.event_work_pending || direct_state.heartbeat_work_pending" in source
+    assert "esp_timer_start_periodic(" in source
+    assert "direct_stop_heartbeat();" in source
+    assert "esp_timer_delete(direct_state.heartbeat_timer)" in source
+    assert "if (active && result != ESP_OK)" in source
+    assert "esp_app_get_description()" in source
+    assert "CONFIG_IDF_TARGET" in source
+    assert '{"firmware", firmware_version}' in source
+
+
 def test_direct_facade_starts_and_publishes_canonical_telemetry(monkeypatch):
     native = MagicMock()
+    native.start.side_effect = [OSError(errno.EBUSY), None]
+    native.firmware_version.return_value = "2.8.0-356-gfa155f8"
+    native.chip_target.return_value = "esp32c3"
+    native.diagnostics.side_effect = lambda target: target.update(
+        accepted_connections=3,
+        rejected_connections=2,
+        dropped_telemetry_events=4,
+        send_failures=1,
+    )
     monkeypatch.setitem(sys.modules, "espectre_native_direct", native)
     if not hasattr(time, "ticks_ms"):
         monkeypatch.setattr(time, "ticks_ms", lambda: 1000, raising=False)
     if not hasattr(time, "ticks_diff"):
         monkeypatch.setattr(time, "ticks_diff", lambda current, previous: current - previous, raising=False)
+    if not hasattr(time, "sleep_ms"):
+        monkeypatch.setattr(time, "sleep_ms", lambda _milliseconds: None, raising=False)
     sys.modules.pop("direct_api", None)
-    from direct_api import DirectApi
+    from direct_api import DirectApi, _wifi_band
+
+    assert _wifi_band(None) == ""
+    assert _wifi_band(0) == ""
+    assert _wifi_band(6) == "2g"
+    assert _wifi_band(36) == "5g"
 
     wlan = MagicMock()
-    wlan.config.side_effect = lambda key: {
+    wlan_values = {
         "mac": bytes.fromhex("7c2c6742bbac"),
         "channel": 6,
         "ssid": "lab",
         "bssid": bytes.fromhex("001122334455"),
-    }[key]
+    }
+    wlan.config.side_effect = lambda key: wlan_values[key]
     wlan.status.return_value = -50
     wlan.active.return_value = True
     wlan.isconnected.return_value = True
@@ -167,7 +259,25 @@ def test_direct_facade_starts_and_publishes_canonical_telemetry(monkeypatch):
 
     facade = DirectApi(config, wlan, detector, state, policy, traffic)
     facade.start()
+    assert native.start.call_count == 2
     facade.refresh_snapshots(facade.started_ms + 1000, {"csi_admitted_pps": 99.0})
+    initial_diagnostics = native.update_diagnostics.call_args.args[0].copy()
+    native.update_status.reset_mock()
+    native.update_diagnostics.reset_mock()
+    facade.refresh_status(facade.started_ms + 1250)
+    native.update_status.assert_called_once()
+    native.update_diagnostics.assert_not_called()
+    facade.refresh_diagnostics(
+        facade.started_ms + 5000,
+        {"csi_admitted_pps": 98.0},
+    )
+    native.update_diagnostics.assert_called_once()
+    facade.refresh_config()
+    native.update_config.assert_called_once()
+    native.take_recalibration_request.return_value = True
+    assert facade.take_recalibration_request() is True
+    facade.complete_recalibration()
+    native.complete_recalibration.assert_called_once_with()
     native.publish.assert_not_called()
     native.has_event_client.return_value = False
     facade.publish_telemetry(0.75, 1, 0.25, facade.started_ms + 1000)
@@ -176,30 +286,42 @@ def test_direct_facade_starts_and_publishes_canonical_telemetry(monkeypatch):
     facade.publish_telemetry(0.75, 1, 0.25, facade.started_ms + 1000)
 
     start_args = native.start.call_args.kwargs
-    capabilities = json.loads(start_args["capabilities"])
-    info = json.loads(start_args["info"])
+    capabilities = start_args["capabilities"]
+    info = start_args["info"]
     assert {entry["name"] for entry in capabilities["commands"]} == {
-        "capabilities", "info", "status", "config", "diagnostics"
+        "capabilities", "info", "status", "config", "diagnostics", "recalibrate"
     }
-    assert start_args["hostname"].startswith("espectre-micro-")
+    assert start_args["hostname"] == "espectre-3cf79180d3a0aca4"
     assert start_args["instance"] == info["device_name"]
     assert start_args["protocol_version"] == protocol.PROTOCOL_VERSION
     assert start_args["dns_sd_schema_version"] == protocol.DNS_SD_TXT_SCHEMA_VERSION
+    assert start_args["firmware_version"] == "2.8.0-356-gfa155f8"
     assert info["device_name"].startswith("ESPectre C3 ")
     assert info["device_label"] == ""
+    assert info["firmware_version"] == "2.8.0-356-gfa155f8"
+    assert info["chip"] == "esp32c3"
     assert info["csi_traffic_mode"] == "internal"
     assert info["traffic_mode"] == "ping"
+    assert facade._config()["wifi"]["band"] == "2g"
+    wlan_values["channel"] = 36
+    assert facade._config()["wifi"]["band"] == "5g"
+    wlan_values["channel"] = 0
+    assert facade._config()["wifi"]["band"] == ""
     traffic.is_running.return_value = False
     assert facade._info()["csi_traffic_mode"] == "external"
-    event_name, event_json = native.publish.call_args.args
-    telemetry = json.loads(event_json)
+    event_name, telemetry = native.publish.call_args.args
     assert event_name == "telemetry"
     assert telemetry["frontend"] == "micro"
     assert telemetry["detector"] == "lightweight"
     assert telemetry["motion_state"] == "motion"
-    diagnostics = json.loads(native.update_diagnostics.call_args.args[0])
+    diagnostics = initial_diagnostics
     assert diagnostics["protocol_version"] == protocol.PROTOCOL_VERSION
     assert diagnostics["uptime"] == 1
+    assert diagnostics["direct_http"]["accepted_connections"] == 3
+    assert diagnostics["direct_http"]["rejected_connections"] == 2
+    assert diagnostics["direct_http"]["dropped_telemetry_events"] == 4
+    assert diagnostics["direct_http"]["send_failures"] == 1
+    native.diagnostics.assert_called()
 
     facade.stop()
     native.stop.assert_called_once_with()

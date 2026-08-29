@@ -9,7 +9,7 @@ Choose a frontend first. If it has a published image, [Web Flash](#web-flash-no-
 | `ESPHome` | [Web Flash](#web-flash-no-coding-required), Home Assistant entities, and Direct HTTP runtime tuning | [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md) |
 | `Native` | [Web Flash](#web-flash-no-coding-required), Improv Serial Wi-Fi provisioning, Direct HTTP, and optional MQTT or Home Assistant MQTT Discovery | [`README.md` (native)](../src/cpp/frontend/native/README.md) |
 | `Matter` | [Web Flash](#web-flash-no-coding-required), Matter commissioning, and Direct HTTP detector tuning | [`README.md (matter)`](../src/cpp/frontend/matter/README.md) |
-| `Micro-ESPectre` | Frontend README for the maintained MicroPython R&D runtime, project firmware, filesystem deployment, and read-only Direct monitoring | [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md) |
+| `Micro-ESPectre` | Frontend README for the maintained MicroPython R&D runtime, project firmware, filesystem deployment, Direct monitoring, and session-only recalibration | [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md) |
 
 ## Web Flash (no coding required)
 
@@ -176,7 +176,7 @@ The next step depends on the frontend you chose:
 | `ESPHome` | [`README.md`](../src/cpp/frontend/esphome/README.md) | Wi-Fi provisioning, YAML parameters, Home Assistant entities, dashboards, ESPHome-specific troubleshooting |
 | `Native` | [`README.md`](../src/cpp/frontend/native/README.md) | Build/flash workflow, Wi-Fi and MQTT setup, Home Assistant MQTT Discovery, native control surface, and HTTPS OTA flow |
 | `Matter` | [`README.md`](../src/cpp/frontend/matter/README.md) | Commissioning flow, Matter occupancy surface, and local ESP-IDF workflow |
-| `Micro-ESPectre` | [`README.md`](../src/python/micro_espectre/README.md) | Project firmware, filesystem deployment, local configuration, and read-only Direct monitoring |
+| `Micro-ESPectre` | [`README.md`](../src/python/micro_espectre/README.md) | Project firmware, filesystem deployment, local configuration, Direct monitoring, and session-only recalibration |
 
 ## Reference: Shared Runtime Concepts
 

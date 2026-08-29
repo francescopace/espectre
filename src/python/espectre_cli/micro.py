@@ -317,7 +317,11 @@ def flash_firmware(args) -> None:
         "c6": "esp32c6",
     }
     chip_name = chip_name_map.get(chip, "esp32")
-    base_args = ["--chip", chip_name, "--port", port, "--baud", "460800"]
+    # Classic ESP32 boards commonly use USB-to-UART bridges that lose the
+    # esptool stub when it switches to 460800 baud. Native-USB variants can
+    # use the faster rate reliably.
+    flash_baud = "115200" if chip == "esp32" else "460800"
+    base_args = ["--chip", chip_name, "--port", port, "--baud", flash_baud]
 
     try:
         if args.erase:

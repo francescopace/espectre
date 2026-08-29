@@ -172,5 +172,10 @@ class TrafficGenerator:
             return int(self._native_traffic.error_count())
         return self.error_count
 
+    def get_last_error(self):
+        """Return the most recent native socket errno, or zero before failures."""
+        get_last_error = getattr(self._native_traffic, "last_error", None)
+        return int(get_last_error()) if callable(get_last_error) else 0
+
     def get_avg_loop_time_ms(self):
         return round(self.avg_loop_time_ms, 2)
