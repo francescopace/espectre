@@ -17,6 +17,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
+from .device_discovery import ESPECTRE_DIRECT_PORT
 from micro_espectre.protocol import PROTOCOL_VERSION
 
 
@@ -90,6 +91,9 @@ class DirectEvent:
 
 
 class SerialTransport(Protocol):
+    dtr: bool
+    rts: bool
+
     def read(self, size: int = 1) -> bytes: ...
     def write(self, data: bytes) -> int: ...
     def close(self) -> None: ...
@@ -151,6 +155,9 @@ def encode_improv_frame(packet_type: ImprovPacketType, data: bytes = b"") -> byt
     frame = bytearray((*IMPROV_HEADER, IMPROV_VERSION, int(packet_type), len(data)))
     frame.extend(data)
     frame.append(sum(frame) & 0xFF)
+    # Both ESPHome and the Native service use LF to leave the completed frame
+    # state before the next RPC arrives.
+    frame.append(0x0A)
     return bytes(frame)
 
 
@@ -212,6 +219,11 @@ class ImprovSerialClient:
 
             serial_factory = Serial
         self._serial = serial_factory(port=port, baudrate=baudrate, timeout=0.1, write_timeout=2.0)
+        # Release the auto-reset lines after opening a USB-UART bridge. Native
+        # USB consoles ignore them, while classic ESP32 boards use them for EN
+        # and boot-mode control.
+        self._serial.dtr = False
+        self._serial.rts = False
         self._parser = ImprovFrameParser()
         self._pending_frames: list[ImprovFrame] = []
 
@@ -349,12 +361,21 @@ def direct_endpoint_from_device_url(device_url: str) -> str:
     if target_values:
         if len(target_values) != 1:
             raise ValueError("Improv returned multiple device targets")
+        target = target_values[0]
+        port = ESPECTRE_DIRECT_PORT
         try:
-            address = ipaddress.ip_address(target_values[0])
-        except ValueError as error:
-            raise ValueError("Improv returned an invalid device target") from error
+            address = ipaddress.ip_address(target)
+        except ValueError:
+            try:
+                parsed_target = urlsplit(f"//{target}")
+                if not parsed_target.hostname or parsed_target.path:
+                    raise ValueError
+                address = ipaddress.ip_address(parsed_target.hostname)
+                port = parsed_target.port or ESPECTRE_DIRECT_PORT
+            except ValueError as error:
+                raise ValueError("Improv returned an invalid device target") from error
         host = f"[{address}]" if address.version == 6 else str(address)
-        return urlunsplit(("http", host, DIRECT_PATH, "", ""))
+        return urlunsplit(("http", f"{host}:{port}", DIRECT_PATH, "", ""))
     return urlunsplit((parsed.scheme, parsed.netloc, DIRECT_PATH, "", ""))
 
 

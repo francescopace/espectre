@@ -99,10 +99,16 @@ def test_improv_parser_recovers_fragmented_frames_from_console_noise():
 
 def test_improv_parser_rejects_bad_checksum():
     encoded = bytearray(encode_improv_rpc(ImprovCommand.GET_DEVICE_INFO))
-    encoded[-1] ^= 0xFF
+    encoded[-2] ^= 0xFF
 
     with pytest.raises(ImprovProtocolError, match="checksum"):
         ImprovFrameParser().feed(bytes(encoded))
+
+def test_improv_rpc_frame_ends_with_line_feed_after_checksum():
+    encoded = encode_improv_rpc(ImprovCommand.GET_CURRENT_STATE)
+
+    assert encoded[-1:] == b"\n"
+    assert sum(encoded[:-2]) & 0xFF == encoded[-2]
 
 def test_improv_rpc_response_validates_lengths_and_utf8():
     frame = ImprovFrameParser().feed(
@@ -124,6 +130,24 @@ def test_improv_rpc_response_validates_lengths_and_utf8():
         parse_improv_rpc_response(b"\x01\x01\x01x")
     with pytest.raises(ImprovProtocolError, match="length"):
         parse_improv_rpc_response(frame.data + b"\x01")
+
+
+def test_improv_client_releases_usb_uart_reset_lines():
+    class FakeSerial:
+        def __init__(self):
+            self.dtr = True
+            self.rts = True
+
+        def close(self) -> None:
+            pass
+
+    serial = FakeSerial()
+    client = ImprovSerialClient("/dev/fake", serial_factory=lambda **_kwargs: serial)
+
+    assert serial.dtr is False
+    assert serial.rts is False
+    client.close()
+
 
 def test_improv_client_handles_multiple_frames_in_one_serial_read():
     class FakeSerial:
@@ -237,7 +261,10 @@ def test_improv_client_ignores_current_state_url_before_device_info():
 def test_improv_portal_url_builds_direct_endpoint_from_device_ip():
     assert direct_endpoint_from_device_url(
         "https://espectre.dev/tools/configure/?target=192.0.2.10"
-    ) == "http://192.0.2.10/espectre/v1/request"
+    ) == "http://192.0.2.10:62587/espectre/v1/request"
+    assert direct_endpoint_from_device_url(
+        "https://espectre.dev/tools/configure/?target=192.0.2.10%3A62587"
+    ) == "http://192.0.2.10:62587/espectre/v1/request"
     assert direct_endpoint_from_device_url("http://192.0.2.10/custom") == "http://192.0.2.10/espectre/v1/request"
     with pytest.raises(ValueError, match="invalid device URL"):
         direct_endpoint_from_device_url("ws://192.0.2.10/custom")

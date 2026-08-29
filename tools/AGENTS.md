@@ -20,5 +20,5 @@
 
 - Treat [`README.md`](README.md#firmware-benchmark-contract) as the normative owner of the firmware benchmark contract. Keep `benchmark_firmware.py` and its split owners aligned with that section.
 - Do not add benchmark-specific firmware configuration, dedicated build directories, forced clean builds, serial-derived runtime metrics, or frontend-specific provisioning shortcuts that bypass the production workflow.
-- Preserve contract exceptions explicitly: Matter remains flash-only until standard commissioning is automated, and Micro-ESPectre may inject connectivity settings because it does not support Improv Serial.
+- Preserve provisioning boundaries explicitly: Matter must commission through a revision-compatible CHIP Tool controller, and Micro-ESPectre may inject connectivity settings because it does not support Improv Serial.
 - Update the behavioral contract tests whenever the build, flash, provisioning, Direct evidence, BSSID evidence, or serial-error policy changes.

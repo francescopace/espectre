@@ -53,6 +53,7 @@ captive_portal:
 
 # Improv provisioning via USB
 improv_serial:
+  next_url: "https://espectre.dev/tools/configure/?target={{ip_address}}"
 
 # Logging
 logger:

@@ -1111,7 +1111,7 @@ def run_direct_frontend_cases(
             baseline_before_radio_pin = baseline
             radio_pin_applied = _apply_direct_radio_pin(
                 client,
-                skip_if_associated=frontend == "native",
+                skip_if_associated=False,
             )
             bssid_evidence["applied"] = radio_pin_applied
             bssid_evidence["already_associated"] = requested_bssid and not radio_pin_applied

@@ -43,6 +43,7 @@ captive_portal:
 
 # ESP32-S2 supports standard Improv provisioning through the serial port.
 improv_serial:
+  next_url: "https://espectre.dev/tools/configure/?target={{ip_address}}"
 
 logger:
   level: INFO
