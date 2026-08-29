@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import subprocess
 
-from .common import Fore, REPO_ROOT, Style
+from .common import Fore, REPO_ROOT, Style, resolve_serial_port
+from .idf import run_esptool_main
 from .targets import resolve_esphome_config
 
 ACTION_MAP = {
@@ -53,8 +54,23 @@ def run_esphome_command(args) -> None:
             commands.append([*ESPHOME_COMMAND_PREFIX, "clean", str(config_path)])
 
     command = [*ESPHOME_COMMAND_PREFIX, action, str(config_path)]
-    if getattr(args, "device", None):
-        command.extend(["--device", args.device])
+    device = getattr(args, "device", None)
+    if args.esphome_command == "flash" and getattr(args, "erase", False):
+        device = resolve_serial_port(
+            device,
+            chip=getattr(args, "chip", None),
+            frontend="esphome",
+            purpose="flash",
+        )
+        erase_command = ["--port", device, "erase-flash"]
+        print(f"{Fore.CYAN}Command: esptool {' '.join(erase_command)}{Style.RESET_ALL}")
+        try:
+            run_esptool_main(erase_command)
+        except SystemExit as exc:
+            if exc.code not in (0, None):
+                raise SystemExit(exc.code) from exc
+    if device:
+        command.extend(["--device", device])
     if getattr(args, "firmware", None):
         command.extend(["--file", args.firmware])
     commands.append(command)

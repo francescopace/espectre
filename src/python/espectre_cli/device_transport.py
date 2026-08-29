@@ -369,6 +369,7 @@ class DirectClient:
         timeout: float = 8.0,
         urlopen_factory: Callable[..., HttpResponse] | None = None,
         persistent_requests: bool = False,
+        minimum_request_interval_seconds: float = 0.0,
     ) -> None:
         parsed = urlsplit(endpoint)
         if (
@@ -380,6 +381,8 @@ class DirectClient:
             or parsed.username is not None
         ):
             raise ValueError("Direct endpoint must be an HTTP URL ending in /espectre/v1/request")
+        if minimum_request_interval_seconds < 0:
+            raise ValueError("Direct request interval must not be negative")
         self.endpoint = endpoint
         self.origin = origin
         self.timeout = timeout
@@ -389,6 +392,9 @@ class DirectClient:
         self._use_persistent_requests = persistent_requests and urlopen_factory is None
         self._request_connection: http.client.HTTPConnection | None = None
         self._request_lock = threading.Lock()
+        self._minimum_request_interval_seconds = float(minimum_request_interval_seconds)
+        self._last_request_started_at: float | None = None
+        self._request_pacing_lock = threading.Lock()
         self._authorization: str | None = None
         self._events_response: HttpResponse | None = None
         self._events_socket: socket.socket | None = None
@@ -446,6 +452,21 @@ class DirectClient:
     def _events_endpoint(self) -> str:
         parsed = urlsplit(self.endpoint)
         return urlunsplit((parsed.scheme, parsed.netloc, DIRECT_EVENTS_PATH, "", ""))
+
+    def _pace_request(self) -> None:
+        if self._minimum_request_interval_seconds <= 0:
+            return
+        with self._request_pacing_lock:
+            now = time.monotonic()
+            if self._last_request_started_at is not None:
+                remaining = (
+                    self._minimum_request_interval_seconds
+                    - (now - self._last_request_started_at)
+                )
+                if remaining > 0:
+                    time.sleep(remaining)
+                    now = time.monotonic()
+            self._last_request_started_at = now
 
     def _consume_events(self, started: float) -> None:
         request = Request(
@@ -603,6 +624,7 @@ class DirectClient:
         *,
         timeout: float | None = None,
     ) -> dict[str, object]:
+        self._pace_request()
         request_id = f"benchmark-{self._next_id}"
         self._next_id += 1
         arguments = params or {}
@@ -629,6 +651,7 @@ class DirectClient:
         if method == "stop_raw_stream" and self._authorization is not None:
             headers["Authorization"] = f"Bearer {self._authorization}"
         if self._use_persistent_requests:
+            headers["Connection"] = "keep-alive"
             try:
                 status, raw = self._persistent_request(
                     encoded,

@@ -10,7 +10,6 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass
 import json
 import os
@@ -296,26 +295,9 @@ def run_esptool_main(args: list[str]) -> None:
     esptool.main(args)
 
 
-def partition_region_from_csv(partition_table: Path, label: str) -> tuple[str, str]:
-    """Return the configured offset and size for one partition label."""
-    try:
-        with partition_table.open("r", encoding="utf-8", newline="") as handle:
-            for row in csv.reader(handle):
-                if not row or row[0].strip().startswith("#"):
-                    continue
-                if row[0].strip() == label and len(row) >= 5:
-                    offset, size = row[3].strip(), row[4].strip()
-                    if offset and size:
-                        return offset, size
-    except OSError as exc:
-        raise ValueError(f"failed to read partition table {partition_table}: {exc}") from exc
-    raise ValueError(f"partition {label!r} not found in {partition_table}")
-
-
-def erase_idf_partition(app_path: Path, port: str, label: str) -> None:
-    """Erase one partition through the same selected serial port as flash."""
-    offset, size = partition_region_from_csv(app_path / "partitions.csv", label)
-    command = ["--port", port, "erase-region", offset, size]
+def erase_idf_flash(port: str) -> None:
+    """Erase all flash data through the same selected serial port as flash."""
+    command = ["--port", port, "erase-flash"]
     print(f"{Fore.CYAN}Command: esptool {' '.join(command)}{Style.RESET_ALL}")
     try:
         run_esptool_main(command)
@@ -871,7 +853,7 @@ def run_idf_command(frontend: str, args) -> None:
                     f"not the requested ESP32-{flash_chip.upper()}.{Style.RESET_ALL}"
                 )
                 raise SystemExit(1)
-        erase_nvs_requested = frontend == "native" and bool(getattr(args, "erase_nvs", False))
+        erase_requested = bool(getattr(args, "erase", False))
         idf_target, build_dir_name = resolve_flash_idf_selection(frontend, app_path, port, flash_chip)
         if idf_target:
             print(f"{Fore.CYAN}Target:   {idf_target}{Style.RESET_ALL}")
@@ -904,8 +886,8 @@ def run_idf_command(frontend: str, args) -> None:
             )
             try:
                 flash_command = build_prebuilt_idf_esptool_command(app_path / image_dir, port, idf_target)
-                if erase_nvs_requested:
-                    erase_idf_partition(app_path, port, "nvs")
+                if erase_requested:
+                    erase_idf_flash(port)
                 flash_prebuilt_idf_image(
                     app_path,
                     image_dir,
@@ -957,9 +939,9 @@ def run_idf_command(frontend: str, args) -> None:
     process_env = idf_subprocess_env(env)
     if (process_env or os.environ).get("IDF_CCACHE_ENABLE") == "1":
         print(f"{Fore.CYAN}Compiler cache: ccache{Style.RESET_ALL}")
-    if args.idf_command == "flash" and erase_nvs_requested:
+    if args.idf_command == "flash" and erase_requested:
         try:
-            erase_idf_partition(app_path, flash_port, "nvs")
+            erase_idf_flash(flash_port)
         except (OSError, ValueError) as exc:
             print(f"{Fore.RED}❌ {exc}{Style.RESET_ALL}")
             raise SystemExit(1) from exc

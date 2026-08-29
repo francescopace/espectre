@@ -320,6 +320,11 @@ def _add_esphome_namespace(subparsers) -> None:
         command_parser.add_argument("--device", help="Serial device or hostname for flash/monitor when needed")
         if command_name == "flash":
             command_parser.add_argument("--firmware", help="Prebuilt firmware image to upload")
+            command_parser.add_argument(
+                "--erase",
+                action="store_true",
+                help="Erase all flash data before uploading the firmware",
+            )
         if command_name == "build":
             clean_group = command_parser.add_mutually_exclusive_group()
             clean_group.add_argument(
@@ -372,12 +377,11 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
                 choices=sorted(IDF_FRONTENDS[frontend]["targets"].keys()),
                 help="Target chip whose existing build directory should be flashed (auto-detected if omitted)",
             )
-            if frontend == "native":
-                command_parser.add_argument(
-                    "--erase-nvs",
-                    action="store_true",
-                    help="Erase the Native NVS partition before flashing",
-                )
+            command_parser.add_argument(
+                "--erase",
+                action="store_true",
+                help="Erase all flash data before flashing the firmware",
+            )
         if command_name in {"flash", "qr"}:
             command_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
         command_parser.set_defaults(handler=lambda args, current_frontend=frontend: run_idf_command(current_frontend, args))

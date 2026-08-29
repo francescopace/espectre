@@ -420,6 +420,39 @@ def test_run_esphome_flash_uploads_prebuilt_firmware(monkeypatch, tmp_path: Path
     ]
 
 
+def test_run_esphome_flash_can_erase_all_data_before_upload(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "firmware.yaml"
+    config_path.write_text("esphome:", encoding="utf-8")
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(esphome, "resolve_esphome_config", lambda *_args: config_path)
+    monkeypatch.setattr(esphome, "resolve_serial_port", lambda *_args, **_kwargs: "/dev/cu.resolved")
+    monkeypatch.setattr(esphome, "run_esptool_main", lambda command: calls.append(command))
+    monkeypatch.setattr(esphome.subprocess, "run", lambda cmd, check, **_kwargs: calls.append(cmd))
+
+    esphome.run_esphome_command(
+        argparse.Namespace(
+            chip="c3",
+            config=None,
+            esphome_command="flash",
+            device=None,
+            firmware=None,
+            erase=True,
+        )
+    )
+
+    assert calls == [
+        ["--port", "/dev/cu.resolved", "erase-flash"],
+        [
+            *esphome.ESPHOME_COMMAND_PREFIX,
+            "upload",
+            str(config_path),
+            "--device",
+            "/dev/cu.resolved",
+        ],
+    ]
+
+
 def test_run_esphome_monitor_uses_logs_action(monkeypatch, tmp_path: Path) -> None:
     config_path = tmp_path / "firmware.yaml"
     config_path.write_text("esphome:", encoding="utf-8")
@@ -1125,18 +1158,13 @@ def _write_flasher_args(build_dir: Path, chip: str) -> None:
     )
 
 
-def test_erase_idf_partition_uses_partition_table_region(monkeypatch, tmp_path: Path) -> None:
-    (tmp_path / "partitions.csv").write_text(
-        "# Name, Type, SubType, Offset, Size\n"
-        "nvs,data,nvs,0x9000,0x5000\n",
-        encoding="utf-8",
-    )
+def test_erase_idf_flash_clears_all_data(monkeypatch) -> None:
     calls = []
     monkeypatch.setattr(idf, "run_esptool_main", lambda command: calls.append(command))
 
-    idf.erase_idf_partition(tmp_path, "/dev/cu.valid", "nvs")
+    idf.erase_idf_flash("/dev/cu.valid")
 
-    assert calls == [["--port", "/dev/cu.valid", "erase-region", "0x9000", "0x5000"]]
+    assert calls == [["--port", "/dev/cu.valid", "erase-flash"]]
 
 
 def test_run_idf_command_flash_prefers_connected_chip_build_dir(monkeypatch, tmp_path: Path) -> None:
@@ -1245,7 +1273,7 @@ def test_run_idf_command_flash_chip_uses_idf_when_sdkconfig_matches(monkeypatch,
     assert calls == [["idf.py", "-B", "build-esp32c5", "-p", "/dev/cu.auto", "flash"]]
 
 
-def test_run_idf_command_flash_does_not_erase_nvs_before_idf_environment_preflight(
+def test_run_idf_command_flash_does_not_erase_before_idf_environment_preflight(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -1253,7 +1281,7 @@ def test_run_idf_command_flash_does_not_erase_nvs_before_idf_environment_preflig
     app_dir.mkdir()
     (app_dir / "sdkconfig").write_text('CONFIG_IDF_TARGET="esp32c5"\n', encoding="utf-8")
     (app_dir / "build-esp32c5").mkdir()
-    erased: list[tuple[Path, str, str]] = []
+    erased: list[str] = []
 
     monkeypatch.setitem(idf.IDF_FRONTENDS, "native", {"app_dir": app_dir, "targets": {"c5": "esp32c5"}})
     monkeypatch.setattr(idf, "resolve_serial_port", lambda *_args, **_kwargs: "/dev/cu.auto")
@@ -1261,14 +1289,14 @@ def test_run_idf_command_flash_does_not_erase_nvs_before_idf_environment_preflig
     monkeypatch.setattr(idf, "resolve_idf_environment", lambda: (_ for _ in ()).throw(FileNotFoundError()))
     monkeypatch.setattr(
         idf,
-        "erase_idf_partition",
-        lambda path, port, label: erased.append((path, port, label)),
+        "erase_idf_flash",
+        erased.append,
     )
 
     with pytest.raises(SystemExit, match="1"):
         idf.run_idf_command(
             "native",
-            argparse.Namespace(idf_command="flash", port=None, chip="c5", erase_nvs=True),
+            argparse.Namespace(idf_command="flash", port=None, chip="c5", erase=True),
         )
 
     assert erased == []
@@ -1289,17 +1317,17 @@ def test_run_idf_command_flash_chip_requires_existing_image_when_sdkconfig_misma
     )
     monkeypatch.setattr(idf, "resolve_serial_port", lambda *_args, **_kwargs: "/dev/cu.auto")
     monkeypatch.setattr(idf, "detect_chip_type", lambda _port: "c5")
-    erased: list[tuple[Path, str, str]] = []
+    erased: list[str] = []
     monkeypatch.setattr(
         idf,
-        "erase_idf_partition",
-        lambda path, port, label: erased.append((path, port, label)),
+        "erase_idf_flash",
+        erased.append,
     )
 
     with pytest.raises(SystemExit, match="1"):
         idf.run_idf_command(
             "native",
-            argparse.Namespace(idf_command="flash", port=None, chip="c5", erase_nvs=True),
+            argparse.Namespace(idf_command="flash", port=None, chip="c5", erase=True),
         )
 
     assert erased == []
@@ -1558,12 +1586,21 @@ def test_idf_flash_parser_accepts_chip() -> None:
     assert args.port is None
 
 
-def test_native_flash_parser_accepts_erase_nvs() -> None:
+@pytest.mark.parametrize("frontend", ["native", "matter"])
+def test_idf_flash_parser_accepts_full_erase(frontend: str) -> None:
     parser = app.build_parser()
 
-    args = parser.parse_args(["native", "flash", "--chip", "s3", "--erase-nvs"])
+    args = parser.parse_args([frontend, "flash", "--erase"])
 
-    assert args.erase_nvs is True
+    assert args.erase is True
+
+
+def test_esphome_flash_parser_accepts_full_erase() -> None:
+    parser = app.build_parser()
+
+    args = parser.parse_args(["esphome", "flash", "--chip", "c3", "--erase"])
+
+    assert args.erase is True
 
 
 def test_provision_parser_accepts_optional_chip_and_json() -> None:

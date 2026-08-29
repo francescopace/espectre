@@ -57,6 +57,8 @@ Common flags include `--chip`, `--config`, and `--device`. `esphome flash --firm
 ./espectre esphome flash --chip c6 --device espectre.local --firmware espectre-esphome-3.0.0-esp32c6-ota.bin
 ```
 
+`esphome flash --erase` clears all flash data before a serial upload. It resolves or requires a serial device and cannot be combined with an OTA hostname.
+
 Each chip uses one canonical example. The repository CLI keeps that device configuration and switches the ESPectre component source from GitHub to the local checkout.
 
 The wrapper explicitly selects ESPHome's native `esp-idf` toolchain for every command. It does not use the legacy PlatformIO build backend.
@@ -91,7 +93,7 @@ Local builds enable `ccache` automatically when the binary is on `PATH`. Docker 
 
 Docker builds use a separate directory such as `build-esp32c3-docker`, which prevents host and container CMake caches from sharing incompatible absolute paths. Docker is a build backend only; `flash` continues to use the detected local ESP-IDF environment and host serial port.
 
-For `flash`, `--chip` selects that chip's build directory, such as `build-esp32c5` for `--chip c5`, and verifies that the selected serial device contains the requested chip before erasing or writing flash. Without `--chip`, the wrapper selects the serial port first, then prefers the build directory that matches the connected chip detected on that port. Without a match, it falls back to the local configured target or the legacy `build/` layout. Native also accepts `--erase-nvs` to erase only the configured NVS partition before flashing.
+For `flash`, `--chip` selects that chip's build directory, such as `build-esp32c5` for `--chip c5`, and verifies that the selected serial device contains the requested chip before erasing or writing flash. Without `--chip`, the wrapper selects the serial port first, then prefers the build directory that matches the connected chip detected on that port. Without a match, it falls back to the local configured target or the legacy `build/` layout. `--erase` clears all flash data before writing the selected Native or Matter image. On Matter, this also removes the persisted onboarding identity, so the next boot generates a new QR code.
 
 When the current `sdkconfig` already matches the selected chip, `flash` delegates to `idf.py flash`, so ESP-IDF may configure CMake or complete a missing build inside that directory before writing the firmware. When `sdkconfig` belongs to a different chip, `flash` writes the already-built image from the selected directory and does not rebuild. Rebuilds still share one `sdkconfig`, so `native build --chip c5` after an S3 build overwrites that file.
 

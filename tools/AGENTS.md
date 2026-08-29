@@ -15,3 +15,10 @@
 - Run generators in `--check-current` mode before describing committed generated artifacts as current.
 - Keep full training, benchmark, and hardware logs out of the model context when the command succeeds. Report the summary and expose only bounded diagnostic tails when a failure requires investigation.
 - Follow `docs/AGENTS.md` before updating feature, literature, ML, performance, or dataset documentation, and follow `test/AGENTS.md` before modifying maintained tests.
+
+## Firmware Benchmark Contract
+
+- Treat [`README.md`](README.md#firmware-benchmark-contract) as the normative owner of the firmware benchmark contract. Keep `benchmark_firmware.py` and its split owners aligned with that section.
+- Do not add benchmark-specific firmware configuration, dedicated build directories, forced clean builds, serial-derived runtime metrics, or frontend-specific provisioning shortcuts that bypass the production workflow.
+- Preserve contract exceptions explicitly: Matter remains flash-only until standard commissioning is automated, and Micro-ESPectre may inject connectivity settings because it does not support Improv Serial.
+- Update the behavioral contract tests whenever the build, flash, provisioning, Direct evidence, BSSID evidence, or serial-error policy changes.
