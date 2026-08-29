@@ -138,7 +138,7 @@
         }
         const rawCapability = directClient?.capabilities?.raw_csi;
         const available = directClient?.capabilities?.features?.raw_csi === true
-            && rawCapability?.protocol_version === 2
+            && rawCapability?.protocol_version === 1
             && rawCapability?.marker === '👻';
         rawCsiSetAvailable(available);
         if (externalHint) externalHint.hidden = !available || conn.csiTrafficMode !== 'external';
@@ -1007,7 +1007,7 @@
             const session = await startRequest;
             if (rawCsi.startRequest === startRequest) rawCsi.startRequest = null;
             if (rawCsi.generation !== generation || rawCsi.state !== 'starting') return;
-            rawCsi.parser = new window.ESPectreRawCsiV2Parser(session.session_id);
+            rawCsi.parser = new window.ESPectreRawCsiParser(session.session_id);
             rawCsiResetVisualization();
             const controller = new AbortController();
             rawCsi.controller = controller;

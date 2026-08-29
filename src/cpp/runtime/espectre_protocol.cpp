@@ -22,6 +22,7 @@
 
 #include "base_detector.h"
 #include "protocol_json.h"
+#include "raw_csi.h"
 #include "runtime_diagnostics.h"
 #include "runtime_sensing_schema.h"
 
@@ -732,8 +733,9 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
   out += "}";
   if (supports_raw_csi) {
     out += ",\"raw_csi\":{\"endpoint\":\"/espectre/v1/csi\","
-           "\"transport\":\"http\",\"protocol_version\":2,"
-           "\"record_version\":8,\"frame_prefix_bytes\":60,"
+           "\"transport\":\"http\",\"protocol_version\":";
+    out += std::to_string(static_cast<unsigned>(ESPECTRE_RAW_CSI_PROTOCOL_VERSION));
+    out += ",\"record_version\":8,\"frame_prefix_bytes\":60,"
            "\"queue_depth\":16,\"batch_records\":4,\"bind_timeout_ms\":5000,"
            "\"traffic_udp_port\":";
     out += std::to_string(info.csi_traffic_udp_port == 0U ? RUNTIME_CSI_TRAFFIC_UDP_PORT_DEFAULT

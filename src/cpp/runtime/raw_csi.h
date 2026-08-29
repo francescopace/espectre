@@ -77,13 +77,13 @@ struct RawCsiPacketView {
 using raw_csi_packet_callback_t = bool (*)(void *context, const RawCsiPacketView &packet);
 
 constexpr char ESPECTRE_RAW_CSI_ENDPOINT[] = "/espectre/v1/csi";
-constexpr uint8_t ESPECTRE_RAW_CSI_PROTOCOL_VERSION = 2U;
+constexpr uint8_t ESPECTRE_RAW_CSI_PROTOCOL_VERSION = 1U;
 constexpr uint8_t ESPECTRE_RAW_CSI_RECORD_VERSION = RAW_CSI_RECORD_VERSION_V8;
 constexpr size_t ESPECTRE_RAW_CSI_SESSION_ID_BYTES = 16U;
 constexpr uint32_t ESPECTRE_RAW_CSI_RESPONSE_MAGIC = 0x52505345U; // "ESPR"
 
 #pragma pack(push, 1)
-struct RawCsiHttpFramePrefixV2 {
+struct RawCsiHttpFramePrefix {
   uint32_t magic;
   uint8_t version;
   uint8_t record_version;
@@ -98,7 +98,7 @@ struct RawCsiHttpFramePrefixV2 {
 };
 #pragma pack(pop)
 
-static_assert(sizeof(RawCsiHttpFramePrefixV2) == 60U, "Raw CSI HTTP v2 frame prefix size must remain stable");
+static_assert(sizeof(RawCsiHttpFramePrefix) == 60U, "Raw CSI HTTP frame prefix size must remain stable");
 
 struct RawCsiSessionConfig {
   uint8_t session_id[ESPECTRE_RAW_CSI_SESSION_ID_BYTES]{};

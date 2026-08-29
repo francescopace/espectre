@@ -46,12 +46,13 @@
     }
 
     const RAW_HTTP_MAGIC = 0x52505345;
+    const RAW_HTTP_PROTOCOL_VERSION = 1;
     const RAW_HTTP_PREFIX_BYTES = 60;
     const RAW_HTTP_MAX_BUFFER_BYTES = 64 * 1024;
     const RAW_CSI_V8_HEADER_BYTES = 64;
     const RAW_CSI_MAX_PAYLOAD_BYTES = 512;
 
-    class ESPectreRawCsiV2Parser {
+    class ESPectreRawCsiParser {
         #buffer = new Uint8Array(0);
         #sessionBytes;
         #streamSequence = 0n;
@@ -95,7 +96,7 @@
                 const prefix = new DataView(
                     this.#buffer.buffer, this.#buffer.byteOffset, this.#buffer.byteLength);
                 if (prefix.getUint32(0, true) !== RAW_HTTP_MAGIC
-                    || prefix.getUint8(4) !== 2
+                    || prefix.getUint8(4) !== RAW_HTTP_PROTOCOL_VERSION
                     || prefix.getUint8(5) !== 8
                     || prefix.getUint16(6, true) !== RAW_HTTP_PREFIX_BYTES) {
                     throw new ESPectreDirectError('Raw HTTP stream lost frame alignment.', 'invalid_raw_frame');
@@ -594,5 +595,5 @@
 
     window.ESPectreDirectClient = ESPectreDirectClient;
     window.ESPectreDirectError = ESPectreDirectError;
-    window.ESPectreRawCsiV2Parser = ESPectreRawCsiV2Parser;
+    window.ESPectreRawCsiParser = ESPectreRawCsiParser;
 })();

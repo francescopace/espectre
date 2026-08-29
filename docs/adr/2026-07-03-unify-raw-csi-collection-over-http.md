@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-07-03
 - Recorded: 2026-07-09 (retrospective)
-- Updated: 2026-08-26
+- Updated: 2026-08-29
 
 ## Context
 
@@ -15,15 +15,15 @@ Normalized amplitude does not erase radio context. Every record must retain the 
 
 ## Decision
 
-Remove the Streamer frontend and use raw HTTP v2 as the only live collection transport across supported ESPectre frontends.
+Remove the Streamer frontend and use raw HTTP as the only live collection transport across supported ESPectre frontends. The published framing uses protocol version `1`.
 
 Raw collection does not change the configured traffic source, pace output, select a freshest sample, or apply temporal admission. The CSI callback first applies the bounded, fail-closed provenance classifier for the configured internal or external generator. Classified raw frames enter a preallocated 16-record atomic SPSC ring. A dedicated task-notified worker sends up to four ordered records per chunk. A full ring drops the newest record with an explicit counter. Each offered frame receives its 64-bit stream sequence before enqueue, so a drop creates an observable gap.
 
 `./espectre collect` persistently selects `external`, opens the bearer-bound raw session, and imports `ExternalTrafficGenerator` from the standalone, standard-library-only `tools/espectre_traffic_generator.py`. Its `--pps` value controls only that UDP generator and dataset provenance. External datagrams carry the exact four-byte UTF-8 payload `"👻".encode("utf-8")` (`F0 9F 91 BB`) as the canonical marker. The web raw tool uses the device's existing internal or external configuration and does not expose a PPS control.
 
-Raw HTTP v2 prefixes every CSI V8 record with a 60-byte transport record. The V8 header preserves `phy_mode`, `ltf_type`, `channel_width`, receive timing, device sequence, chip, RSSI, channel, and CSI payload length. The HTTP prefix adds the session and stream sequence used to expose transport loss. The collector stores the normalized PHY fields in every generated `.npz` dataset. Historical datasets without these fields retain their documented HT, HT-LTF, and 20 MHz interpretation when their layout proves the earlier HT20 contract.
+Raw HTTP prefixes every CSI V8 record with a 60-byte transport record. The V8 header preserves `phy_mode`, `ltf_type`, `channel_width`, receive timing, device sequence, chip, RSSI, channel, and CSI payload length. The HTTP prefix adds the session and stream sequence used to expose transport loss. The collector stores the normalized PHY fields in every generated `.npz` dataset. Historical datasets without these fields retain their documented HT, HT-LTF, and 20 MHz interpretation when their layout proves the earlier HT20 contract.
 
-Raw HTTP v2 is intentionally incompatible with raw HTTP v1. Host tooling retains read support for historical V7 records, but no maintained workflow emits Streamer UDP records.
+The published raw HTTP framing uses protocol version `1`. Host tooling retains read support for historical V7 records, but no maintained workflow emits Streamer UDP records.
 
 ## Decision History
 
@@ -33,6 +33,7 @@ Raw HTTP v2 is intentionally incompatible with raw HTTP v1. Host tooling retains
 | 2026-07-19 | Preserve per-record PHY provenance in Streamer V7 datasets | Retained as a format invariant in CSI V8 and raw HTTP v2 |
 | 2026-08-25 | Remove Streamer and collect through raw HTTP across supported ESPectre frontends | Accepted |
 | 2026-08-25 | Pace or replace samples inside the HTTP data plane | Rejected because transport feedback would decide which records enter the dataset |
+| 2026-08-29 | Publish the current raw HTTP framing as protocol version `1` instead of `2` | Accepted; CSI record version remains `8` |
 
 ## Alternatives Considered
 

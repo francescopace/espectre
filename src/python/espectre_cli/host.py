@@ -155,8 +155,8 @@ def _prepare_raw_http_collection(args, direct_client_cls, receiver_cls, generato
     with direct_client_cls(direct_endpoint) as control:
         capabilities = control.request("capabilities")
         raw_capability = capabilities.get("raw_csi", {})
-        if not isinstance(raw_capability, dict) or raw_capability.get("protocol_version") != 2:
-            raise RuntimeError("target does not advertise raw HTTP v2")
+        if not isinstance(raw_capability, dict) or raw_capability.get("protocol_version") != 1:
+            raise RuntimeError("target does not advertise raw HTTP v1")
         if raw_capability.get("marker") != generator_cls.TRAFFIC_MARKER:
             raise RuntimeError("target does not advertise the canonical external traffic marker")
         control.request("set_csi_traffic_mode", {"csi_traffic_mode": "external"})

@@ -174,7 +174,7 @@ class EspIdfDirectHttpService final : public IDirectHttpService {
   static constexpr size_t kRawQueueDepth = 16U;
   static constexpr size_t kRawBatchRecords = 4U;
   static constexpr size_t kRawEncodedFrameMaximumSize =
-      sizeof(RawCsiHttpFramePrefixV2) + sizeof(RawCsiRecordHeaderV8) + RAW_CSI_MAX_PAYLOAD_BYTES;
+      sizeof(RawCsiHttpFramePrefix) + sizeof(RawCsiRecordHeaderV8) + RAW_CSI_MAX_PAYLOAD_BYTES;
   std::atomic<bool> raw_session_active_{false};
   std::atomic<uint32_t> raw_producer_active_{0U};
   std::array<RawSampleSlot, kRawQueueDepth> raw_samples_{};

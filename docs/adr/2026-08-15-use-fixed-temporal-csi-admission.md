@@ -43,7 +43,7 @@ Python has one CPython reference implementation in `tools/lib/temporal_csi_sampl
 
 Closing a slot is driven by the next packet timestamp, not by the processing-loop wall clock. The live runtime therefore keeps one fixed payload buffer for the current candidate; when a later-slot packet arrives, the previous payload is consumed before the current packet can replace the buffer. MicroPython uses two preallocated payload arrays for the same transition. Finite replay and controlled shutdown may explicitly flush the last buffered candidate.
 
-Raw HTTP v2 transports every provenance-classified CSI frame before temporal admission. The collector's `--pps` value controls only its external UDP traffic generator and supplies the target for its live detector and derived sensing view. HTTP applies no pacing or temporal decimation; occupancy remains telemetry and never resizes the collector grid.
+Raw HTTP transports every provenance-classified CSI frame before temporal admission. The collector's `--pps` value controls only its external UDP traffic generator and supplies the target for its live detector and derived sensing view. HTTP applies no pacing or temporal decimation; occupancy remains telemetry and never resizes the collector grid.
 
 ## Decision History
 

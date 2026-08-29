@@ -238,7 +238,7 @@ Motion detection frontends depend on CSI packets. For the shared detection runti
 | Micro-ESPectre | `CSI_TARGET_PPS` | `TRAFFIC_GENERATOR_ENABLED`; ICMP ping when enabled, external traffic when disabled | yes | phase-preserving cadence without catch-up bursts; local socket backoff only |
 | Collector detector, replay, training, and validation | recorded `csi_target_pps`, collector `--pps`, or a documented legacy fallback | recorded raw HTTP stream | yes, through the production Micro-ESPectre sampler | external generator owns rate; HTTP does not pace |
 
-Raw HTTP collection is available on supported ESPectre frontends. [`CLI.md`](CLI.md#collect) owns the collection workflow, and [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#direct-raw-csi-v2) owns session behavior and framing.
+Raw HTTP collection is available on supported ESPectre frontends. [`CLI.md`](CLI.md#collect) owns the collection workflow, and [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#direct-raw-csi) owns session behavior and framing.
 
 External UDP traffic can be unicast to each device IP, or sent to multicast group `239.255.0.1`. ESP-IDF frontends join that group automatically in `external`. Empty `csi_traffic_multicast_group` disables the join. Subnet and limited broadcast (`x.x.x.255`, `255.255.255.255`) do not produce reliable HT20 CSI. ESPHome, Native, and Matter listen on port `5555` and accept only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`); use [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) standalone or through `./espectre collect`.
 

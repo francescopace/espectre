@@ -142,7 +142,7 @@ The Direct adapter uses the same `FrontendCommandEngine` as the other C++ fronte
 
 Matter supports both `lightweight` and `high_accuracy`. Published firmware starts with Lightweight, while a local build can select another initial profile through the shared ESP-IDF sensing configuration. Direct HTTP changes and persists the runtime selection; standard Matter occupancy clusters do not expose that control. [`TUNING.md`](../../../../docs/TUNING.md#startup-and-detection-profile) owns the profile trade-offs and startup procedure.
 
-Matter also supports the shared internal and external traffic modes and the bearer-bound raw HTTP v2 surface. [`SETUP.md`](../../../../docs/SETUP.md#traffic-generation) owns traffic configuration, and [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#direct-raw-csi-v2) owns raw-session behavior and framing.
+Matter also supports the shared internal and external traffic modes and the bearer-bound raw HTTP surface. [`SETUP.md`](../../../../docs/SETUP.md#traffic-generation) owns traffic configuration, and [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#direct-raw-csi) owns raw-session behavior and framing.
 
 ## Targets and Validation
 

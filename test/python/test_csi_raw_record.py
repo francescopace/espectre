@@ -31,6 +31,7 @@ from tools.lib.csi_io import (
     RAW_CSI_RECORD_VERSION_V7,
     RAW_CSI_RECORD_VERSION_V8,
     RAW_CSI_HTTP_FRAME_STRUCT,
+    RAW_CSI_PROTOCOL_VERSION,
     RAW_CSI_RESPONSE_MAGIC,
     load_npz_arrays,
     load_npz_as_packets,
@@ -268,7 +269,7 @@ def test_direct_raw_receiver_negotiates_v8_and_feeds_shared_packet_parser():
                     "features": {"raw_csi": True},
                     "raw_csi": {
                         "transport": "http",
-                        "protocol_version": 2,
+                        "protocol_version": RAW_CSI_PROTOCOL_VERSION,
                         "record_version": 8,
                         "frame_prefix_bytes": 60,
                     },
@@ -326,7 +327,7 @@ def test_direct_raw_receiver_negotiates_v8_and_feeds_shared_packet_parser():
             )
             prefix = RAW_CSI_HTTP_FRAME_STRUCT.pack(
                 RAW_CSI_RESPONSE_MAGIC,
-                2,
+                RAW_CSI_PROTOCOL_VERSION,
                 8,
                 RAW_CSI_HTTP_FRAME_STRUCT.size,
                 session_id,
@@ -479,7 +480,7 @@ def test_direct_raw_receiver_parses_aggregated_frames_and_rejects_sequence_misma
         )
         prefix = RAW_CSI_HTTP_FRAME_STRUCT.pack(
             RAW_CSI_RESPONSE_MAGIC,
-            2,
+            RAW_CSI_PROTOCOL_VERSION,
             8,
             RAW_CSI_HTTP_FRAME_STRUCT.size,
             session_id,
@@ -854,7 +855,7 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
         packet.transport = 'http'
         packet.transport_target = 'http://192.168.1.23/espectre/v1/csi'
         packet.requested_pps = 200.0
-        packet.raw_protocol_version = 2
+        packet.raw_protocol_version = RAW_CSI_PROTOCOL_VERSION
         packet.record_version = RAW_CSI_RECORD_VERSION_V8
         packet.raw_stream_sequence = index
         packet.frontend = 'esphome'
@@ -890,7 +891,7 @@ def test_save_sample_keeps_existing_schema_and_adds_optional_metadata(tmp_path, 
     assert str(data['endpoint']) == 'http://192.168.1.23/espectre/v1/csi'
     assert float(data['observed_pps']) == float(data['effective_pps'])
     assert float(data['requested_pps']) == 200.0
-    assert int(data['raw_protocol_version']) == 2
+    assert int(data['raw_protocol_version']) == RAW_CSI_PROTOCOL_VERSION
     assert int(data['record_version']) == 8
     assert str(data['frontend']) == 'esphome'
     assert str(data['firmware_version']) == '2.0.0-test'

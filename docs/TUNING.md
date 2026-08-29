@@ -138,7 +138,7 @@ Rules of thumb:
 - lower target: less traffic and lower temporal resolution; requires validation at the chosen cadence
 - higher target: more Wi-Fi and CPU cost without guaranteed occupancy or detector improvement; requires validation
 
-The collector, external UDP marker, raw HTTP framing, and persistence behavior belong to [CLI.md](CLI.md#collect), [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md), [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md#direct-raw-csi-v2), and [SETUP.md](SETUP.md#traffic-generation).
+The collector, external UDP marker, raw HTTP framing, and persistence behavior belong to [CLI.md](CLI.md#collect), [ML_DATA_COLLECTION.md](ML_DATA_COLLECTION.md), [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md#direct-raw-csi), and [SETUP.md](SETUP.md#traffic-generation).
 
 ## Detector Window
 

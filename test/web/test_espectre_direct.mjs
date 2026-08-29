@@ -16,7 +16,7 @@ createRequire(import.meta.url)('../../docs/web/assets/js/espectre-direct.js');
 
 const Client = window.ESPectreDirectClient;
 const DirectError = window.ESPectreDirectError;
-const RawParser = window.ESPectreRawCsiV2Parser;
+const RawParser = window.ESPectreRawCsiParser;
 
 function rawFrame({
     sessionId = '00112233445566778899aabbccddeeff',
@@ -44,7 +44,7 @@ function rawFrame({
 
     const prefix = Buffer.alloc(60);
     prefix.writeUInt32LE(0x52505345, 0);
-    prefix.writeUInt8(2, 4);
+    prefix.writeUInt8(1, 4);
     prefix.writeUInt8(8, 5);
     prefix.writeUInt16LE(60, 6);
     Buffer.from(sessionId, 'hex').copy(prefix, 8);
@@ -134,8 +134,8 @@ describe('Direct HTTP endpoint policy', () => {
     });
 });
 
-describe('Raw CSI HTTP v2 parser', () => {
-    it('reconstructs split and aggregated frames and exposes v2 counters', () => {
+describe('Raw CSI HTTP parser', () => {
+    it('reconstructs split and aggregated frames and exposes counters', () => {
         const parser = new RawParser('00112233445566778899aabbccddeeff');
         const first = rawFrame();
         const second = rawFrame({ sequence: 3n, fresh: 2n, dropped: 1n });

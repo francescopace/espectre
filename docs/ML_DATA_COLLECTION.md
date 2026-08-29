@@ -34,7 +34,7 @@ The primary collection path is:
 ```text
 raw-capable ESPectre frontend
   -> ExternalTrafficGenerator UDP marker
-  -> bearer-bound raw HTTP v2
+  -> bearer-bound raw HTTP
   -> ./espectre collect
   -> one .npz per device_id
 ```
@@ -130,7 +130,7 @@ Recommended starting point:
 
 ## Raw Record Metadata
 
-Raw HTTP v2 carries CSI V8 records with metadata useful for analysis and validation:
+Raw HTTP carries CSI V8 records with metadata useful for analysis and validation:
 
 - `device_ticks_us`
 - `wifi_rx_ts_us`, when available
@@ -199,7 +199,7 @@ Current collector fields:
 | `duration_ms` | `float` | Capture duration |
 | `format_version` | `str` | Dataset format version |
 | `stream_seq_num` | `uint32[N]` | Stream sequence numbers |
-| `raw_stream_sequence` | `uint64[N]` | Canonical raw HTTP v2 sequence numbers, including observable gaps |
+| `raw_stream_sequence` | `uint64[N]` | Canonical raw HTTP sequence numbers, including observable gaps |
 | `device_ticks_us` | `uint64[N]` | Device monotonic timestamps |
 | `phy_mode` | `str[N]` | Per-record PHY mode; current sensing rows use `ht` |
 | `ltf_type` | `str[N]` | Per-record LTF type; current sensing rows use `ht-ltf` |
@@ -209,7 +209,7 @@ Current collector fields:
 | `endpoint`, `transport_target` | `str` | Direct raw endpoint used for collection |
 | `requested_pps` | `float` | Requested external generator rate per target |
 | `observed_pps`, `effective_pps` | `float` | Observed collector receive rate |
-| `raw_protocol_version` | `uint8` | Raw HTTP protocol version, currently `2` |
+| `raw_protocol_version` | `uint8` | Raw HTTP protocol version, currently `1` |
 | `record_version` | `uint8` | CSI record version, currently `8` for live captures |
 | `frontend` | `str` | Device frontend (`native`, `esphome`, or `matter`) |
 | `firmware_version`, `firmware_identity` | `str` | Firmware provenance reported by Direct `info` |
@@ -307,5 +307,5 @@ Before opening a PR:
 ## Next Steps
 
 - [`ML_TRAINING.md`](ML_TRAINING.md) for model training, export, and regression checks
-- [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#direct-raw-csi-v2) for raw HTTP framing and session ownership
+- [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#direct-raw-csi) for raw HTTP framing and session ownership
 - [`README.md` (tools)](../tools/README.md) for analysis helpers

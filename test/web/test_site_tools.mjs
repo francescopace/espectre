@@ -578,7 +578,7 @@ describe('website tool contracts', () => {
         assert.match(rawClient, /if \(conn\.mode === 'demo'\) \{\s*rawCsiStartDemo\(100\);\s*return;/);
         assert.match(rawClient, /const client = directClient;[\s\S]*client\.request\('start_raw_stream'/);
         assert.doesNotMatch(rawClient, /makeDirectClient|client\.connect\(|client\.handshake\(|client\.close\(/);
-        assert.match(rawClient, /new window\.ESPectreRawCsiV2Parser\(session\.session_id\)/);
+        assert.match(rawClient, /new window\.ESPectreRawCsiParser\(session\.session_id\)/);
         assert.match(rawClient, /rawCsi\.parser\.append\(chunk\)\.forEach/);
         assert.match(rawClient, /state: 'idle'/);
         assert.match(rawClient, /if \(rawCsi\.state === 'stopping'\) return rawCsi\.stopPromise/);
@@ -586,7 +586,7 @@ describe('website tool contracts', () => {
         assert.match(rawClient, /rawCsi\.generation !== generation \|\| rawCsi\.state !== 'starting'/);
         assert.match(rawClient, /function rawCsiToggle\(\) \{[\s\S]*rawCsiStart\(\)[\s\S]*rawCsiStop\(\)/);
         assert.match(app, /previousRoute === 'tool-raw-csi'[\s\S]*void rawCsiStop\(\)/);
-        assert.match(app, /rawCapability\?\.protocol_version === 2[\s\S]*rawCapability\?\.marker === '👻'/);
+        assert.match(app, /rawCapability\?\.protocol_version === 1[\s\S]*rawCapability\?\.marker === '👻'/);
     });
 
     it('shows one selectable Raw CSI visualization at a time', () => {

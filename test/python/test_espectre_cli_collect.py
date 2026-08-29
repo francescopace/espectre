@@ -198,7 +198,7 @@ def test_prepare_raw_collection_persists_external_before_constructing_data_plane
             if method == "capabilities":
                 return {
                     "raw_csi": {
-                        "protocol_version": 2,
+                        "protocol_version": 1,
                         "traffic_udp_port": 6123,
                         "marker": ExternalTrafficGenerator.TRAFFIC_MARKER,
                     }
@@ -262,7 +262,7 @@ def test_prepare_raw_collection_rejects_unconfirmed_persistent_mode() -> None:
             if method == "capabilities":
                 return {
                     "raw_csi": {
-                        "protocol_version": 2,
+                        "protocol_version": 1,
                         "marker": ExternalTrafficGenerator.TRAFFIC_MARKER,
                     }
                 }
@@ -280,7 +280,7 @@ def test_prepare_raw_collection_rejects_unconfirmed_persistent_mode() -> None:
         host._prepare_raw_http_collection(args, FakeControl, object, ExternalTrafficGenerator)
 
 
-def test_prepare_raw_collection_rejects_raw_v1_without_fallback() -> None:
+def test_prepare_raw_collection_rejects_incompatible_protocol_version() -> None:
     class FakeControl:
         def __init__(self, _endpoint):
             pass
@@ -293,7 +293,7 @@ def test_prepare_raw_collection_rejects_raw_v1_without_fallback() -> None:
 
         def request(self, method, _params=None):
             assert method == "capabilities"
-            return {"raw_csi": {"protocol_version": 1}}
+            return {"raw_csi": {"protocol_version": 2}}
 
     args = SimpleNamespace(
         direct_endpoint="http://192.168.1.23/espectre/v1/request",
@@ -301,13 +301,13 @@ def test_prepare_raw_collection_rejects_raw_v1_without_fallback() -> None:
         source_ip=None,
         pps=100,
     )
-    with pytest.raises(RuntimeError, match="raw HTTP v2"):
+    with pytest.raises(RuntimeError, match="raw HTTP v1"):
         host._prepare_raw_http_collection(args, FakeControl, object, object)
 
 
 @pytest.mark.parametrize("raw_capability", [
-    {"protocol_version": 2, "marker": "."},
-    {"protocol_version": 2, "traffic_marker": "👻"},
+    {"protocol_version": 1, "marker": "."},
+    {"protocol_version": 1, "traffic_marker": "👻"},
 ])
 def test_prepare_raw_collection_rejects_noncanonical_marker(raw_capability) -> None:
     class FakeControl:

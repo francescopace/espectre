@@ -1153,7 +1153,7 @@ bool EspIdfDirectHttpService::service_raw_stream_() {
     last_sequence = sequence;
     const uint64_t fresh_total =
         raw_fresh_record_total_.load(std::memory_order_relaxed) + records + 1U;
-    RawCsiHttpFramePrefixV2 prefix{};
+    RawCsiHttpFramePrefix prefix{};
     prefix.magic = ESPECTRE_RAW_CSI_RESPONSE_MAGIC;
     prefix.version = ESPECTRE_RAW_CSI_PROTOCOL_VERSION;
     prefix.record_version = ESPECTRE_RAW_CSI_RECORD_VERSION;

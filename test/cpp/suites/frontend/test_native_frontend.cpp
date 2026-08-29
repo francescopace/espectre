@@ -1859,6 +1859,7 @@ void test_native_frontend_direct_raw_session_enforces_owner_and_keeps_mqtt_quiet
   const auto capabilities = direct.emit_deferred_request(
       77U, DirectRequest{"raw-cap", "capabilities", "{}"});
   TEST_ASSERT_TRUE(capabilities.response.find("\"raw_csi\":true") != std::string::npos);
+  TEST_ASSERT_TRUE(capabilities.response.find("\"protocol_version\":1") != std::string::npos);
   TEST_ASSERT_TRUE(capabilities.response.find("\"record_version\":8") != std::string::npos);
   TEST_ASSERT_TRUE(capabilities.response.find("\"transport\":\"http\"") != std::string::npos);
   TEST_ASSERT_TRUE(capabilities.response.find("subprotocol") == std::string::npos);

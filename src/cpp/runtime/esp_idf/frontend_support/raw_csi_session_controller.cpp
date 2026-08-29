@@ -126,8 +126,9 @@ bool RawCsiSessionController::handle_command(const EspectreCommand &command,
   if (data_json != nullptr) {
     *data_json = "{\"session_id\":\"" + authorization_ +
                  "\",\"endpoint\":\"" + ESPECTRE_RAW_CSI_ENDPOINT +
-                 "\",\"transport\":\"http\",\"protocol_version\":2,"
-                 "\"record_version\":8,\"frame_prefix_bytes\":60}";
+                 "\",\"transport\":\"http\",\"protocol_version\":" +
+                 std::to_string(static_cast<unsigned>(ESPECTRE_RAW_CSI_PROTOCOL_VERSION)) +
+                 ",\"record_version\":8,\"frame_prefix_bytes\":60}";
   }
   return true;
 }

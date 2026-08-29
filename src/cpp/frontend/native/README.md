@@ -43,7 +43,7 @@ The endpoints never return stored Wi-Fi or MQTT passwords. They cap request and 
 
 The high-rate telemetry callback runs only while MQTT is connected or a Direct SSE client is present. Runtime callbacks stage numeric sensing state; serialization and transport work run after detector evaluation returns.
 
-Native advertises the shared bearer-bound raw CSI HTTP v2 surface. A raw session keeps the configured traffic source active and restores sensing when the session ends without changing persisted traffic configuration. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#direct-raw-csi-v2) owns session authorization, framing, queue limits, and recovery behavior; [`CLI.md`](../../../../docs/CLI.md#collect) owns the `./espectre collect` workflow.
+Native advertises the shared bearer-bound raw CSI HTTP surface. A raw session keeps the configured traffic source active and restores sensing when the session ends without changing persisted traffic configuration. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#direct-raw-csi) owns session authorization, framing, queue limits, and recovery behavior; [`CLI.md`](../../../../docs/CLI.md#collect) owns the `./espectre collect` workflow.
 
 The device advertises `_espectre._tcp` through mDNS with a stable `espectre-<device_id>.local` hostname. Run `./espectre devices --frontend native` to enumerate Native endpoints on an mDNS-visible LAN. [`ESPECTRE_PROTOCOL.md`](../../../../docs/ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) owns the SRV, TXT, and peer-discovery contract; [`SETUP.md`](../../../../docs/SETUP.md#direct-http-connectivity) owns browser permissions, supported connection identifiers, and recovery when discovery fails.
 

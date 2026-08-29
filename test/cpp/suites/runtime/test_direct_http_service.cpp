@@ -394,9 +394,9 @@ void test_raw_get_requires_bearer_and_emits_v2_frame() {
   service.loop();
   TEST_ASSERT_EQUAL(2, g_httpd_mock.send_calls);
   TEST_ASSERT_EQUAL(9, g_httpd_mock.sent_fds[1]);
-  TEST_ASSERT_EQUAL(sizeof(RawCsiHttpFramePrefixV2) + sizeof(RawCsiRecordHeaderV8) + sizeof(csi),
+  TEST_ASSERT_EQUAL(sizeof(RawCsiHttpFramePrefix) + sizeof(RawCsiRecordHeaderV8) + sizeof(csi),
                     g_httpd_mock.sent_lengths[1]);
-  const auto *prefix = reinterpret_cast<const RawCsiHttpFramePrefixV2 *>(
+  const auto *prefix = reinterpret_cast<const RawCsiHttpFramePrefix *>(
       g_httpd_mock.sent_payloads[1]);
   TEST_ASSERT_EQUAL(ESPECTRE_RAW_CSI_RESPONSE_MAGIC, prefix->magic);
   TEST_ASSERT_EQUAL(ESPECTRE_RAW_CSI_PROTOCOL_VERSION, prefix->version);
@@ -405,7 +405,7 @@ void test_raw_get_requires_bearer_and_emits_v2_frame() {
   TEST_ASSERT_EQUAL(1U, prefix->stream_sequence);
   TEST_ASSERT_EQUAL(sizeof(RawCsiRecordHeaderV8) + sizeof(csi), prefix->record_len);
   const auto *header = reinterpret_cast<const RawCsiRecordHeaderV8 *>(
-      g_httpd_mock.sent_payloads[1] + sizeof(RawCsiHttpFramePrefixV2));
+      g_httpd_mock.sent_payloads[1] + sizeof(RawCsiHttpFramePrefix));
   TEST_ASSERT_EQUAL(RAW_CSI_RECORD_VERSION_V8, header->version);
   TEST_ASSERT_EQUAL(100000U, header->device_ticks_us);
   TEST_ASSERT_EQUAL(1U, header->fresh_record_total);
@@ -440,7 +440,7 @@ void test_raw_batches_up_to_four_records_without_pacing() {
   }
   service.loop();
   TEST_ASSERT_EQUAL(1, g_httpd_mock.send_calls);
-  const size_t frame_size = sizeof(RawCsiHttpFramePrefixV2) + sizeof(RawCsiRecordHeaderV8) + sizeof(csi);
+  const size_t frame_size = sizeof(RawCsiHttpFramePrefix) + sizeof(RawCsiRecordHeaderV8) + sizeof(csi);
   TEST_ASSERT_EQUAL(4U * frame_size, g_httpd_mock.sent_lengths[0]);
 }
 
@@ -510,7 +510,7 @@ void test_raw_ring_drops_new_record_and_accounts_every_offer() {
   TEST_ASSERT_EQUAL(1U, diagnostics.raw_drop_total);
   TEST_ASSERT_EQUAL(diagnostics.stream_sequence,
                     diagnostics.fresh_record_total + diagnostics.raw_drop_total);
-  const auto *prefix = reinterpret_cast<const RawCsiHttpFramePrefixV2 *>(
+  const auto *prefix = reinterpret_cast<const RawCsiHttpFramePrefix *>(
       g_httpd_mock.sent_payloads[4]);
   TEST_ASSERT_EQUAL(18U, prefix->stream_sequence);
 }
