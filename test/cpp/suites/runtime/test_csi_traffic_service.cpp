@@ -100,6 +100,15 @@ void test_csi_traffic_projection_keeps_mode_separate_from_positive_target(void) 
   TEST_ASSERT_EQUAL(static_cast<int>(CsiTrafficMode::INTERNAL),
                     static_cast<int>(service_config.mode));
   TEST_ASSERT_EQUAL(94U, service_config.rate_pps);
+  TEST_ASSERT_TRUE(service_config.traffic_mode == TrafficGeneratorMode::PING);
+
+  runtime_config.traffic_generator_mode = RuntimeTrafficMode::DNS;
+  service_config = to_csi_traffic_config(runtime_config);
+  TEST_ASSERT_TRUE(service_config.traffic_mode == TrafficGeneratorMode::DNS);
+
+  runtime_config.traffic_generator_mode = RuntimeTrafficMode::DNS_TCP;
+  service_config = to_csi_traffic_config(runtime_config);
+  TEST_ASSERT_TRUE(service_config.traffic_mode == TrafficGeneratorMode::DNS_TCP);
 
   runtime_config.csi_traffic_mode = CsiTrafficMode::INTERNAL;
   service_config = to_csi_traffic_config(runtime_config);

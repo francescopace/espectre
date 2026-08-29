@@ -50,14 +50,17 @@ enum class RuntimeProfile {
 
 /** Which packet the internal generator sends to solicit CSI from the AP. */
 enum class RuntimeTrafficMode {
-  /** DNS queries. Useful where ICMP is filtered. */
-  DNS,
   /** ICMP echo. Default. */
   PING,
+  /** DNS queries over connectionless UDP. */
+  DNS,
+  /** Length-prefixed DNS queries over a persistent TCP connection. */
+  DNS_TCP,
 };
 
-constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME = "dns";
 constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME = "ping";
+constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME = "dns";
+constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_TCP_NAME = "dns_tcp";
 constexpr const char *const RUNTIME_TRAFFIC_GENERATOR_MODE_DEFAULT_NAME = "ping";
 
 constexpr const char *const RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME = "internal";
@@ -135,7 +138,8 @@ constexpr bool runtime_profile_valid(RuntimeProfile profile) {
 }
 
 constexpr bool runtime_traffic_mode_valid(RuntimeTrafficMode mode) {
-  return mode == RuntimeTrafficMode::DNS || mode == RuntimeTrafficMode::PING;
+  return mode == RuntimeTrafficMode::PING || mode == RuntimeTrafficMode::DNS ||
+         mode == RuntimeTrafficMode::DNS_TCP;
 }
 
 constexpr bool runtime_csi_traffic_mode_valid(CsiTrafficMode mode) {

@@ -125,7 +125,7 @@ void test_runtime_traffic_updates_roll_back_when_persistence_fails(void) {
 
   TEST_ASSERT_FALSE(runtime.set_csi_traffic_mode_runtime(CsiTrafficMode::EXTERNAL));
   TEST_ASSERT_TRUE(runtime.config_.csi_traffic_mode == CsiTrafficMode::INTERNAL);
-  TEST_ASSERT_FALSE(runtime.set_traffic_generator_mode_runtime(RuntimeTrafficMode::DNS));
+  TEST_ASSERT_FALSE(runtime.set_traffic_generator_mode_runtime(RuntimeTrafficMode::DNS_TCP));
   TEST_ASSERT_TRUE(runtime.config_.traffic_generator_mode == RuntimeTrafficMode::PING);
 }
 

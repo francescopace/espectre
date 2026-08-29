@@ -380,6 +380,8 @@ void test_native_frontend_mqtt_connect_publishes_ha_discovery_and_subscribes_bir
                                             "homeassistant/select/native_0000111122223333_csi_traffic_source/config" &&
                                         publish.retain &&
                                         publish.payload.find("\"name\":\"CSI Traffic Source\"") !=
+                                            std::string::npos &&
+                                        publish.payload.find("\"options\":[\"ping\",\"dns\",\"dns_tcp\"]") !=
                                             std::string::npos;
                                }));
   const int csi_traffic_discovery = mqtt_publish_index(
@@ -828,18 +830,18 @@ void test_native_frontend_ha_traffic_control_commands_update_runtime(void) {
   mqtt_transport_mock::state.publishes.clear();
 
   mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/csi_traffic_mode/set", "external");
-  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/traffic_generator_mode/set", "dns");
+  mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/traffic_generator_mode/set", "dns_tcp");
 
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_csi_traffic_mode_calls);
   TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_csi_traffic_mode == CsiTrafficMode::EXTERNAL);
   TEST_ASSERT_EQUAL(1, frontend_runtime_shim::state.set_traffic_generator_mode_calls);
-  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == RuntimeTrafficMode::DNS);
+  TEST_ASSERT_TRUE(frontend_runtime_shim::state.last_traffic_generator_mode == RuntimeTrafficMode::DNS_TCP);
   TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/csi_traffic_mode/state", "external"));
-  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/traffic_generator_mode/state", "dns"));
+  TEST_ASSERT_TRUE(has_mqtt_publish("espectre/v1/devices/0000abcdeffedcba/ha/traffic_generator_mode/state", "dns_tcp"));
   TEST_ASSERT_TRUE(has_mqtt_publish_containing("espectre/v1/devices/0000abcdeffedcba/config",
                                                "\"csi_traffic_mode\":\"external\""));
   TEST_ASSERT_TRUE(has_mqtt_publish_containing("espectre/v1/devices/0000abcdeffedcba/config",
-                                               "\"traffic_generator_mode\":\"dns\""));
+                                               "\"traffic_generator_mode\":\"dns_tcp\""));
 
   mqtt_transport_mock::state.publishes.clear();
   mqtt.emit_message("espectre/v1/devices/0000abcdeffedcba/ha/csi_traffic_mode/set", "pacing");
@@ -1376,7 +1378,7 @@ void test_espectre_protocol_parses_config_and_rejects_bad_commands(void) {
       "{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"external\"}", &command, &error));
   TEST_ASSERT_TRUE(command.has_csi_traffic_mode);
   TEST_ASSERT_TRUE(parse_espectre_command(
-      "{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"dns\"}", &command, &error));
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"dns_tcp\"}", &command, &error));
   TEST_ASSERT_TRUE(command.has_traffic_generator_mode);
   TEST_ASSERT_FALSE(parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_threshold\",\"threshold\":\"bad\"}", &command, &error));
 }

@@ -130,7 +130,7 @@ If occupancy remains below 70%:
 
 The runtime never changes the target automatically because doing so would change feature timing.
 
-The C++ sensing frontends support internal `ping` and `dns`. Ping sends ICMP echo requests and is the portable default. DNS uses a persistent, non-blocking TCP connection to gateway port `53`, so the gateway must accept DNS over TCP. Micro-ESPectre selects native ICMP ping or external traffic at deployment; it does not expose runtime traffic mutations.
+The C++ sensing frontends support internal `ping`, `dns`, and `dns_tcp`. Ping sends ICMP echo requests, `dns` sends connectionless UDP/53 queries, and `dns_tcp` uses a persistent, non-blocking TCP connection to gateway port `53`. The shared default is ping, while validated classic ESP32 product configurations use DNS/UDP. Select the mode that remains stable with the deployed device, driver, AP, and gateway resolver; the runtime does not fall back automatically. Micro-ESPectre selects native ICMP ping or external traffic at deployment and does not expose runtime traffic mutations.
 
 Rules of thumb:
 

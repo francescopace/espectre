@@ -12,7 +12,16 @@
 namespace espectre {
 
 TrafficGeneratorMode to_traffic_generator_mode(RuntimeTrafficMode mode) {
-  return mode == RuntimeTrafficMode::PING ? TrafficGeneratorMode::PING : TrafficGeneratorMode::DNS;
+  switch (mode) {
+    case RuntimeTrafficMode::PING:
+      return TrafficGeneratorMode::PING;
+    case RuntimeTrafficMode::DNS:
+      return TrafficGeneratorMode::DNS;
+    case RuntimeTrafficMode::DNS_TCP:
+      return TrafficGeneratorMode::DNS_TCP;
+    default:
+      return TrafficGeneratorMode::PING;
+  }
 }
 
 CsiTrafficServiceConfig to_csi_traffic_config(const RuntimeConfig &config) {

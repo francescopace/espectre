@@ -344,7 +344,8 @@ FrontendCommandResult FrontendCommandEngine::execute(
       return reject("unsupported", "unsupported command");
     }
     if (!command.has_traffic_generator_mode) {
-      return reject("invalid_params", "invalid traffic generator mode (accepted: ping and dns)");
+      return reject("invalid_params",
+                    "invalid traffic generator mode (accepted: ping, dns, and dns_tcp)");
     }
     result.accepted =
         traffic_generator_mode_callback(parse_traffic_mode(command.traffic_generator_mode.c_str()), &result.message);

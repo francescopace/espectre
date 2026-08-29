@@ -127,7 +127,7 @@ espectre:
 | `motion_off_hits_number` | number | `Motion Off Hits` | Runtime motion-off debounce count (1–20) |
 | `detector_select` | select | `Detection Profile` | Runtime `lightweight` / `high_accuracy` selection |
 | `csi_traffic_mode_select` | select | `CSI Traffic Ownership` | Runtime `internal` / `external` selection |
-| `traffic_generator_mode_select` | select | `CSI Traffic Source` | Runtime `ping` / `dns` selection |
+| `traffic_generator_mode_select` | select | `CSI Traffic Source` | Runtime `ping` / `dns` (UDP) / `dns_tcp` selection |
 | `sensing_switch` | switch | `Sensing Enabled` | Enables or pauses sensing through the common command engine |
 | `recalibrate_button` | button | `Recalibrate` | Starts runtime recalibration |
 | `calibration_active_sensor` | binary_sensor | `Calibration Active` | Read-only authoritative calibration state |
@@ -250,6 +250,8 @@ espectre:
 ```
 
 The `traffic_generator_mode_select` entity can change the internal source at runtime, and `csi_traffic_mode_select` can switch between internal and external ownership. Both selections persist after an accepted change.
+
+The shared component default is `ping`. The classic ESP32 example selects `dns`, meaning DNS over UDP, because that target-specific profile remained stable in the validated benchmark and monitor-mode capture. `dns_tcp` remains available where TCP/53 performs better, and no mode silently falls back to another.
 
 ### External Traffic Mode
 

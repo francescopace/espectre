@@ -251,6 +251,7 @@ void test_runtime_config_utils_validate_and_name_values(void) {
     TEST_ASSERT_FALSE(validate_runtime_threshold(1.1f));
     TEST_ASSERT_EQUAL_STRING("ping", traffic_mode_name(RuntimeTrafficMode::PING));
     TEST_ASSERT_EQUAL_STRING("dns", traffic_mode_name(RuntimeTrafficMode::DNS));
+    TEST_ASSERT_EQUAL_STRING("dns_tcp", traffic_mode_name(RuntimeTrafficMode::DNS_TCP));
     TEST_ASSERT_EQUAL_STRING("internal", csi_traffic_mode_name(CsiTrafficMode::INTERNAL));
     TEST_ASSERT_EQUAL_STRING("external", csi_traffic_mode_name(CsiTrafficMode::EXTERNAL));
     TEST_ASSERT_EQUAL_STRING("high_accuracy", detection_algorithm_name(DetectionAlgorithm::HIGH_ACCURACY));
@@ -258,6 +259,8 @@ void test_runtime_config_utils_validate_and_name_values(void) {
     TEST_ASSERT_EQUAL_STRING("fixed", subcarrier_source_name(RuntimeSubcarrierSource::FIXED_DEFAULT));
     TEST_ASSERT_TRUE(parse_traffic_mode("ping") == RuntimeTrafficMode::PING);
     TEST_ASSERT_TRUE(parse_traffic_mode("dns") == RuntimeTrafficMode::DNS);
+    TEST_ASSERT_TRUE(parse_traffic_mode("dns_tcp") == RuntimeTrafficMode::DNS_TCP);
+    TEST_ASSERT_TRUE(parse_traffic_mode("unsupported") == RuntimeTrafficMode::PING);
     TEST_ASSERT_TRUE(parse_csi_traffic_mode("internal") == CsiTrafficMode::INTERNAL);
     TEST_ASSERT_TRUE(parse_csi_traffic_mode("external") == CsiTrafficMode::EXTERNAL);
     TEST_ASSERT_TRUE(parse_csi_traffic_mode("pacing") == CsiTrafficMode::INTERNAL);

@@ -179,6 +179,20 @@ void test_dns_tcp_query_frame_adds_length_and_transaction_id(void) {
     TEST_ASSERT_EQUAL_UINT8(0x01U, frame[18]);
 }
 
+void test_dns_udp_query_payload_sets_transaction_id_without_tcp_length(void) {
+    uint8_t payload[TRAFFIC_DNS_QUERY_PAYLOAD_SIZE] = {};
+
+    TEST_ASSERT_EQUAL(TRAFFIC_DNS_QUERY_PAYLOAD_SIZE,
+                      build_dns_query_payload(0x5678U, payload, sizeof(payload)));
+    TEST_ASSERT_EQUAL_UINT8(0x56U, payload[0]);
+    TEST_ASSERT_EQUAL_UINT8(0x78U, payload[1]);
+    TEST_ASSERT_EQUAL_UINT8(0x01U, payload[2]);
+    TEST_ASSERT_EQUAL_UINT8(0x00U, payload[3]);
+    TEST_ASSERT_EQUAL_UINT8(0x01U, payload[5]);
+    TEST_ASSERT_EQUAL_UINT8(0x01U, payload[14]);
+    TEST_ASSERT_EQUAL_UINT8(0x01U, payload[16]);
+}
+
 void test_dns_tcp_query_frame_rejects_small_buffer(void) {
     uint8_t frame[TRAFFIC_DNS_TCP_FRAME_SIZE - 1U] = {};
 
@@ -210,6 +224,7 @@ int process(void) {
     RUN_TEST(test_pacing_deadline_handles_invalid_interval);
     RUN_TEST(test_dns_tcp_query_frame_adds_length_and_transaction_id);
     RUN_TEST(test_dns_tcp_query_frame_rejects_small_buffer);
+    RUN_TEST(test_dns_udp_query_payload_sets_transaction_id_without_tcp_length);
     
     return UNITY_END();
 }

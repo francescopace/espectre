@@ -177,7 +177,7 @@ void append_capability_commands(std::string *out,
       "set_traffic_generator_mode",
       "mutation",
       "control",
-      "\"traffic_generator_mode\":{\"type\":\"string\",\"enum\":[\"ping\",\"dns\"]}",
+      "\"traffic_generator_mode\":{\"type\":\"string\",\"enum\":[\"ping\",\"dns\",\"dns_tcp\"]}",
       "\"traffic_generator_mode\"");
   add(capabilities.supports(Method::WIFI_ACCESS_POINTS),
       "wifi_access_points", "query", "network_admin", "", "", "wifi_access_points");
@@ -446,8 +446,9 @@ bool parse_command_fields(const std::string &command_id,
   } else if (parsed.command == "set_traffic_generator_mode") {
     if (!string_field("traffic_generator_mode", &parsed.traffic_generator_mode) ||
         (parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME &&
-         parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME)) {
-      return reject("invalid traffic generator mode (accepted: ping and dns)");
+         parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME &&
+         parsed.traffic_generator_mode != RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_TCP_NAME)) {
+      return reject("invalid traffic generator mode (accepted: ping, dns, and dns_tcp)");
     }
     parsed.has_traffic_generator_mode = true;
   } else if (parsed.command == "set_detector") {

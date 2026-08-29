@@ -100,6 +100,11 @@ void test_runtime_traffic_mode_store_round_trips_and_validates_values(void) {
   TEST_ASSERT_TRUE(has_saved_value);
   TEST_ASSERT_TRUE(generator_mode == RuntimeTrafficMode::DNS);
 
+  TEST_ASSERT_EQUAL(ESP_OK, save_runtime_traffic_generator_mode(RuntimeTrafficMode::DNS_TCP));
+  TEST_ASSERT_EQUAL(ESP_OK, load_runtime_traffic_generator_mode(&generator_mode, &has_saved_value));
+  TEST_ASSERT_TRUE(has_saved_value);
+  TEST_ASSERT_TRUE(generator_mode == RuntimeTrafficMode::DNS_TCP);
+
   nvs_mock_put_str("csi_traffic", "bogus");
   TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, load_runtime_csi_traffic_mode(&csi_mode, &has_saved_value));
   nvs_mock_put_str("traffic_gen", "bogus");

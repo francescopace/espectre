@@ -8,6 +8,9 @@
 CONFIG_LWIP_IRAM_OPTIMIZATION=n
 CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=n
 
+# DNS/UDP is the validated default managed source on classic ESP32.
+CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS=y
+
 # Validated classic ESP32 scheduling profile. Other targets retain the shared
 # Direct HTTPD priority of 1 unless their target profile overrides it.
 CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY=4

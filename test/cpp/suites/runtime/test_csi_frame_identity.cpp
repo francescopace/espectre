@@ -89,7 +89,7 @@ std::vector<uint8_t> ping_request(uint32_t source,
   return ipv4_frame(1U, source, destination, icmp);
 }
 
-std::vector<uint8_t> dns_reply(bool with_payload = true) {
+std::vector<uint8_t> dns_tcp_reply(bool with_payload = true) {
   std::vector<uint8_t> tcp(with_payload ? 34U : 20U, 0U);
   write_be16(tcp.data(), 53U);
   write_be16(tcp.data() + 2U, 40000U);
@@ -102,6 +102,16 @@ std::vector<uint8_t> dns_reply(bool with_payload = true) {
     tcp[25] = 0x80U;
   }
   return ipv4_frame(6U, kGateway, kLocal, tcp);
+}
+
+std::vector<uint8_t> dns_udp_reply() {
+  std::vector<uint8_t> udp(20U, 0U);
+  write_be16(udp.data(), 53U);
+  write_be16(udp.data() + 2U, 40000U);
+  write_be16(udp.data() + 4U, static_cast<uint16_t>(udp.size()));
+  udp[10U] = 0x81U;
+  udp[11U] = 0x80U;
+  return ipv4_frame(17U, kGateway, kLocal, udp);
 }
 
 wifi_csi_info_t csi_info(const std::vector<uint8_t> &payload, const uint8_t *destination_mac = kLocalMac) {
@@ -234,20 +244,39 @@ void test_internal_ping_requires_gateway_echo_reply_and_active_identifier(void) 
 }
 
 void test_internal_dns_requires_gateway_tcp_53_payload_and_rejects_ack_only(void) {
-  const CsiFrameFilterConfig config = filter(CsiTrafficMode::INTERNAL, RuntimeTrafficMode::DNS);
-  const auto valid = dns_reply(true);
-  const auto ack_only = dns_reply(false);
-  auto length_mismatch = dns_reply(true);
+  const CsiFrameFilterConfig config = filter(CsiTrafficMode::INTERNAL, RuntimeTrafficMode::DNS_TCP);
+  const auto valid = dns_tcp_reply(true);
+  const auto ack_only = dns_tcp_reply(false);
+  auto length_mismatch = dns_tcp_reply(true);
   length_mismatch[8U + 20U + 21U] = 11U;
-  auto query = dns_reply(true);
+  auto query = dns_tcp_reply(true);
   query[8U + 20U + 24U] = 0x01U;
-  auto http = dns_reply(true);
+  auto http = dns_tcp_reply(true);
   write_be16(http.data() + 8U + 20U, 80U);
   TEST_ASSERT_TRUE(matches(valid, config));
   TEST_ASSERT_FALSE(matches(ack_only, config));
   TEST_ASSERT_FALSE(matches(length_mismatch, config));
   TEST_ASSERT_FALSE(matches(query, config));
   TEST_ASSERT_FALSE(matches(http, config));
+}
+
+void test_internal_dns_udp_requires_gateway_udp_53_response(void) {
+  const CsiFrameFilterConfig config = filter(CsiTrafficMode::INTERNAL, RuntimeTrafficMode::DNS);
+  const auto valid = dns_udp_reply();
+  auto wrong_length = valid;
+  write_be16(wrong_length.data() + 8U + 20U + 4U, 19U);
+  auto query = valid;
+  query[8U + 20U + 10U] = 0x01U;
+  auto wrong_port = valid;
+  write_be16(wrong_port.data() + 8U + 20U, 54U);
+  auto wrong_gateway = valid;
+  write_be32(wrong_gateway.data() + 8U + 12U, kOther);
+  TEST_ASSERT_TRUE(matches(valid, config));
+  TEST_ASSERT_FALSE(matches(wrong_length, config));
+  TEST_ASSERT_FALSE(matches(query, config));
+  TEST_ASSERT_FALSE(matches(wrong_port, config));
+  TEST_ASSERT_FALSE(matches(wrong_gateway, config));
+  TEST_ASSERT_FALSE(matches(dns_tcp_reply(true), config));
 }
 
 int main() {
@@ -261,5 +290,6 @@ int main() {
   RUN_TEST(test_external_rejects_other_icmp_traffic);
   RUN_TEST(test_internal_ping_requires_gateway_echo_reply_and_active_identifier);
   RUN_TEST(test_internal_dns_requires_gateway_tcp_53_payload_and_rejects_ack_only);
+  RUN_TEST(test_internal_dns_udp_requires_gateway_udp_53_response);
   return end_suite();
 }

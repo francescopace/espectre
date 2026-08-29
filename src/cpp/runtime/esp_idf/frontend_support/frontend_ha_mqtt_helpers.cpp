@@ -333,6 +333,8 @@ std::string build_traffic_generator_mode_discovery_payload(const FrontendHaMqttS
   append_json_string(&out, "ping");
   out.push_back(',');
   append_json_string(&out, "dns");
+  out.push_back(',');
+  append_json_string(&out, "dns_tcp");
   out.push_back(']');
   append_json_pair(&out, "entity_category", "config");
   append_json_pair(&out, "icon", "mdi:swap-horizontal");

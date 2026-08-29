@@ -183,8 +183,16 @@ const char *wifi_band_policy_name(WifiBandPolicy policy) {
 }
 
 const char *traffic_mode_name(RuntimeTrafficMode mode) {
-  return mode == RuntimeTrafficMode::PING ? RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME
-                                          : RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME;
+  switch (mode) {
+    case RuntimeTrafficMode::PING:
+      return RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME;
+    case RuntimeTrafficMode::DNS:
+      return RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME;
+    case RuntimeTrafficMode::DNS_TCP:
+      return RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_TCP_NAME;
+    default:
+      return RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME;
+  }
 }
 
 const char *csi_traffic_mode_name(CsiTrafficMode mode) {
@@ -224,9 +232,13 @@ const char *subcarrier_source_name(RuntimeSubcarrierSource source) {
 }
 
 RuntimeTrafficMode parse_traffic_mode(const char *mode) {
-  return (mode != nullptr && std::strcmp(mode, RUNTIME_TRAFFIC_GENERATOR_MODE_PING_NAME) == 0)
-             ? RuntimeTrafficMode::PING
-             : RuntimeTrafficMode::DNS;
+  if (mode != nullptr && std::strcmp(mode, RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_NAME) == 0) {
+    return RuntimeTrafficMode::DNS;
+  }
+  if (mode != nullptr && std::strcmp(mode, RUNTIME_TRAFFIC_GENERATOR_MODE_DNS_TCP_NAME) == 0) {
+    return RuntimeTrafficMode::DNS_TCP;
+  }
+  return RuntimeTrafficMode::PING;
 }
 
 CsiTrafficMode parse_csi_traffic_mode(const char *mode) {

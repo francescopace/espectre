@@ -142,7 +142,7 @@ bool matches_internal_ping(const ParsedIpv4 &packet, const CsiFrameFilterConfig 
          read_be16(packet.transport + 4U) == config.internal_icmp_identifier;
 }
 
-bool matches_internal_dns(const ParsedIpv4 &packet, const CsiFrameFilterConfig &config) {
+bool matches_internal_dns_tcp(const ParsedIpv4 &packet, const CsiFrameFilterConfig &config) {
   if (packet.protocol != kIpProtoTcp || packet.source != host_ip(config.gateway_ip_addr) ||
       !destination_ip_matches(packet, config, false) || packet.transport_len < 20U ||
       read_be16(packet.transport) != 53U) return false;
@@ -153,6 +153,16 @@ bool matches_internal_dns(const ParsedIpv4 &packet, const CsiFrameFilterConfig &
   const uint8_t *dns = packet.transport + tcp_header_len + 2U;
   return declared_dns_len >= 12U && declared_dns_len == dns_payload_len &&
          (dns[2U] & 0x80U) != 0U;
+}
+
+bool matches_internal_dns_udp(const ParsedIpv4 &packet, const CsiFrameFilterConfig &config) {
+  if (packet.protocol != kIpProtoUdp || packet.source != host_ip(config.gateway_ip_addr) ||
+      !destination_ip_matches(packet, config, false) ||
+      packet.transport_len < kTransportMinimumHeaderBytes + 12U ||
+      read_be16(packet.transport) != 53U) return false;
+  const uint16_t udp_len = read_be16(packet.transport + 4U);
+  const uint8_t *dns = packet.transport + kTransportMinimumHeaderBytes;
+  return udp_len == packet.transport_len && (dns[2U] & 0x80U) != 0U;
 }
 
 }  // namespace
@@ -166,9 +176,15 @@ bool csi_frame_matches_traffic(const wifi_csi_info_t *info,
   if (config.traffic_mode == CsiTrafficMode::EXTERNAL) {
     return matches_external_udp(packet, config) || matches_external_ping(packet, config);
   }
-  return config.internal_mode == RuntimeTrafficMode::DNS
-             ? matches_internal_dns(packet, config)
-             : matches_internal_ping(packet, config);
+  switch (config.internal_mode) {
+    case RuntimeTrafficMode::DNS:
+      return matches_internal_dns_udp(packet, config);
+    case RuntimeTrafficMode::DNS_TCP:
+      return matches_internal_dns_tcp(packet, config);
+    case RuntimeTrafficMode::PING:
+    default:
+      return matches_internal_ping(packet, config);
+  }
 }
 
 }  // namespace espectre

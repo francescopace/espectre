@@ -8,7 +8,7 @@
 
 ESPectre needs a regular supply of HT20/HT-LTF packets so motion detection can cover its fixed temporal grid. Runtime diagnostics repeatedly showed average occupancy around 85% even when a traffic generator reported approximately `100 pps`. Raw callback rate alone could not distinguish missing packets from AP scheduling bursts, device-side send bursts, retransmissions, legacy-PHY delivery, same-slot excess, or processing backlog.
 
-The project supports internal ICMP ping, internal DNS, external UDP delivered through the AP, and unicast ICMP Echo Requests supplied by an external host. These paths initially differed in protocol, QoS treatment, and missed-deadline behavior. DNS originally used UDP port `53`; the standalone external tool also lacked the fixed-phase behavior used by the internal generator.
+The project supports internal ICMP ping, internal DNS over UDP or TCP, external UDP delivered through the AP, and unicast ICMP Echo Requests supplied by an external host. These paths differ in protocol state, QoS treatment, target-specific Wi-Fi behavior, and missed-deadline behavior. The standalone external tool also initially lacked the fixed-phase behavior used by the internal generator.
 
 Motion sensing also requires a precise definition of packet time. The CSI delivered by the Wi-Fi callback is estimated by the PHY from the packet training field at RF reception. Later callback or loop handling does not move that channel observation forward in time. The fixed admission grid must therefore use the Wi-Fi RX timestamp carried with the frame, while software clocks may measure only processing backlog.
 
@@ -25,7 +25,7 @@ The pcaps are local laboratory artifacts rather than versioned repository inputs
 | Mode | Local filename | Frames | Duration | SHA-256 prefix |
 | --- | --- | ---: | ---: | --- |
 | optimized ping | `espectre_air_ch2.pcap` | 31,286 | 57.159 s | `9bdc5a1bbff7` |
-| former DNS/UDP | `espectre_air_dns_ch2.pcap` | 142,452 | 111.721 s | `31479d6ae622` |
+| C3 DNS/UDP | `espectre_air_dns_ch2.pcap` | 142,452 | 111.721 s | `31479d6ae622` |
 | external UDP, DSCP 46 | `espectre_air_udp_external_ch2.pcap` | 68,568 | 189.611 s | `9b2f9035f343` |
 | external UDP, best effort | `espectre_air_udp_be_ch2.pcap` | 100,112 | 291.025 s | `6f131aef9a0c` |
 | DNS/TCP | `espectre_air_dns_tcp_ch2.pcap` | 86,860 | 155.657 s | `70450799fbca` |
@@ -42,7 +42,7 @@ The pcaps are local laboratory artifacts rather than versioned repository inputs
 | external UDP, DSCP 46 | AP → C3 | 22,188 | 9.73% | 99.93% | TID 6 / AC_VO | 9.978 ms |
 | external UDP, best effort | AP → C3 | 33,621 | 9.29% | 99.93% | TID 3 / AC_BE | 9.988 ms |
 
-The former DNS/UDP path was the only severe anomaly. Approximately 94.7% of its observed uplink transmissions used legacy PHY, predominantly `1` or `6 Mbit/s`, and approximately 94.7% carried TID 7. Its Retry-frame share was about twenty-seven times the optimized ping value. RTS/CTS exchanges and repeated attempts were visible around the legacy data frames. DNS/TCP removed this behavior: almost every observed uplink frame returned to HT, its spacing returned to approximately `10 ms`, and its Retry share became close to ping.
+DNS/UDP was the severe anomaly in the C3 matrix. Approximately 94.7% of its observed uplink transmissions used legacy PHY, predominantly `1` or `6 Mbit/s`, and approximately 94.7% carried TID 7. Its Retry-frame share was about twenty-seven times the optimized ping value. RTS/CTS exchanges and repeated attempts were visible around the legacy data frames. DNS/TCP removed this behavior on that target: almost every observed uplink frame returned to HT, its spacing returned to approximately `10 ms`, and its Retry share became close to ping.
 
 DSCP 46 changed the external downlink mapping from this AP's TID 3 / AC_BE to predominantly TID 6 / AC_VO, but it did not materially reduce observed Retry share or median spacing on the otherwise healthy link. QoS marking is therefore a latency request, not a portable guarantee of higher occupancy. The exact TID selected for the same DSCP also differed by sender implementation: the C3 mapped its marked ping and DNS/TCP uplink mainly to TID 5 / AC_VI, while the AP mapped marked external downlink mainly to TID 6 / AC_VO.
 
@@ -62,6 +62,14 @@ The AP did not emit a perfectly uniform stream, but the paced healthy paths rema
 
 Short device-log observations agreed with the air captures. Optimized ping produced roughly 94% median occupancy. After the DNS/TCP firmware was flashed, the C3 reported `99-100 tx/s`, mostly `93-99%` steady-state occupancy with a median around 96%, and zero stale or out-of-order packets during the observed interval. External paced UDP reached approximately `96-98%` occupancy. These are diagnostic observations, not detector performance gates.
 
+### Classic ESP32 DNS/UDP findings
+
+Classic ESP32 investigation on 2026-08-29 showed that the C3 result was not portable across targets. Three 60-second Native runs with internal DNS/UDP at `100 pps` completed all `360/360` Direct attempts and all `180/180` diagnostic samples without censored failures, `csi:0/0`, generator errors, watchdogs, or reboots. Mean admitted occupancy ranged from `82.87%` to `86.42%` while the benchmark exercised the control plane.
+
+A separate monitor-mode capture on channel 10 observed 70,178 frames over 118.492 seconds (`dns-udp-monitor-ch10-fixed.pcap`, SHA-256 prefix `2b2a04e3b248`). Classic ESP32 uplink remained almost entirely legacy `6 Mbit/s` with TID 7, but its Retry share was only `3.08%`, its median non-Retry gap was `10.022 ms`, and its non-Retry rate was `98.91 pps`. AP-to-device traffic was `99.97%` HT with a `2.63%` Retry share and a `9.998 ms` median gap. No radio gap exceeded `61.3 ms`; a post-capture diagnostic window reported `100.9` generated packets/s, `101.9` CSI callbacks/s, `94.9` admitted packets/s, and `95%` occupancy.
+
+The classic capture preserves the legacy PHY, TID 7, and some RTS/CTS behavior that accompanied the C3 failure, but not its retry storm or cadence collapse. Legacy PHY and that WMM mapping are therefore exposure characteristics, not sufficient causes. Generator choice must remain device-, driver-, AP-, and resolver-specific.
+
 ### Timing and admission findings
 
 The packet's useful sensing instant is reception by the device, when the PHY estimates CSI from HT-LTF. AP transmit time is not directly available to the device, and callback processing time describes software latency rather than the RF channel sample. A CSI result cannot be deferred arbitrarily and recalculated later without retaining the original RF samples; the callback exposes the estimate already associated with that received packet.
@@ -74,9 +82,10 @@ Packets counted as same-slot excess still contain valid CSI, but they do not add
 
 Standardize managed CSI traffic as follows:
 
-- keep stateless ICMP ping as the universal internal default;
-- keep DNS as an optional runtime mode, but send length-prefixed queries over one persistent, non-blocking TCP connection to gateway port `53`, with `TCP_NODELAY` and reconnect backoff;
-- do not use UDP/53 for managed sensing traffic;
+- expose three explicit internal generator values: `ping` for stateless ICMP echo, `dns` for connectionless UDP/53 queries, and `dns_tcp` for length-prefixed queries over one persistent, non-blocking TCP connection with `TCP_NODELAY` and reconnect backoff;
+- keep `ping` as the shared schema default, but allow target product configurations to select a validated default;
+- default classic ESP32 Native and Matter builds, and the classic ESP32 ESPHome example, to `dns`; keep current non-classic product configurations on `ping`;
+- preserve a configured or persisted selection without automatic protocol fallback, so operators can choose the source that works in their device, driver, AP, and resolver context;
 - request DSCP 46 treatment for internal traffic and the standalone external UDP tool, without treating a particular WMM TID or occupancy improvement as guaranteed;
 - preserve the configured send phase through ordinary scheduler jitter, but restart from the actual send time when the next phase deadline would be less than half a period away, so no generator emits a close catch-up pair;
 - apply that fixed-phase rule in the shared C++ generator, the Micro-ESPectre native generator, and `tools/espectre_traffic_generator.py`;
@@ -86,7 +95,7 @@ Standardize managed CSI traffic as follows:
 - place CSI on the detector grid using the device Wi-Fi RX timestamp, with processing time used only for same-domain queue-age measurement; and
 - keep raw HTTP records even when the sensing view classifies additional same-slot records as excess.
 
-Internal DNS/TCP requires a gateway resolver that accepts TCP queries on port `53`. If it does not, operators should use ping or an external paced source rather than silently falling back to UDP/53.
+Both DNS modes require a gateway resolver on port `53`; `dns_tcp` additionally requires TCP query support. If the selected mode is unsuitable, operators must select another explicit mode rather than relying on silent fallback. Micro-ESPectre remains ping-only.
 
 ## Decision History
 
@@ -96,14 +105,15 @@ Internal DNS/TCP requires a gateway resolver that accepts TCP queries on port `5
 | 2026-08-23 | Mark managed traffic for low latency | Retained as a request; external DSCP 46 changed WMM category but did not materially change retry or timing on the tested AP |
 | 2026-08-23 | Skip only deadlines already fully missed on host pacing | Replaced by the half-period reset rule so late wake-up cannot produce a close packet pair |
 | 2026-08-23 | Compare Wi-Fi RX time directly with the processing wall clock on selected targets | Replaced by measuring queue age in `esp_timer` and translating only that duration into the MAC timestamp domain |
-| 2026-08-23 | Use persistent non-blocking DNS/TCP and one pacing policy across firmware and host tools | Accepted |
+| 2026-08-23 | Use persistent non-blocking DNS/TCP and one pacing policy across firmware and host tools | Retained as the optional `dns_tcp` path |
 | 2026-08-29 | Admit external ICMP as a separate traffic-mode value | Rejected; `external` already denotes external ownership and now accepts either canonical UDP markers or unicast Echo Requests |
+| 2026-08-29 | Ban DNS/UDP globally after the C3 result | Replaced by explicit `ping`, `dns`, and `dns_tcp` choices after classic ESP32 DNS/UDP remained stable in Direct and monitor-mode tests |
 
 ## Alternatives Considered
 
-### Keep DNS over UDP and tune its QoS
+### Make DNS/UDP the universal default
 
-Rejected. UDP/53 triggered a target-specific Wi-Fi handling path on the tested C3 that changed QoS, forced predominantly legacy transmission, added RTS/CTS and retries, and disrupted the response cadence. Explicit DSCP cannot reliably override such stack classification.
+Rejected. UDP/53 triggered a target-specific Wi-Fi handling path on the tested C3 that changed QoS, forced predominantly legacy transmission, added RTS/CTS and retries, and disrupted the response cadence. It was stable on the tested classic ESP32, but that result does not make it portable. Explicit selection and target-specific defaults retain both outcomes without pretending one mode is universal.
 
 ### Make DNS/TCP the universal default
 
@@ -129,16 +139,18 @@ Rejected. AP transmit time is not available as the device's authoritative sensin
 
 Benefits:
 
-- the accepted sources avoid the measured C3 DNS/UDP legacy-PHY failure mode;
+- users can select among stateless ICMP, connectionless DNS/UDP, and stateful DNS/TCP without installing an external network service;
+- target product defaults can follow measured device behavior without removing alternatives from other targets;
 - generator-side scheduler delay no longer creates avoidable catch-up bursts;
-- ping, DNS/TCP, external UDP, and external ICMP have explicit and comparable roles;
+- ping, DNS/UDP, DNS/TCP, external UDP, and external ICMP have explicit and comparable roles;
 - all production paths use the same physical-time interpretation for motion sensing;
-- DNS/TCP avoids the measured UDP/53 failure mode while preserving the AP as the downlink packet source; and
+- DNS modes preserve the AP as the downlink packet source without assuming UDP or TCP is universally healthier; and
 - raw HTTP capture remains lossless with respect to temporal admission decisions, except for explicitly counted bounded-ring drops.
 
 Trade-offs and limits:
 
 - DNS/TCP maintains socket state and reconnect logic and depends on gateway TCP/53 support;
+- DNS/UDP may enter a target-specific legacy-PHY and retry path, as measured on the C3;
 - TCP acknowledgments and DNS responses may create harmless same-slot excess even when occupancy improves;
 - DSCP-to-WMM mapping is direction-, sender-, AP-, and driver-dependent;
 - external ICMP requires no ESPectre-specific host service, but its Echo Replies add device-originated traffic and host pacing remains outside the firmware;
@@ -146,7 +158,7 @@ Trade-offs and limits:
 - monitor-mode Retry shares are observer measurements, not authoritative device or AP counters;
 - pcap gap statistics use the monitor's observation timestamps, not the device's authoritative `rx_ctrl.timestamp`;
 - encrypted captures cannot prove each frame's L4 protocol without correlating the controlled test mode; and
-- the numeric capture results characterize one C3, one AP, channel 2, and one laboratory interval, so future devices and APs require the same validation rather than copied thresholds.
+- the numeric capture results characterize one C3 and one classic ESP32 on one AP in separate laboratory intervals, so future devices and APs require the same validation rather than copied thresholds.
 
 ## Related
 

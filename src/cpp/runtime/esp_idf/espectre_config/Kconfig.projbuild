@@ -82,11 +82,14 @@ choice ESPECTRE_TRAFFIC_GENERATOR_MODE
     prompt "Traffic generator mode"
     default ESPECTRE_TRAFFIC_GENERATOR_MODE_PING
 
-    config ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS
-        bool "DNS"
-
     config ESPECTRE_TRAFFIC_GENERATOR_MODE_PING
         bool "PING"
+
+    config ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS
+        bool "DNS over UDP"
+
+    config ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS_TCP
+        bool "DNS over TCP"
 endchoice
 
 config ESPECTRE_EVALUATION_INTERVAL_MS

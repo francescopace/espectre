@@ -58,13 +58,18 @@ inline int64_t next_traffic_send_deadline_us(int64_t previous_deadline_us,
 constexpr size_t TRAFFIC_DNS_QUERY_PAYLOAD_SIZE = 17U;
 constexpr size_t TRAFFIC_DNS_TCP_FRAME_SIZE = TRAFFIC_DNS_QUERY_PAYLOAD_SIZE + 2U;
 
+size_t build_dns_query_payload(uint16_t transaction_id,
+                               uint8_t *buffer,
+                               size_t buffer_len);
+
 size_t build_dns_tcp_query_frame(uint16_t transaction_id,
                                  uint8_t *buffer,
                                  size_t buffer_len);
 
 enum class TrafficGeneratorMode {
-  DNS,
   PING,
+  DNS,
+  DNS_TCP,
 };
 
 class TrafficGeneratorManager {

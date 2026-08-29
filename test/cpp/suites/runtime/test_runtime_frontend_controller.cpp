@@ -149,14 +149,14 @@ void test_runtime_frontend_controller_adopts_backend_effective_config(void) {
   frontend_runtime_shim::state.override_config_on_setup = true;
   frontend_runtime_shim::state.setup_config = staged;
   frontend_runtime_shim::state.setup_config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
-  frontend_runtime_shim::state.setup_config.traffic_generator_mode = RuntimeTrafficMode::DNS;
+  frontend_runtime_shim::state.setup_config.traffic_generator_mode = RuntimeTrafficMode::DNS_TCP;
   frontend_runtime_shim::state.setup_config.motion_on_hits = 8U;
   frontend_runtime_shim::state.setup_config.motion_off_hits = 6U;
 
   DummyRuntimeListener listener;
   TEST_ASSERT_TRUE(controller.setup(&listener));
   TEST_ASSERT_TRUE(controller.config().csi_traffic_mode == CsiTrafficMode::EXTERNAL);
-  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
+  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == RuntimeTrafficMode::DNS_TCP);
   TEST_ASSERT_EQUAL_UINT8(8U, controller.config().motion_on_hits);
   TEST_ASSERT_EQUAL_UINT8(6U, controller.config().motion_off_hits);
 }
@@ -259,8 +259,8 @@ void test_runtime_frontend_controller_traffic_runtime_updates_config(void) {
 
   TEST_ASSERT_TRUE(controller.set_csi_traffic_mode_runtime(CsiTrafficMode::EXTERNAL));
   TEST_ASSERT_TRUE(controller.config().csi_traffic_mode == CsiTrafficMode::EXTERNAL);
-  TEST_ASSERT_TRUE(controller.set_traffic_generator_mode_runtime(RuntimeTrafficMode::DNS));
-  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == RuntimeTrafficMode::DNS);
+  TEST_ASSERT_TRUE(controller.set_traffic_generator_mode_runtime(RuntimeTrafficMode::DNS_TCP));
+  TEST_ASSERT_TRUE(controller.config().traffic_generator_mode == RuntimeTrafficMode::DNS_TCP);
 
   TEST_ASSERT_FALSE(controller.set_csi_traffic_mode_runtime(static_cast<CsiTrafficMode>(0x7f)));
   TEST_ASSERT_FALSE(controller.set_traffic_generator_mode_runtime(static_cast<RuntimeTrafficMode>(0x7f)));

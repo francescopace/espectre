@@ -82,9 +82,9 @@ class TrafficProtocol {
   virtual ssize_t send_packet(int sock, const sockaddr_in &destination) = 0;
 };
 
-class DnsTrafficProtocol final : public TrafficProtocol {
+class DnsTcpTrafficProtocol final : public TrafficProtocol {
  public:
-  const char *name() const override { return "dns"; }
+  const char *name() const override { return "dns_tcp"; }
   int socket_type() const override { return SOCK_STREAM; }
   int socket_protocol() const override { return IPPROTO_TCP; }
   uint16_t destination_port() const override { return 53U; }
@@ -100,6 +100,28 @@ class DnsTrafficProtocol final : public TrafficProtocol {
       return -1;
     }
     return sent;
+  }
+
+ private:
+  uint16_t transaction_id_{0U};
+};
+
+class DnsUdpTrafficProtocol final : public TrafficProtocol {
+ public:
+  const char *name() const override { return "dns"; }
+  int socket_type() const override { return SOCK_DGRAM; }
+  int socket_protocol() const override { return IPPROTO_UDP; }
+  uint16_t destination_port() const override { return 53U; }
+
+  ssize_t send_packet(int sock, const sockaddr_in &destination) override {
+    uint8_t query[TRAFFIC_DNS_QUERY_PAYLOAD_SIZE];
+    const size_t query_len = build_dns_query_payload(++transaction_id_, query, sizeof(query));
+    return sendto(sock,
+                  query,
+                  query_len,
+                  0,
+                  reinterpret_cast<const sockaddr *>(&destination),
+                  sizeof(destination));
   }
 
  private:
@@ -134,8 +156,33 @@ class IcmpTrafficProtocol final : public TrafficProtocol {
   uint16_t sequence_{0U};
 };
 
+TrafficProtocol &select_traffic_protocol(TrafficGeneratorMode mode,
+                                         DnsTcpTrafficProtocol &dns_tcp,
+                                         DnsUdpTrafficProtocol &dns_udp,
+                                         IcmpTrafficProtocol &ping) {
+  switch (mode) {
+    case TrafficGeneratorMode::PING:
+      return ping;
+    case TrafficGeneratorMode::DNS:
+      return dns_udp;
+    case TrafficGeneratorMode::DNS_TCP:
+      return dns_tcp;
+    default:
+      return ping;
+  }
+}
+
 const char *traffic_mode_name(TrafficGeneratorMode mode) {
-  return mode == TrafficGeneratorMode::PING ? "ping" : "dns";
+  switch (mode) {
+    case TrafficGeneratorMode::PING:
+      return "ping";
+    case TrafficGeneratorMode::DNS:
+      return "dns";
+    case TrafficGeneratorMode::DNS_TCP:
+      return "dns_tcp";
+    default:
+      return "ping";
+  }
 }
 
 int create_protocol_socket(const TrafficProtocol &protocol) {
@@ -246,6 +293,18 @@ TcpConnectionState poll_tcp_connect(int sock) {
 
 }  // namespace
 
+size_t build_dns_query_payload(uint16_t transaction_id,
+                               uint8_t *buffer,
+                               size_t buffer_len) {
+  if (buffer == nullptr || buffer_len < TRAFFIC_DNS_QUERY_PAYLOAD_SIZE) {
+    return 0U;
+  }
+  std::memcpy(buffer, DNS_QUERY_TEMPLATE, sizeof(DNS_QUERY_TEMPLATE));
+  buffer[0] = static_cast<uint8_t>(transaction_id >> 8U);
+  buffer[1] = static_cast<uint8_t>(transaction_id & 0xFFU);
+  return TRAFFIC_DNS_QUERY_PAYLOAD_SIZE;
+}
+
 size_t build_dns_tcp_query_frame(uint16_t transaction_id,
                                  uint8_t *buffer,
                                  size_t buffer_len) {
@@ -254,9 +313,9 @@ size_t build_dns_tcp_query_frame(uint16_t transaction_id,
   }
   buffer[0] = 0U;
   buffer[1] = static_cast<uint8_t>(TRAFFIC_DNS_QUERY_PAYLOAD_SIZE);
-  std::memcpy(buffer + 2U, DNS_QUERY_TEMPLATE, sizeof(DNS_QUERY_TEMPLATE));
-  buffer[2] = static_cast<uint8_t>(transaction_id >> 8U);
-  buffer[3] = static_cast<uint8_t>(transaction_id & 0xFFU);
+  (void)build_dns_query_payload(transaction_id,
+                                buffer + 2U,
+                                buffer_len - 2U);
   return TRAFFIC_DNS_TCP_FRAME_SIZE;
 }
 
@@ -293,11 +352,11 @@ bool TrafficGeneratorManager::start(uint32_t gateway_addr) {
   }
   gateway_addr_ = gateway_addr;
 
-  DnsTrafficProtocol dns_protocol;
+  DnsTcpTrafficProtocol dns_tcp_protocol;
+  DnsUdpTrafficProtocol dns_udp_protocol;
   IcmpTrafficProtocol icmp_protocol(icmp_identifier_);
-  const TrafficProtocol &protocol = mode_ == TrafficGeneratorMode::PING
-                                        ? static_cast<const TrafficProtocol &>(icmp_protocol)
-                                        : static_cast<const TrafficProtocol &>(dns_protocol);
+  const TrafficProtocol &protocol =
+      select_traffic_protocol(mode_, dns_tcp_protocol, dns_udp_protocol, icmp_protocol);
   sock_ = create_protocol_socket(protocol);
   if (sock_ < 0) {
     return false;
@@ -391,11 +450,11 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
     return;
   }
 
-  DnsTrafficProtocol dns_protocol;
+  DnsTcpTrafficProtocol dns_tcp_protocol;
+  DnsUdpTrafficProtocol dns_udp_protocol;
   IcmpTrafficProtocol icmp_protocol(manager->icmp_identifier_);
-  TrafficProtocol *protocol = manager->mode_ == TrafficGeneratorMode::PING
-                                  ? static_cast<TrafficProtocol *>(&icmp_protocol)
-                                  : static_cast<TrafficProtocol *>(&dns_protocol);
+  TrafficProtocol *protocol =
+      &select_traffic_protocol(manager->mode_, dns_tcp_protocol, dns_udp_protocol, icmp_protocol);
   sockaddr_in destination{};
   destination.sin_family = AF_INET;
   destination.sin_port = htons(protocol->destination_port());

@@ -209,7 +209,7 @@ Frontend coverage:
 | `csi_target_pps` | int | `100` | `1-500`; defines detector slot cadence and the managed-traffic target, but never enables or disables traffic |
 | `csi_traffic_mode` | `internal` or `external` | `internal` | Selects device-generated traffic or externally supplied UDP markers and ICMP Echo Requests independently from `csi_target_pps`; persisted legacy `pacing` or `disabled` values migrate once to `internal` |
 | `csi_traffic_multicast_group` | IPv4 multicast address, or empty | `239.255.0.1` | Joined by the UDP listener in `external`. Empty disables the join. Unicast to the device IP still works |
-| `traffic_generator_mode` | `ping` or `dns` | `ping` | Shared internal traffic generator mode |
+| `traffic_generator_mode` | `ping`, `dns`, or `dns_tcp` | Classic ESP32 product configurations: `dns`; otherwise `ping` | Shared internal traffic generator mode; `dns` uses UDP, and `dns_tcp` uses persistent TCP |
 | `evaluation_interval_ms` | int | `250` | `10-10000` milliseconds between detector evaluations |
 | `motion_on_hits` | int | `4` | `1-20` consecutive evaluation hits for `IDLE -> MOTION` (about `0.75-1.0 s` from physical motion at the default `250 ms` interval) |
 | `motion_off_hits` | int | `3` | `1-20` consecutive evaluation hits for `MOTION -> IDLE` (about `0.50-0.75 s` from physical idle at the same defaults) |
@@ -244,7 +244,7 @@ In `external`, ESP-IDF frontends accept either paced UDP markers or ordinary ICM
 
 Micro-ESPectre selects traffic ownership at deployment through `TRAFFIC_GENERATOR_ENABLED`. When enabled, its native component sends ICMP echo requests to the station gateway. When disabled, another source must generate usable traffic. Micro has no runtime traffic mutation, DNS generator, external UDP listener, or multicast join.
 
-Across Native, Matter, and ESPHome, internal `ping` mode sends ICMP echo requests, while internal `dns` mode sends DNS root queries through a persistent, non-blocking TCP connection to gateway port `53`. DNS mode therefore requires the gateway resolver to accept TCP queries. Micro-ESPectre implements only ICMP ping.
+Across Native, Matter, and ESPHome, internal `ping` mode sends ICMP echo requests, `dns` sends connectionless DNS root queries over UDP, and `dns_tcp` sends length-prefixed queries through a persistent, non-blocking TCP connection. Both DNS modes target the gateway resolver on port `53`, and `dns_tcp` requires that resolver to accept TCP queries. The three explicit modes allow deployments to select the protocol that behaves best for their device, Wi-Fi driver, AP, and resolver; there is no automatic fallback. Validated classic ESP32 Native and Matter builds, and the classic ESP32 ESPHome example, start with `dns`, while the shared default remains `ping`. Micro-ESPectre implements only ICMP ping.
 
 Use [TUNING.md](TUNING.md#traffic-health-and-target-rate) to evaluate packet occupancy or change `csi_target_pps`, and use the frontend README for configuration syntax.
 

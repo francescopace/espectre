@@ -290,9 +290,9 @@ CONFIG_SCHEMA = cv.Schema({
     ),
     cv.Optional(CONF_CSI_TRAFFIC_MULTICAST_GROUP, default=CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT): validate_csi_traffic_multicast_group,
     
-    # Traffic generator mode: ping (default) or dns
+    # Traffic generator mode: ping (default), DNS over UDP, or DNS over TCP.
     cv.Optional(CONF_TRAFFIC_GENERATOR_MODE, default=TRAFFIC_GENERATOR_MODE_DEFAULT): cv.one_of(
-        "dns", "ping", lower=True
+        "ping", "dns", "dns_tcp", lower=True
     ),
     
     # Detection profile: Lightweight (default) or High Accuracy.
@@ -633,7 +633,7 @@ async def to_code(config):
 
     traffic_generator_mode = await select.new_select(
         config[CONF_TRAFFIC_GENERATOR_MODE_SELECT],
-        options=["ping", "dns"],
+        options=["ping", "dns", "dns_tcp"],
     )
     cg.add(traffic_generator_mode.set_parent(var))
     cg.add(traffic_generator_mode.set_csi_traffic_mode(False))

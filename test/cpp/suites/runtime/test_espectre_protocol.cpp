@@ -259,6 +259,8 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"diagnostics\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"set_sensing\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"required\":[\"enabled\"]") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"enum\":[\"ping\",\"dns\",\"dns_tcp\"]") !=
+                   std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"maxLength\"") == std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"access\":\"network_admin\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"wifi_access_points\"") != std::string::npos);
@@ -448,6 +450,12 @@ void test_parse_espectre_command_parses_info_and_threshold_commands(void) {
   TEST_ASSERT_TRUE(command.has_traffic_generator_mode);
   TEST_ASSERT_EQUAL_STRING("dns", command.traffic_generator_mode.c_str());
 
+  TEST_ASSERT_TRUE(parse_espectre_command(
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"x8\",\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"dns_tcp\"}",
+      &command,
+      &error));
+  TEST_ASSERT_EQUAL_STRING("dns_tcp", command.traffic_generator_mode.c_str());
+
 }
 
 void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(void) {
@@ -489,7 +497,7 @@ void test_parse_espectre_command_rejects_missing_command_and_invalid_threshold(v
 
   TEST_ASSERT_FALSE(parse_espectre_command(
       "{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"udp\"}", &command, &error));
-  TEST_ASSERT_EQUAL_STRING("invalid traffic generator mode (accepted: ping and dns)", error.c_str());
+  TEST_ASSERT_EQUAL_STRING("invalid traffic generator mode (accepted: ping, dns, and dns_tcp)", error.c_str());
 
   TEST_ASSERT_TRUE(parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"ota_check\"}", &command, &error));
 
