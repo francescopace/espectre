@@ -78,6 +78,17 @@ config ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP
         disables the join. Unicast to the device IP still works.
         Subnet and limited broadcast do not produce reliable CSI.
 
+config ESPECTRE_CSI_REARM_IMMEDIATE_REBOOT
+    bool "Reboot immediately when rearming a CSI session"
+    default n
+    help
+        Skip live CSI callback verification and schedule a device reboot as
+        soon as sensing would resume after an earlier CSI session. Enable this
+        only on chip targets whose Wi-Fi driver cannot recover CSI after a
+        managed reconnect. Disabled builds retain the bounded three-second
+        verification watchdog and reboot only if managed traffic produces no
+        CSI callbacks.
+
 choice ESPECTRE_TRAFFIC_GENERATOR_MODE
     prompt "Traffic generator mode"
     default ESPECTRE_TRAFFIC_GENERATOR_MODE_PING

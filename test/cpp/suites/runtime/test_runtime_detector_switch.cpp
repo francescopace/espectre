@@ -309,6 +309,33 @@ void test_runtime_live_csi_rearm_verification_accepts_first_callback(void) {
   TEST_ASSERT_EQUAL(0, restart_calls);
 }
 
+void test_runtime_live_csi_rearm_immediate_reboot_skips_capture_and_traffic(
+    void) {
+  RuntimeConfig config;
+  EspIdfRuntime runtime(config);
+  runtime.restart_callback_ = &record_restart;
+  runtime.setup_complete_ = true;
+  runtime.services_armed_ = true;
+  runtime.csi_session_started_once_ = true;
+  runtime.csi_rearm_immediate_reboot_enabled_ = true;
+  esp_netif_ip_info_t ip_info{};
+  ip_info.ip.addr = 0x0101A8C0U;
+  ip_info.gw.addr = 0x0101A8C0U;
+
+  runtime.start_sensing_services_(ip_info);
+
+  TEST_ASSERT_FALSE(runtime.services_armed_);
+  TEST_ASSERT_FALSE(runtime.csi_pipeline_.is_enabled());
+  TEST_ASSERT_FALSE(runtime.csi_traffic_service_.is_running());
+  TEST_ASSERT_FALSE(runtime.csi_rearm_verification_pending_);
+  TEST_ASSERT_TRUE(runtime.csi_rearm_restart_pending_);
+  TEST_ASSERT_EQUAL(0, restart_calls);
+
+  runtime.loop();
+  TEST_ASSERT_FALSE(runtime.csi_rearm_restart_pending_);
+  TEST_ASSERT_EQUAL(1, restart_calls);
+}
+
 void test_runtime_live_csi_rearm_restarts_only_after_traffic_without_callbacks(
     void) {
   RuntimeConfig config;
@@ -482,6 +509,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_runtime_channel_change_rearms_csi_and_restarts_calibration);
   RUN_TEST(test_runtime_services_armed_preserves_wifi_ip_and_restarts_capture);
   RUN_TEST(test_runtime_live_csi_rearm_verification_accepts_first_callback);
+  RUN_TEST(
+      test_runtime_live_csi_rearm_immediate_reboot_skips_capture_and_traffic);
   RUN_TEST(
       test_runtime_live_csi_rearm_restarts_only_after_traffic_without_callbacks);
   RUN_TEST(

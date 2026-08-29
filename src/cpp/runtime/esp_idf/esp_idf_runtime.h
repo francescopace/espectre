@@ -111,6 +111,7 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   using RestartCallback = void (*)();
   RestartCallback restart_callback_{nullptr};
   bool csi_session_started_once_{false};
+  bool csi_rearm_immediate_reboot_enabled_{false};
   bool csi_rearm_verification_pending_{false};
   bool csi_rearm_traffic_observed_{false};
   bool csi_rearm_restart_pending_{false};

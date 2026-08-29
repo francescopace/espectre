@@ -24,11 +24,16 @@
 #include "runtime_motion_hits_store.h"
 #include "runtime_time.h"
 #include "runtime_traffic_mode_store.h"
+#include "sdkconfig.h"
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <memory>
 #include <new>
+
+#ifndef CONFIG_ESPECTRE_CSI_REARM_IMMEDIATE_REBOOT
+#define CONFIG_ESPECTRE_CSI_REARM_IMMEDIATE_REBOOT 0
+#endif
 
 namespace espectre {
 
@@ -71,6 +76,8 @@ void EspIdfRuntime::update_live_telemetry_callback_() {
 EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
     : EspIdfRuntimeBase(config, RUNTIME_TAG, "Unknown runtime fault") {
   restart_callback_ = &esp_restart;
+  csi_rearm_immediate_reboot_enabled_ =
+      CONFIG_ESPECTRE_CSI_REARM_IMMEDIATE_REBOOT;
   detection_timing_supported_ = true;
   snapshot_.threshold = config_.segmentation_threshold;
   snapshot_.subcarrier_source = RuntimeSubcarrierSource::FIXED_DEFAULT;
@@ -692,6 +699,14 @@ void EspIdfRuntime::refresh_wifi_association_from_csi_() {
 void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) {
   const bool verify_rearm =
       csi_session_started_once_ && restart_callback_ != nullptr;
+  if (verify_rearm && csi_rearm_immediate_reboot_enabled_) {
+    ESP_LOGW(RUNTIME_TAG,
+             "Rebooting immediately instead of verifying live CSI rearm");
+    cancel_csi_rearm_verification_();
+    set_services_armed(false);
+    csi_rearm_restart_pending_ = true;
+    return;
+  }
   snapshot_.motion_state = MotionState::IDLE;
   snapshot_.ready_to_publish = false;
 
