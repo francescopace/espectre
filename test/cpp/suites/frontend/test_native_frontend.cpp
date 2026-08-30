@@ -1750,7 +1750,6 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
       direct.emit_request(DirectRequest{"read-cap", "capabilities", "{}"});
   TEST_ASSERT_TRUE(capabilities.find("\"name\":\"set_sensing\"") != std::string::npos);
   TEST_ASSERT_TRUE(capabilities.find("\"raw_csi\":false") != std::string::npos);
-  TEST_ASSERT_TRUE(capabilities.find("\"access\":\"network_admin\"") != std::string::npos);
   TEST_ASSERT_TRUE(capabilities.find("\"name\":\"wifi_access_points\"") != std::string::npos);
   TEST_ASSERT_TRUE(capabilities.find("\"name\":\"scan_wifi_access_points\"") != std::string::npos);
   TEST_ASSERT_TRUE(capabilities.find("\"name\":\"set_wifi_bssid\"") != std::string::npos);

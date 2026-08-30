@@ -363,14 +363,23 @@ DirectWifiSnapshot RuntimeDirectHttpBridge::wifi_snapshot_() const {
 std::string RuntimeDirectHttpBridge::wifi_access_points_payload_() const {
   std::string out{"{\"scanning\":false,\"message\":\"\",\"access_points\":["};
 #if defined(ESP_PLATFORM)
+  const std::string configured_ssid = wifi_snapshot_().ssid;
   uint16_t count = 0U;
   const esp_err_t count_result = esp_wifi_scan_get_ap_num(&count);
-  if (count_result == ESP_OK && count > 0U) {
+  if (!configured_ssid.empty() && count_result == ESP_OK && count > 0U) {
     count = std::min<uint16_t>(count, 32U);
     std::vector<wifi_ap_record_t> records(count);
     if (esp_wifi_scan_get_ap_records(&count, records.data()) == ESP_OK) {
       bool first = true;
       for (uint16_t index = 0U; index < count; ++index) {
+        const uint8_t *ssid_begin = records[index].ssid;
+        const uint8_t *ssid_end =
+            std::find(ssid_begin, ssid_begin + sizeof(records[index].ssid), static_cast<uint8_t>(0U));
+        const size_t ssid_length = static_cast<size_t>(ssid_end - ssid_begin);
+        if (ssid_length != configured_ssid.size() ||
+            std::memcmp(ssid_begin, configured_ssid.data(), ssid_length) != 0) {
+          continue;
+        }
         if (!first) out += ',';
         first = false;
         char bssid[18]{};
@@ -447,7 +456,15 @@ bool RuntimeDirectHttpBridge::handle_wifi_control_(const EspectreCommand &comman
                                                     std::string *message) {
   if (command.command == "scan_wifi_access_points") {
 #if defined(ESP_PLATFORM)
+    const std::string configured_ssid = wifi_snapshot_().ssid;
+    if (configured_ssid.empty()) {
+      if (message != nullptr) *message = "Wi-Fi access point scan requires a configured SSID";
+      return false;
+    }
+    std::vector<uint8_t> scan_ssid(configured_ssid.begin(), configured_ssid.end());
+    scan_ssid.push_back(0U);
     wifi_scan_config_t scan{};
+    scan.ssid = scan_ssid.data();
     const esp_err_t result = esp_wifi_scan_start(&scan, false);
     if (message != nullptr) {
       *message = result == ESP_OK ? "Wi-Fi access point scan started"
@@ -619,9 +636,6 @@ std::string RuntimeDirectHttpBridge::diagnostics_payload_() const {
   if (service_ != nullptr) {
     const DirectHttpServiceDiagnostics direct = service_->diagnostics();
     const size_t event_client_count = event_client_count_.load(std::memory_order_relaxed);
-    append_uint(&out, "direct_event_clients", event_client_count);
-    append_uint(&out, "direct_rejected_connections", direct.rejected_connections);
-    append_uint(&out, "direct_dropped_telemetry_events", direct.dropped_telemetry_events);
     if (config_.runtime_events != nullptr) {
       append_uint(&out,
                   "runtime_motion_event_drops_total",

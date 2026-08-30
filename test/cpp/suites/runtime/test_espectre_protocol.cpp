@@ -258,11 +258,10 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(catalog.find(marker_property) != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"diagnostics\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"set_sensing\"") != std::string::npos);
-  TEST_ASSERT_TRUE(catalog.find("\"required\":[\"enabled\"]") != std::string::npos);
-  TEST_ASSERT_TRUE(catalog.find("\"enum\":[\"ping\",\"dns\",\"dns_tcp\"]") !=
-                   std::string::npos);
-  TEST_ASSERT_TRUE(catalog.find("\"maxLength\"") == std::string::npos);
-  TEST_ASSERT_TRUE(catalog.find("\"access\":\"network_admin\"") != std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"kind\"") == std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"access\"") == std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"params\"") == std::string::npos);
+  TEST_ASSERT_TRUE(catalog.find("\"result\"") == std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"wifi_access_points\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"scan_wifi_access_points\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"set_wifi_bssid\"") != std::string::npos);
@@ -277,7 +276,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   command.command = "capabilities";
   const std::string capability_response =
       espectre_command_result_payload(config, command, true, "ok", "capabilities returned", catalog);
-  TEST_ASSERT_TRUE(capability_response.size() > ESPECTRE_DIRECT_MAX_REQUEST_SIZE);
+  TEST_ASSERT_TRUE(catalog.size() <= ESPECTRE_DIRECT_MAX_REQUEST_SIZE);
   TEST_ASSERT_TRUE(capability_response.size() <= ESPECTRE_DIRECT_MAX_RESPONSE_SIZE);
 }
 

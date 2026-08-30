@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-07-02
 - Recorded: 2026-07-09 (retrospective)
-- Updated: 2026-08-26
+- Updated: 2026-08-30
 - Implementation: Complete for protocol `1.0`; cross-language parity covers the message model, DNS-SD versions, and the Micro capability profile, while C++ separately verifies Direct/MQTT mapping
 
 ## Context
@@ -24,7 +24,7 @@ The engine owns operation names, parameter validation, access classes, stable re
 
 A query returns only to its requesting transport. An accepted mutation emits one logical change per affected state family and fans that state out to active transports. Diagnostics and command results are correlated responses rather than events. MQTT and each Direct client keep separate outbound queues, coalescing, and backpressure; no command queue, worker, or application task is added.
 
-Capability discovery is a filtered, minified schema catalog below 4 KiB. It describes command kind, access, parameter schema, result schema, events, features, and visible configuration sections. Clients derive controls, help, completion, and validation from this catalog instead of maintaining duplicate allowlists.
+Capability discovery is a filtered, compact command catalog. Each command descriptor carries only its canonical name, while the payload retains events, features, and visible configuration sections. Parameter validation and response semantics remain in the versioned protocol contract and command engine instead of being repeated in every capability response. Clients derive availability, controls, help, and completion from the advertised names instead of maintaining frontend-specific allowlists.
 
 Protocol `1.0` uses the former MQTT flat request and correlated result shape as the canonical model. Direct POST bodies carry that request unchanged, Direct responses carry the same `commands/result` object as MQTT, and SSE `data:` carries the same event payload published to the corresponding MQTT topic. DNS-SD advertises `txtvers=1` and `protovers=1.0`, with `protovers` serialized from the same constant as JSON `protocol_version`.
 
@@ -36,6 +36,7 @@ Protocol `1.0` uses the former MQTT flat request and correlated result shape as 
 | 2026-08-24 | Use one C++ command engine across ESPectre frontends | Replaced frontend-local dispatchers while retaining transport-specific envelopes |
 | 2026-08-25 | Carry Direct control over HTTP and processed events over SSE | Changed transport framing without changing command semantics |
 | 2026-08-26 | Use one canonical message model and version across HTTP, MQTT, and MicroPython | Replaced the remaining transport-specific envelopes and added serialized cross-language parity |
+| 2026-08-30 | Advertise compact name-only command descriptors | Removed unused schema metadata from capability responses while preserving the extensible object shape |
 
 ## Alternatives Considered
 

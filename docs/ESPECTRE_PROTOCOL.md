@@ -174,7 +174,7 @@ Direct methods are grouped by capability:
 | Base reads | `capabilities`, `info`, `status`, `config` | Available to every compatible client. Every frontend exposes `runtime`, `device`, and read-only `wifi` sections; Native additionally exposes non-secret MQTT configuration. Passwords are never returned. |
 | Diagnostics | `diagnostics` | Returns the latest bounded runtime and transport diagnostics sample. |
 | Device configuration | `set_device_label` | Native persists its saved device label, Matter maps it to the Basic Information `NodeLabel`, and ESPHome persists an ESPectre-only override without changing its hostname, YAML, or entity IDs. The shared maximum is 32 UTF-8 bytes. |
-| Wi-Fi access-point selection | `wifi_access_points`, `scan_wifi_access_points`, `set_wifi_bssid`, `clear_wifi_bssid` | Native, Matter, and ESPHome return BSSID, channel, and RSSI for scan results. `set_wifi_bssid` pins one BSSID; `clear_wifi_bssid` restores automatic access-point selection without removing the SSID or password. All three C++ frontends suspend sensing, verify the new association and address acquisition, persist the pin, reset the CSI session, and recalibrate without an intentional reboot. Failed updates restore the last-known-good selection. ESPHome keeps its pin separate from YAML. Matter keeps its override separate from Matter-owned credentials, binds it to the commissioned SSID, and reapplies it after restart only while that SSID matches. |
+| Wi-Fi access-point selection | `wifi_access_points`, `scan_wifi_access_points`, `set_wifi_bssid`, `clear_wifi_bssid` | Native, Matter, and ESPHome return BSSID, channel, and RSSI only for scan results matching the configured SSID. `set_wifi_bssid` pins one BSSID; `clear_wifi_bssid` restores automatic access-point selection without removing the SSID or password. All three C++ frontends suspend sensing, verify the new association and address acquisition, persist the pin, reset the CSI session, and recalibrate without an intentional reboot. Failed updates restore the last-known-good selection. ESPHome keeps its pin separate from YAML. Matter keeps its override separate from Matter-owned credentials, binds it to the commissioned SSID, and reapplies it after restart only while that SSID matches. |
 | Native-owned configuration | `clear_wifi_config`, `set_mqtt_config`, `clear_mqtt_config` | Native alone owns removal of provisioned Wi-Fi credentials, MQTT settings, and write-only MQTT secrets. `clear_wifi_config` disconnects Direct HTTP and returns the device to Improv Serial provisioning. |
 | Sensing | `set_sensing`, `set_threshold`, `set_motion_hits`, `set_detector`, `recalibrate` | Available only when advertised. `set_sensing` carries the required Boolean `enabled` parameter and does not require MQTT. |
 | CSI traffic | `set_csi_traffic_mode`, `set_traffic_generator_mode` | Available only when the runtime advertises traffic control. |
@@ -465,26 +465,8 @@ espectre/v1/devices/{device_id}/capabilities
   "protocol_version": "1.0",
   "device_id": "3cf79180d3a0aca4",
   "commands": [
-    {
-      "name": "status",
-      "kind": "query",
-      "access": "read",
-      "params": {
-        "additionalProperties": false
-      },
-      "result": "status"
-    },
-    {
-      "name": "set_threshold",
-      "kind": "mutation",
-      "access": "control",
-      "params": {
-        "type": "object",
-        "properties": {"threshold": {"type": "number", "minimum": 0, "maximum": 1}},
-        "required": ["threshold"],
-        "additionalProperties": false
-      }
-    }
+    {"name": "status"},
+    {"name": "set_threshold"}
   ],
   "events": ["telemetry"],
   "config_sections": ["runtime"],
@@ -492,7 +474,7 @@ espectre/v1/devices/{device_id}/capabilities
 }
 ```
 
-The example is abbreviated. The retained payload contains every command executable through that transport and frontend, the canonical event names, available configuration sections, and feature flags. Each command declares `name`, `kind` (`query`, `mutation`, or `action`), `access`, a constrained JSON Schema subset (`type`, `properties`, `required`, `additionalProperties`, `enum`, `minimum`, and `maximum`), and a named `result` schema only when it returns data. Because every request is an object, no-parameter schemas contain only `additionalProperties: false`; empty `properties` and `required` members are omitted. The `set_device_label` catalog deliberately omits `maxLength`: JSON Schema counts Unicode characters, while devices enforce the protocol limit of 32 UTF-8 bytes when parsing a request. The complete minified catalog must remain below 4 KiB. Clients use it for rendering, validation, help, and completion instead of maintaining verb allowlists.
+The example is abbreviated. The retained payload contains every command executable through that transport and frontend, the canonical event names, available configuration sections, and feature flags. Each command descriptor contains its canonical `name`; request parameters, validation, and response semantics remain defined by the versioned command contract below. Keeping command descriptors as objects permits future additive metadata without changing the `commands` collection shape. Clients use the advertised names for availability, help, and completion instead of maintaining frontend-specific verb allowlists.
 
 Access classes are `read`, `control`, `device_admin`, `network_admin`, `firmware_update`, and `discovery`. Native Direct may expose every implemented class. Native MQTT exposes read, control, device administration, and firmware update, including `set_sensing`; Wi-Fi and MQTT configuration and `discover_peers` remain Direct-local. Other frontends publish only the intersection they can execute. C++ and MicroPython keep independent registries; the host probe enforces the exact Micro capability profile and shared serialized-message parity.
 

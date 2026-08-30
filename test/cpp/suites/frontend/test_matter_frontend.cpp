@@ -269,6 +269,10 @@ void test_matter_frontend_exposes_runtime_tuning_over_direct_http(void) {
   TEST_ASSERT_TRUE(diagnostics.find("\"free_memory_kb\":4") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"runtime_load_percent\":12.5") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"detection_samples\":4") != std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"direct_event_clients\"") == std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"direct_rejected_connections\"") == std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"direct_dropped_telemetry_events\"") == std::string::npos);
+  TEST_ASSERT_TRUE(diagnostics.find("\"direct_http\":{") != std::string::npos);
 
   frontend_runtime_shim::state.diagnostics.traffic_packets_total = 10U;
   frontend_runtime_shim::state.diagnostics.csi_callbacks_total = 8U;

@@ -182,15 +182,14 @@ def derive_runtime_device_id(wlan):
 
 
 def command_registry():
-    """Return the exact command registry implemented by Micro."""
-    empty = {"additionalProperties": False}
+    """Return the command names implemented by Micro."""
     return [
-        {"name": "capabilities", "kind": "query", "access": "read", "params": empty, "result": "capabilities"},
-        {"name": "info", "kind": "query", "access": "read", "params": empty, "result": "info"},
-        {"name": "status", "kind": "query", "access": "read", "params": empty, "result": "status"},
-        {"name": "config", "kind": "query", "access": "read", "params": empty, "result": "config"},
-        {"name": "diagnostics", "kind": "query", "access": "read", "params": empty, "result": "diagnostics"},
-        {"name": "recalibrate", "kind": "action", "access": "control", "params": empty},
+        {"name": "capabilities"},
+        {"name": "info"},
+        {"name": "status"},
+        {"name": "config"},
+        {"name": "diagnostics"},
+        {"name": "recalibrate"},
     ]
 
 

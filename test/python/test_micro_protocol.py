@@ -128,12 +128,7 @@ def test_micro_capabilities_are_bounded_and_include_recalibration():
         "capabilities", "info", "status", "config", "diagnostics", "recalibrate"
     }
     recalibrate = next(command for command in payload["commands"] if command["name"] == "recalibrate")
-    assert recalibrate == {
-        "name": "recalibrate",
-        "kind": "action",
-        "access": "control",
-        "params": {"additionalProperties": False},
-    }
+    assert recalibrate == {"name": "recalibrate"}
     assert payload["events"] == ["telemetry"]
     assert payload["config_sections"] == ["runtime", "device", "wifi"]
     assert payload["features"] == {"raw_csi": False}

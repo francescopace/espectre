@@ -72,12 +72,7 @@ bool command_id_accepted(const std::string &value) {
 void append_command_descriptor(std::string *out,
                                bool *first,
                                bool enabled,
-                               const char *name,
-                               const char *kind,
-                               const char *access,
-                               const char *properties,
-                               const char *required,
-                               const char *result_schema) {
+                               const char *name) {
   if (out == nullptr || first == nullptr || !enabled || name == nullptr) {
     return;
   }
@@ -87,29 +82,7 @@ void append_command_descriptor(std::string *out,
   *first = false;
   out->append("{\"name\":\"");
   out->append(name);
-  out->append("\",\"kind\":\"");
-  out->append(kind != nullptr ? kind : "query");
-  out->append("\",\"access\":\"");
-  out->append(access != nullptr ? access : "read");
-  out->append("\",\"params\":{");
-  if (properties != nullptr && properties[0] != '\0') {
-    out->append("\"type\":\"object\",\"properties\":{");
-    out->append(properties);
-    out->append("}");
-  }
-  if (required != nullptr && required[0] != '\0') {
-    out->append(",\"required\":[");
-    out->append(required);
-    out->append("]");
-  }
-  if (properties != nullptr && properties[0] != '\0') out->append(",");
-  out->append("\"additionalProperties\":false}");
-  if (result_schema != nullptr && result_schema[0] != '\0') {
-    out->append(",\"result\":\"");
-    out->append(result_schema);
-    out->append("\"");
-  }
-  out->append("}");
+  out->append("\"}");
 }
 
 void append_capability_commands(std::string *out,
@@ -118,105 +91,36 @@ void append_capability_commands(std::string *out,
     return;
   }
   bool first = true;
-  const auto add = [&](bool enabled,
-                       const char *name,
-                       const char *kind,
-                       const char *access,
-                       const char *properties = "",
-                       const char *required = "",
-                       const char *result = nullptr) {
-    append_command_descriptor(out, &first, enabled, name, kind, access, properties, required, result);
+  const auto add = [&](bool enabled, const char *name) {
+    append_command_descriptor(out, &first, enabled, name);
   };
   using Method = EspectreDirectMethod;
-  add(capabilities.supports(Method::CAPABILITIES), "capabilities", "query", "read", "", "", "capabilities");
-  add(capabilities.supports(Method::INFO), "info", "query", "read", "", "", "info");
-  add(capabilities.supports(Method::STATUS), "status", "query", "read", "", "", "status");
-  add(capabilities.supports(Method::CONFIG), "config", "query", "read", "", "", "config");
-  add(capabilities.supports(Method::DIAGNOSTICS), "diagnostics", "query", "read", "", "", "diagnostics");
-  add(capabilities.supports(Method::SET_SENSING),
-      "set_sensing",
-      "mutation",
-      "control",
-      "\"enabled\":{\"type\":\"boolean\"}",
-      "\"enabled\"");
-  add(capabilities.supports(Method::SET_DEVICE_LABEL),
-      "set_device_label",
-      "mutation",
-      "device_admin",
-      "\"device_label\":{\"type\":\"string\"}",
-      "\"device_label\"");
-  add(capabilities.supports(Method::SET_THRESHOLD),
-      "set_threshold",
-      "mutation",
-      "control",
-      "\"threshold\":{\"type\":\"number\",\"minimum\":0,\"maximum\":1}",
-      "\"threshold\"");
-  add(capabilities.supports(Method::SET_MOTION_HITS),
-      "set_motion_hits",
-      "mutation",
-      "control",
-      "\"motion_on_hits\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":20},"
-      "\"motion_off_hits\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":20}",
-      "\"motion_on_hits\",\"motion_off_hits\"");
-  add(capabilities.supports(Method::SET_DETECTOR),
-      "set_detector",
-      "mutation",
-      "control",
-      "\"detector\":{\"type\":\"string\",\"enum\":[\"lightweight\",\"high_accuracy\"]}",
-      "\"detector\"");
-  add(capabilities.supports(Method::RECALIBRATE), "recalibrate", "action", "control");
-  add(capabilities.supports(Method::START_RAW_STREAM), "start_raw_stream", "action", "control");
-  add(capabilities.supports(Method::STOP_RAW_STREAM), "stop_raw_stream", "action", "control");
-  add(capabilities.supports(Method::SET_CSI_TRAFFIC_MODE),
-      "set_csi_traffic_mode",
-      "mutation",
-      "control",
-      "\"csi_traffic_mode\":{\"type\":\"string\",\"enum\":[\"internal\",\"external\"]}",
-      "\"csi_traffic_mode\"");
-  add(capabilities.supports(Method::SET_TRAFFIC_GENERATOR_MODE),
-      "set_traffic_generator_mode",
-      "mutation",
-      "control",
-      "\"traffic_generator_mode\":{\"type\":\"string\",\"enum\":[\"ping\",\"dns\",\"dns_tcp\"]}",
-      "\"traffic_generator_mode\"");
-  add(capabilities.supports(Method::WIFI_ACCESS_POINTS),
-      "wifi_access_points", "query", "network_admin", "", "", "wifi_access_points");
-  add(capabilities.supports(Method::SCAN_WIFI_ACCESS_POINTS),
-      "scan_wifi_access_points", "action", "network_admin");
-  add(capabilities.supports(Method::SET_WIFI_BSSID),
-      "set_wifi_bssid",
-      "mutation",
-      "network_admin",
-      "\"bssid\":{\"type\":\"string\"}",
-      "\"bssid\"");
-  add(capabilities.supports(Method::CLEAR_WIFI_BSSID),
-      "clear_wifi_bssid", "mutation", "network_admin");
-  add(capabilities.supports(Method::CLEAR_WIFI_CONFIG),
-      "clear_wifi_config", "mutation", "network_admin");
-  add(capabilities.supports(Method::SET_MQTT_CONFIG),
-      "set_mqtt_config",
-      "mutation",
-      "network_admin",
-      "\"host\":{\"type\":\"string\"},\"port\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":65535},"
-      "\"username\":{\"type\":\"string\"},\"password\":{\"type\":\"string\"},"
-      "\"topic_prefix\":{\"type\":\"string\"}",
-      "\"host\"");
-  add(capabilities.supports(Method::CLEAR_MQTT_CONFIG),
-      "clear_mqtt_config", "mutation", "network_admin");
-  add(capabilities.supports(Method::OTA_STATUS),
-      "ota_status", "query", "firmware_update", "", "", "ota_status");
-  add(capabilities.supports(Method::OTA_CHECK),
-      "ota_check",
-      "action",
-      "firmware_update",
-      "\"channel\":{\"type\":\"string\",\"enum\":[\"release\",\"preview\",\"develop\"]}");
-  add(capabilities.supports(Method::OTA_START),
-      "ota_start",
-      "action",
-      "firmware_update",
-      "\"channel\":{\"type\":\"string\",\"enum\":[\"release\",\"preview\",\"develop\"]}");
-  add(capabilities.supports(Method::DISCOVER_PEERS),
-      "discover_peers", "query", "discovery", "", "", "peers");
+  add(capabilities.supports(Method::CAPABILITIES), "capabilities");
+  add(capabilities.supports(Method::INFO), "info");
+  add(capabilities.supports(Method::STATUS), "status");
+  add(capabilities.supports(Method::CONFIG), "config");
+  add(capabilities.supports(Method::DIAGNOSTICS), "diagnostics");
+  add(capabilities.supports(Method::SET_SENSING), "set_sensing");
+  add(capabilities.supports(Method::SET_DEVICE_LABEL), "set_device_label");
+  add(capabilities.supports(Method::SET_THRESHOLD), "set_threshold");
+  add(capabilities.supports(Method::SET_MOTION_HITS), "set_motion_hits");
+  add(capabilities.supports(Method::SET_DETECTOR), "set_detector");
+  add(capabilities.supports(Method::RECALIBRATE), "recalibrate");
+  add(capabilities.supports(Method::START_RAW_STREAM), "start_raw_stream");
+  add(capabilities.supports(Method::STOP_RAW_STREAM), "stop_raw_stream");
+  add(capabilities.supports(Method::SET_CSI_TRAFFIC_MODE), "set_csi_traffic_mode");
+  add(capabilities.supports(Method::SET_TRAFFIC_GENERATOR_MODE), "set_traffic_generator_mode");
+  add(capabilities.supports(Method::WIFI_ACCESS_POINTS), "wifi_access_points");
+  add(capabilities.supports(Method::SCAN_WIFI_ACCESS_POINTS), "scan_wifi_access_points");
+  add(capabilities.supports(Method::SET_WIFI_BSSID), "set_wifi_bssid");
+  add(capabilities.supports(Method::CLEAR_WIFI_BSSID), "clear_wifi_bssid");
+  add(capabilities.supports(Method::CLEAR_WIFI_CONFIG), "clear_wifi_config");
+  add(capabilities.supports(Method::SET_MQTT_CONFIG), "set_mqtt_config");
+  add(capabilities.supports(Method::CLEAR_MQTT_CONFIG), "clear_mqtt_config");
+  add(capabilities.supports(Method::OTA_STATUS), "ota_status");
+  add(capabilities.supports(Method::OTA_CHECK), "ota_check");
+  add(capabilities.supports(Method::OTA_START), "ota_start");
+  add(capabilities.supports(Method::DISCOVER_PEERS), "discover_peers");
 }
 
 bool parse_float_value(const std::string &value, float *out) {
@@ -687,7 +591,7 @@ std::string espectre_capabilities_payload(const EspectreDeviceConfig &config,
                                           const EspectreCapabilityProfile &capabilities) {
   const std::string device_id = espectre_effective_device_id(config);
   std::string out;
-  out.reserve(3072U + device_id.size());
+  out.reserve(1536U + device_id.size());
   out = "{";
   append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
   append_json_pair(&out, "device_id", device_id.c_str());
@@ -874,7 +778,7 @@ std::string espectre_command_result_payload(const EspectreDeviceConfig &config,
   const std::string device_id = espectre_effective_device_id(config);
   std::string out;
   out.reserve(128U + device_id.size() + command.command_id.size() + command.command.size() +
-              (message != nullptr ? std::strlen(message) : 0U));
+              (message != nullptr ? std::strlen(message) : 0U) + data_json.size());
   out = "{";
   append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
   append_json_pair(&out, "device_id", device_id.c_str());
