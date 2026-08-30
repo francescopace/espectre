@@ -20,6 +20,7 @@
  */
 
 #include "runtime/espectre_sdk_version.h"
+#include "core/espectre_log.h"
 #include "core/base_detector.h"
 #include "core/csi_format.h"
 #include "core/high_accuracy_detector.h"

@@ -36,7 +36,7 @@ bool setup_frontend_mqtt_transport(IMqttTransport *transport,
     }
   });
   if (!transport->setup(config)) {
-    ESP_LOGW(log_tag != nullptr ? log_tag : "espectre.mqtt", "MQTT transport setup failed");
+    ESPECTRE_LOGW(log_tag != nullptr ? log_tag : "espectre.mqtt", "MQTT transport setup failed");
     return false;
   }
   return true;

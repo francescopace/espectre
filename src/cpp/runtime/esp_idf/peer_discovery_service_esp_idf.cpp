@@ -11,7 +11,7 @@
 #include <cstring>
 #include <utility>
 
-#include <esp_log.h>
+#include "espectre_log.h"
 #include <esp_netif.h>
 #include <esp_timer.h>
 
@@ -109,7 +109,7 @@ bool EspIdfPeerDiscoveryService::start(Completion completion) {
                                  kMaxRawResults,
                                  nullptr);
   if (search_ == nullptr) {
-    ESP_LOGW(TAG, "Failed to start peer DNS-SD query");
+    ESPECTRE_LOGW(TAG, "Failed to start peer DNS-SD query");
     return false;
   }
   completion_ = std::move(completion);
@@ -166,7 +166,7 @@ void EspIdfPeerDiscoveryService::finish_(mdns_result_t *results, bool deliver) {
   mdns_query_results_free(results);
   const esp_err_t delete_result = mdns_query_async_delete(search_);
   if (delete_result != ESP_OK) {
-    ESP_LOGW(TAG, "Failed to release peer query: %s", esp_err_to_name(delete_result));
+    ESPECTRE_LOGW(TAG, "Failed to release peer query: %s", esp_err_to_name(delete_result));
   }
   search_ = nullptr;
   started_us_ = 0;

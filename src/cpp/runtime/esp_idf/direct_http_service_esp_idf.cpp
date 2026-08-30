@@ -17,7 +17,7 @@
 #include <limits>
 #include <utility>
 
-#include <esp_log.h>
+#include "espectre_log.h"
 #include <esp_timer.h>
 #include <lwip/sockets.h>
 #if defined(ESP_PLATFORM)
@@ -192,7 +192,7 @@ bool EspIdfDirectHttpService::setup(const DirectHttpServiceConfig &config,
   http_config.send_wait_timeout = 1U;
   if (httpd_start(&server_, &http_config) != ESP_OK) {
     server_ = nullptr;
-    ESP_LOGE(TAG, "Failed to start Direct HTTP on port %u", static_cast<unsigned>(config_.port));
+    ESPECTRE_LOGE(TAG, "Failed to start Direct HTTP on port %u", static_cast<unsigned>(config_.port));
     return false;
   }
 
@@ -215,7 +215,7 @@ bool EspIdfDirectHttpService::setup(const DirectHttpServiceConfig &config,
   if (!registered) {
     httpd_stop(server_);
     server_ = nullptr;
-    ESP_LOGE(TAG, "Failed to register Direct HTTP endpoints");
+    ESPECTRE_LOGE(TAG, "Failed to register Direct HTTP endpoints");
     return false;
   }
 
@@ -227,7 +227,7 @@ bool EspIdfDirectHttpService::setup(const DirectHttpServiceConfig &config,
     worker_running_.store(false, std::memory_order_release);
     httpd_stop(server_);
     server_ = nullptr;
-    ESP_LOGE(TAG, "Failed to start Direct HTTP streaming worker");
+    ESPECTRE_LOGE(TAG, "Failed to start Direct HTTP streaming worker");
     return false;
   }
   worker_task_.store(worker_task, std::memory_order_release);
@@ -241,13 +241,13 @@ bool EspIdfDirectHttpService::setup(const DirectHttpServiceConfig &config,
     worker_task_.store(nullptr, std::memory_order_release);
     httpd_stop(server_);
     server_ = nullptr;
-    ESP_LOGE(TAG, "Failed to start Direct raw CSI worker");
+    ESPECTRE_LOGE(TAG, "Failed to start Direct raw CSI worker");
     return false;
   }
   raw_worker_task_.store(raw_worker_task, std::memory_order_release);
 #endif
   stopping_.store(false, std::memory_order_release);
-  ESP_LOGI(TAG,
+  ESPECTRE_LOGI(TAG,
            "Direct HTTP listening on port %u (httpd=%u worker=%u raw=%u core=%d)",
            static_cast<unsigned>(config_.port),
            static_cast<unsigned>(http_config.task_priority),
@@ -381,13 +381,13 @@ void EspIdfDirectHttpService::shutdown() {
   }
   worker_task = worker_task_.exchange(nullptr, std::memory_order_acq_rel);
   if (worker_task != nullptr) {
-    ESP_LOGW(TAG, "Direct HTTP worker did not stop within %u ms",
+    ESPECTRE_LOGW(TAG, "Direct HTTP worker did not stop within %u ms",
              static_cast<unsigned>(kWorkerShutdownTimeoutMs));
     vTaskDelete(worker_task);
   }
   raw_worker_task = raw_worker_task_.exchange(nullptr, std::memory_order_acq_rel);
   if (raw_worker_task != nullptr) {
-    ESP_LOGW(TAG, "Direct raw worker did not stop within %u ms",
+    ESPECTRE_LOGW(TAG, "Direct raw worker did not stop within %u ms",
              static_cast<unsigned>(kWorkerShutdownTimeoutMs));
     vTaskDelete(raw_worker_task);
   }
@@ -1138,7 +1138,7 @@ void EspIdfDirectHttpService::service_event_streams_() {
     }
     if (request_to_complete != nullptr) {
       if (disconnect_reason != nullptr) {
-        ESP_LOGI(TAG, "Direct SSE peer disconnected (fd=%d, reason=%s, errno=%d)",
+        ESPECTRE_LOGI(TAG, "Direct SSE peer disconnected (fd=%d, reason=%s, errno=%d)",
                  send.fd, disconnect_reason, send_errno);
       }
       (void) httpd_req_async_handler_complete(request_to_complete);

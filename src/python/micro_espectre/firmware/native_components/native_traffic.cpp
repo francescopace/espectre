@@ -4,6 +4,7 @@
 #ifndef NO_QSTR
 
 #include "native_traffic.h"
+#include "native_log_sink.h"
 
 #include "runtime/esp_idf/traffic_generator_manager.h"
 
@@ -30,6 +31,7 @@ espectre::TrafficGeneratorMode resolve_mode(espectre_native_traffic_mode_t mode)
 }  // namespace
 
 extern "C" void *espectre_native_traffic_create(void) {
+  espectre_native_ensure_log_sink();
   return new (std::nothrow) espectre::TrafficGeneratorManager();
 }
 

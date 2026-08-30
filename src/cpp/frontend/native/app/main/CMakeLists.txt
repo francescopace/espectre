@@ -13,6 +13,7 @@ idf_component_register(
         esp_netif
         esp_wifi
         freertos
+        log
         lwip
         mqtt
         app_update

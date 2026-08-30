@@ -37,9 +37,9 @@ LightweightDetector::LightweightDetector(uint16_t window_size, float threshold,
   reset_settled_level_();
   aggregated_turbulence_.bind(aggregated_turbulence_buffer_.get(), window_size_);
   if (aggregated_turbulence_buffer_ == nullptr) {
-    ESP_LOGE(TAG, "Failed to allocate aggregated turbulence buffer");
+    ESPECTRE_LOGE(TAG, "Failed to allocate aggregated turbulence buffer");
   }
-  ESP_LOGI(TAG, "Initialized weighted fusion (window=%u, threshold=%.3f, ac_lag=%u)",
+  ESPECTRE_LOGI(TAG, "Initialized weighted fusion (window=%u, threshold=%.3f, ac_lag=%u)",
            static_cast<unsigned>(window_size_), threshold_,
            static_cast<unsigned>(autocorr_lag_));
 }
@@ -49,7 +49,7 @@ void LightweightDetector::process_packet(const int8_t* csi_data, size_t csi_len,
                                      uint8_t num_subcarriers,
                                      int8_t rssi_dbm) {
   if (csi_data == nullptr) {
-    ESP_LOGE(TAG, "process_packet: null CSI data");
+    ESPECTRE_LOGE(TAG, "process_packet: null CSI data");
     return;
   }
   (void) rssi_dbm;
@@ -258,7 +258,7 @@ void LightweightDetector::on_startup_calibration_complete() {
       (startup_quantile_() - LIGHTWEIGHT_TRAIN_IDLE_Q95_LOGIT);
   adapted_threshold_ = sigmoid_(adapted_logit);
   adapted_threshold_ready_ = true;
-  ESP_LOGD(TAG, "Startup threshold prepared: %.6f (%u samples)",
+  ESPECTRE_LOGD(TAG, "Startup threshold prepared: %.6f (%u samples)",
            adapted_threshold_, static_cast<unsigned>(startup_logit_count_));
 }
 
@@ -270,12 +270,12 @@ bool LightweightDetector::set_adaptive_threshold(float) {
 
 bool LightweightDetector::set_threshold(float threshold) {
   if (!is_valid_threshold(threshold, LIGHTWEIGHT_MIN_THRESHOLD, LIGHTWEIGHT_MAX_THRESHOLD)) {
-    ESP_LOGE(TAG, "Invalid threshold: %.6f (must be %.1f-%.1f)",
+    ESPECTRE_LOGE(TAG, "Invalid threshold: %.6f (must be %.1f-%.1f)",
              threshold, LIGHTWEIGHT_MIN_THRESHOLD, LIGHTWEIGHT_MAX_THRESHOLD);
     return false;
   }
   threshold_ = threshold;
-  ESP_LOGI(TAG, "Threshold updated: %.6f", threshold);
+  ESPECTRE_LOGI(TAG, "Threshold updated: %.6f", threshold);
   return true;
 }
 

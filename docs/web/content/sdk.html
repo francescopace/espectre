@@ -90,6 +90,7 @@ idf_component_register(
   <span class="k">void</span> enqueue_motion(<span class="k">bool</span> motion);
   espectre::RuntimeFrontendController runtime_;
 };</pre></div>
+          <p class="docs-step-note">Shared logging is optional. Register an <code>espectre::LogSink</code> before <code>runtime_.setup()</code> when the product needs SDK messages; otherwise, the shared layers remain silent.</p>
         </div>
       </section>
 

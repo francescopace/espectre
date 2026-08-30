@@ -50,19 +50,19 @@ HighAccuracyDetector::HighAccuracyDetector(uint16_t window_size, float threshold
     // accessors below expose as the reusable sorted-series view.
     feature_scratch_ = alloc_zeroed_floats(feature_scratch_size_());
     if (feature_scratch_ == nullptr) {
-        ESP_LOGE(TAG, "Failed to allocate feature scratch (%u floats)",
+        ESPECTRE_LOGE(TAG, "Failed to allocate feature scratch (%u floats)",
                  static_cast<unsigned>(feature_scratch_size_()));
     }
     if (uses_aggregated_turbulence_) {
         aggregated_turbulence_buffer_ = alloc_zeroed_floats(window_size_);
         if (aggregated_turbulence_buffer_ == nullptr) {
-            ESP_LOGE(TAG, "Failed to allocate aggregated turbulence buffer");
+            ESPECTRE_LOGE(TAG, "Failed to allocate aggregated turbulence buffer");
         }
     }
     aggregated_turbulence_.bind(aggregated_turbulence_buffer_, window_size_);
     l1_tracker_.configure(uses_l1_tracker_ ? l1_delta_capacity_() : 0U, lag_);
     shape_trajectory_tracker_.configure(uses_shape_trajectory_tracker_);
-    ESP_LOGI(TAG,
+    ESPECTRE_LOGI(TAG,
              "Initialized (window=%d, threshold=%.2f, l1=%d, trajectory=%d, aggr=%d)",
              window_size_, threshold_, uses_l1_tracker_ ? 1 : 0,
              uses_shape_trajectory_tracker_ ? 1 : 0,
@@ -163,13 +163,13 @@ void HighAccuracyDetector::update_state() {
 
 bool HighAccuracyDetector::set_threshold(float threshold) {
     if (!is_valid_threshold(threshold, HIGH_ACCURACY_MIN_THRESHOLD, HIGH_ACCURACY_MAX_THRESHOLD)) {
-        ESP_LOGE(TAG, "Invalid threshold: %.6f (must be %.1f-%.1f)",
+        ESPECTRE_LOGE(TAG, "Invalid threshold: %.6f (must be %.1f-%.1f)",
                  threshold, HIGH_ACCURACY_MIN_THRESHOLD, HIGH_ACCURACY_MAX_THRESHOLD);
         return false;
     }
     
     threshold_ = threshold;
-    ESP_LOGI(TAG, "Threshold updated: %.6f", threshold);
+    ESPECTRE_LOGI(TAG, "Threshold updated: %.6f", threshold);
     return true;
 }
 
@@ -238,7 +238,7 @@ void HighAccuracyDetector::process_packet(const int8_t* csi_data, size_t csi_len
                                 uint8_t num_subcarriers,
                                 int8_t rssi_dbm) {
     if (csi_data == nullptr) {
-        ESP_LOGE(TAG, "process_packet: null CSI data");
+        ESPECTRE_LOGE(TAG, "process_packet: null CSI data");
         return;
     }
     (void) rssi_dbm;

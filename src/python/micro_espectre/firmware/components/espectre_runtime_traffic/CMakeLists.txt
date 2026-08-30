@@ -23,9 +23,9 @@ idf_component_register(
         ${ESPECTRE_CORE_INCLUDE_DIRS}
         ${ESPECTRE_RUNTIME_INCLUDE_DIRS}
     REQUIRES
+        espectre_core
         esp_netif
         esp_timer
         freertos
-        log
         lwip
 )

@@ -188,29 +188,29 @@ const char *traffic_mode_name(TrafficGeneratorMode mode) {
 int create_protocol_socket(const TrafficProtocol &protocol) {
   const int sock = socket(AF_INET, protocol.socket_type(), protocol.socket_protocol());
   if (sock < 0) {
-    ESP_LOGE(TAG, "Failed to create %s socket (errno=%d)", protocol.name(), errno);
+    ESPECTRE_LOGE(TAG, "Failed to create %s socket (errno=%d)", protocol.name(), errno);
     return -1;
   }
 
   if (!bind_socket_to_sta_interface(sock, TAG, protocol.name())) {
-    ESP_LOGW(TAG, "Continuing without explicit %s socket binding", protocol.name());
+    ESPECTRE_LOGW(TAG, "Continuing without explicit %s socket binding", protocol.name());
   }
   const int sensing_tos = SENSING_IP_TOS;
   if (setsockopt(sock, IPPROTO_IP, IP_TOS, &sensing_tos,
                  sizeof(sensing_tos)) != 0) {
-    ESP_LOGW(TAG, "Failed to mark %s traffic as low-latency (errno=%d)",
+    ESPECTRE_LOGW(TAG, "Failed to mark %s traffic as low-latency (errno=%d)",
              protocol.name(), errno);
   }
   if (protocol.connection_oriented()) {
     const int enabled = 1;
     if (setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &enabled, sizeof(enabled)) != 0) {
-      ESP_LOGW(TAG, "Failed to disable Nagle for %s traffic (errno=%d)",
+      ESPECTRE_LOGW(TAG, "Failed to disable Nagle for %s traffic (errno=%d)",
                protocol.name(), errno);
     }
   }
   const int flags = fcntl(sock, F_GETFL, 0);
   if (flags < 0 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) < 0) {
-    ESP_LOGW(TAG, "Failed to set %s socket non-blocking (errno=%d)", protocol.name(), errno);
+    ESPECTRE_LOGW(TAG, "Failed to set %s socket non-blocking (errno=%d)", protocol.name(), errno);
   }
   return sock;
 }
@@ -332,7 +332,7 @@ void TrafficGeneratorManager::init(uint32_t target_pps, TrafficGeneratorMode mod
   task_exited_.store(true, std::memory_order_relaxed);
   reset_runtime_state_();
 
-  ESP_LOGD(TAG,
+  ESPECTRE_LOGD(TAG,
            "Traffic generator initialized (target=%" PRIu32 " CSI pps, mode=%s)",
            target_pps,
            traffic_mode_name(mode));
@@ -343,11 +343,11 @@ bool TrafficGeneratorManager::start(uint32_t gateway_addr) {
     return true;
   }
   if (!task_exited_.load(std::memory_order_acquire)) {
-    ESP_LOGE(TAG, "Previous traffic generator task is still stopping");
+    ESPECTRE_LOGE(TAG, "Previous traffic generator task is still stopping");
     return false;
   }
   if (target_pps_ == 0U || gateway_addr == 0U) {
-    ESP_LOGE(TAG, "Gateway IP is unavailable in the connection event");
+    ESPECTRE_LOGE(TAG, "Gateway IP is unavailable in the connection event");
     return false;
   }
   gateway_addr_ = gateway_addr;
@@ -373,14 +373,14 @@ bool TrafficGeneratorManager::start(uint32_t gateway_addr) {
     task_exited_.store(true, std::memory_order_relaxed);
     close(sock_);
     sock_ = -1;
-    ESP_LOGE(TAG, "Failed to create traffic generator task (result=%d)", static_cast<int>(result));
+    ESPECTRE_LOGE(TAG, "Failed to create traffic generator task (result=%d)", static_cast<int>(result));
     return false;
   }
 
   char gateway[16];
   const esp_ip4_addr_t gateway_ip{gateway_addr_};
   snprintf(gateway, sizeof(gateway), IPSTR, IP2STR(&gateway_ip));
-  ESP_LOGI(TAG,
+  ESPECTRE_LOGI(TAG,
            "Traffic generator started (mode=%s, target=%" PRIu32 " CSI pps, send=%" PRIu32
            " pps, gateway=%s, priority=%u)",
            traffic_mode_name(mode_),
@@ -406,7 +406,7 @@ void TrafficGeneratorManager::loop() {
     previous_send_success_count_ = successes;
     last_send_progress_us_ = now;
   } else if (last_send_progress_us_ != 0 && now - last_send_progress_us_ >= SEND_STALL_TIMEOUT_US) {
-    ESP_LOGW(TAG, "Traffic generator has not sent a packet for %.1f s",
+    ESPECTRE_LOGW(TAG, "Traffic generator has not sent a packet for %.1f s",
              static_cast<double>(now - last_send_progress_us_) / 1000000.0);
     last_send_progress_us_ = now;
   }
@@ -429,7 +429,7 @@ void TrafficGeneratorManager::stop() {
     vTaskDelay(pdMS_TO_TICKS(100));
   }
   if (!task_exited_.load(std::memory_order_acquire)) {
-    ESP_LOGE(TAG, "Traffic generator task did not exit within 2 s; deleting it");
+    ESPECTRE_LOGE(TAG, "Traffic generator task did not exit within 2 s; deleting it");
     if (task_handle_ != nullptr) {
       vTaskDelete(task_handle_);
       task_handle_ = nullptr;
@@ -440,7 +440,7 @@ void TrafficGeneratorManager::stop() {
     }
     task_exited_.store(true, std::memory_order_release);
   }
-  ESP_LOGI(TAG, "Traffic generator stopped");
+  ESPECTRE_LOGI(TAG, "Traffic generator stopped");
 }
 
 void TrafficGeneratorManager::traffic_task_(void *arg) {
@@ -505,7 +505,7 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
         if (connection_state == TcpConnectionState::DISCONNECTED) {
           (void)recreate_socket();
         } else if (connection_state == TcpConnectionState::CONNECTED) {
-          ESP_LOGI(TAG, "%s TCP connection established", protocol->name());
+          ESPECTRE_LOGI(TAG, "%s TCP connection established", protocol->name());
           next_send_deadline_us = 0;
         }
       }
@@ -517,7 +517,7 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
 
     const SocketDrainResult drain_result = drain_socket(manager->sock_);
     if (protocol->connection_oriented() && drain_result != SocketDrainResult::READY) {
-      ESP_LOGW(TAG, "%s TCP connection closed while draining responses", protocol->name());
+      ESPECTRE_LOGW(TAG, "%s TCP connection closed while draining responses", protocol->name());
       (void)recreate_socket();
       continue;
     }
@@ -531,7 +531,7 @@ void TrafficGeneratorManager::traffic_task_(void *arg) {
       const bool should_log = now_us - error_state.last_log_time > SendErrorState::LOG_INTERVAL_US;
       const bool needs_backoff = handle_send_error(error_state, sent, current_errno, now_us);
       if (should_log) {
-        ESP_LOGW(TAG,
+        ESPECTRE_LOGW(TAG,
                  "%s send failed (errno=%d, consecutive=%" PRIu32 ")",
                  protocol->name(),
                  current_errno,

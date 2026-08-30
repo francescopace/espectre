@@ -18,7 +18,7 @@
 #include "esp_err.h"
 #include "esp_http_client.h"
 #include "esp_https_ota.h"
-#include "esp_log.h"
+#include "espectre_log.h"
 #include "esp_system.h"
 #include "ota_version.h"
 #include "protocol_json.h"
@@ -236,7 +236,7 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
   checking.channel = channel;
   checking.manifest_url = manifest_url;
   update_status_(checking);
-  ESP_LOGI(TAG, "%s channel=%s url=%s", request.action == WorkerAction::CHECK ? "checking" : "updating",
+  ESPECTRE_LOGI(TAG, "%s channel=%s url=%s", request.action == WorkerAction::CHECK ? "checking" : "updating",
            channel.c_str(), manifest_url.c_str());
 
   if (manifest_url.empty()) {
@@ -269,7 +269,7 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
     result.busy = false;
     result.state = result.update_available ? EspectreOtaState::UPDATE_AVAILABLE : EspectreOtaState::UP_TO_DATE;
     result.message = result.update_available ? "update available" : "already up to date";
-    ESP_LOGI(TAG, "%s current=%s target=%s", result.message.c_str(), current_version.c_str(),
+    ESPECTRE_LOGI(TAG, "%s current=%s target=%s", result.message.c_str(), current_version.c_str(),
              manifest.version.c_str());
     update_status_(result);
     return;
@@ -321,7 +321,7 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
   downloading.update_available = true;
   downloading.message = "starting https ota";
   update_status_(downloading);
-  ESP_LOGI(TAG, "downloading %s", image_url.c_str());
+  ESPECTRE_LOGI(TAG, "downloading %s", image_url.c_str());
 
   esp_http_client_config_t http_config{};
   fill_https_client_config(&http_config, image_url.c_str());
@@ -345,7 +345,7 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
   ready.image_url = image_url;
   ready.update_available = false;
   ready.message = "ota applied, rebooting";
-  ESP_LOGI(TAG, "ota applied, rebooting to %s", target_version.c_str());
+  ESPECTRE_LOGI(TAG, "ota applied, rebooting to %s", target_version.c_str());
   update_status_(ready);
 
   vTaskDelay(pdMS_TO_TICKS(kPostSuccessDelayMs));
@@ -354,7 +354,7 @@ void HttpsOtaService::run_worker_(const WorkerRequest &request) {
 
 bool HttpsOtaService::begin_request_(const WorkerRequest &request) {
   if (!request.channel.empty() && !espectre_ota_channel_accepted(request.channel)) {
-    ESP_LOGW(TAG, "invalid ota channel: %s", request.channel.c_str());
+    ESPECTRE_LOGW(TAG, "invalid ota channel: %s", request.channel.c_str());
     return false;
   }
 
@@ -459,7 +459,7 @@ void HttpsOtaService::set_error_status_(const std::string &message,
   status.channel = channel;
   status.message = message;
   status.update_available = false;
-  ESP_LOGE(TAG, "failed: %s channel=%s url=%s", message.c_str(), channel.c_str(),
+  ESPECTRE_LOGE(TAG, "failed: %s channel=%s url=%s", message.c_str(), channel.c_str(),
            image_url.empty() ? manifest_url.c_str() : image_url.c_str());
   update_status_(status);
 }

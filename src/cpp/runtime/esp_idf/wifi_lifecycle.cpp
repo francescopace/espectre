@@ -190,14 +190,14 @@ void log_wifi_protocol_state_(const char *log_tag, WifiBandPolicy policy) {
     wifi_protocols_t protocols{};
     const esp_err_t err = esp_wifi_get_protocols(WIFI_IF_STA, &protocols);
     if (err != ESP_OK) {
-      ESP_LOGW(log_tag, "Wi-Fi protocol: unavailable (%s)", esp_err_to_name(err));
+      ESPECTRE_LOGW(log_tag, "Wi-Fi protocol: unavailable (%s)", esp_err_to_name(err));
       return;
     }
-    ESP_LOGD(log_tag, "Wi-Fi protocol: 2.4 GHz 0x%04X, 5 GHz 0x%04X",
+    ESPECTRE_LOGD(log_tag, "Wi-Fi protocol: 2.4 GHz 0x%04X, 5 GHz 0x%04X",
              static_cast<unsigned>(protocols.ghz_2g), static_cast<unsigned>(protocols.ghz_5g));
     if ((protocols.ghz_2g & WIFI_PROTOCOL_11N) == 0U ||
         (protocols.ghz_5g & WIFI_PROTOCOL_11N) == 0U) {
-      ESP_LOGW(log_tag, "Wi-Fi protocol does not include 11n on both bands");
+      ESPECTRE_LOGW(log_tag, "Wi-Fi protocol does not include 11n on both bands");
     }
     return;
   }
@@ -205,14 +205,14 @@ void log_wifi_protocol_state_(const char *log_tag, WifiBandPolicy policy) {
   uint8_t protocol = 0U;
   const esp_err_t err = esp_wifi_get_protocol(WIFI_IF_STA, &protocol);
   if (err != ESP_OK) {
-    ESP_LOGW(log_tag, "Wi-Fi protocol: unavailable (%s)", esp_err_to_name(err));
+    ESPECTRE_LOGW(log_tag, "Wi-Fi protocol: unavailable (%s)", esp_err_to_name(err));
     return;
   }
   const int has_11n = (protocol & WIFI_PROTOCOL_11N) ? 1 : 0;
-  ESP_LOGD(log_tag, "Wi-Fi protocol: band=%s bitmap=0x%04X (802.11n=%d)",
+  ESPECTRE_LOGD(log_tag, "Wi-Fi protocol: band=%s bitmap=0x%04X (802.11n=%d)",
            wifi_band_policy_to_str_(policy), static_cast<unsigned>(protocol), has_11n);
   if (has_11n == 0) {
-    ESP_LOGW(log_tag, "Wi-Fi protocol does not include 11n support: 0x%04X",
+    ESPECTRE_LOGW(log_tag, "Wi-Fi protocol does not include 11n support: 0x%04X",
              static_cast<unsigned>(protocol));
   }
 }
@@ -223,10 +223,10 @@ void log_wifi_bandwidth_state_(const char *log_tag, WifiBandPolicy policy) {
     wifi_bandwidths_t bandwidths{};
     const esp_err_t err = esp_wifi_get_bandwidths(WIFI_IF_STA, &bandwidths);
     if (err != ESP_OK) {
-      ESP_LOGW(log_tag, "Wi-Fi bandwidth: unavailable (%s)", esp_err_to_name(err));
+      ESPECTRE_LOGW(log_tag, "Wi-Fi bandwidth: unavailable (%s)", esp_err_to_name(err));
       return;
     }
-    ESP_LOGD(log_tag, "Wi-Fi bandwidth: 2.4 GHz %s, 5 GHz %s",
+    ESPECTRE_LOGD(log_tag, "Wi-Fi bandwidth: 2.4 GHz %s, 5 GHz %s",
              bandwidth_to_str_(bandwidths.ghz_2g), bandwidth_to_str_(bandwidths.ghz_5g));
     return;
   }
@@ -234,10 +234,10 @@ void log_wifi_bandwidth_state_(const char *log_tag, WifiBandPolicy policy) {
   wifi_bandwidth_t bw = WIFI_BW_HT20;
   const esp_err_t err = esp_wifi_get_bandwidth(WIFI_IF_STA, &bw);
   if (err != ESP_OK) {
-    ESP_LOGW(log_tag, "Wi-Fi bandwidth: unavailable (%s)", esp_err_to_name(err));
+    ESPECTRE_LOGW(log_tag, "Wi-Fi bandwidth: unavailable (%s)", esp_err_to_name(err));
     return;
   }
-  ESP_LOGD(log_tag, "Wi-Fi bandwidth: band=%s width=%s",
+  ESPECTRE_LOGD(log_tag, "Wi-Fi bandwidth: band=%s width=%s",
            wifi_band_policy_to_str_(policy), bandwidth_to_str_(bw));
 }
 
@@ -245,14 +245,14 @@ void log_wifi_bandwidth_state_(const char *log_tag, WifiBandPolicy policy) {
 
 esp_err_t WiFiLifecycleManager::apply_csi_wifi_policy(WifiBandPolicy band_policy) {
   if (!wifi_band_policy_is_supported(band_policy)) {
-    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Wi-Fi band policy is not supported by this target: %s",
+    ESPECTRE_LOGE(WIFI_LIFECYCLE_TAG, "Wi-Fi band policy is not supported by this target: %s",
              wifi_band_policy_to_str_(band_policy));
     return ESP_ERR_NOT_SUPPORTED;
   }
 #if ESPECTRE_WIFI_DUAL_BAND
   const esp_err_t band_err = set_wifi_band_mode_for_csi_(band_policy);
   if (band_err != ESP_OK) {
-    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to apply Wi-Fi band policy %s: %s",
+    ESPECTRE_LOGE(WIFI_LIFECYCLE_TAG, "Failed to apply Wi-Fi band policy %s: %s",
              wifi_band_policy_to_str_(band_policy), esp_err_to_name(band_err));
     return band_err;
   }
@@ -265,15 +265,15 @@ esp_err_t WiFiLifecycleManager::apply_csi_wifi_policy(WifiBandPolicy band_policy
   const WiFiProtocolPolicyResult protocol_result = set_wifi_protocol_for_csi_(band_policy);
   esp_err_t ret = protocol_result.err;
   if (ret != ESP_OK) {
-    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to set Wi-Fi protocol: %s", esp_err_to_name(ret));
+    ESPECTRE_LOGE(WIFI_LIFECYCLE_TAG, "Failed to set Wi-Fi protocol: %s", esp_err_to_name(ret));
     return ret;
   }
-  ESP_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi CSI protocol policy: path=%s target=%s",
+  ESPECTRE_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi CSI protocol policy: path=%s target=%s",
            protocol_policy_path_to_str_(protocol_result.path), wifi_csi_policy_target_(band_policy));
   // HT20 bandwidth for 64 subcarriers
   ret = set_wifi_bandwidth_for_csi_(band_policy);
   if (ret != ESP_OK) {
-    ESP_LOGW(WIFI_LIFECYCLE_TAG, "Failed to set bandwidth: %s", esp_err_to_name(ret));
+    ESPECTRE_LOGW(WIFI_LIFECYCLE_TAG, "Failed to set bandwidth: %s", esp_err_to_name(ret));
     // Non-fatal: continue anyway
   }
 
@@ -284,14 +284,14 @@ esp_err_t WiFiLifecycleManager::apply_started_csi_policy(WifiBandPolicy band_pol
 #ifdef ESPECTRE_HAVE_ESP_COEXIST
   const esp_err_t coex_err = esp_coex_preference_set(ESP_COEX_PREFER_WIFI);
   if (coex_err != ESP_OK) {
-    ESP_LOGW(WIFI_LIFECYCLE_TAG, "Failed to bias Wi-Fi/BT coexistence toward Wi-Fi: %s",
+    ESPECTRE_LOGW(WIFI_LIFECYCLE_TAG, "Failed to bias Wi-Fi/BT coexistence toward Wi-Fi: %s",
              esp_err_to_name(coex_err));
   }
 #endif
 
   const esp_err_t policy_err = apply_csi_wifi_policy(band_policy);
   if (policy_err != ESP_OK) {
-    ESP_LOGW(WIFI_LIFECYCLE_TAG, "Failed to apply started Wi-Fi CSI policy: %s",
+    ESPECTRE_LOGW(WIFI_LIFECYCLE_TAG, "Failed to apply started Wi-Fi CSI policy: %s",
              esp_err_to_name(policy_err));
     return policy_err;
   }
@@ -305,14 +305,14 @@ esp_err_t WiFiLifecycleManager::init() {
     return ESP_OK;
   }
 
-  ESP_LOGI(WIFI_LIFECYCLE_TAG, "Initializing Wi-Fi CSI lifecycle");
+  ESPECTRE_LOGI(WIFI_LIFECYCLE_TAG, "Initializing Wi-Fi CSI lifecycle");
   if (!started_policy_attempted_.load(std::memory_order_relaxed)) {
     // STA_START fired before the handlers were registered, so the policy was
     // never even attempted. Failing here consumed the GOT_IP event and left
     // CSI off with nothing to retry until the next reconnect. The station is
     // up by now, so applying it late is valid and strictly better than
     // dropping the connection.
-    ESP_LOGW(WIFI_LIFECYCLE_TAG, "STA start was not observed; applying Wi-Fi CSI policy late");
+    ESPECTRE_LOGW(WIFI_LIFECYCLE_TAG, "STA start was not observed; applying Wi-Fi CSI policy late");
     const esp_err_t late_err = apply_started_csi_policy(band_policy_);
     started_policy_attempted_.store(true, std::memory_order_relaxed);
     started_policy_err_.store(late_err, std::memory_order_relaxed);
@@ -323,7 +323,7 @@ esp_err_t WiFiLifecycleManager::init() {
   // ordering accident, so it propagates instead of being retried.
   const esp_err_t policy_err = started_policy_err_.load(std::memory_order_relaxed);
   if (policy_err != ESP_OK) {
-    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Wi-Fi CSI policy was not applied at STA start: %s",
+    ESPECTRE_LOGE(WIFI_LIFECYCLE_TAG, "Wi-Fi CSI policy was not applied at STA start: %s",
              esp_err_to_name(policy_err));
     return policy_err;
   }
@@ -333,12 +333,12 @@ esp_err_t WiFiLifecycleManager::init() {
   // avoids toggling the PS mode during the early STA bootstrap.
   const esp_err_t ps_err = esp_wifi_set_ps(WIFI_PS_NONE);
   if (ps_err != ESP_OK) {
-    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to disable Wi-Fi power save: %s",
+    ESPECTRE_LOGE(WIFI_LIFECYCLE_TAG, "Failed to disable Wi-Fi power save: %s",
              esp_err_to_name(ps_err));
     return ps_err;
   }
 
-  ESP_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi CSI lifecycle ready");
+  ESPECTRE_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi CSI lifecycle ready");
   log_csi_runtime_state(WIFI_LIFECYCLE_TAG, band_policy_);
   ready_ = true;
 
@@ -349,7 +349,7 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
                                                   wifi_disconnected_callback_t disconnected_cb,
                                                   WifiBandPolicy band_policy) {
   if (!wifi_band_policy_is_supported(band_policy)) {
-    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Wi-Fi band policy is not supported by this target: %s",
+    ESPECTRE_LOGE(WIFI_LIFECYCLE_TAG, "Wi-Fi band policy is not supported by this target: %s",
              wifi_band_policy_to_str_(band_policy));
     return ESP_ERR_NOT_SUPPORTED;
   }
@@ -368,7 +368,7 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
       &started_instance_
   );
   if (err != ESP_OK) {
-    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to register started handler: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE(WIFI_LIFECYCLE_TAG, "Failed to register started handler: %s", esp_err_to_name(err));
     return err;
   }
 
@@ -382,7 +382,7 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
   );
   
   if (err != ESP_OK) {
-    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to register connected handler: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE(WIFI_LIFECYCLE_TAG, "Failed to register connected handler: %s", esp_err_to_name(err));
     esp_event_handler_instance_unregister(WIFI_EVENT, WIFI_EVENT_STA_START, started_instance_);
     started_instance_ = nullptr;
     return err;
@@ -398,7 +398,7 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
   );
   
   if (err != ESP_OK) {
-    ESP_LOGE(WIFI_LIFECYCLE_TAG, "Failed to register disconnected handler: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE(WIFI_LIFECYCLE_TAG, "Failed to register disconnected handler: %s", esp_err_to_name(err));
     // Cleanup connected handler
     if (connected_instance_) {
       esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, connected_instance_);
@@ -422,11 +422,11 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
       current_ip.ip.addr != 0U &&
       !pending_events_.post_overwrite_oldest(
           PendingWifiEvent{PendingWifiEventType::CONNECTED, current_ip})) {
-    ESP_LOGW(WIFI_LIFECYCLE_TAG,
+    ESPECTRE_LOGW(WIFI_LIFECYCLE_TAG,
              "Wi-Fi event queue overflowed while restoring the current station state");
   }
   
-  ESP_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi event handlers registered");
+  ESPECTRE_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi event handlers registered");
   return ESP_OK;
 }
 
@@ -451,7 +451,7 @@ void WiFiLifecycleManager::unregister_handlers() {
   started_policy_attempted_.store(false, std::memory_order_relaxed);
   ready_ = false;
   active_ip_info_ = {};
-  ESP_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi event handlers unregistered");
+  ESPECTRE_LOGI(WIFI_LIFECYCLE_TAG, "Wi-Fi event handlers unregistered");
 }
 
 esp_err_t WiFiLifecycleManager::process_pending_events() {
@@ -474,7 +474,7 @@ esp_err_t WiFiLifecycleManager::process_pending_events() {
       continue;
     }
 
-    ESP_LOGD(WIFI_LIFECYCLE_TAG, "Wi-Fi connected event received");
+    ESPECTRE_LOGD(WIFI_LIFECYCLE_TAG, "Wi-Fi connected event received");
     const esp_err_t err = init();
     if (err != ESP_OK) {
       return err;
@@ -491,16 +491,16 @@ void WiFiLifecycleManager::log_csi_runtime_state(const char *tag, WifiBandPolicy
   const char *log_tag = tag != nullptr ? tag : WIFI_LIFECYCLE_TAG;
   bool promiscuous = false;
   esp_wifi_get_promiscuous(&promiscuous);
-  ESP_LOGD(log_tag, "Wi-Fi promiscuous mode: %s", promiscuous ? "ENABLED" : "DISABLED");
+  ESPECTRE_LOGD(log_tag, "Wi-Fi promiscuous mode: %s", promiscuous ? "ENABLED" : "DISABLED");
 
   wifi_ps_type_t ps_type;
   esp_err_t ps_err = esp_wifi_get_ps(&ps_type);
   if (ps_err == ESP_OK) {
     const char* ps_str = (ps_type == WIFI_PS_NONE) ? "NONE" :
                          (ps_type == WIFI_PS_MIN_MODEM) ? "MIN_MODEM" : "MAX_MODEM";
-    ESP_LOGD(log_tag, "Wi-Fi power save: %s", ps_str);
+    ESPECTRE_LOGD(log_tag, "Wi-Fi power save: %s", ps_str);
   } else {
-    ESP_LOGW(log_tag, "Wi-Fi power save: unavailable (%s)", esp_err_to_name(ps_err));
+    ESPECTRE_LOGW(log_tag, "Wi-Fi power save: unavailable (%s)", esp_err_to_name(ps_err));
   }
 
   log_wifi_protocol_state_(log_tag, band_policy);
@@ -511,7 +511,7 @@ void WiFiLifecycleManager::log_csi_runtime_state(const char *tag, WifiBandPolicy
   uint8_t primary_channel = 0U;
   wifi_second_chan_t second_channel = WIFI_SECOND_CHAN_NONE;
   if (esp_wifi_get_channel(&primary_channel, &second_channel) == ESP_OK && primary_channel != 0U) {
-    ESP_LOGD(log_tag, "Wi-Fi channel: %u (%s)", static_cast<unsigned>(primary_channel),
+    ESPECTRE_LOGD(log_tag, "Wi-Fi channel: %u (%s)", static_cast<unsigned>(primary_channel),
              primary_channel > WIFI_CHANNEL_2G_MAX ? "5 GHz" : "2.4 GHz");
   }
 }
@@ -528,7 +528,7 @@ void WiFiLifecycleManager::ip_event_handler_(void* arg, esp_event_base_t event_b
     const auto *event = static_cast<const ip_event_got_ip_t *>(event_data);
     if (!manager->pending_events_.post_overwrite_oldest(
             PendingWifiEvent{PendingWifiEventType::CONNECTED, event->ip_info})) {
-      ESP_LOGW(WIFI_LIFECYCLE_TAG, "Wi-Fi event queue overflowed; oldest transition discarded");
+      ESPECTRE_LOGW(WIFI_LIFECYCLE_TAG, "Wi-Fi event queue overflowed; oldest transition discarded");
     }
   }
 }
@@ -556,7 +556,7 @@ void WiFiLifecycleManager::wifi_event_handler_(void* arg, esp_event_base_t event
   } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
     if (!manager->pending_events_.post_overwrite_oldest(
             PendingWifiEvent{PendingWifiEventType::DISCONNECTED, {}})) {
-      ESP_LOGW(WIFI_LIFECYCLE_TAG, "Wi-Fi event queue overflowed; oldest transition discarded");
+      ESPECTRE_LOGW(WIFI_LIFECYCLE_TAG, "Wi-Fi event queue overflowed; oldest transition discarded");
     }
   }
 }

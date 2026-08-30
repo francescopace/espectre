@@ -114,6 +114,9 @@
 // SDK identity.
 #include "runtime/espectre_sdk_version.h"
 
+// Optional frontend-owned logging sink. No sink is installed by default.
+#include "core/espectre_log.h"
+
 // Runtime contracts. Platform-agnostic and host-testable.
 #include "runtime/firmware_version.h"
 #include "runtime/runtime_capabilities.h"

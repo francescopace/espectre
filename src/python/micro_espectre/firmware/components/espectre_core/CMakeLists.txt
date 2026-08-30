@@ -19,8 +19,6 @@ idf_component_register(
     INCLUDE_DIRS
         ${ESPECTRE_SDK_ROOT_INCLUDE_DIRS}
         ${ESPECTRE_CORE_INCLUDE_DIRS}
-    REQUIRES
-        log
 )
 
 include("${ESPECTRE_CORE_SDK_ROOT}/espectre_git_version.cmake")

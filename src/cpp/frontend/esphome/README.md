@@ -317,7 +317,7 @@ The ESPHome examples use ESPHome 2026.7's native ESP-IDF backend. [`__init__.py`
 
 ### Automatic SDK Configuration
 
-The frontend automatically sets the ESP-IDF options required by the runtime, including CSI enablement, disabled Wi-Fi power save, TX AMPDU, the shared high-rate Wi-Fi buffer profile, lwIP IRAM optimization, and enlarged TCP/IP and UDP mailboxes. RX AMPDU remains disabled so sensing receives individual CSI frames. ESPHome keeps the ESP-IDF default log level at ERROR so Wi-Fi and lwIP stay quiet; the shared SDK compiles INFO/DEBUG only in its own sources and restores the `espectre` and `espectre.runtime` tags at runtime so the periodic `IDLE | csi:` status lines reach USB serial. On maintained USB-OTG configurations where the ROM CDC path is unreliable, the component selects the shared TinyUSB CDC console and routes ESPHome logging and Improv Serial through it. In most cases you do not need to set these options manually.
+The frontend automatically sets the ESP-IDF options required by the runtime, including CSI enablement, disabled Wi-Fi power save, TX AMPDU, the shared high-rate Wi-Fi buffer profile, lwIP IRAM optimization, and enlarged TCP/IP and UDP mailboxes. RX AMPDU remains disabled so sensing receives individual CSI frames. The component registers the shared SDK's portable log sink with the ESPHome logger, so `espectre` and `espectre.runtime` messages follow the YAML logger level without passing through ESP-IDF's log formatter first. On maintained USB-OTG configurations where the ROM CDC path is unreliable, the component selects the shared TinyUSB CDC console and routes ESPHome logging and Improv Serial through it. In most cases you do not need to set these options manually.
 
 The supplied examples deliberately use Improv Serial instead of BLE provisioning. Omitting BLE keeps its provisioning stack out of the firmware, reducing flash and memory pressure. BLE and Wi-Fi share the ESP32's 2.4 GHz radio; while BLE is active, coexistence can interrupt the Wi-Fi packet flow and reduce the CSI occupancy required for reliable sensing. Disabling BLE after provisioning ends that radio contention, but it does not remove the compiled-in stack or the added provisioning lifecycle.
 
@@ -352,7 +352,7 @@ Use [`TUNING.md`](../../../../docs/TUNING.md#troubleshooting) for missing motion
 
 ### View logs
 
-Home Assistant entity updates do not replace the serial status log. Movement and motion can be live in Home Assistant while `espectre monitor` stays quiet if the shared runtime `ESP_LOGI` lines are compiled out. After a current ESPHome build, the 1 Hz `IDLE | csi:` / `MOTION | csi:` heartbeats should appear on USB serial as well as in `esphome logs`.
+Home Assistant entity updates do not replace the serial status log. The shared runtime forwards its 1 Hz `IDLE | csi:` / `MOTION | csi:` heartbeats through the ESPHome sink, so they should appear on USB serial and in `esphome logs` when the `espectre.runtime` tag permits INFO messages.
 
 ```bash
 esphome logs <your-config>.yaml

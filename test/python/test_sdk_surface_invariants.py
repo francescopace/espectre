@@ -27,6 +27,7 @@ FACADE = CPP_ROOT / "espectre_sdk.h"
 CORE_FACADE = CPP_ROOT / "espectre_core_sdk.h"
 DOXYFILE = CPP_ROOT / "Doxyfile"
 SDK_GUIDE = REPO_ROOT / "docs" / "SDK.md"
+SDK_COMPONENT_CMAKE = CPP_ROOT / "CMakeLists.txt"
 RUNTIME_INTERNAL_HEADERS = {
     "core/base_detector.h",
     "core/csi_features.h",
@@ -44,6 +45,7 @@ RUNTIME_INTERNAL_HEADERS = {
 CORE_PUBLIC_HEADERS = {
     "espectre_core_sdk.h",
     "runtime/espectre_sdk_version.h",
+    "core/espectre_log.h",
     "core/base_detector.h",
     "core/csi_format.h",
     "core/csi_types.h",
@@ -167,6 +169,40 @@ def test_facade_headers_are_all_in_the_generated_reference() -> None:
     assert not missing, (
         f"headers reachable from {FACADE.name} are absent from the Doxyfile INPUT list: {missing}"
     )
+
+
+def test_shared_layers_do_not_depend_on_esp_log() -> None:
+    offenders: list[str] = []
+    for layer in (CPP_ROOT / "core", CPP_ROOT / "runtime"):
+        for path in (*layer.rglob("*.h"), *layer.rglob("*.cpp")):
+            source = path.read_text(encoding="utf-8")
+            if re.search(r"#include\s*[<\"]esp_log\.h[>\"]|\bESP_LOG[A-Z_]*\b", source):
+                offenders.append(str(path.relative_to(REPO_ROOT)))
+
+    assert not offenders, f"shared SDK sources still use esp_log: {sorted(offenders)}"
+    component_cmake = SDK_COMPONENT_CMAKE.read_text(encoding="utf-8")
+    assert re.search(r"^\s+log\s*$", component_cmake, flags=re.MULTILINE) is None, (
+        "the shared SDK component must not require ESP-IDF's log component"
+    )
+
+
+def test_idf_frontend_log_sinks_restore_standard_line_formatting() -> None:
+    adapters = (
+        CPP_ROOT / "frontend" / "native" / "app" / "main" / "app_main.cpp",
+        CPP_ROOT / "frontend" / "matter" / "app" / "main" / "app_main.cpp",
+        REPO_ROOT
+        / "src"
+        / "python"
+        / "micro_espectre"
+        / "firmware"
+        / "native_components"
+        / "native_log_sink.cpp",
+    )
+    for adapter in adapters:
+        source = adapter.read_text(encoding="utf-8")
+        assert "std::vsnprintf" in source
+        assert "ESP_LOG_LEVEL" in source
+        assert "esp_log_writev" not in source
 
 
 def test_generated_reference_uses_consumer_include_paths() -> None:

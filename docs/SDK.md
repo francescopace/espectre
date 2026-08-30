@@ -105,12 +105,32 @@ At the end of a finite stream, call `flush()` and consume the stored payload if 
 
 After each `update_state()`, re-read `get_threshold()`: Lightweight can lower it without a setter call, and the core-only path has no `on_threshold_changed()` hook. The sampler owns admission only; use `runtime/esp_idf/csi_pipeline.cpp` as the reference for CSI normalization, evaluation cadence, and hit filtering before committing to custom wiring.
 
+### Logging
+
+Both SDK facades expose the portable logging contract in `core/espectre_log.h`. ESPectre does not install a sink or fall back to `stdio`, so integrations that do not need logs have no logger dependency and do not evaluate filtered log arguments. To receive shared logs, register a complete `LogSink` before runtime setup:
+
+```cpp
+espectre::LogSink sink{
+    product_context,
+    &product_log_enabled,
+    &product_log_write,
+};
+if (!espectre::set_log_sink(sink)) {
+  return false;
+}
+```
+
+The `enabled` callback decides whether a level and tag should be formatted. The `write` callback receives the level, tag, source line, format string, and a `va_list` that remains valid only for that call. ESPectre copies the callback value but does not own its context. Keep the context alive until `clear_log_sink()`, and register, replace, or clear the sink only while no runtime is active. Callbacks may arrive from the runtime owner task, ESP-IDF service tasks, or CSI capture paths, so they must be thread-safe, bounded, non-blocking, and must not call the ESPectre logger recursively.
+
+The shipped frontends provide the reference adapters: ESPHome forwards to its logger, while Native, Matter, and the Micro-ESPectre native bindings forward to `esp_log`. Micro-ESPectre keeps that dependency in its frontend module; its core-only and focused traffic components remain logger-independent and share the sink implementation linked from core. These frontend choices do not add `esp_log` to the shared SDK components.
+
 ## Header map
 
 | Header | Use it for |
 |--------|------------|
 | `espectre_sdk.h` | Stable full-runtime facade and recommended integration entry point |
 | `espectre_core_sdk.h` | Opt-in core-only facade for integrations that already own normalized CSI capture |
+| `core/espectre_log.h` | Register an optional frontend-owned logging sink for shared SDK messages |
 | `runtime/espectre_sdk_version.h` | Compile-time SDK version and the `ESPECTRE_SDK_VERSION_AT_LEAST()` guard |
 | `runtime/runtime_interface.h` | `RuntimeConfig` and the backend contract |
 | `runtime/runtime_events.h` | `IRuntimeListener` and the threading contract |
@@ -155,6 +175,8 @@ The control surface is single-owner. Internal bounded mailboxes protect callback
 ### Lifecycle
 
 `set_config()` -> `setup(listener)` -> `loop()` repeatedly -> `shutdown()`. Create the default station interface and ESP event loop before `setup()`. Prefer setup before association so the CSI radio policy is applied at `WIFI_EVENT_STA_START`; setup after association is also supported and restores the station's current IPv4 state. The controller is reusable after `shutdown()`: the configuration survives and `set_config()` becomes effective again. `setup()` is idempotent, and a failed `setup()` leaves the controller un-setup so you can fix the config and retry.
+
+Register an optional `LogSink` before `setup()`. Do not replace or clear it until every runtime and callback source using it has shut down.
 
 ### Errors
 
@@ -216,6 +238,8 @@ Both surfaces are distributed as source, but they compile different source sets.
 - **Full-runtime CMake / ESP-IDF**: compile `ESPECTRE_CORE_SOURCES` and `ESPECTRE_RUNTIME_ESP_IDF_SOURCES`, then add `ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES` or the per-capability Direct HTTP, MQTT, provisioning, and OTA lists only when the integration uses them. Add `ESPECTRE_SHARED_INCLUDE_DIRS`; the frontend `CMakeLists.txt` files show working combinations.
 - **Vendored ESP-IDF component**: drop `src/cpp/` into your project's `components/` directory and add `espectre` to your own component's `REQUIRES`. The sensing runtime is always built; the optional groups are opt-in under the "ESPectre SDK" menuconfig menu.
 - **Toolchain**: C++17, ESP-IDF `>= 5.5` for the `runtime/esp_idf` services. Repository builds use ESP-IDF `5.5.5`.
+
+The shared component does not require ESP-IDF's `log` component. A product that registers an `esp_log` adapter declares that dependency in its own frontend or application component.
 
 `ESPECTRE_SHARED_INCLUDE_DIRS` puts the SDK root on the include path, so both the flat form (`#include "runtime_interface.h"`) and the layer-prefixed form (`#include "runtime/runtime_interface.h"`) work. Prefer the prefixed form: the shared tree contains generic basenames such as `utils.h` and `filters.h`, and the prefix keeps them from colliding with headers of your own.
 

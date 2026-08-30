@@ -22,7 +22,16 @@ from src.python.espectre_cli.device_transport import (
 )
 from src.python.micro_espectre import protocol
 
-def test_serial_monitor_fatal_log_invalidates_all_frontend_results():
+
+@pytest.mark.parametrize(
+    "monitor_output",
+    [
+        "I (1000) ready\nGuru Meditation Error: Core 0 panic'ed\n",
+        "[I][esp-idf:000]: Guru Meditation Error: Core 0 panic'ed\n",
+        "[ESPHome serial] [E][espectre.runtime:123]: Guru Meditation Error: Core 0 panic'ed\n",
+    ],
+)
+def test_serial_monitor_fatal_log_invalidates_all_frontend_results(monitor_output):
     results = [
         BenchmarkResult(BenchmarkCase("native", "lightweight"), status="PASS"),
         BenchmarkResult(BenchmarkCase("native", "high_accuracy"), status="PASS"),
@@ -31,7 +40,7 @@ def test_serial_monitor_fatal_log_invalidates_all_frontend_results():
         ["espectre", "monitor"],
         0,
         60.0,
-        "I (1000) ready\nGuru Meditation Error: Core 0 panic'ed\n",
+        monitor_output,
     )
 
     bench._apply_serial_monitor_evidence(results, monitor, exited_early=False)
@@ -45,6 +54,42 @@ def test_serial_monitor_fatal_log_invalidates_all_frontend_results():
         ]
         for result in results
     )
+
+
+@pytest.mark.parametrize(
+    "fatal_pattern",
+    [
+        "Brownout detector was triggered",
+        "Task watchdog got triggered",
+        "Guru Meditation Error",
+        "abort() was called",
+        "panic'ed",
+        "Stack smashing protect failure",
+    ],
+)
+def test_serial_monitor_detects_every_fatal_pattern_in_new_log_format(fatal_pattern):
+    result = BenchmarkResult(BenchmarkCase("esphome", "lightweight"), status="PASS")
+    monitor = CommandResult(
+        ["espectre", "monitor"],
+        0,
+        60.0,
+        f"[ESPHome serial] [E][espectre.runtime:123]: {fatal_pattern}\n",
+    )
+
+    bench._apply_serial_monitor_evidence([result], monitor, exited_early=False)
+
+    assert result.status == "FAIL"
+    assert result.reasons == [f"fatal firmware log detected: {fatal_pattern}"]
+
+
+def test_serial_monitor_early_exit_invalidates_result():
+    result = BenchmarkResult(BenchmarkCase("esphome", "lightweight"), status="PASS")
+    monitor = CommandResult(["espectre", "monitor"], 7, 1.0, "")
+
+    bench._apply_serial_monitor_evidence([result], monitor, exited_early=True)
+
+    assert result.status == "FAIL"
+    assert result.reasons == ["serial log drain exited early with status 7"]
 
 
 def test_serial_monitor_nonfatal_logs_do_not_change_result():

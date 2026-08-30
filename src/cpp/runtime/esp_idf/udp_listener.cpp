@@ -30,7 +30,7 @@ void UDPListener::init(uint16_t port) {
   expected_payload_.fill(0U);
   last_sender_ipv4_.store(0U, std::memory_order_relaxed);
   last_sender_port_.store(0U, std::memory_order_relaxed);
-  ESP_LOGD(UDP_LISTENER_TAG, "UDP listener initialized: port=%u", port_);
+  ESPECTRE_LOGD(UDP_LISTENER_TAG, "UDP listener initialized: port=%u", port_);
 }
 
 void UDPListener::set_multicast_group(const char *group) {
@@ -59,21 +59,21 @@ void UDPListener::set_expected_payload(const uint8_t *payload, size_t len) {
 
 bool UDPListener::start() {
   if (running_) {
-    ESP_LOGW(UDP_LISTENER_TAG, "UDP listener already running");
+    ESPECTRE_LOGW(UDP_LISTENER_TAG, "UDP listener already running");
     return true;
   }
   
   // Create UDP socket
   sock_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
   if (sock_ < 0) {
-    ESP_LOGE(UDP_LISTENER_TAG, "Failed to create UDP socket: errno %d", errno);
+    ESPECTRE_LOGE(UDP_LISTENER_TAG, "Failed to create UDP socket: errno %d", errno);
     return false;
   }
   
   // Set socket to non-blocking
   int flags = fcntl(sock_, F_GETFL, 0);
   if (flags < 0 || fcntl(sock_, F_SETFL, flags | O_NONBLOCK) < 0) {
-    ESP_LOGE(UDP_LISTENER_TAG, "Failed to set socket non-blocking: errno %d", errno);
+    ESPECTRE_LOGE(UDP_LISTENER_TAG, "Failed to set socket non-blocking: errno %d", errno);
     close(sock_);
     sock_ = -1;
     return false;
@@ -82,7 +82,7 @@ bool UDPListener::start() {
   // Allow reuse of address
   int reuse = 1;
   if (setsockopt(sock_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
-    ESP_LOGW(UDP_LISTENER_TAG, "Failed to set SO_REUSEADDR");
+    ESPECTRE_LOGW(UDP_LISTENER_TAG, "Failed to set SO_REUSEADDR");
   }
   
   // Bind to port
@@ -93,7 +93,7 @@ bool UDPListener::start() {
   addr.sin_addr.s_addr = htonl(INADDR_ANY);
   
   if (bind(sock_, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-    ESP_LOGE(UDP_LISTENER_TAG, "Failed to bind UDP socket to port %u: errno %d", port_, errno);
+    ESPECTRE_LOGE(UDP_LISTENER_TAG, "Failed to bind UDP socket to port %u: errno %d", port_, errno);
     close(sock_);
     sock_ = -1;
     return false;
@@ -103,14 +103,14 @@ bool UDPListener::start() {
     ip_mreq membership{};
     if (inet_aton(multicast_group_, &membership.imr_multiaddr) == 0 ||
         !IN_MULTICAST(ntohl(membership.imr_multiaddr.s_addr))) {
-      ESP_LOGE(UDP_LISTENER_TAG, "Invalid multicast group: %s", multicast_group_);
+      ESPECTRE_LOGE(UDP_LISTENER_TAG, "Invalid multicast group: %s", multicast_group_);
       close(sock_);
       sock_ = -1;
       return false;
     }
     membership.imr_interface.s_addr = htonl(INADDR_ANY);
     if (setsockopt(sock_, IPPROTO_IP, IP_ADD_MEMBERSHIP, &membership, sizeof(membership)) < 0) {
-      ESP_LOGE(UDP_LISTENER_TAG, "Failed to join multicast group %s: errno %d", multicast_group_, errno);
+      ESPECTRE_LOGE(UDP_LISTENER_TAG, "Failed to join multicast group %s: errno %d", multicast_group_, errno);
       close(sock_);
       sock_ = -1;
       return false;
@@ -118,7 +118,7 @@ bool UDPListener::start() {
   }
   
   running_ = true;
-  ESP_LOGI(UDP_LISTENER_TAG,
+  ESPECTRE_LOGI(UDP_LISTENER_TAG,
            "UDP listener started: port=%u%s%s",
            port_,
            multicast_group_[0] != '\0' ? " mcast=" : "",
@@ -138,7 +138,7 @@ void UDPListener::stop() {
   }
   
   running_ = false;
-  ESP_LOGI(UDP_LISTENER_TAG, "UDP listener stopped");
+  ESPECTRE_LOGI(UDP_LISTENER_TAG, "UDP listener stopped");
 }
 
 bool UDPListener::get_last_sender(sockaddr_in *out_addr) const {
@@ -182,7 +182,7 @@ void UDPListener::loop() {
         break;
       }
       // Other error
-      ESP_LOGW(UDP_LISTENER_TAG, "recvfrom error: errno %d", errno);
+      ESPECTRE_LOGW(UDP_LISTENER_TAG, "recvfrom error: errno %d", errno);
       break;
     }
     if (expected_payload_len_ != 0U &&

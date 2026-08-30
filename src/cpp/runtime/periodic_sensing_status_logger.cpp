@@ -12,7 +12,59 @@
 #include "espectre_log.h"
 #include "runtime_time.h"
 
+#include <cstdarg>
+#include <cstdio>
+
 namespace espectre {
+
+namespace {
+
+void log_progress_bar(const char *tag, float progress, int width, int threshold_pos,
+                      const char *format, ...) {
+  if (!log_enabled(LogLevel::INFO, tag)) {
+    return;
+  }
+  if (width < 1) {
+    width = 1;
+  } else if (width > 20) {
+    width = 20;
+  }
+  if (threshold_pos >= width) {
+    threshold_pos = width - 1;
+  }
+
+  int filled = static_cast<int>(progress * static_cast<float>(width));
+  filled = (filled < 0) ? 0 : (filled > width ? width : filled);
+
+  char bar[24];
+  int index = 0;
+  bar[index++] = '[';
+  for (int position = 0; position < width; position++) {
+    if (threshold_pos >= 0 && position == threshold_pos) {
+      bar[index++] = '|';
+    } else if (position < filled) {
+      bar[index++] = '#';
+    } else {
+      bar[index++] = '-';
+    }
+  }
+  bar[index++] = ']';
+  bar[index] = '\0';
+
+  if (format == nullptr) {
+    ESPECTRE_LOGI(tag, "%s", bar);
+    return;
+  }
+
+  char text[256];
+  va_list args;
+  va_start(args, format);
+  std::vsnprintf(text, sizeof(text), format, args);
+  va_end(args);
+  ESPECTRE_LOGI(tag, "%s %s", bar, text);
+}
+
+}  // namespace
 
 void PeriodicSensingStatusLogger::log_status(const char *tag,
                                              const RuntimeSnapshot &snapshot,

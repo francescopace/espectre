@@ -17,7 +17,7 @@
 #include <cctype>
 #include <cstring>
 
-#include <esp_log.h>
+#include "espectre_log.h"
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -264,13 +264,13 @@ bool MdnsBootstrapResponder::setup() {
   if (mutex_ == nullptr) {
     mutex_ = xSemaphoreCreateMutex();
     if (mutex_ == nullptr) {
-      ESP_LOGE(TAG, "Failed to allocate bootstrap responder mutex");
+      ESPECTRE_LOGE(TAG, "Failed to allocate bootstrap responder mutex");
       return false;
     }
   }
   MdnsBootstrapResponder *owner = nullptr;
   if (!g_bootstrap_responder.compare_exchange_strong(owner, this) && owner != this) {
-    ESP_LOGE(TAG, "Another bootstrap responder is already active");
+    ESPECTRE_LOGE(TAG, "Another bootstrap responder is already active");
     return false;
   }
   configured_ = true;

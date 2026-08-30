@@ -18,6 +18,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <string>
 
 using namespace espectre;
 
@@ -55,11 +56,98 @@ class LegacyOtaService : public IOtaService {
   int update_calls{0};
 };
 
+struct CapturedLog {
+  LogLevel maximum_level{LogLevel::VERBOSE};
+  std::string accepted_tag;
+  int enabled_calls{0};
+  int write_calls{0};
+  LogLevel level{LogLevel::ERROR};
+  std::string tag;
+  int line{0};
+  std::string format;
+  std::string message;
+};
+
+bool capture_log_enabled(void *context, LogLevel level, const char *tag) {
+  auto *capture = static_cast<CapturedLog *>(context);
+  capture->enabled_calls++;
+  return static_cast<uint8_t>(level) <= static_cast<uint8_t>(capture->maximum_level) &&
+         (capture->accepted_tag.empty() || (tag != nullptr && capture->accepted_tag == tag));
+}
+
+void capture_log_write(void *context, LogLevel level, const char *tag, int line,
+                       const char *format, va_list args) {
+  auto *capture = static_cast<CapturedLog *>(context);
+  char message[128];
+  std::vsnprintf(message, sizeof(message), format, args);
+  capture->write_calls++;
+  capture->level = level;
+  capture->tag = tag != nullptr ? tag : "";
+  capture->line = line;
+  capture->format = format;
+  capture->message = message;
+}
+
 }  // namespace
 
-void setUp(void) {}
+void setUp(void) { clear_log_sink(); }
 
-void tearDown(void) {}
+void tearDown(void) { clear_log_sink(); }
+
+void test_log_sink_is_silent_until_registered_and_after_clear(void) {
+  int evaluated = 0;
+  ESPECTRE_LOGI("sdk.log", "value=%d", ++evaluated);
+  TEST_ASSERT_EQUAL(0, evaluated);
+
+  CapturedLog capture;
+  TEST_ASSERT_TRUE(set_log_sink({&capture, &capture_log_enabled, &capture_log_write}));
+  clear_log_sink();
+  ESPECTRE_LOGE("sdk.log", "value=%d", ++evaluated);
+  TEST_ASSERT_EQUAL(0, evaluated);
+  TEST_ASSERT_EQUAL(0, capture.write_calls);
+}
+
+void test_log_sink_filters_before_arguments_and_forwards_message_metadata(void) {
+  CapturedLog capture;
+  capture.maximum_level = LogLevel::INFO;
+  capture.accepted_tag = "sdk.forwarded";
+  TEST_ASSERT_TRUE(set_log_sink({&capture, &capture_log_enabled, &capture_log_write}));
+
+  int evaluated = 0;
+  ESPECTRE_LOGD("sdk.filtered", "value=%d", ++evaluated);
+  TEST_ASSERT_EQUAL(0, evaluated);
+  TEST_ASSERT_EQUAL(0, capture.write_calls);
+  ESPECTRE_LOGI("sdk.filtered", "value=%d", ++evaluated);
+  TEST_ASSERT_EQUAL(0, evaluated);
+  TEST_ASSERT_EQUAL(0, capture.write_calls);
+
+  ESPECTRE_LOGI("sdk.forwarded", "value=%d", ++evaluated);
+  TEST_ASSERT_EQUAL(1, evaluated);
+  TEST_ASSERT_EQUAL(3, capture.enabled_calls);
+  TEST_ASSERT_EQUAL(1, capture.write_calls);
+  TEST_ASSERT_EQUAL(static_cast<int>(LogLevel::INFO), static_cast<int>(capture.level));
+  TEST_ASSERT_EQUAL_STRING("sdk.forwarded", capture.tag.c_str());
+  TEST_ASSERT_TRUE(capture.line > 0);
+  TEST_ASSERT_EQUAL_STRING("value=%d", capture.format.c_str());
+  TEST_ASSERT_EQUAL_STRING("value=1", capture.message.c_str());
+}
+
+void test_invalid_log_sink_preserves_registration_and_valid_sink_can_be_replaced(void) {
+  CapturedLog first;
+  CapturedLog second;
+  TEST_ASSERT_TRUE(set_log_sink({&first, &capture_log_enabled, &capture_log_write}));
+  TEST_ASSERT_FALSE(set_log_sink({}));
+  TEST_ASSERT_FALSE(set_log_sink({&second, nullptr, &capture_log_write}));
+  TEST_ASSERT_FALSE(set_log_sink({&second, &capture_log_enabled, nullptr}));
+  ESPECTRE_LOGW("sdk.first", "first");
+  TEST_ASSERT_EQUAL(1, first.write_calls);
+
+  TEST_ASSERT_TRUE(set_log_sink({&second, &capture_log_enabled, &capture_log_write}));
+  ESPECTRE_LOGE("sdk.second", "second");
+  TEST_ASSERT_EQUAL(1, first.write_calls);
+  TEST_ASSERT_EQUAL(1, second.write_calls);
+  TEST_ASSERT_EQUAL_STRING("second", second.message.c_str());
+}
 
 void test_sdk_version_macros_agree_with_each_other(void) {
   char core[32];
@@ -240,6 +328,9 @@ void test_legacy_ota_service_rejects_channels_it_cannot_honor(void) {
 
 int process(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_log_sink_is_silent_until_registered_and_after_clear);
+  RUN_TEST(test_log_sink_filters_before_arguments_and_forwards_message_metadata);
+  RUN_TEST(test_invalid_log_sink_preserves_registration_and_valid_sink_can_be_replaced);
   RUN_TEST(test_sdk_version_macros_agree_with_each_other);
   RUN_TEST(test_default_runtime_config_is_a_working_sensing_config);
   RUN_TEST(test_documented_defaults_sit_inside_documented_ranges);

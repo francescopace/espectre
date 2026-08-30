@@ -14,6 +14,7 @@ idf_component_register(
         bootloader_support
         esp_matter
         esp_partition
+        log
         nvs_flash
 )
 

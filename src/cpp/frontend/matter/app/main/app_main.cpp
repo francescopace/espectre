@@ -17,6 +17,7 @@
 #include <freertos/task.h>
 #include <sdkconfig.h>
 
+#include <cstdarg>
 #include <cstdio>
 #include <string>
 #include <utility>
@@ -32,7 +33,7 @@
 #include <setup_payload/OnboardingCodesUtil.h>
 
 #include "espectre_banner.h"
-#include "runtime_log_helpers.h"
+#include "espectre_log.h"
 #include "device_identity.h"
 #include "direct_http_protocol.h"
 #include "direct_http_service_esp_idf.h"
@@ -68,6 +69,40 @@ espectre::MdnsDiscoveryService *g_mdns_discovery = nullptr;
 espectre::MdnsBootstrapResponder *g_mdns_bootstrap_responder = nullptr;
 espectre::WifiBssidPinService *g_wifi_bssid_pin_service = nullptr;
 espectre::MdnsDiscoveryServiceConfig g_mdns_config;
+
+esp_log_level_t idf_log_level(espectre::LogLevel level) {
+  switch (level) {
+    case espectre::LogLevel::ERROR:
+      return ESP_LOG_ERROR;
+    case espectre::LogLevel::WARNING:
+      return ESP_LOG_WARN;
+    case espectre::LogLevel::INFO:
+      return ESP_LOG_INFO;
+    case espectre::LogLevel::DEBUG:
+      return ESP_LOG_DEBUG;
+    case espectre::LogLevel::VERBOSE:
+      return ESP_LOG_VERBOSE;
+  }
+  return ESP_LOG_NONE;
+}
+
+bool idf_log_enabled(void *, espectre::LogLevel level, const char *tag) {
+  return tag != nullptr && idf_log_level(level) <= esp_log_level_get(tag);
+}
+
+void idf_log_write(void *, espectre::LogLevel level, const char *tag, int,
+                   const char *format, va_list args) {
+  char line[512];
+  const int written = std::vsnprintf(line, sizeof(line), format, args);
+  if (written < 0) return;
+  if (static_cast<size_t>(written) >= sizeof(line)) {
+    line[sizeof(line) - 4] = '.';
+    line[sizeof(line) - 3] = '.';
+    line[sizeof(line) - 2] = '.';
+    line[sizeof(line) - 1] = '\0';
+  }
+  ESP_LOG_LEVEL(idf_log_level(level), tag, "%s", line);
+}
 uint16_t g_motion_endpoint_id = 0;
 uint64_t g_device_id = 0U;
 espectre::PendingEvent<bool> g_commissioned_event;
@@ -180,10 +215,13 @@ bool has_commissioned_fabric_on_chip_thread() {
   return chip::Server::GetInstance().GetFabricTable().FabricCount() != 0;
 }
 
-void configure_log_levels() {
-  espectre::configure_runtime_log_levels();
+bool configure_logging() {
+  if (!espectre::set_log_sink({nullptr, &idf_log_enabled, &idf_log_write})) {
+    return false;
+  }
   // CHIP logs are reduced at build time; mute esp-matter attribute chatter at runtime.
   esp_log_level_set("esp_matter_attribute", ESP_LOG_WARN);
+  return true;
 }
 
 void open_commissioning_window_if_necessary() {
@@ -429,8 +467,11 @@ void espectre_loop_task(void *arg) {
 
 extern "C" void app_main() {
   ESP_ERROR_CHECK(espectre::initialize_primary_console());
+  if (!configure_logging()) {
+    ESP_LOGE(TAG, "Failed to register the Matter log sink");
+    return;
+  }
   ESP_ERROR_CHECK(espectre::nvs_init_with_erase_fallback());
-  configure_log_levels();
   espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });
 
   CHIP_ERROR commissioning_error = g_commissioning_data.initialize();

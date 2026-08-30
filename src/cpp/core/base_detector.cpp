@@ -61,11 +61,11 @@ BaseDetector::BaseDetector(uint16_t window_size)
     // Allocate turbulence buffer and its chronological reorder scratch
     turbulence_buffer_ = alloc_zeroed_floats(window_size_);
     if (!turbulence_buffer_) {
-        ESP_LOGE(TAG, "Failed to allocate turbulence buffer (%d elements)", window_size_);
+        ESPECTRE_LOGE(TAG, "Failed to allocate turbulence buffer (%d elements)", window_size_);
     }
     ordered_turbulence_ = alloc_zeroed_floats(window_size_);
     if (!ordered_turbulence_) {
-        ESP_LOGE(TAG, "Failed to allocate reorder buffer (%d elements)", window_size_);
+        ESPECTRE_LOGE(TAG, "Failed to allocate reorder buffer (%d elements)", window_size_);
     }
 
     // Initialize filters (disabled by default)
@@ -170,7 +170,7 @@ void BaseDetector::process_packet(const int8_t* csi_data, size_t csi_len,
                                    uint8_t num_subcarriers,
                                    int8_t rssi_dbm) {
     if (!csi_data) {
-        ESP_LOGE(TAG, "process_packet: null CSI data");
+        ESPECTRE_LOGE(TAG, "process_packet: null CSI data");
         return;
     }
     if (!turbulence_buffer_) {
@@ -204,12 +204,12 @@ void BaseDetector::reset() {
 
 void BaseDetector::configure_lowpass(bool enabled, float cutoff_hz) {
     lowpass_filter_init(&lowpass_state_, cutoff_hz, LOWPASS_SAMPLE_RATE, enabled);
-    ESP_LOGI(TAG, "Low-pass filter %s (cutoff=%.1f Hz)", enabled ? "enabled" : "disabled", cutoff_hz);
+    ESPECTRE_LOGI(TAG, "Low-pass filter %s (cutoff=%.1f Hz)", enabled ? "enabled" : "disabled", cutoff_hz);
 }
 
 void BaseDetector::configure_hampel(bool enabled, uint8_t window_size, float threshold) {
     hampel_turbulence_init(&hampel_state_, window_size, threshold, enabled);
-    ESP_LOGI(TAG, "Hampel filter %s (window=%d, threshold=%.1f)", 
+    ESPECTRE_LOGI(TAG, "Hampel filter %s (window=%d, threshold=%.1f)",
              enabled ? "enabled" : "disabled", window_size, threshold);
 }
 

@@ -1,7 +1,7 @@
 /*
- * ESPectre - Log Helpers
+ * ESPectre - Log Sink
  *
- * Portable logging macros shared across ESPHome, ESP-IDF, and host tests.
+ * Portable logging contract shared by the SDK and its frontends.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -10,73 +10,92 @@
 #pragma once
 
 #include <cstdarg>
-#include <cstdio>
-
-#if __has_include("esphome/core/log.h")
-#include "esphome/core/log.h"
-#elif defined(ESP_PLATFORM)
-#include "esp_log.h"
-#else
-#ifndef ESP_LOGE
-#define ESP_LOGE(tag, format, ...) std::fprintf(stderr, "[E][%s] " format "\n", tag, ##__VA_ARGS__)
-#endif
-#ifndef ESP_LOGW
-#define ESP_LOGW(tag, format, ...) std::fprintf(stderr, "[W][%s] " format "\n", tag, ##__VA_ARGS__)
-#endif
-#ifndef ESP_LOGI
-#define ESP_LOGI(tag, format, ...) std::fprintf(stdout, "[I][%s] " format "\n", tag, ##__VA_ARGS__)
-#endif
-#ifndef ESP_LOGD
-#define ESP_LOGD(tag, format, ...) std::fprintf(stdout, "[D][%s] " format "\n", tag, ##__VA_ARGS__)
-#endif
-#ifndef ESP_LOGV
-#define ESP_LOGV(tag, format, ...) ((void)0)
-#endif
-#endif
+#include <cstdint>
 
 namespace espectre {
 
-// progress fills the bar on a 0-1 scale of width. threshold_pos overlays a
-// marker at that character index; pass -1 to hide it.
-inline void log_progress_bar(const char *tag, float progress, int width = 20, int threshold_pos = -1,
-                             const char *format = nullptr, ...) {
-  if (width < 1) {
-    width = 1;
-  } else if (width > 20) {
-    width = 20;
-  }
-  if (threshold_pos >= width) {
-    threshold_pos = width - 1;
-  }
+/** Severity attached to one ESPectre log message. */
+enum class LogLevel : uint8_t {
+  ERROR = 1,
+  WARNING = 2,
+  INFO = 3,
+  DEBUG = 4,
+  VERBOSE = 5,
+};
 
-  int filled = static_cast<int>(progress * static_cast<float>(width));
-  filled = (filled < 0) ? 0 : (filled > width ? width : filled);
+/** Return whether a sink accepts a message with the supplied level and tag. */
+using LogEnabledCallback = bool (*)(void *context, LogLevel level, const char *tag);
 
-  char bar[24];
-  int idx = 0;
-  bar[idx++] = '[';
-  for (int i = 0; i < width; i++) {
-    if (threshold_pos >= 0 && i == threshold_pos) {
-      bar[idx++] = '|';
-    } else if (i < filled) {
-      bar[idx++] = '#';
-    } else {
-      bar[idx++] = '-';
-    }
-  }
-  bar[idx++] = ']';
-  bar[idx] = '\0';
+/** Consume one enabled ESPectre log message before the supplied argument list expires. */
+using LogWriteCallback = void (*)(void *context, LogLevel level, const char *tag, int line,
+                                  const char *format, va_list args);
 
-  if (format != nullptr) {
-    char text[256];
-    va_list args;
-    va_start(args, format);
-    std::vsnprintf(text, sizeof(text), format, args);
-    va_end(args);
-    ESP_LOGI(tag, "%s %s", bar, text);
-  } else {
-    ESP_LOGI(tag, "%s", bar);
-  }
-}
+/**
+ * Frontend-owned logging callbacks.
+ *
+ * ESPectre copies this value when it is registered but does not own `context`.
+ * The context and callbacks must remain valid until the sink is cleared.
+ */
+struct LogSink {
+  void *context{nullptr};
+  LogEnabledCallback enabled{nullptr};
+  LogWriteCallback write{nullptr};
+};
+
+/**
+ * Register a complete frontend logging sink.
+ *
+ * Registration must happen before runtime setup, and replacement is supported
+ * only while no ESPectre runtime is active. An invalid sink leaves the current
+ * registration unchanged.
+ *
+ * @param sink Callback value copied by ESPectre.
+ * @return `true` when both required callbacks were registered.
+ */
+bool set_log_sink(const LogSink &sink);
+
+/** Clear the current sink while no ESPectre runtime is active. */
+void clear_log_sink();
+
+/**
+ * Return whether the current sink accepts one level and tag.
+ *
+ * @param level Message severity.
+ * @param tag Stable logger tag.
+ * @return `false` when no complete sink is registered or the sink filters the message.
+ */
+bool log_enabled(LogLevel level, const char *tag);
+
+/** @cond INTERNAL */
+namespace detail {
+
+void log_printf(LogLevel level, const char *tag, int line, const char *format, ...)
+#if defined(__GNUC__)
+    __attribute__((format(printf, 4, 5)))
+#endif
+    ;
+
+}  // namespace detail
+/** @endcond */
 
 }  // namespace espectre
+
+#define ESPECTRE_LOG_AT_LEVEL(level, tag, format, ...)                                            \
+  do {                                                                                            \
+    const char *const espectre_log_tag__ = (tag);                                                 \
+    if (::espectre::log_enabled((level), espectre_log_tag__)) {                                   \
+      ::espectre::detail::log_printf((level), espectre_log_tag__, __LINE__, (format),             \
+                                     ##__VA_ARGS__);                                               \
+    }                                                                                             \
+  } while (false)
+
+#define ESPECTRE_LOGE(tag, format, ...)                                                           \
+  ESPECTRE_LOG_AT_LEVEL(::espectre::LogLevel::ERROR, tag, format, ##__VA_ARGS__)
+#define ESPECTRE_LOGW(tag, format, ...)                                                           \
+  ESPECTRE_LOG_AT_LEVEL(::espectre::LogLevel::WARNING, tag, format, ##__VA_ARGS__)
+#define ESPECTRE_LOGI(tag, format, ...)                                                           \
+  ESPECTRE_LOG_AT_LEVEL(::espectre::LogLevel::INFO, tag, format, ##__VA_ARGS__)
+#define ESPECTRE_LOGD(tag, format, ...)                                                           \
+  ESPECTRE_LOG_AT_LEVEL(::espectre::LogLevel::DEBUG, tag, format, ##__VA_ARGS__)
+#define ESPECTRE_LOGV(tag, format, ...)                                                           \
+  ESPECTRE_LOG_AT_LEVEL(::espectre::LogLevel::VERBOSE, tag, format, ##__VA_ARGS__)

@@ -4,6 +4,7 @@
 #ifndef NO_QSTR
 
 #include "native_features.h"
+#include "native_log_sink.h"
 
 #include "espectre_core_sdk.h"
 
@@ -59,6 +60,7 @@ extern "C" void *espectre_native_detector_create(
     float lowpass_cutoff,
     const uint8_t *subcarriers,
     uint8_t subcarrier_count) {
+  espectre_native_ensure_log_sink();
   auto *handle = new (std::nothrow) DetectorHandle{
       kind,
       nullptr,
@@ -226,6 +228,7 @@ extern "C" bool espectre_native_detector_apply_adaptive_threshold(
 extern "C" void *espectre_native_sampler_create(
     uint32_t target_pps,
     uint32_t window_size_ms) {
+  espectre_native_ensure_log_sink();
   auto *sampler = new (std::nothrow) espectre::TemporalCsiSampler(
       target_pps,
       window_size_ms);

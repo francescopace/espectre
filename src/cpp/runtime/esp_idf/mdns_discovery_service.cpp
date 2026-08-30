@@ -41,7 +41,7 @@ bool MdnsDiscoveryService::setup(const MdnsDiscoveryServiceConfig &config) {
 
   const esp_err_t init_err = mdns_init();
   if (init_err != ESP_OK && init_err != ESP_ERR_INVALID_STATE) {
-    ESP_LOGE(TAG, "mdns_init failed: %s", esp_err_to_name(init_err));
+    ESPECTRE_LOGE(TAG, "mdns_init failed: %s", esp_err_to_name(init_err));
     return false;
   }
   mdns_initialized_ = true;
@@ -50,13 +50,13 @@ bool MdnsDiscoveryService::setup(const MdnsDiscoveryServiceConfig &config) {
   if (config_.responder_mode == MdnsResponderMode::OWN_RESPONDER) {
     if (mdns_hostname_set(config_.hostname.c_str()) != ESP_OK ||
         mdns_instance_name_set(config_.instance_name.c_str()) != ESP_OK) {
-      ESP_LOGE(TAG, "Failed to configure mDNS identity");
+      ESPECTRE_LOGE(TAG, "Failed to configure mDNS identity");
       shutdown();
       return false;
     }
   } else if (init_err == ESP_OK && !config_.hostname.empty() &&
              mdns_hostname_set(config_.hostname.c_str()) != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to configure shared mDNS hostname");
+    ESPECTRE_LOGE(TAG, "Failed to configure shared mDNS hostname");
     shutdown();
     return false;
   }
@@ -67,7 +67,7 @@ bool MdnsDiscoveryService::setup(const MdnsDiscoveryServiceConfig &config) {
                                                  nullptr,
                                                  0U);
   if (service_err != ESP_OK) {
-    ESP_LOGE(TAG, "mdns_service_add failed: %s", esp_err_to_name(service_err));
+    ESPECTRE_LOGE(TAG, "mdns_service_add failed: %s", esp_err_to_name(service_err));
     shutdown();
     return false;
   }
@@ -115,7 +115,7 @@ void MdnsDiscoveryService::shutdown() {
   if (service_added_) {
     const esp_err_t err = mdns_service_remove(config_.service_type.c_str(), config_.service_protocol.c_str());
     if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) {
-      ESP_LOGW(TAG, "mdns_service_remove failed: %s", esp_err_to_name(err));
+      ESPECTRE_LOGW(TAG, "mdns_service_remove failed: %s", esp_err_to_name(err));
     }
   }
   if (mdns_initialized_ && owns_mdns_) {
@@ -138,7 +138,7 @@ bool MdnsDiscoveryService::set_service_txt_() {
                                              records.empty() ? nullptr : records.data(),
                                              records.size());
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "mdns_service_txt_set failed: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE(TAG, "mdns_service_txt_set failed: %s", esp_err_to_name(err));
     return false;
   }
   return true;
@@ -147,12 +147,12 @@ bool MdnsDiscoveryService::set_service_txt_() {
 void MdnsDiscoveryService::apply_netif_action_(int action) {
   esp_netif_t *netif = get_sta_netif();
   if (netif == nullptr) {
-    ESP_LOGW(TAG, "No STA netif available for mDNS update");
+    ESPECTRE_LOGW(TAG, "No STA netif available for mDNS update");
     return;
   }
   const esp_err_t err = mdns_netif_action(netif, static_cast<mdns_event_actions_t>(action));
   if (err != ESP_OK) {
-    ESP_LOGW(TAG, "mdns_netif_action(%d) failed: %s", action, esp_err_to_name(err));
+    ESPECTRE_LOGW(TAG, "mdns_netif_action(%d) failed: %s", action, esp_err_to_name(err));
     return;
   }
   service_enabled_ = action != MDNS_EVENT_DISABLE_IP4;

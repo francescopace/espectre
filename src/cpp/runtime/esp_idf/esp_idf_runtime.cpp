@@ -109,14 +109,14 @@ bool EspIdfRuntime::setup() {
     return false;
   }
 
-  ESP_LOGI(RUNTIME_TAG, "Initializing ESPectre runtime...");
+  ESPECTRE_LOGI(RUNTIME_TAG, "Initializing ESPectre runtime...");
 
   if (config_.runtime_detector_selection_enabled) {
     DetectionAlgorithm saved_algorithm = config_.detection_algorithm;
     bool has_saved_value = false;
     const esp_err_t err = load_runtime_detection_algorithm(&saved_algorithm, &has_saved_value);
     if (err != ESP_OK) {
-      ESP_LOGW(RUNTIME_TAG, "Failed to load persisted detector: %s", esp_err_to_name(err));
+      ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load persisted detector: %s", esp_err_to_name(err));
     } else if (has_saved_value) {
       config_.detection_algorithm = saved_algorithm;
       config_.segmentation_threshold = runtime_default_threshold(saved_algorithm);
@@ -129,7 +129,7 @@ bool EspIdfRuntime::setup() {
   const esp_err_t csi_traffic_err =
       load_runtime_csi_traffic_mode(&saved_csi_traffic_mode, &has_saved_csi_traffic_mode);
   if (csi_traffic_err != ESP_OK) {
-    ESP_LOGW(RUNTIME_TAG, "Failed to load persisted CSI traffic mode: %s", esp_err_to_name(csi_traffic_err));
+    ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load persisted CSI traffic mode: %s", esp_err_to_name(csi_traffic_err));
   } else if (has_saved_csi_traffic_mode) {
     config_.csi_traffic_mode = saved_csi_traffic_mode;
   }
@@ -139,7 +139,7 @@ bool EspIdfRuntime::setup() {
   const esp_err_t generator_err =
       load_runtime_traffic_generator_mode(&saved_generator_mode, &has_saved_generator_mode);
   if (generator_err != ESP_OK) {
-    ESP_LOGW(RUNTIME_TAG, "Failed to load persisted traffic generator mode: %s", esp_err_to_name(generator_err));
+    ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load persisted traffic generator mode: %s", esp_err_to_name(generator_err));
   } else if (has_saved_generator_mode) {
     config_.traffic_generator_mode = saved_generator_mode;
   }
@@ -150,7 +150,7 @@ bool EspIdfRuntime::setup() {
   const esp_err_t motion_hits_err =
       load_runtime_motion_hits(&saved_motion_on_hits, &saved_motion_off_hits, &has_saved_motion_hits);
   if (motion_hits_err != ESP_OK) {
-    ESP_LOGW(RUNTIME_TAG, "Failed to load persisted motion hits: %s", esp_err_to_name(motion_hits_err));
+    ESPECTRE_LOGW(RUNTIME_TAG, "Failed to load persisted motion hits: %s", esp_err_to_name(motion_hits_err));
   } else if (has_saved_motion_hits) {
     config_.motion_on_hits = saved_motion_on_hits;
     config_.motion_off_hits = saved_motion_off_hits;
@@ -288,7 +288,7 @@ void EspIdfRuntime::set_services_armed(bool armed) {
 
   services_armed_ = armed;
   if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
-    ESP_LOGI(RUNTIME_TAG, "Deferred sensing mutation until raw collection stops");
+    ESPECTRE_LOGI(RUNTIME_TAG, "Deferred sensing mutation until raw collection stops");
     return;
   }
   if (!setup_complete_) {
@@ -296,16 +296,16 @@ void EspIdfRuntime::set_services_armed(bool armed) {
   }
 
   if (!services_armed_) {
-    ESP_LOGI(RUNTIME_TAG, "CSI services disarmed");
+    ESPECTRE_LOGI(RUNTIME_TAG, "CSI services disarmed");
     stop_sensing_services_();
     return;
   }
 
   if (wifi_ready_ && wifi_ip_info_.ip.addr != 0U) {
-    ESP_LOGI(RUNTIME_TAG, "CSI services armed, starting capture");
+    ESPECTRE_LOGI(RUNTIME_TAG, "CSI services armed, starting capture");
     start_sensing_services_(wifi_ip_info_);
   } else {
-    ESP_LOGI(RUNTIME_TAG, "CSI services armed, waiting for Wi-Fi IP");
+    ESPECTRE_LOGI(RUNTIME_TAG, "CSI services armed, waiting for Wi-Fi IP");
   }
 }
 
@@ -319,7 +319,7 @@ bool EspIdfRuntime::set_threshold_runtime(float threshold) {
     return false;
   }
   if (!validate_runtime_threshold_for_algorithm(threshold, config_.detection_algorithm)) {
-    ESP_LOGW(RUNTIME_TAG,
+    ESPECTRE_LOGW(RUNTIME_TAG,
              "Rejected invalid runtime threshold: %.6f (detector=%s max=%.3f)",
              threshold,
              detection_algorithm_name(config_.detection_algorithm),
@@ -334,7 +334,7 @@ bool EspIdfRuntime::set_threshold_runtime(float threshold) {
   if (listener_ != nullptr) {
     listener_->on_threshold_changed(snapshot_);
   }
-  ESP_LOGD(RUNTIME_TAG, "Threshold updated to %.6f (session-only, recalculated at boot)", threshold);
+  ESPECTRE_LOGD(RUNTIME_TAG, "Threshold updated to %.6f (session-only, recalculated at boot)", threshold);
   return true;
 }
 
@@ -344,7 +344,7 @@ bool EspIdfRuntime::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t moti
   }
   if (motion_on_hits < RUNTIME_MOTION_HITS_MIN || motion_on_hits > RUNTIME_MOTION_HITS_MAX ||
       motion_off_hits < RUNTIME_MOTION_HITS_MIN || motion_off_hits > RUNTIME_MOTION_HITS_MAX) {
-    ESP_LOGW(RUNTIME_TAG,
+    ESPECTRE_LOGW(RUNTIME_TAG,
              "Rejected invalid motion hits on=%u off=%u (range=%u-%u)",
              static_cast<unsigned>(motion_on_hits),
              static_cast<unsigned>(motion_off_hits),
@@ -355,14 +355,14 @@ bool EspIdfRuntime::set_motion_hits_runtime(uint8_t motion_on_hits, uint8_t moti
 
   const esp_err_t persist_err = save_runtime_motion_hits(motion_on_hits, motion_off_hits);
   if (persist_err != ESP_OK) {
-    ESP_LOGW(RUNTIME_TAG, "Failed to persist motion hits: %s", esp_err_to_name(persist_err));
+    ESPECTRE_LOGW(RUNTIME_TAG, "Failed to persist motion hits: %s", esp_err_to_name(persist_err));
     return false;
   }
 
   csi_pipeline_.set_motion_hit_thresholds(motion_on_hits, motion_off_hits, true);
   config_.motion_on_hits = motion_on_hits;
   config_.motion_off_hits = motion_off_hits;
-  ESP_LOGI(RUNTIME_TAG,
+  ESPECTRE_LOGI(RUNTIME_TAG,
            "Motion hit thresholds updated: on=%u off=%u",
            static_cast<unsigned>(motion_on_hits),
            static_cast<unsigned>(motion_off_hits));
@@ -374,7 +374,7 @@ bool EspIdfRuntime::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
     return false;
   }
   if (!runtime_csi_traffic_mode_valid_for_profile(RuntimeProfile::SENSING, mode)) {
-    ESP_LOGW(RUNTIME_TAG, "Invalid CSI traffic mode for sensing firmware");
+    ESPECTRE_LOGW(RUNTIME_TAG, "Invalid CSI traffic mode for sensing firmware");
     return false;
   }
   if (mode == config_.csi_traffic_mode) {
@@ -388,12 +388,12 @@ bool EspIdfRuntime::set_csi_traffic_mode_runtime(CsiTrafficMode mode) {
   }
   const esp_err_t persist_err = save_runtime_csi_traffic_mode(mode);
   if (persist_err != ESP_OK) {
-    ESP_LOGW(RUNTIME_TAG, "Failed to persist CSI traffic mode: %s", esp_err_to_name(persist_err));
+    ESPECTRE_LOGW(RUNTIME_TAG, "Failed to persist CSI traffic mode: %s", esp_err_to_name(persist_err));
     restore_traffic_runtime_config_(previous_config);
     return false;
   }
   (void) trigger_recalibration();
-  ESP_LOGI(RUNTIME_TAG, "CSI traffic mode updated to %s", csi_traffic_mode_name(mode));
+  ESPECTRE_LOGI(RUNTIME_TAG, "CSI traffic mode updated to %s", csi_traffic_mode_name(mode));
   return true;
 }
 
@@ -402,7 +402,7 @@ bool EspIdfRuntime::set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) 
     return false;
   }
   if (!runtime_traffic_mode_valid(mode)) {
-    ESP_LOGW(RUNTIME_TAG, "Invalid traffic generator mode");
+    ESPECTRE_LOGW(RUNTIME_TAG, "Invalid traffic generator mode");
     return false;
   }
   if (mode == config_.traffic_generator_mode) {
@@ -417,14 +417,14 @@ bool EspIdfRuntime::set_traffic_generator_mode_runtime(RuntimeTrafficMode mode) 
   }
   const esp_err_t persist_err = save_runtime_traffic_generator_mode(mode);
   if (persist_err != ESP_OK) {
-    ESP_LOGW(RUNTIME_TAG, "Failed to persist traffic generator mode: %s", esp_err_to_name(persist_err));
+    ESPECTRE_LOGW(RUNTIME_TAG, "Failed to persist traffic generator mode: %s", esp_err_to_name(persist_err));
     restore_traffic_runtime_config_(previous_config);
     return false;
   }
   if (generator_active) {
     (void) trigger_recalibration();
   }
-  ESP_LOGI(RUNTIME_TAG, "Traffic generator mode updated to %s", traffic_mode_name(mode));
+  ESPECTRE_LOGI(RUNTIME_TAG, "Traffic generator mode updated to %s", traffic_mode_name(mode));
   return true;
 }
 
@@ -434,7 +434,7 @@ bool EspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm
   }
   if (!capabilities_.supports_runtime_detector_selection ||
       !runtime_detection_algorithm_valid(algorithm)) {
-    ESP_LOGW(RUNTIME_TAG, "Runtime detector selection is unavailable or invalid");
+    ESPECTRE_LOGW(RUNTIME_TAG, "Runtime detector selection is unavailable or invalid");
     return false;
   }
   if (algorithm == config_.detection_algorithm) {
@@ -450,7 +450,7 @@ bool EspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm
   }
   const esp_err_t persist_err = save_runtime_detection_algorithm(algorithm);
   if (persist_err != ESP_OK) {
-    ESP_LOGW(RUNTIME_TAG, "Failed to persist detector: %s", esp_err_to_name(persist_err));
+    ESPECTRE_LOGW(RUNTIME_TAG, "Failed to persist detector: %s", esp_err_to_name(persist_err));
     return false;
   }
 
@@ -469,7 +469,7 @@ bool EspIdfRuntime::set_detection_algorithm_runtime(DetectionAlgorithm algorithm
     listener_->on_detector_changed(snapshot_);
     listener_->on_threshold_changed(snapshot_);
   }
-  ESP_LOGI(RUNTIME_TAG, "Detector changed to %s", detection_algorithm_name(algorithm));
+  ESPECTRE_LOGI(RUNTIME_TAG, "Detector changed to %s", detection_algorithm_name(algorithm));
 
   if (algorithm == DetectionAlgorithm::LIGHTWEIGHT && csi_pipeline_.is_enabled()) {
     return start_calibration_();
@@ -482,11 +482,11 @@ bool EspIdfRuntime::trigger_recalibration() {
     return false;
   }
   if (snapshot_.calibrating) {
-    ESP_LOGW(RUNTIME_TAG, "Calibration already in progress");
+    ESPECTRE_LOGW(RUNTIME_TAG, "Calibration already in progress");
     return false;
   }
 
-  ESP_LOGI(RUNTIME_TAG, "Manual recalibration triggered");
+  ESPECTRE_LOGI(RUNTIME_TAG, "Manual recalibration triggered");
   return start_calibration_();
 }
 
@@ -534,7 +534,7 @@ bool EspIdfRuntime::start_raw_collection(raw_csi_packet_callback_t callback, voi
     }
   }
 
-  ESP_LOGI(RUNTIME_TAG, "Entered raw CSI collection mode");
+  ESPECTRE_LOGI(RUNTIME_TAG, "Entered raw CSI collection mode");
   return true;
 }
 
@@ -552,7 +552,7 @@ bool EspIdfRuntime::stop_raw_collection(RawCsiStopReason reason) {
   snapshot_.motion_state = MotionState::IDLE;
   update_live_telemetry_callback_();
 
-  ESP_LOGI(RUNTIME_TAG, "Exited raw CSI collection mode: %u", static_cast<unsigned>(reason));
+  ESPECTRE_LOGI(RUNTIME_TAG, "Exited raw CSI collection mode: %u", static_cast<unsigned>(reason));
   if (services_armed_ && wifi_ready_ && wifi_ip_info_.ip.addr != 0U) {
     start_sensing_services_(wifi_ip_info_);
   } else if (listener_ != nullptr) {
@@ -669,7 +669,7 @@ void EspIdfRuntime::on_wifi_connected_(const esp_netif_ip_info_t &ip_info) {
     wifi_channel_ = 0U;
   }
   if (!services_armed_) {
-    ESP_LOGI(RUNTIME_TAG, "Wi-Fi connected, CSI services not armed");
+    ESPECTRE_LOGI(RUNTIME_TAG, "Wi-Fi connected, CSI services not armed");
     return;
   }
 
@@ -700,7 +700,7 @@ void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) 
   const bool verify_rearm =
       csi_session_started_once_ && restart_callback_ != nullptr;
   if (verify_rearm && csi_rearm_immediate_reboot_enabled_) {
-    ESP_LOGW(RUNTIME_TAG,
+    ESPECTRE_LOGW(RUNTIME_TAG,
              "Rebooting immediately instead of verifying live CSI rearm");
     cancel_csi_rearm_verification_();
     set_services_armed(false);
@@ -782,7 +782,7 @@ void EspIdfRuntime::begin_csi_rearm_verification_() {
   csi_rearm_traffic_observed_ms_ = 0U;
   csi_rearm_traffic_observed_ = false;
   csi_rearm_verification_pending_ = true;
-  ESP_LOGI(RUNTIME_TAG, "Verifying live CSI rearm from managed traffic");
+  ESPECTRE_LOGI(RUNTIME_TAG, "Verifying live CSI rearm from managed traffic");
 }
 
 void EspIdfRuntime::cancel_csi_rearm_verification_() {
@@ -801,7 +801,7 @@ void EspIdfRuntime::process_csi_rearm_verification_() {
       counter_delta(csi_pipeline_.capture_callback_invocations_total(),
                     csi_rearm_callback_baseline_);
   if (callback_delta > 0U) {
-    ESP_LOGI(RUNTIME_TAG, "Live CSI rearm verified after %llu callback(s)",
+    ESPECTRE_LOGI(RUNTIME_TAG, "Live CSI rearm verified after %llu callback(s)",
              static_cast<unsigned long long>(callback_delta));
     cancel_csi_rearm_verification_();
     return;
@@ -832,7 +832,7 @@ void EspIdfRuntime::process_csi_rearm_verification_() {
     return;
   }
 
-  ESP_LOGE(RUNTIME_TAG,
+  ESPECTRE_LOGE(RUNTIME_TAG,
            "Live CSI rearm produced no callbacks after %llu managed traffic "
            "packets; restarting",
            static_cast<unsigned long long>(traffic_delta));
@@ -844,7 +844,7 @@ void EspIdfRuntime::process_csi_rearm_verification_() {
 
 void EspIdfRuntime::on_csi_channel_changed_(uint8_t previous_channel, uint8_t current_channel) {
   if (operation_state() == RuntimeOperationState::RAW_COLLECTION) {
-    ESP_LOGW(RUNTIME_TAG,
+    ESPECTRE_LOGW(RUNTIME_TAG,
              "Ending raw collection after Wi-Fi channel change: %u -> %u",
              static_cast<unsigned>(previous_channel),
              static_cast<unsigned>(current_channel));
@@ -855,7 +855,7 @@ void EspIdfRuntime::on_csi_channel_changed_(uint8_t previous_channel, uint8_t cu
     return;
   }
 
-  ESP_LOGW(RUNTIME_TAG,
+  ESPECTRE_LOGW(RUNTIME_TAG,
            "Rearming CSI session after Wi-Fi channel change: %u -> %u",
            static_cast<unsigned>(previous_channel),
            static_cast<unsigned>(current_channel));
@@ -941,7 +941,7 @@ bool EspIdfRuntime::start_calibration_() {
     detector_->on_startup_calibration_begin();
   }
   csi_pipeline_.set_packet_interceptor(&EspIdfRuntime::threshold_calibration_packet_callback_, this);
-  ESP_LOGI(RUNTIME_TAG, "Starting %s threshold calibration with fixed subcarriers",
+  ESPECTRE_LOGI(RUNTIME_TAG, "Starting %s threshold calibration with fixed subcarriers",
            detector_ != nullptr ? detector_->get_name() : "detector");
   return true;
 }
@@ -1030,7 +1030,7 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
       if (listener_ != nullptr) {
         listener_->on_threshold_changed(snapshot_);
       }
-      ESP_LOGD(RUNTIME_TAG, "Adaptive threshold: %.6f (shared proposal %.6f)",
+      ESPECTRE_LOGD(RUNTIME_TAG, "Adaptive threshold: %.6f (shared proposal %.6f)",
                applied_threshold, adaptive_threshold);
     }
     csi_pipeline_.clear_detector_buffer();
@@ -1039,7 +1039,7 @@ void EspIdfRuntime::finish_threshold_calibration_(bool success) {
   if (listener_ != nullptr) {
     listener_->on_calibration_finished(snapshot_, success);
   }
-  ESP_LOGD(RUNTIME_TAG, "Calibration %s", success ? "completed successfully" : "failed");
+  ESPECTRE_LOGD(RUNTIME_TAG, "Calibration %s", success ? "completed successfully" : "failed");
   threshold_calibrator_.reset();
   reset_periodic_status_logger_();
 }

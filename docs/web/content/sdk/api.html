@@ -55,6 +55,10 @@
   </div>
   <p>On ESP-IDF, build the initial configuration with <code>make_runtime_sensing_config_from_kconfig()</code> unless the product deliberately supplies every sensing setting itself. Call the lifecycle and control methods from one owner task.</p>
 
+  <h2>Optional logging sink</h2>
+  <p><code>LogSink</code> connects shared SDK messages to a product-owned backend. Register it before runtime setup and leave it unchanged until shutdown. Without a sink, shared logging is silent and filtered message arguments are not evaluated. The sink callbacks must be thread-safe, bounded, non-blocking, and non-reentrant because runtime services can log from more than one task or capture path.</p>
+  <p>The shipped ESP-IDF adapters keep the dependency at the frontend boundary. This includes Micro-ESPectre, whose core-only and focused traffic components share the core-owned sink without requiring the ESP-IDF <code>log</code> component themselves.</p>
+
   <h2>Errors and optional controls</h2>
   <p>Control methods return <code>false</code> when a value is outside its published range, the active backend does not advertise the capability, the backend refuses the change, or setup cannot allocate its bounded working storage. A rejected call leaves the runtime unchanged. Allocation failures are reported synchronously to the listener; runtime-owned asynchronous failures arrive through <code>on_runtime_fault()</code>.</p>
   <p><code>RuntimeCapabilities</code> defaults every flag to false. Read <code>capabilities()</code> after setup and expose only the controls that the active runtime reports.</p>

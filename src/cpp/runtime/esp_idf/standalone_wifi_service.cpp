@@ -107,13 +107,13 @@ esp_err_t StandaloneWifiService::setup(const StandaloneWifiConfig &config,
                                        standalone_wifi_callback_t disconnected_cb) {
   config_ = config;
   if (!wifi_band_policy_is_supported(config_.band_policy)) {
-    ESP_LOGE(TAG, "Wi-Fi band policy is not supported by this target: %s",
+    ESPECTRE_LOGE(TAG, "Wi-Fi band policy is not supported by this target: %s",
              wifi_band_policy_name(config_.band_policy));
     return ESP_ERR_NOT_SUPPORTED;
   }
   if (!wifi_channel_is_supported(config_.channel) ||
       !wifi_channel_matches_band_policy(config_.channel, config_.band_policy)) {
-    ESP_LOGE(TAG, "Invalid Wi-Fi channel: %u (expected %s)",
+    ESPECTRE_LOGE(TAG, "Invalid Wi-Fi channel: %u (expected %s)",
              static_cast<unsigned>(config_.channel),
              wifi_channel_supported_description(config_.band_policy));
     return ESP_ERR_INVALID_ARG;
@@ -123,37 +123,37 @@ esp_err_t StandaloneWifiService::setup(const StandaloneWifiConfig &config,
 
   esp_err_t err = esp_netif_init();
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "esp_netif_init failed: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE(TAG, "esp_netif_init failed: %s", esp_err_to_name(err));
     return err;
   }
 
   err = esp_event_loop_create_default();
   if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-    ESP_LOGE(TAG, "esp_event_loop_create_default failed: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE(TAG, "esp_event_loop_create_default failed: %s", esp_err_to_name(err));
     return err;
   }
 
   if (esp_netif_create_default_wifi_sta() == nullptr) {
-    ESP_LOGE(TAG, "esp_netif_create_default_wifi_sta failed");
+    ESPECTRE_LOGE(TAG, "esp_netif_create_default_wifi_sta failed");
     return ESP_FAIL;
   }
 
   wifi_init_config_t wifi_cfg = WIFI_INIT_CONFIG_DEFAULT();
   err = esp_wifi_init(&wifi_cfg);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(err));
     return err;
   }
 
   err = esp_wifi_set_storage(WIFI_STORAGE_RAM);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "esp_wifi_set_storage failed: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE(TAG, "esp_wifi_set_storage failed: %s", esp_err_to_name(err));
     return err;
   }
 
   err = esp_wifi_set_mode(WIFI_MODE_STA);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "esp_wifi_set_mode failed: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE(TAG, "esp_wifi_set_mode failed: %s", esp_err_to_name(err));
     return err;
   }
 
@@ -161,7 +161,7 @@ esp_err_t StandaloneWifiService::setup(const StandaloneWifiConfig &config,
   // the internal Wi-Fi CSI structures before the station starts associating.
   err = esp_wifi_set_promiscuous(false);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "esp_wifi_set_promiscuous failed: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE(TAG, "esp_wifi_set_promiscuous failed: %s", esp_err_to_name(err));
     return err;
   }
 
@@ -172,7 +172,7 @@ esp_err_t StandaloneWifiService::setup(const StandaloneWifiConfig &config,
                                             [this]() { handle_lifecycle_disconnected_(); },
                                             config_.band_policy);
     if (err != ESP_OK) {
-      ESP_LOGE(TAG, "Wi-Fi lifecycle handler registration failed: %s", esp_err_to_name(err));
+      ESPECTRE_LOGE(TAG, "Wi-Fi lifecycle handler registration failed: %s", esp_err_to_name(err));
       return err;
     }
   }
@@ -183,7 +183,7 @@ esp_err_t StandaloneWifiService::setup(const StandaloneWifiConfig &config,
                                             this,
                                             &wifi_event_instance_);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Wi-Fi event handler registration failed: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE(TAG, "Wi-Fi event handler registration failed: %s", esp_err_to_name(err));
     if (config_.manage_csi_lifecycle) {
       wifi_lifecycle_.unregister_handlers();
     }
@@ -196,7 +196,7 @@ esp_err_t StandaloneWifiService::setup(const StandaloneWifiConfig &config,
                                             this,
                                             &ip_event_instance_);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "IP event handler registration failed: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE(TAG, "IP event handler registration failed: %s", esp_err_to_name(err));
     esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_instance_);
     wifi_event_instance_ = nullptr;
     if (config_.manage_csi_lifecycle) {
@@ -281,28 +281,28 @@ esp_err_t StandaloneWifiService::configure_station_() {
 
   if (has_text(config_.bssid)) {
     if (!parse_bssid(config_.bssid, sta_cfg.sta.bssid)) {
-      ESP_LOGE(TAG, "Invalid BSSID format: %s", config_.bssid);
+      ESPECTRE_LOGE(TAG, "Invalid BSSID format: %s", config_.bssid);
       return ESP_ERR_INVALID_ARG;
     }
     sta_cfg.sta.bssid_set = true;
     sta_cfg.sta.scan_method = WIFI_FAST_SCAN;
     if (sta_cfg.sta.channel != 0U) {
-      ESP_LOGI(TAG,
+      ESPECTRE_LOGI(TAG,
                "Wi-Fi fast scan enabled: BSSID=%s channel=%u",
                config_.bssid,
                static_cast<unsigned>(sta_cfg.sta.channel));
     } else {
-      ESP_LOGI(TAG, "Wi-Fi fast scan enabled: BSSID=%s channel=auto", config_.bssid);
+      ESPECTRE_LOGI(TAG, "Wi-Fi fast scan enabled: BSSID=%s channel=auto", config_.bssid);
     }
   } else if (sta_cfg.sta.channel != 0U) {
-    ESP_LOGI(TAG, "Wi-Fi channel hint enabled: channel=%u", static_cast<unsigned>(sta_cfg.sta.channel));
+    ESPECTRE_LOGI(TAG, "Wi-Fi channel hint enabled: channel=%u", static_cast<unsigned>(sta_cfg.sta.channel));
   } else {
-    ESP_LOGI(TAG, "Wi-Fi full scan enabled: selecting strongest matching AP");
+    ESPECTRE_LOGI(TAG, "Wi-Fi full scan enabled: selecting strongest matching AP");
   }
 
   const esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &sta_cfg);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "esp_wifi_set_config failed: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE(TAG, "esp_wifi_set_config failed: %s", esp_err_to_name(err));
   }
   return err;
 }
@@ -376,7 +376,7 @@ esp_err_t StandaloneWifiService::request_scan(standalone_wifi_scan_callback_t ca
 
 esp_err_t StandaloneWifiService::update_station_config(const StandaloneWifiConfig &config) {
   if (!setup_complete_) {
-    ESP_LOGE(TAG, "Cannot update Wi-Fi station config before setup");
+    ESPECTRE_LOGE(TAG, "Cannot update Wi-Fi station config before setup");
     return ESP_ERR_INVALID_STATE;
   }
 
@@ -390,7 +390,7 @@ esp_err_t StandaloneWifiService::update_station_config(const StandaloneWifiConfi
   // The lifecycle handler captures this policy during setup. A live band
   // change would require re-registering the handler before reconnecting.
   if (config.band_policy != config_.band_policy) {
-    ESP_LOGE(TAG, "Cannot change the Wi-Fi band policy without restarting the Wi-Fi service");
+    ESPECTRE_LOGE(TAG, "Cannot change the Wi-Fi band policy without restarting the Wi-Fi service");
     return ESP_ERR_INVALID_STATE;
   }
 
@@ -404,7 +404,7 @@ esp_err_t StandaloneWifiService::update_station_config(const StandaloneWifiConfi
   if (wifi_started_) {
     const esp_err_t disconnect_err = esp_wifi_disconnect();
     if (disconnect_err != ESP_OK && disconnect_err != ESP_ERR_WIFI_NOT_CONNECT) {
-      ESP_LOGW(TAG, "esp_wifi_disconnect before reconfigure failed: %s", esp_err_to_name(disconnect_err));
+      ESPECTRE_LOGW(TAG, "esp_wifi_disconnect before reconfigure failed: %s", esp_err_to_name(disconnect_err));
     }
   }
 
@@ -418,18 +418,18 @@ esp_err_t StandaloneWifiService::update_station_config(const StandaloneWifiConfi
   }
 
   if (!has_text(config_.ssid)) {
-    ESP_LOGW(TAG, "Wi-Fi SSID is empty; station config updated without reconnecting");
+    ESPECTRE_LOGW(TAG, "Wi-Fi SSID is empty; station config updated without reconnecting");
     return ESP_OK;
   }
 
   wifi_connect_requested_ = true;
   err = esp_wifi_connect();
   if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
-    ESP_LOGE(TAG, "esp_wifi_connect after reconfigure failed: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE(TAG, "esp_wifi_connect after reconfigure failed: %s", esp_err_to_name(err));
     wifi_connect_requested_ = false;
     return err;
   }
-  ESP_LOGI(TAG, "Wi-Fi station config updated; reconnecting");
+  ESPECTRE_LOGI(TAG, "Wi-Fi station config updated; reconnecting");
   return ESP_OK;
 }
 
@@ -437,7 +437,7 @@ void StandaloneWifiService::shutdown() {
   if (wifi_started_) {
     const esp_err_t err = esp_wifi_stop();
     if (err != ESP_OK) {
-      ESP_LOGW(TAG, "esp_wifi_stop failed during shutdown: %s", esp_err_to_name(err));
+      ESPECTRE_LOGW(TAG, "esp_wifi_stop failed during shutdown: %s", esp_err_to_name(err));
     }
     wifi_started_ = false;
   }
@@ -465,7 +465,7 @@ void StandaloneWifiService::shutdown() {
 
 void StandaloneWifiService::handle_wifi_started_() {
   if (!has_text(config_.ssid)) {
-    ESP_LOGW(TAG, "Wi-Fi SSID is empty; configure credentials in sdkconfig.wifi or at build time");
+    ESPECTRE_LOGW(TAG, "Wi-Fi SSID is empty; configure credentials in sdkconfig.wifi or at build time");
     return;
   }
 
@@ -475,7 +475,7 @@ void StandaloneWifiService::handle_wifi_started_() {
   if (!config_.manage_csi_lifecycle) {
     const esp_err_t policy_err = WiFiLifecycleManager::apply_started_csi_policy(config_.band_policy);
     if (policy_err != ESP_OK) {
-      ESP_LOGW(TAG, "Failed to apply CSI Wi-Fi policy before connect: %s", esp_err_to_name(policy_err));
+      ESPECTRE_LOGW(TAG, "Failed to apply CSI Wi-Fi policy before connect: %s", esp_err_to_name(policy_err));
     }
   }
 
@@ -485,7 +485,7 @@ void StandaloneWifiService::handle_wifi_started_() {
       defer_connect_once_after_start_ = false;
       deferred_connect_fallback_pending_ = true;
       deferred_connect_fallback_deadline_us_ = monotonic_now_us() + DEFERRED_CONNECT_FALLBACK_DELAY_US;
-      ESP_LOGI(TAG, "STA start observed; deferring first explicit connect request");
+      ESPECTRE_LOGI(TAG, "STA start observed; deferring first explicit connect request");
       return;
     }
     deferred_connect_fallback_pending_ = false;
@@ -505,7 +505,7 @@ void StandaloneWifiService::handle_wifi_stopped_() {
 }
 
 void StandaloneWifiService::handle_wifi_disconnected_(uint8_t reason) {
-  ESP_LOGW(TAG,
+  ESPECTRE_LOGW(TAG,
            "Wi-Fi disconnected: reason=%u (%s)",
            static_cast<unsigned>(reason),
            wifi_disconnect_reason_to_str(reason));
@@ -593,10 +593,10 @@ void StandaloneWifiService::maybe_run_deferred_connect_fallback_() {
 
   deferred_connect_fallback_pending_ = false;
   deferred_connect_fallback_deadline_us_ = 0U;
-  ESP_LOGI(TAG, "Deferred STA-start connect fallback expired; issuing one explicit connect");
+  ESPECTRE_LOGI(TAG, "Deferred STA-start connect fallback expired; issuing one explicit connect");
   const esp_err_t err = esp_wifi_connect();
   if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
-    ESP_LOGE(TAG, "Deferred esp_wifi_connect fallback failed: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE(TAG, "Deferred esp_wifi_connect fallback failed: %s", esp_err_to_name(err));
     wifi_connect_requested_ = false;
   }
 }

@@ -89,7 +89,6 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_pipeline.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_payload_normalizer.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_platform_config.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_log_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/esp_idf_runtime.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/esp_idf_runtime_base.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/nvs_helpers.cpp"
@@ -169,8 +168,7 @@ add_library(espectre_runtime_dual_band_testlib STATIC
 )
 target_link_libraries(espectre_runtime_dual_band_testlib
     PUBLIC
-        espectre_test_framework
-        espectre_test_mocks
+        espectre_core_testlib
 )
 target_compile_definitions(espectre_runtime_dual_band_testlib
     PUBLIC

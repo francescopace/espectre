@@ -61,6 +61,7 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/runtime/firmware_version.h \
                          src/cpp/runtime/esp_idf/runtime_frontend_controller.h \
                          src/cpp/runtime/esp_idf/runtime_sensing_kconfig.h \
+                         src/cpp/core/espectre_log.h \
                          src/cpp/core/base_detector.h \
                          src/cpp/core/detector_types.h \
                          src/cpp/core/filter_config.h \

@@ -73,15 +73,15 @@ void CsiCaptureService::reset_channel_tracking_() {
 
 void CsiCaptureService::loop() {
   if (collapse_log_event_.take()) {
-    ESP_LOGI(TAG, "CSI double-length collapse active: 256->128 and/or 228->114");
+    ESPECTRE_LOGI(TAG, "CSI double-length collapse active: 256->128 and/or 228->114");
   }
   if (remap_log_event_.take()) {
-    ESP_LOGI(TAG, "CSI remap active: 57->64 SC (left_pad=4, right_pad=3)");
+    ESPECTRE_LOGI(TAG, "CSI remap active: 57->64 SC (left_pad=4, right_pad=3)");
   }
   uint8_t previous_channel = 0U;
   uint8_t current_channel = 0U;
   if (channel_change_event_.take(previous_channel, current_channel)) {
-    ESP_LOGW(TAG, "Wi-Fi channel changed: %u -> %u, invalidating CSI capture session",
+    ESPECTRE_LOGW(TAG, "Wi-Fi channel changed: %u -> %u, invalidating CSI capture session",
              static_cast<unsigned>(previous_channel), static_cast<unsigned>(current_channel));
     if (channel_change_callback_ != nullptr) {
       channel_change_callback_(channel_change_callback_context_, previous_channel, current_channel);
@@ -93,42 +93,42 @@ void CsiCaptureService::loop() {
 
 esp_err_t CsiCaptureService::enable() {
   if (enabled_) {
-    ESP_LOGW(TAG, "CSI already enabled");
+    ESPECTRE_LOGW(TAG, "CSI already enabled");
     return ESP_OK;
   }
 
   const uint32_t attempt = enable_attempts_.fetch_add(1U, std::memory_order_relaxed) + 1U;
-  ESP_LOGI(TAG, "Arming CSI attempt=%" PRIu32, attempt);
+  ESPECTRE_LOGI(TAG, "Arming CSI attempt=%" PRIu32, attempt);
   reset_channel_tracking_();
   rx_timestamp_tracker_.reset();
 
   esp_err_t err = configure_platform_specific_();
   last_configure_err_.store(err, std::memory_order_relaxed);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to configure CSI: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE(TAG, "Failed to configure CSI: %s", esp_err_to_name(err));
     return err;
   }
 
   err = wifi_csi_->set_csi_rx_cb(&CsiCaptureService::csi_rx_callback_wrapper_, this);
   last_set_callback_err_.store(err, std::memory_order_relaxed);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to set CSI callback: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE(TAG, "Failed to set CSI callback: %s", esp_err_to_name(err));
     return err;
   }
 
   err = wifi_csi_->set_csi(true);
   last_set_enabled_err_.store(err, std::memory_order_relaxed);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to enable CSI: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE(TAG, "Failed to enable CSI: %s", esp_err_to_name(err));
     const esp_err_t rollback_err = wifi_csi_->set_csi_rx_cb(nullptr, nullptr);
     if (rollback_err != ESP_OK) {
-      ESP_LOGE(TAG, "Failed to roll back CSI callback registration: %s", esp_err_to_name(rollback_err));
+      ESPECTRE_LOGE(TAG, "Failed to roll back CSI callback registration: %s", esp_err_to_name(rollback_err));
     }
     return err;
   }
 
   enabled_ = true;
-  ESP_LOGI(TAG,
+  ESPECTRE_LOGI(TAG,
            "CSI armed attempt=%" PRIu32 " configure=%s set_cb=%s set_enabled=%s",
            attempt,
            esp_err_to_name(last_configure_err()),
@@ -156,20 +156,20 @@ esp_err_t CsiCaptureService::disable() {
       callback_err = wifi_csi_->set_csi_rx_cb(
           &CsiCaptureService::disabled_csi_rx_callback_, nullptr);
       if (callback_err == ESP_OK) {
-        ESP_LOGW(TAG, "Replaced retained CSI callback with a disabled trampoline");
+        ESPECTRE_LOGW(TAG, "Replaced retained CSI callback with a disabled trampoline");
       }
     }
   }
   if (callback_err != ESP_OK) {
     last_disable_err_.store(callback_err, std::memory_order_relaxed);
-    ESP_LOGE(TAG, "Failed to unregister CSI callback after stopping capture: %s",
+    ESPECTRE_LOGE(TAG, "Failed to unregister CSI callback after stopping capture: %s",
              esp_err_to_name(callback_err));
     return callback_err;
   }
 
   last_disable_err_.store(disable_err, std::memory_order_relaxed);
   if (disable_err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to disable CSI before unregistering its callback: %s",
+    ESPECTRE_LOGE(TAG, "Failed to disable CSI before unregistering its callback: %s",
              esp_err_to_name(disable_err));
     return disable_err;
   }
@@ -177,7 +177,7 @@ esp_err_t CsiCaptureService::disable() {
   enabled_ = false;
   rx_timestamp_tracker_.reset();
   reset_channel_tracking_();
-  ESP_LOGI(TAG, "CSI disabled attempt=%" PRIu32 " disable=%s", attempt, esp_err_to_name(last_disable_err()));
+  ESPECTRE_LOGI(TAG, "CSI disabled attempt=%" PRIu32 " disable=%s", attempt, esp_err_to_name(last_disable_err()));
   return ESP_OK;
 }
 
@@ -344,9 +344,9 @@ void IRAM_ATTR CsiCaptureService::disabled_csi_rx_callback_(void *ctx,
 
 esp_err_t CsiCaptureService::configure_platform_specific_() {
 #ifdef CONFIG_IDF_TARGET
-  ESP_LOGI(TAG, "Using %s CSI configuration", CONFIG_IDF_TARGET);
+  ESPECTRE_LOGI(TAG, "Using %s CSI configuration", CONFIG_IDF_TARGET);
 #else
-  ESP_LOGI(TAG, "Using host CSI configuration");
+  ESPECTRE_LOGI(TAG, "Using host CSI configuration");
 #endif
   return configure_ht20_csi(wifi_csi_);
 }

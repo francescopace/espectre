@@ -40,7 +40,7 @@ void CsiPipeline::init(BaseDetector* detector, IWiFiCSI* wifi_csi) {
   }
   reset_motion_state_filter_();
   
-  ESP_LOGD(TAG, "CSI Pipeline initialized with %s detector", 
+  ESPECTRE_LOGD(TAG, "CSI Pipeline initialized with %s detector",
            detector_ ? detector_->get_name() : "NULL");
 }
 
@@ -49,10 +49,10 @@ bool CsiPipeline::set_threshold(float threshold) {
     return false;
   }
   if (!detector_->set_threshold(threshold)) {
-    ESP_LOGW(TAG, "Rejected invalid threshold: %.3f", threshold);
+    ESPECTRE_LOGW(TAG, "Rejected invalid threshold: %.3f", threshold);
     return false;
   }
-  ESP_LOGD(TAG, "Threshold updated: %.2f", threshold);
+  ESPECTRE_LOGD(TAG, "Threshold updated: %.2f", threshold);
   return true;
 }
 
@@ -71,7 +71,7 @@ void CsiPipeline::set_detector(BaseDetector *detector) {
         static_cast<uint16_t>(sampler_.minimum_valid_slots()));
   }
   clear_detector_state_();
-  ESP_LOGD(TAG, "Detector updated to %s", detector_ != nullptr ? detector_->get_name() : "NULL");
+  ESPECTRE_LOGD(TAG, "Detector updated to %s", detector_ != nullptr ? detector_->get_name() : "NULL");
 }
 
 void CsiPipeline::clear_detector_buffer() {

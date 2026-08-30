@@ -24,7 +24,7 @@ static const char *TAG = "CSI_Filters";
 
 void lowpass_filter_init(lowpass_filter_state_t *state, float cutoff_hz, float sample_rate_hz, bool enabled) {
     if (!state) {
-        ESP_LOGE(TAG, "lowpass_filter_init: NULL state pointer");
+        ESPECTRE_LOGE(TAG, "lowpass_filter_init: NULL state pointer");
         return;
     }
     
@@ -79,12 +79,12 @@ void lowpass_filter_reset(lowpass_filter_state_t *state) {
 
 void hampel_turbulence_init(hampel_turbulence_state_t *state, uint8_t window_size, float threshold, bool enabled) {
     if (!state) {
-        ESP_LOGE(TAG, "hampel_turbulence_init: NULL state pointer");
+        ESPECTRE_LOGE(TAG, "hampel_turbulence_init: NULL state pointer");
         return;
     }
     
     if (window_size < HAMPEL_TURBULENCE_WINDOW_MIN || window_size > HAMPEL_TURBULENCE_WINDOW_MAX) {
-        ESP_LOGW(TAG, "Invalid Hampel window size %d, using default %d", 
+        ESPECTRE_LOGW(TAG, "Invalid Hampel window size %d, using default %d",
                  window_size, HAMPEL_TURBULENCE_WINDOW_DEFAULT);
         window_size = HAMPEL_TURBULENCE_WINDOW_DEFAULT;
     }

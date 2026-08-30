@@ -35,7 +35,7 @@ class EspIdfRuntimeBase : public IEspectreRuntime {
  protected:
   void notify_fault_(const char *message) {
     last_fault_ = message != nullptr ? message : unknown_fault_message_;
-    ESP_LOGE(fault_tag_, "Runtime fault: %s", last_fault_.c_str());
+    ESPECTRE_LOGE(fault_tag_, "Runtime fault: %s", last_fault_.c_str());
     if (listener_ != nullptr) {
       listener_->on_runtime_fault(last_fault_.c_str());
     }

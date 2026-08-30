@@ -48,7 +48,7 @@ ImprovSerialService::ImprovSerialService(WifiProvisioningService *wifi_provision
 bool ImprovSerialService::setup(ImprovSerialServiceConfig config) {
   if (wifi_provisioning_ == nullptr || wifi_manager_ == nullptr || config.firmware_name.empty() ||
       config.firmware_version.empty() || config.hardware_variant.empty() || config.device_name.empty()) {
-    ESP_LOGE(TAG, "Invalid Improv Serial configuration");
+    ESPECTRE_LOGE(TAG, "Invalid Improv Serial configuration");
     return false;
   }
 
@@ -58,7 +58,7 @@ bool ImprovSerialService::setup(ImprovSerialServiceConfig config) {
       usb_serial_jtag_driver_config_t driver_config = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
       const esp_err_t result = usb_serial_jtag_driver_install(&driver_config);
       if (result != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to install the primary USB Serial/JTAG driver: %s", esp_err_to_name(result));
+        ESPECTRE_LOGE(TAG, "Failed to install the primary USB Serial/JTAG driver: %s", esp_err_to_name(result));
         return false;
       }
     }
@@ -75,7 +75,7 @@ bool ImprovSerialService::setup(ImprovSerialServiceConfig config) {
   if (!read_callback_) {
     const int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
     if (flags < 0 || fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK) < 0) {
-      ESP_LOGE(TAG, "Failed to make the primary console non-blocking: errno=%d", errno);
+      ESPECTRE_LOGE(TAG, "Failed to make the primary console non-blocking: errno=%d", errno);
       return false;
     }
     read_callback_ = [](uint8_t *data, size_t capacity) {
@@ -85,7 +85,7 @@ bool ImprovSerialService::setup(ImprovSerialServiceConfig config) {
   if (!write_callback_) {
     const int flags = fcntl(STDOUT_FILENO, F_GETFL, 0);
     if (flags < 0 || fcntl(STDOUT_FILENO, F_SETFL, flags | O_NONBLOCK) < 0) {
-      ESP_LOGE(TAG, "Failed to make the primary console output non-blocking: errno=%d", errno);
+      ESPECTRE_LOGE(TAG, "Failed to make the primary console output non-blocking: errno=%d", errno);
       return false;
     }
     write_callback_ = [](const uint8_t *data, size_t length) {
@@ -102,7 +102,7 @@ bool ImprovSerialService::setup(ImprovSerialServiceConfig config) {
   state_ = connected_() ? improv::STATE_PROVISIONED : improv::STATE_AUTHORIZED;
   (void) send_error_(improv::ERROR_NONE);
   (void) send_state_(state_);
-  ESP_LOGI(TAG, "Improv Serial ready on the primary console");
+  ESPECTRE_LOGI(TAG, "Improv Serial ready on the primary console");
   return true;
 }
 
@@ -119,7 +119,7 @@ void ImprovSerialService::loop() {
       (void) process_byte_(bytes[index]);
     }
   } else if (count < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
-    ESP_LOGW(TAG, "Primary console read failed: errno=%d", errno);
+    ESPECTRE_LOGW(TAG, "Primary console read failed: errno=%d", errno);
   }
 
   sync_state_();
@@ -180,7 +180,7 @@ bool ImprovSerialService::handle_command_(uint8_t command,
     case improv::WIFI_SETTINGS: {
       std::string message;
       if (!wifi_provisioning_->begin_serial_provisioning(ssid, password, &message)) {
-        ESP_LOGW(TAG, "Rejected Improv Wi-Fi settings: %s", message.c_str());
+        ESPECTRE_LOGW(TAG, "Rejected Improv Wi-Fi settings: %s", message.c_str());
         (void) send_error_(improv::ERROR_INVALID_RPC);
         return false;
       }

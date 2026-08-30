@@ -14,13 +14,13 @@
 #include "sensing_switch.h"
 #include "detector_select.h"
 #include "traffic_mode_select.h"
+#include "esphome_log_sink.h"
 
 #include "esphome/core/log.h"
 #include "esphome/core/application.h"
 #include "esphome/core/defines.h"
 #include "esphome/core/hal.h"
 
-#include "runtime_log_helpers.h"
 #include "device_identity.h"
 #include "direct_http_protocol.h"
 #include "espectre_banner.h"
@@ -67,8 +67,12 @@ void ESpectreComponent::setup() {
     this->mark_failed();
     return;
   }
+  if (!::espectre::set_log_sink(make_esphome_log_sink())) {
+    ESP_LOGE(TAG, "Failed to register the ESPHome log sink");
+    this->mark_failed();
+    return;
+  }
   ESP_LOGI(TAG, "Initializing ESPectre component...");
-  espectre::configure_runtime_log_levels();
   this->runtime_.config().device_id = espectre::derive_runtime_device_id();
   if (global_preferences != nullptr) {
     this->device_label_preference_ =
@@ -156,6 +160,7 @@ ESpectreComponent::~ESpectreComponent() {
   this->direct_bridge_.shutdown();
   this->direct_service_.shutdown();
   this->runtime_.shutdown();
+  ::espectre::clear_log_sink();
 }
 
 void ESpectreComponent::loop() {

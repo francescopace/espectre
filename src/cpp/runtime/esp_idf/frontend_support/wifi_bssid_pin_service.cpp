@@ -228,7 +228,7 @@ void WifiBssidPinService::process_station_state_(const WifiBssidPinStationState 
 
   std::string message;
   if (!begin_apply_(station, stored_bssid_, false, &message)) {
-    ESP_LOGW(TAG, "Stored Wi-Fi BSSID pin could not be applied: %s", message.c_str());
+    ESPECTRE_LOGW(TAG, "Stored Wi-Fi BSSID pin could not be applied: %s", message.c_str());
   }
 }
 
@@ -279,7 +279,7 @@ esp_err_t WifiBssidPinService::load_stored_pin_() {
 
   std::string normalized;
   if (ssid.empty() || ssid.size() > 32U || !normalize_bssid(bssid, &normalized)) {
-    ESP_LOGW(TAG, "Discarding an invalid stored Wi-Fi BSSID pin");
+    ESPECTRE_LOGW(TAG, "Discarding an invalid stored Wi-Fi BSSID pin");
     return clear_stored_pin_();
   }
   stored_ssid_ = std::move(ssid);

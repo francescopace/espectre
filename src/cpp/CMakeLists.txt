@@ -35,7 +35,6 @@ set(espectre_sdk_requires
     heap
     improv
     mdns
-    log
     mbedtls
     ${ESPECTRE_SDK_ADDITIONAL_REQUIRES}
 )
@@ -98,11 +97,6 @@ if(CONFIG_ESPECTRE_SDK_ENABLE_DIRECT)
     target_include_directories(${COMPONENT_LIB} PRIVATE "${espectre_mdns_dir}/private_include")
     target_link_options(${COMPONENT_LIB} INTERFACE "LINKER:--wrap=mdns_priv_receive_action")
 endif()
-
-# ESPHome keeps CONFIG_LOG_DEFAULT_LEVEL at ERROR so Wi-Fi and lwIP debug stay
-# compiled out. Compile INFO/DEBUG only in this component (4 == ESP_LOG_DEBUG)
-# so detection status and telemetry can be enabled per-tag at runtime.
-target_compile_definitions(${COMPONENT_LIB} PRIVATE LOG_LOCAL_LEVEL=4)
 
 include("${CMAKE_CURRENT_LIST_DIR}/espectre_git_version.cmake")
 if(ESPECTRE_GIT_VERSION AND NOT ESPECTRE_GIT_VERSION_STAMPED)

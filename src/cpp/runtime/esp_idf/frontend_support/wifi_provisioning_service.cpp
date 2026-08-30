@@ -175,7 +175,7 @@ esp_err_t WifiProvisioningService::load_or_set_defaults(const WifiProvisioningDe
     }
   } else {
     if (load_err != ESP_OK) {
-      ESP_LOGW(TAG, "Failed to load stored Wi-Fi config: %s; using build defaults", esp_err_to_name(load_err));
+      ESPECTRE_LOGW(TAG, "Failed to load stored Wi-Fi config: %s; using build defaults", esp_err_to_name(load_err));
     }
     wifi_config_.ssid = defaults.ssid != nullptr ? defaults.ssid : "";
     wifi_config_.password = defaults.password != nullptr ? defaults.password : "";
@@ -186,19 +186,19 @@ esp_err_t WifiProvisioningService::load_or_set_defaults(const WifiProvisioningDe
     wifi_config_.has_saved_config = false;
   }
   if (!wifi_band_policy_is_supported(wifi_config_.band_policy)) {
-    ESP_LOGW(TAG, "Stored Wi-Fi band policy is unsupported; restoring build default");
+    ESPECTRE_LOGW(TAG, "Stored Wi-Fi band policy is unsupported; restoring build default");
     wifi_config_.band_policy = defaults_.band_policy;
     wifi_config_.has_saved_band_policy = false;
   }
   if (!wifi_channel_is_supported(wifi_config_.channel) ||
       !wifi_channel_matches_band_policy(wifi_config_.channel, wifi_config_.band_policy)) {
-    ESP_LOGW(TAG, "Stored Wi-Fi channel %u does not match band policy; restoring automatic scan",
+    ESPECTRE_LOGW(TAG, "Stored Wi-Fi channel %u does not match band policy; restoring automatic scan",
              static_cast<unsigned>(wifi_config_.channel));
     wifi_config_.channel = WIFI_CHANNEL_AUTO;
     if (wifi_config_.has_saved_config) {
       const esp_err_t save_err = save_stored_wifi_config(wifi_config_);
       if (save_err != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to persist the normalized Wi-Fi channel: %s", esp_err_to_name(save_err));
+        ESPECTRE_LOGW(TAG, "Failed to persist the normalized Wi-Fi channel: %s", esp_err_to_name(save_err));
       }
     }
   }

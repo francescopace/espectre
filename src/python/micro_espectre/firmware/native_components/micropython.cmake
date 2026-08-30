@@ -11,6 +11,7 @@ target_sources(usermod_espectre_native_components INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/native_direct.c
     ${CMAKE_CURRENT_LIST_DIR}/native_features.cpp
     ${CMAKE_CURRENT_LIST_DIR}/native_features_module.c
+    ${CMAKE_CURRENT_LIST_DIR}/native_log_sink.cpp
     ${CMAKE_CURRENT_LIST_DIR}/native_traffic.cpp
     ${CMAKE_CURRENT_LIST_DIR}/native_traffic.c
 )
@@ -32,5 +33,6 @@ cmake_language(
     idf::espectre_runtime_traffic
     idf::esp_http_server
     idf::json
+    idf::log
     idf::espressif__mdns
 )

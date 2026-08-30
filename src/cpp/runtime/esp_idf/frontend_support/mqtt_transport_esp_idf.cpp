@@ -13,7 +13,7 @@
 #include <cstdio>
 #include <cstring>
 
-#include "esp_log.h"
+#include "espectre_log.h"
 
 namespace espectre {
 
@@ -121,18 +121,18 @@ bool EspIdfMqttTransport::setup(const EspectreDeviceConfig &config) {
 
   client_ = esp_mqtt_client_init(&mqtt_config);
   if (client_ == nullptr) {
-    ESP_LOGE(TAG, "esp_mqtt_client_init failed");
+    ESPECTRE_LOGE(TAG, "esp_mqtt_client_init failed");
     return false;
   }
   esp_mqtt_client_register_event(client_, MQTT_EVENT_ANY, &EspIdfMqttTransport::event_handler_, this);
   const esp_err_t err = esp_mqtt_client_start(client_);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "esp_mqtt_client_start failed: %s", esp_err_to_name(err));
+    ESPECTRE_LOGE(TAG, "esp_mqtt_client_start failed: %s", esp_err_to_name(err));
     esp_mqtt_client_destroy(client_);
     client_ = nullptr;
     return false;
   }
-  ESP_LOGI(TAG, "MQTT transport connecting to %s", broker_uri_.c_str());
+  ESPECTRE_LOGI(TAG, "MQTT transport connecting to %s", broker_uri_.c_str());
   return true;
 }
 
@@ -244,13 +244,13 @@ void EspIdfMqttTransport::handle_event_(esp_mqtt_event_handle_t event) {
     case MQTT_EVENT_CONNECTED:
       connected_.store(true, std::memory_order_relaxed);
       connection_event_.post(true);
-      ESP_LOGI(TAG, "MQTT connected");
+      ESPECTRE_LOGI(TAG, "MQTT connected");
       break;
     case MQTT_EVENT_DISCONNECTED:
       connected_.store(false, std::memory_order_relaxed);
       command_payload_assembler_.reset();
       connection_event_.post(false);
-      ESP_LOGW(TAG, "MQTT disconnected");
+      ESPECTRE_LOGW(TAG, "MQTT disconnected");
       break;
     case MQTT_EVENT_DATA:
       if (event->topic == nullptr || event->topic_len <= 0 || event->data == nullptr || event->data_len <= 0) {
@@ -271,12 +271,12 @@ void EspIdfMqttTransport::handle_event_(esp_mqtt_event_handle_t event) {
             (void)enqueue_message_(event->topic, topic_len, payload.data(), payload.size());
             command_payload_assembler_.reset();
           } else if (result == MqttPayloadAssembler::Result::INVALID) {
-            ESP_LOGW(TAG, "Rejected invalid or oversized MQTT command payload");
+            ESPECTRE_LOGW(TAG, "Rejected invalid or oversized MQTT command payload");
           }
           break;
         }
         if (event->current_data_offset != 0 || event->data_len != event->total_data_len) {
-          ESP_LOGW(TAG, "Ignoring fragmented MQTT payload on unsupported topic: %.*s",
+          ESPECTRE_LOGW(TAG, "Ignoring fragmented MQTT payload on unsupported topic: %.*s",
                    event->topic_len, event->topic);
           break;
         }
@@ -303,7 +303,7 @@ bool EspIdfMqttTransport::enqueue_message_(const char *topic,
   uint8_t slot_index = 0U;
   if (!free_message_slots_.take(slot_index) || slot_index >= message_slots_.size()) {
     dropped_messages_.fetch_add(1U, std::memory_order_relaxed);
-    ESP_LOGW(TAG, "Dropping MQTT message because the frontend queue is full");
+    ESPECTRE_LOGW(TAG, "Dropping MQTT message because the frontend queue is full");
     return false;
   }
   PendingMessage &message = message_slots_[slot_index];
@@ -316,7 +316,7 @@ bool EspIdfMqttTransport::enqueue_message_(const char *topic,
   if (!ready_message_slots_.post(slot_index)) {
     (void)free_message_slots_.post(slot_index);
     dropped_messages_.fetch_add(1U, std::memory_order_relaxed);
-    ESP_LOGW(TAG, "Dropping MQTT message because the frontend queue is full");
+    ESPECTRE_LOGW(TAG, "Dropping MQTT message because the frontend queue is full");
     return false;
   }
   return true;

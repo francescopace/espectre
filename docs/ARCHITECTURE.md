@@ -38,6 +38,8 @@ The contracts and detector logic compile on a host without ESP-IDF. Frontends se
 
 Rule of thumb: code in `core` should stay free of frontend-specific concerns such as ESPHome entities, Matter clusters, HTTP transport details, or MQTT topic handling.
 
+Shared code also stays independent of a platform logger. `core/espectre_log.h` defines a portable sink contract used by `core` and `runtime`; the active frontend registers the backend before runtime setup. With no sink, shared logging is silent. ESPHome maps the sink to its logger, while Native, Matter, and the Micro-ESPectre native bindings map it to ESP-IDF without making `esp_log` a dependency of the shared SDK components. Micro-ESPectre's focused traffic component depends on its core component so both use the same registered sink.
+
 ### `src/cpp/runtime/`
 
 `runtime` owns the execution environment around the shared detectors:
@@ -92,6 +94,8 @@ Current frontends:
 - `matter`: Matter-facing adapter with a separate Direct tuning plane
 
 Rule of thumb: frontend-specific schemas, transport bindings, and ecosystem integration belong here, not in `core`.
+
+Frontends also own logging integration. A sink must be registered before shared setup begins and remain unchanged until the runtime has shut down. Sink callbacks can run from the runtime owner task, ESP-IDF service tasks, or CSI capture paths, so they must be thread-safe, bounded, non-blocking, and non-reentrant.
 
 ## Frontend Notes
 

@@ -36,10 +36,10 @@ EspectreDeviceConfig load_frontend_device_config(const FrontendDeviceConfigDefau
   if (load_err == ESP_OK && has_stored_config) {
     config = stored_config;
     if (stored_config_message != nullptr && stored_config_message[0] != '\0') {
-      ESP_LOGI(log_tag, "%s", stored_config_message);
+      ESPECTRE_LOGI(log_tag, "%s", stored_config_message);
     }
   } else if (load_err != ESP_OK) {
-    ESP_LOGW(log_tag, "%s: %s", load_error_prefix != nullptr ? load_error_prefix : "Failed to load device config",
+    ESPECTRE_LOGW(log_tag, "%s: %s", load_error_prefix != nullptr ? load_error_prefix : "Failed to load device config",
              esp_err_to_name(load_err));
   }
 
@@ -59,12 +59,12 @@ esp_err_t setup_frontend_wifi_station(WifiProvisioningService *provisioning,
     return ESP_ERR_INVALID_STATE;
   }
   if (!wifi_band_policy_is_supported(options.band_policy)) {
-    ESP_LOGW(log_tag, "Unsupported Wi-Fi band policy: %s", wifi_band_policy_name(options.band_policy));
+    ESPECTRE_LOGW(log_tag, "Unsupported Wi-Fi band policy: %s", wifi_band_policy_name(options.band_policy));
     return ESP_ERR_NOT_SUPPORTED;
   }
   if (!wifi_channel_is_supported(options.configured_channel) ||
       !wifi_channel_matches_band_policy(options.configured_channel, options.band_policy)) {
-    ESP_LOGW(log_tag, "Invalid Wi-Fi channel: %d (expected %s)", options.configured_channel,
+    ESPECTRE_LOGW(log_tag, "Invalid Wi-Fi channel: %d (expected %s)", options.configured_channel,
              wifi_channel_supported_description(options.band_policy));
     return ESP_ERR_INVALID_ARG;
   }
@@ -85,7 +85,7 @@ esp_err_t setup_frontend_wifi_station(WifiProvisioningService *provisioning,
     return setup_err;
   }
   if (provisioning->config().has_saved_config && stored_config_message != nullptr && stored_config_message[0] != '\0') {
-    ESP_LOGI(log_tag, "%s", stored_config_message);
+    ESPECTRE_LOGI(log_tag, "%s", stored_config_message);
   }
   if (options.start_manager && wifi_manager != nullptr) {
     return wifi_manager->start();

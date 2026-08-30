@@ -75,7 +75,7 @@ esp_err_t load_runtime_csi_traffic_mode(CsiTrafficMode *mode, bool *has_saved_va
     return err;
   }
   if (std::strcmp(value, "pacing") == 0 || std::strcmp(value, "disabled") == 0) {
-    ESP_LOGW(kTag, "Migrating removed CSI traffic mode '%s' to internal", value);
+    ESPECTRE_LOGW(kTag, "Migrating removed CSI traffic mode '%s' to internal", value);
     *mode = CsiTrafficMode::INTERNAL;
     return save_string_key(kCsiTrafficModeKey, RUNTIME_CSI_TRAFFIC_MODE_INTERNAL_NAME);
   }

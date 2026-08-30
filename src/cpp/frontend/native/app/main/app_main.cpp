@@ -7,6 +7,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
+#include <cstdarg>
 #include <cstdio>
 #include <string>
 
@@ -25,6 +26,7 @@
 #include "nvs_helpers.h"
 #include "device_identity.h"
 #include "espectre_banner.h"
+#include "espectre_log.h"
 #include "espectre_protocol.h"
 #include "firmware_version.h"
 #include "frontend_bootstrap_helpers.h"
@@ -36,7 +38,6 @@
 #include "mqtt_transport_esp_idf.h"
 #include "runtime_sensing_kconfig.h"
 #include "standalone_wifi_service.h"
-#include "runtime_log_helpers.h"
 #include "task_scheduling_config.h"
 #include "wifi_provisioning_service.h"
 
@@ -53,6 +54,44 @@ constexpr espectre::OtaReleaseChannel kOtaReleaseChannel = espectre::OtaReleaseC
 #endif
 
 constexpr int kWifiConnectMaxRetry = 8;
+
+esp_log_level_t idf_log_level(espectre::LogLevel level) {
+  switch (level) {
+    case espectre::LogLevel::ERROR:
+      return ESP_LOG_ERROR;
+    case espectre::LogLevel::WARNING:
+      return ESP_LOG_WARN;
+    case espectre::LogLevel::INFO:
+      return ESP_LOG_INFO;
+    case espectre::LogLevel::DEBUG:
+      return ESP_LOG_DEBUG;
+    case espectre::LogLevel::VERBOSE:
+      return ESP_LOG_VERBOSE;
+  }
+  return ESP_LOG_NONE;
+}
+
+bool idf_log_enabled(void *, espectre::LogLevel level, const char *tag) {
+  return tag != nullptr && idf_log_level(level) <= esp_log_level_get(tag);
+}
+
+void idf_log_write(void *, espectre::LogLevel level, const char *tag, int,
+                   const char *format, va_list args) {
+  char line[512];
+  const int written = std::vsnprintf(line, sizeof(line), format, args);
+  if (written < 0) return;
+  if (static_cast<size_t>(written) >= sizeof(line)) {
+    line[sizeof(line) - 4] = '.';
+    line[sizeof(line) - 3] = '.';
+    line[sizeof(line) - 2] = '.';
+    line[sizeof(line) - 1] = '\0';
+  }
+  ESP_LOG_LEVEL(idf_log_level(level), tag, "%s", line);
+}
+
+bool register_espectre_log_sink() {
+  return espectre::set_log_sink({nullptr, &idf_log_enabled, &idf_log_write});
+}
 
 espectre::NativeFrontend *g_frontend = nullptr;
 espectre::RecoveryButtonService *g_recovery_button = nullptr;
@@ -290,7 +329,10 @@ void request_wifi_recovery() {
 
 extern "C" void app_main() {
   ESP_ERROR_CHECK(espectre::initialize_primary_console());
-  espectre::configure_runtime_log_levels();
+  if (!register_espectre_log_sink()) {
+    ESP_LOGE(TAG, "Failed to register the Native log sink");
+    return;
+  }
   ESP_ERROR_CHECK(espectre::nvs_init_with_erase_fallback());
 
   espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });

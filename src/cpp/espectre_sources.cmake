@@ -3,6 +3,7 @@ if(NOT DEFINED ESPECTRE_CPP_ROOT)
 endif()
 
 set(ESPECTRE_CORE_SOURCES
+    "${ESPECTRE_CPP_ROOT}/core/espectre_log.cpp"
     "${ESPECTRE_CPP_ROOT}/core/base_detector.cpp"
     "${ESPECTRE_CPP_ROOT}/core/temporal_csi_sampler.cpp"
     "${ESPECTRE_CPP_ROOT}/core/lightweight_detector.cpp"
@@ -34,7 +35,6 @@ set(ESPECTRE_RUNTIME_FRONTEND_SUPPORT_SOURCES
 
 set(ESPECTRE_RUNTIME_ESP_IDF_PLATFORM_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/primary_console.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_log_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/device_identity.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_capture_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_pipeline.cpp"
@@ -89,6 +89,7 @@ set(ESPECTRE_RUNTIME_ESP_IDF_DIRECT_SOURCES
 )
 
 set(ESPECTRE_FRONTEND_ESPHOME_SOURCES
+    "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/esphome_log_sink.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/recalibrate_button.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/sensing_switch.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/esphome/components/espectre/detector_select.cpp"

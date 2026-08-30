@@ -24,6 +24,16 @@ idf_component_register(
   REQUIRES espectre
 )</code></pre>
 
+  <h2 data-toc-label="Logging">Choose the logging backend</h2>
+  <p>The shared SDK has no default logger and does not require ESP-IDF's <code>log</code> component. If the product needs shared messages, register a complete sink before runtime setup:</p>
+  <pre class="code"><code>espectre::LogSink sink{
+    product_log_context,
+    &amp;product_log_enabled,
+    &amp;product_log_write,
+};
+if (!espectre::set_log_sink(sink)) return false;</code></pre>
+  <p>The enabled callback receives the level and tag before message arguments are evaluated. The write callback receives the source line, format string, and a bounded-lifetime <code>va_list</code>. Keep both callbacks thread-safe, non-blocking, and non-reentrant, and clear the sink only after runtime shutdown.</p>
+
   <h2 data-toc-label="Runtime task">Own the runtime from one task</h2>
   <p>This adapter uses menuconfig-backed sensing defaults, gates product output on readiness, and keeps publication outside the listener callback:</p>
   <pre class="code"><code>#include "espectre_sdk.h"

@@ -1087,10 +1087,12 @@ def test_project_boards_use_one_shared_profile_and_only_esp32_override() -> None
     assert "native_direct.c" in native_cmake
     assert "native_features.cpp" in native_cmake
     assert "native_features_module.c" in native_cmake
+    assert "native_log_sink.cpp" in native_cmake
     assert "native_traffic.cpp" in native_cmake
     assert "shared_core" not in native_cmake
     assert "idf::espectre_core" in native_cmake
     assert "idf::espectre_runtime_traffic" in native_cmake
+    assert "idf::log" in native_cmake
     assert "native_traffic.c" in native_cmake
     assert "native_mqtt.c" not in native_cmake
     assert "idf::mqtt" not in native_cmake
@@ -1103,6 +1105,7 @@ def test_project_boards_use_one_shared_profile_and_only_esp32_override() -> None
     assert "ESPECTRE_CORE_SOURCES" in component_cmake
     assert "idf_component_register" in component_cmake
     assert "$ENV{ESPECTRE_CORE_SDK_ROOT}" in component_cmake
+    assert "        log\n" not in component_cmake
     assert "ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY" in component_kconfig
     assert "ESPECTRE_TRAFFIC_TASK_PRIORITY" in component_kconfig
 
@@ -1116,6 +1119,20 @@ def test_project_boards_use_one_shared_profile_and_only_esp32_override() -> None
     assert "traffic_generator_manager.cpp" in traffic_component
     assert "sta_socket_helpers.cpp" in traffic_component
     assert "ESPECTRE_CORE_SOURCES" not in traffic_component
+    assert "        espectre_core\n" in traffic_component
+    assert "        log\n" not in traffic_component
+
+    native_log_sink = (
+        micro.PYTHON_SRC_DIR
+        / "firmware"
+        / "native_components"
+        / "native_log_sink.cpp"
+    ).read_text(encoding="utf-8")
+    assert "espectre::set_log_sink" in native_log_sink
+    assert "std::vsnprintf" in native_log_sink
+    assert "ESP_LOG_LEVEL" in native_log_sink
+    assert "esp_log_writev" not in native_log_sink
+    assert "#ifndef NO_QSTR" in native_log_sink
 
     native_cpp = (
         micro.PYTHON_SRC_DIR
@@ -1125,6 +1142,15 @@ def test_project_boards_use_one_shared_profile_and_only_esp32_override() -> None
     ).read_text(encoding="utf-8")
     assert '#include "espectre_core_sdk.h"' in native_cpp
     assert '#include "core/' not in native_cpp
+    assert "espectre_native_ensure_log_sink();" in native_cpp
+
+    native_traffic_cpp = (
+        micro.PYTHON_SRC_DIR
+        / "firmware"
+        / "native_components"
+        / "native_traffic.cpp"
+    ).read_text(encoding="utf-8")
+    assert "espectre_native_ensure_log_sink();" in native_traffic_cpp
 
     native_module = (
         micro.PYTHON_SRC_DIR

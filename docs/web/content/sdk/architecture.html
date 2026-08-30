@@ -11,7 +11,7 @@
     <section>
       <span class="docs-path-label">YOUR FIRMWARE</span>
       <h3>Product lifecycle</h3>
-      <p>Boot, Wi-Fi provisioning, connectivity policy, storage, OTA, UI, and the action taken when sensing state changes.</p>
+      <p>Boot, Wi-Fi provisioning, connectivity policy, storage, OTA, logging, UI, and the action taken when sensing state changes.</p>
     </section>
     <section>
       <span class="docs-path-label">ESPECTRE</span>
@@ -40,7 +40,7 @@
   <div class="arch-stack">
     <div class="arch-layer">
       <div class="arch-name">Frontend <span class="mono-sub">src/cpp/frontend/</span></div>
-      <div class="arch-desc">Maps sensing into product behavior, protocols, and ecosystem APIs. ESPHome, Native, and Matter are maintained references, not a supported library surface.</div>
+      <div class="arch-desc">Maps sensing into product behavior, protocols, logging, and ecosystem APIs. ESPHome, Native, and Matter are maintained references, not a supported library surface.</div>
     </div>
     <div class="arch-layer arch-layer-mid">
       <div class="arch-name">Runtime <span class="mono-sub">src/cpp/runtime/</span></div>
@@ -52,6 +52,8 @@
     </div>
   </div>
 
+  <p>Micro-ESPectre is another SDK consumer: its core-only and focused traffic components remain independent of ESP-IDF logging, while its native MicroPython frontend registers one sink shared by both.</p>
+
   <h2>Runtime data flow</h2>
   <div class="pipeline">
     <div><strong>Wi-Fi traffic</strong><span>product environment</span></div>
@@ -62,6 +64,8 @@
   </div>
 
   <div class="note"><strong>Optional transports stay outside the sensing model.</strong> Direct HTTP, MQTT, provisioning, and OTA source groups are disabled until selected. A product can use the provided adapters, implement the boundary interfaces, or omit those capabilities. See the <a href="https://github.com/francescopace/espectre/blob/main/docs/SDK.md#optional-capability-groups" target="_blank" rel="noopener">optional component groups</a>.</div>
+
+  <div class="note"><strong>Logging follows the same ownership direction.</strong> Core and runtime emit through a portable sink. The frontend can connect ESPHome, <code>esp_log</code>, or another backend before setup, while a product that does not register a sink keeps the shared SDK silent.</div>
 
   <details class="article-disclosure">
     <summary>Extending the source tree or porting another platform</summary>

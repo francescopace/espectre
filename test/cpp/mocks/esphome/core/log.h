@@ -84,4 +84,12 @@ inline void esp_log_printf_(int level, const char *tag, const char *format, ...)
     // Redirect to ESP-IDF logging
 }
 
+inline void esp_log_vprintf_(int level, const char *tag, int line, const char *format, va_list args) {
+    (void)level;
+    (void)tag;
+    (void)line;
+    (void)format;
+    (void)args;
+}
+
 } // namespace esphome

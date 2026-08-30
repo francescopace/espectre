@@ -527,11 +527,6 @@ async def to_code(config):
             )
         )
 
-    # The shared ESP-IDF component does not depend on the higher-level ESPHome
-    # component, so expose the generated source tree only for the portable
-    # logging shim. This lets shared runtime logs reach the ESPHome logger.
-    cg.add_build_flag("-Isrc")
-
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     wifi_var = await cg.get_variable(CORE.config[CONF_WIFI][CONF_ID])
@@ -559,9 +554,6 @@ async def to_code(config):
     add_idf_sdkconfig_option("CONFIG_LWIP_IRAM_OPTIMIZATION", True)
     add_idf_sdkconfig_option("CONFIG_LWIP_TCPIP_RECVMBOX_SIZE", 64)
     add_idf_sdkconfig_option("CONFIG_LWIP_UDP_RECVMBOX_SIZE", 32)
-    # Undo the previous global DEBUG maximum so Wi-Fi/lwIP debug stays
-    # compiled out. Detection status uses LOG_LOCAL_LEVEL in the SDK component.
-    add_idf_sdkconfig_option("CONFIG_LOG_MAXIMUM_EQUALS_DEFAULT", True)
     # Note: CONFIG_FREERTOS_HZ=1000 is already set by ESPHome
     
     # Threshold is selected automatically at startup and remains adjustable

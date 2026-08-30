@@ -5,7 +5,7 @@
 - Use ESP-IDF for firmware code, not Arduino. `C++`17 features are available.
 - Keep shared `core` and `runtime` code frontend-agnostic, and enforce `Frontend -> Runtime -> Core`.
 - Follow ESPHome component conventions only inside `frontend/esphome/`. Do not assume ESPHome-specific patterns apply to Matter, Native, or shared runtime code.
-- Use `ESP_LOGD`, `ESP_LOGI`, `ESP_LOGW`, and `ESP_LOGE` in ESP-IDF firmware code, and do not add blocking work in firmware `loop()` paths or callbacks.
+- Use `ESPECTRE_LOGD`, `ESPECTRE_LOGI`, `ESPECTRE_LOGW`, and `ESPECTRE_LOGE` in shared `core` and `runtime` code so frontends own the logging backend. Frontend-specific ESP-IDF code may use `ESP_LOG*` directly. Do not add blocking work in firmware `loop()` paths or callbacks.
 - Place algorithms and the CSI format in `core/`, platform-agnostic contracts in `runtime/`, ESP-IDF, FreeRTOS, or lwIP code in `runtime/esp_idf/`, and single-frontend code in `frontend/<name>/`.
 - Portable shims may live in `runtime/`, or in `core/` when `core` depends on them, only when they guard SDK includes behind `ESP_PLATFORM` or `__has_include` and degrade cleanly on host builds.
 - Headers in `core/` and `runtime/` must not include headers from `runtime/esp_idf/`.

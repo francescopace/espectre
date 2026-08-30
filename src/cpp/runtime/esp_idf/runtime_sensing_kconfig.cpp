@@ -91,7 +91,7 @@ float parse_float_or_default_(const char *value, float default_value, float min_
   const bool parsed_ok = end_ptr != value && end_ptr != nullptr && *end_ptr == '\0' && errno != ERANGE &&
                          validate_runtime_float(parsed, min_value, max_value);
   if (!parsed_ok) {
-    ESP_LOGW(TAG, "Invalid %s=\"%s\", using default %.3f", key, value, static_cast<double>(default_value));
+    ESPECTRE_LOGW(TAG, "Invalid %s=\"%s\", using default %.3f", key, value, static_cast<double>(default_value));
     return default_value;
   }
   return parsed;
@@ -108,7 +108,7 @@ uint32_t clamp_uint32_or_default_(uint32_t value, uint32_t default_value, uint32
   if (validate_runtime_uint32(value, min_value, max_value)) {
     return value;
   }
-  ESP_LOGW(TAG, "Invalid %s=%u (allowed %u-%u), using default %u", key, static_cast<unsigned>(value),
+  ESPECTRE_LOGW(TAG, "Invalid %s=%u (allowed %u-%u), using default %u", key, static_cast<unsigned>(value),
            static_cast<unsigned>(min_value), static_cast<unsigned>(max_value),
            static_cast<unsigned>(default_value));
   return default_value;
@@ -119,7 +119,7 @@ uint8_t clamp_uint8_or_default_(uint8_t value, uint8_t default_value, uint8_t mi
   if (validate_runtime_uint8(value, min_value, max_value)) {
     return value;
   }
-  ESP_LOGW(TAG, "Invalid %s=%u (allowed %u-%u), using default %u", key, static_cast<unsigned>(value),
+  ESPECTRE_LOGW(TAG, "Invalid %s=%u (allowed %u-%u), using default %u", key, static_cast<unsigned>(value),
            static_cast<unsigned>(min_value), static_cast<unsigned>(max_value),
            static_cast<unsigned>(default_value));
   return default_value;

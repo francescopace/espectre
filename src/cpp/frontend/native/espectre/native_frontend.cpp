@@ -22,7 +22,7 @@
 
 #include "direct_wifi_snapshot_esp_idf.h"
 #include "esp_timer.h"
-#include "espectre_log.h"
+#include <esp_log.h>
 #include "frontend_command_engine.h"
 #include "frontend_mqtt_helpers.h"
 #include "protocol_json.h"

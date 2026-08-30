@@ -20,25 +20,25 @@ namespace espectre {
 bool bind_socket_to_sta_interface(int sock, const char *log_tag, const char *purpose) {
   esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
   if (netif == nullptr) {
-    ESP_LOGW(log_tag, "Failed to get STA netif for %s socket", purpose);
+    ESPECTRE_LOGW(log_tag, "Failed to get STA netif for %s socket", purpose);
     return false;
   }
 
   const int if_index = esp_netif_get_netif_impl_index(netif);
   if (if_index <= 0) {
-    ESP_LOGW(log_tag, "Invalid STA netif index for %s socket: %d", purpose, if_index);
+    ESPECTRE_LOGW(log_tag, "Invalid STA netif index for %s socket: %d", purpose, if_index);
     return false;
   }
 
   struct ifreq iface{};
   if (if_indextoname(static_cast<unsigned>(if_index), iface.ifr_name) == nullptr) {
-    ESP_LOGW(log_tag, "Failed to resolve STA interface name for %s socket index %" PRIu32,
+    ESPECTRE_LOGW(log_tag, "Failed to resolve STA interface name for %s socket index %" PRIu32,
              purpose, static_cast<uint32_t>(if_index));
     return false;
   }
 
   if (setsockopt(sock, SOL_SOCKET, SO_BINDTODEVICE, &iface, sizeof(iface)) != 0) {
-    ESP_LOGW(log_tag, "Failed to bind %s socket to %s (errno=%d)", purpose, iface.ifr_name, errno);
+    ESPECTRE_LOGW(log_tag, "Failed to bind %s socket to %s (errno=%d)", purpose, iface.ifr_name, errno);
     return false;
   }
   return true;

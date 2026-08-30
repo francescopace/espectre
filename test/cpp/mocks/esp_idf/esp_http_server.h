@@ -46,12 +46,13 @@ typedef struct {
   bool lru_purge_enable;
   uint16_t recv_wait_timeout;
   uint16_t send_wait_timeout;
+  int core_id;
 } httpd_config_t;
 
 #ifdef __cplusplus
-#define HTTPD_DEFAULT_CONFIG() (httpd_config_t{5U, 80U, 32768U, 7U, 8U, false, 5U, 5U})
+#define HTTPD_DEFAULT_CONFIG() (httpd_config_t{5U, 80U, 32768U, 7U, 8U, false, 5U, 5U, -1})
 #else
-#define HTTPD_DEFAULT_CONFIG() ((httpd_config_t){5U, 80U, 32768U, 7U, 8U, false, 5U, 5U})
+#define HTTPD_DEFAULT_CONFIG() ((httpd_config_t){5U, 80U, 32768U, 7U, 8U, false, 5U, 5U, -1})
 #endif
 
 typedef esp_err_t (*httpd_uri_func_t)(httpd_req_t *request);

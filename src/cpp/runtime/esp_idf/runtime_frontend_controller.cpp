@@ -41,7 +41,7 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
   const RuntimeConfigError config_error = validate_runtime_config(config_);
   if (config_error != RuntimeConfigError::NONE) {
     const char *message = runtime_config_error_message(config_error);
-    ESP_LOGE(TAG, "Rejected runtime configuration: %s", message);
+    ESPECTRE_LOGE(TAG, "Rejected runtime configuration: %s", message);
     if (listener != nullptr) {
       listener->on_runtime_fault(message);
     }
@@ -52,7 +52,7 @@ bool RuntimeFrontendController::setup(IRuntimeListener *listener) {
   auto *backend = new (std::nothrow) EspIdfRuntime(active_config_);
   if (backend == nullptr) {
     constexpr const char *message = "Failed to allocate runtime backend";
-    ESP_LOGE(TAG, "%s", message);
+    ESPECTRE_LOGE(TAG, "%s", message);
     if (listener != nullptr) {
       listener->on_runtime_fault(message);
     }
@@ -108,7 +108,7 @@ void RuntimeFrontendController::set_services_armed(bool armed) {
   services_armed_ = armed;
   if (runtime_ && runtime_->operation_state() == RuntimeOperationState::RAW_COLLECTION) {
     runtime_->set_services_armed(armed);
-    ESP_LOGI(TAG, "Deferred sensing mutation until raw collection stops");
+    ESPECTRE_LOGI(TAG, "Deferred sensing mutation until raw collection stops");
     return;
   }
   if (runtime_) {
@@ -131,7 +131,7 @@ void RuntimeFrontendController::quiesce_for_ota() {
   if (runtime_ && runtime_->operation_state() == RuntimeOperationState::RAW_COLLECTION) {
     set_services_armed(false);
     if (!stop_raw_collection(RawCsiStopReason::SHUTDOWN)) {
-      ESP_LOGE(TAG, "Failed to stop raw collection while preparing for OTA");
+      ESPECTRE_LOGE(TAG, "Failed to stop raw collection while preparing for OTA");
     }
     return;
   }
