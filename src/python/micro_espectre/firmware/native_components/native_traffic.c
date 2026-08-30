@@ -1,267 +1,46 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Commercial licensing available under separate agreement; see LICENSING.md.
 
-#include <errno.h>
-#include <fcntl.h>
-#include <net/if.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
-#include <unistd.h>
 
-#include "esp_netif.h"
-#include "esp_log.h"
-#include "esp_timer.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
+#include "native_traffic.h"
 #include "py/mperrno.h"
-#include "py/mphal.h"
 #include "py/runtime.h"
-#include "sdkconfig.h"
-
-#define NATIVE_TRAFFIC_TASK_STACK_SIZE (3072)
-#define NATIVE_TRAFFIC_REOPEN_ERROR_COUNT (8)
-#define NATIVE_TRAFFIC_STOP_TIMEOUT_MS (1000)
-#define NATIVE_TRAFFIC_MAX_DRAINED_PACKETS_PER_SEND (16)
-
-static const char *const NATIVE_TRAFFIC_TAG = "MicroTraffic";
-
-typedef struct __attribute__((packed)) {
-  uint8_t type;
-  uint8_t code;
-  uint16_t checksum;
-  uint16_t identifier;
-  uint16_t sequence;
-} native_traffic_ping_packet_t;
-
-typedef enum {
-  NATIVE_TRAFFIC_SOCKET_READY,
-  NATIVE_TRAFFIC_SOCKET_PEER_CLOSED,
-  NATIVE_TRAFFIC_SOCKET_ERROR,
-} native_traffic_socket_drain_result_t;
 
 typedef struct _native_traffic_obj_t {
   mp_obj_base_t base;
-  TaskHandle_t task;
-  volatile bool running;
-  volatile bool paused;
-  volatile bool task_exited;
-  volatile bool reopen_requested;
-  volatile uint32_t packet_count;
-  volatile uint32_t error_count;
-  volatile int last_error;
-  uint32_t gateway_addr;
-  uint32_t rate_pps;
-  uint16_t identifier;
-  uint16_t sequence;
-  int sock;
+  void *handle;
 } native_traffic_obj_t;
 
-static bool native_traffic_error_is_transient(int error_number) {
-  return error_number == EAGAIN || error_number == EWOULDBLOCK ||
-      error_number == ENOMEM || error_number == ENOBUFS;
+extern const mp_obj_type_t native_traffic_type;
+
+static native_traffic_obj_t *native_traffic_get(mp_obj_t self_in) {
+  if (!mp_obj_is_type(self_in, &native_traffic_type)) {
+    mp_raise_TypeError(MP_ERROR_TEXT("expected TrafficGenerator"));
+  }
+  native_traffic_obj_t *self = MP_OBJ_TO_PTR(self_in);
+  if (self->handle == NULL) {
+    mp_raise_ValueError(MP_ERROR_TEXT("traffic generator is deinitialized"));
+  }
+  return self;
 }
 
-static uint16_t native_traffic_checksum(const void *data, size_t len) {
-  const uint8_t *bytes = data;
-  uint32_t sum = 0;
-  while (len >= 2) {
-    sum += ((uint16_t) bytes[0] << 8) | bytes[1];
-    bytes += 2;
-    len -= 2;
+static espectre_native_traffic_mode_t native_traffic_mode(mp_obj_t mode_in) {
+  const char *mode = mp_obj_str_get_str(mode_in);
+  if (strcmp(mode, "ping") == 0) {
+    return ESPECTRE_NATIVE_TRAFFIC_PING;
   }
-  if (len == 1) {
-    sum += (uint16_t) bytes[0] << 8;
+  if (strcmp(mode, "dns") == 0) {
+    return ESPECTRE_NATIVE_TRAFFIC_DNS;
   }
-  while (sum >> 16) {
-    sum = (sum & 0xffff) + (sum >> 16);
+  if (strcmp(mode, "dns_tcp") == 0) {
+    return ESPECTRE_NATIVE_TRAFFIC_DNS_TCP;
   }
-  return (uint16_t) ~sum;
-}
-
-static int native_traffic_open_socket(const native_traffic_obj_t *self) {
-  int sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-  if (sock < 0) {
-    return -1;
-  }
-  int flags = fcntl(sock, F_GETFL, 0);
-  if (flags < 0 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) < 0) {
-    close(sock);
-    return -1;
-  }
-  // Keep sensing traffic on the station interface, matching the shared
-  // ESP-IDF traffic generator when other lwIP interfaces are present.
-  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-  if (netif != NULL) {
-    int if_index = esp_netif_get_netif_impl_index(netif);
-    struct ifreq iface = {0};
-    if (
-        if_index > 0 &&
-        if_indextoname((unsigned int) if_index, iface.ifr_name) != NULL) {
-      (void) setsockopt(
-          sock,
-          SOL_SOCKET,
-          SO_BINDTODEVICE,
-          &iface,
-          sizeof(iface));
-    }
-  }
-  // Match the production ESP-IDF traffic generator's low-latency WMM hint.
-  int sensing_tos = 46 << 2;
-  (void) setsockopt(sock, IPPROTO_IP, IP_TOS, &sensing_tos, sizeof(sensing_tos));
-  return sock;
-}
-
-static void native_traffic_close_socket(native_traffic_obj_t *self) {
-  if (self->sock >= 0) {
-    close(self->sock);
-    self->sock = -1;
-  }
-}
-
-static native_traffic_socket_drain_result_t native_traffic_drain_socket(int sock) {
-  uint8_t buffer[128];
-  // Bound each drain so a reply backlog cannot monopolize the single-core
-  // C3. Remaining replies are consumed on the next paced iteration.
-  for (
-      uint8_t drained = 0;
-      drained < NATIVE_TRAFFIC_MAX_DRAINED_PACKETS_PER_SEND;
-      ++drained) {
-    ssize_t received = recv(sock, buffer, sizeof(buffer), MSG_DONTWAIT);
-    if (received > 0) {
-      continue;
-    }
-    if (received == 0) {
-      return NATIVE_TRAFFIC_SOCKET_PEER_CLOSED;
-    }
-    if (errno == EAGAIN || errno == EWOULDBLOCK) {
-      return NATIVE_TRAFFIC_SOCKET_READY;
-    }
-    return NATIVE_TRAFFIC_SOCKET_ERROR;
-  }
-  return NATIVE_TRAFFIC_SOCKET_READY;
-}
-
-static int64_t native_traffic_next_send_deadline_us(
-    int64_t previous_deadline_us,
-    int64_t send_started_us,
-    int64_t interval_us) {
-  if (interval_us <= 0) {
-    return send_started_us;
-  }
-  if (previous_deadline_us <= 0) {
-    return send_started_us + interval_us;
-  }
-
-  int64_t phase_deadline_us = previous_deadline_us + interval_us;
-  int64_t remaining_us = phase_deadline_us - send_started_us;
-  if (remaining_us < interval_us / 2) {
-    return send_started_us + interval_us;
-  }
-  return phase_deadline_us;
-}
-
-static ssize_t native_traffic_send_packet(
-    native_traffic_obj_t *self,
-    const struct sockaddr_in *destination) {
-  native_traffic_ping_packet_t packet = {
-      .type = 8,
-      .code = 0,
-      .checksum = 0,
-      .identifier = htons(self->identifier),
-      .sequence = htons(++self->sequence),
-  };
-  packet.checksum = htons(native_traffic_checksum(&packet, sizeof(packet)));
-  return sendto(
-      self->sock,
-      &packet,
-      sizeof(packet),
-      0,
-      (const struct sockaddr *) destination,
-      sizeof(*destination));
-}
-
-static void native_traffic_task(void *arg) {
-  native_traffic_obj_t *self = arg;
-  struct sockaddr_in destination = {
-      .sin_family = AF_INET,
-      .sin_port = 0,
-      .sin_addr.s_addr = self->gateway_addr,
-  };
-  uint32_t consecutive_errors = 0;
-  int64_t next_send_deadline_us = 0;
-
-  while (self->running) {
-    if (self->paused) {
-      vTaskDelay(pdMS_TO_TICKS(50));
-      continue;
-    }
-    if (self->reopen_requested || self->sock < 0) {
-      self->reopen_requested = false;
-      native_traffic_close_socket(self);
-      self->sock = native_traffic_open_socket(self);
-      if (self->sock < 0) {
-        int open_error = errno;
-        self->last_error = open_error;
-        ESP_LOGW(NATIVE_TRAFFIC_TAG, "Failed to reopen socket (errno=%d)", open_error);
-        self->error_count++;
-        vTaskDelay(pdMS_TO_TICKS(100));
-        continue;
-      }
-      consecutive_errors = 0;
-      next_send_deadline_us = 0;
-    }
-
-    (void) native_traffic_drain_socket(self->sock);
-
-    int64_t send_started_us = esp_timer_get_time();
-    ssize_t sent = native_traffic_send_packet(self, &destination);
-    if (sent > 0) {
-      self->packet_count++;
-      consecutive_errors = 0;
-    } else {
-      int send_error = errno;
-      self->last_error = send_error;
-      self->error_count++;
-      if (native_traffic_error_is_transient(send_error)) {
-        consecutive_errors = 0;
-      } else {
-        consecutive_errors++;
-        if (consecutive_errors == 1) {
-          ESP_LOGW(
-              NATIVE_TRAFFIC_TAG,
-              "ICMP send failed (errno=%d)",
-              send_error);
-        }
-        if (consecutive_errors >= NATIVE_TRAFFIC_REOPEN_ERROR_COUNT) {
-          ESP_LOGW(NATIVE_TRAFFIC_TAG, "Reopening socket after repeated send errors");
-          self->reopen_requested = true;
-          consecutive_errors = 0;
-        }
-      }
-    }
-
-    uint32_t rate = self->rate_pps > 0 ? self->rate_pps : 1;
-    int64_t interval_us = 1000000LL / rate;
-    next_send_deadline_us = native_traffic_next_send_deadline_us(
-        next_send_deadline_us,
-        send_started_us,
-        interval_us);
-    int64_t sleep_us = next_send_deadline_us - esp_timer_get_time();
-    if (sleep_us > 0) {
-      TickType_t ticks = pdMS_TO_TICKS((sleep_us + 999) / 1000);
-      if (ticks > 0) {
-        vTaskDelay(ticks);
-      }
-    }
-  }
-
-  native_traffic_close_socket(self);
-  self->task = NULL;
-  self->task_exited = true;
-  vTaskDelete(NULL);
+  mp_raise_ValueError(MP_ERROR_TEXT("invalid traffic generator mode"));
 }
 
 static mp_obj_t native_traffic_make_new(
@@ -270,156 +49,106 @@ static mp_obj_t native_traffic_make_new(
     size_t n_kw,
     const mp_obj_t *args) {
   mp_arg_check_num(n_args, n_kw, 0, 0, false);
-  native_traffic_obj_t *self = mp_obj_malloc_with_finaliser(native_traffic_obj_t, type);
-  self->task = NULL;
-  self->running = false;
-  self->paused = false;
-  self->task_exited = true;
-  self->reopen_requested = false;
-  self->packet_count = 0;
-  self->error_count = 0;
-  self->last_error = 0;
-  self->gateway_addr = 0;
-  self->rate_pps = 0;
-  self->identifier = (uint16_t) ((uintptr_t) self & 0xffff);
-  self->sequence = 0;
-  self->sock = -1;
+  native_traffic_obj_t *self = mp_obj_malloc_with_finaliser(
+      native_traffic_obj_t,
+      type);
+  self->handle = espectre_native_traffic_create();
+  if (self->handle == NULL) {
+    mp_raise_msg(
+        &mp_type_MemoryError,
+        MP_ERROR_TEXT("traffic generator allocation failed"));
+  }
   return MP_OBJ_FROM_PTR(self);
 }
 
 static mp_obj_t native_traffic_start(size_t n_args, const mp_obj_t *args) {
-  native_traffic_obj_t *self = MP_OBJ_TO_PTR(args[0]);
-  if (self->running || !self->task_exited) {
-    mp_raise_OSError(MP_EBUSY);
-  }
+  native_traffic_obj_t *self = native_traffic_get(args[0]);
   const char *gateway = mp_obj_str_get_str(args[1]);
   struct in_addr address;
   if (inet_pton(AF_INET, gateway, &address) != 1) {
     mp_raise_ValueError(MP_ERROR_TEXT("invalid gateway IPv4 address"));
   }
-  int rate = mp_obj_get_int(args[2]);
+  mp_int_t rate = mp_obj_get_int(args[2]);
   if (rate <= 0 || rate > 1000) {
     mp_raise_ValueError(MP_ERROR_TEXT("rate must be 1..1000"));
   }
-  self->sock = native_traffic_open_socket(self);
-  if (self->sock < 0) {
-    mp_raise_OSError(errno > 0 ? errno : MP_EIO);
-  }
-  self->gateway_addr = address.s_addr;
-  self->rate_pps = (uint32_t) rate;
-  self->packet_count = 0;
-  self->error_count = 0;
-  self->last_error = 0;
-  self->sequence = 0;
-  self->paused = false;
-  self->reopen_requested = false;
-  self->task_exited = false;
-  self->running = true;
-  BaseType_t result = xTaskCreate(
-      native_traffic_task,
-      "espectre_traffic",
-      NATIVE_TRAFFIC_TASK_STACK_SIZE,
-      self,
-      CONFIG_ESPECTRE_TRAFFIC_TASK_PRIORITY,
-      &self->task);
-  if (result != pdPASS) {
-    self->running = false;
-    self->task_exited = true;
-    native_traffic_close_socket(self);
-    mp_raise_OSError(MP_ENOMEM);
+  espectre_native_traffic_mode_t mode = n_args > 3
+      ? native_traffic_mode(args[3])
+      : ESPECTRE_NATIVE_TRAFFIC_PING;
+  if (!espectre_native_traffic_start(
+          self->handle,
+          address.s_addr,
+          (uint32_t) rate,
+          mode)) {
+    mp_raise_OSError(MP_EIO);
   }
   return mp_const_true;
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
     native_traffic_start_obj,
     3,
-    3,
+    4,
     native_traffic_start);
 
 static mp_obj_t native_traffic_stop(mp_obj_t self_in) {
-  native_traffic_obj_t *self = MP_OBJ_TO_PTR(self_in);
-  self->running = false;
-  self->paused = false;
-  uint32_t waited_ms = 0;
-  while (!self->task_exited && waited_ms < NATIVE_TRAFFIC_STOP_TIMEOUT_MS) {
-    mp_hal_delay_ms(10);
-    waited_ms += 10;
-  }
-  if (self->task_exited) {
-    // The task marks itself exited immediately before vTaskDelete(). Give
-    // the idle task one bounded turn to reclaim its dynamic stack before
-    // lifecycle code starts a replacement task on the single-core C3.
-    mp_hal_delay_ms(50);
-  }
+  native_traffic_obj_t *self = native_traffic_get(self_in);
+  espectre_native_traffic_stop(self->handle);
   return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(native_traffic_stop_obj, native_traffic_stop);
 
-static mp_obj_t native_traffic_pause(mp_obj_t self_in) {
+static mp_obj_t native_traffic_deinit(mp_obj_t self_in) {
   native_traffic_obj_t *self = MP_OBJ_TO_PTR(self_in);
-  if (!self->running) {
-    return mp_const_false;
+  if (self->handle != NULL) {
+    espectre_native_traffic_destroy(self->handle);
+    self->handle = NULL;
   }
-  self->paused = true;
-  return mp_const_true;
+  return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(native_traffic_deinit_obj, native_traffic_deinit);
+
+static mp_obj_t native_traffic_pause(mp_obj_t self_in) {
+  native_traffic_obj_t *self = native_traffic_get(self_in);
+  return mp_obj_new_bool(espectre_native_traffic_pause(self->handle));
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(native_traffic_pause_obj, native_traffic_pause);
 
 static mp_obj_t native_traffic_resume(mp_obj_t self_in) {
-  native_traffic_obj_t *self = MP_OBJ_TO_PTR(self_in);
-  if (!self->running) {
-    return mp_const_false;
-  }
-  self->paused = false;
-  return mp_const_true;
+  native_traffic_obj_t *self = native_traffic_get(self_in);
+  return mp_obj_new_bool(espectre_native_traffic_resume(self->handle));
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(native_traffic_resume_obj, native_traffic_resume);
 
-static mp_obj_t native_traffic_reopen(mp_obj_t self_in) {
-  native_traffic_obj_t *self = MP_OBJ_TO_PTR(self_in);
-  if (!self->running) {
-    return mp_const_false;
-  }
-  self->reopen_requested = true;
-  return mp_const_true;
-}
-static MP_DEFINE_CONST_FUN_OBJ_1(native_traffic_reopen_obj, native_traffic_reopen);
-
 static mp_obj_t native_traffic_is_running(mp_obj_t self_in) {
-  native_traffic_obj_t *self = MP_OBJ_TO_PTR(self_in);
-  return mp_obj_new_bool(self->running && !self->task_exited);
+  native_traffic_obj_t *self = native_traffic_get(self_in);
+  return mp_obj_new_bool(espectre_native_traffic_is_running(self->handle));
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(native_traffic_is_running_obj, native_traffic_is_running);
 
 static mp_obj_t native_traffic_packet_count(mp_obj_t self_in) {
-  native_traffic_obj_t *self = MP_OBJ_TO_PTR(self_in);
-  return mp_obj_new_int_from_uint(self->packet_count);
+  native_traffic_obj_t *self = native_traffic_get(self_in);
+  return mp_obj_new_int_from_uint(
+      espectre_native_traffic_packet_count(self->handle));
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(native_traffic_packet_count_obj, native_traffic_packet_count);
 
 static mp_obj_t native_traffic_error_count(mp_obj_t self_in) {
-  native_traffic_obj_t *self = MP_OBJ_TO_PTR(self_in);
-  return mp_obj_new_int_from_uint(self->error_count);
+  native_traffic_obj_t *self = native_traffic_get(self_in);
+  return mp_obj_new_int_from_uint(
+      espectre_native_traffic_error_count(self->handle));
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(native_traffic_error_count_obj, native_traffic_error_count);
-
-static mp_obj_t native_traffic_last_error(mp_obj_t self_in) {
-  native_traffic_obj_t *self = MP_OBJ_TO_PTR(self_in);
-  return mp_obj_new_int(self->last_error);
-}
-static MP_DEFINE_CONST_FUN_OBJ_1(native_traffic_last_error_obj, native_traffic_last_error);
 
 static const mp_rom_map_elem_t native_traffic_locals_table[] = {
     {MP_ROM_QSTR(MP_QSTR_start), MP_ROM_PTR(&native_traffic_start_obj)},
     {MP_ROM_QSTR(MP_QSTR_stop), MP_ROM_PTR(&native_traffic_stop_obj)},
     {MP_ROM_QSTR(MP_QSTR_pause), MP_ROM_PTR(&native_traffic_pause_obj)},
     {MP_ROM_QSTR(MP_QSTR_resume), MP_ROM_PTR(&native_traffic_resume_obj)},
-    {MP_ROM_QSTR(MP_QSTR_reopen), MP_ROM_PTR(&native_traffic_reopen_obj)},
     {MP_ROM_QSTR(MP_QSTR_is_running), MP_ROM_PTR(&native_traffic_is_running_obj)},
     {MP_ROM_QSTR(MP_QSTR_packet_count), MP_ROM_PTR(&native_traffic_packet_count_obj)},
     {MP_ROM_QSTR(MP_QSTR_error_count), MP_ROM_PTR(&native_traffic_error_count_obj)},
-    {MP_ROM_QSTR(MP_QSTR_last_error), MP_ROM_PTR(&native_traffic_last_error_obj)},
-    {MP_ROM_QSTR(MP_QSTR___del__), MP_ROM_PTR(&native_traffic_stop_obj)},
+    {MP_ROM_QSTR(MP_QSTR_deinit), MP_ROM_PTR(&native_traffic_deinit_obj)},
+    {MP_ROM_QSTR(MP_QSTR___del__), MP_ROM_PTR(&native_traffic_deinit_obj)},
 };
 static MP_DEFINE_CONST_DICT(native_traffic_locals, native_traffic_locals_table);
 

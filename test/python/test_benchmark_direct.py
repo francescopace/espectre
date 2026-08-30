@@ -535,7 +535,12 @@ def test_micro_direct_preparation_reconnects_after_transient_timeout(monkeypatch
     assert len(prepared) == 2
 
 
-def test_micro_direct_preparation_validates_wire_contract():
+def test_micro_direct_preparation_validates_wire_contract(monkeypatch):
+    monkeypatch.setattr(
+        bench,
+        "configured_traffic_generator_mode",
+        lambda frontend, chip: "dns",
+    )
     direct_http = {
         "event_clients": 0,
         "event_client_limit": 1,
@@ -566,7 +571,7 @@ def test_micro_direct_preparation_validates_wire_contract():
             "runtime": {
                 "detector": "lightweight",
                 "csi_traffic_mode": "internal",
-                "traffic_generator_mode": "ping",
+                "traffic_generator_mode": "dns",
             }
         },
         "diagnostics": {

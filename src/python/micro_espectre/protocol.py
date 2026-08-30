@@ -245,6 +245,7 @@ def build_info_payload(
     global_state=None,
     device_id=None,
     csi_traffic_mode="internal",
+    traffic_mode="ping",
     firmware_version="unknown",
     chip=None,
 ):
@@ -275,7 +276,7 @@ def build_info_payload(
         },
         "detection": {"algorithm": detector_algorithm},
         "csi_traffic_mode": csi_traffic_mode,
-        "traffic_mode": "ping",
+        "traffic_mode": traffic_mode,
         "csi_target_pps": max(1, int(getattr(config, "CSI_TARGET_PPS", 100))),
         "evaluation_interval_ms": max(1, int(getattr(config, "EVALUATION_INTERVAL_MS", 250))),
     }

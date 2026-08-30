@@ -13,11 +13,6 @@ WIFI_SSID = "YourSSID"
 WIFI_PASSWORD = "YourPassword"
 # Optional AP lock (helps on mesh networks)
 # WIFI_BSSID = "AA:BB:CC:DD:EE:FF"
-# WIFI_CHANNEL = 6  # Used only with WIFI_BSSID
 
-# Optional device label shown by Direct HTTP clients
-# DEVICE_LABEL = "Lab prototype"
-
-# Optional CSI ring tuning. Use 128 only when every captured frame is known to
-# use the canonical payload; larger frames are truncated to this bound.
-# CSI_CAPTURE_MAX_DATA_LEN = 128
+# Optional managed traffic protocol: ping, dns (UDP), or dns_tcp
+# TRAFFIC_GENERATOR_MODE = "dns"

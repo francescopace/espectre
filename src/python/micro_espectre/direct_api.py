@@ -129,6 +129,7 @@ class DirectApi:
             global_state=self.global_state,
             device_id=self.device_id,
             csi_traffic_mode=csi_traffic_mode,
+            traffic_mode=self.traffic_generator.get_mode(),
             firmware_version=self.firmware_version,
             chip=self.chip,
         )
@@ -179,7 +180,7 @@ class DirectApi:
                 "motion_on_hits": self.runtime_policy.motion_on_hits,
                 "motion_off_hits": self.runtime_policy.motion_off_hits,
                 "csi_traffic_mode": "internal" if self.traffic_generator.is_running() else "external",
-                "traffic_generator_mode": "ping",
+                "traffic_generator_mode": self.traffic_generator.get_mode(),
                 "csi_target_pps": max(1, int(getattr(self.config, "CSI_TARGET_PPS", 100))),
             },
         }

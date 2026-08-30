@@ -27,13 +27,11 @@ class MockNativeTraffic:
         self.stop_calls = 0
         self.pause_result = True
         self.resume_result = True
-        self.reopen_result = True
         self.sent_packets = 0
         self.send_errors = 0
-        self.last_errno = 0
 
-    def start(self, gateway, rate_pps):
-        self.start_calls.append((gateway, rate_pps))
+    def start(self, gateway, rate_pps, mode):
+        self.start_calls.append((gateway, rate_pps, mode))
         if self.start_error is not None:
             raise self.start_error
         self.running = self.start_result
@@ -49,9 +47,6 @@ class MockNativeTraffic:
     def resume(self):
         return self.resume_result
 
-    def reopen(self):
-        return self.reopen_result
-
     def is_running(self):
         return self.running
 
@@ -60,9 +55,6 @@ class MockNativeTraffic:
 
     def error_count(self):
         return self.send_errors
-
-    def last_error(self):
-        return self.last_errno
 
 
 mock_native_traffic = MagicMock()
@@ -73,6 +65,8 @@ if not hasattr(time, "ticks_ms"):
     time.ticks_ms = lambda: int(time.time() * 1000)
 
 from traffic_generator import (  # noqa: E402
+    MODE_DNS,
+    MODE_DNS_TCP,
     MODE_PING,
     TRAFFIC_RATE_MAX,
     TRAFFIC_RATE_MIN,
@@ -238,7 +232,7 @@ def test_start_delegates_ping_to_native_backend(mock_wlan):
     backend.send_errors = 2
 
     assert generator.start(100) is True
-    assert backend.start_calls == [("192.168.1.1", 100)]
+    assert backend.start_calls == [("192.168.1.1", 100, MODE_PING)]
     assert generator.get_packet_count() == 321
     assert generator.get_error_count() == 2
     assert generator.is_running() is True
@@ -294,29 +288,39 @@ def test_gateway_lookup_contract(traffic_gen, mock_wlan):
 def test_mode_validation_and_live_change_guard(traffic_gen):
     with pytest.raises(ValueError, match="Invalid traffic generator mode"):
         traffic_gen.set_mode("udp")
-    with pytest.raises(ValueError, match="Invalid traffic generator mode"):
-        traffic_gen.set_mode("dns")
+
+    assert traffic_gen.set_mode(MODE_DNS)
+    assert traffic_gen.get_mode() == MODE_DNS
+    assert traffic_gen.set_mode(MODE_DNS_TCP)
+    assert traffic_gen.get_mode() == MODE_DNS_TCP
 
     traffic_gen.running = True
     assert traffic_gen.set_mode(MODE_PING) is False
-    assert traffic_gen.get_mode() == MODE_PING
+    assert traffic_gen.get_mode() == MODE_DNS_TCP
 
 
-def test_pause_resume_and_reopen_delegate_to_native(mock_wlan):
+@pytest.mark.parametrize("mode", [MODE_PING, MODE_DNS, MODE_DNS_TCP])
+def test_start_passes_selected_mode_to_native_backend(mock_wlan, mode):
+    generator = TrafficGenerator(mode)
+
+    assert generator.start(100)
+    assert generator._native_traffic.start_calls == [
+        ("192.168.1.1", 100, mode)
+    ]
+
+
+def test_pause_and_resume_delegate_to_native(mock_wlan):
     generator = TrafficGenerator()
     assert generator.start(60)
     assert generator.pause()
     assert generator.paused
     assert generator.resume()
     assert not generator.paused
-    assert generator.reopen_socket()
 
     generator._native_traffic.pause_result = False
     assert generator.pause() is False
     generator._native_traffic.resume_result = False
     assert generator.resume() is False
-    generator._native_traffic.reopen_result = False
-    assert generator.reopen_socket() is False
 
 
 def test_stop_retains_native_counters(mock_wlan):
@@ -339,7 +343,6 @@ def test_stopped_lifecycle_calls_are_noops(traffic_gen):
     traffic_gen.stop()
     assert traffic_gen.pause() is False
     assert traffic_gen.resume() is False
-    assert traffic_gen.reopen_socket() is False
     assert traffic_gen.is_running() is False
 
 
@@ -348,6 +351,5 @@ def test_metrics_getters(traffic_gen):
     traffic_gen.avg_loop_time_ms = 9.5678
     assert traffic_gen.get_actual_pps() == 99.6
     assert traffic_gen.get_avg_loop_time_ms() == 9.57
-    assert traffic_gen.get_last_error() == 0
     assert TRAFFIC_RATE_MIN == 0
     assert TRAFFIC_RATE_MAX == 1000

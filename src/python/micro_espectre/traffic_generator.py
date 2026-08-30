@@ -11,10 +11,13 @@ from espectre_native_traffic import TrafficGenerator as _NativeTrafficGenerator
 TRAFFIC_RATE_MIN = 0          # Minimum rate (0=disabled)
 TRAFFIC_RATE_MAX = 1000       # Maximum rate (packets per second)
 MODE_PING = "ping"
+MODE_DNS = "dns"
+MODE_DNS_TCP = "dns_tcp"
+TRAFFIC_MODES = (MODE_PING, MODE_DNS, MODE_DNS_TCP)
 
 
 class TrafficGenerator:
-    """Drive the firmware-native ICMP sensing traffic generator."""
+    """Drive the shared firmware-native sensing traffic generator."""
 
     def __init__(self, mode=MODE_PING):
         self.running = False
@@ -37,7 +40,7 @@ class TrafficGenerator:
     def _normalize_mode(mode):
         """Validate and normalize the traffic-generator mode."""
         mode = (mode or MODE_PING).lower()
-        if mode != MODE_PING:
+        if mode not in TRAFFIC_MODES:
             raise ValueError(f"Invalid traffic generator mode: {mode}")
         return mode
 
@@ -101,7 +104,7 @@ class TrafficGenerator:
         self.paused = False
         try:
             self.running = bool(
-                self._native_traffic.start(self.gateway_ip, rate_pps)
+                self._native_traffic.start(self.gateway_ip, rate_pps, self.mode)
             )
         except Exception as exc:
             print(f"Failed to start native traffic generator: {exc}")
@@ -124,10 +127,6 @@ class TrafficGenerator:
             self.paused = False
             self.rate_pps = 0
             self.target_pps = 0
-
-    def reopen_socket(self):
-        """Ask the native task to recreate its lwIP socket in place."""
-        return bool(self.running and self._native_traffic.reopen())
 
     def pause(self):
         """Pause sends without releasing the native socket."""
@@ -171,11 +170,6 @@ class TrafficGenerator:
         if self.running:
             return int(self._native_traffic.error_count())
         return self.error_count
-
-    def get_last_error(self):
-        """Return the most recent native socket errno, or zero before failures."""
-        get_last_error = getattr(self._native_traffic, "last_error", None)
-        return int(get_last_error()) if callable(get_last_error) else 0
 
     def get_avg_loop_time_ms(self):
         return round(self.avg_loop_time_ms, 2)

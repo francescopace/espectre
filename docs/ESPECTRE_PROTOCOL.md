@@ -567,7 +567,7 @@ Update CSI traffic ownership on frontends that advertise traffic control:
 }
 ```
 
-Accepted values are `internal` and `external`. ESPectre frontends persist the accepted value across reboot. Micro-ESPectre advertises no traffic-control mutation; its deployment configuration selects native ICMP traffic or external traffic for the current boot. Runtime requests using removed `pacing` or `disabled` values receive `invalid_params`; persisted legacy values migrate once to `internal`.
+Accepted values are `internal` and `external`. ESPectre frontends persist the accepted value across reboot. Micro-ESPectre advertises no traffic-control mutation; its deployment configuration selects shared managed traffic or external traffic for the current boot. Runtime requests using removed `pacing` or `disabled` values receive `invalid_params`; persisted legacy values migrate once to `internal`.
 
 On ESP-IDF sensing frontends, `external` stops the internal generator and accepts either of these externally supplied packet shapes:
 
@@ -587,7 +587,7 @@ Update the internal traffic generator type on frontends that advertise traffic c
 }
 ```
 
-Accepted values are `ping`, `dns`, and `dns_tcp`. `ping` selects stateless ICMP echo traffic. `dns` sends connectionless DNS queries over UDP to gateway port `53`. `dns_tcp` sends length-prefixed DNS queries over one persistent, non-blocking TCP connection to gateway port `53`. ESP-IDF frontends persist the accepted value across reboot. The selection is always stored, but only takes effect while `csi_traffic_mode` is `internal`; ESPectre does not silently fall back between protocols.
+Accepted values are `ping`, `dns`, and `dns_tcp`. `ping` selects stateless ICMP echo traffic. `dns` sends connectionless DNS queries over UDP to gateway port `53`. `dns_tcp` sends length-prefixed DNS queries over one persistent, non-blocking TCP connection to gateway port `53`. ESP-IDF frontends persist an accepted runtime change across reboot. Micro-ESPectre uses the same generator but reads `TRAFFIC_GENERATOR_MODE` from its deployment configuration and does not advertise the runtime mutation. The selection only takes effect while `csi_traffic_mode` is `internal`; ESPectre does not silently fall back between protocols.
 
 Request an OTA manifest check. Omit `channel` to use the firmware's build-time default, or pass `release`, `preview`, or `develop`:
 

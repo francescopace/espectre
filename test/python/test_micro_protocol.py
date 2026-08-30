@@ -246,6 +246,7 @@ def test_direct_facade_starts_and_publishes_canonical_telemetry(monkeypatch):
     policy = SimpleNamespace(motion_on_hits=4, motion_off_hits=3)
     traffic = MagicMock()
     traffic.is_running.return_value = True
+    traffic.get_mode.return_value = "dns"
     state = SimpleNamespace(chip_type="C3", current_channel=6, calibration_mode=False)
     config = SimpleNamespace(
         WIFI_SSID="lab",
@@ -297,7 +298,7 @@ def test_direct_facade_starts_and_publishes_canonical_telemetry(monkeypatch):
     assert info["firmware_version"] == "2.8.0-356-gfa155f8"
     assert info["chip"] == "esp32c3"
     assert info["csi_traffic_mode"] == "internal"
-    assert info["traffic_mode"] == "ping"
+    assert info["traffic_mode"] == "dns"
     assert facade._config()["wifi"]["band"] == "2g"
     wlan_values["channel"] = 36
     assert facade._config()["wifi"]["band"] == "5g"

@@ -86,7 +86,16 @@ TRAFFIC_GENERATOR_CONFIGS = {
 def configured_traffic_generator_mode(frontend: str, chip: str) -> str:
     """Return the production traffic mode owned by the frontend configuration."""
     if frontend == "micro":
-        return "ping"
+        config_path = MICRO_SOURCE_DIR / "config.py"
+        match = re.search(
+            r'''(?m)^TRAFFIC_GENERATOR_MODE\s*=\s*["'](ping|dns|dns_tcp)["'](?:\s*#.*)?$''',
+            config_path.read_text(encoding="utf-8"),
+        )
+        if match is None:
+            raise RuntimeError(
+                f"Micro config does not select a traffic generator mode: {config_path}"
+            )
+        return match.group(1)
     if frontend == "esphome":
         config_path = Path(ESPHOME_CONFIGS[chip])
         match = re.search(

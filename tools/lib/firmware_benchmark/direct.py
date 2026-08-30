@@ -332,8 +332,12 @@ def prepare_micro_direct_runtime(
         raise RuntimeError(f"Micro Direct endpoint did not confirm detector {case.detector}")
     if runtime_config.get("csi_traffic_mode") != "internal":
         raise RuntimeError("Micro Direct endpoint did not confirm internal CSI traffic")
-    if runtime_config.get("traffic_generator_mode") != "ping":
-        raise RuntimeError("Micro Direct endpoint did not confirm ping traffic generation")
+    expected_traffic_mode = configured_traffic_generator_mode("micro", chip)
+    if runtime_config.get("traffic_generator_mode") != expected_traffic_mode:
+        raise RuntimeError(
+            "Micro Direct endpoint did not confirm configured "
+            f"{expected_traffic_mode} traffic generation"
+        )
     diagnostics = handshake["diagnostics"]
     required_diagnostic_fields = {
         "protocol_version",

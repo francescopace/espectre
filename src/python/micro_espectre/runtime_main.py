@@ -405,7 +405,7 @@ def get_chip_type():
     """Extract short chip type from os.uname().machine."""
     machine = os.uname().machine.upper()
     # Check for specific variants first
-    for variant in ['S3', 'C3', 'C5', 'C6']:
+    for variant in ['S2', 'S3', 'C3', 'C5', 'C6']:
         if variant in machine:
             return variant
     # Fallback to ESP32 base
@@ -463,7 +463,9 @@ def main(wlan=None):
     # Initialize and start traffic generator (target CSI rate from config.py)
     gc.collect()  # Free memory before creating socket
     from src.traffic_generator import TrafficGenerator
-    traffic_gen = TrafficGenerator()
+    traffic_gen = TrafficGenerator(
+        getattr(config, 'TRAFFIC_GENERATOR_MODE', 'ping')
+    )
     collect_and_print_heap('after_traffic_gen_init')
     if getattr(config, 'TRAFFIC_GENERATOR_ENABLED', True):
         if not traffic_gen.start(target_pps):
@@ -473,7 +475,9 @@ def main(wlan=None):
             time.sleep(5)
             machine.reset()  # Reboot and retry
 
-        print(f'Traffic generator started (ping, target={target_pps} CSI pps)')
+        print(
+            f'Traffic generator started ({traffic_gen.get_mode()}, target={target_pps} CSI pps)'
+        )
         collect_and_print_heap('after_traffic_gen_start')
 
         # Verify CSI packets are flowing with retry logic

@@ -15,6 +15,8 @@ import ast
 import builtins
 import subprocess
 import sys
+import tokenize
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -93,6 +95,15 @@ def _create_micro_src_tree(base_dir: Path) -> None:
         target.write_text("# test\n", encoding="utf-8")
 
 
+def _string_token_is_fstring(token_string: str) -> bool:
+    prefix = []
+    for char in token_string:
+        if char in "\"'":
+            break
+        prefix.append(char.lower())
+    return "f" in prefix
+
+
 def test_device_sources_avoid_unsupported_future_annotations() -> None:
     for rel_path in micro.MICRO_DEVICE_RELATIVE_FILES:
         source = micro.PYTHON_SRC_DIR / rel_path
@@ -104,6 +115,50 @@ def test_device_sources_avoid_unsupported_future_annotations() -> None:
         assert "from __future__ import annotations" not in source.read_text(
             encoding="utf-8"
         ), rel_path
+
+
+def test_device_sources_avoid_implicit_fstring_concatenation() -> None:
+    skip_types = {
+        tokenize.ENCODING,
+        tokenize.ENDMARKER,
+        tokenize.NL,
+        tokenize.NEWLINE,
+        tokenize.INDENT,
+        tokenize.DEDENT,
+        tokenize.COMMENT,
+        tokenize.FSTRING_MIDDLE,
+    }
+    violations: list[str] = []
+    for rel_path in micro.MICRO_DEVICE_RELATIVE_FILES:
+        source_path = micro.PYTHON_SRC_DIR / rel_path
+        if not source_path.exists():
+            source_path = source_path.with_name(source_path.name + ".example")
+            assert source_path.exists(), rel_path
+        previous_ended_string = False
+        previous_was_fstring = False
+        for tok in tokenize.tokenize(
+            BytesIO(source_path.read_bytes()).readline
+        ):
+            if tok.type in skip_types:
+                continue
+            starts_string = tok.type in (tokenize.STRING, tokenize.FSTRING_START)
+            ends_string = tok.type in (tokenize.STRING, tokenize.FSTRING_END)
+            is_fstring = tok.type in (
+                tokenize.FSTRING_START,
+                tokenize.FSTRING_END,
+            ) or (
+                tok.type == tokenize.STRING
+                and _string_token_is_fstring(tok.string)
+            )
+            if (
+                starts_string
+                and previous_ended_string
+                and (previous_was_fstring or is_fstring)
+            ):
+                violations.append(f"{rel_path}:{tok.start[0]}")
+            previous_ended_string = ends_string
+            previous_was_fstring = bool(ends_string and is_fstring)
+    assert violations == []
 
 
 def test_deploy_manifest_contains_local_runtime_imports() -> None:
@@ -1029,8 +1084,10 @@ def test_project_boards_use_one_shared_profile_and_only_esp32_override() -> None
     assert "native_direct.c" in native_cmake
     assert "native_features.cpp" in native_cmake
     assert "native_features_module.c" in native_cmake
+    assert "native_traffic.cpp" in native_cmake
     assert "shared_core" not in native_cmake
     assert "idf::espectre_core" in native_cmake
+    assert "idf::espectre_runtime_traffic" in native_cmake
     assert "native_traffic.c" in native_cmake
     assert "native_mqtt.c" not in native_cmake
     assert "idf::mqtt" not in native_cmake
@@ -1045,6 +1102,17 @@ def test_project_boards_use_one_shared_profile_and_only_esp32_override() -> None
     assert "$ENV{ESPECTRE_CORE_SDK_ROOT}" in component_cmake
     assert "ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY" in component_kconfig
     assert "ESPECTRE_TRAFFIC_TASK_PRIORITY" in component_kconfig
+
+    traffic_component = (
+        micro.PYTHON_SRC_DIR
+        / "firmware"
+        / "components"
+        / "espectre_runtime_traffic"
+        / "CMakeLists.txt"
+    ).read_text(encoding="utf-8")
+    assert "traffic_generator_manager.cpp" in traffic_component
+    assert "sta_socket_helpers.cpp" in traffic_component
+    assert "ESPECTRE_CORE_SOURCES" not in traffic_component
 
     native_cpp = (
         micro.PYTHON_SRC_DIR

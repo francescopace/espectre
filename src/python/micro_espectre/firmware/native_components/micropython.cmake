@@ -11,6 +11,7 @@ target_sources(usermod_espectre_native_components INTERFACE
     ${CMAKE_CURRENT_LIST_DIR}/native_direct.c
     ${CMAKE_CURRENT_LIST_DIR}/native_features.cpp
     ${CMAKE_CURRENT_LIST_DIR}/native_features_module.c
+    ${CMAKE_CURRENT_LIST_DIR}/native_traffic.cpp
     ${CMAKE_CURRENT_LIST_DIR}/native_traffic.c
 )
 
@@ -28,6 +29,7 @@ target_link_libraries(usermod INTERFACE usermod_espectre_native_components)
 cmake_language(
     DEFER CALL target_link_libraries usermod INTERFACE
     idf::espectre_core
+    idf::espectre_runtime_traffic
     idf::esp_http_server
     idf::json
     idf::espressif__mdns

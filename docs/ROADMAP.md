@@ -4,7 +4,6 @@
 
 | Milestone | Timing | Commitment | Product outcome |
 | --- | --- | --- | --- |
-| **v3.0.0-rc1** | End of August 2026 | Planned | Remove first-party BLE, add local Direct HTTP/SSE, freeze the v3 contract, and validate release artifacts |
 | **v3.0.0-rc2** | After `rc1` findings | Planned | Resolve targeted findings without widening the frozen v3 baseline |
 | **v3.0.0** | After `rc2` validation | Planned | Ship the stable shared sensing platform and supported firmware frontends |
 | **v3.1.0** | After v3.0.x triage | Planned | Expand Matter support and validate it across more controllers |
@@ -15,29 +14,6 @@
 | **v4.0.0** | After v3.5.0 | Planned | Coordinate sensing nodes locally, evaluate chip-specific acceleration, and manage deployments through an optional web layer |
 | **v5.0.0** | Hardware-triggered | Exploratory | Adopt IEEE 802.11bf or equivalent sensing on practical future hardware |
 
-## v3.0.0-rc1 - First Release Candidate
-
-**Product outcome**: complete the BLE-free Native transport cutover, freeze the intended v3.0.0 platform contract, publish the first complete candidate artifacts, and finish whole-platform release validation.
-
-### Release Scope
-
-The candidate covers the shared sensing architecture, runtime and protocol contracts, supported firmware frontends, release artifacts, and embeddable SDK surface intended for v3.0.0. Before the candidate is published, standard Improv Serial provisioning and the versioned local Direct HTTP API replace the first-party Native BLE surface across firmware, SDK, portal, tests, and current documentation. JSON commands use HTTP POST, processed events use SSE over streaming fetch, and ESPectre frontends expose bearer-bound raw CSI over a binary HTTP stream on supported chips. Other product capabilities move to a later minor release unless they are required to correct a release blocker.
-
-Completed implementation and detector experiments live in [CHANGELOG.md](CHANGELOG.md) and [FEATURES.md](FEATURES.md).
-
-**Release tasks**:
-
-- [ ] Run a classic ESP32/ESP32-S2 DNS/UDP A/B with Direct HTTPD task priorities 1 and 4 across ESPHome, Native, and Matter; remove the target-specific priority overrides if priority 1 preserves Direct availability, response latency, and CSI occupancy
-- [ ] Investigate a driver-level CSI recovery after a managed Wi-Fi reconnect, validate it on every supported chip before adding it to the runtime, and keep the existing one-shot fallback reboot as the production watchdog
-- [ ] Re-run the on-device firmware benchmark on every supported chip and refresh the published performance reports
-
-**Exit criteria**:
-
-- [ ] Confirm `/documentation/setup/` falls through 404→home and `/guides/setup/` serves the static setup guide
-- [ ] Test the GitHub issue and pull request templates end to end
-- [ ] Confirm GA4 Realtime receives production events after consent
-- [ ] Update the GitHub Discussion "ML Detector: architecture, training pipeline, and future direction"
-
 ## v3.0.0-rc2 - Second Release Candidate
 
 **Product outcome**: resolve findings from the first candidate and prove that the frozen v3.0.0 contract is ready for stable release.
@@ -46,6 +22,8 @@ Completed implementation and detector experiments live in [CHANGELOG.md](CHANGEL
 
 **Release tasks**:
 
+- [ ] Run a classic ESP32/ESP32-S2 DNS/UDP A/B with Direct HTTPD task priorities 1 and 4 across ESPHome, Native, and Matter; remove the target-specific priority overrides if priority 1 preserves Direct availability, response latency, and CSI occupancy
+- [ ] Investigate a driver-level CSI recovery after a managed Wi-Fi reconnect, validate it on every supported chip before adding it to the runtime, and keep the existing one-shot fallback reboot as the production watchdog
 - [ ] Complete the v3 corpus collection backlog, including replacement `empty` captures for the low-occupancy recordings removed from the catalog and missing original ESP32 label and environment coverage; rerun the dataset-quality, training, and C++/Python parity gates on the final corpus.
 - [ ] Benchmark the C++ Direct raw CSI queue with fixed 512-, 256-, and 128-byte payload bounds, then retain or reduce its internal fixed-slot size without changing the published raw-record contract or advertised capabilities.
 

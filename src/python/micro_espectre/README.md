@@ -9,13 +9,13 @@ Changes to shared detector behavior must remain aligned with the C++ implementat
 The deployed runtime intentionally contains only:
 
 - the Lightweight CSI detector and its startup threshold calibration;
-- the ESP-IDF ICMP ping traffic generator;
+- the shared ESP-IDF managed traffic generator with ICMP, DNS/UDP, and DNS/TCP modes;
 - a bounded Direct HTTP endpoint for monitoring and manual recalibration;
 - one SSE telemetry client;
 - mDNS/DNS-SD advertisement and a unique `.local` hostname; and
 - serial logging and the MicroPython REPL.
 
-The device does not deploy the High Accuracy ML detector, ML weights, MQTT, Home Assistant discovery, the shared C++ DNS-over-TCP generator, runtime detector switching, raw CSI streaming, OTA, or configuration mutations. The High Accuracy and pure-Python Lightweight implementations live under `tools/lib/` for host-side research and C++/Python validation; `micro deploy` does not copy them to the device.
+The device does not deploy the High Accuracy ML detector, ML weights, MQTT, Home Assistant discovery, runtime detector switching, raw CSI streaming, OTA, or configuration mutations. The High Accuracy and pure-Python Lightweight implementations live under `tools/lib/` for host-side research and C++/Python validation; `micro deploy` does not copy them to the device.
 
 ESPectre contributed direct ESP32 Wi-Fi CSI access to mainline MicroPython through [micropython/micropython#18460](https://github.com/micropython/micropython/pull/18460). Micro-ESPectre builds a pinned mainline revision with a lean ESPectre board profile rather than using the earlier CSI fork.
 
@@ -41,7 +41,7 @@ WIFI_PASSWORD = "YourWiFiPassword"
 
 The firmware image freezes only MicroPython's upstream boot and filesystem helpers. The complete ESPectre application is compiled to optimized `.mpy -O3` bytecode and stored on the filesystem, so research changes require only `micro deploy`, not a firmware rebuild and flash. Deployment uploads the complete manifest to a staging directory and atomically activates it, restoring the previous directory after an interrupted swap. The device and `mpy-cross` use MPY ABI 6.3.
 
-The firmware links the core-only ESPectre SDK as an ESP-IDF component. Its MicroPython binding exposes finalizable Lightweight `Detector` and `TemporalCsiSampler` objects through the public `espectre_core_sdk.h` facade. The production Lightweight detector and temporal admission hot paths therefore run in C++, while MicroPython owns orchestration, calibration policy, diagnostics, and delivery. The application fails at startup if the core module is absent or incompatible; it does not silently fall back to the Python detector on the device. Equivalent Python implementations remain available under `tools/lib/` for replay, training, and host-side experimentation. The other native components are the ICMP traffic generator and the Direct HTTP/mDNS service. Bluetooth, ESP-NOW, asyncio, Ethernet, unused peripheral bindings, and unused generic Python modules remain disabled.
+The firmware links the core-only ESPectre SDK and the focused shared traffic runtime as separate ESP-IDF components. Its MicroPython bindings expose finalizable Lightweight `Detector` and `TemporalCsiSampler` objects through the public `espectre_core_sdk.h` facade and adapt the existing `TrafficGeneratorManager` without copying its protocol implementations. The production Lightweight detector, temporal admission, traffic pacing, and packet generation hot paths therefore run in C++, while MicroPython owns orchestration, calibration policy, diagnostics, and delivery. The application fails at startup if the core module is absent or incompatible; it does not silently fall back to the Python detector on the device. Equivalent Python detector implementations remain available under `tools/lib/` for replay, training, and host-side experimentation. The other native component is the Direct HTTP/mDNS service. Bluetooth, ESP-NOW, asyncio, Ethernet, unused peripheral bindings, and unused generic Python modules remain disabled.
 
 ## Runtime behavior
 
@@ -57,6 +57,7 @@ Key settings live in `config.py`:
 DEVICE_LABEL = ""
 CSI_TARGET_PPS = 100
 TRAFFIC_GENERATOR_ENABLED = True
+TRAFFIC_GENERATOR_MODE = "dns"
 CSI_LINK_RECOVERY_TIMEOUT_MS = 5000
 CSI_BUFFER_SIZE = 16
 CSI_CAPTURE_MAX_DATA_LEN = 256
@@ -66,7 +67,7 @@ MOTION_ON_HITS = 4
 MOTION_OFF_HITS = 3
 ```
 
-These `config.py` values are deployment settings rather than runtime mutations. An empty `DEVICE_LABEL` keeps the shared generated name. `CSI_TARGET_PPS` defines the detector grid and ICMP target rate, while setting `TRAFFIC_GENERATOR_ENABLED = False` requires an external CSI traffic source. `CSI_CAPTURE_MAX_DATA_LEN` selects the fixed native ring-record stride: 256 supports the doubled HT20 layout, while 128 is suitable only when every captured frame uses the canonical payload because larger frames are truncated.
+These `config.py` values are deployment settings rather than runtime mutations. An empty `DEVICE_LABEL` keeps the shared generated name. `CSI_TARGET_PPS` defines the detector grid and managed traffic rate. `TRAFFIC_GENERATOR_MODE` accepts `ping`, `dns`, or `dns_tcp`; the committed Micro configuration selects connectionless DNS/UDP for every supported chip, and `config_local.py` can select another mode for a deployment. Both DNS modes use the gateway resolver on port 53. Setting `TRAFFIC_GENERATOR_ENABLED = False` requires an external CSI traffic source. `CSI_CAPTURE_MAX_DATA_LEN` selects the fixed native ring-record stride: 256 supports the doubled HT20 layout, while 128 is suitable only when every captured frame uses the canonical payload because larger frames are truncated.
 
 In `config_local.py`, `WIFI_CHANNEL` can accompany `WIFI_BSSID` to avoid a scan during association. If no CSI frame arrives for `CSI_LINK_RECOVERY_TIMEOUT_MS`, the runtime first rearms CSI. If the stall persists, it disables CSI, reconnects Wi-Fi, enables CSI with a fresh native ring, recalibrates, and republishes Direct discovery.
 
@@ -88,7 +89,7 @@ The exact capability response is authoritative: the Micro frontend advertises bo
 
 Monitor Auto-discovery can also list this device when a Native, ESPHome, or Matter responder is already on the LAN. Micro-ESPectre does not answer the one-shot bootstrap hostname or `discover_peers`; without another eligible responder, use the private IP or unique `.local` hostname. Shared discovery is documented in [Peer-assisted browser discovery](../../../docs/ESPECTRE_PROTOCOL.md#peer-assisted-browser-discovery).
 
-Only one SSE client and one in-flight event are retained to bound sockets, heap, and work queued on the HTTP server task. Requests are limited to 512 bytes, and SSE events are limited to 4,096 bytes. The stream sets `Cache-Control: no-store`, emits `: heartbeat` every 10 seconds, retains at most one queued heartbeat, and closes after a send error. Query snapshots are generated by the MicroPython runtime, while HTTP framing, request parsing, CORS, mDNS, and Direct transport counters run in the native firmware component. Telemetry follows `EVALUATION_INTERVAL_MS` while that SSE client is connected, matching the consumer-aware C++ frontends. By default, the HTTP task runs at the MicroPython task priority, and the service accepts at most 20 Direct POST requests per one-second window. A lightweight status refresh remains on a one-second cadence, while full diagnostics normally wait for the native CSI ring to drain on a five-second cadence. Diagnostics and garbage collection run after at most another 500 ms under sustained backlog, making maintenance bounded while preserving the empty-ring fast path. The diagnostics payload uses canonical runtime fields plus the optional bounded `direct_http` transport object for Micro queue and failure counters.
+Only one SSE client and one in-flight event are retained to bound sockets, heap, and work queued on the HTTP server task. Requests are limited to 512 bytes, and SSE events are limited to 4,096 bytes. The stream sets `Cache-Control: no-store`, emits `: heartbeat` every 10 seconds, retains at most one queued heartbeat, and closes after a send error. A peer close or reset does not increment `send_failures`; timeout and backpressure failures do. Query snapshots are generated by the MicroPython runtime, while HTTP framing, request parsing, CORS, mDNS, and Direct transport counters run in the native firmware component. Telemetry follows `EVALUATION_INTERVAL_MS` while that SSE client is connected, matching the consumer-aware C++ frontends. By default, the HTTP task runs at the MicroPython task priority, and the service accepts at most 20 Direct POST requests per one-second window. A lightweight status refresh remains on a one-second cadence, while full diagnostics normally wait for the native CSI ring to drain on a second cadence. Diagnostics and garbage collection run after at most another 500 ms under sustained backlog, making maintenance bounded while preserving the empty-ring fast path. The diagnostics payload uses canonical runtime fields plus the optional bounded `direct_http` transport object for Micro queue and failure counters.
 
 Direct rejects requests without an `Origin` header and accepts only `https://espectre.dev`, `https://www.espectre.dev`, and `https://test.espectre.dev` in published firmware. Development builds may set `CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED=y` to accept exact HTTP loopback hosts with an optional valid port. The published board profiles leave this option disabled.
 

@@ -167,6 +167,16 @@ def test_configured_traffic_mode_reads_target_defaults(tmp_path, monkeypatch):
     assert bench.configured_traffic_generator_mode("native", "s2") == "dns"
 
 
+def test_configured_traffic_mode_reads_micro_default(tmp_path, monkeypatch):
+    (tmp_path / "config.py").write_text(
+        'TRAFFIC_GENERATOR_MODE = "dns"  # DNS over UDP\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(bench, "MICRO_SOURCE_DIR", tmp_path)
+
+    assert bench.configured_traffic_generator_mode("micro", "esp32") == "dns"
+
+
 def test_configured_traffic_mode_reads_esphome_yaml(tmp_path, monkeypatch):
     config = tmp_path / "espectre-s2.yaml"
     config.write_text(

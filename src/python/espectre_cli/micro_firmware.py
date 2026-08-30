@@ -1251,6 +1251,12 @@ def _build_project_firmware_locked(
     core_component_dir = (
         build_root / "firmware-support" / "components" / "espectre_core"
     )
+    traffic_component_dir = (
+        build_root / "firmware-support" / "components" / "espectre_runtime_traffic"
+    )
+    extra_component_dirs = ";".join(
+        (str(core_component_dir), str(traffic_component_dir))
+    )
     core_build_environment = {
         "ESPECTRE_CORE_SDK_ROOT": str(core_sdk_root),
     }
@@ -1270,7 +1276,7 @@ def _build_project_firmware_locked(
             f"-DMICROPY_LIB_DIR={build_root / 'micropython-lib'}",
             f"-DUSER_C_MODULES={build_root / 'firmware-support' / 'native_components' / 'micropython.cmake'}",
             f"-DESPECTRE_CORE_SDK_ROOT={core_sdk_root}",
-            f"-DEXTRA_COMPONENT_DIRS={core_component_dir}",
+            f"-DEXTRA_COMPONENT_DIRS={extra_component_dirs}",
             "-DMICROPY_PY_BTREE=0",
         ],
         [
