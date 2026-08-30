@@ -1,6 +1,6 @@
 # Tuning Guide
 
-Use this guide after a device is installed and connected, even if it is not producing valid motion data yet. It explains what to check, what to change, and in what order. Detector formulas and validation evidence remain in [ALGORITHMS.md](ALGORITHMS.md) and the generated [performance report](performance/README.md).
+Use this guide with the maintained C++ frontends after a device is installed and connected, even if it is not producing valid motion data yet. Micro-ESPectre users can follow the shared troubleshooting guidance linked from its README; its configuration and control details remain there. This guide explains what to check, what to change, and in what order. Detector formulas and validation evidence remain in [ALGORITHMS.md](ALGORITHMS.md) and the generated [performance report](performance/README.md). Other frontend-specific behavior belongs in the relevant local README.
 
 Inline snippets use ESPHome YAML as a concrete example. CSI means channel state information. Accepted `pps` is the identity-accepted capture supply; admitted `pps` is the detector input after temporal slot admission.
 
@@ -31,7 +31,7 @@ espectre:
 
 For Lightweight, stay quiet immediately after boot. After the first quiet phase, one short movement may complete startup early, but it is optional. Repeated movement during the initial quiet phase still reduces calibration quality. Missing or burst-concentrated slots extend the wall-clock duration because they do not count as valid evidence.
 
-Choose `lightweight` when the surrounding firmware needs the smaller active detector state and lower per-packet cost. Choose `high_accuracy` when detection quality matters more than that additional cost. ESPHome, Native, and Matter persist an accepted runtime profile selection through the controls they advertise. A profile change resets the threshold to the selected profile's default, and `high_accuracy -> lightweight` starts calibration. Published Matter firmware starts with `lightweight`. Micro-ESPectre deploys Lightweight only.
+Choose `lightweight` when the surrounding firmware needs the smaller active detector state and lower per-packet cost. Choose `high_accuracy` when detection quality matters more than that additional cost. ESPHome, Native, and Matter persist an accepted runtime profile selection through the controls they advertise. A profile change resets the threshold to the selected profile's default, and `high_accuracy -> lightweight` starts calibration. Published Matter firmware starts with `lightweight`.
 
 See [ALGORITHMS.md](ALGORITHMS.md#known-limits) and the [performance report](performance/README.md) for current measurements and known limits. The relevant frontend README owns the exact configuration and control surface.
 
@@ -77,7 +77,7 @@ Rules of thumb:
 - reduce the corresponding hit count when confirmation is too slow
 - changing `evaluation_interval_ms` scales both confirmation ranges proportionally
 
-ESPHome, Native, and Matter expose persisted runtime hit controls through the surfaces they advertise. Micro-ESPectre uses deployment-time values and publishes telemetry through Direct SSE when a client is connected. Every shipped frontend makes telemetry available on each detector evaluation once `ready_to_publish` is true and a frontend-specific consumer requests it.
+ESPHome, Native, and Matter expose persisted runtime hit controls through the surfaces they advertise. Each makes telemetry available on every detector evaluation once `ready_to_publish` is true and a frontend-specific consumer requests it.
 
 ## Filters
 
@@ -106,7 +106,7 @@ espectre:
 
 Use the low-pass filter when a stable installation still produces noise-driven false positives after threshold tuning. A lower cutoff applies more smoothing and may hide fast motion; a higher cutoff preserves more short-term variation.
 
-The current C++ and Micro-ESPectre implementations calculate low-pass coefficients against a nominal `100 Hz` sample rate. `lowpass_cutoff` has its nominal frequency meaning when the admitted stream follows that regular cadence. A different target or substantial missing-slot pattern changes the effective time scale, so treat that combination as an experiment and revalidate it.
+The current C++ implementations calculate low-pass coefficients against a nominal `100 Hz` sample rate. `lowpass_cutoff` has its nominal frequency meaning when the admitted stream follows that regular cadence. A different target or substantial missing-slot pattern changes the effective time scale, so treat that combination as an experiment and revalidate it.
 
 ## Traffic Health And Target Rate
 
@@ -130,7 +130,7 @@ If occupancy remains below 70%:
 
 The runtime never changes the target automatically because doing so would change feature timing.
 
-The sensing frontends support internal `ping`, `dns`, and `dns_tcp`. Ping sends ICMP echo requests, `dns` sends connectionless UDP/53 queries, and `dns_tcp` uses a persistent, non-blocking TCP connection to gateway port `53`. The shared default is ping, while the classic ESP32 and ESP32-S2 product profiles use DNS/UDP. Select the mode that remains stable with the deployed device, driver, AP, and gateway resolver; the runtime does not fall back automatically. Micro-ESPectre reads the mode from `TRAFFIC_GENERATOR_MODE` at deployment and does not expose runtime traffic mutations.
+The sensing frontends support internal `ping`, `dns`, and `dns_tcp`. Ping sends ICMP echo requests, `dns` sends connectionless UDP/53 queries, and `dns_tcp` uses a persistent, non-blocking TCP connection to gateway port `53`. The shared default is ping, while the classic ESP32 and ESP32-S2 product profiles use DNS/UDP. Select the mode that remains stable with the deployed device, driver, AP, and gateway resolver; the runtime does not fall back automatically.
 
 Rules of thumb:
 
@@ -211,7 +211,7 @@ Check Wi-Fi connection status, the traffic source, the CSI-enabled build configu
 
 ### Mesh Wi-Fi Instability
 
-If the device roams between access points that share an SSID, the radio path, channel, and packet delivery can change underneath the detector. Pin the device to a specific BSSID when roaming causes unstable occupancy or detection. ESPectre exposes this control when it is advertised in its Direct capability catalog; Micro-ESPectre accepts an optional deployment-time `WIFI_BSSID` setting. Native persists the pin across reboot. ESPHome persists an ESPectre-only pin and reapplies it after reconnect. Matter persists an ESPectre-owned override for the commissioned SSID, reapplies it after restart only while that SSID matches, and leaves Matter-owned credentials unchanged.
+If the device roams between access points that share an SSID, the radio path, channel, and packet delivery can change underneath the detector. Pin the device to a specific BSSID when roaming causes unstable occupancy or detection. ESPectre exposes this control when it is advertised in its Direct capability catalog. Native persists the pin across reboot. ESPHome persists an ESPectre-only pin and reapplies it after reconnect. Matter persists an ESPectre-owned override for the commissioned SSID, reapplies it after restart only while that SSID matches, and leaves Matter-owned credentials unchanged.
 
 In the browser:
 
@@ -247,7 +247,6 @@ Use recalibration after a material placement or radio-environment change when th
 
 - Lightweight starts a fresh threshold calibration; keep the room quiet as you would at boot.
 - High Accuracy immediately restores its trained threshold and does not collect a quiet-room window.
-- Micro-ESPectre has no writable sensing controls and recalibrates Lightweight at startup.
 
 ## Monitoring
 

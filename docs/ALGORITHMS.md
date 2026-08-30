@@ -82,7 +82,7 @@ The runtime derives fixed slots from `csi_target_pps`, not from measured arrival
 
 Calibration and steady-state detection share one cadence. Both paths evaluate admitted packets on the same schedule.
 
-The detector instance, its slot capacity, and startup calibration remain stable under ordinary delivery jitter. A target or window configuration change is an explicit lifecycle boundary; measured receive rate is diagnostic only and never reconstructs a detector. Micro-ESPectre, collector-derived sensing, replay, training, Python validation, and C++ integration replay all use their production-language sampler before feature processing. Runtime placement and raw-collection behavior are documented in [ARCHITECTURE.md](ARCHITECTURE.md#shared-wi-fi-and-csi-lifecycle) and [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md#direct-raw-csi).
+The detector instance, its slot capacity, and startup calibration remain stable under ordinary delivery jitter. A target or window configuration change is an explicit lifecycle boundary; measured receive rate is diagnostic only and never reconstructs a detector. Live sensing, collector-derived sensing, replay, training, Python validation, and C++ integration replay all apply temporal admission before feature processing. Runtime placement and raw-collection behavior are documented in [ARCHITECTURE.md](ARCHITECTURE.md#shared-wi-fi-and-csi-lifecycle) and [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md#direct-raw-csi).
 
 Cadence advances on admitted packet timestamps, never on the loop clock or a packet-count fallback. A live slot is closed by observing a packet in a later timestamp slot, not merely because wall-clock time passed, so a delayed but better candidate is not discarded. Wall-clock time is used only to reject processing-backlog staleness. Live input and binding replay datasets must provide trustworthy timestamps and target provenance; missing or non-advancing timestamps contribute no evidence.
 
@@ -117,7 +117,7 @@ Both detectors sample the same fixed 12-subcarrier set for their turbulence and 
 [4, 8, 13, 18, 23, 28, 36, 41, 46, 51, 56, 60]
 ```
 
-These bins are subcarriers `+/-4, +/-9, +/-14, +/-19, +/-24, +/-28`, and they assume the centered convention where bin `32` is DC. Classic-MAC parts deliver CSI in Espressif's native `0~31, -32~-1` order instead, so the capture path rotates those payloads before band selection; see [`csi_format.h`](../src/cpp/core/csi_format.h) and [`device_utils.py`](../src/python/micro_espectre/device_utils.py).
+These bins are subcarriers `+/-4, +/-9, +/-14, +/-19, +/-24, +/-28`, and they assume the centered convention where bin `32` is DC. Classic-MAC parts deliver CSI in Espressif's native `0~31, -32~-1` order instead, so the capture path rotates those payloads before band selection; see [`csi_format.h`](../src/cpp/core/csi_format.h).
 
 The active runtime no longer selects subcarriers for each session. This set is part of the current detector definition. The indices come from measured channel coherence, not a detection-metric search: motion perturbation stays coherent over about 10 subcarriers while quiet noise is nearly independent per tone, so spreading the selected tones across the band provides independent observations. For the full rationale behind the band and the count, see [`2026-07-25-select-the-classic-band-from-channel-coherence.md`](adr/2026-07-25-select-the-classic-band-from-channel-coherence.md).
 

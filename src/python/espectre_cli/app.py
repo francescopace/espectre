@@ -15,7 +15,14 @@ import os
 from pathlib import Path
 
 from .about import print_about, print_version
-from .common import MICRO_CHIP_CHOICES, add_mqtt_connection_args, build_mqtt_namespace, cli_command, serial_port_example
+from .common import (
+    CHIP_CHOICES,
+    MICRO_CHIP_CHOICES,
+    add_mqtt_connection_args,
+    build_mqtt_namespace,
+    cli_command,
+    serial_port_example,
+)
 from .device_discovery import DISCOVERY_TIMEOUT_S, SUPPORTED_DISCOVERY_FRONTENDS, run_devices_command
 from .device_control import DEFAULT_DIRECT_ORIGIN, run_direct_request_command, run_improv_provision_command
 from .esphome import run_esphome_command
@@ -123,7 +130,7 @@ def _add_devices_parser(subparsers) -> None:
     )
     devices_parser.add_argument(
         "--chip",
-        choices=MICRO_CHIP_CHOICES,
+        choices=CHIP_CHOICES,
         help="Limit discovery to one chip family",
     )
     devices_parser.add_argument(
@@ -146,7 +153,11 @@ def _add_provision_parser(subparsers) -> None:
         help="Provision a clean Native or ESPHome device through standard Improv Serial",
     )
     provision_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
-    provision_parser.add_argument("--chip", choices=MICRO_CHIP_CHOICES, help="Target chip used to filter compatible ports")
+    provision_parser.add_argument(
+        "--chip",
+        choices=CHIP_CHOICES,
+        help="Target chip used to filter compatible ports",
+    )
     provision_parser.add_argument(
         "--frontend",
         choices=("native", "esphome"),
@@ -193,7 +204,7 @@ def _add_direct_parser(subparsers) -> None:
     )
     direct_parser.add_argument(
         "--chip",
-        choices=MICRO_CHIP_CHOICES,
+        choices=CHIP_CHOICES,
         help="Limit frontend discovery to one chip family",
     )
     direct_parser.add_argument(
@@ -222,7 +233,11 @@ def _add_mqtt_parser(subparsers, *, name: str = "mqtt", help_text: str | None = 
 def _add_monitor_parser(subparsers) -> None:
     monitor_parser = subparsers.add_parser("monitor", help="Attach to a serial port and stream logs")
     monitor_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
-    monitor_parser.add_argument("--chip", choices=MICRO_CHIP_CHOICES, help="Target chip used to filter compatible ports")
+    monitor_parser.add_argument(
+        "--chip",
+        choices=CHIP_CHOICES,
+        help="Target chip used to filter compatible ports",
+    )
     monitor_parser.add_argument(
         "--frontend",
         choices=("native", "esphome", "matter", "micro"),

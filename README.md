@@ -68,7 +68,7 @@ The repository wrapper exposes the available workflows through:
 | **Matter** | Matter controllers with occupancy-sensor support; controller validation is still limited | [Matter frontend](src/cpp/frontend/matter/README.md) |
 | **Micro-ESPectre** | Lightweight sensing in MicroPython with local, read-only Direct HTTP monitoring | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
 
-ESPHome, Native, and Matter can choose between a `lightweight` detector, which learns a room-specific threshold at startup and leaves more resources to the rest of the application, and a `high_accuracy` detector, which runs the trained model included in the repository. Micro-ESPectre currently deploys only the lightweight detector. Their behavior and measured trade-offs are documented in [SETUP.md](docs/SETUP.md#detection-profiles-and-startup), [ALGORITHMS.md](docs/ALGORITHMS.md), and the [performance report](docs/performance/README.md).
+ESPHome, Native, and Matter can choose between a `lightweight` detector, which learns a room-specific threshold at startup and leaves more resources to the rest of the application, and a `high_accuracy` detector, which runs the trained model included in the repository. Their behavior and measured trade-offs are documented in [SETUP.md](docs/SETUP.md#detection-profiles-and-startup), [ALGORITHMS.md](docs/ALGORITHMS.md), and the [performance report](docs/performance/README.md).
 
 ## Research You Can Inspect
 

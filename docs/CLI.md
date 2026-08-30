@@ -20,7 +20,7 @@ Run the CLI from the repository root.
 | `esphome` | Build, flash, validate, or monitor the ESPHome frontend |
 | `native` | Build or flash the native ESP-IDF frontend |
 | `matter` | Build, flash, or read onboarding data from the Matter ESP-IDF frontend |
-| `micro` | Flash, deploy, run, and verify the MicroPython workflow |
+| [`micro`](../src/python/micro_espectre/README.md#commands) | Build, flash, deploy, run, and verify the research frontend |
 | `monitor` | Attach to serial logs with auto-reconnect support |
 | `devices` | Discover advertised ESPectre devices on the local network |
 | `provision` | Provision Native or ESPHome Wi-Fi through Improv Serial |
@@ -37,7 +37,7 @@ Run the CLI from the repository root.
 - Use `./espectre <namespace> --help` for namespace-specific flags.
 - The wrapper prefers repository defaults and shared host autodetection over long manual setup steps.
 - `Native` and `Matter` prefer the local ESP-IDF environment detected by the wrapper, including the native toolchain managed by the pinned ESPHome installation, and fall back to Docker for builds when no local installation is available. Use `./espectre doctor` to inspect the local ESP-IDF path.
-- Serial selection is shared across Native, Matter, ESPHome, and Micro-ESPectre flash, monitor, provision, deploy, run, verify, and onboarding operations. The resolver first waits through a bounded USB re-enumeration window, then keeps ports compatible with the frontend and action. When `--chip` is supplied and more than one candidate remains, it identifies the connected chips. A single best match is selected automatically; multiple equally suitable matches produce a prompt. Identification uses esptool and resets every probed board. The identification table and the selection prompt list each port with its chip and physical console (`uart`, `usb_cdc`, or `usb_serial_jtag`). Pass `--port` to require that exact compatible device; explicit ports use the same re-enumeration and compatibility checks.
+- Serial selection is shared across published frontend flash, monitor, provision, and onboarding operations. The resolver first waits through a bounded USB re-enumeration window, then keeps ports compatible with the frontend and action. When `--chip` is supplied and more than one candidate remains, it identifies the connected chips. A single best match is selected automatically; multiple equally suitable matches produce a prompt. Identification uses esptool and resets every probed board. The identification table and the selection prompt list each port with its chip and physical console (`uart`, `usb_cdc`, or `usb_serial_jtag`). Pass `--port` to require that exact compatible device; explicit ports use the same re-enumeration and compatibility checks.
 
 ## Frontend Workflow Commands
 
@@ -129,30 +129,6 @@ Examples:
 
 ## Device And Host Commands
 
-### `micro`
-
-The `micro` namespace owns MicroPython device lifecycle commands:
-
-| Command | Purpose |
-|---------|---------|
-| `./espectre micro build --chip <esp32|c3|s2|s3|c5|c6>` | Build the lean Micro-ESPectre firmware for the selected chip |
-| `./espectre micro flash --chip <esp32|c3|s2|s3|c5|c6> --erase` | Build and flash the optimized project firmware |
-| `./espectre micro flash --erase` | Auto-detect the chip, then build and flash its project firmware |
-| `./espectre micro deploy` | Compile and upload the complete `.mpy -O3` application manifest |
-| `./espectre micro run` | Start the device application |
-| `./espectre micro verify` | Check firmware and device readiness |
-
-Notes:
-
-- `--port` is optional; the CLI tries to auto-detect a serial device when possible. `flash`, `deploy`, `run`, and `verify` also accept `--chip` and use the shared serial selection rule.
-- `micro flash` also supports `--firmware`. Every supported chip builds the optimized project firmware by default; `--firmware` remains available for an explicitly supplied image.
-- `micro build` and the implicit build performed by `micro flash` accept the shared `--backend auto|local|docker` and `--pull ask|missing|never` flags. `auto` follows the same local-first policy as Native and Matter.
-- `micro build --json` emits final artifact metadata. `micro flash --json` emits the same artifact identity together with the selected port after a successful flash.
-- `micro run --json` continues streaming serial logs and emits a JSON `direct_ready` event when the application reports its Direct endpoint.
-- `micro build` and the default flash path pin one MicroPython revision for every supported chip. The resulting image uses one lean project board profile. It links the core-only ESPectre SDK as an ESP-IDF component and includes a narrow MicroPython feature binding, native ESP-IDF managed traffic generation with ICMP, DNS/UDP, and DNS/TCP modes, and a bounded Direct HTTP/mDNS service, but it does not embed the Micro-ESPectre application. MQTT is not built. The deployed application requires those native modules and does not provide Python transport fallbacks, so flash the matching project firmware before deployment. The shared profile prioritizes the Wi-Fi CSI path through performance optimization, balanced queues, a 1 kHz FreeRTOS tick, disabled power management, and Wi-Fi, PHY, and lwIP IRAM placement. Classic ESP32 alone uses reduced Wi-Fi queues and omits lwIP IRAM placement to preserve heap. RX AMPDU remains disabled for individual HT20 CSI delivery. Building requires an ESP-IDF 5.5 host toolchain; cached source, build trees, and firmware images live under `src/python/micro_espectre/.firmware/`.
-- Firmware is normally flashed once. Application changes use `micro deploy`, which compiles the complete device manifest with MPY ABI 6.3 and optimization level `-O3`, uploads it into a staging directory, and atomically activates the complete manifest while retaining rollback protection for interrupted deployments.
-- `micro deploy --config <path>` compiles an alternate local override as device `config_local.mpy`; the firmware benchmark uses this to keep laboratory settings isolated from the developer's normal config.
-
 ### `monitor`
 
 `monitor` attaches to a serial port and streams logs.
@@ -182,7 +158,7 @@ Reset on open:
 
 ### `devices`
 
-`devices` performs a fresh host-side browse for `_espectre._tcp.local.` and lists Native, ESPHome, Matter, and Micro-ESPectre firmware through one first-party record contract. It does not inspect `_esphomelib`, `_matterc`, or other upstream service types. The normalized result includes the frontend, device identity, display name, chip, IP address, and Direct HTTP endpoint. [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) defines the record-level contract.
+`devices` performs a fresh host-side browse for `_espectre._tcp.local.` and lists compatible firmware through one first-party record contract. It does not inspect `_esphomelib`, `_matterc`, or other upstream service types. The normalized result includes the frontend, device identity, display name, chip, IP address, and Direct HTTP endpoint. [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#mdnsdns-sd-discovery) defines the record-level contract.
 
 | Flag | Purpose |
 |------|---------|
@@ -359,7 +335,7 @@ Examples:
 
 MQTT commands are forwarded to the selected device. The shell keeps only local utilities (`help`, `about`, `clear`, and `exit`) plus short read aliases such as `i` and `d`. Help, tab completion, and argument discovery use the device `capabilities` schema. Unknown or unsupported commands are rejected by the device with a stable result code. Write values after the command name (`set_threshold 0.35`). Multi-field writes use named tokens after the command (`set_motion_hits motion_on_hits=4 motion_off_hits=3`).
 
-`ota_check` and `ota_start` accept an optional channel (`release`, `preview`, or `develop`), for example `ota_check preview` or `ota_start channel=develop`. Omitting the channel keeps the firmware's build-time default. OTA payloads containing server, manifest, image, or version overrides are rejected by the device. Frontends such as Micro-ESPectre omit unsupported OTA commands from `capabilities`.
+`ota_check` and `ota_start` accept an optional channel (`release`, `preview`, or `develop`), for example `ota_check preview` or `ota_start channel=develop`. Omitting the channel keeps the firmware's build-time default. OTA payloads containing server, manifest, image, or version overrides are rejected by the device. Frontends omit unsupported OTA commands from `capabilities`.
 
 Native builds accept `--ota-channel release|preview|develop`. The selected value is compiled into the firmware and is used whenever an MQTT OTA command omits `channel`; it is propagated through both local and Docker build backends. The default is `release`, or `NATIVE_OTA_CHANNEL` when that environment variable is set.
 
@@ -377,4 +353,3 @@ Browser tools such as Flash, Configure, Monitor, and Theremin live on [espectre.
 
 - [`SETUP.md`](SETUP.md) for shared setup, frontend selection, and entry points
 - frontend READMEs under `src/cpp/frontend/` for frontend-specific build, flash, provisioning, and protocol details
-- [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md) for the MicroPython runtime, project firmware, and filesystem deployment

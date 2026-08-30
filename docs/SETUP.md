@@ -9,7 +9,7 @@ Choose a frontend first. If it has a published image, [Web Flash](#web-flash-no-
 | `ESPHome` | [Web Flash](#web-flash-no-coding-required), Home Assistant entities, and Direct HTTP runtime tuning | [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md) |
 | `Native` | [Web Flash](#web-flash-no-coding-required), Improv Serial Wi-Fi provisioning, Direct HTTP, and optional MQTT or Home Assistant MQTT Discovery | [`README.md` (native)](../src/cpp/frontend/native/README.md) |
 | `Matter` | [Web Flash](#web-flash-no-coding-required), Matter commissioning, and Direct HTTP detector tuning | [`README.md (matter)`](../src/cpp/frontend/matter/README.md) |
-| `Micro-ESPectre` | Frontend README for the maintained MicroPython R&D runtime, project firmware, filesystem deployment, Direct monitoring, and session-only recalibration | [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md) |
+| `Micro-ESPectre` | Research-oriented MicroPython frontend | [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md) |
 
 ## Web Flash (no coding required)
 
@@ -36,16 +36,15 @@ If the board does not enter download mode automatically, use its `BOOT` and `RES
 - USB cable for flashing
 - Wi-Fi network on a band the board supports: 2.4 GHz on every supported chip, or 5 GHz on the dual-band ESP32-C5. Firmware defaults to 2.4 GHz; an ESP32-C5 integrator can explicitly select 5 GHz or automatic band selection. The runtime pins the selected band or bands to HT20. Detection quality on 5 GHz is not characterized yet
 
-Current chip support by frontend:
+Current chip support for the published C++ frontends:
 
 | Frontend | Supported chips | Delivery |
 |----------|-----------------|----------|
 | `ESPHome` | `ESP32-S3`, `ESP32-S2`, `ESP32-C6`, `ESP32-C5`, `ESP32-C3`, `ESP32` | Published web-flash images, Improv Serial and fallback-AP provisioning |
 | `Native` | `ESP32`, `ESP32-S3`, `ESP32-S2`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Published web-flash images and Improv Serial |
 | `Matter` | `ESP32`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Published web-flash images and Matter commissioning |
-| `Micro-ESPectre` | `ESP32`, `ESP32-S2`, `ESP32-S3`, `ESP32-C3`, `ESP32-C5`, `ESP32-C6` | Local project-firmware build |
 
-Use the frontend README for the workflow and surface details after you choose the firmware path.
+Use the selected C++ frontend README for workflow and surface details.
 
 ### Software
 
@@ -64,13 +63,13 @@ python -m pip install -r requirements.txt
 
 On Windows PowerShell, create the environment with `py -3 -m venv .venv`, activate `.\.venv\Scripts\Activate.ps1`, and run the same install command.
 
-Native, Matter, and Micro-ESPectre firmware builds use one shared backend policy: prefer an active `IDF_PATH` environment, a standard local ESP-IDF installation, or the pinned ESP-IDF toolchain already managed by ESPHome, and automatically fall back to the pinned ESP-IDF Docker image when none is available. Repository ESPHome commands explicitly select its native `esp-idf` toolchain and never use PlatformIO.
+Native and Matter firmware builds use one shared backend policy: prefer an active `IDF_PATH` environment, a standard local ESP-IDF installation, or the pinned ESP-IDF toolchain already managed by ESPHome, and automatically fall back to the pinned ESP-IDF Docker image when none is available. Repository ESPHome commands explicitly select its native `esp-idf` toolchain and never use PlatformIO.
 
 ```bash
 ./espectre native build --chip c3
 ```
 
-On Windows, use `.\espectre.cmd native build --chip c3`. The same pattern applies to Matter and Micro-ESPectre.
+On Windows, use `.\espectre.cmd native build --chip c3`. The same pattern applies to Matter.
 
 When the local environment is absent and Docker is running, a cached image is used without prompting. If the image is missing, an interactive build asks before downloading it; non-interactive builds must opt in with `--pull missing`. If Docker is installed but stopped, the CLI asks you to start it and retry. Use `--backend local` or `--backend docker` to require one path, and use `./espectre doctor` to inspect only the local ESP-IDF environment.
 
@@ -92,7 +91,7 @@ Confirm the binary is on `PATH`:
 ccache --version
 ```
 
-`./espectre native build --chip c3`, `./espectre matter build --chip c3`, `./espectre micro build --chip c3`, and `./espectre doctor` then print `Compiler cache: ccache` when the cache is active. Replace `c3` with the selected chip. Set `IDF_CCACHE_ENABLE=0` to disable it for one shell. An explicit `IDF_CCACHE_ENABLE=1` remains supported for toolchains that do not go through the repository wrapper.
+`./espectre native build --chip c3`, `./espectre matter build --chip c3`, and `./espectre doctor` then print `Compiler cache: ccache` when the cache is active. Replace `c3` with the selected chip. Set `IDF_CCACHE_ENABLE=0` to disable it for one shell. An explicit `IDF_CCACHE_ENABLE=1` remains supported for toolchains that do not go through the repository wrapper.
 
 Use the equivalent PowerShell environment variable on Windows to disable the cache:
 
@@ -127,7 +126,6 @@ Use the frontend READMEs for frontend-specific prerequisites, examples, and chip
 - [`README.md` (esphome)](../src/cpp/frontend/esphome/README.md)
 - [`README.md` (native)](../src/cpp/frontend/native/README.md)
 - [`README.md` (matter)](../src/cpp/frontend/matter/README.md)
-- [`README.md` (micro_espectre)](../src/python/micro_espectre/README.md)
 
 ## Browser Configuration and Monitoring
 
@@ -137,7 +135,7 @@ On Configure, click the device ID in the connected-device banner to set the firs
 
 ## Direct HTTP Connectivity
 
-Native, ESPHome, Matter, and Micro-ESPectre expose Direct HTTP on the local network. If Configure or Monitor cannot connect:
+The published ESP-IDF frontends expose Direct HTTP on the local network. If Configure or Monitor cannot connect:
 
 1. Confirm that the device and browser are on the same LAN.
 2. Try the current private IPv4 address if the `.local` hostname does not resolve.
@@ -169,27 +167,25 @@ Use [SDK.md](SDK.md) for the integration model, runtime contracts, optional capa
 
 ## After Installation
 
-The next step depends on the frontend you chose:
+For a published C++ frontend, continue with its local README:
 
 | Frontend | Continue here | What that README owns |
 |----------|---------------|-----------------------|
 | `ESPHome` | [`README.md`](../src/cpp/frontend/esphome/README.md) | Wi-Fi provisioning, YAML parameters, Home Assistant entities, dashboards, ESPHome-specific troubleshooting |
 | `Native` | [`README.md`](../src/cpp/frontend/native/README.md) | Build/flash workflow, Wi-Fi and MQTT setup, Home Assistant MQTT Discovery, native control surface, and HTTPS OTA flow |
 | `Matter` | [`README.md`](../src/cpp/frontend/matter/README.md) | Commissioning flow, Matter occupancy surface, and local ESP-IDF workflow |
-| `Micro-ESPectre` | [`README.md`](../src/python/micro_espectre/README.md) | Project firmware, filesystem deployment, local configuration, Direct monitoring, and session-only recalibration |
 
 ## Reference: Shared Runtime Concepts
 
-These concepts are shared across the sensing frontends, even though each frontend exposes them differently.
+These concepts are shared across the maintained C++ sensing frontends, even though each frontend exposes them differently.
 
 ### Shared Sensing Options
 
-These options belong to the shared sensing runtime and apply to all sensing frontends. This table is the canonical reference for names, defaults, and ranges; the exact user-facing syntax differs by frontend:
+These options belong to the shared C++ sensing runtime. This table is the canonical reference for names, defaults, and ranges; the exact user-facing syntax differs by frontend:
 
 - `ESPHome`: YAML under `espectre:`, except the ESP32-C5 band policy, which uses ESPHome's native `wifi.band_mode`
 - `Native`: shared ESP-IDF sensing `sdkconfig` menu, with frontend-local overrides in `app/sdkconfig.defaults`
 - `Matter`: shared ESP-IDF sensing `sdkconfig` menu, with frontend-local overrides in `app/sdkconfig.defaults`
-- `Micro-ESPectre`: constants in `src/python/micro_espectre/config.py`, overridden locally through `config_local.py`; runtime changes require an updated filesystem deployment
 
 Frontend coverage:
 
@@ -198,7 +194,6 @@ Frontend coverage:
 | `ESPHome` | yes |
 | `Native` | yes |
 | `Matter` | yes |
-| `Micro-ESPectre` | yes, through its MicroPython configuration surface and filesystem deployment |
 
 | Option | Type / values | Default | Range / notes |
 |--------|---------------|---------|---------------|
@@ -215,7 +210,7 @@ Frontend coverage:
 | `motion_off_hits` | int | `3` | `1-20` consecutive evaluation hits for `MOTION -> IDLE` (about `0.50-0.75 s` from physical idle at the same defaults) |
 | `lowpass_enabled` | bool | `false` | Enables low-pass filtering |
 | `lowpass_cutoff` | float | `11.0` | `5.0-20.0` Hz against a nominal regular `100 pps` cadence; other targets or substantial missing-slot patterns require filter revalidation |
-| `hampel_enabled` | bool | `true` | Enables Hampel outlier filtering in the C++ sensing frontends and Micro-ESPectre |
+| `hampel_enabled` | bool | `true` | Enables Hampel outlier filtering |
 | `hampel_window` | int | `7` | `3-11` samples |
 | `hampel_threshold` | float | `5.0` | `1.0-10.0` MAD units |
 
@@ -223,28 +218,25 @@ Migration from earlier v3 snapshots: replace `traffic_generator_rate: N` with `c
 
 ### Detection Profile Availability
 
-ESPHome, Native, and Matter ship both `lightweight` and `high_accuracy`. They persist an accepted runtime selection and expose it through their advertised controls: ESPHome entities and Direct HTTP, Native Direct HTTP and optional MQTT, and Matter Direct HTTP. Published Matter firmware starts with `lightweight`. Micro-ESPectre deploys only `lightweight`; its High Accuracy sources remain host-side for research and parity validation.
+ESPHome, Native, and Matter ship both `lightweight` and `high_accuracy`. They persist an accepted runtime selection and expose it through their advertised controls: ESPHome entities and Direct HTTP, Native Direct HTTP and optional MQTT, and Matter Direct HTTP. Published Matter firmware starts with `lightweight`.
 
 Use [TUNING.md](TUNING.md#startup-and-detection-profile) to choose a profile and follow its startup procedure, [ALGORITHMS.md](ALGORITHMS.md) for detector behavior and formulas, and the frontend README for configuration syntax.
 
 ### Traffic Generation
 
-Motion detection frontends depend on CSI packets. For the shared detection runtime, traffic is generated internally by default, but the way that traffic is configured or exposed belongs to each frontend surface.
+The C++ motion-detection frontends depend on CSI packets. For the shared detection runtime, traffic is generated internally by default, but the way that traffic is configured or exposed belongs to each frontend surface.
 
 | Path | Target owner | Traffic source | Detector admission | Pacing notes |
 |------|--------------|----------------|--------------------|--------------|
 | Native / Matter | `CONFIG_ESPECTRE_CSI_TARGET_PPS` | `csi_traffic_mode`; internal by default | yes | phase-preserving cadence without catch-up bursts; local socket backoff only |
 | ESPHome | `csi_target_pps` | `csi_traffic_mode`; internal by default | yes | phase-preserving cadence without catch-up bursts; local socket backoff only |
-| Micro-ESPectre | `CSI_TARGET_PPS` | `TRAFFIC_GENERATOR_ENABLED` and `TRAFFIC_GENERATOR_MODE`; shared `ping`, `dns`, or `dns_tcp` generator when enabled, external traffic when disabled | yes | phase-preserving cadence without catch-up bursts; local socket backoff only |
-| Collector detector, replay, training, and validation | recorded `csi_target_pps`, collector `--pps`, or a documented legacy fallback | recorded raw HTTP stream | yes, through the production Micro-ESPectre sampler | external generator owns rate; HTTP does not pace |
+| Collector detector, replay, training, and validation | recorded `csi_target_pps`, collector `--pps`, or a documented legacy fallback | recorded raw HTTP stream | yes | external generator owns rate; HTTP does not pace |
 
 Raw HTTP collection is available on supported ESPectre frontends. [`CLI.md`](CLI.md#collect) owns the collection workflow, and [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#direct-raw-csi) owns session behavior and framing.
 
 In `external`, ESP-IDF frontends accept either paced UDP markers or ordinary ICMP Echo Requests sent to the device. UDP traffic can be unicast to each device IP, or sent to multicast group `239.255.0.1`; the frontends join that group automatically, unless `csi_traffic_multicast_group` is empty. Subnet and limited broadcast (`x.x.x.255`, `255.255.255.255`) do not produce reliable HT20 CSI. ESPHome, Native, and Matter listen on port `5555` and accept only the exact four-byte UTF-8 marker `"👻".encode("utf-8")` (`F0 9F 91 BB`); use [`espectre_traffic_generator.py`](../tools/espectre_traffic_generator.py) standalone or through `./espectre collect`. For a dependency-free diagnostic, send unicast ping requests directly to the device IP; Echo Requests become CSI candidates, and the normal IP stack sends the replies. Ping pacing remains the external host's responsibility.
 
-Micro-ESPectre selects traffic ownership at deployment through `TRAFFIC_GENERATOR_ENABLED` and selects the internal protocol through `TRAFFIC_GENERATOR_MODE`. The accepted modes are `ping`, `dns`, and `dns_tcp`, using the same ESP-IDF traffic generator as the C++ frontends. When traffic generation is disabled, another source must generate usable traffic. Micro has no runtime traffic mutation, external UDP listener, or multicast join.
-
-Across Native, Matter, ESPHome, and Micro-ESPectre, internal `ping` mode sends ICMP echo requests, `dns` sends connectionless DNS root queries over UDP, and `dns_tcp` sends length-prefixed queries through a persistent, non-blocking TCP connection. Both DNS modes target the gateway resolver on port `53`, and `dns_tcp` requires that resolver to accept TCP queries. The three explicit modes allow deployments to select the protocol that behaves best for their device, Wi-Fi driver, AP, and resolver; there is no automatic fallback. The shared schema default remains `ping`. Validated classic ESP32 Native and Matter builds, and the classic ESP32 and ESP32-S2 ESPHome examples, start with `dns`; the committed Micro `config.py` also selects `dns` for every supported chip.
+Across Native, Matter, and ESPHome, internal `ping` mode sends ICMP echo requests, `dns` sends connectionless DNS root queries over UDP, and `dns_tcp` sends length-prefixed queries through a persistent, non-blocking TCP connection. Both DNS modes target the gateway resolver on port `53`, and `dns_tcp` requires that resolver to accept TCP queries. The three explicit modes allow deployments to select the protocol that behaves best for their device, Wi-Fi driver, AP, and resolver; there is no automatic fallback. The shared schema default remains `ping`. Validated classic ESP32 Native and Matter builds, and the classic ESP32 and ESP32-S2 ESPHome examples, start with `dns`.
 
 Use [TUNING.md](TUNING.md#traffic-health-and-target-rate) to evaluate packet occupancy or change `csi_target_pps`, and use the frontend README for configuration syntax.
 

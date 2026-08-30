@@ -2912,6 +2912,22 @@ def test_micro_device_parsers_accept_optional_chip() -> None:
     assert verify_args.chip == "s3"
 
 
+@pytest.mark.parametrize("command", ["build", "flash", "deploy", "run", "verify"])
+def test_micro_parsers_reject_experimental_s2(command: str) -> None:
+    with pytest.raises(SystemExit):
+        app.build_parser().parse_args(["micro", command, "--chip", "s2"])
+
+
+def test_generic_parsers_continue_to_accept_s2() -> None:
+    parser = app.build_parser()
+
+    devices = parser.parse_args(["devices", "--chip", "s2"])
+    monitor = parser.parse_args(["monitor", "--chip", "s2"])
+
+    assert devices.chip == "s2"
+    assert monitor.chip == "s2"
+
+
 def test_matter_qr_parser_accepts_optional_chip() -> None:
     parser = app.build_parser()
 

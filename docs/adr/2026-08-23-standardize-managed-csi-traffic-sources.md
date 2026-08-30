@@ -164,7 +164,6 @@ Trade-offs and limits:
 ## Related
 
 - [`2026-08-15-use-fixed-temporal-csi-admission.md`](2026-08-15-use-fixed-temporal-csi-admission.md)
-- [`../review/2026-08-29-classic-esp32-native-managed-traffic-stability.md`](../review/2026-08-29-classic-esp32-native-managed-traffic-stability.md)
 - [`../TUNING.md`](../TUNING.md)
 - [`../SETUP.md`](../SETUP.md)
 - [`../ALGORITHMS.md`](../ALGORITHMS.md)

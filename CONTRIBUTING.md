@@ -188,29 +188,10 @@ git push --force-with-lease
  */
 ```
 
-#### Python (Micro-ESPectre)
-
-- MicroPython compatible (no asyncio, limited stdlib)
-- Memory-efficient (ESP32 constraints)
-- Use `config.py` for constants
-- All code and comments in English
-
-**File Header** (`src/python/micro_espectre/`):
-```python
-# SPDX-License-Identifier: GPL-3.0-only
-# Commercial licensing available under separate agreement; see LICENSING.md.
-"""
-Micro-ESPectre - [Module Name]
-
-[Brief description]
-
-Author: [your name] <[your email]>
-"""
-```
-
-#### Python (host-side CLI, tools, and tests)
+#### Python
 
 - CPython host tooling under `src/python/espectre_cli/`, `tools/`, and `test/python/`
+- MicroPython device path under `src/python/micro_espectre/`
 - All code and comments in English
 
 **File Header:**

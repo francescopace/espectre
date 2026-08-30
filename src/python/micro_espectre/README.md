@@ -2,7 +2,7 @@
 
 Micro-ESPectre is the small, research-oriented MicroPython sensing frontend. It keeps the device path easy to modify while using native ESP-IDF components only where timing or transport work benefits from fixed memory and predictable scheduling.
 
-Changes to shared detector behavior must remain aligned with the C++ implementation. See the main [README](../../../README.md), [SETUP.md](../../../docs/SETUP.md), [ARCHITECTURE.md](../../../docs/ARCHITECTURE.md), and [ESPECTRE_PROTOCOL.md](../../../docs/ESPECTRE_PROTOCOL.md) for the project-wide contracts.
+This README is the source of truth for the Micro-ESPectre build, deployment, configuration, runtime, and Direct surface. The general architecture, setup, tuning, CLI, and protocol documents describe the maintained C++ frontends unless they explicitly link here. Changes to shared detector behavior and serialized messages must still remain aligned with the C++ implementation.
 
 ## Device profile
 
@@ -19,6 +19,12 @@ The device does not deploy the High Accuracy ML detector, ML weights, MQTT, Home
 
 ESPectre contributed direct ESP32 Wi-Fi CSI access to mainline MicroPython through [micropython/micropython#18460](https://github.com/micropython/micropython/pull/18460). Micro-ESPectre builds a pinned mainline revision with a lean ESPectre board profile rather than using the earlier CSI fork.
 
+Thanks to the MicroPython maintainers for reviewing, testing, and merging that upstream CSI contribution.
+
+The project firmware supports classic ESP32, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6. It uses an associated 2.4 GHz Wi-Fi station with HT20 CSI and does not enable promiscuous mode. Valid network credentials are therefore required for protected networks, but they are not proof of consent or authorization to sense a space.
+
+ESP32-S2 is not currently supported by Micro-ESPectre. The `ESP32S2_MICRO_ESPECTRE` board directory remains available as an experimental profile for development, but the CLI and firmware benchmark matrix do not expose it as a supported target. Use ESPHome or Native for maintained ESP32-S2 deployments.
+
 ## Build and deploy
 
 Complete the shared prerequisites in [SETUP.md](../../../docs/SETUP.md#local-build-prerequisites), then run the Micro-ESPectre workflow from the repository root:
@@ -30,6 +36,8 @@ cp src/python/micro_espectre/config_local.py.example src/python/micro_espectre/c
 ./espectre micro run
 ```
 
+On Windows, replace `./espectre` with `.\espectre.cmd`; the namespace and flags are unchanged.
+
 Set the Wi-Fi credentials in `config_local.py`; do not commit that file.
 
 ```python
@@ -39,9 +47,13 @@ WIFI_PASSWORD = "YourWiFiPassword"
 # WIFI_CHANNEL = 6  # Optional known channel used with WIFI_BSSID
 ```
 
+Firmware builds require an ESP-IDF 5.5 host toolchain. The CLI prefers an active `IDF_PATH`, a standard local ESP-IDF installation, or the pinned toolchain managed by ESPHome, and falls back to the pinned Docker image when no local installation is available. Use `--backend auto|local|docker` and `--pull ask|missing|never` to control that selection. When `ccache` is available, the local build enables it automatically and reports `Compiler cache: ccache`; set `IDF_CCACHE_ENABLE=0` to disable it for one shell. Cached source, build trees, and firmware images live under `.firmware/` in this directory.
+
 The firmware image freezes only MicroPython's upstream boot and filesystem helpers. The complete ESPectre application is compiled to optimized `.mpy -O3` bytecode and stored on the filesystem, so research changes require only `micro deploy`, not a firmware rebuild and flash. Deployment uploads the complete manifest to a staging directory and atomically activates it, restoring the previous directory after an interrupted swap. The device and `mpy-cross` use MPY ABI 6.3.
 
 The firmware links the core-only ESPectre SDK and the focused shared traffic runtime as separate ESP-IDF components. Neither component depends directly on ESP-IDF logging; the MicroPython frontend registers one ESP-IDF sink before it creates a detector, sampler, or traffic generator. Its MicroPython bindings expose finalizable Lightweight `Detector` and `TemporalCsiSampler` objects through the public `espectre_core_sdk.h` facade and adapt the existing `TrafficGeneratorManager` without copying its protocol implementations. The production Lightweight detector, temporal admission, traffic pacing, and packet generation hot paths therefore run in C++, while MicroPython owns orchestration, calibration policy, diagnostics, and delivery. The application fails at startup if the core module is absent or incompatible; it does not silently fall back to the Python detector on the device. Equivalent Python detector implementations remain available under `tools/lib/` for replay, training, and host-side experimentation. The other native component is the Direct HTTP/mDNS service. Bluetooth, ESP-NOW, asyncio, Ethernet, unused peripheral bindings, and unused generic Python modules remain disabled.
+
+The board profile prioritizes the Wi-Fi CSI path through performance optimization, balanced queues, a 1 kHz FreeRTOS tick, disabled power management, and Wi-Fi, PHY, and lwIP IRAM placement. Classic ESP32 uses reduced Wi-Fi queues and omits lwIP IRAM placement to preserve heap. RX AMPDU remains disabled so the device receives individual HT20 CSI frames.
 
 ## Runtime behavior
 
@@ -65,13 +77,20 @@ SEGMENTATION_WINDOW_SIZE_MS = 1000
 EVALUATION_INTERVAL_MS = 250
 MOTION_ON_HITS = 4
 MOTION_OFF_HITS = 3
+ENABLE_LOWPASS_FILTER = False
+LOWPASS_CUTOFF = 11.0
+ENABLE_HAMPEL_FILTER = False
+HAMPEL_WINDOW = 7
+HAMPEL_THRESHOLD = 5.0
 ```
 
-These `config.py` values are deployment settings rather than runtime mutations. An empty `DEVICE_LABEL` keeps the shared generated name. `CSI_TARGET_PPS` defines the detector grid and managed traffic rate. `TRAFFIC_GENERATOR_MODE` accepts `ping`, `dns`, or `dns_tcp`; the committed Micro configuration selects connectionless DNS/UDP for every supported chip, and `config_local.py` can select another mode for a deployment. Both DNS modes use the gateway resolver on port 53. Setting `TRAFFIC_GENERATOR_ENABLED = False` requires an external CSI traffic source. `CSI_CAPTURE_MAX_DATA_LEN` selects the fixed native ring-record stride: 256 supports the doubled HT20 layout, while 128 is suitable only when every captured frame uses the canonical payload because larger frames are truncated.
+These `config.py` values are deployment settings rather than runtime mutations. An empty `DEVICE_LABEL` keeps the generated device name. `CSI_TARGET_PPS` defines the detector grid and managed traffic rate. `MOTION_ON_HITS` and `MOTION_OFF_HITS` apply the same evaluation-tick filtering as the C++ runtime, but changing them requires another deployment. The low-pass filter calculates its coefficient against a nominal 100 Hz sample rate, so a different target rate or substantial missing-slot pattern requires validation. The committed device profile disables both optional filters by default.
+
+`TRAFFIC_GENERATOR_MODE` accepts `ping`, `dns`, or `dns_tcp`; the committed configuration selects connectionless DNS/UDP for every supported chip, and `config_local.py` can select another mode for a deployment. Both DNS modes use the gateway resolver on port 53. Setting `TRAFFIC_GENERATOR_ENABLED = False` requires an external CSI traffic source. Micro-ESPectre has no runtime traffic mutation, external UDP marker listener, or multicast join. `CSI_CAPTURE_MAX_DATA_LEN` selects the fixed native ring-record stride: 256 supports the doubled HT20 layout, while 128 is suitable only when every captured frame uses the canonical payload because larger frames are truncated.
 
 In `config_local.py`, `WIFI_CHANNEL` can accompany `WIFI_BSSID` to avoid a scan during association. If no CSI frame arrives for `CSI_LINK_RECOVERY_TIMEOUT_MS`, the runtime first rearms CSI. If the stall persists, it disables CSI, reconnects Wi-Fi, enables CSI with a fresh native ring, recalibrates, and republishes Direct discovery.
 
-The production `TemporalCsiSampler` retains the packet nearest each slot center, preserves missing slots, and keeps the live detector geometry independent from observed network jitter. See [SETUP.md](../../../docs/SETUP.md#traffic-generation) for shared traffic behavior, [TUNING.md](../../../docs/TUNING.md) for startup and detector operation, and [ALGORITHMS.md](../../../docs/ALGORITHMS.md) for the implementation rationale.
+The production `TemporalCsiSampler` retains the packet nearest each slot center, preserves missing slots, and keeps the live detector geometry independent from observed network jitter. Classic-MAC targets rotate Espressif's native `0~31, -32~-1` CSI layout into the centered convention before feature processing. Collector-derived sensing, replay, training, Python validation, and C++ integration replay apply equivalent temporal admission before feature extraction. See [ALGORITHMS.md](../../../docs/ALGORITHMS.md) for the shared detector rationale.
 
 ## Direct HTTP surface
 
@@ -81,7 +100,9 @@ Micro-ESPectre listens on port `62587`, advertises `_espectre._tcp.local.`, and 
 - `GET /espectre/v1/events` with canonical `telemetry` SSE events; and
 - CORS and Private Network Access preflight support for the ESPectre website.
 
-The exact capability response is authoritative: the Micro frontend advertises bounded read-only queries plus manual recalibration, but no configuration mutations. The Monitor site therefore displays sensing and can request a session-only threshold recalibration without exposing unsupported controls. Enter the device IP or `espectre-<device-id>.local` in the site, or discover it with:
+At boot, the frontend derives `device_id` as the first 64 bits of `SHA-256("espectre-device-id-v1" || station_mac_bytes)` and uses the generated name `ESPectre <chip> <last-six-device-id-characters>` when `DEVICE_LABEL` is empty. Its stable hostname is `espectre-<device_id>.local`. The `firmware` TXT value comes from the running ESP-IDF application descriptor, and `chip` is the active `CONFIG_IDF_TARGET`; the same values appear in `info`.
+
+The exact capability response is authoritative. Micro-ESPectre maintains its own bounded registry and advertises read-only queries plus manual recalibration, but no configuration mutations. Its `config` query exposes the `runtime`, `device`, and read-only `wifi` sections. The cross-language protocol probe verifies this exact capability intersection and the serialized shared-message parity. The Monitor site therefore displays sensing and can request a session-only threshold recalibration without exposing unsupported controls. Enter the device IP or `espectre-<device-id>.local` in the site, or discover it with:
 
 ```bash
 ./espectre devices --frontend micro
@@ -89,7 +110,9 @@ The exact capability response is authoritative: the Micro frontend advertises bo
 
 Monitor Auto-discovery can also list this device when a Native, ESPHome, or Matter responder is already on the LAN. Micro-ESPectre does not answer the one-shot bootstrap hostname or `discover_peers`; without another eligible responder, use the private IP or unique `.local` hostname. Shared discovery is documented in [Peer-assisted browser discovery](../../../docs/ESPECTRE_PROTOCOL.md#peer-assisted-browser-discovery).
 
-Only one SSE client and one in-flight event are retained to bound sockets, heap, and work queued on the HTTP server task. Requests are limited to 512 bytes, and SSE events are limited to 4,096 bytes. The stream sets `Cache-Control: no-store`, emits `: heartbeat` every 10 seconds, retains at most one queued heartbeat, and closes after a send error. A peer close or reset does not increment `send_failures`; timeout and backpressure failures do. Query snapshots are generated by the MicroPython runtime, while HTTP framing, request parsing, CORS, mDNS, and Direct transport counters run in the native firmware component. Telemetry follows `EVALUATION_INTERVAL_MS` while that SSE client is connected, matching the consumer-aware C++ frontends. By default, the HTTP task runs at the MicroPython task priority, and the service accepts at most 20 Direct POST requests per one-second window. A lightweight status refresh remains on a one-second cadence, while full diagnostics normally wait for the native CSI ring to drain on a second cadence. Diagnostics and garbage collection run after at most another 500 ms under sustained backlog, making maintenance bounded while preserving the empty-ring fast path. The diagnostics payload uses canonical runtime fields plus the optional bounded `direct_http` transport object for Micro queue and failure counters.
+Only one SSE client and one in-flight event are retained to bound sockets, heap, and work queued on the HTTP server task. Requests are limited to 512 bytes, and SSE events are limited to 4,096 bytes. The stream sets `Cache-Control: no-store`, emits `: heartbeat` every 10 seconds, retains at most one queued heartbeat, and closes after a send error. A peer close or reset does not increment `send_failures`; timeout and backpressure failures do. Query snapshots are generated by the MicroPython runtime, while HTTP framing, request parsing, CORS, mDNS, and Direct transport counters run in the native firmware component. Telemetry follows `EVALUATION_INTERVAL_MS` only while an SSE client is connected. Manual recalibration is queued onto the main loop and remains session-only.
+
+By default, the HTTP task runs at the MicroPython task priority, and the service accepts at most 20 Direct POST requests per one-second window. A lightweight status refresh remains on a one-second cadence, while full diagnostics normally wait for the native CSI ring to drain on a second cadence. Diagnostics and garbage collection run after at most another 500 ms under sustained backlog, making maintenance bounded while preserving the empty-ring fast path. The diagnostics payload uses the canonical fields Micro-ESPectre can measure plus the optional bounded `direct_http` transport object for queue and failure counters; unavailable C++ measurements are omitted.
 
 Direct rejects requests without an `Origin` header and accepts only `https://espectre.dev`, `https://www.espectre.dev`, and `https://test.espectre.dev` in published firmware. Development builds may set `CONFIG_ESPECTRE_DIRECT_DEV_ORIGINS_ENABLED=y` to accept exact HTTP loopback hosts with an optional valid port. The published board profiles leave this option disabled.
 
@@ -105,14 +128,16 @@ MicroPython and is not exposed by ESPectre.
 
 | Command | Purpose |
 | --- | --- |
-| `./espectre micro build --chip <esp32|c3|s2|s3|c5|c6>` | Build the lean project firmware |
-| `./espectre micro flash --chip <chip> --erase` | Build and flash the project image |
+| `./espectre micro build [--chip <esp32|c3|s3|c5|c6>]` | Build the lean project firmware; the default chip is `esp32` |
+| `./espectre micro flash [--chip <chip>] --erase` | Build and flash the project image |
 | `./espectre micro deploy` | Compile and upload the complete `.mpy -O3` manifest |
 | `./espectre micro run` | Start the device application |
 | `./espectre micro verify` | Check firmware, native modules, and deployed bytecode |
 | `./espectre monitor --reset` | Follow serial output with auto-reconnect |
 
-`micro build` and the implicit build in `micro flash` use the shared ESP-IDF backend policy documented in [SETUP.md](../../../docs/SETUP.md#local-build-prerequisites). See [CLI.md](../../../docs/CLI.md) for `--backend` and `--pull` controls.
+`--port` is optional for `flash`, `deploy`, `run`, and `verify`. `--chip` is optional for every Micro-ESPectre command: `build` defaults to `esp32`, while device-facing commands use an explicit chip to resolve ambiguous candidates. The CLI auto-detects a compatible serial device when possible. `micro flash --firmware <path>` flashes an explicitly supplied image. `micro deploy --config <path>` compiles an alternate local override as device `config_local.mpy`, which is useful for isolated laboratory settings.
+
+`micro build --json` emits final artifact metadata, `micro flash --json` adds the selected port after a successful flash, and `micro run --json` streams logs and emits a `direct_ready` event when the application reports its endpoint. Run `./espectre micro <command> --help` for the current flags.
 
 ## Troubleshooting
 
@@ -135,11 +160,35 @@ Confirm that `config_local.py` exists, contains the intended SSID and password, 
 Run the focused host tests from the repository environment:
 
 ```bash
-.venv/bin/pytest test/python/test_traffic_generator.py test/python/test_espectre_cli_micro.py test/python/test_micro_protocol.py -v
+.venv/bin/pytest test/python/test_traffic_generator.py test/python/test_espectre_cli_micro.py test/python/test_micro_protocol.py -q --tb=short
 ```
 
 Firmware builds use the project wrapper:
 
 ```bash
 ./espectre micro build --chip c3
+```
+
+## Contributing
+
+Keep device code compatible with MicroPython: do not use `asyncio`, CPython-only APIs, or heavy libraries, keep allocations bounded for ESP32-class memory, use `config.py` for shared runtime constants, and write code and comments in English. Host-only analysis and validation code belongs under `tools/`.
+
+Use this header for Python modules in this directory:
+
+```python
+# SPDX-License-Identifier: GPL-3.0-only
+# Commercial licensing available under separate agreement; see LICENSING.md.
+"""
+Micro-ESPectre - [Module Name]
+
+[Brief description]
+
+Author: [your name] <[your email]>
+"""
+```
+
+For a full Python baseline with device-runtime coverage, run:
+
+```bash
+.venv/bin/pytest test/python -q --tb=short --cov=src/python/micro_espectre --cov-report=term-missing
 ```

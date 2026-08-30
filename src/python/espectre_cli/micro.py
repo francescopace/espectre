@@ -155,9 +155,7 @@ def build_project_firmware_image(
 def build_project_firmware_command(args) -> None:
     """Build a project MicroPython image for a supported chip."""
     chip = getattr(args, "chip", "esp32")
-    if chip not in MICRO_CHIP_CHOICES:
-        print(f"{Fore.RED}❌ Unsupported Micro-ESPectre chip: {chip}{Style.RESET_ALL}")
-        raise SystemExit(1)
+    _require_supported_micro_chip(chip)
     print_box_banner("Building Micro-ESPectre Firmware")
     try:
         firmware_path = build_project_firmware_image(
@@ -280,6 +278,13 @@ def _reset_device(port: str) -> bool:
         return False
 
 
+def _require_supported_micro_chip(chip: str | None) -> None:
+    """Reject chips outside the maintained Micro-ESPectre matrix."""
+    if chip is not None and chip not in MICRO_CHIP_CHOICES:
+        print(f"{Fore.RED}❌ Unsupported Micro-ESPectre chip: {chip}{Style.RESET_ALL}")
+        raise SystemExit(1)
+
+
 def flash_firmware(args) -> None:
     """Flash MicroPython firmware to ESP32 using esptool."""
     try:
@@ -290,6 +295,7 @@ def flash_firmware(args) -> None:
         raise SystemExit(1)
 
     chip = args.chip
+    _require_supported_micro_chip(chip)
     discovery_port = None
     if not chip or args.port:
         discovery_port = get_serial_port(
@@ -309,9 +315,10 @@ def flash_firmware(args) -> None:
             print("   3. Release the BOOT button")
             print("   4. Try flashing again")
             print()
-            chip = prompt_chip_type()
+            chip = prompt_chip_type(MICRO_CHIP_CHOICES)
             if not chip:
                 raise SystemExit(1)
+    _require_supported_micro_chip(chip)
 
     if args.firmware:
         firmware_path = Path(args.firmware)
@@ -426,6 +433,7 @@ def flash_firmware(args) -> None:
 
 def deploy_code(args) -> None:
     """Compile and deploy optimized MicroPython bytecode using mpremote."""
+    _require_supported_micro_chip(getattr(args, "chip", None))
     _require_mpremote()
     port = get_serial_port(
         args.port,
@@ -592,6 +600,7 @@ def deploy_code(args) -> None:
 
 def run_application(args) -> None:
     """Run the MicroPython application on ESP32."""
+    _require_supported_micro_chip(getattr(args, "chip", None))
     _require_mpremote()
     port = get_serial_port(
         args.port,
@@ -678,6 +687,7 @@ def run_application(args) -> None:
 
 def verify_installation(args) -> None:
     """Verify MicroPython firmware and deployed code."""
+    _require_supported_micro_chip(getattr(args, "chip", None))
     port = get_serial_port(
         args.port,
         chip=getattr(args, "chip", None),

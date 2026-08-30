@@ -330,3 +330,24 @@ def test_benchmark_source_changes_are_reported_as_warnings():
         repository_state_end=state_end,
         source_changed_during_run=True,
     )
+
+
+def test_s2_report_criteria_omit_unsupported_frontends():
+    cases = (
+        BenchmarkCase("native", "lightweight"),
+        BenchmarkCase("esphome", "lightweight"),
+    )
+    results = [BenchmarkResult(case=case, status="PASS") for case in cases]
+
+    rendered = bench.render_report(
+        "s2",
+        "/dev/cu.test",
+        datetime.fromisoformat("2026-08-30T12:00:00+02:00"),
+        results,
+        cases,
+    )
+    pass_criteria = rendered.split("## Pass Criteria", maxsplit=1)[1]
+
+    assert "Micro-ESPectre" not in pass_criteria
+    assert "Matter" not in pass_criteria
+    assert "Native and ESPHome negotiate Direct v1" in pass_criteria

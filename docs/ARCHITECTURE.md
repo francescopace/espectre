@@ -67,7 +67,7 @@ Shared runtime services also live here, including:
 
 The frontend or SDK integrator explicitly selects `2g`, `5g`, or `auto`; `2g` is the validated default, while `5g` and `auto` are available only on dual-band targets. The lifecycle applies that band mode first, then pins an 802.11n protocol ceiling and HT20 bandwidth on the selected band or bands. Fixed-band policies use the single-band ESP-IDF APIs, while AUTO uses the per-band APIs. See [`2026-07-23-adopt-classifier-first-ht20-sensing-contract.md`](adr/2026-07-23-adopt-classifier-first-ht20-sensing-contract.md).
 
-Supported first-party firmware uses an associated Wi-Fi station and does not enable promiscuous mode. Standalone ESP-IDF startup explicitly keeps promiscuous mode disabled, and the shared CSI pipeline filters frames against the local device identity where the relevant metadata is available. Micro-ESPectre likewise connects through `network.STA_IF` before starting CSI. This is an intentional responsible-use boundary: a protected network requires valid credentials, which raises the barrier against passive collection by an unaffiliated device. It is not an authorization mechanism or proof of consent; open networks need no password, credentials can be misused, and downstream open-source builds can change the radio policy.
+Supported first-party firmware uses an associated Wi-Fi station and does not enable promiscuous mode. Standalone ESP-IDF startup explicitly keeps promiscuous mode disabled, and the shared CSI pipeline filters frames against the local device identity where the relevant metadata is available. This is an intentional responsible-use boundary: a protected network requires valid credentials, which raises the barrier against passive collection by an unaffiliated device. It is not an authorization mechanism or proof of consent; open networks need no password, credentials can be misused, and downstream open-source builds can change the radio policy.
 
 The `GOT_IP` payload is also the source of truth for the local address, netmask, and gateway used during service startup. The runtime passes that gateway directly to the internal traffic generator instead of querying the network interface again. Disconnect processing clears the shared ready state, so the same sequence is repeated after a genuine reconnect.
 
@@ -77,7 +77,7 @@ The CSI callback classifies packet provenance against the configured traffic mod
 
 `FrontendCommandEngine` is the C++ command owner below the frontend adapters. Native MQTT, Native Direct, the shared Direct bridge, and ESPHome entities construct the same typed request and receive the same structured result and change set; Matter inherits the same path through the shared bridge. Commands execute serially on the existing frontend task. Queries return only through the requesting adapter, while accepted mutations publish the affected state families to every active adapter. MQTT and each Direct client keep independent outbound queues because transport backpressure is independent of command semantics.
 
-`EspectreCapabilityProfile` is the single C++ catalog for executable Direct methods, published event families, and visible configuration sections. Serialization and command enforcement consume the same profile. Micro-ESPectre maintains an independent MicroPython registry for its bounded Direct profile, and the cross-language probe verifies the shared message model and that exact capability intersection.
+`EspectreCapabilityProfile` is the single C++ catalog for executable Direct methods, published event families, and visible configuration sections. Serialization and command enforcement consume the same profile.
 
 The shared Direct service owns HTTP request lifetime, SSE delivery, deferred responses, and the owner-bound raw CSI session used by ESPectre. The ESP-IDF implementation assigns an opaque monotonically increasing token to each live connection, removes inbound work by token rather than file descriptor, and completes deferred work only while that token still identifies the originating client. The default interface implementation reports deferred delivery as unsupported, preserving source compatibility for transports that implement only synchronous requests.
 
@@ -159,8 +159,6 @@ Runtime detector selection is capability-gated. ESPHome and Native enable the sh
 
 C++ runtime implementations use `RuntimePerformanceDiagnostics` to aggregate runtime-loop load and timing plus sampled detector evaluation timing in bounded 10-second windows. `RuntimeDiagnosticsSnapshot` combines the latest complete window with current, minimum, and largest-block heap values and configured CPU frequency. The runtime also owns the single one-second `RuntimeDiagnosticsSample` derived from cumulative counters; Native, ESPHome, Matter, Direct, and ecosystem adapters read that shared sample instead of maintaining frontend-specific samplers. ESPectre frontends expose these production fields through Direct `diagnostics`; collection is unconditional and does not emit a periodic debug log.
 
-Micro-ESPectre uses MicroPython-friendly rate and performance samplers to cache the canonical fields it can measure. Its read-only Direct `diagnostics` query exposes that cache; unavailable C++ measurements are omitted, and the diagnostics sample feeds the same formatted serial sensing status used by the C++ runtimes without publishing diagnostics periodically. A separate lightweight status refresh remains on a one-second cadence.
-
 `runtime_load_percent` measures wall time spent inside the ESPectre runtime loop, not whole-system CPU utilization. Wi-Fi callbacks only normalize and enqueue CSI; detector processing, inference, state transitions, and frontend callback delivery run in the owning loop task. MQTT, Direct HTTP, and OTA stacks may still perform transport work on private tasks, but their application events are drained by the frontend loop. Detector timing is sampled on an evaluation tick after approximately 1,000 detector packets. For High Accuracy, it covers ML feature extraction, inference, and state update.
 
 The public field names, units, optionality, and transport objects are part of the additive [`diagnostics` contract](ESPECTRE_PROTOCOL.md#diagnostics). Architecture owns how the samples are collected and cached, not their wire schema.
@@ -169,7 +167,7 @@ The public field names, units, optionality, and transport objects are part of th
 
 ESPectre Protocol is the shared device-facing message model used by the standalone ESP-IDF frontends and related tools. [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md) owns discovery wire contracts, message families, Direct HTTP and MQTT mappings, payloads, commands, public limits, and version semantics.
 
-For every maintained C++ frontend, protocol adapters sit at the boundary between the frontend and shared runtime layers. Micro-ESPectre implements the same supported message model through its constrained-device Python and native HTTP components.
+For every maintained C++ frontend, protocol adapters sit at the boundary between the frontend and shared runtime layers.
 
 ## Packaging Note For ESPHome
 

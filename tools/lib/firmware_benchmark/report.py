@@ -57,7 +57,7 @@ REPORT_SNAPSHOT_SCOPE = (
 REPORT_DETECTOR_SCOPE = (
     "Detector coverage: ESPHome, Native, and Matter support Lightweight and High Accuracy. "
     "All three C++ frontends support persisted runtime switching, while Micro-ESPectre deploys "
-    "Lightweight only. The matrix below samples representative cases rather than every supported combination."
+    "Lightweight only on its supported chips. The matrix below samples representative cases rather than every supported combination."
 )
 
 REPORT_DURATION_RE = re.compile(r"(?:(?P<minutes>\d+)m\s+)?(?P<seconds>\d+(?:\.\d+)?)s$")
@@ -143,8 +143,10 @@ def english_join(items: Sequence[str]) -> str:
         return f"{items[0]} and {items[1]}"
     return f"{', '.join(items[:-1])}, and {items[-1]}"
 
-def runtime_case_labels() -> tuple[str, ...]:
-    return tuple(case.label for case in CASES if case.benchmark_mode == "runtime")
+def runtime_case_labels(
+    cases: Sequence[BenchmarkCase] = CASES,
+) -> tuple[str, ...]:
+    return tuple(case.label for case in cases if case.benchmark_mode == "runtime")
 
 def _git_revision() -> str:
     completed = subprocess.run(
@@ -707,30 +709,77 @@ def render_report(
             lines.extend(f"- {reason}" for reason in result.reasons)
             lines.append("")
 
-    lines.extend(
+    expected_frontends = {case.frontend for case in expected_cases}
+    frontend_labels = [
+        FRONTEND_LABELS[frontend]
+        for frontend in ("native", "esphome", "matter", "micro")
+        if frontend in expected_frontends
+    ]
+    direct_verb = "negotiates" if len(frontend_labels) == 1 else "negotiate"
+    build_phases = (
+        "builds, flashes, and deployments"
+        if "micro" in expected_frontends
+        else "builds and flashes"
+    )
+    pass_criteria = [
+        f"- all required {build_phases} complete successfully",
+        f"- {english_join(frontend_labels)} {direct_verb} Direct v1 and sample canonical diagnostics throughout each scored window",
+    ]
+    improv_frontends = [
+        FRONTEND_LABELS[frontend]
+        for frontend in ("native", "esphome")
+        if frontend in expected_frontends
+    ]
+    if improv_frontends:
+        improv_verb = "uses" if len(improv_frontends) == 1 else "use"
+        pass_criteria.append(
+            f"- {english_join(improv_frontends)} {improv_verb} canonical firmware defaults, "
+            "clear all device data during flash, and provision through Improv Serial"
+        )
+    if "matter" in expected_frontends:
+        pass_criteria.append(
+            "- Matter clears all device data, commissions through a revision-compatible CHIP Tool controller over BLE and Wi-Fi, and reaches its Direct endpoint"
+        )
+    managed_traffic_frontends = [
+        FRONTEND_LABELS[frontend]
+        for frontend in ("native", "esphome", "matter")
+        if frontend in expected_frontends
+    ]
+    if managed_traffic_frontends:
+        report_verb = "reports" if len(managed_traffic_frontends) == 1 else "report"
+        pass_criteria.append(
+            f"- {english_join(managed_traffic_frontends)} {report_verb} Lightweight detection, "
+            "configured internal managed traffic, and a 100 pps target before runtime mutations"
+        )
+    if "native" in expected_frontends:
+        pass_criteria.append("- Native remains MQTT-unconfigured")
+    pass_criteria.extend(
         [
-            "## Pass Criteria",
-            "",
-            "- all required builds, flashes, and Micro-ESPectre deployments complete successfully",
-            "- Native, ESPHome, Matter, and Micro-ESPectre negotiate Direct v1 and sample canonical diagnostics throughout each scored window",
-            "- Native and ESPHome use canonical firmware defaults, clear all device data during flash, and provision through Improv Serial",
-            "- Matter clears all device data, commissions through a revision-compatible CHIP Tool controller over BLE and Wi-Fi, and reaches its Direct endpoint",
-            "- Native, ESPHome, and Matter report Lightweight detection, their configured internal managed traffic, and a 100 pps target before runtime mutations",
-            "- Native remains MQTT-unconfigured",
             f"- sensing frontends receive at least {MIN_TELEMETRY_SAMPLES} canonical telemetry events through Direct SSE",
             f"- free heap provides two complete consecutive {HEAP_STABILITY_WINDOW_SECONDS}-second "
             f"windows after startup grace, and the final-window median does not decline by more "
             f"than {HEAP_STABILITY_MAX_DECLINE_PERCENT:.0f}% from the preceding window",
             "- the device uptime does not restart during a scored runtime window",
             "- Direct diagnostics cadence stays within the runtime gap tolerance, and production telemetry events remain live on sensing frontends",
-            f"- {english_join(runtime_case_labels())} mean CSI occupancy stays at or above "
-            f"the {MINIMUM_OCCUPANCY_PERCENT:.0f}% admitted-slot detector-ready floor",
-            f"- {english_join(runtime_case_labels())} detector timing is present",
-            "- Direct send failures and unexpected rejected connections do not increase when the frontend exposes those counters",
-            "- the Micro-ESPectre runtime launcher remains active throughout Direct collection",
-            "",
         ]
     )
+    expected_runtime_labels = runtime_case_labels(expected_cases)
+    if expected_runtime_labels:
+        pass_criteria.extend(
+            [
+                f"- {english_join(expected_runtime_labels)} mean CSI occupancy stays at or above "
+                f"the {MINIMUM_OCCUPANCY_PERCENT:.0f}% admitted-slot detector-ready floor",
+                f"- {english_join(expected_runtime_labels)} detector timing is present",
+            ]
+        )
+    pass_criteria.append(
+        "- Direct send failures and unexpected rejected connections do not increase when the frontend exposes those counters"
+    )
+    if "micro" in expected_frontends:
+        pass_criteria.append(
+            "- the Micro-ESPectre runtime launcher remains active throughout Direct collection"
+        )
+    lines.extend(["## Pass Criteria", "", *pass_criteria, ""])
     return "\n".join(lines)
 
 def parse_report_duration(text: str) -> float:

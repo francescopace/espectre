@@ -18,6 +18,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.python.espectre_cli.common import (
+    MICRO_CHIP_CHOICES,
     SERIAL_PORT_IDENTITY_ENV,
     remember_serial_port_identity,
     resolve_serial_port,
@@ -76,6 +77,11 @@ def select_cases(
             or case.frontend != "matter"
             or chip in IDF_FRONTENDS["matter"]["targets"]
         )
+        and (
+            chip is None
+            or case.frontend != "micro"
+            or chip in MICRO_CHIP_CHOICES
+        )
     )
 
 def select_resume_cases(
@@ -107,7 +113,7 @@ def main() -> int:
         description=(
             "Build, flash, and benchmark Native Lightweight/High Accuracy, "
             "ESPHome Lightweight/High Accuracy, Matter Lightweight/High Accuracy, and "
-            "Micro-ESPectre Lightweight for one chip."
+            "Micro-ESPectre Lightweight where the selected chip supports each frontend."
         ),
     )
     parser.add_argument("--chip", required=True, choices=SUPPORTED_CHIPS, help="Connected ESP32 target")
@@ -154,7 +160,16 @@ def main() -> int:
 
     report_path = report_path_for_chip(args.chip)
     preserve_existing = args.update or args.resume
-    existing_results = load_report_results(report_path) if preserve_existing else []
+    supported_cases = set(select_cases(chip=args.chip))
+    existing_results = (
+        [
+            result
+            for result in load_report_results(report_path)
+            if result.case in supported_cases
+        ]
+        if preserve_existing
+        else []
+    )
     selected_cases = (
         select_resume_cases(requested_cases, existing_results)
         if args.resume

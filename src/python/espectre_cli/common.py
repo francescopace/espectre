@@ -19,7 +19,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, Sequence
 
 try:
     import yaml
@@ -43,7 +43,8 @@ for path in (str(REPO_ROOT), str(PYTHON_ROOT_DIR), str(PYTHON_SRC_DIR), str(TOOL
         sys.path.insert(0, path)
 
 MICROPYTHON_FIRMWARE_BUILD = "20260818-v1.29.0-preview.731.g1c3c201149"
-MICRO_CHIP_CHOICES = ["esp32", "c3", "s2", "s3", "c5", "c6"]
+CHIP_CHOICES = ["esp32", "c3", "s2", "s3", "c5", "c6"]
+MICRO_CHIP_CHOICES = ["esp32", "c3", "s3", "c5", "c6"]
 CHIP_LABELS = {
     "esp32": "ESP32",
     "c3": "ESP32-C3",
@@ -708,30 +709,24 @@ def _reject_missing_chip(chip: str, candidates: list[SerialCandidate]) -> None:
     raise SystemExit(1)
 
 
-def prompt_chip_type() -> str | None:
+def prompt_chip_type(supported_chips: Sequence[str] = CHIP_CHOICES) -> str | None:
     """Prompt user to manually select a supported chip."""
     print(f"\n{Fore.CYAN}Please select your ESP32 chip type:{Style.RESET_ALL}")
-    print("  1. ESP32 (original)")
-    print("  2. ESP32-C3")
-    print("  3. ESP32-S2")
-    print("  4. ESP32-S3")
-    print("  5. ESP32-C5")
-    print("  6. ESP32-C6")
+    for index, chip in enumerate(supported_chips, start=1):
+        label = "ESP32 (original)" if chip == "esp32" else CHIP_LABELS[chip]
+        print(f"  {index}. {label}")
     print()
 
     try:
-        choice = input(f"{Fore.CYAN}Select chip (1-6): {Style.RESET_ALL}")
+        choice = input(
+            f"{Fore.CYAN}Select chip (1-{len(supported_chips)}): {Style.RESET_ALL}"
+        )
     except (KeyboardInterrupt, EOFError):
         print(f"\n{Fore.RED}Cancelled{Style.RESET_ALL}")
         return None
 
     mapping = {
-        "1": "esp32",
-        "2": "c3",
-        "3": "s2",
-        "4": "s3",
-        "5": "c5",
-        "6": "c6",
+        str(index): chip for index, chip in enumerate(supported_chips, start=1)
     }
     chip = mapping.get(choice)
     if chip is None:
