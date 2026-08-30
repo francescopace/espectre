@@ -102,6 +102,7 @@ def test_native_build_validation_accepts_canonical_defaults(tmp_path, monkeypatc
                 "CONFIG_ESPECTRE_CSI_TARGET_PPS=100",
                 "CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_INTERNAL=y",
                 "# CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS is not set",
+                "# CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS_TCP is not set",
                 "CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_PING=y",
                 'CONFIG_ESPECTRE_WIFI_SSID=""',
                 'CONFIG_ESPECTRE_WIFI_PASSWORD=""',
@@ -134,6 +135,7 @@ def test_idf_build_validation_uses_canonical_sdkconfig_when_cache_omits_path(
                 "CONFIG_ESPECTRE_CSI_TARGET_PPS=100",
                 "CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_INTERNAL=y",
                 "# CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS is not set",
+                "# CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS_TCP is not set",
                 "CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_PING=y",
             ]
         ),
@@ -147,6 +149,33 @@ def test_idf_build_validation_uses_canonical_sdkconfig_when_cache_omits_path(
     monkeypatch.setattr(bench, "cached_sdkconfig_path", lambda *_args: None)
 
     bench.validate_idf_benchmark_sdkconfig("matter", "c3")
+
+
+def test_configured_traffic_mode_reads_target_defaults(tmp_path, monkeypatch):
+    app_dir = tmp_path / "native" / "app"
+    app_dir.mkdir(parents=True)
+    (app_dir / "sdkconfig.defaults.esp32s2").write_text(
+        "CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS=y\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        bench,
+        "IDF_FRONTENDS",
+        {"native": {"app_dir": str(app_dir), "targets": {"s2": "esp32s2"}}},
+    )
+
+    assert bench.configured_traffic_generator_mode("native", "s2") == "dns"
+
+
+def test_configured_traffic_mode_reads_esphome_yaml(tmp_path, monkeypatch):
+    config = tmp_path / "espectre-s2.yaml"
+    config.write_text(
+        "espectre:\n  traffic_generator_mode: dns # DNS over UDP\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(bench, "ESPHOME_CONFIGS", {"s2": config})
+
+    assert bench.configured_traffic_generator_mode("esphome", "s2") == "dns"
 
 
 def test_micro_benchmark_config_reads_shared_local_env_not_developer_config(monkeypatch):

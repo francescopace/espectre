@@ -26,6 +26,7 @@ def resolve_benchmark_port(monkeypatch):
         "resolve_serial_port",
         lambda *_args, **_kwargs: "/dev/cu.resolved",
     )
+    monkeypatch.setattr(bench, "remember_serial_port_identity", lambda _port: None)
 
 
 def test_cases_run_frontends_in_hardware_benchmark_order():
@@ -132,18 +133,18 @@ def test_main_resolves_an_explicit_port_through_the_shared_path(tmp_path, monkey
         )
     ]
 
-def test_main_stops_after_flash_failure(tmp_path, monkeypatch, capsys):
+def test_main_stops_after_first_failed_case(tmp_path, monkeypatch, capsys):
     observed: list[str] = []
     state = RepositoryState("revision", False, "fingerprint")
 
     def run_direct(cases, _chip, _port, *, on_result):
         observed.append(cases[0].frontend)
-        flash = CommandResult(["flash"], 1, 1.0, "No compatible serial ports found")
+        flash = CommandResult(["flash"], 0, 1.0, "Flash completed")
         direct_results = [
             BenchmarkResult(
                 case=case,
                 status="FAIL",
-                reasons=["flash exited with status 1"],
+                reasons=["provisioning exited with status 1"],
                 flash=flash,
             )
             for case in cases
@@ -166,7 +167,7 @@ def test_main_stops_after_flash_failure(tmp_path, monkeypatch, capsys):
 
     assert bench.main() == 1
     assert observed == ["native"]
-    assert "Flash failed; stopping the benchmark" in capsys.readouterr().err
+    assert "stopping the benchmark at the first failed case" in capsys.readouterr().err
 
 def test_main_warns_but_passes_when_sources_change_on_same_revision(
     tmp_path,

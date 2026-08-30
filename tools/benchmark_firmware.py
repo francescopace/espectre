@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
+import os
 from pathlib import Path
 import sys
 from typing import Sequence
@@ -16,7 +17,11 @@ REPO_ROOT = SCRIPT_DIR.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.python.espectre_cli.common import resolve_serial_port
+from src.python.espectre_cli.common import (
+    SERIAL_PORT_IDENTITY_ENV,
+    remember_serial_port_identity,
+    resolve_serial_port,
+)
 from src.python.espectre_cli.targets import IDF_FRONTENDS
 from tools.lib.firmware_benchmark import settings
 from tools.lib.firmware_benchmark.models import (
@@ -45,6 +50,14 @@ from tools.lib.firmware_benchmark.report import (
     write_benchmark_artifacts,
     write_report,
 )
+
+
+class BenchmarkCaseFailed(Exception):
+    """Stop a hardware run immediately after its first failed case."""
+
+    def __init__(self, result: BenchmarkResult):
+        super().__init__(result.case.label)
+        self.result = result
 
 
 def select_cases(
@@ -160,6 +173,7 @@ def main() -> int:
         return 0 if passed else 1
 
     require_benchmark_prerequisites(selected_cases)
+    os.environ.pop(SERIAL_PORT_IDENTITY_ENV, None)
     port = resolve_serial_port(
         args.port,
         chip=args.chip,
@@ -167,6 +181,7 @@ def main() -> int:
         purpose="flash",
         require_canonical_console=True,
     )
+    remember_serial_port_identity(port)
     started_at = datetime.now().astimezone()
     repository_state_start = repository_state()
     artifact_dir = (
@@ -245,8 +260,9 @@ def main() -> int:
         def record_direct_result(result: BenchmarkResult) -> None:
             results.append(result)
             write_current_report()
+            if result.status != "PASS":
+                raise BenchmarkCaseFailed(result)
 
-        flash_failed = False
         for frontend in ("native", "esphome", "matter"):
             frontend_cases = tuple(
                 case for case in selected_cases if case.frontend == frontend
@@ -260,23 +276,11 @@ def main() -> int:
                 on_result=record_direct_result,
             )
             write_current_report()
-            flash_failed = any(
-                result.flash is not None and result.flash.returncode != 0
-                for result in frontend_results
-            )
-            if flash_failed:
-                print(
-                    "\nFlash failed; stopping the benchmark because the remaining "
-                    "cases use the same serial target.",
-                    file=sys.stderr,
-                )
-                break
+            for result in frontend_results:
+                if result.status != "PASS":
+                    raise BenchmarkCaseFailed(result)
 
-        micro_cases = (
-            ()
-            if flash_failed
-            else tuple(case for case in selected_cases if case.frontend == "micro")
-        )
+        micro_cases = tuple(case for case in selected_cases if case.frontend == "micro")
         shared_micro_flash: CommandResult | None = None
         for micro_case in micro_cases:
             micro_result = run_micro_case(
@@ -289,6 +293,18 @@ def main() -> int:
             if micro_result.flash is not None and micro_result.flash.returncode == 0:
                 shared_micro_flash = micro_result.flash
             write_current_report()
+            if micro_result.status != "PASS":
+                raise BenchmarkCaseFailed(micro_result)
+    except BenchmarkCaseFailed as failure:
+        destination = write_current_report()
+        print(
+            f"\n{failure.result.case.label} failed; stopping the benchmark at the "
+            "first failed case.",
+            file=sys.stderr,
+        )
+        print(f"\nWrote {destination}")
+        print("Overall result: FAIL")
+        return 1
     except KeyboardInterrupt:
         print("\nBenchmark interrupted; writing the partial report.", file=sys.stderr)
         write_current_report()

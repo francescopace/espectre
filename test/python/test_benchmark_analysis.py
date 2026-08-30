@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tools.lib.firmware_benchmark import analysis as bench
 from tools.lib.firmware_benchmark import settings as benchmark_settings
 
@@ -141,3 +143,79 @@ def test_direct_evidence_accepts_micro_diagnostics_cadence():
     assert metrics.status_interval_max_ms == 5_000
     assert metrics.status_gap_count == 0
     assert not any("diagnostics gap" in reason for reason in reasons)
+
+
+def test_direct_evidence_accepts_heap_that_reaches_a_final_plateau():
+    samples = [
+        {
+            "host_elapsed_seconds": float(second),
+            "timestamp_ms": second * 1_000,
+            "uptime": second,
+            "free_memory_kb": 120.0 if second < 35 else 100.0,
+        }
+        for second in range(60)
+    ]
+
+    metrics, reasons = bench.analyze_direct_evidence(
+        samples,
+        [],
+        duration_seconds=60,
+        require_telemetry=False,
+        require_detection_timing=False,
+    )
+
+    assert metrics.heap_free_settled_first == 100 * 1024
+    assert metrics.heap_free_settled_last == 100 * 1024
+    assert metrics.heap_free_settled_delta_percent == 0.0
+    assert not any("free heap did not stabilize" in reason for reason in reasons)
+
+
+def test_direct_evidence_rejects_heap_that_keeps_declining_in_final_window():
+    samples = [
+        {
+            "host_elapsed_seconds": float(second),
+            "timestamp_ms": second * 1_000,
+            "uptime": second,
+            "free_memory_kb": 100.0 if second < 50 else 90.0,
+        }
+        for second in range(60)
+    ]
+
+    metrics, reasons = bench.analyze_direct_evidence(
+        samples,
+        [],
+        duration_seconds=60,
+        require_telemetry=False,
+        require_detection_timing=False,
+    )
+
+    assert metrics.heap_free_settled_first == 100 * 1024
+    assert metrics.heap_free_settled_last == 90 * 1024
+    assert metrics.heap_free_settled_delta_percent == -10.0
+    assert any("free heap did not stabilize" in reason for reason in reasons)
+
+
+@pytest.mark.parametrize("duration_seconds", [5, 15])
+def test_direct_evidence_rejects_incomplete_heap_stability_windows(duration_seconds):
+    samples = [
+        {
+            "host_elapsed_seconds": float(second),
+            "timestamp_ms": second * 1_000,
+            "uptime": second,
+            "free_memory_kb": 100.0,
+        }
+        for second in range(duration_seconds)
+    ]
+
+    metrics, reasons = bench.analyze_direct_evidence(
+        samples,
+        [],
+        duration_seconds=duration_seconds,
+        require_telemetry=False,
+        require_detection_timing=False,
+    )
+
+    assert metrics.heap_free_settled_first is None
+    assert metrics.heap_free_settled_last is None
+    assert metrics.heap_free_settled_delta_percent is None
+    assert any("two complete consecutive 10-second windows" in reason for reason in reasons)

@@ -24,6 +24,7 @@ from src.python.espectre_cli.device_transport import (
     DirectClient,
     DirectEvent,
     DirectProtocolError,
+    DirectRequestError,
     direct_endpoint_from_device_url,
 )
 
@@ -40,6 +41,7 @@ from tools.lib.firmware_benchmark.build import (
     _flash_prebuilt_cpp_case_in_context,
     build_artifact_from_output,
     case_context,
+    configured_traffic_generator_mode,
     micro_case_config,
     micro_deployed_source_size,
     parse_build_metrics,
@@ -291,8 +293,12 @@ def prepare_direct_runtime(client: DirectClient, case: BenchmarkCase, *, chip: s
             raise RuntimeError(f"Direct endpoint did not confirm detector {case.detector}")
         if runtime_config.get("csi_traffic_mode") != "internal":
             raise RuntimeError("Direct endpoint did not retain default internal CSI traffic")
-        if runtime_config.get("traffic_generator_mode") != "ping":
-            raise RuntimeError("Direct endpoint did not retain default ping traffic generation")
+        expected_traffic_mode = configured_traffic_generator_mode(case.frontend, chip)
+        if runtime_config.get("traffic_generator_mode") != expected_traffic_mode:
+            raise RuntimeError(
+                "Direct endpoint did not retain configured "
+                f"{expected_traffic_mode} traffic generation"
+            )
     return {**handshake, **confirmation}
 
 def prepare_micro_direct_runtime(
@@ -440,15 +446,9 @@ def capture_direct_window(
     previous_raw: dict[str, object] | None = None
     events_start = len(client.events)
     if open_event_stream:
-        # A stream opened during runtime readiness can remain connected without
-        # receiving events on some frontends. Reopen it at the scored-window
-        # boundary so telemetry evidence always comes from a fresh subscriber.
-        # Wait for the device to account for that expected disconnect before
-        # transport counters establish the scored-window baseline.
-        client.stop_events()
-        if settle_event_disconnect:
-            _wait_for_direct_event_stream_closed(client)
-        events_start = len(client.events)
+        # C++ frontends open this stream before readiness so the scored path is
+        # already warm. start_events() is idempotent and Micro opens here, so
+        # every detector keeps one SSE connection for readiness and scoring.
         for attempt in range(DIRECT_EVENT_OPEN_ATTEMPTS):
             try:
                 client.start_events()
@@ -531,6 +531,8 @@ def capture_direct_window(
     finally:
         if open_event_stream:
             client.stop_events()
+            if settle_event_disconnect:
+                _wait_for_direct_event_stream_closed(client)
     return samples, normalize_direct_events(client.events, from_index=events_start), attempts
 
 def wait_for_direct_runtime_ready(
@@ -905,12 +907,29 @@ def _apply_direct_radio_pin(
         if _direct_radio_pin_matches(config, bssid, requested_channel=requested_channel):
             return False
     # ESPHome disconnects the station before the HTTP response can complete, so
-    # a dropped request is still treated as an applied pin.
-    try:
-        client.request("set_wifi_bssid", {"bssid": bssid})
-    except DirectProtocolError:
-        pass
-    return True
+    # a dropped first request is treated as an applied pin. When the previous
+    # BSSID transition explicitly reports itself busy, wait for that state
+    # machine to finish before issuing the next benchmark transition.
+    deadline = time.monotonic() + BENCHMARK_CONTROL_TIMEOUT_SECONDS
+    transition_busy = False
+    last_error: DirectProtocolError | DirectRequestError | None = None
+    while True:
+        try:
+            client.request("set_wifi_bssid", {"bssid": bssid})
+            return True
+        except DirectRequestError as exc:
+            if exc.code != "unavailable" or "BSSID update already in progress" not in exc.message:
+                raise
+            transition_busy = True
+            last_error = exc
+        except DirectProtocolError as exc:
+            if not transition_busy:
+                return True
+            last_error = exc
+        if time.monotonic() >= deadline:
+            assert last_error is not None
+            raise last_error
+        time.sleep(0.5)
 
 
 def _reconnect_direct_after_radio_pin(
@@ -925,6 +944,7 @@ def _reconnect_direct_after_radio_pin(
         endpoint,
         frontend=frontend,
         chip=chip,
+        timeout_seconds=WIFI_CONNECT_WAIT_SECONDS + DIRECT_DISCOVERY_TIMEOUT_SECONDS,
         timed_nonpersistent=timed_nonpersistent,
     )
 
@@ -940,14 +960,18 @@ def _verify_native_baseline(handshake: dict[str, dict[str, object]]) -> None:
         raise RuntimeError("Native benchmark configuration unexpectedly contains MQTT settings")
 
 
-def _verify_default_runtime_baseline(handshake: dict[str, dict[str, object]]) -> None:
+def _verify_default_runtime_baseline(
+    handshake: dict[str, dict[str, object]],
+    *,
+    expected_traffic_mode: str = "ping",
+) -> None:
     """Require the production runtime defaults before benchmark mutations."""
     config = handshake["config"]
     runtime = config.get("runtime") if isinstance(config.get("runtime"), dict) else config
     expected = {
         "detector": "lightweight",
         "csi_traffic_mode": "internal",
-        "traffic_generator_mode": "ping",
+        "traffic_generator_mode": expected_traffic_mode,
         "csi_target_pps": 100,
     }
     mismatches = [
@@ -1190,7 +1214,9 @@ def run_direct_frontend_cases(
                 on_result(result)
         return failed_results
 
-    monitor_port = provisioning.get("port") if provisioning is not None else port
+    # Keep the benchmark's original selector so the monitor inherits the
+    # parent process's physical USB identity across runtime re-enumeration.
+    monitor_port = port
     if matter_monitor is not None:
         (
             monitor_process,
@@ -1238,7 +1264,10 @@ def run_direct_frontend_cases(
             flush=True,
         )
         baseline = direct_handshake(client, frontend=frontend, chip=chip)
-        _verify_default_runtime_baseline(baseline)
+        _verify_default_runtime_baseline(
+            baseline,
+            expected_traffic_mode=configured_traffic_generator_mode(frontend, chip),
+        )
         if frontend == "native":
             _verify_native_baseline(baseline)
         initial_bssid = benchmark_setting("ESPECTRE_BENCHMARK_WIFI_INITIAL_BSSID", "") or ""
@@ -1526,6 +1555,12 @@ def run_micro_case(
         flashed_port = firmware_metadata.get("port")
         if not isinstance(flashed_port, str) or not flashed_port:
             raise RuntimeError("delegated Micro flash metadata did not contain a serial port")
+        # Keep using the benchmark's originally selected port alias. The
+        # parent process exported that port's physical USB identity, allowing
+        # each child CLI process to follow native-USB ROM/application
+        # re-enumeration. The resolved flash port may be only the temporary ROM
+        # alias and must not replace that stable selection for deploy or run.
+        runtime_port = port or flashed_port
         result.build_metrics = parse_build_metrics(flash_result.output, firmware_path)
         if flash_result.returncode != 0:
             result.status = "FAIL"
@@ -1542,7 +1577,7 @@ def run_micro_case(
                 "--config",
                 str(config_path),
             ]
-            deploy_command.extend(["--port", flashed_port])
+            deploy_command.extend(["--port", runtime_port])
             result.deploy = run_command(deploy_command)
             if result.deploy.returncode != 0:
                 result.status = "FAIL"
@@ -1550,7 +1585,7 @@ def run_micro_case(
                 return result
 
         run_command_line = [launcher, "micro", "run", "--chip", chip, "--json"]
-        run_command_line.extend(["--port", flashed_port])
+        run_command_line.extend(["--port", runtime_port])
         process, output_lines, line_times, relay_thread, started = _run_background_command(run_command_line)
         client: DirectClient | None = None
         try:

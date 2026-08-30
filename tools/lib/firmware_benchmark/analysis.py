@@ -12,6 +12,8 @@ from typing import Sequence
 from tools.lib.firmware_benchmark.models import RuntimeMetrics
 from tools.lib.firmware_benchmark.settings import (
     DIRECT_SAMPLE_INTERVAL_SECONDS,
+    HEAP_STABILITY_MAX_DECLINE_PERCENT,
+    HEAP_STABILITY_WINDOW_SECONDS,
     MINIMUM_OCCUPANCY_PERCENT,
     MIN_TELEMETRY_SAMPLES,
     RUNTIME_STATUS_BOUNDARY_TOLERANCE_SAMPLES,
@@ -159,7 +161,7 @@ def analyze_direct_evidence(
 
     heap = [value for sample in samples if (value := _numeric(sample.get("free_memory_kb"))) is not None]
     settled_heap = [
-        value
+        (float(sample["host_elapsed_seconds"]), value)
         for sample in samples
         if float(sample["host_elapsed_seconds"]) >= STARTUP_GRACE_SECONDS
         and (value := _numeric(sample.get("free_memory_kb"))) is not None
@@ -167,15 +169,49 @@ def analyze_direct_evidence(
     if heap:
         metrics.heap_free_last = int(heap[-1] * 1024.0)
     if settled_heap:
-        metrics.heap_free_settled_first = int(settled_heap[0] * 1024.0)
-        metrics.heap_free_settled_last = int(settled_heap[-1] * 1024.0)
-        metrics.heap_free_settled_delta = metrics.heap_free_settled_last - metrics.heap_free_settled_first
-        if metrics.heap_free_settled_first:
-            metrics.heap_free_settled_delta_percent = (
-                100.0 * metrics.heap_free_settled_delta / metrics.heap_free_settled_first
+        observed_end = settled_heap[-1][0]
+        final_window_start = observed_end - HEAP_STABILITY_WINDOW_SECONDS
+        previous_window_start = final_window_start - HEAP_STABILITY_WINDOW_SECONDS
+        previous_window = [
+            value
+            for elapsed, value in settled_heap
+            if previous_window_start < elapsed <= final_window_start
+        ]
+        final_window = [
+            value for elapsed, value in settled_heap if final_window_start < elapsed <= observed_end
+        ]
+        windows_are_complete = (
+            settled_heap[0][0] <= previous_window_start
+            and bool(previous_window)
+            and bool(final_window)
+        )
+        if windows_are_complete:
+            plateau_first = statistics.median(previous_window)
+            plateau_last = statistics.median(final_window)
+            metrics.heap_free_settled_first = int(plateau_first * 1024.0)
+            metrics.heap_free_settled_last = int(plateau_last * 1024.0)
+            metrics.heap_free_settled_delta = (
+                metrics.heap_free_settled_last - metrics.heap_free_settled_first
             )
-            if metrics.heap_free_settled_delta_percent < -5.0:
-                reasons.append("free heap declined by more than 5% after startup settled")
+            if metrics.heap_free_settled_first:
+                metrics.heap_free_settled_delta_percent = (
+                    100.0 * metrics.heap_free_settled_delta / metrics.heap_free_settled_first
+                )
+                if metrics.heap_free_settled_delta_percent < -HEAP_STABILITY_MAX_DECLINE_PERCENT:
+                    reasons.append(
+                        "free heap did not stabilize: the final window median declined by more than "
+                        f"{HEAP_STABILITY_MAX_DECLINE_PERCENT:.0f}%"
+                    )
+        elif heap:
+            reasons.append(
+                "free heap stability requires two complete consecutive "
+                f"{HEAP_STABILITY_WINDOW_SECONDS}-second windows after startup grace"
+            )
+    elif heap:
+        reasons.append(
+            "free heap stability requires two complete consecutive "
+            f"{HEAP_STABILITY_WINDOW_SECONDS}-second windows after startup grace"
+        )
     minimum_heap = [
         value for sample in samples if (value := _numeric(sample.get("minimum_free_memory_kb"))) is not None
     ]

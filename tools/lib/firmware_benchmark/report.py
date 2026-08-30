@@ -29,6 +29,8 @@ from tools.lib.firmware_benchmark.models import (
 )
 from tools.lib.firmware_benchmark.settings import (
     BENCHMARK_ARTIFACT_ROOT,
+    HEAP_STABILITY_MAX_DECLINE_PERCENT,
+    HEAP_STABILITY_WINDOW_SECONDS,
     MINIMUM_OCCUPANCY_PERCENT,
     MIN_TELEMETRY_SAMPLES,
     REPO_ROOT,
@@ -613,23 +615,26 @@ def render_report(
                 f"| Last post-GC free heap | {format_bytes(runtime.heap_free_post_gc_last)} |"
             )
         settled_heap_label = (
-            "Settled post-GC free heap"
+            "Post-GC heap stability"
             if runtime.heap_free_post_gc_last is not None
-            else "Settled free heap"
+            else "Heap stability"
         )
         if runtime.heap_free_settled_first is not None:
             detail_rows.append(
-                f"| {settled_heap_label} first | {format_bytes(runtime.heap_free_settled_first)} |"
+                f"| {settled_heap_label} previous-window median | "
+                f"{format_bytes(runtime.heap_free_settled_first)} |"
             )
         if runtime.heap_free_settled_last is not None:
             detail_rows.append(
-                f"| {settled_heap_label} last | {format_bytes(runtime.heap_free_settled_last)} |"
+                f"| {settled_heap_label} final-window median | "
+                f"{format_bytes(runtime.heap_free_settled_last)} |"
             )
         if runtime.heap_free_settled_delta is not None:
             delta_percent = runtime.heap_free_settled_delta_percent
             delta_percent_text = f", {delta_percent:+.2f}%" if delta_percent is not None else ""
             detail_rows.append(
-                f"| {settled_heap_label} delta | {runtime.heap_free_settled_delta:+,} bytes{delta_percent_text} |"
+                f"| {settled_heap_label} change | "
+                f"{runtime.heap_free_settled_delta:+,} bytes{delta_percent_text} |"
             )
         if runtime.heap_min is not None:
             detail_rows.append(f"| Minimum free heap | {format_bytes(runtime.heap_min)} |")
@@ -710,10 +715,12 @@ def render_report(
             "- Native, ESPHome, Matter, and Micro-ESPectre negotiate Direct v1 and sample canonical diagnostics throughout each scored window",
             "- Native and ESPHome use canonical firmware defaults, clear all device data during flash, and provision through Improv Serial",
             "- Matter clears all device data, commissions through a revision-compatible CHIP Tool controller over BLE and Wi-Fi, and reaches its Direct endpoint",
-            "- Native, ESPHome, and Matter report Lightweight detection, internal ping traffic, and a 100 pps target before runtime mutations",
+            "- Native, ESPHome, and Matter report Lightweight detection, their configured internal managed traffic, and a 100 pps target before runtime mutations",
             "- Native remains MQTT-unconfigured",
             f"- sensing frontends receive at least {MIN_TELEMETRY_SAMPLES} canonical telemetry events through Direct SSE",
-            "- free heap does not decline by more than 5% after startup has settled",
+            f"- free heap provides two complete consecutive {HEAP_STABILITY_WINDOW_SECONDS}-second "
+            f"windows after startup grace, and the final-window median does not decline by more "
+            f"than {HEAP_STABILITY_MAX_DECLINE_PERCENT:.0f}% from the preceding window",
             "- the device uptime does not restart during a scored runtime window",
             "- Direct diagnostics cadence stays within the runtime gap tolerance, and production telemetry events remain live on sensing frontends",
             f"- {english_join(runtime_case_labels())} mean CSI occupancy stays at or above "
@@ -974,20 +981,44 @@ def parse_report_results(text: str) -> list[BenchmarkResult]:
             runtime.heap_free_last = parse_report_bytes(metric("Last free heap"))
         if "Last post-GC free heap" in metric_rows:
             runtime.heap_free_post_gc_last = parse_report_bytes(metric("Last post-GC free heap"))
-        settled_first_key = (
-            "Settled post-GC free heap first"
-            if "Settled post-GC free heap first" in metric_rows
-            else "Settled free heap first"
+        settled_first_key = next(
+            (
+                key
+                for key in (
+                    "Post-GC heap stability previous-window median",
+                    "Heap stability previous-window median",
+                    "Settled post-GC free heap first",
+                    "Settled free heap first",
+                )
+                if key in metric_rows
+            ),
+            "Heap stability previous-window median",
         )
-        settled_last_key = (
-            "Settled post-GC free heap last"
-            if "Settled post-GC free heap last" in metric_rows
-            else "Settled free heap last"
+        settled_last_key = next(
+            (
+                key
+                for key in (
+                    "Post-GC heap stability final-window median",
+                    "Heap stability final-window median",
+                    "Settled post-GC free heap last",
+                    "Settled free heap last",
+                )
+                if key in metric_rows
+            ),
+            "Heap stability final-window median",
         )
-        settled_delta_key = (
-            "Settled post-GC free heap delta"
-            if "Settled post-GC free heap delta" in metric_rows
-            else "Settled free heap delta"
+        settled_delta_key = next(
+            (
+                key
+                for key in (
+                    "Post-GC heap stability change",
+                    "Heap stability change",
+                    "Settled post-GC free heap delta",
+                    "Settled free heap delta",
+                )
+                if key in metric_rows
+            ),
+            "Heap stability change",
         )
         if settled_first_key in metric_rows:
             runtime.heap_free_settled_first = parse_report_bytes(metric(settled_first_key))

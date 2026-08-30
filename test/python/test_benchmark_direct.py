@@ -18,6 +18,7 @@ from tools.lib.firmware_benchmark.models import (
 )
 from src.python.espectre_cli.device_transport import (
     DirectProtocolError,
+    DirectRequestError,
 )
 from src.python.micro_espectre import protocol
 
@@ -293,6 +294,99 @@ def test_improv_provisioning_failure_is_reported_through_callback(monkeypatch, f
     assert ["--frontend", frontend] == commands[0][4:6]
 
 
+@pytest.mark.parametrize("frontend", ["native", "esphome"])
+def test_runtime_monitor_keeps_benchmark_physical_port(
+    monkeypatch,
+    frontend,
+):
+    case = BenchmarkCase(frontend, "lightweight")
+
+    class FakeContext:
+        def __enter__(self):
+            return {}, object()
+
+        def __exit__(self, *_args):
+            return False
+
+    bootstrap = BenchmarkResult(
+        case=case,
+        build=CommandResult(["build"], 0, 1.0, ""),
+    )
+
+    def fake_flash(_case, _chip, _port, result, **_kwargs):
+        result.flash = CommandResult(["flash"], 0, 1.0, "")
+        return True
+
+    def fail_connect(*_args, **_kwargs):
+        raise RuntimeError("stop after monitor")
+
+    monitor_commands: list[list[str]] = []
+    monitor_process = SimpleNamespace(poll=lambda: None)
+    monkeypatch.setattr(bench, "case_context", lambda *_args, **_kwargs: FakeContext())
+    monkeypatch.setattr(bench, "_build_case_in_context", lambda *_args, **_kwargs: bootstrap)
+    monkeypatch.setattr(bench, "_flash_prebuilt_cpp_case_in_context", fake_flash)
+    monkeypatch.setattr(
+        bench,
+        "run_command",
+        lambda command, **_kwargs: CommandResult(
+            list(command),
+            0,
+            1.0,
+            json.dumps(
+                {
+                    "endpoint": "http://192.0.2.10:62587/espectre/v1/request",
+                    "port": "/dev/cu.runtime-alias",
+                }
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        bench,
+        "_run_background_command",
+        lambda command, **_kwargs: (
+            monitor_commands.append(list(command)) or monitor_process,
+            [],
+            [],
+            object(),
+            1.0,
+        ),
+    )
+    monkeypatch.setattr(
+        bench,
+        "_connect_direct_with_retry",
+        fail_connect,
+    )
+    monkeypatch.setattr(bench, "_terminate_process", lambda _process: None)
+    monkeypatch.setattr(
+        bench,
+        "_finalize_background_command",
+        lambda *_args: CommandResult(["monitor"], 0, 1.0, ""),
+    )
+    monkeypatch.setattr(bench.time, "sleep", lambda _seconds: None)
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
+    monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
+
+    results = bench.run_direct_frontend_cases(
+        [case],
+        "c3",
+        "/dev/cu.selected",
+    )
+
+    assert results[0].reasons == ["stop after monitor"]
+    assert monitor_commands == [
+        [
+            str(bench.REPO_ROOT / "espectre"),
+            "monitor",
+            "--chip",
+            "c3",
+            "--frontend",
+            frontend,
+            "--port",
+            "/dev/cu.selected",
+        ]
+    ]
+
+
 def test_matter_commissioning_uses_captured_onboarding_data(monkeypatch):
     case = BenchmarkCase("matter", "lightweight")
 
@@ -522,9 +616,10 @@ def test_direct_capture_opens_and_closes_event_collection():
     assert events == []
     assert attempts == []
     assert client.started is True
-    assert client.stop_calls == 2
+    assert client.stop_calls == 1
 
-def test_direct_capture_waits_for_closed_readiness_stream(monkeypatch):
+
+def test_direct_capture_waits_for_closed_scored_stream(monkeypatch):
     class FakeClock:
         now = 0.0
 
@@ -541,12 +636,13 @@ def test_direct_capture_waits_for_closed_readiness_stream(monkeypatch):
             self.events = []
             self.event_clients = iter((1, 1, 0))
             self.started_at = None
+            self.stopped_at = None
 
         def start_events(self):
             self.started_at = FakeClock.now
 
         def stop_events(self):
-            pass
+            self.stopped_at = FakeClock.now
 
         def request(self, method):
             assert method == "diagnostics"
@@ -562,7 +658,10 @@ def test_direct_capture_waits_for_closed_readiness_stream(monkeypatch):
         settle_event_disconnect=True,
     )
 
-    assert client.started_at == pytest.approx(0.1)
+    assert client.started_at == pytest.approx(0.0)
+    assert client.stopped_at == pytest.approx(0.0)
+    assert FakeClock.now == pytest.approx(0.1)
+
 
 def test_direct_capture_can_leave_event_collection_closed():
     class FakeClient:
@@ -1079,6 +1178,39 @@ def test_direct_radio_pin_treats_dropped_response_as_applied(monkeypatch):
     ) is True
 
 
+def test_direct_radio_pin_waits_for_previous_bssid_update(monkeypatch):
+    requests = []
+    sleeps = []
+
+    class FakeClient:
+        def request(self, method, params=None):
+            requests.append((method, params))
+            if len(requests) == 1:
+                raise DirectRequestError(
+                    "unavailable",
+                    "Wi-Fi BSSID update already in progress",
+                )
+            if len(requests) == 2:
+                raise DirectProtocolError("Direct HTTP request failed: reconnecting")
+            return {}
+
+    monotonic = iter([0.0, 0.1, 0.2, 0.3])
+    monkeypatch.setattr(bench.time, "monotonic", lambda: next(monotonic))
+    monkeypatch.setattr(bench.time, "sleep", sleeps.append)
+
+    assert bench._apply_direct_radio_pin(
+        FakeClient(),
+        "AA:BB:CC:DD:EE:FF",
+        skip_if_associated=False,
+    ) is True
+    assert requests == [
+        ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF"}),
+        ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF"}),
+        ("set_wifi_bssid", {"bssid": "AA:BB:CC:DD:EE:FF"}),
+    ]
+    assert sleeps == [0.5, 0.5]
+
+
 def test_radio_pin_reconnect_reuses_known_endpoint(monkeypatch):
     endpoint = "http://192.0.2.10/espectre/v1/request"
     expected_client = object()
@@ -1104,6 +1236,10 @@ def test_radio_pin_reconnect_reuses_known_endpoint(monkeypatch):
             {
                 "frontend": "matter",
                 "chip": "s3",
+                "timeout_seconds": (
+                    bench.WIFI_CONNECT_WAIT_SECONDS
+                    + bench.DIRECT_DISCOVERY_TIMEOUT_SECONDS
+                ),
                 "timed_nonpersistent": False,
             },
         )
@@ -1130,8 +1266,14 @@ def test_bssid_reboot_check_is_unknown_without_direct_uptime():
         {"diagnostics": {}},
     ) is None
 
-@pytest.mark.parametrize("chip", ["c3", "esp32"])
-def test_run_micro_case_uses_production_cli_workflow(monkeypatch, tmp_path, chip):
+
+@pytest.mark.parametrize(
+    ("chip", "selected_port"),
+    [("c3", ""), ("esp32", "/dev/cu.selected")],
+)
+def test_run_micro_case_uses_production_cli_workflow(
+    monkeypatch, tmp_path, chip, selected_port
+):
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_SSID", "lab")
     monkeypatch.setenv("ESPECTRE_BENCHMARK_WIFI_PASSWORD", "secret")
     commands: list[list[str]] = []
@@ -1208,7 +1350,7 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, tmp_path, chip
     result = bench.run_micro_case(
         BenchmarkCase("micro", "lightweight"),
         chip,
-        "",
+        selected_port,
     )
 
     assert result.status == "PASS"
@@ -1234,11 +1376,19 @@ def test_run_micro_case_uses_production_cli_workflow(monkeypatch, tmp_path, chip
         ["micro", "run"],
     ]
     assert all(command[command.index("--chip") + 1] == chip for command in commands)
-    assert "--port" not in commands[0]
-    assert all(command[command.index("--port") + 1] == flashed_port for command in commands[1:])
+    if selected_port:
+        assert commands[0][commands[0].index("--port") + 1] == selected_port
+    else:
+        assert "--port" not in commands[0]
+    runtime_port = selected_port or flashed_port
+    assert all(
+        command[command.index("--port") + 1] == runtime_port
+        for command in commands[1:]
+    )
     assert "--frozen" not in commands[0]
 
-def test_capture_direct_window_retries_initial_event_reset(monkeypatch):
+
+def test_capture_direct_window_retries_initial_event_open(monkeypatch):
     class EventClient:
         events = []
 
@@ -1263,4 +1413,4 @@ def test_capture_direct_window_retries_initial_event_reset(monkeypatch):
     assert events == []
     assert attempts == []
     assert client.start_attempts == 2
-    assert client.stop_calls == 2
+    assert client.stop_calls == 1

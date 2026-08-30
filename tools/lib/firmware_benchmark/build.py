@@ -11,7 +11,7 @@ import re
 from typing import Callable, Iterator
 from src.python.espectre_cli.idf import cached_sdkconfig_path, resolve_idf_build_dir_name
 from src.python.espectre_cli.micro import deployment_files
-from src.python.espectre_cli.targets import IDF_FRONTENDS
+from src.python.espectre_cli.targets import ESPHOME_CONFIGS, IDF_FRONTENDS
 
 from tools.lib.firmware_benchmark.analysis import strip_ansi
 from tools.lib.firmware_benchmark.models import BenchmarkCase, BenchmarkResult, BuildMetrics
@@ -74,6 +74,45 @@ def parse_build_metrics(output: str, firmware_path: Path | None = None) -> Build
         metrics.firmware_sha256 = digest.hexdigest()
 
     return metrics
+
+
+TRAFFIC_GENERATOR_CONFIGS = {
+    "ping": "CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_PING",
+    "dns": "CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS",
+    "dns_tcp": "CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS_TCP",
+}
+
+
+def configured_traffic_generator_mode(frontend: str, chip: str) -> str:
+    """Return the production traffic mode owned by the frontend configuration."""
+    if frontend == "micro":
+        return "ping"
+    if frontend == "esphome":
+        config_path = Path(ESPHOME_CONFIGS[chip])
+        match = re.search(
+            r"(?m)^\s+traffic_generator_mode:\s*(ping|dns|dns_tcp)(?:\s|#|$)",
+            config_path.read_text(encoding="utf-8"),
+        )
+        if match is None:
+            raise RuntimeError(f"ESPHome config does not select a traffic generator mode: {config_path}")
+        return match.group(1)
+    if frontend not in IDF_FRONTENDS:
+        raise RuntimeError(f"unsupported benchmark frontend: {frontend}")
+
+    app_dir = Path(IDF_FRONTENDS[frontend]["app_dir"])
+    idf_target = IDF_FRONTENDS[frontend]["targets"][chip]
+    selected = "ping"
+    for defaults in (
+        app_dir / "sdkconfig.defaults",
+        app_dir / f"sdkconfig.defaults.{idf_target}",
+    ):
+        if not defaults.is_file():
+            continue
+        content = defaults.read_text(encoding="utf-8")
+        for mode, symbol in TRAFFIC_GENERATOR_CONFIGS.items():
+            if re.search(rf"(?m)^{re.escape(symbol)}=y\s*$", content):
+                selected = mode
+    return selected
 
 def build_artifact_from_output(
     output: str,
@@ -211,13 +250,16 @@ def validate_idf_benchmark_sdkconfig(frontend: str, chip: str) -> None:
     content = path.read_text(encoding="utf-8")
     if using_default_sdkconfig and f'CONFIG_IDF_TARGET="{idf_target}"' not in content:
         raise RuntimeError("could not inspect the resolved ESP-IDF configuration")
+    expected_traffic_mode = configured_traffic_generator_mode(frontend, chip)
     required_lines = (
         "CONFIG_ESPECTRE_DETECTION_ALGORITHM_LIGHTWEIGHT=y",
         "# CONFIG_ESPECTRE_DETECTION_ALGORITHM_HIGH_ACCURACY is not set",
         "CONFIG_ESPECTRE_CSI_TARGET_PPS=100",
         "CONFIG_ESPECTRE_CSI_TRAFFIC_MODE_INTERNAL=y",
-        "# CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS is not set",
-        "CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_PING=y",
+    )
+    required_lines += tuple(
+        f"{symbol}=y" if mode == expected_traffic_mode else f"# {symbol} is not set"
+        for mode, symbol in TRAFFIC_GENERATOR_CONFIGS.items()
     )
     if frontend == "native":
         required_lines += (
