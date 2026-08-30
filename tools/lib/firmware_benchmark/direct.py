@@ -172,7 +172,6 @@ def normalize_direct_diagnostics(
         "detection_max_us": _integer(payload.get("detection_max_us")),
         "direct_rejected_connections": _integer(direct_http.get("rejected_connections")),
         "direct_send_failures": _integer(direct_http.get("send_failures")),
-        "direct_slow_client_disconnects": _integer(direct_http.get("slow_client_disconnects")),
         "direct_dropped_telemetry_events": _integer(direct_http.get("dropped_telemetry_events")),
     }
 
@@ -363,7 +362,6 @@ def prepare_micro_direct_runtime(
         "rate_limited_requests",
         "dropped_telemetry_events",
         "send_failures",
-        "slow_client_disconnects",
     }
     missing_direct_http_fields = sorted(
         required_direct_http_fields - direct_http.keys()

@@ -898,9 +898,7 @@ std::string NativeFrontend::direct_diagnostics_payload_() const {
     out += ",\"oversized_requests\":" + std::to_string(direct.oversized_requests);
     out += ",\"rate_limited_requests\":" + std::to_string(direct.rate_limited_requests);
     out += ",\"dropped_telemetry_events\":" + std::to_string(direct.dropped_telemetry_events);
-    out += ",\"send_failures\":" + std::to_string(direct.send_failures);
-    out += ",\"slow_client_disconnects\":" +
-           std::to_string(direct.slow_client_disconnects) + "}";
+    out += ",\"send_failures\":" + std::to_string(direct.send_failures) + "}";
   }
   {
     const RawCsiSessionDiagnostics raw =

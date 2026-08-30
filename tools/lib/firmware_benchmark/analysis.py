@@ -262,7 +262,6 @@ def analyze_direct_evidence(
     for key, label in (
         ("direct_rejected_connections", "rejected connection"),
         ("direct_send_failures", "send failure"),
-        ("direct_slow_client_disconnects", "slow-client disconnect"),
     ):
         values = [value for sample in samples if (value := _integer(sample.get(key))) is not None]
         if len(values) > 1 and values[-1] > values[0]:

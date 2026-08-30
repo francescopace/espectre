@@ -548,7 +548,6 @@ def test_micro_direct_preparation_validates_wire_contract():
         "rate_limited_requests": 0,
         "dropped_telemetry_events": 0,
         "send_failures": 0,
-        "slow_client_disconnects": 0,
     }
     responses = {
         "capabilities": {
@@ -1015,7 +1014,6 @@ def test_direct_diagnostics_normalization_derives_shared_rates_and_occupancy():
         "free_memory_kb": 120.0,
         "direct_http": {
             "send_failures": 0,
-            "slow_client_disconnects": 0,
         },
     }
 

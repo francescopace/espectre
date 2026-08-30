@@ -1711,7 +1711,6 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
   direct_http_service_mock::state.diagnostics.event_client_limit = 2U;
   direct_http_service_mock::state.diagnostics.queue_capacity = 8U;
   direct_http_service_mock::state.diagnostics.dropped_telemetry_events = 3U;
-  direct_http_service_mock::state.diagnostics.slow_client_disconnects = 2U;
   mqtt_transport_mock::state.diagnostics.queued_publishes = 5U;
   mqtt_transport_mock::state.diagnostics.queue_capacity = 16U;
   mqtt_transport_mock::state.diagnostics.outbox_capacity_bytes = 8192U;
@@ -1800,7 +1799,6 @@ void test_native_frontend_direct_exposes_portal_reads_without_secrets(void) {
   TEST_ASSERT_TRUE(diagnostics.find("\"queue_capacity\":8") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"accepted_connections\":4") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"dropped_telemetry_events\":3") != std::string::npos);
-  TEST_ASSERT_TRUE(diagnostics.find("\"slow_client_disconnects\":2") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"queued_publishes\":5") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"queue_capacity\":16") != std::string::npos);
   TEST_ASSERT_TRUE(diagnostics.find("\"outbox_capacity_bytes\":8192") != std::string::npos);

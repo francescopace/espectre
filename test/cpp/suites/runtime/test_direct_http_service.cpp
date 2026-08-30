@@ -7,6 +7,7 @@
  */
 #include "test_harness.h"
 
+#include <cerrno>
 #include <cstring>
 #include <string>
 
@@ -322,6 +323,46 @@ void test_sse_limits_clients_frames_events_coalesces_and_heartbeats() {
   TEST_ASSERT_EQUAL(1U, service.diagnostics().rejected_connections);
 }
 
+void test_sse_peer_close_is_not_a_send_failure() {
+  httpd_mock_reset();
+  EspIdfDirectHttpService service;
+  TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
+  httpd_mock_set_header("Origin", "https://espectre.dev");
+  httpd_req_t request = request_for(1U, 14);
+  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[1].handler(&request));
+  TEST_ASSERT_TRUE(service.publish_event("telemetry", "{\"movement\":0.1}", true));
+
+  g_httpd_mock.send_result = ESP_FAIL;
+  errno = ECONNRESET;
+  service.loop();
+
+  const DirectHttpServiceDiagnostics diagnostics = service.diagnostics();
+  TEST_ASSERT_EQUAL(0U, diagnostics.send_failures);
+  TEST_ASSERT_EQUAL(0U, service.event_client_count());
+  TEST_ASSERT_EQUAL(1, g_httpd_mock.async_complete_calls);
+}
+
+void test_sse_retries_backpressure_before_disconnect() {
+  httpd_mock_reset();
+  EspIdfDirectHttpService service;
+  TEST_ASSERT_TRUE(service.setup(config(), [](const auto &) { return std::string{"{}"}; }, {}));
+  httpd_mock_set_header("Origin", "https://espectre.dev");
+  httpd_req_t request = request_for(1U, 14);
+  TEST_ASSERT_EQUAL(ESP_OK, g_httpd_mock.registered_uris[1].handler(&request));
+
+  g_httpd_mock.send_result = ESP_FAIL;
+  for (size_t attempt = 0; attempt < 3U; ++attempt) {
+    TEST_ASSERT_TRUE(service.publish_event("telemetry", "{\"movement\":0.1}", true));
+    errno = EAGAIN;
+    service.loop();
+  }
+
+  const DirectHttpServiceDiagnostics diagnostics = service.diagnostics();
+  TEST_ASSERT_EQUAL(3U, diagnostics.send_failures);
+  TEST_ASSERT_EQUAL(0U, service.event_client_count());
+  TEST_ASSERT_EQUAL(1, g_httpd_mock.async_complete_calls);
+}
+
 void test_deferred_post_completes_only_once() {
   httpd_mock_reset();
   EspIdfDirectHttpService service;
@@ -623,6 +664,8 @@ int main() {
   RUN_TEST(test_post_distinguishes_queue_saturation_from_mutation_rate_limit);
   RUN_TEST(test_post_limits_total_request_rate_before_parsing);
   RUN_TEST(test_sse_limits_clients_frames_events_coalesces_and_heartbeats);
+  RUN_TEST(test_sse_peer_close_is_not_a_send_failure);
+  RUN_TEST(test_sse_retries_backpressure_before_disconnect);
   RUN_TEST(test_deferred_post_completes_only_once);
   RUN_TEST(test_raw_get_requires_bearer_and_emits_v2_frame);
   RUN_TEST(test_raw_batches_up_to_four_records_without_pacing);

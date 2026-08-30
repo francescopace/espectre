@@ -726,7 +726,7 @@ def render_report(
             f"- {english_join(runtime_case_labels())} mean CSI occupancy stays at or above "
             f"the {MINIMUM_OCCUPANCY_PERCENT:.0f}% admitted-slot detector-ready floor",
             f"- {english_join(runtime_case_labels())} detector timing is present",
-            "- Direct send failures, slow-client disconnects, and unexpected rejected connections do not increase when the frontend exposes those counters",
+            "- Direct send failures and unexpected rejected connections do not increase when the frontend exposes those counters",
             "- the Micro-ESPectre runtime launcher remains active throughout Direct collection",
             "",
         ]

@@ -10,7 +10,14 @@ from tools.lib.firmware_benchmark import analysis as bench
 from tools.lib.firmware_benchmark import settings as benchmark_settings
 
 
-def test_direct_evidence_fails_when_transport_health_counters_increase():
+@pytest.mark.parametrize(
+    ("counter", "label"),
+    (
+        ("direct_rejected_connections", "rejected connection"),
+        ("direct_send_failures", "send failure"),
+    ),
+)
+def test_direct_evidence_fails_when_transport_health_counters_increase(counter, label):
     samples = [
         {
             "host_elapsed_seconds": 0.0,
@@ -21,7 +28,6 @@ def test_direct_evidence_fails_when_transport_health_counters_increase():
             "free_memory_kb": 120.0,
             "direct_rejected_connections": 0,
             "direct_send_failures": 0,
-            "direct_slow_client_disconnects": 0,
         },
         {
             "host_elapsed_seconds": 1.0,
@@ -31,10 +37,10 @@ def test_direct_evidence_fails_when_transport_health_counters_increase():
             "csi_occupancy_percent": 84.0,
             "free_memory_kb": 120.0,
             "direct_rejected_connections": 0,
-            "direct_send_failures": 1,
-            "direct_slow_client_disconnects": 0,
+            "direct_send_failures": 0,
         },
     ]
+    samples[-1][counter] = 1
 
     _metrics, reasons = bench.analyze_direct_evidence(
         samples,
@@ -44,7 +50,8 @@ def test_direct_evidence_fails_when_transport_health_counters_increase():
         require_detection_timing=False,
     )
 
-    assert "Direct transport recorded a send failure during the scored window" in reasons
+    assert f"Direct transport recorded a {label} during the scored window" in reasons
+
 
 def test_direct_evidence_counts_censored_attempts_as_failures():
     attempts = [
@@ -70,6 +77,7 @@ def test_direct_evidence_counts_censored_attempts_as_failures():
     assert metrics.direct_request_failures == 1
     assert metrics.direct_request_censored == 1
     assert "1/2 Direct control attempts failed (1 censored)" in reasons
+
 
 def test_direct_evidence_uses_device_time_when_host_clock_hides_a_gap():
     samples = [

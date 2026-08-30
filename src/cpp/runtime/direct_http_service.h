@@ -54,7 +54,6 @@ struct DirectHttpServiceDiagnostics {
   uint32_t rate_limited_requests{0U};
   uint32_t dropped_telemetry_events{0U};
   uint32_t send_failures{0U};
-  uint32_t slow_client_disconnects{0U};
   size_t queued_messages{0U};
 };
 

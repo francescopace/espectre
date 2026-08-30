@@ -653,7 +653,6 @@ std::string RuntimeDirectHttpBridge::diagnostics_payload_() const {
     append_uint(&out, "rate_limited_requests", direct.rate_limited_requests);
     append_uint(&out, "dropped_telemetry_events", direct.dropped_telemetry_events);
     append_uint(&out, "send_failures", direct.send_failures);
-    append_uint(&out, "slow_client_disconnects", direct.slow_client_disconnects);
     out += "}";
     const RawCsiSessionDiagnostics raw = service_->raw_diagnostics();
     out += ",\"raw_csi\":{\"active\":";

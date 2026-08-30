@@ -96,7 +96,6 @@ class DirectApi:
             "rate_limited_requests": 0,
             "dropped_telemetry_events": 0,
             "send_failures": 0,
-            "slow_client_disconnects": 0,
         }
         self._diagnostics_payload["direct_http"] = self._direct_http_diagnostics
         self._telemetry_payload = build_telemetry_payload(

@@ -401,8 +401,7 @@ Diagnostics are returned only as `data` in the correlated response to an explici
     "oversized_requests": 0,
     "rate_limited_requests": 0,
     "dropped_telemetry_events": 3,
-    "send_failures": 0,
-    "slow_client_disconnects": 0
+    "send_failures": 0
   },
   "raw_csi": {
     "active": false,
@@ -442,7 +441,7 @@ Diagnostics are returned only as `data` in the correlated response to an explici
 | CSI and traffic fields ending in `_pps`, plus `csi_occupancy` | Cached traffic and CSI rates in packets per second, plus the active detector-window occupancy ratio |
 | `wifi_channel`, `wifi_rssi_dbm` | Current Wi-Fi channel and RSSI; unavailable RSSI is `null` |
 | `task_stack_high_water_bytes` | Native frontend-task stack headroom; omitted by frontends without an equivalent measurement |
-| `direct_http` | SSE client and queue budgets plus cumulative connection, request, delivery, and slow-client counters |
+| `direct_http` | SSE client and queue budgets plus cumulative connection, request, and delivery counters. A remote close or reset does not increment `send_failures`; timeout and backpressure failures do, and the server closes the stream after repeated failures in the C++ profile. |
 | `raw_csi` | Raw-session state plus cumulative drops, send backpressure, delivered records, and stream sequence |
 | `mqtt` | Native MQTT connection, queue, outbox, drop, failure, and reconnect diagnostics |
 

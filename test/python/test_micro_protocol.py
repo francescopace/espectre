@@ -197,6 +197,7 @@ def test_native_direct_enforces_bounded_secure_sse_profile():
     assert "direct_stop_heartbeat();" in source
     assert "esp_timer_delete(direct_state.heartbeat_timer)" in source
     assert "if (active && result != ESP_OK)" in source
+    assert "direct_peer_disconnect_reason" in source
     assert "esp_app_get_description()" in source
     assert "CONFIG_IDF_TARGET" in source
     assert '{"firmware", firmware_version}' in source

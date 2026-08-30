@@ -2,6 +2,7 @@
 // Commercial licensing available under separate agreement; see LICENSING.md.
 
 #include <ctype.h>
+#include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -76,7 +77,6 @@ typedef struct {
   volatile uint32_t rate_limited_requests;
   volatile uint32_t dropped_telemetry_events;
   volatile uint32_t send_failures;
-  volatile uint32_t slow_client_disconnects;
 } native_direct_state_t;
 
 static native_direct_state_t direct_state;
@@ -84,7 +84,7 @@ static const char *const NATIVE_DIRECT_TAG = "MicroDirect";
 static const char *const DIRECT_HEARTBEAT_FRAME = ": heartbeat\n\n";
 
 static char *direct_replace_string(char **target, const char *source, size_t length);
-static void direct_close_event_stream(void);
+static void direct_close_event_stream(bool finish_response);
 
 static void direct_increment(volatile uint32_t *counter) {
   __atomic_fetch_add(counter, 1U, __ATOMIC_RELAXED);
@@ -92,6 +92,32 @@ static void direct_increment(volatile uint32_t *counter) {
 
 static uint32_t direct_counter(const volatile uint32_t *counter) {
   return __atomic_load_n(counter, __ATOMIC_RELAXED);
+}
+
+static const char *direct_peer_disconnect_reason(int error) {
+  switch (error) {
+    case ECONNRESET:
+      return "connection reset";
+    case ENOTCONN:
+      return "socket not connected";
+    case EPIPE:
+      return "broken pipe";
+    default:
+      return NULL;
+  }
+}
+
+static void direct_handle_event_send_failure(int send_errno) {
+  const char *reason = direct_peer_disconnect_reason(send_errno);
+  if (reason != NULL) {
+    ESP_LOGI(
+        NATIVE_DIRECT_TAG,
+        "Direct SSE peer disconnected (reason=%s, errno=%d)",
+        reason,
+        send_errno);
+    return;
+  }
+  direct_increment(&direct_state.send_failures);
 }
 
 static void direct_reset_counters(void) {
@@ -102,7 +128,6 @@ static void direct_reset_counters(void) {
   __atomic_store_n(&direct_state.rate_limited_requests, 0U, __ATOMIC_RELAXED);
   __atomic_store_n(&direct_state.dropped_telemetry_events, 0U, __ATOMIC_RELAXED);
   __atomic_store_n(&direct_state.send_failures, 0U, __ATOMIC_RELAXED);
-  __atomic_store_n(&direct_state.slow_client_disconnects, 0U, __ATOMIC_RELAXED);
   direct_state.heartbeat_work_pending = false;
   direct_state.recalibration_pending = false;
   direct_state.recalibration_active = false;
@@ -731,6 +756,7 @@ static void direct_send_heartbeat_work(void *argument) {
   esp_err_t result = active
       ? httpd_resp_send_chunk(request, DIRECT_HEARTBEAT_FRAME, strlen(DIRECT_HEARTBEAT_FRAME))
       : ESP_ERR_INVALID_STATE;
+  int send_errno = result == ESP_OK ? 0 : errno;
   if (direct_state.lock != NULL) {
     xSemaphoreTake(direct_state.lock, portMAX_DELAY);
   }
@@ -740,9 +766,8 @@ static void direct_send_heartbeat_work(void *argument) {
     xSemaphoreGive(direct_state.lock);
   }
   if (active && result != ESP_OK) {
-    direct_increment(&direct_state.send_failures);
-    direct_increment(&direct_state.slow_client_disconnects);
-    direct_close_event_stream();
+    direct_handle_event_send_failure(send_errno);
+    direct_close_event_stream(false);
   }
 }
 
@@ -835,13 +860,13 @@ static esp_err_t direct_events_handler(httpd_req_t *request) {
   }
   if (!direct_start_heartbeat()) {
     direct_increment(&direct_state.send_failures);
-    direct_close_event_stream();
+    direct_close_event_stream(true);
     return ESP_FAIL;
   }
   return ESP_OK;
 }
 
-static void direct_close_event_stream(void) {
+static void direct_close_event_stream(bool finish_response) {
   direct_stop_heartbeat();
   if (direct_state.lock != NULL) {
     xSemaphoreTake(direct_state.lock, portMAX_DELAY);
@@ -852,7 +877,9 @@ static void direct_close_event_stream(void) {
     xSemaphoreGive(direct_state.lock);
   }
   if (request != NULL) {
-    (void) httpd_resp_send_chunk(request, NULL, 0);
+    if (finish_response) {
+      (void) httpd_resp_send_chunk(request, NULL, 0);
+    }
     httpd_req_async_handler_complete(request);
   }
 }
@@ -873,6 +900,7 @@ static void direct_send_event_work(void *argument) {
   esp_err_t result = request == NULL || length == 0
       ? ESP_ERR_INVALID_STATE
       : httpd_resp_send_chunk(request, direct_state.event_frame, length);
+  int send_errno = result == ESP_OK ? 0 : errno;
 
   if (direct_state.lock != NULL) {
     xSemaphoreTake(direct_state.lock, portMAX_DELAY);
@@ -883,9 +911,8 @@ static void direct_send_event_work(void *argument) {
     xSemaphoreGive(direct_state.lock);
   }
   if (active && result != ESP_OK) {
-    direct_increment(&direct_state.send_failures);
-    direct_increment(&direct_state.slow_client_disconnects);
-    direct_close_event_stream();
+    direct_handle_event_send_failure(send_errno);
+    direct_close_event_stream(false);
   }
 }
 
@@ -944,7 +971,7 @@ static void direct_stop_native(void) {
   direct_stop_heartbeat();
   bool event_idle = direct_wait_for_event_work();
   if (event_idle) {
-    direct_close_event_stream();
+    direct_close_event_stream(true);
   } else {
     ESP_LOGW(NATIVE_DIRECT_TAG, "Timed out waiting for Direct event send to finish");
   }
@@ -1433,10 +1460,6 @@ static mp_obj_t native_direct_diagnostics(mp_obj_t target) {
       target,
       MP_QSTR_send_failures,
       direct_counter(&direct_state.send_failures));
-  direct_store_uint(
-      target,
-      MP_QSTR_slow_client_disconnects,
-      direct_counter(&direct_state.slow_client_disconnects));
   return target;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(native_direct_diagnostics_obj, native_direct_diagnostics);

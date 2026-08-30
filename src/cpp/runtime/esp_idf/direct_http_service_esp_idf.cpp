@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cerrno>
 #include <cstring>
 #include <limits>
 #include <utility>
@@ -51,6 +52,19 @@ constexpr const char *kHttp503 = "503 Service Unavailable";
 constexpr TickType_t kWorkerShutdownPollTicks = pdMS_TO_TICKS(1U);
 constexpr uint32_t kWorkerShutdownTimeoutMs = 1500U;
 #endif
+
+const char *peer_disconnect_reason(int error) {
+  switch (error) {
+    case ECONNRESET:
+      return "connection reset";
+    case ENOTCONN:
+      return "socket not connected";
+    case EPIPE:
+      return "broken pipe";
+    default:
+      return nullptr;
+  }
+}
 
 bool read_only_method(const std::string &method) {
   return method == "capabilities" || method == "info" || method == "status" ||
@@ -1096,6 +1110,8 @@ void EspIdfDirectHttpService::service_event_streams_() {
   size_t previous_count = event_client_count();
   for (const Send &send : sends) {
     const esp_err_t result = httpd_resp_send_chunk(send.request, send.payload.data(), send.payload.size());
+    const int send_errno = result == ESP_OK ? 0 : errno;
+    const char *disconnect_reason = peer_disconnect_reason(send_errno);
     httpd_req_t *request_to_complete = nullptr;
     if (lock_()) {
       const auto client = std::find_if(event_clients_.begin(), event_clients_.end(),
@@ -1106,11 +1122,13 @@ void EspIdfDirectHttpService::service_event_streams_() {
         if (result == ESP_OK) {
           client->last_send_us = now_us;
           client->consecutive_send_failures = 0U;
+        } else if (disconnect_reason != nullptr) {
+          request_to_complete = client->request;
+          event_clients_.erase(client);
         } else {
           diagnostics_.send_failures += 1U;
           client->consecutive_send_failures += 1U;
           if (client->consecutive_send_failures >= kMaxConsecutiveSendFailures) {
-            diagnostics_.slow_client_disconnects += 1U;
             request_to_complete = client->request;
             event_clients_.erase(client);
           }
@@ -1119,6 +1137,10 @@ void EspIdfDirectHttpService::service_event_streams_() {
       unlock_();
     }
     if (request_to_complete != nullptr) {
+      if (disconnect_reason != nullptr) {
+        ESP_LOGI(TAG, "Direct SSE peer disconnected (fd=%d, reason=%s, errno=%d)",
+                 send.fd, disconnect_reason, send_errno);
+      }
       (void) httpd_req_async_handler_complete(request_to_complete);
     }
   }

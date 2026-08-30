@@ -87,7 +87,7 @@ The Native `diagnostics` request groups production metrics into:
 
 - system state: uptime, current, minimum, and largest-block heap, CPU frequency, and frontend-task stack high-water;
 - sensing and performance: bounded loop-load and detector-timing windows, plus cached traffic, CSI, and Wi-Fi diagnostics; and
-- transports: Direct and MQTT diagnostics, including fixed client and queue budgets, the MQTT outbox budget, current occupancy, cumulative drops, send failures, and slow-client disconnects.
+- transports: Direct and MQTT diagnostics, including fixed client and queue budgets, the MQTT outbox budget, current occupancy, cumulative drops, and send failures.
 
 Performance aggregation is unconditional production runtime state; it does not require a build option or periodic debug logger.
 
