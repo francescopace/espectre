@@ -28,6 +28,9 @@ from .common import (
     detect_chip_type,
     get_serial_port,
     prompt_chip_type,
+    remember_serial_port_identity,
+    resolve_serial_port,
+    serial_console_mode,
     cli_command,
     copy_config_command,
     print_box_banner,
@@ -35,6 +38,7 @@ from .common import (
 from .build_artifacts import build_artifact_metadata, print_build_artifact_metadata
 from .device_discovery import ESPECTRE_DIRECT_PORT
 from .device_transport import direct_endpoint_from_device_url
+from .idf import idf_flash_baud, run_idf_flash_lifecycle
 
 
 MICRO_DEVICE_RELATIVE_FILES = [
@@ -285,15 +289,19 @@ def flash_firmware(args) -> None:
         print("   pip install esptool")
         raise SystemExit(1)
 
-    port = get_serial_port(
-        args.port,
-        chip=getattr(args, "chip", None),
-        frontend="micro",
-        purpose="flash",
-    )
     chip = args.chip
+    discovery_port = None
+    if not chip or args.port:
+        discovery_port = get_serial_port(
+            args.port,
+            chip=chip,
+            frontend="micro",
+            purpose="flash",
+        )
+        remember_serial_port_identity(discovery_port)
     if not chip:
-        chip = detect_chip_type(port)
+        assert discovery_port is not None
+        chip = detect_chip_type(discovery_port)
         if not chip:
             print(f"\n{Fore.YELLOW}💡 Tip: If the chip is not responding, try:{Style.RESET_ALL}")
             print("   1. Hold the BOOT button on your ESP32")
@@ -322,6 +330,14 @@ def flash_firmware(args) -> None:
             print(f"{Fore.RED}❌ Project firmware build failed: {exc}{Style.RESET_ALL}")
             raise SystemExit(1) from exc
 
+    port = resolve_serial_port(
+        discovery_port,
+        chip=chip,
+        frontend="micro",
+        purpose="flash",
+        require_firmware_download=True,
+    )
+
     print_box_banner("Flashing MicroPython Firmware")
     print()
     print(f"{Fore.CYAN}Chip:     {chip.upper()}{Style.RESET_ALL}")
@@ -338,21 +354,11 @@ def flash_firmware(args) -> None:
         "c6": "esp32c6",
     }
     chip_name = chip_name_map.get(chip, "esp32")
-    # Classic ESP32 boards commonly use USB-to-UART bridges that lose the
-    # esptool stub when it switches to 460800 baud. Native-USB variants can
-    # use the faster rate reliably.
-    flash_baud = "115200" if chip == "esp32" else "460800"
-    base_args = ["--chip", chip_name, "--port", port, "--baud", flash_baud]
+    flash_baud = idf_flash_baud(chip_name)
+    before = "no-reset" if serial_console_mode(chip, port) == "usb_cdc" else "default-reset"
 
     try:
-        if args.erase:
-            print(f"{Fore.YELLOW}1️⃣  Erasing flash...{Style.RESET_ALL}")
-            esptool.main(base_args + ["erase-flash"])
-            print(f"{Fore.GREEN}✅ Flash erased{Style.RESET_ALL}\n")
-            print(f"{Fore.YELLOW}⏳ Waiting for chip to stabilize...{Style.RESET_ALL}")
-            time.sleep(2)
-
-        print(f"{Fore.YELLOW}2️⃣  Flashing firmware...{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}Flashing firmware...{Style.RESET_ALL}")
         flash_offset_map = {
             "esp32": "0x1000",
             "c3": "0x0",
@@ -362,54 +368,50 @@ def flash_firmware(args) -> None:
             "c6": "0x0",
         }
         flash_offset = flash_offset_map.get(chip, "0x0")
-
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                if attempt > 0:
-                    print(f"{Fore.YELLOW}🔄 Retry attempt {attempt + 1}/{max_retries}...{Style.RESET_ALL}")
-                    time.sleep(2)
-                esptool.main(
-                    base_args
-                    + [
-                        "--before",
-                        "default-reset",
-                        "--after",
-                        "hard-reset",
-                        "write-flash",
-                        "--flash-mode",
-                        "dio",
-                        "--flash-freq",
-                        "40m",
-                        "--flash-size",
-                        "detect",
-                        flash_offset,
-                        str(firmware_path),
-                    ]
-                )
-                print()
-                print(f"{Fore.GREEN}✅ Firmware flashed successfully!{Style.RESET_ALL}")
-                print()
-                print(f"{Fore.CYAN}Next steps:{Style.RESET_ALL}")
-                print(f"  1. {copy_config_command()}")
-                print("  2. Edit src/python/micro_espectre/config_local.py with your credentials")
-                print(f"  3. {Fore.GREEN}{cli_command('micro', 'deploy')}{Style.RESET_ALL}")
-                print(f"  4. {Fore.GREEN}{cli_command('micro', 'run')}{Style.RESET_ALL}")
-                print()
-                if bool(getattr(args, "json", False)):
-                    metadata = build_artifact_metadata(
-                        frontend="micro",
-                        chip=chip,
-                        artifact=firmware_path,
-                    )
-                    metadata.update({"command": "flash", "port": port})
-                    print(json.dumps(metadata, sort_keys=True))
-                return
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    print(f"{Fore.YELLOW}⚠️  Attempt {attempt + 1} failed: {e}{Style.RESET_ALL}")
-                    continue
-                raise
+        flash_command = [
+            "--chip",
+            chip_name,
+            "--port",
+            port,
+            "--baud",
+            flash_baud,
+            "--before",
+            "no-reset" if args.erase else before,
+            "--after",
+            "no-reset",
+            "write-flash",
+            "--flash-mode",
+            "dio",
+            "--flash-freq",
+            "40m",
+            "--flash-size",
+            "detect",
+            flash_offset,
+            str(firmware_path),
+        ]
+        run_idf_flash_lifecycle(
+            flash_command,
+            port,
+            erase=bool(args.erase),
+            before=before,
+        )
+        print()
+        print(f"{Fore.GREEN}✅ Firmware flashed successfully!{Style.RESET_ALL}")
+        print()
+        print(f"{Fore.CYAN}Next steps:{Style.RESET_ALL}")
+        print(f"  1. {copy_config_command()}")
+        print("  2. Edit src/python/micro_espectre/config_local.py with your credentials")
+        print(f"  3. {Fore.GREEN}{cli_command('micro', 'deploy')}{Style.RESET_ALL}")
+        print(f"  4. {Fore.GREEN}{cli_command('micro', 'run')}{Style.RESET_ALL}")
+        print()
+        if bool(getattr(args, "json", False)):
+            metadata = build_artifact_metadata(
+                frontend="micro",
+                chip=chip,
+                artifact=firmware_path,
+            )
+            metadata.update({"command": "flash", "port": port})
+            print(json.dumps(metadata, sort_keys=True))
     except Exception as e:
         print(f"\n{Fore.RED}❌ Error flashing firmware: {e}{Style.RESET_ALL}")
         print(f"\n{Fore.YELLOW}Troubleshooting tips:{Style.RESET_ALL}")

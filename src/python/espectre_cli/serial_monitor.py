@@ -13,7 +13,13 @@ from __future__ import annotations
 import sys
 import time
 
-from .common import Fore, Style, resolve_serial_port
+from .common import (
+    Fore,
+    Style,
+    remember_serial_port_identity,
+    resolve_serial_port,
+    serial_console_mode,
+)
 
 try:
     import serial
@@ -58,37 +64,36 @@ def run_serial_monitor(args) -> None:
     reconnect_attempt = 0
     chip = getattr(args, "chip", None)
     frontend = getattr(args, "frontend", "native")
-    selected_port: str | None = (
-        resolve_serial_port(
-            getattr(args, "port", None),
-            chip=chip,
-            frontend=frontend,
-            purpose="monitor",
-        )
-        if getattr(args, "port", None) is not None
-        else None
-    )
+    port_selector = getattr(args, "port", None)
 
     while True:
-        port = selected_port
-        if port is None:
-            try:
-                port = resolve_serial_port(
-                    None,
-                    chip=chip,
-                    frontend=frontend,
-                    purpose="monitor",
-                )
-            except SystemExit:
-                if reconnect_attempt >= MAX_RECONNECT_ATTEMPTS:
-                    raise
-                reconnect_attempt += 1
-                print(
-                    f"{Fore.YELLOW}⚠️ Serial port unavailable, retrying "
-                    f"({reconnect_attempt}/{MAX_RECONNECT_ATTEMPTS})...{Style.RESET_ALL}"
-                )
-                time.sleep(RECONNECT_DELAY_SECONDS)
-                continue
+        try:
+            port = resolve_serial_port(
+                port_selector,
+                chip=chip,
+                frontend=frontend,
+                purpose="monitor",
+            )
+        except SystemExit:
+            if reconnect_attempt >= MAX_RECONNECT_ATTEMPTS:
+                raise
+            reconnect_attempt += 1
+            print(
+                f"{Fore.YELLOW}⚠️ Serial port unavailable, retrying "
+                f"({reconnect_attempt}/{MAX_RECONNECT_ATTEMPTS})...{Style.RESET_ALL}"
+            )
+            time.sleep(RECONNECT_DELAY_SECONDS)
+            continue
+        port_selector = port
+        remember_serial_port_identity(port)
+
+        if reset_on_open and serial_console_mode(chip, port) == "usb_cdc":
+            print(
+                f"{Fore.RED}❌ Automatic hard reset is unavailable on the USB CDC console."
+                f"{Style.RESET_ALL}"
+            )
+            print("Reset the board manually, then run monitor without --reset.")
+            raise SystemExit(1)
 
         print(f"{Fore.CYAN}Port:    {port}{Style.RESET_ALL}")
         print(f"{Fore.CYAN}Baud:    {baud}{Style.RESET_ALL}")
@@ -111,8 +116,7 @@ def run_serial_monitor(args) -> None:
             return
         except (OSError, serial.SerialException) as exc:
             # USB console paths can change when the device re-enumerates.
-            # Re-run chip-aware discovery instead of pinning the stale path.
-            selected_port = None
+            # Re-resolve the same physical device instead of selecting globally.
             if reconnect_attempt >= MAX_RECONNECT_ATTEMPTS:
                 print(f"{Fore.RED}❌ Serial monitor disconnected: {exc}{Style.RESET_ALL}")
                 raise SystemExit(1)

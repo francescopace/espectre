@@ -26,17 +26,19 @@ ESPHOME_CONFIGS = {
     "s2": ESPHOME_EXAMPLES_DIR / "espectre-s2.yaml",
 }
 
+IDF_TARGET_BY_CHIP = {
+    "esp32": "esp32",
+    "c3": "esp32c3",
+    "c5": "esp32c5",
+    "c6": "esp32c6",
+    "s3": "esp32s3",
+    "s2": "esp32s2",
+}
+
 IDF_FRONTENDS = {
     "native": {
         "app_dir": FRONTEND_DIR / "native" / "app",
-        "targets": {
-            "esp32": "esp32",
-            "c3": "esp32c3",
-            "c5": "esp32c5",
-            "c6": "esp32c6",
-            "s3": "esp32s3",
-            "s2": "esp32s2",
-        },
+        "targets": dict(IDF_TARGET_BY_CHIP),
     },
     "matter": {
         "app_dir": FRONTEND_DIR / "matter" / "app",

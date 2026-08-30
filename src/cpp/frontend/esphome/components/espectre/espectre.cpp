@@ -26,6 +26,7 @@
 #include "espectre_banner.h"
 #include "espectre_protocol.h"
 #include "firmware_version.h"
+#include "primary_console.h"
 #include "protocol_json.h"
 #include "sdkconfig.h"
 
@@ -60,6 +61,12 @@ bool bssid_equals(const std::string &left, const std::string &right) {
 }  // namespace
 
 void ESpectreComponent::setup() {
+  const esp_err_t console_result = espectre::initialize_primary_console();
+  if (console_result != ESP_OK) {
+    ESP_LOGE(TAG, "Primary console initialization failed: %s", esp_err_to_name(console_result));
+    this->mark_failed();
+    return;
+  }
   ESP_LOGI(TAG, "Initializing ESPectre component...");
   espectre::configure_runtime_log_levels();
   this->runtime_.config().device_id = espectre::derive_runtime_device_id();

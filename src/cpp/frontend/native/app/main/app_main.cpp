@@ -32,6 +32,7 @@
 #include "mdns_discovery_service.h"
 #include "ota_service_https.h"
 #include "peer_discovery_service_esp_idf.h"
+#include "primary_console.h"
 #include "mqtt_transport_esp_idf.h"
 #include "runtime_sensing_kconfig.h"
 #include "standalone_wifi_service.h"
@@ -288,6 +289,7 @@ void request_wifi_recovery() {
 }  // namespace
 
 extern "C" void app_main() {
+  ESP_ERROR_CHECK(espectre::initialize_primary_console());
   espectre::configure_runtime_log_levels();
   ESP_ERROR_CHECK(espectre::nvs_init_with_erase_fallback());
 

@@ -1,5 +1,15 @@
 menu "ESPectre Sensing"
 
+config ESPECTRE_TINYUSB_PRIMARY_CONSOLE
+    bool "Use TinyUSB CDC as the primary console"
+    depends on SOC_USB_OTG_SUPPORTED
+    default n
+    help
+        Install a TinyUSB CDC ACM device and redirect stdin, stdout, and
+        stderr to it. Enable this on USB-OTG boards whose ROM USB CDC console
+        is not a reliable bidirectional application transport. Leave it
+        disabled for UART and USB Serial/JTAG consoles.
+
 choice ESPECTRE_WIFI_BAND_POLICY
     prompt "Wi-Fi band policy"
     default ESPECTRE_WIFI_BAND_2G

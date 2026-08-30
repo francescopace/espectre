@@ -52,7 +52,7 @@ The `esphome` namespace exposes:
 | `config` | Validate and render the selected config |
 | `monitor` | Open logs for the selected config |
 
-Common flags include `--chip`, `--config`, and `--device`. Serial `flash` and `monitor` follow the shared `--chip` selection rule when `--device` is omitted or names a serial port. `esphome flash --firmware <path>` uploads a prebuilt image instead of the most recent local build; use an ESPHome OTA image when `--device` is a hostname or IP address:
+Common flags include `--chip`, `--config`, and `--device`. Serial `flash` and `monitor` follow the shared `--chip` selection rule when `--device` is omitted or names a serial port. `esphome flash --firmware <path>` uploads a prebuilt image instead of the most recent local build: serial flashing expects an ESPHome factory image written at offset `0x0`, while a hostname or IP address expects an ESPHome OTA image.
 
 ```bash
 ./espectre esphome flash --chip c6 --device espectre.local --firmware espectre-esphome-3.0.0-esp32c6-ota.bin
@@ -166,7 +166,7 @@ Common flags:
 - `--raw`
 - `--reset`
 
-When `--chip` is supplied, serial selection follows the shared rule above. Native `monitor` and `provision` first keep ports whose USB console matches the chip, then identify connected chips if more than one candidate remains. An explicit incompatible `--port` is rejected. Without `--chip`, the same selection flow uses all ports compatible with the requested action. By default, `monitor` attaches without resetting the device after the port is chosen. Add `--reset` when you want a hard reset on open, for example to capture boot-time logs from the beginning.
+When `--chip` is supplied, serial selection follows the shared rule above. Native `monitor` and `provision` first keep ports whose USB console matches the chip, then identify connected chips if more than one candidate remains. An explicit incompatible `--port` is rejected. Without `--chip`, the same selection flow uses all ports compatible with the requested action. By default, `monitor` attaches without resetting the device after the port is chosen. Add `--reset` on UART and USB Serial/JTAG consoles when you want a hard reset on open, for example to capture boot-time logs from the beginning. USB CDC consoles such as the ESP32-S2 TinyUSB console do not expose a generic hard-reset channel; reset those boards manually and run `monitor` without `--reset`.
 
 Example:
 

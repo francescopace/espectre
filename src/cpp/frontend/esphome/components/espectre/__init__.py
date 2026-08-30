@@ -17,7 +17,7 @@ import subprocess
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import sensor, binary_sensor, button, number, select, switch, wifi
+from esphome.components import logger, sensor, binary_sensor, button, number, select, switch, wifi
 from esphome.components.esp32 import (
     add_idf_component,
     add_idf_sdkconfig_option,
@@ -27,7 +27,9 @@ from esphome.components.esp32 import (
 from esphome.components.wifi import CONF_BAND_MODE
 from esphome.const import (
     CONF_ESPHOME,
+    CONF_HARDWARE_UART,
     CONF_ID,
+    CONF_LOGGER,
     CONF_PROJECT,
     CONF_VERSION,
     CONF_WIFI,
@@ -41,9 +43,9 @@ from esphome.const import (
     ICON_PULSE,
     DEVICE_CLASS_SIGNAL_STRENGTH,
 )
-from esphome.core import CORE
+from esphome.core import CORE, CoroPriority, coroutine_with_priority
 
-DEPENDENCIES = ["wifi"]
+DEPENDENCIES = ["logger", "wifi"]
 AUTO_LOAD = ["sensor", "binary_sensor", "button", "number", "select", "switch", "mdns"]
 
 # Configuration parameters
@@ -482,11 +484,48 @@ def _runtime_wifi_band_policy():
     return _WIFI_BAND_POLICY_BY_MODE[band_mode]
 
 
+def _uses_tinyusb_primary_console():
+    """Return whether the selected CDC console lacks reset-capable USB JTAG."""
+    logger_config = CORE.config[CONF_LOGGER]
+    if logger_config[CONF_HARDWARE_UART] != logger.USB_CDC:
+        return False
+    try:
+        logger.uart_selection(logger.USB_SERIAL_JTAG)
+    except cv.Invalid:
+        return True
+    return False
+
+
+@coroutine_with_priority(CoroPriority.WORKAROUNDS)
+async def _configure_tinyusb_primary_console():
+    """Override the ESPHome logger's ROM CDC selection after component setup."""
+    add_idf_sdkconfig_option("CONFIG_ESP_CONSOLE_USB_CDC", False)
+    add_idf_sdkconfig_option("CONFIG_ESP_CONSOLE_NONE", True)
+    add_idf_sdkconfig_option("CONFIG_ESPECTRE_TINYUSB_PRIMARY_CONSOLE", True)
+    add_idf_sdkconfig_option("CONFIG_TINYUSB_CDC_ENABLED", True)
+
+
 async def to_code(config):
     _export_espectre_git_version()
     add_idf_component(name="espectre", path=str(_COMPONENT_ROOT))
     wifi.request_wifi_ip_state_listener()
     wifi.request_wifi_connect_state_listener()
+
+    if _uses_tinyusb_primary_console():
+        # ESP-IDF's ROM CDC can enumerate without providing a reliable
+        # bidirectional application channel. Keep ESPHome's standard logger
+        # and Improv Serial interfaces, but route their CDC operations through
+        # the shared TinyUSB primary console.
+        CORE.add_job(_configure_tinyusb_primary_console)
+        cg.add_define("CONFIG_ESP_CONSOLE_USB_CDC", 1)
+        cg.add_define("USE_LOGGER_USB_CDC")
+        cg.add_define("USE_LOGGER_UART_SELECTION_USB_CDC")
+        logger_var = await cg.get_variable(CORE.config[CONF_LOGGER][CONF_ID])
+        cg.add(
+            logger_var.set_uart_selection(
+                logger.HARDWARE_UART_TO_UART_SELECTION[logger.USB_CDC]
+            )
+        )
 
     # The shared ESP-IDF component does not depend on the higher-level ESPHome
     # component, so expose the generated source tree only for the portable

@@ -335,7 +335,10 @@ def _add_esphome_namespace(subparsers) -> None:
         command_parser.add_argument("--config", help="Explicit ESPHome YAML path override")
         command_parser.add_argument("--device", help="Serial device or hostname for flash/monitor when needed")
         if command_name == "flash":
-            command_parser.add_argument("--firmware", help="Prebuilt firmware image to upload")
+            command_parser.add_argument(
+                "--firmware",
+                help="Prebuilt factory image for serial flash or OTA image for network upload",
+            )
             command_parser.add_argument(
                 "--erase",
                 action="store_true",

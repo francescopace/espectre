@@ -26,6 +26,8 @@ Complete the shared [`Local Build Prerequisites`](../../../../docs/SETUP.md#loca
 
 Flashing and serial monitoring require local tooling. `--ota-channel` selects the default release channel used when an OTA request omits one.
 
+The primary console transport follows the target's USB capability. UART and USB Serial/JTAG use ESP-IDF directly; maintained USB-OTG configurations that cannot rely on the ROM CDC path use the shared TinyUSB CDC console. Improv Serial keeps the same protocol and CLI workflow on every transport.
+
 ## Direct HTTP
 
 Native starts `POST http://<device>:62587/espectre/v1/request` and `GET http://<device>:62587/espectre/v1/events` after Wi-Fi obtains an address. The production portal and `https://test.espectre.dev` validation origins are allowed by default; optional loopback development origins are controlled by Kconfig and remain disabled in published firmware. Requests use JSON, and events use SSE read through streaming `fetch` so the browser can request local-network access explicitly.

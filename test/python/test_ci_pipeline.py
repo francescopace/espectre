@@ -376,6 +376,8 @@ def test_sdk_snapshot_stamps_git_describe_identity(tmp_path: Path) -> None:
     assert "https://github.com/improv-wifi/sdk-cpp.git" in yml
     assert "version: 17898613a1c17062ca5af295ceb639b16b4930bf" in yml
     assert 'espressif/mdns:\n    version: "^1.9.0"' in yml
+    assert 'espressif/esp_tinyusb:\n    version: "^2.0.0"' in yml
+    assert '- if: "target in [esp32s2, esp32s3]"' in yml
     assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*2\.8\.0-237-g7439944\s*$", bundled_doxyfile)
     for relative_path in (
         "src/cpp/frontend/native/espectre/idf_component.yml",
@@ -391,6 +393,25 @@ def test_sdk_snapshot_stamps_git_describe_identity(tmp_path: Path) -> None:
     assert "https://github.com/improv-wifi/sdk-cpp.git" in native_manifest
     assert "version: 17898613a1c17062ca5af295ceb639b16b4930bf" in native_manifest
     assert 'espressif/mdns:\n    version: "^1.9.0"' in native_manifest
+
+    for relative_path in (
+        "src/cpp/frontend/native/espectre/idf_component.yml",
+        "src/cpp/frontend/esphome/components/espectre/idf_component.yml",
+    ):
+        frontend_manifest = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+        assert 'espressif/esp_tinyusb:\n    version: "^2.0.0"' in frontend_manifest
+        assert '- if: "target in [esp32s2, esp32s3]"' in frontend_manifest
+
+    matter_manifest = (
+        REPO_ROOT / "src" / "cpp" / "frontend" / "matter" / "espectre" / "idf_component.yml"
+    ).read_text(encoding="utf-8")
+    assert 'espressif/mdns:\n    version: "^1.9.0"' in matter_manifest
+    assert 'espressif/esp_tinyusb:\n    version: "^2.0.0"' in matter_manifest
+    assert '- if: "target == esp32s3"' in matter_manifest
+    assert "esp32s2" not in matter_manifest
+    assert not (
+        REPO_ROOT / "src" / "cpp" / "frontend" / "matter" / "app" / "sdkconfig.defaults.esp32s2"
+    ).exists()
 
 
 def test_release_sdk_rejects_a_version_tag_mismatch(tmp_path: Path) -> None:

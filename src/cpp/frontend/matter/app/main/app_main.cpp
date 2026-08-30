@@ -46,6 +46,7 @@
 #include "mdns_bootstrap_responder.h"
 #include "nvs_helpers.h"
 #include "pending_event.h"
+#include "primary_console.h"
 #include "runtime_config_utils.h"
 #include "runtime_direct_http_bridge.h"
 #include "runtime_sensing_kconfig.h"
@@ -427,6 +428,7 @@ void espectre_loop_task(void *arg) {
 }  // namespace
 
 extern "C" void app_main() {
+  ESP_ERROR_CHECK(espectre::initialize_primary_console());
   ESP_ERROR_CHECK(espectre::nvs_init_with_erase_fallback());
   configure_log_levels();
   espectre::log_espectre_banner([](const char *line) { ESP_LOGI(TAG, "%s", line); });

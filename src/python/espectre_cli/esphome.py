@@ -14,9 +14,9 @@ import subprocess
 from pathlib import Path
 
 from .build_artifacts import print_build_artifact_metadata
-from .common import Fore, REPO_ROOT, Style, resolve_serial_port
-from .idf import run_esptool_main
-from .targets import resolve_esphome_config
+from .common import Fore, REPO_ROOT, Style, resolve_serial_port, serial_console_mode
+from .idf import flash_factory_image, flash_prebuilt_idf_build
+from .targets import IDF_TARGET_BY_CHIP, resolve_esphome_config
 
 ACTION_MAP = {
     "build": "compile",
@@ -88,15 +88,32 @@ def run_esphome_command(args) -> None:
             chip=getattr(args, "chip", None),
             frontend="esphome",
             purpose="flash" if args.esphome_command == "flash" else "monitor",
+            require_firmware_download=args.esphome_command == "flash",
         )
-    if args.esphome_command == "flash" and getattr(args, "erase", False):
-        erase_command = ["--port", device, "erase-flash"]
-        print(f"{Fore.CYAN}Command: esptool {' '.join(erase_command)}{Style.RESET_ALL}")
+    if args.esphome_command == "flash" and not _is_network_device(device):
+        chip = getattr(args, "chip", None)
+        before = "no-reset" if serial_console_mode(chip, device) == "usb_cdc" else "default-reset"
         try:
-            run_esptool_main(erase_command)
-        except SystemExit as exc:
-            if exc.code not in (0, None):
-                raise SystemExit(exc.code) from exc
+            if getattr(args, "firmware", None):
+                flash_factory_image(
+                    Path(args.firmware).resolve(),
+                    device,
+                    IDF_TARGET_BY_CHIP.get(chip, "auto"),
+                    erase=bool(getattr(args, "erase", False)),
+                    before=before,
+                )
+            else:
+                flash_prebuilt_idf_build(
+                    resolve_esphome_build_artifact(config_path).parent,
+                    device,
+                    IDF_TARGET_BY_CHIP.get(chip, "auto"),
+                    erase=bool(getattr(args, "erase", False)),
+                    before=before,
+                )
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(f"{Fore.RED}❌ Error flashing ESPHome firmware: {exc}{Style.RESET_ALL}")
+            raise SystemExit(1) from exc
+        return
     if device:
         command.extend(["--device", device])
     if getattr(args, "firmware", None):

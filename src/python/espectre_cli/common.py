@@ -11,7 +11,10 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 import argparse
+from contextlib import redirect_stderr, redirect_stdout
 import errno
+import io
+import json
 import os
 import sys
 import time
@@ -65,14 +68,26 @@ NATIVE_CONSOLE_BY_CHIP = {
     "s3": "usb_serial_jtag",
 }
 IDENTIFY_CHIP_SETTLE_S = 0.25
-SERIAL_REENUMERATION_ATTEMPTS = 10
+SERIAL_REENUMERATION_ATTEMPTS = 40
 SERIAL_REENUMERATION_DELAY_S = 0.5
+FIRMWARE_DOWNLOAD_MODE_ATTEMPTS = 120
+SERIAL_PORT_IDENTITY_ENV = "ESPECTRE_SERIAL_PORT_IDENTITY"
 
 
 class SerialCandidate(NamedTuple):
     device: str
     chip: str | None
     console: str | None
+
+
+class SerialPortIdentity(NamedTuple):
+    """Stable USB attributes used across serial-port re-enumeration."""
+
+    device: str
+    location: str | None
+    serial_number: str | None
+    vid: int | None
+    pid: int | None
 
 
 init()
@@ -149,6 +164,145 @@ def _serial_ports_match(requested: str, candidate: str) -> bool:
     return os.path.realpath(requested) == os.path.realpath(candidate)
 
 
+def is_transient_serial_port_error(exc: Exception) -> bool:
+    """Return whether a serial operation failed during a recoverable re-enumeration."""
+    error_text = str(exc).lower()
+    return (
+        getattr(exc, "errno", None) in {errno.ENOENT, errno.ENXIO, errno.ENODEV, errno.EBUSY}
+        or "no such file or directory" in error_text
+        or "device not configured" in error_text
+        or "port is busy" in error_text
+        or "resource busy" in error_text
+    )
+
+
+def serial_port_identity(port: str) -> SerialPortIdentity | None:
+    """Capture the physical USB identity associated with a serial port."""
+    try:
+        import serial.tools.list_ports
+    except ImportError:
+        return None
+    for candidate in serial.tools.list_ports.comports():
+        if _serial_ports_match(port, candidate.device):
+            return SerialPortIdentity(
+                device=candidate.device,
+                location=getattr(candidate, "location", None),
+                serial_number=getattr(candidate, "serial_number", None),
+                vid=getattr(candidate, "vid", None),
+                pid=getattr(candidate, "pid", None),
+            )
+    return None
+
+
+def remember_serial_port_identity(port: str) -> SerialPortIdentity | None:
+    """Export a serial port's USB identity for child CLI processes."""
+    identity = serial_port_identity(port)
+    if identity is None:
+        os.environ.pop(SERIAL_PORT_IDENTITY_ENV, None)
+        return None
+    _export_serial_port_identity(identity)
+    return identity
+
+
+def _export_serial_port_identity(identity: SerialPortIdentity) -> None:
+    """Export a previously captured physical USB identity."""
+    os.environ[SERIAL_PORT_IDENTITY_ENV] = json.dumps(identity._asdict(), sort_keys=True)
+
+
+def _remembered_serial_port_identity(port_arg: str | None) -> SerialPortIdentity | None:
+    """Load a relevant, previously captured USB identity from the environment."""
+    if port_arg is None:
+        return None
+    encoded = os.environ.get(SERIAL_PORT_IDENTITY_ENV)
+    if not encoded:
+        return None
+    try:
+        payload = json.loads(encoded)
+        identity = SerialPortIdentity(
+            device=str(payload["device"]),
+            location=payload.get("location"),
+            serial_number=payload.get("serial_number"),
+            vid=payload.get("vid"),
+            pid=payload.get("pid"),
+        )
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not _serial_ports_match(port_arg, identity.device):
+        return None
+    return identity
+
+
+def _serial_identity_matches(identity: SerialPortIdentity, candidate: Any) -> bool:
+    """Match one physical USB device while allowing its path and PID to change."""
+    candidate_location = getattr(candidate, "location", None)
+    if identity.location is not None and candidate_location is not None:
+        return identity.location == candidate_location
+
+    candidate_serial = getattr(candidate, "serial_number", None)
+    if identity.serial_number is not None and candidate_serial is not None:
+        candidate_vid = getattr(candidate, "vid", None)
+        return (
+            identity.serial_number == candidate_serial
+            and (identity.vid is None or candidate_vid is None or identity.vid == candidate_vid)
+        )
+
+    return _serial_ports_match(identity.device, candidate.device)
+
+
+def _serial_ports_for_identity(identity: SerialPortIdentity | None) -> list[str]:
+    """Return current serial nodes belonging to a remembered USB device."""
+    if identity is None:
+        return []
+    try:
+        import serial.tools.list_ports
+    except ImportError:
+        return []
+    return [
+        candidate.device
+        for candidate in serial.tools.list_ports.comports()
+        if _serial_identity_matches(identity, candidate)
+    ]
+
+
+def _firmware_download_chip(port: str, expected_chip: str | None) -> str | None:
+    """Return the chip alias only when esptool can synchronize on the port."""
+    try:
+        import esptool
+    except ImportError:
+        return None
+
+    console = serial_console_mode(expected_chip, port)
+    if console is None and expected_chip is not None:
+        console = NATIVE_CONSOLE_BY_CHIP.get(expected_chip)
+    before_modes = ("no-reset",) if console == "usb_cdc" else ("no-reset", "default-reset")
+    for before in before_modes:
+        esp = None
+        try:
+            output = io.StringIO()
+            with redirect_stdout(output), redirect_stderr(output):
+                esp = esptool.get_default_connected_device(
+                    serial_list=[port],
+                    port=port,
+                    connect_attempts=1,
+                    initial_baud=115200,
+                    before=before,
+                )
+            if esp is None:
+                continue
+            chip = chip_alias_from_esptool_name(esp.CHIP_NAME)
+            if expected_chip is None or chip == expected_chip:
+                return chip
+        except Exception:
+            pass
+        finally:
+            if esp and hasattr(esp, "_port") and esp._port:
+                try:
+                    esp._port.close()
+                except Exception:
+                    pass
+    return None
+
+
 def _wait_for_compatible_serial_ports(
     port_arg: str | None,
     *,
@@ -156,30 +310,81 @@ def _wait_for_compatible_serial_ports(
     frontend: str,
     purpose: str,
     require_canonical_console: bool,
+    require_firmware_download: bool,
+    identity: SerialPortIdentity | None,
 ) -> list[str]:
     """Wait briefly for USB serial re-enumeration after a device reset."""
     ports: list[str] = []
-    for attempt in range(SERIAL_REENUMERATION_ATTEMPTS):
+    previous_download_ports: list[str] = []
+    attempts = (
+        FIRMWARE_DOWNLOAD_MODE_ATTEMPTS
+        if require_firmware_download
+        else SERIAL_REENUMERATION_ATTEMPTS
+    )
+    for attempt in range(attempts):
         ports = compatible_serial_ports(
             chip=chip,
             frontend=frontend,
             purpose=purpose,
             require_canonical_console=require_canonical_console,
         )
+        identity_ports = _serial_ports_for_identity(identity)
+        if require_firmware_download and identity is not None:
+            # An explicit physical selection must never reset or probe another
+            # connected board while waiting for its loader to appear.
+            ports = identity_ports
+        elif require_firmware_download and port_arg is not None:
+            ports = [
+                port
+                for port in ports
+                if _serial_ports_match(port_arg, port)
+            ]
+        else:
+            ports = list(dict.fromkeys((*identity_ports, *ports)))
+        if require_firmware_download:
+            detected_download_ports = [
+                port
+                for port in ports
+                if _firmware_download_chip(port, chip) is not None
+            ]
+            ports = [
+                port
+                for port in detected_download_ports
+                if any(
+                    _serial_ports_match(port, previous)
+                    for previous in previous_download_ports
+                )
+            ]
+            previous_download_ports = detected_download_ports
+            identity_ports = [
+                port
+                for port in identity_ports
+                if any(_serial_ports_match(port, candidate) for candidate in ports)
+            ]
         if port_arg is None:
             if ports:
                 return ports
-        elif any(_serial_ports_match(port_arg, candidate) for candidate in ports):
+        elif identity_ports or (
+            identity is None
+            and any(_serial_ports_match(port_arg, candidate) for candidate in ports)
+        ):
             return ports
 
-        if attempt == SERIAL_REENUMERATION_ATTEMPTS - 1:
+        if attempt == attempts - 1:
             break
         if attempt == 0:
             target = f"serial port {port_arg}" if port_arg is not None else "a serial port"
-            print(
-                f"{Fore.YELLOW}⏳ Waiting for {target} to become available "
-                f"for {frontend} {purpose}...{Style.RESET_ALL}"
-            )
+            if require_firmware_download:
+                print(
+                    f"{Fore.YELLOW}⏳ Waiting for firmware download mode on {target}; "
+                    f"use the board's bootloader controls if automatic reset is unavailable..."
+                    f"{Style.RESET_ALL}"
+                )
+            else:
+                print(
+                    f"{Fore.YELLOW}⏳ Waiting for {target} to become available "
+                    f"for {frontend} {purpose}...{Style.RESET_ALL}"
+                )
         time.sleep(SERIAL_REENUMERATION_DELAY_S)
     return ports
 
@@ -191,16 +396,39 @@ def resolve_serial_port(
     frontend: str,
     purpose: str,
     require_canonical_console: bool = False,
+    require_firmware_download: bool = False,
 ) -> str:
     """Resolve one compatible port after bounded USB re-enumeration."""
+    identity = _remembered_serial_port_identity(port_arg)
+    if identity is None and port_arg is not None:
+        identity = serial_port_identity(port_arg)
+        if identity is not None:
+            _export_serial_port_identity(identity)
     ports = _wait_for_compatible_serial_ports(
         port_arg,
         chip=chip,
         frontend=frontend,
         purpose=purpose,
         require_canonical_console=require_canonical_console,
+        require_firmware_download=require_firmware_download,
+        identity=identity,
     )
     if port_arg is not None:
+        identity_ports = _serial_ports_for_identity(identity)
+        if require_firmware_download:
+            identity_ports = [
+                port
+                for port in identity_ports
+                if any(_serial_ports_match(port, candidate) for candidate in ports)
+            ]
+        if identity_ports:
+            selected = identity_ports[0]
+            if not _serial_ports_match(port_arg, selected):
+                print(
+                    f"{Fore.GREEN}✅ USB device re-enumerated: "
+                    f"{port_arg} -> {selected}{Style.RESET_ALL}"
+                )
+            return selected
         if any(_serial_ports_match(port_arg, candidate) for candidate in ports):
             return port_arg
         print(
@@ -210,7 +438,17 @@ def resolve_serial_port(
         raise SystemExit(1)
     candidates: list[SerialCandidate] = []
     if len(ports) > 1:
-        candidates = identify_serial_port_candidates(ports)
+        if require_firmware_download:
+            candidates = [
+                SerialCandidate(
+                    device=port,
+                    chip=chip,
+                    console=serial_console_mode(chip, port),
+                )
+                for port in ports
+            ]
+        else:
+            candidates = identify_serial_port_candidates(ports)
         if chip is not None:
             matches = [candidate for candidate in candidates if candidate.chip == chip]
             if not matches:
@@ -316,14 +554,10 @@ def detect_chip_type(
                 )
                 break
             except Exception as exc:
-                error_text = str(exc).lower()
-                transient_port_error = (
-                    getattr(exc, "errno", None) in {errno.ENOENT, errno.EBUSY}
-                    or "no such file or directory" in error_text
-                    or "port is busy" in error_text
-                    or "resource busy" in error_text
-                )
-                if not transient_port_error or attempt == SERIAL_REENUMERATION_ATTEMPTS - 1:
+                if (
+                    not is_transient_serial_port_error(exc)
+                    or attempt == SERIAL_REENUMERATION_ATTEMPTS - 1
+                ):
                     raise
                 if announce and attempt == 0:
                     print(
@@ -422,11 +656,30 @@ def identify_serial_port_candidates(ports: list[str]) -> list[SerialCandidate]:
     )
     candidates: list[SerialCandidate] = []
     for port in ports:
+        identity = serial_port_identity(port)
         chip = detect_chip_type(
             port,
             announce=False,
             settle_s=IDENTIFY_CHIP_SETTLE_S,
         )
+        if identity is not None:
+            previous_identity_ports: list[str] = []
+            for attempt in range(SERIAL_REENUMERATION_ATTEMPTS):
+                current_ports = _serial_ports_for_identity(identity)
+                stable_ports = [
+                    current
+                    for current in current_ports
+                    if any(
+                        _serial_ports_match(current, previous)
+                        for previous in previous_identity_ports
+                    )
+                ]
+                if stable_ports:
+                    port = stable_ports[0]
+                    break
+                previous_identity_ports = current_ports
+                if attempt < SERIAL_REENUMERATION_ATTEMPTS - 1:
+                    time.sleep(SERIAL_REENUMERATION_DELAY_S)
         candidate = SerialCandidate(
             device=port,
             chip=chip,
