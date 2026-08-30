@@ -151,12 +151,15 @@ menu "Advanced task scheduling"
 config ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY
     int "Direct HTTPD task priority"
     range 1 10
+    default 4 if IDF_TARGET_ESP32 || IDF_TARGET_ESP32S2
     default 1
     help
         FreeRTOS priority for the ESP-IDF HTTP server task used by Direct.
-        Higher values preempt lower-priority ESPectre work. Target profiles
-        may override this default after validation; excessive values can
-        starve sensing, transport workers, and system networking.
+        Classic ESP32 and ESP32-S2 builds keep it above best-effort managed
+        traffic so Direct control remains responsive under CSI load. Other
+        targets retain the ESPectre default. Higher values preempt
+        lower-priority ESPectre work; excessive values can starve sensing,
+        transport workers, and system networking.
 
 config ESPECTRE_DIRECT_WORKER_TASK_PRIORITY
     int "Direct response and SSE worker priority"

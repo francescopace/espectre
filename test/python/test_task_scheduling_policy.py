@@ -13,9 +13,6 @@ CPP_ROOT = REPO_ROOT / "src" / "cpp"
 SHARED_KCONFIG = CPP_ROOT / "runtime" / "esp_idf" / "espectre_config" / "Kconfig.projbuild"
 NATIVE_KCONFIG = CPP_ROOT / "frontend" / "native" / "espectre" / "Kconfig.projbuild"
 SCHEDULING_HEADER = CPP_ROOT / "runtime" / "esp_idf" / "task_scheduling_config.h"
-ESPHOME_ESP32_EXAMPLE = (
-    CPP_ROOT / "frontend" / "esphome" / "examples" / "espectre-esp32.yaml"
-)
 MICRO_ROOT = REPO_ROOT / "src" / "python" / "micro_espectre"
 MICRO_KCONFIG = (
     MICRO_ROOT / "firmware" / "components" / "espectre_core" / "Kconfig.projbuild"
@@ -31,19 +28,6 @@ def _config_block(path: Path, symbol: str) -> str:
     )
     assert match is not None, f"missing Kconfig symbol {symbol} in {path}"
     return match.group("body")
-
-
-def _target_httpd_priority(frontend: str, target: str) -> int:
-    default_block = _config_block(SHARED_KCONFIG, "ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY")
-    default = int(re.search(r"(?m)^\s*default (\d+)\s*$", default_block).group(1))
-    target_defaults = CPP_ROOT / "frontend" / frontend / "app" / f"sdkconfig.defaults.{target}"
-    if not target_defaults.exists():
-        return default
-    match = re.search(
-        r"(?m)^CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY=(\d+)\s*$",
-        target_defaults.read_text(encoding="utf-8"),
-    )
-    return int(match.group(1)) if match is not None else default
 
 
 def test_shared_task_priorities_have_safe_advanced_defaults() -> None:
@@ -75,28 +59,24 @@ def test_native_loop_priority_is_frontend_owned() -> None:
     )
 
 
-def test_httpd_priority_profiles_are_explicit_per_supported_chip() -> None:
-    expected = {
-        "esp32": 4,
-        "esp32s2": 1,
-        "esp32s3": 1,
-        "esp32c3": 1,
-        "esp32c5": 1,
-        "esp32c6": 1,
-    }
-    for frontend in ("native", "matter"):
-        assert {
-            target: _target_httpd_priority(frontend, target)
-            for target in expected
-        } == expected
-
-
-def test_esphome_classic_esp32_example_selects_validated_httpd_priority() -> None:
-    content = ESPHOME_ESP32_EXAMPLE.read_text(encoding="utf-8")
+def test_httpd_priority_uses_validated_target_overrides() -> None:
+    block = _config_block(SHARED_KCONFIG, "ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY")
     assert re.search(
-        r'(?m)^\s+CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY: ["\']4["\']\s*$',
-        content,
+        r"(?m)^\s*default 4 if IDF_TARGET_ESP32 \|\| IDF_TARGET_ESP32S2\s*$",
+        block,
     )
+    assert re.search(r"(?m)^\s*default 1\s*$", block)
+    for frontend in ("native", "matter"):
+        app_dir = CPP_ROOT / "frontend" / frontend / "app"
+        for defaults in app_dir.glob("sdkconfig.defaults.*"):
+            assert "CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY=" not in defaults.read_text(
+                encoding="utf-8"
+            )
+
+    esphome_example = (
+        CPP_ROOT / "frontend" / "esphome" / "examples" / "espectre-esp32.yaml"
+    ).read_text(encoding="utf-8")
+    assert "CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY" not in esphome_example
 
 
 def test_micro_native_tasks_use_the_shared_build_policy_names() -> None:

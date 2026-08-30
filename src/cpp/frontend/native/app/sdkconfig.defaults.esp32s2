@@ -1,3 +1,6 @@
 # ESP32-S2 exposes its native USB port through the ROM USB CDC console rather
 # than the USB Serial/JTAG controller used by C-series chips and ESP32-S3.
 CONFIG_ESP_CONSOLE_USB_CDC=y
+
+# DNS/UDP keeps managed CSI traffic connectionless on this Wi-Fi driver path.
+CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS=y

@@ -227,14 +227,14 @@ The shared runtime defines these priorities:
 
 | Kconfig option | Default | Owner |
 |----------------|---------|-------|
-| `CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY` | `1` | Direct HTTP server |
+| `CONFIG_ESPECTRE_DIRECT_HTTPD_TASK_PRIORITY` | `4` on classic ESP32 and ESP32-S2, otherwise `1` | Direct HTTP server |
 | `CONFIG_ESPECTRE_DIRECT_WORKER_TASK_PRIORITY` | `2` | Direct control responses and SSE delivery |
 | `CONFIG_ESPECTRE_RAW_WORKER_TASK_PRIORITY` | `3` | Raw CSI HTTP delivery |
 | `CONFIG_ESPECTRE_TRAFFIC_TASK_PRIORITY` | `1` | Managed PING or DNS traffic |
 
 The Native frontend separately defines `CONFIG_ESPECTRE_NATIVE_LOOP_TASK_PRIORITY`, with a default of `5`, for its frontend and sensing loop. A custom integration owns the task that calls `RuntimeFrontendController::loop()` and must select that task's priority as part of its own scheduling policy.
 
-The validated classic ESP32 Native and Matter profiles override the Direct HTTP server priority to `4` in their `app/sdkconfig.defaults.esp32` files. The shipped classic ESP32 ESPHome example applies the same override through `sdkconfig_options`. Other targets and custom integrations retain the shared default unless they provide an explicit override; the classic ESP32 value is not a universal recommendation.
+Classic ESP32 and ESP32-S2 builds default the Direct HTTP server priority to `4`, keeping control requests above best-effort managed traffic while CSI is active. Other supported targets default it to `1`. This is an explicit validated target policy, not an inference from scheduler topology; custom integrations can still override it after workload-specific validation.
 
 See [TUNING.md](TUNING.md) for how evaluation cadence, tick alignment, and hit filtering determine expected publish delay.
 

@@ -251,7 +251,7 @@ espectre:
 
 The `traffic_generator_mode_select` entity can change the internal source at runtime, and `csi_traffic_mode_select` can switch between internal and external ownership. Both selections persist after an accepted change.
 
-The shared component default is `ping`. The classic ESP32 example selects `dns`, meaning DNS over UDP, because that target-specific profile remained stable in the validated benchmark and monitor-mode capture. `dns_tcp` remains available where TCP/53 performs better, and no mode silently falls back to another.
+The shared component default is `ping`. The classic ESP32 and ESP32-S2 product examples select `dns`, meaning DNS over UDP, for their product-specific Wi-Fi/CSI traffic profiles. `dns_tcp` remains available where TCP/53 performs better, and no mode silently falls back to another.
 
 ### External Traffic Mode
 
