@@ -33,7 +33,7 @@ from src.wifi_bootstrap import cleanup_wifi, connect_wifi, print_wifi_status, re
 
 HEARTBEAT_INTERVAL_MS = 1000
 HEARTBEAT_MAX_DRAIN_DEFERRAL_MS = 100
-DIAGNOSTIC_INTERVAL_MS = 5000
+DIAGNOSTIC_INTERVAL_MS = 1000
 DIAGNOSTIC_MAX_DRAIN_DEFERRAL_MS = 500
 
 # Global state for calibration mode and performance metrics

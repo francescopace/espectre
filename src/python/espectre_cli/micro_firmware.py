@@ -855,9 +855,28 @@ def _configure_project_csi_fixed_records(micropython_dir: Path) -> None:
 
 
 def _configure_project_gc_heap_reserve(micropython_dir: Path) -> None:
-    """Keep split-heap growth from starving Wi-Fi and lwIP native memory."""
+    """Prefer PSRAM for split-heap growth without starving native memory."""
     source_path = micropython_dir / "ports" / "esp32" / "gccollect.c"
     source = source_path.read_text(encoding="utf-8")
+    psram_aware_split = """size_t gc_get_max_new_split(void) {
+    size_t internal_largest = heap_caps_get_largest_free_block(
+        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t available = internal_largest > ESPECTRE_GC_NATIVE_HEAP_RESERVE
+        ? internal_largest - ESPECTRE_GC_NATIVE_HEAP_RESERVE
+        : 0;
+    #if CONFIG_SPIRAM
+    // Large system-malloc requests use PSRAM when ESP-IDF initialized it.
+    // Match that allocator policy while retaining the internal-memory reserve.
+    size_t external_available = heap_caps_get_largest_free_block(
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (external_available > available) {
+        available = external_available;
+    }
+    #endif
+    return available < ESPECTRE_GC_MAX_NEW_SPLIT_SIZE
+        ? available
+        : ESPECTRE_GC_MAX_NEW_SPLIT_SIZE;
+}"""
     if "ESPECTRE_GC_NATIVE_HEAP_RESERVE" in source:
         old_cap = "#define ESPECTRE_GC_MAX_NEW_SPLIT_SIZE (48 * 1024)"
         if old_cap in source:
@@ -889,17 +908,26 @@ def _configure_project_gc_heap_reserve(micropython_dir: Path) -> None:
                 "#endif",
                 1,
             )
-        source = source.replace(
-            "size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);",
-            "const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;\n"
-            "    size_t largest = heap_caps_get_largest_free_block(caps);",
-            1,
+        split_start = source.find("size_t gc_get_max_new_split(void) {")
+        split_end = source.find("\n}\n\n#endif", split_start)
+        if split_end < 0:
+            split_end = source.rfind("\n}")
+        if split_start < 0 or split_end < 0:
+            raise RuntimeError(
+                f"MicroPython split-heap growth function is missing: {source_path}"
+            )
+        source = (
+            source[:split_start]
+            + psram_aware_split
+            + source[split_end + len("\n}"):]
         )
         source_path.write_text(source, encoding="utf-8")
         if (
             "#define ESPECTRE_GC_MAX_NEW_SPLIT_SIZE (56 * 1024)" not in source
             or "#define ESPECTRE_GC_NATIVE_HEAP_RESERVE (32 * 1024)" not in source
             or "MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT" not in source
+            or "MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT" not in source
+            or "#if CONFIG_SPIRAM" not in source
         ):
             raise RuntimeError(
                 f"MicroPython GC heap-reserve profile is inconsistent: {source_path}"
@@ -921,18 +949,7 @@ size_t gc_get_max_new_split(void) {
 #define ESPECTRE_GC_NATIVE_HEAP_RESERVE (32 * 1024)
 #endif
 
-size_t gc_get_max_new_split(void) {
-    const uint32_t caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
-    size_t largest = heap_caps_get_largest_free_block(caps);
-    if (largest <= ESPECTRE_GC_NATIVE_HEAP_RESERVE) {
-        return 0;
-    }
-    size_t available = largest - ESPECTRE_GC_NATIVE_HEAP_RESERVE;
-    return available < ESPECTRE_GC_MAX_NEW_SPLIT_SIZE
-        ? available
-        : ESPECTRE_GC_MAX_NEW_SPLIT_SIZE;
-}
-"""
+""" + psram_aware_split + "\n"
     if original not in source:
         raise RuntimeError(
             f"MicroPython split-heap growth anchor is missing: {source_path}"

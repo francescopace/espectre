@@ -1011,8 +1011,11 @@ size_t gc_get_max_new_split(void) {
     assert source.count("ESPECTRE_GC_NATIVE_HEAP_RESERVE") == 4
     assert "#define ESPECTRE_GC_MAX_NEW_SPLIT_SIZE (56 * 1024)" in source
     assert "#define ESPECTRE_GC_NATIVE_HEAP_RESERVE (32 * 1024)" in source
-    assert "largest - ESPECTRE_GC_NATIVE_HEAP_RESERVE" in source
+    assert "internal_largest - ESPECTRE_GC_NATIVE_HEAP_RESERVE" in source
     assert "MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT" in source
+    assert "#if CONFIG_SPIRAM" in source
+    assert "MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT" in source
+    assert "external_available > available" in source
     assert "heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT)" not in source
 
 

@@ -58,7 +58,7 @@ LOWPASS_CUTOFF = 11.0          # Cutoff frequency in Hz (11 Hz: 2.3% FP, 92.4% R
                                # Human movement is typically 0.5-10 Hz, RF noise is >15 Hz
 
 # Hampel filter (removes outliers from turbulence and L1-delta streams)
-ENABLE_HAMPEL_FILTER = True   # Enabled by default; disable only for explicit resource experiments
+ENABLE_HAMPEL_FILTER = False   # Disabled by default to save RAM
 HAMPEL_WINDOW = 7             # Window size for median calculation (3-11)
 HAMPEL_THRESHOLD = 5.0        # Outlier detection threshold in MAD units (2.0-6.0 recommended)
                               # Higher values = less aggressive filtering
