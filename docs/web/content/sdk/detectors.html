@@ -21,16 +21,16 @@
   <p class="article-footnote">Persistent state is the detector object's <code>sizeof</code> plus live heap allocations after construction; allocator metadata and the rest of the firmware are not included. A build that supports runtime switching may still carry both detector implementations and the ML weights in flash.</p>
 
   <h2 id="sdk-detectors-performance" data-toc-label="Measured performance">Current measured comparison</h2>
-  <p>The generated <a href="https://github.com/francescopace/espectre/blob/main/docs/performance/README.md" target="_blank" rel="noopener">performance report</a> compares both profiles on the same 13 real dataset pairs from the combined <code>selection + holdout</code> corpus. Both receive identical <code>base + drift + burst-loss</code> augmentation generated from the same two fixed seeds.</p>
+  <p>The generated <a href="https://github.com/francescopace/espectre/blob/main/docs/performance/README.md" target="_blank" rel="noopener">performance report</a> compares both profiles on the same 13 real dataset pairs from the combined <code>selection + holdout</code> corpus. Both receive identical <code>base + drift + burst-loss</code> augmentation generated from the same two fixed seeds. The device columns are unweighted arithmetic means of passing Native, ESPHome, and Matter campaign averages in the per-chip reports from the revision used to build this page. Micro-ESPectre is excluded.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Detection profile</th><th>Recall</th><th>False-positive rate</th><th>F1</th><th>Mean device path</th><th>Mean runtime CPU</th></tr></thead>
     <tbody>
-      <tr><td>Lightweight</td><td>98.8%</td><td>0.8%</td><td>98.6%</td><td>0.700 ms</td><td>3.21%</td></tr>
-      <tr><td>High Accuracy</td><td>99.4%</td><td>0.1%</td><td>99.5%</td><td>2.943 ms</td><td>3.52%</td></tr>
+      <tr><td>Lightweight</td><td>98.8%</td><td>0.8%</td><td>98.6%</td><td>0.799 ms</td><td>6.72%</td></tr>
+      <tr><td>High Accuracy</td><td>99.4%</td><td>0.1%</td><td>99.5%</td><td>3.107 ms</td><td>9.58%</td></tr>
     </tbody>
   </table></div>
   <div class="evidence-notes">
-    <div class="note"><strong>Read device cost as a descriptive average.</strong> Detection-path time includes feature and inference work. CPU is total runtime load, not detector-only utilization or energy consumption. Campaigns for ESP32, ESP32-C3, ESP32-C5, ESP32-C6, and ESP32-S3 were collected separately. Power has not yet been measured.</div>
+    <div class="note"><strong>Device cost is a descriptive mean.</strong> Detection-path time includes feature and inference work. Runtime CPU is total runtime load, not detector-only utilization or energy consumption. The 17 C++ frontend campaigns were collected separately. Power has not yet been measured.</div>
     <div class="note"><strong>This is a development diagnostic, not a sealed blind result.</strong> The recordings are outside the High Accuracy training corpus, but project development has used parts of this evidence for selection decisions. The table compares current profiles under one replay contract; it is not a final generalization claim.</div>
   </div>
   <div class="note"><strong>Current validation boundary:</strong> production detection is validated for 2.4 GHz HT20 CSI with HT-LTF. Detection quality at 5 GHz has not yet been characterized.</div>

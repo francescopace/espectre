@@ -322,7 +322,33 @@ def rewrite_bundle_doxyfile(path: Path, version: str) -> None:
     stamp_doxyfile_project_number(path, version)
 
 
-def stage_bundle_tree(destination_root: Path, version: str, bundle_files: list[Path]) -> int:
+def rewrite_bundle_sdk_guide(path: Path, source_ref: str) -> None:
+    """Point repository-relative Markdown links at the exact packaged revision."""
+    source = path.read_text(encoding="utf-8")
+
+    def replace_link(match: re.Match[str]) -> str:
+        target = match.group(1)
+        anchor = match.group(2) or ""
+        normalized = os.path.normpath(os.path.join("docs", target)).replace(os.sep, "/")
+        if normalized == ".." or normalized.startswith("../"):
+            raise ValueError(f"Bundled SDK guide link escapes the repository: {target}")
+        return (
+            "](https://github.com/francescopace/espectre/blob/"
+            f"{source_ref}/{normalized}{anchor})"
+        )
+
+    rewritten, count = re.subn(
+        r"\]\((?!https?://)(?!mailto:)([^)#]+\.md)(#[^)]+)?\)",
+        replace_link,
+        source,
+    )
+    if count == 0:
+        raise ValueError(f"Bundled SDK guide has no relative Markdown links to rewrite: {path}")
+    path.write_text(rewritten, encoding="utf-8")
+
+
+def stage_bundle_tree(destination_root: Path, version: str, source_ref: str,
+                      bundle_files: list[Path]) -> int:
     for relative_path in bundle_files:
         source = REPO_ROOT / relative_path
         target = destination_root / relative_path
@@ -335,6 +361,7 @@ def stage_bundle_tree(destination_root: Path, version: str, bundle_files: list[P
         version,
     )
     rewrite_bundle_doxyfile(destination_root / "src" / "cpp" / "Doxyfile", version)
+    rewrite_bundle_sdk_guide(destination_root / "docs" / "SDK.md", source_ref)
     validate_stamped_sdk_identity(destination_root, version)
     return len(bundle_files)
 
@@ -507,7 +534,8 @@ def build_sdk_package(args: argparse.Namespace) -> dict:
 
     with tempfile.TemporaryDirectory(prefix="espectre-sdk-") as tmp_dir:
         staged_root = Path(tmp_dir) / bundle_root
-        file_count = stage_bundle_tree(staged_root, args.version, bundle_files)
+        source_ref = args.commit or args.release_tag
+        file_count = stage_bundle_tree(staged_root, args.version, source_ref, bundle_files)
         write_tarball(staged_root, tarball_path, bundle_root, source_date_epoch)
         write_zipfile(staged_root, zip_path, bundle_root, source_date_epoch)
 

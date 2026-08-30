@@ -14,6 +14,7 @@
 #include <cerrno>
 #include <cinttypes>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <fcntl.h>
 #include <unistd.h>
@@ -379,7 +380,7 @@ bool TrafficGeneratorManager::start(uint32_t gateway_addr) {
 
   char gateway[16];
   const esp_ip4_addr_t gateway_ip{gateway_addr_};
-  snprintf(gateway, sizeof(gateway), IPSTR, IP2STR(&gateway_ip));
+  std::snprintf(gateway, sizeof(gateway), IPSTR, IP2STR(&gateway_ip));
   ESPECTRE_LOGI(TAG,
            "Traffic generator started (mode=%s, target=%" PRIu32 " CSI pps, send=%" PRIu32
            " pps, gateway=%s, priority=%u)",

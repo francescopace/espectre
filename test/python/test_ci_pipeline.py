@@ -100,6 +100,8 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
         )
         doxy_name = next(name for name in archived if name.endswith("/src/cpp/Doxyfile"))
         bundled_doxyfile = archive.read(doxy_name).decode("utf-8")
+        guide_name = next(name for name in archived if name.endswith("/docs/SDK.md"))
+        bundled_guide = archive.read(guide_name).decode("utf-8")
     bundle_root = component_cmake_name.removesuffix("/src/cpp/CMakeLists.txt")
     assert f"{bundle_root}/CMakeLists.txt" not in archived
     assert manifest["install_surfaces"]["esp_idf_component"]["component_root"] == "src/cpp"
@@ -109,6 +111,9 @@ def test_sdk_archives_and_manifest_are_reproducible(tmp_path: Path) -> None:
     assert re.search(r"(?m)^GENERATE_XML\s*=\s*YES\s*$", bundled_doxyfile)
     assert not any("/src/cpp/doxygen/" in path for path in archived)
     assert "docs/web/artifacts/sdk" not in bundled_doxyfile
+    assert "https://github.com/francescopace/espectre/blob/0123456789abcdef/docs/ARCHITECTURE.md" in bundled_guide
+    assert "https://github.com/francescopace/espectre/blob/0123456789abcdef/LICENSING.md" in bundled_guide
+    assert re.search(r"\]\((?!https?://|mailto:|#)[^)]+\.md(?:#[^)]+)?\)", bundled_guide) is None
     repo_doxyfile = (REPO_ROOT / "src" / "cpp" / "Doxyfile").read_text(encoding="utf-8")
     assert re.search(r"(?m)^OUTPUT_DIRECTORY\s*=\s*docs/web/artifacts/sdk\s*$", repo_doxyfile)
     assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*UNSTAMPED\s*$", repo_doxyfile)

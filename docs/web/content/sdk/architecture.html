@@ -27,12 +27,13 @@
 
   <h2>Lifecycle and task ownership</h2>
   <div class="pipeline api-lifecycle" aria-label="Runtime lifecycle">
-    <div><strong>Join Wi-Fi</strong><span>product task</span></div>
-    <div><strong><code>setup(listener)</code></strong><span>start sensing</span></div>
+    <div><strong>Create station</strong><span>interface + event loop</span></div>
+    <div><strong><code>setup(listener)</code></strong><span>apply CSI policy</span></div>
+    <div><strong>Join Wi-Fi</strong><span>product connects</span></div>
     <div><strong><code>loop()</code></strong><span>deliver events</span></div>
     <div><strong><code>shutdown()</code></strong><span>release runtime</span></div>
   </div>
-  <p>Call <code>setup()</code>, <code>loop()</code>, runtime controls, and <code>shutdown()</code> from one owner task. Listener callbacks run on that same task and must remain bounded; queue network publication, NVS writes, and other blocking work for another task.</p>
+  <p>Create the default station and event loop first. If the product controls the connection order, call <code>setup()</code> before association so the runtime can apply its CSI radio policy when the station starts. Keep <code>setup()</code>, <code>loop()</code>, runtime controls, and <code>shutdown()</code> on one owner task. Listener callbacks run on that same task and must remain bounded; queue network publication, NVS writes, and other blocking work for another task.</p>
   <p>A failed <code>setup()</code> leaves the controller unconfigured so the product can correct the configuration and retry. Control calls return <code>false</code> when a value is invalid, a capability is unavailable, or the backend refuses the change. Asynchronous runtime failures arrive through <code>on_runtime_fault()</code>.</p>
 
   <h2>Three-layer architecture</h2>

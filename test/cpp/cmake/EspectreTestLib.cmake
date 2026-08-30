@@ -97,6 +97,7 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_motion_hits_store.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_traffic_mode_store.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_performance_diagnostics.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_sensing_kconfig.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/mdns_discovery_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/peer_discovery_service_esp_idf.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_service.cpp"
@@ -123,6 +124,23 @@ target_link_libraries(espectre_runtime_testlib
         espectre_core_testlib
         espectre_test_mocks
         improv_wifi_testlib
+)
+
+add_library(espectre_runtime_invalid_kconfig_testlib STATIC
+    "${ESPECTRE_CPP_ROOT}/runtime/runtime_config_utils.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/runtime_sensing_kconfig.cpp"
+)
+target_compile_definitions(espectre_runtime_invalid_kconfig_testlib
+    PRIVATE
+        CONFIG_ESPECTRE_MOTION_ON_HITS=260
+        CONFIG_ESPECTRE_MOTION_OFF_HITS=258
+        CONFIG_ESPECTRE_HAMPEL_WINDOW=263
+        CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP="not-an-address"
+)
+target_link_libraries(espectre_runtime_invalid_kconfig_testlib
+    PUBLIC
+        espectre_core_testlib
+        espectre_test_mocks
 )
 
 add_library(espectre_direct_service_testlib STATIC

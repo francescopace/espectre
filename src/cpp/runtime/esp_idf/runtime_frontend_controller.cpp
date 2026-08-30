@@ -301,6 +301,24 @@ void RuntimeFrontendController::cache_snapshot_(const RuntimeSnapshot &snapshot)
   snapshot_ = snapshot;
 }
 
+void RuntimeFrontendController::adopt_effective_threshold_(float threshold) {
+  const bool staged_for_next_setup =
+      config_.segmentation_threshold != active_config_.segmentation_threshold;
+  active_config_.segmentation_threshold = threshold;
+  if (!staged_for_next_setup) {
+    config_.segmentation_threshold = threshold;
+  }
+}
+
+void RuntimeFrontendController::adopt_effective_detector_(DetectionAlgorithm algorithm) {
+  const bool staged_for_next_setup =
+      config_.detection_algorithm != active_config_.detection_algorithm;
+  active_config_.detection_algorithm = algorithm;
+  if (!staged_for_next_setup) {
+    config_.detection_algorithm = algorithm;
+  }
+}
+
 void RuntimeFrontendController::begin_callback_() { ++callback_depth_; }
 
 void RuntimeFrontendController::end_callback_() {
@@ -336,8 +354,7 @@ void RuntimeFrontendController::on_periodic_update(const RuntimeSnapshot &snapsh
 
 void RuntimeFrontendController::on_threshold_changed(const RuntimeSnapshot &snapshot) {
   cache_snapshot_(snapshot);
-  config_.segmentation_threshold = snapshot.threshold;
-  active_config_.segmentation_threshold = snapshot.threshold;
+  adopt_effective_threshold_(snapshot.threshold);
   if (listener_ != nullptr) {
     begin_callback_();
     listener_->on_threshold_changed(snapshot);
@@ -347,10 +364,8 @@ void RuntimeFrontendController::on_threshold_changed(const RuntimeSnapshot &snap
 
 void RuntimeFrontendController::on_detector_changed(const RuntimeSnapshot &snapshot) {
   cache_snapshot_(snapshot);
-  config_.detection_algorithm = parse_detection_algorithm(snapshot.detector_name);
-  config_.segmentation_threshold = snapshot.threshold;
-  active_config_.detection_algorithm = config_.detection_algorithm;
-  active_config_.segmentation_threshold = snapshot.threshold;
+  adopt_effective_detector_(parse_detection_algorithm(snapshot.detector_name));
+  adopt_effective_threshold_(snapshot.threshold);
   if (listener_ != nullptr) {
     begin_callback_();
     listener_->on_detector_changed(snapshot);
@@ -370,8 +385,7 @@ void RuntimeFrontendController::on_calibration_started(const RuntimeSnapshot &sn
 void RuntimeFrontendController::on_calibration_finished(const RuntimeSnapshot &snapshot,
                                                         bool success) {
   cache_snapshot_(snapshot);
-  config_.segmentation_threshold = snapshot.threshold;
-  active_config_.segmentation_threshold = snapshot.threshold;
+  adopt_effective_threshold_(snapshot.threshold);
   if (listener_ != nullptr) {
     begin_callback_();
     listener_->on_calibration_finished(snapshot, success);
@@ -382,8 +396,7 @@ void RuntimeFrontendController::on_calibration_finished(const RuntimeSnapshot &s
 void RuntimeFrontendController::on_live_telemetry(float movement, float threshold) {
   snapshot_.movement_metric = movement;
   snapshot_.threshold = threshold;
-  config_.segmentation_threshold = threshold;
-  active_config_.segmentation_threshold = threshold;
+  adopt_effective_threshold_(threshold);
   if (listener_ != nullptr) {
     begin_callback_();
     listener_->on_live_telemetry(movement, threshold);

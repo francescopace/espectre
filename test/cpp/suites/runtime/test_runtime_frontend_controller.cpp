@@ -11,6 +11,7 @@
 #include "test_harness.h"
 
 #include "frontend_runtime_shim.h"
+#include "runtime_config_utils.h"
 #include "runtime_frontend_controller.h"
 
 #include <string>
@@ -110,6 +111,34 @@ void test_runtime_frontend_controller_keeps_staged_mutations_out_of_live_validat
   controller.shutdown();
   TEST_ASSERT_FALSE(controller.setup(&listener));
   TEST_ASSERT_EQUAL(1, listener.fault_count);
+}
+
+void test_runtime_frontend_controller_preserves_staged_fields_across_live_callbacks(void) {
+  RuntimeFrontendController controller;
+  DummyRuntimeListener listener;
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+
+  controller.config().detection_algorithm = DetectionAlgorithm::HIGH_ACCURACY;
+  controller.config().segmentation_threshold = 0.77f;
+
+  RuntimeSnapshot current = controller.snapshot();
+  current.detector_name = detection_algorithm_name(DetectionAlgorithm::LIGHTWEIGHT);
+  current.threshold = 0.61f;
+  frontend_runtime_shim::state.last_listener->on_detector_changed(current);
+  frontend_runtime_shim::state.last_listener->on_threshold_changed(current);
+  frontend_runtime_shim::state.last_listener->on_calibration_finished(current, true);
+  frontend_runtime_shim::state.last_listener->on_live_telemetry(0.4f, 0.62f);
+
+  TEST_ASSERT_TRUE(controller.config().detection_algorithm ==
+                   DetectionAlgorithm::HIGH_ACCURACY);
+  TEST_ASSERT_EQUAL_FLOAT(0.77f, controller.config().segmentation_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(0.62f, controller.snapshot().threshold);
+
+  controller.shutdown();
+  TEST_ASSERT_TRUE(controller.setup(&listener));
+  TEST_ASSERT_TRUE(controller.config().detection_algorithm ==
+                   DetectionAlgorithm::HIGH_ACCURACY);
+  TEST_ASSERT_EQUAL_FLOAT(0.77f, controller.config().segmentation_threshold);
 }
 
 void test_runtime_frontend_controller_setup_propagates_state_and_handles_failure(void) {
@@ -407,6 +436,7 @@ int process(void) {
   RUN_TEST(test_runtime_frontend_controller_preserves_pre_setup_config_and_snapshot);
   RUN_TEST(test_runtime_frontend_controller_rejects_invalid_config_before_backend_setup);
   RUN_TEST(test_runtime_frontend_controller_keeps_staged_mutations_out_of_live_validation);
+  RUN_TEST(test_runtime_frontend_controller_preserves_staged_fields_across_live_callbacks);
   RUN_TEST(test_runtime_frontend_controller_setup_propagates_state_and_handles_failure);
   RUN_TEST(test_runtime_frontend_controller_adopts_backend_effective_config);
   RUN_TEST(test_runtime_frontend_controller_loop_shutdown_and_runtime_toggles_forward);

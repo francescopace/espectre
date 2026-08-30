@@ -114,15 +114,28 @@ uint32_t clamp_uint32_or_default_(uint32_t value, uint32_t default_value, uint32
   return default_value;
 }
 
-uint8_t clamp_uint8_or_default_(uint8_t value, uint8_t default_value, uint8_t min_value,
+uint8_t clamp_uint8_or_default_(uint32_t value, uint8_t default_value, uint8_t min_value,
                                 uint8_t max_value, const char *key) {
-  if (validate_runtime_uint8(value, min_value, max_value)) {
-    return value;
+  if (validate_runtime_uint32(value, min_value, max_value)) {
+    return static_cast<uint8_t>(value);
   }
   ESPECTRE_LOGW(TAG, "Invalid %s=%u (allowed %u-%u), using default %u", key, static_cast<unsigned>(value),
            static_cast<unsigned>(min_value), static_cast<unsigned>(max_value),
            static_cast<unsigned>(default_value));
   return default_value;
+}
+
+std::string multicast_group_or_default_(const char *value, const char *key) {
+  RuntimeConfig probe = make_runtime_sensing_config();
+  probe.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
+  probe.csi_traffic_multicast_group = value != nullptr ? value : "";
+  if (validate_runtime_config(probe) != RuntimeConfigError::CSI_TRAFFIC_MULTICAST_GROUP) {
+    return probe.csi_traffic_multicast_group;
+  }
+  ESPECTRE_LOGW(TAG, "Invalid %s=\"%s\", using default %s", key,
+                value != nullptr ? value : "",
+                RUNTIME_CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT);
+  return RUNTIME_CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT;
 }
 
 }  // namespace
@@ -163,7 +176,9 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
 #else
   config.csi_traffic_mode = CsiTrafficMode::INTERNAL;
 #endif
-  config.csi_traffic_multicast_group = CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP;
+  config.csi_traffic_multicast_group = multicast_group_or_default_(
+      CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP,
+      "CONFIG_ESPECTRE_CSI_TRAFFIC_MULTICAST_GROUP");
 #if CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS
   config.traffic_generator_mode = RuntimeTrafficMode::DNS;
 #elif CONFIG_ESPECTRE_TRAFFIC_GENERATOR_MODE_DNS_TCP
@@ -178,11 +193,11 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
                                RUNTIME_EVALUATION_INTERVAL_MS_MAX,
                                "CONFIG_ESPECTRE_EVALUATION_INTERVAL_MS");
   config.motion_on_hits =
-      clamp_uint8_or_default_(static_cast<uint8_t>(CONFIG_ESPECTRE_MOTION_ON_HITS),
+      clamp_uint8_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_MOTION_ON_HITS),
                               RUNTIME_MOTION_ON_HITS_DEFAULT, RUNTIME_MOTION_HITS_MIN,
                               RUNTIME_MOTION_HITS_MAX, "CONFIG_ESPECTRE_MOTION_ON_HITS");
   config.motion_off_hits =
-      clamp_uint8_or_default_(static_cast<uint8_t>(CONFIG_ESPECTRE_MOTION_OFF_HITS),
+      clamp_uint8_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_MOTION_OFF_HITS),
                               RUNTIME_MOTION_OFF_HITS_DEFAULT, RUNTIME_MOTION_HITS_MIN,
                               RUNTIME_MOTION_HITS_MAX, "CONFIG_ESPECTRE_MOTION_OFF_HITS");
   config.lowpass_enabled = CONFIG_ESPECTRE_LOWPASS_ENABLED;
@@ -192,7 +207,10 @@ RuntimeConfig make_runtime_sensing_config_from_kconfig() {
                                                   RUNTIME_LOWPASS_CUTOFF_MAX,
                                                   "CONFIG_ESPECTRE_LOWPASS_CUTOFF");
   config.hampel_enabled = CONFIG_ESPECTRE_HAMPEL_ENABLED;
-  config.hampel_window = static_cast<uint8_t>(CONFIG_ESPECTRE_HAMPEL_WINDOW);
+  config.hampel_window =
+      clamp_uint8_or_default_(static_cast<uint32_t>(CONFIG_ESPECTRE_HAMPEL_WINDOW),
+                              RUNTIME_HAMPEL_WINDOW_DEFAULT, RUNTIME_HAMPEL_WINDOW_MIN,
+                              RUNTIME_HAMPEL_WINDOW_MAX, "CONFIG_ESPECTRE_HAMPEL_WINDOW");
   config.hampel_threshold = parse_float_or_default_(CONFIG_ESPECTRE_HAMPEL_THRESHOLD,
                                                     RUNTIME_HAMPEL_THRESHOLD_DEFAULT,
                                                     RUNTIME_HAMPEL_THRESHOLD_MIN,

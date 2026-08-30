@@ -8,10 +8,45 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { app, browserSupportSource, directProtocol, GPL_HTML_HEADER, index, read, roadmapContent, routeRegistry, security, styles, toolContent, toolFragments, toolsContent } from './fixtures/site_test_helpers.mjs';
+
+const deviceReportPaths = [
+    'docs/performance/ESP32.md',
+    'docs/performance/ESP32-C3.md',
+    'docs/performance/ESP32-C5.md',
+    'docs/performance/ESP32-C6.md',
+    'docs/performance/ESP32-S2.md',
+    'docs/performance/ESP32-S3.md',
+];
+const cppFrontends = ['Native', 'ESPHome', 'Matter'];
+
+function committedCppFrontendMeans(profile) {
+    const samples = [];
+    for (const path of deviceReportPaths) {
+        const report = execFileSync('git', ['show', `HEAD:${path}`], { encoding: 'utf8' });
+        const sections = report.split(/^### /m);
+        for (const frontend of cppFrontends) {
+            const section = sections.find((candidate) => candidate.startsWith(`${frontend} ${profile}\n`));
+            if (!section || !section.includes('Result: **PASS**')) {
+                continue;
+            }
+            const detectionUs = Number(section.match(/\| Detection average \| ([0-9.]+) us \|/)?.[1]);
+            const runtimeCpu = Number(section.match(/\| Runtime load \| ([0-9.]+)% mean \|/)?.[1]);
+            assert.ok(Number.isFinite(detectionUs), `${path} must report ${frontend} ${profile} detection time`);
+            assert.ok(Number.isFinite(runtimeCpu), `${path} must report ${frontend} ${profile} runtime CPU`);
+            samples.push({ detectionUs, runtimeCpu });
+        }
+    }
+    assert.equal(samples.length, 17, `${profile} mean must cover 17 committed C++ frontend reports`);
+    return {
+        detectionMs: samples.reduce((sum, sample) => sum + sample.detectionUs, 0) / samples.length / 1000,
+        runtimeCpu: samples.reduce((sum, sample) => sum + sample.runtimeCpu, 0) / samples.length,
+    };
+}
 
 describe('website SDK route contracts', () => {
     it('uses the shared page heading styles on every top-level inner page', () => {
@@ -87,6 +122,20 @@ describe('website SDK route contracts', () => {
         assert.match(routeRegistry, /name: 'sdk-detectors'.*staticPath: '\/sdk\/detectors\/'/);
         assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/sdk\/detectors\.html"/);
         assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/sdk\/detectors\//);
+    });
+
+    it('keeps device means aligned with committed C++ frontend campaign reports', () => {
+        const detectors = read('docs/web/content/sdk/detectors.html');
+        for (const profile of ['Lightweight', 'High Accuracy']) {
+            const row = detectors.match(new RegExp(
+                `<tr><td>${profile}</td><td>[^<]+</td><td>[^<]+</td><td>[^<]+</td>`
+                + '<td>([0-9.]+) ms</td><td>([0-9.]+)%</td></tr>',
+            ));
+            assert.ok(row, `${profile} comparison row must publish device means`);
+            const expected = committedCppFrontendMeans(profile);
+            assert.equal(row[1], expected.detectionMs.toFixed(3));
+            assert.equal(row[2], expected.runtimeCpu.toFixed(2));
+        }
     });
 
     it('publishes the detection profile guide through SPA and static routes', () => {

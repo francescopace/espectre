@@ -301,7 +301,7 @@ Each SDK bundle includes:
 - generated `src/cpp/core/ml_weights.h`
 - `LICENSE`, `LICENSING.md`, and `THIRD_PARTY_NOTICES.md`
 
-The published bundle is a versioned C++ source SDK with stamped packaging metadata, ready to vendor or unpack into your firmware tree. ESPectre is compiled together with the product firmware; the bundle does not include chip-specific precompiled libraries or promise binary ABI compatibility. Its `.tar.gz` and `.zip` archives are generated deterministically from the source commit timestamp, and the accompanying SDK manifest records a SHA-256 digest for each archive so consumers can verify downloaded bytes.
+The published bundle is a versioned C++ source SDK with stamped packaging metadata, ready to vendor or unpack into your firmware tree. ESPectre is compiled together with the product firmware; the bundle does not include chip-specific precompiled libraries or promise binary ABI compatibility. In the bundled copy of this guide, repository-relative links point to GitHub URLs pinned to the commit or release tag used for that package. The `.tar.gz` and `.zip` archives are generated deterministically from the source commit timestamp, and the SDK manifest records a SHA-256 digest for each archive so consumers can verify downloaded bytes.
 
 ## Validation assets
 

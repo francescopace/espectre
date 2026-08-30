@@ -250,6 +250,8 @@ class RuntimeFrontendController : private IRuntimeListener {
   void on_runtime_fault(const char *message) override;
 
   void cache_snapshot_(const RuntimeSnapshot &snapshot);
+  void adopt_effective_threshold_(float threshold);
+  void adopt_effective_detector_(DetectionAlgorithm algorithm);
   void begin_callback_();
   void end_callback_();
   void apply_deferred_shutdown_();

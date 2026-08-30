@@ -62,6 +62,11 @@ add_espectre_test(test_sdk_surface
     LIBRARIES espectre_runtime_testlib
 )
 
+add_espectre_test(test_runtime_sensing_invalid_kconfig
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_runtime_sensing_invalid_kconfig.cpp"
+    LIBRARIES espectre_runtime_invalid_kconfig_testlib
+)
+
 add_espectre_test(test_runtime_detector_switch
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/test_runtime_detector_switch.cpp"
     LIBRARIES espectre_runtime_testlib
