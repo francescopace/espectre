@@ -108,14 +108,8 @@ void test_dual_band_policy_reports_band_mode_failure(void) {
   g_esp_wifi_mock.bandwidths.ghz_2g = WIFI_BW_HT40;
   g_esp_wifi_mock.bandwidths.ghz_5g = WIFI_BW_HT40;
 
-  TEST_ASSERT_EQUAL(ESP_OK, manager.register_handlers([](const esp_netif_ip_info_t &) {}, []() {},
-                                                       WifiBandPolicy::AUTO));
-  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
-
-  ip_event_got_ip_t event{};
-  event.ip_info.ip.addr = 0x0101A8C0U;
-  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
-  TEST_ASSERT_EQUAL(ESP_FAIL, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(ESP_FAIL, manager.register_handlers([](const esp_netif_ip_info_t &) {}, []() {},
+                                                         WifiBandPolicy::AUTO));
   TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.set_protocols_call_count);
   TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.set_bandwidths_call_count);
 }
@@ -157,14 +151,8 @@ void test_dual_band_policy_reports_protocol_failure(void) {
   WiFiLifecycleManager manager;
   g_esp_wifi_mock.set_protocols_result = ESP_FAIL;
 
-  TEST_ASSERT_EQUAL(ESP_OK, manager.register_handlers([](const esp_netif_ip_info_t &) {}, []() {},
-                                                       WifiBandPolicy::AUTO));
-  esp_event_mock_emit(WIFI_EVENT, WIFI_EVENT_STA_START, nullptr);
-
-  ip_event_got_ip_t event{};
-  event.ip_info.ip.addr = 0x0101A8C0U;
-  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &event);
-  TEST_ASSERT_EQUAL(ESP_FAIL, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(ESP_FAIL, manager.register_handlers([](const esp_netif_ip_info_t &) {}, []() {},
+                                                         WifiBandPolicy::AUTO));
   TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.set_bandwidths_call_count);
 }
 

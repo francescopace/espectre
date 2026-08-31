@@ -95,11 +95,8 @@ void test_wifi_lifecycle_rejects_dual_band_policies_on_single_band_targets(void)
   TEST_ASSERT_EQUAL(0, g_esp_event_mock.register_call_count);
 }
 
-// STA_START can fire before the handlers are registered, for instance when a
-// host frontend brings the station up first. The policy is then never
-// attempted, and failing at GOT_IP consumed the event and left CSI off with
-// nothing to retry until the next reconnect. Applying it late is valid because
-// the station is already up.
+// STA_START can fire before the handlers are registered. If no connected
+// station can be restored yet, the next real GOT_IP applies the missed policy.
 void test_wifi_lifecycle_applies_policy_late_when_sta_start_was_missed(void) {
   WiFiLifecycleManager manager;
   g_esp_wifi_mock.bandwidth = WIFI_BW_HT40;
@@ -205,6 +202,8 @@ void test_wifi_lifecycle_restores_an_already_connected_station(void) {
   g_esp_netif_mock.ip_addr = 0x3701A8C0U;
   g_esp_netif_mock.netmask_addr = 0x00FFFFFFU;
   g_esp_netif_mock.gw_addr = 0x0101A8C0U;
+  g_esp_wifi_mock.protocol_bitmap = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
+  g_esp_wifi_mock.bandwidth = WIFI_BW_HT20;
 
   TEST_ASSERT_EQUAL(
       ESP_OK, manager.register_handlers([&](const esp_netif_ip_info_t &ip_info) {
@@ -223,8 +222,128 @@ void test_wifi_lifecycle_restores_an_already_connected_station(void) {
   TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
   TEST_ASSERT_EQUAL(1, connected_calls);
   TEST_ASSERT_EQUAL(g_esp_netif_mock.ip_addr, observed_ip_info.ip.addr);
-  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_protocol_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.set_protocol_call_count);
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_ps_call_count);
+}
+
+void test_wifi_lifecycle_waits_for_fresh_ip_after_late_policy_change(void) {
+  WiFiLifecycleManager manager;
+  int connected_calls = 0;
+  g_esp_netif_mock.ip_addr = 0x3701A8C0U;
+  g_esp_netif_mock.netmask_addr = 0x00FFFFFFU;
+  g_esp_netif_mock.gw_addr = 0x0101A8C0U;
+  g_esp_wifi_mock.bandwidth = WIFI_BW_HT40;
+
+  TEST_ASSERT_EQUAL(
+      ESP_OK, manager.register_handlers([&](const esp_netif_ip_info_t &) { connected_calls++; },
+                                        []() {}));
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(0, connected_calls);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_bandwidth_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.set_bandwidth_sequence <
+                   g_esp_wifi_mock.disconnect_sequences[0]);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.disconnect_sequences[0] <
+                   g_esp_wifi_mock.connect_sequences[0]);
+
+  ip_event_got_ip_t fresh{};
+  fresh.ip_info.ip.addr = g_esp_netif_mock.ip_addr;
+  fresh.ip_info.netmask.addr = g_esp_netif_mock.netmask_addr;
+  fresh.ip_info.gw.addr = g_esp_netif_mock.gw_addr;
+  esp_event_mock_emit(IP_EVENT, IP_EVENT_STA_GOT_IP, &fresh);
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(1, connected_calls);
+}
+
+void test_wifi_lifecycle_restarts_station_when_late_policy_getter_fails(void) {
+  WiFiLifecycleManager manager;
+  int connected_calls = 0;
+  g_esp_netif_mock.ip_addr = 0x3701A8C0U;
+  g_esp_netif_mock.netmask_addr = 0x00FFFFFFU;
+  g_esp_netif_mock.gw_addr = 0x0101A8C0U;
+  g_esp_wifi_mock.protocol_bitmap = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
+  g_esp_wifi_mock.bandwidth = WIFI_BW_HT20;
+  g_esp_wifi_mock.get_protocol_result = ESP_FAIL;
+
+  TEST_ASSERT_EQUAL(
+      ESP_OK, manager.register_handlers([&](const esp_netif_ip_info_t &) { connected_calls++; },
+                                        []() {}));
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(0, connected_calls);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_protocol_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+}
+
+void test_wifi_lifecycle_restarts_station_after_nonfatal_bandwidth_failure(void) {
+  WiFiLifecycleManager manager;
+  int connected_calls = 0;
+  g_esp_netif_mock.ip_addr = 0x3701A8C0U;
+  g_esp_netif_mock.netmask_addr = 0x00FFFFFFU;
+  g_esp_netif_mock.gw_addr = 0x0101A8C0U;
+  g_esp_wifi_mock.protocol_bitmap = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
+  g_esp_wifi_mock.bandwidth = WIFI_BW_HT40;
+  g_esp_wifi_mock.set_bandwidth_result = ESP_FAIL;
+
+  TEST_ASSERT_EQUAL(
+      ESP_OK, manager.register_handlers([&](const esp_netif_ip_info_t &) { connected_calls++; },
+                                        []() {}));
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(0, connected_calls);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_bandwidth_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+}
+
+void test_wifi_lifecycle_propagates_fatal_late_policy_failure(void) {
+  WiFiLifecycleManager manager;
+  g_esp_netif_mock.ip_addr = 0x3701A8C0U;
+  g_esp_netif_mock.netmask_addr = 0x00FFFFFFU;
+  g_esp_netif_mock.gw_addr = 0x0101A8C0U;
+  g_esp_wifi_mock.set_protocol_results[0] = ESP_FAIL;
+  g_esp_wifi_mock.set_protocol_result_count = 1;
+
+  TEST_ASSERT_EQUAL(
+      ESP_FAIL, manager.register_handlers([](const esp_netif_ip_info_t &) {}, []() {}));
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_protocol_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.connect_call_count);
+  TEST_ASSERT_EQUAL(3, g_esp_event_mock.unregister_call_count);
+}
+
+void test_wifi_lifecycle_propagates_late_station_restart_failure(void) {
+  WiFiLifecycleManager manager;
+  g_esp_netif_mock.ip_addr = 0x3701A8C0U;
+  g_esp_netif_mock.netmask_addr = 0x00FFFFFFU;
+  g_esp_netif_mock.gw_addr = 0x0101A8C0U;
+  g_esp_wifi_mock.bandwidth = WIFI_BW_HT40;
+  g_esp_wifi_mock.connect_results[0] = ESP_FAIL;
+  g_esp_wifi_mock.connect_result_count = 1;
+
+  TEST_ASSERT_EQUAL(
+      ESP_FAIL, manager.register_handlers([](const esp_netif_ip_info_t &) {}, []() {}));
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+  TEST_ASSERT_EQUAL(3, g_esp_event_mock.unregister_call_count);
+}
+
+void test_wifi_lifecycle_does_not_restore_stale_ip_while_station_reconnects(void) {
+  WiFiLifecycleManager manager;
+  int connected_calls = 0;
+  g_esp_netif_mock.ip_addr = 0x3701A8C0U;
+  g_esp_netif_mock.netmask_addr = 0x00FFFFFFU;
+  g_esp_netif_mock.gw_addr = 0x0101A8C0U;
+  g_esp_wifi_mock.protocol_bitmap = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
+  g_esp_wifi_mock.bandwidth = WIFI_BW_HT20;
+  g_esp_wifi_mock.get_ap_info_result = ESP_ERR_WIFI_NOT_CONNECT;
+
+  TEST_ASSERT_EQUAL(
+      ESP_OK, manager.register_handlers([&](const esp_netif_ip_info_t &) { connected_calls++; },
+                                        []() {}));
+  TEST_ASSERT_EQUAL(ESP_OK, manager.process_pending_events());
+  TEST_ASSERT_EQUAL(0, connected_calls);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.get_ap_info_call_count);
 }
 
 void test_wifi_lifecycle_register_handlers_cleans_up_when_second_registration_fails(void) {
@@ -578,6 +697,12 @@ int process(void) {
   RUN_TEST(test_wifi_lifecycle_started_policy_skips_matching_radio_settings);
   RUN_TEST(test_wifi_lifecycle_register_handlers_dispatches_and_unregisters);
   RUN_TEST(test_wifi_lifecycle_restores_an_already_connected_station);
+  RUN_TEST(test_wifi_lifecycle_waits_for_fresh_ip_after_late_policy_change);
+  RUN_TEST(test_wifi_lifecycle_restarts_station_when_late_policy_getter_fails);
+  RUN_TEST(test_wifi_lifecycle_restarts_station_after_nonfatal_bandwidth_failure);
+  RUN_TEST(test_wifi_lifecycle_propagates_fatal_late_policy_failure);
+  RUN_TEST(test_wifi_lifecycle_propagates_late_station_restart_failure);
+  RUN_TEST(test_wifi_lifecycle_does_not_restore_stale_ip_while_station_reconnects);
   RUN_TEST(test_wifi_lifecycle_register_handlers_cleans_up_when_second_registration_fails);
   RUN_TEST(test_standalone_wifi_service_configures_fast_scan_bssid_and_channel);
   RUN_TEST(test_standalone_wifi_service_applies_policy_and_connects_on_start);

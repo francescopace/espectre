@@ -184,6 +184,42 @@ esp_err_t set_wifi_bandwidth_for_csi_(WifiBandPolicy policy) {
   return esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BANDWIDTH_CSI);
 }
 
+bool wifi_csi_policy_is_active_(WifiBandPolicy policy) {
+#if ESPECTRE_WIFI_DUAL_BAND
+  if (policy == WifiBandPolicy::AUTO) {
+    wifi_band_mode_t band_mode = WIFI_BAND_MODE_AUTO;
+    wifi_protocols_t protocols{};
+    wifi_bandwidths_t bandwidths{};
+    return esp_wifi_get_band_mode(&band_mode) == ESP_OK &&
+           band_mode == WIFI_BAND_MODE_AUTO &&
+           esp_wifi_get_protocols(WIFI_IF_STA, &protocols) == ESP_OK &&
+           protocols.ghz_2g == WIFI_PROTOCOL_CSI_2G &&
+           protocols.ghz_5g == WIFI_PROTOCOL_CSI_5G &&
+           esp_wifi_get_bandwidths(WIFI_IF_STA, &bandwidths) == ESP_OK &&
+           bandwidths.ghz_2g == WIFI_BANDWIDTH_CSI &&
+           bandwidths.ghz_5g == WIFI_BANDWIDTH_CSI;
+  }
+  wifi_band_mode_t band_mode = WIFI_BAND_MODE_AUTO;
+  if (esp_wifi_get_band_mode(&band_mode) != ESP_OK ||
+      band_mode != band_mode_for_policy_(policy)) {
+    return false;
+  }
+#endif
+
+  const uint8_t requested_protocol =
+#if ESPECTRE_WIFI_DUAL_BAND
+      policy == WifiBandPolicy::BAND_5G ? WIFI_PROTOCOL_CSI_5G : WIFI_PROTOCOL_CSI_2G;
+#else
+      WIFI_PROTOCOL_CSI_2G;
+#endif
+  uint8_t protocol = 0U;
+  wifi_bandwidth_t bandwidth = WIFI_BW_HT20;
+  return esp_wifi_get_protocol(WIFI_IF_STA, &protocol) == ESP_OK &&
+         protocol == requested_protocol &&
+         esp_wifi_get_bandwidth(WIFI_IF_STA, &bandwidth) == ESP_OK &&
+         bandwidth == WIFI_BANDWIDTH_CSI;
+}
+
 void log_wifi_protocol_state_(const char *log_tag, WifiBandPolicy policy) {
 #if ESPECTRE_WIFI_DUAL_BAND
   if (policy == WifiBandPolicy::AUTO) {
@@ -412,14 +448,51 @@ esp_err_t WiFiLifecycleManager::register_handlers(wifi_connected_callback_t conn
   }
 
   // Registration may happen after the product has already joined Wi-Fi. In
-  // that case GOT_IP is historical and no event will wake the runtime, so
-  // seed the same deferred path from the current station state. Registering
-  // first closes the opposite race; a concurrent duplicate GOT_IP is harmless
-  // because service startup is idempotent.
+  // that case GOT_IP is historical and no event will wake the runtime. Apply
+  // a missed STA-start policy before restoring that state: changing protocol
+  // or bandwidth can asynchronously reconnect the station, and the cached IP
+  // and AP record remain readable during that transition. When a setting did
+  // change, wait for the next real GOT_IP instead of starting CSI from stale
+  // association data.
   esp_netif_t *station = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
   esp_netif_ip_info_t current_ip{};
-  if (station != nullptr && esp_netif_get_ip_info(station, &current_ip) == ESP_OK &&
-      current_ip.ip.addr != 0U &&
+  wifi_ap_record_t current_ap{};
+  const bool has_current_station =
+      station != nullptr && esp_netif_get_ip_info(station, &current_ip) == ESP_OK &&
+      current_ip.ip.addr != 0U && esp_wifi_sta_get_ap_info(&current_ap) == ESP_OK;
+  bool restore_current_station = has_current_station;
+  if (has_current_station && !started_policy_attempted_.load(std::memory_order_relaxed)) {
+    const bool policy_was_active = wifi_csi_policy_is_active_(band_policy_);
+    const esp_err_t late_err = apply_started_csi_policy(band_policy_);
+    started_policy_attempted_.store(true, std::memory_order_relaxed);
+    started_policy_err_.store(late_err, std::memory_order_relaxed);
+    started_policy_applied_.store(late_err == ESP_OK, std::memory_order_relaxed);
+    if (late_err != ESP_OK) {
+      unregister_handlers();
+      return late_err;
+    }
+
+    restore_current_station = policy_was_active;
+    if (!restore_current_station) {
+      // A failed getter is indistinguishable from a setting that changed.
+      // Force a complete station transition so either DISCONNECTED or a fresh
+      // GOT_IP advances the deferred state instead of waiting for an event
+      // that the policy setters are not required to emit.
+      const esp_err_t disconnect_err = esp_wifi_disconnect();
+      if (disconnect_err != ESP_OK && disconnect_err != ESP_ERR_WIFI_NOT_CONNECT) {
+        unregister_handlers();
+        return disconnect_err;
+      }
+      const esp_err_t connect_err = esp_wifi_connect();
+      if (connect_err != ESP_OK) {
+        unregister_handlers();
+        return connect_err;
+      }
+      ESPECTRE_LOGI(WIFI_LIFECYCLE_TAG,
+                    "Waiting for fresh GOT_IP after restarting the station for the late Wi-Fi CSI policy");
+    }
+  }
+  if (restore_current_station &&
       !pending_events_.post_overwrite_oldest(
           PendingWifiEvent{PendingWifiEventType::CONNECTED, current_ip})) {
     ESPECTRE_LOGW(WIFI_LIFECYCLE_TAG,

@@ -42,6 +42,7 @@ namespace {
 static const char *const RUNTIME_TAG = "espectre.runtime";
 static constexpr uint64_t CSI_REARM_MIN_TRAFFIC_PACKETS = 10U;
 static constexpr uint32_t CSI_REARM_CALLBACK_TIMEOUT_MS = 3000U;
+static constexpr uint32_t CSI_ENABLE_SETTLE_MS = 100U;
 
 uint64_t counter_delta(uint64_t current, uint64_t baseline) {
   return current >= baseline ? current - baseline : current;
@@ -512,6 +513,7 @@ bool EspIdfRuntime::start_raw_collection(raw_csi_packet_callback_t callback, voi
   performance_diagnostics_.reset();
   if (!csi_pipeline_.start_raw_capture(callback, context)) {
     operation_state_.store(RuntimeOperationState::SENSING, std::memory_order_release);
+    csi_traffic_service_.stop();
     (void) csi_pipeline_.disable();
     update_live_telemetry_callback_();
     if (services_armed_) start_sensing_services_(wifi_ip_info_);
@@ -525,6 +527,7 @@ bool EspIdfRuntime::start_raw_collection(raw_csi_packet_callback_t callback, voi
       csi_pipeline_.stop_raw_capture();
       update_live_telemetry_callback_();
       operation_state_.store(RuntimeOperationState::SENSING, std::memory_order_release);
+      csi_traffic_service_.stop();
       (void) csi_pipeline_.disable();
       if (services_armed_) start_sensing_services_(wifi_ip_info_);
       char message[96];
@@ -546,6 +549,10 @@ bool EspIdfRuntime::stop_raw_collection(RawCsiStopReason reason) {
   operation_state_.store(RuntimeOperationState::SENSING, std::memory_order_release);
   csi_pipeline_.stop_raw_capture();
   csi_pipeline_.set_traffic_filter({});
+  // Classic ESP32 can stop delivering CSI when traffic spans a CSI disable/
+  // enable transition. Quiesce the source before disabling capture so every
+  // new session starts with CSI armed before traffic resumes.
+  csi_traffic_service_.stop();
   (void) csi_pipeline_.disable();
   cancel_calibration_(false);
   snapshot_.ready_to_publish = false;
@@ -697,9 +704,9 @@ void EspIdfRuntime::refresh_wifi_association_from_csi_() {
 }
 
 void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) {
-  const bool verify_rearm =
-      csi_session_started_once_ && restart_callback_ != nullptr;
-  if (verify_rearm && csi_rearm_immediate_reboot_enabled_) {
+  const bool is_rearm = csi_session_started_once_;
+  const bool verify_csi_start = restart_callback_ != nullptr;
+  if (is_rearm && verify_csi_start && csi_rearm_immediate_reboot_enabled_) {
     ESPECTRE_LOGW(RUNTIME_TAG,
              "Rebooting immediately instead of verifying live CSI rearm");
     cancel_csi_rearm_verification_();
@@ -743,12 +750,18 @@ void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) 
     }
   }
 
+  // esp_wifi_set_csi(true) returns before the classic ESP32 receive path is
+  // always ready to associate new traffic with the CSI callback. Starting the
+  // source in the same scheduler slice reproduces esp-csi#247 intermittently.
+  // Yield once after arming so managed traffic cannot predate driver readiness.
+  vTaskDelay(pdMS_TO_TICKS(CSI_ENABLE_SETTLE_MS));
+
   if (!csi_traffic_service_.is_running() && !csi_traffic_service_.start(ip_info.gw.addr)) {
     notify_fault_("Failed to start CSI traffic service");
     return;
   }
 
-  if (verify_rearm) {
+  if (verify_csi_start) {
     begin_csi_rearm_verification_();
   } else {
     cancel_csi_rearm_verification_();
@@ -764,8 +777,8 @@ void EspIdfRuntime::stop_sensing_services_() {
   cancel_csi_rearm_verification_();
   cancel_calibration_(false);
   csi_pipeline_.set_traffic_filter({});
-  csi_pipeline_.disable();
   csi_traffic_service_.stop();
+  csi_pipeline_.disable();
   snapshot_.ready_to_publish = false;
   snapshot_.motion_state = MotionState::IDLE;
   if (listener_ != nullptr) {
@@ -781,13 +794,15 @@ void EspIdfRuntime::begin_csi_rearm_verification_() {
       csi_pipeline_.capture_callback_invocations_total();
   csi_rearm_traffic_observed_ms_ = 0U;
   csi_rearm_traffic_observed_ = false;
+  csi_rearm_traffic_restart_attempted_ = false;
   csi_rearm_verification_pending_ = true;
-  ESPECTRE_LOGI(RUNTIME_TAG, "Verifying live CSI rearm from managed traffic");
+  ESPECTRE_LOGI(RUNTIME_TAG, "Verifying CSI startup from managed traffic");
 }
 
 void EspIdfRuntime::cancel_csi_rearm_verification_() {
   csi_rearm_verification_pending_ = false;
   csi_rearm_traffic_observed_ = false;
+  csi_rearm_traffic_restart_attempted_ = false;
   csi_rearm_traffic_observed_total_ = 0U;
   csi_rearm_traffic_observed_ms_ = 0U;
 }
@@ -801,7 +816,7 @@ void EspIdfRuntime::process_csi_rearm_verification_() {
       counter_delta(csi_pipeline_.capture_callback_invocations_total(),
                     csi_rearm_callback_baseline_);
   if (callback_delta > 0U) {
-    ESPECTRE_LOGI(RUNTIME_TAG, "Live CSI rearm verified after %llu callback(s)",
+    ESPECTRE_LOGI(RUNTIME_TAG, "CSI startup verified after %llu callback(s)",
              static_cast<unsigned long long>(callback_delta));
     cancel_csi_rearm_verification_();
     return;
@@ -832,11 +847,34 @@ void EspIdfRuntime::process_csi_rearm_verification_() {
     return;
   }
 
+  if (!csi_rearm_traffic_restart_attempted_ &&
+      config_.csi_traffic_mode == CsiTrafficMode::INTERNAL &&
+      wifi_ready_ && services_armed_ && wifi_ip_info_.gw.addr != 0U &&
+      csi_pipeline_.is_enabled()) {
+    ESPECTRE_LOGW(RUNTIME_TAG,
+             "CSI produced no callbacks after %llu managed traffic packets; "
+             "restarting the traffic generator",
+             static_cast<unsigned long long>(traffic_delta));
+    csi_traffic_service_.stop();
+    if (csi_traffic_service_.start(wifi_ip_info_.gw.addr)) {
+      csi_rearm_traffic_restart_attempted_ = true;
+      csi_rearm_traffic_baseline_ =
+          csi_traffic_service_.get_traffic_packets_total();
+      csi_rearm_traffic_observed_total_ = csi_rearm_traffic_baseline_;
+      csi_rearm_callback_baseline_ =
+          csi_pipeline_.capture_callback_invocations_total();
+      csi_rearm_traffic_observed_ms_ = 0U;
+      csi_rearm_traffic_observed_ = false;
+      return;
+    }
+    ESPECTRE_LOGE(RUNTIME_TAG, "Failed to restart the CSI traffic generator");
+  }
+
   ESPECTRE_LOGE(RUNTIME_TAG,
-           "Live CSI rearm produced no callbacks after %llu managed traffic "
-           "packets; restarting",
+           "CSI produced no callbacks after %llu managed traffic packets; "
+           "restarting the device",
            static_cast<unsigned long long>(traffic_delta));
-  notify_fault_("Live CSI rearm stalled; restarting the device");
+  notify_fault_("CSI startup stalled; restarting the device");
   cancel_csi_rearm_verification_();
   set_services_armed(false);
   csi_rearm_restart_pending_ = true;
@@ -863,8 +901,8 @@ void EspIdfRuntime::on_csi_channel_changed_(uint8_t previous_channel, uint8_t cu
   const esp_netif_ip_info_t ip_info = wifi_ip_info_;
   cancel_calibration_(false);
   csi_pipeline_.set_traffic_filter({});
-  const esp_err_t disable_err = csi_pipeline_.disable();
   csi_traffic_service_.stop();
+  const esp_err_t disable_err = csi_pipeline_.disable();
   snapshot_.ready_to_publish = false;
   snapshot_.motion_state = MotionState::IDLE;
   if (listener_ != nullptr) {

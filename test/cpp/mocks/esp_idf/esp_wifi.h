@@ -258,6 +258,7 @@ typedef struct {
 
   esp_err_t set_bandwidth_result;
   int set_bandwidth_call_count;
+  int set_bandwidth_sequence;
   wifi_bandwidth_t last_bandwidth;
 
   esp_err_t set_bandwidths_result;
@@ -286,10 +287,21 @@ typedef struct {
   int set_storage_call_count;
   int set_mode_call_count;
   int start_call_count;
+  esp_err_t connect_results[4];
+  int connect_result_count;
   int connect_call_count;
+  int connect_sequences[4];
+  esp_err_t disconnect_results[4];
+  int disconnect_result_count;
   int disconnect_call_count;
+  int disconnect_sequences[4];
+  esp_err_t get_config_result;
+  int get_config_call_count;
+  esp_err_t set_config_results[4];
+  int set_config_result_count;
   int set_config_call_count;
   int get_ap_info_call_count;
+  esp_err_t get_ap_info_result;
   esp_err_t scan_start_result;
   int scan_start_call_count;
   bool last_scan_block;
@@ -357,13 +369,27 @@ static inline esp_err_t esp_wifi_start(void) {
 static inline esp_err_t esp_wifi_stop(void) { return ESP_OK; }
 
 static inline esp_err_t esp_wifi_connect(void) {
+  const int index = g_esp_wifi_mock.connect_call_count;
+  const esp_err_t result = index < g_esp_wifi_mock.connect_result_count
+                               ? g_esp_wifi_mock.connect_results[index]
+                               : ESP_OK;
+  if (index < 4) {
+    g_esp_wifi_mock.connect_sequences[index] = ++g_esp_wifi_mock.call_sequence;
+  }
   g_esp_wifi_mock.connect_call_count++;
-  return ESP_OK;
+  return result;
 }
 
 static inline esp_err_t esp_wifi_disconnect(void) {
+  const int index = g_esp_wifi_mock.disconnect_call_count;
+  const esp_err_t result = index < g_esp_wifi_mock.disconnect_result_count
+                               ? g_esp_wifi_mock.disconnect_results[index]
+                               : ESP_OK;
+  if (index < 4) {
+    g_esp_wifi_mock.disconnect_sequences[index] = ++g_esp_wifi_mock.call_sequence;
+  }
   g_esp_wifi_mock.disconnect_call_count++;
-  return ESP_OK;
+  return result;
 }
 
 static inline esp_err_t esp_wifi_scan_start(const void *config, bool block) {
@@ -446,6 +472,7 @@ static inline esp_err_t esp_wifi_set_bandwidth(wifi_interface_t ifx,
                                                wifi_bandwidth_t bw) {
   (void)ifx;
   g_esp_wifi_mock.set_bandwidth_call_count++;
+  g_esp_wifi_mock.set_bandwidth_sequence = ++g_esp_wifi_mock.call_sequence;
   g_esp_wifi_mock.last_bandwidth = bw;
   if (g_esp_wifi_mock.set_bandwidth_result == ESP_OK) {
     g_esp_wifi_mock.bandwidth = bw;
@@ -576,11 +603,11 @@ static inline esp_err_t esp_wifi_get_channel(uint8_t *primary,
 
 static inline esp_err_t esp_wifi_sta_get_ap_info(wifi_ap_record_t *ap_info) {
   g_esp_wifi_mock.get_ap_info_call_count++;
-  if (ap_info) {
+  if (ap_info && g_esp_wifi_mock.get_ap_info_result == ESP_OK) {
     ap_info->rssi = -55;
     ap_info->primary = 6;
   }
-  return ESP_OK;
+  return g_esp_wifi_mock.get_ap_info_result;
 }
 
 #ifdef __cplusplus

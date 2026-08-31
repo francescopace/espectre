@@ -114,6 +114,7 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   bool csi_rearm_immediate_reboot_enabled_{false};
   bool csi_rearm_verification_pending_{false};
   bool csi_rearm_traffic_observed_{false};
+  bool csi_rearm_traffic_restart_attempted_{false};
   bool csi_rearm_restart_pending_{false};
   uint64_t csi_rearm_traffic_baseline_{0U};
   uint64_t csi_rearm_traffic_observed_total_{0U};
