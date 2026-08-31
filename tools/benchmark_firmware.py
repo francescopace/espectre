@@ -108,6 +108,21 @@ def positive_seconds(value: str) -> int:
         raise argparse.ArgumentTypeError("duration must be a positive number of seconds")
     return seconds
 
+
+def usb_power_cycle_selector(value: str) -> tuple[str, int]:
+    """Parse a uhubctl location and port written as HUB:PORT."""
+    hub, separator, port_text = value.rpartition(":")
+    if not separator or not hub:
+        raise argparse.ArgumentTypeError("USB power cycle must use HUB:PORT")
+    try:
+        port = int(port_text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("USB power-cycle port must be an integer") from exc
+    if port <= 0:
+        raise argparse.ArgumentTypeError("USB power-cycle port must be positive")
+    return hub, port
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -118,6 +133,24 @@ def main() -> int:
     )
     parser.add_argument("--chip", required=True, choices=SUPPORTED_CHIPS, help="Connected ESP32 target")
     parser.add_argument("--port", help="Serial port for the connected ESP32 target")
+    parser.add_argument(
+        "--flash-port",
+        help="Serial port used to flash the target (defaults to --port)",
+    )
+    parser.add_argument(
+        "--monitor-port",
+        help="Serial port used for provisioning and monitoring (defaults to --port)",
+    )
+    parser.add_argument(
+        "--reset-port",
+        help="Optional secondary serial port used to hard-reset the target after flashing",
+    )
+    parser.add_argument(
+        "--usb-power-cycle",
+        type=usb_power_cycle_selector,
+        metavar="HUB:PORT",
+        help="Recover a verified post-flash start failure by power-cycling one USB hub port",
+    )
     parser.add_argument(
         "--frontend",
         choices=("esphome", "micro", "native", "matter"),
@@ -189,14 +222,47 @@ def main() -> int:
 
     require_benchmark_prerequisites(selected_cases)
     os.environ.pop(SERIAL_PORT_IDENTITY_ENV, None)
-    port = resolve_serial_port(
-        args.port,
-        chip=args.chip,
-        frontend=selected_cases[0].frontend,
-        purpose="flash",
-        require_canonical_console=True,
+    if args.flash_port is None and args.monitor_port is None:
+        flash_port = resolve_serial_port(
+            args.port,
+            chip=args.chip,
+            frontend=selected_cases[0].frontend,
+            purpose="flash",
+            require_canonical_console=True,
+        )
+        monitor_port = flash_port
+    else:
+        flash_port = resolve_serial_port(
+            args.flash_port or args.port,
+            chip=args.chip,
+            frontend=selected_cases[0].frontend,
+            purpose="flash",
+            require_canonical_console=False,
+        )
+        monitor_port_arg = args.monitor_port or args.port
+        monitor_port = (
+            resolve_serial_port(
+                monitor_port_arg,
+                chip=args.chip,
+                frontend=selected_cases[0].frontend,
+                purpose="monitor",
+                require_canonical_console=True,
+            )
+            if monitor_port_arg is not None
+            else flash_port
+        )
+    reset_port = (
+        resolve_serial_port(
+            args.reset_port,
+            chip=args.chip,
+            frontend=selected_cases[0].frontend,
+            purpose="reset",
+            require_canonical_console=False,
+        )
+        if args.reset_port is not None
+        else None
     )
-    remember_serial_port_identity(port)
+    remember_serial_port_identity(monitor_port)
     started_at = datetime.now().astimezone()
     repository_state_start = repository_state()
     artifact_dir = (
@@ -209,7 +275,16 @@ def main() -> int:
     source_change_warning_printed = False
     revision_provenance_reason: str | None = None
     print(f"Chip:     {CHIP_LABELS[args.chip]}")
-    print(f"Port:     {port or 'auto via ./espectre'}")
+    if flash_port == monitor_port:
+        print(f"Port:     {flash_port or 'auto via ./espectre'}")
+    else:
+        print(f"Flash port:   {flash_port}")
+        print(f"Monitor port: {monitor_port}")
+    if reset_port is not None:
+        print(f"Reset port:   {reset_port}")
+    if args.usb_power_cycle is not None:
+        hub, hub_port = args.usb_power_cycle
+        print(f"USB power:   {hub}:{hub_port}")
     print(f"Report:   {report_path.relative_to(REPO_ROOT)}")
     print(f"Artifacts:{' ' * 2}{artifact_dir}")
     print(f"Matrix:   {', '.join(case.label for case in selected_cases)}")
@@ -240,7 +315,7 @@ def main() -> int:
             )
             destination = write_report(
                 args.chip,
-                port,
+                monitor_port,
                 started_at,
                 report_results,
                 expected_cases,
@@ -251,7 +326,7 @@ def main() -> int:
         else:
             destination = write_report(
                 args.chip,
-                port,
+                monitor_port,
                 started_at,
                 results,
                 selected_cases,
@@ -262,7 +337,7 @@ def main() -> int:
         write_benchmark_artifacts(
             artifact_dir,
             chip=args.chip,
-            port=port,
+            port=monitor_port,
             started_at=started_at,
             results=results,
             repository_state_start=repository_state_start,
@@ -284,12 +359,27 @@ def main() -> int:
             )
             if not frontend_cases:
                 continue
-            frontend_results = run_direct_frontend_cases_safely(
-                frontend_cases,
-                args.chip,
-                port,
-                on_result=record_direct_result,
-            )
+            if (
+                flash_port == monitor_port
+                and reset_port is None
+                and args.usb_power_cycle is None
+            ):
+                frontend_results = run_direct_frontend_cases_safely(
+                    frontend_cases,
+                    args.chip,
+                    flash_port,
+                    on_result=record_direct_result,
+                )
+            else:
+                frontend_results = run_direct_frontend_cases_safely(
+                    frontend_cases,
+                    args.chip,
+                    flash_port,
+                    monitor_port=monitor_port,
+                    reset_port=reset_port,
+                    usb_power_cycle=args.usb_power_cycle,
+                    on_result=record_direct_result,
+                )
             write_current_report()
             for result in frontend_results:
                 if result.status != "PASS":
@@ -301,7 +391,10 @@ def main() -> int:
             micro_result = run_micro_case(
                 micro_case,
                 args.chip,
-                port,
+                flash_port,
+                runtime_port=monitor_port,
+                reset_port=reset_port,
+                usb_power_cycle=args.usb_power_cycle,
                 shared_flash=shared_micro_flash,
             )
             results.append(micro_result)

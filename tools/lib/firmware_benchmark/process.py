@@ -132,6 +132,7 @@ def _run_background_command(
     env: dict[str, str] | None = None,
     output_prefix: str = "",
     line_callback: Callable[[str], None] | None = None,
+    output_redactor: Callable[[str], str] | None = None,
 ) -> tuple[subprocess.Popen[str], list[str], list[float], threading.Thread, float]:
     display_command = " ".join(str(part) for part in command)
     print(f"\n{output_prefix}$ {display_command}", flush=True)
@@ -152,11 +153,12 @@ def _run_background_command(
     def _relay_output() -> None:
         assert process.stdout is not None
         for line in process.stdout:
-            output_lines.append(line)
-            line_elapsed_seconds.append(time.monotonic() - started)
-            print(f"{output_prefix}{line}", end="", flush=True)
             if line_callback is not None:
                 line_callback(line)
+            safe_line = output_redactor(line) if output_redactor is not None else line
+            output_lines.append(safe_line)
+            line_elapsed_seconds.append(time.monotonic() - started)
+            print(f"{output_prefix}{safe_line}", end="", flush=True)
 
     relay_thread = threading.Thread(target=_relay_output, daemon=True)
     relay_thread.start()

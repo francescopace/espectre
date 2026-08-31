@@ -432,6 +432,17 @@ def _add_idf_namespace(subparsers, frontend: str) -> None:
                 choices=sorted(IDF_FRONTENDS[frontend]["targets"].keys()),
                 help="Target chip used to filter compatible ports",
             )
+            command_parser.add_argument(
+                "--no-reset",
+                action="store_true",
+                help="Read onboarding data from the current boot without resetting the device",
+            )
+            command_parser.add_argument(
+                "--timeout",
+                type=float,
+                default=20.0,
+                help="Seconds to wait for complete onboarding data (default: 20)",
+            )
         if command_name in {"flash", "qr"}:
             command_parser.add_argument("--port", help="Serial port (auto-detected if not specified)")
         if frontend == "matter" and command_name in {"flash", "qr"}:

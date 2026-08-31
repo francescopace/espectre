@@ -174,6 +174,7 @@ def test_get_serial_port_returns_compatible_explicit_argument(monkeypatch) -> No
 
 def test_matter_onboarding_json_is_machine_readable(monkeypatch, capsys) -> None:
     fake_serial = ModuleType("serial")
+    reset_calls: list[object] = []
 
     class FakeConnection:
         def __init__(self, *_args, **_kwargs):
@@ -193,10 +194,18 @@ def test_matter_onboarding_json_is_machine_readable(monkeypatch, capsys) -> None
         def readline(self):
             return next(self.lines, b"")
 
+        def close(self):
+            return None
+
     fake_serial.Serial = FakeConnection
     fake_serial.SerialException = OSError
     monkeypatch.setitem(sys.modules, "serial", fake_serial)
-    monkeypatch.setattr(serial_monitor, "hard_reset_serial", lambda _connection: None)
+    monkeypatch.setattr(idf, "resolve_serial_port", lambda port, **_kwargs: port)
+    monkeypatch.setattr(
+        serial_monitor,
+        "hard_reset_serial",
+        lambda connection: reset_calls.append(connection),
+    )
 
     assert idf.read_matter_onboarding(
         "/dev/cu.test",
@@ -212,6 +221,87 @@ def test_matter_onboarding_json_is_machine_readable(monkeypatch, capsys) -> None
         "port": "/dev/cu.test",
         "qr_payload": "MT:TESTPAYLOAD",
     }
+    assert len(reset_calls) == 1
+
+
+def test_matter_onboarding_can_read_current_boot_without_reset(monkeypatch) -> None:
+    fake_serial = ModuleType("serial")
+    reset_calls: list[object] = []
+
+    class FakeConnection:
+        def __init__(self, *_args, **_kwargs):
+            self.lines = iter(
+                [
+                    b"MATTER_QR=MT:TESTPAYLOAD\n",
+                    b"MATTER_MANUAL_CODE=12704227053\n",
+                ]
+            )
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def readline(self):
+            return next(self.lines, b"")
+
+        def close(self):
+            return None
+
+    fake_serial.Serial = FakeConnection
+    fake_serial.SerialException = OSError
+    monkeypatch.setitem(sys.modules, "serial", fake_serial)
+    monkeypatch.setattr(idf, "resolve_serial_port", lambda port, **_kwargs: port)
+    monkeypatch.setattr(
+        serial_monitor,
+        "hard_reset_serial",
+        lambda connection: reset_calls.append(connection),
+    )
+
+    assert idf.read_matter_onboarding("/dev/cu.test", reset=False)
+    assert reset_calls == []
+
+
+def test_matter_onboarding_reopens_after_usb_reenumeration(monkeypatch) -> None:
+    fake_serial = ModuleType("serial")
+    opened: list[str] = []
+    reset_calls: list[object] = []
+
+    class FakeConnection:
+        def __init__(self, port, **_kwargs):
+            opened.append(port)
+            self.instance = len(opened)
+            self.lines = iter(
+                [
+                    b"MATTER_QR=MT:TESTPAYLOAD\n",
+                    b"MATTER_MANUAL_CODE=12704227053\n",
+                ]
+            )
+
+        def readline(self):
+            if self.instance == 1:
+                raise OSError("device re-enumerated")
+            return next(self.lines, b"")
+
+        def close(self):
+            return None
+
+    fake_serial.Serial = FakeConnection
+    fake_serial.SerialException = OSError
+    monkeypatch.setitem(sys.modules, "serial", fake_serial)
+    resolved = iter(["/dev/cu.loader", "/dev/cu.runtime"])
+    monkeypatch.setattr(idf, "resolve_serial_port", lambda *_args, **_kwargs: next(resolved))
+    monkeypatch.setattr(idf.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        serial_monitor,
+        "hard_reset_serial",
+        lambda connection: reset_calls.append(connection),
+    )
+
+    assert idf.read_matter_onboarding("/dev/cu.loader", reset=False)
+    assert opened == ["/dev/cu.loader", "/dev/cu.runtime"]
+    assert reset_calls == []
 
 
 def test_micro_run_json_emits_direct_ready_event(monkeypatch, capsys) -> None:
@@ -2931,10 +3021,14 @@ def test_generic_parsers_continue_to_accept_s2() -> None:
 def test_matter_qr_parser_accepts_optional_chip() -> None:
     parser = app.build_parser()
 
-    args = parser.parse_args(["matter", "qr", "--chip", "c6"])
+    args = parser.parse_args(
+        ["matter", "qr", "--chip", "c6", "--no-reset", "--timeout", "45"]
+    )
 
     assert args.chip == "c6"
     assert args.port is None
+    assert args.no_reset is True
+    assert args.timeout == 45.0
 
 
 def test_idf_build_parser_accepts_backend_and_pull_policy(monkeypatch) -> None:

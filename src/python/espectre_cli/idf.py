@@ -922,24 +922,40 @@ def read_matter_onboarding(
     *,
     chip: str | None = None,
     json_output: bool = False,
+    reset: bool = True,
 ) -> bool:
-    """Reset a Matter device and print its persisted onboarding codes."""
+    """Read and print a Matter device's persisted onboarding codes."""
     try:
         import serial
     except ImportError:
         print(f"{Fore.RED}❌ pyserial is required to read the Matter QR code.{Style.RESET_ALL}")
         return False
 
-    print(f"{Fore.CYAN}Matter QR: waiting for {port}; press RESET if needed...{Style.RESET_ALL}")
-    try:
-        from .serial_monitor import hard_reset_serial
+    action = "resetting and waiting on" if reset else "reading current boot from"
+    print(f"{Fore.CYAN}Matter QR: {action} {port}...{Style.RESET_ALL}")
+    from .serial_monitor import hard_reset_serial
 
-        with serial.Serial(port, baudrate=115200, timeout=1.0) as connection:
-            hard_reset_serial(connection)
+    deadline = time.monotonic() + timeout_seconds
+    qr_payload = None
+    manual_code = None
+    reset_pending = reset
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        connection = None
+        try:
+            port = resolve_serial_port(
+                port,
+                chip=chip,
+                frontend="matter",
+                purpose="onboarding",
+            )
+            connection = serial.Serial(port, baudrate=115200, timeout=1.0)
+            connection.dtr = False
+            connection.rts = False
+            if reset_pending:
+                hard_reset_serial(connection)
+                reset_pending = False
 
-            deadline = time.monotonic() + timeout_seconds
-            qr_payload = None
-            manual_code = None
             while time.monotonic() < deadline:
                 line = connection.readline().decode("utf-8", errors="replace")
                 if qr_match := MATTER_QR_PATTERN.search(line):
@@ -966,9 +982,15 @@ def read_matter_onboarding(
                         print(f"  QR payload:  {qr_payload}")
                         print(f"  Manual code: {manual_code}")
                     return True
-    except (OSError, serial.SerialException) as exc:
-        print(f"{Fore.RED}❌ Cannot read Matter onboarding data: {exc}{Style.RESET_ALL}")
-        return False
+        except (OSError, serial.SerialException) as exc:
+            last_error = exc
+            time.sleep(1.0)
+        finally:
+            if connection is not None:
+                connection.close()
+
+    if last_error is not None:
+        print(f"{Fore.RED}❌ Cannot read Matter onboarding data: {last_error}{Style.RESET_ALL}")
 
     print(f"{Fore.YELLOW}Matter onboarding data was not received. Reset the board and retry with "
           f"{cli_command('matter', 'qr', '--port', port)}.{Style.RESET_ALL}")
@@ -977,12 +999,18 @@ def read_matter_onboarding(
 
 def read_matter_onboarding_for_command(port: str, args) -> bool:
     """Read onboarding data using the command's optional JSON contract."""
+    reset = not bool(getattr(args, "no_reset", False))
+    timeout_seconds = float(getattr(args, "timeout", 20.0))
     if bool(getattr(args, "json", False)):
         return read_matter_onboarding(
             port,
+            timeout_seconds=timeout_seconds,
             chip=getattr(args, "chip", None),
             json_output=True,
+            reset=reset,
         )
+    if not reset:
+        return read_matter_onboarding(port, timeout_seconds=timeout_seconds, reset=False)
     return read_matter_onboarding(port)
 
 

@@ -17,6 +17,7 @@ from tools.lib.firmware_benchmark.process import run_command
 
 def test_onboarding_capture_retains_codes_and_redacts_output():
     capture = bench.MatterOnboardingCapture()
+    assert capture.complete() is False
     event_line = json.dumps(
         {
             "event": "matter_onboarding",
@@ -27,6 +28,7 @@ def test_onboarding_capture_retains_codes_and_redacts_output():
 
     capture.feed(event_line)
 
+    assert capture.complete() is True
     assert capture.require_data() == bench.MatterOnboardingData(
         "MT:Y.K90-C714FGCO6MZ00",
         "12704227053",

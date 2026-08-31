@@ -72,8 +72,11 @@ class MatterOnboardingCapture:
                 redacted = redacted.replace(sensitive, "<redacted>")
         return redacted
 
+    def complete(self) -> bool:
+        return bool(self._qr_payload and self._manual_code)
+
     def require_data(self) -> MatterOnboardingData:
-        if not self._qr_payload or not self._manual_code:
+        if not self.complete():
             raise RuntimeError("Matter flash did not expose complete onboarding data")
         return MatterOnboardingData(self._qr_payload, self._manual_code)
 

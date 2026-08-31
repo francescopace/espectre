@@ -133,6 +133,98 @@ def test_main_resolves_an_explicit_port_through_the_shared_path(tmp_path, monkey
         )
     ]
 
+
+def test_main_supports_separate_flash_and_monitor_ports(tmp_path, monkeypatch):
+    resolution_requests: list[tuple[object, dict[str, object]]] = []
+    direct_requests: list[
+        tuple[str, str | None, str | None, tuple[str, int] | None]
+    ] = []
+    remembered_ports: list[str] = []
+    state = RepositoryState("revision", False, "fingerprint")
+
+    def resolve_port(port_arg, **kwargs):
+        resolution_requests.append((port_arg, kwargs))
+        return str(port_arg)
+
+    def run_direct(
+        cases,
+        _chip,
+        port,
+        *,
+        monitor_port=None,
+        reset_port=None,
+        usb_power_cycle=None,
+        on_result,
+    ):
+        direct_requests.append((port, monitor_port, reset_port, usb_power_cycle))
+        results = [BenchmarkResult(case=case, status="PASS") for case in cases]
+        for result in results:
+            on_result(result)
+        return results
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "benchmark_firmware.py",
+            "--chip",
+            "s3",
+            "--frontend",
+            "native",
+            "--flash-port",
+            "/dev/cu.flash",
+            "--monitor-port",
+            "/dev/cu.console",
+            "--reset-port",
+            "/dev/cu.reset",
+            "--usb-power-cycle",
+            "0-1.2:4",
+        ],
+    )
+    monkeypatch.setattr(bench, "repository_state", lambda: state)
+    monkeypatch.setattr(bench, "benchmark_artifact_dir", lambda *_args: tmp_path / "artifacts")
+    monkeypatch.setattr(bench, "require_benchmark_prerequisites", lambda _cases: None)
+    monkeypatch.setattr(bench, "resolve_serial_port", resolve_port)
+    monkeypatch.setattr(bench, "remember_serial_port_identity", remembered_ports.append)
+    monkeypatch.setattr(bench, "run_direct_frontend_cases_safely", run_direct)
+    monkeypatch.setattr(bench, "write_report", lambda *_args, **_kwargs: tmp_path / "report.md")
+    monkeypatch.setattr(bench, "write_benchmark_artifacts", lambda *_args, **_kwargs: None)
+
+    assert bench.main() == 0
+    assert resolution_requests == [
+        (
+            "/dev/cu.flash",
+            {
+                "chip": "s3",
+                "frontend": "native",
+                "purpose": "flash",
+                "require_canonical_console": False,
+            },
+        ),
+        (
+            "/dev/cu.console",
+            {
+                "chip": "s3",
+                "frontend": "native",
+                "purpose": "monitor",
+                "require_canonical_console": True,
+            },
+        ),
+        (
+            "/dev/cu.reset",
+            {
+                "chip": "s3",
+                "frontend": "native",
+                "purpose": "reset",
+                "require_canonical_console": False,
+            },
+        ),
+    ]
+    assert direct_requests == [
+        ("/dev/cu.flash", "/dev/cu.console", "/dev/cu.reset", ("0-1.2", 4))
+    ]
+    assert remembered_ports == ["/dev/cu.console"]
+
 def test_main_stops_after_first_failed_case(tmp_path, monkeypatch, capsys):
     observed: list[str] = []
     state = RepositoryState("revision", False, "fingerprint")

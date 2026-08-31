@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import time
@@ -27,6 +28,7 @@ from src.python.espectre_cli.device_transport import (
     DirectRequestError,
     direct_endpoint_from_device_url,
 )
+from src.python.espectre_cli.serial_monitor import hard_reset_serial
 
 from tools.lib.firmware_benchmark import settings
 from tools.lib.firmware_benchmark.analysis import (
@@ -1036,16 +1038,100 @@ def _verify_direct_radio_pin(
         time.sleep(1.0)
     raise RuntimeError("Direct Wi-Fi configuration did not match the benchmark radio pin")
 
+
+def hard_reset_benchmark_device(port: str) -> None:
+    """Reset a target through a secondary USB-UART bridge."""
+    try:
+        import serial
+    except ImportError as exc:
+        raise RuntimeError("pyserial is required to reset the benchmark target") from exc
+
+    print(f"Hard-resetting benchmark target through {port}...", flush=True)
+    with serial.Serial(port, baudrate=115200, timeout=1.0) as connection:
+        hard_reset_serial(connection)
+    time.sleep(1.0)
+
+
+def capture_matter_onboarding(
+    port: str,
+    chip: str,
+    capture: MatterOnboardingCapture,
+) -> CommandResult:
+    """Read Matter onboarding after a recovered post-flash reset."""
+    return run_command(
+        matter_onboarding_command(port, chip),
+        line_callback=capture.feed,
+        output_redactor=capture.redact,
+    )
+
+
+MATTER_ONBOARDING_TIMEOUT_SECONDS = 30.0
+
+
+def matter_onboarding_command(port: str, chip: str) -> list[str]:
+    """Build the passive Matter onboarding command for a benchmark target."""
+    return [
+        str(REPO_ROOT / "espectre"),
+        "matter",
+        "qr",
+        "--chip",
+        chip,
+        "--port",
+        port,
+        "--json",
+        "--no-reset",
+        "--timeout",
+        str(int(MATTER_ONBOARDING_TIMEOUT_SECONDS)),
+    ]
+
+
+def verified_flash_start_failed(result: CommandResult) -> bool:
+    """Return whether a verified image failed only at its post-flash start."""
+    return (
+        result.returncode != 0
+        and "Hash of data verified." in result.output
+        and "flashed firmware did not start from the ROM loader" in result.output
+    )
+
+
+def recover_verified_flash_with_usb_power_cycle(
+    result: CommandResult,
+    selector: tuple[str, int] | None,
+) -> bool:
+    """Recover a verified image when only the post-flash USB reset failed."""
+    if result.returncode == 0 or selector is None:
+        return result.returncode == 0
+    if not verified_flash_start_failed(result):
+        return False
+    executable = shutil.which("uhubctl")
+    if executable is None:
+        raise RuntimeError("uhubctl is required for the requested USB power cycle")
+    hub, port = selector
+    cycle = run_command(
+        [executable, "-l", hub, "-p", str(port), "-a", "cycle", "-d", "2"]
+    )
+    if cycle.returncode != 0:
+        raise RuntimeError(f"USB power cycle exited with status {cycle.returncode}")
+    time.sleep(3.0)
+    result.returncode = 0
+    result.output += f"\nBenchmark recovered post-flash start through USB power cycle {hub}:{port}.\n"
+    return True
+
+
 def run_direct_frontend_cases(
     selected_cases: Sequence[BenchmarkCase],
     chip: str,
     port: str,
     *,
+    monitor_port: str | None = None,
+    reset_port: str | None = None,
+    usb_power_cycle: tuple[str, int] | None = None,
     on_result: Callable[[BenchmarkResult], None] | None = None,
 ) -> list[BenchmarkResult]:
     if not selected_cases:
         return []
     frontend = selected_cases[0].frontend
+    runtime_port = monitor_port or port
     bootstrap_case = (
         BenchmarkCase(frontend, "lightweight")
         if frontend in {"native", "esphome", "matter"}
@@ -1074,6 +1160,78 @@ def run_direct_frontend_cases(
                         onboarding_capture.redact if onboarding_capture is not None else None
                     ),
                 )
+                if bootstrap.flash is not None:
+                    onboarding_background = None
+                    onboarding_result = None
+                    if (
+                        frontend == "matter"
+                        and onboarding_capture is not None
+                        and usb_power_cycle is not None
+                        and verified_flash_start_failed(bootstrap.flash)
+                    ):
+                        onboarding_command = matter_onboarding_command(runtime_port, chip)
+                        onboarding_background = _run_background_command(
+                            onboarding_command,
+                            output_prefix="[Matter onboarding] ",
+                            line_callback=onboarding_capture.feed,
+                            output_redactor=onboarding_capture.redact,
+                        )
+                        time.sleep(0.5)
+                    try:
+                        recover_verified_flash_with_usb_power_cycle(
+                            bootstrap.flash,
+                            usb_power_cycle,
+                        )
+                    finally:
+                        if onboarding_background is not None:
+                            (
+                                onboarding_process,
+                                onboarding_lines,
+                                onboarding_line_times,
+                                onboarding_relay,
+                                onboarding_started,
+                            ) = onboarding_background
+                            try:
+                                onboarding_process.wait(
+                                    timeout=MATTER_ONBOARDING_TIMEOUT_SECONDS
+                                )
+                            except subprocess.TimeoutExpired:
+                                _terminate_process(onboarding_process)
+                            onboarding_result = _finalize_background_command(
+                                onboarding_process,
+                                onboarding_lines,
+                                onboarding_line_times,
+                                onboarding_relay,
+                                onboarding_started,
+                                onboarding_command,
+                            )
+                    if onboarding_result is not None and onboarding_result.returncode != 0:
+                        raise RuntimeError(
+                            "Matter onboarding recovery exited with status "
+                            f"{onboarding_result.returncode}"
+                        )
+                    if bootstrap.flash.returncode == 0:
+                        bootstrap.reasons = [
+                            reason
+                            for reason in bootstrap.reasons
+                            if not reason.startswith("flash exited with status ")
+                        ]
+                    if (
+                        frontend == "matter"
+                        and bootstrap.flash.returncode == 0
+                        and onboarding_capture is not None
+                        and not onboarding_capture.complete()
+                    ):
+                        onboarding_result = capture_matter_onboarding(
+                            runtime_port,
+                            chip,
+                            onboarding_capture,
+                        )
+                        if onboarding_result.returncode != 0:
+                            raise RuntimeError(
+                                "Matter onboarding recovery exited with status "
+                                f"{onboarding_result.returncode}"
+                            )
     except (OSError, RuntimeError) as exc:
         bootstrap = BenchmarkResult(case=bootstrap_case, status="FAIL", reasons=[str(exc)])
     if bootstrap.build is None or bootstrap.build.returncode != 0:
@@ -1108,6 +1266,9 @@ def run_direct_frontend_cases(
                 on_result(result)
         return failed_results
 
+    if reset_port is not None:
+        hard_reset_benchmark_device(reset_port)
+
     monitor_command = [
         str(REPO_ROOT / "espectre"),
         "monitor",
@@ -1118,8 +1279,8 @@ def run_direct_frontend_cases(
     ]
     matter_monitor = None
     if frontend == "matter":
-        if port:
-            monitor_command.extend(["--port", port])
+        if runtime_port:
+            monitor_command.extend(["--port", runtime_port])
         matter_monitor = _run_background_command(
             monitor_command,
             output_prefix=f"[{FRONTEND_LABELS[frontend]} serial] ",
@@ -1146,7 +1307,7 @@ def run_direct_frontend_cases(
                 str(WIFI_CONNECT_WAIT_SECONDS),
                 "--json",
             ]
-            provision_port = port
+            provision_port = runtime_port
             if provision_port:
                 provision_command.extend(["--port", provision_port])
             provision_env = os.environ.copy()
@@ -1218,7 +1379,6 @@ def run_direct_frontend_cases(
 
     # Keep the benchmark's original selector so the monitor inherits the
     # parent process's physical USB identity across runtime re-enumeration.
-    monitor_port = port
     if matter_monitor is not None:
         (
             monitor_process,
@@ -1228,8 +1388,8 @@ def run_direct_frontend_cases(
             monitor_started,
         ) = matter_monitor
     else:
-        if isinstance(monitor_port, str) and monitor_port:
-            monitor_command.extend(["--port", monitor_port])
+        if isinstance(runtime_port, str) and runtime_port:
+            monitor_command.extend(["--port", runtime_port])
         (
             monitor_process,
             monitor_output,
@@ -1504,10 +1664,21 @@ def run_direct_frontend_cases_safely(
     chip: str,
     port: str,
     *,
+    monitor_port: str | None = None,
+    reset_port: str | None = None,
+    usb_power_cycle: tuple[str, int] | None = None,
     on_result: Callable[[BenchmarkResult], None] | None = None,
 ) -> list[BenchmarkResult]:
     try:
-        return run_direct_frontend_cases(selected_cases, chip, port, on_result=on_result)
+        return run_direct_frontend_cases(
+            selected_cases,
+            chip,
+            port,
+            monitor_port=monitor_port,
+            reset_port=reset_port,
+            usb_power_cycle=usb_power_cycle,
+            on_result=on_result,
+        )
     except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
         failed_results = [BenchmarkResult(case=case, status="FAIL", reasons=[str(exc)]) for case in selected_cases]
         if on_result is not None:
@@ -1520,6 +1691,9 @@ def run_micro_case(
     chip: str,
     port: str,
     *,
+    runtime_port: str | None = None,
+    reset_port: str | None = None,
+    usb_power_cycle: tuple[str, int] | None = None,
     shared_flash: CommandResult | None = None,
 ) -> BenchmarkResult:
     """Flash, deploy, launch, and measure one Micro profile through Direct."""
@@ -1547,6 +1721,10 @@ def run_micro_case(
             result.flash = run_command(
                 flash_command,
             )
+            recover_verified_flash_with_usb_power_cycle(
+                result.flash,
+                usb_power_cycle,
+            )
             flash_result = result.flash
         assert flash_result is not None
         firmware_path, firmware_metadata = build_artifact_from_output(
@@ -1562,12 +1740,14 @@ def run_micro_case(
         # each child CLI process to follow native-USB ROM/application
         # re-enumeration. The resolved flash port may be only the temporary ROM
         # alias and must not replace that stable selection for deploy or run.
-        runtime_port = port or flashed_port
+        selected_runtime_port = runtime_port or port or flashed_port
         result.build_metrics = parse_build_metrics(flash_result.output, firmware_path)
         if flash_result.returncode != 0:
             result.status = "FAIL"
             result.reasons.append(f"flash exited with status {flash_result.returncode}")
             return result
+        if reset_port is not None:
+            hard_reset_benchmark_device(reset_port)
         with micro_case_config(chip, case.detector) as config_path:
             result.build_metrics.deployed_source_bytes = micro_deployed_source_size(config_path)
             deploy_command = [
@@ -1579,7 +1759,7 @@ def run_micro_case(
                 "--config",
                 str(config_path),
             ]
-            deploy_command.extend(["--port", runtime_port])
+            deploy_command.extend(["--port", selected_runtime_port])
             result.deploy = run_command(deploy_command)
             if result.deploy.returncode != 0:
                 result.status = "FAIL"
@@ -1587,7 +1767,7 @@ def run_micro_case(
                 return result
 
         run_command_line = [launcher, "micro", "run", "--chip", chip, "--json"]
-        run_command_line.extend(["--port", runtime_port])
+        run_command_line.extend(["--port", selected_runtime_port])
         process, output_lines, line_times, relay_thread, started = _run_background_command(run_command_line)
         client: DirectClient | None = None
         try:
