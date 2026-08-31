@@ -29,7 +29,7 @@ int g_resume_calls = 0;
 WifiBssidPinServiceConfig make_config() {
   WifiBssidPinServiceConfig config;
   config.station_state_getter = []() { return g_station; };
-  config.apply_callback = [](const std::string &bssid, std::string *) {
+  config.apply_callback = [](const std::string &bssid, std::string *, bool *, bool) {
     g_applied_pins.push_back(bssid);
     return true;
   };
@@ -189,6 +189,79 @@ void test_wifi_bssid_pin_service_persists_an_explicit_clear(void) {
   TEST_ASSERT_TRUE(reloaded.stored_bssid().empty());
 }
 
+void test_wifi_bssid_pin_service_waits_for_restored_station_after_partial_apply_failure(void) {
+  seed_pin("MatterLab", "11:22:33:44:55:66");
+  WifiBssidPinServiceConfig config = make_config();
+  config.apply_callback = [](const std::string &, std::string *message,
+                             bool *station_transition_started, bool) {
+    if (station_transition_started != nullptr) *station_transition_started = true;
+    if (message != nullptr) *message = "candidate connection failed; restore started";
+    return false;
+  };
+  WifiBssidPinService service;
+  TEST_ASSERT_EQUAL(ESP_OK, service.setup(std::move(config)));
+
+  std::string message;
+  TEST_ASSERT_FALSE(service.request_update("AA:BB:CC:DD:EE:FF", &message));
+  TEST_ASSERT_TRUE(service.apply_state() == WifiBssidPinApplyState::ROLLING_BACK);
+  TEST_ASSERT_EQUAL(0, g_resume_calls);
+
+  set_connected_station("MatterLab", "11:22:33:44:55:66");
+  service.notify_station_changed();
+  service.loop();
+  TEST_ASSERT_TRUE(service.apply_state() == WifiBssidPinApplyState::ROLLED_BACK);
+  TEST_ASSERT_EQUAL(1, g_resume_calls);
+}
+
+void test_wifi_bssid_pin_service_keeps_services_stopped_when_rollback_transition_fails(void) {
+  seed_pin("MatterLab", "11:22:33:44:55:66");
+  WifiBssidPinServiceConfig config = make_config();
+  int apply_calls = 0;
+  std::vector<bool> restore_on_failure_values;
+  config.apply_callback = [&apply_calls, &restore_on_failure_values](
+                              const std::string &,
+                              std::string *message,
+                              bool *station_transition_started,
+                              bool restore_current_config_on_failure) {
+    ++apply_calls;
+    restore_on_failure_values.push_back(restore_current_config_on_failure);
+    if (apply_calls == 1) return true;
+    if (station_transition_started != nullptr) *station_transition_started = true;
+    if (message != nullptr) *message = "rollback connection failed";
+    return false;
+  };
+  WifiBssidPinService service;
+  TEST_ASSERT_EQUAL(ESP_OK, service.setup(std::move(config)));
+
+  std::string message;
+  TEST_ASSERT_TRUE(service.request_update("AA:BB:CC:DD:EE:FF", &message));
+  esp_timer_mock::advance(30000000);
+  service.loop();
+
+  TEST_ASSERT_TRUE(service.apply_state() == WifiBssidPinApplyState::RECOVERY_REQUIRED);
+  TEST_ASSERT_EQUAL(2, restore_on_failure_values.size());
+  TEST_ASSERT_TRUE(restore_on_failure_values[0]);
+  TEST_ASSERT_FALSE(restore_on_failure_values[1]);
+  TEST_ASSERT_EQUAL(0, g_resume_calls);
+}
+
+void test_wifi_bssid_pin_service_keeps_services_stopped_when_rollback_times_out(void) {
+  seed_pin("MatterLab", "11:22:33:44:55:66");
+  WifiBssidPinService service;
+  TEST_ASSERT_EQUAL(ESP_OK, service.setup(make_config()));
+
+  std::string message;
+  TEST_ASSERT_TRUE(service.request_update("AA:BB:CC:DD:EE:FF", &message));
+  esp_timer_mock::advance(30000000);
+  service.loop();
+  TEST_ASSERT_TRUE(service.apply_state() == WifiBssidPinApplyState::ROLLING_BACK);
+
+  esp_timer_mock::advance(30000000);
+  service.loop();
+  TEST_ASSERT_TRUE(service.apply_state() == WifiBssidPinApplyState::RECOVERY_REQUIRED);
+  TEST_ASSERT_EQUAL(0, g_resume_calls);
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_wifi_bssid_pin_service_commits_only_after_verified_ipv4);
@@ -196,5 +269,8 @@ int main() {
   RUN_TEST(test_wifi_bssid_pin_service_reapplies_a_stored_pin_after_boot);
   RUN_TEST(test_wifi_bssid_pin_service_keeps_a_pin_dormant_when_matter_changes_ssid);
   RUN_TEST(test_wifi_bssid_pin_service_persists_an_explicit_clear);
+  RUN_TEST(test_wifi_bssid_pin_service_waits_for_restored_station_after_partial_apply_failure);
+  RUN_TEST(test_wifi_bssid_pin_service_keeps_services_stopped_when_rollback_transition_fails);
+  RUN_TEST(test_wifi_bssid_pin_service_keeps_services_stopped_when_rollback_times_out);
   return UNITY_END();
 }

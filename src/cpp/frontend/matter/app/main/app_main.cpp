@@ -124,21 +124,30 @@ espectre::WifiBssidPinStationState matter_wifi_station_state() {
   };
 }
 
-bool apply_matter_wifi_bssid_pin(const std::string &bssid, std::string *message) {
+bool apply_matter_wifi_bssid_pin(const std::string &bssid,
+                                 std::string *message,
+                                 bool *station_transition_started,
+                                 bool restore_current_config_on_failure) {
   const esp_err_t ram_err = esp_wifi_set_storage(WIFI_STORAGE_RAM);
   if (ram_err != ESP_OK) {
     if (message != nullptr) *message = esp_err_to_name(ram_err);
     return false;
   }
 
-  const bool applied = espectre::apply_wifi_bssid_pin(bssid, message);
+  const bool applied = espectre::apply_wifi_bssid_pin(
+      bssid, message, station_transition_started, restore_current_config_on_failure);
   const esp_err_t flash_err = esp_wifi_set_storage(WIFI_STORAGE_FLASH);
   if (flash_err != ESP_OK) {
-    if (message != nullptr) {
-      *message = std::string("Wi-Fi storage policy could not be restored: ") +
-                 esp_err_to_name(flash_err);
+    const std::string storage_error =
+        std::string("Wi-Fi storage policy could not be restored: ") + esp_err_to_name(flash_err);
+    ESP_LOGE(TAG, "%s", storage_error.c_str());
+    if (applied) {
+      // The station is already reconnecting with the candidate. No rollback
+      // was issued, so keep verifying that transition instead of reporting a
+      // failed transition to the pin service.
+      if (message != nullptr) *message = storage_error;
+      return true;
     }
-    return false;
   }
   return applied;
 }

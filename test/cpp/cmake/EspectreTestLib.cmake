@@ -199,6 +199,10 @@ add_library(espectre_frontend_esphome_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/runtime_direct_http_bridge.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/support/frontend_runtime_shim.cpp"
 )
+target_compile_definitions(espectre_frontend_esphome_testlib
+    PRIVATE
+        ESPECTRE_HOST_WIFI_CONTROL_TEST=1
+)
 target_link_libraries(espectre_frontend_esphome_testlib
     PUBLIC
         espectre_runtime_testlib
@@ -216,6 +220,10 @@ add_library(espectre_frontend_matter_testlib STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/support/direct_http_service_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/support/matter_bindings_mock.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/support/frontend_runtime_shim.cpp"
+)
+target_compile_definitions(espectre_frontend_matter_testlib
+    PRIVATE
+        ESPECTRE_HOST_WIFI_CONTROL_TEST=1
 )
 target_link_libraries(espectre_frontend_matter_testlib
     PUBLIC

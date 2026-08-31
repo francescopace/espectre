@@ -170,7 +170,17 @@ bool WifiBssidPinService::begin_apply_(const WifiBssidPinStationState &station,
   }
 
   std::string apply_error;
-  if (!config_.apply_callback(target_bssid, &apply_error)) {
+  bool station_transition_started = false;
+  if (!config_.apply_callback(target_bssid, &apply_error, &station_transition_started, true)) {
+    if (station_transition_started) {
+      apply_state_ = WifiBssidPinApplyState::ROLLING_BACK;
+      apply_message_ = apply_error.empty()
+                           ? "Wi-Fi BSSID update failed; waiting for the previous station config"
+                           : apply_error;
+      persist_on_success_ = false;
+      if (message != nullptr) *message = apply_message_;
+      return false;
+    }
     apply_state_ = WifiBssidPinApplyState::IDLE;
     apply_message_ = apply_error.empty() ? "Wi-Fi BSSID update could not be started" : apply_error;
     candidate_ssid_.clear();
@@ -244,7 +254,7 @@ void WifiBssidPinService::begin_rollback_(const char *reason) {
   persist_on_success_ = false;
 
   std::string rollback_error;
-  if (!config_.apply_callback(previous_bssid_, &rollback_error)) {
+  if (!config_.apply_callback(previous_bssid_, &rollback_error, nullptr, false)) {
     finish_apply_(WifiBssidPinApplyState::RECOVERY_REQUIRED,
                   rollback_error.empty() ? "previous Wi-Fi BSSID configuration could not be restored"
                                          : rollback_error.c_str());
@@ -259,7 +269,10 @@ void WifiBssidPinService::finish_apply_(WifiBssidPinApplyState state, const char
   previous_bssid_.clear();
   apply_started_ms_ = 0U;
   persist_on_success_ = false;
-  if (reconfigure_active_ && config_.resume_callback) config_.resume_callback();
+  if (state != WifiBssidPinApplyState::RECOVERY_REQUIRED && reconfigure_active_ &&
+      config_.resume_callback) {
+    config_.resume_callback();
+  }
   reconfigure_active_ = false;
 }
 

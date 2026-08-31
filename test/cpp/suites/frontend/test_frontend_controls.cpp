@@ -27,8 +27,10 @@
 #include "esphome/core/preferences.h"
 #include "direct_http_protocol.h"
 #include "esp_http_server.h"
+#include "esp_wifi.h"
 #include "frontend_runtime_shim.h"
 #include "mdns.h"
+#include "runtime_direct_http_bridge.h"
 
 using namespace esphome::espectre_component;
 
@@ -95,6 +97,7 @@ void setUp(void) {
   frontend_runtime_shim::reset();
   httpd_mock_reset();
   mdns_mock_reset();
+  esp_wifi_mock_reset();
   esphome::reset_mock_millis();
   esphome::reset_preference_store();
   esphome::global_preferences = nullptr;
@@ -290,6 +293,149 @@ void test_esphome_direct_exposes_common_wifi_and_label_capabilities(void) {
   TEST_ASSERT_TRUE(cleared.find("\"accepted\":true") != std::string::npos);
   TEST_ASSERT_TRUE(component.device_label_().empty());
   TEST_ASSERT_EQUAL_STRING(generated_name.c_str(), component.display_name_().c_str());
+}
+
+void test_wifi_bssid_pin_applies_config_between_disconnect_and_connect(void) {
+  std::memcpy(g_esp_wifi_mock.current_config.sta.ssid, "MatterLab", 9U);
+  std::string message;
+  bool station_transition_started = false;
+
+  TEST_ASSERT_TRUE(espectre::apply_wifi_bssid_pin(
+      "AA:BB:CC:DD:EE:FF", &message, &station_transition_started));
+  TEST_ASSERT_TRUE(station_transition_started);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.get_config_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_config_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.disconnect_sequences[0] <
+                   g_esp_wifi_mock.set_config_sequences[0]);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.set_config_sequences[0] <
+                   g_esp_wifi_mock.connect_sequences[0]);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.current_config.sta.bssid_set);
+  TEST_ASSERT_EQUAL_UINT8(0xAA, g_esp_wifi_mock.current_config.sta.bssid[0]);
+  TEST_ASSERT_EQUAL_UINT8(0xFF, g_esp_wifi_mock.current_config.sta.bssid[5]);
+}
+
+void test_wifi_bssid_pin_reports_no_transition_when_config_cannot_be_read(void) {
+  g_esp_wifi_mock.get_config_result = ESP_FAIL;
+  std::string message;
+  bool station_transition_started = true;
+
+  TEST_ASSERT_FALSE(espectre::apply_wifi_bssid_pin(
+      "AA:BB:CC:DD:EE:FF", &message, &station_transition_started));
+  TEST_ASSERT_FALSE(station_transition_started);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.set_config_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.connect_call_count);
+}
+
+void test_wifi_bssid_pin_rejects_invalid_input_before_reading_station_config(void) {
+  std::string message;
+  bool station_transition_started = true;
+
+  TEST_ASSERT_FALSE(espectre::apply_wifi_bssid_pin(
+      "not-a-bssid", &message, &station_transition_started));
+  TEST_ASSERT_FALSE(station_transition_started);
+  TEST_ASSERT_EQUAL_STRING("BSSID must contain six hexadecimal octets", message.c_str());
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.get_config_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.set_config_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.connect_call_count);
+}
+
+void test_wifi_bssid_pin_reconnects_original_config_when_update_fails(void) {
+  wifi_config_t original{};
+  std::memcpy(original.sta.ssid, "MatterLab", 9U);
+  original.sta.bssid_set = true;
+  original.sta.bssid[0] = 0x11U;
+  original.sta.bssid[5] = 0x66U;
+  g_esp_wifi_mock.current_config = original;
+  g_esp_wifi_mock.set_config_results[0] = ESP_FAIL;
+  g_esp_wifi_mock.set_config_result_count = 1;
+  std::string message;
+  bool station_transition_started = false;
+
+  TEST_ASSERT_FALSE(espectre::apply_wifi_bssid_pin(
+      "AA:BB:CC:DD:EE:FF", &message, &station_transition_started));
+  TEST_ASSERT_TRUE(station_transition_started);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_config_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.set_config_sequences[0] <
+                   g_esp_wifi_mock.connect_sequences[0]);
+  TEST_ASSERT_EQUAL(0, std::memcmp(&original, &g_esp_wifi_mock.current_config, sizeof(original)));
+  TEST_ASSERT_TRUE(message.find("previous station config reconnect started") != std::string::npos);
+}
+
+void test_wifi_bssid_pin_restores_original_config_when_candidate_connect_fails(void) {
+  wifi_config_t original{};
+  std::memcpy(original.sta.ssid, "MatterLab", 9U);
+  original.sta.bssid_set = true;
+  original.sta.bssid[0] = 0x11U;
+  original.sta.bssid[5] = 0x66U;
+  g_esp_wifi_mock.current_config = original;
+  g_esp_wifi_mock.connect_results[0] = ESP_FAIL;
+  g_esp_wifi_mock.connect_results[1] = ESP_OK;
+  g_esp_wifi_mock.connect_result_count = 2;
+  std::string message;
+  bool station_transition_started = false;
+
+  TEST_ASSERT_FALSE(espectre::apply_wifi_bssid_pin(
+      "AA:BB:CC:DD:EE:FF", &message, &station_transition_started));
+  TEST_ASSERT_TRUE(station_transition_started);
+  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.set_config_call_count);
+  TEST_ASSERT_EQUAL(2, g_esp_wifi_mock.connect_call_count);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.connect_sequences[0] <
+                   g_esp_wifi_mock.disconnect_sequences[1]);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.disconnect_sequences[1] <
+                   g_esp_wifi_mock.set_config_sequences[1]);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.set_config_sequences[1] <
+                   g_esp_wifi_mock.connect_sequences[1]);
+  TEST_ASSERT_EQUAL(0, std::memcmp(&original, &g_esp_wifi_mock.current_config, sizeof(original)));
+  TEST_ASSERT_TRUE(message.find("previous station config reconnect started") != std::string::npos);
+}
+
+void test_wifi_bssid_pin_rollback_keeps_requested_config_when_connect_fails(void) {
+  wifi_config_t candidate{};
+  std::memcpy(candidate.sta.ssid, "MatterLab", 9U);
+  candidate.sta.bssid_set = true;
+  candidate.sta.bssid[0] = 0xAAU;
+  candidate.sta.bssid[5] = 0xFFU;
+  g_esp_wifi_mock.current_config = candidate;
+  g_esp_wifi_mock.connect_results[0] = ESP_FAIL;
+  g_esp_wifi_mock.connect_result_count = 1;
+  std::string message;
+
+  TEST_ASSERT_FALSE(espectre::apply_wifi_bssid_pin(
+      "11:22:33:44:55:66", &message, nullptr, false));
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_config_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.connect_call_count);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.current_config.sta.bssid_set);
+  TEST_ASSERT_EQUAL_UINT8(0x11, g_esp_wifi_mock.current_config.sta.bssid[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x66, g_esp_wifi_mock.current_config.sta.bssid[5]);
+}
+
+void test_wifi_bssid_pin_rollback_does_not_reconnect_candidate_when_config_update_fails(void) {
+  wifi_config_t candidate{};
+  std::memcpy(candidate.sta.ssid, "MatterLab", 9U);
+  candidate.sta.bssid_set = true;
+  candidate.sta.bssid[0] = 0xAAU;
+  candidate.sta.bssid[5] = 0xFFU;
+  g_esp_wifi_mock.current_config = candidate;
+  g_esp_wifi_mock.set_config_results[0] = ESP_FAIL;
+  g_esp_wifi_mock.set_config_result_count = 1;
+  std::string message;
+
+  TEST_ASSERT_FALSE(espectre::apply_wifi_bssid_pin(
+      "11:22:33:44:55:66", &message, nullptr, false));
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.disconnect_call_count);
+  TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.set_config_call_count);
+  TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.connect_call_count);
+  TEST_ASSERT_EQUAL(0, std::memcmp(&candidate,
+                                  &g_esp_wifi_mock.current_config,
+                                  sizeof(candidate)));
 }
 
 void test_espectre_component_publishes_cached_csi_diagnostics_on_demand(void) {
@@ -784,6 +930,13 @@ int process(void) {
   RUN_TEST(test_espectre_component_direct_client_enables_live_telemetry);
   RUN_TEST(test_espectre_component_raw_session_uses_shared_controller_and_recovers);
   RUN_TEST(test_esphome_direct_exposes_common_wifi_and_label_capabilities);
+  RUN_TEST(test_wifi_bssid_pin_applies_config_between_disconnect_and_connect);
+  RUN_TEST(test_wifi_bssid_pin_reports_no_transition_when_config_cannot_be_read);
+  RUN_TEST(test_wifi_bssid_pin_rejects_invalid_input_before_reading_station_config);
+  RUN_TEST(test_wifi_bssid_pin_reconnects_original_config_when_update_fails);
+  RUN_TEST(test_wifi_bssid_pin_restores_original_config_when_candidate_connect_fails);
+  RUN_TEST(test_wifi_bssid_pin_rollback_keeps_requested_config_when_connect_fails);
+  RUN_TEST(test_wifi_bssid_pin_rollback_does_not_reconnect_candidate_when_config_update_fails);
   RUN_TEST(test_esphome_wifi_bssid_pin_persists_across_setup);
   RUN_TEST(test_esphome_wifi_bssid_pin_retries_after_bounded_enforcement_failure);
   RUN_TEST(test_esphome_wifi_bssid_pin_rolls_back_when_persistence_fails);

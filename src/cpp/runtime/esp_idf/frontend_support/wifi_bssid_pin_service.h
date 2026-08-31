@@ -38,7 +38,10 @@ enum class WifiBssidPinApplyState : uint8_t {
 const char *wifi_bssid_pin_apply_state_name(WifiBssidPinApplyState state);
 
 struct WifiBssidPinServiceConfig {
-  using ApplyCallback = std::function<bool(const std::string &bssid, std::string *message)>;
+  using ApplyCallback = std::function<bool(const std::string &bssid,
+                                           std::string *message,
+                                           bool *station_transition_started,
+                                           bool restore_current_config_on_failure)>;
   using StationStateGetter = std::function<WifiBssidPinStationState()>;
   using ChangeCallback = std::function<void()>;
 

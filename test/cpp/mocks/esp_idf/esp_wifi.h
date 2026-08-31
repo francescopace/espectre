@@ -300,6 +300,7 @@ typedef struct {
   esp_err_t set_config_results[4];
   int set_config_result_count;
   int set_config_call_count;
+  int set_config_sequences[4];
   int get_ap_info_call_count;
   esp_err_t get_ap_info_result;
   esp_err_t scan_start_result;
@@ -309,6 +310,7 @@ typedef struct {
   esp_err_t scan_get_ap_records_result;
   uint16_t scan_ap_count;
   wifi_ap_record_t scan_ap_records[32];
+  wifi_config_t current_config;
   wifi_config_t last_config;
   esp_err_t get_mac_result;
   uint8_t mac[6];
@@ -418,13 +420,32 @@ static inline esp_err_t esp_wifi_scan_get_ap_records(uint16_t *number,
 
 static inline esp_err_t esp_wifi_set_config(wifi_interface_t ifx, wifi_config_t *config) {
   (void)ifx;
+  const int index = g_esp_wifi_mock.set_config_call_count;
+  const esp_err_t result = index < g_esp_wifi_mock.set_config_result_count
+                               ? g_esp_wifi_mock.set_config_results[index]
+                               : ESP_OK;
+  if (index < 4) {
+    g_esp_wifi_mock.set_config_sequences[index] = ++g_esp_wifi_mock.call_sequence;
+  }
   g_esp_wifi_mock.set_config_call_count++;
   if (config != nullptr) {
     g_esp_wifi_mock.last_config = *config;
+    if (result == ESP_OK) {
+      g_esp_wifi_mock.current_config = *config;
+    }
   } else {
     memset(&g_esp_wifi_mock.last_config, 0, sizeof(g_esp_wifi_mock.last_config));
   }
-  return ESP_OK;
+  return result;
+}
+
+static inline esp_err_t esp_wifi_get_config(wifi_interface_t ifx, wifi_config_t *config) {
+  (void)ifx;
+  g_esp_wifi_mock.get_config_call_count++;
+  if (config != nullptr && g_esp_wifi_mock.get_config_result == ESP_OK) {
+    *config = g_esp_wifi_mock.current_config;
+  }
+  return g_esp_wifi_mock.get_config_result;
 }
 
 static inline esp_err_t esp_wifi_get_mac(wifi_interface_t ifx, uint8_t mac[6]) {

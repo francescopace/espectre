@@ -10,6 +10,7 @@
 #include "runtime_direct_http_bridge.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 
@@ -20,7 +21,7 @@
 #include "runtime_diagnostics.h"
 #include "runtime_time.h"
 
-#if defined(ESP_PLATFORM)
+#if defined(ESP_PLATFORM) || defined(ESPECTRE_HOST_WIFI_CONTROL_TEST)
 #include "esp_wifi.h"
 #endif
 
@@ -407,46 +408,122 @@ std::string RuntimeDirectHttpBridge::wifi_access_points_payload_() const {
   return out;
 }
 
-bool apply_wifi_bssid_pin(const std::string &bssid, std::string *message) {
-#if defined(ESP_PLATFORM)
-  wifi_config_t config{};
-  if (esp_wifi_get_config(WIFI_IF_STA, &config) != ESP_OK) return false;
+bool apply_wifi_bssid_pin(const std::string &bssid,
+                          std::string *message,
+                          bool *station_transition_started,
+                          bool restore_current_config_on_failure) {
+  if (station_transition_started != nullptr) *station_transition_started = false;
+#if defined(ESP_PLATFORM) || defined(ESPECTRE_HOST_WIFI_CONTROL_TEST)
+  unsigned int octets[6]{};
+  if (!bssid.empty()) {
+    bool valid = bssid.size() == 17U;
+    for (size_t index = 0U; valid && index < bssid.size(); ++index) {
+      valid = index % 3U == 2U
+                  ? bssid[index] == ':'
+                  : std::isxdigit(static_cast<unsigned char>(bssid[index])) != 0;
+    }
+    if (!valid || std::sscanf(bssid.c_str(),
+                              "%2x:%2x:%2x:%2x:%2x:%2x",
+                              &octets[0],
+                              &octets[1],
+                              &octets[2],
+                              &octets[3],
+                              &octets[4],
+                              &octets[5]) != 6) {
+      if (message != nullptr) *message = "BSSID must contain six hexadecimal octets";
+      return false;
+    }
+  }
+
+  wifi_config_t original_config{};
+  const esp_err_t read_err = esp_wifi_get_config(WIFI_IF_STA, &original_config);
+  if (read_err != ESP_OK) {
+    if (message != nullptr) {
+      *message = std::string("Wi-Fi BSSID pin update failed while reading the station config: ") +
+                 esp_err_to_name(read_err);
+    }
+    return false;
+  }
+  wifi_config_t config = original_config;
   if (bssid.empty()) {
     config.sta.bssid_set = false;
     std::memset(config.sta.bssid, 0, sizeof(config.sta.bssid));
     config.sta.channel = 0U;
   } else {
-    unsigned int octets[6]{};
-    if (std::sscanf(bssid.c_str(),
-                    "%2x:%2x:%2x:%2x:%2x:%2x",
-                    &octets[0],
-                    &octets[1],
-                    &octets[2],
-                    &octets[3],
-                    &octets[4],
-                    &octets[5]) != 6) {
-      return false;
-    }
     for (size_t index = 0U; index < 6U; ++index) {
       config.sta.bssid[index] = static_cast<uint8_t>(octets[index]);
     }
     config.sta.bssid_set = true;
     config.sta.channel = 0U;
   }
-  const bool updated = esp_wifi_set_config(WIFI_IF_STA, &config) == ESP_OK;
-  bool reconnect_started = false;
-  if (updated) {
-    (void) esp_wifi_disconnect();
-    reconnect_started = esp_wifi_connect() == ESP_OK;
+  const esp_err_t disconnect_err = esp_wifi_disconnect();
+  if (disconnect_err != ESP_OK && disconnect_err != ESP_ERR_WIFI_NOT_CONNECT) {
+    if (message != nullptr) {
+      *message = std::string("Wi-Fi BSSID pin update failed while disconnecting: ") +
+                 esp_err_to_name(disconnect_err);
+    }
+    return false;
   }
+  if (station_transition_started != nullptr) *station_transition_started = true;
+
+  const esp_err_t update_err = esp_wifi_set_config(WIFI_IF_STA, &config);
+  if (update_err != ESP_OK) {
+    const esp_err_t reconnect_err =
+        restore_current_config_on_failure ? esp_wifi_connect() : update_err;
+    if (message != nullptr) {
+      *message = std::string("Wi-Fi BSSID pin update failed while setting the station config: ") +
+                 esp_err_to_name(update_err);
+      if (restore_current_config_on_failure) {
+        *message += reconnect_err == ESP_OK
+                        ? "; previous station config reconnect started"
+                        : std::string("; previous station config reconnect failed: ") +
+                              esp_err_to_name(reconnect_err);
+      }
+    }
+    return false;
+  }
+
+  const esp_err_t connect_err = esp_wifi_connect();
+  if (connect_err != ESP_OK && restore_current_config_on_failure) {
+    const esp_err_t rollback_disconnect_err = esp_wifi_disconnect();
+    const bool rollback_disconnected =
+        rollback_disconnect_err == ESP_OK || rollback_disconnect_err == ESP_ERR_WIFI_NOT_CONNECT;
+    const esp_err_t rollback_config_err =
+        rollback_disconnected ? esp_wifi_set_config(WIFI_IF_STA, &original_config)
+                              : rollback_disconnect_err;
+    const esp_err_t rollback_connect_err =
+        rollback_config_err == ESP_OK ? esp_wifi_connect() : rollback_config_err;
+    if (message != nullptr) {
+      *message = std::string("Wi-Fi BSSID pin update failed while reconnecting: ") +
+                 esp_err_to_name(connect_err);
+      if (rollback_config_err != ESP_OK) {
+        *message += std::string("; previous station config restore failed: ") +
+                    esp_err_to_name(rollback_config_err);
+      } else if (rollback_connect_err != ESP_OK) {
+        *message += std::string("; previous station config reconnect failed: ") +
+                    esp_err_to_name(rollback_connect_err);
+      } else {
+        *message += "; previous station config reconnect started";
+      }
+    }
+    return false;
+  }
+  if (connect_err != ESP_OK) {
+    if (message != nullptr) {
+      *message = std::string("Wi-Fi BSSID pin update failed while reconnecting: ") +
+                 esp_err_to_name(connect_err);
+    }
+    return false;
+  }
+
   if (message != nullptr) {
-    *message = updated && reconnect_started
-                   ? (bssid.empty() ? "Wi-Fi BSSID pin cleared" : "Wi-Fi BSSID pin updated")
-                   : "Wi-Fi BSSID pin update failed";
+    *message = bssid.empty() ? "Wi-Fi BSSID pin cleared" : "Wi-Fi BSSID pin updated";
   }
-  return updated && reconnect_started;
+  return true;
 #else
   (void) bssid;
+  (void) station_transition_started;
+  (void) restore_current_config_on_failure;
   if (message != nullptr) *message = "Wi-Fi control accepted by host test adapter";
   return true;
 #endif
