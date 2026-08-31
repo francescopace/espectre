@@ -4,9 +4,9 @@
 """
 ESPectre - Website Asset Versions
 
-First-party CSS, JS, and SPA content fragments use a content hash as the
-cache-busting `?v=` query string. Unchanged files keep their hash; a content
-edit changes only that file's query string.
+First-party CSS, JS, and brand assets use a content hash as the cache-busting
+`?v=` query string. Unchanged files keep their hash; an asset edit changes only
+that file's query string.
 
 Stamp committed HTML after asset edits:
 
@@ -31,8 +31,8 @@ WEB_ROOT = REPO_ROOT / "docs" / "web"
 HASH_LENGTH = 12
 STAMPED_HTML = ("index.html", "404.html")
 ASSET_URL_RE = re.compile(
-    r'(?P<prefix>(?:href|src|data-content-url)=")'
-    r'(?P<path>(?:/assets/(?:css|js)/[^"?]+|/assets/images/brand/espectre-logo\.svg|content/[^"?]+))'
+    r'(?P<prefix>(?:href|src|data-script-src)=")'
+    r'(?P<path>(?:/assets/(?:css|js)/[^"?]+|/assets/images/brand/espectre-logo\.svg))'
     r'(?:(?P<query>\?v=[^"]*))?'
     r'(?P<suffix>")'
 )

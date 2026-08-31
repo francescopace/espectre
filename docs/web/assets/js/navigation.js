@@ -564,7 +564,13 @@
         if (label) label.textContent = 'Open navigation';
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', async () => {
+        try {
+            await window.ESPectreRoutesReady;
+        } catch (error) {
+            console.error('Unable to initialize website navigation:', error);
+            return;
+        }
         initPageTocs();
         initPagePaths();
         initSdkDownloadVersions();

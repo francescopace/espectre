@@ -679,7 +679,9 @@
             setStatus('connected');
             setDirectConnectionHelp();
             if (route === 'tool-raw-csi') {
-                rawCsiUseConnection();
+                if (typeof window.rawCsiUseConnection === 'function') {
+                    window.rawCsiUseConnection();
+                }
             } else if (!LIVE_EXPERIENCE_ROUTES.has(route)) {
                 const view = openView || (route === 'tool-monitor' ? 'live' : 'connectivity');
                 setDeviceView(view);

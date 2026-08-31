@@ -279,6 +279,50 @@
         return data;
     }
 
+    async function readBoundedResponseText(response, maximumBytes) {
+        if (!response.body || typeof response.body.getReader !== 'function') {
+            const text = await response.text();
+            if (new TextEncoder().encode(text).byteLength > maximumBytes) {
+                throw new ESPectreDirectError(
+                    `Direct response exceeds the ${maximumBytes}-byte limit.`,
+                    'frame_too_large'
+                );
+            }
+            return text;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let receivedBytes = 0;
+        let text = '';
+        try {
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) {
+                    text += decoder.decode();
+                    return text;
+                }
+                if (!(value instanceof Uint8Array)) {
+                    throw new ESPectreDirectError(
+                        'Direct response body is not a byte stream.',
+                        'invalid_envelope'
+                    );
+                }
+                receivedBytes += value.byteLength;
+                if (receivedBytes > maximumBytes) {
+                    try { await reader.cancel('response too large'); } catch (_error) { /* already closed */ }
+                    throw new ESPectreDirectError(
+                        `Direct response exceeds the ${maximumBytes}-byte limit.`,
+                        'frame_too_large'
+                    );
+                }
+                text += decoder.decode(value, { stream: true });
+            }
+        } finally {
+            try { reader.releaseLock(); } catch (_error) { /* already released */ }
+        }
+    }
+
     function validText(value, maximum, { empty = false, token = false } = {}) {
         if (typeof value !== 'string' || (!empty && !value) || value.length > maximum) return false;
         if (![...value].every((character) => character >= ' ' && character <= '~')) return false;
@@ -433,9 +477,18 @@
                         buffer = buffer.slice(boundary.index + boundary[0].length);
                         this.#ingestSseBlock(block);
                     }
+                    if (new TextEncoder().encode(buffer).byteLength > MAX_RESPONSE_BYTES) {
+                        throw new ESPectreDirectError(
+                            'Direct event exceeds the 8192-byte limit.',
+                            'frame_too_large'
+                        );
+                    }
                 }
             } catch (error) {
-                if (!controller.signal.aborted) this.#emit('protocol-error', error);
+                if (!controller.signal.aborted) {
+                    this.#emit('protocol-error', error);
+                    try { await reader.cancel?.('protocol error'); } catch (_error) { /* already closed */ }
+                }
             } finally {
                 try { reader.releaseLock(); } catch (_error) { /* already released */ }
                 if (this.#eventController !== controller) return;
@@ -525,6 +578,7 @@
                 headers.Authorization = `Bearer ${this.#rawSessionId}`;
             }
             let response;
+            let text;
             try {
                 response = await localFetch(this.#endpoint, {
                     method: 'POST',
@@ -532,6 +586,7 @@
                     body: payload,
                     signal: controller.signal
                 });
+                text = await readBoundedResponseText(response, MAX_RESPONSE_BYTES);
             } catch (error) {
                 if (error instanceof ESPectreDirectError) throw error;
                 throw new ESPectreDirectError(
@@ -543,12 +598,8 @@
                 this.#requestControllers.delete(controller);
             }
             if (!response.ok) {
-                const detail = (await response.text()).slice(0, 256).trim();
+                const detail = text.slice(0, 256).trim();
                 throw new ESPectreDirectError(detail || `Direct HTTP returned ${response.status}.`, `http_${response.status}`);
-            }
-            const text = await response.text();
-            if (new TextEncoder().encode(text).byteLength > MAX_RESPONSE_BYTES) {
-                throw new ESPectreDirectError('Direct response exceeds the 8192-byte limit.', 'frame_too_large');
             }
             const resultMessage = parseObject(text);
             if (resultMessage.command_id !== id || resultMessage.command !== method

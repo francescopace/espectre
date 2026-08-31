@@ -12,7 +12,9 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { app, browserSupportSource, directProtocol, GPL_HTML_HEADER, index, read, roadmapContent, routeRegistry, security, styles, toolContent, toolFragments, toolsContent } from './fixtures/site_test_helpers.mjs';
+import { app, browserSupportSource, directProtocol, GPL_HTML_HEADER, index, read, roadmapContent, routeManifest, routeRegistry, security, styles, toolContent, toolFragments, toolsContent } from './fixtures/site_test_helpers.mjs';
+
+const routePath = (name) => routeManifest.routes.find((route) => route.name === name)?.staticPath;
 
 const deviceReportPaths = [
     'docs/performance/ESP32.md',
@@ -71,7 +73,7 @@ describe('website SDK route contracts', () => {
         for (const [, classes] of innerPages) {
             assert.match(classes, /(?:^|\s)page-narrow(?:\s|$)/);
         }
-        assert.match(staticPageBuilder, /spec\.get\("main_class", "page-narrow page-article"\)/);
+        assert.match(staticPageBuilder, /"main_class": main_class\(route, static=True\)/);
     });
 
     it('gives the SDK landing page a clear start-to-reference hierarchy', () => {
@@ -118,10 +120,8 @@ describe('website SDK route contracts', () => {
         assert.match(detectors, /DetectionAlgorithm::HIGH_ACCURACY/);
         const detectorGuide = read('docs/web/content/guides/detectors.html');
         assert.match(detectorGuide, /href="\/sdk\/detectors\/"/);
-        assert.match(index, /data-page="sdk-detectors"[\s\S]*?data-static-url="\/sdk\/detectors\/"/);
-        assert.match(routeRegistry, /name: 'sdk-detectors'.*staticPath: '\/sdk\/detectors\/'/);
-        assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/sdk\/detectors\.html"/);
-        assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/sdk\/detectors\//);
+        assert.match(index, /data-page="sdk-detectors"/);
+        assert.equal(routePath('sdk-detectors'), '/sdk/detectors/');
     });
 
     it('keeps device means aligned with committed C++ frontend campaign reports', () => {
@@ -150,9 +150,7 @@ describe('website SDK route contracts', () => {
         assert.match(styles, /\.profile-comparison-row \{[\s\S]*?grid-template-columns: minmax\(130px, \.55fr\) repeat\(2, minmax\(0, 1fr\)\);/);
         assert.match(styles, /@media \(max-width: 720px\) \{[\s\S]*?\.profile-comparison-row \{ grid-template-columns: minmax\(0, 1fr\); gap: 12px; \}/);
         assert.match(index, /data-page="guide-detectors"/);
-        assert.match(routeRegistry, /name: 'guide-detectors'.*staticPath: '\/guides\/detectors\/'/);
-        assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/guides\/detectors\.html"/);
-        assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/guides\/detectors\//);
+        assert.equal(routePath('guide-detectors'), '/guides/detectors/');
     });
 
     it('publishes the MicroPython contribution and runtime guide', () => {
@@ -162,9 +160,7 @@ describe('website SDK route contracts', () => {
         assert.match(read('docs/web/content/guides.html'), /micropython-csi-runtime-card\.avif/);
         assert.match(guide, /micropython-csi-runtime-card\.avif/);
         assert.match(index, /data-page="guide-micropython"/);
-        assert.match(routeRegistry, /name: 'guide-micropython'.*staticPath: '\/guides\/micropython\/'/);
-        assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/guides\/micropython\.html"/);
-        assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/guides\/micropython\//);
+        assert.equal(routePath('guide-micropython'), '/guides/micropython/');
     });
 
     it('publishes the IEEE 802.11bf future sensing guide', () => {
@@ -177,9 +173,7 @@ describe('website SDK route contracts', () => {
         assert.match(guide, /future-wifi-sensing-card\.avif/);
         assert.match(guideIndex, /href="\/guides\/future-wifi-sensing\/"/);
         assert.match(index, /data-page="guide-future-wifi-sensing"/);
-        assert.match(routeRegistry, /name: 'guide-future-wifi-sensing'.*staticPath: '\/guides\/future-wifi-sensing\/'/);
-        assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/guides\/future-wifi-sensing\.html"/);
-        assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/guides\/future-wifi-sensing\//);
+        assert.equal(routePath('guide-future-wifi-sensing'), '/guides/future-wifi-sensing/');
     });
 
     it('publishes the Home Assistant dashboard guide with a distinct cover and collapsible recovery guidance', () => {
@@ -205,10 +199,8 @@ describe('website SDK route contracts', () => {
         assert.ok(guideIndex.indexOf('href="/guides/placement/"') < guideIndex.indexOf('href="/guides/home-assistant/"'));
         assert.ok(guideIndex.indexOf('href="/guides/home-assistant/"') < guideIndex.indexOf('href="/guides/detectors/"'));
         assert.match(index, /data-page="guide-home-assistant"/);
-        assert.match(routeRegistry, /name: 'guide-home-assistant'.*staticPath: '\/guides\/home-assistant\/'/);
-        assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/guides\/home-assistant\.html"/);
-        assert.match(read('.github/scripts/build_sitemap.py'), /"\/guides\/home-assistant\/": \(Path\("docs\/web\/content\/guides\/home-assistant\.html"\), STATIC_PAGE_BUILDER\)/);
-        assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/guides\/home-assistant\//);
+        assert.equal(routePath('guide-home-assistant'), '/guides/home-assistant/');
+        assert.match(read('.github/scripts/build_sitemap.py'), /for route in static_routes\(ROUTE_MANIFEST\)/);
     });
 
     it('builds complementary side rails from the shared route groups', () => {
@@ -272,7 +264,7 @@ describe('website SDK route contracts', () => {
         assert.match(styles, /\.page-toc \{/);
         assert.match(styles, /@media \(min-width: 1440px\) \{[\s\S]*?\.page-toc \{[\s\S]*?position: fixed;[\s\S]*?left: max\(/);
         assert.match(styles, /\.page-toc a\[aria-current="location"\]/);
-        assert.match(styles, /@media \(max-width: 720px\) \{[\s\S]*?\.page-toc \{ display: none; \}/);
+        assert.doesNotMatch(styles, /@media \(max-width: 720px\) \{[\s\S]*?\.page-toc \{ display: none; \}/);
         assert.doesNotMatch(styles, /\.page-toc, \.page-path \{ display: none; \}/);
         const navigation = read('docs/web/assets/js/navigation.js');
         assert.match(navigation, /matchMedia\('\(max-width: 1439px\)'\)/);

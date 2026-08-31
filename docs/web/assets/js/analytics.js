@@ -26,7 +26,10 @@ let analyticsEnabled = false;
 let analyticsConfigured = false;
 
 function currentRoute() {
-    return (window.location.hash || '#home').slice(1) || 'home';
+    const registeredPath = window.ESPectreRoutes?.routeForPath(window.location.pathname);
+    if (registeredPath) return registeredPath;
+    const legacyHash = (window.location.hash || '').slice(1);
+    return window.ESPectreRoutes?.has(legacyHash) ? legacyHash : 'home';
 }
 
 function getRouteTitle(route = currentRoute()) {
@@ -48,7 +51,7 @@ function getSiteSection(route = currentRoute()) {
 
 function routePath(route) {
     return window.ESPectreRoutes?.get(route)?.staticPath
-        || (route === 'home' ? '/' : `/#${route}`);
+        || '/';
 }
 
 function analyticsAllowedHere() {
@@ -335,7 +338,13 @@ window.ESPectreAnalytics = Object.freeze({
     consent: storedConsent
 });
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        await window.ESPectreRoutesReady;
+    } catch (error) {
+        console.error('Analytics disabled because route metadata is unavailable:', error);
+        return;
+    }
     initializeConsentControls();
     initializeAutoTracking();
 });

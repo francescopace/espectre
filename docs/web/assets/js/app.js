@@ -11,8 +11,7 @@
 'use strict';
 
 
-    const routeRegistry = window.ESPectreRoutes;
-    if (!routeRegistry) throw new Error('ESPectre route registry is unavailable');
+    let routeRegistry = null;
     const sitePolicy = window.ESPectreSite;
     if (!sitePolicy) throw new Error('ESPectre site policy is unavailable');
     const browserSupport = window.ESPectreBrowserSupport && window.ESPectreBrowserSupport.current;
@@ -118,6 +117,31 @@
         return promise;
     }
 
+    let releaseBadgeChecked = false;
+
+    async function updateReleaseBadge() {
+        if (releaseBadgeChecked) return;
+        releaseBadgeChecked = true;
+        try {
+            const response = await fetch(
+                '/artifacts/firmware/release/firmware-manifest-release.json',
+                { cache: 'no-store' }
+            );
+            if (!response.ok) {
+                const error = new Error(`HTTP ${response.status}`);
+                error.status = response.status;
+                throw error;
+            }
+            const manifest = await response.json();
+            const version = String(manifest.release_tag || manifest.version || '').replace(/^v/, '');
+            if (!version) return;
+            $('.js-release-text').textContent = `v${version} available`;
+            $('.js-release-badge').hidden = false;
+        } catch (error) {
+            if (error && error.status !== 404) console.warn('Release badge unavailable:', error);
+        }
+    }
+
     /* ============================================================= routing */
 
     function focusRouteContent(routeName = route) {
@@ -155,6 +179,106 @@
         history.replaceState(null, '', url.pathname + url.search + url.hash);
     }
 
+    function normalizedRouteName(candidate) {
+        const remapped = LEGACY_TOOL_ROUTES[candidate] || candidate;
+        return routeRegistry.has(remapped) ? remapped : 'home';
+    }
+
+    function routeFromLocation() {
+        const hashRoute = (location.hash || '').slice(1);
+        if (routeRegistry.has(LEGACY_TOOL_ROUTES[hashRoute] || hashRoute)) {
+            return normalizedRouteName(hashRoute);
+        }
+        return routeRegistry.routeForPath(location.pathname) || 'home';
+    }
+
+    function routeHistoryUrl(routeName, { anchor = '', preserveSearch = false } = {}) {
+        const definition = routeRegistry.get(routeName);
+        const url = new URL(location.href);
+        url.pathname = definition?.staticPath || '/';
+        if (!preserveSearch) url.search = '';
+        url.hash = anchor ? `#${anchor}` : '';
+        return url.pathname + url.search + url.hash;
+    }
+
+    function syncRouteMetadata(routeName) {
+        const definition = routeRegistry.get(routeName);
+        const title = window.getRouteTitle
+            ? window.getRouteTitle(routeName)
+            : 'ESPectre — Wi-Fi motion sensing';
+        const description = definition?.description || '';
+        const canonicalLink = document.querySelector('link[rel="canonical"]');
+        const canonicalOrigin = canonicalLink
+            ? new URL(canonicalLink.href).origin
+            : routeRegistry.siteOrigin;
+        const canonical = new URL(definition?.staticPath || '/', canonicalOrigin).href;
+        document.title = title;
+        if (canonicalLink) canonicalLink.href = canonical;
+        const ogUrl = document.querySelector('meta[property="og:url"]');
+        const ogTitle = document.querySelector('meta[property="og:title"]');
+        const ogDescription = document.querySelector('meta[property="og:description"]');
+        const twitterTitle = document.querySelector('meta[name="twitter:title"]');
+        const twitterDescription = document.querySelector('meta[name="twitter:description"]');
+        const metaDescription = document.querySelector('meta[name="description"]');
+        if (ogUrl) ogUrl.content = canonical;
+        if (ogTitle) ogTitle.content = title;
+        if (ogDescription) ogDescription.content = description;
+        if (twitterTitle) twitterTitle.content = title;
+        if (twitterDescription) twitterDescription.content = description;
+        if (metaDescription) metaDescription.content = description;
+    }
+
+    function replaceLegacyRouteLocation(routeName) {
+        const hashRoute = (location.hash || '').slice(1);
+        if (!routeRegistry.has(LEGACY_TOOL_ROUTES[hashRoute] || hashRoute)) return;
+        history.replaceState(
+            { espectreRoute: routeName },
+            '',
+            routeHistoryUrl(routeName, {
+                anchor: pendingRouteAnchor,
+                preserveSearch: true
+            })
+        );
+    }
+
+    function navigateToRoute(next, { anchor = '', focus = true, replace = false } = {}) {
+        const target = normalizedRouteName(next);
+        const sameRoute = target === route;
+        pendingRouteAnchor = anchor;
+        history[replace ? 'replaceState' : 'pushState'](
+            { espectreRoute: target },
+            '',
+            routeHistoryUrl(target, { anchor })
+        );
+        if (!sameRoute) {
+            setRoute(target, { focus });
+            return;
+        }
+        if (!anchor) return;
+        pendingRouteAnchor = '';
+        void loadStaticContent(target).then((ready) => {
+            if (ready && !focusRouteAnchor(target, anchor)) focusRouteContent(target);
+        });
+    }
+
+    window.navigateToRoute = navigateToRoute;
+
+    function onPopState() {
+        const target = routeFromLocation();
+        const hash = (location.hash || '').slice(1);
+        const anchor = routeRegistry.has(LEGACY_TOOL_ROUTES[hash] || hash) ? '' : hash;
+        if (target === route) {
+            if (anchor) {
+                void loadStaticContent(target).then((ready) => {
+                    if (ready && !focusRouteAnchor(target, anchor)) focusRouteContent(target);
+                });
+            }
+            return;
+        }
+        pendingRouteAnchor = anchor;
+        setRoute(target);
+    }
+
     function applyRoute({ focus = true } = {}) {
         const routeAtStart = route;
         const anchorAtStart = pendingRouteAnchor;
@@ -173,11 +297,11 @@
             if (active) link.setAttribute('aria-current', 'page');
             else link.removeAttribute('aria-current');
         });
-        document.title = window.getRouteTitle
-            ? window.getRouteTitle(route)
-            : 'ESPectre — Wi-Fi motion sensing';
+        syncRouteMetadata(route);
         window.scrollTo(0, 0);
-        if (route !== 'tool-theremin') thereminStop();
+        if (route !== 'tool-theremin' && typeof window.thereminStop === 'function') {
+            window.thereminStop();
+        }
         const contentPromise = $(`[data-page="${routeAtStart}"] .js-static-content`)
             ? prepareRouteContent(routeAtStart)
             : Promise.resolve(true);
@@ -189,14 +313,14 @@
             renderStoredDirectEndpoints();
             renderConnection();
             consumeDirectHandoff();
-            if (routeAtStart === 'tool-monitor') monitorResizeChart();
-            if (routeAtStart === 'tool-raw-csi') rawCsiUseConnection();
+            if (routeAtStart === 'tool-monitor') window.monitorResizeChart();
+            if (routeAtStart === 'tool-raw-csi') window.rawCsiUseConnection();
             if (routeAtStart === 'tool-game') {
-                void gameLoadFactoryImage();
+                void window.gameLoadFactoryImage();
                 requestAnimationFrame(() => {
-                    gameResizeCanvas();
-                    gameSetFlight(gameSensingActive());
-                    gameStartPreview();
+                    window.gameResizeCanvas();
+                    window.gameSetFlight(window.gameSensingActive());
+                    window.gameStartPreview();
                 });
             }
             if (routeAtStart === 'tool-flash') {
@@ -237,32 +361,29 @@
      * reports two page views.
      */
     function setRoute(next, { force = false, focus = true } = {}) {
-        const remapped = LEGACY_TOOL_ROUTES[next] || next;
-        const target = routeRegistry.has(remapped) ? remapped : 'home';
+        const target = normalizedRouteName(next);
         if (!force && target === route) return;
         cancelDirectDiscovery({ clear: true });
         const previousRoute = route;
         clearApiReferenceLocation(previousRoute, target);
-        if (previousRoute === 'tool-raw-csi' && target !== 'tool-raw-csi') {
-            void rawCsiStop();
+        if (previousRoute === 'tool-raw-csi' && target !== 'tool-raw-csi'
+                && typeof window.rawCsiStop === 'function') {
+            void window.rawCsiStop();
         }
         if (pendingLiveDestination) {
             if (LIVE_EXPERIENCE_ROUTES.has(target)) pendingLiveDestination = target;
             else if (target !== 'tool-monitor' && target !== 'tool-configure') pendingLiveDestination = '';
         }
-        if (previousRoute === 'tool-game' && target !== 'tool-game') {
-            gameExitFullscreen();
-            reportGameAbandon('route_change');
+        if (previousRoute === 'tool-game' && target !== 'tool-game'
+                && typeof window.gameExitFullscreen === 'function') {
+            window.gameExitFullscreen();
+            window.reportGameAbandon('route_change');
         }
         if (target === 'tool-game' && previousRoute !== 'tool-game') resetGameThreshold();
         route = target;
         dropdownOpen = false;
         applyRoute({ focus });
         renderConnection();
-    }
-
-    function onHashChange() {
-        setRoute((location.hash || '#home').slice(1));
     }
 
     /* ======================================================= static content */
@@ -277,23 +398,39 @@
     const staticContentLoads = new Map();
     const initializedToolRoutes = new Set();
     const toolInitializers = Object.freeze({
-        'tool-flash': flashInit,
-        'tool-configure': configureInit,
-        'tool-monitor': monitorInit,
-        'tool-raw-csi': rawCsiInit,
-        'tool-theremin': thereminInit,
-        'tool-game': gameInit
+        'tool-flash': 'flashInit',
+        'tool-configure': 'configureInit',
+        'tool-monitor': 'monitorInit',
+        'tool-raw-csi': 'rawCsiInit',
+        'tool-theremin': 'thereminInit',
+        'tool-game': 'gameInit'
     });
+
+    function toolScriptUrl(routeName) {
+        return $(`[data-page="${routeName}"]`)?.dataset.scriptSrc || '';
+    }
+
+    async function loadToolScript(routeName) {
+        const src = toolScriptUrl(routeName);
+        if (src) await loadScriptOnce(src);
+    }
+
+    async function ensureActiveToolScripts() {
+        await loadToolScript(route);
+    }
 
     function loadStaticContent(route) {
         const container = $(`[data-page="${route}"] .js-static-content`);
         if (!container || container.dataset.loaded === 'true') return Promise.resolve(true);
         if (staticContentLoads.has(route)) return staticContentLoads.get(route);
-        const contentUrl = container.dataset.contentUrl;
+        const definition = routeRegistry.get(route);
+        const contentPath = routeRegistry.contentPath(route);
+        if (!contentPath || !definition?.staticPath) return Promise.resolve(false);
+        const contentUrl = `/${contentPath}`;
         const load = (async () => {
             try {
                 if (!staticContentCache.has(contentUrl)) {
-                    const response = await fetch(contentUrl);
+                    const response = await fetch(contentUrl, { cache: 'no-cache' });
                     if (!response.ok) throw new Error('HTTP ' + response.status);
                     staticContentCache.set(contentUrl, await response.text());
                 }
@@ -309,7 +446,7 @@
             } catch (error) {
                 console.warn('Static content fetch failed:', error);
                 container.innerHTML = '<p class="guide-loading">This page could not be loaded. '
-                    + '<a href="' + container.dataset.staticUrl + '">Open the standalone page</a>.</p>';
+                    + '<a href="' + definition.staticPath + '">Open the standalone page</a>.</p>';
                 return false;
             }
         })();
@@ -320,8 +457,13 @@
 
     async function prepareRouteContent(route) {
         const ready = await loadStaticContent(route);
-        const initializer = toolInitializers[route];
-        if (!ready || !initializer || initializedToolRoutes.has(route)) return ready;
+        const initializerName = toolInitializers[route];
+        if (!ready || !initializerName || initializedToolRoutes.has(route)) return ready;
+        await loadToolScript(route);
+        const initializer = window[initializerName];
+        if (typeof initializer !== 'function') {
+            throw new Error(`Tool initializer ${initializerName} is unavailable`);
+        }
         initializer();
         initializedToolRoutes.add(route);
         if (conn.mode === 'demo' && demoSysinfoSnapshot) {
@@ -332,11 +474,10 @@
 
     /*
      * Fragments and content cards link to the canonical static URLs. Inside
-     * the app those clicks become hash navigation, so the page never reloads
-     * and an active connection survives; modified clicks (new tab) are left
-     * to the browser. Root-anchored hash links are normalized for the same
-     * reason: from /index.html they would otherwise reload onto /. Same-page
-     * anchors scroll within the active SPA page without replacing its route.
+     * the app those clicks use the History API, so the address remains
+     * shareable without reloading or dropping an active device connection.
+     * Legacy root hash routes remain valid entry points. Modified clicks are
+     * left to the browser, and same-page anchors stay on the active route.
      */
     function interceptCanonicalLinks(event) {
         if (event.defaultPrevented || event.button !== 0) return;
@@ -347,21 +488,12 @@
         const staticTarget = routeRegistry.staticTargetForHref(href, location.href);
         if (staticTarget) {
             event.preventDefault();
-            const routeHash = '#' + staticTarget.route;
-            if (location.hash !== routeHash) {
-                pendingRouteAnchor = staticTarget.anchor;
-                location.hash = routeHash;
-            } else if (staticTarget.anchor) {
-                loadStaticContent(staticTarget.route).finally(() => {
-                    if (route !== staticTarget.route) return;
-                    if (!focusRouteAnchor(staticTarget.route, staticTarget.anchor)) {
-                        focusRouteContent(staticTarget.route);
-                    }
-                });
-            }
+            navigateToRoute(staticTarget.route, { anchor: staticTarget.anchor });
         } else if (href.startsWith('/#')) {
+            const legacyRoute = href.slice(2).split('?')[0];
+            if (!routeRegistry.has(LEGACY_TOOL_ROUTES[legacyRoute] || legacyRoute)) return;
             event.preventDefault();
-            location.hash = href.slice(1);
+            navigateToRoute(legacyRoute);
         } else if (href.startsWith('#') && href.length > 1) {
             const page = $(`[data-page="${route}"]`);
             const targetId = href.slice(1);
@@ -374,6 +506,11 @@
             const target = page && document.getElementById(decodedTargetId);
             if (!target || !page.contains(target)) return;
             event.preventDefault();
+            history.pushState(
+                { espectreRoute: route },
+                '',
+                routeHistoryUrl(route, { anchor: targetId })
+            );
             focusRouteAnchor(route, targetId);
         }
     }
@@ -541,37 +678,78 @@
         renderScrolly();
     }
 
+    async function runToolAction(load, action) {
+        try {
+            await load();
+            return await action();
+        } catch (error) {
+            console.warn('Browser tool could not be loaded:', error);
+            toast('This browser tool could not be loaded. Refresh the page and try again.');
+            return undefined;
+        }
+    }
+
+    function runConfigureAction(action) {
+        return runToolAction(() => loadToolScript('tool-configure'), action);
+    }
+
+    function runConnectionAction(action) {
+        return runToolAction(ensureActiveToolScripts, action);
+    }
+
     function sharedDialogsInit() {
         $$('.js-matter-close').forEach((button) => {
-            button.addEventListener('click', () => matterClose());
+            button.addEventListener('click', () => {
+                void runConfigureAction(() => window.matterClose());
+            });
         });
         $('.js-matter-modal').addEventListener('click', (event) => {
-            if (event.target === event.currentTarget) matterClose();
+            if (event.target === event.currentTarget) {
+                void runConfigureAction(() => window.matterClose());
+            }
         });
         $$('.js-config-clear-cancel').forEach((button) => {
-            button.addEventListener('click', () => closeConfigClearDialog(false));
+            button.addEventListener('click', () => {
+                void runConfigureAction(() => window.closeConfigClearDialog(false));
+            });
         });
-        $('.js-config-clear-confirm').addEventListener('click', () => closeConfigClearDialog(true));
+        $('.js-config-clear-confirm').addEventListener('click', () => {
+            void runConfigureAction(() => window.closeConfigClearDialog(true));
+        });
         $('.js-config-clear-modal').addEventListener('click', (event) => {
-            if (event.target === event.currentTarget) closeConfigClearDialog(false);
+            if (event.target === event.currentTarget) {
+                void runConfigureAction(() => window.closeConfigClearDialog(false));
+            }
         });
-        $('.js-ota-start').addEventListener('click', cfgOtaStart);
+        $('.js-ota-start').addEventListener('click', () => {
+            void runConfigureAction(() => window.cfgOtaStart());
+        });
         document.getElementById('ota-channel').addEventListener('change', () => {
-            if (conn.mode === null) return;
-            otaChannelChanged = true;
-            startManualOtaCheck();
+            void runConfigureAction(() => {
+                if (conn.mode === null) return;
+                otaChannelChanged = true;
+                window.startManualOtaCheck();
+            });
         });
         $$('.js-ota-close').forEach((button) => {
-            button.addEventListener('click', () => otaClose());
+            button.addEventListener('click', () => {
+                void runConfigureAction(() => window.otaClose());
+            });
         });
         $('.js-ota-modal').addEventListener('click', (event) => {
-            if (event.target === event.currentTarget) otaClose();
+            if (event.target === event.currentTarget) {
+                void runConfigureAction(() => window.otaClose());
+            }
         });
         document.addEventListener('keydown', (event) => {
             if (event.key !== 'Escape') return;
-            if (!$('.js-matter-modal').hidden) matterClose();
-            else if (!$('.js-config-clear-modal').hidden) closeConfigClearDialog(false);
-            else if (!$('.js-ota-modal').hidden) otaClose();
+            if (!$('.js-matter-modal').hidden) {
+                void runConfigureAction(() => window.matterClose());
+            } else if (!$('.js-config-clear-modal').hidden) {
+                void runConfigureAction(() => window.closeConfigClearDialog(false));
+            } else if (!$('.js-ota-modal').hidden) {
+                void runConfigureAction(() => window.otaClose());
+            }
         });
     }
 
@@ -580,14 +758,14 @@
             if (!(event.target instanceof Element)) return;
             const connectButton = event.target.closest('.js-connect-direct');
             if (connectButton) {
-                void connectDirect({
+                void runConnectionAction(() => connectDirect({
                     openView: connectButton.closest('espectre-direct-connect')?.dataset.openView
-                });
+                }));
                 return;
             }
             const discoveryButton = event.target.closest('.js-direct-discover');
             if (discoveryButton) {
-                void discoverLocalPeers(discoveryButton);
+                void runConnectionAction(() => discoverLocalPeers(discoveryButton));
                 return;
             }
             const discoveredDevice = event.target.closest('.direct-discovery-device');
@@ -595,47 +773,57 @@
                 const input = discoveredDevice.closest('.device-connect-card')
                     ?.querySelector('input[list="direct-remembered-endpoints"]');
                 if (input) input.value = discoveredDevice.dataset.deviceId;
-                void connectDirect({
+                void runConnectionAction(() => connectDirect({
                     endpoint: discoveredDevice.dataset.endpoint,
                     deviceId: discoveredDevice.dataset.deviceId,
                     openView: discoveredDevice.closest('espectre-direct-connect')?.dataset.openView
-                });
+                }));
                 return;
             }
             const startButton = event.target.closest('.js-start-detection');
             if (startButton) {
-                void startDetection(startButton.dataset.liveTransport || '');
+                void runConnectionAction(() => startDetection(startButton.dataset.liveTransport || ''));
                 return;
             }
             const demoButton = event.target.closest('.js-demo');
             if (demoButton) {
-                connectDemo(demoButton.closest('espectre-connection-picker')?.dataset.openView || '');
+                void runConnectionAction(() => connectDemo(
+                    demoButton.closest('espectre-connection-picker')?.dataset.openView || ''
+                ));
                 return;
             }
             const firmwareButton = event.target.closest('.js-firmware-update-notice');
-            if (firmwareButton) otaOpen(firmwareButton);
+            if (firmwareButton) {
+                void runConfigureAction(() => window.otaOpen(firmwareButton));
+            }
         });
     }
 
     /* ================================================================ init */
 
-    function init() {
+    async function init() {
+        routeRegistry = await window.ESPectreRoutesReady;
+        if (!routeRegistry) throw new Error('ESPectre route registry is unavailable');
         scrollyInit();
 
         renderBrowserSupport();
         renderDirectBrowserGuidance();
         renderStoredDirectEndpoints();
         consumeRouteAnchorHandoff();
+        const initialRoute = routeFromLocation();
+        replaceLegacyRouteLocation(initialRoute);
         sharedDialogsInit();
         sharedToolControlsInit();
         $('.js-header-connect').addEventListener('click', () => {
-            selectMonitorTransport('direct');
-            if (route === 'tool-monitor') {
-                document.getElementById('monitor-direct-endpoint')?.focus();
-                return;
-            }
-            pendingLiveDestination = '';
-            location.hash = '#tool-monitor';
+            void runConnectionAction(() => {
+                window.selectMonitorTransport('direct');
+                if (route === 'tool-monitor') {
+                    document.getElementById('monitor-direct-endpoint')?.focus();
+                    return;
+                }
+                pendingLiveDestination = '';
+                navigateToRoute('tool-monitor');
+            });
         });
         $('.js-disconnect').addEventListener('click', disconnect);
         $('.js-dropdown-toggle').addEventListener('click', (event) => {
@@ -655,15 +843,19 @@
             focusRouteContent();
         });
         document.addEventListener('mousemove', demoTrackMouse, { passive: true });
-        window.addEventListener('hashchange', onHashChange);
-        setRoute((location.hash || '#home').slice(1), { force: true, focus: false });
+        window.addEventListener('popstate', onPopState);
+        setRoute(initialRoute, { force: true, focus: false });
     }
 
     document.addEventListener('espectre:analytics-enabled', () => {
         if (window.trackRouteView) window.trackRouteView(route, { sendPageView: false });
         if (conn.readyState) markToolReady(conn.readyState);
-        if (monitor.readyState) markMonitorReady(monitor.readyState);
-        if (conn.mode === 'direct' && directClient) cfgRefreshDevice();
+        if (monitor.readyState && typeof window.markMonitorReady === 'function') {
+            window.markMonitorReady(monitor.readyState);
+        }
+        if (conn.mode === 'direct' && directClient && typeof window.cfgRefreshDevice === 'function') {
+            window.cfgRefreshDevice();
+        }
         if (route === 'tool-flash') {
             void prepareRouteContent(route).then((ready) => {
                 if (ready && route === 'tool-flash') flashRefresh();
@@ -672,9 +864,13 @@
     });
     window.addEventListener('pagehide', (event) => {
         if (event.persisted) return;
-        void rawCsiStop();
-        reportGameAbandon('page_exit');
+        if (typeof window.rawCsiStop === 'function') void window.rawCsiStop();
+        if (typeof window.reportGameAbandon === 'function') {
+            window.reportGameAbandon('page_exit');
+        }
         if (conn.mode) teardownConnection('page_exit');
-        else monitorStopAll('page_exit');
+        else if (typeof window.monitorStopAll === 'function') window.monitorStopAll('page_exit');
     });
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', () => {
+        void init().catch((error) => console.error('Unable to initialize ESPectre:', error));
+    });

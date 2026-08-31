@@ -1,0 +1,240 @@
+{
+  "siteOrigin": "https://espectre.dev",
+  "navigation": {
+    "main": ["home", "tools", "guides", "sdk", "roadmap", "media"],
+    "footer": ["privacy", "terms", "legal", "security", "licensing", "contact"]
+  },
+  "sdkChannels": [
+    { "path": "/artifacts/sdk/release/", "analyticsName": "sdk_release", "sdkChannel": "release" },
+    { "path": "/artifacts/sdk/preview/", "analyticsName": "sdk_preview", "sdkChannel": "preview" },
+    { "path": "/artifacts/sdk/develop/", "analyticsName": "sdk_develop", "sdkChannel": "develop" }
+  ],
+  "routes": [
+    {
+      "name": "home",
+      "title": "ESPectre — Wi-Fi motion sensing",
+      "description": "Turn a supported ESP32 into a local Wi-Fi motion sensor without cameras, microphones, or dedicated sensing hardware. Flash from the browser, or embed the C++ SDK into your firmware.",
+      "staticPath": "/"
+    },
+    {
+      "name": "tools",
+      "title": "Tools | ESPectre",
+      "description": "Flash ESPectre firmware, configure a local device, monitor sensing, and explore interactive motion experiences from the browser.",
+      "staticPath": "/tools/"
+    },
+    {
+      "name": "tool-flash",
+      "group": "tools",
+      "pathLabel": "Install",
+      "title": "Install | ESPectre",
+      "description": "Install ESPectre firmware on a supported ESP32 over USB from a Chromium-based browser.",
+      "staticPath": "/tools/flash/",
+      "analyticsName": "flash"
+    },
+    {
+      "name": "tool-configure",
+      "group": "tools",
+      "pathLabel": "Configure",
+      "title": "Configure | ESPectre",
+      "description": "Connect directly to a local ESPectre device to manage its name, Wi-Fi link, MQTT integration, and firmware updates.",
+      "staticPath": "/tools/configure/",
+      "analyticsName": "configure"
+    },
+    {
+      "name": "tool-monitor",
+      "group": "tools",
+      "pathLabel": "Monitor",
+      "title": "Monitor | ESPectre",
+      "description": "View ESPectre motion live, adjust detection settings, recalibrate the room, and inspect device diagnostics.",
+      "staticPath": "/tools/monitor/",
+      "analyticsName": "monitor"
+    },
+    {
+      "name": "tool-raw-csi",
+      "group": "tools",
+      "pathLabel": "Raw Signal",
+      "title": "Raw signal | ESPectre",
+      "description": "Explore a temporary ESPectre CSI stream through amplitude, phase, I/Q, delivery, and signal-health views.",
+      "staticPath": "/tools/raw-csi/",
+      "analyticsName": "raw-csi"
+    },
+    {
+      "name": "tool-game",
+      "group": "tools",
+      "pathLabel": "Game",
+      "title": "Game | ESPectre",
+      "description": "Control an endless flight game with ESPectre motion sensing or a pointer-driven browser demo.",
+      "staticPath": "/tools/game/",
+      "analyticsName": "game"
+    },
+    {
+      "name": "tool-theremin",
+      "group": "tools",
+      "pathLabel": "Theremin",
+      "title": "Theremin | ESPectre",
+      "description": "Turn an ESPectre movement score into sound with a local device or simulated motion in the browser.",
+      "staticPath": "/tools/theremin/",
+      "analyticsName": "theremin"
+    },
+    {
+      "name": "guides",
+      "title": "Guides | ESPectre",
+      "description": "Guides for ESP32 board choice, flashing, detection behavior, and the future of standards-backed Wi-Fi sensing.",
+      "staticPath": "/guides/",
+      "analyticsName": "overview"
+    },
+    {
+      "name": "guide-detection",
+      "group": "guides",
+      "pathLabel": "Detection",
+      "title": "How Wi-Fi sensing detects movement | ESPectre",
+      "description": "How Wi-Fi packets, multipath, and Channel State Information let a low-cost ESP32 detect movement without cameras or microphones.",
+      "staticPath": "/guides/detection/"
+    },
+    {
+      "name": "guide-hardware",
+      "group": "guides",
+      "pathLabel": "Hardware",
+      "title": "Choose your hardware | ESPectre",
+      "description": "Which ESP32 board to buy for Wi-Fi motion sensing, what actually affects detection quality, and how products can embed ESPectre.",
+      "staticPath": "/guides/hardware/"
+    },
+    {
+      "name": "guide-setup",
+      "group": "guides",
+      "pathLabel": "Setup",
+      "title": "Flash and set up your device | ESPectre",
+      "description": "From a blank ESP32 board to a working Wi-Fi motion sensor, entirely from the browser: flashing, provisioning, and calibration.",
+      "staticPath": "/guides/setup/"
+    },
+    {
+      "name": "guide-placement",
+      "group": "guides",
+      "pathLabel": "Placement",
+      "title": "Place your ESPectre sensor | ESPectre",
+      "description": "Place an ESPectre Wi-Fi motion sensor using practical distance, RSSI, antenna orientation, obstacle, and room-testing guidance.",
+      "staticPath": "/guides/placement/"
+    },
+    {
+      "name": "guide-home-assistant",
+      "group": "guides",
+      "pathLabel": "Home Assistant",
+      "title": "Build your Home Assistant dashboard | ESPectre",
+      "description": "Build the maintained ESPectre Home Assistant dashboard for motion, movement history, and runtime controls.",
+      "staticPath": "/guides/home-assistant/"
+    },
+    {
+      "name": "guide-detectors",
+      "group": "guides",
+      "pathLabel": "Detector profiles",
+      "title": "Choose your detection profile | ESPectre",
+      "description": "Compare ESPectre Lightweight and High-Accuracy Detection by CPU, memory, startup behavior, detection quality, and product fit.",
+      "staticPath": "/guides/detectors/"
+    },
+    {
+      "name": "guide-micropython",
+      "group": "guides",
+      "pathLabel": "MicroPython",
+      "title": "Run ESPectre on MicroPython | ESPectre",
+      "description": "Use the upstream ESP32 Wi-Fi CSI support contributed by ESPectre to run on-device motion sensing in MicroPython.",
+      "staticPath": "/guides/micropython/"
+    },
+    {
+      "name": "guide-future-wifi-sensing",
+      "group": "guides",
+      "pathLabel": "Future Wi-Fi sensing",
+      "title": "The future of Wi-Fi sensing | ESPectre",
+      "description": "How IEEE 802.11bf makes sensing an explicit Wi-Fi capability, why it inspired ESPectre, and what standards-backed hardware could enable.",
+      "staticPath": "/guides/future-wifi-sensing/",
+      "analyticsName": "future-wifi-sensing"
+    },
+    {
+      "name": "sdk",
+      "pathLabel": "SDK",
+      "title": "SDK | ESPectre",
+      "description": "Embed the ESPectre C++ sensing runtime in an ESP-IDF product with a concise setup path, integration examples, and architecture overview.",
+      "staticPath": "/sdk/",
+      "analyticsName": "overview"
+    },
+    {
+      "name": "sdk-architecture",
+      "group": "sdk",
+      "pathLabel": "Architecture",
+      "title": "Architecture | ESPectre",
+      "description": "How ESPectre splits reusable sensing code across core, runtime, and frontend layers, including ports to new platforms.",
+      "staticPath": "/sdk/architecture/"
+    },
+    {
+      "name": "sdk-detectors",
+      "group": "sdk",
+      "pathLabel": "Detectors",
+      "title": "Detectors | ESPectre",
+      "description": "How ESPectre turns timestamped Wi-Fi CSI into on-device motion decisions with temporal admission, selected frequency views, and two detector profiles.",
+      "staticPath": "/sdk/detectors/"
+    },
+    {
+      "name": "sdk-api",
+      "group": "sdk",
+      "pathLabel": "API",
+      "title": "API | ESPectre",
+      "description": "Find the main ESPectre SDK types, understand the runtime lifecycle, and browse the generated API reference in the shared portal.",
+      "staticPath": "/sdk/api/"
+    },
+    {
+      "name": "sdk-examples",
+      "group": "sdk",
+      "pathLabel": "Examples",
+      "title": "Examples | ESPectre",
+      "description": "Choose among the maintained ESPHome, Native, and Matter frontends when embedding ESPectre in a product.",
+      "staticPath": "/sdk/examples/"
+    },
+    {
+      "name": "media",
+      "title": "Media | ESPectre",
+      "description": "Articles, tutorials, independent coverage, podcasts, and community conversations about the ESPectre Wi-Fi sensing platform.",
+      "staticPath": "/media/"
+    },
+    {
+      "name": "roadmap",
+      "title": "Roadmap | ESPectre",
+      "description": "ESPectre's roadmap for privacy-first, local Wi-Fi sensing: a stable embeddable v3 platform, optional multi-node orchestration, measured research, and future standards-backed radios.",
+      "staticPath": "/roadmap/"
+    },
+    {
+      "name": "privacy",
+      "title": "Privacy | ESPectre",
+      "description": "How the ESPectre website handles analytics consent, cookies, browser-tool data, retention, and privacy choices.",
+      "staticPath": "/privacy/"
+    },
+    {
+      "name": "terms",
+      "title": "Terms | ESPectre",
+      "description": "Terms governing the ESPectre website, browser tools, authorized use, open-source software, and the current commercial boundary.",
+      "staticPath": "/terms/"
+    },
+    {
+      "name": "legal",
+      "title": "Legal | ESPectre",
+      "description": "Current operator identity, project status, commercial boundary, copyright, licensing, and legal contact information for ESPectre.",
+      "staticPath": "/legal/"
+    },
+    {
+      "name": "security",
+      "title": "Security | ESPectre",
+      "description": "How ESPectre limits Wi-Fi sensing, supports responsible deployment, rejects abuse, and receives private vulnerability reports.",
+      "staticPath": "/security/"
+    },
+    {
+      "name": "licensing",
+      "title": "Licensing | ESPectre",
+      "description": "Commercial licensing and optional engineering support for embedding ESPectre sensing layers in proprietary ESP-IDF firmware.",
+      "staticPath": "/licensing/"
+    },
+    {
+      "name": "contact",
+      "title": "Contact | ESPectre",
+      "description": "Contact ESPectre for product and licensing inquiries, community support, or bug reports.",
+      "staticPath": "/contact/"
+    }
+  ]
+}

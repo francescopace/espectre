@@ -17,6 +17,9 @@ const analyticsSource = readFileSync(
 const routeRegistrySource = readFileSync(
     new URL('../../docs/web/assets/js/route-registry.js', import.meta.url), 'utf8'
 );
+const routeManifest = JSON.parse(readFileSync(
+    new URL('../../docs/web/routes.json', import.meta.url), 'utf8'
+));
 const testExports = `
 globalThis.__analyticsTest = {
     analyticsAllowedHere, disableAnalytics, enableAnalytics, getRouteTitle, getSiteSection,
@@ -26,7 +29,7 @@ globalThis.__analyticsTest = {
 
 function analyticsContext({
     hostname = 'espectre.dev', path = '/', hash = '', staticPage = false,
-    navigatorValues = {}, storedConsent = null
+    navigatorValues = {}, storedConsent = null, preloadManifest = true
 } = {}) {
     const appendedScripts = [];
     const listeners = new Map();
@@ -59,8 +62,14 @@ function analyticsContext({
             setItem: (_key, value) => { consentValue = value; }
         }
     };
+    if (preloadManifest) window.ESPectreRouteManifest = routeManifest;
     const context = vm.createContext({
         console, Date, Map, Set, URL, Object, navigator: navigatorValues, document, location,
+        fetch: async (url) => ({
+            ok: url === '/routes.json',
+            status: url === '/routes.json' ? 200 : 404,
+            json: async () => routeManifest
+        }),
         CustomEvent: class CustomEvent { constructor(type) { this.type = type; } },
         window, globalThis: null
     });
@@ -192,6 +201,20 @@ describe('analytics privacy boundary', () => {
 });
 
 describe('analytics route metadata', () => {
+    it('waits for the directly fetched manifest before using route metadata', async () => {
+        const { api, listeners, window } = analyticsContext({
+            path: '/tools/monitor/', preloadManifest: false, storedConsent: 'granted'
+        });
+        await listeners.get('DOMContentLoaded')();
+        api.sendRoutePageView('tool-monitor');
+        const pageViews = window.dataLayer.filter(
+            (entry) => entry[0] === 'event' && entry[1] === 'page_view'
+        );
+        assert.equal(pageViews.length, 1);
+        assert.equal(pageViews[0][2].page_path, '/tools/monitor/');
+        assert.equal(pageViews[0][2].content_group, 'monitor');
+    });
+
     it('uses stable content groups and route paths', () => {
         const { api, window } = analyticsContext({ hash: '#tool-configure' });
         assert.equal(api.getSiteSection('tool-configure'), 'configure');
@@ -260,7 +283,7 @@ describe('analytics route metadata', () => {
     });
 
     it('reports the Raw CSI SPA route through its canonical page path', () => {
-        const { api, window } = analyticsContext({ hash: '#tool-raw-csi' });
+        const { api, window } = analyticsContext({ path: '/tools/raw-csi/' });
         api.enableAnalytics({ sendPageView: false });
         api.sendRoutePageView('tool-raw-csi');
         const pageView = window.dataLayer.at(-1);
@@ -271,10 +294,10 @@ describe('analytics route metadata', () => {
 });
 
 describe('analytics automatic events', () => {
-    it('tracks contact and public tool links added after analytics initialization', () => {
+    it('tracks contact and public tool links added after analytics initialization', async () => {
         const { api, consentBanner, listeners, window } = analyticsContext();
         api.enableAnalytics({ sendPageView: false });
-        listeners.get('DOMContentLoaded')();
+        await listeners.get('DOMContentLoaded')();
 
         const click = listeners.get('click');
         const dispatchLink = (href, { cookieSettings = false } = {}) => {

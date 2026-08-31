@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { app, browserSupportSource, directProtocol, GPL_HTML_HEADER, index, read, roadmapContent, routeRegistry, security, styles, toolContent, toolFragments, toolsContent } from './fixtures/site_test_helpers.mjs';
+import { app, browserSupportSource, directProtocol, GPL_HTML_HEADER, index, read, roadmapContent, routeManifest, routeRegistry, security, styles, toolContent, toolFragments, toolsContent } from './fixtures/site_test_helpers.mjs';
 
 describe('website tool contracts', () => {
     it('keeps Flash guidance and actions aligned with the selected frontend', () => {
@@ -28,7 +28,7 @@ describe('website tool contracts', () => {
         assert.match(toolContent.flash, /<option value="release"/);
         assert.match(toolContent.flash, /<option value="preview"/);
         assert.match(toolContent.flash, /<option value="develop"/);
-        assert.match(app, /updateReleaseBadge[\s\S]*flashLoadManifest\('release'\)/);
+        assert.match(app, /updateReleaseBadge[\s\S]*\/artifacts\/firmware\/release\/firmware-manifest-release\.json/);
         assert.match(app, /builds: artifacts\.map\(\(artifact\) => \(\{/);
         assert.match(app, /chipFamily: artifact\.chip_family/);
         assert.match(app, /const requestId = \+\+flash\.refreshRequest;/);
@@ -43,7 +43,7 @@ describe('website tool contracts', () => {
         assert.match(index, /class="matter-result js-matter-result" hidden>/);
         assert.match(app, /function matterOpen\(returnFocus\)/);
         assert.match(app, /matterOpen\(trigger\)/);
-        assert.match(app, /if \(!\$\('\.js-matter-modal'\)\.hidden\) matterClose\(\)/);
+        assert.match(app, /if \(!\$\('\.js-matter-modal'\)\.hidden\) \{[\s\S]*?window\.matterClose\(\)/);
         assert.match(app, /track\('matter_qr_read'/);
         assert.match(app, /installButton\.toggleAttribute\('inert', !browserSupport\.flash\)/);
         const setupGuide = read('docs/web/content/guides/setup.html');
@@ -219,7 +219,7 @@ describe('website tool contracts', () => {
         assert.match(app, /const showLiveEnergy = live/);
         assert.match(app, /js-device-edit-connectivity'\)\.addEventListener\('click', monitorEditOrCancel\)/);
         assert.match(app, /targetRoute = view === 'connectivity' \? 'tool-configure' : 'tool-monitor'/);
-        assert.match(app, /location\.hash = '#' \+ targetRoute/);
+        assert.match(app, /window\.navigateToRoute\(targetRoute\)/);
         assert.match(app, /device: 'tool-configure'/);
         assert.match(app, /const directSetup = connected && conn\.mode === 'direct'/);
         assert.match(app, /const directConnecting = conn\.status === 'connecting'/);
@@ -344,12 +344,15 @@ describe('website tool contracts', () => {
         assert.match(app, /if \(element\.shadowRoot\) text \+= ' ' \+ flashDialogText\(element\.shadowRoot\)/);
         assert.match(app, /const observedRoots = new WeakSet\(\)/);
         assert.match(app, /observeRoot\(dialog\.shadowRoot\);[\s\S]*flashDialogText\(dialog\.shadowRoot\)/);
-        assert.match(routeRegistry, /name: 'tool-configure'.*staticPath: '\/tools\/configure\/'/);
-        assert.match(index, /data-page="tool-configure"[\s\S]*?data-content-url="content\/tools\/configure\.html\?v=[0-9a-f]{12}" data-static-url="\/tools\/configure\/"/);
+        assert.equal(
+            routeManifest.routes.find((route) => route.name === 'tool-configure')?.staticPath,
+            '/tools/configure/'
+        );
+        assert.match(index, /data-page="tool-configure"/);
         assert.match(app, /const configureUrl = new URL\('\/tools\/configure\/', location\.origin\)[\s\S]*configureUrl\.search = returnedUrl\.search/);
         const staticPageBuilder = read('.github/scripts/build_static_pages.py');
-        assert.match(staticPageBuilder, /"source": "content\/tools\/configure\.html"/);
-        assert.match(staticPageBuilder, /"output": "tools\/configure"/);
+        assert.match(staticPageBuilder, /source = content_path\(route\)/);
+        assert.match(staticPageBuilder, /output = output_path\(route\)/);
         assert.doesNotMatch(staticPageBuilder, /location\.replace\(destination\)/);
         assert.match(app, /if \(item\.href !== destination\) item\.href = destination[\s\S]*if \(item\.target !== '_self'\) item\.target = '_self'/);
         assert.match(app, /const method = bssid \? 'set_wifi_bssid' : 'clear_wifi_bssid'/);
@@ -395,7 +398,7 @@ describe('website tool contracts', () => {
         assert.match(index, /js-menu-firmware[\s\S]*js-firmware-update-notice[\s\S]*js-disconnect/);
         assert.match(index, /class="conn-firmware-row"/);
         assert.match(app, /function sharedToolControlsInit\(\)/);
-        assert.match(app, /const firmwareButton = event\.target\.closest\('\.js-firmware-update-notice'\);[\s\S]*?if \(firmwareButton\) otaOpen\(firmwareButton\)/);
+        assert.match(app, /const firmwareButton = event\.target\.closest\('\.js-firmware-update-notice'\);[\s\S]*?if \(firmwareButton\) \{[\s\S]*?window\.otaOpen\(firmwareButton\)/);
         assert.match(app, /status = 'error'/);
         assert.match(app, /function otaOpen\(returnFocus\) \{\s*if \(conn\.mode === 'demo'\) return;/);
         assert.match(index, /id="ota-channel"/);
@@ -496,13 +499,13 @@ describe('website tool contracts', () => {
         assert.match(app, /const SECURE_CLOUD_MQTT_PRESETS = new Set/);
         assert.match(app, /SECURE_CLOUD_MQTT_PRESETS\.has\(presetName\)[\s\S]*?'mqtts:\/\/' \+ enteredHost/);
         assert.match(app, /function startDetection/);
-        assert.match(app, /selectMonitorTransport\('direct'\);[\s\S]*?location\.hash = '#tool-monitor'/);
+        assert.match(app, /selectMonitorTransport\('direct'\);[\s\S]*?navigateToRoute\('tool-monitor'\)/);
         assert.match(configurePage, /js-start-detection/);
         assert.match(index, /js-connect-direct/);
         assert.match(index, /class="conn-pill conn-disconnected js-header-connect"/);
         assert.match(
             app,
-            /\$\('\.js-header-connect'\)\.addEventListener\('click', \(\) => \{\s*selectMonitorTransport\('direct'\);[\s\S]*?if \(route === 'tool-monitor'\)[\s\S]*?location\.hash = '#tool-monitor';/
+            /\$\('\.js-header-connect'\)\.addEventListener\('click',[\s\S]*?window\.selectMonitorTransport\('direct'\);[\s\S]*?if \(route === 'tool-monitor'\)[\s\S]*?navigateToRoute\('tool-monitor'\);/
         );
         assert.match(toolFragments, /js-has-live/);
         assert.match(app, /input_mode: connectionInputMode\(\)/);
@@ -548,7 +551,7 @@ describe('website tool contracts', () => {
         assert.match(app, /if \(pendingLiveDestination\) completeLiveConnectionNavigation\(\)/);
         assert.match(
             app,
-            /\$\('\.js-header-connect'\)\.addEventListener\('click',[\s\S]*?pendingLiveDestination = '';[\s\S]*?location\.hash = '#tool-monitor'/
+            /\$\('\.js-header-connect'\)\.addEventListener\('click',[\s\S]*?pendingLiveDestination = '';[\s\S]*?navigateToRoute\('tool-monitor'\)/
         );
     });
 
@@ -585,7 +588,7 @@ describe('website tool contracts', () => {
         assert.match(rawClient, /const pendingStart = rawCsi\.startRequest[\s\S]*await pendingStart/);
         assert.match(rawClient, /rawCsi\.generation !== generation \|\| rawCsi\.state !== 'starting'/);
         assert.match(rawClient, /function rawCsiToggle\(\) \{[\s\S]*rawCsiStart\(\)[\s\S]*rawCsiStop\(\)/);
-        assert.match(app, /previousRoute === 'tool-raw-csi'[\s\S]*void rawCsiStop\(\)/);
+        assert.match(app, /previousRoute === 'tool-raw-csi'[\s\S]*void window\.rawCsiStop\(\)/);
         assert.match(app, /rawCapability\?\.protocol_version === 1[\s\S]*rawCapability\?\.marker === '👻'/);
     });
 
@@ -709,7 +712,7 @@ describe('website tool contracts', () => {
         assert.match(app, /- game\.scrollX\) % width/);
         assert.match(app, /const GAME_FACTORY_IMAGE_SOURCES = Object\.freeze\(\[[\s\S]*hardware-factory\.avif[\s\S]*hardware-factory\.webp/);
         assert.match(app, /function gameLoadFactoryImage\(\)/);
-        assert.match(app, /if \(routeAtStart === 'tool-game'\) \{\s*void gameLoadFactoryImage\(\)/);
+        assert.match(app, /if \(routeAtStart === 'tool-game'\) \{\s*void window\.gameLoadFactoryImage\(\)/);
         assert.match(app, /function gameDrawFactoryBackdrop/);
         assert.match(app, /function gameDrawFactoryParallax/);
         assert.match(app, /game\.scrollX \* 0\.12/);

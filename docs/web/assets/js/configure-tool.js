@@ -98,7 +98,7 @@
     /* =============================================================== flash */
 
     const flash = {
-        manifests: {}, installUrl: null, badgeChecked: false,
+        manifests: {}, installUrl: null,
         installerObserver: null, watchedDialogs: new WeakSet(), catalogReports: new Set(),
         detectedChip: '', supportedChipLabels: [], modalReturnFocus: null,
         refreshRequest: 0, targetVersion: '', usbDialog: null, usbPortInfo: null,
@@ -502,28 +502,6 @@
             flash.modalReturnFocus.focus();
         }
         flash.modalReturnFocus = null;
-    }
-
-    /**
-     * Shows the latest published release in the hero badge. The release
-     * manifest is staged by CI from the GitHub release tag, so it is already
-     * the newest version and needs no API call. The badge is decorative:
-     * it stays hidden when the manifest is unavailable.
-     */
-    async function updateReleaseBadge() {
-        if (flash.badgeChecked) return;
-        flash.badgeChecked = true;
-        try {
-            const manifest = await flashLoadManifest('release');
-            const version = String(manifest.release_tag || manifest.version || '').replace(/^v/, '');
-            if (!version) return;
-            $('.js-release-text').textContent = 'v' + version + ' available';
-            $('.js-release-badge').hidden = false;
-        } catch (error) {
-            if (error && error.status !== 404) {
-                console.warn('Release badge unavailable:', error);
-            }
-        }
     }
 
     function flashParams() {

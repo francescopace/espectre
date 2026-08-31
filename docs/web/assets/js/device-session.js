@@ -212,7 +212,7 @@
         const destination = pendingLiveDestination;
         pendingLiveDestination = '';
         if (destination && routeRegistry.has(destination)) {
-            if (route !== destination) location.hash = '#' + destination;
+            if (route !== destination) window.navigateToRoute(destination);
             return;
         }
         if (route === 'tool-monitor' || route === 'tool-configure') {
@@ -256,7 +256,7 @@
         const targetRoute = view === 'connectivity' ? 'tool-configure' : 'tool-monitor';
         activeDeviceView = targetRoute === 'tool-configure' ? 'connectivity' : 'live';
         if (route !== targetRoute) {
-            location.hash = '#' + targetRoute;
+            window.navigateToRoute(targetRoute);
             return;
         }
         const targetPanel = document.querySelector(
@@ -640,8 +640,8 @@
         gameThresholdOverride = threshold;
         paintGameThresholdControl();
         if (route === 'tool-game') {
-            gameSetFlight(gameSensingActive());
-            gameStartPreview();
+            window.gameSetFlight(window.gameSensingActive());
+            window.gameStartPreview();
         }
     }
 
@@ -719,7 +719,7 @@
             ? motionState === 1 || motionState === 'motion'
             : movement >= conn.threshold;
         renderTelemetry();
-        gameOnTelemetry();
+        if (typeof window.gameOnTelemetry === 'function') window.gameOnTelemetry();
     }
 
     /* --------------------------------------------------------- Direct mode */
@@ -746,11 +746,11 @@
         }
         if (preferredTransport === 'direct') {
             selectMonitorTransport('direct');
-            location.hash = '#tool-monitor';
+            window.navigateToRoute('tool-monitor');
             return;
         }
         selectMonitorTransport('direct');
-        location.hash = '#tool-monitor';
+        window.navigateToRoute('tool-monitor');
     }
 
     function applySysinfo(snapshot) {
@@ -977,7 +977,7 @@
     function disconnect() {
         cancelDirectDiscovery({ clear: true });
         cancelDirectReconnect();
-        void rawCsiStop();
+        if (typeof window.rawCsiStop === 'function') void window.rawCsiStop();
         const client = directClient;
         directClient = null;
         client?.close();
@@ -1005,13 +1005,15 @@
     function teardownConnection(reason = 'route_change') {
         cancelDirectDiscovery({ clear: true });
         cancelDirectReconnect();
-        void rawCsiStop();
+        if (typeof window.rawCsiStop === 'function') void window.rawCsiStop();
         monitor.switchingTransport = false;
         if (otaTracking) finishOtaTracking('unconfirmed', 'ClientDisconnected');
         if (pendingConfigVerification) {
             finishConfigVerification('unconfirmed', 'ClientDisconnected');
         }
-        reportGameAbandon('disconnect');
+        if (typeof window.reportGameAbandon === 'function') {
+            window.reportGameAbandon('disconnect');
+        }
         const previousMode = conn.mode;
         const durationSeconds = conn.connectedAt
             ? Math.max(0, Math.round((Date.now() - conn.connectedAt) / 1000))
@@ -1072,8 +1074,8 @@
         otaCheckTransport = '';
         otaAwaitingReconnect = false;
         syncFirmwareUpdateNotice();
-        gameReset();
-        thereminStop();
+        if (typeof window.gameReset === 'function') window.gameReset();
+        if (typeof window.thereminStop === 'function') window.thereminStop();
         otaClose(false);
         if (previousMode === 'demo') {
             $$('espectre-connection-picker').forEach((picker) => picker.select('direct'));
@@ -1175,7 +1177,7 @@
         if (configureWorkspace) configureWorkspace.hidden = !(directSetup || conn.mode === 'demo');
         if (monitorOnboarding) monitorOnboarding.hidden = live;
         if (monitorWorkspace) monitorWorkspace.hidden = !live;
-        rawCsiUseConnection();
+        if (typeof window.rawCsiUseConnection === 'function') window.rawCsiUseConnection();
         if (connectivitySetup) connectivitySetup.hidden = !(directSetup || conn.mode === 'demo');
         if (startSensing) startSensing.disabled = monitor.switchingTransport;
         if (edit) {
@@ -1214,7 +1216,9 @@
         renderBrowserSupport();
         renderTelemetry();
         syncConnectionCallout();
-        if (live && route === 'tool-game' && !game.ctx) requestAnimationFrame(gameResizeCanvas);
+        if (live && route === 'tool-game' && typeof window.gameResizeCanvas === 'function') {
+            requestAnimationFrame(window.gameResizeCanvas);
+        }
     }
 
     function renderTelemetry() {

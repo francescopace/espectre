@@ -632,29 +632,20 @@ def test_sitemap_builder_uses_git_and_sdk_manifest_dates(
         json.dumps({"channel": "develop", "generated_at": "2026-08-14T11:15:00+00:00"}),
         encoding="utf-8",
     )
+    for channel_dir in (release_dir, preview_dir, develop_dir):
+        (channel_dir / "index.html").write_text("<main></main>", encoding="utf-8")
     monkeypatch.setattr(sitemap_builder, "WEB_ROOT", web_root)
 
     def fake_git_date(paths):
-        if paths == (sitemap_builder.SDK_PAGE_BUILDER,):
+        if paths == sitemap_builder.SDK_CHANNEL_PAGE_INPUTS:
             return "2026-08-10"
         if sitemap_builder.DOXYFILE in paths:
             return "2026-08-08"
         return "2026-08-09"
 
     monkeypatch.setattr(sitemap_builder, "latest_git_date", fake_git_date)
-    sitemap = tmp_path / "sitemap.xml"
-    sitemap.write_text(
-        '<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
-        "<url><loc>https://espectre.dev/</loc><changefreq>daily</changefreq></url>"
-        "<url><loc>https://espectre.dev/sdk/api/</loc></url>"
-        "<url><loc>https://espectre.dev/artifacts/sdk/release/</loc></url>"
-        "<url><loc>https://espectre.dev/artifacts/sdk/preview/</loc></url>"
-        "<url><loc>https://espectre.dev/artifacts/sdk/develop/</loc></url>"
-        "</urlset>",
-        encoding="utf-8",
-    )
     output = tmp_path / "generated.xml"
-    sitemap_builder.build_sitemap(sitemap, output)
+    sitemap_builder.build_sitemap(output)
 
     root = ET.parse(output).getroot()
     namespace = {"s": sitemap_builder.SITEMAP_NAMESPACE}
@@ -662,7 +653,13 @@ def test_sitemap_builder_uses_git_and_sdk_manifest_dates(
         entry.findtext("s:loc", namespaces=namespace): entry.findtext("s:lastmod", namespaces=namespace)
         for entry in root.findall("s:url", namespace)
     }
-    assert entries == {
+    assert {url: entries[url] for url in (
+        "https://espectre.dev/",
+        "https://espectre.dev/sdk/api/",
+        "https://espectre.dev/artifacts/sdk/release/",
+        "https://espectre.dev/artifacts/sdk/preview/",
+        "https://espectre.dev/artifacts/sdk/develop/",
+    )} == {
         "https://espectre.dev/": "2026-08-09",
         "https://espectre.dev/sdk/api/": "2026-08-08",
         "https://espectre.dev/artifacts/sdk/release/": "2026-08-10",
@@ -671,12 +668,34 @@ def test_sitemap_builder_uses_git_and_sdk_manifest_dates(
     }
     assert root.findall("s:url/s:changefreq", namespace) == []
 
-    with pytest.raises(ValueError, match="must use separate paths"):
-        sitemap_builder.build_sitemap(sitemap, sitemap)
+    assert len(entries) == 33
+
+
+def test_sitemap_omits_unstaged_sdk_channels_and_rejects_partial_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sitemap_builder = load_script("build_sitemap")
+    web_root = tmp_path / "web"
+    monkeypatch.setattr(sitemap_builder, "WEB_ROOT", web_root)
+    output = tmp_path / "generated.xml"
+    sitemap_builder.build_sitemap(output)
+    urls = {
+        element.text
+        for element in ET.parse(output).getroot().findall(
+            f"{{{sitemap_builder.SITEMAP_NAMESPACE}}}url/"
+            f"{{{sitemap_builder.SITEMAP_NAMESPACE}}}loc"
+        )
+    }
+    assert not any("/artifacts/sdk/" in str(url) for url in urls)
+
+    release_dir = web_root / "artifacts" / "sdk" / "release"
+    release_dir.mkdir(parents=True)
+    (release_dir / "sdk-manifest-release.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="Incomplete staged SDK channel release"):
+        sitemap_builder.build_sitemap(output)
 
 
 def test_pages_build_outputs_do_not_overlap_committed_sources() -> None:
-    indexnow = load_script("notify_indexnow")
     static_pages = load_script("build_static_pages")
     sitemap_builder = load_script("build_sitemap")
     source_paths = set(
@@ -716,14 +735,10 @@ def test_pages_build_outputs_do_not_overlap_committed_sources() -> None:
         ),
     }
 
-    assert sitemap_builder.DEFAULT_SITEMAP_TEMPLATE == (
-        REPO_ROOT / ".github" / "scripts" / "sitemap.template.xml"
-    )
     assert sitemap_builder.DEFAULT_SITEMAP_OUTPUT == (
         REPO_ROOT / "docs" / "web" / "sitemap.xml"
     )
-    assert indexnow.DEFAULT_SITEMAP == sitemap_builder.DEFAULT_SITEMAP_TEMPLATE
-    assert ".github/scripts/sitemap.template.xml" in source_paths
+    assert "docs/web/routes.json" in source_paths
     for generated_path in generated_paths:
         assert not any(
             path == generated_path or path.startswith(f"{generated_path}/")
@@ -776,13 +791,13 @@ def test_pages_verifier_rejects_missing_spa_routes(
 ) -> None:
     verifier = load_script("verify_web_build")
     monkeypatch.setattr(verifier, "WEB_ROOT", tmp_path)
+    monkeypatch.setattr(verifier, "ROUTE_MANIFEST", {
+        "routes": [
+            {"name": "home", "staticPath": "/"},
+            {"name": "device", "staticPath": "/device/"},
+        ]
+    })
     (tmp_path / "index.html").write_text('<main data-page="home"></main>', encoding="utf-8")
-    registry_dir = tmp_path / "assets" / "js"
-    registry_dir.mkdir(parents=True)
-    (registry_dir / "route-registry.js").write_text(
-        "{ name: 'home' }\n{ name: 'device' }\n",
-        encoding="utf-8",
-    )
     with pytest.raises(ValueError, match=r"missing=\['device'\]"):
         verifier.verify_spa_routes()
 
@@ -792,13 +807,19 @@ def test_pages_verifier_requires_every_registered_static_path(
 ) -> None:
     verifier = load_script("verify_web_build")
     monkeypatch.setattr(verifier, "WEB_ROOT", tmp_path)
-    registry_dir = tmp_path / "assets" / "js"
-    registry_dir.mkdir(parents=True)
-    (registry_dir / "route-registry.js").write_text(
-        "{ name: 'guides', staticPath: '/guides/' }\n"
-        "{ name: 'guide-home-assistant', staticPath: '/guides/home-assistant/' }\n",
-        encoding="utf-8",
-    )
+    monkeypatch.setattr(verifier, "ROUTE_MANIFEST", {
+        "siteOrigin": "https://espectre.dev",
+        "routes": [
+            {
+                "name": "guides", "staticPath": "/guides/",
+                "title": "Guides | ESPectre", "description": "Guides",
+            },
+            {
+                "name": "guide-home-assistant", "staticPath": "/guides/home-assistant/",
+                "title": "Home Assistant | ESPectre", "description": "Home Assistant",
+            },
+        ]
+    })
     guides_dir = tmp_path / "guides"
     guides_dir.mkdir()
     (guides_dir / "index.html").write_text("<main></main>", encoding="utf-8")
@@ -810,21 +831,52 @@ def test_pages_verifier_requires_every_registered_static_path(
         verifier.verify_generated_pages()
 
 
+def test_static_page_builder_escapes_and_verifies_route_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    static_pages = load_script("build_static_pages")
+    verifier = load_script("verify_web_build")
+    title = 'A "quoted" <route> | ESPectre'
+    description = 'Use "Direct" safely & keep <metadata> intact.'
+    spec = {
+        **static_pages.PAGES[0],
+        "name": "quoted",
+        "source": "content/quoted.html",
+        "output": "quoted",
+        "title": title,
+        "description": description,
+    }
+    content = tmp_path / "content"
+    content.mkdir()
+    (content / "quoted.html").write_text("<article><h1>Quoted</h1></article>", encoding="utf-8")
+    monkeypatch.setattr(static_pages, "WEB_ROOT", tmp_path)
+    monkeypatch.setattr(static_pages, "PAGES", (spec,))
+    monkeypatch.setattr(static_pages, "asset_version", lambda _path: "0123456789ab")
+    static_pages.build()
+
+    route = {
+        "name": "quoted",
+        "staticPath": "/quoted/",
+        "title": title,
+        "description": description,
+    }
+    monkeypatch.setattr(verifier, "WEB_ROOT", tmp_path)
+    monkeypatch.setattr(verifier, "ROUTE_MANIFEST", {
+        "siteOrigin": "https://espectre.dev",
+        "routes": [route],
+    })
+    verifier.verify_generated_pages()
+    generated = (tmp_path / "quoted" / "index.html").read_text(encoding="utf-8")
+    assert '&quot;Direct&quot;' in generated
+    assert "&lt;metadata&gt;" in generated
+
+
 def test_generated_pages_have_sitemap_lastmod_ownership() -> None:
     static_pages = load_script("build_static_pages")
     sitemap_builder = load_script("build_sitemap")
     verifier = load_script("verify_web_build")
 
-    namespace = {"s": sitemap_builder.SITEMAP_NAMESPACE}
-    root = ET.parse(REPO_ROOT / ".github" / "scripts" / "sitemap.template.xml").getroot()
-    sitemap_paths = {
-        urlparse(location).path
-        for location in (
-            entry.findtext("s:loc", namespaces=namespace)
-            for entry in root.findall("s:url", namespace)
-        )
-        if location
-    }
+    sitemap_paths = {urlparse(url).path for url in sitemap_builder.public_urls()}
     generated_pages = {
         f"/{page['output'].strip('/')}/": Path("docs/web") / page["source"]
         for page in static_pages.PAGES
@@ -835,7 +887,7 @@ def test_generated_pages_have_sitemap_lastmod_ownership() -> None:
         "Generated pages missing from the sitemap: "
         f"{sorted(generated_pages.keys() - sitemap_paths)}"
     )
-    assert sitemap_paths == verifier.EXPECTED_SITEMAP_PATHS
+    assert sitemap_paths == verifier.expected_sitemap_paths()
 
     for route, source in generated_pages.items():
         assert route in sitemap_builder.ROUTE_SOURCES, (
@@ -846,6 +898,12 @@ def test_generated_pages_have_sitemap_lastmod_ownership() -> None:
         assert sitemap_builder.STATIC_PAGE_BUILDER in ownership, (
             f"Sitemap lastmod for {route} does not track the static page builder"
         )
+        assert sitemap_builder.WEB_PAGE_SHELL in ownership, (
+            f"Sitemap lastmod for {route} does not track the shared page shell"
+        )
+
+    assert sitemap_builder.SDK_API_BUILDER in sitemap_builder.SDK_API_INPUTS
+    assert sitemap_builder.MCSS_TEMPLATES in sitemap_builder.SDK_API_INPUTS
 
 
 def test_sitemap_verifier_requires_accurate_dates(
@@ -854,20 +912,22 @@ def test_sitemap_verifier_requires_accurate_dates(
     verifier = load_script("verify_web_build")
     monkeypatch.setattr(verifier, "WEB_ROOT", tmp_path)
     namespace = verifier.SITEMAP_NAMESPACE
+    expected_paths = verifier.expected_sitemap_paths()
     entries = "".join(
         f"<url><loc>https://espectre.dev{path}</loc>"
-        + ("" if path in {"/artifacts/sdk/preview/", "/artifacts/sdk/release/", "/artifacts/sdk/develop/"} else "<lastmod>2026-08-12</lastmod>")
+        + "<lastmod>2026-08-12</lastmod>"
         + "</url>"
-        for path in sorted(verifier.EXPECTED_SITEMAP_PATHS)
+        for path in sorted(expected_paths)
     )
     sitemap = tmp_path / "sitemap.xml"
     sitemap.write_text(
         f'<?xml version="1.0"?><urlset xmlns="{namespace}">{entries}</urlset>',
         encoding="utf-8",
     )
+    valid_source = sitemap.read_text(encoding="utf-8")
     verifier.verify_sitemap(require_preview=False, require_release=False, require_develop=False)
 
-    future = sitemap.read_text(encoding="utf-8").replace(
+    future = valid_source.replace(
         "<lastmod>2026-08-12</lastmod>",
         "<lastmod>2099-01-01</lastmod>",
         1,
@@ -887,6 +947,13 @@ def test_sitemap_verifier_requires_accurate_dates(
     )
     sitemap.write_text(source, encoding="utf-8")
     with pytest.raises(ValueError, match="must not contain changefreq"):
+        verifier.verify_sitemap(require_preview=False, require_release=False, require_develop=False)
+
+    sitemap.write_text(
+        valid_source.replace("<lastmod>2026-08-12</lastmod>", "", 1),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="missing lastmod"):
         verifier.verify_sitemap(require_preview=False, require_release=False, require_develop=False)
 
 
@@ -992,6 +1059,10 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
         assert "--url-prefix /artifacts/firmware/release" in source
     for source in (snapshot, release):
         assert 'require-release: "true"' in source
+        assert "name: website-sitemap" in source
+        assert "path: docs/web/sitemap.xml" in source
+        assert "path: deployed-website" in source
+        assert "notify_indexnow.py --sitemap deployed-website/sitemap.xml" in source
     pages_action = (REPO_ROOT / ".github" / "actions" / "build-pages" / "action.yml").read_text(
         encoding="utf-8"
     )

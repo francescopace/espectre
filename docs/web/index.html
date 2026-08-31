@@ -23,20 +23,17 @@
 <meta name="twitter:image" content="https://espectre.dev/assets/images/brand/espectre-og.jpg">
 <link rel="icon" type="image/svg+xml" href="/assets/images/brand/espectre-logo.svg?v=5c234009f6c5">
 <link rel="alternate icon" type="image/png" href="/assets/images/brand/favicon.png">
-<link rel="stylesheet" href="/assets/css/styles.css?v=a561a382854a">
-<script src="/assets/js/espectre-direct.js?v=5e18ad1e9feb" defer></script>
+<link rel="stylesheet" href="/assets/css/styles.css?v=b869fda92bc8">
+<script src="/assets/js/espectre-direct.js?v=a6f89b06f55d" defer></script>
 <script src="/assets/js/browser-support.js?v=ac4ba70c7f17" defer></script>
-<script src="/assets/js/route-registry.js?v=78606ac2999b" defer></script>
-<script src="/assets/js/navigation.js?v=d9fb403c9f5d" defer></script>
-<script src="/assets/js/analytics.js?v=473a5b9e685f" defer></script>
-<script src="/assets/js/device-session.js?v=ba5ea9a9ef11" defer></script>
-<script src="/assets/js/direct-discovery.js?v=87bf7e215beb" defer></script>
-<script src="/assets/js/configure-tool.js?v=c9be386517ad" defer></script>
+<script src="/assets/js/route-registry.js?v=bb5fde7c20ff" defer></script>
+<script src="/assets/js/navigation.js?v=fd6c46ab04ef" defer></script>
+<script src="/assets/js/analytics.js?v=2364ab83b5b6" defer></script>
+<script src="/assets/js/device-session.js?v=050594bccbd3" defer></script>
+<script src="/assets/js/direct-discovery.js?v=5be855b2a8b4" defer></script>
+<script src="/assets/js/configure-tool.js?v=5349796ffc12" defer></script>
 <script src="/assets/js/monitor-tool.js?v=0f5405afba87" defer></script>
-<script src="/assets/js/raw-csi-tool.js?v=cdce430315a5" defer></script>
-<script src="/assets/js/game-tool.js?v=28896fd96117" defer></script>
-<script src="/assets/js/theremin-tool.js?v=c6df24cc3fec" defer></script>
-<script src="/assets/js/app.js?v=aaba709ab73b" defer></script>
+<script src="/assets/js/app.js?v=6796efc2151f" defer></script>
 </head>
 <body>
 
@@ -44,12 +41,12 @@
 
 <header class="site-header">
   <div class="site-header-inner">
-    <a href="#home" class="brand" data-route-link="home">
+    <a href="/" class="brand" data-route-link="home">
       <img src="/assets/images/brand/espectre-logo.svg?v=5c234009f6c5" alt="" width="30" height="30" aria-hidden="true">
       ESPectre
     </a>
     <nav class="main-nav" id="main-navigation" aria-label="Main">
-      <a href="#home" class="nav-link" data-route-link="home">Home</a>
+      <a href="/" class="nav-link" data-route-link="home">Home</a>
       <a href="/tools/" class="nav-link" data-route-link="tools">Tools</a>
       <a href="/guides/" class="nav-link" data-route-link="guides">Guides</a>
       <a href="/sdk/" class="nav-link" data-route-link="sdk">SDK</a>
@@ -297,9 +294,9 @@
           <div class="home-resource-links">
             <a href="/tools/"><strong>Tools</strong><span>Install, manage, and explore →</span></a>
             <a href="/guides/"><strong>Guides</strong><span>Setup, placement, and detection →</span></a>
-            <a href="/media/"><strong>Media</strong><span>Demos, articles, and coverage →</span></a>
             <a href="/sdk/"><strong>SDK</strong><span>Integration, API, and examples →</span></a>
             <a href="/roadmap/"><strong>Roadmap</strong><span>Product direction and priorities →</span></a>
+            <a href="/media/"><strong>Media</strong><span>Demos, articles, and coverage →</span></a>
             <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener"><strong>GitHub</strong><span>Source, issues, and discussions ↗</span></a>
           </div>
         </div>
@@ -311,7 +308,7 @@
 
 <!-- ============================== Tools ============================== -->
 <main class="js-page page-narrow" data-page="tools" hidden>
-  <div class="js-static-content" data-content-url="content/tools.html?v=1409a164e262" data-static-url="/tools/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading tools…</p>
   </div>
 </main>
@@ -319,7 +316,7 @@
 <!-- ============================== Flash ============================== -->
 <main class="js-page page-narrow page-tool" data-page="tool-flash" data-page-path="tools" hidden>
   <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Install ESPectre</span></div>
-  <div class="js-static-content" data-content-url="content/tools/flash.html?v=c946e86543e8" data-static-url="/tools/flash/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading installer…</p>
   </div>
 </main>
@@ -327,7 +324,7 @@
 <!-- ============================== Configure ============================== -->
 <main class="js-page page-narrow page-tool" data-page="tool-configure" data-page-path="tools" hidden>
   <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Device settings</span></div>
-  <div class="js-static-content" data-content-url="content/tools/configure.html?v=222c800e5ca6" data-static-url="/tools/configure/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading device settings…</p>
   </div>
 </main>
@@ -335,101 +332,104 @@
 <!-- ============================== Monitor ============================== -->
 <main class="js-page page-narrow page-tool" data-page="tool-monitor" data-page-path="tools" hidden>
   <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Live motion</span></div>
-  <div class="js-static-content" data-content-url="content/tools/monitor.html?v=0cb210839819" data-static-url="/tools/monitor/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading live motion…</p>
   </div>
 </main>
 
 <!-- ============================== Raw CSI ============================== -->
-<main class="js-page page-narrow page-tool" data-page="tool-raw-csi" data-page-path="tools" hidden>
+<main class="js-page page-narrow page-tool" data-page="tool-raw-csi" data-page-path="tools"
+  data-script-src="/assets/js/raw-csi-tool.js?v=cdce430315a5" hidden>
   <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Raw Wi-Fi signal</span></div>
-  <div class="js-static-content" data-content-url="content/tools/raw-csi.html?v=d5f6300c9b18" data-static-url="/tools/raw-csi/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading signal viewer…</p>
   </div>
 </main>
 
 <!-- ============================== Theremin ============================== -->
-<main class="js-page page-narrow page-tool" data-page="tool-theremin" data-page-path="tools" hidden>
+<main class="js-page page-narrow page-tool" data-page="tool-theremin" data-page-path="tools"
+  data-script-src="/assets/js/theremin-tool.js?v=c6df24cc3fec" hidden>
   <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Theremin</span></div>
-  <div class="js-static-content" data-content-url="content/tools/theremin.html?v=a01250ce69bc" data-static-url="/tools/theremin/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading motion theremin…</p>
   </div>
 </main>
 
 <!-- ============================== Game ============================== -->
-<main class="js-page page-narrow page-tool" data-page="tool-game" data-page-path="tools" hidden>
+<main class="js-page page-narrow page-tool" data-page="tool-game" data-page-path="tools"
+  data-script-src="/assets/js/game-tool.js?v=28896fd96117" hidden>
   <div class="breadcrumb"><a href="/tools/">Tools</a> <span class="crumb-sep">/</span> <span class="crumb-here">Game</span></div>
-  <div class="js-static-content" data-content-url="content/tools/game.html?v=1acc01d2f551" data-static-url="/tools/game/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading game…</p>
   </div>
 </main>
 
 <!-- ============================== Guides ============================== -->
 <main class="js-page page-narrow" data-page="guides" hidden>
-  <div class="js-static-content" data-content-url="content/guides.html?v=c2d726834130" data-static-url="/guides/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading guides…</p>
   </div>
 </main>
 
 <!-- ============================== SDK ============================== -->
 <main class="js-page page-narrow" data-page="sdk" hidden>
-  <div class="js-static-content" data-content-url="content/sdk.html?v=6978658ee2a6" data-static-url="/sdk/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading SDK…</p>
   </div>
 </main>
 
 <!-- ============================== Media ============================== -->
 <main class="js-page page-narrow" data-page="media" hidden>
-  <div class="js-static-content" data-content-url="content/media.html?v=549a0df00966" data-static-url="/media/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading media…</p>
   </div>
 </main>
 
 <!-- ============================== Roadmap ============================== -->
 <main class="js-page page-narrow" data-page="roadmap" hidden>
-  <div class="js-static-content" data-content-url="content/roadmap.html?v=630d7c78734d" data-static-url="/roadmap/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading roadmap…</p>
   </div>
 </main>
 
 <!-- ============================== Privacy ============================== -->
 <main class="js-page page-narrow" data-page="privacy" hidden>
-  <div class="js-static-content" data-content-url="content/privacy.html?v=173ce189d0d8" data-static-url="/privacy/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading privacy notice…</p>
   </div>
 </main>
 
 <!-- ============================== Commercial Licensing ============================== -->
 <main class="js-page page-narrow" data-page="licensing" hidden>
-  <div class="js-static-content" data-content-url="content/licensing.html?v=f1e741092432" data-static-url="/licensing/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading licensing information…</p>
   </div>
 </main>
 
 <!-- ============================== Terms ============================== -->
 <main class="js-page page-narrow" data-page="terms" hidden>
-  <div class="js-static-content" data-content-url="content/terms.html?v=d0998385a4cc" data-static-url="/terms/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading terms of use…</p>
   </div>
 </main>
 
 <!-- ============================== Legal Information ============================== -->
 <main class="js-page page-narrow" data-page="legal" hidden>
-  <div class="js-static-content" data-content-url="content/legal.html?v=1fbbe48417ba" data-static-url="/legal/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading legal information…</p>
   </div>
 </main>
 
 <!-- ============================== Security ============================== -->
 <main class="js-page page-narrow" data-page="security" hidden>
-  <div class="js-static-content" data-content-url="content/security.html?v=9b12db8f0190" data-static-url="/security/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading security information…</p>
   </div>
 </main>
 
 <!-- ============================== Contact ============================== -->
 <main class="js-page page-narrow" data-page="contact" hidden>
-  <div class="js-static-content" data-content-url="content/contact.html?v=8af8d6c5b6f1" data-static-url="/contact/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading contact information…</p>
   </div>
 </main>
@@ -437,7 +437,7 @@
 <!-- ============================== Guide: Hardware ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-hardware" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Choose your hardware</span></div>
-  <div class="js-static-content" data-content-url="content/guides/hardware.html?v=b054e3ea50cd" data-static-url="/guides/hardware/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -445,7 +445,7 @@
 <!-- ============================== Guide: Setup ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-setup" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Flash and set up your device</span></div>
-  <div class="js-static-content" data-content-url="content/guides/setup.html?v=89c03a40636b" data-static-url="/guides/setup/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -453,7 +453,7 @@
 <!-- ============================== Guide: Home Assistant dashboard ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-home-assistant" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Build your Home Assistant dashboard</span></div>
-  <div class="js-static-content" data-content-url="content/guides/home-assistant.html?v=b7c12f105f64" data-static-url="/guides/home-assistant/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -461,7 +461,7 @@
 <!-- ============================== Guide: Placement ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-placement" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Place your ESPectre sensor</span></div>
-  <div class="js-static-content" data-content-url="content/guides/placement.html?v=f9e75767bf55" data-static-url="/guides/placement/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -469,7 +469,7 @@
 <!-- ============================== Guide: Detection ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-detection" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">How Wi-Fi sensing detects movement</span></div>
-  <div class="js-static-content" data-content-url="content/guides/detection.html?v=f19eb314e017" data-static-url="/guides/detection/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -477,7 +477,7 @@
 <!-- ============================== Guide: Detection profiles ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-detectors" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Choose your detection profile</span></div>
-  <div class="js-static-content" data-content-url="content/guides/detectors.html?v=7fa17f4c578d" data-static-url="/guides/detectors/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -485,7 +485,7 @@
 <!-- ============================== Guide: MicroPython ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-micropython" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">Run ESPectre on MicroPython</span></div>
-  <div class="js-static-content" data-content-url="content/guides/micropython.html?v=0661eb2e7a78" data-static-url="/guides/micropython/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -493,7 +493,7 @@
 <!-- ============================== Guide: Future Wi-Fi sensing ============================== -->
 <main class="js-page page-narrow page-article" data-page="guide-future-wifi-sensing" hidden>
   <div class="breadcrumb"><a href="/guides/">Guides</a> <span class="crumb-sep">/</span> <span class="crumb-here">The future of Wi-Fi sensing</span></div>
-  <div class="js-static-content" data-content-url="content/guides/future-wifi-sensing.html?v=c71dc985ad3b" data-static-url="/guides/future-wifi-sensing/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading guide…</p>
   </div>
 </main>
@@ -501,7 +501,7 @@
 <!-- ============================== SDK: API ============================== -->
 <main class="js-page page-narrow page-article" data-page="sdk-api" hidden>
   <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">API reference</span></div>
-  <div class="js-static-content" data-content-url="content/sdk/api.html?v=5602d894a4a1" data-static-url="/sdk/api/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -509,7 +509,7 @@
 <!-- ============================== SDK: Detectors ============================== -->
 <main class="js-page page-narrow page-article" data-page="sdk-detectors" hidden>
   <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">Detector architecture</span></div>
-  <div class="js-static-content" data-content-url="content/sdk/detectors.html?v=cca91a080f5b" data-static-url="/sdk/detectors/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -517,7 +517,7 @@
 <!-- ============================== SDK: Examples ============================== -->
 <main class="js-page page-narrow page-article" data-page="sdk-examples" hidden>
   <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">Examples</span></div>
-  <div class="js-static-content" data-content-url="content/sdk/examples.html?v=b1c9fbf98c06" data-static-url="/sdk/examples/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -525,7 +525,7 @@
 <!-- ============================== SDK: Architecture ============================== -->
 <main class="js-page page-narrow page-article" data-page="sdk-architecture" hidden>
   <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">Architecture</span></div>
-  <div class="js-static-content" data-content-url="content/sdk/architecture.html?v=a21e79eee0b5" data-static-url="/sdk/architecture/">
+  <div class="js-static-content">
     <p class="guide-loading">Loading docs…</p>
   </div>
 </main>
@@ -692,7 +692,7 @@
   </div>
   <div class="consent-actions">
     <button type="button" class="btn-secondary btn-sm js-consent-reject">Reject</button>
-    <button type="button" class="btn-secondary btn-sm js-consent-accept">Accept analytics</button>
+    <button type="button" class="btn-primary btn-sm js-consent-accept">Accept analytics</button>
   </div>
 </div>
 

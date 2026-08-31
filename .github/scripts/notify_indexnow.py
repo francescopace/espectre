@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -15,16 +16,23 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
 
+_SCRIPTS_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
 
-DEFAULT_SITEMAP = Path(__file__).resolve().with_name("sitemap.template.xml")
+from web_routes import load_manifest
+
+
+ROUTE_MANIFEST = load_manifest()
 INDEXNOW_ENDPOINT = "https://api.indexnow.org/indexnow"
-SITE_HOST = "espectre.dev"
+SITE_ORIGIN = ROUTE_MANIFEST["siteOrigin"]
+SITE_HOST = urlparse(SITE_ORIGIN).hostname or ""
 INDEXNOW_KEY = "1a2e73ccf9558a06830546c288699e0c"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Notify IndexNow from the ESPectre sitemap.")
-    parser.add_argument("--sitemap", default=str(DEFAULT_SITEMAP))
+    parser.add_argument("--sitemap", required=True, help="Generated sitemap from the deployed Pages artifact.")
     parser.add_argument("--attempts", type=int, default=3)
     parser.add_argument("--timeout", type=float, default=30.0)
     return parser.parse_args()

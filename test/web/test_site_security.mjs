@@ -50,8 +50,7 @@ describe('website security, asset, and analytics contracts', () => {
 
     it('renders the brand face in white instead of exposing the background', () => {
         const logo = read('docs/web/assets/images/brand/espectre-logo.svg');
-        const staticPageBuilder = read('.github/scripts/build_static_pages.py');
-        const sdkStager = read('.github/scripts/stage_web_sdk.py');
+        const generatedShell = read('.github/scripts/web_page_shell.py');
         assert.doesNotMatch(logo, /<mask\b|mask="url\(/);
         assert.match(logo, /<use href="#ghost" fill="#4b7bee" stroke="#b8c8ff" stroke-width="2\.8" stroke-linejoin="round"\/>/);
         assert.doesNotMatch(logo, /<use[^>]+stroke="#fff"/);
@@ -60,8 +59,7 @@ describe('website security, asset, and analytics contracts', () => {
         assert.match(logo, /<circle[^>]+fill="#fff"/);
         assert.match(index, /class="brand"[^>]*>\s*<img src="\/assets\/images\/brand\/espectre-logo\.svg\?v=[0-9a-f]{12}" alt="" width="30" height="30"/);
         assert.match(read('docs/web/404.html'), /class="brand"[^>]*>\s*<img src="\/assets\/images\/brand\/espectre-logo\.svg\?v=[0-9a-f]{12}" alt="" width="30" height="30"/);
-        assert.match(staticPageBuilder, /class="brand"[^>]*>\s*<img src="\/assets\/images\/brand\/espectre-logo\.svg\?v=\{logo_version\}" alt="" width="30" height="30"/);
-        assert.match(sdkStager, /class="brand"[^>]*>\s*<img src="\/assets\/images\/brand\/espectre-logo\.svg\?v=\{logo_version\}" alt="" width="30" height="30"/);
+        assert.match(generatedShell, /class=\"brand\"[^>]*>\s*<img src=\"\/assets\/images\/brand\/espectre-logo\.svg\?v=\{logo_version\}\" alt=\"\" width=\"30\" height=\"30\"/);
     });
 
     it('does not execute third-party scripts before an explicit analytics choice', () => {
@@ -93,12 +91,16 @@ describe('website security, asset, and analytics contracts', () => {
                 '/assets/js/direct-discovery.js',
                 '/assets/js/configure-tool.js',
                 '/assets/js/monitor-tool.js',
-                '/assets/js/raw-csi-tool.js',
-                '/assets/js/game-tool.js',
-                '/assets/js/theremin-tool.js',
                 '/assets/js/app.js'
             ]
         );
+        const deferredToolScripts = [...index.matchAll(/data-script-src="(\/assets\/js\/[^"?]+)(?:\?v=[0-9a-f]{12})?"/g)]
+            .map((match) => match[1]);
+        assert.deepEqual(new Set(deferredToolScripts), new Set([
+            '/assets/js/raw-csi-tool.js',
+            '/assets/js/game-tool.js',
+            '/assets/js/theremin-tool.js',
+        ]));
         for (const attrs of firstPartyScripts) {
             assert.match(attrs, /\bdefer\b/, `expected defer on ${attrs.trim()}`);
         }
@@ -121,7 +123,7 @@ describe('website security, asset, and analytics contracts', () => {
         const mismatches = [];
         const collectStamped = (html, label) => {
             const refs = [...html.matchAll(
-                /(?:href|src|data-content-url)="((?:\/assets\/(?:css|js)\/|\/assets\/images\/brand\/espectre-logo\.svg|content\/)[^"]*)"/g
+                /(?:href|src|data-script-src)="((?:\/assets\/(?:css|js)\/|\/assets\/images\/brand\/espectre-logo\.svg)[^"]*)"/g
             )];
             assert.ok(refs.length > 0, `${label} references first-party assets`);
             for (const [, url] of refs) {

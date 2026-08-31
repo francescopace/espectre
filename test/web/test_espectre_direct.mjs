@@ -261,6 +261,76 @@ describe('Direct HTTP request and SSE lifecycle', () => {
         client.close();
     });
 
+    it('rejects an unterminated SSE event before its buffer grows without bound', async () => {
+        installHttpFixture({ eventChunks: [`event: telemetry\ndata: ${'x'.repeat(8192)}`] });
+        const client = new Client('192.168.1.42');
+        const errorPromise = new Promise((resolve) => client.on('protocol-error', resolve));
+        await client.connect();
+        const error = await errorPromise;
+        assert.equal(error.code, 'frame_too_large');
+        client.close();
+    });
+
+    it('keeps the request timeout active while reading the response body', async () => {
+        globalThis.fetch = async (_url, options) => {
+            if (options.method === 'GET') return { ok: true, status: 200, body: pendingBody() };
+            return {
+                ok: true,
+                status: 200,
+                body: {
+                    getReader() {
+                        return {
+                            read() {
+                                return new Promise((_resolve, reject) => {
+                                    options.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+                                });
+                            },
+                            releaseLock() {}
+                        };
+                    }
+                }
+            };
+        };
+        const client = new Client('192.168.1.42');
+        await client.connect();
+        await assert.rejects(
+            client.request('capabilities', {}, { allowBeforeHandshake: true, timeoutMs: 10 }),
+            (error) => error.code === 'timeout'
+        );
+        client.close();
+    });
+
+    it('rejects an oversized response while streaming it', async () => {
+        globalThis.fetch = async (_url, options) => {
+            if (options.method === 'GET') return { ok: true, status: 200, body: pendingBody() };
+            let read = false;
+            return {
+                ok: true,
+                status: 200,
+                body: {
+                    getReader() {
+                        return {
+                            async read() {
+                                if (read) return { done: true };
+                                read = true;
+                                return { value: new Uint8Array(8193), done: false };
+                            },
+                            async cancel() {},
+                            releaseLock() {}
+                        };
+                    }
+                }
+            };
+        };
+        const client = new Client('192.168.1.42');
+        await client.connect();
+        await assert.rejects(
+            client.request('capabilities', {}, { allowBeforeHandshake: true }),
+            (error) => error.code === 'frame_too_large'
+        );
+        client.close();
+    });
+
     it('blocks mutations before handshake and sends the raw bearer when stopping', async () => {
         const sessionId = '00112233445566778899aabbccddeeff';
         const { client, calls } = await connectedClient({

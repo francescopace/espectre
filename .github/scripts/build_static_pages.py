@@ -5,17 +5,13 @@
 ESPectre - Build Static Pages
 
 Generates static, indexable pages from the HTML fragments shared with the SPA.
-Each fragment is the single source of truth: the SPA fetches it on demand for
-its hash route, and this script wraps the same markup into the corresponding
-canonical path, so the content is written once and indexed at one URL.
+Route paths, titles, descriptions, hierarchy, and Analytics grouping come from
+the canonical website route manifest.
 
 The output is not committed (see docs/web/.gitignore): CI runs this script
-before every site verification and deploy, so the published pages always
-match the fragments. To preview the static pages locally, run:
+before every site verification and deploy. To preview static pages locally, run:
 
     python3 .github/scripts/build_static_pages.py
-
-The pages reuse the site assets with per-file content-hash cache busting.
 
 Author: Francesco Pace <francesco.pace@gmail.com>
 """
@@ -23,6 +19,7 @@ Author: Francesco Pace <francesco.pace@gmail.com>
 from __future__ import annotations
 
 import sys
+from html import escape
 from pathlib import Path
 
 _SCRIPTS_DIR = str(Path(__file__).resolve().parent)
@@ -30,386 +27,52 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
 from web_asset_versions import asset_version
+from web_page_shell import render_consent_banner, render_footer, render_header
+from web_routes import (
+    active_navigation,
+    content_group,
+    content_path,
+    load_manifest,
+    main_class,
+    og_type,
+    output_path,
+    static_routes,
+)
+
 
 WEB_ROOT = Path(__file__).resolve().parents[2] / "docs" / "web"
-SITE_ORIGIN = "https://espectre.dev"
+ROUTE_MANIFEST = load_manifest()
+SITE_ORIGIN = ROUTE_MANIFEST["siteOrigin"]
 
-PAGES = (
-    {
-        "source": "content/tools.html",
-        "output": "tools",
-        "title": "Browser tools | ESPectre",
-        "description": (
-            "Flash ESPectre firmware, configure a local device, monitor sensing, "
-            "and explore interactive motion experiences from the browser."
-        ),
-        "active_nav": "tools",
-        "content_group": "tools",
-        "main_class": "page-narrow",
-        "og_type": "website",
-    },
-    {
-        "source": "content/tools/flash.html",
-        "output": "tools/flash",
-        "title": "Install ESPectre | ESPectre",
-        "description": (
-            "Install ESPectre firmware on a supported ESP32 over USB from a "
-            "Chromium-based browser."
-        ),
-        "parent_href": "/tools/",
-        "parent_label": "Tools",
-        "active_nav": "tools",
-        "content_group": "flash",
-        "main_class": "page-narrow page-tool page-tool-static",
-        "og_type": "website",
-    },
-    {
-        "source": "content/tools/configure.html",
-        "output": "tools/configure",
-        "title": "Device settings | ESPectre",
-        "description": (
-            "Connect directly to a local ESPectre device to manage its name, "
-            "Wi-Fi link, MQTT integration, and firmware updates."
-        ),
-        "parent_href": "/tools/",
-        "parent_label": "Tools",
-        "active_nav": "tools",
-        "content_group": "configure",
-        "main_class": "page-narrow page-tool page-tool-static",
-        "og_type": "website",
-    },
-    {
-        "source": "content/tools/monitor.html",
-        "output": "tools/monitor",
-        "title": "Live motion | ESPectre",
-        "description": (
-            "View ESPectre motion live, adjust detection settings, recalibrate "
-            "the room, and inspect device diagnostics."
-        ),
-        "parent_href": "/tools/",
-        "parent_label": "Tools",
-        "active_nav": "tools",
-        "content_group": "monitor",
-        "main_class": "page-narrow page-tool page-tool-static",
-        "og_type": "website",
-    },
-    {
-        "source": "content/tools/raw-csi.html",
-        "output": "tools/raw-csi",
-        "title": "Raw Wi-Fi signal | ESPectre",
-        "description": (
-            "Explore a temporary ESPectre CSI stream through amplitude, phase, "
-            "I/Q, delivery, and signal-health views."
-        ),
-        "parent_href": "/tools/",
-        "parent_label": "Tools",
-        "active_nav": "tools",
-        "content_group": "raw-csi",
-        "main_class": "page-narrow page-tool page-tool-static",
-        "og_type": "website",
-    },
-    {
-        "source": "content/tools/theremin.html",
-        "output": "tools/theremin",
-        "title": "Motion theremin | ESPectre",
-        "description": (
-            "Turn an ESPectre movement score into sound with a local device or "
-            "simulated motion in the browser."
-        ),
-        "parent_href": "/tools/",
-        "parent_label": "Tools",
-        "active_nav": "tools",
-        "content_group": "theremin",
-        "main_class": "page-narrow page-tool page-tool-static",
-        "og_type": "website",
-    },
-    {
-        "source": "content/tools/game.html",
-        "output": "tools/game",
-        "title": "Run with the Spectre | ESPectre",
-        "description": (
-            "Control an endless flight game with ESPectre motion sensing or a "
-            "pointer-driven browser demo."
-        ),
-        "parent_href": "/tools/",
-        "parent_label": "Tools",
-        "active_nav": "tools",
-        "content_group": "game",
-        "main_class": "page-narrow page-tool page-tool-static",
-        "og_type": "website",
-    },
-    {
-        "source": "content/guides.html",
-        "output": "guides",
-        "title": "Guides | ESPectre",
-        "description": (
-            "Guides for ESP32 board choice, flashing, detection behavior, "
-            "and the future of standards-backed Wi-Fi sensing."
-        ),
-        "active_nav": "guides",
-        "main_class": "page-narrow",
-        "og_type": "website",
-    },
-    {
-        "source": "content/guides/hardware.html",
-        "output": "guides/hardware",
-        "title": "Choose your hardware | ESPectre",
-        "description": (
-            "Which ESP32 board to buy for Wi-Fi motion sensing, what actually "
-            "affects detection quality, and how products can embed ESPectre."
-        ),
-        "parent_href": "/guides/",
-        "parent_label": "Guides",
-        "active_nav": "guides",
-    },
-    {
-        "source": "content/guides/setup.html",
-        "output": "guides/setup",
-        "title": "Flash and set up your device | ESPectre",
-        "description": (
-            "From a blank ESP32 board to a working Wi-Fi motion sensor, "
-            "entirely from the browser: flashing, provisioning, and calibration."
-        ),
-        "parent_href": "/guides/",
-        "parent_label": "Guides",
-        "active_nav": "guides",
-    },
-    {
-        "source": "content/guides/home-assistant.html",
-        "output": "guides/home-assistant",
-        "title": "Build your Home Assistant dashboard | ESPectre",
-        "description": (
-            "Build the maintained ESPectre Home Assistant dashboard for motion, "
-            "movement history, and runtime controls."
-        ),
-        "parent_href": "/guides/",
-        "parent_label": "Guides",
-        "active_nav": "guides",
-    },
-    {
-        "source": "content/guides/placement.html",
-        "output": "guides/placement",
-        "title": "Place your ESPectre sensor | ESPectre",
-        "description": (
-            "Place an ESPectre Wi-Fi motion sensor using practical distance, "
-            "RSSI, antenna orientation, obstacle, and room-testing guidance."
-        ),
-        "parent_href": "/guides/",
-        "parent_label": "Guides",
-        "active_nav": "guides",
-    },
-    {
-        "source": "content/guides/detection.html",
-        "output": "guides/detection",
-        "title": "How Wi-Fi sensing detects movement | ESPectre",
-        "description": (
-            "How Wi-Fi packets, multipath, and Channel State Information let "
-            "a low-cost ESP32 detect movement without cameras or microphones."
-        ),
-        "parent_href": "/guides/",
-        "parent_label": "Guides",
-        "active_nav": "guides",
-    },
-    {
-        "source": "content/guides/detectors.html",
-        "output": "guides/detectors",
-        "title": "Choose your detection profile | ESPectre",
-        "description": (
-            "Compare ESPectre Lightweight and High-Accuracy Detection by CPU, "
-            "memory, startup behavior, detection quality, and product fit."
-        ),
-        "parent_href": "/guides/",
-        "parent_label": "Guides",
-        "active_nav": "guides",
-    },
-    {
-        "source": "content/guides/micropython.html",
-        "output": "guides/micropython",
-        "title": "Run ESPectre on MicroPython | ESPectre",
-        "description": (
-            "Use the upstream ESP32 Wi-Fi CSI support contributed by ESPectre "
-            "to run on-device motion sensing in MicroPython."
-        ),
-        "parent_href": "/guides/",
-        "parent_label": "Guides",
-        "active_nav": "guides",
-    },
-    {
-        "source": "content/guides/future-wifi-sensing.html",
-        "output": "guides/future-wifi-sensing",
-        "title": "The future of Wi-Fi sensing | ESPectre",
-        "description": (
-            "How IEEE 802.11bf makes sensing an explicit Wi-Fi capability, "
-            "why it inspired ESPectre, and what standards-backed hardware could enable."
-        ),
-        "parent_href": "/guides/",
-        "parent_label": "Guides",
-        "active_nav": "guides",
-    },
-    {
-        "source": "content/sdk.html",
-        "output": "sdk",
-        "title": "ESPectre SDK quick guide | ESPectre",
-        "description": (
-            "Embed the ESPectre C++ sensing runtime in an ESP-IDF product with "
-            "a concise setup path, integration examples, and architecture overview."
-        ),
-        "active_nav": "sdk",
-        "main_class": "page-narrow",
-        "og_type": "website",
-    },
-    {
-        "source": "content/sdk/detectors.html",
-        "output": "sdk/detectors",
-        "title": "Detector architecture | ESPectre",
-        "description": (
-            "How ESPectre turns timestamped Wi-Fi CSI into on-device motion decisions "
-            "with temporal admission, selected frequency views, and two detector profiles."
-        ),
-        "parent_href": "/sdk/",
-        "parent_label": "SDK",
-        "active_nav": "sdk",
-    },
-    {
-        "source": "content/sdk/api.html",
-        "output": "sdk/api",
-        "title": "API reference | ESPectre",
-        "description": (
-            "Find the main ESPectre SDK types, understand the runtime lifecycle, "
-            "and browse the generated API reference in the shared portal."
-        ),
-        "parent_href": "/sdk/",
-        "parent_label": "SDK",
-        "active_nav": "sdk",
-    },
-    {
-        "source": "content/sdk/examples.html",
-        "output": "sdk/examples",
-        "title": "Examples | ESPectre",
-        "description": (
-            "Choose among the maintained ESPHome, Native, and Matter "
-            "frontends when embedding ESPectre in a product."
-        ),
-        "parent_href": "/sdk/",
-        "parent_label": "SDK",
-        "active_nav": "sdk",
-    },
-    {
-        "source": "content/sdk/architecture.html",
-        "output": "sdk/architecture",
-        "title": "Architecture | ESPectre",
-        "description": (
-            "How ESPectre splits reusable sensing code across core, runtime, "
-            "and frontend layers, including ports to new platforms."
-        ),
-        "parent_href": "/sdk/",
-        "parent_label": "SDK",
-        "active_nav": "sdk",
-    },
-    {
-        "source": "content/media.html",
-        "output": "media",
-        "title": "Media | ESPectre",
-        "description": (
-            "Articles, tutorials, independent coverage, podcasts, and "
-            "community conversations about the ESPectre Wi-Fi sensing platform."
-        ),
-        "active_nav": "media",
-        "content_group": "media",
-        "main_class": "page-narrow",
-    },
-    {
-        "source": "content/roadmap.html",
-        "output": "roadmap",
-        "title": "Roadmap | ESPectre",
-        "description": (
-            "ESPectre's roadmap for privacy-first, local Wi-Fi sensing: a stable embeddable "
-            "v3 platform, optional multi-node orchestration, measured research, and future "
-            "standards-backed radios."
-        ),
-        "active_nav": "roadmap",
-        "main_class": "page-narrow",
-        "og_type": "website",
-    },
-    {
-        "source": "content/privacy.html",
-        "output": "privacy",
-        "title": "Website privacy and analytics | ESPectre",
-        "description": (
-            "How the ESPectre website handles analytics consent, cookies, "
-            "browser-tool data, retention, and privacy choices."
-        ),
-        "active_nav": "privacy",
-        "content_group": "privacy",
-        "main_class": "page-narrow",
-        "og_type": "website",
-    },
-    {
-        "source": "content/terms.html",
-        "output": "terms",
-        "title": "Terms of use | ESPectre",
-        "description": (
-            "Terms governing the ESPectre website, browser tools, authorized use, "
-            "open-source software, and the current commercial boundary."
-        ),
-        "active_nav": "terms",
-        "content_group": "terms",
-        "main_class": "page-narrow",
-        "og_type": "website",
-    },
-    {
-        "source": "content/legal.html",
-        "output": "legal",
-        "title": "Legal information | ESPectre",
-        "description": (
-            "Current operator identity, project status, commercial boundary, "
-            "copyright, licensing, and legal contact information for ESPectre."
-        ),
-        "active_nav": "legal",
-        "content_group": "legal",
-        "main_class": "page-narrow",
-        "og_type": "website",
-    },
-    {
-        "source": "content/security.html",
-        "output": "security",
-        "title": "Security and responsible use | ESPectre",
-        "description": (
-            "How ESPectre limits Wi-Fi sensing, supports responsible deployment, "
-            "rejects abuse, and receives private vulnerability reports."
-        ),
-        "active_nav": "security",
-        "content_group": "security",
-        "main_class": "page-narrow",
-        "og_type": "website",
-    },
-    {
-        "source": "content/licensing.html",
-        "output": "licensing",
-        "title": "Commercial licensing | ESPectre",
-        "description": (
-            "Commercial licensing and optional engineering support for embedding "
-            "ESPectre sensing layers in proprietary ESP-IDF firmware."
-        ),
-        "active_nav": "licensing",
-        "content_group": "licensing",
-        "main_class": "page-narrow",
-        "og_type": "website",
-    },
-    {
-        "source": "content/contact.html",
-        "output": "contact",
-        "title": "Contact | ESPectre",
-        "description": (
-            "Contact ESPectre for product and licensing inquiries, community support, "
-            "or bug reports."
-        ),
-        "active_nav": "contact",
-        "content_group": "contact",
-        "main_class": "page-narrow",
-        "og_type": "website",
-    },
-)
+
+def page_spec(route: dict[str, str]) -> dict[str, str]:
+    source = content_path(route)
+    output = output_path(route)
+    if source is None or output is None:
+        raise ValueError(f"Route {route['name']} is not a generated static page")
+    spec = {
+        "name": route["name"],
+        "source": source,
+        "output": output,
+        "title": route["title"],
+        "description": route["description"],
+        "active_nav": active_navigation(route),
+        "content_group": content_group(route),
+        "main_class": main_class(route, static=True),
+        "og_type": og_type(route),
+    }
+    group = route.get("group")
+    if group:
+        parent = ROUTE_MANIFEST["by_name"][group]
+        spec.update(
+            parent_href=parent["staticPath"],
+            parent_label=parent["title"].split(" | ")[0],
+        )
+    return spec
+
+
+PAGES = tuple(page_spec(route) for route in static_routes(ROUTE_MANIFEST))
+
 
 PAGE_TEMPLATE = """<!DOCTYPE html>
 <html lang="en" data-theme="light" data-static-page data-site-section="{content_group}">
@@ -438,65 +101,21 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 
 <a class="skip-link" href="#main-content">Skip to content</a>
 
-<header class="site-header">
-  <div class="site-header-inner">
-    <a href="/" class="brand">
-      <img src="/assets/images/brand/espectre-logo.svg?v={logo_version}" alt="" width="30" height="30" aria-hidden="true">
-      ESPectre
-    </a>
-    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="main-navigation">
-      <span aria-hidden="true">☰</span><span class="sr-only">Open navigation</span>
-    </button>
-    <nav class="main-nav" id="main-navigation" aria-label="Main">
-      <a href="/" class="nav-link">Home</a>
-      <a href="/tools/" class="nav-link{tools_active}"{tools_current}>Tools</a>
-      <a href="/guides/" class="nav-link{guides_active}"{guides_current}>Guides</a>
-      <a href="/sdk/" class="nav-link{sdk_active}"{sdk_current}>SDK</a>
-      <a href="/roadmap/" class="nav-link{roadmap_active}"{roadmap_current}>Roadmap</a>
-      <a href="/media/" class="nav-link{media_active}"{media_current}>Media</a>
-      <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener" class="nav-link">GitHub ↗</a>
-    </nav>
-  </div>
-</header>
+{header}
 
 <main class="{main_class}" id="main-content" tabindex="-1">
 {breadcrumb}
 {content}
 </main>
 
-<footer class="site-footer">
-  <div class="site-footer-inner">
-    <div class="footer-brand">
-      <img src="/assets/images/brand/espectre-logo.svg?v={logo_version}" alt="" width="23" height="23" aria-hidden="true">
-      ESPectre © 2026 · Open source Wi-Fi sensing platform
-    </div>
-    <div class="footer-links">
-      <a href="/privacy/">Privacy</a>
-      <a href="/privacy/#cookie-settings" class="js-cookie-settings">Cookie settings</a>
-      <a href="/terms/">Terms</a>
-      <a href="/legal/">Legal</a>
-      <a href="/security/">Security</a>
-      <a href="/licensing/">Licensing</a>
-      <a href="/contact/">Contact</a>
-    </div>
-  </div>
-</footer>
+{footer}
 
-<aside class="consent-banner js-consent-banner" role="dialog" aria-labelledby="consent-title" hidden>
-  <div>
-    <strong id="consent-title">Optional analytics</strong>
-    <p>Help improve ESPectre with privacy-conscious usage analytics. Browser-tool credentials and device identifiers are never included.</p>
-    <a href="/privacy/">Read the privacy notice</a>
-  </div>
-  <div class="consent-actions">
-    <button class="btn-secondary btn-sm js-consent-reject" type="button">Reject</button>
-    <button class="btn-secondary btn-sm js-consent-accept" type="button">Accept analytics</button>
-  </div>
-</aside>
+{consent_banner}
 
 </body>
 </html>
 """
+
 
 def crumb_from_title(title: str) -> str:
     return title.split(" | ")[0]
@@ -505,11 +124,10 @@ def crumb_from_title(title: str) -> str:
 def breadcrumb(spec: dict[str, str]) -> str:
     if "parent_href" not in spec:
         return ""
-
     return (
-        f'  <div class="breadcrumb"><a href="{spec["parent_href"]}">'
-        f'{spec["parent_label"]}</a> <span class="crumb-sep">/</span> '
-        f'<span class="crumb-here">{crumb_from_title(spec["title"])}</span></div>'
+        f'  <div class="breadcrumb"><a href="{escape(spec["parent_href"], quote=True)}">'
+        f'{escape(spec["parent_label"])}</a> <span class="crumb-sep">/</span> '
+        f'<span class="crumb-here">{escape(crumb_from_title(spec["title"]))}</span></div>'
     )
 
 
@@ -521,40 +139,36 @@ def build() -> None:
     logo_version = asset_version("assets/images/brand/espectre-logo.svg")
 
     for spec in PAGES:
-        fragment_path = WEB_ROOT / spec["source"]
-        content = fragment_path.read_text().rstrip("\n")
-
+        content = (WEB_ROOT / spec["source"]).read_text().rstrip("\n")
         canonical = f"{SITE_ORIGIN}/{spec['output']}/"
         page = PAGE_TEMPLATE.format(
-            title=spec["title"],
-            description=spec["description"],
-            canonical=canonical,
-            origin=SITE_ORIGIN,
+            title=escape(spec["title"], quote=True),
+            description=escape(spec["description"], quote=True),
+            canonical=escape(canonical, quote=True),
+            origin=escape(SITE_ORIGIN, quote=True),
             styles_version=styles_version,
             route_registry_version=route_registry_version,
             navigation_version=navigation_version,
             analytics_version=analytics_version,
             logo_version=logo_version,
-            og_type=spec.get("og_type", "article"),
+            header=render_header(
+                ROUTE_MANIFEST,
+                logo_version=logo_version,
+                active=spec["active_nav"],
+            ),
+            footer=render_footer(ROUTE_MANIFEST, logo_version=logo_version),
+            consent_banner=render_consent_banner(),
+            og_type=spec["og_type"],
             breadcrumb=breadcrumb(spec),
-            tools_active=" active" if spec["active_nav"] == "tools" else "",
-            guides_active=" active" if spec["active_nav"] == "guides" else "",
-            sdk_active=" active" if spec["active_nav"] == "sdk" else "",
-            media_active=" active" if spec["active_nav"] == "media" else "",
-            roadmap_active=" active" if spec["active_nav"] == "roadmap" else "",
-            tools_current=' aria-current="page"' if spec["active_nav"] == "tools" else "",
-            guides_current=' aria-current="page"' if spec["active_nav"] == "guides" else "",
-            sdk_current=' aria-current="page"' if spec["active_nav"] == "sdk" else "",
-            media_current=' aria-current="page"' if spec["active_nav"] == "media" else "",
-            roadmap_current=' aria-current="page"' if spec["active_nav"] == "roadmap" else "",
-            content_group=spec.get("content_group", "documentation"),
-            main_class=spec.get("main_class", "page-narrow page-article"),
+            content_group=spec["content_group"],
+            main_class=spec["main_class"],
             content=content,
         )
         out_dir = WEB_ROOT / spec["output"]
         out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / "index.html").write_text(page)
         print(f"wrote {spec['output']}/index.html")
+
 
 if __name__ == "__main__":
     build()

@@ -11,19 +11,18 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { app, browserSupportSource, directProtocol, GPL_HTML_HEADER, index, read, roadmapContent, routeRegistry, security, styles, toolContent, toolFragments, toolsContent } from './fixtures/site_test_helpers.mjs';
+import { app, browserSupportSource, directProtocol, GPL_HTML_HEADER, index, read, roadmapContent, routeManifest, routeRegistry, security, styles, toolContent, toolFragments, toolsContent } from './fixtures/site_test_helpers.mjs';
+
+const routePath = (name) => routeManifest.routes.find((route) => route.name === name)?.staticPath;
+const generatedShell = read('.github/scripts/web_page_shell.py');
 
 describe('website legal route contracts', () => {
     it('keeps privacy discoverable and serves a real 404 page', () => {
         assert.match(index, /data-page="privacy"/);
-        assert.match(index, /data-content-url="content\/privacy\.html\?v=[0-9a-f]{12}"/);
         assert.match(index, /<div class="footer-links">\s*<a href="\/privacy\/"/);
-        assert.match(routeRegistry, /name: 'privacy'.*staticPath: '\/privacy\/'/);
-        assert.match(read('.github/scripts/build_static_pages.py'), /<a href="\/privacy\/"/);
-        assert.match(read('.github/scripts/stage_web_sdk.py'), /<a href="\/privacy\/"/);
-        const sitemap = read('.github/scripts/sitemap.template.xml');
-        assert.match(sitemap, /https:\/\/espectre\.dev\/privacy\//);
-        assert.doesNotMatch(sitemap, /<(?:changefreq|lastmod)>/);
+        assert.equal(routePath('privacy'), '/privacy/');
+        assert.ok(routeManifest.navigation.footer.includes('privacy'));
+        assert.equal(routeManifest.siteOrigin, 'https://espectre.dev');
         assert.match(read('docs/web/content/privacy.html'), /id="cookie-settings"/);
         const notFound = read('docs/web/404.html');
         assert.doesNotMatch(notFound, /http-equiv="refresh"|location\.replace/);
@@ -33,8 +32,7 @@ describe('website legal route contracts', () => {
         const sharedFooterBrand = /<div class="footer-brand">\s*<img src="\/assets\/images\/brand\/espectre-logo\.svg(?:\?v=(?:[0-9a-f]{12}|\{logo_version\}))?" alt="" width="23" height="23" aria-hidden="true">/;
         assert.match(index, sharedFooterBrand);
         assert.match(notFound, sharedFooterBrand);
-        assert.match(read('.github/scripts/build_static_pages.py'), sharedFooterBrand);
-        assert.match(read('.github/scripts/stage_web_sdk.py'), sharedFooterBrand);
+        assert.match(generatedShell, sharedFooterBrand);
         assert.match(styles, /\.footer-brand \{[^}]*color: var\(--text\);/);
         assert.match(notFound, /data-static-page data-site-section="other"/);
         assert.match(notFound, /<a href="\/privacy\/#cookie-settings" class="js-cookie-settings"/);
@@ -61,16 +59,11 @@ describe('website legal route contracts', () => {
     it('publishes a dedicated commercial licensing page', () => {
         const licensingContent = read('docs/web/content/licensing.html');
         assert.match(index, /data-page="licensing"/);
-        assert.match(index, /data-content-url="content\/licensing\.html\?v=[0-9a-f]{12}"/);
         assert.match(index, /<a href="\/licensing\/"/);
         assert.match(index, /<a href="\/contact\/"/);
-        assert.match(routeRegistry, /name: 'licensing'.*staticPath: '\/licensing\/'/);
-        assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/licensing\.html"/);
-        assert.match(read('.github/scripts/build_static_pages.py'), /<a href="\/licensing\/"/);
-        assert.match(read('.github/scripts/stage_web_sdk.py'), /<a href="\/licensing\/"/);
+        assert.equal(routePath('licensing'), '/licensing/');
+        assert.ok(routeManifest.navigation.footer.includes('licensing'));
         assert.match(read('docs/web/404.html'), /<a href="\/licensing\/"/);
-        assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/licensing\//);
-        assert.match(read('.github/scripts/build_sitemap.py'), /"\/licensing\/": \(Path\("docs\/web\/content\/licensing\.html"\), STATIC_PAGE_BUILDER\)/);
         assert.match(licensingContent, /<h1 class="page-title">/);
         assert.match(licensingContent, /mailto:contact@espectre\.dev\?subject=Commercial%20licensing%20inquiry/);
     });
@@ -78,14 +71,9 @@ describe('website legal route contracts', () => {
     it('publishes a dedicated contact page from every footer', () => {
         const contactContent = read('docs/web/content/contact.html');
         assert.match(index, /data-page="contact"/);
-        assert.match(index, /data-content-url="content\/contact\.html\?v=[0-9a-f]{12}"/);
-        assert.match(routeRegistry, /name: 'contact'.*staticPath: '\/contact\/'/);
-        assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/contact\.html"/);
-        assert.match(read('.github/scripts/build_static_pages.py'), /<a href="\/contact\/"/);
-        assert.match(read('.github/scripts/stage_web_sdk.py'), /<a href="\/contact\/"/);
+        assert.equal(routePath('contact'), '/contact/');
+        assert.ok(routeManifest.navigation.footer.includes('contact'));
         assert.match(read('docs/web/404.html'), /<a href="\/contact\/"/);
-        assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/contact\//);
-        assert.match(read('.github/scripts/build_sitemap.py'), /"\/contact\/": \(Path\("docs\/web\/content\/contact\.html"\), STATIC_PAGE_BUILDER\)/);
         assert.match(contactContent, /<h1 class="page-title">/);
         assert.match(contactContent, /mailto:contact@espectre\.dev/);
         assert.match(contactContent, /github\.com\/francescopace\/espectre\/discussions/);
@@ -96,15 +84,10 @@ describe('website legal route contracts', () => {
     it('publishes a dedicated security and responsible-use page', () => {
         const securityContent = read('docs/web/content/security.html');
         assert.match(index, /data-page="security"/);
-        assert.match(index, /data-content-url="content\/security\.html\?v=[0-9a-f]{12}"/);
         assert.match(index, /<a href="\/security\/"/);
-        assert.match(routeRegistry, /name: 'security'.*staticPath: '\/security\/'/);
-        assert.match(read('.github/scripts/build_static_pages.py'), /"source": "content\/security\.html"/);
-        assert.match(read('.github/scripts/build_static_pages.py'), /<a href="\/security\/"/);
-        assert.match(read('.github/scripts/stage_web_sdk.py'), /<a href="\/security\/"/);
+        assert.equal(routePath('security'), '/security/');
+        assert.ok(routeManifest.navigation.footer.includes('security'));
         assert.match(read('docs/web/404.html'), /<a href="\/security\/"/);
-        assert.match(read('.github/scripts/sitemap.template.xml'), /https:\/\/espectre\.dev\/security\//);
-        assert.match(read('.github/scripts/build_sitemap.py'), /"\/security\/": \(Path\("docs\/web\/content\/security\.html"\), STATIC_PAGE_BUILDER\)/);
         assert.match(securityContent, /<h1 class="page-title">/);
         assert.match(securityContent, /mailto:contact@espectre\.dev\?subject=Responsible%20use%20or%20abuse%20report/);
         assert.match(securityContent, /mailto:security@espectre\.dev/);
@@ -118,26 +101,22 @@ describe('website legal route contracts', () => {
         const staticPageBuilder = read('.github/scripts/build_static_pages.py');
         const sdkPageBuilder = read('.github/scripts/stage_web_sdk.py');
         const notFound = read('docs/web/404.html');
-        const sitemap = read('.github/scripts/sitemap.template.xml');
         const sitemapBuilder = read('.github/scripts/build_sitemap.py');
 
         assert.match(index, /data-page="terms"/);
-        assert.match(index, /data-content-url="content\/terms\.html\?v=[0-9a-f]{12}"/);
         assert.match(index, /data-page="legal"/);
-        assert.match(index, /data-content-url="content\/legal\.html\?v=[0-9a-f]{12}"/);
-        assert.match(routeRegistry, /name: 'terms'.*staticPath: '\/terms\/'/);
-        assert.match(routeRegistry, /name: 'legal'.*staticPath: '\/legal\/'/);
+        assert.equal(routePath('terms'), '/terms/');
+        assert.equal(routePath('legal'), '/legal/');
 
-        for (const source of [index, staticPageBuilder, sdkPageBuilder, notFound]) {
+        for (const source of [index, notFound]) {
             assert.match(source, /<a href="\/terms\/"/);
             assert.match(source, /<a href="\/legal\/"/);
         }
-        assert.match(staticPageBuilder, /"source": "content\/terms\.html"/);
-        assert.match(staticPageBuilder, /"source": "content\/legal\.html"/);
-        assert.match(sitemap, /https:\/\/espectre\.dev\/terms\//);
-        assert.match(sitemap, /https:\/\/espectre\.dev\/legal\//);
-        assert.match(sitemapBuilder, /"\/terms\/": \(Path\("docs\/web\/content\/terms\.html"\), STATIC_PAGE_BUILDER\)/);
-        assert.match(sitemapBuilder, /"\/legal\/": \(Path\("docs\/web\/content\/legal\.html"\), STATIC_PAGE_BUILDER\)/);
+        assert.ok(routeManifest.navigation.footer.includes('terms'));
+        assert.ok(routeManifest.navigation.footer.includes('legal'));
+        assert.match(generatedShell, /for name in manifest\["navigation"\]\["footer"\]/);
+        assert.match(sitemapBuilder, /ROUTE_MANIFEST = load_manifest\(\)/);
+        assert.match(sitemapBuilder, /for route in static_routes\(ROUTE_MANIFEST\)/);
 
         assert.match(termsContent, /<h1 class="page-title">/);
         assert.match(legalContent, /<h1 class="page-title">/);
@@ -171,14 +150,8 @@ describe('website legal route contracts', () => {
         assert.match(index, /<main class="js-page page-narrow" data-page="licensing"/);
         assert.match(index, /<main class="js-page page-narrow" data-page="contact"/);
         assert.doesNotMatch(index, /<main class="js-page page-narrow page-article" data-page="(?:sdk|roadmap|privacy|terms|legal|security|licensing|contact)"/);
-        assert.match(staticPageBuilder, /"source": "content\/sdk\.html",[\s\S]*?"og_type": "website"/);
-        assert.match(staticPageBuilder, /"source": "content\/roadmap\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
-        assert.match(staticPageBuilder, /"source": "content\/privacy\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
-        assert.match(staticPageBuilder, /"source": "content\/terms\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
-        assert.match(staticPageBuilder, /"source": "content\/legal\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
-        assert.match(staticPageBuilder, /"source": "content\/security\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
-        assert.match(staticPageBuilder, /"source": "content\/licensing\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
-        assert.match(staticPageBuilder, /"source": "content\/contact\.html",[\s\S]*?"main_class": "page-narrow",[\s\S]*?"og_type": "website"/);
+        assert.match(staticPageBuilder, /"main_class": main_class\(route, static=True\)/);
+        assert.match(staticPageBuilder, /"og_type": og_type\(route\)/);
         assert.match(staticPageBuilder, /<meta property="og:type" content="\{og_type\}">/);
     });
 

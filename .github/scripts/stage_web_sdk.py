@@ -21,9 +21,14 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
 from web_asset_versions import asset_version
+from web_page_shell import render_consent_banner, render_footer, render_header
+from web_routes import load_manifest
 from validate_release import SEMVER_PATTERN
 
 WEB_ROOT = Path(__file__).resolve().parents[2] / "docs" / "web"
+ROUTE_MANIFEST = load_manifest()
+SITE_ORIGIN = ROUTE_MANIFEST["siteOrigin"]
+SDK_CHANNELS = tuple(sdk_channel["sdkChannel"] for sdk_channel in ROUTE_MANIFEST["sdkChannels"])
 SDK_MANIFEST_SCHEMA_VERSION = 2
 
 
@@ -31,7 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Stage web SDK metadata pages.")
     parser.add_argument("--sdk-dir", required=True, help="Directory containing SDK release assets and manifest.")
     parser.add_argument("--output-dir", required=True, help="Directory where staged web SDK files should be written.")
-    parser.add_argument("--channel", choices=("release", "preview", "develop"), required=True, help="Website SDK channel.")
+    parser.add_argument("--channel", choices=SDK_CHANNELS, required=True, help="Website SDK channel.")
     return parser.parse_args()
 
 
@@ -163,6 +168,9 @@ def render_page(manifest: dict, channel: str) -> str:
     navigation_version = asset_version("assets/js/navigation.js")
     analytics_version = asset_version("assets/js/analytics.js")
     logo_version = asset_version("assets/images/brand/espectre-logo.svg")
+    header = render_header(ROUTE_MANIFEST, logo_version=logo_version, active="sdk")
+    footer = render_footer(ROUTE_MANIFEST, logo_version=logo_version)
+    consent_banner = render_consent_banner()
     return f"""<!DOCTYPE html>
 <html lang="en" data-theme="light" data-static-page data-site-section="documentation" data-sdk-stability="{stability}">
 <head>
@@ -170,7 +178,7 @@ def render_page(manifest: dict, channel: str) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} | ESPectre</title>
 <meta name="description" content="{description}">
-<link rel="canonical" href="https://espectre.dev/artifacts/sdk/{channel}/">
+<link rel="canonical" href="{SITE_ORIGIN}/artifacts/sdk/{channel}/">
 <link rel="icon" type="image/png" href="/assets/images/brand/favicon.png">
 <link rel="stylesheet" href="/assets/css/styles.css?v={styles_version}">
 <script src="/assets/js/route-registry.js?v={route_registry_version}" defer></script>
@@ -179,26 +187,7 @@ def render_page(manifest: dict, channel: str) -> str:
 </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to content</a>
-<header class="site-header">
-  <div class="site-header-inner">
-    <a href="/" class="brand">
-      <img src="/assets/images/brand/espectre-logo.svg?v={logo_version}" alt="" width="30" height="30" aria-hidden="true">
-      ESPectre
-    </a>
-    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="main-navigation">
-      <span aria-hidden="true">☰</span><span class="sr-only">Open navigation</span>
-    </button>
-    <nav class="main-nav" id="main-navigation" aria-label="Main">
-      <a href="/" class="nav-link">Home</a>
-      <a href="/tools/" class="nav-link">Tools</a>
-      <a href="/guides/" class="nav-link">Guides</a>
-      <a href="/sdk/" class="nav-link active" aria-current="page">SDK</a>
-      <a href="/roadmap/" class="nav-link">Roadmap</a>
-      <a href="/media/" class="nav-link">Media</a>
-      <a href="https://github.com/francescopace/espectre" target="_blank" rel="noopener" class="nav-link">GitHub ↗</a>
-    </nav>
-  </div>
-</header>
+{header}
 <main class="page-narrow page-article" id="main-content" tabindex="-1">
   <div class="breadcrumb"><a href="/sdk/">SDK</a> <span class="crumb-sep">/</span> <span class="crumb-here">{title}</span></div>
   <article class="article">
@@ -234,34 +223,8 @@ def render_page(manifest: dict, channel: str) -> str:
       {channel_note(manifest, channel)}
   </article>
 </main>
-<footer class="site-footer">
-  <div class="site-footer-inner">
-    <div class="footer-brand">
-      <img src="/assets/images/brand/espectre-logo.svg?v={logo_version}" alt="" width="23" height="23" aria-hidden="true">
-      ESPectre © 2026 · Open source Wi-Fi sensing platform
-    </div>
-    <div class="footer-links">
-      <a href="/privacy/">Privacy</a>
-      <a href="/privacy/#cookie-settings" class="js-cookie-settings">Cookie settings</a>
-      <a href="/terms/">Terms</a>
-      <a href="/legal/">Legal</a>
-      <a href="/security/">Security</a>
-      <a href="/licensing/">Licensing</a>
-      <a href="/contact/">Contact</a>
-    </div>
-  </div>
-</footer>
-<aside class="consent-banner js-consent-banner" role="dialog" aria-labelledby="consent-title" hidden>
-  <div>
-    <strong id="consent-title">Optional analytics</strong>
-    <p>Help improve ESPectre with privacy-conscious usage analytics. Browser-tool credentials and device identifiers are never included.</p>
-    <a href="/privacy/">Read the privacy notice</a>
-  </div>
-  <div class="consent-actions">
-    <button class="btn-secondary btn-sm js-consent-reject" type="button">Reject</button>
-    <button class="btn-secondary btn-sm js-consent-accept" type="button">Accept analytics</button>
-  </div>
-</aside>
+{footer}
+{consent_banner}
 </body>
 </html>
 """

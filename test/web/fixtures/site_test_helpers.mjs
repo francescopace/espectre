@@ -24,6 +24,7 @@ export const app = [
 export const directProtocol = read('docs/web/assets/js/espectre-direct.js');
 export const browserSupportSource = read('docs/web/assets/js/browser-support.js');
 export const routeRegistry = read('docs/web/assets/js/route-registry.js');
+export const routeManifest = JSON.parse(read('docs/web/routes.json'));
 export const styles = read('docs/web/assets/css/styles.css');
 export const security = read('docs/web/content/security.html');
 export const toolsContent = read('docs/web/content/tools.html');

@@ -11,6 +11,7 @@ import re
 import sys
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -19,6 +20,7 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
 from detect_git_version import detect_git_version
+from web_routes import SITEMAP_NAMESPACE, load_manifest, staged_sdk_channels
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -29,46 +31,20 @@ EXPECTED_CHIPS_BY_FRONTEND = {
     "matter": {"esp32", "esp32s3", "esp32c3", "esp32c5", "esp32c6"},
     "native": {"esp32", "esp32s2", "esp32s3", "esp32c3", "esp32c5", "esp32c6"},
 }
-SITEMAP_NAMESPACE = "http://www.sitemaps.org/schemas/sitemap/0.9"
-SITE_HOST = "espectre.dev"
-SPA_ROUTE_NAME_RE = re.compile(r"\{\s*name:\s*'([^']+)'")
-SPA_PAGE_ROUTE_RE = re.compile(r'<main\b[^>]*\bdata-page="([^"]+)"')
-SPA_STATIC_PATH_RE = re.compile(r"staticPath:\s*'(/[^']+)'")
-EXPECTED_SITEMAP_PATHS = {
-    "/",
-    "/tools/",
-    "/tools/flash/",
-    "/tools/configure/",
-    "/tools/monitor/",
-    "/tools/raw-csi/",
-    "/tools/theremin/",
-    "/tools/game/",
-    "/guides/",
-    "/guides/hardware/",
-    "/guides/setup/",
-    "/guides/home-assistant/",
-    "/guides/placement/",
-    "/guides/detection/",
-    "/guides/detectors/",
-    "/guides/micropython/",
-    "/guides/future-wifi-sensing/",
-    "/sdk/",
-    "/sdk/detectors/",
-    "/sdk/api/",
-    "/sdk/examples/",
-    "/sdk/architecture/",
-    "/artifacts/sdk/release/",
-    "/artifacts/sdk/preview/",
-    "/artifacts/sdk/develop/",
-    "/media/",
-    "/roadmap/",
-    "/privacy/",
-    "/terms/",
-    "/legal/",
-    "/security/",
-    "/licensing/",
-    "/contact/",
+ROUTE_MANIFEST = load_manifest()
+SITE_HOST = urlparse(ROUTE_MANIFEST["siteOrigin"]).hostname or ""
+SDK_CHANNEL_PATHS = {
+    sdk_channel["sdkChannel"]: sdk_channel["path"]
+    for sdk_channel in ROUTE_MANIFEST["sdkChannels"]
 }
+SPA_PAGE_ROUTE_RE = re.compile(r'<main\b[^>]*\bdata-page="([^"]+)"')
+
+
+def expected_sitemap_paths() -> set[str]:
+    return {
+        *(route["staticPath"] for route in ROUTE_MANIFEST["routes"]),
+        *(sdk_channel["path"] for sdk_channel in staged_sdk_channels(WEB_ROOT, ROUTE_MANIFEST)),
+    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -91,19 +67,45 @@ def require_file(relative_path: str) -> Path:
 
 
 def registered_spa_routes() -> list[str]:
-    registry = require_file("assets/js/route-registry.js").read_text(encoding="utf-8")
-    routes = SPA_ROUTE_NAME_RE.findall(registry)
-    if not routes:
-        raise ValueError("Route registry contains no SPA routes")
-    return routes
+    return [route["name"] for route in ROUTE_MANIFEST["routes"]]
 
 
-def registered_static_paths() -> list[str]:
-    registry = require_file("assets/js/route-registry.js").read_text(encoding="utf-8")
-    paths = SPA_STATIC_PATH_RE.findall(registry)
-    if not paths:
-        raise ValueError("Route registry contains no static paths")
-    return paths
+class StaticPageMetadataParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.in_title = False
+        self.title_parts: list[str] = []
+        self.canonical = ""
+        self.meta: dict[str, str] = {}
+        self.static_page = False
+        self.main_content = False
+
+    @property
+    def title(self) -> str:
+        return "".join(self.title_parts)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = dict(attrs)
+        if tag == "html":
+            self.static_page = "data-static-page" in values
+        elif tag == "title":
+            self.in_title = True
+        elif tag == "link" and values.get("rel") == "canonical":
+            self.canonical = values.get("href") or ""
+        elif tag == "meta":
+            key = values.get("name") or values.get("property")
+            if key:
+                self.meta[key] = values.get("content") or ""
+        elif tag == "main" and values.get("id") == "main-content":
+            self.main_content = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "title":
+            self.in_title = False
+
+    def handle_data(self, data: str) -> None:
+        if self.in_title:
+            self.title_parts.append(data)
 
 
 def verify_spa_routes() -> None:
@@ -120,9 +122,42 @@ def verify_spa_routes() -> None:
 
 
 def verify_generated_pages() -> None:
-    for static_path in registered_static_paths():
+    routes = [route for route in ROUTE_MANIFEST["routes"] if route["staticPath"] != "/"]
+    pages = []
+    for route in routes:
+        static_path = route["staticPath"]
         relative_path = static_path.strip("/")
-        require_file(f"{relative_path}/index.html")
+        pages.append((route, require_file(f"{relative_path}/index.html")))
+
+    for route, page in pages:
+        static_path = route["staticPath"]
+        parser = StaticPageMetadataParser()
+        parser.feed(page.read_text(encoding="utf-8"))
+        canonical = f'{ROUTE_MANIFEST["siteOrigin"]}{static_path}'
+        expected_meta = {
+            "description": route["description"],
+            "og:url": canonical,
+            "og:title": route["title"],
+            "og:description": route["description"],
+            "twitter:title": route["title"],
+            "twitter:description": route["description"],
+        }
+        if not parser.static_page or not parser.main_content:
+            raise ValueError(f"Generated page has no static shell: {static_path}")
+        if parser.title != route["title"] or parser.canonical != canonical:
+            raise ValueError(
+                f"Generated page metadata mismatch for {static_path}: "
+                f"title={parser.title!r}, canonical={parser.canonical!r}"
+            )
+        mismatched_meta = {
+            key: parser.meta.get(key)
+            for key, expected in expected_meta.items()
+            if parser.meta.get(key) != expected
+        }
+        if mismatched_meta:
+            raise ValueError(
+                f"Generated page metadata mismatch for {static_path}: {mismatched_meta}"
+            )
 
 
 def verify_sitemap(*, require_preview: bool, require_release: bool, require_develop: bool) -> None:
@@ -133,7 +168,6 @@ def verify_sitemap(*, require_preview: bool, require_release: bool, require_deve
         raise ValueError(f"Unexpected sitemap root: {root.tag}")
 
     paths: set[str] = set()
-    missing_lastmod: list[str] = []
     today = datetime.now(timezone.utc).date()
     for entry in root.findall(f"{{{SITEMAP_NAMESPACE}}}url"):
         location = entry.find(f"{{{SITEMAP_NAMESPACE}}}loc")
@@ -151,8 +185,7 @@ def verify_sitemap(*, require_preview: bool, require_release: bool, require_deve
             raise ValueError(f"Sitemap must not contain changefreq: {url}")
         lastmod = entry.find(f"{{{SITEMAP_NAMESPACE}}}lastmod")
         if lastmod is None or not (lastmod.text or "").strip():
-            missing_lastmod.append(parsed.path)
-            continue
+            raise ValueError(f"Sitemap entry is missing lastmod: {parsed.path}")
         value = (lastmod.text or "").strip()
         try:
             parsed_date = datetime.strptime(value, "%Y-%m-%d").date()
@@ -161,22 +194,29 @@ def verify_sitemap(*, require_preview: bool, require_release: bool, require_deve
         if parsed_date > today:
             raise ValueError(f"Sitemap lastmod is in the future for {url}: {value}")
 
-    if paths != EXPECTED_SITEMAP_PATHS:
+    expected_paths = expected_sitemap_paths()
+    if paths != expected_paths:
         raise ValueError(
             "Invalid sitemap URL inventory: "
-            f"missing={sorted(EXPECTED_SITEMAP_PATHS - paths)}, "
-            f"unexpected={sorted(paths - EXPECTED_SITEMAP_PATHS)}"
+            f"missing={sorted(expected_paths - paths)}, "
+            f"unexpected={sorted(paths - expected_paths)}"
         )
-    allowed_missing = set()
-    if not require_preview:
-        allowed_missing.add("/artifacts/sdk/preview/")
-    if not require_release:
-        allowed_missing.add("/artifacts/sdk/release/")
-    if not require_develop:
-        allowed_missing.add("/artifacts/sdk/develop/")
-    unexpected_missing = sorted(set(missing_lastmod) - allowed_missing)
-    if unexpected_missing:
-        raise ValueError(f"Sitemap entries are missing lastmod: {unexpected_missing}")
+    required_channels = {
+        channel
+        for channel, required in (
+            ("preview", require_preview),
+            ("release", require_release),
+            ("develop", require_develop),
+        )
+        if required
+    }
+    missing_required = sorted(
+        SDK_CHANNEL_PATHS[channel]
+        for channel in required_channels
+        if SDK_CHANNEL_PATHS[channel] not in paths
+    )
+    if missing_required:
+        raise ValueError(f"Sitemap is missing required SDK channels: {missing_required}")
 
 
 def verify_firmware_channel(channel: str) -> None:
@@ -290,6 +330,7 @@ def verify(args: argparse.Namespace) -> None:
         "sitemap.xml",
         "index.html",
         "404.html",
+        "routes.json",
         "assets/js/app.js",
         "assets/js/route-registry.js",
         "assets/js/espectre-direct.js",

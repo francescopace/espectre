@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { app, browserSupportSource, directProtocol, GPL_HTML_HEADER, index, read, roadmapContent, routeRegistry, security, styles, toolContent, toolFragments, toolsContent } from './fixtures/site_test_helpers.mjs';
+import { app, browserSupportSource, directProtocol, GPL_HTML_HEADER, index, read, roadmapContent, routeManifest, routeRegistry, security, styles, toolContent, toolFragments, toolsContent } from './fixtures/site_test_helpers.mjs';
 
 describe('website accessibility and UX contracts', () => {
     it('has a responsive navigation control and a live status region', () => {
@@ -19,6 +19,8 @@ describe('website accessibility and UX contracts', () => {
         assert.match(index, /id="main-navigation"/);
         assert.match(styles, /@media \(max-width: 840px\) \{[\s\S]*?\.conn \{ margin-left: auto; min-width: 0; order: 2; \}/);
         assert.match(styles, /\.conn-connected \.js-device-name \{ min-width: 0; overflow: hidden; text-overflow: ellipsis; \}/);
+        assert.doesNotMatch(styles, /@media \(max-width: 720px\) \{[\s\S]*?\.page-toc \{ display: none; \}/);
+        assert.match(styles, /@media \(max-width: 360px\) \{[\s\S]*?\.site-header \.brand \{[\s\S]*?flex: 0 0 44px;[\s\S]*?\.conn \{ flex: 1 1 auto; \}/);
         assert.match(index, /class="toast js-toast"[^>]+role="status"[^>]+aria-live="polite"/);
         assert.doesNotMatch(index, /js-demo-toast|toast-sticky/);
         assert.match(index, /class="connection-callout js-connection-callout"[^>]+role="status"[^>]+hidden/);
@@ -34,7 +36,11 @@ describe('website accessibility and UX contracts', () => {
         assert.match(index, /<a class="skip-link" href="#main-content"/);
         assert.match(index, /data-page="home" id="main-content" tabindex="-1"/);
         for (const tool of ['flash', 'configure', 'monitor', 'raw-csi', 'theremin', 'game']) {
-            assert.match(index, new RegExp(`data-page="tool-${tool}"[\\s\\S]*?content/tools/${tool}\\.html`));
+            assert.match(index, new RegExp(`data-page="tool-${tool}"`));
+            assert.equal(
+                routeManifest.routes.find((route) => route.name === `tool-${tool}`)?.staticPath,
+                `/tools/${tool}/`
+            );
             assert.match(toolContent[tool], /<h1 class="page-title">/);
         }
         assert.match(app, /link\.setAttribute\('aria-current', 'page'\)/);
@@ -91,13 +97,14 @@ describe('website accessibility and UX contracts', () => {
         for (const path of [
             'docs/web/index.html',
             'docs/web/404.html',
-            '.github/scripts/build_static_pages.py',
-            '.github/scripts/stage_web_sdk.py',
         ]) {
             const source = read(path);
             assert.match(source, /class="btn-secondary btn-sm js-consent-reject"/);
-            assert.match(source, /class="btn-secondary btn-sm js-consent-accept"/);
+            assert.match(source, /class="btn-primary btn-sm js-consent-accept"/);
         }
+        const generatedShell = read('.github/scripts/web_page_shell.py');
+        assert.match(generatedShell, /class=\"btn-secondary btn-sm js-consent-reject\"/);
+        assert.match(generatedShell, /class=\"btn-primary btn-sm js-consent-accept\"/);
     });
 
     it('formats security guidance with project-native components', () => {
@@ -143,12 +150,11 @@ describe('website accessibility and UX contracts', () => {
         assert.match(actionHub, /class="home-license-cta"[\s\S]*?class="home-resource-strip"/);
         const resourceHrefs = [...actionHub.matchAll(/class="home-resource-links">[\s\S]*?<\/div>/g)][0]?.[0]
             .match(/href="([^"]+)"/g)?.map((entry) => entry.slice(6, -1)) || [];
+        const mainNavigationHrefs = routeManifest.navigation.main
+            .filter((name) => name !== 'home')
+            .map((name) => routeManifest.routes.find((route) => route.name === name)?.staticPath);
         assert.deepEqual(resourceHrefs, [
-            '/tools/',
-            '/guides/',
-            '/media/',
-            '/sdk/',
-            '/roadmap/',
+            ...mainNavigationHrefs,
             'https://github.com/francescopace/espectre',
         ]);
         assert.match(styles, /\.home-resource-links \{ display: grid; grid-template-columns: repeat\(6, minmax\(0, 1fr\)\); \}/);

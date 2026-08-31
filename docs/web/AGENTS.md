@@ -4,7 +4,7 @@
 
 - Edit shared fragments under `content/`; do not directly edit generated `index.html` pages in public route directories.
 - Run `.github/scripts/build_static_pages.py` after changing shared fragments, and inspect the generated diff only for the affected routes.
-- Update `.github/scripts/sitemap.template.xml` when public routes change; `sitemap.xml` is a generated deployment artifact.
+- Update `routes.json` when public routes change; `sitemap.xml` is a generated deployment artifact.
 - Keep public compatibility, privacy, security, and controller-support claims grounded in repository evidence.
 
 ## Testing And Review
