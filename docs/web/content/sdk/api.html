@@ -57,7 +57,7 @@
 
   <h2>Optional logging sink</h2>
   <p><code>LogSink</code> connects shared SDK messages to a product-owned backend. Register it before runtime setup and leave it unchanged until shutdown. Without a sink, shared logging is silent and filtered message arguments are not evaluated. The sink callbacks must be thread-safe, bounded, non-blocking, and non-reentrant because runtime services can log from more than one task or capture path.</p>
-  <p>The shipped ESP-IDF adapters keep the dependency at the frontend boundary. This includes Micro-ESPectre, whose core-only and focused traffic components share the core-owned sink without requiring the ESP-IDF <code>log</code> component themselves.</p>
+  <p>Native, Matter, and Micro-ESPectre use ESP-IDF Log v2 and pass each callback's <code>va_list</code> to <code>esp_log_va</code>. ESP-IDF adds the standard level, timestamp, tag, and line ending, so these adapters do not need their own formatting buffer. ESPHome sends messages to its own logger. Each adapter keeps its logging dependency in the frontend. Micro-ESPectre's core-only and focused traffic components can share the core-owned sink without depending on the ESP-IDF <code>log</code> component.</p>
 
   <h2>Errors and optional controls</h2>
   <p>Control methods return <code>false</code> when a value is outside its published range, the active backend does not advertise the capability, the backend refuses the change, or setup cannot allocate its bounded working storage. A rejected call leaves the runtime unchanged. Allocation failures are reported synchronously to the listener; runtime-owned asynchronous failures arrive through <code>on_runtime_fault()</code>.</p>

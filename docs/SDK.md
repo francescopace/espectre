@@ -122,7 +122,7 @@ if (!espectre::set_log_sink(sink)) {
 
 The `enabled` callback decides whether a level and tag should be formatted. The `write` callback receives the level, tag, source line, format string, and a `va_list` that remains valid only for that call. ESPectre copies the callback value but does not own its context. Keep the context alive until `clear_log_sink()`, and register, replace, or clear the sink only while no runtime is active. Callbacks may arrive from the runtime owner task, ESP-IDF service tasks, or CSI capture paths, so they must be thread-safe, bounded, non-blocking, and must not call the ESPectre logger recursively.
 
-The shipped frontends provide the reference adapters: ESPHome forwards to its logger, while Native, Matter, and the Micro-ESPectre native bindings forward to `esp_log`. Micro-ESPectre keeps that dependency in its frontend module; its core-only and focused traffic components remain logger-independent and share the sink implementation linked from core. These frontend choices do not add `esp_log` to the shared SDK components.
+The shipped frontends provide the reference adapters. ESPHome sends messages to its logger. Native, Matter, and the Micro-ESPectre native bindings use ESP-IDF Log v2 and pass each callback's `va_list` to `esp_log_va`. ESP-IDF adds the standard level, timestamp, tag, and line ending, so these adapters do not need their own formatting buffer. Micro-ESPectre keeps the ESP-IDF dependency in its frontend module; its core-only and focused traffic components remain logger-independent and share the sink implementation linked from core. The shared SDK components remain independent of `esp_log`.
 
 ## Header map
 

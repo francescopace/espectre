@@ -8,7 +8,6 @@
  * Commercial licensing available under separate agreement; see LICENSING.md.
  */
 #include <cstdarg>
-#include <cstdio>
 #include <string>
 
 #include <esp_err.h>
@@ -77,16 +76,8 @@ bool idf_log_enabled(void *, espectre::LogLevel level, const char *tag) {
 
 void idf_log_write(void *, espectre::LogLevel level, const char *tag, int,
                    const char *format, va_list args) {
-  char line[512];
-  const int written = std::vsnprintf(line, sizeof(line), format, args);
-  if (written < 0) return;
-  if (static_cast<size_t>(written) >= sizeof(line)) {
-    line[sizeof(line) - 4] = '.';
-    line[sizeof(line) - 3] = '.';
-    line[sizeof(line) - 2] = '.';
-    line[sizeof(line) - 1] = '\0';
-  }
-  ESP_LOG_LEVEL(idf_log_level(level), tag, "%s", line);
+  esp_log_va(ESP_LOG_CONFIG_INIT(idf_log_level(level) | ESP_LOG_CONFIGS_DEFAULT),
+             tag, format, args);
 }
 
 bool register_espectre_log_sink() {

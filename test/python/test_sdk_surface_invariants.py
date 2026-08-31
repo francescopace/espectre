@@ -186,7 +186,7 @@ def test_shared_layers_do_not_depend_on_esp_log() -> None:
     )
 
 
-def test_idf_frontend_log_sinks_restore_standard_line_formatting() -> None:
+def test_idf_frontend_log_sinks_forward_standard_line_formatting() -> None:
     adapters = (
         CPP_ROOT / "frontend" / "native" / "app" / "main" / "app_main.cpp",
         CPP_ROOT / "frontend" / "matter" / "app" / "main" / "app_main.cpp",
@@ -200,9 +200,26 @@ def test_idf_frontend_log_sinks_restore_standard_line_formatting() -> None:
     )
     for adapter in adapters:
         source = adapter.read_text(encoding="utf-8")
-        assert "std::vsnprintf" in source
-        assert "ESP_LOG_LEVEL" in source
+        assert "esp_log_va" in source
+        assert "ESP_LOG_CONFIGS_DEFAULT" in source
+        assert "std::vsnprintf" not in source
+        assert "ESP_LOG_LEVEL" not in source
         assert "esp_log_writev" not in source
+
+    idf_defaults = (
+        CPP_ROOT / "frontend" / "native" / "app" / "sdkconfig.defaults",
+        CPP_ROOT / "frontend" / "matter" / "app" / "sdkconfig.defaults",
+        REPO_ROOT
+        / "src"
+        / "python"
+        / "micro_espectre"
+        / "firmware"
+        / "boards"
+        / "sdkconfig.micro_espectre",
+    )
+    for defaults in idf_defaults:
+        source = defaults.read_text(encoding="utf-8")
+        assert "CONFIG_LOG_VERSION_2=y" in source
 
 
 def test_generated_reference_uses_consumer_include_paths() -> None:

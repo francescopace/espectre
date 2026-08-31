@@ -1104,10 +1104,17 @@ def test_project_boards_use_one_shared_profile_and_only_esp32_override() -> None
         / "native_log_sink.cpp"
     ).read_text(encoding="utf-8")
     assert "espectre::set_log_sink" in native_log_sink
-    assert "std::vsnprintf" in native_log_sink
-    assert "ESP_LOG_LEVEL" in native_log_sink
+    assert "esp_log_va" in native_log_sink
+    assert "ESP_LOG_CONFIGS_DEFAULT" in native_log_sink
+    assert "std::vsnprintf" not in native_log_sink
+    assert "ESP_LOG_LEVEL" not in native_log_sink
     assert "esp_log_writev" not in native_log_sink
     assert "#ifndef NO_QSTR" in native_log_sink
+
+    shared_sdkconfig = (boards_dir / "sdkconfig.micro_espectre").read_text(
+        encoding="utf-8"
+    )
+    assert "CONFIG_LOG_VERSION_2=y" in shared_sdkconfig
 
     native_cpp = (
         micro.PYTHON_SRC_DIR
