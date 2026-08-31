@@ -103,6 +103,11 @@ def run_serial_monitor(args) -> None:
         connection = None
         try:
             connection = serial.Serial(port, baudrate=baud, timeout=1.0)
+            # Opening a pyserial connection asserts its modem-control defaults.
+            # Release both lines before monitoring so USB Serial/JTAG targets are
+            # not held in reset or switched back into the ROM loader.
+            connection.dtr = False
+            connection.rts = False
             if reset_on_open:
                 hard_reset_serial(connection)
             reconnect_attempt = 0

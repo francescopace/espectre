@@ -379,7 +379,7 @@ def test_flash_firmware_rejects_missing_custom_firmware(monkeypatch) -> None:
 @pytest.mark.parametrize(
     ("chip", "esptool_chip", "baud", "offset"),
     (
-        ("esp32", "esp32", "115200", "0x1000"),
+        ("esp32", "esp32", "460800", "0x1000"),
         ("c3", "esp32c3", "460800", "0x0"),
         ("c5", "esp32c5", "460800", "0x2000"),
         ("c6", "esp32c6", "460800", "0x0"),

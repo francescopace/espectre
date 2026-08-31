@@ -35,7 +35,12 @@ from .common import (
     serial_console_mode,
 )
 from .idf_container import DockerBackendError, IDF_VERSION, ensure_docker_backend, run_idf_container
-from .targets import IDF_APP_BIN_NAMES, IDF_FRONTENDS, resolve_idf_target
+from .targets import (
+    IDF_APP_BIN_NAMES,
+    IDF_FRONTENDS,
+    IDF_TARGET_BY_CHIP,
+    resolve_idf_target,
+)
 
 
 MATTER_QR_PATTERN = re.compile(r"MATTER_QR=(MT:[A-Z0-9.\-]+)")
@@ -47,6 +52,20 @@ LEGACY_ESPTOOL_OPTION_ALIASES = {
     "--flash_mode": "--flash-mode",
     "--flash_size": "--flash-size",
 }
+FAST_FLASH_BAUD = "460800"
+SAFE_UART_FLASH_BAUD = "115200"
+ESPTOOL_SERIAL_ERROR_MARKERS = (
+    "failed to set baud rate",
+    "invalid head of packet",
+    "invalid slip escape",
+    "no more data to read",
+    "no serial data received",
+    "packet content transfer stopped",
+    "failed to read target memory",
+    "status response",
+    "serial data stream stopped",
+    "write timeout",
+)
 
 
 @dataclass(frozen=True)
@@ -274,11 +293,96 @@ def prebuilt_idf_flasher_args_path(app_path: Path, build_dir_name: str | None) -
     return flasher_args if flasher_args.is_file() else None
 
 
-def idf_flash_baud(idf_target: str) -> str:
-    """Return a reliable esptool baud rate for the selected target."""
-    # Classic ESP32 boards commonly use USB-to-UART bridges that lose the
-    # esptool stub when it switches to 460800 baud.
-    return "115200" if idf_target == "esp32" else "460800"
+def idf_flash_baud(_idf_target: str) -> str:
+    """Return the preferred esptool baud rate for the selected target."""
+    return FAST_FLASH_BAUD
+
+
+def _is_esptool_serial_error(exc: Exception) -> bool:
+    """Return whether esptool failed while exchanging serial data."""
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        error_text = str(current).lower()
+        if (
+            (isinstance(current, Exception) and is_transient_serial_port_error(current))
+            or current.__class__.__module__.startswith("serial.")
+            or any(marker in error_text for marker in ESPTOOL_SERIAL_ERROR_MARKERS)
+        ):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _uart_flash_fallback_command(
+    command: list[str],
+    port: str,
+    *,
+    before: str,
+    error: Exception,
+) -> list[str] | None:
+    """Build a safe retry for a high-speed UART flash failure."""
+    if "write-flash" not in command or not _is_esptool_serial_error(error):
+        return None
+    try:
+        baud_index = command.index("--baud") + 1
+        chip_index = command.index("--chip") + 1
+    except ValueError:
+        return None
+    if baud_index >= len(command) or chip_index >= len(command):
+        return None
+    if command[baud_index] == SAFE_UART_FLASH_BAUD:
+        return None
+
+    chip_alias = next(
+        (alias for alias, target in IDF_TARGET_BY_CHIP.items() if target == command[chip_index]),
+        None,
+    )
+    if serial_console_mode(chip_alias, port) != "uart":
+        return None
+
+    fallback = list(command)
+    fallback[baud_index] = SAFE_UART_FLASH_BAUD
+    try:
+        before_index = fallback.index("--before") + 1
+    except ValueError:
+        return None
+    if before_index >= len(fallback):
+        return None
+    fallback[before_index] = before
+    return fallback
+
+
+def _uart_loader_reconnect_command(
+    command: list[str],
+    port: str,
+    *,
+    before: str,
+    error: Exception,
+) -> list[str] | None:
+    """Retry a transient UART disconnect without changing the flash baud."""
+    if "write-flash" not in command or not _is_esptool_serial_error(error):
+        return None
+    try:
+        before_index = command.index("--before") + 1
+        chip_index = command.index("--chip") + 1
+    except ValueError:
+        return None
+    if before_index >= len(command) or chip_index >= len(command):
+        return None
+    if before == "no-reset":
+        return None
+    chip_alias = next(
+        (alias for alias, target in IDF_TARGET_BY_CHIP.items() if target == command[chip_index]),
+        None,
+    )
+    if serial_console_mode(chip_alias, port) != "uart":
+        return None
+
+    retry = list(command)
+    retry[before_index] = before
+    return retry
 
 
 def build_prebuilt_idf_esptool_command(
@@ -386,9 +490,10 @@ def start_flashed_idf_firmware(port: str) -> bool:
     esp = None
     try:
         # Do not toggle boot pins while probing. If firmware is already running,
-        # the non-resetting probe simply receives no reply. If a ROM loader is
-        # still active, delegate the reset mechanism to esptool: target support
-        # selects a watchdog reset for native USB or control lines for UART.
+        # the non-resetting probe simply receives no reply. ESP32-C5 can remain
+        # in download mode after a USB Serial/JTAG core reset, so use the full
+        # watchdog reset recommended by esptool on that transport. UART bridges
+        # still need the classic DTR/RTS hard-reset path.
         esp = esptool.get_default_connected_device(
             serial_list=[port],
             port=port,
@@ -403,10 +508,34 @@ def start_flashed_idf_firmware(port: str) -> bool:
         # UART auto-reset circuits that holds GPIO0 low, so an RTS-only hard
         # reset enters the loader again instead of starting the application.
         esp._port.setDTR(False)
-        esp.hard_reset()
+        if (
+            getattr(esp, "CHIP_NAME", "") == "ESP32-C5"
+            and serial_console_mode("c5", port) == "usb_serial_jtag"
+        ):
+            esp.watchdog_reset()
+        else:
+            esp.hard_reset()
         return True
     except Exception:
-        return False
+        # Some UART auto-reset bridges release GPIO0 when esptool closes the
+        # verified write session. The loader probe then receives no reply even
+        # though the bridge can still reset the chip into the application.
+        if serial_console_mode(None, port) != "uart":
+            return False
+        try:
+            import serial
+
+            from .serial_monitor import hard_reset_serial
+
+            print(f"{Fore.CYAN}Resetting the flashed firmware through UART...{Style.RESET_ALL}")
+            with serial.Serial(port, baudrate=115200, timeout=1.0) as connection:
+                connection.dtr = False
+                connection.rts = False
+                hard_reset_serial(connection)
+            time.sleep(1.0)
+            return True
+        except Exception:
+            return False
     finally:
         if esp and hasattr(esp, "_port") and esp._port:
             try:
@@ -444,12 +573,12 @@ def flash_prebuilt_idf_build(
     before: str,
     app_image: Path | None = None,
 ) -> None:
-    """Erase, write, and start one prebuilt ESP-IDF image without an intermediate reset."""
+    """Erase, write, and start one prebuilt ESP-IDF image."""
     flash_command = build_prebuilt_idf_esptool_command(
         build_dir,
         port,
         idf_target,
-        before="no-reset" if erase else before,
+        before=before,
         after="no-reset",
         app_image=app_image,
     )
@@ -502,7 +631,7 @@ def flash_factory_image(
         factory_image,
         port,
         idf_target,
-        before="no-reset" if erase else before,
+        before=before,
     )
     run_idf_flash_lifecycle(
         flash_command,
@@ -525,6 +654,42 @@ def run_idf_flash_lifecycle(
     print(f"{Fore.CYAN}Command: esptool {' '.join(flash_command)}{Style.RESET_ALL}")
     try:
         run_esptool_main(flash_command)
+    except Exception as exc:
+        retry_command = _uart_loader_reconnect_command(
+            flash_command, port, before=before, error=exc
+        )
+        retry_error = exc
+        if retry_command is not None:
+            baud = retry_command[retry_command.index("--baud") + 1]
+            print(
+                f"{Fore.YELLOW}⚠️  UART flash disconnected; "
+                f"retrying at {baud} baud after a fresh reset...{Style.RESET_ALL}"
+            )
+            print(f"{Fore.CYAN}Command: esptool {' '.join(retry_command)}{Style.RESET_ALL}")
+            try:
+                time.sleep(SERIAL_REENUMERATION_DELAY_S)
+                run_esptool_main(retry_command)
+                retry_error = None
+            except Exception as reconnect_exc:
+                retry_error = reconnect_exc
+                flash_command = retry_command
+        if retry_error is None:
+            pass
+        else:
+            fallback_command = _uart_flash_fallback_command(
+                flash_command,
+                port,
+                before=before,
+                error=retry_error,
+            )
+            if fallback_command is None:
+                raise retry_error
+            print(
+                f"{Fore.YELLOW}⚠️  High-speed UART flash failed; "
+                f"retrying at {SAFE_UART_FLASH_BAUD} baud...{Style.RESET_ALL}"
+            )
+            print(f"{Fore.CYAN}Command: esptool {' '.join(fallback_command)}{Style.RESET_ALL}")
+            run_esptool_main(fallback_command)
     except SystemExit as exc:
         if exc.code not in (0, None):
             raise

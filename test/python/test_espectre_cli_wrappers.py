@@ -2211,6 +2211,182 @@ def test_run_esptool_main_retries_transient_port_reenumeration(monkeypatch, caps
     assert "retrying the esptool operation" in capsys.readouterr().out
 
 
+def test_run_idf_flash_lifecycle_retries_uart_at_safe_baud(monkeypatch, capsys) -> None:
+    calls: list[list[str]] = []
+    starts: list[str] = []
+    serial_error = RuntimeError("No serial data received.")
+    stub_error = RuntimeError("Failed to start stub flasher. There was no response.")
+    stub_error.__cause__ = serial_error
+
+    def fake_esptool(command: list[str]) -> None:
+        calls.append(command)
+        if len(calls) <= 2:
+            raise stub_error
+
+    command = [
+        "--chip",
+        "esp32s3",
+        "--port",
+        "/dev/cu.usbserial",
+        "--baud",
+        "460800",
+        "--before",
+        "default-reset",
+        "write-flash",
+        "0x0",
+        "firmware.bin",
+    ]
+    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args: "uart")
+    monkeypatch.setattr(idf, "run_esptool_main", fake_esptool)
+    monkeypatch.setattr(
+        idf,
+        "start_flashed_idf_firmware",
+        lambda port: starts.append(port) or True,
+    )
+
+    idf.run_idf_flash_lifecycle(
+        command,
+        "/dev/cu.usbserial",
+        erase=False,
+        before="default-reset",
+    )
+
+    assert calls[0] == command
+    assert calls[1][calls[1].index("--baud") + 1] == "460800"
+    assert calls[2][calls[2].index("--baud") + 1] == "115200"
+    assert calls[2][calls[2].index("--before") + 1] == "default-reset"
+    assert starts == ["/dev/cu.usbserial"]
+    assert "retrying at 115200 baud" in capsys.readouterr().out
+
+
+def test_run_idf_flash_lifecycle_reconnects_reused_uart_loader_at_same_baud(
+    monkeypatch, capsys
+) -> None:
+    calls: list[list[str]] = []
+
+    def fake_esptool(command: list[str]) -> None:
+        calls.append(command)
+        if len(calls) == 1:
+            raise RuntimeError(
+                "Failed to read target memory. Only got 1 byte status response."
+            )
+
+    command = [
+        "--chip",
+        "esp32",
+        "--port",
+        "/dev/cu.usbserial",
+        "--baud",
+        "460800",
+        "--before",
+        "no-reset",
+        "write-flash",
+        "0x0",
+        "firmware.bin",
+    ]
+    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args: "uart")
+    monkeypatch.setattr(idf, "erase_idf_flash", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(idf, "run_esptool_main", fake_esptool)
+    monkeypatch.setattr(idf, "start_flashed_idf_firmware", lambda _port: True)
+
+    idf.run_idf_flash_lifecycle(
+        command,
+        "/dev/cu.usbserial",
+        erase=True,
+        before="default-reset",
+    )
+
+    assert len(calls) == 2
+    assert calls[1][calls[1].index("--baud") + 1] == "460800"
+    assert calls[1][calls[1].index("--before") + 1] == "default-reset"
+    assert "retrying at 460800 baud after a fresh reset" in capsys.readouterr().out
+
+
+def test_run_idf_flash_lifecycle_retries_fresh_uart_session_at_same_baud(
+    monkeypatch
+) -> None:
+    calls: list[list[str]] = []
+
+    def fake_esptool(command: list[str]) -> None:
+        calls.append(command)
+        if len(calls) == 1:
+            raise RuntimeError("No more data to read from the serial port.")
+
+    command = [
+        "--chip",
+        "esp32",
+        "--port",
+        "/dev/cu.usbserial",
+        "--baud",
+        "460800",
+        "--before",
+        "default-reset",
+        "write-flash",
+        "0x0",
+        "firmware.bin",
+    ]
+    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args: "uart")
+    monkeypatch.setattr(idf, "run_esptool_main", fake_esptool)
+    monkeypatch.setattr(idf, "start_flashed_idf_firmware", lambda _port: True)
+    monkeypatch.setattr(idf.time, "sleep", lambda _seconds: None)
+
+    idf.run_idf_flash_lifecycle(
+        command,
+        "/dev/cu.usbserial",
+        erase=False,
+        before="default-reset",
+    )
+
+    assert len(calls) == 2
+    assert calls[1][calls[1].index("--baud") + 1] == "460800"
+    assert calls[1][calls[1].index("--before") + 1] == "default-reset"
+
+
+@pytest.mark.parametrize(
+    ("console_mode", "error"),
+    (
+        ("usb_serial_jtag", RuntimeError("No serial data received.")),
+        ("uart", RuntimeError("Firmware image overlaps another segment")),
+    ),
+)
+def test_run_idf_flash_lifecycle_does_not_retry_unrelated_failures(
+    monkeypatch,
+    console_mode: str,
+    error: RuntimeError,
+) -> None:
+    calls: list[list[str]] = []
+    command = [
+        "--chip",
+        "esp32s3",
+        "--port",
+        "/dev/cu.test",
+        "--baud",
+        "460800",
+        "--before",
+        "default-reset",
+        "write-flash",
+        "0x0",
+        "firmware.bin",
+    ]
+
+    def fake_esptool(actual_command: list[str]) -> None:
+        calls.append(actual_command)
+        raise error
+
+    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args: console_mode)
+    monkeypatch.setattr(idf, "run_esptool_main", fake_esptool)
+
+    with pytest.raises(RuntimeError, match=str(error)):
+        idf.run_idf_flash_lifecycle(
+            command,
+            "/dev/cu.test",
+            erase=False,
+            before="default-reset",
+        )
+
+    assert calls == [command]
+
+
 def test_flash_prebuilt_idf_build_keeps_loader_between_erase_and_write(
     monkeypatch,
     tmp_path: Path,
@@ -2250,6 +2426,37 @@ def test_flash_prebuilt_idf_build_keeps_loader_between_erase_and_write(
     assert lifecycle[2] == ("start", "/dev/cu.loader")
 
 
+def test_flash_prebuilt_idf_build_reconnects_uart_after_erase(
+    monkeypatch, tmp_path: Path
+) -> None:
+    build_dir = tmp_path / "build"
+    _write_flasher_args(build_dir, "esp32")
+    lifecycle: list[object] = []
+    monkeypatch.setattr(
+        idf,
+        "erase_idf_flash",
+        lambda port, *, before: lifecycle.append(("erase", port, before)),
+    )
+    monkeypatch.setattr(
+        idf,
+        "run_esptool_main",
+        lambda command: lifecycle.append(("write", command)),
+    )
+    monkeypatch.setattr(idf, "start_flashed_idf_firmware", lambda _port: True)
+
+    idf.flash_prebuilt_idf_build(
+        build_dir,
+        "/dev/cu.usbserial",
+        "esp32",
+        erase=True,
+        before="default-reset",
+    )
+
+    write_command = lifecycle[1][1]
+    assert write_command[write_command.index("--before") + 1] == "default-reset"
+    assert write_command[write_command.index("--baud") + 1] == "460800"
+
+
 def test_flash_factory_image_validates_file_before_erasing(
     monkeypatch,
     tmp_path: Path,
@@ -2276,7 +2483,20 @@ def test_flash_factory_image_validates_file_before_erasing(
         )
 
 
-def test_start_flashed_idf_firmware_resets_application_from_loader(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("chip_name", "console_mode", "expected_reset"),
+    (
+        ("ESP32-C5", "usb_serial_jtag", "watchdog_reset"),
+        ("ESP32-C5", "uart", "hard_reset"),
+        ("ESP32-S3", "usb_serial_jtag", "hard_reset"),
+    ),
+)
+def test_start_flashed_idf_firmware_resets_application_from_loader(
+    monkeypatch,
+    chip_name: str,
+    console_mode: str,
+    expected_reset: str,
+) -> None:
     lifecycle = []
     connection_args = []
 
@@ -2288,7 +2508,11 @@ def test_start_flashed_idf_firmware_resets_application_from_loader(monkeypatch) 
             lifecycle.append("close")
 
     class FakeDevice:
+        CHIP_NAME = chip_name
         _port = FakePort()
+
+        def watchdog_reset(self) -> None:
+            lifecycle.append("watchdog_reset")
 
         def hard_reset(self) -> None:
             lifecycle.append("hard_reset")
@@ -2301,6 +2525,7 @@ def test_start_flashed_idf_firmware_resets_application_from_loader(monkeypatch) 
 
     fake_esptool.get_default_connected_device = fake_connect
     monkeypatch.setitem(sys.modules, "esptool", fake_esptool)
+    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args: console_mode)
     monkeypatch.setattr(idf.time, "sleep", lambda seconds: lifecycle.append(("sleep", seconds)))
 
     assert idf.start_flashed_idf_firmware("/dev/cu.test") is True
@@ -2313,15 +2538,51 @@ def test_start_flashed_idf_firmware_resets_application_from_loader(monkeypatch) 
             "before": "no-reset",
         }
     ]
-    assert lifecycle == [("set_dtr", False), "hard_reset", "close", ("sleep", 1.0)]
+    assert lifecycle == [("set_dtr", False), expected_reset, "close", ("sleep", 1.0)]
 
 
 def test_start_flashed_idf_firmware_ignores_firmware_that_is_already_running(monkeypatch) -> None:
     fake_esptool = ModuleType("esptool")
     fake_esptool.get_default_connected_device = lambda **_kwargs: (_ for _ in ()).throw(OSError("no reply"))
     monkeypatch.setitem(sys.modules, "esptool", fake_esptool)
+    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args: None)
 
     assert idf.start_flashed_idf_firmware("/dev/cu.test") is False
+
+
+def test_start_flashed_idf_firmware_falls_back_to_uart_reset(monkeypatch) -> None:
+    fake_esptool = ModuleType("esptool")
+    fake_esptool.get_default_connected_device = lambda **_kwargs: (_ for _ in ()).throw(
+        OSError("loader released")
+    )
+    monkeypatch.setitem(sys.modules, "esptool", fake_esptool)
+    monkeypatch.setattr(idf, "serial_console_mode", lambda *_args: "uart")
+
+    lifecycle: list[object] = []
+
+    class FakeConnection:
+        dtr = True
+        rts = True
+
+        def __enter__(self):
+            lifecycle.append("open")
+            return self
+
+        def __exit__(self, *_args):
+            lifecycle.append("close")
+
+    fake_serial = ModuleType("serial")
+    fake_serial.Serial = lambda *args, **kwargs: FakeConnection()
+    monkeypatch.setitem(sys.modules, "serial", fake_serial)
+    monkeypatch.setattr(
+        sys.modules["espectre_cli.serial_monitor"],
+        "hard_reset_serial",
+        lambda connection: lifecycle.append(("hard_reset", connection.dtr, connection.rts)),
+    )
+    monkeypatch.setattr(idf.time, "sleep", lambda seconds: lifecycle.append(("sleep", seconds)))
+
+    assert idf.start_flashed_idf_firmware("/dev/cu.test") is True
+    assert lifecycle == ["open", ("hard_reset", False, False), "close", ("sleep", 1.0)]
 
 
 def test_run_idf_command_flash_prefers_connected_chip_build_dir(monkeypatch, tmp_path: Path) -> None:
@@ -2605,7 +2866,7 @@ def test_build_prebuilt_idf_esptool_command_uses_flash_file_offsets(tmp_path: Pa
     ]
 
 
-def test_build_prebuilt_idf_esptool_command_uses_safe_classic_esp32_baud(
+def test_build_prebuilt_idf_esptool_command_uses_fast_classic_esp32_baud(
     tmp_path: Path,
 ) -> None:
     build_dir = tmp_path / "build-esp32"
@@ -2617,7 +2878,7 @@ def test_build_prebuilt_idf_esptool_command_uses_safe_classic_esp32_baud(
         "esp32",
     )
 
-    assert command[command.index("--baud") + 1] == "115200"
+    assert command[command.index("--baud") + 1] == "460800"
 
 
 def test_build_prebuilt_idf_esptool_command_can_reuse_verified_loader(tmp_path: Path) -> None:
@@ -2651,7 +2912,7 @@ def test_build_prebuilt_idf_esptool_command_writes_factory_image_at_zero(tmp_pat
     assert write_args == ["0x0", str(factory_image)]
 
 
-def test_build_factory_esptool_command_uses_safe_classic_esp32_baud(
+def test_build_factory_esptool_command_uses_fast_classic_esp32_baud(
     tmp_path: Path,
 ) -> None:
     command = idf.build_factory_esptool_command(
@@ -2661,7 +2922,7 @@ def test_build_factory_esptool_command_uses_safe_classic_esp32_baud(
         before="default-reset",
     )
 
-    assert command[command.index("--baud") + 1] == "115200"
+    assert command[command.index("--baud") + 1] == "460800"
 
 
 def test_build_prebuilt_idf_esptool_command_replaces_only_app_image(tmp_path: Path) -> None:
@@ -2746,10 +3007,13 @@ def test_run_serial_monitor_reads_with_pyserial(monkeypatch) -> None:
 
 def test_run_serial_monitor_does_not_reset_by_default(monkeypatch) -> None:
     reset_calls: list[object] = []
+    closed_lines: list[tuple[bool, bool]] = []
 
     class FakeSerialConnection:
         def __init__(self, port: str, *, baudrate: int, timeout: float) -> None:
             del port, baudrate, timeout
+            self.dtr = True
+            self.rts = True
             self._reads = [KeyboardInterrupt()]
 
         @property
@@ -2760,6 +3024,7 @@ def test_run_serial_monitor_does_not_reset_by_default(monkeypatch) -> None:
             raise self._reads.pop(0)
 
         def close(self) -> None:
+            closed_lines.append((self.dtr, self.rts))
             return None
 
     fake_serial = type(
@@ -2779,6 +3044,7 @@ def test_run_serial_monitor_does_not_reset_by_default(monkeypatch) -> None:
     serial_monitor.run_serial_monitor(argparse.Namespace(port=None, baud=115200, raw=False, reset=False))
 
     assert reset_calls == []
+    assert closed_lines == [(False, False)]
 
 
 def test_run_serial_monitor_retries_after_disconnect(monkeypatch) -> None:
