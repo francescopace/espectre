@@ -134,20 +134,21 @@ def test_direct_evidence_rejects_a_frozen_device_timestamp():
 def test_direct_evidence_accepts_micro_diagnostics_cadence():
     samples = [
         {"host_elapsed_seconds": 0.0, "timestamp_ms": 1_000, "uptime": 1},
-        {"host_elapsed_seconds": 5.25, "timestamp_ms": 6_000, "uptime": 6},
-        {"host_elapsed_seconds": 10.5, "timestamp_ms": 11_000, "uptime": 11},
+        {"host_elapsed_seconds": 4.5, "timestamp_ms": 5_000, "uptime": 5},
+        {"host_elapsed_seconds": 9.0, "timestamp_ms": 10_000, "uptime": 10},
+        {"host_elapsed_seconds": 13.5, "timestamp_ms": 14_000, "uptime": 14},
     ]
 
     metrics, reasons = bench.analyze_direct_evidence(
         samples,
         [],
-        duration_seconds=15,
+        duration_seconds=18,
         require_telemetry=False,
         require_detection_timing=False,
         sample_interval_seconds=benchmark_settings.MICRO_DIRECT_DIAGNOSTICS_INTERVAL_SECONDS,
     )
 
-    assert metrics.status_expected_samples == 3
+    assert metrics.status_expected_samples == 4
     assert metrics.status_interval_max_ms == 5_000
     assert metrics.status_gap_count == 0
     assert not any("diagnostics gap" in reason for reason in reasons)

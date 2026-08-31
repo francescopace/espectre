@@ -46,7 +46,7 @@ struct WifiBssidPinServiceConfig {
   StationStateGetter station_state_getter;
   ChangeCallback prepare_callback;
   ChangeCallback resume_callback;
-  uint32_t candidate_timeout_ms{30000U};
+  uint32_t candidate_timeout_ms{60000U};
 };
 
 class WifiBssidPinService {

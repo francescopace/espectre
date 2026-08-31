@@ -41,7 +41,10 @@ DIRECT_SAMPLE_PHASE_OFFSET_SECONDS = 0.125
 
 DIRECT_MINIMUM_REQUEST_INTERVAL_SECONDS = 0.075
 
-MICRO_DIRECT_DIAGNOSTICS_INTERVAL_SECONDS = 5.0
+# Avoid sampling in lockstep with Micro's one-second cached diagnostics refresh.
+# A half-second phase offset prevents adjacent 4 s/6 s snapshot deltas while
+# keeping the runtime gap tolerance unchanged.
+MICRO_DIRECT_DIAGNOSTICS_INTERVAL_SECONDS = 4.5
 
 DIRECT_STABLE_SAMPLE_COUNT = 5
 

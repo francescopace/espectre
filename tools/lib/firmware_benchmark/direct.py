@@ -914,7 +914,7 @@ def _apply_direct_radio_pin(
     # a dropped first request is treated as an applied pin. When the previous
     # BSSID transition explicitly reports itself busy, wait for that state
     # machine to finish before issuing the next benchmark transition.
-    deadline = time.monotonic() + BENCHMARK_CONTROL_TIMEOUT_SECONDS
+    deadline = time.monotonic() + WIFI_CONNECT_WAIT_SECONDS
     transition_busy = False
     last_error: DirectProtocolError | DirectRequestError | None = None
     while True:
@@ -1727,6 +1727,10 @@ def run_micro_case(
             )
             flash_result = result.flash
         assert flash_result is not None
+        if flash_result.returncode != 0:
+            result.status = "FAIL"
+            result.reasons.append(f"flash exited with status {flash_result.returncode}")
+            return result
         firmware_path, firmware_metadata = build_artifact_from_output(
             flash_result.output,
             frontend="micro",
@@ -1742,10 +1746,6 @@ def run_micro_case(
         # alias and must not replace that stable selection for deploy or run.
         selected_runtime_port = runtime_port or port or flashed_port
         result.build_metrics = parse_build_metrics(flash_result.output, firmware_path)
-        if flash_result.returncode != 0:
-            result.status = "FAIL"
-            result.reasons.append(f"flash exited with status {flash_result.returncode}")
-            return result
         if reset_port is not None:
             hard_reset_benchmark_device(reset_port)
         with micro_case_config(chip, case.detector) as config_path:

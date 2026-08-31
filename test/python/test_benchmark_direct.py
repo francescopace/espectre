@@ -688,6 +688,7 @@ def test_default_runtime_baseline_rejects_nondefault_traffic():
             }
         )
 
+
 def test_micro_direct_preparation_reconnects_after_transient_timeout(monkeypatch):
     clients = [SimpleNamespace(close=lambda: None), SimpleNamespace(close=lambda: None)]
     prepared = []
@@ -1375,7 +1376,9 @@ def test_direct_radio_pin_waits_for_previous_bssid_update(monkeypatch):
                 raise DirectProtocolError("Direct HTTP request failed: reconnecting")
             return {}
 
-    monotonic = iter([0.0, 0.1, 0.2, 0.3])
+    # ESPHome's firmware-side transition can legitimately outlive the generic
+    # 30-second control timeout, especially on the original ESP32.
+    monotonic = iter([0.0, 31.0, 31.5])
     monkeypatch.setattr(bench.time, "monotonic", lambda: next(monotonic))
     monkeypatch.setattr(bench.time, "sleep", sleeps.append)
 
