@@ -130,7 +130,7 @@ If occupancy remains below 70%:
 
 The runtime never changes the target automatically because doing so would change feature timing.
 
-The sensing frontends support internal `ping`, `dns`, and `dns_tcp`. Ping sends ICMP echo requests, `dns` sends connectionless UDP/53 queries, and `dns_tcp` uses a persistent, non-blocking TCP connection to gateway port `53`. The shared default is ping, while the classic ESP32 and ESP32-S2 product profiles use DNS/UDP. Select the mode that remains stable with the deployed device, driver, AP, and gateway resolver; the runtime does not fall back automatically.
+The sensing frontends support internal `ping`, `dns`, and `dns_tcp`. Ping sends ICMP echo requests, `dns` sends connectionless UDP/53 queries, and `dns_tcp` uses a persistent, non-blocking TCP connection to gateway port `53`. The published product configurations use ping. Select the mode that remains stable with the deployed device, driver, AP, and gateway resolver; the runtime does not fall back automatically.
 
 Rules of thumb:
 

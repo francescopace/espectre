@@ -13,6 +13,3 @@ WIFI_SSID = "YourSSID"
 WIFI_PASSWORD = "YourPassword"
 # Optional AP lock (helps on mesh networks)
 # WIFI_BSSID = "AA:BB:CC:DD:EE:FF"
-
-# Optional managed traffic protocol: ping, dns (UDP), or dns_tcp
-# TRAFFIC_GENERATOR_MODE = "dns"

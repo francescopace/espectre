@@ -20,7 +20,7 @@ WIFI_CHANNEL = 0  # Optional known 2.4 GHz channel used with WIFI_BSSID
 # Generates WiFi traffic to ensure continuous CSI data
 CSI_TARGET_PPS = 100  # Requested temporal sensing grid and managed traffic target
 TRAFFIC_GENERATOR_ENABLED = True  # False expects an external CSI traffic source
-TRAFFIC_GENERATOR_MODE = "dns"  # ping, dns (UDP), or dns_tcp
+TRAFFIC_GENERATOR_MODE = "ping"  # ping, dns (UDP), or dns_tcp
 CSI_LINK_RECOVERY_TIMEOUT_MS = 5000  # Reconnect when the configured traffic source yields no CSI frames
 EVALUATION_INTERVAL_MS = 250  # Time between internal detector evaluations
 MOTION_ON_HITS = 4            # Consecutive evaluated hits required for IDLE -> MOTION

@@ -69,7 +69,7 @@ Key settings live in `config.py`:
 DEVICE_LABEL = ""
 CSI_TARGET_PPS = 100
 TRAFFIC_GENERATOR_ENABLED = True
-TRAFFIC_GENERATOR_MODE = "dns"
+TRAFFIC_GENERATOR_MODE = "ping"
 CSI_LINK_RECOVERY_TIMEOUT_MS = 5000
 CSI_BUFFER_SIZE = 16
 CSI_CAPTURE_MAX_DATA_LEN = 256
@@ -86,7 +86,7 @@ HAMPEL_THRESHOLD = 5.0
 
 These `config.py` values are deployment settings rather than runtime mutations. An empty `DEVICE_LABEL` keeps the generated device name. `CSI_TARGET_PPS` defines the detector grid and managed traffic rate. `MOTION_ON_HITS` and `MOTION_OFF_HITS` apply the same evaluation-tick filtering as the C++ runtime, but changing them requires another deployment. The low-pass filter calculates its coefficient against a nominal 100 Hz sample rate, so a different target rate or substantial missing-slot pattern requires validation. The committed device profile disables both optional filters by default.
 
-`TRAFFIC_GENERATOR_MODE` accepts `ping`, `dns`, or `dns_tcp`; the committed configuration selects connectionless DNS/UDP for every supported chip, and `config_local.py` can select another mode for a deployment. Both DNS modes use the gateway resolver on port 53. Setting `TRAFFIC_GENERATOR_ENABLED = False` requires an external CSI traffic source. Micro-ESPectre has no runtime traffic mutation, external UDP marker listener, or multicast join. `CSI_CAPTURE_MAX_DATA_LEN` selects the fixed native ring-record stride: 256 supports the doubled HT20 layout, while 128 is suitable only when every captured frame uses the canonical payload because larger frames are truncated.
+`TRAFFIC_GENERATOR_MODE` accepts `ping`, `dns`, or `dns_tcp`; the committed configuration selects `ping` for every supported chip, and `config_local.py` can select another mode for a deployment. Both DNS modes use the gateway resolver on port 53. Setting `TRAFFIC_GENERATOR_ENABLED = False` requires an external CSI traffic source. Micro-ESPectre has no runtime traffic mutation, external UDP marker listener, or multicast join. `CSI_CAPTURE_MAX_DATA_LEN` selects the fixed native ring-record stride: 256 supports the doubled HT20 layout, while 128 is suitable only when every captured frame uses the canonical payload because larger frames are truncated.
 
 In `config_local.py`, `WIFI_CHANNEL` can accompany `WIFI_BSSID` to avoid a scan during association. If no CSI frame arrives for `CSI_LINK_RECOVERY_TIMEOUT_MS`, the runtime first rearms CSI. If the stall persists, it disables CSI, reconnects Wi-Fi, enables CSI with a fresh native ring, recalibrates, and republishes Direct discovery.
 

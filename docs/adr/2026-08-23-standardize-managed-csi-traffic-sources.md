@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-23
-- Updated: 2026-08-29
+- Updated: 2026-08-31
 
 ## Context
 
@@ -83,8 +83,7 @@ Packets counted as same-slot excess still contain valid CSI, but they do not add
 Standardize managed CSI traffic as follows:
 
 - expose three explicit internal generator values: `ping` for stateless ICMP echo, `dns` for connectionless UDP/53 queries, and `dns_tcp` for length-prefixed queries over one persistent, non-blocking TCP connection with `TCP_NODELAY` and reconnect backoff;
-- keep `ping` as the shared schema default, but allow target product configurations to select a validated default;
-- default classic ESP32 Native and Matter builds, the classic ESP32 ESPHome example, and the Micro-ESPectre deployment configuration to `dns`; keep the remaining product configurations on `ping`;
+- keep `ping` as the shared schema default and the published Native, Matter, ESPHome, and Micro-ESPectre product configuration default; keep `dns` and `dns_tcp` as explicit operator selections;
 - preserve a configured or persisted selection without automatic protocol fallback, so operators can choose the source that works in their device, driver, AP, and resolver context;
 - request DSCP 46 treatment for internal traffic and the standalone external UDP tool, without treating a particular WMM TID or occupancy improvement as guaranteed;
 - preserve the configured send phase through ordinary scheduler jitter, but restart from the actual send time when the next phase deadline would be less than half a period away, so no generator emits a close catch-up pair;
@@ -95,7 +94,7 @@ Standardize managed CSI traffic as follows:
 - place CSI on the detector grid using the device Wi-Fi RX timestamp, with processing time used only for same-domain queue-age measurement; and
 - keep raw HTTP records even when the sensing view classifies additional same-slot records as excess.
 
-Both DNS modes require a gateway resolver on port `53`; `dns_tcp` additionally requires TCP query support. If the selected mode is unsuitable, operators must select another explicit mode rather than relying on silent fallback. Micro-ESPectre exposes all three modes as deployment settings and currently selects `dns` in its committed `config.py`.
+Both DNS modes require a gateway resolver on port `53`; `dns_tcp` additionally requires TCP query support. If the selected mode is unsuitable, operators must select another explicit mode rather than relying on silent fallback. Micro-ESPectre exposes all three modes as deployment settings and currently selects `ping` in its committed `config.py`.
 
 ## Decision History
 
@@ -108,7 +107,8 @@ Both DNS modes require a gateway resolver on port `53`; `dns_tcp` additionally r
 | 2026-08-23 | Use persistent non-blocking DNS/TCP and one pacing policy across firmware and host tools | Retained as the optional `dns_tcp` path |
 | 2026-08-29 | Admit external ICMP as a separate traffic-mode value | Rejected; `external` already denotes external ownership and now accepts either canonical UDP markers or unicast Echo Requests |
 | 2026-08-29 | Ban DNS/UDP globally after the C3 result | Replaced by explicit `ping`, `dns`, and `dns_tcp` choices after classic ESP32 DNS/UDP remained stable in Direct and monitor-mode tests |
-| 2026-08-30 | Keep Micro-ESPectre ping-only | Replaced by deployment-time `ping`, `dns`, and `dns_tcp` selection through the shared native generator; the committed Micro configuration selects `dns` |
+| 2026-08-30 | Keep Micro-ESPectre ping-only | Replaced by deployment-time `ping`, `dns`, and `dns_tcp` selection through the shared native generator; the committed Micro configuration later selected `dns` |
+| 2026-08-31 | Keep classic ESP32, ESP32-S2, and Micro-ESPectre on `dns` | Replaced; published product configurations now use the shared `ping` default |
 
 ## Alternatives Considered
 
