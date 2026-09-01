@@ -71,6 +71,8 @@ Supported first-party firmware uses an associated Wi-Fi station and does not ena
 
 The `GOT_IP` payload is also the source of truth for the local address, netmask, and gateway used during service startup. The runtime passes that gateway directly to the internal traffic generator instead of querying the network interface again. Disconnect processing clears the shared ready state, so the same sequence is repeated after a genuine reconnect.
 
+`runtime/csi_traffic_service` owns the platform-neutral traffic policy: configuration projection, internal-versus-external selection, lifecycle, callbacks, and counters. It depends only on the `ICsiTrafficGenerator` and `ICsiTrafficIngress` boundaries. The ESP-IDF layer implements those boundaries with `TrafficGeneratorManager` and `UDPListener`; the latter delegates socket creation, binding, multicast membership, and datagram reads to `UdpDatagramSocketEspIdf`. This keeps lwIP and FreeRTOS below the shared runtime contract and lets host tests inject deterministic in-memory adapters.
+
 The CSI callback classifies packet provenance against the configured traffic mode before data reaches sensing or raw collection. Accepted sensing frames pass through `TemporalCsiSampler`; accepted raw frames bypass temporal sampling and enter a preallocated SPSC ring drained by a dedicated task-notified HTTP worker. The protocol specification owns the external marker, raw framing, session semantics, and observable drop accounting.
 
 ### Shared Protocol and Transport Services

@@ -75,7 +75,20 @@ void EspIdfRuntime::update_live_telemetry_callback_() {
 }
 
 EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
-    : EspIdfRuntimeBase(config, RUNTIME_TAG, "Unknown runtime fault") {
+    : EspIdfRuntimeBase(config, RUNTIME_TAG, "Unknown runtime fault"),
+      csi_traffic_service_(traffic_generator_, traffic_ingress_) {
+  initialize_runtime_state_();
+}
+
+EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config,
+                             ICsiTrafficGenerator &traffic_generator,
+                             ICsiTrafficIngress &traffic_ingress)
+    : EspIdfRuntimeBase(config, RUNTIME_TAG, "Unknown runtime fault"),
+      csi_traffic_service_(traffic_generator, traffic_ingress) {
+  initialize_runtime_state_();
+}
+
+void EspIdfRuntime::initialize_runtime_state_() {
   restart_callback_ = &esp_restart;
   csi_rearm_immediate_reboot_enabled_ =
       CONFIG_ESPECTRE_CSI_REARM_IMMEDIATE_REBOOT;

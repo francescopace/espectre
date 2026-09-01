@@ -39,9 +39,11 @@
 /* ESPECTRE_SDK_VERSION_VALUES_END */
 
 /**
- * Single comparable integer for the SDK version, as `MMmmpp`.
+ * Legacy packed numeric identity for the SDK version, as `MMmmpp`.
  *
- * Example: `3.0.0` becomes `30000`.
+ * Example: `3.0.0` becomes `30000`. Retained for compatibility and compact
+ * telemetry; do not use it for ordering because components are not limited to
+ * two digits. Use `ESPECTRE_SDK_VERSION_AT_LEAST()` for feature guards.
  */
 #define ESPECTRE_SDK_VERSION_NUMBER \
   ((ESPECTRE_SDK_VERSION_MAJOR * 10000) + (ESPECTRE_SDK_VERSION_MINOR * 100) + ESPECTRE_SDK_VERSION_PATCH)
@@ -56,8 +58,12 @@
  * #endif
  * @endcode
  */
-#define ESPECTRE_SDK_VERSION_AT_LEAST(major, minor, patch) \
-  (ESPECTRE_SDK_VERSION_NUMBER >= ((major) * 10000 + (minor) * 100 + (patch)))
+#define ESPECTRE_SDK_VERSION_AT_LEAST(major, minor, patch)                  \
+  ((ESPECTRE_SDK_VERSION_MAJOR > (major)) ||                               \
+   (ESPECTRE_SDK_VERSION_MAJOR == (major) &&                              \
+    (ESPECTRE_SDK_VERSION_MINOR > (minor) ||                              \
+     (ESPECTRE_SDK_VERSION_MINOR == (minor) &&                            \
+      ESPECTRE_SDK_VERSION_PATCH >= (patch)))))
 
 namespace espectre {
 

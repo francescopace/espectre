@@ -109,7 +109,7 @@ test/cpp/
 │   ├── runtime/
 │   ├── integration/
 │   └── frontend/
-├── support/            # Harness and shared test-side support (cnpy, dataset loader, runtime shim)
+├── support/            # Harness, datasets, runtime shims, and in-memory traffic fakes
 ├── CMakeLists.txt      # Host-side test entrypoint
 ├── run_all_tests.sh    # Parallel build and test launcher
 └── run_coverage.sh     # Coverage script
@@ -121,6 +121,8 @@ Production code under test lives outside `test/cpp/`:
 - `src/cpp/runtime/` for the shared runtime contract and `src/cpp/runtime/esp_idf/` for the current runtime orchestration
 - `src/cpp/frontend/esphome/components/espectre/` for the ESPHome component manifest and adapter layer
 - `src/cpp/frontend/matter/espectre/` for the Matter adapter and surface mapping
+
+Traffic policy and UDP-listener unit tests use the shared in-memory adapters in `support/csi_traffic_fakes.h`. Host tests must not open real UDP sockets; the lwIP implementation is validated by the ESP-IDF firmware builds.
 
 ## Adding New Tests
 

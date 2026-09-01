@@ -24,6 +24,8 @@
 #include "runtime_interface.h"
 #include "csi_traffic_service.h"
 #include "threshold.h"
+#include "traffic_generator_manager.h"
+#include "udp_listener.h"
 #include "wifi_lifecycle.h"
 
 namespace espectre {
@@ -31,6 +33,9 @@ namespace espectre {
 class EspIdfRuntime : public EspIdfRuntimeBase {
  public:
   explicit EspIdfRuntime(const RuntimeConfig &config);
+  EspIdfRuntime(const RuntimeConfig &config,
+                ICsiTrafficGenerator &traffic_generator,
+                ICsiTrafficIngress &traffic_ingress);
 
   /** Configuration actually applied after persisted overrides are loaded. */
   const RuntimeConfig &effective_config() const { return config_; }
@@ -88,12 +93,15 @@ class EspIdfRuntime : public EspIdfRuntimeBase {
   void refresh_csi_local_identity_(uint32_t local_ip_addr);
   void log_periodic_status_(uint32_t packets_received);
   void reset_periodic_status_logger_();
+  void initialize_runtime_state_();
 
   std::unique_ptr<BaseDetector> detector_;
   uint16_t resolved_window_packets_{DETECTOR_DEFAULT_WINDOW_SIZE};
 
   CsiPipeline csi_pipeline_;
   WiFiLifecycleManager wifi_lifecycle_;
+  TrafficGeneratorManager traffic_generator_;
+  UDPListener traffic_ingress_;
   CsiTrafficService csi_traffic_service_;
 
   PeriodicSensingStatusLogger status_logger_{};

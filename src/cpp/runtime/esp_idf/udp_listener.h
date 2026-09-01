@@ -15,12 +15,11 @@
 #include <cstdint>
 #include <cstring>
 
-#include "lwip/sockets.h"
+#include "csi_traffic_service.h"
 #include "runtime_sensing_schema.h"
+#include "udp_datagram_socket_esp_idf.h"
 
 namespace espectre {
-
-using udp_listener_packet_callback_t = void (*)(void *, const sockaddr_in &, uint64_t);
 
 /**
  * UDP Listener for External Traffic Mode
@@ -29,17 +28,21 @@ using udp_listener_packet_callback_t = void (*)(void *, const sockaddr_in &, uin
  * The act of receiving packets triggers CSI callbacks in the WiFi driver.
  * No response is sent (fire-and-forget), minimizing network overhead.
  */
-class UDPListener {
+class UDPListener : public ICsiTrafficIngress {
  public:
+  UDPListener() = default;
+  explicit UDPListener(IUdpDatagramSocket &socket) : socket_(&socket) {}
+
   /**
    * Initialize the UDP listener
    * 
    * @param port UDP port to listen on (default: 5555)
    */
-  void init(uint16_t port = 5555);
-  void set_multicast_group(const char *group);
-  void set_expected_payload(const uint8_t *payload, size_t len);
-  void set_packet_callback(udp_listener_packet_callback_t callback, void *context = nullptr) {
+  void init(uint16_t port = 5555) override;
+  void set_multicast_group(const char *group) override;
+  void set_expected_payload(const uint8_t *payload, size_t len) override;
+  void set_packet_callback(csi_traffic_packet_callback_t callback,
+                           void *context = nullptr) override {
     packet_callback_ = callback;
     packet_callback_context_ = context;
   }
@@ -51,24 +54,24 @@ class UDPListener {
    * 
    * @return true if started successfully
    */
-  bool start();
+  bool start() override;
   
   /**
    * Stop listening and close socket
    */
-  void stop();
+  void stop() override;
   
   /**
    * Check if listener is running
    */
-  bool is_running() const { return running_; }
+  bool is_running() const override { return running_; }
   
   /**
    * Get the listening port
    */
   uint16_t get_port() const { return port_; }
-  uint64_t get_packets_received() const { return packets_received_; }
-  bool get_last_sender(sockaddr_in *out_addr) const;
+  uint64_t get_packets_received() const override { return packets_received_; }
+  bool get_last_sender(UdpDatagramPeer *out_peer) const override;
   
   /**
    * Process incoming packets (call from loop)
@@ -76,10 +79,11 @@ class UDPListener {
    * Non-blocking read of any pending UDP packets.
    * Packets are discarded after reading - we only need the WiFi CSI callback.
    */
-  void loop();
+  void loop() override;
 
  private:
-  int sock_{-1};
+  UdpDatagramSocketEspIdf default_socket_{};
+  IUdpDatagramSocket *socket_{&default_socket_};
   uint16_t port_{5555};
   bool running_{false};
   uint64_t packets_received_{0U};
@@ -89,7 +93,7 @@ class UDPListener {
   size_t expected_payload_len_{0U};
   std::atomic<uint32_t> last_sender_ipv4_{0U};
   std::atomic<uint16_t> last_sender_port_{0U};
-  udp_listener_packet_callback_t packet_callback_{nullptr};
+  csi_traffic_packet_callback_t packet_callback_{nullptr};
   void *packet_callback_context_{nullptr};
 };
 

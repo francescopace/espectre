@@ -74,6 +74,7 @@ target_link_libraries(espectre_core_testlib
 )
 
 add_library(espectre_runtime_testlib STATIC
+    "${ESPECTRE_CPP_ROOT}/runtime/csi_traffic_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/primary_console.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/firmware_version.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/ota_version.cpp"
@@ -103,9 +104,9 @@ add_library(espectre_runtime_testlib STATIC
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/sta_socket_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_frame_identity.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_traffic_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/direct_wifi_snapshot_esp_idf.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/udp_datagram_socket_esp_idf.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/udp_listener.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_lifecycle.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/frontend_support/frontend_bootstrap_helpers.cpp"

@@ -13,76 +13,77 @@ When someone moves through a room, they change the way Wi-Fi signals travel thro
 
 [**Flash from your browser**](https://espectre.dev/tools/flash/) · [See the live tools](https://espectre.dev/tools/) · [Read the documentation](https://espectre.dev/guides/) · [Explore the SDK](https://espectre.dev/sdk/)
 
-## What You Can Build
+## Applications and integrations
 
-Use ESPectre to add motion-aware lighting, heating, cooling, notifications, or room automations to a home, workspace, or prototype. Connect it to Home Assistant through ESPHome or MQTT, expose it as a standard Matter occupancy sensor, consume its local Direct HTTP API, or embed the sensing engine in your own ESP32 firmware.
+ESPectre can turn on a display or lights when it detects motion, adjust heating and cooling in response to room activity, trigger an alarm or notification when movement occurs in an area that should be empty, and drive other room automations. It connects to Home Assistant through ESPHome or MQTT, exposes a standard Matter occupancy sensor and a local Direct HTTP API, and can be embedded in custom ESP32 firmware through the C++ SDK.
 
-Detection runs on the device. ESPectre reports a motion state and a movement score, so an application can react without sending raw sensing data to a cloud service. One board covers one sensing area; room-level coverage normally requires one board in each room.
+ESPectre processes CSI on the device and reports a motion state and movement score. Applications can react without sending raw sensing data to a cloud service. One board covers one sensing area; room-level coverage normally requires one board per room.
 
 ESPectre detects changes in the radio environment. It does not identify people, count them, prove that a room is empty, or replace a safety-certified security, medical, or emergency system.
-
-## Start in Four Steps
-
-The quickest path uses the browser and requires no local build environment:
-
-1. Open [Flash](https://espectre.dev/tools/flash/) in a Chromium-based browser.
-2. Connect a supported ESP32 over USB, then choose a firmware and release channel.
-3. Complete on-screen Wi-Fi provisioning, or commission Matter with a supported controller.
-4. Open [Monitor](https://espectre.dev/tools/monitor/) to watch motion, tune detection, and inspect the device.
-
-![ESPectre Monitor](docs/web/assets/images/guides/sensing-dashboard.png)
-
-> **Matter status:** The Matter frontend is still being validated across controller ecosystems. A controller may support standard Matter occupancy sensors without having been tested with current firmware.
-> See [Matter controller compatibility](src/cpp/frontend/matter/README.md#matter-controller-compatibility) for the current matrix.
-
-## Using the CLI
-
-The repository wrapper exposes the available workflows through:
-
-```bash
-./espectre --help
-```
 
 ## Supported hardware
 
 - ESP32-C6, ESP32-C5, ESP32-C3, ESP32-S3, ESP32-S2, and classic ESP32
 - a normal Wi-Fi 4 (802.11n) network on 2.4 GHz
 
-## One Platform, Several Ways to Use It
-
-| Part | What it gives you | Start here |
-|---|---|---|
-| **Firmware** | ESPHome, Native, Matter, and MicroPython paths for different products and integrations | [Choose a firmware path](#choose-a-firmware-path) |
-| **C++ SDK** | The same sensing core and runtime for custom ESP-IDF firmware | [SDK.md](docs/SDK.md) |
-| **Browser tools** | Flash, configure, discover, monitor, tune, inspect raw CSI, and run interactive demos | [espectre.dev/tools](https://espectre.dev/tools/) |
-| **Host CLI and research tools** | Build firmware, provision devices, issue commands, collect CSI, train models, and validate results | [CLI.md](docs/CLI.md) |
-| **Open research assets** | Raw datasets, model weights, feature history, training code, and reproducible performance reports | [Research You Can Inspect](#research-you-can-inspect) |
-| **Documentation and website** | Guides, protocol references, architecture decisions, security guidance, and the complete website source | [Documentation](#documentation) |
-
-## Choose a Firmware Path
+## Choose a firmware path
 
 | Path | Best for | Start here |
 |---|---|---|
-| **Native Direct/MQTT** | Standalone sensors, browser-local sensing, Home Assistant MQTT Discovery, and custom applications | [Native frontend](src/cpp/frontend/native/README.md) |
+| **Native** | Standalone sensors, MQTT integrations, including Home Assistant MQTT Discovery, and custom applications | [Native frontend](src/cpp/frontend/native/README.md) |
 | **ESPHome** | Home Assistant users who want native entities, ESPHome provisioning, and Device Builder updates | [ESPHome frontend](src/cpp/frontend/esphome/README.md) |
 | **Matter** | Matter controllers with occupancy-sensor support; controller validation is still limited | [Matter frontend](src/cpp/frontend/matter/README.md) |
 | **Micro-ESPectre** | Lightweight sensing in MicroPython with local, read-only Direct HTTP monitoring | [Micro-ESPectre README](src/python/micro_espectre/README.md) |
 
-ESPHome, Native, and Matter can choose between a `lightweight` detector, which learns a room-specific threshold at startup and leaves more resources to the rest of the application, and a `high_accuracy` detector, which runs the trained model included in the repository. Their behavior and measured trade-offs are documented in [SETUP.md](docs/SETUP.md#detection-profiles-and-startup), [ALGORITHMS.md](docs/ALGORITHMS.md), and the [performance report](docs/performance/README.md).
+Native, ESPHome, and Matter can choose between a `lightweight` detector, which learns a room-specific threshold at startup and leaves more resources to the rest of the application, and a `high_accuracy` detector, which runs the trained model included in the repository. Their behavior and measured trade-offs are documented in [SETUP.md](docs/SETUP.md#detection-profile-availability), [ALGORITHMS.md](docs/ALGORITHMS.md), and the [performance report](docs/performance/README.md).
 
-## Research You Can Inspect
+## Quick start
+
+The quickest path uses the browser and requires no local build environment. Use desktop Chrome 151 or later for the complete hosted workflow. Edge supports browser flashing, but compatibility with Configure and Monitor is not guaranteed:
+
+1. Open [Flash](https://espectre.dev/tools/flash/) in desktop Chrome or Edge.
+2. Connect a [supported ESP32](#supported-hardware) over USB, then choose a firmware and release channel.
+3. Complete on-screen Wi-Fi provisioning, or commission Matter with a supported controller.
+4. Optionally, open [Configure](https://espectre.dev/tools/configure/) to pin a preferred access point or set up MQTT.
+5. Open [Monitor](https://espectre.dev/tools/monitor/) to watch motion, tune detection, and inspect the device.
+
+![ESPectre Monitor](docs/web/assets/images/guides/sensing-dashboard.png)
+
+> **Matter status:** The Matter frontend is still being validated across controller ecosystems. A controller may support standard Matter occupancy sensors without having been tested with current firmware.
+> See [Matter controller compatibility](src/cpp/frontend/matter/README.md#matter-controller-compatibility) for the current matrix.
+
+## Local setup
+
+For local builds, flashing from this repository, and the rest of the operator path, start with [SETUP.md](docs/SETUP.md). The repository wrapper exposes the available workflows through:
+
+```bash
+./espectre --help
+```
+
+## Documentation
+
+| Topic | What it covers | Guides |
+|---|---|---|
+| **Install and operate** | Device setup, CLI workflows, and detector tuning | [SETUP.md](docs/SETUP.md), [CLI.md](docs/CLI.md), [TUNING.md](docs/TUNING.md) |
+| **Understand and integrate** | Runtime architecture, protocol, algorithms, and the C++ SDK | [ARCHITECTURE.md](docs/ARCHITECTURE.md), [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md), [ALGORITHMS.md](docs/ALGORITHMS.md), [SDK.md](docs/SDK.md) |
+| **Collect and train** | CSI collection, model training, feature history, performance, and literature | [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md), [ML_TRAINING.md](docs/ML_TRAINING.md), [FEATURES.md](docs/FEATURES.md), [performance report](docs/performance/README.md), [LITERATURE.md](docs/LITERATURE.md) |
+| **Research and direction** | Roadmap, architecture decisions, and release history | [ROADMAP.md](docs/ROADMAP.md), [ADR index](docs/adr/README.md), [CHANGELOG.md](docs/CHANGELOG.md) |
+| **Frontend reference** | Firmware-path READMEs for ESPHome, Native, Matter, and Micro-ESPectre | [ESPHome](src/cpp/frontend/esphome/README.md), [Native](src/cpp/frontend/native/README.md), [Matter](src/cpp/frontend/matter/README.md), [Micro](src/python/micro_espectre/README.md) |
+| **Contributing** | How to contribute and where to discuss the project | [CONTRIBUTING.md](CONTRIBUTING.md), [GitHub Discussions](https://github.com/francescopace/espectre/discussions) |
+
+## Datasets, models, and validation
 
 ESPectre publishes the research assets and validation evidence behind its detectors:
 
-- The [open CSI dataset](data/) contains real recordings for empty rooms, static presence, and motion, with its catalog and provenance in [dataset_info.json](data/dataset_info.json).
-- The trained model weights are committed in both [C++](src/cpp/core/ml_weights.h) and [Python](tools/lib/ml_weights.py), and [ML_TRAINING.md](docs/ML_TRAINING.md) documents how training, export, and validation work.
-- [FEATURES.md](docs/FEATURES.md) records features that were tested, promoted, or rejected, including unsuccessful experiments.
-- [ALGORITHMS.md](docs/ALGORITHMS.md), the generated [performance report](docs/performance/README.md), and the [dataset quality report](data/auto_generated/DATASET_QUALITY_CHECK.md) make detector behavior and current evidence reviewable.
-- [LITERATURE.md](docs/LITERATURE.md), the [architecture decision records](docs/adr/README.md), and the public [roadmap](docs/ROADMAP.md) separate what is shipped, what has been measured, and what remains a direction for future work.
+| Asset | What it gives you | Start here |
+|---|---|---|
+| **CSI dataset** | Real recordings for empty rooms, static presence, and motion, with catalog and provenance in [dataset_info.json](data/dataset_info.json) | [data/](data/) |
+| **Model weights** | Trained weights in [C++](src/cpp/core/ml_weights.h) and [Python](tools/lib/ml_weights.py), plus the training, export, and validation workflow | [ML_TRAINING.md](docs/ML_TRAINING.md) |
+| **Feature ledger** | Features that were tested, promoted, or rejected, including unsuccessful experiments | [FEATURES.md](docs/FEATURES.md) |
+| **Algorithms and reports** | Detector behavior, the generated [performance report](docs/performance/README.md), and the [dataset quality report](data/auto_generated/DATASET_QUALITY_CHECK.md) | [ALGORITHMS.md](docs/ALGORITHMS.md) |
+| **Literature and direction** | External research, [architecture decision records](docs/adr/README.md), and the public [roadmap](docs/ROADMAP.md) | [LITERATURE.md](docs/LITERATURE.md) |
 
-The project has also contributed ESP32 CSI support upstream to MicroPython. The merged [MicroPython PR #18460](https://github.com/micropython/micropython/pull/18460) added direct CSI methods to the mainline `network.WLAN` implementation, so Micro-ESPectre no longer depends on a project-specific MicroPython fork.
-
-## Security, Privacy, and Transparency
+## Security, privacy, and transparency
 
 A sensor that can reveal presence should not be a black box. Wi-Fi sensing avoids images and audio, but motion and occupancy data can still reveal routines, sleep, or absence from home. ESPectre treats that risk as part of the engineering work:
 
@@ -95,41 +96,10 @@ A sensor that can reveal presence should not be a black box. Wi-Fi sensing avoid
 
 Use ESPectre only in spaces and networks where you have the right to deploy it. Inform affected people, obtain consent where required, protect access to the device and its data, and follow applicable privacy laws.
 
-## Documentation
-
-- **Install and operate**
-  - [SETUP.md](docs/SETUP.md)
-  - [CLI.md](docs/CLI.md)
-  - [TUNING.md](docs/TUNING.md)
-- **Understand and integrate**
-  - [ARCHITECTURE.md](docs/ARCHITECTURE.md)
-  - [ESPECTRE_PROTOCOL.md](docs/ESPECTRE_PROTOCOL.md)
-  - [ALGORITHMS.md](docs/ALGORITHMS.md)
-  - [SDK.md](docs/SDK.md)
-- **Collect and train**
-  - [ML_DATA_COLLECTION.md](docs/ML_DATA_COLLECTION.md)
-  - [ML_TRAINING.md](docs/ML_TRAINING.md)
-  - [FEATURES.md](docs/FEATURES.md)
-  - [performance report](docs/performance/README.md)
-  - [LITERATURE.md](docs/LITERATURE.md)
-- **Research and direction**
-  - [ROADMAP.md](docs/ROADMAP.md)
-  - [ADR index](docs/adr/README.md)
-  - [CHANGELOG.md](docs/CHANGELOG.md)
-- **Frontend reference**
-  - [ESPHome](src/cpp/frontend/esphome/README.md)
-  - [Native](src/cpp/frontend/native/README.md)
-  - [Matter](src/cpp/frontend/matter/README.md)
-  - [Micro](src/python/micro_espectre/README.md)
-- **Contributing**
-  - [CONTRIBUTING.md](CONTRIBUTING.md)
-  - [GitHub Discussions](https://github.com/francescopace/espectre/discussions)
-
 ## Acknowledgments
 
 - Thanks to [Espressif](https://www.espressif.com/) for making CSI accessible in ESP-IDF and for recognizing ESPectre as a [community project](https://github.com/espressif/esp-csi#6-related-resources) in [esp-csi](https://github.com/espressif/esp-csi).
-- Thanks to the [MicroPython](https://github.com/micropython/micropython) maintainers for reviewing, testing, and merging [ESPectre's upstream CSI contribution](https://github.com/micropython/micropython/pull/18460).
-- Thanks to the TOMMY team for the constructive public discussion around Wi-Fi sensing approaches, including their [TOMMY vs ESPectre](https://www.tommysense.com/docs/comparisons/espectre-comparison) comparison page.
+- Thanks to the [MicroPython](https://github.com/micropython/micropython) maintainers for reviewing, testing, and merging [ESPectre's CSI contribution](https://github.com/micropython/micropython/pull/18460), which added direct CSI methods to mainline `network.WLAN`. 
 
 ## License
 

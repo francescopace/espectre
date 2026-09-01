@@ -157,29 +157,29 @@ class IcmpTrafficProtocol final : public TrafficProtocol {
   uint16_t sequence_{0U};
 };
 
-TrafficProtocol &select_traffic_protocol(TrafficGeneratorMode mode,
+TrafficProtocol &select_traffic_protocol(RuntimeTrafficMode mode,
                                          DnsTcpTrafficProtocol &dns_tcp,
                                          DnsUdpTrafficProtocol &dns_udp,
                                          IcmpTrafficProtocol &ping) {
   switch (mode) {
-    case TrafficGeneratorMode::PING:
+    case RuntimeTrafficMode::PING:
       return ping;
-    case TrafficGeneratorMode::DNS:
+    case RuntimeTrafficMode::DNS:
       return dns_udp;
-    case TrafficGeneratorMode::DNS_TCP:
+    case RuntimeTrafficMode::DNS_TCP:
       return dns_tcp;
     default:
       return ping;
   }
 }
 
-const char *traffic_mode_name(TrafficGeneratorMode mode) {
+const char *generator_traffic_mode_name(RuntimeTrafficMode mode) {
   switch (mode) {
-    case TrafficGeneratorMode::PING:
+    case RuntimeTrafficMode::PING:
       return "ping";
-    case TrafficGeneratorMode::DNS:
+    case RuntimeTrafficMode::DNS:
       return "dns";
-    case TrafficGeneratorMode::DNS_TCP:
+    case RuntimeTrafficMode::DNS_TCP:
       return "dns_tcp";
     default:
       return "ping";
@@ -320,7 +320,7 @@ size_t build_dns_tcp_query_frame(uint16_t transaction_id,
   return TRAFFIC_DNS_TCP_FRAME_SIZE;
 }
 
-void TrafficGeneratorManager::init(uint32_t target_pps, TrafficGeneratorMode mode) {
+void TrafficGeneratorManager::init(uint32_t target_pps, RuntimeTrafficMode mode) {
   task_handle_ = nullptr;
   sock_ = -1;
   gateway_addr_ = 0U;
@@ -336,7 +336,7 @@ void TrafficGeneratorManager::init(uint32_t target_pps, TrafficGeneratorMode mod
   ESPECTRE_LOGD(TAG,
            "Traffic generator initialized (target=%" PRIu32 " CSI pps, mode=%s)",
            target_pps,
-           traffic_mode_name(mode));
+           generator_traffic_mode_name(mode));
 }
 
 bool TrafficGeneratorManager::start(uint32_t gateway_addr) {
@@ -384,7 +384,7 @@ bool TrafficGeneratorManager::start(uint32_t gateway_addr) {
   ESPECTRE_LOGI(TAG,
            "Traffic generator started (mode=%s, target=%" PRIu32 " CSI pps, send=%" PRIu32
            " pps, gateway=%s, priority=%u)",
-           traffic_mode_name(mode_),
+           generator_traffic_mode_name(mode_),
            target_pps_,
            current_rate_pps(),
            gateway,

@@ -1,8 +1,7 @@
 /*
  * ESPectre - CSI Traffic Service Unit Tests
  *
- * Exercises external-mode marker filtering and sender tracking for CSI
- * traffic service.
+ * Exercises shared traffic policy without opening platform sockets.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -10,85 +9,76 @@
  */
 #include "test_harness.h"
 
-#include <cstdint>
-#include <unistd.h>
+#include <cstring>
 
+#include "csi_traffic_fakes.h"
 #include "csi_traffic_service.h"
-#include "lwip/inet.h"
-#include "lwip/sockets.h"
 
 using namespace espectre;
-
-namespace {
-
-uint16_t allocate_udp_port() {
-  const int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-  TEST_ASSERT_TRUE(sock >= 0);
-
-  sockaddr_in addr{};
-  addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  addr.sin_port = 0;
-  TEST_ASSERT_TRUE(bind(sock, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
-
-  socklen_t addr_len = sizeof(addr);
-  TEST_ASSERT_TRUE(getsockname(sock, reinterpret_cast<sockaddr *>(&addr), &addr_len) == 0);
-  const uint16_t port = ntohs(addr.sin_port);
-  close(sock);
-  return port;
-}
-
-void send_udp_datagram(uint16_t port, const void *payload, size_t len) {
-  const int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-  TEST_ASSERT_TRUE(sock >= 0);
-
-  sockaddr_in addr{};
-  addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  addr.sin_port = htons(port);
-  TEST_ASSERT_TRUE(sendto(sock, payload, len, 0, reinterpret_cast<const sockaddr *>(&addr), sizeof(addr)) ==
-                   static_cast<ssize_t>(len));
-  close(sock);
-}
-
-void drain_service(CsiTrafficService &service, uint64_t expected_packets) {
-  for (int attempt = 0; attempt < 20 && service.get_packets_received() < expected_packets; ++attempt) {
-    service.loop();
-    usleep(1000);
-  }
-}
-
-}  // namespace
+using namespace espectre::test;
 
 void setUp(void) {}
 
 void tearDown(void) {}
 
-void test_csi_traffic_service_external_mode_filters_marker_and_tracks_sender(void) {
-  CsiTrafficService service;
+void test_csi_traffic_service_selects_external_ingress_and_reports_diagnostics(void) {
+  FakeCsiTrafficGenerator generator;
+  FakeCsiTrafficIngress ingress;
+  CsiTrafficService service(generator, ingress);
   CsiTrafficServiceConfig config;
   config.mode = CsiTrafficMode::EXTERNAL;
-  config.udp_port = allocate_udp_port();
+  config.udp_port = 6001U;
+  config.multicast_group = "239.12.12.12";
+
   service.init(config);
+  TEST_ASSERT_EQUAL(6001U, ingress.port);
+  TEST_ASSERT_EQUAL_STRING("239.12.12.12", ingress.multicast_group.c_str());
+  TEST_ASSERT_EQUAL(RUNTIME_CSI_TRAFFIC_MARKER_LENGTH, ingress.expected_payload.size());
+  TEST_ASSERT_TRUE(std::memcmp(RUNTIME_CSI_TRAFFIC_MARKER_BYTES,
+                               ingress.expected_payload.data(),
+                               RUNTIME_CSI_TRAFFIC_MARKER_LENGTH) == 0);
 
   TEST_ASSERT_TRUE(service.start());
+  TEST_ASSERT_EQUAL(0U, generator.start_calls);
+  TEST_ASSERT_EQUAL(1U, ingress.start_calls);
 
-  static constexpr uint8_t kUnexpectedPayload[] = {'N', 'O', 'P', 'E'};
-  send_udp_datagram(config.udp_port, kUnexpectedPayload, sizeof(kUnexpectedPayload));
-  drain_service(service, 1U);
-  TEST_ASSERT_EQUAL(0U, service.get_packets_received());
+  ingress.packets_received = 3U;
+  ingress.last_sender = {0x0100007FU, 1234U};
+  service.loop();
+  TEST_ASSERT_EQUAL(1U, ingress.loop_calls);
+  TEST_ASSERT_EQUAL(3U, service.get_packets_received());
+  TEST_ASSERT_EQUAL(3U, service.get_traffic_packets_total());
 
-  send_udp_datagram(config.udp_port,
-                    RUNTIME_CSI_TRAFFIC_MARKER_BYTES,
-                    RUNTIME_CSI_TRAFFIC_MARKER_LENGTH);
-  drain_service(service, 1U);
-  TEST_ASSERT_EQUAL(1U, service.get_packets_received());
-
-  sockaddr_in sender{};
+  UdpDatagramPeer sender{};
   TEST_ASSERT_TRUE(service.get_last_sender(&sender));
-  TEST_ASSERT_TRUE(sender.sin_port != 0U);
+  TEST_ASSERT_EQUAL(0x0100007FU, sender.ipv4_addr);
+  TEST_ASSERT_EQUAL(1234U, sender.port);
 
   service.stop();
+  TEST_ASSERT_FALSE(service.is_running());
+}
+
+void test_csi_traffic_service_selects_internal_generator(void) {
+  FakeCsiTrafficGenerator generator;
+  FakeCsiTrafficIngress ingress;
+  CsiTrafficService service(generator, ingress);
+  CsiTrafficServiceConfig config;
+  config.mode = CsiTrafficMode::INTERNAL;
+  config.rate_pps = 94U;
+  config.traffic_mode = RuntimeTrafficMode::DNS_TCP;
+
+  service.init(config);
+  TEST_ASSERT_EQUAL(94U, generator.rate_pps);
+  TEST_ASSERT_TRUE(generator.mode == RuntimeTrafficMode::DNS_TCP);
+
+  TEST_ASSERT_TRUE(service.start(0x0101A8C0U));
+  TEST_ASSERT_EQUAL(1U, generator.start_calls);
+  TEST_ASSERT_EQUAL(0x0101A8C0U, generator.gateway_addr);
+  TEST_ASSERT_EQUAL(0U, ingress.start_calls);
+
+  generator.send_successes = 7U;
+  TEST_ASSERT_EQUAL(7U, service.get_traffic_packets_total());
+  TEST_ASSERT_EQUAL(0x1234U, service.internal_icmp_identifier());
 }
 
 void test_csi_traffic_projection_keeps_mode_separate_from_positive_target(void) {
@@ -97,38 +87,29 @@ void test_csi_traffic_projection_keeps_mode_separate_from_positive_target(void) 
   runtime_config.csi_traffic_mode = CsiTrafficMode::INTERNAL;
 
   CsiTrafficServiceConfig service_config = to_csi_traffic_config(runtime_config);
-  TEST_ASSERT_EQUAL(static_cast<int>(CsiTrafficMode::INTERNAL),
-                    static_cast<int>(service_config.mode));
+  TEST_ASSERT_TRUE(service_config.mode == CsiTrafficMode::INTERNAL);
   TEST_ASSERT_EQUAL(94U, service_config.rate_pps);
-  TEST_ASSERT_TRUE(service_config.traffic_mode == TrafficGeneratorMode::PING);
+  TEST_ASSERT_TRUE(service_config.traffic_mode == RuntimeTrafficMode::PING);
 
   runtime_config.traffic_generator_mode = RuntimeTrafficMode::DNS;
   service_config = to_csi_traffic_config(runtime_config);
-  TEST_ASSERT_TRUE(service_config.traffic_mode == TrafficGeneratorMode::DNS);
+  TEST_ASSERT_TRUE(service_config.traffic_mode == RuntimeTrafficMode::DNS);
 
   runtime_config.traffic_generator_mode = RuntimeTrafficMode::DNS_TCP;
   service_config = to_csi_traffic_config(runtime_config);
-  TEST_ASSERT_TRUE(service_config.traffic_mode == TrafficGeneratorMode::DNS_TCP);
-
-  runtime_config.csi_traffic_mode = CsiTrafficMode::INTERNAL;
-  service_config = to_csi_traffic_config(runtime_config);
-  TEST_ASSERT_EQUAL(static_cast<int>(CsiTrafficMode::INTERNAL),
-                    static_cast<int>(service_config.mode));
-  TEST_ASSERT_EQUAL(94U, service_config.rate_pps);
-  TEST_ASSERT_EQUAL_STRING(RUNTIME_CSI_TRAFFIC_MULTICAST_GROUP_DEFAULT,
-                           service_config.multicast_group.c_str());
+  TEST_ASSERT_TRUE(service_config.traffic_mode == RuntimeTrafficMode::DNS_TCP);
 
   runtime_config.csi_traffic_mode = CsiTrafficMode::EXTERNAL;
   runtime_config.csi_traffic_multicast_group.clear();
   service_config = to_csi_traffic_config(runtime_config);
-  TEST_ASSERT_EQUAL(static_cast<int>(CsiTrafficMode::EXTERNAL),
-                    static_cast<int>(service_config.mode));
+  TEST_ASSERT_TRUE(service_config.mode == CsiTrafficMode::EXTERNAL);
   TEST_ASSERT_TRUE(service_config.multicast_group.empty());
 }
 
 int process(void) {
   UNITY_BEGIN();
-  RUN_TEST(test_csi_traffic_service_external_mode_filters_marker_and_tracks_sender);
+  RUN_TEST(test_csi_traffic_service_selects_external_ingress_and_reports_diagnostics);
+  RUN_TEST(test_csi_traffic_service_selects_internal_generator);
   RUN_TEST(test_csi_traffic_projection_keeps_mode_separate_from_positive_target);
   return UNITY_END();
 }

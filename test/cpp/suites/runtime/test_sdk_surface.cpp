@@ -169,6 +169,11 @@ void test_sdk_version_macros_agree_with_each_other(void) {
   TEST_ASSERT_TRUE(ESPECTRE_SDK_VERSION_AT_LEAST(ESPECTRE_SDK_VERSION_MAJOR, ESPECTRE_SDK_VERSION_MINOR,
                                                  ESPECTRE_SDK_VERSION_PATCH));
   TEST_ASSERT_FALSE(ESPECTRE_SDK_VERSION_AT_LEAST(ESPECTRE_SDK_VERSION_MAJOR + 1, 0, 0));
+#if ESPECTRE_SDK_VERSION_MAJOR > 0
+  // A component-wise comparison must not let large minor or patch values from
+  // an older major overflow into the current major.
+  TEST_ASSERT_TRUE(ESPECTRE_SDK_VERSION_AT_LEAST(ESPECTRE_SDK_VERSION_MAJOR - 1, 255, 255));
+#endif
 }
 
 void test_default_runtime_config_is_a_working_sensing_config(void) {

@@ -13,6 +13,7 @@ set(ESPECTRE_CORE_SOURCES
 )
 
 set(ESPECTRE_RUNTIME_COMMON_SOURCES
+    "${ESPECTRE_CPP_ROOT}/runtime/csi_traffic_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/periodic_sensing_status_logger.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/espectre_protocol.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/firmware_version.cpp"
@@ -52,8 +53,8 @@ set(ESPECTRE_RUNTIME_ESP_IDF_PLATFORM_SOURCES
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/standalone_wifi_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/sta_socket_helpers.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_frame_identity.cpp"
-    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/csi_traffic_service.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/traffic_generator_manager.cpp"
+    "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/udp_datagram_socket_esp_idf.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/udp_listener.cpp"
     "${ESPECTRE_CPP_ROOT}/runtime/esp_idf/wifi_lifecycle.cpp"
 )

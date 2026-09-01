@@ -31,7 +31,8 @@ void reset() { state = State{}; }
 
 EspIdfRuntime::EspIdfRuntime(const RuntimeConfig &config)
     : EspIdfRuntimeBase(config, "espectre.runtime.shim", "Unknown runtime fault"),
-      detector_(nullptr) {
+      detector_(nullptr),
+      csi_traffic_service_(traffic_generator_, traffic_ingress_) {
   snapshot_ = frontend_runtime_shim::state.snapshot;
   capabilities_ = frontend_runtime_shim::state.capabilities;
   frontend_runtime_shim::state.last_instance = this;

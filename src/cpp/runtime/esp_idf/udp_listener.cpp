@@ -9,12 +9,8 @@
  */
 #include "udp_listener.h"
 #include "espectre_log.h"
-#include "lwip/inet.h"
-#include "lwip/sockets.h"
-#include "lwip/netdb.h"
 #include <cinttypes>
 #include <cstring>
-#include <fcntl.h>
 
 namespace espectre {
 
@@ -24,7 +20,7 @@ static constexpr uint16_t UDP_LISTENER_MAX_PACKETS_PER_LOOP = 64;
 void UDPListener::init(uint16_t port) {
   port_ = port;
   running_ = false;
-  sock_ = -1;
+  socket_->close();
   packets_received_ = 0U;
   expected_payload_len_ = 0U;
   expected_payload_.fill(0U);
@@ -63,58 +59,8 @@ bool UDPListener::start() {
     return true;
   }
   
-  // Create UDP socket
-  sock_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-  if (sock_ < 0) {
-    ESPECTRE_LOGE(UDP_LISTENER_TAG, "Failed to create UDP socket: errno %d", errno);
+  if (!socket_->open(port_, multicast_group_)) {
     return false;
-  }
-  
-  // Set socket to non-blocking
-  int flags = fcntl(sock_, F_GETFL, 0);
-  if (flags < 0 || fcntl(sock_, F_SETFL, flags | O_NONBLOCK) < 0) {
-    ESPECTRE_LOGE(UDP_LISTENER_TAG, "Failed to set socket non-blocking: errno %d", errno);
-    close(sock_);
-    sock_ = -1;
-    return false;
-  }
-  
-  // Allow reuse of address
-  int reuse = 1;
-  if (setsockopt(sock_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
-    ESPECTRE_LOGW(UDP_LISTENER_TAG, "Failed to set SO_REUSEADDR");
-  }
-  
-  // Bind to port
-  struct sockaddr_in addr;
-  memset(&addr, 0, sizeof(addr));
-  addr.sin_family = AF_INET;
-  addr.sin_port = htons(port_);
-  addr.sin_addr.s_addr = htonl(INADDR_ANY);
-  
-  if (bind(sock_, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-    ESPECTRE_LOGE(UDP_LISTENER_TAG, "Failed to bind UDP socket to port %u: errno %d", port_, errno);
-    close(sock_);
-    sock_ = -1;
-    return false;
-  }
-
-  if (multicast_group_[0] != '\0') {
-    ip_mreq membership{};
-    if (inet_aton(multicast_group_, &membership.imr_multiaddr) == 0 ||
-        !IN_MULTICAST(ntohl(membership.imr_multiaddr.s_addr))) {
-      ESPECTRE_LOGE(UDP_LISTENER_TAG, "Invalid multicast group: %s", multicast_group_);
-      close(sock_);
-      sock_ = -1;
-      return false;
-    }
-    membership.imr_interface.s_addr = htonl(INADDR_ANY);
-    if (setsockopt(sock_, IPPROTO_IP, IP_ADD_MEMBERSHIP, &membership, sizeof(membership)) < 0) {
-      ESPECTRE_LOGE(UDP_LISTENER_TAG, "Failed to join multicast group %s: errno %d", multicast_group_, errno);
-      close(sock_);
-      sock_ = -1;
-      return false;
-    }
   }
   
   running_ = true;
@@ -132,17 +78,14 @@ void UDPListener::stop() {
     return;
   }
   
-  if (sock_ >= 0) {
-    close(sock_);
-    sock_ = -1;
-  }
+  socket_->close();
   
   running_ = false;
   ESPECTRE_LOGI(UDP_LISTENER_TAG, "UDP listener stopped");
 }
 
-bool UDPListener::get_last_sender(sockaddr_in *out_addr) const {
-  if (out_addr == nullptr) {
+bool UDPListener::get_last_sender(UdpDatagramPeer *out_peer) const {
+  if (out_peer == nullptr) {
     return false;
   }
 
@@ -151,50 +94,42 @@ bool UDPListener::get_last_sender(sockaddr_in *out_addr) const {
     return false;
   }
 
-  std::memset(out_addr, 0, sizeof(*out_addr));
-  out_addr->sin_family = AF_INET;
-  out_addr->sin_addr.s_addr = ipv4;
-  out_addr->sin_port = last_sender_port_.load(std::memory_order_relaxed);
+  out_peer->ipv4_addr = ipv4;
+  out_peer->port = last_sender_port_.load(std::memory_order_relaxed);
   return true;
 }
 
 void UDPListener::loop() {
-  if (!running_ || sock_ < 0) {
+  if (!running_) {
     return;
   }
   
   // Non-blocking receive - just drain any pending packets
   // The CSI callback is triggered by the WiFi driver when packets arrive,
   // we just need to consume them so the socket buffer doesn't fill up
-  char buf[64];
-  struct sockaddr_in src_addr;
+  uint8_t buffer[64];
   
   // Drain a bounded burst of pending packets (non-blocking). A slightly larger
   // per-loop budget helps slower chips keep up with 100 pps collector
   // traffic when the main loop is busy with Wi-Fi or telemetry work.
   for (uint16_t drained = 0; drained < UDP_LISTENER_MAX_PACKETS_PER_LOOP; drained++) {
-    socklen_t addr_len = sizeof(src_addr);
-    ssize_t len = recvfrom(sock_, buf, sizeof(buf), MSG_DONTWAIT,
-                           (struct sockaddr *)&src_addr, &addr_len);
-    if (len < 0) {
-      // EAGAIN/EWOULDBLOCK means no more data available
-      if (errno == EAGAIN || errno == EWOULDBLOCK) {
-        break;
-      }
-      // Other error
-      ESPECTRE_LOGW(UDP_LISTENER_TAG, "recvfrom error: errno %d", errno);
+    size_t received_len = 0U;
+    UdpDatagramPeer peer{};
+    const UdpReceiveResult result =
+        socket_->receive(buffer, sizeof(buffer), &received_len, &peer);
+    if (result != UdpReceiveResult::PACKET) {
       break;
     }
     if (expected_payload_len_ != 0U &&
-        (len != static_cast<ssize_t>(expected_payload_len_) ||
-         std::memcmp(buf, expected_payload_.data(), expected_payload_len_) != 0)) {
+        (received_len != expected_payload_len_ ||
+         std::memcmp(buffer, expected_payload_.data(), expected_payload_len_) != 0)) {
       continue;
     }
     packets_received_++;
-    last_sender_ipv4_.store(src_addr.sin_addr.s_addr, std::memory_order_relaxed);
-    last_sender_port_.store(src_addr.sin_port, std::memory_order_relaxed);
+    last_sender_ipv4_.store(peer.ipv4_addr, std::memory_order_relaxed);
+    last_sender_port_.store(peer.port, std::memory_order_relaxed);
     if (packet_callback_ != nullptr) {
-      packet_callback_(packet_callback_context_, src_addr, packets_received_);
+      packet_callback_(packet_callback_context_, peer, packets_received_);
     }
   }
 }
