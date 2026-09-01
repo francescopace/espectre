@@ -3,7 +3,7 @@
 #
 # TESTED: This platform is validated for HT20 CSI motion detection.
 # ESP32-C5 uses the same modern CSI API as ESP32-C6 with WiFi 6 support.
-# ESPectre defaults to 2.4 GHz HT20 and remaps 57->64 subcarriers at runtime.
+# This example pins 2.4 GHz; ESP32-C5 firmware otherwise defaults to AUTO.
 # This dual-band board can select 5 GHz or auto explicitly, but detection
 # quality on 5 GHz is not characterized yet.
 #

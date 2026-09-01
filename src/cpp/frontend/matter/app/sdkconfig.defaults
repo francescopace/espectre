@@ -59,7 +59,6 @@ CONFIG_ESPECTRE_MATTER_NODE_LABEL=""
 
 # ESPectre sensing runtime
 CONFIG_ESPECTRE_DETECTION_ALGORITHM_LIGHTWEIGHT=y
-CONFIG_ESPECTRE_WIFI_BAND_2G=y
 
 # Reduce CHIP serial noise in the Matter frontend by compiling out
 # progress/detail logs and keeping only CHIP errors.

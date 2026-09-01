@@ -1,9 +1,8 @@
 /*
  * ESPectre - CSI PHY Filter
  *
- * HT20 sensing gate shared by ESP-IDF sensing runtimes (ESPHome, native,
- * Matter). Capture may still enable legacy LTF on original ESP32 for health;
- * detectors only consume HT20 frames.
+ * 20 MHz sensing gates shared by ESP-IDF sensing runtimes (ESPHome, native,
+ * and Matter).
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -34,6 +33,20 @@ inline bool csi_rx_is_ht20_sensing(const wifi_pkt_rx_ctrl_t &rx_ctrl) {
 
 inline bool csi_info_is_ht20_sensing(const wifi_csi_info_t *info) {
   return info != nullptr && csi_rx_is_ht20_sensing(info->rx_ctrl);
+}
+
+/** Return true when RX control metadata matches a VHT/20 MHz frame. */
+inline bool csi_rx_is_vht20_sensing(const wifi_pkt_rx_ctrl_t &rx_ctrl) {
+#if CONFIG_SOC_WIFI_HE_SUPPORT
+  return rx_ctrl.cur_bb_format == RX_BB_FORMAT_VHT && rx_ctrl.second == 0U;
+#else
+  (void) rx_ctrl;
+  return false;
+#endif
+}
+
+inline bool csi_info_is_vht20_sensing(const wifi_csi_info_t *info) {
+  return info != nullptr && csi_rx_is_vht20_sensing(info->rx_ctrl);
 }
 
 }  // namespace espectre

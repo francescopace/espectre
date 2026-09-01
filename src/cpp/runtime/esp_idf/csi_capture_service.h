@@ -33,12 +33,13 @@ class CsiCaptureService {
   void init(IWiFiCSI *wifi_csi = nullptr);
   void reset_session();
 
-  esp_err_t enable();
+  esp_err_t enable(CsiCaptureProfile profile = CsiCaptureProfile::HT20);
   esp_err_t disable();
   void loop();
   void process_packet(wifi_csi_info_t *data);
 
   bool is_enabled() const { return enabled_; }
+  CsiCaptureProfile capture_profile() const { return capture_profile_; }
   uint32_t filtered_packets() const { return filtered_packets_.load(std::memory_order_relaxed); }
   uint32_t callback_invocations() const { return callback_invocations_.load(std::memory_order_relaxed); }
   uint32_t null_or_empty_packets() const { return null_or_empty_packets_.load(std::memory_order_relaxed); }
@@ -97,6 +98,7 @@ class CsiCaptureService {
   void reset_channel_tracking_();
 
   bool enabled_{false};
+  CsiCaptureProfile capture_profile_{CsiCaptureProfile::HT20};
   IWiFiCSI *wifi_csi_{nullptr};
   WiFiCSIReal default_wifi_csi_;
   csi_capture_packet_callback_t packet_callback_{nullptr};
@@ -133,6 +135,7 @@ class CsiCaptureService {
   // avoids reserving two HT20 buffers on every Wi-Fi callback stack frame.
   std::array<int8_t, HT20_CSI_LEN> remap_scratch_{};
   std::array<int8_t, HT20_CSI_LEN> rotation_scratch_{};
+  std::array<int8_t, HT20_CSI_LEN> lltf_scratch_{};
   CsiFormatAssessment last_assessment_{};
   uint32_t consecutive_format_drops_{0U};
   NormalizedCSIPayloadTag last_accepted_normalization_tag_{NormalizedCSIPayloadTag::NONE};

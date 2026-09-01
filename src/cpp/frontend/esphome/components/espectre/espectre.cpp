@@ -645,6 +645,8 @@ FrontendCommandResult ESpectreComponent::execute_entity_command_(const EspectreC
         info.supports_manual_recalibration = capabilities.supports(Method::RECALIBRATE);
         info.supports_traffic_control = capabilities.supports(Method::SET_CSI_TRAFFIC_MODE) &&
                                         capabilities.supports(Method::SET_TRAFFIC_GENERATOR_MODE);
+        info = normalize_protocol_device_info(
+            info, &this->runtime_.snapshot(), false, "esphome", CONFIG_IDF_TARGET);
         if (read.command == "capabilities") {
           return espectre_capabilities_payload(device, info, capabilities);
         }

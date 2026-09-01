@@ -22,7 +22,8 @@ namespace {
 
 constexpr uint16_t EXPECTED_PROTOCOL_2G =
     WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
-constexpr uint16_t EXPECTED_PROTOCOL_5G = WIFI_PROTOCOL_11A | WIFI_PROTOCOL_11N;
+constexpr uint16_t EXPECTED_PROTOCOL_5G =
+    WIFI_PROTOCOL_11A | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_11AC;
 
 }  // namespace
 
@@ -129,8 +130,8 @@ void test_dual_band_policy_skips_matching_radio_settings(void) {
   TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.set_bandwidths_call_count);
 }
 
-// A 5 GHz-only protocol mismatch still has to be corrected: leaving 11ac or
-// 11ax active there would replace the HT20 training field the detectors read.
+// A 5 GHz-only protocol mismatch still has to be corrected: 11ax can replace
+// the VHT20 training field the detectors read.
 void test_dual_band_policy_repins_when_only_the_5ghz_band_drifts(void) {
   WiFiLifecycleManager manager;
   g_esp_wifi_mock.protocols.ghz_2g = EXPECTED_PROTOCOL_2G;

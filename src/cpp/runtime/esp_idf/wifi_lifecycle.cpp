@@ -34,9 +34,8 @@ struct WiFiProtocolPolicyResult {
   WiFiProtocolPolicyPath path;
 };
 
-// The sensing contract is the validated HT-LTF 20 MHz path with 64
-// subcarriers, not a band. The integrator owns the band choice; the lifecycle
-// pins every selected band to an 11n-max protocol set and to HT20.
+// The sensing contract uses one 20 MHz, 64-bin geometry across bands. The
+// lifecycle permits HT on 2.4 GHz and VHT on 5 GHz while keeping HE disabled.
 //
 // ESP-IDF exposes 802.11n on 2.4 GHz through the supported b/g/n protocol
 // combination; WIFI_PROTOCOL_11N alone is not a valid station mode on the
@@ -45,16 +44,17 @@ struct WiFiProtocolPolicyResult {
 constexpr uint16_t WIFI_PROTOCOL_CSI_2G = WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N;
 constexpr wifi_bandwidth_t WIFI_BANDWIDTH_CSI = WIFI_BW_HT20;
 #if ESPECTRE_WIFI_DUAL_BAND
-constexpr uint16_t WIFI_PROTOCOL_CSI_5G = WIFI_PROTOCOL_11A | WIFI_PROTOCOL_11N;
+constexpr uint16_t WIFI_PROTOCOL_CSI_5G =
+    WIFI_PROTOCOL_11A | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_11AC;
 #endif
 
 const char *wifi_csi_policy_target_(WifiBandPolicy policy) {
   switch (policy) {
 #if ESPECTRE_WIFI_DUAL_BAND
     case WifiBandPolicy::BAND_5G:
-      return "5 GHz HT20 11a/n (11ac and 11ax disabled)";
+      return "5 GHz VHT20 11a/n/ac (11ax disabled)";
     case WifiBandPolicy::AUTO:
-      return "HT20 on both bands (2.4 GHz 11b/g/n, 5 GHz 11a/n; 11ac and 11ax disabled)";
+      return "20 MHz on both bands (2.4 GHz 11b/g/n, 5 GHz 11a/n/ac; 11ax disabled)";
 #endif
     case WifiBandPolicy::BAND_2G:
     default:
@@ -101,9 +101,9 @@ const char *bandwidth_to_str_(wifi_bandwidth_t bw) {
 const char *protocol_policy_path_to_str_(WiFiProtocolPolicyPath path) {
   switch (path) {
     case WiFiProtocolPolicyPath::ALREADY_PINNED:
-      return "11n ceiling already active";
+      return "sensing protocol set already active";
     case WiFiProtocolPolicyPath::PINNED:
-      return "pinned the 11n ceiling explicitly";
+      return "pinned the sensing protocol set explicitly";
     default:
       return "unknown";
   }
@@ -296,8 +296,7 @@ esp_err_t WiFiLifecycleManager::apply_csi_wifi_policy(WifiBandPolicy band_policy
 
   // Configure WiFi protocol mode (MUST be done before CSI configuration)
   // This initializes internal WiFi structures required for CSI.
-  // What sensing requires today is an 11n protocol ceiling on every selected
-  // band, so VHT-LTF and HE-LTF do not replace the validated HT-LTF path.
+  // Keep HE disabled while permitting VHT on the 5 GHz C5 path.
   const WiFiProtocolPolicyResult protocol_result = set_wifi_protocol_for_csi_(band_policy);
   esp_err_t ret = protocol_result.err;
   if (ret != ESP_OK) {

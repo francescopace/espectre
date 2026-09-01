@@ -159,12 +159,36 @@ def _align_idf_lockfile(micropython_dir: Path, chip: str, idf_version: str) -> N
     raise RuntimeError(f"ESP-IDF dependency entry is missing: {lockfile}")
 
 
-def _configure_project_csi_capture(micropython_dir: Path) -> None:
-    """Match the production Native PHY profile."""
+def _configure_project_csi_capture(micropython_dir: Path, chip: str) -> None:
+    """Match the target's production CSI PHY profile."""
     source_path = micropython_dir / "ports" / "esp32" / "network_wlan_csi.c"
     source = source_path.read_text(encoding="utf-8")
     source = source.replace(".acquire_csi_legacy = 1,", ".acquire_csi_legacy = 0,", 1)
-    source = source.replace(".lltf_en = 1,", ".lltf_en = 0,", 1)
+    c5_profile_block = """#if CONFIG_IDF_TARGET_ESP32C5
+    wifi_ap_record_t ap_info = {0};
+    const bool use_vht20 =
+        esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK && ap_info.primary > 14;
+    config->acquire_csi_ht20 = !use_vht20;
+    config->acquire_csi_vht = use_vht20;
+#endif"""
+    if chip == "c5" and c5_profile_block not in source:
+        c6_profile_block = """#if CONFIG_IDF_TARGET_ESP32C6
+    config->acquire_csi_he_stbc = 0;
+#endif"""
+        if c6_profile_block not in source:
+            raise RuntimeError(
+                f"MicroPython CSI profile builder anchor is missing: {source_path}"
+            )
+        source = source.replace(
+            c6_profile_block, c6_profile_block + "\n\n" + c5_profile_block, 1
+        )
+    classic_esp32 = chip == "esp32"
+    desired_lltf = 1 if classic_esp32 else 0
+    desired_htltf = 0 if classic_esp32 else 1
+    for field, desired in (("lltf", desired_lltf), ("htltf", desired_htltf)):
+        replacement = f".{field}_en = {desired},"
+        source = source.replace(f".{field}_en = 0,", replacement)
+        source = source.replace(f".{field}_en = 1,", replacement)
     source_path.write_text(source, encoding="utf-8")
 
     has_wifi_6_profile = ".acquire_csi_legacy" in source
@@ -173,8 +197,16 @@ def _configure_project_csi_capture(micropython_dir: Path) -> None:
         raise RuntimeError(
             f"MicroPython CSI legacy-capture setting is missing: {source_path}"
         )
+    if (
+        chip == "c5"
+        and c5_profile_block not in source
+    ):
+        raise RuntimeError(
+            f"MicroPython CSI VHT20 capture setting is missing: {source_path}"
+        )
     if has_legacy_profile and (
-        ".lltf_en = 0," not in source or ".htltf_en = 1," not in source
+        f".lltf_en = {desired_lltf}," not in source
+        or f".htltf_en = {desired_htltf}," not in source
     ):
         raise RuntimeError(
             f"MicroPython CSI HT20 LTF profile is missing: {source_path}"
@@ -960,13 +992,24 @@ def _configure_project_wifi_band_mode(micropython_dir: Path) -> None:
     source_path = micropython_dir / "ports" / "esp32" / "network_wlan.c"
     source = source_path.read_text(encoding="utf-8")
     setter = """                    case MP_QSTR_band_mode: {
-                        esp_exceptions(esp_wifi_set_band_mode(mp_obj_get_int(kwargs->table[i].value)));
+                        wifi_band_mode_t band_mode = mp_obj_get_int(kwargs->table[i].value);
+                        esp_exceptions(esp_wifi_set_band_mode(band_mode));
+                        if (band_mode == WIFI_BAND_MODE_AUTO) {
+                            wifi_protocols_t protocols = {
+                                WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N,
+                                WIFI_PROTOCOL_11A | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_11AC,
+                            };
+                            wifi_bandwidths_t bandwidths = {WIFI_BW_HT20, WIFI_BW_HT20};
+                            esp_exceptions(esp_wifi_set_protocols(self->if_id, &protocols));
+                            esp_exceptions(esp_wifi_set_bandwidths(self->if_id, &bandwidths));
+                        }
                         break;
                     }
 """
-    constant = """    { MP_ROM_QSTR(MP_QSTR_BAND_MODE_2G_ONLY), MP_ROM_INT(WIFI_BAND_MODE_2G_ONLY) },
+    band_constants = """    { MP_ROM_QSTR(MP_QSTR_BAND_MODE_2G_ONLY), MP_ROM_INT(WIFI_BAND_MODE_2G_ONLY) },
+    { MP_ROM_QSTR(MP_QSTR_BAND_MODE_AUTO), MP_ROM_INT(WIFI_BAND_MODE_AUTO) },
 """
-    if setter in source and constant in source:
+    if setter in source and band_constants in source:
         return
 
     bandwidth_setter = """                    case MP_QSTR_bandwidth: {
@@ -980,7 +1023,7 @@ def _configure_project_wifi_band_mode(micropython_dir: Path) -> None:
         raise RuntimeError(
             f"MicroPython WLAN band-mode setter anchor is missing: {source_path}"
         )
-    if constant not in source and bandwidth_constant not in source:
+    if band_constants not in source and bandwidth_constant not in source:
         raise RuntimeError(
             f"MicroPython WLAN band-mode constant anchor is missing: {source_path}"
         )
@@ -991,10 +1034,10 @@ def _configure_project_wifi_band_mode(micropython_dir: Path) -> None:
             setter + bandwidth_setter,
             1,
         )
-    if constant not in source:
+    if band_constants not in source:
         source = source.replace(
             bandwidth_constant,
-            constant + bandwidth_constant,
+            band_constants + bandwidth_constant,
             1,
         )
     source_path.write_text(source, encoding="utf-8")
@@ -1011,7 +1054,7 @@ def _configure_project_wifi_channel_pin(micropython_dir: Path) -> None:
     bssid_block_end = """            memcpy(wifi_sta_config.sta.bssid, p, sizeof(wifi_sta_config.sta.bssid));
         }
 """
-    channel_block = """        if (args[ARG_channel].u_int < 0 || args[ARG_channel].u_int > 14) {
+    channel_block = """        if (args[ARG_channel].u_int < 0 || args[ARG_channel].u_int > 255) {
             mp_raise_ValueError(MP_ERROR_TEXT("channel out of range"));
         }
         wifi_sta_config.sta.channel = args[ARG_channel].u_int;
@@ -1212,7 +1255,7 @@ def _build_project_firmware_locked(
         micropython_lib_dir,
     )
     patch_stamp_path = _prepare_micropython_patch_revision(micropython_dir)
-    _configure_project_csi_capture(micropython_dir)
+    _configure_project_csi_capture(micropython_dir, chip)
     _configure_project_csi_rearm(micropython_dir)
     _configure_project_csi_fixed_records(micropython_dir)
     _configure_project_gc_heap_reserve(micropython_dir)

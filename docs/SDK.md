@@ -69,7 +69,9 @@ The frontend layer is a set of reference integrations, not a supported API. Read
 
 ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6, using standard single-antenna Wi-Fi CSI with AGC active and HT20 bandwidth. No extra sensors or radio hardware are required. See [SETUP.md](SETUP.md) for the current per-frontend target matrix.
 
-Set `RuntimeConfig::wifi_band_policy` to choose `BAND_2G`, `BAND_5G`, or `AUTO`. `BAND_2G` is the default and is supported by every target; `BAND_5G` and `AUTO` require dual-band silicon, currently ESP32-C5 among the published targets. The runtime applies that choice and pins an 802.11n protocol ceiling plus HT20 on the selected band or bands. Unsupported policies fail setup instead of falling back silently, and packets outside the HT20 contract are dropped and counted.
+Set `RuntimeConfig::wifi_band_policy` to choose `BAND_2G`, `BAND_5G`, or `AUTO`. Full-runtime builds default to `AUTO` on dual-band silicon, currently ESP32-C5 among the published targets, and to `BAND_2G` everywhere else. A directly constructed `RuntimeConfig` remains target-neutral and defaults to `BAND_2G`; source-list integrations can override it before setup. The runtime applies the selected policy and pins 20 MHz bandwidth on the active band or bands. Unsupported policies fail setup instead of falling back silently, and packets outside the selected capture profile are dropped and counted.
+
+The full runtime selects the read-only CSI capture profile after Wi-Fi association. The original ESP32 uses `lltf20`; a VHT-capable dual-band target uses `vht20` on 5 GHz; and every other association uses `ht20`. The active value is reported as `csi_profile` in the canonical `info` payload and is not a writable setting. LLTF admits legacy OFDM traffic while preserving the canonical centered 64-bin geometry: raw capture marks the unavailable physical tones ±27 and ±28 as zero, records the observed PHY and LLTF metadata, and copies I/Q from the nearest live ±26 tone only in the private detector view.
 
 ## Choosing a detection profile
 
@@ -105,6 +107,8 @@ At the end of a finite stream, call `flush()` and consume the stored payload if 
 
 After each `update_state()`, re-read `get_threshold()`: Lightweight can lower it without a setter call, and the core-only path has no `on_threshold_changed()` hook. The sampler owns admission only; use `runtime/esp_idf/csi_pipeline.cpp` as the reference for CSI normalization, evaluation cadence, and hit filtering before committing to custom wiring.
 
+A core-only integration that captures LLTF owns the same two-view boundary. Normalize the payload into the centered HT20 convention, call `zero_ht20_lltf_missing_bins()` on the raw view, copy that payload into the detector buffer, and call `impute_ht20_lltf_detector_bins()` only on the detector copy.
+
 ### Logging
 
 Both SDK facades expose the portable logging contract in `core/espectre_log.h`. ESPectre does not install a sink or fall back to `stdio`, so integrations that do not need logs have no logger dependency and do not evaluate filtered log arguments. To receive shared logs, register a complete `LogSink` before runtime setup:
@@ -135,6 +139,7 @@ The shipped frontends provide the reference adapters. ESPHome sends messages to 
 | `runtime/runtime_interface.h` | `RuntimeConfig` and the backend contract |
 | `runtime/runtime_events.h` | `IRuntimeListener` and the threading contract |
 | `runtime/runtime_snapshot.h` | `RuntimeSnapshot`: what every callback delivers |
+| `runtime/csi_capture_profile.h` | Read-only CSI capture profile names and automatic-selection policy |
 | `runtime/runtime_capabilities.h` | Which controls the active runtime honors |
 | `runtime/runtime_sensing_schema.h` | Defaults and valid ranges for every tunable |
 | `runtime/runtime_config_utils.h` | Validators and name/enum conversion |
@@ -213,7 +218,7 @@ The shipped ESP-IDF runtime always collects these counters and bounded performan
 
 ### Versioning
 
-`ESPECTRE_SDK_VERSION_STRING` identifies the SDK sources you compiled against. Use `ESPECTRE_SDK_VERSION_AT_LEAST(major, minor, patch)` to guard code that needs a given release.
+`ESPECTRE_SDK_VERSION_STRING` identifies the SDK sources you compiled against. Use the component-wise `ESPECTRE_SDK_VERSION_AT_LEAST(major, minor, patch)` to guard code that needs a given release. `ESPECTRE_SDK_VERSION_NUMBER` retains the historical `MMmmpp` packing for compatibility and compact telemetry, but it is not an ordering contract because Semantic Versioning components are not limited to two digits.
 
 ESPectre uses Semantic Versioning for the published C++ source API:
 

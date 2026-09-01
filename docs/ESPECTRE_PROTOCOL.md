@@ -299,6 +299,7 @@ espectre/v1/devices/{device_id}/info
   "frontend": "native",
   "firmware_version": "1.2.3",
   "chip": "esp32c6",
+  "csi_profile": "ht20",
   "network": {
     "channel": {
       "primary": 6
@@ -314,7 +315,7 @@ espectre/v1/devices/{device_id}/info
 }
 ```
 
-`info` contains identity, firmware, chip, frontend, timing, and non-sensitive descriptive data. Capability booleans are not duplicated here; clients consume the `capabilities` schema. Native publishes `info` retained over MQTT on connect and after an accepted label change so late subscribers, including `./espectre mqtt` discovery, see the current frontend identity. Direct clients request the current value explicitly. `network` and `detection` are optional. Canonical MQTT `info` reports the active Wi-Fi channel when available, but does not serialize the local IP address or station MAC. `csi_traffic_mode`, `traffic_mode`, and `csi_target_pps` are included when the frontend owns CSI traffic configuration; omit them when those values are unset. `evaluation_interval_ms` is the detector and sensing-telemetry cadence; omit it when unset. Nearby setup and local logs may still expose configuration or link details, including SSID, BSSID, local IP, station MAC, broker host, or broker username. Managed services should not collect those values by default.
+`info` contains identity, firmware, chip, frontend, timing, and non-sensitive descriptive data. Capability booleans are not duplicated here; clients consume the `capabilities` schema. Native publishes `info` retained over MQTT on connect and after an accepted label change so late subscribers, including `./espectre mqtt` discovery, see the current frontend identity. Direct clients request the current value explicitly. `csi_profile` is the runtime-selected, read-only capture profile: `lltf20`, `ht20`, or `vht20`. It is descriptive and has no matching write action. `network` and `detection` are optional. Canonical MQTT `info` reports the active Wi-Fi channel when available, but does not serialize the local IP address or station MAC. `csi_traffic_mode`, `traffic_mode`, and `csi_target_pps` are included when the frontend owns CSI traffic configuration; omit them when those values are unset. `evaluation_interval_ms` is the detector and sensing-telemetry cadence; omit it when unset. Nearby setup and local logs may still expose configuration or link details, including SSID, BSSID, local IP, station MAC, broker host, or broker username. Managed services should not collect those values by default.
 
 ### Config
 

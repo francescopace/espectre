@@ -4,7 +4,7 @@
 
 import sys
 import time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 
@@ -80,6 +80,7 @@ def mock_wlan():
     wlan = MagicMock()
     wlan.active.return_value = True
     wlan.BAND_MODE_2G_ONLY = 1
+    wlan.BAND_MODE_AUTO = 3
     wlan.BANDWIDTH_20 = 20
     wlan.isconnected.return_value = True
     wlan.ifconfig.return_value = (
@@ -96,6 +97,14 @@ def mock_wlan():
 @pytest.fixture
 def traffic_gen():
     return TrafficGenerator()
+
+
+def test_station_radio_prefers_auto_band_on_dual_band_firmware(mock_wlan):
+    mock_wlan.BAND_MODE_AUTO = 3
+
+    wifi_bootstrap._configure_station_radio(mock_wlan)
+
+    assert call(band_mode=3) in mock_wlan.config.call_args_list
 
 
 def test_recover_wifi_rebuilds_csi_without_reconnecting_live_station(
@@ -138,7 +147,7 @@ def test_recover_wifi_reconnects_disconnected_station_to_pinned_bssid(monkeypatc
         raising=False,
     )
     monkeypatch.setattr(wifi_bootstrap.config, "CSI_BUFFER_SIZE", 32)
-    monkeypatch.setattr(wifi_bootstrap.config, "WIFI_CHANNEL", 10)
+    monkeypatch.setattr(wifi_bootstrap.config, "WIFI_CHANNEL", 36)
     mock_wlan.PM_NONE = 0
     mock_wlan.isconnected.side_effect = [False, False, True, True]
 
@@ -148,7 +157,7 @@ def test_recover_wifi_reconnects_disconnected_station_to_pinned_bssid(monkeypatc
         "lab-network",
         "secret",
         bssid=bytes.fromhex("E6FAC42019DE"),
-        channel=10,
+        channel=36,
     )
     assert mock_wlan.config.call_args_list[-1].kwargs == {"pm": mock_wlan.PM_NONE}
     mock_wlan.csi_disable.assert_called_once_with()

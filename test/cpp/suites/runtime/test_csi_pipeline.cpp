@@ -441,7 +441,7 @@ void test_csi_pipeline_filters_non_ht20_phy(void) {
     wifi_csi_info_t csi_info = {};
     fill_valid_csi_info_(&csi_info, csi_buf);
 
-    csi_info.rx_ctrl.sig_mode = 0;  // legacy OFDM
+    csi_info.rx_ctrl.sig_mode = 3;  // unsupported VHT PHY
     manager.process_packet(&csi_info);
     TEST_ASSERT_EQUAL(0, detector.get_total_packets());
     TEST_ASSERT_EQUAL(0U, manager.accepted_packets_total());
@@ -703,8 +703,8 @@ bool interceptor_probe_callback_(void *context, const int8_t *csi_data, size_t c
     (void) temporal_reset;
     auto *probe = static_cast<InterceptorProbe *>(context);
     probe->calls++;
-    if (csi_data != nullptr && csi_len > 10U) {
-        probe->selected_values.push_back(csi_data[10]);
+    if (csi_data != nullptr && csi_len > 16U) {
+        probe->selected_values.push_back(csi_data[16]);
     }
     if (evaluation_due) {
         probe->evaluations_due++;
@@ -734,7 +734,7 @@ void test_csi_pipeline_retains_the_closest_payload_for_each_slot(void) {
     const int8_t values[] = {1, 2, 3, 4};
     for (size_t index = 0U; index < 4U; ++index) {
         csi_info.rx_ctrl.timestamp = timestamps[index];
-        csi_buf[10] = values[index];
+        csi_buf[16] = values[index];
         manager.process_packet(&csi_info);
     }
     manager.flush_pending_candidate();
@@ -1144,6 +1144,9 @@ struct RawCaptureProbe {
     uint32_t packets{0U};
     uint16_t last_length{0U};
     int8_t first_byte{0};
+    RawCsiPhyMode phy_mode{RawCsiPhyMode::UNKNOWN};
+    RawCsiLtfType ltf_type{RawCsiLtfType::UNKNOWN};
+    bool missing_lltf_bins_zero{false};
 };
 
 bool raw_capture_probe_(void *context, const RawCsiPacketView &packet) {
@@ -1152,7 +1155,39 @@ bool raw_capture_probe_(void *context, const RawCsiPacketView &packet) {
     probe->packets += 1U;
     probe->last_length = packet.csi_len;
     probe->first_byte = packet.csi[0];
+    probe->phy_mode = packet.phy_mode;
+    probe->ltf_type = packet.ltf_type;
+    probe->missing_lltf_bins_zero = packet.csi_len == HT20_CSI_LEN;
+    for (uint8_t bin : HT20_LLTF_MISSING_BINS) {
+        const size_t byte_index = static_cast<size_t>(bin) * 2U;
+        probe->missing_lltf_bins_zero &=
+            packet.csi[byte_index] == 0 && packet.csi[byte_index + 1U] == 0;
+    }
     return true;
+}
+
+struct DetectorViewProbe {
+  uint32_t packets{0U};
+  bool nearest_edge_tones_copied{false};
+};
+
+bool detector_view_probe_(void *context, const int8_t *csi, size_t csi_len,
+                          int8_t, bool, uint32_t, bool) {
+  auto *probe = static_cast<DetectorViewProbe *>(context);
+  if (probe == nullptr || csi == nullptr || csi_len != HT20_CSI_LEN) return false;
+  probe->packets += 1U;
+  probe->nearest_edge_tones_copied = true;
+  for (uint8_t bin : {4U, 5U}) {
+    const size_t byte_index = static_cast<size_t>(bin) * 2U;
+    probe->nearest_edge_tones_copied &=
+        csi[byte_index] == 21 && csi[byte_index + 1U] == -22;
+  }
+  for (uint8_t bin : {59U, 60U}) {
+    const size_t byte_index = static_cast<size_t>(bin) * 2U;
+    probe->nearest_edge_tones_copied &=
+        csi[byte_index] == 31 && csi[byte_index + 1U] == -32;
+  }
+  return false;
 }
 
 }  // namespace
@@ -1163,11 +1198,23 @@ void test_csi_pipeline_raw_branch_runs_before_sampler_and_resets_cleanly(void) {
     manager.init(&detector, &g_wifi_mock);
     RawCaptureProbe probe;
     TEST_ASSERT_TRUE(manager.start_raw_capture(&raw_capture_probe_, &probe));
-    TEST_ASSERT_EQUAL(ESP_OK, manager.enable(nullptr));
+    TEST_ASSERT_EQUAL(ESP_OK,
+                      manager.enable(nullptr, CsiCaptureProfile::LLTF20));
 
-    int8_t csi_buf[128] = {0};
+    std::array<int8_t, HT20_CSI_LEN> csi_buf{};
     wifi_csi_info_t csi_info = {};
-    fill_valid_csi_info_(&csi_info, csi_buf);
+    fill_valid_csi_info_(&csi_info, csi_buf.data());
+    csi_buf.fill(7);
+    for (uint8_t bin : HT20_CENTERED_ONLY_NULL_BINS) {
+        const size_t byte_index = static_cast<size_t>(bin) * 2U;
+        csi_buf[byte_index] = 0;
+        csi_buf[byte_index + 1U] = 0;
+    }
+    csi_buf[12] = 21;
+    csi_buf[13] = -22;
+    csi_buf[116] = 31;
+    csi_buf[117] = -32;
+    csi_info.rx_ctrl.sig_mode = 0U;
     for (uint32_t packet = 0U; packet < 3U; ++packet) {
         csi_info.rx_ctrl.timestamp = 100000U + packet * 10000U;
         g_wifi_mock.trigger_callback(&csi_info);
@@ -1178,15 +1225,22 @@ void test_csi_pipeline_raw_branch_runs_before_sampler_and_resets_cleanly(void) {
     TEST_ASSERT_EQUAL(3U, probe.packets);
     TEST_ASSERT_EQUAL(128U, probe.last_length);
     TEST_ASSERT_EQUAL(csi_buf[0], probe.first_byte);
+    TEST_ASSERT_TRUE(probe.phy_mode == RawCsiPhyMode::LEGACY);
+    TEST_ASSERT_TRUE(probe.ltf_type == RawCsiLtfType::LLTF);
+    TEST_ASSERT_TRUE(probe.missing_lltf_bins_zero);
     TEST_ASSERT_EQUAL(0U, detector.get_total_packets());
     TEST_ASSERT_EQUAL(0U, manager.detector_admitted_packets_total());
 
     manager.stop_raw_capture();
     TEST_ASSERT_FALSE(manager.raw_capture_active());
+    DetectorViewProbe detector_probe;
+    manager.set_packet_interceptor(&detector_view_probe_, &detector_probe);
     csi_info.rx_ctrl.timestamp = 200000U;
     g_wifi_mock.trigger_callback(&csi_info);
     manager.loop();
     manager.flush_pending_candidate();
+    TEST_ASSERT_EQUAL(1U, detector_probe.packets);
+    TEST_ASSERT_TRUE(detector_probe.nearest_edge_tones_copied);
     TEST_ASSERT_EQUAL(1U, detector.get_total_packets());
 }
 

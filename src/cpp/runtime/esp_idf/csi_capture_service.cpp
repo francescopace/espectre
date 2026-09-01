@@ -10,6 +10,7 @@
  */
 #include "csi_capture_service.h"
 
+#include <algorithm>
 #include <cinttypes>
 
 #include "csi_format.h"
@@ -91,14 +92,16 @@ void CsiCaptureService::loop() {
   }
 }
 
-esp_err_t CsiCaptureService::enable() {
+esp_err_t CsiCaptureService::enable(CsiCaptureProfile profile) {
   if (enabled_) {
     ESPECTRE_LOGW(TAG, "CSI already enabled");
     return ESP_OK;
   }
 
+  capture_profile_ = profile;
   const uint32_t attempt = enable_attempts_.fetch_add(1U, std::memory_order_relaxed) + 1U;
-  ESPECTRE_LOGI(TAG, "Arming CSI attempt=%" PRIu32, attempt);
+  ESPECTRE_LOGI(TAG, "Arming CSI attempt=%" PRIu32 " profile=%s", attempt,
+               csi_capture_profile_name(capture_profile_));
   reset_channel_tracking_();
   rx_timestamp_tracker_.reset();
 
@@ -228,12 +231,12 @@ void CsiCaptureService::record_format_drop_(CsiFormatReasonCode reason_code) {
 void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
   if (data == nullptr || data->buf == nullptr || data->len == 0U) {
     null_or_empty_packets_.fetch_add(1U, std::memory_order_relaxed);
-    last_assessment_ = assess_ht20_sensing_format(data);
+    last_assessment_ = assess_ht20_sensing_format(data, capture_profile_);
     record_format_drop_(last_assessment_.reason_code);
     return;
   }
 
-  CsiFormatAssessment assessment = assess_ht20_sensing_format(data);
+  CsiFormatAssessment assessment = assess_ht20_sensing_format(data, capture_profile_);
   if (!assessment.is_sensing_accepted()) {
     last_assessment_ = assessment;
     record_format_drop_(assessment.reason_code);
@@ -272,6 +275,13 @@ void CsiCaptureService::process_packet(wifi_csi_info_t *data) {
       rotate_ht20_classic_to_centered(normalized.data, rotation_scratch_.data());
       normalized.data = rotation_scratch_.data();
       normalized.rotated_to_centered = true;
+    }
+
+    // Preserve the 64-bin raw contract after layout detection.
+    if (csi_capture_profile_uses_lltf(capture_profile_)) {
+      std::copy_n(normalized.data, normalized.len, lltf_scratch_.data());
+      (void) zero_ht20_lltf_missing_bins(lltf_scratch_.data(), normalized.len);
+      normalized.data = lltf_scratch_.data();
     }
   }
 
@@ -348,7 +358,7 @@ esp_err_t CsiCaptureService::configure_platform_specific_() {
 #else
   ESPECTRE_LOGI(TAG, "Using host CSI configuration");
 #endif
-  return configure_ht20_csi(wifi_csi_);
+  return configure_csi(wifi_csi_, capture_profile_);
 }
 
 }  // namespace espectre

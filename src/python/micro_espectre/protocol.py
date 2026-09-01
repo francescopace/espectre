@@ -263,6 +263,12 @@ def build_info_payload(
     if device_id is None:
         device_id = derive_runtime_device_id(wlan)
 
+    try:
+        from src.device_utils import select_csi_capture_profile
+    except ImportError:
+        from device_utils import select_csi_capture_profile
+    csi_profile = select_csi_capture_profile(chip, channel_primary)
+
     return {
         "protocol_version": PROTOCOL_VERSION,
         "device_id": device_id,
@@ -271,6 +277,7 @@ def build_info_payload(
         "frontend": "micro",
         "firmware_version": firmware_version or "unknown",
         "chip": chip,
+        "csi_profile": csi_profile,
         "network": {
             "channel": {"primary": channel_primary},
         },

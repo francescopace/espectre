@@ -11,6 +11,7 @@
 
 #include <cstdint>
 
+#include "csi_capture_profile.h"
 #include "csi_types.h"
 #include "detector_types.h"
 #include "runtime_sensing_schema.h"
@@ -134,6 +135,8 @@ struct RuntimeSnapshot {
   int8_t link_rssi_dbm{INT8_MIN};
   /** Wi-Fi channel those packets arrived on. Zero when unknown. */
   uint8_t link_channel{0};
+  /** Automatically selected CSI training-field and 20 MHz PHY profile. */
+  CsiCaptureProfile csi_capture_profile{CsiCaptureProfile::HT20};
   /** Startup calibration is running; detection results are not valid yet. */
   bool calibrating{false};
   /**

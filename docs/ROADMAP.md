@@ -163,8 +163,8 @@ Research answers product questions; it does not reserve release scope. Work is s
 
 | Order | Track | Product question | Promotion gate |
 | --- | --- | --- | --- |
-| R1 | **5 GHz HT20** | Can ESP32-C5 deployments make a validated 5 GHz sensing claim? | Paired dual-band captures on the same hardware and environments validate both detectors |
-| R2 | **VHT20** | Can the nearest PHY extension reuse the production sensing contract safely? | Proven capture provenance, safe normalization, representative detector results, and C++/Python parity after the 5 GHz HT20 baseline |
+| R1 | **5 GHz VHT20** | Can ESP32-C5 deployments make a validated 5 GHz sensing claim? | Paired dual-band captures on the same hardware and environments validate both detectors |
+| R2 | **Automatic dual-band operation** | Does automatic band selection remain stable across reconnects and AP steering? | Profile selection, CSI rearm, and detector reset behavior pass extended dual-band soak tests |
 | R3 | **Stationary presence** | Can ESPectre distinguish an occupied quiet room from an empty room? | Paired same-session data supports a scale-invariant Presence-versus-Empty boundary for `v3.4.0` |
 | R4 | **Brief gestures** | Does preserved high-rate information support a distinct gesture product? | The high-rate capture path is stable, and a gesture-specific corpus passes validation for `v3.5.0` |
 | R5 | **Breathing-related motion** | Are longer-window spectral features useful for non-medical micro-motion? | Stationary presence is measurable, paired recordings support longer windows, and host-side evidence justifies runtime work for `v3.5.0` |

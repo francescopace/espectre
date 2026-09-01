@@ -73,7 +73,7 @@ Frontend-owned defaults in [`Kconfig.projbuild`](espectre/Kconfig.projbuild) are
 | `ESPECTRE_CSI_REARM_IMMEDIATE_REBOOT` | Skip the three-second CSI rearm watchdog and reboot immediately |
 | `ESPECTRE_RECOVERY_BUTTON_*` | Physical recovery GPIO and hold policy |
 
-ESP32-C5 can use `5g` or `auto`; the other supported Native targets use `2g`. Sensing remains HT20.
+ESP32-C5 defaults to `auto` and can be pinned to `2g` or `5g`; the other supported Native targets use `2g`. The runtime selects `vht20` after a 5 GHz C5 association and `ht20` otherwise.
 
 ## Optional MQTT and Home Assistant
 

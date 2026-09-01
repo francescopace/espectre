@@ -1,7 +1,7 @@
 /*
  * ESPectre - CSI Platform Configuration Helpers
  *
- * Builds ESP-IDF CSI capture settings for the HT20 sensing pipeline.
+ * Builds ESP-IDF CSI capture settings for the selected sensing profile.
  *
  * Author: Francesco Pace <francesco.pace@gmail.com>
  * SPDX-License-Identifier: GPL-3.0-only
@@ -13,15 +13,16 @@
 
 namespace espectre {
 
-wifi_csi_config_t build_ht20_csi_config() {
+wifi_csi_config_t build_csi_config(CsiCaptureProfile profile) {
 #if CONFIG_IDF_TARGET_ESP32C5
+  const bool use_vht = profile == CsiCaptureProfile::VHT20;
   return wifi_csi_config_t{
       .enable = 1,
       .acquire_csi_legacy = 0,
       .acquire_csi_force_lltf = 0,
-      .acquire_csi_ht20 = 1,
+      .acquire_csi_ht20 = !use_vht,
       .acquire_csi_ht40 = 0,
-      .acquire_csi_vht = 0,
+      .acquire_csi_vht = use_vht,
       .acquire_csi_su = 0,
       .acquire_csi_mu = 0,
       .acquire_csi_dcm = 0,
@@ -33,6 +34,7 @@ wifi_csi_config_t build_ht20_csi_config() {
       .reserved = 0,
   };
 #elif CONFIG_IDF_TARGET_ESP32C6
+  (void) profile;
   return wifi_csi_config_t{
       .enable = 1,
       .acquire_csi_legacy = 0,
@@ -48,9 +50,10 @@ wifi_csi_config_t build_ht20_csi_config() {
       .reserved = 0,
   };
 #else
+  const bool use_lltf = csi_capture_profile_uses_lltf(profile);
   return wifi_csi_config_t{
-      .lltf_en = false,
-      .htltf_en = true,
+      .lltf_en = use_lltf,
+      .htltf_en = !use_lltf,
       .stbc_htltf2_en = false,
       .ltf_merge_en = false,
       .channel_filter_en = false,
@@ -61,12 +64,12 @@ wifi_csi_config_t build_ht20_csi_config() {
 #endif
 }
 
-esp_err_t configure_ht20_csi(IWiFiCSI *wifi_csi) {
+esp_err_t configure_csi(IWiFiCSI *wifi_csi, CsiCaptureProfile profile) {
   if (wifi_csi == nullptr) {
     return ESP_ERR_INVALID_ARG;
   }
 
-  const wifi_csi_config_t csi_config = build_ht20_csi_config();
+  const wifi_csi_config_t csi_config = build_csi_config(profile);
   return wifi_csi->set_csi_config(&csi_config);
 }
 

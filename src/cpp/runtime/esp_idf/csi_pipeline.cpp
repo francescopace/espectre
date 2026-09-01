@@ -406,9 +406,17 @@ void CsiPipeline::capture_packet_callback_(void *context,
     packet.channel = data->rx_ctrl.channel;
     packet.rssi_dbm = data->rx_ctrl.rssi;
     packet.noise_floor_dbm = static_cast<int8_t>(data->rx_ctrl.noise_floor);
-    // CsiCaptureService admits only the production HT20 format.
-    packet.phy_mode = RawCsiPhyMode::HT;
-    packet.ltf_type = RawCsiLtfType::HT_LTF;
+    const CsiCaptureProfile profile = pipeline->capture_profile();
+    packet.phy_mode = profile == CsiCaptureProfile::VHT20
+                          ? RawCsiPhyMode::VHT
+                          : (csi_info_is_legacy_lltf(data, profile)
+                                 ? RawCsiPhyMode::LEGACY
+                                 : RawCsiPhyMode::HT);
+    packet.ltf_type = profile == CsiCaptureProfile::VHT20
+                          ? RawCsiLtfType::VHT_LTF
+                          : (csi_capture_profile_uses_lltf(profile)
+                                 ? RawCsiLtfType::LLTF
+                                 : RawCsiLtfType::HT_LTF);
     packet.channel_width = RawCsiChannelWidth::MHZ_20;
     (void) raw_callback(
         pipeline->raw_packet_context_.load(std::memory_order_acquire), packet);
@@ -422,6 +430,9 @@ void CsiPipeline::capture_packet_callback_(void *context,
   frame.len = static_cast<uint16_t>(normalized.len);
   frame.reset_detector_before_consume = normalized.reset_detector_before_consume;
   std::copy_n(normalized.data, normalized.len, frame.csi.begin());
+  if (csi_capture_profile_uses_lltf(pipeline->capture_profile())) {
+    (void) impute_ht20_lltf_detector_bins(frame.csi.data(), frame.len);
+  }
   if (!pipeline->pending_frames_.post(frame)) {
     pipeline->pending_frame_drops_.fetch_add(1U, std::memory_order_relaxed);
   }
@@ -436,7 +447,8 @@ void CsiPipeline::capture_channel_change_callback_(void *context,
   }
 }
 
-esp_err_t CsiPipeline::enable(csi_processed_callback_t packet_callback) {
+esp_err_t CsiPipeline::enable(csi_processed_callback_t packet_callback,
+                              CsiCaptureProfile profile) {
   if (enabled_) {
     return ESP_OK;
   }
@@ -444,7 +456,7 @@ esp_err_t CsiPipeline::enable(csi_processed_callback_t packet_callback) {
   packet_callback_ = packet_callback;
   capture_service_.set_packet_callback(&CsiPipeline::capture_packet_callback_, this);
 
-  esp_err_t err = capture_service_.enable();
+  esp_err_t err = capture_service_.enable(profile);
   if (err == ESP_OK) {
     enabled_ = true;
     last_heartbeat_ms_ = 0U;

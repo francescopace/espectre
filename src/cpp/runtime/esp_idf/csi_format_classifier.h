@@ -14,6 +14,7 @@
 #include <cstdint>
 
 #include "csi_format.h"
+#include "csi_capture_profile.h"
 #include "csi_payload_normalizer.h"
 #include "csi_phy_filter.h"
 #include "esp_wifi.h"
@@ -23,6 +24,7 @@ namespace espectre {
 enum class CsiFormatId : uint8_t {
   UNKNOWN = 0,
   HT20 = 1,
+  VHT20 = 2,
 };
 
 enum class CsiLayoutId : uint8_t {
@@ -103,7 +105,21 @@ inline const char *csi_format_reason_code_to_string(CsiFormatReasonCode code) {
   }
 }
 
-inline CsiFormatAssessment assess_ht20_sensing_format(const wifi_csi_info_t *info) {
+inline bool csi_info_is_legacy_lltf(const wifi_csi_info_t *info,
+                                    CsiCaptureProfile profile) {
+#if CONFIG_IDF_TARGET_ESP32
+  return info != nullptr && csi_capture_profile_uses_lltf(profile) &&
+         info->rx_ctrl.sig_mode == 0U && info->rx_ctrl.cwb == 0U;
+#else
+  (void)info;
+  (void)profile;
+  return false;
+#endif
+}
+
+inline CsiFormatAssessment assess_ht20_sensing_format(
+    const wifi_csi_info_t *info,
+    CsiCaptureProfile profile = CsiCaptureProfile::HT20) {
   CsiFormatAssessment assessment{};
   if (info == nullptr || info->buf == nullptr || info->len == 0U) {
     assessment.reason_code = CsiFormatReasonCode::NULL_OR_EMPTY;
@@ -118,23 +134,42 @@ inline CsiFormatAssessment assess_ht20_sensing_format(const wifi_csi_info_t *inf
   }
   assessment.raw_num_subcarriers = static_cast<uint16_t>(assessment.raw_len / 2U);
 
-  if (!csi_info_is_ht20_sensing(info)) {
-    const bool is_ht_phy =
+  const bool is_ht20 = profile != CsiCaptureProfile::VHT20 &&
+                       csi_info_is_ht20_sensing(info);
+  const bool is_vht20 = profile == CsiCaptureProfile::VHT20 &&
+                        csi_info_is_vht20_sensing(info);
+  const bool is_classic_legacy_lltf = csi_info_is_legacy_lltf(info, profile);
+  if (!is_ht20 && !is_vht20 && !is_classic_legacy_lltf) {
+    const bool is_selected_phy =
 #if CONFIG_SOC_WIFI_HE_SUPPORT
-        info->rx_ctrl.cur_bb_format == RX_BB_FORMAT_HT;
+        (profile == CsiCaptureProfile::VHT20 &&
+         info->rx_ctrl.cur_bb_format == RX_BB_FORMAT_VHT) ||
+        (profile == CsiCaptureProfile::HT20 &&
+         info->rx_ctrl.cur_bb_format == RX_BB_FORMAT_HT);
 #else
-        info->rx_ctrl.sig_mode == 1U;
+        (profile == CsiCaptureProfile::HT20 && info->rx_ctrl.sig_mode == 1U) ||
+        (profile == CsiCaptureProfile::LLTF20 &&
+         (info->rx_ctrl.sig_mode == 0U || info->rx_ctrl.sig_mode == 1U));
 #endif
     assessment.reason_code =
-        is_ht_phy ? CsiFormatReasonCode::UNSUPPORTED_WIDTH : CsiFormatReasonCode::UNSUPPORTED_PHY;
+        is_selected_phy ? CsiFormatReasonCode::UNSUPPORTED_WIDTH
+                        : CsiFormatReasonCode::UNSUPPORTED_PHY;
     return assessment;
   }
 
-  assessment.format_id = CsiFormatId::HT20;
+  assessment.format_id = is_vht20 ? CsiFormatId::VHT20 : CsiFormatId::HT20;
   assessment.disposition = CsiFormatDisposition::SENSE;
   assessment.reason_code = CsiFormatReasonCode::NONE;
   assessment.normalized_len = HT20_CSI_LEN;
   assessment.normalized_num_subcarriers = HT20_NUM_SUBCARRIERS;
+
+  if (is_classic_legacy_lltf && assessment.raw_len != HT20_CSI_LEN) {
+    assessment.disposition = CsiFormatDisposition::DROP;
+    assessment.reason_code = CsiFormatReasonCode::UNKNOWN_LAYOUT;
+    assessment.normalized_len = 0U;
+    assessment.normalized_num_subcarriers = 0U;
+    return assessment;
+  }
 
   switch (assessment.raw_len) {
     case HT20_CSI_LEN:

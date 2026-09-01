@@ -152,7 +152,8 @@ class CsiPipeline {
    * @param packet_callback Callback to invoke at the configured time interval
    * @return ESP_OK on success
    */
-  esp_err_t enable(csi_processed_callback_t packet_callback = nullptr);
+  esp_err_t enable(csi_processed_callback_t packet_callback = nullptr,
+                   CsiCaptureProfile profile = CsiCaptureProfile::HT20);
   
   /**
    * Disable CSI hardware
@@ -160,6 +161,10 @@ class CsiPipeline {
    * @return ESP_OK on success
    */
   esp_err_t disable();
+
+  CsiCaptureProfile capture_profile() const {
+    return capture_service_.capture_profile();
+  }
 
   /** Drain diagnostics and frontend notifications from the runtime loop. */
   void loop();

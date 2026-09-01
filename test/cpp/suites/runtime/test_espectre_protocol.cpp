@@ -212,6 +212,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   info.firmware_version = "2026.7";
   info.chip = "esp32c6";
   info.detector = "lightweight";
+  info.csi_profile = "ht20";
   info.supports_diagnostics = true;
   info.supports_device_config = true;
   info.supports_runtime_threshold = true;
@@ -236,6 +237,7 @@ void test_info_payload_uses_defaults_and_optional_sections(void) {
   TEST_ASSERT_TRUE(payload.find("\"frontend\":\"matter\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"firmware_version\":\"2026.7\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"chip\":\"esp32c6\"") != std::string::npos);
+  TEST_ASSERT_TRUE(payload.find("\"csi_profile\":\"ht20\"") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"supports_") == std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"network\":{") != std::string::npos);
   TEST_ASSERT_TRUE(payload.find("\"ip_address\"") == std::string::npos);
@@ -310,6 +312,18 @@ void test_info_payload_omits_optional_sections_when_empty(void) {
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"capabilities\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"info\"") != std::string::npos);
   TEST_ASSERT_TRUE(catalog.find("\"name\":\"diagnostics\"") == std::string::npos);
+}
+
+void test_info_normalization_reports_runtime_channel_and_csi_profile(void) {
+  RuntimeSnapshot snapshot;
+  snapshot.link_channel = 36U;
+  snapshot.csi_capture_profile = CsiCaptureProfile::VHT20;
+
+  const EspectreDeviceInfo info = normalize_protocol_device_info(
+      EspectreDeviceInfo{}, &snapshot, false, "native", "esp32c5");
+
+  TEST_ASSERT_EQUAL(36U, info.network.channel);
+  TEST_ASSERT_EQUAL_STRING("vht20", info.csi_profile.c_str());
 }
 
 void test_command_result_payload_includes_acceptance_and_message(void) {
@@ -828,6 +842,7 @@ int process(void) {
   RUN_TEST(test_diagnostics_payload_includes_enabled_runtime_sample);
   RUN_TEST(test_info_payload_uses_defaults_and_optional_sections);
   RUN_TEST(test_info_payload_omits_optional_sections_when_empty);
+  RUN_TEST(test_info_normalization_reports_runtime_channel_and_csi_profile);
   RUN_TEST(test_command_result_payload_includes_acceptance_and_message);
   RUN_TEST(test_parse_espectre_command_parses_info_and_threshold_commands);
   RUN_TEST(test_parse_espectre_command_rejects_missing_command_and_invalid_threshold);

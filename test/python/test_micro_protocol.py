@@ -297,6 +297,7 @@ def test_direct_facade_starts_and_publishes_canonical_telemetry(monkeypatch):
     assert info["device_label"] == ""
     assert info["firmware_version"] == "2.8.0-356-gfa155f8"
     assert info["chip"] == "esp32c3"
+    assert info["csi_profile"] == "ht20"
     assert info["csi_traffic_mode"] == "internal"
     assert info["traffic_mode"] == "dns"
     assert facade._config()["wifi"]["band"] == "2g"

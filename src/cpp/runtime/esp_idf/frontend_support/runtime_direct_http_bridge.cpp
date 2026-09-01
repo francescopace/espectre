@@ -605,6 +605,9 @@ std::string RuntimeDirectHttpBridge::info_payload_() const {
   info.firmware_version = config_.firmware_version;
   info.chip = config_.chip;
   info.evaluation_interval_ms = runtime_->config().evaluation_interval_ms;
+  info = normalize_protocol_device_info(info, &runtime_->snapshot(), false,
+                                        config_.frontend.c_str(),
+                                        config_.chip.c_str());
   return espectre_info_payload(device, info);
 }
 

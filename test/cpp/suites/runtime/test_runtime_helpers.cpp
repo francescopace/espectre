@@ -38,9 +38,12 @@ void dummy_csi_callback(void *, wifi_csi_info_t *) {}
 struct CapturedCsiPacket {
   uint32_t callback_count{0U};
   int8_t first_value{0};
+  int8_t retained_value{0};
   uint16_t info_len{0U};
   size_t normalized_len{0U};
   bool first_word_invalid{true};
+  bool missing_lltf_bins_zero{false};
+  bool rotated_to_centered{false};
 };
 
 struct CapturedChannelChange {
@@ -87,9 +90,19 @@ void capture_csi_packet(void *context, const wifi_csi_info_t *info, const Normal
   auto *captured = static_cast<CapturedCsiPacket *>(context);
   captured->callback_count++;
   captured->first_value = normalized.valid() ? normalized.data[0] : 0;
+  captured->retained_value = normalized.valid() ? normalized.data[16] : 0;
   captured->info_len = info != nullptr ? info->len : 0U;
   captured->normalized_len = normalized.len;
   captured->first_word_invalid = info == nullptr || info->first_word_invalid;
+  captured->missing_lltf_bins_zero = normalized.valid();
+  if (normalized.valid()) {
+    for (uint8_t bin : HT20_LLTF_MISSING_BINS) {
+      const size_t byte_index = static_cast<size_t>(bin) * 2U;
+      captured->missing_lltf_bins_zero &=
+          normalized.data[byte_index] == 0 && normalized.data[byte_index + 1U] == 0;
+    }
+  }
+  captured->rotated_to_centered = normalized.rotated_to_centered;
 }
 
 void capture_channel_change(void *context, uint8_t previous_channel, uint8_t current_channel) {
@@ -111,12 +124,39 @@ void test_wifi_csi_real_forwards_calls_to_mocked_esp_wifi(void) {
     TEST_ASSERT_EQUAL(ESP_OK, wifi.set_csi(false));
 }
 
-void test_original_esp32_csi_config_captures_ht_ltf_only(void) {
-    const wifi_csi_config_t config = build_ht20_csi_config();
+void test_original_esp32_csi_config_captures_legacy_ltf_only(void) {
+    TEST_ASSERT_TRUE(resolve_csi_capture_profile(true, true, 36U) ==
+                     CsiCaptureProfile::LLTF20);
+    TEST_ASSERT_TRUE(resolve_csi_capture_profile(false, true, 6U) ==
+                     CsiCaptureProfile::HT20);
+    TEST_ASSERT_TRUE(resolve_csi_capture_profile(false, true, 36U) ==
+                     CsiCaptureProfile::VHT20);
+    TEST_ASSERT_TRUE(resolve_csi_capture_profile(false, false, 36U) ==
+                     CsiCaptureProfile::HT20);
 
-    TEST_ASSERT_FALSE(config.lltf_en);
-    TEST_ASSERT_TRUE(config.htltf_en);
+    const wifi_csi_config_t config =
+        build_csi_config(CsiCaptureProfile::LLTF20);
+
+    TEST_ASSERT_TRUE(config.lltf_en);
+    TEST_ASSERT_FALSE(config.htltf_en);
     TEST_ASSERT_FALSE(config.stbc_htltf2_en);
+}
+
+void test_lltf20_profile_accepts_legacy_and_ht20_frames(void) {
+    std::array<int8_t, HT20_CSI_LEN> csi{};
+    wifi_csi_info_t info{};
+    info.buf = csi.data();
+    info.len = HT20_CSI_LEN;
+    info.rx_ctrl.cwb = 0U;
+
+    info.rx_ctrl.sig_mode = 0U;
+    TEST_ASSERT_TRUE(assess_ht20_sensing_format(
+                         &info, CsiCaptureProfile::LLTF20)
+                         .is_sensing_accepted());
+    info.rx_ctrl.sig_mode = 1U;
+    TEST_ASSERT_TRUE(assess_ht20_sensing_format(
+                         &info, CsiCaptureProfile::LLTF20)
+                         .is_sensing_accepted());
 }
 
 void test_csi_capture_service_filters_duplicate_and_stale_timestamps(void) {
@@ -207,11 +247,43 @@ void test_csi_format_classifier_rejects_ht40_before_normalization(void) {
     info.rx_ctrl.sig_mode = 1U;
     info.rx_ctrl.cwb = 1U;
 
-    const CsiFormatAssessment assessment = assess_ht20_sensing_format(&info);
+    const CsiFormatAssessment assessment =
+        assess_ht20_sensing_format(&info, CsiCaptureProfile::HT20);
 
     TEST_ASSERT_FALSE(assessment.is_sensing_accepted());
     TEST_ASSERT_TRUE(assessment.reason_code == CsiFormatReasonCode::UNSUPPORTED_WIDTH);
     TEST_ASSERT_TRUE(assessment.normalization_tag == NormalizedCSIPayloadTag::NONE);
+}
+
+void test_csi_capture_service_zero_fills_lltf_after_layout_detection(void) {
+    CsiCaptureService service;
+    CapturedCsiPacket captured;
+    service.init();
+    service.set_packet_callback(&capture_csi_packet, &captured);
+    TEST_ASSERT_EQUAL(ESP_OK, service.enable(CsiCaptureProfile::LLTF20));
+
+    std::array<int8_t, HT20_CSI_LEN> csi{};
+    csi.fill(7);
+    for (uint8_t bin : HT20_CLASSIC_ONLY_NULL_BINS) {
+        const size_t byte_index = static_cast<size_t>(bin) * 2U;
+        csi[byte_index] = 0;
+        csi[byte_index + 1U] = 0;
+    }
+    wifi_csi_info_t info{};
+    info.buf = csi.data();
+    info.len = HT20_CSI_LEN;
+    info.rx_ctrl.sig_mode = 0U;
+    info.rx_ctrl.cwb = 0U;
+
+    service.process_packet(&info);
+
+    TEST_ASSERT_EQUAL(1U, captured.callback_count);
+    TEST_ASSERT_TRUE(captured.rotated_to_centered);
+    TEST_ASSERT_TRUE(captured.missing_lltf_bins_zero);
+    TEST_ASSERT_EQUAL(7, captured.retained_value);
+    TEST_ASSERT_EQUAL(7, csi[HT20_LLTF_MISSING_BINS[0] * 2U]);
+    TEST_ASSERT_TRUE(service.last_assessment().format_id == CsiFormatId::HT20);
+    TEST_ASSERT_EQUAL(ESP_OK, service.disable());
 }
 
 void test_csi_capture_service_tracks_format_drop_reasons(void) {
@@ -225,7 +297,7 @@ void test_csi_capture_service_tracks_format_drop_reasons(void) {
     info.buf = csi.data();
     info.len = HT20_CSI_LEN;
 
-    info.rx_ctrl.sig_mode = 0U;
+    info.rx_ctrl.sig_mode = 3U;
     info.rx_ctrl.cwb = 0U;
     service.process_packet(&info);
 
@@ -482,10 +554,12 @@ void test_mqtt_payload_assembler_rejects_invalid_fragments(void) {
 int process(void) {
     UNITY_BEGIN();
     RUN_TEST(test_wifi_csi_real_forwards_calls_to_mocked_esp_wifi);
-    RUN_TEST(test_original_esp32_csi_config_captures_ht_ltf_only);
+    RUN_TEST(test_original_esp32_csi_config_captures_legacy_ltf_only);
+    RUN_TEST(test_lltf20_profile_accepts_legacy_and_ht20_frames);
     RUN_TEST(test_csi_capture_service_filters_duplicate_and_stale_timestamps);
     RUN_TEST(test_csi_capture_service_defers_channel_change_and_resets_session_baseline);
     RUN_TEST(test_csi_format_classifier_rejects_ht40_before_normalization);
+    RUN_TEST(test_csi_capture_service_zero_fills_lltf_after_layout_detection);
     RUN_TEST(test_csi_capture_service_tracks_format_drop_reasons);
     RUN_TEST(test_runtime_config_utils_validate_and_name_values);
     RUN_TEST(test_runtime_config_validator_covers_the_public_schema);

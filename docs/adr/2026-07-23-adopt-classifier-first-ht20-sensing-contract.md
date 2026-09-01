@@ -1,8 +1,8 @@
-# ADR: adopt a classifier-first HT20 sensing contract
+# ADR: adopt a classifier-first 20 MHz sensing contract
 
 - Status: Accepted
 - Date: 2026-07-23
-- Updated: 2026-08-12
+- Updated: 2026-09-01
 
 ## Context
 
@@ -12,22 +12,22 @@ Parsing a CSI payload does not prove that it is valid detector input. Firmware a
 
 Adopt one explicit classifier-first sensing contract:
 
-- production sensing accepts only HT20, HT-LTF, and a recognized layout that maps to the internal 64-subcarrier HT20 grid;
+- production sensing accepts only the named `lltf20`, `ht20`, and `vht20` capture profiles and a recognized layout that maps to the internal 64-subcarrier grid;
 - classify every packet or dataset row before normalization;
-- normalize only named HT20 layouts, including exact 64-subcarrier payloads and explicitly supported short or doubled estimates;
+- normalize only named 20 MHz layouts, including exact 64-subcarrier payloads and explicitly supported short or doubled estimates;
 - drop unsupported or ambiguous formats with reason telemetry;
 - require host training and validation to fail explicitly when filtering removes all valid sensing data;
-- preserve historical captures without PHY metadata only when their stored layout itself proves the supported HT20 contract; and
-- let the frontend or SDK integrator select `2g`, `5g`, or `auto`, while enforcing an 802.11n ceiling and HT20 bandwidth on every selected band.
+- preserve historical captures without PHY metadata only when their stored layout itself proves the supported 20 MHz contract; and
+- let the frontend or SDK integrator select `2g`, `5g`, or `auto`, while enforcing 20 MHz bandwidth, HT on 2.4 GHz, VHT on 5 GHz, and no HE capture.
 
-The validated default remains 2.4 GHz. The 5 GHz and automatic band modes are available on supported dual-band targets, but their availability does not constitute detector-performance validation on a 5 GHz corpus. VHT20, HE20, HT40, and wider layouts require their own explicit promotion.
+The validated detector corpus remains 2.4 GHz. The 5 GHz and automatic band modes are available on supported dual-band targets, but their availability does not constitute detector-performance validation on a 5 GHz corpus. HE20, HT40, VHT40, and wider layouts require their own explicit promotion.
 
 The runtime admission order is:
 
 1. validate structure;
 2. validate PHY, LTF, and width metadata;
 3. recognize the payload layout;
-4. normalize a named HT20 variant;
+4. normalize a named 20 MHz variant;
 5. route to sensing or an explicit drop path.
 
 ## Decision History
@@ -36,6 +36,7 @@ The runtime admission order is:
 | --- | --- | --- |
 | 2026-07-23 | Make HT20 admission classifier-first | Accepted |
 | 2026-08-05 | Force 2.4 GHz on every target | Replaced with explicit integrator-selected band mode while keeping HT20 on all selected bands |
+| 2026-09-01 | Keep an 802.11n ceiling on 5 GHz | Replaced with VHT20 capture on VHT-capable 5 GHz targets while retaining the canonical 64-subcarrier detector view |
 
 ## Alternatives Considered
 
@@ -59,7 +60,7 @@ Rejected. Fixed-band deployments need deterministic policy, and integrators must
 
 - Runtime and host tooling share one sensing admission boundary.
 - Unsupported PHYs fail loudly instead of contaminating detectors or training data.
-- HT20 remains stable while band selection becomes an explicit integration choice.
+- The canonical 64-subcarrier detector view remains stable while the runtime selects LLTF20, HT20, or VHT20 capture from the chip and associated band.
 - New PHY support requires layout mapping, representative data, detector validation, and Python/C++ parity.
 
 ## Related

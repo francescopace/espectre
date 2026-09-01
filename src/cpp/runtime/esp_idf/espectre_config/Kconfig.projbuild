@@ -12,10 +12,12 @@ config ESPECTRE_TINYUSB_PRIMARY_CONSOLE
 
 choice ESPECTRE_WIFI_BAND_POLICY
     prompt "Wi-Fi band policy"
+    default ESPECTRE_WIFI_BAND_AUTO if SOC_WIFI_SUPPORT_5G
     default ESPECTRE_WIFI_BAND_2G
     help
-        Keep the production CSI PHY at HT20 while choosing which radio band
-        may be used. 5 GHz and automatic selection require dual-band silicon.
+        Choose which radio band may be used. Dual-band targets default to
+        automatic selection; 5 GHz and automatic selection require dual-band
+        silicon.
 
     config ESPECTRE_WIFI_BAND_2G
         bool "2.4 GHz only"

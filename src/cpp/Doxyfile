@@ -47,6 +47,7 @@ INPUT                  = src/cpp/espectre_sdk.h \
                          src/cpp/runtime/runtime_interface.h \
                          src/cpp/runtime/raw_csi.h \
                          src/cpp/runtime/runtime_events.h \
+                         src/cpp/runtime/csi_capture_profile.h \
                          src/cpp/runtime/runtime_snapshot.h \
                          src/cpp/runtime/runtime_capabilities.h \
                          src/cpp/runtime/runtime_sensing_schema.h \

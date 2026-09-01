@@ -16,6 +16,9 @@ from micro_espectre.device_utils import (
     CsiPayloadNormalizationState,
     HT20_CENTERED_ONLY_NULL_BINS,
     HT20_CLASSIC_ONLY_NULL_BINS,
+    assess_ht20_sensing_phy,
+    impute_ht20_lltf_detector_bins,
+    select_csi_capture_profile,
 )
 from utils import (
     CsiFrameTimestampFilter,
@@ -100,6 +103,25 @@ class TestNormalizeHt20CsiPayload:
         assert normalized is None
         assert raw_len == 64
         assert tag is None
+
+    def test_lltf_detector_fill_copies_nearest_live_edge_tones(self):
+        payload = bytearray(range(128))
+        detector_buffer = bytearray(128)
+        payload[12:14] = b"\x21\xa2"
+        payload[116:118] = b"\x43\xc4"
+
+        detector_view = impute_ht20_lltf_detector_bins(
+            payload, detector_buffer
+        )
+
+        assert detector_view is detector_buffer
+        assert payload[8:12] != b"\x21\xa2\x21\xa2"
+        assert detector_view[8:12] == b"\x21\xa2\x21\xa2"
+        assert detector_view[118:122] == b"\x43\xc4\x43\xc4"
+        assert detector_view[16:18] == payload[16:18]
+
+    def test_lltf_detector_fill_rejects_non_ht20_payloads(self):
+        assert impute_ht20_lltf_detector_bins(bytearray(126)) is None
 
 
 def _layout_packet(null_bins):
@@ -257,6 +279,13 @@ class TestHt20Assessment:
         assert assessment["disposition"] == DISPOSITION_DROP
         assert assessment["reason_code"] == REASON_UNSUPPORTED_WIDTH
 
+    def test_legacy_lltf_requires_explicit_opt_in(self):
+        rejected = assess_ht20_sensing_phy(0, 0)
+        accepted = assess_ht20_sensing_phy(0, 0, allow_legacy_lltf=True)
+
+        assert rejected["disposition"] == DISPOSITION_DROP
+        assert accepted["disposition"] == DISPOSITION_SENSE
+
     def test_sensing_frame_accepts_double_ht20_under_ht20_phy(self):
         frame = [0] * 10
         frame[5] = bytes([0] * 256)
@@ -285,6 +314,20 @@ class TestHt20Assessment:
         assert assessment["reason_code"] == REASON_NONE
         assert assessment["normalization_id"] is None
 
+
+class TestCsiCaptureProfile:
+    def test_original_esp32_always_uses_lltf20(self):
+        assert select_csi_capture_profile("ESP32", 6) == "lltf20"
+        assert select_csi_capture_profile("esp32", 36) == "lltf20"
+
+    def test_c5_uses_vht20_only_on_5ghz(self):
+        assert select_csi_capture_profile("C5", 6) == "ht20"
+        assert select_csi_capture_profile("esp32-c5", 36) == "vht20"
+        assert select_csi_capture_profile("esp32c5", 36) == "vht20"
+
+    def test_other_targets_use_ht20(self):
+        assert select_csi_capture_profile("C6", 6) == "ht20"
+        assert select_csi_capture_profile("S3", 36) == "ht20"
 
 class TestCsiFrameTimestampFilter:
     """Test wrap-aware filtering before MicroPython detector callbacks."""

@@ -55,6 +55,10 @@ def _configured_bssid():
 
 
 def _configure_station_radio(wlan):
+    auto_mode = getattr(wlan, "BAND_MODE_AUTO", None)
+    if auto_mode is not None:
+        wlan.config(band_mode=auto_mode)
+        return
     try:
         wlan.config(band_mode=wlan.BAND_MODE_2G_ONLY)
     except Exception:

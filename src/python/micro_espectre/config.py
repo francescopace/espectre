@@ -14,7 +14,7 @@ DEVICE_LABEL = ""  # Optional user-facing label; empty uses the generated device
 # Optional AP lock for mesh/repeater environments.
 # Format: "AA:BB:CC:DD:EE:FF" (or without separators).
 # WIFI_BSSID = "AA:BB:CC:DD:EE:FF"
-WIFI_CHANNEL = 0  # Optional known 2.4 GHz channel used with WIFI_BSSID
+WIFI_CHANNEL = 0  # Optional known channel used with WIFI_BSSID
 
 # Traffic Generator Configuration
 # Generates WiFi traffic to ensure continuous CSI data

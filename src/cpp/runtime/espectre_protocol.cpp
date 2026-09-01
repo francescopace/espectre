@@ -500,6 +500,15 @@ EspectreDeviceInfo normalize_protocol_device_info(const EspectreDeviceInfo &info
   if (normalized.detector.empty() && snapshot != nullptr && snapshot->detector_name != nullptr) {
     normalized.detector = snapshot->detector_name;
   }
+  if (snapshot != nullptr) {
+    if (normalized.csi_profile.empty()) {
+      normalized.csi_profile =
+          csi_capture_profile_name(snapshot->csi_capture_profile);
+    }
+    if (normalized.network.channel == 0U) {
+      normalized.network.channel = snapshot->link_channel;
+    }
+  }
   return normalized;
 }
 
@@ -547,7 +556,8 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
   std::string out;
   out.reserve(256U + device_id.size() + device_name.size() + device_label.size() +
               info.frontend.size() + info.firmware_version.size() + info.chip.size() +
-              info.detector.size() + info.csi_traffic_mode.size() + info.traffic_mode.size());
+              info.detector.size() + info.csi_profile.size() +
+              info.csi_traffic_mode.size() + info.traffic_mode.size());
   out = "{";
   append_json_pair(&out, "protocol_version", ESPECTRE_PROTOCOL_VERSION, true);
   append_json_pair(&out, "device_id", device_id.c_str());
@@ -556,6 +566,9 @@ std::string espectre_info_payload(const EspectreDeviceConfig &config, const Espe
   append_json_pair(&out, "frontend", info.frontend.empty() ? "native" : info.frontend.c_str());
   append_json_pair(&out, "firmware_version", info.firmware_version.empty() ? "unknown" : info.firmware_version.c_str());
   append_json_pair(&out, "chip", info.chip.empty() ? "unknown" : info.chip.c_str());
+  if (!info.csi_profile.empty()) {
+    append_json_pair(&out, "csi_profile", info.csi_profile.c_str());
+  }
   if (info.network.channel > 0U) {
     out += ",\"network\":{\"channel\":{\"primary\":";
     out += std::to_string(static_cast<unsigned>(info.network.channel));

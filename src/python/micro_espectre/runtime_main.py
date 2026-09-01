@@ -21,8 +21,10 @@ from src.device_utils import (
     NORMALIZATION_DOUBLE_HT57_TO_64,
     NORMALIZATION_HT57_TO_64,
     assess_ht20_sensing_frame,
+    impute_ht20_lltf_detector_bins,
     normalize_ht20_csi_payload,
     csi_read_frame,
+    select_csi_capture_profile,
 )
 from src.detector_interface import (
     get_detector_label,
@@ -42,10 +44,25 @@ class GlobalState:
         self.calibration_mode = False  # Authoritative calibration status
         self.chip_type = None  # Detected chip type (S3, C6, etc.)
         self.csi_phy_metadata_missing = False  # C5/C6 RX metadata omits legacy PHY fields
+        self.csi_capture_profile = "ht20"  # Runtime-owned, read-only CSI profile
         self.current_channel = 0  # Track WiFi channel for change detection
 
 
 g_state = GlobalState()
+
+
+def refresh_csi_capture_context(wlan):
+    """Refresh the runtime-owned channel and CSI profile after association."""
+    try:
+        active_channel = wlan.config('channel')
+    except Exception:
+        active_channel = 0
+    previous_profile = g_state.csi_capture_profile
+    g_state.current_channel = active_channel
+    g_state.csi_capture_profile = select_csi_capture_profile(
+        g_state.chip_type, active_channel
+    )
+    return previous_profile != g_state.csi_capture_profile
 
 
 def print_heap(label):
@@ -200,6 +217,8 @@ def run_startup_calibration(wlan, detector, traffic_gen):
     collapse_logged = False
     remap_logged = False
     ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
+    use_lltf = g_state.csi_capture_profile == 'lltf20'
+    lltf_detector_buffer = bytearray(EXPECTED_CSI_LEN) if use_lltf else None
     normalization_state = CsiPayloadNormalizationState()
     frame_timestamp_filter = CsiFrameTimestampFilter()
     frame_result = None
@@ -218,6 +237,7 @@ def run_startup_calibration(wlan, detector, traffic_gen):
                 frame[5],
                 expected_len=EXPECTED_CSI_LEN,
                 metadata_missing=g_state.csi_phy_metadata_missing,
+                allow_legacy_lltf=use_lltf,
                 out=assessment_result,
                 static_fast_path=True,
             )
@@ -257,6 +277,11 @@ def run_startup_calibration(wlan, detector, traffic_gen):
                     g_state.calibration_mode = False
                     return False
                 continue
+
+            if use_lltf:
+                csi_data = impute_ht20_lltf_detector_bins(
+                    csi_data, lltf_detector_buffer
+                )
 
             if not frame_timestamp_filter.accept(frame):
                 del frame
@@ -444,6 +469,8 @@ def main(wlan=None):
     # Connect to WiFi
     if wlan is None:
         wlan = connect_wifi()
+    refresh_csi_capture_context(wlan)
+    print('CSI capture profile: {}'.format(g_state.csi_capture_profile))
     collect_and_print_heap('after_connect_wifi')
 
     # Detector capacity is fixed by the configured temporal grid. Measured
@@ -598,6 +625,8 @@ def main(wlan=None):
     collapse_logged = False
     remap_logged = False
     ht57_remap_buffer = bytearray(EXPECTED_CSI_LEN)
+    use_lltf = g_state.csi_capture_profile == 'lltf20'
+    lltf_detector_buffer = bytearray(EXPECTED_CSI_LEN) if use_lltf else None
     normalization_state = CsiPayloadNormalizationState()
     frame_timestamp_filter = CsiFrameTimestampFilter()
     out_of_order_count = 0
@@ -828,6 +857,7 @@ def main(wlan=None):
                     frame[5],
                     expected_len=EXPECTED_CSI_LEN,
                     metadata_missing=g_state.csi_phy_metadata_missing,
+                    allow_legacy_lltf=use_lltf,
                     out=assessment_result,
                     static_fast_path=True,
                 )
@@ -869,6 +899,11 @@ def main(wlan=None):
                             weight=8,
                         )
                     continue
+
+                if use_lltf:
+                    csi_data = impute_ht20_lltf_detector_bins(
+                        csi_data, lltf_detector_buffer
+                    )
 
                 if not frame_timestamp_filter.accept(frame):
                     out_of_order_count += 1
@@ -991,9 +1026,10 @@ def main(wlan=None):
                     print_heap('before_csi_recovery')
                     traffic_enabled = getattr(config, 'TRAFFIC_GENERATOR_ENABLED', True)
                     force_reconnect = csi_recovery_attempts > 0
-                    action = 'reconnecting WiFi' if force_reconnect else 'rearming CSI'
+                    station_reconnect = force_reconnect or not wlan.isconnected()
+                    action = 'reconnecting WiFi' if station_reconnect else 'rearming CSI'
                     print(f'[WARN] CSI link stalled; {action}')
-                    if force_reconnect:
+                    if station_reconnect:
                         if traffic_enabled:
                             traffic_gen.stop()
                         # Tear down sockets and mDNS before cycling the station.
@@ -1003,9 +1039,19 @@ def main(wlan=None):
                         gc.collect()
                     if not recover_wifi(wlan, force_reconnect=force_reconnect):
                         raise RuntimeError('CSI link recovery failed')
-                    if force_reconnect:
+                    if station_reconnect:
+                        profile_changed = refresh_csi_capture_context(wlan)
+                        if profile_changed:
+                            print(
+                                '[INFO] CSI capture profile changed to {}'.format(
+                                    g_state.csi_capture_profile
+                                )
+                            )
+                        use_lltf = g_state.csi_capture_profile == 'lltf20'
+                        lltf_detector_buffer = (
+                            bytearray(EXPECTED_CSI_LEN) if use_lltf else None
+                        )
                         print_wifi_status(wlan)
-                    if force_reconnect:
                         if traffic_enabled and not traffic_gen.start(target_pps):
                             raise RuntimeError('CSI traffic generator recovery failed')
                         if not run_startup_calibration(wlan, detector, traffic_gen):
@@ -1024,7 +1070,7 @@ def main(wlan=None):
                     latest_effective_state = runtime_policy.effective_state
                     last_normalization_id = None
                     csi_recovery_attempts += 1
-                    if force_reconnect:
+                    if station_reconnect:
                         direct_api.start()
                         print('[INFO] WiFi, CSI, and Direct link recovered')
                     # Arm the next stall deadline only after every blocking

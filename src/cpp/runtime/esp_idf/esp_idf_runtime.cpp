@@ -11,6 +11,7 @@
 #include "esp_idf_runtime.h"
 
 #include "csi_format.h"
+#include "csi_platform_config.h"
 #include "esp_err.h"
 #include "esp_netif.h"
 #include "esp_system.h"
@@ -535,7 +536,9 @@ bool EspIdfRuntime::start_raw_collection(raw_csi_packet_callback_t callback, voi
   refresh_csi_local_identity_(wifi_ip_info_.ip.addr);
 
   if (!csi_pipeline_.is_enabled()) {
-    const esp_err_t err = csi_pipeline_.enable({});
+    const CsiCaptureProfile profile = select_csi_capture_profile(wifi_channel_);
+    snapshot_.csi_capture_profile = profile;
+    const esp_err_t err = csi_pipeline_.enable({}, profile);
     if (err != ESP_OK) {
       csi_pipeline_.stop_raw_capture();
       update_live_telemetry_callback_();
@@ -739,6 +742,8 @@ void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) 
   refresh_csi_local_identity_(ip_info.ip.addr);
 
   if (!csi_pipeline_.is_enabled()) {
+    const CsiCaptureProfile profile = select_csi_capture_profile(wifi_channel_);
+    snapshot_.csi_capture_profile = profile;
     const esp_err_t err = csi_pipeline_.enable([this](MotionState state, uint32_t packets_received) {
       snapshot_.motion_state = state;
       snapshot_.movement_metric = detector_ != nullptr ? detector_->get_motion_metric() : 0.0f;
@@ -754,7 +759,7 @@ void EspIdfRuntime::start_sensing_services_(const esp_netif_ip_info_t &ip_info) 
           listener_->on_periodic_update(snapshot_, packets_received);
         }
       }
-    });
+    }, profile);
     if (err != ESP_OK) {
       char message[96];
       std::snprintf(message, sizeof(message), "Failed to enable CSI: %s", esp_err_to_name(err));

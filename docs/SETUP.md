@@ -34,7 +34,7 @@ If the board does not enter download mode automatically, use its `BOOT` and `RES
 
 - ESP32 board with CSI support
 - USB cable for flashing
-- Wi-Fi network on a band the board supports: 2.4 GHz on every supported chip, or 5 GHz on the dual-band ESP32-C5. Firmware defaults to 2.4 GHz; an ESP32-C5 integrator can explicitly select 5 GHz or automatic band selection. The runtime pins the selected band or bands to HT20. Detection quality on 5 GHz is not characterized yet
+- Wi-Fi network on a band the board supports: 2.4 GHz on every supported chip, or 5 GHz on the dual-band ESP32-C5. Firmware defaults to automatic band selection on ESP32-C5 and to 2.4 GHz on single-band targets. The runtime pins the selected band or bands to 20 MHz. Detection quality on 5 GHz is not characterized yet
 
 Current chip support for the published C++ frontends:
 
@@ -197,7 +197,7 @@ Frontend coverage:
 
 | Option | Type / values | Default | Range / notes |
 |--------|---------------|---------|---------------|
-| `wifi.band_mode` (ESPHome) / `RuntimeConfig::wifi_band_policy` | `2.4GHz`, `5GHz`, or `AUTO` in ESPHome; `BAND_2G`, `BAND_5G`, or `AUTO` in the SDK | ESPHome C5: `AUTO` when omitted; other frontends, including Native C5: `2.4GHz` | `5GHz` and `AUTO` require the dual-band ESP32-C5. Select the policy in ESPHome YAML or an SDK build; Direct HTTP does not expose band selection. ESPHome examples select `2.4GHz`, and the production PHY remains HT20 |
+| `wifi.band_mode` (ESPHome) / `RuntimeConfig::wifi_band_policy` | `2.4GHz`, `5GHz`, or `AUTO` in ESPHome; `BAND_2G`, `BAND_5G`, or `AUTO` in the SDK | ESP32-C5 firmware: `AUTO`; single-band firmware: `2.4GHz` | `5GHz` and `AUTO` require the dual-band ESP32-C5. Select the policy in ESPHome YAML or an SDK build; Direct HTTP does not expose band selection. ESPHome examples select `2.4GHz` explicitly |
 | `detection_algorithm` | `lightweight` or `high_accuracy` | `lightweight`, including Matter | Lightweight uses less detector CPU and working memory; High Accuracy improves detection quality and skips quiet-room threshold calibration |
 | Runtime threshold | probability | detector-specific | Selected automatically at startup; session-adjustable through ESPHome entities, Native Direct HTTP or MQTT, and Matter Direct HTTP when advertised |
 | `segmentation_window_size_ms` | int | `1000` | `1000-2000` milliseconds; combined with `csi_target_pps` to define a fixed temporal slot window |

@@ -669,8 +669,15 @@ def test_generated_sdkconfig_is_reused_when_kconfig_profile_matches(tmp_path: Pa
     assert not micro_firmware._generated_sdkconfig_is_current(build_dir, changed_kconfig)
 
 
+@pytest.mark.parametrize(
+    ("chip", "expected_lltf", "expected_htltf"),
+    (("esp32", 1, 0), ("c3", 0, 1), ("c5", 0, 1)),
+)
 def test_project_firmware_configures_csi_phy_without_rebuilding_payload_bound(
     tmp_path: Path,
+    chip: str,
+    expected_lltf: int,
+    expected_htltf: int,
 ) -> None:
     source_path = tmp_path / "ports" / "esp32" / "network_wlan_csi.c"
     source_path.parent.mkdir(parents=True)
@@ -680,6 +687,9 @@ def test_project_firmware_configures_csi_phy_without_rebuilding_payload_bound(
         "    .acquire_csi_legacy = 1,\n"
         "    .acquire_csi_ht20 = 1,\n"
         "};\n"
+        "#if CONFIG_IDF_TARGET_ESP32C6\n"
+        "    config->acquire_csi_he_stbc = 0;\n"
+        "#endif\n"
         "wifi_csi_config_t legacy = {\n"
         "    .lltf_en = 1,\n"
         "    .htltf_en = 1,\n"
@@ -687,15 +697,20 @@ def test_project_firmware_configures_csi_phy_without_rebuilding_payload_bound(
         encoding="utf-8",
     )
 
-    micro_firmware._configure_project_csi_capture(tmp_path)
-    micro_firmware._configure_project_csi_capture(tmp_path)
+    micro_firmware._configure_project_csi_capture(tmp_path, chip)
+    micro_firmware._configure_project_csi_capture(tmp_path, chip)
 
     source = source_path.read_text(encoding="utf-8")
     assert ".acquire_csi_legacy = 0," in source
     assert ".acquire_csi_legacy = 1," not in source
-    assert ".lltf_en = 0," in source
-    assert ".lltf_en = 1," not in source
-    assert ".htltf_en = 1," in source
+    if chip == "c5":
+        assert "config->acquire_csi_ht20 = !use_vht20;" in source
+        assert "config->acquire_csi_vht = use_vht20;" in source
+        assert "esp_wifi_sta_get_ap_info(&ap_info)" in source
+    else:
+        assert "config->acquire_csi_vht = use_vht20;" not in source
+    assert f".lltf_en = {expected_lltf}," in source
+    assert f".htltf_en = {expected_htltf}," in source
     assert "#define CSI_MAX_DATA_LEN (512)" in source
     assert "#define CSI_MAX_DATA_LEN (256)" not in source
 
@@ -1009,7 +1024,11 @@ def test_project_firmware_exposes_dual_band_mode_configuration(tmp_path: Path) -
     source = source_path.read_text(encoding="utf-8")
     assert source.count("case MP_QSTR_band_mode:") == 1
     assert source.count("esp_wifi_set_band_mode") == 1
+    assert source.count("esp_wifi_set_protocols") == 1
+    assert source.count("esp_wifi_set_bandwidths") == 1
+    assert "WIFI_PROTOCOL_11AC" in source
     assert source.count("MP_QSTR_BAND_MODE_2G_ONLY") == 1
+    assert source.count("MP_QSTR_BAND_MODE_AUTO") == 1
 
 
 def test_project_firmware_exposes_bssid_channel_pin(tmp_path: Path) -> None:
@@ -1031,6 +1050,8 @@ def test_project_firmware_exposes_bssid_channel_pin(tmp_path: Path) -> None:
     assert source.count("ARG_channel") == 4
     assert source.count("MP_QSTR_channel") == 1
     assert source.count("wifi_sta_config.sta.channel") == 1
+    assert "args[ARG_channel].u_int > 255" in source
+    assert "args[ARG_channel].u_int > 14" not in source
 
 
 def test_project_boards_use_one_shared_profile_and_only_esp32_override() -> None:

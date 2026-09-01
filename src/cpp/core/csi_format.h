@@ -44,6 +44,9 @@ namespace espectre {
 // information; these are the bins that are null under exactly one of them.
 constexpr uint8_t HT20_CLASSIC_ONLY_NULL_BINS[] = {29, 30, 31, 33, 34, 35};
 constexpr uint8_t HT20_CENTERED_ONLY_NULL_BINS[] = {1, 2, 3, 61, 62, 63};
+// LLTF carries physical subcarriers -26..-1 and +1..+26, so the two
+// outer data tones on either side are missing in the centered convention.
+constexpr uint8_t HT20_LLTF_MISSING_BINS[] = {4, 5, 59, 60};
 
 enum class Ht20BinLayout : uint8_t {
     UNKNOWN = 0,
@@ -92,6 +95,49 @@ inline Ht20BinLayout detect_ht20_bin_layout(const int8_t* csi_data, size_t csi_l
         return Ht20BinLayout::CENTERED;
     }
     return Ht20BinLayout::UNKNOWN;
+}
+
+/**
+ * Mark LLTF's unavailable edge tones as missing in a normalized raw view.
+ *
+ * @param csi_data Centered, interleaved I/Q HT20 payload to update in place.
+ * @param csi_len Payload length in bytes; must equal HT20_CSI_LEN.
+ * @return true when the payload was updated, or false for invalid input.
+ */
+inline bool zero_ht20_lltf_missing_bins(int8_t* csi_data, size_t csi_len) {
+    if (csi_data == nullptr || csi_len != HT20_CSI_LEN) {
+        return false;
+    }
+    for (uint8_t bin : HT20_LLTF_MISSING_BINS) {
+        const uint16_t byte_index = static_cast<uint16_t>(bin) * 2U;
+        csi_data[byte_index] = 0;
+        csi_data[byte_index + 1U] = 0;
+    }
+    return true;
+}
+
+/**
+ * Fill LLTF's missing edge tones in a private detector input buffer.
+ *
+ * Each missing I/Q pair is copied from the nearest live physical tone, -26 or
+ * +26. Keep the normalized raw view zero-filled and call this helper only on a
+ * separate detector buffer.
+ *
+ * @param csi_data Centered, interleaved I/Q HT20 payload to update in place.
+ * @param csi_len Payload length in bytes; must equal HT20_CSI_LEN.
+ * @return true when the payload was updated, or false for invalid input.
+ */
+inline bool impute_ht20_lltf_detector_bins(int8_t* csi_data, size_t csi_len) {
+    if (csi_data == nullptr || csi_len != HT20_CSI_LEN) {
+        return false;
+    }
+    for (uint8_t target_bin : HT20_LLTF_MISSING_BINS) {
+        const uint16_t target = static_cast<uint16_t>(target_bin) * 2U;
+        const uint16_t source = target_bin < HT20_DC_SUBCARRIER ? 12U : 116U;
+        csi_data[target] = csi_data[source];
+        csi_data[target + 1U] = csi_data[source + 1U];
+    }
+    return true;
 }
 
 /**

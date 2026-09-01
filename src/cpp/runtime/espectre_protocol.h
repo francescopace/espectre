@@ -189,6 +189,8 @@ struct EspectreDeviceInfo {
   std::string chip{"unknown"};
   /** Active detector. Left empty, it is filled from the snapshot. */
   std::string detector;
+  /** Automatically selected CSI capture profile. Left empty, it is filled from the snapshot. */
+  std::string csi_profile;
   bool supports_info{true};
   bool supports_diagnostics{false};
   /** MQTT `set_device_label` is honored and persists the user-facing label. */

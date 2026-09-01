@@ -33,6 +33,7 @@ HT20_CSI_HALF_LEN = HT20_CSI_LEN // 2
 # information, so only the bins null under exactly one layout are checked.
 HT20_CLASSIC_ONLY_NULL_BINS = (29, 30, 31, 33, 34, 35)
 HT20_CENTERED_ONLY_NULL_BINS = (1, 2, 3, 61, 62, 63)
+HT20_LLTF_DETECTOR_BIN_SOURCES = ((4, 6), (5, 6), (59, 58), (60, 58))
 LAYOUT_BINS_UNKNOWN = "unknown"
 LAYOUT_BINS_CENTERED = "centered"
 LAYOUT_BINS_CLASSIC = "classic"
@@ -43,6 +44,24 @@ LAYOUT_ID_HT20_64 = "ht20_64"
 LAYOUT_ID_HT20_57 = "ht20_57"
 LAYOUT_ID_HT20_64_DOUBLE = "ht20_64_double"
 LAYOUT_ID_HT20_57_DOUBLE = "ht20_57_double"
+
+
+def select_csi_capture_profile(chip, wifi_channel):
+    """Return the runtime-owned 20 MHz CSI profile for this association."""
+    normalized_chip = str(chip or "").upper().replace("ESP32-", "")
+    if normalized_chip.startswith("ESP32") and normalized_chip != "ESP32":
+        normalized_chip = normalized_chip[5:]
+    try:
+        wifi_channel = int(wifi_channel or 0)
+    except (TypeError, ValueError):
+        wifi_channel = 0
+    if normalized_chip == "ESP32":
+        return "lltf20"
+    if normalized_chip == "C5" and wifi_channel > 14:
+        return "vht20"
+    return "ht20"
+
+
 PAYLOAD_VIEW_RAW = "raw"
 PAYLOAD_VIEW_NORMALIZED = "normalized"
 METADATA_SOURCE_WIFI = "wifi_rx_ctrl"
@@ -157,7 +176,7 @@ def is_ht20_sensing_phy_fields(sig_mode, cwb):
 
 
 def assess_ht20_sensing_phy(sig_mode=None, cwb=None, *, metadata_missing=False,
-                            out=None):
+                            allow_legacy_lltf=False, out=None):
     """Assess whether the observed PHY metadata allows HT20 sensing."""
     if metadata_missing:
         return build_csi_format_assessment(
@@ -167,7 +186,7 @@ def assess_ht20_sensing_phy(sig_mode=None, cwb=None, *, metadata_missing=False,
             reason_code=REASON_NONE,
             out=out,
         )
-    if sig_mode != 1:
+    if sig_mode != 1 and not (allow_legacy_lltf and sig_mode == 0 and cwb == 0):
         return build_csi_format_assessment(
             metadata_source=METADATA_SOURCE_WIFI,
             reason_code=REASON_UNSUPPORTED_PHY,
@@ -278,7 +297,8 @@ _HT20_FULL_HISTORICAL_ASSESSMENT["metadata_source"] = METADATA_SOURCE_HISTORICAL
 
 
 def assess_ht20_sensing_frame(frame, csi_data, *, expected_len=HT20_CSI_LEN,
-                              metadata_missing=False, out=None,
+                              metadata_missing=False, allow_legacy_lltf=False,
+                              out=None,
                               static_fast_path=False):
     """Classify one MicroPython CSI frame before normalization.
 
@@ -308,7 +328,8 @@ def assess_ht20_sensing_frame(frame, csi_data, *, expected_len=HT20_CSI_LEN,
             assessment = out if out is not None else {}
             assessment.update(_HT20_FULL_HISTORICAL_ASSESSMENT)
             return assessment
-        if is_ht20_sensing_phy_fields(frame[7], frame[9]):
+        if is_ht20_sensing_phy_fields(frame[7], frame[9]) or (
+                allow_legacy_lltf and frame[7] == 0 and frame[9] == 0):
             if static_fast_path:
                 return _HT20_FULL_WIFI_ASSESSMENT
             assessment = out if out is not None else {}
@@ -321,7 +342,8 @@ def assess_ht20_sensing_frame(frame, csi_data, *, expected_len=HT20_CSI_LEN,
         )
     else:
         phy_assessment = assess_ht20_sensing_phy(
-            frame[7], frame[9], metadata_missing=False, out=_FRAME_PHY_SCRATCH
+            frame[7], frame[9], metadata_missing=False,
+            allow_legacy_lltf=allow_legacy_lltf, out=_FRAME_PHY_SCRATCH
         )
     layout_assessment = assess_ht20_payload_layout(
         raw_len, expected_len=expected_len, out=_FRAME_LAYOUT_SCRATCH
@@ -411,6 +433,25 @@ def rotate_ht20_classic_to_centered(csi_data, remap_buffer=None):
     remap_buffer[:HT20_CSI_HALF_LEN] = view[HT20_CSI_HALF_LEN:]
     remap_buffer[HT20_CSI_HALF_LEN:] = view[:HT20_CSI_HALF_LEN]
     return remap_buffer
+
+
+def impute_ht20_lltf_detector_bins(csi_data, detector_buffer=None):
+    """Copy the nearest live LLTF edge tones into a detector-only view."""
+    try:
+        if len(csi_data) != HT20_CSI_LEN:
+            return None
+    except TypeError:
+        return None
+    if detector_buffer is None or len(detector_buffer) != HT20_CSI_LEN:
+        detector_buffer = bytearray(HT20_CSI_LEN)
+    if csi_data is not detector_buffer:
+        detector_buffer[:] = csi_data
+    for target_bin, source_bin in HT20_LLTF_DETECTOR_BIN_SOURCES:
+        target = target_bin * 2
+        source = source_bin * 2
+        detector_buffer[target] = detector_buffer[source]
+        detector_buffer[target + 1] = detector_buffer[source + 1]
+    return detector_buffer
 
 
 def _resolve_ht20_bin_layout_once(payload, expected_len, bin_layout, state):
