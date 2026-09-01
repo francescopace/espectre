@@ -106,7 +106,11 @@ set(ESPECTRE_FRONTEND_MATTER_SOURCES
 )
 
 set(ESPECTRE_FRONTEND_NATIVE_SOURCES
+    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/home_assistant_mqtt_frontend.cpp"
+    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_command_bindings.cpp"
+    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_direct_frontend.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/recovery_button_service.cpp"
+    "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_mqtt_frontend.cpp"
     "${ESPECTRE_CPP_ROOT}/frontend/native/espectre/native_frontend.cpp"
 )
 

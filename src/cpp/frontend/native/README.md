@@ -142,7 +142,11 @@ Confirm that the broker hostname resolves from the ESP32, that the credentials a
 ## Implementation Map
 
 - [`app/`](app/): standalone ESP-IDF entry point, Wi-Fi lifecycle, Improv Serial, mDNS, Direct service, and recovery wiring
-- [`espectre/native_frontend.cpp`](espectre/native_frontend.cpp): transport-neutral command dispatch, event fan-out, MQTT integration, and Home Assistant adapter
+- [`espectre/native_frontend.cpp`](espectre/native_frontend.cpp): lightweight lifecycle orchestrator, runtime listener, event fan-out, and OTA coordination
+- [`espectre/native_command_bindings.cpp`](espectre/native_command_bindings.cpp): Native persistence, provisioning, and state-publication bindings around the shared `FrontendCommandEngine`
+- [`espectre/native_direct_frontend.cpp`](espectre/native_direct_frontend.cpp): Direct HTTP lifecycle, local configuration reads, diagnostics, peer discovery, and raw CSI sessions
+- [`espectre/native_mqtt_frontend.cpp`](espectre/native_mqtt_frontend.cpp): canonical MQTT command, state, telemetry, capability, and OTA topics
+- [`espectre/home_assistant_mqtt_frontend.cpp`](espectre/home_assistant_mqtt_frontend.cpp): Home Assistant discovery, commands, diagnostics, and deferred state snapshots
 - [`../../runtime/direct_http_protocol.cpp`](../../runtime/direct_http_protocol.cpp): canonical request parsing and Direct/MQTT protocol mapping
 - [`../../runtime/esp_idf/direct_http_service_esp_idf.cpp`](../../runtime/esp_idf/direct_http_service_esp_idf.cpp): bounded ESP-IDF HTTP, SSE, and binary streaming server
 - [`../../runtime/esp_idf/mdns_discovery_service.cpp`](../../runtime/esp_idf/mdns_discovery_service.cpp): shared Direct discovery lifecycle

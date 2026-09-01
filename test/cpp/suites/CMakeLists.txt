@@ -177,8 +177,33 @@ add_espectre_test(test_frontend_controls
     LIBRARIES espectre_frontend_esphome_testlib
 )
 
-add_espectre_test(test_native_frontend
-    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_native_frontend.cpp"
+add_espectre_test(test_native_frontend_lifecycle
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_native_frontend_lifecycle.cpp"
+    LIBRARIES espectre_frontend_native_testlib
+)
+
+add_espectre_test(test_native_direct_frontend
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_native_direct_frontend.cpp"
+    LIBRARIES espectre_frontend_native_testlib
+)
+
+add_espectre_test(test_native_mqtt_frontend
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_native_mqtt_frontend.cpp"
+    LIBRARIES espectre_frontend_native_testlib
+)
+
+add_espectre_test(test_home_assistant_mqtt_frontend
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_home_assistant_mqtt_frontend.cpp"
+    LIBRARIES espectre_frontend_native_testlib
+)
+
+add_espectre_test(test_native_frontend_ota
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_native_frontend_ota.cpp"
+    LIBRARIES espectre_frontend_native_testlib
+)
+
+add_espectre_test(test_recovery_button_service
+    "${CMAKE_CURRENT_SOURCE_DIR}/frontend/test_recovery_button_service.cpp"
     LIBRARIES espectre_frontend_native_testlib
 )
 

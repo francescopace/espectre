@@ -792,6 +792,31 @@ void test_direct_http_read_and_sensing_methods_map_to_shared_commands(void) {
   TEST_ASSERT_EQUAL_STRING("unknown command parameter", error.c_str());
 }
 
+void test_espectre_protocol_parses_config_and_rejects_bad_commands(void) {
+  EspectreDeviceConfig config;
+  std::string error;
+  TEST_ASSERT_TRUE(parse_espectre_config_command("SET_DEVICE_CONFIG:device_label=Living Room", &config, &error));
+  TEST_ASSERT_EQUAL_STRING("Living Room", config.device_label.c_str());
+  TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:device_id=manual", &config, &error));
+  TEST_ASSERT_FALSE(parse_espectre_config_command("SET_DEVICE_CONFIG:mqtt_port=1884", &config, &error));
+
+  EspectreCommand command;
+  TEST_ASSERT_TRUE(parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_threshold\",\"threshold\":3.25}", &command, &error));
+  TEST_ASSERT_EQUAL_STRING("set_threshold", command.command.c_str());
+  TEST_ASSERT_TRUE(command.has_threshold);
+  TEST_ASSERT_EQUAL_FLOAT(3.25f, command.threshold);
+  TEST_ASSERT_TRUE(parse_espectre_command(
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_motion_hits\",\"motion_on_hits\":6,\"motion_off_hits\":4}", &command, &error));
+  TEST_ASSERT_TRUE(command.has_motion_hits);
+  TEST_ASSERT_TRUE(parse_espectre_command(
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_csi_traffic_mode\",\"csi_traffic_mode\":\"external\"}", &command, &error));
+  TEST_ASSERT_TRUE(command.has_csi_traffic_mode);
+  TEST_ASSERT_TRUE(parse_espectre_command(
+      "{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_traffic_generator_mode\",\"traffic_generator_mode\":\"dns_tcp\"}", &command, &error));
+  TEST_ASSERT_TRUE(command.has_traffic_generator_mode);
+  TEST_ASSERT_FALSE(parse_espectre_command("{\"protocol_version\":\"1.0\",\"command_id\":\"test\",\"command\":\"set_threshold\",\"threshold\":\"bad\"}", &command, &error));
+}
+
 int process(void) {
   UNITY_BEGIN();
   RUN_TEST(test_ota_version_ordering_blocks_downgrades_and_divergent_builds);
@@ -816,6 +841,7 @@ int process(void) {
   RUN_TEST(test_direct_http_request_reuses_transport_neutral_command_validation);
   RUN_TEST(test_direct_http_configuration_commands_validate_write_only_fields);
   RUN_TEST(test_direct_http_read_and_sensing_methods_map_to_shared_commands);
+  RUN_TEST(test_espectre_protocol_parses_config_and_rejects_bad_commands);
   return UNITY_END();
 }
 
