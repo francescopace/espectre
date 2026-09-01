@@ -92,6 +92,12 @@ typedef union {
 } wifi_config_t;
 
 typedef struct {
+  uint8_t *ssid;
+  uint8_t *bssid;
+  uint8_t channel;
+} wifi_scan_config_t;
+
+typedef struct {
   uint8_t reason;
 } wifi_event_sta_disconnected_t;
 
@@ -306,6 +312,9 @@ typedef struct {
   esp_err_t scan_start_result;
   int scan_start_call_count;
   bool last_scan_block;
+  bool last_scan_configured;
+  char last_scan_ssid[33];
+  uint8_t last_scan_channel;
   esp_err_t scan_get_ap_num_result;
   esp_err_t scan_get_ap_records_result;
   uint16_t scan_ap_count;
@@ -394,10 +403,19 @@ static inline esp_err_t esp_wifi_disconnect(void) {
   return result;
 }
 
-static inline esp_err_t esp_wifi_scan_start(const void *config, bool block) {
-  (void)config;
+static inline esp_err_t esp_wifi_scan_start(const wifi_scan_config_t *config, bool block) {
   g_esp_wifi_mock.scan_start_call_count++;
   g_esp_wifi_mock.last_scan_block = block;
+  g_esp_wifi_mock.last_scan_configured = config != NULL;
+  memset(g_esp_wifi_mock.last_scan_ssid, 0, sizeof(g_esp_wifi_mock.last_scan_ssid));
+  if (config != NULL) {
+    g_esp_wifi_mock.last_scan_channel = config->channel;
+    if (config->ssid != NULL) {
+      strncpy(g_esp_wifi_mock.last_scan_ssid,
+              (const char *)config->ssid,
+              sizeof(g_esp_wifi_mock.last_scan_ssid) - 1U);
+    }
+  }
   return g_esp_wifi_mock.scan_start_result;
 }
 

@@ -685,9 +685,6 @@
             } else if (!LIVE_EXPERIENCE_ROUTES.has(route)) {
                 const view = openView || (route === 'tool-monitor' ? 'live' : 'connectivity');
                 setDeviceView(view);
-                if (view === 'connectivity' && monitor.commands.has('scan_wifi_access_points')) {
-                    void cfgRefreshWifiAccessPoints();
-                }
             }
             track('tool_connection', {
                 ...connectionParams(), transport: 'direct_http', result: 'success'

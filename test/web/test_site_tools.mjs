@@ -160,8 +160,13 @@ describe('website tool contracts', () => {
         assert.match(app, /snapshot\.wifi_channel[\s\S]*?set\('cfg-channel'/);
         assert.match(app, /const client = directClient[\s\S]*client\.request\('scan_wifi_access_points'\)/);
         assert.match(app, /client\.request\('wifi_access_points'\)/);
+        assert.match(app, /WIFI_SCAN_TIMEOUT_MS = 30 \* 1000/);
+        assert.match(app, /const deadline = Date\.now\(\) \+ WIFI_SCAN_TIMEOUT_MS;[\s\S]*?while \(Date\.now\(\) < deadline\)/);
+        assert.match(app, /if \(!scanning && Array\.isArray\(snapshot\.access_points\)\)/);
         assert.match(app, /if \(conn\.mode === 'demo'\) \{\s*renderWifiAccessPoints\(\{ scanning: true \}\);\s*await new Promise[\s\S]*?renderWifiAccessPoints\(\{\s*scanning: false,[\s\S]*?access_points:/);
         assert.match(app, /if \(directClient !== client \|\| !client\.connected\) return;/);
+        assert.match(app, /\.js-wifi-scan'\)\.addEventListener\('click', cfgRefreshWifiAccessPoints\)/);
+        assert.doesNotMatch(app, /void cfgRefreshWifiAccessPoints\(\)/);
         assert.match(app, /const method = bssid \? 'set_wifi_bssid' : 'clear_wifi_bssid'/);
         assert.match(app, /new Option\(`\$\{bssid\} · \$\{rssi\} dBm`, bssid\)/);
         assert.match(app, /if \(!select \|\| !scanButton\) return;/);

@@ -364,9 +364,21 @@ esp_err_t StandaloneWifiService::request_scan(standalone_wifi_scan_callback_t ca
   if (scan_pending_) {
     return ESP_ERR_INVALID_STATE;
   }
+
+  if (!has_text(config_.ssid)) {
+    return ESP_ERR_INVALID_STATE;
+  }
+  const auto *ssid_begin = reinterpret_cast<const uint8_t *>(config_.ssid);
+  std::vector<uint8_t> scan_ssid(ssid_begin, ssid_begin + std::strlen(config_.ssid));
+  scan_ssid.push_back(0U);
+  wifi_scan_config_t scan{};
+  scan.ssid = scan_ssid.data();
+  // Keep channel zero so the driver searches every channel and band for BSSIDs
+  // that advertise the configured SSID.
+
   scan_callback_ = std::move(callback);
   scan_pending_ = true;
-  const esp_err_t err = esp_wifi_scan_start(nullptr, false);
+  const esp_err_t err = esp_wifi_scan_start(&scan, false);
   if (err != ESP_OK) {
     scan_pending_ = false;
     scan_callback_ = {};

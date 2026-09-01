@@ -627,6 +627,9 @@ void test_standalone_wifi_service_reports_asynchronous_scan_snapshot(void) {
   TEST_ASSERT_EQUAL(ESP_ERR_INVALID_STATE, service.request_scan({}));
   TEST_ASSERT_EQUAL(1, g_esp_wifi_mock.scan_start_call_count);
   TEST_ASSERT_FALSE(g_esp_wifi_mock.last_scan_block);
+  TEST_ASSERT_TRUE(g_esp_wifi_mock.last_scan_configured);
+  TEST_ASSERT_EQUAL_STRING("TestSSID", g_esp_wifi_mock.last_scan_ssid);
+  TEST_ASSERT_EQUAL_UINT8(0U, g_esp_wifi_mock.last_scan_channel);
   TEST_ASSERT_EQUAL(0, g_esp_wifi_mock.disconnect_call_count);
 
   wifi_event_sta_scan_done_t event{};

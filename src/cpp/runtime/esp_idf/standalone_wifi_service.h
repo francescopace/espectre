@@ -59,7 +59,7 @@ class StandaloneWifiService {
                   standalone_wifi_callback_t disconnected_cb = {});
   esp_err_t start();
   esp_err_t update_station_config(const StandaloneWifiConfig &config);
-  /** Start one asynchronous station scan and report its bounded snapshot from loop(). */
+  /** Scan every allowed channel for the configured SSID and report its bounded snapshot from loop(). */
   esp_err_t request_scan(standalone_wifi_scan_callback_t callback);
   void loop();
   bool get_info(StandaloneWifiInfo *info) const;

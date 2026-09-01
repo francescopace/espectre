@@ -673,6 +673,9 @@
 
     /* =========================================================== configure */
 
+    const WIFI_SCAN_POLL_INTERVAL_MS = 350;
+    const WIFI_SCAN_TIMEOUT_MS = 30 * 1000;
+
     function cfgValue(id) {
         return document.getElementById(id).value;
     }
@@ -798,21 +801,22 @@
         const select = document.getElementById('cfg-bssid');
         const scanButton = $('.js-wifi-scan');
         if (!select || !scanButton) return;
-        const accessPoints = Array.isArray(snapshot.access_points) ? snapshot.access_points : [];
-        const options = [new Option('Automatic (strongest available)', '')];
-        accessPoints.forEach((accessPoint) => {
-            const bssid = String(accessPoint?.bssid || '').toUpperCase();
-            const rssi = Number(accessPoint?.rssi_dbm);
-            if (!/^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$/.test(bssid)
-                    || !Number.isInteger(rssi)) return;
-            options.push(new Option(`${bssid} · ${rssi} dBm`, bssid));
-        });
-        if (currentWifiBssid && !options.some((option) => option.value === currentWifiBssid)) {
-            options.push(new Option(`${currentWifiBssid} · preferred`, currentWifiBssid));
-        }
-        select.replaceChildren(...options);
-        select.value = currentWifiBssid;
         const scanning = snapshot.scanning === true;
+        if (!scanning && Array.isArray(snapshot.access_points)) {
+            const options = [new Option('Automatic (strongest available)', '')];
+            snapshot.access_points.forEach((accessPoint) => {
+                const bssid = String(accessPoint?.bssid || '').toUpperCase();
+                const rssi = Number(accessPoint?.rssi_dbm);
+                if (!/^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$/.test(bssid)
+                        || !Number.isInteger(rssi)) return;
+                options.push(new Option(`${bssid} · ${rssi} dBm`, bssid));
+            });
+            if (currentWifiBssid && !options.some((option) => option.value === currentWifiBssid)) {
+                options.push(new Option(`${currentWifiBssid} · preferred`, currentWifiBssid));
+            }
+            select.replaceChildren(...options);
+        }
+        select.value = currentWifiBssid;
         select.disabled = scanning;
         scanButton.disabled = scanning;
         scanButton.classList.toggle('is-scanning', scanning);
@@ -839,8 +843,9 @@
         renderWifiAccessPoints({ scanning: true, message: 'Scanning for nearby access points…' });
         try {
             await client.request('scan_wifi_access_points');
-            for (let attempt = 0; attempt < 20; attempt += 1) {
-                await new Promise((resolve) => setTimeout(resolve, 350));
+            const deadline = Date.now() + WIFI_SCAN_TIMEOUT_MS;
+            while (Date.now() < deadline) {
+                await new Promise((resolve) => setTimeout(resolve, WIFI_SCAN_POLL_INTERVAL_MS));
                 if (directClient !== client || !client.connected) return;
                 const snapshot = await client.request('wifi_access_points');
                 if (directClient !== client || !client.connected) return;
