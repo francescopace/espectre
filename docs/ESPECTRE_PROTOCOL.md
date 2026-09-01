@@ -67,7 +67,7 @@ The CLI accepts a record only when it resolves to IPv4, has a valid SRV port and
 
 Services are enabled only while the station interface has a usable IPv4 address. A frontend that owns its responder sends a best-effort goodbye on a clean disconnect and reannounces after reconnect or an IP-address change; ESPHome and Matter retain responder lifecycle ownership and ESPectre only adds or removes its own service.
 
-Ordinary web applications cannot enumerate DNS-SD services, even when the host resolver can resolve individual `.local` names. Configure and Monitor therefore resolve a one-shot hostname to reach one eligible device, which performs the DNS-SD browse on the browser's behalf. The portal still accepts manual private IP or `.local` entry, remembered endpoints, and credential-free QR or share links.
+Ordinary web applications cannot enumerate DNS-SD services, even when the host resolver can resolve individual `.local` names. Device settings and Monitor therefore resolve a one-shot hostname to reach one eligible device, which performs the DNS-SD browse on the browser's behalf. The portal still accepts manual private IP or `.local` entry, remembered endpoints, and credential-free QR or share links.
 
 ### Peer-assisted browser discovery
 
@@ -656,7 +656,7 @@ Every accepted or rejected MQTT request produces exactly one non-retained `comma
 
 ## Deployment Profiles
 
-ESPectre Protocol can be carried by multiple deployment profiles. In the local Native path, [Configure](https://espectre.dev/tools/configure/) hands a newly flashed device to standard Improv Serial for initial Wi-Fi provisioning, then uses Direct HTTP for configuration and recovery. [Monitor](https://espectre.dev/tools/monitor/) uses Direct HTTP for broker-free local sensing. Direct is a trusted-LAN transport; browser support depends on the browser's mixed-content and local-network access policy. MQTT remains available to device integrations, Home Assistant, and the host CLI, but is not a browser Monitor transport.
+ESPectre Protocol can be carried by multiple deployment profiles. In the local Native path, [Device settings](https://espectre.dev/tools/device-settings/) hands a newly flashed device to standard Improv Serial for initial Wi-Fi provisioning, then uses Direct HTTP for configuration and recovery. [Monitor](https://espectre.dev/tools/monitor/) uses Direct HTTP for broker-free local sensing. Direct is a trusted-LAN transport; browser support depends on the browser's mixed-content and local-network access policy. MQTT remains available to device integrations, Home Assistant, and the host CLI, but is not a browser Monitor transport.
 
 Web orchestration profiles add identity, tenancy, device claim, state mirrors, history, alerts, and OTA around the same protocol. Current protocol semantics remain here; future product outcomes, relay sequencing, and release gates belong to [ROADMAP.md](ROADMAP.md), while deployed component boundaries belong to [ARCHITECTURE.md](ARCHITECTURE.md).
 

@@ -289,6 +289,7 @@
             if (current) page.id = 'main-content';
             else page.removeAttribute('id');
         });
+        document.documentElement.removeAttribute('data-spa-booting');
         $$('[data-route-link]').forEach((link) => {
             const target = link.dataset.routeLink;
             const active = target === route

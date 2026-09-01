@@ -65,7 +65,7 @@ The shared `build-pages` action stages dependencies and artifacts, runs the web 
 
 The SPA uses canonical paths with the History API. Legacy root hash links remain valid entry points and are replaced with their registered canonical path. Static tool calls to action may use this legacy handoff so the browser opens the persistent shell without losing the selected tool.
 
-Configure and Monitor load with the shared device session. Raw CSI, Game, and Theremin load their scripts on first use through `data-script-src`. Keep `app.js` last among the core `defer` scripts because it binds their initializers.
+Device settings and Monitor load with the shared device session. CSI visualizer, Game, and Theremin load their scripts on first use through `data-script-src`. Keep `app.js` last among the core `defer` scripts because it binds their initializers.
 
 `assets/js/analytics.js` enables GA4 on production and allowlisted debug hosts only after explicit consent. The router sends manual `page_view` events with canonical `page_location`, `page_path`, `page_title`, and `content_group` values. GA4 page changes based on browser history events must remain disabled to avoid duplicate page views.
 
@@ -73,7 +73,7 @@ Analytics parameters must remain low-cardinality and must not include device IDs
 
 ## Direct HTTP
 
-`assets/js/espectre-direct.js` owns Direct HTTP POST, incremental SSE parsing, request correlation, abort, and reconnect behavior. Configure and the live tools share one connection picker with Local connection, Demo, and the planned Remote connection. Relay support is not implemented. The wire contract and capability boundaries are in [ESPECTRE_PROTOCOL.md](../ESPECTRE_PROTOCOL.md).
+`assets/js/espectre-direct.js` owns Direct HTTP POST, incremental SSE parsing, request correlation, abort, and reconnect behavior. Device settings and the live tools share one connection picker with Local connection, Demo, and the planned Remote connection. Relay support is not implemented. The wire contract and capability boundaries are in [ESPECTRE_PROTOCOL.md](../ESPECTRE_PROTOCOL.md).
 
 `assets/js/browser-support.js` owns the browser matrix and Local Network Access permission checks. The active connection picker reports recovery guidance for permission, Origin, discovery, timeout, protocol, and SSE capacity failures. Direct support does not scan the LAN or relax a global security header.
 

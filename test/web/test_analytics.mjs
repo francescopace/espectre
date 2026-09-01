@@ -282,13 +282,13 @@ describe('analytics route metadata', () => {
         assert.equal(after, before);
     });
 
-    it('reports the Raw CSI SPA route through its canonical page path', () => {
-        const { api, window } = analyticsContext({ path: '/tools/raw-csi/' });
+    it('reports the CSI visualizer SPA route through its canonical page path', () => {
+        const { api, window } = analyticsContext({ path: '/tools/csi-visualizer/' });
         api.enableAnalytics({ sendPageView: false });
         api.sendRoutePageView('tool-raw-csi');
         const pageView = window.dataLayer.at(-1);
         assert.equal(pageView[1], 'page_view');
-        assert.equal(pageView[2].page_path, '/tools/raw-csi/');
+        assert.equal(pageView[2].page_path, '/tools/csi-visualizer/');
         assert.equal(pageView[2].content_group, 'raw-csi');
     });
 });
@@ -326,7 +326,7 @@ describe('analytics automatic events', () => {
         assert.equal(window.dataLayer.at(-1)[1], 'click_contact');
         dispatchLink('mailto:security@espectre.dev');
         assert.equal(window.dataLayer.at(-1)[1], 'click_security');
-        dispatchLink('https://espectre.dev/tools/configure/');
+        dispatchLink('https://espectre.dev/tools/device-settings/');
         assert.equal(window.dataLayer.at(-1)[1], 'select_tool');
         assert.equal(window.dataLayer.at(-1)[2].tool_name, 'configure');
         consentBanner.hidden = true;

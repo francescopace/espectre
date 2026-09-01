@@ -134,15 +134,20 @@
         return Number(value).toFixed(digits) + suffix;
     }
 
+    function monitorSetStat(selector, value, digits, suffix) {
+        const element = $(selector);
+        if (element) element.textContent = monitorStat(value, digits, suffix);
+    }
+
     function monitorStats(data) {
-        $('.js-mon-traffic').textContent = monitorStat(data.traffic_tx_pps, 1, ' pps');
-        $('.js-mon-callbacks').textContent = monitorStat(data.csi_callback_pps, 1, ' pps');
-        $('.js-mon-filtered').textContent = monitorStat(data.csi_filtered_pps, 1, ' pps');
-        $('.js-mon-admitted').textContent = monitorStat(data.csi_admitted_pps, 1, ' pps');
-        $('.js-mon-channel').textContent = monitorStat(data.wifi_channel, 0, '');
-        $('.js-mon-rssi').textContent = monitorStat(data.wifi_rssi_dbm, 0, ' dBm');
-        $('.js-mon-heap').textContent = monitorStat(data.free_memory_kb, 1, ' KiB');
-        $('.js-mon-loop').textContent = monitorStat(data.loop_time_ms, 2, ' ms');
+        monitorSetStat('.js-mon-traffic', data.traffic_tx_pps, 1, ' pps');
+        monitorSetStat('.js-mon-callbacks', data.csi_callback_pps, 1, ' pps');
+        monitorSetStat('.js-mon-filtered', data.csi_filtered_pps, 1, ' pps');
+        monitorSetStat('.js-mon-admitted', data.csi_admitted_pps, 1, ' pps');
+        monitorSetStat('.js-mon-channel', data.wifi_channel, 0, '');
+        monitorSetStat('.js-mon-rssi', data.wifi_rssi_dbm, 0, ' dBm');
+        monitorSetStat('.js-mon-heap', data.free_memory_kb, 1, ' KiB');
+        monitorSetStat('.js-mon-loop', data.loop_time_ms, 2, ' ms');
     }
 
     function monitorDrawChart() {
@@ -224,6 +229,7 @@
 
     function monitorResizeChart() {
         const canvas = $('.js-mon-chart');
+        if (!canvas) return;
         const rect = canvas.getBoundingClientRect();
         if (rect.width > 0 && canvas.width !== Math.round(rect.width)) {
             canvas.width = Math.round(rect.width);

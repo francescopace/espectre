@@ -2,15 +2,15 @@
   SPDX-License-Identifier: GPL-3.0-only
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
-<h1 class="page-title">Raw Wi-Fi signal</h1>
-<p class="page-sub">Explore how the Wi-Fi signal changes over time. This advanced view pauses normal motion sensing while the signal stream is running.</p>
+<h1 class="page-title">CSI visualizer</h1>
+<p class="page-sub">Explore live Wi-Fi Channel State Information through amplitude, phase, and I/Q views. This advanced view pauses normal motion sensing while the signal stream is running.</p>
 
 <section class="tool-static-entry" aria-labelledby="raw-csi-static-title">
   <h2 id="raw-csi-static-title">Inspect the signal behind detection</h2>
-  <p>The Raw CSI viewer renders amplitude, change, phase, and I/Q views from a temporary stream produced by compatible firmware. It also reports delivery rate, dropped packets, RSSI, SNR, and capture timing.</p>
+  <p>The CSI visualizer renders amplitude, change, phase, and I/Q views from a temporary stream produced by compatible firmware. It also reports delivery rate, dropped packets, RSSI, SNR, and capture timing.</p>
   <p>Starting the stream pauses normal motion sensing until you stop it. Signal data travels directly from the selected device to this browser and is not uploaded or stored by the website.</p>
   <div class="tool-static-actions">
-    <a href="/#tool-raw-csi" class="btn-primary">Open the signal viewer</a>
+    <a href="/#tool-raw-csi" class="btn-primary">Open the CSI visualizer</a>
     <a href="/guides/detection/" class="btn-secondary">Understand CSI detection</a>
   </div>
 </section>
@@ -22,8 +22,8 @@
 
   <section class="device-connect-card connection-card empty-state js-raw-csi-unavailable" hidden>
     <span class="connection-card-eyebrow">Compatible firmware required</span>
-    <h2>This device cannot open the signal viewer</h2>
-    <p>The installed firmware does not support the Raw CSI viewer.</p>
+    <h2>This device cannot open the CSI visualizer</h2>
+    <p>The installed firmware does not support the CSI visualizer.</p>
     <div class="panel-actions">
       <button type="button" class="btn-primary js-raw-csi-choose-device">Choose another device</button>
     </div>
@@ -34,29 +34,29 @@
       <div class="raw-csi-visualizer-head">
         <div>
           <div class="raw-csi-visualizer-title">
-            <h2 class="js-raw-visualization-title">Channel heatmap</h2>
+            <h2 class="js-raw-visualization-title">Subcarrier amplitudes</h2>
             <span class="chip js-raw-visualization-badge">LIVE</span>
           </div>
-          <p class="tool-note raw-csi-visualization-description js-raw-visualization-description">Brightness shows signal strength. Cyan and coral show changes around the recent baseline.</p>
+          <p class="tool-note raw-csi-visualization-description js-raw-visualization-description">Each line tracks one subcarrier across the rolling time window. Colors distinguish lower, middle, and higher frequencies.</p>
         </div>
         <div class="raw-csi-visualization-actions">
           <button type="button" class="btn-primary btn-sm js-raw-csi-toggle">Start</button>
           <div class="field raw-csi-visualization-picker">
             <select id="raw-csi-visualization" class="js-raw-visualization-select" aria-label="Visualization">
-              <option value="channel-heatmap">Channel heatmap</option>
-              <option value="rf-waterfall">RF waterfall</option>
-              <option value="channel-ghost">Channel ghost</option>
+              <option value="subcarrier-amplitudes">Subcarrier amplitudes</option>
+              <option value="csi-amplitude-surface">CSI amplitude surface</option>
+              <option value="channel-profile-deviation">Channel profile deviation</option>
               <option value="iq-constellation">I/Q constellation</option>
-              <option value="phase-trails">Sanitized phase trails</option>
+              <option value="relative-phase-trails">Relative phase trails</option>
             </select>
           </div>
         </div>
       </div>
       <div class="raw-csi-visualization-stage">
-        <canvas class="js-raw-visualization" width="960" height="420" aria-label="Combined CSI amplitude and motion heatmap over time"></canvas>
+        <canvas class="js-raw-visualization" width="960" height="420" aria-label="Rolling CSI amplitude traces for each active subcarrier"></canvas>
       </div>
       <p class="tool-note js-raw-csi-status" role="status" aria-live="polite">Connected. Start the temporary signal stream when ready. Nothing is uploaded or stored.</p>
-      <p class="tool-note js-raw-csi-external-hint" hidden>This device is waiting for an external Wi-Fi traffic source. If the view stays empty, <a href="/tools/configure/">change the traffic source</a>.</p>
+      <p class="tool-note js-raw-csi-external-hint" hidden>This device is waiting for an external Wi-Fi traffic source. If the view stays empty, <a href="/tools/device-settings/">change the traffic source</a>.</p>
     </section>
 
     <details class="device-live-diagnostics raw-csi-diagnostics">

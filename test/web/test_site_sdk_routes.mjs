@@ -227,6 +227,33 @@ describe('website SDK route contracts', () => {
         assert.match(routeRegistry, /membersOf: \(group\) => byGroup\.get\(group\) \|\| emptyGroup/);
     });
 
+    it('keeps the supported chip column readable in the hardware guide', () => {
+        const hardware = read('docs/web/content/guides/hardware.html');
+        const chipTable = hardware.match(/<table class="hardware-chip-table">[\s\S]*?<\/table>/)?.[0] || '';
+        assert.match(hardware, /<table class="hardware-chip-table">/);
+        assert.match(hardware, /<th scope="col">CSI performance<\/th>/);
+        assert.match(hardware, /<th scope="col">RX sensitivity<\/th>/);
+        assert.match(hardware, /<th scope="col">Hardware notes<\/th>/);
+        assert.match(chipTable, /<strong>ESP32-C5<\/strong>[\s\S]*?<strong>ESP32-C6<\/strong>[\s\S]*?<strong>ESP32-C3<\/strong>[\s\S]*?<strong>ESP32-S3<\/strong>[\s\S]*?<strong>ESP32<\/strong>[\s\S]*?<strong>ESP32-S2<\/strong>/);
+        assert.match(hardware, /C5 &gt; C6 &gt; C3 ≈ S3 &gt; ESP32/);
+        assert.match(hardware, /<strong>ESP32-S2<\/strong><\/a><\/td><td>6th<\/td>/);
+        assert.match(hardware, /S2 is shown sixth to complete this table/);
+        assert.match(hardware, /Treat the order as a vendor ranking, not a measured precision value/);
+        assert.doesNotMatch(chipTable, /ESPectre|firmware|detector|Device settings/);
+        assert.doesNotMatch(chipTable, /documentation\.espressif\.com/);
+        assert.equal((chipTable.match(/https:\/\/www\.espressif\.com\/en\/products\/socs\/esp32/g) || []).length, 6);
+        assert.equal((hardware.match(/chip-csi-performance-ranking/g) || []).length, 1);
+        assert.match(chipTable, /384&nbsp;KB of SRAM/);
+        assert.match(chipTable, /full-speed USB OTG/);
+        assert.equal((hardware.match(/target="_blank" rel="noopener noreferrer"/g) || []).length, 7);
+        assert.equal((hardware.match(/&minus;[0-9.]+&nbsp;dBm/g) || []).length, 7);
+        assert.match(hardware, /values shown are typical at HT20 MCS0/);
+        assert.match(styles, /\.hardware-chip-table th:first-child,[^{]*\{[^}]*width: 100px;/);
+        assert.doesNotMatch(styles, /\.hardware-chip-table th:first-child,[^{]*\{[^}]*min-width:/);
+        assert.match(styles, /\.hardware-chip-table th:nth-child\(2\),[^{]*\{[^}]*width: 120px;/);
+        assert.match(styles, /\.hardware-chip-table th:nth-child\(3\),[^{]*\{[^}]*width: 160px;/);
+    });
+
     it('uses one cover, practical CLI sections, and the shared path across the official guides', () => {
         const guides = [
             { file: 'detection', cover: 'csi-multipath-room.avif', cli: null, coverAfter: null, coverBefore: 'detection-room', toc: false },

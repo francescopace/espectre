@@ -557,8 +557,9 @@
                 if (!item || !item.href) return;
                 try {
                     const returnedUrl = new URL(item.href, location.href);
-                    const configureUrl = new URL('/tools/configure/', location.origin);
+                    const configureUrl = new URL('/', location.origin);
                     configureUrl.search = returnedUrl.search;
+                    configureUrl.hash = 'tool-configure';
                     const destination = configureUrl.toString();
                     if (item.href !== destination) item.href = destination;
                     if (item.target !== '_self') item.target = '_self';
@@ -950,7 +951,7 @@
             result = 'unconfirmed';
             message = 'Wi-Fi reset sent. The device disconnected as expected; connect it to Wi-Fi again over USB.';
         }
-        ['cfg-ssid', 'cfg-wifi-band', 'cfg-channel', 'cfg-bssid'].forEach((id) => {
+        ['cfg-ssid', 'cfg-channel', 'cfg-wifi-band', 'cfg-wifi-phy', 'cfg-bssid'].forEach((id) => {
             document.getElementById(id).value = '';
         });
         track('configure_change', { action: 'clear_wifi', result });

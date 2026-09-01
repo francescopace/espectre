@@ -816,6 +816,10 @@
         if (snapshot.wifi_channel !== undefined) {
             set('cfg-channel', Number(snapshot.wifi_channel) > 0 ? snapshot.wifi_channel : 'Unknown');
         }
+        if (snapshot.csi_profile !== undefined) {
+            const profile = String(snapshot.csi_profile || '').trim().toLowerCase();
+            set('cfg-wifi-phy', profile ? profile.toUpperCase() : 'Unknown');
+        }
         if (snapshot.wifi_bssid !== undefined) {
             currentWifiBssid = String(snapshot.wifi_bssid || '').toUpperCase();
             const bssid = document.getElementById('cfg-bssid');
@@ -917,7 +921,8 @@
                 wifi_configured: 'true',
                 wifi_ssid: 'HomeNet',
                 wifi_band: '5g',
-                wifi_channel: '10',
+                wifi_channel: '48',
+                csi_profile: 'vht20',
                 wifi_bssid: '',
                 mqtt_host: 'homeassistant.local',
                 mqtt_port: '1883',

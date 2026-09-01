@@ -260,10 +260,10 @@ def test_improv_client_ignores_current_state_url_before_device_info():
 
 def test_improv_portal_url_builds_direct_endpoint_from_device_ip():
     assert direct_endpoint_from_device_url(
-        "https://espectre.dev/tools/configure/?target=192.0.2.10"
+        "https://espectre.dev/tools/device-settings/?target=192.0.2.10"
     ) == "http://192.0.2.10:62587/espectre/v1/request"
     assert direct_endpoint_from_device_url(
-        "https://espectre.dev/tools/configure/?target=192.0.2.10%3A62587"
+        "https://espectre.dev/tools/device-settings/?target=192.0.2.10%3A62587"
     ) == "http://192.0.2.10:62587/espectre/v1/request"
     assert direct_endpoint_from_device_url("http://192.0.2.10/custom") == "http://192.0.2.10/espectre/v1/request"
     with pytest.raises(ValueError, match="invalid device URL"):

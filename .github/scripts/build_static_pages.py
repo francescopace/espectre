@@ -75,7 +75,7 @@ PAGES = tuple(page_spec(route) for route in static_routes(ROUTE_MANIFEST))
 
 
 PAGE_TEMPLATE = """<!DOCTYPE html>
-<html lang="en" data-theme="light" data-static-page data-site-section="{content_group}">
+<html lang="en" data-theme="light" data-static-page data-spa-route="{name}" data-site-section="{content_group}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -93,6 +93,7 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 <meta name="twitter:image" content="{origin}/assets/images/brand/espectre-og.jpg">
 <link rel="icon" type="image/png" href="/assets/images/brand/favicon.png">
 <link rel="stylesheet" href="/assets/css/styles.css?v={styles_version}">
+<script src="/assets/js/route-bootstrap.js?v={route_bootstrap_version}"></script>
 <script src="/assets/js/route-registry.js?v={route_registry_version}" defer></script>
 <script src="/assets/js/navigation.js?v={navigation_version}" defer></script>
 <script src="/assets/js/analytics.js?v={analytics_version}" defer></script>
@@ -133,6 +134,7 @@ def breadcrumb(spec: dict[str, str]) -> str:
 
 def build() -> None:
     styles_version = asset_version("assets/css/styles.css")
+    route_bootstrap_version = asset_version("assets/js/route-bootstrap.js")
     route_registry_version = asset_version("assets/js/route-registry.js")
     navigation_version = asset_version("assets/js/navigation.js")
     analytics_version = asset_version("assets/js/analytics.js")
@@ -142,11 +144,13 @@ def build() -> None:
         content = (WEB_ROOT / spec["source"]).read_text().rstrip("\n")
         canonical = f"{SITE_ORIGIN}/{spec['output']}/"
         page = PAGE_TEMPLATE.format(
+            name=escape(spec["name"], quote=True),
             title=escape(spec["title"], quote=True),
             description=escape(spec["description"], quote=True),
             canonical=escape(canonical, quote=True),
             origin=escape(SITE_ORIGIN, quote=True),
             styles_version=styles_version,
+            route_bootstrap_version=route_bootstrap_version,
             route_registry_version=route_registry_version,
             navigation_version=navigation_version,
             analytics_version=analytics_version,

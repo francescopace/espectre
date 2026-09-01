@@ -35,11 +35,18 @@ describe('website accessibility and UX contracts', () => {
     it('provides skip navigation, tool page titles, and route focus management', () => {
         assert.match(index, /<a class="skip-link" href="#main-content"/);
         assert.match(index, /data-page="home" id="main-content" tabindex="-1"/);
-        for (const tool of ['flash', 'configure', 'monitor', 'raw-csi', 'theremin', 'game']) {
+        for (const [tool, path] of [
+            ['flash', 'flash'],
+            ['configure', 'device-settings'],
+            ['monitor', 'monitor'],
+            ['raw-csi', 'csi-visualizer'],
+            ['theremin', 'theremin'],
+            ['game', 'game'],
+        ]) {
             assert.match(index, new RegExp(`data-page="tool-${tool}"`));
             assert.equal(
                 routeManifest.routes.find((route) => route.name === `tool-${tool}`)?.staticPath,
-                `/tools/${tool}/`
+                `/tools/${path}/`
             );
             assert.match(toolContent[tool], /<h1 class="page-title">/);
         }
@@ -142,7 +149,7 @@ describe('website accessibility and UX contracts', () => {
         assert.match(actionHub, /<header class="home-action-head">\s*<h2 class="page-title" id="home-action-title">/);
         assert.match(actionHub, /class="home-action-group">\s*<span class="home-kicker">[\s\S]*?<div class="home-tool-grid"/);
         assert.match(actionHub, /href="\/tools\/flash\/" class="home-tool-card home-tool-card-primary"/);
-        assert.match(actionHub, /href="\/tools\/configure\/" class="home-tool-card"/);
+        assert.match(actionHub, /href="\/tools\/device-settings\/" class="home-tool-card"/);
         assert.match(actionHub, /href="\/tools\/monitor\/" class="home-tool-card"/);
         assert.match(actionHub, /class="home-action-group">[\s\S]*?<aside class="home-license-cta"/);
         assert.match(actionHub, /class="home-action-group">[\s\S]*?<div class="home-resource-strip"/);

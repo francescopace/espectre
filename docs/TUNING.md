@@ -215,7 +215,7 @@ If the device roams between access points that share an SSID, the radio path, ch
 
 In the browser:
 
-1. Open [Configure](https://espectre.dev/tools/configure/).
+1. Open [Device settings](https://espectre.dev/tools/device-settings/).
 2. Connect with the private IP, device name, full 16-character device ID, or the last 6 characters of that ID.
 3. Refresh the access-point list, select the BSSID you want, and save.
 
@@ -229,7 +229,7 @@ From the repository CLI:
 
 The scan is asynchronous, so wait a few seconds after `scan_wifi_access_points` before listing results. Use `--frontend native`, `--frontend esphome`, or `--frontend matter` to filter discovery, or use `--endpoint` when you already know the Direct URL. The station reconnects after a pin or clear.
 
-To restore automatic access-point selection without removing the SSID or password, choose automatic selection in Configure or run:
+To restore automatic access-point selection without removing the SSID or password, choose automatic selection in Device settings or run:
 
 ```bash
 ./espectre direct clear_wifi_bssid

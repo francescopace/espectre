@@ -31,12 +31,18 @@
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
         const link = event.target.closest('a[href]');
         if (!link || (link.target && link.target !== '_self')) return;
-        const target = window.ESPectreRoutes?.staticTargetForHref(
-            link.getAttribute('href'), window.location.href
-        );
-        if (!target) return;
+        const href = link.getAttribute('href');
+        let target = window.ESPectreRoutes?.staticTargetForHref(href, window.location.href);
+        let directTarget = '';
+        if (!target) {
+            const legacyRoute = href.startsWith('/#tool-') ? href.slice(2) : '';
+            if (!legacyRoute) return;
+            target = { route: legacyRoute, anchor: '' };
+            directTarget = new URLSearchParams(window.location.search).get('target') || '';
+        }
         event.preventDefault();
         const destination = new URL('/', window.location.href);
+        if (directTarget) destination.searchParams.set('target', directTarget);
         if (target.anchor) destination.searchParams.set('anchor', target.anchor);
         destination.hash = target.route;
         window.location.assign(destination.pathname + destination.search + destination.hash);

@@ -39,12 +39,12 @@ Native, ESPHome, and Matter can choose between a `lightweight` detector, which l
 
 ## Quick start
 
-The quickest path uses the browser and requires no local build environment. Use desktop Chrome 151 or later for the complete hosted workflow. Edge supports browser flashing, but compatibility with Configure and Monitor is not guaranteed:
+The quickest path uses the browser and requires no local build environment. Use desktop Chrome 151 or later for the complete hosted workflow. Edge supports browser flashing, but compatibility with Device settings and Monitor is not guaranteed:
 
 1. Open [Flash](https://espectre.dev/tools/flash/) in desktop Chrome or Edge.
 2. Connect a [supported ESP32](#supported-hardware) over USB, then choose a firmware and release channel.
 3. Complete on-screen Wi-Fi provisioning, or commission Matter with a supported controller.
-4. Optionally, open [Configure](https://espectre.dev/tools/configure/) to pin a preferred access point or set up MQTT.
+4. Optionally, open [Device settings](https://espectre.dev/tools/device-settings/) to pin a preferred access point or set up MQTT.
 5. Open [Monitor](https://espectre.dev/tools/monitor/) to watch motion, tune detection, and inspect the device.
 
 ![ESPectre Monitor](docs/web/assets/images/guides/sensing-dashboard.png)

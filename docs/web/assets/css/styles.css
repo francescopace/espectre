@@ -87,6 +87,7 @@ h1[tabindex="-1"]:focus { outline: none; }
 
 /* Layout rules below set display on components that also toggle [hidden]. */
 [hidden] { display: none !important; }
+html[data-spa-booting] .js-page[data-page="home"] { display: none; }
 
 h1, h2, h3 { font-family: var(--font-display); }
 .mono { font-family: var(--font-mono); }
@@ -1367,6 +1368,7 @@ espectre-direct-connect:not([hidden]) { display: contents; }
 .field input.mono-input { font-family: var(--font-mono); font-size: 12.5px; }
 .field-help { display: block; color: var(--dim); font-size: 11px; line-height: 1.45; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.wifi-link-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .mqtt-host-port-row { grid-template-columns: minmax(0, 1fr) 96px; }
 .credential-clear-control {
   display: flex;
@@ -2687,6 +2689,22 @@ ewt-install-dialog {
   background: var(--surface2);
 }
 .article tr:last-child td { border-bottom: none; }
+
+.article .hardware-chip-table th:first-child,
+.article .hardware-chip-table td:first-child {
+  width: 100px;
+  white-space: nowrap;
+}
+.article .hardware-chip-table th:nth-child(2),
+.article .hardware-chip-table td:nth-child(2) {
+  width: 120px;
+  white-space: nowrap;
+}
+.article .hardware-chip-table th:nth-child(3),
+.article .hardware-chip-table td:nth-child(3) {
+  width: 160px;
+  white-space: nowrap;
+}
 
 .article figure { margin: 20px 0; }
 .article figure img {

@@ -82,6 +82,7 @@ describe('website security, asset, and analytics contracts', () => {
         assert.deepEqual(
             firstPartyScripts.map((attrs) => attrs.match(/src="(\/assets\/js\/[^"?]+)/)[1]),
             [
+                '/assets/js/route-bootstrap.js',
                 '/assets/js/espectre-direct.js',
                 '/assets/js/browser-support.js',
                 '/assets/js/route-registry.js',
@@ -97,11 +98,12 @@ describe('website security, asset, and analytics contracts', () => {
         const deferredToolScripts = [...index.matchAll(/data-script-src="(\/assets\/js\/[^"?]+)(?:\?v=[0-9a-f]{12})?"/g)]
             .map((match) => match[1]);
         assert.deepEqual(new Set(deferredToolScripts), new Set([
-            '/assets/js/raw-csi-tool.js',
+            '/assets/js/csi-tool.js',
             '/assets/js/game-tool.js',
             '/assets/js/theremin-tool.js',
         ]));
-        for (const attrs of firstPartyScripts) {
+        assert.doesNotMatch(firstPartyScripts[0], /\bdefer\b/);
+        for (const attrs of firstPartyScripts.slice(1)) {
             assert.match(attrs, /\bdefer\b/, `expected defer on ${attrs.trim()}`);
         }
         assert.ok(index.indexOf('/assets/js/app.js') < index.indexOf('</head>'));

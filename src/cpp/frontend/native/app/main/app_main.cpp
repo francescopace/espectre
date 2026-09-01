@@ -153,7 +153,7 @@ std::string improv_device_url() {
   if (!g_wifi_manager.get_info(&wifi_info) || !wifi_info.connected || wifi_info.ip_address[0] == '\0') {
     return {};
   }
-  return std::string("https://espectre.dev/tools/configure/?target=") + wifi_info.ip_address;
+  return std::string("https://espectre.dev/tools/device-settings/?target=") + wifi_info.ip_address;
 }
 
 void sync_frontend_wifi_info() {

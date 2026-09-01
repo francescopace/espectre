@@ -300,6 +300,50 @@ describe('Direct HTTP request and SSE lifecycle', () => {
         client.close();
     });
 
+    it('retries a read-only request once after a transport failure', async () => {
+        let postCalls = 0;
+        const requestBodies = [];
+        globalThis.fetch = async (_url, options) => {
+            if (options.method === 'GET') return { ok: true, status: 200, body: pendingBody() };
+            postCalls += 1;
+            requestBodies.push(options.body);
+            if (postCalls === 1) throw new TypeError('stale persistent connection');
+            const request = JSON.parse(options.body);
+            return { ok: true, status: 200, text: async () => responseEnvelope(request, { healthy: true }) };
+        };
+        const client = new Client('192.168.1.42');
+        await client.connect();
+        assert.deepEqual(await client.request('diagnostics'), { healthy: true });
+        assert.equal(postCalls, 2);
+        assert.equal(requestBodies[0], requestBodies[1]);
+        client.close();
+    });
+
+    it('does not retry a mutating request after a transport failure', async () => {
+        let mutationCalls = 0;
+        globalThis.fetch = async (_url, options) => {
+            if (options.method === 'GET') return { ok: true, status: 200, body: pendingBody() };
+            const request = JSON.parse(options.body);
+            if (request.command === 'capabilities') {
+                return {
+                    ok: true,
+                    status: 200,
+                    text: async () => responseEnvelope(request, {
+                        commands: [{ name: 'capabilities' }, { name: 'set_sensing' }]
+                    })
+                };
+            }
+            mutationCalls += 1;
+            throw new TypeError('connection lost after send');
+        };
+        const client = new Client('192.168.1.42');
+        await client.connect();
+        await client.handshake();
+        await assert.rejects(client.request('set_sensing', { enabled: true }), (error) => error.code === 'connection_failed');
+        assert.equal(mutationCalls, 1);
+        client.close();
+    });
+
     it('rejects an oversized response while streaming it', async () => {
         globalThis.fetch = async (_url, options) => {
             if (options.method === 'GET') return { ok: true, status: 200, body: pendingBody() };

@@ -16,13 +16,14 @@ export const app = [
     'direct-discovery.js',
     'configure-tool.js',
     'monitor-tool.js',
-    'raw-csi-tool.js',
+    'csi-tool.js',
     'game-tool.js',
     'theremin-tool.js',
     'app.js',
 ].map((name) => read(`docs/web/assets/js/${name}`)).join('\n');
 export const directProtocol = read('docs/web/assets/js/espectre-direct.js');
 export const browserSupportSource = read('docs/web/assets/js/browser-support.js');
+export const routeBootstrap = read('docs/web/assets/js/route-bootstrap.js');
 export const routeRegistry = read('docs/web/assets/js/route-registry.js');
 export const routeManifest = JSON.parse(read('docs/web/routes.json'));
 export const styles = read('docs/web/assets/css/styles.css');
@@ -30,7 +31,13 @@ export const security = read('docs/web/content/security.html');
 export const toolsContent = read('docs/web/content/tools.html');
 export const toolContent = Object.fromEntries(
     ['flash', 'configure', 'monitor', 'raw-csi', 'theremin', 'game']
-        .map((slug) => [slug, read(`docs/web/content/tools/${slug}.html`)])
+        .map((slug) => [
+            slug,
+            read(`docs/web/content/tools/${{
+                configure: 'device-settings',
+                'raw-csi': 'csi-visualizer',
+            }[slug] || slug}.html`)
+        ])
 );
 export const toolFragments = Object.values(toolContent).join('\n');
 export const roadmapContent = read('docs/web/content/roadmap.html');

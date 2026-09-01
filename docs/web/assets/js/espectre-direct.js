@@ -36,6 +36,9 @@
         'set_traffic_generator_mode', 'set_wifi_bssid', 'set_sensing',
         'start_raw_stream', 'stop_raw_stream'
     ]));
+    const RETRYABLE_READ_METHODS = Object.freeze(new Set([
+        'capabilities', 'info', 'status', 'config', 'diagnostics', 'ota_status', 'wifi_access_points'
+    ]));
 
     class ESPectreDirectError extends Error {
         constructor(message, code = 'client_error') {
@@ -570,32 +573,38 @@
             if (new TextEncoder().encode(payload).byteLength > MAX_REQUEST_BYTES) {
                 throw new ESPectreDirectError('Direct request exceeds the 4096-byte limit.', 'frame_too_large');
             }
-            const controller = new AbortController();
-            this.#requestControllers.add(controller);
-            const timer = setTimeout(() => controller.abort('request timeout'), timeoutMs);
             const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
             if (method === 'stop_raw_stream' && this.#rawSessionId) {
                 headers.Authorization = `Bearer ${this.#rawSessionId}`;
             }
             let response;
             let text;
-            try {
-                response = await localFetch(this.#endpoint, {
-                    method: 'POST',
-                    headers,
-                    body: payload,
-                    signal: controller.signal
-                });
-                text = await readBoundedResponseText(response, MAX_RESPONSE_BYTES);
-            } catch (error) {
-                if (error instanceof ESPectreDirectError) throw error;
-                throw new ESPectreDirectError(
-                    controller.signal.aborted ? `Direct request ${method} timed out.` : `Direct HTTP request failed: ${error.message}`,
-                    controller.signal.aborted ? 'timeout' : 'connection_failed'
-                );
-            } finally {
-                clearTimeout(timer);
-                this.#requestControllers.delete(controller);
+            const attempts = RETRYABLE_READ_METHODS.has(method) ? 2 : 1;
+            for (let attempt = 0; attempt < attempts; attempt += 1) {
+                const controller = new AbortController();
+                this.#requestControllers.add(controller);
+                const timer = setTimeout(() => controller.abort('request timeout'), timeoutMs);
+                try {
+                    response = await localFetch(this.#endpoint, {
+                        method: 'POST',
+                        headers,
+                        body: payload,
+                        signal: controller.signal
+                    });
+                    text = await readBoundedResponseText(response, MAX_RESPONSE_BYTES);
+                    break;
+                } catch (error) {
+                    if (error instanceof ESPectreDirectError) throw error;
+                    const timedOut = controller.signal.aborted;
+                    if (!timedOut && !this.#closing && attempt + 1 < attempts) continue;
+                    throw new ESPectreDirectError(
+                        timedOut ? `Direct request ${method} timed out.` : `Direct HTTP request failed: ${error.message}`,
+                        timedOut ? 'timeout' : 'connection_failed'
+                    );
+                } finally {
+                    clearTimeout(timer);
+                    this.#requestControllers.delete(controller);
+                }
             }
             if (!response.ok) {
                 const detail = text.slice(0, 256).trim();

@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import { app, browserSupportSource, directProtocol, GPL_HTML_HEADER, index, read, roadmapContent, routeManifest, routeRegistry, security, styles, toolContent, toolFragments, toolsContent } from './fixtures/site_test_helpers.mjs';
+import { app, browserSupportSource, directProtocol, GPL_HTML_HEADER, index, read, roadmapContent, routeBootstrap, routeManifest, routeRegistry, security, styles, toolContent, toolFragments, toolsContent } from './fixtures/site_test_helpers.mjs';
 
 describe('website navigation contracts', () => {
     it('keeps one route registry aligned with the SPA pages and static paths', () => {
@@ -31,8 +31,15 @@ describe('website navigation contracts', () => {
         assert.match(index, /data-page="tools"[\s\S]*?<div class="js-static-content">/);
         assert.doesNotMatch(index.match(/data-page="tools"[\s\S]*?<\/main>/)?.[0] || '', /class="tools-grid"/);
         assert.match(toolsContent, /class="tools-grid"/);
-        for (const tool of ['flash', 'configure', 'monitor', 'raw-csi', 'theremin', 'game']) {
-            assert.match(toolsContent, new RegExp(`href="/tools/${tool}/"`));
+        for (const [tool, path] of [
+            ['flash', 'flash'],
+            ['configure', 'device-settings'],
+            ['monitor', 'monitor'],
+            ['raw-csi', 'csi-visualizer'],
+            ['theremin', 'theremin'],
+            ['game', 'game'],
+        ]) {
+            assert.match(toolsContent, new RegExp(`href="/tools/${path}/"`));
             assert.match(
                 index,
                 new RegExp(`data-page="tool-${tool}"[\\s\\S]*?<div class="js-static-content">`)
@@ -124,6 +131,31 @@ describe('website navigation contracts', () => {
         assert.match(app, /previousRoute !== 'sdk-api' \|\| nextRoute === 'sdk-api'[\s\S]*?searchParams\.delete\('api'\)[\s\S]*?searchParams\.delete\('member'\)[\s\S]*?history\.replaceState/);
     });
 
+    it('keeps the Home hero out of the first paint while a deep SPA route boots', () => {
+        const attributes = new Map();
+        const document = {
+            documentElement: {
+                dataset: {},
+                setAttribute: (name, value) => attributes.set(name, value),
+            },
+        };
+        const window = {
+            location: { hash: '#guide-setup' },
+        };
+        runInNewContext(routeBootstrap, { document, URL, window });
+        assert.equal(attributes.has('data-spa-booting'), true);
+        assert.match(styles, /html\[data-spa-booting\] \.js-page\[data-page="home"\] \{ display: none; \}/);
+        assert.match(index, /<script src="\/assets\/js\/route-bootstrap\.js\?v=[a-f0-9]{12}"><\/script>/);
+        assert.ok(
+            index.indexOf('route-bootstrap.js') < index.indexOf('espectre-direct.js'),
+            'the route bootstrap must run before deferred application scripts'
+        );
+        assert.match(
+            app,
+            /\$\$\('\.js-page'\)\.forEach[\s\S]*?document\.documentElement\.removeAttribute\('data-spa-booting'\)/
+        );
+    });
+
     it('resolves canonical page anchors before entering the SPA', () => {
         const window = { ESPectreRouteManifest: routeManifest };
         runInNewContext(routeRegistry, { Map, Object, Set, URL, window });
@@ -183,7 +215,7 @@ describe('website navigation contracts', () => {
                 }
             },
         };
-        runInNewContext(navigation, { document, URL, window });
+        runInNewContext(navigation, { document, URL, URLSearchParams, window });
 
         assert.deepEqual(replacements, ['https://espectre.dev/#contact']);
         let prevented = false;
@@ -218,12 +250,86 @@ describe('website navigation contracts', () => {
             },
             preventDefault: () => {},
         });
+        location.pathname = '/tools/device-settings/';
+        location.href = 'https://espectre.dev/tools/device-settings/?target=192.168.1.42';
+        location.search = '?target=192.168.1.42';
+        listeners.get('click')({
+            defaultPrevented: false,
+            button: 0,
+            metaKey: false,
+            ctrlKey: false,
+            shiftKey: false,
+            altKey: false,
+            target: {
+                closest: () => ({
+                    target: '',
+                    getAttribute: () => '/#tool-configure',
+                }),
+            },
+            preventDefault: () => {},
+        });
         assert.deepEqual(assignments, [
             '/#contact',
-            '/?anchor=roadmap-research-title#roadmap'
+            '/?anchor=roadmap-research-title#roadmap',
+            '/?target=192.168.1.42#tool-configure'
         ]);
         assert.match(app, /consumeRouteAnchorHandoff\(\);/);
         assert.match(app, /prepareRouteContent\(routeAtStart\)[\s\S]*?consumeDirectHandoff\(\);/);
+    });
+
+    it('returns a refreshed SPA route to the app shell without redirecting direct visits', () => {
+        const staticPageBuilder = read('.github/scripts/build_static_pages.py');
+
+        function runBootstrap({ navigationType, rememberedRoute }) {
+            const replacements = [];
+            const location = {
+                pathname: '/tools/monitor/',
+                href: 'https://espectre.dev/tools/monitor/?target=192.168.1.42#diagnostics',
+                search: '?target=192.168.1.42',
+                hash: '#diagnostics',
+                replace: (href) => replacements.push(href),
+            };
+            const document = {
+                documentElement: {
+                    dataset: { spaRoute: 'tool-monitor' },
+                    setAttribute: () => {},
+                },
+            };
+            const window = {
+                location,
+                history: {
+                    state: rememberedRoute ? { espectreRoute: rememberedRoute } : null,
+                    replaceState: () => {},
+                },
+                performance: { getEntriesByType: () => [{ type: navigationType }] },
+            };
+            runInNewContext(routeBootstrap, { document, URL, window });
+            return replacements;
+        }
+
+        const reload = runBootstrap({
+            navigationType: 'reload',
+            rememberedRoute: 'tool-monitor',
+        });
+        assert.deepEqual(reload, [
+            '/?target=192.168.1.42&anchor=diagnostics#tool-monitor'
+        ]);
+
+        const directVisit = runBootstrap({
+            navigationType: 'navigate',
+            rememberedRoute: 'tool-monitor',
+        });
+        assert.deepEqual(directVisit, []);
+
+        const standaloneReload = runBootstrap({
+            navigationType: 'reload',
+            rememberedRoute: '',
+        });
+        assert.deepEqual(standaloneReload, []);
+        assert.match(app, /pushState'[\s\S]*?\{ espectreRoute: target \}/);
+        assert.match(staticPageBuilder, /data-spa-route="\{name\}"/);
+        assert.match(staticPageBuilder, /route-bootstrap\.js\?v=\{route_bootstrap_version\}"><\/script>/);
+        assert.doesNotMatch(staticPageBuilder, /window\.location\.replace/);
     });
 
 });

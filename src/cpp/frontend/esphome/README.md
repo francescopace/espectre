@@ -23,7 +23,7 @@ After flashing, configure Wi-Fi with one of these provisioning paths:
 | USB | Use Improv Serial with `./espectre provision --ssid MyNetwork` or any Improv Serial-compatible web flasher, such as the [ESPectre web flasher](https://espectre.dev/tools/flash/) |
 | Captive portal | Connect to the `ESPectre Fallback` network and finish setup in the browser |
 
-All maintained ESPHome example configurations enable Improv Serial and return a Configure URL containing the provisioned device address.
+All maintained ESPHome example configurations enable Improv Serial and return a Device settings URL containing the provisioned device address.
 
 The maintained examples provision Wi-Fi through Improv Serial or the `ESPectre Fallback` captive portal and do not embed SSID, password, or BSSID in YAML. After the device is on the LAN, use the mesh Wi-Fi procedure in [`TUNING.md`](../../../../docs/TUNING.md#mesh-wi-fi-instability) if its access-point association is unstable. Direct `set_wifi_bssid` suspends sensing, verifies the selected association and IPv4 acquisition, persists the ESPectre-only pin, and starts a fresh calibration after reconnecting. The runtime verifies that managed traffic produces CSI callbacks after the live rearm and restarts once into the persisted configuration if the driver remains silent. ESPHome builds may enable the shared `ESPECTRE_CSI_REARM_IMMEDIATE_REBOOT` Kconfig option to reboot immediately instead of running the three-second verification watchdog. A failed update restores the previous pin. The command does not rewrite the ESPHome YAML or saved SSID and password.
 

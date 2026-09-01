@@ -34,10 +34,10 @@
     {
       "name": "tool-configure",
       "group": "tools",
-      "pathLabel": "Configure",
-      "title": "Configure | ESPectre",
+      "pathLabel": "Device settings",
+      "title": "Device settings | ESPectre",
       "description": "Connect directly to a local ESPectre device to manage its name, Wi-Fi link, MQTT integration, and firmware updates.",
-      "staticPath": "/tools/configure/",
+      "staticPath": "/tools/device-settings/",
       "analyticsName": "configure"
     },
     {
@@ -52,10 +52,10 @@
     {
       "name": "tool-raw-csi",
       "group": "tools",
-      "pathLabel": "Raw Signal",
-      "title": "Raw signal | ESPectre",
+      "pathLabel": "CSI visualizer",
+      "title": "CSI visualizer | ESPectre",
       "description": "Explore a temporary ESPectre CSI stream through amplitude, phase, I/Q, delivery, and signal-health views.",
-      "staticPath": "/tools/raw-csi/",
+      "staticPath": "/tools/csi-visualizer/",
       "analyticsName": "raw-csi"
     },
     {

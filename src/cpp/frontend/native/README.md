@@ -8,7 +8,7 @@ The normal browser workflow is:
 
 1. Open [Flash](https://espectre.dev/tools/flash/) in a supported Chromium browser and install the Native image for the detected chip.
 2. Complete the standard Improv Serial prompt to provision Wi-Fi over USB.
-3. Open Configure with the returned device URL, or enter the private IP, device name, full 16-character device ID, or last 6 ID characters.
+3. Open Device settings with the returned device URL, or enter the private IP, device name, full 16-character device ID, or last 6 ID characters.
 4. Use Direct HTTP to inspect status, reconcile or pin the associated BSSID, edit the device label, and add optional MQTT settings.
 5. Open Monitor for broker-free sensing over Direct HTTP. Use MQTT for Home Assistant, automation, remote brokers, and other broker-based clients.
 
@@ -51,11 +51,11 @@ The device advertises `_espectre._tcp` through mDNS with a stable `espectre-<dev
 
 ## Wi-Fi Provisioning and Recovery
 
-Standard Improv Serial remains available through the primary serial console. It owns the Wi-Fi SSID and password and returns `https://espectre.dev/tools/configure/?target=<device-ip>`; Configure uses the target to prefill its Direct connection field. The same parameter also accepts a device name or ID when a browser link is shared. BSSID selection, Wi-Fi removal, device-label, MQTT, sensing, and OTA operations belong to Direct HTTP. Direct reports the current SSID and active band as read-only values but does not expose the Wi-Fi password or band selection.
+Standard Improv Serial remains available through the primary serial console. It owns the Wi-Fi SSID and password and returns `https://espectre.dev/tools/device-settings/?target=<device-ip>`; Device settings uses the target to prefill its Direct connection field. The same parameter also accepts a device name or ID when a browser link is shared. BSSID selection, Wi-Fi removal, device-label, MQTT, sensing, and OTA operations belong to Direct HTTP. Direct reports the current SSID and active band as read-only values but does not expose the Wi-Fi password or band selection.
 
-Configure can scan asynchronously for access points that advertise the provisioned SSID. The station remains associated and Direct HTTP stays active during the scan, but off-channel radio work can briefly pause sensing and network traffic. Each protocol result contains the BSSID, channel, and RSSI; Configure displays the BSSID and signal strength, while retaining the channel only as an internal association hint. Choosing automatic selection clears both the BSSID pin and hint.
+Device settings can scan asynchronously for access points that advertise the provisioned SSID. The station remains associated and Direct HTTP stays active during the scan, but off-channel radio work can briefly pause sensing and network traffic. Each protocol result contains the BSSID, channel, and RSSI; Device settings displays the BSSID and signal strength, while retaining the channel only as an internal association hint. Choosing automatic selection clears both the BSSID pin and hint.
 
-The Direct `clear_wifi_config` action removes the provisioned SSID and password, disconnects the station, and returns the device to Improv Serial provisioning. Configure asks for confirmation before sending it because the active Direct session normally closes before a response can be observed.
+The Direct `clear_wifi_config` action removes the provisioned SSID and password, disconnects the station, and returns the device to Improv Serial provisioning. Device settings asks for confirmation before sending it because the active Direct session normally closes before a response can be observed.
 
 BSSID changes are staged. Native suspends sensing, attempts the selected access point, commits it only after association and address acquisition, and rolls back to the last-known-good settings when the attempt fails or times out. The verified reconnect normally resets the CSI pipeline and starts a fresh calibration without rebooting the device. After a live rearm, the shared C++ runtime waits for managed traffic and verifies that CSI callbacks resume; if traffic continues without a callback, it records a fault and restarts the device once into the already persisted configuration. Native, ESPHome, and Matter builds for chips with a driver that cannot recover CSI may enable `ESPECTRE_CSI_REARM_IMMEDIATE_REBOOT` to skip this verification and reboot as soon as sensing would resume. Direct and MQTT clients reconnect after the device address becomes reachable again. If an optional BSSID is unavailable, the provisioning policy can retry the same SSID without the pin instead of permanently stranding the device.
 

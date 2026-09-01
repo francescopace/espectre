@@ -1,5 +1,5 @@
 /*
- * ESPectre - Raw CSI tool
+ * ESPectre - CSI tool
  *
  * Part of the website application shell.
  *
@@ -14,46 +14,49 @@
 
     const RAW_CSI_V8_HEADER_BYTES = 64;
     const RAW_CSI_VISUAL_HISTORY = 720;
+    const RAW_CSI_AMPLITUDE_SURFACE_PACKETS = 96;
     const RAW_CSI_PHASE_HISTORY = 72;
-    const RAW_CSI_IQ_WINDOW_US = 2000000;
+    const RAW_CSI_IQ_WINDOW_US = 1000000;
     const RAW_CSI_IQ_EXTENT = 128;
     const RAW_CSI_VISUAL_STEP_US = 33333;
     const RAW_CSI_RENDER_INTERVAL_MS = 1000 / 30;
-    const RAW_CSI_CHANNEL_GHOST_GAIN = 5;
-    const RAW_CSI_PHASE_TRAIL_GAIN = 5;
+    const RAW_CSI_AMPLITUDE_SCALE_HEADROOM = 1.5;
+    const RAW_CSI_AMPLITUDE_SCALE_STEP = 25;
+    const RAW_CSI_CHANNEL_PROFILE_DEVIATION_GAIN = 5;
+    const RAW_CSI_RELATIVE_PHASE_TRAIL_GAIN = 5;
     const RAW_CSI_SELECTED_SUBCARRIERS = Object.freeze([4, 8, 13, 18, 23, 28, 36, 41, 46, 51, 56, 60]);
     const RAW_CSI_LIVE_SUBCARRIERS = Object.freeze(
         Array.from({ length: 57 }, (_unused, index) => index + 4).filter((index) => index !== 32));
     const RAW_CSI_VISUALIZATIONS = Object.freeze({
-        'channel-heatmap': Object.freeze({
-            title: 'Channel heatmap',
-            description: 'Brightness shows signal strength. Cyan and coral show changes around the recent baseline.',
+        'subcarrier-amplitudes': Object.freeze({
+            title: 'Subcarrier amplitudes',
+            description: 'Each line tracks one subcarrier across the rolling time window. Colors distinguish lower, middle, and higher frequencies.',
             badge: 'LIVE',
-            ariaLabel: 'Combined CSI amplitude and motion heatmap over time'
+            ariaLabel: 'Rolling CSI amplitude traces for each active subcarrier'
         }),
-        'rf-waterfall': Object.freeze({
-            title: 'RF waterfall',
-            description: 'Recent signal profiles move into the distance while movement changes the surface.',
+        'csi-amplitude-surface': Object.freeze({
+            title: 'CSI amplitude surface',
+            description: 'Shows amplitude across subcarriers and recent packets as a three-dimensional surface.',
             badge: 'LIVE',
-            ariaLabel: 'Perspective waterfall of recent CSI channel profiles'
+            ariaLabel: 'Three-dimensional CSI amplitude surface by subcarrier and packet'
         }),
-        'channel-ghost': Object.freeze({
-            title: 'Channel ghost',
-            description: 'The current signal is compared with its recent baseline. Changes are enlarged 5× so they are easier to see.',
+        'channel-profile-deviation': Object.freeze({
+            title: 'Channel profile deviation',
+            description: 'Compares the current channel profile with its recent baseline. Deviations are amplified 5× for visibility.',
             badge: 'LIVE',
-            ariaLabel: 'Current normalized CSI channel profile compared with its baseline'
+            ariaLabel: 'Current normalized CSI channel profile and its recent baseline'
         }),
         'iq-constellation': Object.freeze({
             title: 'I/Q constellation',
-            description: 'Recent raw Espressif I/Q samples from the 12 production subcarriers over a two-second window.',
+            description: 'Plots raw I/Q samples collected during the last second.',
             badge: 'LIVE',
-            ariaLabel: 'Recent raw CSI I and Q constellation samples by subcarrier'
+            ariaLabel: 'One-second I and Q constellation for all active CSI subcarriers'
         }),
-        'phase-trails': Object.freeze({
-            title: 'Sanitized phase trails',
-            description: 'Experimental relative I/Q phase with 5× trail spread after common packet rotation and linear phase ramp are removed.',
+        'relative-phase-trails': Object.freeze({
+            title: 'Relative phase trails',
+            description: 'Relative I/Q phase after removing common packet rotation and the linear phase ramp. Trail spread is amplified 5×.',
             badge: 'EXPERIMENTAL',
-            ariaLabel: 'Experimental sanitized CSI phase constellation trails'
+            ariaLabel: 'Experimental relative CSI phase constellation trails'
         })
     });
     const rawCsi = {
@@ -67,7 +70,11 @@
         startRequest: null,
         stopPromise: null,
         parser: null,
-        visualization: 'channel-heatmap',
+        visualization: 'subcarrier-amplitudes',
+        amplitudePackets: [],
+        amplitudePacketSequences: [],
+        amplitudePacketSequence: 0,
+        amplitudeFrames: [],
         profiles: [],
         deltas: [],
         timestampsUs: [],
@@ -77,6 +84,7 @@
         baseline: null,
         latestProfile: null,
         latestDelta: null,
+        amplitudeMaximum: 0,
         lastCaptureTicksUs: 0,
         lastVisualTicksUs: 0,
         lastRenderAt: 0,
@@ -93,8 +101,6 @@
         metricsFresh: 0,
         metricsDropped: 0,
         metricsBackpressure: 0,
-        heatmapSurface: null,
-        heatmapPixels: null,
         resizeObserver: null
     };
 
@@ -259,7 +265,37 @@
         return Array.from({ length }, (_unused, index) => index);
     }
 
+    function rawCsiVisibleSubcarriers(amplitudes) {
+        if (amplitudes.length === 64) return RAW_CSI_LIVE_SUBCARRIERS;
+        let first = 0;
+        while (first < amplitudes.length && amplitudes[first] <= 0) first += 1;
+        let last = amplitudes.length - 1;
+        while (last >= first && amplitudes[last] <= 0) last -= 1;
+        if (last < first) return [];
+        return Array.from({ length: last - first + 1 }, (_unused, index) => first + index)
+            .filter((index) => amplitudes[index] > 0);
+    }
+
+    function rawCsiUpdateAmplitudeMaximum(amplitudes) {
+        if (rawCsi.amplitudeMaximum > 0) return;
+        let peak = 0;
+        rawCsiVisibleSubcarriers(amplitudes).forEach((subcarrier) => {
+            peak = Math.max(peak, amplitudes[subcarrier] || 0);
+        });
+        if (peak <= 0) return;
+        rawCsi.amplitudeMaximum = Math.max(
+            RAW_CSI_AMPLITUDE_SCALE_STEP,
+            Math.ceil(
+                peak * RAW_CSI_AMPLITUDE_SCALE_HEADROOM / RAW_CSI_AMPLITUDE_SCALE_STEP
+            ) * RAW_CSI_AMPLITUDE_SCALE_STEP
+        );
+    }
+
     function rawCsiResetVisualization() {
+        rawCsi.amplitudePackets.length = 0;
+        rawCsi.amplitudePacketSequences.length = 0;
+        rawCsi.amplitudePacketSequence = 0;
+        rawCsi.amplitudeFrames.length = 0;
         rawCsi.profiles.length = 0;
         rawCsi.deltas.length = 0;
         rawCsi.timestampsUs.length = 0;
@@ -269,6 +305,7 @@
         rawCsi.baseline = null;
         rawCsi.latestProfile = null;
         rawCsi.latestDelta = null;
+        rawCsi.amplitudeMaximum = 0;
         rawCsi.lastCaptureTicksUs = 0;
         rawCsi.lastVisualTicksUs = 0;
         rawCsi.lastRenderAt = 0;
@@ -312,7 +349,7 @@
         return delta;
     }
 
-    function rawCsiSanitizedPhase(iValues, qValues, profile) {
+    function rawCsiRelativePhase(iValues, qValues, profile) {
         if (profile.length !== 64) return null;
         const residualReal = new Float32Array(profile.length - 1);
         const residualImag = new Float32Array(profile.length - 1);
@@ -339,16 +376,25 @@
             const left = subcarrier === 60 ? 59 : subcarrier;
             const real = residualReal[left];
             const imag = residualImag[left];
-            const sanitizedReal = real * commonUnitReal + imag * commonUnitImag;
-            const sanitizedImag = imag * commonUnitReal - real * commonUnitImag;
+            const relativeReal = real * commonUnitReal + imag * commonUnitImag;
+            const relativeImag = imag * commonUnitReal - real * commonUnitImag;
             const radius = 0.32 + 0.68 * Math.min(1, profile[subcarrier] / 2);
-            result[index * 2] = sanitizedReal * radius;
-            result[index * 2 + 1] = sanitizedImag * radius;
+            result[index * 2] = relativeReal * radius;
+            result[index * 2 + 1] = relativeImag * radius;
         });
         return result;
     }
 
     function rawCsiIngestVisualFrame(amplitudes, iValues, qValues, captureTicksUs) {
+        rawCsiUpdateAmplitudeMaximum(amplitudes);
+        rawCsi.amplitudePacketSequence += 1;
+        rawCsiPushBounded(
+            rawCsi.amplitudePackets, amplitudes.slice(), RAW_CSI_AMPLITUDE_SURFACE_PACKETS);
+        rawCsiPushBounded(
+            rawCsi.amplitudePacketSequences,
+            rawCsi.amplitudePacketSequence,
+            RAW_CSI_AMPLITUDE_SURFACE_PACKETS
+        );
         const profile = rawCsiNormalizeProfile(amplitudes);
         const delta = rawCsiUpdateBaseline(profile, captureTicksUs);
         rawCsi.latestProfile = profile;
@@ -359,11 +405,12 @@
             return;
         }
         rawCsiPushBounded(rawCsi.profiles, profile, RAW_CSI_VISUAL_HISTORY);
+        rawCsiPushBounded(rawCsi.amplitudeFrames, amplitudes.slice(), RAW_CSI_VISUAL_HISTORY);
         rawCsiPushBounded(rawCsi.deltas, delta, RAW_CSI_VISUAL_HISTORY);
         rawCsiPushBounded(rawCsi.timestampsUs, captureTicksUs, RAW_CSI_VISUAL_HISTORY);
-        const sanitizedPhase = rawCsiSanitizedPhase(iValues, qValues, profile);
-        if (sanitizedPhase) {
-            rawCsiPushBounded(rawCsi.phaseHistory, sanitizedPhase, RAW_CSI_PHASE_HISTORY);
+        const relativePhase = rawCsiRelativePhase(iValues, qValues, profile);
+        if (relativePhase) {
+            rawCsiPushBounded(rawCsi.phaseHistory, relativePhase, RAW_CSI_PHASE_HISTORY);
         }
         const iq = new Float32Array(iValues.length * 2);
         iValues.forEach((value, index) => {
@@ -425,162 +472,322 @@
         return `rgba(${channels[0]}, ${channels[1]}, ${channels[2]}, ${alpha})`;
     }
 
-    function rawCsiWriteChannelPixel(pixels, offset, amplitude, delta) {
-        const level = Math.max(0, Math.min(1, amplitude / 2.2));
-        const motion = Math.sqrt(Math.min(1, Math.abs(delta) / 0.32));
-        const baseRed = 8 + level * 46;
-        const baseGreen = 8 + level * 34;
-        const baseBlue = 24 + level * 126;
-        const negative = delta < 0;
-        pixels[offset] = Math.round(baseRed + ((negative ? 42 : 255) - baseRed) * motion);
-        pixels[offset + 1] = Math.round(baseGreen + ((negative ? 220 : 74) - baseGreen) * motion);
-        pixels[offset + 2] = Math.round(baseBlue + ((negative ? 255 : 105) - baseBlue) * motion);
-        pixels[offset + 3] = 255;
+    function rawCsiAmplitudeSurfaceColor(value, minimum, maximum) {
+        const span = Math.max(1e-6, maximum - minimum);
+        const intensity = Math.pow(Math.max(0, Math.min(1, (value - minimum) / span)), .72);
+        const hue = Math.round(270 - intensity * 220);
+        const lightness = Math.round(48 + intensity * 10);
+        return `hsl(${hue} 94% ${lightness}%)`;
     }
 
-    function rawCsiWaterfallColor(active, alpha = 1) {
-        const intensity = Math.max(0, Math.min(1, active));
-        const hue = Math.round(205 - intensity * 157);
-        const saturation = Math.round(88 + intensity * 8);
-        const lightness = Math.round(61 + intensity * 4);
-        return `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha})`;
+    function rawCsiAmplitudeColor(position, count, alpha = 1) {
+        const band = Math.min(2, Math.floor(position * 3 / Math.max(1, count)));
+        const colors = [[255, 66, 92], [52, 211, 109], [30, 211, 238]];
+        const [red, green, blue] = colors[band];
+        return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
     }
 
-    function rawCsiDrawHeatmap(context, canvas) {
-        if (!rawCsi.profiles.length) {
+    function rawCsiDrawSubcarrierAmplitudes(context, canvas) {
+        if (!rawCsi.amplitudeFrames.length) {
             rawCsiDrawEmpty(context, canvas);
             return;
         }
         rawCsiClearCanvas(context, canvas);
-        const left = 58;
-        const top = 24;
-        const width = canvas.width - left - 22;
-        const height = canvas.height - top - 48;
-        context.fillStyle = '#09091c';
-        context.fillRect(left, top, width, height);
-        const rows = rawCsi.profiles[0].length;
-        if (!rawCsi.heatmapSurface) rawCsi.heatmapSurface = document.createElement('canvas');
-        const surface = rawCsi.heatmapSurface;
-        if (surface.width !== RAW_CSI_VISUAL_HISTORY || surface.height !== rows) {
-            surface.width = RAW_CSI_VISUAL_HISTORY;
-            surface.height = rows;
-            rawCsi.heatmapPixels = null;
+        const frames = rawCsi.amplitudeFrames;
+        const latest = frames[frames.length - 1];
+        const visibleSubcarriers = rawCsiVisibleSubcarriers(latest);
+        const activeCount = visibleSubcarriers.length;
+        const left = 54;
+        const right = canvas.width - 22;
+        const top = 56;
+        const bottom = canvas.height - 42;
+        const width = right - left;
+        const height = bottom - top;
+        const maximum = Math.max(RAW_CSI_AMPLITUDE_SCALE_STEP, rawCsi.amplitudeMaximum);
+        const firstHistorySlot = RAW_CSI_VISUAL_HISTORY - frames.length;
+        const xForFrame = (index) => left
+            + (firstHistorySlot + index) * width / (RAW_CSI_VISUAL_HISTORY - 1);
+        const yForAmplitude = (value) => bottom
+            - Math.min(maximum, Math.max(0, value)) * height / maximum;
+
+        context.strokeStyle = 'rgba(255, 255, 255, .13)';
+        context.lineWidth = 1;
+        for (let tick = 0; tick <= 4; tick += 1) {
+            const value = maximum * tick / 4;
+            const y = yForAmplitude(value);
+            context.beginPath();
+            context.moveTo(left, y);
+            context.lineTo(right, y);
+            context.stroke();
+            context.fillStyle = 'rgba(255, 255, 255, .48)';
+            context.font = '11px ui-monospace, "SFMono-Regular", Consolas, monospace';
+            context.textAlign = 'right';
+            context.textBaseline = 'middle';
+            context.fillText(String(Math.round(value)), left - 9, y);
         }
-        const surfaceContext = surface.getContext('2d');
-        if (!rawCsi.heatmapPixels) {
-            rawCsi.heatmapPixels = surfaceContext.createImageData(RAW_CSI_VISUAL_HISTORY, rows);
-        }
-        const pixels = rawCsi.heatmapPixels;
-        const data = pixels.data;
-        for (let offset = 0; offset < data.length; offset += 4) {
-            data[offset] = 9;
-            data[offset + 1] = 9;
-            data[offset + 2] = 28;
-            data[offset + 3] = 255;
-        }
-        const startColumn = RAW_CSI_VISUAL_HISTORY - rawCsi.profiles.length;
-        rawCsi.profiles.forEach((profile, profileIndex) => {
-            profile.forEach((value, subcarrier) => {
-                const offset = (subcarrier * RAW_CSI_VISUAL_HISTORY
-                    + startColumn + profileIndex) * 4;
-                rawCsiWriteChannelPixel(
-                    data, offset, value, rawCsi.deltas[profileIndex]?.[subcarrier] || 0);
+
+        visibleSubcarriers.forEach((subcarrier, position) => {
+            context.strokeStyle = rawCsiAmplitudeColor(position, visibleSubcarriers.length, 0.26);
+            context.lineWidth = 0.9;
+            context.beginPath();
+            let drawing = false;
+            frames.forEach((frame, frameIndex) => {
+                const amplitude = frame[subcarrier];
+                if (!Number.isFinite(amplitude) || amplitude <= 0) {
+                    drawing = false;
+                    return;
+                }
+                const x = xForFrame(frameIndex);
+                const y = yForAmplitude(amplitude);
+                if (!drawing) context.moveTo(x, y);
+                else context.lineTo(x, y);
+                drawing = true;
             });
+            context.stroke();
         });
-        surfaceContext.putImageData(pixels, 0, 0);
-        context.imageSmoothingEnabled = false;
-        context.drawImage(surface, left, top, width, height);
-        context.imageSmoothingEnabled = true;
-        context.strokeStyle = 'rgba(255, 255, 255, .15)';
+
+        context.strokeStyle = 'rgba(255, 255, 255, .32)';
         context.strokeRect(left + 0.5, top + 0.5, width - 1, height - 1);
         context.fillStyle = 'rgba(255, 255, 255, .55)';
         context.font = '12px ui-monospace, "SFMono-Regular", Consolas, monospace';
-        context.textAlign = 'right';
-        context.textBaseline = 'middle';
-        context.fillText('−32', left - 10, top + 4);
-        context.fillText('0', left - 10, top + height / 2);
-        context.fillText('+31', left - 10, top + height - 4);
         context.textAlign = 'left';
         context.textBaseline = 'alphabetic';
-        context.fillText('SUBCARRIER', left, canvas.height - 14);
+        context.fillStyle = rawCsiAmplitudeColor(0, 3, .82);
+        context.fillText('LOW', left, 28);
+        context.fillStyle = rawCsiAmplitudeColor(1, 3, .82);
+        context.fillText('MID', left + 42, 28);
+        context.fillStyle = rawCsiAmplitudeColor(2, 3, .82);
+        context.fillText('HIGH', left + 84, 28);
         context.textAlign = 'right';
-        context.fillText('RECENT TIME →', left + width, canvas.height - 14);
-        RAW_CSI_SELECTED_SUBCARRIERS.forEach((subcarrier) => {
-            const y = top + (subcarrier + 0.5) * height / rawCsi.profiles[0].length;
-            context.fillStyle = 'rgba(255, 255, 255, .72)';
-            context.fillRect(left - 4, y - 1, 4, 2);
-        });
+        context.fillStyle = 'rgba(255, 255, 255, .84)';
+        context.font = '600 16px ui-sans-serif, system-ui, sans-serif';
+        const countLabel = canvas.width < 540
+            ? `${activeCount} SUBCARRIERS`
+            : `${activeCount} SUBCARRIER AMPLITUDES`;
+        context.fillText(countLabel, right, 29);
+        context.fillStyle = 'rgba(255, 255, 255, .52)';
+        context.font = '12px ui-monospace, "SFMono-Regular", Consolas, monospace';
+        context.textAlign = 'left';
+        context.fillText('PAST', left, canvas.height - 16);
+        context.textAlign = 'center';
+        context.fillText('RECENT TIME →', (left + right) / 2, canvas.height - 16);
+        context.textAlign = 'right';
+        context.fillText('NOW', right, canvas.height - 16);
     }
 
-    function rawCsiDrawWaterfall(context, canvas) {
-        if (!rawCsi.profiles.length) {
+    function rawCsiDrawAmplitudeSurface(context, canvas) {
+        if (rawCsi.amplitudePackets.length < 2) {
             rawCsiDrawEmpty(context, canvas);
             return;
         }
         rawCsiClearCanvas(context, canvas);
-        const profiles = rawCsi.profiles.slice(-48);
-        const deltas = rawCsi.deltas.slice(-profiles.length);
-        const centerX = canvas.width / 2;
-        const backY = 54;
-        const frontY = canvas.height - 58;
-        const maximumSpan = canvas.width - 110;
-        context.strokeStyle = 'rgba(77, 156, 255, .14)';
+        context.fillStyle = '#fbfcfe';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        const packets = rawCsi.amplitudePackets;
+        const packetSequences = rawCsi.amplitudePacketSequences;
+        const latest = packets[packets.length - 1];
+        const subcarriers = rawCsiVisibleSubcarriers(latest);
+        if (subcarriers.length < 2) {
+            rawCsiDrawEmpty(context, canvas, 'Waiting for CSI subcarriers…');
+            return;
+        }
+        const firstSubcarrier = subcarriers[0];
+        const lastSubcarrier = subcarriers[subcarriers.length - 1];
+        const subcarrierSpan = Math.max(1, lastSubcarrier - firstSubcarrier);
+        const originX = canvas.width * .47;
+        const originY = canvas.height - 38;
+        const subcarrierX = -canvas.width * .34;
+        const subcarrierY = -canvas.height * .14;
+        const packetX = canvas.width * .44;
+        const packetY = -canvas.height * .17;
+        const amplitudeSpan = Math.max(60, Math.min(
+            canvas.height * .54,
+            originY + subcarrierY + packetY - 24
+        ));
+        let peak = 0;
+        let floor = Number.POSITIVE_INFINITY;
+        packets.forEach((packet) => {
+            subcarriers.forEach((subcarrier) => {
+                const amplitude = packet[subcarrier] || 0;
+                if (amplitude <= 0) return;
+                peak = Math.max(peak, amplitude);
+                floor = Math.min(floor, amplitude);
+            });
+        });
+        const maximum = Math.max(RAW_CSI_AMPLITUDE_SCALE_STEP, rawCsi.amplitudeMaximum);
+        if (!Number.isFinite(floor)) floor = 0;
+        const project = (subcarrier, packetPosition, amplitude) => {
+            const frequency = (lastSubcarrier - subcarrier) / subcarrierSpan;
+            return {
+                x: originX + frequency * subcarrierX + packetPosition * packetX,
+                y: originY + frequency * subcarrierY + packetPosition * packetY
+                    - Math.max(0, Math.min(maximum, amplitude)) * amplitudeSpan / maximum
+            };
+        };
+        const segments = [[0, subcarriers.length - 1]];
+
+        context.strokeStyle = 'rgba(71, 85, 105, .16)';
         context.lineWidth = 1;
-        for (let line = 0; line <= 8; line += 1) {
-            const x = centerX - maximumSpan / 2 + line * maximumSpan / 8;
+        for (let tick = 0; tick <= 4; tick += 1) {
+            const packetPosition = tick / 4;
+            const start = project(firstSubcarrier, packetPosition, 0);
+            const end = project(lastSubcarrier, packetPosition, 0);
             context.beginPath();
-            context.moveTo(centerX + (x - centerX) * 0.62, backY);
-            context.lineTo(x, frontY);
+            context.moveTo(start.x, start.y);
+            context.lineTo(end.x, end.y);
             context.stroke();
         }
-        profiles.forEach((profile, profileIndex) => {
-            const depth = profiles.length === 1 ? 1 : profileIndex / (profiles.length - 1);
-            const yBase = backY + depth * (frontY - backY);
-            const span = maximumSpan * (0.62 + depth * 0.38);
-            const xStart = centerX - span / 2;
-            let energy = 0;
-            RAW_CSI_LIVE_SUBCARRIERS.forEach((subcarrier) => {
-                energy += Math.abs(deltas[profileIndex][subcarrier]);
+        for (let tick = 0; tick <= 8; tick += 1) {
+            const subcarrier = firstSubcarrier + subcarrierSpan * tick / 8;
+            const front = project(subcarrier, 0, 0);
+            const back = project(subcarrier, 1, 0);
+            context.beginPath();
+            context.moveTo(front.x, front.y);
+            context.lineTo(back.x, back.y);
+            context.stroke();
+        }
+        for (let tick = 0; tick <= 4; tick += 1) {
+            const amplitude = maximum * tick / 4;
+            const front = project(firstSubcarrier, 0, amplitude);
+            const back = project(firstSubcarrier, 1, amplitude);
+            const backRight = project(lastSubcarrier, 1, amplitude);
+            context.beginPath();
+            context.moveTo(front.x, front.y);
+            context.lineTo(back.x, back.y);
+            context.lineTo(backRight.x, backRight.y);
+            context.stroke();
+        }
+
+        const projectedRows = packets.map((packet, packetIndex) => {
+            const packetPosition = packetIndex / (RAW_CSI_AMPLITUDE_SURFACE_PACKETS - 1);
+            return subcarriers.map((subcarrier) => {
+                const amplitude = packet[subcarrier] || 0;
+                const point = project(subcarrier, packetPosition, amplitude);
+                return { ...point, amplitude };
             });
-            energy /= RAW_CSI_LIVE_SUBCARRIERS.length;
-            const active = Math.sqrt(Math.min(1, energy / 0.08));
-            const alpha = 0.16 + depth * 0.7;
-            context.strokeStyle = rawCsiWaterfallColor(active, alpha);
-            context.lineWidth = profileIndex === profiles.length - 1 ? 2.8 : 1 + active * 0.55;
-            context.shadowColor = profileIndex === profiles.length - 1
-                ? rawCsiWaterfallColor(active, .9) : 'transparent';
-            context.shadowBlur = profileIndex === profiles.length - 1 ? 14 : 0;
-            [[4, 31], [33, 60]].forEach(([start, end]) => {
+        });
+        context.save();
+        context.globalAlpha = .95;
+        for (let row = projectedRows.length - 2; row >= 0; row -= 1) {
+            segments.forEach(([start, end]) => {
+                for (let position = start; position < end; position += 1) {
+                    const backLeft = projectedRows[row][position];
+                    const backRight = projectedRows[row][position + 1];
+                    const frontRight = projectedRows[row + 1][position + 1];
+                    const frontLeft = projectedRows[row + 1][position];
+                    const amplitude = (backLeft.amplitude + backRight.amplitude
+                        + frontRight.amplitude + frontLeft.amplitude) / 4;
+                    context.fillStyle = rawCsiAmplitudeSurfaceColor(amplitude, floor, peak);
+                    context.beginPath();
+                    context.moveTo(backLeft.x, backLeft.y);
+                    context.lineTo(backRight.x, backRight.y);
+                    context.lineTo(frontRight.x, frontRight.y);
+                    context.lineTo(frontLeft.x, frontLeft.y);
+                    context.closePath();
+                    context.fill();
+                }
+            });
+        }
+        context.restore();
+
+        const rowStep = Math.max(1, Math.floor(projectedRows.length / 12));
+        projectedRows.forEach((points, row) => {
+            if (row % rowStep && row !== projectedRows.length - 1) return;
+            context.strokeStyle = row === projectedRows.length - 1
+                ? 'rgba(15, 23, 42, .34)' : 'rgba(15, 23, 42, .1)';
+            context.lineWidth = row === projectedRows.length - 1 ? 1.35 : .65;
+            segments.forEach(([start, end]) => {
                 context.beginPath();
-                for (let subcarrier = start; subcarrier <= end; subcarrier += 1) {
-                    const frequencyPosition = (subcarrier - 4) / 56;
-                    const x = xStart + frequencyPosition * span;
-                    const y = yBase - (Math.max(0, Math.min(2.4, profile[subcarrier])) - 1) * 31;
-                    if (subcarrier === start) context.moveTo(x, y);
-                    else context.lineTo(x, y);
+                for (let position = start; position <= end; position += 1) {
+                    const point = points[position];
+                    if (position === start) context.moveTo(point.x, point.y);
+                    else context.lineTo(point.x, point.y);
                 }
                 context.stroke();
             });
         });
-        context.shadowBlur = 0;
-        context.fillStyle = 'rgba(255, 255, 255, .55)';
-        context.font = '12px ui-monospace, "SFMono-Regular", Consolas, monospace';
-        context.textAlign = 'left';
-        context.fillText('PAST', centerX - maximumSpan * 0.31, backY - 18);
-        context.fillText('NOW', centerX - maximumSpan / 2, frontY + 28);
-        context.textAlign = 'right';
-        context.fillText('SUBCARRIER →', centerX + maximumSpan / 2, frontY + 28);
-        context.textAlign = 'center';
-        context.fillStyle = 'rgba(255, 255, 255, .48)';
-        context.fillText('QUIET VIOLET  ·  MOTION CORAL', centerX, canvas.height - 14);
-        RAW_CSI_SELECTED_SUBCARRIERS.forEach((subcarrier) => {
-            const x = centerX - maximumSpan / 2 + (subcarrier - 4) * maximumSpan / 56;
-            context.fillStyle = 'rgba(255, 255, 255, .7)';
-            context.fillRect(x - 1, frontY + 5, 2, 5);
+
+        const columnStep = Math.max(1, Math.floor(subcarriers.length / 12));
+        subcarriers.forEach((_subcarrier, position) => {
+            if (position % columnStep && position !== subcarriers.length - 1) return;
+            context.strokeStyle = 'rgba(15, 23, 42, .1)';
+            context.lineWidth = .6;
+            context.beginPath();
+            projectedRows.forEach((points, row) => {
+                const point = points[position];
+                if (row === 0) context.moveTo(point.x, point.y);
+                else context.lineTo(point.x, point.y);
+            });
+            context.stroke();
         });
+
+        const surfaceOrigin = project(firstSubcarrier, 0, 0);
+        const subcarrierEnd = project(lastSubcarrier, 0, 0);
+        const packetEnd = project(firstSubcarrier, 1, 0);
+        const amplitudeTop = project(firstSubcarrier, 0, maximum);
+        context.strokeStyle = 'rgba(51, 65, 85, .72)';
+        context.lineWidth = 1.2;
+        context.beginPath();
+        context.moveTo(surfaceOrigin.x, surfaceOrigin.y);
+        context.lineTo(subcarrierEnd.x, subcarrierEnd.y);
+        context.moveTo(surfaceOrigin.x, surfaceOrigin.y);
+        context.lineTo(packetEnd.x, packetEnd.y);
+        context.moveTo(surfaceOrigin.x, surfaceOrigin.y);
+        context.lineTo(amplitudeTop.x, amplitudeTop.y);
+        context.stroke();
+
+        context.fillStyle = 'rgba(15, 23, 42, .72)';
+        context.font = '11px ui-sans-serif, system-ui, sans-serif';
+        context.textBaseline = 'alphabetic';
+        context.textAlign = 'right';
+        for (let tick = 0; tick <= 4; tick += 1) {
+            const amplitude = maximum * tick / 4;
+            const point = project(firstSubcarrier, 0, amplitude);
+            context.fillText(String(Math.round(amplitude)), point.x - 8, point.y + 4);
+        }
+
+        context.textAlign = 'center';
+        for (let tick = 0; tick <= 3; tick += 1) {
+            const subcarrier = firstSubcarrier + subcarrierSpan * tick / 3;
+            const point = project(subcarrier, 0, 0);
+            context.fillText(
+                String(Math.round(subcarrier - firstSubcarrier)),
+                point.x,
+                point.y + 15
+            );
+        }
+        for (let tick = 1; tick <= 3; tick += 1) {
+            const packetPosition = tick / 3;
+            const point = project(firstSubcarrier, packetPosition, 0);
+            const sequenceIndex = Math.round(packetPosition * (packetSequences.length - 1));
+            context.fillText(String(packetSequences[sequenceIndex]), point.x + 8, point.y + 15);
+        }
+
+        context.fillStyle = 'rgba(15, 23, 42, .9)';
+        context.font = '12px ui-sans-serif, system-ui, sans-serif';
+        context.textAlign = 'center';
+        context.fillText(
+            'Subcarrier',
+            (surfaceOrigin.x + subcarrierEnd.x) / 2 - 8,
+            (surfaceOrigin.y + subcarrierEnd.y) / 2 + 30
+        );
+        context.fillText(
+            'Packets',
+            (surfaceOrigin.x + packetEnd.x) / 2 + 12,
+            (surfaceOrigin.y + packetEnd.y) / 2 + 30
+        );
+        context.save();
+        context.translate(
+            surfaceOrigin.x - 36,
+            (surfaceOrigin.y + amplitudeTop.y) / 2
+        );
+        context.rotate(-Math.PI / 2);
+        context.textAlign = 'center';
+        context.fillText('Amplitude', 0, 0);
+        context.restore();
     }
 
-    function rawCsiDrawChannelGhost(context, canvas) {
+    function rawCsiDrawChannelProfileDeviation(context, canvas) {
         if (!rawCsi.latestProfile || !rawCsi.baseline) {
             rawCsiDrawEmpty(context, canvas);
             return;
@@ -592,11 +799,21 @@
         const bottom = canvas.height - 58;
         const middle = (top + bottom) / 2;
         const profileScale = Math.min(108, (bottom - top) * 0.36);
+        const subcarriers = rawCsiVisibleSubcarriers(rawCsi.latestProfile);
+        if (subcarriers.length < 2) {
+            rawCsiDrawEmpty(context, canvas, 'Waiting for CSI subcarriers…');
+            return;
+        }
+        const firstSubcarrier = subcarriers[0];
+        const lastSubcarrier = subcarriers[subcarriers.length - 1];
+        const subcarrierSpan = Math.max(1, lastSubcarrier - firstSubcarrier);
+        const xForSubcarrier = (subcarrier) => left
+            + (subcarrier - firstSubcarrier) * (right - left) / subcarrierSpan;
         const yForValue = (value) => middle
             - (Math.max(0, Math.min(2.4, value)) - 1) * profileScale;
         const amplifiedValue = (subcarrier) => rawCsi.baseline[subcarrier]
             + (rawCsi.latestProfile[subcarrier] - rawCsi.baseline[subcarrier])
-                * RAW_CSI_CHANNEL_GHOST_GAIN;
+                * RAW_CSI_CHANNEL_PROFILE_DEVIATION_GAIN;
         context.strokeStyle = 'rgba(122, 105, 210, .18)';
         context.lineWidth = 1;
         [0.5, 1, 1.5, 2].forEach((value) => {
@@ -606,59 +823,61 @@
             context.lineTo(right, y);
             context.stroke();
         });
-        [[4, 31], [33, 60]].forEach(([start, end]) => {
-            for (let subcarrier = start; subcarrier < end; subcarrier += 1) {
-                const next = subcarrier + 1;
-                const x0 = left + (subcarrier - 4) * (right - left) / 56;
-                const x1 = left + (next - 4) * (right - left) / 56;
-                const current0 = yForValue(amplifiedValue(subcarrier));
-                const current1 = yForValue(amplifiedValue(next));
-                const baseline0 = yForValue(rawCsi.baseline[subcarrier]);
-                const baseline1 = yForValue(rawCsi.baseline[next]);
-                const delta = ((rawCsi.latestDelta[subcarrier] || 0) + (rawCsi.latestDelta[next] || 0)) / 2;
-                context.fillStyle = rawCsiMotionColor(delta / 0.22, 0.58);
-                context.beginPath();
-                context.moveTo(x0, baseline0);
-                context.lineTo(x1, baseline1);
-                context.lineTo(x1, current1);
-                context.lineTo(x0, current0);
-                context.closePath();
-                context.fill();
-            }
-            context.setLineDash([7, 7]);
-            context.strokeStyle = 'rgba(255, 255, 255, .4)';
-            context.lineWidth = 1.4;
+        for (let position = 0; position < subcarriers.length - 1; position += 1) {
+            const subcarrier = subcarriers[position];
+            const next = subcarriers[position + 1];
+            const x0 = xForSubcarrier(subcarrier);
+            const x1 = xForSubcarrier(next);
+            const current0 = yForValue(amplifiedValue(subcarrier));
+            const current1 = yForValue(amplifiedValue(next));
+            const baseline0 = yForValue(rawCsi.baseline[subcarrier]);
+            const baseline1 = yForValue(rawCsi.baseline[next]);
+            const delta = ((rawCsi.latestDelta[subcarrier] || 0)
+                + (rawCsi.latestDelta[next] || 0)) / 2;
+            context.fillStyle = rawCsiMotionColor(delta / 0.22, 0.58);
             context.beginPath();
-            for (let subcarrier = start; subcarrier <= end; subcarrier += 1) {
-                const x = left + (subcarrier - 4) * (right - left) / 56;
-                const y = yForValue(rawCsi.baseline[subcarrier]);
-                if (subcarrier === start) context.moveTo(x, y);
-                else context.lineTo(x, y);
-            }
-            context.stroke();
-            context.setLineDash([]);
-            context.strokeStyle = '#8f7aff';
-            context.lineWidth = 2.4;
-            context.shadowColor = 'rgba(107, 196, 255, .55)';
-            context.shadowBlur = 10;
-            context.beginPath();
-            for (let subcarrier = start; subcarrier <= end; subcarrier += 1) {
-                const x = left + (subcarrier - 4) * (right - left) / 56;
-                const y = yForValue(amplifiedValue(subcarrier));
-                if (subcarrier === start) context.moveTo(x, y);
-                else context.lineTo(x, y);
-            }
-            context.stroke();
-        });
-        context.shadowBlur = 0;
-        RAW_CSI_SELECTED_SUBCARRIERS.forEach((subcarrier) => {
-            const x = left + (subcarrier - 4) * (right - left) / 56;
-            const y = yForValue(amplifiedValue(subcarrier));
-            context.fillStyle = '#d9d2ff';
-            context.beginPath();
-            context.arc(x, y, 3, 0, 2 * Math.PI);
+            context.moveTo(x0, baseline0);
+            context.lineTo(x1, baseline1);
+            context.lineTo(x1, current1);
+            context.lineTo(x0, current0);
+            context.closePath();
             context.fill();
+        }
+        context.setLineDash([7, 7]);
+        context.strokeStyle = 'rgba(255, 255, 255, .4)';
+        context.lineWidth = 1.4;
+        context.beginPath();
+        subcarriers.forEach((subcarrier, position) => {
+            const x = xForSubcarrier(subcarrier);
+            const y = yForValue(rawCsi.baseline[subcarrier]);
+            if (!position) context.moveTo(x, y);
+            else context.lineTo(x, y);
         });
+        context.stroke();
+        context.setLineDash([]);
+        context.strokeStyle = '#8f7aff';
+        context.lineWidth = 2.4;
+        context.shadowColor = 'rgba(107, 196, 255, .55)';
+        context.shadowBlur = 10;
+        context.beginPath();
+        subcarriers.forEach((subcarrier, position) => {
+            const x = xForSubcarrier(subcarrier);
+            const y = yForValue(amplifiedValue(subcarrier));
+            if (!position) context.moveTo(x, y);
+            else context.lineTo(x, y);
+        });
+        context.stroke();
+        context.shadowBlur = 0;
+        RAW_CSI_SELECTED_SUBCARRIERS
+            .filter((subcarrier) => subcarrier >= firstSubcarrier && subcarrier <= lastSubcarrier)
+            .forEach((subcarrier) => {
+                const x = xForSubcarrier(subcarrier);
+                const y = yForValue(amplifiedValue(subcarrier));
+                context.fillStyle = '#d9d2ff';
+                context.beginPath();
+                context.arc(x, y, 3, 0, 2 * Math.PI);
+                context.fill();
+            });
         context.fillStyle = 'rgba(255, 255, 255, .55)';
         context.font = '12px ui-monospace, "SFMono-Regular", Consolas, monospace';
         context.textAlign = 'left';
@@ -679,8 +898,14 @@
         rawCsiClearCanvas(context, canvas);
         const latest = rawCsi.iqHistory[rawCsi.iqHistory.length - 1];
         const subcarrierCount = latest.length / 2;
-        const selectedSubcarriers = RAW_CSI_SELECTED_SUBCARRIERS
-            .filter((subcarrier) => subcarrier < subcarrierCount);
+        const amplitudes = new Float32Array(subcarrierCount);
+        for (let subcarrier = 0; subcarrier < subcarrierCount; subcarrier += 1) {
+            amplitudes[subcarrier] = Math.hypot(
+                latest[subcarrier * 2],
+                latest[subcarrier * 2 + 1]
+            );
+        }
+        const activeSubcarriers = rawCsiVisibleSubcarriers(amplitudes);
         const extent = RAW_CSI_IQ_EXTENT;
         const panelSize = Math.min(canvas.height - 58, canvas.width - 30);
         const top = (canvas.height - panelSize) / 2;
@@ -707,8 +932,8 @@
         });
         context.strokeStyle = 'rgba(255, 255, 255, .25)';
         context.strokeRect(left + 0.5, top + 0.5, panelSize - 1, panelSize - 1);
-        selectedSubcarriers.forEach((subcarrier, subcarrierIndex) => {
-            const hue = 188 + subcarrierIndex * 12;
+        activeSubcarriers.forEach((subcarrier, subcarrierIndex) => {
+            const hue = 188 + subcarrierIndex * 132 / Math.max(1, activeSubcarriers.length - 1);
             rawCsi.iqHistory.forEach((sample) => {
                 const point = pointPosition(sample, subcarrier);
                 context.fillStyle = `hsl(${hue} 94% 68%)`;
@@ -726,33 +951,16 @@
         context.fillStyle = 'rgba(255, 255, 255, .58)';
         context.font = '12px ui-monospace, "SFMono-Regular", Consolas, monospace';
         context.textAlign = 'center';
-        context.fillText('12 PRODUCTION SUBCARRIERS · 2 SECONDS', centerX, top - 10);
+        context.fillText('1 SECOND WINDOW', centerX, top - 10);
         context.textAlign = 'right';
         context.fillText('I →', left + panelSize, top + panelSize + 18);
         context.textAlign = 'left';
         context.fillText('Q ↑', left + 6, top + 16);
         context.fillStyle = 'rgba(255, 255, 255, .38)';
         context.fillText(`±${Math.ceil(extent)}`, left + 6, top + panelSize - 8);
-        if (canvas.width >= 620) {
-            selectedSubcarriers.forEach((subcarrier, index) => {
-                const leftSide = index < selectedSubcarriers.length / 2;
-                const row = index % (selectedSubcarriers.length / 2);
-                const x = leftSide ? left - 118 : left + panelSize + 54;
-                const y = top + 48 + row * Math.min(48, (panelSize - 72) / 5);
-                const hue = 188 + index * 12;
-                context.fillStyle = `hsl(${hue} 94% 70%)`;
-                context.beginPath();
-                context.arc(x, y - 4, 4, 0, 2 * Math.PI);
-                context.fill();
-                context.fillStyle = 'rgba(255, 255, 255, .48)';
-                context.font = '11px ui-monospace, "SFMono-Regular", Consolas, monospace';
-                context.textAlign = 'left';
-                context.fillText(`SC ${subcarrier}`, x + 10, y);
-            });
-        }
     }
 
-    function rawCsiDrawPhaseTrails(context, canvas) {
+    function rawCsiDrawRelativePhaseTrails(context, canvas) {
         if (!rawCsi.phaseHistory.length) {
             rawCsiDrawEmpty(context, canvas);
             return;
@@ -789,9 +997,11 @@
         const amplifiedPoint = (subcarrierIndex, phase) => {
             const centroid = centroids[subcarrierIndex];
             let real = centroid.real
-                + (phase[subcarrierIndex * 2] - centroid.real) * RAW_CSI_PHASE_TRAIL_GAIN;
+                + (phase[subcarrierIndex * 2] - centroid.real)
+                    * RAW_CSI_RELATIVE_PHASE_TRAIL_GAIN;
             let imag = centroid.imag
-                + (phase[subcarrierIndex * 2 + 1] - centroid.imag) * RAW_CSI_PHASE_TRAIL_GAIN;
+                + (phase[subcarrierIndex * 2 + 1] - centroid.imag)
+                    * RAW_CSI_RELATIVE_PHASE_TRAIL_GAIN;
             const magnitude = Math.hypot(real, imag);
             if (magnitude > 1.08) {
                 real *= 1.08 / magnitude;
@@ -845,11 +1055,19 @@
         const surface = rawCsiCanvasContext();
         if (!surface) return;
         const { canvas, context } = surface;
-        if (rawCsi.visualization === 'channel-heatmap') rawCsiDrawHeatmap(context, canvas);
-        else if (rawCsi.visualization === 'rf-waterfall') rawCsiDrawWaterfall(context, canvas);
-        else if (rawCsi.visualization === 'channel-ghost') rawCsiDrawChannelGhost(context, canvas);
+        if (rawCsi.visualization === 'subcarrier-amplitudes') {
+            rawCsiDrawSubcarrierAmplitudes(context, canvas);
+        }
+        else if (rawCsi.visualization === 'csi-amplitude-surface') {
+            rawCsiDrawAmplitudeSurface(context, canvas);
+        }
+        else if (rawCsi.visualization === 'channel-profile-deviation') {
+            rawCsiDrawChannelProfileDeviation(context, canvas);
+        }
         else if (rawCsi.visualization === 'iq-constellation') rawCsiDrawIqConstellation(context, canvas);
-        else if (rawCsi.visualization === 'phase-trails') rawCsiDrawPhaseTrails(context, canvas);
+        else if (rawCsi.visualization === 'relative-phase-trails') {
+            rawCsiDrawRelativePhaseTrails(context, canvas);
+        }
     }
 
     function rawCsiScheduleRender() {
@@ -859,7 +1077,7 @@
 
     function rawCsiSelectVisualization(value) {
         const visualization = RAW_CSI_VISUALIZATIONS[value]
-            ? value : 'channel-heatmap';
+            ? value : 'subcarrier-amplitudes';
         const metadata = RAW_CSI_VISUALIZATIONS[visualization];
         rawCsi.visualization = visualization;
         const select = $('.js-raw-visualization-select');

@@ -129,13 +129,13 @@ Use the frontend READMEs for frontend-specific prerequisites, examples, and chip
 
 ## Browser Configuration and Monitoring
 
-Browser tools such as Flash, Configure, Monitor, and Theremin live on [espectre.dev](https://espectre.dev). Configure offers starting device-to-broker presets for Home Assistant with the Mosquitto add-on, a broker on the LAN, EMQX Cloud, HiveMQ Cloud, Flespi, and a custom broker; credentials are never prefilled. Provider presets fill stable MQTT TLS ports and prefill editable `.emqxsl.com` and `.hivemq.cloud` endpoint templates. Provider-defined ports and the fixed Flespi hostname are read-only while their preset is selected; account-specific endpoints, credentials, and topic prefixes remain editable. Configure adds the `mqtts://` scheme automatically when saving a secure preset. Monitor uses Direct HTTP rather than MQTT over WebSockets. To preview the same site from this repository, serve `docs/web` as described in [docs/web/README.md](web/README.md).
+Browser tools such as Flash, Device settings, Monitor, and Theremin live on [espectre.dev](https://espectre.dev). Device settings offers starting device-to-broker presets for Home Assistant with the Mosquitto add-on, a broker on the LAN, EMQX Cloud, HiveMQ Cloud, Flespi, and a custom broker; credentials are never prefilled. Provider presets fill stable MQTT TLS ports and prefill editable `.emqxsl.com` and `.hivemq.cloud` endpoint templates. Provider-defined ports and the fixed Flespi hostname are read-only while their preset is selected; account-specific endpoints, credentials, and topic prefixes remain editable. Device settings adds the `mqtts://` scheme automatically when saving a secure preset. Monitor uses Direct HTTP rather than MQTT over WebSockets. To preview the same site from this repository, serve `docs/web` as described in [docs/web/README.md](web/README.md).
 
-On Configure, click the device ID in the connected-device banner to set the first user-facing name, or click the current name to edit it. The browser saves the value when the field loses focus; Enter saves immediately, and Escape cancels the edit.
+On Device settings, click the device ID in the connected-device banner to set the first user-facing name, or click the current name to edit it. The browser saves the value when the field loses focus; Enter saves immediately, and Escape cancels the edit.
 
 ## Direct HTTP Connectivity
 
-The published ESP-IDF frontends expose Direct HTTP on the local network. If Configure or Monitor cannot connect:
+The published ESP-IDF frontends expose Direct HTTP on the local network. If Device settings or Monitor cannot connect:
 
 1. Confirm that the device and browser are on the same LAN.
 2. Try the current private IPv4 address if the `.local` hostname does not resolve.
@@ -143,7 +143,7 @@ The published ESP-IDF frontends expose Direct HTTP on the local network. If Conf
 4. Use a desktop Chromium browser listed in the current [browser support matrix](https://espectre.dev/guides/setup/#setup-native-discovery) when another browser blocks hosted HTTPS-to-local-HTTP access.
 5. Confirm that the hosted page uses `https://espectre.dev`, `https://www.espectre.dev`, or `https://test.espectre.dev`. A local website preview also requires firmware that accepts the corresponding loopback origin.
 
-Configure and Monitor accept a private IP, device name, full 16-character device ID, or the last 6 characters of that ID. A full ID maps to the device's unique local address; a name or short ID uses the same bounded discovery as the **Auto-discovery** button. One match connects directly, while multiple matches require an explicit selection. Names, short IDs, and `.local` addresses depend on working mDNS. If discovery fails, use `./espectre devices`, enter the current IP, or check the router's DHCP lease table. Remove a stale remembered endpoint before entering a replacement address. [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#peer-assisted-browser-discovery) owns the peer-discovery contract.
+Device settings and Monitor accept a private IP, device name, full 16-character device ID, or the last 6 characters of that ID. A full ID maps to the device's unique local address; a name or short ID uses the same bounded discovery as the **Auto-discovery** button. One match connects directly, while multiple matches require an explicit selection. Names, short IDs, and `.local` addresses depend on working mDNS. If discovery fails, use `./espectre devices`, enter the current IP, or check the router's DHCP lease table. Remove a stale remembered endpoint before entering a replacement address. [`ESPECTRE_PROTOCOL.md`](ESPECTRE_PROTOCOL.md#peer-assisted-browser-discovery) owns the peer-discovery contract.
 
 Origin, mixed-content, and local-network permission errors come from the browser boundary rather than the detector. Grant local-network access only to the ESPectre portal, confirm that the device remains on the same trusted LAN, and retry with a browser in the support matrix. Once Direct connects, use [TUNING.md](TUNING.md) for missing CSI, calibration, or detection problems.
 

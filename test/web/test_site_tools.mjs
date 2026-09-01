@@ -150,14 +150,18 @@ describe('website tool contracts', () => {
         assert.match(app, /\$\$\('\[data-capability-unavailable\]'\)[\s\S]*?element\.hidden = sysinfoBoolean\(snapshot\[capability\]\)/);
         assert.match(app, /if \(!capabilities\.some\(\(key\) => Object\.prototype\.hasOwnProperty\.call\(snapshot, key\)\)\) return;/);
         assert.match(configure, /<input type="text" id="cfg-ssid" readonly>/);
-        assert.match(configure, /<input type="text" id="cfg-wifi-band" readonly>/);
-        assert.match(configure, /<div class="field-row">\s*<div class="field">[\s\S]*?id="cfg-wifi-band"[\s\S]*?id="cfg-channel"/);
         assert.match(configure, /<input type="text" id="cfg-channel" readonly>/);
+        assert.match(configure, /<input type="text" id="cfg-wifi-band" readonly>/);
+        assert.match(configure, /<input type="text" id="cfg-wifi-phy" readonly>/);
+        assert.match(configure, /<div class="field-row wifi-link-row">\s*<div class="field">[\s\S]*?id="cfg-channel"[\s\S]*?id="cfg-wifi-band"[\s\S]*?id="cfg-wifi-phy"/);
+        assert.match(styles, /\.wifi-link-row \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); \}/);
         assert.match(configure, /<select id="cfg-bssid"[\s\S]*?<option value="">/);
         assert.match(configure, /id="cfg-bssid-help"[^>]*aria-live="polite"/);
         assert.doesNotMatch(configure, /id="cfg-wifi-pass"/);
         assert.match(app, /activeToolName\(\) === 'configure'[\s\S]*?directClient\.request\('diagnostics'\)/);
         assert.match(app, /snapshot\.wifi_channel[\s\S]*?set\('cfg-channel'/);
+        assert.match(app, /snapshot\.csi_profile[\s\S]*?set\('cfg-wifi-phy'/);
+        assert.match(app, /function monitorResizeChart\(\) \{[\s\S]*?const canvas = \$\('\.js-mon-chart'\);[\s\S]*?if \(!canvas\) return;/);
         assert.match(app, /const client = directClient[\s\S]*client\.request\('scan_wifi_access_points'\)/);
         assert.match(app, /client\.request\('wifi_access_points'\)/);
         assert.match(app, /WIFI_SCAN_TIMEOUT_MS = 30 \* 1000/);
@@ -351,10 +355,12 @@ describe('website tool contracts', () => {
         assert.match(app, /observeRoot\(dialog\.shadowRoot\);[\s\S]*flashDialogText\(dialog\.shadowRoot\)/);
         assert.equal(
             routeManifest.routes.find((route) => route.name === 'tool-configure')?.staticPath,
-            '/tools/configure/'
+            '/tools/device-settings/'
         );
+        assert.match(index, /href="\/tools\/device-settings\/" class="home-tool-card"/);
+        assert.doesNotMatch(index, /href="\/tools\/configure\/"/);
         assert.match(index, /data-page="tool-configure"/);
-        assert.match(app, /const configureUrl = new URL\('\/tools\/configure\/', location\.origin\)[\s\S]*configureUrl\.search = returnedUrl\.search/);
+        assert.match(app, /const configureUrl = new URL\('\/', location\.origin\)[\s\S]*configureUrl\.search = returnedUrl\.search[\s\S]*configureUrl\.hash = 'tool-configure'/);
         const staticPageBuilder = read('.github/scripts/build_static_pages.py');
         assert.match(staticPageBuilder, /source = content_path\(route\)/);
         assert.match(staticPageBuilder, /output = output_path\(route\)/);
@@ -452,13 +458,14 @@ describe('website tool contracts', () => {
         assert.match(app, /MONITOR_CHART_WINDOW_MS = 60 \* 1000/);
         assert.match(app, /function monitorResetChart/);
         assert.match(app, /function resetMonitorLiveView/);
+        assert.match(app, /function monitorSetStat\(selector, value, digits, suffix\) \{[\s\S]*?if \(element\) element\.textContent/);
         assert.match(app, /function adoptDeviceId/);
         assert.match(app, /if \(ctx\) ctx\.clearRect\(0, 0, canvas\.width, canvas\.height\)/);
         assert.match(app, /function monitorOpenConnectivity/);
         assert.match(app, /if \(conn\.mode === 'direct' && directClient\?\.connected\)/);
     });
 
-    it('keeps MQTT configuration in Configure while browser tools use HTTP', () => {
+    it('keeps MQTT configuration in Device settings while browser tools use HTTP', () => {
         const configurePage = toolContent.configure;
         const mqttPage = toolContent.monitor;
         assert.match(configurePage, /id="cfg-mqtt-preset"[\s\S]*?value="home_assistant" selected[\s\S]*?value="lan_broker"[\s\S]*?value="emqx_cloud"[\s\S]*?value="hivemq_cloud"[\s\S]*?value="flespi"[\s\S]*?value="cloud_broker"/);
@@ -601,11 +608,11 @@ describe('website tool contracts', () => {
         const rawPage = toolContent['raw-csi'];
         const rawClient = app.match(/\/\* =+ raw CSI \*\/[\s\S]*?function gameInit/)?.[0] || '';
         const visualizationValues = [
-            'channel-heatmap',
-            'rf-waterfall',
-            'channel-ghost',
+            'subcarrier-amplitudes',
+            'csi-amplitude-surface',
+            'channel-profile-deviation',
             'iq-constellation',
-            'phase-trails'
+            'relative-phase-trails'
         ];
         assert.equal((rawPage.match(/class="js-raw-visualization"/g) || []).length, 1);
         assert.equal((rawPage.match(/<option value=/g) || []).length, visualizationValues.length);
@@ -617,24 +624,66 @@ describe('website tool contracts', () => {
         assert.match(rawClient, /function rawCsiSelectVisualization\(value\)/);
         assert.match(rawClient, /canvas\.setAttribute\('aria-label', metadata\.ariaLabel\)/);
         assert.match(rawClient, /rawCsiNormalizeProfile\(amplitudes\)/);
+        assert.match(rawClient, /function rawCsiVisibleSubcarriers\(amplitudes\)/);
+        assert.match(rawClient, /if \(amplitudes\.length === 64\) return RAW_CSI_LIVE_SUBCARRIERS/);
+        assert.match(rawClient, /Array\.from\(\{ length: 57 \},[\s\S]*?index \+ 4\)\.filter\(\(index\) => index !== 32\)/);
+        assert.match(rawClient, /while \(first < amplitudes\.length && amplitudes\[first\] <= 0\)/);
+        assert.match(rawClient, /while \(last >= first && amplitudes\[last\] <= 0\)/);
+        assert.match(rawClient, /\.filter\(\(index\) => amplitudes\[index\] > 0\)/);
+        assert.match(rawClient, /function rawCsiUpdateAmplitudeMaximum\(amplitudes\)/);
+        assert.match(rawClient, /if \(rawCsi\.amplitudeMaximum > 0\) return/);
+        assert.match(rawClient, /if \(peak <= 0\) return/);
+        assert.match(rawClient, /peak \* RAW_CSI_AMPLITUDE_SCALE_HEADROOM \/ RAW_CSI_AMPLITUDE_SCALE_STEP/);
+        assert.match(rawClient, /rawCsi\.amplitudeMaximum = 0/);
+        assert.match(rawClient, /rawCsiUpdateAmplitudeMaximum\(amplitudes\)/);
+        assert.match(rawClient, /rawCsiPushBounded\(rawCsi\.amplitudeFrames, amplitudes\.slice\(\), RAW_CSI_VISUAL_HISTORY\)/);
+        assert.match(rawClient, /function rawCsiDrawSubcarrierAmplitudes\(context, canvas\)/);
+        assert.match(rawClient, /const firstHistorySlot = RAW_CSI_VISUAL_HISTORY - frames\.length;[\s\S]*?\(firstHistorySlot \+ index\) \* width \/ \(RAW_CSI_VISUAL_HISTORY - 1\)/);
+        assert.match(rawClient, /activeCount} SUBCARRIER AMPLITUDES/);
+        assert.equal((rawClient.match(
+            /const maximum = Math\.max\(RAW_CSI_AMPLITUDE_SCALE_STEP, rawCsi\.amplitudeMaximum\)/g
+        ) || []).length, 2);
+        assert.match(rawPage, /<option value="csi-amplitude-surface">CSI amplitude surface<\/option>/);
+        assert.match(rawClient, /const RAW_CSI_AMPLITUDE_SURFACE_PACKETS = 96;/);
+        assert.match(rawClient, /function rawCsiAmplitudeSurfaceColor\(value, minimum, maximum\)/);
+        assert.match(rawClient, /function rawCsiDrawAmplitudeSurface\(context, canvas\)/);
+        assert.match(rawClient, /rawCsiPushBounded\([\s\S]*?rawCsi\.amplitudePackets,[\s\S]*?RAW_CSI_AMPLITUDE_SURFACE_PACKETS/);
+        assert.match(rawClient, /const subcarriers = rawCsiVisibleSubcarriers\(latest\)/);
+        assert.match(rawClient, /const frequency = \(lastSubcarrier - subcarrier\) \/ subcarrierSpan/);
+        assert.match(rawClient, /String\(Math\.round\(subcarrier - firstSubcarrier\)\)/);
+        assert.match(rawClient, /for \(let tick = 1; tick <= 3; tick \+= 1\) \{[\s\S]*?const packetPosition = tick \/ 3/);
+        assert.match(rawClient, /const amplitudeTop = project\(firstSubcarrier, 0, maximum\)/);
+        assert.match(rawClient, /const point = project\(firstSubcarrier, 0, amplitude\)/);
+        assert.match(rawClient, /context\.fillStyle = rawCsiAmplitudeSurfaceColor\(amplitude, floor, peak\)/);
+        assert.match(rawClient, /context\.fillText\('Amplitude', 0, 0\)/);
+        assert.match(rawClient, /'Subcarrier',[\s\S]*?'Packets',/);
+        assert.match(rawPage, /<option value="channel-profile-deviation">Channel profile deviation<\/option>/);
+        assert.match(rawClient, /title: 'Channel profile deviation'/);
+        assert.match(rawClient, /Plots raw I\/Q samples collected during the last second\./);
+        assert.match(rawClient, /Trail spread is amplified 5×\./);
         assert.match(rawClient, /Math\.log\(\(profile\[index\] \+ 0\.05\) \/ \(baseline \+ 0\.05\)\)/);
-        assert.match(rawClient, /function rawCsiWaterfallColor\(active, alpha = 1\)/);
-        assert.match(rawClient, /function rawCsiSanitizedPhase\(iValues, qValues, profile\)/);
-        assert.match(rawClient, /const RAW_CSI_CHANNEL_GHOST_GAIN = 5;/);
-        assert.match(rawClient, /RAW_CSI_PHASE_TRAIL_GAIN/);
+        assert.match(rawClient, /function rawCsiRelativePhase\(iValues, qValues, profile\)/);
+        assert.match(rawClient, /const RAW_CSI_CHANNEL_PROFILE_DEVIATION_GAIN = 5;/);
+        assert.match(rawClient, /function rawCsiDrawChannelProfileDeviation\(context, canvas\)/);
+        assert.match(rawClient, /RAW_CSI_RELATIVE_PHASE_TRAIL_GAIN/);
+        assert.match(rawClient, /function rawCsiDrawRelativePhaseTrails\(context, canvas\)/);
         assert.doesNotMatch(rawClient, /function rawCsiUpdatePacketRate\(received\)/);
         assert.match(rawClient, /function rawCsiDrawIqConstellation\(context, canvas\)/);
-        assert.match(rawClient, /const RAW_CSI_IQ_WINDOW_US = 2000000;/);
+        assert.match(rawClient, /const RAW_CSI_IQ_WINDOW_US = 1000000;/);
         assert.match(rawClient, /const RAW_CSI_IQ_EXTENT = 128;/);
         assert.match(rawClient, /captureTicksUs - rawCsi\.iqTimestampsUs\[0\] > RAW_CSI_IQ_WINDOW_US/);
+        assert.match(rawClient, /context\.fillText\('1 SECOND WINDOW', centerX, top - 10\)/);
+        assert.match(rawClient, /const activeSubcarriers = rawCsiVisibleSubcarriers\(amplitudes\)/);
+        assert.doesNotMatch(rawClient, /const selectedSubcarriers = RAW_CSI_SELECTED_SUBCARRIERS/);
+        assert.doesNotMatch(rawClient, /context\.fillText\(`SC \$\{subcarrier\}`/);
         assert.match(rawClient, /context\.fillStyle = `hsl\(\$\{hue\} 94% 68%\)`;/);
         assert.match(rawClient, /qValues\[index\] = view\.getInt8\(offset\)/);
         assert.match(rawClient, /iValues\[index\] = view\.getInt8\(offset \+ 1\)/);
         assert.match(rawClient, /new ResizeObserver\(rawCsiResizeVisualization\)/);
         assert.match(rawClient, /requestAnimationFrame\(rawCsiRender\)/);
         assert.match(rawClient, /const RAW_CSI_RENDER_INTERVAL_MS = 1000 \/ 30;/);
-        assert.match(rawClient, /surfaceContext\.createImageData\(RAW_CSI_VISUAL_HISTORY, rows\)/);
-        assert.match(rawClient, /surfaceContext\.putImageData\(pixels, 0, 0\)/);
+        assert.doesNotMatch(rawClient, /function rawCsiDrawHeatmap\(context, canvas\)/);
+        assert.match(rawClient, /const colors = \[\[255, 66, 92\], \[52, 211, 109\], \[30, 211, 238\]\]/);
     });
 
     it('calibrates Game and Theremin to the detector evaluation cadence', () => {
