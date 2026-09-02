@@ -554,7 +554,11 @@ def test_generate_sdk_api_stamps_a_working_copy_without_mutating_the_repo(
         rendered = output / "rendered"
         rendered.mkdir()
         (rendered / "index.html").write_text(
-            '<article data-api-reference-fragment="index"><a href="classespectre_1_1_runtime_frontend_controller.html">Controller</a></article>',
+            '<article data-api-reference-fragment="index">'
+            '<a href="classespectre_1_1_runtime_frontend_controller.html" '
+            'onclick="return toggle(this)">Controller</a>'
+            '<script>function toggle() { return false; }</script>'
+            '</article>',
             encoding="utf-8",
         )
         (rendered / "classespectre_1_1_runtime_frontend_controller.html").write_text(
@@ -590,7 +594,9 @@ def test_generate_sdk_api_stamps_a_working_copy_without_mutating_the_repo(
     ).read_text(encoding="utf-8")
     assert '<nav class="m-block' not in controller_fragment
     assert '<section id="members">' in controller_fragment
-    assert (api_output / "fragments" / "index.html").is_file()
+    index_fragment = (api_output / "fragments" / "index.html").read_text(encoding="utf-8")
+    assert "onclick=" not in index_fragment
+    assert "<script" not in index_fragment
     assert (REPO_ROOT / "src" / "cpp" / "Doxyfile").read_text(encoding="utf-8") == repo_doxyfile
     assert re.search(r"(?m)^PROJECT_NUMBER\s*=\s*UNSTAMPED\s*$", repo_doxyfile)
 
@@ -615,6 +621,18 @@ def test_generate_sdk_api_requires_the_pinned_doxygen_version(
         generator.require_doxygen_version()
     monkeypatch.setattr(generator, "detect_doxygen_version", lambda: "1.17.0")
     generator.require_doxygen_version()
+
+
+def test_sdk_api_fragment_security_rejects_active_markup() -> None:
+    security = load_script("web_html_security")
+    for fragment in (
+        '<article><iframe src="https://example.com"></iframe></article>',
+        '<article><a href="javascript:alert(1)">unsafe</a></article>',
+        '<article><a href="//example.com/unsafe">unsafe</a></article>',
+        '<article style="background: url(https://example.com)">unsafe</article>',
+    ):
+        with pytest.raises(ValueError, match="unsafe"):
+            security.passivize_api_fragment(fragment)
 
 
 def test_indexnow_retries_transient_failures_and_sends_the_sitemap(tmp_path: Path) -> None:

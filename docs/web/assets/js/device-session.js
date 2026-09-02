@@ -21,8 +21,6 @@
     const WIFI_BSSID_VERIFICATION_TIMEOUT_MS = 75 * 1000;
     const OTA_TRACKING_TIMEOUT_MS = 120000;
     const DIRECT_RECONNECT_DELAYS_MS = Object.freeze([500, 1500, 3000]);
-    const DIRECT_ENDPOINT_STORAGE_KEY = 'espectre.direct.endpoints.v1';
-    const DIRECT_ENDPOINT_LIMIT = 8;
     const DIRECT_FULL_DEVICE_ID = /^[0-9a-f]{16}$/;
     const DIRECT_SHORT_DEVICE_ID = /^[0-9a-f]{6}$/;
     const DIRECT_CANONICAL_HOSTNAME = /^espectre-([0-9a-f]{16})\.local$/;

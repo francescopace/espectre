@@ -69,7 +69,9 @@ Device settings and Monitor load with the shared device session. CSI visualizer,
 
 `assets/js/analytics.js` enables GA4 on production and allowlisted debug hosts only after explicit consent. The router sends manual `page_view` events with canonical `page_location`, `page_path`, `page_title`, and `content_group` values. GA4 page changes based on browser history events must remain disabled to avoid duplicate page views.
 
-Analytics parameters must remain low-cardinality and must not include device IDs, network names or addresses, credentials, pairing codes, payloads, raw CSI, or exception messages. Tool scripts own their events and normalized outcomes; the Analytics tests enforce the shared contract. The public policy is in [privacy.html](content/privacy.html).
+All website custom events pass through `trackEvent()`. It rejects unregistered events, strips parameters outside the event contract, validates categorical values and numeric bounds, and normalizes error types and public firmware versions before calling `gtag`. Rolling Git versions are reported as `<major>.<minor>.<patch>-dev`; other unrecognized values become `unknown` or are omitted.
+
+Keep Analytics parameters low-cardinality. They must not include device IDs, network names or addresses, credentials, pairing codes, payloads, raw CSI, or exception messages. Enhanced Measurement is configured in GA4 and does not pass through this custom-event gate. The Analytics tests verify every custom event emitted by the browser tools. The public policy is in [privacy.html](content/privacy.html).
 
 ## Direct HTTP
 

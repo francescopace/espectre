@@ -418,6 +418,54 @@
         initPageTocs(browser);
     }
 
+    const passiveApiReferenceTags = new Set([
+        'a', 'article', 'aside', 'blockquote', 'br', 'code', 'dd', 'details', 'div', 'dl',
+        'dt', 'em', 'h1', 'h2', 'h3', 'h4', 'hr', 'kbd', 'li', 'ol', 'p', 'pre', 'samp',
+        'section', 'small', 'span', 'strong', 'sub', 'summary', 'sup', 'table', 'tbody',
+        'td', 'tfoot', 'th', 'thead', 'tr', 'ul', 'var', 'wbr',
+    ]);
+    const passiveApiReferenceAttributes = new Set([
+        'class', 'colspan', 'data-api-reference-fragment', 'data-api-reference-member',
+        'data-api-reference-ref', 'href', 'id', 'name', 'role', 'rowspan', 'scope', 'style',
+        'title',
+    ]);
+
+    function isSafeApiReferenceHref(value) {
+        if (!value || /[\u0000-\u0020]/.test(value)) return false;
+        if (value.startsWith('#') || /^\/(?!\/)/.test(value)
+            || value.startsWith('./') || value.startsWith('../')) return true;
+        if (!/^[a-z][a-z0-9+.-]*:/i.test(value)) return false;
+        try {
+            return ['http:', 'https:', 'mailto:', 'tel:'].includes(new URL(value).protocol);
+        } catch {
+            return false;
+        }
+    }
+
+    function parsePassiveApiReferenceFragment(fragment) {
+        const template = document.createElement('template');
+        template.innerHTML = fragment;
+        for (const element of template.content.querySelectorAll('*')) {
+            if (!passiveApiReferenceTags.has(element.localName)) {
+                throw new Error(`Unsafe API reference element: ${element.localName}`);
+            }
+            for (const attribute of element.attributes) {
+                const name = attribute.name.toLowerCase();
+                if (name.startsWith('on')
+                    || (!name.startsWith('aria-') && !passiveApiReferenceAttributes.has(name))) {
+                    throw new Error(`Unsafe API reference attribute: ${name}`);
+                }
+                if (name === 'style' && !/^width:\s*1%\s*;?$/i.test(attribute.value)) {
+                    throw new Error('Unsafe API reference inline style');
+                }
+                if (name === 'href' && !isSafeApiReferenceHref(attribute.value)) {
+                    throw new Error('Unsafe API reference link');
+                }
+            }
+        }
+        return template.content;
+    }
+
     async function showApiReference(browser, refid, member = '', options = {}) {
         const manifest = browser.apiReferenceManifest;
         if (!manifest) return;
@@ -430,14 +478,19 @@
         if (showingOverview) member = '';
         content.setAttribute('aria-busy', 'true');
         try {
-            let fragment = browser.apiReferenceOverview;
+            let fragment = null;
             if (!showingOverview) {
                 const response = await fetch(`/artifacts/sdk/api/${entry.fragment}`);
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 fragment = await response.text();
             }
             if (browser.apiReferenceRequestId !== requestId) return;
-            content.innerHTML = fragment;
+            if (showingOverview) {
+                const overview = browser.apiReferenceOverview.cloneNode(true);
+                content.replaceChildren(...overview.childNodes);
+            } else {
+                content.replaceChildren(parsePassiveApiReferenceFragment(fragment));
+            }
             browser.dataset.apiReferenceCurrent = entry.refid;
             renderApiReferencePicker(browser, manifest);
             refreshApiReferenceToc(browser);
@@ -455,7 +508,10 @@
         } catch (error) {
             if (browser.apiReferenceRequestId !== requestId) return;
             console.warn('API reference fetch failed:', error);
-            content.innerHTML = '<p class="guide-loading">The generated API reference could not be loaded.</p>';
+            const failure = document.createElement('p');
+            failure.className = 'guide-loading';
+            failure.textContent = 'The generated API reference could not be loaded.';
+            content.replaceChildren(failure);
             refreshApiReferenceToc(browser);
         } finally {
             if (browser.apiReferenceRequestId === requestId) content.removeAttribute('aria-busy');
@@ -481,7 +537,7 @@
         root.querySelectorAll('[data-api-reference-browser]:not([data-api-reference-initialized])').forEach((browser) => {
             browser.dataset.apiReferenceInitialized = 'true';
             const content = browser.querySelector('[data-api-reference-content]');
-            browser.apiReferenceOverview = content.innerHTML;
+            browser.apiReferenceOverview = content.cloneNode(true);
             browser.addEventListener('click', (event) => apiReferenceClick(event, browser));
             const picker = browser.querySelector('[data-api-reference-picker]');
             const popover = browser.querySelector('[data-api-reference-popover]');

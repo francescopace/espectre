@@ -43,8 +43,11 @@ describe('website security, asset, and analytics contracts', () => {
         assert.match(navigation, /function setApiReferencePickerOpen/);
         assert.match(navigation, /candidate\.discoverable === false/);
         assert.match(navigation, /function refreshApiReferenceToc/);
+        assert.match(navigation, /function parsePassiveApiReferenceFragment/);
+        assert.match(navigation, /content\.replaceChildren\(parsePassiveApiReferenceFragment\(fragment\)\)/);
+        assert.doesNotMatch(navigation, /content\.innerHTML = fragment/);
         assert.match(navigation, /\/artifacts\/sdk\/api\/\$\{entry\.fragment\}/);
-        assert.match(navigation, /browser\.apiReferenceOverview = content\.innerHTML/);
+        assert.match(navigation, /browser\.apiReferenceOverview = content\.cloneNode\(true\)/);
         assert.match(app, /window\.initApiReferenceBrowsers\(container\)/);
     });
 

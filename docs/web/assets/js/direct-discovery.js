@@ -82,42 +82,6 @@
         }
     }
 
-    function storedDirectEndpoints() {
-        try {
-            const parsed = JSON.parse(localStorage.getItem(DIRECT_ENDPOINT_STORAGE_KEY) || '[]');
-            if (!Array.isArray(parsed)) return [];
-            return parsed.filter((value) => typeof value === 'string').flatMap((value) => {
-                try { return [DirectProtocolClient.normalizeEndpoint(value)]; } catch (_error) { return []; }
-            }).slice(0, DIRECT_ENDPOINT_LIMIT);
-        } catch (_error) {
-            return [];
-        }
-    }
-
-    function writeStoredDirectEndpoints(endpoints) {
-        try {
-            localStorage.setItem(DIRECT_ENDPOINT_STORAGE_KEY, JSON.stringify(endpoints.slice(0, DIRECT_ENDPOINT_LIMIT)));
-        } catch (_error) {
-            // Private browsing and locked-down storage must not block Direct mode.
-        }
-        renderStoredDirectEndpoints();
-    }
-
-    function renderStoredDirectEndpoints() {
-        const list = document.getElementById('direct-remembered-endpoints');
-        if (!list) return;
-        list.replaceChildren(...storedDirectEndpoints().map((endpoint) => {
-            const option = document.createElement('option');
-            option.value = directTargetForEndpoint(endpoint);
-            return option;
-        }));
-    }
-
-    function rememberDirectEndpoint(endpoint) {
-        const endpoints = storedDirectEndpoints().filter((value) => value !== endpoint);
-        writeStoredDirectEndpoints([endpoint, ...endpoints]);
-    }
-
     function consumeDirectHandoff() {
         const params = new URLSearchParams(location.search);
         const directTarget = params.get('target') || '';
@@ -681,7 +645,6 @@
             conn.deviceBannerSub = normalizedEndpoint;
             conn.connectedAt = Date.now();
             syncDirectEndpointInputs(target.display);
-            rememberDirectEndpoint(normalizedEndpoint);
             await refreshDirectDevice();
             if ((openView || (route === 'tool-monitor' ? 'live' : 'connectivity')) === 'live'
                 && directSupportsCommand('set_sensing')) {

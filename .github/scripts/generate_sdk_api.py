@@ -24,6 +24,7 @@ if _SCRIPTS_DIR not in sys.path:
 
 from build_sdk_package import stamp_doxyfile_project_number
 from detect_git_version import detect_git_version, parse_version_core
+from web_html_security import passivize_api_fragment
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOXYFILE = REPO_ROOT / "src" / "cpp" / "Doxyfile"
@@ -258,8 +259,10 @@ def publish_fragments(rendered_directory: Path, xml_directory: Path, sdk_version
     entries: list[dict[str, object]] = []
     for source in sources:
         refid = source.stem
-        fragment = strip_contents_navigation(
-            rewrite_fragment_links(source.read_text(encoding="utf-8"), refid, known_refids)
+        fragment = passivize_api_fragment(
+            strip_contents_navigation(
+                rewrite_fragment_links(source.read_text(encoding="utf-8"), refid, known_refids)
+            )
         )
         if "<html" in fragment.lower() or "<body" in fragment.lower():
             raise ValueError(f"m.css template emitted a standalone document: {source.name}")

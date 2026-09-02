@@ -3,7 +3,7 @@
   SPDX-License-Identifier: GPL-3.0-only
   Commercial licensing available under separate agreement; see LICENSING.md.
 -->
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="light" data-frame-guard>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -23,18 +23,20 @@
 <meta name="twitter:image" content="https://espectre.dev/assets/images/brand/espectre-og.jpg">
 <link rel="icon" type="image/svg+xml" href="/assets/images/brand/espectre-logo.svg?v=5c234009f6c5">
 <link rel="alternate icon" type="image/png" href="/assets/images/brand/favicon.png">
-<link rel="stylesheet" href="/assets/css/styles.css?v=68fa873600fb">
-<script src="/assets/js/route-bootstrap.js?v=266ae3431029"></script>
+<style>html[data-frame-guard] { visibility: hidden; }</style>
+<link rel="stylesheet" href="/assets/css/styles.css?v=47c6685f7a47">
+<noscript><style>html[data-frame-guard] { visibility: visible; }</style></noscript>
+<script src="/assets/js/route-bootstrap.js?v=58f6de142a63"></script>
 <script src="/assets/js/espectre-direct.js?v=62d349e663b9" defer></script>
 <script src="/assets/js/browser-support.js?v=ac4ba70c7f17" defer></script>
 <script src="/assets/js/route-registry.js?v=0e61b3ccecd0" defer></script>
-<script src="/assets/js/navigation.js?v=f8ee531f2706" defer></script>
-<script src="/assets/js/analytics.js?v=e53a69b04be1" defer></script>
-<script src="/assets/js/device-session.js?v=ce060127aba8" defer></script>
-<script src="/assets/js/direct-discovery.js?v=fa85bcb3d77c" defer></script>
+<script src="/assets/js/navigation.js?v=3ca1a10b4a15" defer></script>
+<script src="/assets/js/analytics.js?v=4db2c140d41f" defer></script>
+<script src="/assets/js/device-session.js?v=8e507dc0cca4" defer></script>
+<script src="/assets/js/direct-discovery.js?v=abafbdf17f9a" defer></script>
 <script src="/assets/js/configure-tool.js?v=7a65b7276501" defer></script>
 <script src="/assets/js/monitor-tool.js?v=9fbf1946a567" defer></script>
-<script src="/assets/js/app.js?v=193b3e769f7e" defer></script>
+<script src="/assets/js/app.js?v=2c624dbb3f3f" defer></script>
 </head>
 <body>
 
@@ -531,8 +533,6 @@
   </div>
 </main>
 
-<datalist id="direct-remembered-endpoints"></datalist>
-
 <template id="connection-picker-template">
   <fieldset class="transport-choice">
     <label for="connection-picker-direct" data-connection-label="direct"><input type="radio" id="connection-picker-direct" name="connection-picker" data-connection-mode="direct" value="direct" checked> Local connection <small>recommended</small></label>
@@ -583,7 +583,7 @@
     </div>
     <div class="direct-connect-divider"><span>or enter an address</span></div>
     <div class="direct-connect-manual">
-      <div class="field"><label for="direct-endpoint" class="js-direct-endpoint-label">Device address, ID, or name</label><input type="text" id="direct-endpoint" class="mono-input js-direct-endpoint" list="direct-remembered-endpoints" placeholder="192.168.1.42, abcdef, or Kitchen" autocomplete="off" spellcheck="false"></div>
+      <div class="field"><label for="direct-endpoint" class="js-direct-endpoint-label">Device address, ID, or name</label><input type="text" id="direct-endpoint" class="mono-input js-direct-endpoint" placeholder="192.168.1.42, abcdef, or Kitchen" autocomplete="off" spellcheck="false"></div>
       <button class="btn-secondary btn-sm js-connect-direct"><span class="js-connect-label">Connect</span></button>
     </div>
     <p class="tool-note direct-connection-status js-direct-status" role="status" aria-live="polite" hidden></p>

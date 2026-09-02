@@ -10,6 +10,8 @@
     'use strict';
 
     const root = document.documentElement;
+    if (window.top && window.top !== window.self) return;
+    root.removeAttribute?.('data-frame-guard');
     const currentRoute = root.dataset.spaRoute || '';
     if (!currentRoute) {
         if (window.location.hash.length > 1) root.setAttribute('data-spa-booting', '');

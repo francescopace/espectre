@@ -20,6 +20,7 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
 from detect_git_version import detect_git_version
+from web_html_security import validate_passive_api_fragment
 from web_routes import SITEMAP_NAMESPACE, load_manifest, staged_sdk_channels
 
 
@@ -296,6 +297,7 @@ def verify_sdk_api_version() -> None:
     for entry in entries:
         fragment = require_file(f"artifacts/sdk/api/{entry.get('fragment', '')}")
         source = fragment.read_text(encoding="utf-8")
+        validate_passive_api_fragment(source)
         if "<html" in source.lower() or "<iframe" in source.lower():
             raise ValueError(f"Generated SDK API fragment is not portal-native: {fragment}")
         if re.search(r'<nav\b[^>]*class="[^"]*\bm-block\b', source):

@@ -137,11 +137,14 @@ describe('website navigation contracts', () => {
             documentElement: {
                 dataset: {},
                 setAttribute: (name, value) => attributes.set(name, value),
+                removeAttribute: (name) => attributes.delete(name),
             },
         };
         const window = {
             location: { hash: '#guide-setup' },
         };
+        window.self = window;
+        window.top = window;
         runInNewContext(routeBootstrap, { document, URL, window });
         assert.equal(attributes.has('data-spa-booting'), true);
         assert.match(styles, /html\[data-spa-booting\] \.js-page\[data-page="home"\] \{ display: none; \}/);
@@ -154,6 +157,27 @@ describe('website navigation contracts', () => {
             app,
             /\$\$\('\.js-page'\)\.forEach[\s\S]*?document\.documentElement\.removeAttribute\('data-spa-booting'\)/
         );
+    });
+
+    it('keeps the interactive portal inert when embedded by another origin', () => {
+        const attributes = new Map([['data-frame-guard', '']]);
+        const document = {
+            documentElement: {
+                dataset: {},
+                setAttribute: (name, value) => attributes.set(name, value),
+                removeAttribute: (name) => attributes.delete(name),
+            },
+        };
+        const window = { location: { hash: '#tool-configure' } };
+        window.self = window;
+        window.top = {};
+        runInNewContext(routeBootstrap, { document, URL, window });
+        assert.equal(attributes.has('data-frame-guard'), true);
+        assert.equal(attributes.has('data-spa-booting'), false);
+        assert.match(index, /<html[^>]+data-frame-guard/);
+        assert.match(index, /<style>html\[data-frame-guard\] \{ visibility: hidden; \}<\/style>/);
+        assert.match(index, /<noscript><style>html\[data-frame-guard\] \{ visibility: visible; \}<\/style><\/noscript>/);
+        assert.match(styles, /html\[data-frame-guard\] \{ visibility: hidden; \}/);
     });
 
     it('resolves canonical page anchors before entering the SPA', () => {

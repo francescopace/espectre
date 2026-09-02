@@ -311,7 +311,6 @@
             if (!ready || route !== routeAtStart) return;
             renderBrowserSupport();
             renderDirectBrowserGuidance();
-            renderStoredDirectEndpoints();
             renderConnection();
             consumeDirectHandoff();
             if (routeAtStart === 'tool-monitor') window.monitorResizeChart();
@@ -772,7 +771,7 @@
             const discoveredDevice = event.target.closest('.direct-discovery-device');
             if (discoveredDevice?.dataset.endpoint) {
                 const input = discoveredDevice.closest('.device-connect-card')
-                    ?.querySelector('input[list="direct-remembered-endpoints"]');
+                    ?.querySelector('.js-direct-endpoint');
                 if (input) input.value = discoveredDevice.dataset.deviceId;
                 void runConnectionAction(() => connectDirect({
                     endpoint: discoveredDevice.dataset.endpoint,
@@ -809,7 +808,6 @@
 
         renderBrowserSupport();
         renderDirectBrowserGuidance();
-        renderStoredDirectEndpoints();
         consumeRouteAnchorHandoff();
         const initialRoute = routeFromLocation();
         replaceLegacyRouteLocation(initialRoute);

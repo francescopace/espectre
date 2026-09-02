@@ -80,6 +80,7 @@ h1[tabindex="-1"]:focus { outline: none; }
 
 /* Layout rules below set display on components that also toggle [hidden]. */
 [hidden] { display: none !important; }
+html[data-frame-guard] { visibility: hidden; }
 html[data-spa-booting] .js-page[data-page="home"] { display: none; }
 
 h1, h2, h3 { font-family: var(--font-display); }

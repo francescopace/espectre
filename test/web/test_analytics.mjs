@@ -20,10 +20,17 @@ const routeRegistrySource = readFileSync(
 const routeManifest = JSON.parse(readFileSync(
     new URL('../../docs/web/routes.json', import.meta.url), 'utf8'
 ));
+const toolAnalyticsSource = [
+    'configure-tool.js', 'csi-tool.js', 'device-session.js', 'direct-discovery.js',
+    'game-tool.js', 'monitor-tool.js', 'theremin-tool.js'
+].map((filename) => readFileSync(
+    new URL(`../../docs/web/assets/js/${filename}`, import.meta.url), 'utf8'
+)).join('\n');
 const testExports = `
 globalThis.__analyticsTest = {
     analyticsAllowedHere, disableAnalytics, enableAnalytics, getRouteTitle, getSiteSection,
-    initializeConsentControls, routePath, sendRoutePageView, sendStaticPageView, trackEvent, trackRouteView,
+    initializeConsentControls, routePath, sanitizeAnalyticsEvent, sendRoutePageView,
+    sendStaticPageView, trackEvent, trackRouteView,
     enabled: () => analyticsEnabled
 };`;
 
@@ -158,6 +165,70 @@ describe('analytics privacy boundary', () => {
         assert.equal(window.dataLayer.length, before + 1);
         assert.equal(window.dataLayer.at(-1)[0], 'event');
         assert.equal(window.dataLayer.at(-1)[1], 'firmware_catalog');
+    });
+
+    it('allows the documented tool contract and rejects device-controlled analytics data', () => {
+        const { api, window } = analyticsContext();
+        api.enableAnalytics({ sendPageView: false });
+
+        assert.equal(api.trackEvent('device_profile', {
+            tool_name: 'monitor',
+            entry_point: 'monitor',
+            frontend: 'native',
+            chip: 'ESP32-C3',
+            detector: 'lightweight',
+            protocol_version: '1',
+            firmware_version: '2.8.0-403-g7801312',
+            device_id: '0123456789abcdef',
+            mqtt_host: 'broker.local'
+        }), true);
+        const profile = window.dataLayer.at(-1)[2];
+        assert.equal(profile.firmware_version, '2.8.0-dev');
+        assert.equal(profile.chip, 'ESP32-C3');
+        assert.equal(profile.protocol_version, '1');
+        assert.equal(Object.hasOwn(profile, 'device_id'), false);
+        assert.equal(Object.hasOwn(profile, 'mqtt_host'), false);
+        assert.equal(
+            api.sanitizeAnalyticsEvent('device_profile', { firmware_version: '0.0.0-main' })
+                .firmware_version,
+            '0.0.0-main'
+        );
+        assert.equal(
+            api.sanitizeAnalyticsEvent(
+                'device_profile', { firmware_version: '3.0.0-rc1-12-gabcdef0' }
+            ).firmware_version,
+            '3.0.0-dev'
+        );
+
+        api.trackEvent('configure_change', {
+            action: 'set_mqtt',
+            result: 'failure',
+            error_type: 'password=user@example.com'
+        });
+        assert.equal(window.dataLayer.at(-1)[2].error_type, 'unknown');
+
+        api.trackEvent('device_profile', {
+            firmware_version: 'device-123-secret',
+            frontend: 'native',
+            chip: 'esp32-c3'
+        });
+        assert.equal(window.dataLayer.at(-1)[2].firmware_version, 'unknown');
+
+        const before = window.dataLayer.length;
+        assert.equal(api.trackEvent('unregistered_device_event', { payload: 'secret' }), false);
+        assert.equal(window.dataLayer.length, before);
+    });
+
+    it('registers every custom event emitted by the browser tools', () => {
+        const { api } = analyticsContext();
+        const eventNames = new Set([
+            ...(toolAnalyticsSource + analyticsSource)
+                .matchAll(/\b(?:track|trackEvent)\('([^']+)'/g)
+        ].map((match) => match[1]));
+        assert.ok(eventNames.size > 20);
+        for (const eventName of eventNames) {
+            assert.notEqual(api.sanitizeAnalyticsEvent(eventName), null, eventName);
+        }
     });
 
     it('does not duplicate a page view when consent is accepted twice', () => {

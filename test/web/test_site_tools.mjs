@@ -321,10 +321,8 @@ describe('website tool contracts', () => {
         assert.match(app, /function scheduleDirectReconnect\(client\)/);
         assert.match(app, /await client\.connect\(\{ timeoutMs: 5000 \}\)/);
         assert.match(app, /if \(pendingConfigVerification\) requestConfigVerification\(\)/);
-        assert.match(index, /list="direct-remembered-endpoints"/);
-        assert.match(index, /id="direct-remembered-endpoints"/);
-        assert.match(app, /DIRECT_ENDPOINT_STORAGE_KEY = 'espectre\.direct\.endpoints\.v1'/);
-        assert.match(app, /function rememberDirectEndpoint\(endpoint\)/);
+        assert.doesNotMatch(index, /direct-remembered-endpoints/);
+        assert.doesNotMatch(app, /espectre\.direct\.endpoints|storedDirectEndpoints|rememberDirectEndpoint/);
         assert.match(app, /function consumeDirectHandoff\(\)/);
         assert.match(app, /const directTarget = params\.get\('target'\) \|\| ''/);
         assert.match(app, /parseDirectTarget\(directTarget\)/);
