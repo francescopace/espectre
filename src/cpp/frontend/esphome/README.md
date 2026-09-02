@@ -87,13 +87,13 @@ Runtime performance, heap, load, and detector timing are collected as production
 
 ```yaml
 wifi:
-  band_mode: 2.4GHz  # ESP32-C5: also accepts 5GHz or AUTO
+  band_mode: AUTO  # ESP32-C5 only; optional because AUTO is the default
 
 espectre:
   detection_algorithm: lightweight  # or high_accuracy
 ```
 
-ESPHome owns Wi-Fi association policy through `wifi.band_mode`; it is not an `espectre:` property. On ESP32-C5 it accepts `2.4GHz`, `5GHz`, or `AUTO` and is optional; when omitted, ESPectre follows ESPHome's `AUTO` default. Other supported targets are single-band and remain fixed to 2.4 GHz. ESPectre mirrors the effective ESPHome selection into its runtime and selects `vht20` after a 5 GHz C5 association or `ht20` on 2.4 GHz. The examples select `2.4GHz` because detection quality on 5 GHz is not yet characterized.
+ESPHome owns Wi-Fi association policy through `wifi.band_mode`; it is not an `espectre:` property. On ESP32-C5 it accepts `2.4GHz`, `5GHz`, or `AUTO` and is optional; when omitted, ESPectre follows ESPHome's `AUTO` default. Other supported targets are single-band and remain fixed to 2.4 GHz. ESPectre mirrors the effective ESPHome selection into its runtime and selects `vht20` after a 5 GHz C5 association or `ht20` on 2.4 GHz. The ESP32-C5 example uses the `AUTO` default; detection quality on 5 GHz is not yet characterized.
 
 The YAML value is the initial profile when no persisted selection exists. The Home Assistant `detector_select` changes it live and persists the choice across reboot. `high_accuracy -> lightweight` starts calibration automatically, and `calibration_active_sensor` reflects automatic and user-triggered calibration state.
 

@@ -197,7 +197,7 @@ Frontend coverage:
 
 | Option | Type / values | Default | Range / notes |
 |--------|---------------|---------|---------------|
-| `wifi.band_mode` (ESPHome) / `RuntimeConfig::wifi_band_policy` | `2.4GHz`, `5GHz`, or `AUTO` in ESPHome; `BAND_2G`, `BAND_5G`, or `AUTO` in the SDK | ESP32-C5 firmware: `AUTO`; single-band firmware: `2.4GHz` | `5GHz` and `AUTO` require the dual-band ESP32-C5. Select the policy in ESPHome YAML or an SDK build; Direct HTTP does not expose band selection. ESPHome examples select `2.4GHz` explicitly |
+| `wifi.band_mode` (ESPHome) / `RuntimeConfig::wifi_band_policy` | `2.4GHz`, `5GHz`, or `AUTO` in ESPHome; `BAND_2G`, `BAND_5G`, or `AUTO` in the SDK | ESP32-C5 firmware: `AUTO`; single-band firmware: `2.4GHz` | `5GHz` and `AUTO` require the dual-band ESP32-C5. |
 | `detection_algorithm` | `lightweight` or `high_accuracy` | `lightweight`, including Matter | Lightweight uses less detector CPU and working memory; High Accuracy improves detection quality and skips quiet-room threshold calibration |
 | Runtime threshold | probability | detector-specific | Selected automatically at startup; session-adjustable through ESPHome entities, Native Direct HTTP or MQTT, and Matter Direct HTTP when advertised |
 | `segmentation_window_size_ms` | int | `1000` | `1000-2000` milliseconds; combined with `csi_target_pps` to define a fixed temporal slot window |

@@ -3,9 +3,9 @@
 #
 # TESTED: This platform is validated for HT20 CSI motion detection.
 # ESP32-C5 uses the same modern CSI API as ESP32-C6 with WiFi 6 support.
-# This example pins 2.4 GHz; ESP32-C5 firmware otherwise defaults to AUTO.
-# This dual-band board can select 5 GHz or auto explicitly, but detection
-# quality on 5 GHz is not characterized yet.
+# This example uses ESPHome's AUTO band default. This dual-band board can
+# select 2.4 GHz or 5 GHz explicitly, but detection quality on 5 GHz is not
+# characterized yet.
 #
 # Compatible boards:
 # - ESP32-C5-DevKitC
@@ -51,9 +51,7 @@ espectre:
 
 # WiFi with fallback AP for provisioning
 wifi:
-  # Optional on ESP32-C5; ESPHome defaults to AUTO when omitted. This example
-  # selects the 2.4 GHz HT20 band covered by ESPectre's production corpus.
-  band_mode: 2.4GHz
+  # ESP32-C5 defaults to AUTO when band_mode is omitted.
   ap:
     ssid: "ESPectre Fallback"
 
