@@ -14,7 +14,13 @@ import subprocess
 from pathlib import Path
 
 from .build_artifacts import print_build_artifact_metadata
-from .common import Fore, REPO_ROOT, Style, resolve_serial_port, serial_console_mode
+from .common import (
+    Fore,
+    REPO_ROOT,
+    Style,
+    resolve_serial_port,
+    serial_console_mode,
+)
 from .idf import flash_factory_image, flash_prebuilt_idf_build
 from .targets import IDF_TARGET_BY_CHIP, resolve_esphome_config
 
@@ -83,13 +89,29 @@ def run_esphome_command(args) -> None:
     command = [*ESPHOME_COMMAND_PREFIX, action, str(config_path)]
     device = getattr(args, "device", None)
     if args.esphome_command in {"flash", "monitor"} and not _is_network_device(device):
-        device = resolve_serial_port(
-            device,
-            chip=getattr(args, "chip", None),
-            frontend="esphome",
-            purpose="flash" if args.esphome_command == "flash" else "monitor",
-            require_firmware_download=args.esphome_command == "flash",
-        )
+        if args.esphome_command == "flash":
+            chip = getattr(args, "chip", None)
+            device = resolve_serial_port(
+                device,
+                chip=chip,
+                frontend="esphome",
+                purpose="flash",
+            )
+            if serial_console_mode(chip, device) == "usb_cdc":
+                device = resolve_serial_port(
+                    device,
+                    chip=chip,
+                    frontend="esphome",
+                    purpose="flash",
+                    require_firmware_download=True,
+                )
+        else:
+            device = resolve_serial_port(
+                device,
+                chip=getattr(args, "chip", None),
+                frontend="esphome",
+                purpose="monitor",
+            )
     if args.esphome_command == "flash" and not _is_network_device(device):
         chip = getattr(args, "chip", None)
         before = "no-reset" if serial_console_mode(chip, device) == "usb_cdc" else "default-reset"

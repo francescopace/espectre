@@ -342,8 +342,15 @@ def flash_firmware(args) -> None:
         chip=chip,
         frontend="micro",
         purpose="flash",
-        require_firmware_download=True,
     )
+    if serial_console_mode(chip, port) == "usb_cdc":
+        port = resolve_serial_port(
+            port,
+            chip=chip,
+            frontend="micro",
+            purpose="flash",
+            require_firmware_download=True,
+        )
 
     print_box_banner("Flashing MicroPython Firmware")
     print()

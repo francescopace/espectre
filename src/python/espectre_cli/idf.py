@@ -1290,8 +1290,15 @@ def run_idf_command(frontend: str, args) -> None:
             chip=flash_chip,
             frontend=frontend,
             purpose="flash",
-            require_firmware_download=True,
         )
+        if serial_console_mode(flash_chip, port) == "usb_cdc":
+            port = resolve_serial_port(
+                port,
+                chip=flash_chip,
+                frontend=frontend,
+                purpose="flash",
+                require_firmware_download=True,
+            )
         flash_port = port
         erase_requested = bool(getattr(args, "erase", False))
         idf_target, build_dir_name = resolve_flash_idf_selection(frontend, app_path, port, flash_chip)

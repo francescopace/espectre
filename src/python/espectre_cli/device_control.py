@@ -23,9 +23,6 @@ from .device_transport import (
 def run_improv_provision_command(args) -> int:
     json_output = bool(getattr(args, "json", False))
     diagnostic_stream = sys.stderr if json_output else sys.stdout
-    password = os.environ.get(args.password_env)
-    if password is None:
-        password = getpass.getpass(f"Wi-Fi password ({args.password_env} is unset): ")
     chip = getattr(args, "chip", None)
     frontend = getattr(args, "frontend", "native")
     try:
@@ -37,6 +34,9 @@ def run_improv_provision_command(args) -> int:
                 frontend=frontend,
                 purpose="improv",
             )
+        password = os.environ.get(args.password_env)
+        if password is None:
+            password = getpass.getpass(f"Wi-Fi password ({args.password_env} is unset): ")
         with ImprovSerialClient(port) as client:
             result = client.provision(args.ssid, password, timeout=args.timeout)
     except (OSError, RuntimeError, TimeoutError, ValueError) as exc:

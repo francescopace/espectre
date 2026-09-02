@@ -266,7 +266,7 @@ def _serial_ports_for_identity(identity: SerialPortIdentity | None) -> list[str]
 
 
 def _firmware_download_chip(port: str, expected_chip: str | None) -> str | None:
-    """Return the chip alias only when esptool can synchronize on the port."""
+    """Return the detected chip alias when esptool can synchronize on the port."""
     try:
         import esptool
     except ImportError:
@@ -291,8 +291,7 @@ def _firmware_download_chip(port: str, expected_chip: str | None) -> str | None:
             if esp is None:
                 continue
             chip = chip_alias_from_esptool_name(esp.CHIP_NAME)
-            if expected_chip is None or chip == expected_chip:
-                return chip
+            return chip
         except Exception:
             pass
         finally:
@@ -313,6 +312,7 @@ def _wait_for_compatible_serial_ports(
     require_canonical_console: bool,
     require_firmware_download: bool,
     identity: SerialPortIdentity | None,
+    follow_identity: bool,
 ) -> list[str]:
     """Wait briefly for USB serial re-enumeration after a device reset."""
     ports: list[str] = []
@@ -340,14 +340,34 @@ def _wait_for_compatible_serial_ports(
                 for port in ports
                 if _serial_ports_match(port_arg, port)
             ]
-        else:
+        elif follow_identity:
             ports = list(dict.fromkeys((*identity_ports, *ports)))
         if require_firmware_download:
+            detected_download_chips = {
+                port: _firmware_download_chip(port, chip)
+                for port in ports
+            }
             detected_download_ports = [
                 port
-                for port in ports
-                if _firmware_download_chip(port, chip) is not None
+                for port, detected_chip in detected_download_chips.items()
+                if detected_chip is not None and (chip is None or detected_chip == chip)
             ]
+            wrong_chips = {
+                port: detected_chip
+                for port, detected_chip in detected_download_chips.items()
+                if detected_chip is not None and chip is not None and detected_chip != chip
+            }
+            if (
+                wrong_chips
+                and not detected_download_ports
+                and (port_arg is not None or len(ports) == 1)
+            ):
+                detected = next(iter(wrong_chips.values()))
+                print(
+                    f"{Fore.RED}❌ Serial port contains {CHIP_LABELS.get(detected, detected)}; "
+                    f"expected {CHIP_LABELS.get(chip, chip)}{Style.RESET_ALL}"
+                )
+                raise SystemExit(1)
             ports = [
                 port
                 for port in detected_download_ports
@@ -365,9 +385,8 @@ def _wait_for_compatible_serial_ports(
         if port_arg is None:
             if ports:
                 return ports
-        elif identity_ports or (
-            identity is None
-            and any(_serial_ports_match(port_arg, candidate) for candidate in ports)
+        elif (follow_identity and identity_ports) or (
+            any(_serial_ports_match(port_arg, candidate) for candidate in ports)
         ):
             return ports
 
@@ -375,7 +394,7 @@ def _wait_for_compatible_serial_ports(
             break
         if attempt == 0:
             target = f"serial port {port_arg}" if port_arg is not None else "a serial port"
-            if require_firmware_download:
+            if require_firmware_download and not detected_download_ports:
                 print(
                     f"{Fore.YELLOW}⏳ Waiting for firmware download mode on {target}; "
                     f"use the board's bootloader controls if automatic reset is unavailable..."
@@ -400,11 +419,13 @@ def resolve_serial_port(
     require_firmware_download: bool = False,
 ) -> str:
     """Resolve one compatible port after bounded USB re-enumeration."""
-    identity = _remembered_serial_port_identity(port_arg)
+    remembered_identity = _remembered_serial_port_identity(port_arg)
+    identity = remembered_identity
     if identity is None and port_arg is not None:
         identity = serial_port_identity(port_arg)
         if identity is not None:
             _export_serial_port_identity(identity)
+    follow_identity = remembered_identity is not None or require_firmware_download
     ports = _wait_for_compatible_serial_ports(
         port_arg,
         chip=chip,
@@ -413,8 +434,11 @@ def resolve_serial_port(
         require_canonical_console=require_canonical_console,
         require_firmware_download=require_firmware_download,
         identity=identity,
+        follow_identity=follow_identity,
     )
     if port_arg is not None:
+        if any(_serial_ports_match(port_arg, candidate) for candidate in ports):
+            return port_arg
         identity_ports = _serial_ports_for_identity(identity)
         if require_firmware_download:
             identity_ports = [
@@ -422,7 +446,7 @@ def resolve_serial_port(
                 for port in identity_ports
                 if any(_serial_ports_match(port, candidate) for candidate in ports)
             ]
-        if identity_ports:
+        if follow_identity and identity_ports:
             selected = identity_ports[0]
             if not _serial_ports_match(port_arg, selected):
                 print(
@@ -430,69 +454,66 @@ def resolve_serial_port(
                     f"{port_arg} -> {selected}{Style.RESET_ALL}"
                 )
             return selected
-        if any(_serial_ports_match(port_arg, candidate) for candidate in ports):
-            return port_arg
         print(
             f"{Fore.RED}❌ Serial port {port_arg} is not compatible with "
             f"{purpose}{Style.RESET_ALL}"
         )
         raise SystemExit(1)
-    candidates: list[SerialCandidate] = []
-    if len(ports) > 1:
-        if require_firmware_download:
-            candidates = [
-                SerialCandidate(
-                    device=port,
-                    chip=chip,
-                    console=serial_console_mode(chip, port),
-                )
-                for port in ports
-            ]
-        else:
-            candidates = identify_serial_port_candidates(ports)
-        if chip is not None:
-            matches = [candidate for candidate in candidates if candidate.chip == chip]
-            if not matches:
-                _reject_missing_chip(chip, candidates)
-            candidates = matches
-        if chip is not None:
-            expected_console = NATIVE_CONSOLE_BY_CHIP[chip]
-            preferred = [
-                candidate
-                for candidate in candidates
-                if candidate.console == expected_console
-            ]
-            if preferred:
-                candidates = preferred
-        ports = [candidate.device for candidate in candidates]
     if len(ports) == 0:
         print(f"{Fore.RED}❌ No compatible serial ports found{Style.RESET_ALL}")
         raise SystemExit(1)
-    if len(ports) == 1:
-        selected = ports[0]
-        if len(candidates) == 1:
-            print(
-                f"{Fore.GREEN}✅ Auto-detected compatible port: "
-                f"{format_serial_candidate(candidates[0])}{Style.RESET_ALL}\n"
+    candidates = [
+        SerialCandidate(
+            device=port,
+            chip=chip if require_firmware_download else None,
+            console=serial_console_mode(chip, port),
+        )
+        for port in ports
+    ]
+    if chip is not None:
+        expected_console = NATIVE_CONSOLE_BY_CHIP[chip]
+        preferred = [
+            candidate
+            for candidate in candidates
+            if candidate.console == expected_console
+        ]
+        if preferred:
+            candidates = preferred
+    elif frontend in {"native", "esphome", "matter"} and purpose in {
+        "improv",
+        "monitor",
+    }:
+        native_usb = [
+            candidate
+            for candidate in candidates
+            if candidate.console in {"usb_cdc", "usb_serial_jtag"}
+        ]
+        if native_usb:
+            candidates = native_usb
+    if len(candidates) > 1:
+        print(f"{Fore.YELLOW}Multiple compatible serial ports found:{Style.RESET_ALL}")
+        _print_numbered_candidates(candidates)
+        try:
+            choice = int(
+                input(f"{Fore.CYAN}Select port (1-{len(candidates)}): {Style.RESET_ALL}")
             )
-        else:
-            print(f"{Fore.GREEN}✅ Auto-detected compatible port: {selected}{Style.RESET_ALL}\n")
-        return selected
-
-    print(f"{Fore.YELLOW}Multiple compatible serial ports found:{Style.RESET_ALL}")
-    _print_numbered_candidates(candidates)
-    try:
-        choice = int(input(f"{Fore.CYAN}Select port (1-{len(candidates)}): {Style.RESET_ALL}"))
-        if 1 <= choice <= len(candidates):
+            if not 1 <= choice <= len(candidates):
+                raise ValueError
             selected = candidates[choice - 1]
-            print(
-                f"{Fore.GREEN}✅ Selected: {format_serial_candidate(selected)}{Style.RESET_ALL}\n"
-            )
-            return selected.device
-    except (ValueError, KeyboardInterrupt):
-        pass
-    print(f"{Fore.RED}Invalid selection{Style.RESET_ALL}")
-    raise SystemExit(1)
+        except (ValueError, KeyboardInterrupt):
+            print(f"{Fore.RED}Invalid selection{Style.RESET_ALL}")
+            raise SystemExit(1)
+    else:
+        selected = candidates[0]
+
+    if chip is not None and purpose == "flash" and not require_firmware_download:
+        selected = identify_serial_port_candidates([selected.device])[0]
+        if selected.chip != chip:
+            _reject_missing_chip(chip, [selected])
+
+    label = "Selected" if len(candidates) > 1 else "Auto-detected compatible port"
+    print(f"{Fore.GREEN}✅ {label}: {format_serial_candidate(selected)}{Style.RESET_ALL}\n")
+    return selected.device
 
 
 def get_serial_port(
@@ -645,9 +666,12 @@ def format_serial_candidate(
 ) -> str:
     """Format a serial candidate as port, chip, and console."""
     device = candidate.device if device_width is None else candidate.device.ljust(device_width)
-    chip_label = CHIP_LABELS[candidate.chip] if candidate.chip else "unknown"
-    console_label = candidate.console or "unknown"
-    return f"{device}  {chip_label}  {console_label}"
+    details = [device]
+    if candidate.chip is not None:
+        details.append(CHIP_LABELS[candidate.chip])
+    if candidate.console is not None:
+        details.append(candidate.console)
+    return "  ".join(details)
 
 
 def identify_serial_port_candidates(ports: list[str]) -> list[SerialCandidate]:

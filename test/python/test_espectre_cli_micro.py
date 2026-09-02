@@ -392,6 +392,7 @@ def test_flash_firmware_uses_project_build_for_supported_chips(
     firmware = tmp_path / "project.bin"
     firmware.write_bytes(b"project")
     calls: list[list[str]] = []
+    resolutions: list[tuple[object, dict[str, object]]] = []
 
     monkeypatch.setitem(
         sys.modules,
@@ -401,7 +402,7 @@ def test_flash_firmware_uses_project_build_for_supported_chips(
     monkeypatch.setattr(
         micro,
         "resolve_serial_port",
-        lambda _port, **_kwargs: "/dev/cu.usbmodem1",
+        lambda port, **kwargs: resolutions.append((port, kwargs)) or "/dev/cu.usbmodem1",
     )
     monkeypatch.setattr(
         micro,
@@ -419,6 +420,9 @@ def test_flash_firmware_uses_project_build_for_supported_chips(
     assert calls[-1][:2] == ["--chip", esptool_chip]
     assert calls[-1][5] == baud
     assert calls[-1][-2:] == [offset, str(firmware)]
+    assert resolutions == [
+        (None, {"chip": chip, "frontend": "micro", "purpose": "flash"})
+    ]
 
 
 def test_flash_firmware_rejects_experimental_s2_profile(monkeypatch, capsys) -> None:
