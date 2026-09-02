@@ -16,15 +16,15 @@ espectre::TrafficGeneratorManager *as_manager(void *handle) {
   return static_cast<espectre::TrafficGeneratorManager *>(handle);
 }
 
-espectre::TrafficGeneratorMode resolve_mode(espectre_native_traffic_mode_t mode) {
+espectre::RuntimeTrafficMode resolve_mode(espectre_native_traffic_mode_t mode) {
   switch (mode) {
     case ESPECTRE_NATIVE_TRAFFIC_DNS:
-      return espectre::TrafficGeneratorMode::DNS;
+      return espectre::RuntimeTrafficMode::DNS;
     case ESPECTRE_NATIVE_TRAFFIC_DNS_TCP:
-      return espectre::TrafficGeneratorMode::DNS_TCP;
+      return espectre::RuntimeTrafficMode::DNS_TCP;
     case ESPECTRE_NATIVE_TRAFFIC_PING:
     default:
-      return espectre::TrafficGeneratorMode::PING;
+      return espectre::RuntimeTrafficMode::PING;
   }
 }
 
