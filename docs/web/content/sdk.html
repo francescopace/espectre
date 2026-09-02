@@ -35,7 +35,7 @@
     <dl class="sdk-fit-grid">
       <div><dt>Toolchain</dt><dd>ESP-IDF 5.5 or later and C++17. Repository firmware currently builds with ESP-IDF 5.5.5.</dd></div>
       <div><dt>Hardware</dt><dd>ESP32, ESP32-S2, ESP32-S3, ESP32-C3, ESP32-C5, and ESP32-C6 with standard single-antenna Wi-Fi CSI.</dd></div>
-      <div><dt>Validated sensing</dt><dd>Published detector evidence uses 2.4 GHz HT20 CSI with HT-LTF. The runtime selects <code>lltf20</code> on the original ESP32, <code>vht20</code> on a VHT-capable 5 GHz association, and <code>ht20</code> otherwise. The active read-only profile appears in <code>info</code>. Detection quality at 5 GHz is not yet characterized.</dd></div>
+      <div><dt>Validated sensing</dt><dd>Published detector evidence uses 2.4 GHz HT20 CSI with HT-LTF. The runtime selects <code>lltf20</code> on the original ESP32 and ESP32-S2, <code>vht20</code> on a VHT-capable 5 GHz association, and <code>ht20</code> otherwise. The active read-only profile appears in <code>info</code>. Detection quality at 5 GHz is not yet characterized.</dd></div>
       <div><dt>Delivery model</dt><dd>A versioned C++ source SDK, ready to vendor as an ESP-IDF component. ESPectre is compiled together with your firmware; precompiled libraries are not provided.</dd></div>
       <div><dt>Compatibility</dt><dd>Final releases follow Semantic Versioning for the documented C++ source API. The SDK does not promise a stable binary ABI.</dd></div>
       <div><dt>Licensing</dt><dd>GPLv3 for open-source firmware, with separate commercial terms available for eligible proprietary integrations. <a href="/licensing/">Review licensing</a>.</dd></div>

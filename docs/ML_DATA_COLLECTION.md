@@ -270,7 +270,7 @@ packets = load_npz_as_packets(Path("data/static_presence/sample.npz"))
 - `--pps` controls the external UDP generator and nominal dataset rate; HTTP does not pace or decimate records
 - the collector intentionally leaves the device in `external` mode after it stops
 - the external traffic marker is the exact four-byte UTF-8 payload `"👻".encode("utf-8")` (`F0 9F 91 BB`) on the capability-advertised UDP endpoint
-- the fixed training and validation view is HT20 + HT-LTF + 64 subcarriers; the runtime may select `lltf20` on the original ESP32 or `vht20` on a VHT-capable 5 GHz association, but those raw rows retain their PHY metadata and remain outside this default dataset view
+- the fixed training and validation view is HT20 + HT-LTF + 64 subcarriers; the runtime may select `lltf20` on the original ESP32 and ESP32-S2 or `vht20` on a VHT-capable 5 GHz association, but those raw rows retain their PHY metadata and remain outside this default dataset view
 - the current ML runtime and training flow use the eight scale-invariant production features defined in [FEATURES.md](FEATURES.md)
 
 ## Dataset Inspection

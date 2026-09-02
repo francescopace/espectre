@@ -37,10 +37,10 @@ constexpr bool csi_capture_profile_uses_lltf(CsiCaptureProfile profile) {
 }
 
 /** Resolve the automatic capture policy from target capabilities and link channel. */
-constexpr CsiCaptureProfile resolve_csi_capture_profile(bool original_esp32,
+constexpr CsiCaptureProfile resolve_csi_capture_profile(bool prefers_lltf20,
                                                         bool supports_vht20,
                                                         uint8_t wifi_channel) {
-  if (original_esp32) {
+  if (prefers_lltf20) {
     return CsiCaptureProfile::LLTF20;
   }
   if (supports_vht20 && wifi_channel > 14U) {

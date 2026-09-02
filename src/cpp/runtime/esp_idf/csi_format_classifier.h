@@ -107,7 +107,8 @@ inline const char *csi_format_reason_code_to_string(CsiFormatReasonCode code) {
 
 inline bool csi_info_is_legacy_lltf(const wifi_csi_info_t *info,
                                     CsiCaptureProfile profile) {
-#if CONFIG_IDF_TARGET_ESP32
+#if (defined(CONFIG_IDF_TARGET_ESP32) && CONFIG_IDF_TARGET_ESP32) || \
+    (defined(CONFIG_IDF_TARGET_ESP32S2) && CONFIG_IDF_TARGET_ESP32S2)
   return info != nullptr && csi_capture_profile_uses_lltf(profile) &&
          info->rx_ctrl.sig_mode == 0U && info->rx_ctrl.cwb == 0U;
 #else
@@ -138,8 +139,8 @@ inline CsiFormatAssessment assess_ht20_sensing_format(
                        csi_info_is_ht20_sensing(info);
   const bool is_vht20 = profile == CsiCaptureProfile::VHT20 &&
                         csi_info_is_vht20_sensing(info);
-  const bool is_classic_legacy_lltf = csi_info_is_legacy_lltf(info, profile);
-  if (!is_ht20 && !is_vht20 && !is_classic_legacy_lltf) {
+  const bool is_legacy_lltf = csi_info_is_legacy_lltf(info, profile);
+  if (!is_ht20 && !is_vht20 && !is_legacy_lltf) {
     const bool is_selected_phy =
 #if CONFIG_SOC_WIFI_HE_SUPPORT
         (profile == CsiCaptureProfile::VHT20 &&
@@ -163,7 +164,7 @@ inline CsiFormatAssessment assess_ht20_sensing_format(
   assessment.normalized_len = HT20_CSI_LEN;
   assessment.normalized_num_subcarriers = HT20_NUM_SUBCARRIERS;
 
-  if (is_classic_legacy_lltf && assessment.raw_len != HT20_CSI_LEN) {
+  if (is_legacy_lltf && assessment.raw_len != HT20_CSI_LEN) {
     assessment.disposition = CsiFormatDisposition::DROP;
     assessment.reason_code = CsiFormatReasonCode::UNKNOWN_LAYOUT;
     assessment.normalized_len = 0U;

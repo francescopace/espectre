@@ -124,7 +124,7 @@ void test_wifi_csi_real_forwards_calls_to_mocked_esp_wifi(void) {
     TEST_ASSERT_EQUAL(ESP_OK, wifi.set_csi(false));
 }
 
-void test_original_esp32_csi_config_captures_legacy_ltf_only(void) {
+void test_lltf_preference_and_vht_capability_resolve_capture_profile(void) {
     TEST_ASSERT_TRUE(resolve_csi_capture_profile(true, true, 36U) ==
                      CsiCaptureProfile::LLTF20);
     TEST_ASSERT_TRUE(resolve_csi_capture_profile(false, true, 6U) ==
@@ -554,7 +554,7 @@ void test_mqtt_payload_assembler_rejects_invalid_fragments(void) {
 int process(void) {
     UNITY_BEGIN();
     RUN_TEST(test_wifi_csi_real_forwards_calls_to_mocked_esp_wifi);
-    RUN_TEST(test_original_esp32_csi_config_captures_legacy_ltf_only);
+    RUN_TEST(test_lltf_preference_and_vht_capability_resolve_capture_profile);
     RUN_TEST(test_lltf20_profile_accepts_legacy_and_ht20_frames);
     RUN_TEST(test_csi_capture_service_filters_duplicate_and_stale_timestamps);
     RUN_TEST(test_csi_capture_service_defers_channel_change_and_resets_session_baseline);

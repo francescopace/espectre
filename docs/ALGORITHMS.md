@@ -135,7 +135,7 @@ The split follows from what each family measures rather than from independent ba
 
 Both runtimes use the same guard-band, DC-null, and adjacent-bin aggregation rules in [`csi_format.h`](../src/cpp/core/csi_format.h) and [`segmentation.py`](../tools/lib/segmentation.py). The ML channel-shape live band remains defined identically in [`ml_feature_trackers.h`](../src/cpp/core/ml_feature_trackers.h) and [`ml_feature_trackers.py`](../tools/lib/ml_feature_trackers.py).
 
-HT20 is the enforced detector input contract on both supported bands, while the current detection corpus validates only 2.4 GHz operation. VHT20, HE20, and wider layouts are not accepted by the production detectors. Band-selection behavior lives in [SETUP.md](SETUP.md), and the PHY rationale lives in the [HT20 ADR](adr/2026-07-23-adopt-classifier-first-ht20-sensing-contract.md).
+Production detectors consume a canonical centered 64-subcarrier, 20 MHz view. The runtime admits the named `lltf20`, `ht20`, and `vht20` capture profiles and normalizes recognized layouts onto that view. The current detection corpus validates only 2.4 GHz HT20 with HT-LTF; 5 GHz VHT20 detection quality is not characterized yet. HE20 and wider layouts are not accepted. Band-selection behavior lives in [SETUP.md](SETUP.md), and the PHY rationale lives in the [20 MHz sensing ADR](adr/2026-07-23-adopt-classifier-first-ht20-sensing-contract.md).
 
 Supported HT20 payload variants are normalized onto the same internal 64-subcarrier index grid before fixed-subcarrier extraction. Short estimates are centered so the HT20 midpoint remains aligned, and doubled payloads are collapsed to one HT20 half.
 

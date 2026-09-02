@@ -55,7 +55,7 @@ def select_csi_capture_profile(chip, wifi_channel):
         wifi_channel = int(wifi_channel or 0)
     except (TypeError, ValueError):
         wifi_channel = 0
-    if normalized_chip == "ESP32":
+    if normalized_chip in ("ESP32", "S2"):
         return "lltf20"
     if normalized_chip == "C5" and wifi_channel > 14:
         return "vht20"

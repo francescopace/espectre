@@ -18,17 +18,18 @@
 namespace espectre {
 
 constexpr CsiCaptureProfile select_csi_capture_profile(uint8_t wifi_channel) {
-#if defined(CONFIG_IDF_TARGET_ESP32) && CONFIG_IDF_TARGET_ESP32
-  constexpr bool kOriginalEsp32 = true;
+#if (defined(CONFIG_IDF_TARGET_ESP32) && CONFIG_IDF_TARGET_ESP32) || \
+    (defined(CONFIG_IDF_TARGET_ESP32S2) && CONFIG_IDF_TARGET_ESP32S2)
+  constexpr bool kPrefersLltf20 = true;
 #else
-  constexpr bool kOriginalEsp32 = false;
+  constexpr bool kPrefersLltf20 = false;
 #endif
 #if defined(CONFIG_IDF_TARGET_ESP32C5) && CONFIG_IDF_TARGET_ESP32C5
   constexpr bool kSupportsVht20 = true;
 #else
   constexpr bool kSupportsVht20 = false;
 #endif
-  return resolve_csi_capture_profile(kOriginalEsp32, kSupportsVht20,
+  return resolve_csi_capture_profile(kPrefersLltf20, kSupportsVht20,
                                      wifi_channel);
 }
 

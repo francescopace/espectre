@@ -33,7 +33,7 @@
     <div class="note"><strong>Device cost is a descriptive mean.</strong> Detection-path time includes feature and inference work. Runtime CPU is total runtime load, not detector-only utilization or energy consumption. The 17 C++ frontend campaigns were collected separately. Power has not yet been measured.</div>
     <div class="note"><strong>This is a development diagnostic, not a sealed blind result.</strong> The recordings are outside the High Accuracy training corpus, but project development has used parts of this evidence for selection decisions. The table compares current profiles under one replay contract; it is not a final generalization claim.</div>
   </div>
-  <div class="note"><strong>Current validation boundary:</strong> published detector evidence uses 2.4 GHz HT20 CSI with HT-LTF. The runtime automatically selects <code>lltf20</code> on the original ESP32, <code>vht20</code> on a VHT-capable 5 GHz association, and <code>ht20</code> otherwise. The LLTF path preserves raw missing tones and imputes only the detector view. Detection quality at 5 GHz is not yet characterized.</div>
+  <div class="note"><strong>Current validation boundary:</strong> published detector evidence uses 2.4 GHz HT20 CSI with HT-LTF. The runtime automatically selects <code>lltf20</code> on the original ESP32 and ESP32-S2, <code>vht20</code> on a VHT-capable 5 GHz association, and <code>ht20</code> otherwise. The LLTF path preserves raw missing tones and imputes only the detector view. Detection quality at 5 GHz is not yet characterized.</div>
 
   <h2 id="sdk-detectors-pipeline" data-toc-label="Detection pipeline">How one second of CSI becomes a decision</h2>
   <div class="pipeline" aria-label="Detector data flow">
