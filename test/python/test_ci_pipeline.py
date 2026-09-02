@@ -220,6 +220,60 @@ def test_release_sdk_page_exposes_version_stability(
     assert ('data-sdk-production-ready="false"' in page) is not production_ready
 
 
+def test_web_sdk_page_escapes_manifest_metadata() -> None:
+    stage = load_script("stage_web_sdk")
+    payload = '"><script>alert(1)</script>'
+    manifest = {
+        "channel": "release",
+        "version": payload,
+        "release_tag": payload,
+        "protocol_version": payload,
+        "supported_esp_idf": payload,
+        "commit": payload,
+        "artifacts": [{"url": f"https://example.invalid/{payload}", "format": "zip", "filename": payload}],
+        "install_surfaces": {
+            "cmake": {"entrypoint": payload, "optional_source_groups": [payload]},
+            "esp_idf_component": {
+                "component_root": payload,
+                "cmake": payload,
+                "kconfig": payload,
+            },
+        },
+    }
+
+    page = stage.render_page(manifest, "release")
+
+    assert "<script>alert(1)</script>" not in page
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page
+    assert "&quot;&gt;&lt;script&gt;" in page
+
+
+@pytest.mark.parametrize("artifact_url", ["javascript:alert(1)", "https:artifact.zip"])
+def test_web_sdk_manifest_rejects_unsafe_artifact_urls(artifact_url: str) -> None:
+    stage = load_script("stage_web_sdk")
+    manifest = {
+        "schema_version": 2,
+        "channel": "preview",
+        "version": "3.0.0-1-gabcdef1",
+        "release_tag": "snapshot",
+        "protocol_version": "1",
+        "supported_esp_idf": ">=5.5.0",
+        "commit": "abcdef1",
+        "artifacts": [{"url": artifact_url, "format": "zip", "filename": "sdk.zip"}],
+        "install_surfaces": {
+            "cmake": {"entrypoint": "src/cpp/espectre_sources.cmake", "optional_source_groups": []},
+            "esp_idf_component": {
+                "component_root": "src/cpp",
+                "cmake": "src/cpp/CMakeLists.txt",
+                "kconfig": "src/cpp/Kconfig.projbuild",
+            },
+        },
+    }
+
+    with pytest.raises(ValueError, match="root-relative or HTTPS"):
+        stage.validate_sdk_manifest(manifest, "preview")
+
+
 @pytest.mark.parametrize("tag", ["v3.0.0", "03.0.0", "3.0.0-01", "3.0", "release"])
 def test_release_validator_rejects_non_semver_tags(tag: str) -> None:
     validator = load_script("validate_release")
@@ -901,6 +955,9 @@ def test_generated_pages_have_sitemap_lastmod_ownership() -> None:
         assert sitemap_builder.WEB_PAGE_SHELL in ownership, (
             f"Sitemap lastmod for {route} does not track the shared page shell"
         )
+        assert sitemap_builder.ROUTE_BOOTSTRAP in ownership, (
+            f"Sitemap lastmod for {route} does not track the route bootstrap"
+        )
 
     assert sitemap_builder.SDK_API_BUILDER in sitemap_builder.SDK_API_INPUTS
     assert sitemap_builder.MCSS_TEMPLATES in sitemap_builder.SDK_API_INPUTS
@@ -1039,24 +1096,37 @@ def test_workflows_keep_publication_and_supply_chain_guardrails() -> None:
     preview_tag, develop_tag = _ota_release_tags()
     assert re.search(rf'(?m)^              echo "tag={re.escape(develop_tag)}"$', snapshot)
     assert re.search(rf'(?m)^              echo "tag={re.escape(preview_tag)}"$', snapshot)
-    assert f"gh release view {preview_tag}" in ci
-    assert f"gh release view {develop_tag}" in ci
-    assert f"gh release view {preview_tag}" in release
-    assert f"gh release view {develop_tag}" in release
-    assert f"gh release view {develop_tag}" in snapshot
     assert re.search(rf'(?m)^              echo "release_tag={re.escape(develop_tag)}"$', ci)
     assert re.search(rf'(?m)^              echo "release_tag={re.escape(preview_tag)}"$', ci)
     assert "detect_git_version.py" in ci
     assert "detect_git_version.py" in snapshot
-    assert "detect_git_version.py" in release
     assert "ESPECTRE_GIT_VERSION: ${{ steps.git-version.outputs.version }}" in ci
     assert "ESPECTRE_GIT_VERSION: ${{ github.ref_name }}" in release
+    published_channel_action = (
+        REPO_ROOT / ".github" / "actions" / "stage-published-web-channel" / "action.yml"
+    ).read_text(encoding="utf-8")
+    assert "detect_git_version.py" in published_channel_action
+    assert ci.count("uses: ./.github/actions/stage-published-web-channel") == 3
+    assert snapshot.count("uses: ./.github/actions/stage-published-web-channel") == 2
+    assert release.count("uses: ./.github/actions/stage-published-web-channel") == 2
+    for tag in (preview_tag, develop_tag):
+        assert f"release-tag: {tag}" in ci
+        assert f"release-tag: {tag}" in release
+    assert f"release-tag: {develop_tag}" in snapshot
+    assert "release-tag: latest" in ci
+    assert "release-tag: latest" in snapshot
+    for expected in (
+        "gh release view",
+        "gh release download",
+        ".github/scripts/stage_web_firmware.py",
+        ".github/scripts/stage_web_sdk.py",
+        "firmware-compliance-*.zip",
+    ):
+        assert expected in published_channel_action
     for source in (ci, snapshot, release):
         assert "uses: ./.github/actions/build-pages" in source
         assert "fetch-depth: 0" in source
-        assert "--output-dir docs/web/artifacts/firmware/release" in source
-        assert "--channel release" in source
-        assert "--url-prefix /artifacts/firmware/release" in source
+        assert "docs/web/artifacts/firmware/release" in source
     for source in (snapshot, release):
         assert 'require-release: "true"' in source
         assert "name: website-sitemap" in source

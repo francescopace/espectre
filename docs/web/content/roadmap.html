@@ -114,7 +114,7 @@
             <h2 id="roadmap-v5-title" data-toc-label="v5.0.0">Build on Wi-Fi hardware designed for sensing.</h2>
             <p>v5 starts when practical embedded hardware exposes IEEE 802.11bf or equivalent measurements. Deliberate sensing procedures could make radio data more repeatable, improve coordination between nodes, and open a path to richer presence and motion capabilities.</p>
             <ul class="roadmap-chapter-points">
-              <li>Qualify the first supported radio, driver, and measurement API on real embedded hardware.</li>
+              <li>Qualify the first supported radio, driver, and measurement API on practical embedded hardware.</li>
               <li>Add a standards-backed sensing backend and validate every detector against new datasets.</li>
               <li>Measure calibration, false positives, stationary presence, and multi-node fusion from scratch.</li>
               <li>Let existing products adopt the new backend through the same SDK and protocol, with a documented migration path from ESP32 CSI.</li>
@@ -129,13 +129,15 @@
     <div class="roadmap-section-head">
       <span class="guide-tag">RESEARCH TRACKS</span>
       <h2 id="roadmap-research-title" data-toc-label="Research">Research areas under evaluation.</h2>
-      <p>Research does not reserve release scope. A track may become a product, remain a host-side experiment, or end with a measured rejection.</p>
+      <p>Research does not reserve release scope. The tracks are listed in dependency order, and each may become a product, remain a host-side experiment, or end with a measured rejection.</p>
     </div>
     <div class="roadmap-research-list">
-      <article><span>01</span><div><h3>5 GHz and new PHYs</h3><p>Validate the ESP32-C5 VHT20 path and automatic dual-band operation, then evaluate HE20 and wider layouts with representative detector evidence.</p></div></article>
-      <article><span>02</span><div><h3>Stationary presence</h3><p>Test whether scale-invariant micro-motion can distinguish an occupied quiet room from an empty one.</p></div></article>
-      <article><span>03</span><div><h3>Brief gestures</h3><p>Build a gesture-specific corpus only after the high-rate sensing path preserves the necessary short-timescale information.</p></div></article>
-      <article><span>04</span><div><h3>Breathing-related motion</h3><p>Explore breathing-related micro-motion only after stationary presence is measurable and suitable paired recordings exist.</p></div></article>
+      <article><span>01</span><div><h3>HE20 and HT40 sensing profiles</h3><p>Map both layouts onto canonical detector inputs, compare their benefits and costs, and select any profile that earns promotion.</p></div></article>
+      <article><span>02</span><div><h3>Higher CSI rate</h3><p>Select the highest useful sustained rate within declared limits for loss, jitter, compute, memory, and transport load.</p></div></article>
+      <article><span>03</span><div><h3>Longer and multi-scale windows</h3><p>Test slow micro-motion over longer windows while preserving the current movement response.</p></div></article>
+      <article><span>04</span><div><h3>Stationary presence</h3><p>Use the selected capture profile to test whether an occupied quiet room can be distinguished from an empty one.</p></div></article>
+      <article><span>05</span><div><h3>Breathing-related motion</h3><p>Explore non-medical breathing-related micro-motion after stationary presence and longer windows are validated.</p></div></article>
+      <article><span>06</span><div><h3>Brief gestures</h3><p>Build a gesture-specific corpus after the higher-rate path preserves the necessary short-timescale information.</p></div></article>
     </div>
   </section>
 

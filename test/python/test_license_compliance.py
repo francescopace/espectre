@@ -123,6 +123,9 @@ def test_repository_license_policy_covers_first_party_code_and_release_artifacts
     )
     direct_tests = (REPO_ROOT / "test" / "web" / "test_espectre_direct.mjs").read_text(encoding="utf-8")
     ci_workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    published_channel_action = (
+        REPO_ROOT / ".github" / "actions" / "stage-published-web-channel" / "action.yml"
+    ).read_text(encoding="utf-8")
     release_workflow = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     snapshot_workflow = (REPO_ROOT / ".github" / "workflows" / "snapshot.yml").read_text(encoding="utf-8")
 
@@ -142,7 +145,8 @@ def test_repository_license_policy_covers_first_party_code_and_release_artifacts
         assert "build_firmware_compliance_bundle.py" in workflow
         assert "Remove superseded unbundled compliance assets" in workflow
         assert "--compliance-url-prefix" in workflow
-    assert "--pattern 'firmware-compliance-*.zip'" in ci_workflow
+    assert "uses: ./.github/actions/stage-published-web-channel" in ci_workflow
+    assert "--pattern 'firmware-compliance-*.zip'" in published_channel_action
     assert "build_firmware_compliance" in ci_workflow
     assert not (REPO_ROOT / "docs" / "web" / "assets" / "js" / "LICENSES").exists()
     assert (

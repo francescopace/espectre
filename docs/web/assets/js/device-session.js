@@ -589,7 +589,7 @@
     }
 
     function markToolReady(readiness) {
-        if (!conn.mode) return;
+        if (!conn.mode || conn.status !== 'connected') return;
         if (!conn.readyState) conn.readyAt = Date.now();
         conn.readyState = readiness;
         if (conn.readyTracked) return;
@@ -754,10 +754,6 @@
     }
 
     function applySysinfo(snapshot) {
-        if (conn.mode === 'direct' && conn.toolName === 'configure'
-                && (snapshot.frontend || snapshot.chip || snapshot.proto_version)) {
-            markToolReady('info');
-        }
         applyConfigureCapabilities(snapshot);
         const frontend = snapshot.frontend || conn.frontend;
         const chip = snapshot.chip ? String(snapshot.chip).toUpperCase() : conn.chip;
@@ -982,7 +978,7 @@
     function disconnect() {
         cancelDirectDiscovery({ clear: true });
         cancelDirectReconnect();
-        if (typeof window.rawCsiStop === 'function') void window.rawCsiStop();
+        if (typeof window.rawCsiStop === 'function') void window.rawCsiStop('user');
         const client = directClient;
         directClient = null;
         client?.close();
@@ -1010,7 +1006,7 @@
     function teardownConnection(reason = 'route_change') {
         cancelDirectDiscovery({ clear: true });
         cancelDirectReconnect();
-        if (typeof window.rawCsiStop === 'function') void window.rawCsiStop();
+        if (typeof window.rawCsiStop === 'function') void window.rawCsiStop(reason);
         monitor.switchingTransport = false;
         if (otaTracking) finishOtaTracking('unconfirmed', 'ClientDisconnected');
         if (pendingConfigVerification) {

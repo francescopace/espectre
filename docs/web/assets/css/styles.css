@@ -35,17 +35,10 @@
   --media-shadow: 0 18px 60px rgba(0, 0, 0, .28);
   --scene-motion: #78eca7;
   --scene-alarm: #ff676d;
-  --scene-heating: #73b8ff;
-  --scene-cooling: #62d7e8;
   --scene-presence: #f2c46d;
-  --scene-industrial: #d1b06c;
-  --scene-school: #8bd7ff;
   --scene-privacy: #73b8ff;
-  --scene-gym: #ff8fc2;
   --scene-embedded: #ff9f66;
   --scene-integration: #a68cff;
-  --scene-cloud: #6fe0c0;
-  --scene-standards: #67cdf5;
 }
 
 html, body {
@@ -778,26 +771,6 @@ a.hero-badge:hover {
   text-transform: uppercase;
   white-space: nowrap;
 }
-.scene-integrations {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin: -12px 0 14px;
-}
-.scene-integrations span {
-  padding: 6px 9px;
-  border: 1px solid color-mix(in srgb, var(--scene-integration) 42%, transparent);
-  border-radius: 8px;
-  background: var(--media-panel);
-  color: color-mix(in srgb, var(--media-text) 82%, transparent);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: .05em;
-  text-transform: uppercase;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
 .scrolly-nav {
   position: absolute;
   right: 40px;
@@ -3446,7 +3419,7 @@ ewt-install-dialog {
   border-radius: 8px;
   background: var(--surface);
   color: var(--text);
-  font: 13px var(--font-body);
+  font: 13px var(--font-sans);
 }
 .api-reference-picker-field input:hover { border-color: var(--accent-line); }
 .api-reference-picker-field input:focus { outline: 2px solid var(--accent-line); outline-offset: 1px; }
@@ -3495,7 +3468,7 @@ ewt-install-dialog {
   background: transparent;
   color: var(--text);
   cursor: pointer;
-  font: 12.5px/1.35 var(--font-body);
+  font: 12.5px/1.35 var(--font-sans);
   text-align: left;
 }
 .api-reference-results button:hover,
@@ -3544,7 +3517,7 @@ ewt-install-dialog {
 }
 .api-reference-content .m-doc-details > div > h3 { margin: 0 0 12px; color: var(--text); font-family: var(--font-mono); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
 .api-reference-content .m-doc-details p { margin: 10px 0; }
-.api-reference-content .m-label { display: inline-block; margin-left: 4px; padding: 2px 5px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-family: var(--font-body); font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.api-reference-content .m-label { display: inline-block; margin-left: 4px; padding: 2px 5px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-family: var(--font-sans); font-size: 9px; font-weight: 700; text-transform: uppercase; }
 .api-reference-content .m-label.m-danger { background: color-mix(in srgb, var(--danger) 10%, var(--surface)); color: var(--danger); }
 .api-reference-content table.m-table { width: 100%; margin: 15px 0; border-collapse: collapse; border: 1px solid var(--border); font-size: 12px; }
 .api-reference-content table.m-table th,
@@ -3800,7 +3773,6 @@ ewt-install-dialog {
   .scrolly-caption h2 { font-size: clamp(42px, 13vw, 60px); }
   .scrolly-caption > p { font-size: 15px; margin-bottom: 22px; }
   .scene-ui { width: 100%; }
-  .scene-integrations { margin-top: -9px; }
   .scrolly-nav { right: 12px; }
   .scrolly-cue,
   .scrolly-skip { right: 22px; bottom: 4px; font-size: 9px; }

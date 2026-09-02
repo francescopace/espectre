@@ -1,0 +1,89 @@
+name: Stage published web channel
+description: Download one GitHub Release and stage its firmware and SDK website channel.
+
+inputs:
+  release-tag:
+    description: GitHub Release tag, or latest for the latest published release.
+    required: true
+  channel:
+    description: Website channel to stage.
+    required: true
+  firmware-output-dir:
+    description: Destination for staged firmware.
+    required: true
+  sdk-output-dir:
+    description: Destination for the staged SDK page and manifest.
+    required: true
+
+outputs:
+  staged:
+    description: Whether the requested release exists and was staged.
+    value: ${{ steps.stage.outputs.staged }}
+
+runs:
+  using: composite
+  steps:
+    - name: Download and stage published channel
+      id: stage
+      shell: bash
+      env:
+        RELEASE_TAG_INPUT: ${{ inputs.release-tag }}
+        WEB_CHANNEL: ${{ inputs.channel }}
+        FIRMWARE_OUTPUT_DIR: ${{ inputs.firmware-output-dir }}
+        SDK_OUTPUT_DIR: ${{ inputs.sdk-output-dir }}
+      run: |
+        set -euo pipefail
+        release_args=()
+        if [[ "${RELEASE_TAG_INPUT}" != "latest" ]]; then
+          release_args+=("${RELEASE_TAG_INPUT}")
+        fi
+        if ! release_metadata="$(
+          gh release view "${release_args[@]}" \
+            --json tagName,targetCommitish \
+            --jq '[.tagName, (.targetCommitish // "")] | @tsv' \
+            2>/dev/null
+        )"; then
+          echo "No ${RELEASE_TAG_INPUT} release found; skipping ${WEB_CHANNEL} channel staging."
+          echo "staged=false" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
+
+        IFS=$'\t' read -r resolved_tag target_commit <<< "${release_metadata}"
+        stage_root="$(mktemp -d)"
+        trap 'rm -rf "${stage_root}"' EXIT
+        firmware_dir="${stage_root}/firmware"
+        sdk_dir="${stage_root}/sdk"
+        mkdir -p "${firmware_dir}" "${sdk_dir}"
+
+        gh release download "${resolved_tag}" \
+          --pattern '*.bin' \
+          --pattern 'firmware-compliance-*.zip' \
+          --pattern '*-sbom.spdx.json' \
+          --pattern '*-THIRD_PARTY_NOTICES.txt' \
+          --pattern '*-third-party-licenses.zip' \
+          --dir "${firmware_dir}" \
+          --clobber
+        gh release download "${resolved_tag}" \
+          --pattern 'espectre-sdk-*' \
+          --pattern 'sdk-manifest-*.json' \
+          --dir "${sdk_dir}" \
+          --clobber
+
+        if [[ "${WEB_CHANNEL}" == "release" ]]; then
+          version="${resolved_tag}"
+        else
+          version="$(python3 .github/scripts/detect_git_version.py --from-sdk-dir "${sdk_dir}")"
+        fi
+        python3 .github/scripts/stage_web_firmware.py \
+          --firmware-dir "${firmware_dir}" \
+          --output-dir "${FIRMWARE_OUTPUT_DIR}" \
+          --channel "${WEB_CHANNEL}" \
+          --version "${version}" \
+          --release-tag "${resolved_tag}" \
+          --url-prefix "/artifacts/firmware/${WEB_CHANNEL}" \
+          --commit "${target_commit}"
+        python3 .github/scripts/stage_web_sdk.py \
+          --sdk-dir "${sdk_dir}" \
+          --output-dir "${SDK_OUTPUT_DIR}" \
+          --channel "${WEB_CHANNEL}"
+        echo "staged=true" >> "${GITHUB_OUTPUT}"

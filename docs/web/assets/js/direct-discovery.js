@@ -689,7 +689,7 @@
             track('tool_connection', {
                 ...connectionParams(), transport: 'direct_http', result: 'success'
             });
-            markToolReady('info');
+            if (conn.toolName === 'configure') markToolReady('info');
             if (pendingLiveDestination) completeLiveConnectionNavigation();
         } catch (error) {
             directClient?.close();

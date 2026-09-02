@@ -329,6 +329,12 @@ describe('analytics automatic events', () => {
         dispatchLink('https://espectre.dev/tools/device-settings/');
         assert.equal(window.dataLayer.at(-1)[1], 'select_tool');
         assert.equal(window.dataLayer.at(-1)[2].tool_name, 'configure');
+        dispatchLink('https://espectre.dev/#guides');
+        assert.equal(window.dataLayer.at(-1)[1], 'select_guide');
+        assert.equal(window.dataLayer.at(-1)[2].guide_name, 'overview');
+        dispatchLink('https://espectre.dev/#sdk-api');
+        assert.equal(window.dataLayer.at(-1)[1], 'select_documentation');
+        assert.equal(window.dataLayer.at(-1)[2].document_name, 'api');
         consentBanner.hidden = true;
         assert.equal(dispatchLink('/privacy/#cookie-settings', { cookieSettings: true }), true);
         assert.equal(consentBanner.hidden, false);

@@ -1244,6 +1244,62 @@ void test_csi_pipeline_raw_branch_runs_before_sampler_and_resets_cleanly(void) {
     TEST_ASSERT_EQUAL(1U, detector.get_total_packets());
 }
 
+void test_csi_pipeline_lltf20_normalizes_all_ht_layouts_before_detector(void) {
+    LightweightDetector detector(50, 1.0f);
+    CsiPipeline manager;
+    manager.init(&detector, &g_wifi_mock);
+    TEST_ASSERT_EQUAL(ESP_OK,
+                      manager.enable(nullptr, CsiCaptureProfile::LLTF20));
+
+    DetectorViewProbe detector_probe;
+    manager.set_packet_interceptor(&detector_view_probe_, &detector_probe);
+
+    std::array<int8_t, HT20_CSI_LEN_DOUBLE> csi_buf{};
+    wifi_csi_info_t csi_info = {};
+    fill_valid_csi_info_(&csi_info, csi_buf.data());
+    csi_info.rx_ctrl.sig_mode = 1U;
+
+    const uint16_t supported_lengths[] = {
+        HT20_CSI_LEN,
+        HT20_CSI_LEN_SHORT,
+        HT20_CSI_LEN_DOUBLE,
+        HT20_CSI_LEN_SHORT_DOUBLE,
+    };
+    uint32_t timestamp = 100000U;
+    uint32_t expected_packets = 0U;
+    for (uint16_t raw_len : supported_lengths) {
+        csi_buf.fill(7);
+        if (raw_len == HT20_CSI_LEN_SHORT ||
+            raw_len == HT20_CSI_LEN_SHORT_DOUBLE) {
+            // Short layouts span physical tones -28..+28 before the runtime
+            // pads them onto the centered 64-bin grid.
+            csi_buf[4] = 21;
+            csi_buf[5] = -22;
+            csi_buf[108] = 31;
+            csi_buf[109] = -32;
+        } else {
+            csi_buf[12] = 21;
+            csi_buf[13] = -22;
+            csi_buf[116] = 31;
+            csi_buf[117] = -32;
+        }
+
+        csi_info.len = raw_len;
+        csi_info.rx_ctrl.timestamp = timestamp;
+        timestamp += 10000U;
+        detector_probe.nearest_edge_tones_copied = false;
+        g_wifi_mock.trigger_callback(&csi_info);
+        manager.loop();
+        manager.flush_pending_candidate();
+
+        expected_packets++;
+        TEST_ASSERT_EQUAL(expected_packets, detector_probe.packets);
+        TEST_ASSERT_TRUE(detector_probe.nearest_edge_tones_copied);
+    }
+
+    TEST_ASSERT_EQUAL(expected_packets, detector.get_total_packets());
+}
+
 void test_csi_pipeline_measures_queue_age_in_the_callback_clock_domain(void) {
     int8_t csi_buf[128] = {0};
     wifi_csi_info_t csi_info = {};
@@ -1502,6 +1558,7 @@ int process(void) {
     RUN_TEST(test_csi_pipeline_callback_wrapper_null_data);
     RUN_TEST(test_csi_pipeline_counts_callback_queue_overflow);
     RUN_TEST(test_csi_pipeline_raw_branch_runs_before_sampler_and_resets_cleanly);
+    RUN_TEST(test_csi_pipeline_lltf20_normalizes_all_ht_layouts_before_detector);
     RUN_TEST(test_csi_pipeline_measures_queue_age_in_the_callback_clock_domain);
     RUN_TEST(test_csi_pipeline_loop_defers_callback_refill_to_next_iteration);
     

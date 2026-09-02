@@ -312,19 +312,31 @@ function initializeAutoTracking() {
             return;
         }
 
+        const hashRoute = url.hash.replace(/^#/, '');
+        const legacyRoute = url.pathname === '/' && window.ESPectreRoutes?.has(hashRoute)
+            ? hashRoute
+            : '';
         const route = url.origin === window.location.origin
-            ? (window.ESPectreRoutes?.routeForPath(url.pathname) || url.hash.replace(/^#/, ''))
+            ? (legacyRoute || window.ESPectreRoutes?.routeForPath(url.pathname))
             : '';
         if (window.ESPectreRoutes?.groupOf(route) === 'tools') {
             const toolName = window.ESPectreRoutes.get(route)?.analyticsName || route;
             trackEvent('select_tool', { tool_name: toolName, link_text: linkText(link) });
         } else if (route === 'guides') {
-            trackEvent('select_guide', { guide_name: 'overview', link_text: linkText(link) });
+            const routePath = window.ESPectreRoutes.get(route)?.staticPath || '';
+            const guideName = window.ESPectreRoutes.guideNameForPath(routePath);
+            if (guideName) {
+                trackEvent('select_guide', { guide_name: guideName, link_text: linkText(link) });
+            }
         } else if (route === 'sdk' || route.startsWith('sdk-')) {
-            trackEvent('select_documentation', {
-                document_name: route === 'sdk' ? 'overview' : route.replace(/^sdk-/, ''),
-                link_text: linkText(link)
-            });
+            const routePath = window.ESPectreRoutes.get(route)?.staticPath || '';
+            const documentName = window.ESPectreRoutes.documentNameForPath(routePath);
+            if (documentName) {
+                trackEvent('select_documentation', {
+                    document_name: documentName,
+                    link_text: linkText(link)
+                });
+            }
         }
     });
 }
@@ -333,11 +345,6 @@ window.trackEvent = trackEvent;
 window.trackRouteView = trackRouteView;
 window.getSiteSection = getSiteSection;
 window.getRouteTitle = getRouteTitle;
-window.ESPectreAnalytics = Object.freeze({
-    showConsentSettings: showConsentBanner,
-    consent: storedConsent
-});
-
 document.addEventListener('DOMContentLoaded', async () => {
     try {
         await window.ESPectreRoutesReady;

@@ -29,15 +29,7 @@ def output_path(route: dict[str, str]) -> str | None:
 
 
 def content_group(route: dict[str, str]) -> str:
-    group = route.get("group")
-    name = route["name"]
-    if group == "tools":
-        return route.get("analyticsName", name)
-    if name == "tools":
-        return "tools"
-    if group in {"guides", "sdk"} or name in {"guides", "sdk", "roadmap"}:
-        return "documentation"
-    return name
+    return route["contentGroup"]
 
 
 def active_navigation(route: dict[str, str]) -> str:
@@ -108,6 +100,14 @@ def load_manifest(path: Path = ROUTES_PATH) -> dict:
         members = navigation.get(section)
         if not isinstance(members, list) or not all(member in by_name for member in members):
             raise ValueError(f"Route manifest navigation.{section} contains an unknown route")
+
+    content_groups = manifest.get("contentGroups")
+    if not isinstance(content_groups, dict) or set(content_groups) != set(names):
+        raise ValueError("Route manifest contentGroups must define every route exactly once")
+    if not all(isinstance(group, str) and group for group in content_groups.values()):
+        raise ValueError("Route manifest contentGroups values must be non-empty strings")
+    routes = tuple({**route, "contentGroup": content_groups[route["name"]]} for route in routes)
+    by_name = {route["name"]: route for route in routes}
 
     sdk_channels = manifest.get("sdkChannels")
     if not isinstance(sdk_channels, list):

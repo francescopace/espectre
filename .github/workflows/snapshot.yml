@@ -367,72 +367,25 @@ jobs:
             --output-dir docs/web/artifacts/sdk/preview \
             --channel preview
 
-      - name: Download release assets
-        run: |
-          mkdir -p release-firmware
-          mkdir -p release-sdk
-          if gh release view >/dev/null 2>&1; then
-            RELEASE_TAG="$(gh release view --json tagName --jq '.tagName')"
-            gh release download "$RELEASE_TAG" --pattern '*.bin' --pattern 'firmware-compliance-*.zip' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir release-firmware --clobber
-            gh release download "$RELEASE_TAG" --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir release-sdk --clobber
-            echo "release_tag=$RELEASE_TAG" >> "$GITHUB_ENV"
-          else
-            echo "No release found; skipping release channel staging."
-          fi
+      - name: Stage published release channel
+        uses: ./.github/actions/stage-published-web-channel
+        with:
+          release-tag: latest
+          channel: release
+          firmware-output-dir: docs/web/artifacts/firmware/release
+          sdk-output-dir: docs/web/artifacts/sdk/release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
 
-      - name: Stage release web firmware
-        run: |
-          if ls release-firmware/*.bin >/dev/null 2>&1; then
-            python .github/scripts/stage_web_firmware.py \
-              --firmware-dir release-firmware \
-              --output-dir docs/web/artifacts/firmware/release \
-              --channel release \
-              --version "${release_tag}" \
-              --release-tag "${release_tag}" \
-              --url-prefix /artifacts/firmware/release
-          else
-            echo "No release firmware downloaded; leaving release channel empty."
-          fi
-
-      - name: Stage release web SDK
-        run: |
-          if ls release-sdk/sdk-manifest-*.json >/dev/null 2>&1; then
-            python .github/scripts/stage_web_sdk.py \
-              --sdk-dir release-sdk \
-              --output-dir docs/web/artifacts/sdk/release \
-              --channel release
-          else
-            echo "No release SDK downloaded; leaving release SDK channel empty."
-          fi
-
-      - name: Download develop release assets
+      - name: Stage published develop channel
         id: develop-assets
-        run: |
-          mkdir -p develop-firmware
-          mkdir -p develop-sdk
-          if gh release view snapshot-dev >/dev/null 2>&1; then
-            gh release download snapshot-dev --pattern '*.bin' --pattern 'firmware-compliance-*.zip' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir develop-firmware --clobber
-            gh release download snapshot-dev --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir develop-sdk --clobber
-            python .github/scripts/stage_web_firmware.py \
-              --firmware-dir develop-firmware \
-              --output-dir docs/web/artifacts/firmware/develop \
-              --channel develop \
-              --version "$(python3 .github/scripts/detect_git_version.py --from-sdk-dir develop-sdk)" \
-              --release-tag snapshot-dev \
-              --url-prefix /artifacts/firmware/develop \
-              --commit "$(gh release view snapshot-dev --json targetCommitish --jq '.targetCommitish // ""')"
-            python .github/scripts/stage_web_sdk.py \
-              --sdk-dir develop-sdk \
-              --output-dir docs/web/artifacts/sdk/develop \
-              --channel develop
-            echo "staged=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No develop release found; skipping develop channel staging."
-            echo "staged=false" >> "$GITHUB_OUTPUT"
-          fi
+        uses: ./.github/actions/stage-published-web-channel
+        with:
+          release-tag: snapshot-dev
+          channel: develop
+          firmware-output-dir: docs/web/artifacts/firmware/develop
+          sdk-output-dir: docs/web/artifacts/sdk/develop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}

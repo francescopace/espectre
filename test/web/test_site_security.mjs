@@ -149,11 +149,18 @@ describe('website security, asset, and analytics contracts', () => {
         assert.match(app, /track\('tool_ready'/);
         assert.match(app, /readiness,/);
         assert.match(app, /latency_ms:/);
+        assert.match(app, /if \(!conn\.mode \|\| conn\.status !== 'connected'\) return;/);
+        assert.match(app, /if \(conn\.toolName === 'configure'\) markToolReady\('info'\);/);
+        assert.match(app, /markToolReady\('telemetry'\)/);
+        assert.match(app, /markToolReady\('raw_stream'\)/);
         assert.match(app, /track\('configure_change', \{ action, result: 'accepted' \}\)/);
         assert.match(app, /finishConfigVerification\('success'\)/);
         assert.match(app, /CONFIG_VERIFICATION_RETRY_MS = 1500/);
         assert.match(app, /CONFIG_VERIFICATION_MAX_ATTEMPTS = 4/);
         assert.match(app, /track\('ota_update_result'/);
+        assert.match(app, /track\('ota_update_attempt'/);
+        assert.match(app, /track\('sensing_change'/);
+        assert.match(app, /track\('raw_csi_stream'/);
         assert.match(app, /state === 'reboot_scheduled'/);
         assert.match(app, /state === 'error'/);
         assert.match(app, /entry_point: monitor\.entryPoint/);

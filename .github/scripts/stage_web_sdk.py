@@ -14,7 +14,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from html import escape
 from pathlib import Path
+from urllib.parse import urlparse
 
 _SCRIPTS_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPTS_DIR not in sys.path:
@@ -93,6 +95,50 @@ def validate_sdk_manifest(manifest: dict, channel: str) -> None:
     if channel == "release" and manifest.get("version") != manifest.get("release_tag"):
         raise ValueError("Release SDK version and release tag must match")
 
+    for field in ("version", "release_tag", "protocol_version", "supported_esp_idf"):
+        if not isinstance(manifest.get(field), str) or not manifest[field]:
+            raise ValueError(f"SDK manifest has no valid {field}")
+    if manifest.get("commit") is not None and not isinstance(manifest["commit"], str):
+        raise ValueError("SDK manifest commit must be a string or null")
+
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        raise ValueError("SDK manifest artifacts must be a non-empty array")
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            raise ValueError("SDK manifest artifacts must be objects")
+        filename = artifact.get("filename")
+        if not isinstance(filename, str) or not filename or Path(filename).name != filename:
+            raise ValueError(f"Invalid SDK artifact filename: {filename!r}")
+        if artifact.get("format") not in {"tar.gz", "zip"}:
+            raise ValueError(f"Invalid SDK artifact format: {artifact.get('format')!r}")
+        url = artifact.get("url")
+        if not isinstance(url, str) or not url:
+            raise ValueError("SDK artifact URL must be a non-empty string")
+        parsed = urlparse(url)
+        root_relative = not parsed.scheme and not parsed.netloc and url.startswith("/")
+        https_url = parsed.scheme == "https" and bool(parsed.netloc)
+        if not (root_relative or https_url):
+            raise ValueError(f"SDK artifact URL must be root-relative or HTTPS: {url!r}")
+
+    install_surfaces = manifest.get("install_surfaces")
+    if not isinstance(install_surfaces, dict):
+        raise ValueError("SDK manifest install_surfaces must be an object")
+    cmake = install_surfaces.get("cmake")
+    component = install_surfaces.get("esp_idf_component")
+    if not isinstance(cmake, dict) or not isinstance(component, dict):
+        raise ValueError("SDK manifest install surfaces are incomplete")
+    if not isinstance(cmake.get("entrypoint"), str) or not cmake["entrypoint"]:
+        raise ValueError("SDK manifest CMake entrypoint is invalid")
+    optional_groups = cmake.get("optional_source_groups")
+    if not isinstance(optional_groups, list) or not all(
+        isinstance(group, str) and group for group in optional_groups
+    ):
+        raise ValueError("SDK manifest optional source groups are invalid")
+    for field in ("component_root", "cmake", "kconfig"):
+        if not isinstance(component.get(field), str) or not component[field]:
+            raise ValueError(f"SDK manifest ESP-IDF component {field} is invalid")
+
 
 def release_is_final(manifest: dict) -> bool:
     match = SEMVER_PATTERN.fullmatch(str(manifest.get("version", "")))
@@ -155,14 +201,23 @@ def channel_note(manifest: dict, channel: str) -> str:
 def render_page(manifest: dict, channel: str) -> str:
     title, description = channel_copy(manifest, channel)
     stability = sdk_stability(manifest, channel)
-    commit = manifest.get("commit") or "n/a"
+    commit = escape(str(manifest.get("commit") or "n/a"))
     artifact_links = "\n".join(
-        f'      <li><a href="{artifact["url"]}" data-sdk-channel="{channel}" '
-        f'data-sdk-format="{artifact["format"]}"><code>{artifact["filename"]}</code></a> '
-        f'(<span>{artifact["format"]}</span>)</li>'
+        f'      <li><a href="{escape(artifact["url"], quote=True)}" data-sdk-channel="{escape(channel, quote=True)}" '
+        f'data-sdk-format="{escape(artifact["format"], quote=True)}"><code>{escape(artifact["filename"])}</code></a> '
+        f'(<span>{escape(artifact["format"])}</span>)</li>'
         for artifact in manifest["artifacts"]
     )
-    optional_groups = ", ".join(manifest["install_surfaces"]["cmake"]["optional_source_groups"])
+    optional_groups = escape(", ".join(manifest["install_surfaces"]["cmake"]["optional_source_groups"]))
+    manifest_text = {
+        field: escape(str(manifest[field]))
+        for field in ("channel", "version", "release_tag", "protocol_version", "supported_esp_idf")
+    }
+    cmake_entrypoint = escape(manifest["install_surfaces"]["cmake"]["entrypoint"])
+    component = {
+        field: escape(manifest["install_surfaces"]["esp_idf_component"][field])
+        for field in ("component_root", "cmake", "kconfig")
+    }
     styles_version = asset_version("assets/css/styles.css")
     route_registry_version = asset_version("assets/js/route-registry.js")
     navigation_version = asset_version("assets/js/navigation.js")
@@ -197,11 +252,11 @@ def render_page(manifest: dict, channel: str) -> str:
     <div class="table-wrap"><table>
       <thead><tr><th>Field</th><th>Value</th></tr></thead>
       <tbody>
-        <tr><td>Channel</td><td><code>{manifest["channel"]}</code></td></tr>
-        <tr><td>Version label</td><td><code>{manifest["version"]}</code></td></tr>
-        <tr><td>Release tag</td><td><code>{manifest["release_tag"]}</code></td></tr>
-        <tr><td>Protocol version</td><td><code>{manifest["protocol_version"]}</code></td></tr>
-        <tr><td>ESP-IDF baseline</td><td><code>{manifest["supported_esp_idf"]}</code></td></tr>
+        <tr><td>Channel</td><td><code>{manifest_text["channel"]}</code></td></tr>
+        <tr><td>Version label</td><td><code>{manifest_text["version"]}</code></td></tr>
+        <tr><td>Release tag</td><td><code>{manifest_text["release_tag"]}</code></td></tr>
+        <tr><td>Protocol version</td><td><code>{manifest_text["protocol_version"]}</code></td></tr>
+        <tr><td>ESP-IDF baseline</td><td><code>{manifest_text["supported_esp_idf"]}</code></td></tr>
         <tr><td>Commit</td><td><code>{commit}</code></td></tr>
       </tbody>
     </table></div>
@@ -215,8 +270,8 @@ def render_page(manifest: dict, channel: str) -> str:
     <div class="table-wrap"><table>
       <thead><tr><th>Surface</th><th>Bundle anchor</th></tr></thead>
       <tbody>
-        <tr><td>CMake / ESP-IDF</td><td><code>{manifest["install_surfaces"]["cmake"]["entrypoint"]}</code> plus optional groups <code>{optional_groups}</code></td></tr>
-        <tr><td>ESP-IDF component layout</td><td><code>{manifest["install_surfaces"]["esp_idf_component"]["component_root"]}</code>, <code>{manifest["install_surfaces"]["esp_idf_component"]["cmake"]}</code>, and <code>{manifest["install_surfaces"]["esp_idf_component"]["kconfig"]}</code></td></tr>
+        <tr><td>CMake / ESP-IDF</td><td><code>{cmake_entrypoint}</code> plus optional groups <code>{optional_groups}</code></td></tr>
+        <tr><td>ESP-IDF component layout</td><td><code>{component["component_root"]}</code>, <code>{component["cmake"]}</code>, and <code>{component["kconfig"]}</code></td></tr>
       </tbody>
     </table></div>
 

@@ -159,19 +159,20 @@ The shared device contract remains owned by [ESPECTRE_PROTOCOL.md](ESPECTRE_PROT
 
 ## Research Pipeline
 
-Research answers product questions; it does not reserve release scope. Work is sequenced by prerequisite, and a measured rejection or deferral is a valid outcome. Detailed experiments and internal evidence belong in [FEATURES.md](FEATURES.md); external evidence belongs in [LITERATURE.md](LITERATURE.md).
+Dependencies set the research order. Evaluate HE20 and HT40 together first, then test higher CSI rates and longer analysis windows. The selected capture profile is the baseline for stationary presence and breathing-related motion. A rejection or deferral is a valid result. Detailed experiments and internal evidence belong in [FEATURES.md](FEATURES.md); external evidence belongs in [LITERATURE.md](LITERATURE.md).
 
 | Order | Track | Product question | Promotion gate |
 | --- | --- | --- | --- |
-| R1 | **5 GHz VHT20** | Can ESP32-C5 deployments make a validated 5 GHz sensing claim? | Paired dual-band captures on the same hardware and environments validate both detectors |
-| R2 | **Automatic dual-band operation** | Does automatic band selection remain stable across reconnects and AP steering? | Profile selection, CSI rearm, and detector reset behavior pass extended dual-band soak tests |
-| R3 | **Stationary presence** | Can ESPectre distinguish an occupied quiet room from an empty room? | Paired same-session data supports a scale-invariant Presence-versus-Empty boundary for `v3.4.0` |
-| R4 | **Brief gestures** | Does preserved high-rate information support a distinct gesture product? | The high-rate capture path is stable, and a gesture-specific corpus passes validation for `v3.5.0` |
-| R5 | **Breathing-related motion** | Are longer-window spectral features useful for non-medical micro-motion? | Stationary presence is measurable, paired recordings support longer windows, and host-side evidence justifies runtime work for `v3.5.0` |
-| Later | **HE20** | Can a substantially different subcarrier layout map into detector inputs? | Host-side mapping, representative corpus validation, and C++/Python parity justify a new runtime path |
-| Later | **HT40 and wider layouts** | Does added bandwidth justify a separate sensing contract? | Each candidate proves value against the cost of its own grid, normalization, corpus, and detector validation |
+| R1 | **HE20 and HT40 sensing profiles** | Do HE20 or HT40 provide enough additional sensing detail to justify their capture and processing costs? | Both layouts map to canonical detector inputs, paired captures characterize their benefits and costs, and any promoted profile has a defined grid, normalization path, resource limits, and C++/Python parity |
+| R2 | **Higher CSI rate** | Which sustained CSI rate preserves useful micro-motion information on supported hardware? | Rate sweeps select the highest useful rate within declared limits for loss, jitter, compute, memory, and transport load |
+| R3 | **Longer and multi-scale windows** | Can longer windows expose slow micro-motion without weakening the current movement response? | The runtime analyzes short and long windows within declared latency and memory limits while preserving the movement detector's response time |
+| R4 | **Stationary presence** | Can the selected capture profile distinguish an occupied quiet room from an empty room? | Paired same-session data supports a scale-invariant Presence-versus-Empty boundary for `v3.4.0` across the required hardware and environments |
+| R5 | **Breathing-related motion** | Can the selected capture profile detect non-medical breathing-related micro-motion over longer windows? | Stationary presence is measurable, paired recordings cover the required observation period, and host-side evidence justifies runtime work for `v3.5.0` |
+| R6 | **Brief gestures** | Does the higher-rate profile preserve enough short-timescale information for a distinct gesture product? | The high-rate capture path is stable, and a gesture-specific corpus passes validation for `v3.5.0` |
 
-Promotion follows the project workflow: prototype host-side, retain the verdict in the feature ledger, and add production C++ and device-side Python behavior only when the evidence justifies parity work.
+Complete R1 through R3 before starting stationary-presence research. Each track may end in promotion, rejection, or deferral; R4 uses the best supported profile. R5 also requires a validated presence baseline and the longer-window path. R6 can proceed once R2 is stable.
+
+Prototype each candidate on the host and record its verdict in [FEATURES.md](FEATURES.md). Add production C++ and device-side Python behavior only when the evidence justifies parity work.
 
 ## Ownership and Updates
 
@@ -184,7 +185,7 @@ This file owns product outcomes, release gates, and sequencing. Mutable details 
 - [ESPECTRE_PROTOCOL.md](ESPECTRE_PROTOCOL.md) and [ARCHITECTURE.md](ARCHITECTURE.md) for stable system contracts
 - [CHANGELOG.md](CHANGELOG.md) for shipped behavior
 
-Last update: **August 25, 2026**
+Last update: **September 2, 2026**
 
 For discussion and proposed changes:
 

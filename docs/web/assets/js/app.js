@@ -369,7 +369,7 @@
         clearApiReferenceLocation(previousRoute, target);
         if (previousRoute === 'tool-raw-csi' && target !== 'tool-raw-csi'
                 && typeof window.rawCsiStop === 'function') {
-            void window.rawCsiStop();
+            void window.rawCsiStop('route_change');
         }
         if (pendingLiveDestination) {
             if (LIVE_EXPERIENCE_ROUTES.has(target)) pendingLiveDestination = target;
@@ -865,7 +865,7 @@
     });
     window.addEventListener('pagehide', (event) => {
         if (event.persisted) return;
-        if (typeof window.rawCsiStop === 'function') void window.rawCsiStop();
+        if (typeof window.rawCsiStop === 'function') void window.rawCsiStop('page_exit');
         if (typeof window.reportGameAbandon === 'function') {
             window.reportGameAbandon('page_exit');
         }

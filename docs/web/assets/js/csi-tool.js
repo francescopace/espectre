@@ -70,6 +70,10 @@
         startRequest: null,
         stopPromise: null,
         parser: null,
+        analyticsStartedAt: 0,
+        analyticsReady: false,
+        analyticsReadyAt: 0,
+        analyticsSuccessTracked: false,
         visualization: 'subcarrier-amplitudes',
         amplitudePackets: [],
         amplitudePacketSequences: [],
@@ -114,6 +118,56 @@
 
     function rawCsiDirectReady() {
         return conn.mode === 'direct' && conn.status === 'connected' && Boolean(directClient?.connected);
+    }
+
+    function rawCsiAnalyticsParams() {
+        return {
+            ...connectionParams(),
+            transport: connectionTransport(),
+            input_mode: connectionInputMode()
+        };
+    }
+
+    function rawCsiBeginTracking() {
+        rawCsi.analyticsStartedAt = Date.now();
+        rawCsi.analyticsReady = false;
+        rawCsi.analyticsReadyAt = 0;
+        rawCsi.analyticsSuccessTracked = false;
+        track('raw_csi_stream', { ...rawCsiAnalyticsParams(), result: 'attempt' });
+    }
+
+    function rawCsiMarkReady() {
+        if (!rawCsi.analyticsStartedAt) return;
+        if (!rawCsi.analyticsReady) {
+            rawCsi.analyticsReady = true;
+            rawCsi.analyticsReadyAt = Date.now();
+        }
+        markToolReady('raw_stream');
+        if (!rawCsi.analyticsSuccessTracked) {
+            rawCsi.analyticsSuccessTracked = track('raw_csi_stream', {
+                ...rawCsiAnalyticsParams(),
+                result: 'success',
+                latency_ms: Math.max(0, rawCsi.analyticsReadyAt - rawCsi.analyticsStartedAt)
+            });
+        }
+    }
+
+    function rawCsiFinishTracking(result, error, reason) {
+        if (!rawCsi.analyticsStartedAt) return;
+        const durationSeconds = Math.max(0, Math.round(
+            (Date.now() - rawCsi.analyticsStartedAt) / 1000
+        ));
+        track('raw_csi_stream', {
+            ...rawCsiAnalyticsParams(),
+            result,
+            duration_seconds: durationSeconds,
+            ...(error ? { error_type: errorType(error) } : {}),
+            ...(reason ? { reason } : {})
+        });
+        rawCsi.analyticsStartedAt = 0;
+        rawCsi.analyticsReady = false;
+        rawCsi.analyticsReadyAt = 0;
+        rawCsi.analyticsSuccessTracked = false;
     }
 
     function rawCsiSetAvailable(available) {
@@ -1127,6 +1181,7 @@
             || rawCsi.lastCaptureTicksUs + RAW_CSI_VISUAL_STEP_US;
         rawCsiCollectCaptureInterval(capturedTicksUs);
         rawCsiIngestVisualFrame(amplitudes, iValues, qValues, capturedTicksUs);
+        rawCsiMarkReady();
     }
 
     function rawCsiAppend(chunk) {
@@ -1164,6 +1219,7 @@
         const rssi = Math.round(-50 + motion * 7);
         const noiseFloor = -96;
         rawCsiCollectSignalSample(rssi, noiseFloor);
+        rawCsiMarkReady();
     }
 
     function rawCsiStartDemo(targetPps) {
@@ -1179,9 +1235,10 @@
             () => rawCsiDemoFrame(targetPps, intervalMs, startedAtMs), intervalMs);
     }
 
-    async function rawCsiStop(expectedGeneration = rawCsi.generation) {
+    async function rawCsiStop(reason = 'user', expectedGeneration = rawCsi.generation) {
         if (expectedGeneration !== rawCsi.generation || rawCsi.state === 'idle') return;
         if (rawCsi.state === 'stopping') return rawCsi.stopPromise;
+        rawCsiFinishTracking(rawCsi.analyticsReady ? 'stopped' : 'cancelled', null, reason);
         const stopGeneration = ++rawCsi.generation;
         const client = rawCsi.sessionClient;
         const pendingStart = rawCsi.startRequest;
@@ -1212,10 +1269,12 @@
         if (rawCsi.state !== 'idle' || conn.status !== 'connected') return;
         const generation = ++rawCsi.generation;
         if (conn.mode === 'demo') {
+            rawCsiBeginTracking();
             rawCsiStartDemo(100);
             return;
         }
         if (!rawCsiDirectReady() || client.capabilities?.features?.raw_csi !== true) return;
+        rawCsiBeginTracking();
         rawCsiSetState('starting');
         rawCsi.sessionClient = client;
         rawCsiStatus('Starting the signal stream…');
@@ -1258,11 +1317,12 @@
             if (rawCsi.generation === generation && !rawCsi.controller?.signal.aborted) {
                 console.warn('Raw CSI stream failed:', error);
                 rawCsiStatus('The signal stream stopped unexpectedly. Stop it, then try again.', true);
+                rawCsiFinishTracking('failure', error);
             }
         } finally {
             if (rawCsi.generation === generation
                     && rawCsi.state !== 'idle' && rawCsi.state !== 'stopping') {
-                await rawCsiStop(generation);
+                await rawCsiStop('stream_error', generation);
             }
         }
     }
@@ -1274,7 +1334,7 @@
 
     function rawCsiToggle() {
         if (rawCsi.state === 'idle') void rawCsiStart();
-        else if (rawCsi.state !== 'stopping') void rawCsiStop();
+        else if (rawCsi.state !== 'stopping') void rawCsiStop('user');
     }
 
     function rawCsiInit() {

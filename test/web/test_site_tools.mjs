@@ -401,6 +401,9 @@ describe('website tool contracts', () => {
         assert.match(app, /function renderConnection\(\) \{[\s\S]*?syncFirmwareUpdateNotice\(\);/);
         assert.match(app, /if \(!currentOtaCheckTransport\(\)\) return;/);
         assert.match(app, /monitorPublishCommand\(otaCommandFields\('ota_start'\)/);
+        assert.match(app, /track\('ota_update_attempt', \{ \.\.\.analyticsParams, result: 'attempt' \}\)/);
+        assert.match(app, /track\('ota_update_attempt', \{ \.\.\.analyticsParams, result: 'accepted' \}\)/);
+        assert.match(app, /result: 'failure', error_type: errorType\(error\)/);
         assert.match(app, /OTA_TRACKING_TIMEOUT_MS/);
         assert.match(app, /normalizedState === 'reboot_scheduled'[\s\S]*otaAwaitingReconnect = true/);
         assert.match(app, /if \(otaTargetVersion && version !== otaTargetVersion\)/);
@@ -590,17 +593,22 @@ describe('website tool contracts', () => {
         assert.match(rawClient, /function rawCsiCollectCaptureInterval\(captureTicksUs\)/);
         assert.match(rawClient, /function rawCsiFlushMetrics\(\)/);
         assert.match(rawClient, /setInterval\(rawCsiFlushMetrics, 1000\)/);
-        assert.match(rawClient, /if \(conn\.mode === 'demo'\) \{\s*rawCsiStartDemo\(100\);\s*return;/);
+        assert.match(rawClient, /if \(conn\.mode === 'demo'\) \{\s*rawCsiBeginTracking\(\);\s*rawCsiStartDemo\(100\);\s*return;/);
         assert.match(rawClient, /const client = directClient;[\s\S]*client\.request\('start_raw_stream'/);
         assert.doesNotMatch(rawClient, /makeDirectClient|client\.connect\(|client\.handshake\(|client\.close\(/);
         assert.match(rawClient, /new window\.ESPectreRawCsiParser\(session\.session_id\)/);
         assert.match(rawClient, /rawCsi\.parser\.append\(chunk\)\.forEach/);
         assert.match(rawClient, /state: 'idle'/);
+        assert.match(rawClient, /track\('raw_csi_stream'/);
+        assert.match(rawClient, /markToolReady\('raw_stream'\)/);
+        assert.match(rawClient, /rawCsi\.analyticsSuccessTracked = track\('raw_csi_stream'/);
+        assert.match(rawClient, /rawCsiMarkReady\(\)/);
+        assert.match(rawClient, /rawCsiFinishTracking\('failure', error\)/);
         assert.match(rawClient, /if \(rawCsi\.state === 'stopping'\) return rawCsi\.stopPromise/);
         assert.match(rawClient, /const pendingStart = rawCsi\.startRequest[\s\S]*await pendingStart/);
         assert.match(rawClient, /rawCsi\.generation !== generation \|\| rawCsi\.state !== 'starting'/);
-        assert.match(rawClient, /function rawCsiToggle\(\) \{[\s\S]*rawCsiStart\(\)[\s\S]*rawCsiStop\(\)/);
-        assert.match(app, /previousRoute === 'tool-raw-csi'[\s\S]*void window\.rawCsiStop\(\)/);
+        assert.match(rawClient, /function rawCsiToggle\(\) \{[\s\S]*rawCsiStart\(\)[\s\S]*rawCsiStop\('user'\)/);
+        assert.match(app, /previousRoute === 'tool-raw-csi'[\s\S]*void window\.rawCsiStop\('route_change'\)/);
         assert.match(app, /rawCapability\?\.protocol_version === 1[\s\S]*rawCapability\?\.marker === '👻'/);
     });
 

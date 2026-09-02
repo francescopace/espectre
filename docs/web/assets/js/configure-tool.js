@@ -1321,16 +1321,24 @@
         otaActionPending = true;
         syncOtaUpdateButton();
         const description = $('.js-ota-modal') && $('.js-ota-modal').querySelector('.modal-description');
+        const analyticsParams = {
+            channel: selectedOtaChannel(), transport: 'direct_http', input_mode: 'direct'
+        };
+        track('ota_update_attempt', { ...analyticsParams, result: 'attempt' });
         try {
             await monitorPublishCommand(otaCommandFields('ota_start'), {
                 pendingMessage: 'Starting firmware update…',
                 statusFn: (message) => { if (description) description.textContent = message; }
             });
+            track('ota_update_attempt', { ...analyticsParams, result: 'accepted' });
             otaBusy = true;
             beginOtaTracking();
             toast('Firmware update started.');
         } catch (error) {
             console.warn('Firmware update failed to start:', error);
+            track('ota_update_attempt', {
+                ...analyticsParams, result: 'failure', error_type: errorType(error)
+            });
             toast('The firmware update could not start. Check the connection and try again.');
         }
         otaActionPending = false;

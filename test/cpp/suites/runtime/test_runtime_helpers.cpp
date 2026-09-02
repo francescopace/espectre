@@ -41,6 +41,7 @@ struct CapturedCsiPacket {
   int8_t retained_value{0};
   uint16_t info_len{0U};
   size_t normalized_len{0U};
+  NormalizedCSIPayloadTag normalization_tag{NormalizedCSIPayloadTag::NONE};
   bool first_word_invalid{true};
   bool missing_lltf_bins_zero{false};
   bool rotated_to_centered{false};
@@ -93,6 +94,7 @@ void capture_csi_packet(void *context, const wifi_csi_info_t *info, const Normal
   captured->retained_value = normalized.valid() ? normalized.data[16] : 0;
   captured->info_len = info != nullptr ? info->len : 0U;
   captured->normalized_len = normalized.len;
+  captured->normalization_tag = normalized.tag;
   captured->first_word_invalid = info == nullptr || info->first_word_invalid;
   captured->missing_lltf_bins_zero = normalized.valid();
   if (normalized.valid()) {
@@ -142,21 +144,119 @@ void test_lltf_preference_and_vht_capability_resolve_capture_profile(void) {
     TEST_ASSERT_FALSE(config.stbc_htltf2_en);
 }
 
-void test_lltf20_profile_accepts_legacy_and_ht20_frames(void) {
-    std::array<int8_t, HT20_CSI_LEN> csi{};
+void test_lltf20_profile_inherits_supported_ht20_payload_layouts(void) {
+    std::array<int8_t, HT20_CSI_LEN_DOUBLE> csi{};
     wifi_csi_info_t info{};
     info.buf = csi.data();
-    info.len = HT20_CSI_LEN;
+    info.rx_ctrl.sig_mode = 1U;
     info.rx_ctrl.cwb = 0U;
 
+    struct LayoutCase {
+      uint16_t raw_len;
+      CsiLayoutId layout_id;
+      NormalizedCSIPayloadTag normalization_tag;
+      bool requires_normalization;
+    };
+    const LayoutCase cases[] = {
+        {HT20_CSI_LEN, CsiLayoutId::HT20_64,
+         NormalizedCSIPayloadTag::NONE, false},
+        {HT20_CSI_LEN_SHORT, CsiLayoutId::HT20_57,
+         NormalizedCSIPayloadTag::HT57_TO_64, true},
+        {HT20_CSI_LEN_DOUBLE, CsiLayoutId::HT20_64_DOUBLE,
+         NormalizedCSIPayloadTag::DOUBLE_HT20, true},
+        {HT20_CSI_LEN_SHORT_DOUBLE, CsiLayoutId::HT20_57_DOUBLE,
+         NormalizedCSIPayloadTag::DOUBLE_HT57_TO_64, true},
+    };
+
+    for (const LayoutCase &layout : cases) {
+      info.len = layout.raw_len;
+      const CsiFormatAssessment assessment =
+          assess_ht20_sensing_format(&info, CsiCaptureProfile::LLTF20);
+
+      TEST_ASSERT_TRUE(assessment.is_sensing_accepted());
+      TEST_ASSERT_TRUE(assessment.layout_id == layout.layout_id);
+      TEST_ASSERT_TRUE(assessment.normalization_tag ==
+                       layout.normalization_tag);
+      TEST_ASSERT_EQUAL(layout.requires_normalization,
+                        assessment.requires_normalization());
+      TEST_ASSERT_EQUAL(HT20_CSI_LEN, assessment.normalized_len);
+      TEST_ASSERT_EQUAL(HT20_NUM_SUBCARRIERS,
+                        assessment.normalized_num_subcarriers);
+    }
+}
+
+void test_lltf20_legacy_frames_accept_only_one_full_width_lltf(void) {
+    std::array<int8_t, HT20_CSI_LEN_DOUBLE> csi{};
+    wifi_csi_info_t info{};
+    info.buf = csi.data();
     info.rx_ctrl.sig_mode = 0U;
+    info.rx_ctrl.cwb = 0U;
+
+    info.len = HT20_CSI_LEN;
     TEST_ASSERT_TRUE(assess_ht20_sensing_format(
                          &info, CsiCaptureProfile::LLTF20)
                          .is_sensing_accepted());
+
+    const uint16_t unsupported_lengths[] = {
+        HT20_CSI_LEN_SHORT,
+        HT20_CSI_LEN_DOUBLE,
+        HT20_CSI_LEN_SHORT_DOUBLE,
+    };
+    for (uint16_t raw_len : unsupported_lengths) {
+      info.len = raw_len;
+      const CsiFormatAssessment assessment =
+          assess_ht20_sensing_format(&info, CsiCaptureProfile::LLTF20);
+
+      TEST_ASSERT_FALSE(assessment.is_sensing_accepted());
+      TEST_ASSERT_TRUE(assessment.reason_code ==
+                       CsiFormatReasonCode::UNKNOWN_LAYOUT);
+      TEST_ASSERT_EQUAL(0U, assessment.normalized_len);
+    }
+}
+
+void test_csi_capture_service_normalizes_ht_layouts_under_lltf20(void) {
+    CsiCaptureService service;
+    CapturedCsiPacket captured;
+    service.init();
+    service.set_packet_callback(&capture_csi_packet, &captured);
+    TEST_ASSERT_EQUAL(ESP_OK, service.enable(CsiCaptureProfile::LLTF20));
+
+    std::array<int8_t, HT20_CSI_LEN_DOUBLE> csi{};
+    csi.fill(7);
+    wifi_csi_info_t info{};
+    info.buf = csi.data();
     info.rx_ctrl.sig_mode = 1U;
-    TEST_ASSERT_TRUE(assess_ht20_sensing_format(
-                         &info, CsiCaptureProfile::LLTF20)
-                         .is_sensing_accepted());
+    info.rx_ctrl.cwb = 0U;
+    info.rx_ctrl.channel = 6U;
+
+    struct NormalizationCase {
+      uint16_t raw_len;
+      NormalizedCSIPayloadTag normalization_tag;
+    };
+    const NormalizationCase cases[] = {
+        {HT20_CSI_LEN, NormalizedCSIPayloadTag::NONE},
+        {HT20_CSI_LEN_SHORT, NormalizedCSIPayloadTag::HT57_TO_64},
+        {HT20_CSI_LEN_DOUBLE, NormalizedCSIPayloadTag::DOUBLE_HT20},
+        {HT20_CSI_LEN_SHORT_DOUBLE,
+         NormalizedCSIPayloadTag::DOUBLE_HT57_TO_64},
+    };
+
+    uint32_t timestamp = 100U;
+    for (const NormalizationCase &layout : cases) {
+      captured = {};
+      info.len = layout.raw_len;
+      info.rx_ctrl.timestamp = timestamp++;
+      service.process_packet(&info);
+
+      TEST_ASSERT_EQUAL(1U, captured.callback_count);
+      TEST_ASSERT_EQUAL(layout.raw_len, captured.info_len);
+      TEST_ASSERT_EQUAL(HT20_CSI_LEN, captured.normalized_len);
+      TEST_ASSERT_TRUE(captured.normalization_tag ==
+                       layout.normalization_tag);
+      TEST_ASSERT_TRUE(captured.missing_lltf_bins_zero);
+    }
+
+    TEST_ASSERT_EQUAL(ESP_OK, service.disable());
 }
 
 void test_csi_capture_service_filters_duplicate_and_stale_timestamps(void) {
@@ -555,7 +655,9 @@ int process(void) {
     UNITY_BEGIN();
     RUN_TEST(test_wifi_csi_real_forwards_calls_to_mocked_esp_wifi);
     RUN_TEST(test_lltf_preference_and_vht_capability_resolve_capture_profile);
-    RUN_TEST(test_lltf20_profile_accepts_legacy_and_ht20_frames);
+    RUN_TEST(test_lltf20_profile_inherits_supported_ht20_payload_layouts);
+    RUN_TEST(test_lltf20_legacy_frames_accept_only_one_full_width_lltf);
+    RUN_TEST(test_csi_capture_service_normalizes_ht_layouts_under_lltf20);
     RUN_TEST(test_csi_capture_service_filters_duplicate_and_stale_timestamps);
     RUN_TEST(test_csi_capture_service_defers_channel_change_and_resets_session_baseline);
     RUN_TEST(test_csi_format_classifier_rejects_ht40_before_normalization);

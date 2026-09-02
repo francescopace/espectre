@@ -281,6 +281,17 @@
         return Promise.reject(error);
     }
 
+    function reportSensingChange(action, result, error) {
+        track('sensing_change', {
+            ...connectionParams(),
+            transport: connectionTransport(),
+            input_mode: connectionInputMode(),
+            action,
+            result,
+            ...(error ? { error_type: errorType(error) } : {})
+        });
+    }
+
     function diagnosticsRequestPending() {
         return conn.mode === 'direct' && monitor.diagRequestPending;
     }
@@ -375,10 +386,12 @@
                 pendingMessage: 'Starting calibration…',
                 statusFn: toast
             });
+            reportSensingChange('recalibrate', 'accepted');
             toast(result.message || 'Calibration started. Keep the room still.');
             scheduleCalibrationIdle(MONITOR_CALIBRATION_FALLBACK_MS);
         } catch (error) {
             console.warn('Calibration failed:', error);
+            reportSensingChange('recalibrate', 'failure', error);
             toast('Calibration could not start. Check the connection and try again.');
             setCalibrationBusy(false);
         }
@@ -392,9 +405,11 @@
         }
         try {
             const result = await monitorPublishCommand(fields, { pendingMessage, statusFn: toast });
+            reportSensingChange(fields.command, 'accepted');
             toast(result.message || successMessage);
         } catch (error) {
             console.warn('Sensing setting update failed:', error);
+            reportSensingChange(fields.command, 'failure', error);
             toast('The setting could not be saved. Check the connection and try again.');
         }
     }

@@ -16,7 +16,7 @@ The hosted Direct workflow is validated with Chrome 151 or later on macOS. Physi
 
 ## Sources and generated pages
 
-Edit shared page fragments under `content/`, styles under `assets/css/`, images under `assets/images/`, and first-party scripts under `assets/js/`. Do not edit generated route `index.html` files. In `routes.json`, `routes` owns public pages, metadata, canonical paths, navigation groups, and Analytics names, while `sdkChannels` owns the generated Release, Preview, and Develop SDK artifact pages. Public routes always contribute to the sitemap; SDK channels contribute only when both their manifest and generated page are staged. `assets/js/route-registry.js` loads the manifest directly in hosted and local previews.
+Edit shared page fragments under `content/`, styles under `assets/css/`, images under `assets/images/`, and first-party scripts under `assets/js/`. Do not edit generated route `index.html` files. In `routes.json`, `routes` owns public pages, metadata, canonical paths, navigation groups, and Analytics names, `contentGroups` owns their Analytics grouping, and `sdkChannels` owns the generated Release, Preview, and Develop SDK artifact pages. Public routes always contribute to the sitemap; SDK channels contribute only when both their manifest and generated page are staged. `assets/js/route-registry.js` loads the manifest directly in hosted and local previews.
 
 Generate the standalone pages before testing direct route URLs:
 

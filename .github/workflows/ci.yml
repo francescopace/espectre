@@ -27,85 +27,38 @@ jobs:
         with:
           fetch-depth: 0
       
-      - name: Download release assets
+      - name: Stage published release channel
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        run: |
-          mkdir -p release-firmware
-          mkdir -p release-sdk
-          if gh release view >/dev/null 2>&1; then
-            RELEASE_TAG="$(gh release view --json tagName --jq '.tagName')"
-            gh release download "$RELEASE_TAG" --pattern '*.bin' --pattern 'firmware-compliance-*.zip' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir release-firmware --clobber
-            gh release download "$RELEASE_TAG" --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir release-sdk --clobber
-            python .github/scripts/stage_web_firmware.py \
-              --firmware-dir release-firmware \
-              --output-dir docs/web/artifacts/firmware/release \
-              --channel release \
-              --version "$RELEASE_TAG" \
-              --release-tag "$RELEASE_TAG" \
-              --url-prefix /artifacts/firmware/release
-            python .github/scripts/stage_web_sdk.py \
-              --sdk-dir release-sdk \
-              --output-dir docs/web/artifacts/sdk/release \
-              --channel release
-          else
-            echo "No release found; skipping release channel staging."
-          fi
+        uses: ./.github/actions/stage-published-web-channel
+        with:
+          release-tag: latest
+          channel: release
+          firmware-output-dir: docs/web/artifacts/firmware/release
+          sdk-output-dir: docs/web/artifacts/sdk/release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
 
-      - name: Download preview release assets
+      - name: Stage published preview channel
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        run: |
-          mkdir -p preview-firmware
-          mkdir -p preview-sdk
-          if gh release view snapshot >/dev/null 2>&1; then
-            gh release download snapshot --pattern '*.bin' --pattern 'firmware-compliance-*.zip' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir preview-firmware --clobber
-            gh release download snapshot --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir preview-sdk --clobber
-            PREVIEW_COMMIT="$(gh release view snapshot --json targetCommitish --jq '.targetCommitish // ""')"
-            PREVIEW_VERSION="$(python3 .github/scripts/detect_git_version.py --from-sdk-dir preview-sdk)"
-            python .github/scripts/stage_web_firmware.py \
-              --firmware-dir preview-firmware \
-              --output-dir docs/web/artifacts/firmware/preview \
-              --channel preview \
-              --version "$PREVIEW_VERSION" \
-              --release-tag snapshot \
-              --url-prefix /artifacts/firmware/preview \
-              --commit "$PREVIEW_COMMIT"
-            python .github/scripts/stage_web_sdk.py \
-              --sdk-dir preview-sdk \
-              --output-dir docs/web/artifacts/sdk/preview \
-              --channel preview
-          else
-            echo "No preview release found; skipping preview channel staging."
-          fi
+        uses: ./.github/actions/stage-published-web-channel
+        with:
+          release-tag: snapshot
+          channel: preview
+          firmware-output-dir: docs/web/artifacts/firmware/preview
+          sdk-output-dir: docs/web/artifacts/sdk/preview
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
 
-      - name: Download develop release assets
+      - name: Stage published develop channel
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        run: |
-          mkdir -p develop-firmware
-          mkdir -p develop-sdk
-          if gh release view snapshot-dev >/dev/null 2>&1; then
-            gh release download snapshot-dev --pattern '*.bin' --pattern 'firmware-compliance-*.zip' --pattern '*-sbom.spdx.json' --pattern '*-THIRD_PARTY_NOTICES.txt' --pattern '*-third-party-licenses.zip' --dir develop-firmware --clobber
-            gh release download snapshot-dev --pattern 'espectre-sdk-*' --pattern 'sdk-manifest-*.json' --dir develop-sdk --clobber
-            python .github/scripts/stage_web_firmware.py \
-              --firmware-dir develop-firmware \
-              --output-dir docs/web/artifacts/firmware/develop \
-              --channel develop \
-              --version "$(python3 .github/scripts/detect_git_version.py --from-sdk-dir develop-sdk)" \
-              --release-tag snapshot-dev \
-              --url-prefix /artifacts/firmware/develop \
-              --commit "$(gh release view snapshot-dev --json targetCommitish --jq '.targetCommitish // ""')"
-            python .github/scripts/stage_web_sdk.py \
-              --sdk-dir develop-sdk \
-              --output-dir docs/web/artifacts/sdk/develop \
-              --channel develop
-          else
-            echo "No develop release found; skipping develop channel staging."
-          fi
+        uses: ./.github/actions/stage-published-web-channel
+        with:
+          release-tag: snapshot-dev
+          channel: develop
+          firmware-output-dir: docs/web/artifacts/firmware/develop
+          sdk-output-dir: docs/web/artifacts/sdk/develop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}

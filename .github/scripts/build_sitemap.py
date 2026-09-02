@@ -41,27 +41,32 @@ STATIC_PAGE_BUILDER = Path(".github/scripts/build_static_pages.py")
 SDK_PAGE_BUILDER = Path(".github/scripts/stage_web_sdk.py")
 WEB_PAGE_SHELL = Path(".github/scripts/web_page_shell.py")
 WEB_ASSET_VERSIONS = Path(".github/scripts/web_asset_versions.py")
+ROUTE_BOOTSTRAP = Path("docs/web/assets/js/route-bootstrap.js")
 SDK_API_BUILDER = Path(".github/scripts/generate_sdk_api.py")
 MCSS_TEMPLATES = Path(".github/mcss/templates")
 SDK_API_INPUTS = (SDK_API_BUILDER, MCSS_TEMPLATES)
 DOXYFILE = Path("src/cpp/Doxyfile")
-SHARED_STATIC_INPUTS = (
-    ROUTE_MANIFEST_SOURCE,
-    STATIC_PAGE_BUILDER,
-    WEB_PAGE_SHELL,
-    WEB_ASSET_VERSIONS,
+SHARED_PAGE_ASSETS = (
     Path("docs/web/assets/css/styles.css"),
     Path("docs/web/assets/js/route-registry.js"),
     Path("docs/web/assets/js/navigation.js"),
     Path("docs/web/assets/js/analytics.js"),
     Path("docs/web/assets/images/brand/espectre-logo.svg"),
 )
+SHARED_STATIC_INPUTS = (
+    ROUTE_MANIFEST_SOURCE,
+    STATIC_PAGE_BUILDER,
+    WEB_PAGE_SHELL,
+    WEB_ASSET_VERSIONS,
+    ROUTE_BOOTSTRAP,
+    *SHARED_PAGE_ASSETS,
+)
 SDK_CHANNEL_PAGE_INPUTS = (
     ROUTE_MANIFEST_SOURCE,
     SDK_PAGE_BUILDER,
     WEB_PAGE_SHELL,
     WEB_ASSET_VERSIONS,
-    *SHARED_STATIC_INPUTS[4:],
+    *SHARED_PAGE_ASSETS,
 )
 
 ROUTE_SOURCES = {

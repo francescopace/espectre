@@ -48,7 +48,19 @@
             throw new Error('ESPectre route manifest contains no routes');
         }
 
-        const definitions = manifest.routes.map((definition) => Object.freeze({ ...definition }));
+        const contentGroups = manifest.contentGroups;
+        if (!contentGroups || typeof contentGroups !== 'object' || Array.isArray(contentGroups)) {
+            throw new Error('ESPectre route manifest contains no content groups');
+        }
+        const routeNames = manifest.routes.map((definition) => definition.name);
+        if (Object.keys(contentGroups).length !== routeNames.length
+                || routeNames.some((name) => typeof contentGroups[name] !== 'string' || !contentGroups[name])) {
+            throw new Error('ESPectre route manifest content groups do not match its routes');
+        }
+        const definitions = manifest.routes.map((definition) => Object.freeze({
+            ...definition,
+            contentGroup: contentGroups[definition.name]
+        }));
         const byName = new Map(definitions.map((definition) => [definition.name, definition]));
         const byStaticPath = new Map(
             definitions.map((definition) => [definition.staticPath, definition.name])
@@ -76,14 +88,7 @@
 
         function contentGroup(name) {
             const definition = byName.get(name);
-            if (!definition) return 'other';
-            if (definition.group === 'tools') return definition.analyticsName || definition.name;
-            if (definition.name === 'tools') return 'tools';
-            if (definition.group === 'guides' || definition.group === 'sdk') return 'documentation';
-            if (definition.name === 'guides' || definition.name === 'sdk' || definition.name === 'roadmap') {
-                return 'documentation';
-            }
-            return definition.name;
+            return definition?.contentGroup || 'other';
         }
 
         function contentNameForPath(path, prefix, rootName) {
